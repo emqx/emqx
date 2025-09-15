@@ -348,14 +348,34 @@ on_get_status(_InstId, #{pool_name := Pool} = ConnState) ->
     ),
     case Res0 of
         {ok, []} ->
-            {?status_connecting, <<"pool_initializing">>};
-        {ok, Res1} ->
-            case lists:filter(fun(X) -> X /= ok end, Res1) of
+            {?status_disconnected, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            Errors =
+                lists:filter(
+                    fun
+                        (ok) ->
+                            false;
+                        (_) ->
+                            true
+                    end,
+                    Results
+                ),
+            case Errors of
                 [] ->
                     ?status_connected;
-                [Err | _] ->
-                    {?status_disconnected, Err}
+                [{error, Reason} | _] ->
+                    {?status_disconnected, Reason};
+                [Reason | _] ->
+                    {?status_disconnected, Reason}
             end;
+        {error, timeout} ->
+            %% We trigger a full reconnection if the health check times out, by declaring
+            %% the connector `?status_disconnected`.  We choose to do this because there
+            %% have been issues where the connection process does not die and the
+            %% connection itself unusable.
+            {?status_disconnected, <<"health_check_timeout">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
         {error, Reason} ->
             {?status_disconnected, Reason}
     end.

@@ -57,7 +57,8 @@ unload() ->
 bin(S) -> unicode:characters_to_binary(S).
 
 print_error(Reason) when is_binary(Reason) ->
-    emqx_ctl:print("Error: ~s~n", [Reason]).
-%% Maybe has more types of error, but there is only binary now. So close it for dialyzer.
-% print_error(Reason) ->
-%     emqx_ctl:print("Error: ~p~n", [Reason]).
+    emqx_ctl:print("Error: ~s~n", [Reason]);
+print_error(#{reason := unknown_namespace, namespace := Namespace}) ->
+    emqx_ctl:print("Error: unknown namespace: \"~s\"~n", [Namespace]);
+print_error(Reason) ->
+    emqx_ctl:print("Error: ~p~n", [Reason]).

@@ -46,6 +46,56 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     snabbkaffe:stop().
 
+t_config(_Config) ->
+    %% Config should contain schema defaults:
+    {ok, Conf0} = request_api(get, api_path("tracing")),
+    ?assertMatch(
+        #{
+            <<"max_file_size">> := <<"128MB">>,
+            <<"max_traces">> := 30
+        },
+        json(Conf0)
+    ),
+    %% Empty config udpates do nothing:
+    {ok, Conf1} = request_api(put, api_path("tracing"), #{}),
+    ?assertMatch(
+        #{
+            %% NOTE
+            %% Due to configuration subsystem shenanigans value changes "shape".
+            <<"max_file_size">> := 128 * 1024 * 1024,
+            <<"max_traces">> := 30
+        },
+        json(Conf1)
+    ),
+    %% Invalid updates are rejected:
+    {error, {{"HTTP/1.1", 400, "Bad Request"}, _, ErrorResp1}} =
+        request_api(put, api_path("tracing"), #{<<"encoding">> => <<"pretty">>}, true),
+    {error, {{"HTTP/1.1", 400, "Bad Request"}, _, ErrorResp2}} =
+        request_api(put, api_path("tracing"), #{<<"max_file_size">> => 1}, true),
+    ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, json(ErrorResp1)),
+    ?assertMatch(#{<<"code">> := <<"BAD_REQUEST">>}, json(ErrorResp2)),
+    %% Config udpates are respected:
+    try
+        {ok, Conf2} = request_api(put, api_path("tracing"), #{<<"max_traces">> => 0}),
+        ?assertMatch(
+            #{<<"max_traces">> := 0},
+            json(Conf2)
+        ),
+        Trace = #{
+            <<"name">> => ?FUNCTION_NAME,
+            <<"type">> => <<"topic">>,
+            <<"topic">> => <<"/x/y/z">>
+        },
+        {error, {{"HTTP/1.1", 400, "Bad Request"}, _, ErrorResp3}} =
+            request_api(post, api_path("trace"), Trace, true),
+        ?assertMatch(
+            #{<<"code">> := <<"EXCEED_LIMIT">>},
+            json(ErrorResp3)
+        )
+    after
+        {ok, _} = request_api(put, api_path("tracing"), json(Conf0))
+    end.
+
 t_http_test(_Config) ->
     %% list
     {ok, Empty} = request_api(get, api_path("trace")),
@@ -788,6 +838,8 @@ request_api(Method, Url) ->
 request_api(Method, Url, Body) ->
     request_api(Method, Url, Body, #{}).
 
+request_api(Method, Url, Body, ReturnAll = true) ->
+    request_api(Method, Url, Body, #{return_all => ReturnAll});
 request_api(Method, Url, Body, Opts) ->
     Opts1 = Opts#{httpc_req_opts => [{body_format, binary}]},
     emqx_mgmt_api_test_util:request_api(Method, Url, [], [], Body, Opts1).

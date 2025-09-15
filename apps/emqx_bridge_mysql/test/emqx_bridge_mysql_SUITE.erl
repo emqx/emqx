@@ -404,10 +404,7 @@ t_on_get_status(matrix) ->
      || Conn <- [?tcp, ?tls]
     ];
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
-    %% Depending on the exact way that the connection cut manifests, it may report as
-    %% connecting or disconnected (if `mysql_protocol:send_packet` crashes with `badmatch`
-    %% error...)
-    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => [connecting, disconnected]}),
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig),
     ok.
 
 t_start_action_or_source_with_disabled_connector(TCConfig) ->
@@ -1116,8 +1113,7 @@ t_timeout_disconnected_then_recover(Config) ->
                 500,
                 10,
                 ?assertMatch(
-                    {200, #{<<"status">> := Status}} when
-                        Status == <<"connecting">> orelse Status == <<"disconnected">>,
+                    {200, #{<<"status">> := Status}} when Status /= <<"connected">>,
                     get_connector_api(Config)
                 )
             ),
@@ -1128,8 +1124,7 @@ t_timeout_disconnected_then_recover(Config) ->
                 500,
                 10,
                 ?assertMatch(
-                    {200, #{<<"status">> := Status}} when
-                        Status == <<"connecting">> orelse Status == <<"disconnected">>,
+                    {200, #{<<"status">> := Status}} when Status /= <<"connected">>,
                     get_connector_api(Config)
                 )
             ),
@@ -1170,3 +1165,9 @@ t_timeout_disconnected_then_recover(Config) ->
 t_rule_test_trace(Config) ->
     Opts = #{},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
+%% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
+%% tree is unhealthy for any reason.
+t_ecpool_workers_crash(TCConfig) ->
+    ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
+    ok.
