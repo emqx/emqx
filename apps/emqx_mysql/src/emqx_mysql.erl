@@ -261,10 +261,10 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
                             {?status_disconnected, unhealthy_target};
                         {error, Reason} ->
                             %% do not log error, it is logged in prepare_sql_to_conn
-                            {?status_connecting, emqx_utils:readable_error_msg(Reason)}
+                            {?status_disconnected, emqx_utils:readable_error_msg(Reason)}
                     end;
                 false ->
-                    {?status_connecting, <<"some_connections_are_unhealthy">>}
+                    {?status_disconnected, <<"some_connections_are_unhealthy">>}
             end;
         {error, timeout} ->
             {?status_disconnected, <<"timeout_checking_connections">>}
