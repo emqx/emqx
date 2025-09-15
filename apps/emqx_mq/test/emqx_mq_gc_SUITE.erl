@@ -96,6 +96,10 @@ t_gc(_Config) ->
     Records = emqx_mq_message_db:dirty_read_all(MQC),
     ?assertEqual(10, length(Records)).
 
+%% Verify that the GC successfully completes when there are no queues
+t_gc_noop(_Config) ->
+    ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 1000).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
