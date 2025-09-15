@@ -66,13 +66,13 @@ t_parse(_Config) ->
                 "0",
                 "10",
                 "Foo",
-                % one extra field
-                "Bar",
                 "contact@foo.com",
                 "default-deployment",
                 "20220111",
                 "100000",
-                "10"
+                "10",
+                "inf",
+                "unknown"
             ]
         ),
         public_key_pem()
@@ -222,7 +222,8 @@ t_dump(_Config) ->
             {expiry_at, <<"2295-10-27">>},
             {type, <<"trial">>},
             {customer_type, 10},
-            {expiry, false}
+            {expiry, false},
+            {max_tps, infinity}
         ],
         emqx_license_parser:dump(License)
     ).

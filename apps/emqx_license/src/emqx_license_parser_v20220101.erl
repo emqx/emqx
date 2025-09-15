@@ -67,12 +67,12 @@ dump(
         {email, Email},
         {deployment, Deployment},
         {max_sessions, MaxSessions},
-        {max_tps, MaxTPS},
         {start_at, format_date(DateStart)},
         {expiry_at, format_date(DateExpiry)},
         {type, format_type(Type)},
         {customer_type, CType},
-        {expiry, Expiry}
+        {expiry, Expiry},
+        {max_tps, MaxTPS}
     ].
 
 summary(
