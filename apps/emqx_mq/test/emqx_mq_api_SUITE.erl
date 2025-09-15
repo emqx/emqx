@@ -52,6 +52,7 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+%% Verify basic CRUD operations on message queues.
 t_crud(_Config) ->
     ?assertMatch(
         {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
@@ -118,6 +119,7 @@ t_crud(_Config) ->
         )
     ).
 
+%% Verify pagination logic of message queue listing.
 t_pagination(_Config) ->
     %% Create 10 MQs and fetch them in batches of 6.
     lists:foreach(
@@ -147,6 +149,7 @@ t_pagination(_Config) ->
         api_get([message_queues, queues, "?limit=6&cursor=%10%13"])
     ).
 
+%% Verify MQ subsystem (re)configuration via API.
 t_config(_Config) ->
     ?assertMatch(
         {ok, 200, _},
@@ -172,6 +175,16 @@ t_config(_Config) ->
         }},
         api_get([message_queues, config])
     ).
+
+%% Verify queue state creation failure is handled gracefully.
+t_queue_state_creation_failure(_Config) ->
+    ok = meck:new(emqx_ds, [passthrough, no_history]),
+    ok = meck:expect(emqx_ds, trans, fun(_, _) -> {error, recoverable, leader_unavailable} end),
+    ?assertMatch(
+        {ok, 503, _},
+        api_post([message_queues, queues], #{<<"topic_filter">> => <<"t/1">>})
+    ),
+    ok = meck:unload(emqx_ds).
 
 %%--------------------------------------------------------------------
 %% Helpers

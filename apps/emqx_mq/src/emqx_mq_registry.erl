@@ -64,7 +64,8 @@ create_tables() ->
 -doc """
 Create a new MQ.
 """.
--spec create(emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | {error, queue_exists}.
+-spec create(emqx_mq_types:mq()) ->
+    {ok, emqx_mq_types:mq()} | {error, queue_exists} | {error, term()}.
 create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) ->
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),
@@ -82,8 +83,26 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) ->
     case Result of
         ok ->
             MQ = MQ0#{id => Id},
-            {ok, _} = emqx_mq_state_storage:create_mq_state(MQ),
-            {ok, MQ};
+            try emqx_mq_state_storage:create_mq_state(MQ) of
+                {ok, _} ->
+                    {ok, MQ};
+                {error, Reason} ->
+                    ?tp(error, mq_registry_create_mq_state_error, #{
+                        mq => MQ,
+                        reason => Reason
+                    }),
+                    mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
+                    {error, Reason}
+            catch
+                Class:Reason ->
+                    ?tp(error, mq_registry_create_mq_state_error, #{
+                        mq => MQ,
+                        class => Class,
+                        reason => Reason
+                    }),
+                    mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
+                    {error, Reason}
+            end;
         {error, _} = Error ->
             Error
     end.
