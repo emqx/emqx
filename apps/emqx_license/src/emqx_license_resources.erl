@@ -146,7 +146,7 @@ connection_quota_early_alarm(_Limits) ->
 %% However, the cache is ephemeral (ets), so we need to read from the alarm state too to compare
 %% with the existing alarm (if any). The alarm is activated when the max TPS exceeds the limit.
 %% The alarm is deactivated after a new license is loaded with higher TPS limit.
-max_tps_alarm({ok, #{max_tps := Limit}}) when is_integer(Limit) ->
+max_tps_alarm({ok, #{max_tps := Limit}}) ->
     MaxTps0 = cached_max_tps(),
     {Action, AlarmDetails} =
         case emqx_alarm:read_details(license_tps) of
@@ -158,7 +158,7 @@ max_tps_alarm({ok, #{max_tps := Limit}}) when is_integer(Limit) ->
                 {activate, new_tps_alarm_details(MaxTps0)}
         end,
     MaxTps = maps:get(max_tps, AlarmDetails),
-    case MaxTps > Limit of
+    case is_integer(Limit) andalso MaxTps > Limit of
         true when Action =:= update ->
             _ = emqx_alarm:update_details(license_tps, AlarmDetails),
             ok;
@@ -168,11 +168,9 @@ max_tps_alarm({ok, #{max_tps := Limit}}) when is_integer(Limit) ->
         true when Action =:= ignore ->
             ok;
         false ->
+            %% License has higher TPS limit, ensure the alarm is deactivated.
             ?OK(emqx_alarm:ensure_deactivated(license_tps))
-    end;
-max_tps_alarm(_Limits) ->
-    %% license has no TPS limit, consider it unlimited.
-    ?OK(emqx_alarm:ensure_deactivated(license_tps)).
+    end.
 
 new_tps_alarm_details(MaxTps0) ->
     emqx_alarm:make_persistent_details(#{max_tps => MaxTps0, observed_at => now_rfc3339()}).

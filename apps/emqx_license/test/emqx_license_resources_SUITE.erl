@@ -63,7 +63,7 @@ t_connection_count(Config) when is_list(Config) ->
     ),
 
     Tester = self(),
-    meck:new(emqx_alarm, []),
+    meck:new(emqx_alarm, [passthrough]),
     meck:expect(
         emqx_alarm,
         activate,
