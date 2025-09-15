@@ -4,17 +4,17 @@
 
 -module(emqx_dashboard_dispatch).
 
--moduledoc """
-This module is used to regenerate dispatch (cowboy routes and swagger specs)
-for the dashboard HTTP servers.
-
-Its main responsibilities are:
-* Serve dispatch regeneration requests from pre/post_config_update hooks, when
-    the regeneration should be delayed until the configuration is fully applied.
-
-* Serialize dispatch regeneration to avoid a situation when a not up-to-date dispatch
-    was applied due to a race condition.
-""".
+%% -moduledoc """
+%% This module is used to regenerate dispatch (cowboy routes and swagger specs)
+%% for the dashboard HTTP servers.
+%%
+%% Its main responsibilities are:
+%% * Serve dispatch regeneration requests from pre/post_config_update hooks, when
+%%     the regeneration should be delayed until the configuration is fully applied.
+%%
+%% * Serialize dispatch regeneration to avoid a situation when a not up-to-date dispatch
+%%     was applied due to a race condition.
+%% """.
 
 -behaviour(gen_server).
 
@@ -54,17 +54,17 @@ Its main responsibilities are:
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
--doc """
-Regenerate the dispatch for the given listeners immediately and synchronously.
-""".
+%% -doc """
+%% Regenerate the dispatch for the given listeners immediately and synchronously.
+%% """.
 -spec regenerate_dispatch([emqx_dashboard:listener_name()]) -> ok.
 regenerate_dispatch(Listeners) ->
     gen_server:call(?SERVER, #regenerate_dispatch{listeners = Listeners}).
 
--doc """
-Regenerate the dispatch for the given listeners asynchronously after the current
-config update is completed.
-""".
+%% -doc """
+%% Regenerate the dispatch for the given listeners asynchronously after the current
+%% config update is completed.
+%% """.
 -spec regenerate_dispatch_after_config_update([emqx_dashboard:listener_name()]) -> ok.
 regenerate_dispatch_after_config_update(Listeners) ->
     gen_server:cast(?SERVER, #regenerate_dispatch_after_config_update{listeners = Listeners}).
