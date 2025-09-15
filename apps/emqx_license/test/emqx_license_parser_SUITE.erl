@@ -201,6 +201,31 @@ t_parse(_Config) ->
         )
     ),
 
+    %% invalid max_tps
+    Res6 = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "0",
+                "10",
+                "Foo",
+                "contact@foo.com",
+                "default-deployment",
+                "20220111",
+                "100000",
+                "100",
+                "invalid_tps"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res6),
+    {error, Err6} = Res6,
+    ?assertMatch(
+        #{error := #{max_tps := invalid_max_tps}},
+        find_error(Parser, Err6)
+    ),
+
     ?assertMatch(
         {error, #{parse_results := [#{error := bad_license_format}]}},
         emqx_license_parser:parse(
