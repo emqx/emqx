@@ -419,13 +419,18 @@ t_wss_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
-        ?assertError(
-            {ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}},
+        try
             emqtt_connect_wss(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca-next.pem")}
                 | ClientSSLOpts
-            ])
-        ),
+            ]),
+            ct:fail({unexpected_success, {line, ?LINE}})
+        catch
+            error:{ws_upgrade_failed, {closed, {error, {tls_alert, {certificate_required, _}}}}} ->
+                ok;
+            error:{ws_upgrade_failed, {error, {tls_alert, {certificate_required, _}}}} ->
+                ok
+        end,
 
         C3 = emqtt_connect_wss(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")},
