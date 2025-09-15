@@ -109,6 +109,8 @@ defmodule EMQXUmbrella.MixProject do
     [
       common_dep(:lc),
       common_dep(:typerefl),
+      # in conflict between typerefl and emqx_utils
+      common_dep(:erlang_qq),
       common_dep(:ehttpc),
       common_dep(:gproc),
       common_dep(:jiffy),
@@ -247,6 +249,9 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
+
+  def common_dep(:erlang_qq),
+    do: {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
 
   def common_dep(:rocksdb),
     do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-6", override: true}
