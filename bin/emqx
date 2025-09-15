@@ -94,7 +94,7 @@ usage() {
         echo "through a named pipe."
         logwarn "try to use the safer alternative, remote_console command."
         ;;
-    remote_console)
+    remote|remote_console)
         echo "Start an interactive shell running an Erlang or Elixir node which "
         echo "hidden-connects to the running EMQX node".
         echo "This command is mostly used for troubleshooting."
@@ -184,7 +184,7 @@ usage() {
         echo "  ctl:              Administration commands, execute '$progname ctl help' for more details"
         echo ''
         echo "More:"
-        echo "  Shell attach:     remote_console [--iex] | attach"
+        echo "  Shell attach:     remote [--iex] | attach"
 #       echo "  Up/Down-grade:    upgrade | downgrade | install | uninstall | versions" # TODO enable when supported
         echo "  Install Info:     ertspath | root_dir"
         echo "  Runtime Status:   pid | ping"
@@ -1178,7 +1178,7 @@ case "${COMMAND}" in
         exec "$BINDIR/to_erl" "$PIPE_DIR"
         ;;
 
-    remote_console)
+    remote|remote_console)
         assert_node_alive
 
         case "${2:-}" in

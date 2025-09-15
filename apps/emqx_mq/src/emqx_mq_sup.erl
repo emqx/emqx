@@ -35,6 +35,8 @@ start_consumer(Id, Args) ->
             {ok, Pid};
         {error, {already_started, Pid}} ->
             {ok, Pid};
+        {error, {Reason, _ChildSpec}} ->
+            {error, Reason};
         {error, Reason} ->
             {error, Reason}
     end.

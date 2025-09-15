@@ -53,6 +53,11 @@ Consumer's responsibilities:
     stop_v1/1
 ]).
 
+%% For testing
+-export([
+    global_name/1
+]).
+
 -record(state, {
     mq :: emqx_mq_types:mq(),
     streams :: emqx_mq_consumer_streams:t(),
@@ -94,27 +99,16 @@ find(Id) ->
     end.
 
 -spec connect(emqx_mq_types:mq(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
-    ok | {error, term()}.
+    ok | {error, already_registered} | {error, no_mq} | {error, term()}.
 connect(#{topic_filter := _MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
     ?tp_debug(mq_consumer_connect, #{
         mq_topic_filter => _MQTopicFilter, subscriber_ref => SubscriberRef, client_id => ClientId
     }),
     case find_or_start(MQ) of
         {ok, ConsumerRef} ->
-            ?tp_debug(mq_consumer_find_consumer_success, #{
-                mq_topic_filter => _MQTopicFilter,
-                subscriber_ref => SubscriberRef,
-                client_id => ClientId,
-                consumer_ref => ConsumerRef
-            }),
             do_connect(ConsumerRef, SubscriberRef, ClientId);
-        not_found ->
-            ?tp_debug(mq_consumer_find_consumer_not_found, #{
-                mq_topic_filter => _MQTopicFilter,
-                subscriber_ref => SubscriberRef,
-                client_id => ClientId
-            }),
-            {error, consumer_not_found}
+        {error, _Reason} = Error ->
+            Error
     end.
 
 -spec disconnect(emqx_mq_types:consumer_ref(), emqx_mq_types:subscriber_ref()) -> ok.
@@ -222,8 +216,8 @@ init([#{topic_filter := _MQTopicFilter, consumer_persistence_interval := Persist
                 {error, _} = Error ->
                     {stop, Error}
             end;
-        {error, already_registered} ->
-            {stop, already_registered}
+        {error, _Reason} = Error ->
+            Error
     end.
 
 handle_call(stop, _From, State) ->
@@ -357,18 +351,18 @@ do_connect(ConsumerRef, SubscriberRef, ClientId) ->
     ).
 
 find_or_start(#{id := Id, topic_filter := _MQTopicFilter} = MQ) ->
-    case find(Id) of
+    case ?MODULE:find(Id) of
         {ok, ConsumerRef} ->
             {ok, ConsumerRef};
         not_found ->
             case emqx_mq_sup:start_consumer(_ChildId = Id, [MQ]) of
                 {ok, ConsumerRef} ->
                     {ok, ConsumerRef};
-                {error, _} = _Error ->
+                {error, _Reason} = Error ->
                     ?tp_debug(mq_consumer_find_consumer_error, #{
-                        error => _Error, mq_topic_filter => _MQTopicFilter
+                        reason => _Reason, mq_topic_filter => _MQTopicFilter
                     }),
-                    not_found
+                    Error
             end
     end.
 
