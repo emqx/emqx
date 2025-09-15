@@ -1859,6 +1859,24 @@ t_rule_test_trace(Config, Opts) ->
 
     ok.
 
+%% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
+%% tree is unhealthy for any reason.
+t_ecpool_workers_crash(TCConfig) ->
+    {201, _} = simplify_result(create_connector_api(TCConfig, #{})),
+    ConnResId = connector_resource_id(TCConfig),
+    %% Since the supervisor might restart quickly, we just mock the response to avoid
+    %% flakiness.  See `ecpool:check_pool_integrity` for the possible return values.
+    emqx_common_test_helpers:with_mock(
+        ecpool,
+        check_pool_integrity,
+        fun(_PoolName) -> {error, {processes_down, [worker_sup]}} end,
+        fun() ->
+            %% Force immediate health check.
+            ?assertMatch({ok, ?status_disconnected}, health_check_connector(TCConfig))
+        end
+    ),
+    ok.
+
 snk_timetrap() ->
     {CTTimetrap, _} = ct:get_timetrap_info(),
     #{timetrap => max(0, CTTimetrap - 1_000)}.

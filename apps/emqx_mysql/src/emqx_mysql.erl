@@ -222,23 +222,59 @@ mysql_function(_) ->
     mysql_function(prepared_query).
 
 on_get_status(_InstId, #{pool_name := PoolName} = State) ->
-    case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
-        true ->
-            case do_check_prepares(State) of
-                ok ->
-                    ?status_connected;
-                {error, undefined_table} ->
-                    {?status_disconnected, unhealthy_target};
-                {error, _Reason} ->
-                    %% do not log error, it is logged in prepare_sql_to_conn
-                    ?status_connecting
+    Res = emqx_resource_pool:health_check_workers(
+        PoolName,
+        fun ?MODULE:do_get_status/1,
+        emqx_resource_pool:health_check_timeout(),
+        #{return_values => true}
+    ),
+    case Res of
+        {ok, []} ->
+            {?status_connecting, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            Errors =
+                lists:filter(
+                    fun
+                        ({ok, _, _}) ->
+                            false;
+                        (_) ->
+                            true
+                    end,
+                    Results
+                ),
+            case Errors of
+                [] ->
+                    do_on_get_status_prepares(State);
+                [{error, Reason} | _] ->
+                    {?status_disconnected, Reason};
+                [Reason | _] ->
+                    {?status_disconnected, Reason}
             end;
-        false ->
-            ?status_connecting
+        {error, timeout} ->
+            %% We trigger a full reconnection if the health check times out, by declaring
+            %% the connector `?status_disconnected`.  We choose to do this because there
+            %% have been issues where the connection process does not die and the
+            %% connection itself unusable.
+            {?status_disconnected, <<"health_check_timeout">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_get_status(Conn) ->
-    ok == element(1, mysql:query(Conn, <<"SELECT count(1) AS T">>)).
+    mysql:query(Conn, <<"SELECT count(1) AS T">>).
+
+do_on_get_status_prepares(State) ->
+    case do_check_prepares(State) of
+        ok ->
+            ?status_connected;
+        {error, undefined_table} ->
+            {?status_disconnected, unhealthy_target};
+        {error, Reason} ->
+            %% do not log error, it is logged in prepare_sql_to_conn
+            {?status_connecting, Reason}
+    end.
 
 do_check_prepares(
     #{
