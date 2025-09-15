@@ -83,6 +83,17 @@ health_check_workers(PoolName, CheckFunc, Timeout) ->
 
 health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
     ReturnValues = maps:get(return_values, Opts, false),
+    case ecpool:check_pool_integrity(PoolName) of
+        ok ->
+            do_health_check_workers(PoolName, CheckFunc, Timeout, Opts);
+        {error, Reason} when ReturnValues ->
+            {error, Reason};
+        {error, _Reason} ->
+            false
+    end.
+
+do_health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
+    ReturnValues = maps:get(return_values, Opts, false),
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
     DoPerWorker =
         fun(Worker) ->
@@ -127,7 +138,15 @@ that want to avoid doing too many requests, such as Kinesis Producer.
 `CheckFn` should return `ok` if it's successful, `{halt, Res}` if the check should end
 immediately with `Result`, `{error, Reason}` otherwise.
 """.
-health_check_workers_optimistic(PoolName, CheckFn, Timeout0) ->
+health_check_workers_optimistic(PoolName, CheckFn, Timeout) ->
+    case ecpool:check_pool_integrity(PoolName) of
+        ok ->
+            do_health_check_workers_optimistic(PoolName, CheckFn, Timeout);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_health_check_workers_optimistic(PoolName, CheckFn, Timeout0) ->
     Start = now_ms(),
     Deadline = Start + Timeout0,
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
