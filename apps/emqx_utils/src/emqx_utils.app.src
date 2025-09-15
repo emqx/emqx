@@ -2,7 +2,7 @@
 {application, emqx_utils, [
     {description, "Miscellaneous utilities for EMQX apps"},
     % strict semver, bump manually!
-    {vsn, "5.5.0"},
+    {vsn, "5.5.1"},
     {modules, [
         emqx_utils,
         emqx_utils_api,
@@ -16,6 +16,7 @@
         kernel,
         stdlib,
         jiffy,
+        erlang_qq,
         emqx_http_lib
     ]},
     {env, []},

@@ -437,8 +437,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:snappyer),
       common_dep(:crc32cer),
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
-      {:greptimedb,
-       github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.1.8", override: true},
+      {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.0.1", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions
       {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},
