@@ -2980,6 +2980,7 @@ ensure_disconnected(
         clientinfo = ClientInfo
     }
 ) ->
+    ok = emqx_authz_cache:empty_authz_cache(),
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
     ChanPid = self(),

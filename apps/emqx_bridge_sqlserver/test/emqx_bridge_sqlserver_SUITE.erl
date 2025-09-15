@@ -613,3 +613,9 @@ t_table_not_found(TCConfig) ->
         Error
     ),
     ok.
+
+%% Checks that we report the connector as `?status_disconnected` when `ecpool` supervision
+%% tree is unhealthy for any reason.
+t_ecpool_workers_crash(TCConfig) ->
+    ok = emqx_bridge_v2_testlib:t_ecpool_workers_crash(TCConfig),
+    ok.
