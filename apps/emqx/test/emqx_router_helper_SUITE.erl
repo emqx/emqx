@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -364,4 +365,8 @@ start_remote_shared_sub(Node, Group, Topic) ->
         end
     ]),
     ?assertReceive({SubPid, ok}, 5_000),
+    %% NOTE: Anticipate occasional replication delay.
+    ?retry(100, 5, begin
+        ?assertMatch([#route{dest = {Group, _}}], emqx_router:lookup_routes(Topic))
+    end),
     SubPid.
