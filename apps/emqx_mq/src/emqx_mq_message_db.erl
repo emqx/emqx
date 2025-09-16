@@ -209,7 +209,7 @@ delete_lastvalue_data(MQs, NowMS) ->
                         {ok, _} ->
                             ok;
                         {error, IsRecoverable, Reason} ->
-                            ?tp(error, emqx_mq_message_db_delete_expired_error, #{
+                            ?tp(error, mq_message_db_delete_expired_error, #{
                                 mqs => MQs,
                                 is_recoverable => IsRecoverable,
                                 reason => Reason
@@ -309,7 +309,7 @@ delete(DB, Topic) ->
     {Time, ok} = timer:tc(fun() ->
         do_delete(DB, Topic)
     end),
-    ?tp(debug, emqx_mq_message_db_delete, #{
+    ?tp_debug(mq_message_db_delete, #{
         topic => Topic,
         time => erlang:convert_time_unit(Time, microsecond, millisecond)
     }),
@@ -340,7 +340,7 @@ do_delete(DB, Topic) ->
                         {ok, _} ->
                             ok;
                         {error, IsRecoverable, Reason} ->
-                            ?tp(error, emqx_mq_message_db_delete_error, #{
+                            ?tp(error, mq_message_db_delete_error, #{
                                 topic => Topic,
                                 is_recoverable => IsRecoverable,
                                 reason => Reason
