@@ -175,7 +175,7 @@ add_regular_db_generation() ->
 -spec delete_lastvalue_data([emqx_mq_types:mq()], non_neg_integer()) -> ok.
 delete_lastvalue_data(MQs, NowMS) ->
     Shards = emqx_ds:list_shards(?MQ_MESSAGE_LASTVALUE_DB),
-    Refs = lists:map(
+    Refs = lists:filtermap(
         fun(Shard) ->
             TxOpts = #{
                 db => ?MQ_MESSAGE_LASTVALUE_DB,
@@ -184,7 +184,7 @@ delete_lastvalue_data(MQs, NowMS) ->
                 sync => false,
                 retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
-            {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
+            Res = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
                     fun(#{is_lastvalue := true, data_retention_period := DataRetentionPeriod} = MQ) ->
                         Topic = mq_message_topic(MQ, '#'),
@@ -194,7 +194,10 @@ delete_lastvalue_data(MQs, NowMS) ->
                     MQs
                 )
             end),
-            Ref
+            case Res of
+                {async, Ref, _} -> {true, Ref};
+                {nop, ok} -> false
+            end
         end,
         Shards
     ),
