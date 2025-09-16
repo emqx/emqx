@@ -290,7 +290,6 @@ start_app(App, SpecAppConfig, Opts) ->
     SpecAppConfig(App),
     case application:ensure_all_started(App) of
         {ok, _} ->
-            ok = ensure_dashboard_listeners_started(App),
             ok = wait_for_app_processes(App),
             ok = perform_sanity_checks(App),
             ok;
@@ -638,12 +637,6 @@ start_ekka() ->
             application:set_env(mria, db_backend, mnesia),
             ekka:start()
     end.
-
-ensure_dashboard_listeners_started(emqx_dashboard) ->
-    true = emqx_dashboard_listener:is_ready(infinity),
-    ok;
-ensure_dashboard_listeners_started(_App) ->
-    ok.
 
 -spec ensure_quic_listener(Name :: atom(), UdpPort :: inet:port_number()) -> ok.
 ensure_quic_listener(Name, UdpPort) ->
