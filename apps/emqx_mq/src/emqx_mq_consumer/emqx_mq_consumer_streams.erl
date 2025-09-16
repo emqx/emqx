@@ -114,7 +114,7 @@ new(MQ, Progress) ->
     {ok, [{emqx_mq_types:message_id(), emqx_types:message()}], t()} | ignore.
 handle_ds_info(#cs{ds_client = DSC0, state = State0} = CS0, GenericMessage) ->
     Res = emqx_ds_client:dispatch_message(GenericMessage, DSC0, State0),
-    ?tp_debug(emqx_mq_consumer_streams_handle_ds_info, #{res => Res, info => GenericMessage}),
+    ?tp_debug(mq_consumer_streams_handle_ds_info, #{res => Res, info => GenericMessage}),
     case Res of
         ignore ->
             ignore;
@@ -133,7 +133,7 @@ handle_ack(
     } = CS,
     {{Shard, Generation}, StreamMessageId} = MessagesId
 ) ->
-    ?tp_debug(emqx_mq_consumer_streams_handle_ack, #{
+    ?tp_debug(mq_consumer_streams_handle_ack, #{
         message_id => MessagesId, shards => maps:keys(Shards0)
     }),
     maybe
@@ -166,7 +166,7 @@ handle_ack(
         end
     else
         _ ->
-            ?tp(error, emqx_mq_consumer_streams_handle_ack_shard_not_found, #{
+            ?tp(error, mq_consumer_streams_handle_ack_shard_not_found, #{
                 messages_id => MessagesId,
                 cs => inspect(CS)
             }),
@@ -200,7 +200,7 @@ get_current_generation(?SUB_ID, Shard, #{
             _ ->
                 0
         end,
-    ?tp_debug(emqx_mq_consumer_streams_get_current_generation, #{
+    ?tp_debug(mq_consumer_streams_get_current_generation, #{
         shard => Shard, result => Result
     }),
     Result.
@@ -249,7 +249,7 @@ get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
                 %% our state, and the ds client won't give it to us back in on_new_iterator callback.
                 undefined
         end,
-    ?tp_debug(emqx_mq_consumer_streams_get_iterator, #{
+    ?tp_debug(mq_consumer_streams_get_iterator, #{
         slab => {Shard, Generation}, stream => _Stream, result => Result
     }),
     Result.
@@ -261,7 +261,7 @@ on_new_iterator(
     It,
     #{shards := Shards} = State
 ) ->
-    ?tp_debug(emqx_mq_consumer_streams_on_new_iterator, #{
+    ?tp_debug(mq_consumer_streams_on_new_iterator, #{
         slab => {Shard, Generation}, stream => Stream
     }),
     case Shards of
@@ -270,7 +270,7 @@ on_new_iterator(
         ->
             {subscribe, init_shard_state(State, Slab, Stream, It)};
         #{Shard := #{status := Status, generation := OldGeneration}} ->
-            ?tp(error, emqx_mq_consumer_streams_on_new_iterator_wrong_shard_state, #{
+            ?tp(error, mq_consumer_streams_on_new_iterator_wrong_shard_state, #{
                 slab => {Shard, Generation}, old_generation => OldGeneration, status => Status
             }),
             {ignore, State};
@@ -285,7 +285,7 @@ on_unrecoverable_error(
     Error,
     #{mq := #{topic_filter := MQTopic}, shards := Shards, streams := Streams} = State
 ) ->
-    ?tp(error, emqx_mq_consumer_streams_unrecoverable_error, #{
+    ?tp(error, mq_consumer_streams_unrecoverable_error, #{
         mq_topic => MQTopic, slab => {Shard, Generation}, stream => Stream, error => Error
     }),
     case Shards of
@@ -301,7 +301,7 @@ on_unrecoverable_error(
 on_subscription_down(
     ?SUB_ID, {Shard, Generation}, Stream, #{mq := MQ, shards := Shards, streams := Streams} = State
 ) ->
-    ?tp(error, emqx_mq_consumer_streams_subscription_down, #{
+    ?tp(error, mq_consumer_streams_subscription_down, #{
         shard => Shard, generation => Generation, stream => Stream
     }),
     case {Shards, Streams} of
@@ -396,7 +396,7 @@ handle_ds_reply(
     maybe
         #{Stream := Shard} ?= Streams,
         #{Shard := #{status := active} = ShardState} ?= Shards,
-        ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_exists, #{
+        ?tp_debug(mq_consumer_streams_handle_ds_reply_stream_exists, #{
             stream => Stream
         }),
         {Messages, #cs{state = State} = CS} = do_handle_ds_reply(
@@ -405,7 +405,7 @@ handle_ds_reply(
         {ok, Messages, CS#cs{state = save_progress_update(State, Shard)}}
     else
         _ ->
-            ?tp_debug(emqx_mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
+            ?tp_debug(mq_consumer_streams_handle_ds_reply_stream_not_exists, #{
                 stream => Stream
             }),
             {ok, [], CS0}
@@ -420,12 +420,12 @@ do_handle_ds_reply(
     #ds_sub_reply{ref = SRef} = DSReply
 ) ->
     Slab = {Shard, Generation},
-    ?tp_debug(emqx_mq_consumer_streams_do_handle_ds_reply, #{
+    ?tp_debug(mq_consumer_streams_do_handle_ds_reply, #{
         slab => Slab, stream => _Stream, handle => Handle, ds_reply => DSReply
     }),
     case emqx_mq_consumer_stream_buffer:handle_ds_reply(SB, Handle, DSReply) of
         {ok, Messages0, SB1} ->
-            ?tp_debug(emqx_mq_consumer_streams_do_handle_ds_reply_ok, #{
+            ?tp_debug(mq_consumer_streams_do_handle_ds_reply_ok, #{
                 slab => Slab, sb => emqx_mq_consumer_stream_buffer:inspect(SB1)
             }),
             Messages = [
