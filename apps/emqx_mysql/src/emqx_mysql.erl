@@ -245,7 +245,7 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
     ),
     case Res of
         {ok, []} ->
-            {?status_connecting, <<"connection_pool_not_initialized">>};
+            {?status_disconnected, <<"connection_pool_not_initialized">>};
         {ok, Results} ->
             Errors =
                 lists:filter(
