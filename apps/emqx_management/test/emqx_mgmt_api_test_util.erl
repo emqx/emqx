@@ -52,9 +52,6 @@ emqx_dashboard(Config) ->
         config => Config,
         before_start => fun() ->
             {ok, _} = emqx_common_test_http:create_default_app()
-        end,
-        after_start => fun() ->
-            true = emqx_dashboard_listener:is_ready(infinity)
         end
     }}.
 

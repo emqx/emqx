@@ -148,8 +148,7 @@ dump_schema(Dir, SchemaModule) ->
             ok = gen_schema_json(Dir, SchemaModule, Lang)
         end,
         ["en", "zh"]
-    ),
-    emqx_dashboard:save_dispatch_eterm(SchemaModule).
+    ).
 
 load(_, Lib) ->
     case application:load(Lib) of
