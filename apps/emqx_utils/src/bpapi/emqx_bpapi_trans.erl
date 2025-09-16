@@ -87,7 +87,7 @@ mk_meta_fun(#s{api = API, version = Vsn, targets = Targets}) ->
     Line = 0,
     Calls = [{From, To} || {call, From, To} <- Targets],
     Casts = [{From, To} || {cast, From, To} <- Targets],
-    Ret = typerefl_quote:const(Line, #{
+    Ret = erlang_qq:const(Line, #{
         api => API,
         version => Vsn,
         calls => Calls,

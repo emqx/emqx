@@ -17,7 +17,7 @@ IsQuicSupp = fun() ->
         "1" =:= os:getenv("BUILD_WITHOUT_QUIC"))
 end,
 
-Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.0"}}},
+Bcrypt = {bcrypt, {git, "https://github.com/emqx/erlang-bcrypt.git", {tag, "0.6.2"}}},
 Quicer =
     {quicer, {git, "https://github.com/emqx/quic.git", {tag, "0.1.11"}}}.
 

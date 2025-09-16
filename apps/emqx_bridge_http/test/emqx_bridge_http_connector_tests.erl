@@ -23,6 +23,7 @@ wrap_auth_headers_test_() ->
     {setup,
         fun() ->
             meck:expect(ehttpc_sup, start_pool, 2, {ok, foo}),
+            meck:expect(ehttpc, check_pool_integrity, 1, ok),
             meck:expect(ehttpc, request, fun(_, _, Req, _, _) -> {ok, 200, Req} end),
             meck:expect(ehttpc, workers, 1, [{self, self()}]),
             meck:expect(ehttpc, health_check, 2, ok),

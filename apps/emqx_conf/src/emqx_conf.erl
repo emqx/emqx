@@ -160,8 +160,7 @@ dump_schema(Dir, SchemaModule) ->
             ok = gen_schema_json(Dir, SchemaModule, Lang)
         end,
         ["en", "zh"]
-    ),
-    emqx_dashboard:save_dispatch_eterm(SchemaModule).
+    ).
 
 load(emqx_enterprise_schema, emqx_telemetry) ->
     ignore;

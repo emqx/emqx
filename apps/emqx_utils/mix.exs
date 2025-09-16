@@ -29,6 +29,7 @@ defmodule EMQXUtils.MixProject do
       UMP.common_dep(:jiffy),
       UMP.common_dep(:emqx_http_lib),
       UMP.common_dep(:snabbkaffe),
+      UMP.common_dep(:erlang_qq),
     ]
   end
 end

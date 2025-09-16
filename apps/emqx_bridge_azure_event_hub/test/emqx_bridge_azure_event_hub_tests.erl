@@ -159,19 +159,19 @@ aeh_producer_test_() ->
             )},
         {"ssl disabled",
             ?_assertThrow(
-                ?validation_error(#{expected := "true"}, "false"),
+                ?validation_error("Expected: true" ++ _, <<"false">>),
                 check(Override(#{<<"ssl">> => #{<<"enable">> => <<"false">>}}))
             )},
         {"bad authn mechanism: scram sha256",
             ?_assertThrow(
-                ?validation_error(#{expected := "plain"}, "scram_sha_256"),
+                ?validation_error("Expected: plain" ++ _, <<"scram_sha_256">>),
                 check(
                     Override(#{<<"authentication">> => #{<<"mechanism">> => <<"scram_sha_256">>}})
                 )
             )},
         {"bad authn mechanism: scram sha512",
             ?_assertThrow(
-                ?validation_error(#{expected := "plain"}, "scram_sha_512"),
+                ?validation_error("Expected: plain" ++ _, <<"scram_sha_512">>),
                 check(
                     Override(#{<<"authentication">> => #{<<"mechanism">> => <<"scram_sha_512">>}})
                 )
@@ -183,12 +183,12 @@ aeh_producer_test_() ->
             )},
         {"bad compression: snappy",
             ?_assertThrow(
-                ?validation_error(#{expected := "no_compression"}, "snappy"),
+                ?validation_error("Expected: no_compression" ++ _, <<"snappy">>),
                 check(Override(#{<<"kafka">> => #{<<"compression">> => <<"snappy">>}}))
             )},
         {"bad compression: gzip",
             ?_assertThrow(
-                ?validation_error(#{expected := "no_compression"}, "gzip"),
+                ?validation_error("Expected: no_compression" ++ _, <<"gzip">>),
                 check(Override(#{<<"kafka">> => #{<<"compression">> => <<"gzip">>}}))
             )}
     ].

@@ -109,6 +109,8 @@ defmodule EMQXUmbrella.MixProject do
     [
       common_dep(:lc),
       common_dep(:typerefl),
+      # in conflict between typerefl and emqx_utils
+      common_dep(:erlang_qq),
       common_dep(:ehttpc),
       common_dep(:gproc),
       common_dep(:jiffy),
@@ -116,7 +118,6 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:esockd),
       common_dep(:rocksdb),
       common_dep(:ekka),
-      common_dep(:mria),
       common_dep(:gen_rpc),
       common_dep(:grpc),
       common_dep(:minirest),
@@ -185,26 +186,25 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.19.8", override: true}
-  def common_dep(:mria), do: {:mria, github: "emqx/mria", tag: "0.8.12.1", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.20.0", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.13.0", override: true}
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.43.4", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.44.0", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
   # in conflict by ehttpc and emqtt
-  def common_dep(:gun), do: {:gun, github: "emqx/gun", tag: "1.3.11", override: true}
+  def common_dep(:gun), do: {:gun, "2.1.0", override: true}
   # in conflict by cowboy_swagger and cowboy
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "1.8.1-emqx", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.6.0", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.3", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, github: "emqx/jiffy", tag: "1.0.6", override: true}
 
   def common_dep(:grpc),
     do:
       {:grpc,
-       github: "emqx/grpc-erl", tag: "0.6.12", override: true, system_env: emqx_app_system_env()}
+       github: "emqx/grpc-erl", tag: "0.7.1", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy), do: {:cowboy, github: "emqx/cowboy", tag: "2.9.2", override: true}
   def common_dep(:jsone), do: {:jsone, github: "emqx/jsone", tag: "1.7.1", override: true}
@@ -215,7 +215,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
   def common_dep(:telemetry), do: {:telemetry, "1.1.0", override: true}
   # in conflict by grpc and eetcd
-  def common_dep(:gpb), do: {:gpb, "4.19.9", override: true, runtime: false}
+  def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.15.2-emqx-3", override: true}
 
   # in conflict by emqx_connector and system_monitor
@@ -245,10 +245,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:emqtt),
     do:
       {:emqtt,
-       github: "emqx/emqtt", tag: "1.13.8", override: true, system_env: maybe_no_quic_env()}
+       github: "emqx/emqtt", tag: "1.14.6", override: true, system_env: maybe_no_quic_env()}
 
   def common_dep(:typerefl),
-    do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.1", override: true}
+    do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
+
+  def common_dep(:erlang_qq),
+    do: {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
 
   def common_dep(:rocksdb),
     do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-6", override: true}
@@ -427,8 +430,7 @@ defmodule EMQXUmbrella.MixProject do
 
   defp enterprise_deps(_profile_info = %{edition_type: :enterprise}) do
     [
-      {:hstreamdb_erl,
-       github: "hstreamdb/hstreamdb_erl", tag: "0.5.18+v0.18.1+ezstd-v1.0.5-emqx1"},
+      {:hstreamdb_erl, github: "hstreamdb/hstreamdb_erl", tag: "0.5.27+v0.18.1"},
       common_dep(:influxdb),
       common_dep(:wolff),
       common_dep(:kafka_protocol),
@@ -437,8 +439,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:snappyer),
       common_dep(:crc32cer),
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
-      {:greptimedb,
-       github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.1.8", override: true},
+      {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.0.1", override: true},
       # The following two are dependencies of rabbit_common. They are needed here to
       # make mix not complain about conflicting versions
       {:thoas, github: "emqx/thoas", tag: "v1.0.0", override: true},

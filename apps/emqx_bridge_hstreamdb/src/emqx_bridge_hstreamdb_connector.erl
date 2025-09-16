@@ -40,9 +40,6 @@
     desc/1
 ]).
 
-%% Allocatable resources
--define(hstreamdb_client, hstreamdb_client).
-
 %% -------------------------------------------------------------------------------------------------
 %% resource callback
 resource_type() -> hstreamdb.
@@ -221,7 +218,6 @@ do_on_start(InstId, Config) ->
         connector => InstId,
         config => Config
     }),
-    {ok, _} = application:ensure_all_started(hstreamdb_erl),
     ClientOptions = client_options(Config),
     State = #{
         client_options => ClientOptions,
@@ -248,20 +244,20 @@ do_on_start(InstId, Config) ->
     end.
 
 client_options(#{url := ServerURL, ssl := SSL, grpc_timeout := GRPCTimeout}) ->
-    RpcOpts =
-        case maps:get(enable, SSL) of
-            false ->
-                #{pool_size => 1};
-            true ->
-                #{
-                    pool_size => 1,
-                    gun_opts => #{
-                        transport => tls,
-                        transport_opts =>
-                            emqx_tls_lib:to_client_opts(SSL)
-                    }
+    %% NOTE: Disable gun's retry mechanism.
+    GunOpts0 = #{retry => 0},
+    RpcOpts0 = #{pool_size => 1},
+    case maps:get(enable, SSL) of
+        false ->
+            RpcOpts = RpcOpts0#{gun_opts => GunOpts0};
+        true ->
+            RpcOpts = RpcOpts0#{
+                gun_opts => GunOpts0#{
+                    transport => tls,
+                    tls_opts => emqx_tls_lib:to_client_opts(SSL)
                 }
-        end,
+            }
+    end,
     ClientOptions = #{
         url => to_string(ServerURL),
         grpc_timeout => GRPCTimeout,

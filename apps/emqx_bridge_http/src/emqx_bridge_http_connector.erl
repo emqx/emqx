@@ -229,7 +229,6 @@ on_start(
         {transport_opts, NTransportOpts},
         {enable_pipelining, maps:get(enable_pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
-
     State = #{
         pool_name => InstId,
         pool_type => PoolType,
@@ -616,6 +615,14 @@ do_get_status(PoolName, Timeout) ->
     do_get_status(PoolName, Timeout, fun default_health_checker/2).
 
 do_get_status(PoolName, Timeout, DoPerWorker) ->
+    case ehttpc:check_pool_integrity(PoolName) of
+        ok ->
+            do_get_status1(PoolName, Timeout, DoPerWorker);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_get_status1(PoolName, Timeout, DoPerWorker) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(PoolName)],
     try emqx_utils:pmap(fun(Worker) -> DoPerWorker(Worker, Timeout) end, Workers, Timeout) of
         [] ->
@@ -923,16 +930,16 @@ transform_result(Result) ->
     case Result of
         %% The normal reason happens when the HTTP connection times out before
         %% the request has been fully processed
+        {error, {shutdown, Reason}} ->
+            transform_result({error, Reason});
         {error, Reason} when
             Reason =:= econnrefused;
             Reason =:= timeout;
             Reason =:= normal;
-            Reason =:= {shutdown, normal};
-            Reason =:= {shutdown, closed}
+            Reason =:= closed;
+            %% {closed, "The connection was lost."}
+            element(1, Reason) =:= closed
         ->
-            {error, {recoverable_error, Reason}};
-        {error, {closed, _Message} = Reason} ->
-            %% _Message = "The connection was lost."
             {error, {recoverable_error, Reason}};
         {error, _Reason} ->
             Result;
