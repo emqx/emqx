@@ -433,19 +433,52 @@ on_get_status(InstanceId, #{driver := restapi} = State) ->
     end,
     emqx_bridge_http_connector:on_get_status(InstanceId, State, Func);
 on_get_status(InstanceId, #{driver := thrift} = _State) ->
-    case emqx_resource_pool:health_check_workers(InstanceId, fun ?MODULE:do_get_status/1) of
-        true ->
-            ?status_connected;
-        false ->
-            ?status_disconnected
+    Res = emqx_resource_pool:health_check_workers(
+        InstanceId,
+        fun ?MODULE:do_get_status/1,
+        emqx_resource_pool:health_check_timeout(),
+        #{return_values => true}
+    ),
+    case Res of
+        {ok, []} ->
+            {?status_disconnected, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            Errors =
+                lists:filter(
+                    fun
+                        (ok) ->
+                            false;
+                        (_) ->
+                            true
+                    end,
+                    Results
+                ),
+            case Errors of
+                [] ->
+                    ?status_connected;
+                [{error, Reason} | _] ->
+                    {?status_disconnected, Reason};
+                [Reason | _] ->
+                    {?status_disconnected, Reason}
+            end;
+        {error, timeout} ->
+            %% We trigger a full reconnection if the health check times out, by declaring
+            %% the connector `?status_disconnected`.  We choose to do this because there
+            %% have been issues where the connection process does not die and the
+            %% connection itself unusable.
+            {?status_disconnected, <<"health_check_timeout">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_get_status(Conn) ->
     case iotdb:ping(Conn) of
         {ok, _} ->
-            true;
-        {error, _} ->
-            false
+            ok;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 connect(Opts) ->
