@@ -1224,7 +1224,7 @@ do_econnrefused_or_timeout_test(Config, Error) ->
                         [#{reason := Reason, connector := ConnectorResourceId} | _] when
                             Reason == Error;
                             Reason == closed;
-                            element(2, Reason) == closed
+                            element(1, Reason) == closed
                         ->
                             ok;
                         Trace0 ->

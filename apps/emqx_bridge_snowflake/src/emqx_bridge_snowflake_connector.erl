@@ -995,11 +995,11 @@ action_status(ConnResId, ActionResId, #{mode := aggregated} = ActionState) ->
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
     ok = check_aggreg_upload_errors(AggregId),
     case http_pool_workers_healthy(ActionResId, ConnectTimeout) of
-        true ->
+        ok ->
             ok = check_snowpipe_user_permission(ActionResId, ConnResId, ActionState),
             ?status_connected;
-        false ->
-            ?status_disconnected
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 stage_file_sql(Filename, Database, Schema, Stage, ActionName) ->
@@ -1019,12 +1019,20 @@ stage_file_sql(Filename, Database, Schema, Stage, ActionName) ->
     binary_to_list(SQL0).
 
 http_pool_workers_healthy(HTTPPool, Timeout) ->
+    case ehttpc:check_pool_integrity(HTTPPool) of
+        ok ->
+            http_pool_workers_healthy1(HTTPPool, Timeout);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+http_pool_workers_healthy1(HTTPPool, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(HTTPPool)],
     DoPerWorker =
         fun(Worker) ->
             case ehttpc:health_check(Worker, Timeout) of
                 ok ->
-                    true;
+                    ok;
                 {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "snowflake_ehttpc_health_check_failed",
@@ -1033,17 +1041,25 @@ http_pool_workers_healthy(HTTPPool, Timeout) ->
                         worker => Worker,
                         wait_time => Timeout
                     }),
-                    false
+                    {error, Reason}
             end
         end,
     try emqx_utils:pmap(DoPerWorker, Workers, Timeout) of
         [_ | _] = Status ->
-            lists:all(fun(St) -> St =:= true end, Status);
+            Errors = lists:filter(fun(St) -> St /= ok end, Status),
+            case Errors of
+                [] ->
+                    ok;
+                [{error, Reason} | _] ->
+                    {error, Reason};
+                [Reason | _] ->
+                    {error, Reason}
+            end;
         [] ->
-            false
+            {error, <<"connection_pool_not_initialized">>}
     catch
         exit:timeout ->
-            false
+            {error, <<"health_check_timeout">>}
     end.
 
 %% https://docs.snowflake.com/en/sql-reference/identifiers-syntax
