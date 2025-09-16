@@ -714,6 +714,8 @@ parse_utf8_string(Bin, StrictMode, Cause, Copy) ->
     case Copy =:= publish_topic andalso size(Str) > size(Rest) of
         true ->
             {Str, Rest};
+        false when size(Str) =< 64 ->
+            {Str, Rest};
         false ->
             {binary:copy(Str), Rest}
     end.
