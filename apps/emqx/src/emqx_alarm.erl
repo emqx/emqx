@@ -215,7 +215,10 @@ to_rfc3339(Timestamp) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    ok = mria:wait_for_tables([?ACTIVATED_ALARM, ?DEACTIVATED_ALARM]),
+    %% Since the alarm handler might be triggered to clear alarms (`{clear_alarm,
+    %% ?LC_ALARM_ID_RUNQ}`) just as the `emqx` application is starting, we need to ensure
+    %% the tables are ready.
+    _ = mria:wait_for_tables(emqx_alarm:create_tables()),
     deactivate_all_alarms(),
     process_flag(trap_exit, true),
     State = #{
