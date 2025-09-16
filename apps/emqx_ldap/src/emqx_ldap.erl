@@ -209,48 +209,11 @@ on_get_status(InstId, #{pool_name := PoolName} = State) ->
     end.
 
 get_status_with_poolname(PoolName) ->
-    Res = emqx_resource_pool:health_check_workers(
-        PoolName,
-        fun ?MODULE:do_get_status/1,
-        emqx_resource_pool:health_check_timeout(),
-        #{return_values => true}
-    ),
-    case Res of
-        {ok, []} ->
-            {?status_disconnected, <<"connection_pool_not_initialized">>};
-        {ok, Results} ->
-            Errors =
-                lists:filter(
-                    fun
-                        (ok) ->
-                            false;
-                        (_) ->
-                            true
-                    end,
-                    Results
-                ),
-            %% Note: here can only return `disconnected` not `connecting`
-            %% because the LDAP socket/connection can't be reused
-            %% searching on a died socket will never return until timeout
-            case Errors of
-                [] ->
-                    ?status_connected;
-                [{error, Reason} | _] ->
-                    {?status_disconnected, Reason};
-                [Reason | _] ->
-                    {?status_disconnected, Reason}
-            end;
-        {error, timeout} ->
-            %% We trigger a full reconnection if the health check times out, by declaring
-            %% the connector `?status_disconnected`.  We choose to do this because there
-            %% have been issues where the connection process does not die and the
-            %% connection itself unusable.
-            {?status_disconnected, <<"health_check_timeout">>};
-        {error, {processes_down, _}} ->
-            {?status_disconnected, <<"pool_crashed">>};
-        {error, Reason} ->
-            {?status_disconnected, Reason}
-    end.
+    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
+    %% Note: here can only return `disconnected` not `connecting`
+    %% because the LDAP socket/connection can't be reused
+    %% searching on a died socket will never return until timeout
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
 do_get_status(Conn) ->
     %% search with an invalid base object

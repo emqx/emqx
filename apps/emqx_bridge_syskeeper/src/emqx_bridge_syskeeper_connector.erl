@@ -209,47 +209,13 @@ on_batch_query(InstanceId, [{_MessageTag, _} | _] = Query, State) ->
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
-on_get_status(_InstanceId, #{pool_name := Pool, ack_timeout := AckTimeout}) ->
+on_get_status(_InstanceId, #{pool_name := PoolName, ack_timeout := AckTimeout}) ->
     Timeout = AckTimeout + ?EXTRA_CALL_TIMEOUT,
-    Res = emqx_resource_pool:health_check_workers(
-        Pool,
-        {emqx_bridge_syskeeper_client, heartbeat, [Timeout]},
-        Timeout,
-        #{return_values => true}
-    ),
-    case Res of
-        {ok, []} ->
-            {?status_disconnected, <<"connection_pool_not_initialized">>};
-        {ok, Results} ->
-            Errors =
-                lists:filter(
-                    fun
-                        (ok) ->
-                            false;
-                        (_) ->
-                            true
-                    end,
-                    Results
-                ),
-            case Errors of
-                [] ->
-                    ?status_connected;
-                [{error, Reason} | _] ->
-                    {?status_disconnected, Reason};
-                [Reason | _] ->
-                    {?status_disconnected, Reason}
-            end;
-        {error, timeout} ->
-            %% We trigger a full reconnection if the health check times out, by declaring
-            %% the connector `?status_disconnected`.  We choose to do this because there
-            %% have been issues where the connection process does not die and the
-            %% connection itself unusable.
-            {?status_disconnected, <<"health_check_timeout">>};
-        {error, {processes_down, _}} ->
-            {?status_disconnected, <<"pool_crashed">>};
-        {error, Reason} ->
-            {?status_disconnected, Reason}
-    end.
+    Opts = #{
+        check_fn => {emqx_bridge_syskeeper_client, heartbeat, [Timeout]},
+        timeout => Timeout
+    },
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
 on_add_channel(
     _InstanceId,
