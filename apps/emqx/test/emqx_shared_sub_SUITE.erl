@@ -746,8 +746,8 @@ t_stats(Config) when is_list(Config) ->
     emqtt:subscribe(ConnPid1, {SharedTopic, 0}),
     %% Verify LOCAL stats update
     ?retry(
-        100,
-        5,
+        200,
+        10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 1},
             maps:from_list(emqx_stats:getstats())
@@ -756,8 +756,8 @@ t_stats(Config) when is_list(Config) ->
     emqtt:unsubscribe(ConnPid1, SharedTopic),
     %% Verify LOCAL stats update again
     ?retry(
-        100,
-        5,
+        200,
+        10,
         ?assertMatch(
             #{'subscriptions.shared.count' := 0},
             maps:from_list(emqx_stats:getstats())
@@ -835,6 +835,8 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     ),
     ?assert(is_process_alive(Pid1)),
     ?assert(is_process_alive(Pid2)),
+    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, Pid1))),
+    ?retry(100, 10, ?assertEqual(disconnected, get_channel_info(conn_state, Pid2))),
 
     {ok, _} = emqtt:publish(ConnPub, Topic, <<"hello11">>, 1),
     ?retry(
@@ -854,7 +856,10 @@ t_qos1_random_dispatch_if_all_members_are_down(Config) when is_list(Config) ->
     ok.
 
 get_mqueue(ConnPid) ->
-    emqx_connection:info({channel, {session, mqueue}}, sys:get_state(ConnPid)).
+    get_channel_info({session, mqueue}, ConnPid).
+
+get_channel_info(Info, ConnPid) ->
+    emqx_connection:info({channel, Info}, sys:get_state(ConnPid)).
 
 %% No ack, QoS 2 subscriptions,
 %% client1 receives one message, send pubrec, then suspend
