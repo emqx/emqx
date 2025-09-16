@@ -386,7 +386,7 @@ parse_packet(
     Header = #mqtt_packet_header{type = ?PUBLISH, qos = QoS},
     #options{strict_mode = StrictMode, version = Ver}
 ) ->
-    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_topic),
+    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_topic, publish_topic),
     {PacketId, Rest1} =
         case QoS of
             ?QOS_0 -> {undefined, Rest};
@@ -703,18 +703,33 @@ parse_optional(Bin, F, true) ->
 parse_optional(Bin, _F, false) ->
     {undefined, Bin}.
 
-parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true, _Cause) ->
+parse_utf8_string(Bin, StrictMode, Cause) ->
+    parse_utf8_string(Bin, StrictMode, Cause, always_copy).
+
+parse_utf8_string(Bin, StrictMode, Cause, Copy) ->
+    {Str, Rest} = do_parse_utf8_string(Bin, StrictMode, Cause),
+    %% Micro-optimization:
+    %% It does not worth copying if topic size is greather than rest (payload).
+    %% Benchmark for 1KB topic vs 1B payload shows about 3~5% increase in CPU use if always copy.
+    case Copy =:= publish_topic andalso size(Str) > size(Rest) of
+        true ->
+            {Str, Rest};
+        false ->
+            {binary:copy(Str), Rest}
+    end.
+
+do_parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true, _Cause) ->
     {validate_utf8(Str), Rest};
-parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause) ->
-    {binary:copy(Str), Rest};
-parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
+do_parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause) ->
+    {Str, Rest};
+do_parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
         cause => Cause,
         reason => malformed_utf8_string,
         parsed_length => Len,
         remaining_bytes_length => byte_size(Rest)
     });
-parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
+do_parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
     ?PARSE_ERR(#{
         cause => Cause,
         reason => malformed_utf8_string_length
@@ -1245,7 +1260,7 @@ fixqos(_Type, QoS) -> QoS.
 
 validate_utf8(Bin) ->
     case validate_mqtt_utf8_char(Bin) of
-        true -> binary:copy(Bin);
+        true -> Bin;
         false -> ?PARSE_ERR(utf8_string_invalid)
     end.
 
