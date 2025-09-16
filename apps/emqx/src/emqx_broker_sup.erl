@@ -56,6 +56,13 @@ init([]) ->
         type => worker,
         modules => [emqx_shared_sub]
     },
+    SharedSubPostStart = #{
+        id => shared_sub_post_start,
+        start => {emqx_shared_sub, post_start, []},
+        restart => transient,
+        shutdown => brutal_kill,
+        type => worker
+    },
 
     %% Broker helper
     Helper = #{
@@ -77,4 +84,12 @@ init([]) ->
         modules => [emqx_exclusive_subscription]
     },
 
-    {ok, {{one_for_all, 0, 1}, [SyncerPool, BrokerPool, SharedSub, Helper, ExclusiveSub]}}.
+    {ok,
+        {{one_for_all, 0, 1}, [
+            SyncerPool,
+            BrokerPool,
+            SharedSub,
+            SharedSubPostStart,
+            Helper,
+            ExclusiveSub
+        ]}}.
