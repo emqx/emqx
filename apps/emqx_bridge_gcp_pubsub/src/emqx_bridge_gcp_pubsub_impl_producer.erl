@@ -443,7 +443,7 @@ publish_path(#{project_id := ProjectId}, #{pubsub_topic := PubSubTopic}) ->
 handle_result({error, Reason}, _Request, QueryMode, ConnResId) when
     Reason =:= econnrefused;
     %% this comes directly from `gun'...
-    Reason =:= {closed, "The connection was lost."};
+    element(1, Reason) =:= closed;
     Reason =:= closed;
     %% The normal reason happens when the HTTP connection times out before
     %% the request has been fully processed
