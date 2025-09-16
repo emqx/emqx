@@ -80,7 +80,6 @@ jobs:
         profile:
           - ${{ inputs.profile }}
         os:
-          - macos-13
           - macos-14
           - macos-15
         otp:
@@ -118,7 +117,6 @@ jobs:
         profile:
           - ${{ inputs.profile }}
         os:
-          - macos-13
           - macos-14
           - macos-15
         otp:
@@ -154,13 +152,11 @@ jobs:
         os:
           - ubuntu24.04
           - ubuntu22.04
-          - ubuntu20.04
           - debian13
           - debian12
           - debian11
           - el9
           - el8
-          - el7
           - amzn2
           - amzn2023
         arch:
@@ -172,13 +168,6 @@ jobs:
           - ${{ inputs.builder_vsn }}
         elixir:
           - ${{ inputs.elixir_vsn }}
-        include:
-          - profile: ${{ inputs.profile }}
-            os: ubuntu22.04
-            arch: amd64
-            otp: ${{ inputs.otp_vsn }}
-            builder: ${{ inputs.builder_vsn }}
-            elixir: ${{ inputs.elixir_vsn }}
 
     defaults:
       run:
