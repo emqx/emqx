@@ -450,13 +450,14 @@ cleanup_routes_v1(NodeOrExtDest) ->
 
 cleanup_routes_v1_fallback(NodeOrExtDest) ->
     Patterns = [make_route_rec_pat(P) || P <- ?dest_patterns(NodeOrExtDest)],
-    mria:transaction(?ROUTE_SHARD, fun() ->
+    {atomic, _} = mria:transaction(?ROUTE_SHARD, fun() ->
         [
             mnesia:delete_object(?ROUTE_TAB, Route, write)
          || Pat <- Patterns,
             Route <- mnesia:match_object(?ROUTE_TAB, Pat, write)
         ]
-    end).
+    end),
+    ok.
 
 stream_v1(Spec) ->
     mk_route_stream(?ROUTE_TAB, Spec).
