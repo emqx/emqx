@@ -319,7 +319,7 @@ t_start_stop(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_start_stop(TCConfig, dynamo_connector_on_stop).
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
-    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => connecting}).
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
 
 t_rule_action() ->
     [{matrix, true}].
