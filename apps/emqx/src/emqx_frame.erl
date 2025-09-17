@@ -71,6 +71,7 @@
 -define(SERIALIZE_ERR(Reason), ?THROW_SERIALIZE_ERROR(Reason)).
 
 -define(MULTIPLIER_MAX, 16#200000).
+-define(SMALL_BINARY, 64).
 
 -dialyzer({no_match, [serialize_utf8_string/3]}).
 
@@ -358,7 +359,7 @@ do_parse_connect(
         _ ->
             ?PARSE_ERR(#{
                 cause => malformed_connect,
-                unexpected_trailing_bytes => size(Rest7)
+                unexpected_trailing_bytes => byte_size(Rest7)
             })
     end;
 do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _StrictMode) ->
@@ -386,7 +387,7 @@ parse_packet(
     Header = #mqtt_packet_header{type = ?PUBLISH, qos = QoS},
     #options{strict_mode = StrictMode, version = Ver}
 ) ->
-    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_topic),
+    {TopicName, Rest} = parse_utf8_string(Bin, StrictMode, _Cause = invalid_topic, publish_topic),
     {PacketId, Rest1} =
         case QoS of
             ?QOS_0 -> {undefined, Rest};
@@ -703,25 +704,42 @@ parse_optional(Bin, F, true) ->
 parse_optional(Bin, _F, false) ->
     {undefined, Bin}.
 
-parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true, _Cause) ->
+parse_utf8_string(Bin, StrictMode, Cause) ->
+    parse_utf8_string(Bin, StrictMode, Cause, always_copy).
+
+parse_utf8_string(Bin, StrictMode, Cause, Copy) ->
+    {Str, Rest} = do_parse_utf8_string(Bin, StrictMode, Cause),
+    %% Micro-optimization:
+    %% It does not worth copying if topic size is greather than rest (payload).
+    %% Benchmark for 1KB topic vs 1B payload shows about 3~5% increase in CPU use if always copy.
+    case Copy =:= publish_topic andalso byte_size(Str) > byte_size(Rest) of
+        true ->
+            {Str, Rest};
+        false ->
+            {maybe_binary_copy(Str), Rest}
+    end.
+
+do_parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true, _Cause) ->
     {validate_utf8(Str), Rest};
-parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause) ->
+do_parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause) ->
     {Str, Rest};
-parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
+do_parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
         cause => Cause,
         reason => malformed_utf8_string,
         parsed_length => Len,
         remaining_bytes_length => byte_size(Rest)
     });
-parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
+do_parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
     ?PARSE_ERR(#{
         cause => Cause,
         reason => malformed_utf8_string_length
     }).
 
 parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
-    {Data, Rest};
+    %% So the will message payload is not a sub binary into the CONNECT packet binary.
+    %% which can be large if client ID + Username + Password is long.
+    {maybe_binary_copy(Data), Rest};
 parse_will_payload(<<Len:16/big, Rest/binary>>) when
     Len > byte_size(Rest)
 ->
@@ -735,9 +753,15 @@ parse_will_payload(Bin) when
 ->
     ?PARSE_ERR(#{
         cause => malformed_will_payload,
-        length_bytes => size(Bin),
+        length_bytes => byte_size(Bin),
         expected_bytes => 2
     }).
+
+-compile({inline, [maybe_binary_copy/1]}).
+maybe_binary_copy(Bin) when byte_size(Bin) =< ?SMALL_BINARY ->
+    Bin;
+maybe_binary_copy(Bin) ->
+    binary:copy(Bin).
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet
