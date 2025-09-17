@@ -212,7 +212,7 @@ mock_snowflake() ->
         ],
         {selected, Headers, Rows}
     end),
-    meck:expect(Mod, do_health_check_connector, fun(_ConnPid) -> true end),
+    meck:expect(Mod, do_health_check_connector, fun(_ConnPid) -> ok end),
     %% Used in health checks
     meck:expect(Mod, do_insert_report_request, fun(_HTTPPool, _Req, _RequestTTL, _MaxRetries) ->
         Headers = [],

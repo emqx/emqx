@@ -331,14 +331,14 @@ convert_topic_mapping(TopicMappingList) ->
     lists:foldl(
         fun(Fields, Acc) ->
             #{
-                pubsub_topic := PubSubTopic,
+                pubsub_topic := PubsubTopic,
                 mqtt_topic := MQTTTopic,
                 qos := QoS,
                 payload_template := PayloadTemplate0
             } = Fields,
             PayloadTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate0),
             Acc#{
-                PubSubTopic => #{
+                PubsubTopic => #{
                     payload_template => PayloadTemplate,
                     mqtt_topic => MQTTTopic,
                     qos => QoS
@@ -350,8 +350,8 @@ convert_topic_mapping(TopicMappingList) ->
     ).
 
 validate_pubsub_topics(TopicMapping, Client, ReqOpts) ->
-    PubSubTopics = maps:keys(TopicMapping),
-    do_validate_pubsub_topics(Client, PubSubTopics, ReqOpts).
+    PubsubTopics = maps:keys(TopicMapping),
+    do_validate_pubsub_topics(Client, PubsubTopics, ReqOpts).
 
 do_validate_pubsub_topics(Client, [Topic | Rest], ReqOpts) ->
     case check_for_topic_existence(Topic, Client, ReqOpts) of
@@ -391,27 +391,15 @@ get_client_status(Client) ->
 -spec check_workers(source_resource_id(), emqx_bridge_gcp_pubsub_client:state()) ->
     ?status_connected | ?status_connecting.
 check_workers(SourceResId, Client) ->
-    case
-        emqx_resource_pool:health_check_workers(
-            SourceResId,
-            fun emqx_bridge_gcp_pubsub_consumer_worker:health_check/1,
-            emqx_resource_pool:health_check_timeout(),
-            #{return_values => true}
-        )
-    of
-        {ok, []} ->
-            ?status_connecting;
-        {ok, Values} ->
-            AllOk = lists:all(fun(S) -> S =:= subscription_ok end, Values),
-            case AllOk of
-                true ->
-                    get_client_status(Client);
-                false ->
-                    ?status_connecting
-            end;
-        {error, _} ->
-            ?status_connecting
-    end.
+    Opts = #{
+        check_fn => fun emqx_bridge_gcp_pubsub_consumer_worker:health_check/1,
+        is_success_fn => fun
+            (subscription_ok) -> false;
+            (_) -> true
+        end,
+        on_success_fn => fun() -> get_client_status(Client) end
+    },
+    emqx_resource_pool:common_health_check_workers(SourceResId, Opts).
 
 log_when_error(Fun, Log) ->
     try

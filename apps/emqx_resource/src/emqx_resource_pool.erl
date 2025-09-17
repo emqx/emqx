@@ -10,6 +10,7 @@
     start/3,
     stop/1,
     health_check_timeout/0,
+    common_health_check_workers/2,
     health_check_workers/2,
     health_check_workers/3,
     health_check_workers/4,
@@ -90,6 +91,47 @@ health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->
             {error, Reason};
         {error, _Reason} ->
             false
+    end.
+
+common_health_check_workers(PoolName, #{} = Opts) ->
+    #{
+        check_fn := CheckFn
+    } = Opts,
+    IsSuccessFn = maps:get(is_success_fn, Opts, fun
+        (ok) -> false;
+        (_) -> true
+    end),
+    OnSuccessFn = maps:get(on_success_fn, Opts, fun() -> ?status_connected end),
+    Timeout = maps:get(timeout, Opts, emqx_resource_pool:health_check_timeout()),
+    Res = emqx_resource_pool:health_check_workers(
+        PoolName,
+        CheckFn,
+        Timeout,
+        #{return_values => true}
+    ),
+    case Res of
+        {ok, []} ->
+            {?status_disconnected, <<"connection_pool_not_initialized">>};
+        {ok, Results} ->
+            Errors = lists:filter(IsSuccessFn, Results),
+            case Errors of
+                [] ->
+                    OnSuccessFn();
+                [{error, Reason} | _] ->
+                    {?status_disconnected, Reason};
+                [Reason | _] ->
+                    {?status_disconnected, Reason}
+            end;
+        {error, timeout} ->
+            %% We trigger a full reconnection if the health check times out, by declaring
+            %% the connector `?status_disconnected`.  We choose to do this because there
+            %% have been issues where the connection process does not die and the
+            %% connection itself unusable.
+            {?status_disconnected, <<"health_check_timeout">>};
+        {error, {processes_down, _}} ->
+            {?status_disconnected, <<"pool_crashed">>};
+        {error, Reason} ->
+            {?status_disconnected, Reason}
     end.
 
 do_health_check_workers(PoolName, CheckFunc, Timeout, Opts) ->

@@ -704,6 +704,12 @@ t_static_clientids_username_password_tuples_deobfuscate(TCConfig) ->
     ),
     ok.
 
+%% Checks that updating an MQTT connectors without the `static_clientids` field work.
+t_update_without_static_clientids(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {200, _} = update_connector_api(TCConfig, #{}),
+    ok.
+
 %% Checks that we can forward original MQTT user properties via this action.  Also
 %% verifies that extra properties may be added via templates.
 t_forward_user_properties(Config) ->

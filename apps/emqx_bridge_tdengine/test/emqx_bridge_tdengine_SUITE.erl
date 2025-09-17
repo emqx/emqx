@@ -387,7 +387,7 @@ t_create_via_http(Config) ->
     emqx_bridge_v2_testlib:t_create_via_http(Config).
 
 t_on_get_status(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}).
+    emqx_bridge_v2_testlib:t_on_get_status(Config).
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, tdengine_connector_stop).
