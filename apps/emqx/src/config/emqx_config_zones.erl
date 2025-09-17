@@ -21,6 +21,7 @@
 %% _before_ most of the EMQX applications are started.
 post_update(OldZones, NewZones) ->
     ok = emqx_flapping:update_config(),
+    ok = emqx_listeners:post_zone_config_update(OldZones, NewZones),
     ok = emqx_limiter:post_zone_config_update(OldZones, NewZones),
     ok = run_update_hook(OldZones, NewZones).
 
