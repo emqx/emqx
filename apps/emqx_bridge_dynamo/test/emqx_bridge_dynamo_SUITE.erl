@@ -613,7 +613,7 @@ t_bad_parameter(Config) ->
 %% Connector Action Tests
 
 t_action_on_get_status(Config) ->
-    emqx_bridge_v2_testlib:t_on_get_status(Config, #{failure_status => connecting}).
+    emqx_bridge_v2_testlib:t_on_get_status(Config).
 
 t_action_create_via_http(Config) ->
     emqx_bridge_v2_testlib:t_create_via_http(Config).
