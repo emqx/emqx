@@ -338,30 +338,11 @@ on_format_query_result(Result) ->
     Result.
 
 on_get_status(_InstanceId, #{pool_name := PoolName}) ->
-    Results = emqx_resource_pool:health_check_workers(
-        PoolName,
-        {?MODULE, do_get_status, []},
-        _Timeout = 5000,
-        #{return_values => true}
-    ),
-    status_result(Results).
-
-status_result({error, timeout}) ->
-    {?status_connecting, <<"timeout_checking_connections">>};
-status_result({error, {processes_down, _}}) ->
-    {?status_disconnected, <<"pool_crashed">>};
-status_result({error, Reason}) ->
-    {?status_disconnected, Reason};
-status_result({ok, []}) ->
-    %% ecpool will auto-restart after delay
-    {?status_connecting, <<"connection_pool_not_initialized">>};
-status_result({ok, Results}) ->
-    case lists:filter(fun(S) -> S =/= ok end, Results) of
-        [] ->
-            ?status_connected;
-        [{error, Reason} | _] ->
-            {?status_connecting, Reason}
-    end.
+    Opts = #{
+        check_fn => {?MODULE, do_get_status, []},
+        timeout => 5_000
+    },
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
 %%====================================================================
 %% ecpool callback fns

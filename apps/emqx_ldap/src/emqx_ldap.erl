@@ -202,29 +202,30 @@ on_query(InstId, {bind, _DN, _Data} = Req, State) ->
 
 on_get_status(InstId, #{pool_name := PoolName} = State) ->
     case get_status_with_poolname(PoolName) of
-        connected ->
+        ?status_connected ->
             emqx_ldap_bind_worker:on_get_status(InstId, State);
-        disconnected ->
+        ?status_disconnected ->
             ?status_disconnected
     end.
 
 get_status_with_poolname(PoolName) ->
-    case emqx_resource_pool:health_check_workers(PoolName, fun ?MODULE:do_get_status/1) of
-        true ->
-            ?status_connected;
-        false ->
-            %% Note: here can only return `disconnected` not `connecting`
-            %% because the LDAP socket/connection can't be reused
-            %% searching on a died socket will never return until timeout
-            ?status_disconnected
-    end.
+    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
+    %% Note: here can only return `disconnected` not `connecting`
+    %% because the LDAP socket/connection can't be reused
+    %% searching on a died socket will never return until timeout
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
 do_get_status(Conn) ->
     %% search with an invalid base object
     %% if the server is down, the result is {error, ldap_closed}
-    %% otherwise is {error, invalidDNSyntax/timeout}
-    {error, ldap_closed} =/=
-        eldap:search(Conn, [{base, "cn=checkalive"}, {filter, eldap:'approxMatch'("", "")}]).
+    %% otherwise is {error, invalidDNSyntax/timeout/noSuchObject}
+    Res = eldap:search(Conn, [{base, "cn=checkalive"}, {filter, eldap:'approxMatch'("", "")}]),
+    case Res of
+        {error, ldap_closed} ->
+            {error, <<"connection_down">>};
+        _ ->
+            ok
+    end.
 
 %% ===================================================================
 

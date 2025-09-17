@@ -433,19 +433,15 @@ on_get_status(InstanceId, #{driver := restapi} = State) ->
     end,
     emqx_bridge_http_connector:on_get_status(InstanceId, State, Func);
 on_get_status(InstanceId, #{driver := thrift} = _State) ->
-    case emqx_resource_pool:health_check_workers(InstanceId, fun ?MODULE:do_get_status/1) of
-        true ->
-            ?status_connected;
-        false ->
-            ?status_disconnected
-    end.
+    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
+    emqx_resource_pool:common_health_check_workers(InstanceId, Opts).
 
 do_get_status(Conn) ->
     case iotdb:ping(Conn) of
         {ok, _} ->
-            true;
-        {error, _} ->
-            false
+            ok;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 connect(Opts) ->

@@ -1107,7 +1107,7 @@ t_on_get_status(Config) ->
         end,
         WorkerPids
     ),
-    ?assertMatch({ok, connecting}, health_check(Config)),
+    ?assertMatch({ok, disconnected}, health_check(Config)),
     ok.
 
 t_create_update_via_http_api(Config) ->
@@ -1363,7 +1363,7 @@ t_connection_timeout_before_starting(Config) ->
                             10_000
                         )
                     ),
-                    ?assertMatch({ok, connecting}, health_check(Config)),
+                    ?assertMatch({ok, disconnected}, health_check(Config)),
                     ok
                 end
             ),
@@ -1398,7 +1398,7 @@ t_pull_worker_death(Config) ->
                     ok
             after 500 -> ct:fail("pull worker didn't die")
             end,
-            ?assertMatch({ok, connecting}, health_check(Config)),
+            ?assertMatch({ok, disconnected}, health_check(Config)),
 
             %% recovery
             ?retry(

@@ -237,45 +237,15 @@ mysql_function(_) ->
     mysql_function(prepared_query).
 
 on_get_status(_InstId, #{pool_name := PoolName} = State) ->
-    Res = emqx_resource_pool:health_check_workers(
-        PoolName,
-        fun ?MODULE:do_get_status/1,
-        emqx_resource_pool:health_check_timeout(),
-        #{return_values => true}
-    ),
-    case Res of
-        {ok, []} ->
-            {?status_connecting, <<"connection_pool_not_initialized">>};
-        {ok, Results} ->
-            Errors =
-                lists:filter(
-                    fun
-                        ({ok, _, _}) ->
-                            false;
-                        (_) ->
-                            true
-                    end,
-                    Results
-                ),
-            case Errors of
-                [] ->
-                    do_on_get_status_prepares(State);
-                [{error, Reason} | _] ->
-                    {?status_disconnected, Reason};
-                [Reason | _] ->
-                    {?status_disconnected, Reason}
-            end;
-        {error, timeout} ->
-            %% We trigger a full reconnection if the health check times out, by declaring
-            %% the connector `?status_disconnected`.  We choose to do this because there
-            %% have been issues where the connection process does not die and the
-            %% connection itself unusable.
-            {?status_disconnected, <<"health_check_timeout">>};
-        {error, {processes_down, _}} ->
-            {?status_disconnected, <<"pool_crashed">>};
-        {error, Reason} ->
-            {?status_disconnected, Reason}
-    end.
+    Opts = #{
+        check_fn => fun ?MODULE:do_get_status/1,
+        is_success_fn => fun
+            ({ok, _, _}) -> false;
+            (_) -> true
+        end,
+        on_success_fn => fun() -> do_on_get_status_prepares(State) end
+    },
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
 do_get_status(Conn) ->
     mysql:query(Conn, <<"SELECT count(1) AS T">>).
