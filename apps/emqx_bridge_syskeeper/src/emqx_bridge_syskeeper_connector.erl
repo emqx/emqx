@@ -273,8 +273,8 @@ do_query(
     Result =
         case try_render_message(Query, Channels) of
             {ok, Msg} ->
-                [{ChannelID, _} | _] = Query,
-                emqx_trace:rendered_action_template(ChannelID, #{message => Msg}),
+                [{ChannelId, _} | _] = Query,
+                emqx_trace:rendered_action_template(ChannelId, #{message => Msg}),
                 ecpool:pick_and_do(
                     PoolName,
                     {emqx_bridge_syskeeper_client, forward, [Msg, AckTimeout + ?EXTRA_CALL_TIMEOUT]},

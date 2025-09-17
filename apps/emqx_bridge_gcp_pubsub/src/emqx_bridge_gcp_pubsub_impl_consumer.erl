@@ -331,14 +331,14 @@ convert_topic_mapping(TopicMappingList) ->
     lists:foldl(
         fun(Fields, Acc) ->
             #{
-                pubsub_topic := PubSubTopic,
+                pubsub_topic := PubsubTopic,
                 mqtt_topic := MQTTTopic,
                 qos := QoS,
                 payload_template := PayloadTemplate0
             } = Fields,
             PayloadTemplate = emqx_placeholder:preproc_tmpl(PayloadTemplate0),
             Acc#{
-                PubSubTopic => #{
+                PubsubTopic => #{
                     payload_template => PayloadTemplate,
                     mqtt_topic => MQTTTopic,
                     qos => QoS
@@ -350,8 +350,8 @@ convert_topic_mapping(TopicMappingList) ->
     ).
 
 validate_pubsub_topics(TopicMapping, Client, ReqOpts) ->
-    PubSubTopics = maps:keys(TopicMapping),
-    do_validate_pubsub_topics(Client, PubSubTopics, ReqOpts).
+    PubsubTopics = maps:keys(TopicMapping),
+    do_validate_pubsub_topics(Client, PubsubTopics, ReqOpts).
 
 do_validate_pubsub_topics(Client, [Topic | Rest], ReqOpts) ->
     case check_for_topic_existence(Topic, Client, ReqOpts) of
