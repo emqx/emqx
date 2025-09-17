@@ -2689,3 +2689,63 @@ t_namespaced_delete_cascade_partial_failure(TCConfig0) when is_list(TCConfig0) -
     ),
 
     ok.
+
+-doc """
+Checks that we can (re-)import self-contained configurations and the resources will be
+created in the correct order.  i.e., connectors < actions/sources < rules.
+""".
+t_namespaced_bulk_import_order() ->
+    [{matrix, true}].
+t_namespaced_bulk_import_order(matrix) ->
+    [[?custom_cluster]];
+t_namespaced_bulk_import_order(TCConfig0) when is_list(TCConfig0) ->
+    #{
+        tc_config := _TCConfigNS,
+        source_hookpoint := _SourceHookPoint,
+        namespace := Namespace,
+        username := _Username,
+        nodes := [N1 | _] = _Nodes
+    } = setup_namespaced_actions_sources_deletion_scenario(?FUNCTION_NAME, TCConfig0),
+    {200, OriginalConfig} = emqx_mt_api_SUITE:bulk_export_ns_configs(#{
+        <<"namespaces">> => [Namespace]
+    }),
+    %% Clear all resource befores re-importing
+    ?ON(N1, begin
+        emqx_bridge_v2_testlib:delete_all_rules(),
+        emqx_bridge_v2_testlib:delete_all_bridges_and_connectors()
+    end),
+    %% Sanity check
+    [] = ?ON(N1, emqx_resource:list_instances()),
+    %% Re-importing the config should work.
+    %% The original issue was that actions could be created before their connectors.
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {200, _},
+                emqx_mt_api_SUITE:bulk_import_ns_configs(#{
+                    <<"configs">> => OriginalConfig,
+                    <<"dry_run">> => false
+                })
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            %% Must be in the expected order
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := "mt_bulk_importing_config", root_key := <<"connectors">>},
+                    #{?snk_kind := "mt_bulk_importing_config", root_key := <<"actions">>},
+                    Trace
+                )
+            ),
+            ?assert(
+                ?strict_causality(
+                    #{?snk_kind := "mt_bulk_importing_config", root_key := <<"actions">>},
+                    #{?snk_kind := "mt_bulk_importing_config", root_key := <<"rule_engine">>},
+                    Trace
+                )
+            ),
+            ok
+        end
+    ),
+    ok.

@@ -11,6 +11,10 @@
         root_keys => [<<"actions">>, <<"sources">>],
         dependencies => [emqx_connector]
     },
+    emqx_connector => #{
+        root_keys => [<<"connectors">>],
+        dependencies => []
+    },
     emqx_message_transformation_config => #{
         root_keys => [<<"message_transformation">>],
         dependencies => [emqx_schema_registry_config]

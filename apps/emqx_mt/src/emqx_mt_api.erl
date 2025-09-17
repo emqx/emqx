@@ -7,6 +7,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_mt.hrl").
 
@@ -936,11 +937,19 @@ save_config(_IsDryRun = false, Namespace, NewConfig0, OldConfig) ->
         emqx_utils_maps:diff_maps(NewConfig0, OldConfig),
     Changed = maps:map(fun(_K, {_, V}) -> V end, Changed0),
     NewConfig = maps:merge(Added, Changed),
-    maps:foreach(
-        fun(RootKey, Config) ->
-            {ok, _} = emqx:update_config([RootKey], Config, #{namespace => Namespace})
+    AllKeys = maps:keys(NewConfig),
+    SortedRootKeys0 = emqx_conf_dep_registry:sorted_root_keys(),
+    OtherKeys = AllKeys -- SortedRootKeys0,
+    SortedRootKeys = SortedRootKeys0 ++ OtherKeys,
+    lists:foreach(
+        fun(RootKey) ->
+            maybe
+                {ok, Config} ?= maps:find(RootKey, NewConfig),
+                ?tp("mt_bulk_importing_config", #{root_key => RootKey, namespace => Namespace}),
+                {ok, _} = emqx:update_config([RootKey], Config, #{namespace => Namespace})
+            end
         end,
-        NewConfig
+        SortedRootKeys
     ).
 
 with_known_managed_ns(Ns, Fn) ->
