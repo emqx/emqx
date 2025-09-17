@@ -68,7 +68,7 @@ Create a new MQ.
 -spec create(emqx_mq_types:mq()) ->
     {ok, emqx_mq_types:mq()} | {error, queue_exists} | {error, term()}.
 create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) when
-    (not IsLastValue) orelse (IsLastValue andalso is_map_key(key_expression, MQ0))
+    (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, MQ0)))
 ->
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),

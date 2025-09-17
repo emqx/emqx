@@ -78,20 +78,20 @@ fields(mq) ->
 %% Lastvalue structs
 %%
 fields(message_queue_api_lastvalue_put) ->
-    without_fields([topic_filter], message_queue_fields(true));
+    without_fields([topic_filter], message_queue_fields(true)) ++ message_queue_lastvalue_fields();
 fields(message_queue_lastvalue_api_get) ->
-    message_queue_fields(true);
+    message_queue_fields(true) ++ message_queue_lastvalue_fields();
 fields(message_queue_lastvalue_api_post) ->
-    message_queue_fields(true);
+    message_queue_fields(true) ++ message_queue_lastvalue_fields();
 %%
 %% Regular structs
 %%
 fields(message_queue_api_regular_put) ->
-    without_fields([topic_filter, key_expression], message_queue_fields(false));
+    without_fields([topic_filter], message_queue_fields(false));
 fields(message_queue_regular_api_get) ->
-    without_fields([key_expression], message_queue_fields(false));
+    message_queue_fields(false);
 fields(message_queue_regular_api_post) ->
-    without_fields([key_expression], message_queue_fields(false));
+    message_queue_fields(false);
 %%
 %% Queue listing
 %%
@@ -205,11 +205,15 @@ message_queue_fields(IsLastvalue) ->
                 required => false,
                 importance => ?IMPORTANCE_HIDDEN,
                 default => <<"10s">>
-            })},
+            })}
+    ].
+
+message_queue_lastvalue_fields() ->
+    [
         {key_expression,
             mk(typerefl:alias("string", any()), #{
                 desc => ?DESC(key_expression),
-                required => false,
+                required => true,
                 converter => fun compile_variform/2,
                 default => <<"message.from">>
             })}
