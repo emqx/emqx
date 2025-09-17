@@ -2478,7 +2478,6 @@ t_update_with_invalid_prepare(TCConfig, #{} = Opts) ->
 %% tree is unhealthy for any reason.
 t_ecpool_workers_crash(TCConfig) ->
     {201, _} = simplify_result(create_connector_api(TCConfig, #{})),
-    ConnResId = connector_resource_id(TCConfig),
     %% Since the supervisor might restart quickly, we just mock the response to avoid
     %% flakiness.  See `ecpool:check_pool_integrity` for the possible return values.
     emqx_common_test_helpers:with_mock(

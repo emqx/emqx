@@ -15,7 +15,7 @@
     emqtt_ack/1
 ]).
 
--export([create_mq/1]).
+-export([create_mq/1, fill_mq_defaults/1]).
 
 -export([populate/2, populate_lastvalue/2]).
 
@@ -79,21 +79,7 @@ emqtt_ack(Msgs) ->
     ).
 
 create_mq(#{topic_filter := TopicFilter} = MQ0) ->
-    Default = #{
-        is_lastvalue => false,
-        consumer_max_inactive => 1000,
-        ping_interval => 5000,
-        redispatch_interval => 100,
-        dispatch_strategy => random,
-        local_max_inflight => 4,
-        busy_session_retry_interval => 100,
-        stream_max_buffer_size => 10,
-        stream_max_unacked => 5,
-        consumer_persistence_interval => 1000,
-        data_retention_period => 3600_000
-    },
-    MQ1 = maps:merge(Default, MQ0),
-
+    MQ1 = fill_mq_defaults(MQ0),
     SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
@@ -111,6 +97,22 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
         )
     ),
     MQ.
+
+fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ) ->
+    Default = #{
+        is_lastvalue => false,
+        consumer_max_inactive => 1000,
+        ping_interval => 5000,
+        redispatch_interval => 100,
+        dispatch_strategy => random,
+        local_max_inflight => 4,
+        busy_session_retry_interval => 100,
+        stream_max_buffer_size => 10,
+        stream_max_unacked => 5,
+        consumer_persistence_interval => 1000,
+        data_retention_period => 3600_000
+    },
+    maps:merge(Default, MQ).
 
 populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),

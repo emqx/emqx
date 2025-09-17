@@ -99,7 +99,7 @@ fields(telemetry) ->
                 string(),
                 #{
                     desc => ?DESC(emqx_version),
-                    example => <<"5.0.0-beta.3-32d1547c">>
+                    example => <<"6.0.0-rc.1">>
                 }
             )},
         {license,
@@ -107,7 +107,7 @@ fields(telemetry) ->
                 map(),
                 #{
                     desc => ?DESC(license),
-                    example => #{edition => <<"opensource">>}
+                    example => #{edition => <<"enterprise">>}
                 }
             )},
         {os_name,
@@ -123,7 +123,7 @@ fields(telemetry) ->
                 string(),
                 #{
                     desc => ?DESC(os_version),
-                    example => <<"20.04">>
+                    example => <<"24.04">>
                 }
             )},
         {otp_version,
@@ -131,7 +131,7 @@ fields(telemetry) ->
                 string(),
                 #{
                     desc => ?DESC(otp_version),
-                    example => <<"24">>
+                    example => <<"27">>
                 }
             )},
         {up_time,

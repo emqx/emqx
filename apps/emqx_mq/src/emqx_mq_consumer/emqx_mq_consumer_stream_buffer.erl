@@ -209,7 +209,7 @@ handle_ds_reply(#{status := restoring} = SB0, Handle, #ds_sub_reply{
 }) ->
     case handle_restore(SB0, NewTTVs, 0, It) of
         {ok, TTVs, #{status := active} = SB} ->
-            ?tp_debug(emqx_mq_consumer_stream_buffer_handle_ds_reply_buffer_restored, #{
+            ?tp_debug(mq_consumer_stream_buffer_handle_ds_reply_buffer_restored, #{
                 sb => inspect(SB)
             }),
             {ok, TTVs, suback(SB, Handle, SeqNo)};

@@ -13,8 +13,8 @@ help() {
     echo "-h|--help:       To display this usage information"
     echo "--release:       Print release version from emqx_release.hrl"
     echo
-    echo "--long:          Print long vsn number. e.g. 5.0.0-ubuntu20.04-amd64"
-    echo "                 Otherwise short e.g. 5.0.0"
+    echo "--long:          Print long vsn number. e.g. 6.0.0-ubuntu24.04-amd64"
+    echo "                 Otherwise short e.g. 6.0.0"
     echo "--vsn_matcher:   For --long option, replace the EMQX version with '*'"
     echo "                 so it can be used in find commands"
 }

@@ -10,7 +10,6 @@
 -export([init/1]).
 
 start_link() ->
-    _ = mria:wait_for_tables(emqx_alarm:create_tables()),
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
@@ -19,10 +18,18 @@ init([]) ->
             true -> [child_spec(emqx_os_mon), child_spec(emqx_cpu_sup_worker)];
             false -> []
         end,
+    LoadAlarmHandler = #{
+        id => load_alarm_handler,
+        start => {emqx_alarm_handler, load, []},
+        restart => transient,
+        shutdown => 1_000,
+        type => worker
+    },
     Children =
         [
-            child_spec(emqx_sys),
             child_spec(emqx_alarm),
+            LoadAlarmHandler,
+            child_spec(emqx_sys),
             child_spec(emqx_sys_mon),
             child_spec(emqx_vm_mon),
             child_spec(emqx_broker_mon)

@@ -268,7 +268,9 @@ put_message_queue_config_example() ->
         {ok, CreatedMessageQueueRaw} ->
             ?OK(CreatedMessageQueueRaw);
         {error, queue_exists} ->
-            ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>)
+            ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>);
+        {error, Reason} ->
+            ?SERVICE_UNAVAILABLE(Reason)
     end.
 
 '/message_queues/queues/:topic_filter'(get, #{bindings := #{topic_filter := TopicFilter}}) ->
@@ -333,8 +335,8 @@ add_message_queue(NewMessageQueueRaw) ->
     case emqx_mq_registry:create(NewMessageQueue) of
         {ok, MQ} ->
             {ok, emqx_mq_config:mq_to_raw_config(MQ)};
-        {error, queue_exists} ->
-            {error, queue_exists}
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 get_message_queue(TopicFilter) ->
