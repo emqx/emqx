@@ -659,7 +659,7 @@ choose_packet_opts(Opts) ->
     case ParseUnit of
         frame when HasPacketParser ->
             PacketSize = emqx_config:get_zone_conf(zone(Opts), [mqtt, max_packet_size]),
-            [{packet, mqtt}, {packet_size, PacketSize}];
+            [{packet, mqtt}, {packet_size, PacketSize}, {mode, binary}];
         frame ->
             %% NOTE: Silently ignoring the setting if BEAM does not provide `mqtt` parser.
             [{packet, raw}];

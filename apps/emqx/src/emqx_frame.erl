@@ -359,7 +359,7 @@ do_parse_connect(
         _ ->
             ?PARSE_ERR(#{
                 cause => malformed_connect,
-                unexpected_trailing_bytes => size(Rest7)
+                unexpected_trailing_bytes => byte_size(Rest7)
             })
     end;
 do_parse_connect(_ProtoName, _IsBridge, _ProtoVer, Bin, _StrictMode) ->
@@ -712,7 +712,7 @@ parse_utf8_string(Bin, StrictMode, Cause, Copy) ->
     %% Micro-optimization:
     %% It does not worth copying if topic size is greather than rest (payload).
     %% Benchmark for 1KB topic vs 1B payload shows about 3~5% increase in CPU use if always copy.
-    case Copy =:= publish_topic andalso size(Str) > size(Rest) of
+    case Copy =:= publish_topic andalso byte_size(Str) > byte_size(Rest) of
         true ->
             {Str, Rest};
         false ->
@@ -737,7 +737,7 @@ do_parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
     }).
 
 parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
-    %% So the will message payload is off the reference of the whole CONNECT packet
+    %% So the will message payload is not a sub binary into the CONNECT packet binary.
     %% which can be large if client ID + Username + Password is long.
     {maybe_binary_copy(Data), Rest};
 parse_will_payload(<<Len:16/big, Rest/binary>>) when
@@ -753,12 +753,12 @@ parse_will_payload(Bin) when
 ->
     ?PARSE_ERR(#{
         cause => malformed_will_payload,
-        length_bytes => size(Bin),
+        length_bytes => byte_size(Bin),
         expected_bytes => 2
     }).
 
 -compile({inline, [maybe_binary_copy/1]}).
-maybe_binary_copy(Bin) when size(Bin) =< ?SMALL_BINARY ->
+maybe_binary_copy(Bin) when byte_size(Bin) =< ?SMALL_BINARY ->
     Bin;
 maybe_binary_copy(Bin) ->
     binary:copy(Bin).
