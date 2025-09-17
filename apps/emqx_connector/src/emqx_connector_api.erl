@@ -847,8 +847,8 @@ deobfuscate(Type, #{} = NewRawConf0, #{} = OldRawConf) ->
 deobfuscate(_Type, NewRawConf, _OldRawConf) ->
     NewRawConf.
 
-deobfuscate_mqtt_connector(NewRawConf, OldRawConf) ->
-    OldStaticClientidInfo = maps:get(<<"static_clientids">>, OldRawConf),
+deobfuscate_mqtt_connector(#{<<"static_clientids">> := _} = NewRawConf, OldRawConf) ->
+    OldStaticClientidInfo = maps:get(<<"static_clientids">>, OldRawConf, []),
     NewStaticClientidInfo0 = maps:get(<<"static_clientids">>, NewRawConf),
     OldIndex = lists:foldl(
         fun(#{<<"node">> := Node} = Info, Acc) ->
@@ -864,7 +864,9 @@ deobfuscate_mqtt_connector(NewRawConf, OldRawConf) ->
         end,
         NewStaticClientidInfo0
     ),
-    maps:put(<<"static_clientids">>, NewStaticClientidInfo, NewRawConf).
+    maps:put(<<"static_clientids">>, NewStaticClientidInfo, NewRawConf);
+deobfuscate_mqtt_connector(NewRawConf, _OldRawConf) ->
+    NewRawConf.
 
 deobfuscate_mqtt_connector_for_node(NewInfo0, OldInfo) ->
     OldIds = maps:get(<<"ids">>, OldInfo, []),

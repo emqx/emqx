@@ -41,7 +41,7 @@ forward(Pid, Msg, Timeout) ->
     call(Pid, {?FUNCTION_NAME, Msg}, Timeout).
 
 heartbeat(Pid, Timeout) ->
-    ok =:= call(Pid, ?FUNCTION_NAME, Timeout).
+    call(Pid, ?FUNCTION_NAME, Timeout).
 
 %% -------------------------------------------------------------------------------------------------
 %% Starts Bridge which transfer data to Syskeeper

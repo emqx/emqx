@@ -209,15 +209,13 @@ on_batch_query(InstanceId, [{_MessageTag, _} | _] = Query, State) ->
 on_batch_query(_InstanceId, Query, _State) ->
     {error, {unrecoverable_error, {invalid_request, Query}}}.
 
-on_get_status(_InstanceId, #{pool_name := Pool, ack_timeout := AckTimeout}) ->
-    Health = emqx_resource_pool:health_check_workers(
-        Pool, {emqx_bridge_syskeeper_client, heartbeat, [AckTimeout + ?EXTRA_CALL_TIMEOUT]}
-    ),
-    status_result(Health).
-
-status_result(true) -> ?status_connected;
-status_result(false) -> ?status_disconnected;
-status_result({error, _}) -> ?status_disconnected.
+on_get_status(_InstanceId, #{pool_name := PoolName, ack_timeout := AckTimeout}) ->
+    Timeout = AckTimeout + ?EXTRA_CALL_TIMEOUT,
+    Opts = #{
+        check_fn => {emqx_bridge_syskeeper_client, heartbeat, [Timeout]},
+        timeout => Timeout
+    },
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
 on_add_channel(
     _InstanceId,

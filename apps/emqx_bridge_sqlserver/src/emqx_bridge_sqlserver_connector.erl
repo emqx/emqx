@@ -366,47 +366,32 @@ on_format_query_result(Result) ->
     Result.
 
 on_get_status(_InstanceId, #{pool_name := PoolName} = ConnState) ->
-    Results = emqx_resource_pool:health_check_workers(
-        PoolName,
-        {?MODULE, do_get_status, []},
-        _Timeout = 5000,
-        #{return_values => true}
-    ),
-    status_result(Results, ConnState).
+    Opts = #{
+        check_fn => {?MODULE, do_get_status, []},
+        on_success_fn => fun() -> on_get_status_continue(ConnState) end,
+        timeout => 5_000
+    },
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
-status_result({error, timeout}, _ConnState) ->
-    {?status_connecting, <<"timeout_checking_connections">>};
-status_result({error, {processes_down, _}}, _ConnState) ->
-    {?status_disconnected, <<"pool_crashed">>};
-status_result({error, Reason}, _ConnState) ->
-    {?status_disconnected, Reason};
-status_result({ok, []}, _ConnState) ->
-    %% ecpool will auto-restart after delay
-    {?status_connecting, <<"connection_pool_not_initialized">>};
-status_result({ok, Results}, ConnState) ->
-    case lists:filter(fun(S) -> S =/= ok end, Results) of
-        [] ->
-            case validate_connected_instance_name(ConnState) of
-                ok ->
-                    ?status_connected;
-                {error, #{expected := ExpectedInstanceName, got := InstanceName}} ->
-                    Msg = iolist_to_binary(
-                        io_lib:format(
-                            "connected instance does not match desired instance name;"
-                            " expected ~s; connected to: ~s",
-                            [
-                                format_instance_name(ExpectedInstanceName),
-                                format_instance_name(InstanceName)
-                            ]
-                        )
-                    ),
-                    {?status_disconnected, {unhealthy_target, Msg}};
-                error ->
-                    %% Could not infer instance name; assume ok
-                    ?status_connected
-            end;
-        [{error, Reason} | _] ->
-            {?status_connecting, Reason}
+on_get_status_continue(ConnState) ->
+    case validate_connected_instance_name(ConnState) of
+        ok ->
+            ?status_connected;
+        {error, #{expected := ExpectedInstanceName, got := InstanceName}} ->
+            Msg = iolist_to_binary(
+                io_lib:format(
+                    "connected instance does not match desired instance name;"
+                    " expected ~s; connected to: ~s",
+                    [
+                        format_instance_name(ExpectedInstanceName),
+                        format_instance_name(InstanceName)
+                    ]
+                )
+            ),
+            {?status_disconnected, {unhealthy_target, Msg}};
+        error ->
+            %% Could not infer instance name; assume ok
+            ?status_connected
     end.
 
 format_instance_name(undefined) ->
