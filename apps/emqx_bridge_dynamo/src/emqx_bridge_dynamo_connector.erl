@@ -196,35 +196,19 @@ on_format_query_result(Result) ->
 health_check_timeout() ->
     2500.
 
-on_get_status(_InstanceId, #{pool_name := Pool}) ->
-    Health = emqx_resource_pool:health_check_workers(
-        Pool,
-        {emqx_bridge_dynamo_connector_client, is_connected, [
-            health_check_timeout()
-        ]},
-        health_check_timeout(),
-        #{return_values => true}
-    ),
-    case Health of
-        {error, timeout} ->
-            {?status_connecting, <<"timeout_while_checking_connection">>};
-        {error, {processes_down, _}} ->
-            {?status_disconnected, <<"pool_crashed">>};
-        {error, Reason} ->
-            {?status_disconnected, Reason};
-        {ok, Results} ->
-            status_result(Results)
-    end.
-
-status_result(Results) ->
-    case lists:filter(fun(Res) -> Res =/= true end, Results) of
-        [] when Results =:= [] ->
-            ?status_connecting;
-        [] ->
-            ?status_connected;
-        [{false, Error} | _] ->
-            {?status_connecting, Error}
-    end.
+on_get_status(_InstanceId, #{pool_name := PoolName}) ->
+    Opts = #{
+        check_fn =>
+            {emqx_bridge_dynamo_connector_client, is_connected, [
+                health_check_timeout()
+            ]},
+        is_success_fn => fun
+            (true) -> false;
+            (_) -> true
+        end,
+        timeout => health_check_timeout()
+    },
+    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
 %%========================================================================================
 %% Helper fns
