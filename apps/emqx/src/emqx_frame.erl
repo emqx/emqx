@@ -71,6 +71,7 @@
 -define(SERIALIZE_ERR(Reason), ?THROW_SERIALIZE_ERROR(Reason)).
 
 -define(MULTIPLIER_MAX, 16#200000).
+-define(SMALL_BINARY, 64).
 
 -dialyzer({no_match, [serialize_utf8_string/3]}).
 
@@ -714,10 +715,8 @@ parse_utf8_string(Bin, StrictMode, Cause, Copy) ->
     case Copy =:= publish_topic andalso size(Str) > size(Rest) of
         true ->
             {Str, Rest};
-        false when size(Str) =< 64 ->
-            {Str, Rest};
         false ->
-            {binary:copy(Str), Rest}
+            {maybe_binary_copy(Str), Rest}
     end.
 
 do_parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, true, _Cause) ->
@@ -740,7 +739,7 @@ do_parse_utf8_string(Bin, _, Cause) when 2 > byte_size(Bin) ->
 parse_will_payload(<<Len:16/big, Data:Len/binary, Rest/binary>>) ->
     %% So the will message payload is off the reference of the whole CONNECT packet
     %% which can be large if client ID + Username + Password is long.
-    {binary:copy(Data), Rest};
+    {maybe_binary_copy(Data), Rest};
 parse_will_payload(<<Len:16/big, Rest/binary>>) when
     Len > byte_size(Rest)
 ->
@@ -757,6 +756,12 @@ parse_will_payload(Bin) when
         length_bytes => size(Bin),
         expected_bytes => 2
     }).
+
+-compile({inline, [maybe_binary_copy/1]}).
+maybe_binary_copy(Bin) when size(Bin) =< ?SMALL_BINARY ->
+    Bin;
+maybe_binary_copy(Bin) ->
+    binary:copy(Bin).
 
 %%--------------------------------------------------------------------
 %% Serialize MQTT Packet
