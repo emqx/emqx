@@ -1010,7 +1010,7 @@ save_configs_namespaced(Namespace, RootKeyAtom, Conf, RawConf, ClusterRPCOpts, O
     maybe
         ?KIND_INITIATE ?= maps:get(kind, ClusterRPCOpts, ?KIND_INITIATE),
         ?tp("emqx_config_save_configs_namespaced_transaction", #{}),
-        {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
+        {atomic, ok} = mria:sync_transaction(?COMMON_SHARD, fun() ->
             ?MODULE:save_configs_namespaced_tx(Namespace, RootKeyBin, Conf, RawConf, Opts)
         end),
         ok
