@@ -369,24 +369,20 @@ disconnect(ConnectionPid) ->
     odbc:disconnect(ConnectionPid).
 
 health_check_connector(ConnResId) ->
-    Res = emqx_resource_pool:health_check_workers(
-        ConnResId,
-        fun ?MODULE:do_health_check_connector/1,
-        ?HC_TIMEOUT
-    ),
-    case Res of
-        true ->
-            ?status_connected;
-        false ->
-            ?status_disconnected
-    end.
+    Opts = #{
+        check_fn => fun ?MODULE:do_health_check_connector/1,
+        timeout => ?HC_TIMEOUT
+    },
+    emqx_resource_pool:common_health_check_workers(ConnResId, Opts).
 
 do_health_check_connector(ConnectionPid) ->
     case odbc:sql_query(ConnectionPid, "show schemas") of
         {selected, _, _} ->
-            true;
-        _ ->
-            false
+            ok;
+        {error, Reason} ->
+            {error, Reason};
+        Error ->
+            {error, Error}
     end.
 
 -spec stage_file(odbc_pool(), file:filename(), database(), schema(), stage(), action_name()) ->

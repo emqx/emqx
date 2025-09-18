@@ -1472,3 +1472,9 @@ t_static_clientids_username_password_tuples_deobfuscate(TCConfig) ->
         end
     ),
     ok.
+
+%% Checks that updating an MQTT connectors without the `static_clientids` field work.
+t_update_without_static_clientids(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {200, _} = update_connector_api(TCConfig, #{}),
+    ok.

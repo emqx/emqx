@@ -355,7 +355,7 @@ t_start_stop(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_start_stop(TCConfig, sqlserver_connector_on_stop).
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
-    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => ?status_connecting}).
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
 
 t_rule_action() ->
     [{matrix, true}].
@@ -521,7 +521,7 @@ t_health_check_return_error(TCConfig) ->
             200,
             10,
             ?assertMatch(
-                {200, #{<<"status">> := <<"connecting">>}},
+                {200, #{<<"status">> := <<"disconnected">>}},
                 get_connector_api(TCConfig)
             )
         ),

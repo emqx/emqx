@@ -5,9 +5,9 @@
 -module(emqx_mq_config).
 
 -export([
-    mq_from_raw_config/1,
-    mq_to_raw_config/1,
-    mq_update_from_raw_config/1,
+    mq_from_raw_post/1,
+    mq_to_raw_get/1,
+    mq_update_from_raw_put/1,
     raw_api_config/0,
     update_config/1
 ]).
@@ -16,24 +16,26 @@
 %% API
 %%------------------------------------------------------------------------------
 
--spec mq_from_raw_config(map()) -> emqx_mq_types:mq().
-mq_from_raw_config(#{<<"topic_filter">> := _TopicFilter} = Config) ->
-    Schema = #{roots => emqx_mq_schema:fields(message_queue)},
-    MQ = hocon_tconf:check_plain(Schema, Config, #{atom_key => true}),
+-spec mq_from_raw_post(map()) -> emqx_mq_types:mq().
+mq_from_raw_post(#{<<"topic_filter">> := _TopicFilter} = Config) ->
+    Schema = #{roots => [{mq, emqx_mq_schema:mq_sctype_api_post()}]},
+    #{mq := MQ} = hocon_tconf:check_plain(Schema, #{<<"mq">> => Config}, #{atom_key => true}),
     MQ.
 
--spec mq_to_raw_config(emqx_mq_types:mq()) -> map().
-mq_to_raw_config(MQ) ->
+-spec mq_to_raw_get(emqx_mq_types:mq()) -> map().
+mq_to_raw_get(MQ) ->
     MQRaw0 = binary_key_map(MQ),
     MQRaw = maps:remove(<<"id">>, MQRaw0),
-    emqx_schema:fill_defaults_for_type(hoconsc:ref(emqx_mq_schema, message_queue), MQRaw).
+    emqx_schema:fill_defaults_for_type(emqx_mq_schema:mq_sctype_api_get(), MQRaw).
 
--spec mq_update_from_raw_config(map()) -> map().
-mq_update_from_raw_config(UpdatedMessageQueueRaw) ->
-    Schema = #{roots => emqx_mq_schema:fields(message_queue_api_put)},
-    UpdatedMessageQueue = hocon_tconf:check_plain(Schema, UpdatedMessageQueueRaw, #{
-        atom_key => true
-    }),
+-spec mq_update_from_raw_put(map()) -> map().
+mq_update_from_raw_put(UpdatedMessageQueueRaw) ->
+    Schema = #{roots => [{mq, emqx_mq_schema:mq_sctype_api_put()}]},
+    #{mq := UpdatedMessageQueue} = hocon_tconf:check_plain(
+        Schema, #{<<"mq">> => UpdatedMessageQueueRaw}, #{
+            atom_key => true
+        }
+    ),
     UpdatedMessageQueue.
 
 -spec raw_api_config() -> map().

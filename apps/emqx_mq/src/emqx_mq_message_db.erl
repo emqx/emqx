@@ -77,21 +77,21 @@ close() ->
     ok = emqx_ds:close_db(?MQ_MESSAGE_LASTVALUE_DB),
     ok = emqx_ds:close_db(?MQ_MESSAGE_REGULAR_DB).
 
--spec insert(emqx_mq_types:mq(), list(emqx_types:message())) ->
+-spec insert(emqx_mq_types:mq_handle(), list(emqx_types:message())) ->
     ok | {error, list(emqx_ds:error(_Reason))}.
-insert(#{is_lastvalue := true} = MQ, Messages) ->
-    insert(MQ, Messages, fun(_MQ, Topic, Value) ->
+insert(#{is_lastvalue := true} = MQHandle, Messages) ->
+    insert(MQHandle, Messages, fun(_MQ, Topic, Value) ->
         emqx_ds:tx_del_topic(Topic),
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end);
-insert(#{is_lastvalue := false} = MQ, Messages) ->
-    insert(MQ, Messages, fun(_MQ, Topic, Value) ->
+insert(#{is_lastvalue := false} = MQHandle, Messages) ->
+    insert(MQHandle, Messages, fun(_MQ, Topic, Value) ->
         emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
     end).
 
-insert(MQ, Messages, TxInsertFun) ->
-    TopicValueByShard = group_by_shard(MQ, Messages),
-    DB = db(MQ),
+insert(MQHandle, Messages, TxInsertFun) ->
+    TopicValueByShard = group_by_shard(MQHandle, Messages),
+    DB = db(MQHandle),
     Results = lists:map(
         fun({Shard, TVs}) ->
             TxOpts = #{
@@ -104,7 +104,7 @@ insert(MQ, Messages, TxInsertFun) ->
             Res = emqx_ds:trans(TxOpts, fun() ->
                 ok = lists:foreach(
                     fun({Topic, Value}) ->
-                        TxInsertFun(MQ, Topic, Value)
+                        TxInsertFun(MQHandle, Topic, Value)
                     end,
                     TVs
                 ),
@@ -255,25 +255,29 @@ group_by_shard(#{is_lastvalue := false} = MQ, Messages) ->
         Messages
     ),
     grouped_by_shard_to_list(ByShard);
-group_by_shard(#{is_lastvalue := true, topic_filter := _TopicFilter} = MQ, Messages) ->
+group_by_shard(#{is_lastvalue := true, key_expression := KeyExpression} = MQ, Messages) ->
     ByShard = lists:foldl(
         fun(Message, Acc) ->
-            Props = emqx_message:get_header(properties, Message, #{}),
-            UserProperties = maps:get('User-Property', Props, []),
-            Key = proplists:get_value(
-                ?MQ_KEY_USER_PROPERTY, UserProperties, undefined
-            ),
-            case Key of
-                undefined ->
-                    ?tp(warning, mq_message_db_insert_error, #{
-                        mq => _TopicFilter,
-                        from => emqx_message:from(Message),
-                        reason => undefined_key
+            Bindings = #{message => emqx_message:to_map(Message)},
+            case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
+                {error, Reason} ->
+                    ?tp(warning, mq_message_db_key_expression_error, #{
+                        mq => MQ,
+                        reason => Reason,
+                        key_expression => emqx_variform:decompile(KeyExpression),
+                        bindings => Bindings
                     }),
                     Acc;
-                _ ->
+                {ok, Key} ->
                     Shard = emqx_ds:shard_of(?MQ_MESSAGE_LASTVALUE_DB, Key),
                     Topic = mq_message_topic(MQ, Key),
+                    ?tp(debug, mq_message_db_insert, #{
+                        mq => MQ,
+                        topic => Topic,
+                        shard => Shard,
+                        key => Key,
+                        bindings => Bindings
+                    }),
                     Value = encode_message(Message),
                     maps:update_with(
                         Shard, fun(Msgs) -> [{Topic, Value} | Msgs] end, [{Topic, Value}], Acc

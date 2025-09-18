@@ -863,7 +863,7 @@ t_on_get_status(TCConfig) when is_list(TCConfig) ->
         WorkerPids
     ),
     ?assertMatch(
-        #{status := ?status_connecting},
+        #{status := ?status_disconnected},
         emqx_bridge_v2_testlib:health_check_channel(TCConfig)
     ),
     ok.
@@ -1152,8 +1152,7 @@ t_connection_timeout_before_starting(TCConfig) ->
             with_failure(timeout, fun() ->
                 {201, _} = create_connector_api(TCConfig, #{}),
                 ?assertMatch(
-                    {201, #{<<"status">> := Status}} when
-                        Status == <<"connecting">> orelse Status == <<"disconnected">>,
+                    {201, #{<<"status">> := Status}} when Status /= <<"connected">>,
                     create_source_api(TCConfig, #{})
                 )
             end),
@@ -1193,7 +1192,7 @@ t_pull_worker_death(TCConfig) ->
             after 500 -> ct:fail("pull worker didn't die")
             end,
             ?assertMatch(
-                #{status := ?status_connecting},
+                #{status := ?status_disconnected},
                 emqx_bridge_v2_testlib:health_check_channel(TCConfig)
             ),
 

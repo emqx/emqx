@@ -358,8 +358,9 @@ pmap_encode_val(
         stream_max_unacked := StreamMaxUnacked,
         consumer_persistence_interval := ConsumerPersistenceInterval,
         data_retention_period := DataRetentionPeriod
-    } = _MQ
+    } = MQ
 ) ->
+    KeyExpression = maps:get(key_expression, MQ, undefined),
     {ok, Bin} = 'MessageQueue':encode('MQ', #'MQ'{
         id = Id,
         topicFilter = TopicFilter,
@@ -373,7 +374,8 @@ pmap_encode_val(
         streamMaxBufferSize = StreamMaxBufferSize,
         streamMaxUnacked = StreamMaxUnacked,
         consumerPersistenceInterval = ConsumerPersistenceInterval,
-        dataRetentionPeriod = DataRetentionPeriod
+        dataRetentionPeriod = DataRetentionPeriod,
+        keyExpression = key_expression_to_asn1(KeyExpression)
     }),
     Bin.
 
@@ -422,9 +424,10 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         streamMaxBufferSize = StreamMaxBufferSize,
         streamMaxUnacked = StreamMaxUnacked,
         consumerPersistenceInterval = ConsumerPersistenceInterval,
-        dataRetentionPeriod = DataRetentionPeriod
+        dataRetentionPeriod = DataRetentionPeriod,
+        keyExpression = KeyExpression
     }} = 'MessageQueue':decode('MQ', ValBin),
-    #{
+    MQ = #{
         id => Id,
         topic_filter => TopicFilter,
         is_lastvalue => IsLastvalue,
@@ -438,7 +441,8 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         stream_max_unacked => StreamMaxUnacked,
         consumer_persistence_interval => ConsumerPersistenceInterval,
         data_retention_period => DataRetentionPeriod
-    }.
+    },
+    key_expression_from_asn1(MQ, KeyExpression).
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -539,3 +543,14 @@ from_optional_integer(asn1_NOVALUE) ->
     undefined;
 from_optional_integer(Integer) ->
     Integer.
+
+key_expression_from_asn1(MQ, asn1_NOVALUE) ->
+    MQ;
+key_expression_from_asn1(MQ, KeyExpression) ->
+    {ok, KeyExpressionCompiled} = emqx_variform:compile(KeyExpression),
+    MQ#{key_expression => KeyExpressionCompiled}.
+
+key_expression_to_asn1(undefined) ->
+    asn1_NOVALUE;
+key_expression_to_asn1(KeyExpression) ->
+    emqx_variform:decompile(KeyExpression).
