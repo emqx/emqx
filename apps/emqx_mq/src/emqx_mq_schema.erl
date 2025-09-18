@@ -12,6 +12,8 @@
 
 -export([db_mq_state/0, db_mq_message/0]).
 
+-export([mq_sctype_api_get/0, mq_sctype_api_put/0, mq_sctype_api_post/0]).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -37,6 +39,9 @@ roots() ->
 tags() ->
     [<<"Message Queue">>].
 
+%%
+%% MQ config
+%%
 fields(mq) ->
     [
         {state_db,
@@ -69,16 +74,68 @@ fields(mq) ->
                 importance => ?IMPORTANCE_HIDDEN
             })}
     ];
-fields(message_queue) ->
+%%
+%% Lastvalue structs
+%%
+fields(message_queue_api_lastvalue_put) ->
+    without_fields([topic_filter], message_queue_fields(true)) ++ message_queue_lastvalue_fields();
+fields(message_queue_lastvalue_api_get) ->
+    message_queue_fields(true) ++ message_queue_lastvalue_fields();
+fields(message_queue_lastvalue_api_post) ->
+    message_queue_fields(true) ++ message_queue_lastvalue_fields();
+%%
+%% Regular structs
+%%
+fields(message_queue_api_regular_put) ->
+    without_fields([topic_filter], message_queue_fields(false));
+fields(message_queue_regular_api_get) ->
+    message_queue_fields(false);
+fields(message_queue_regular_api_post) ->
+    message_queue_fields(false);
+%%
+%% Queue listing
+%%
+fields(message_queues_api_get) ->
+    [
+        {data, mk(array(mq_sctype_api_get()), #{})},
+        {meta, mk(ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
+    ];
+%%
+%% Config structs
+%%
+fields(api_config_get) ->
+    without_fields([state_db, message_db], fields(mq));
+fields(api_config_put) ->
+    fields(api_config_get).
+
+desc(mq) ->
+    ?DESC(mq);
+desc(_) ->
+    undefined.
+
+mq_sctype_api_get() ->
+    mq_sctype(ref(message_queue_lastvalue_api_get), ref(message_queue_regular_api_get)).
+
+mq_sctype_api_put() ->
+    mq_sctype(ref(message_queue_api_lastvalue_put), ref(message_queue_api_regular_put)).
+
+mq_sctype_api_post() ->
+    mq_sctype(ref(message_queue_lastvalue_api_post), ref(message_queue_regular_api_post)).
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
+
+message_queue_fields(IsLastvalue) ->
     [
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
         {is_lastvalue,
             mk(
-                boolean(),
+                IsLastvalue,
                 #{
                     desc => ?DESC(is_lastvalue),
-                    required => false,
-                    default => true
+                    required => true,
+                    default => IsLastvalue
                 }
             )},
         {data_retention_period,
@@ -149,29 +206,21 @@ fields(message_queue) ->
                 importance => ?IMPORTANCE_HIDDEN,
                 default => <<"10s">>
             })}
-    ];
-fields(message_queue_api_put) ->
-    without_fields([topic_filter, is_lastvalue], fields(message_queue));
-fields(message_queue_api_get) ->
-    fields(message_queue);
-fields(message_queues_api_get) ->
+    ].
+
+message_queue_lastvalue_fields() ->
     [
-        {data, mk(array(ref(message_queue_api_get)), #{})},
-        {meta, mk(ref(emqx_dashboard_swagger, meta_with_cursor), #{})}
-    ];
-fields(api_config_get) ->
-    without_fields([state_db, message_db], fields(mq));
-fields(api_config_put) ->
-    fields(api_config_get).
+        {key_expression,
+            mk(typerefl:alias("string", any()), #{
+                desc => ?DESC(key_expression),
+                required => true,
+                converter => fun compile_variform/2,
+                default => <<"message.from">>
+            })}
+    ].
 
-desc(mq) ->
-    ?DESC(mq);
-desc(_) ->
-    undefined.
-
-%%------------------------------------------------------------------------------
-%% Internal fns
-%%------------------------------------------------------------------------------
+mq_sctype(LastvalueType, RegularType) ->
+    hoconsc:union([LastvalueType, RegularType]).
 
 mk(Type, Meta) ->
     hoconsc:mk(Type, Meta).
@@ -188,3 +237,18 @@ without_fields(FieldNames, Fields) ->
         end,
         Fields
     ).
+
+compile_variform(Expression, #{make_serializable := true}) ->
+    case is_binary(Expression) of
+        true ->
+            Expression;
+        false ->
+            emqx_variform:decompile(Expression)
+    end;
+compile_variform(Expression, _Opts) ->
+    case emqx_variform:compile(Expression) of
+        {ok, Compiled} ->
+            Compiled;
+        {error, Reason} ->
+            throw(#{expression => Expression, reason => Reason})
+    end.

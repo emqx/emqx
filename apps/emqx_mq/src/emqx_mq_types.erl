@@ -40,6 +40,8 @@ The module contains basic types for the Message Queue application.
     stream_max_unacked := non_neg_integer(),
     consumer_persistence_interval := interval_ms(),
     data_retention_period := interval_ms(),
+    %% For lastvalue MQ.
+    key_expression => emqx_variform:compiled(),
     _ => _
 }.
 
@@ -47,7 +49,8 @@ The module contains basic types for the Message Queue application.
 -type mq_handle() :: #{
     id := mqid(),
     topic_filter := mq_topic(),
-    is_lastvalue := boolean()
+    is_lastvalue := boolean(),
+    key_expression => emqx_variform:compiled() | undefined
 }.
 
 -export_type([

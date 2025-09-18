@@ -1046,6 +1046,52 @@ t_metrics(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+t_update_key_expression(_Config) ->
+    %% Create a non-lastvalue Queue
+    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+
+    %% Publish 10 messages to the queue, with 10 keys
+    %% In tests, the default key is "mq-key" user property.
+    emqx_mq_test_utils:populate_lastvalue(10, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-old-">>,
+        n_keys => 10
+    }),
+
+    %% Consume the messages from the queue
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 100),
+    ?assertEqual(10, length(Msgs0)),
+    ok = emqtt:disconnect(CSub0),
+
+    %% Update the key expression
+    {ok, _} = emqx_mq_registry:update(<<"t/#">>, #{
+        is_lastvalue => true, key_expression => <<"message.from">>
+    }),
+
+    %% Publish 10 more messages to the queue, with "mq-key" keys wich are ignored now.
+    %% The key expression is "message.from" which is the same for all messages.
+    emqx_mq_test_utils:populate_lastvalue(10, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-new-">>,
+        n_keys => 10
+    }),
+    %% Stop the consumer to emulate reconnect after some significant absence.
+    %% Otherwise, the consumer will receive online messages for some time, and
+    %% we will not see the lastvalue effect.
+    emqx_mq_test_utils:stop_all_consumers(),
+
+    %% Consume the messages from the queue
+    %% We should receive only one message, because the key expression is the same for all messages.
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 100),
+    ?assertEqual(1, length(Msgs1)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

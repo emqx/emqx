@@ -12,8 +12,8 @@ A Message Queue is a collection of messages with the following properties:
 - Clients may subscribe to the queue's `$q/topic/filter` to consume messages from the queue cooperatively.
 - A Queue is capped by time or size.
 - A Queue is not strictly ordered.A queue may have "Last-Value" semantics. When enabled,
-  - Each message should have `mq-key` user property set to be saved in the queue.
-  - Messages overwrite previous messages with the same key in the same topic.
+  - A queue has a _key expression_ to extract a key from each message.
+  - Messages overwrite previous messages with the same key.
 
 ## Internal Implementation
 

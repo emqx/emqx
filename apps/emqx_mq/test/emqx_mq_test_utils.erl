@@ -98,7 +98,7 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     ),
     MQ.
 
-fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ) ->
+fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ0) ->
     Default = #{
         is_lastvalue => false,
         consumer_max_inactive => 1000,
@@ -112,7 +112,21 @@ fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ) ->
         consumer_persistence_interval => 1000,
         data_retention_period => 3600_000
     },
-    maps:merge(Default, MQ).
+    LastVelueDefault = #{
+        key_expression =>
+            compile_key_expression(
+                ~b{maps.get("mq-key", maps.from_list(message.headers.properties.User-Property))}
+            )
+    },
+    MQ1 = maps:merge(Default, MQ0),
+    case MQ1 of
+        #{is_lastvalue := true} ->
+            MQ = maps:merge(LastVelueDefault, MQ1),
+            KeyExpression = maps:get(key_expression, MQ),
+            MQ#{key_expression => compile_key_expression(KeyExpression)};
+        _ ->
+            MQ1
+    end.
 
 populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
@@ -194,3 +208,7 @@ cth_config(ConfigOverrides) ->
     #{
         config => Config
     }.
+
+compile_key_expression(KeyExpression) ->
+    {ok, KeyExpressionCompiled} = emqx_variform:compile(KeyExpression),
+    KeyExpressionCompiled.

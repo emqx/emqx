@@ -73,7 +73,14 @@ t_crud(_Config) ->
         20,
         ?assertMatch(
             {ok, 200, #{
-                <<"data">> := [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 9999}],
+                <<"data">> := [
+                    #{
+                        <<"topic_filter">> := <<"t/1">>,
+                        <<"ping_interval">> := 9999,
+                        %% Lastvalue flag is true by default
+                        <<"is_lastvalue">> := true
+                    }
+                ],
                 <<"meta">> := #{<<"hasnext">> := false}
             }},
             api_get([message_queues, queues])
@@ -185,6 +192,72 @@ t_queue_state_creation_failure(_Config) ->
         api_post([message_queues, queues], #{<<"topic_filter">> => <<"t/1">>})
     ),
     ok = meck:unload(emqx_ds).
+
+%% Verify that regular queue cannot be created with key expression.
+t_lastvalue_vs_regular(_Config) ->
+    %% Cannot create a regular queue with key expression
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/1">>,
+            <<"key_expression">> => <<"message.from">>,
+            <<"is_lastvalue">> => false
+        })
+    ),
+
+    %% Cannot update a regular queue to lastvalue
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/1">>, <<"is_lastvalue">> => false
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([message_queues, queues, urlencode(<<"t/1">>)], #{<<"is_lastvalue">> => true})
+    ),
+
+    %% Key expression is not allowed to be updated for regular queues
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([message_queues, queues, urlencode(<<"t/1">>)], #{
+            <<"key_expression">> => <<"message.from">>
+        })
+    ),
+
+    %% Cannot update a lastvalue queue to regular
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/2">>, <<"is_lastvalue">> => true
+        })
+    ),
+    ?assertMatch(
+        {ok, 400, _},
+        api_put([message_queues, queues, urlencode(<<"t/2">>)], #{<<"is_lastvalue">> => false})
+    ).
+
+%% Verify that default values are good enough for lastvalue queues
+t_defaults(_Config) ->
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{<<"topic_filter">> => <<"t/#">>})
+    ),
+    %% Publish 10 messages to the queue
+    emqx_mq_test_utils:populate_lastvalue(10, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-">>,
+        n_keys => 10
+    }),
+
+    %% Consume the messages from the queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 100),
+    ok = emqtt:disconnect(CSub),
+
+    %% Verify the messages. Default key expression is clientid, so we should receive only one message.
+    ?assertEqual(1, length(Msgs)).
 
 %%--------------------------------------------------------------------
 %% Helpers

@@ -39,6 +39,7 @@ BEGIN
     streamMaxUnacked [10] INTEGER,
     consumerPersistenceInterval [11] INTEGER,
     dataRetentionPeriod [12] INTEGER,
+    keyExpression [13] OCTET STRING OPTIONAL,
     ...
   }
 
