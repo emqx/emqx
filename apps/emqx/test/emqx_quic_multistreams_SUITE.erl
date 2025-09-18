@@ -23,6 +23,7 @@ all() ->
         {group, mstream},
         {group, shutdown},
         {group, misc},
+        {group, takeover},
         t_listener_with_lowlevel_settings,
         t_listener_inval_settings
     ].
@@ -30,6 +31,11 @@ all() ->
 groups() ->
     [
         {mstream, [], [{group, profiles}]},
+        {takeover, [], [
+            t_quic_takeover_tls,
+            t_tls_takeover_quic,
+            t_quic_takeover_tls_0rtt
+        ]},
 
         {profiles, [], [
             {group, profile_low_latency},
@@ -188,6 +194,8 @@ init_per_group(profile_max_throughput, Config) ->
 init_per_group(profile_low_latency, Config) ->
     quicer:reg_open(quic_execution_profile_low_latency),
     Config;
+init_per_group(takeover, Config) ->
+    [{server_resumption_level, 2} | Config];
 init_per_group(_, Config) ->
     Config.
 
@@ -2152,6 +2160,197 @@ t_keep_alive_idle_ctrl_stream(Config) ->
         meck:unload(emqtt),
         ok
     end.
+
+t_quic_takeover_tls(Config) ->
+    process_flag(trap_exit, true),
+    %% Given: TLS client connected and subscribed a topic
+    {ok, CTLS} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {ssl, true},
+        {ssl_opts, [{verify, verify_none}]},
+        {auto_ack, never},
+        {port, 8883}
+    ]),
+    {ok, _} = emqtt:connect(CTLS),
+    {ok, _Prop, [1]} = emqtt:subscribe(CTLS, #{}, <<"topic/takeover">>, 1),
+    ClientId = proplists:get_value(clientid, emqtt:info(CTLS)),
+    #{session := Session, conninfo := #{connected_at := TLSConnectedAT}} =
+        ChanTLS = emqx_cm:get_chan_info(ClientId),
+    ct:pal("~p~n", [ChanTLS]),
+    %% WHEN: QUIC connection takeover
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {clientid, ClientId},
+        {clean_start, false},
+        {auto_ack, never}
+        | Config
+    ]),
+
+    {ok, _ConnAck} = emqtt:quic_connect(C0),
+    %% THEN: client: session_present is true
+    ?assertEqual(1, proplists:get_value(session_present, emqtt:info(C0))),
+    %% THEN: server: session matches the TLS session.
+    #{
+        session := Session,
+        conninfo := #{connected_at := QuicConnectedAT},
+        sockinfo := #{socktype := quic}
+    } = ChanQuic = emqx_cm:get_chan_info(ClientId),
+    ?assert(QuicConnectedAT > TLSConnectedAT),
+    ct:pal("~p~n", [emqx_cm:get_chan_info(ChanQuic)]),
+    receive
+        {disconnected, ?RC_SESSION_TAKEN_OVER, _} -> ok
+    end,
+    assert_client_die(CTLS),
+    emqtt:disconnect(C0),
+    assert_client_die(C0).
+
+t_quic_takeover_tls_0rtt(Config) ->
+    process_flag(trap_exit, true),
+    %% GIVEN: QUIC connection
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {clean_start, true},
+        {auto_ack, never},
+        {quic_opts, {[{quic_event_mask, 1}], []}}
+        | Config
+    ]),
+
+    {ok, ConnAck} = emqtt:quic_connect(C0),
+    ct:pal("ConnAck: ~p", [ConnAck]),
+
+    {ok, _Prop, [1]} = emqtt:subscribe(C0, #{}, <<"topic/takeover">>, 1),
+    ClientId = proplists:get_value(clientid, emqtt:info(C0)),
+    #{nst := NST} = proplists:get_value(extra, emqtt:info(C0)),
+    ct:pal("~p", [emqtt:info(C0)]),
+    ?assert(is_binary(NST)),
+    #{
+        session := Session,
+        conninfo := #{connected_at := QuicConnectedAT},
+        sockinfo := #{socktype := quic}
+    } = ChanQuic = emqx_cm:get_chan_info(ClientId),
+
+    ?assertEqual(0, proplists:get_value(session_present, emqtt:info(C0))),
+    %% WHEN: TLS client took over the session
+    {ok, CTLS} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {ssl, true},
+        {ssl_opts, [{verify, verify_none}]},
+        {auto_ack, never},
+        {clean_start, false},
+        {clientid, ClientId},
+        {port, 8883}
+    ]),
+    {ok, _} = emqtt:connect(CTLS),
+
+    %% THEN: client: session_present is true
+    ?assertEqual(1, proplists:get_value(session_present, emqtt:info(CTLS))),
+    %% THEN: server: session matches the TLS session and socktype is ssl
+    #{
+        session := Session,
+        conninfo := #{connected_at := TLSConnectedAT},
+        sockinfo := #{socktype := ssl}
+    } = _ChanTLS = emqx_cm:get_chan_info(ClientId),
+    ?assert(QuicConnectedAT < TLSConnectedAT),
+    receive
+        {disconnected, ?RC_SESSION_TAKEN_OVER, _} -> ok
+    end,
+    %% THEN: QUIC connection is dead.
+    assert_client_die(C0),
+
+    %% WHEN (a): TLS client subscribes another topic
+    {ok, _, [1]} = emqtt:subscribe(CTLS, #{}, <<"topic/takeover2">>, 1),
+
+    %% WHEN (b): client resume QUIC session with 0-RTT
+    QuicOpts = {[{quic_event_mask, 1}, {nst, NST}], []},
+    {ok, C1} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {clean_start, false},
+        {auto_ack, never},
+        {quic_opts, QuicOpts},
+        {clientid, ClientId}
+        | Config
+    ]),
+
+    {ok, _} = emqtt:quic_connect(C1),
+    receive
+        {disconnected, ?RC_SESSION_TAKEN_OVER, _} -> ok
+    end,
+    assert_client_die(CTLS),
+    #{
+        session := Session3,
+        conninfo := #{connected_at := QuicConnectedAT2},
+        sockinfo := #{socktype := quic}
+    } = ChanQuic2 = emqx_cm:get_chan_info(ClientId),
+    ?assertEqual(1, proplists:get_value(session_present, emqtt:info(C1))),
+    ?assert(ChanQuic2 =/= ChanQuic),
+    ?assert(maps:without([subscriptions], Session3) == maps:without([subscriptions], Session)),
+    %% THEN (a): subscriptions are updated and takenover
+    ?assertEqual(
+        [<<"topic/takeover">>, <<"topic/takeover2">>], maps:keys(maps:get(subscriptions, Session3))
+    ),
+    ?assert(QuicConnectedAT2 > QuicConnectedAT),
+    %% THEN: connection is resumed and session is takenover.
+    ct:pal("~p", [ChanQuic2]),
+    emqtt:disconnect(C1),
+    assert_client_die(C1).
+
+t_tls_takeover_quic(Config) ->
+    process_flag(trap_exit, true),
+    %% GIVEN: QUIC connection
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {clean_start, true},
+        {auto_ack, never}
+        | Config
+    ]),
+
+    {ok, ConnAck} = emqtt:quic_connect(C0),
+    ct:pal("ConnAck: ~p", [ConnAck]),
+    {ok, _Prop, [1]} = emqtt:subscribe(C0, #{}, <<"topic/takeover">>, 1),
+    ClientId = proplists:get_value(clientid, emqtt:info(C0)),
+    #{
+        session := Session,
+        conninfo := #{connected_at := QuicConnectedAT},
+        sockinfo := #{socktype := quic}
+    } = _ChanQuic = emqx_cm:get_chan_info(ClientId),
+
+    ?assertEqual(0, proplists:get_value(session_present, emqtt:info(C0))),
+    %% WHEN: TLS client took over the session
+    {ok, CTLS} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {ssl, true},
+        {ssl_opts, [{verify, verify_none}]},
+        {auto_ack, never},
+        {clean_start, false},
+        {clientid, ClientId},
+        {port, 8883}
+    ]),
+    {ok, _} = emqtt:connect(CTLS),
+    {ok, _, [1]} = emqtt:subscribe(CTLS, #{}, <<"topic/takeover">>, 1),
+
+    %% THEN: client: session_present is true
+    ?assertEqual(1, proplists:get_value(session_present, emqtt:info(CTLS))),
+    %% THEN: server: session matches the TLS session and socktype is ssl
+    #{
+        session := Session,
+        conninfo := #{connected_at := TLSConnectedAT},
+        sockinfo := #{socktype := ssl}
+    } = _ChanTLS = emqx_cm:get_chan_info(ClientId),
+    ?assert(QuicConnectedAT < TLSConnectedAT),
+    receive
+        {disconnected, ?RC_SESSION_TAKEN_OVER, _} -> ok
+    end,
+    %% THEN: QUIC connection is dead.
+    assert_client_die(C0),
+    emqtt:disconnect(CTLS),
+    assert_client_die(CTLS).
 
 %%--------------------------------------------------------------------
 %% Helper functions
