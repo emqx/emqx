@@ -101,6 +101,13 @@ end_per_group(Group, Config) when
 end_per_group(_Group, _Config) ->
     ok.
 
+init_per_testcase(_TestCase, Config) ->
+    ct:timetrap({seconds, 120}),
+    Config.
+
+end_per_testcase(_TestCase, _Config) ->
+    ok.
+
 %%--------------------------------------------------------------------
 %% Testcases
 
