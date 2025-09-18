@@ -12,7 +12,7 @@ include env.sh
 # Dashboard version
 # from https://github.com/emqx/emqx-dashboard5
 export EMQX_DASHBOARD_VERSION ?= v1.10.6
-export EMQX_EE_DASHBOARD_VERSION ?= 2.0.0-beta.2
+export EMQX_EE_DASHBOARD_VERSION ?= 2.0.0-beta.4
 
 export EMQX_RELUP ?= true
 export EMQX_REL_FORM ?= tgz
@@ -52,11 +52,7 @@ $(REBAR): .prepare ensure-rebar3
 
 .PHONY: ensure-hex
 ensure-hex:
-	@if [ "$(shell uname -m)" = "aarch64" ] && [ "$(shell ./scripts/get-distro.sh)" = "el7" ] ; then \
-	    mix archive.install github hexpm/hex branch latest --force; \
-	else \
-	    mix local.hex 2.2.1 --if-missing --force; \
-	fi
+	@mix local.hex 2.2.1 --if-missing --force
 
 .PHONY: ensure-mix-rebar3
 ensure-mix-rebar3: $(REBAR)

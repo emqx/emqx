@@ -41,7 +41,7 @@ forward(Pid, Msg, Timeout) ->
     call(Pid, {?FUNCTION_NAME, Msg}, Timeout).
 
 heartbeat(Pid, Timeout) ->
-    ok =:= call(Pid, ?FUNCTION_NAME, Timeout).
+    call(Pid, ?FUNCTION_NAME, Timeout).
 
 %% -------------------------------------------------------------------------------------------------
 %% Starts Bridge which transfer data to Syskeeper
@@ -158,7 +158,11 @@ wait_ack(State, _Force) ->
 close_socket(undefined) ->
     ok;
 close_socket(Socket) ->
-    catch gen_tcp:close(Socket),
+    try
+        _ = gen_tcp:close(Socket)
+    catch
+        _:_ -> ok
+    end,
     ok.
 
 call(Pid, Msg, Timeout) ->

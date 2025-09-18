@@ -30,7 +30,7 @@ defmodule EMQXUtils.MixProject do
       :jiffy,
       :emqx_http_lib,
       :snabbkaffe,
-      {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
+      :erlang_qq
     ])
   end
 

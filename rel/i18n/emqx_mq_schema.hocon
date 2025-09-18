@@ -106,4 +106,10 @@ emqx_mq_schema {
         label: "Dispatch Strategy"
     }
 
+    key_expression {
+        desc: """~
+            The expression used to determine the key of the message for Last-Value Message Queues."""
+        label: "Key Expression"
+    }
+
 }

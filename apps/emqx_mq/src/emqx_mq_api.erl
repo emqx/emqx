@@ -55,7 +55,7 @@ schema("/message_queues/queues") ->
             ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    hoconsc:array(ref(emqx_mq_schema, message_queues_api_get)),
+                    hoconsc:array(emqx_mq_schema:mq_sctype_api_get()),
                     get_message_queues_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
@@ -71,12 +71,12 @@ schema("/message_queues/queues") ->
             summary => <<"Create message queue">>,
             description => ?DESC(message_queues_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                ref(emqx_mq_schema, message_queue),
+                emqx_mq_schema:mq_sctype_api_post(),
                 post_message_queue_example()
             ),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    ref(emqx_mq_schema, message_queue),
+                    emqx_mq_schema:mq_sctype_api_get(),
                     get_message_queue_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
@@ -98,7 +98,7 @@ schema("/message_queues/queues/:topic_filter") ->
             parameters => [topic_filter_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    ref(emqx_mq_schema, message_queue),
+                    emqx_mq_schema:mq_sctype_api_get(),
                     get_message_queue_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -115,12 +115,12 @@ schema("/message_queues/queues/:topic_filter") ->
             description => ?DESC(message_queues_update),
             parameters => [topic_filter_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
-                ref(emqx_mq_schema, message_queue_api_put),
+                emqx_mq_schema:mq_sctype_api_put(),
                 put_message_queue_example()
             ),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
-                    ref(emqx_mq_schema, message_queue),
+                    emqx_mq_schema:mq_sctype_api_get(),
                     get_message_queue_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -199,14 +199,15 @@ topic_filter_param() ->
         })}.
 
 put_message_queue_example() ->
-    maps:without([<<"topic_filter">>, <<"is_lastvalue">>], get_message_queue_example()).
+    maps:without([<<"topic_filter">>], get_message_queue_example()).
 
 get_message_queue_example() ->
     #{
         <<"topic_filter">> => <<"t/1">>,
-        <<"is_lastvalue">> => false,
+        <<"is_lastvalue">> => true,
         <<"data_retention_period">> => 604800000,
-        <<"dispatch_strategy">> => <<"random">>
+        <<"dispatch_strategy">> => <<"random">>,
+        <<"key_expression">> => <<"message.from">>
 
         %% Hidden fields
         %% <<"busy_session_retry_interval">> => 100,
@@ -268,7 +269,9 @@ put_message_queue_config_example() ->
         {ok, CreatedMessageQueueRaw} ->
             ?OK(CreatedMessageQueueRaw);
         {error, queue_exists} ->
-            ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>)
+            ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>);
+        {error, Reason} ->
+            ?SERVICE_UNAVAILABLE(Reason)
     end.
 
 '/message_queues/queues/:topic_filter'(get, #{bindings := #{topic_filter := TopicFilter}}) ->
@@ -286,6 +289,8 @@ put_message_queue_config_example() ->
             ?NOT_FOUND(<<"Message queue not found">>);
         {ok, MQRaw} ->
             ?OK(MQRaw);
+        {error, is_lastvalue_not_allowed_to_be_updated} ->
+            ?BAD_REQUEST(<<"LastValue flag is not allowed to be updated">>);
         {error, _} = Error ->
             ?SERVICE_UNAVAILABLE(Error)
     end;
@@ -313,7 +318,7 @@ put_message_queue_config_example() ->
 
 get_message_queues(Cursor, Limit) ->
     {MessageQueues, CursorNext} = emqx_mq_registry:list(Cursor, Limit),
-    {[emqx_mq_config:mq_to_raw_config(MQ) || MQ <- MessageQueues], CursorNext}.
+    {[emqx_mq_config:mq_to_raw_get(MQ) || MQ <- MessageQueues], CursorNext}.
 
 encode_cursor(Cursor) ->
     emqx_base62:encode(Cursor).
@@ -329,12 +334,12 @@ decode_cursor(EncodedCursor) ->
     end.
 
 add_message_queue(NewMessageQueueRaw) ->
-    NewMessageQueue = emqx_mq_config:mq_from_raw_config(NewMessageQueueRaw),
+    NewMessageQueue = emqx_mq_config:mq_from_raw_post(NewMessageQueueRaw),
     case emqx_mq_registry:create(NewMessageQueue) of
         {ok, MQ} ->
-            {ok, emqx_mq_config:mq_to_raw_config(MQ)};
-        {error, queue_exists} ->
-            {error, queue_exists}
+            {ok, emqx_mq_config:mq_to_raw_get(MQ)};
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 get_message_queue(TopicFilter) ->
@@ -342,14 +347,14 @@ get_message_queue(TopicFilter) ->
         not_found ->
             not_found;
         {ok, MQ} ->
-            {ok, emqx_mq_config:mq_to_raw_config(MQ)}
+            {ok, emqx_mq_config:mq_to_raw_get(MQ)}
     end.
 
 update_message_queue(TopicFilter, UpdatedMessageQueueRaw) ->
-    UpdatedMessageQueue = emqx_mq_config:mq_update_from_raw_config(UpdatedMessageQueueRaw),
+    UpdatedMessageQueue = emqx_mq_config:mq_update_from_raw_put(UpdatedMessageQueueRaw),
     case emqx_mq_registry:update(TopicFilter, UpdatedMessageQueue) of
         {ok, MQ} ->
-            {ok, emqx_mq_config:mq_to_raw_config(MQ)};
+            {ok, emqx_mq_config:mq_to_raw_get(MQ)};
         not_found ->
             not_found;
         {error, _} = Error ->

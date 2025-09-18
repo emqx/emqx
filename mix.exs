@@ -72,9 +72,9 @@ defmodule EMQXUmbrella.MixProject do
   def overridden_deps() do
     [
       common_dep(:lc),
-      # in conflict between typerefl and emqx_utils
-      {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true},
       common_dep(:typerefl),
+      # in conflict between typerefl and emqx_utils
+      common_dep(:erlang_qq),
       common_dep(:ehttpc),
       common_dep(:gproc),
       common_dep(:jiffy),
@@ -183,7 +183,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ranch), do: {:ranch, github: "emqx/ranch", tag: "2.2.0-emqx-3", override: true}
 
   def common_dep(:ehttpc),
-    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.1", override: true}
+    do: {:ehttpc, github: "emqx/ehttpc", tag: "0.7.3", override: true}
 
   def common_dep(:jiffy), do: {:jiffy, "1.1.2", override: true}
 
@@ -206,9 +206,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:getopt), do: {:getopt, "1.0.2", override: true}
   def common_dep(:telemetry), do: {:telemetry, "1.3.0", manager: :rebar3, override: true}
   # in conflict by grpc and eetcd
-  def common_dep(:gpb),
-    do: {:gpb, github: "emqx/gpb", tag: "4.21.4.1", override: true, runtime: false}
-
+  def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.15.2-emqx-3", override: true}
 
   # in conflict by emqx_connector and system_monitor
@@ -242,6 +240,9 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:typerefl),
     do: {:typerefl, github: "ieQu1/typerefl", tag: "0.9.6", override: true}
+
+  def common_dep(:erlang_qq),
+    do: {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
 
   def common_dep(:rocksdb),
     do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-8", override: true}

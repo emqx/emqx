@@ -66,8 +66,8 @@ SYSTEM="$(./scripts/get-distro.sh)"
 
 if [[ $SYSTEM == "el7" ]];
 then
-    log_red "WARNING: NO SECURITY UPDATES for CentOS 7 QUIC transport"
-    export QUICER_TLS_VER=openssl
+    log_red "WARNING: CentOS 7 is deprecated, please use CentOS 8/9 or Rocky Linux 8/9 instead."
+    exit 1
 fi
 
 ARCH="$(uname -m)"
@@ -180,7 +180,7 @@ just_compile_elixir() {
     mix local.rebar --if-missing --force
     mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
     # mix local.hex --if-missing --force
-    mix local.hex 2.0.6 --if-missing --force
+    mix local.hex 2.2.1 --if-missing --force
     mix deps.get
     mix compile
 }

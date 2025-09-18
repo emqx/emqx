@@ -819,6 +819,8 @@ sorted_fold(Func, Conf) ->
 
 to_sorted_list(Conf0) ->
     Conf1 = maps:remove(<<"cluster">>, Conf0),
+    %% fixme: use `emqx_conf_dep_registry:sorted_importer_modules()` like
+    %% `emqx_mgmt_data_backup:import` does.
     %% connectors > actions/bridges/sources > rule_engine
     Keys = [<<"connectors">>, <<"actions">>, <<"sources">>, <<"bridges">>, <<"rule_engine">>],
     {HighPriorities, Conf2} = split_high_priority_conf(Keys, Conf1, []),

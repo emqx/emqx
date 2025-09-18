@@ -12,8 +12,8 @@ A Message Queue is a collection of messages with the following properties:
 - Clients may subscribe to the queue's `$q/topic/filter` to consume messages from the queue cooperatively.
 - A Queue is capped by time or size.
 - A Queue is not strictly ordered.A queue may have "Last-Value" semantics. When enabled,
-  - Each message should have `mq-key` user property set to be saved in the queue.
-  - Messages overwrite previous messages with the same key in the same topic.
+  - A queue has a _key expression_ to extract a key from each message.
+  - Messages overwrite previous messages with the same key.
 
 ## Internal Implementation
 
@@ -97,6 +97,9 @@ mq {
     gc_interval = 1h
     ## The maximum retention period of messages in regular Message Queues.
     regular_queue_retention_period = 1d
+    ## The interval at which subscribers will retry to find a queue if the queue is not found
+    ## when subscribing to a queue topic.
+    find_queue_retry_interval = 10s
     ## Settings for the database storing the Message Queue state.
     ## See Durable Storage configuration for more details.
     state_db {
@@ -125,7 +128,7 @@ Message queue management APIs are provided for creating, updating, looking up, d
 Create Message Queue:
 
 ```bash
-curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/message_queues -d '{"topic_filter": "t1/#", "is_lastvalue": false}' | jq
+curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localhost:18083/api/v5/message_queues/queues -d '{"topic_filter": "t1/#", "is_lastvalue": false}' | jq
 {
   ...
   "topic_filter": "t1/#"
@@ -135,7 +138,7 @@ curl -s -u key:secret -X POST -H "Content-Type: application/json" http://localho
 List message queues:
 
 ```bash
-curl -s -u key:secret -X GET -H "Content-Type: application/json" http://localhost:18083/api/v5/message_queues | jq
+curl -s -u key:secret -X GET -H "Content-Type: application/json" http://localhost:18083/api/v5/message_queues/queues | jq
 {
   "data": [
     {
@@ -152,7 +155,7 @@ curl -s -u key:secret -X GET -H "Content-Type: application/json" http://localhos
 Update Message Queue:
 
 ```bash
-curl -s -u key:secret -X PUT -H "Content-Type: application/json" http://localhost:18083/api/v5/message_queues/t1%2F%23 -d '{"dispatch_strategy": "least_inflight"}' | jq
+curl -s -u key:secret -X PUT -H "Content-Type: application/json" http://localhost:18083/api/v5/message_queues/queues/t1%2F%23 -d '{"dispatch_strategy": "least_inflight"}' | jq
 {
   ...
   "topic_filter": "t1/#"
@@ -162,7 +165,13 @@ curl -s -u key:secret -X PUT -H "Content-Type: application/json" http://localhos
 Delete Message Queue:
 
 ```bash
-curl -s -u key:secret -X DELETE http://localhost:18083/api/v5/message_queues/t1%2F%23
+curl -s -u key:secret -X DELETE http://localhost:18083/api/v5/message_queues/queues/t1%2F%23
+```
+
+Configure Message Queue global settings:
+
+```bash
+curl -s -u key:secret -X PUT -H "Content-Type: application/json" http://localhost:18083/api/v5/message_queues/config -d '{"gc_interval": "1h", "regular_queue_retention_period": "1d", "find_queue_retry_interval": "10s"}'
 ```
 
 # Contributing

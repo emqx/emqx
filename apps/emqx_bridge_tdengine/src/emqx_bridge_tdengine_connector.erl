@@ -260,27 +260,13 @@ on_format_query_result(Result) ->
     Result.
 
 on_get_status(_InstanceId, #{pool_name := PoolName}) ->
-    case
-        emqx_resource_pool:health_check_workers(
-            PoolName,
-            fun ?MODULE:do_get_status/1,
-            emqx_resource_pool:health_check_timeout(),
-            #{return_values => true}
-        )
-    of
-        {ok, []} ->
-            {?status_connecting, undefined};
-        {ok, Values} ->
-            case lists:keyfind(error, 1, Values) of
-                false ->
-                    ?status_connected;
-                {error, Reason} ->
-                    {?status_connecting, enhance_reason(Reason)}
-            end;
-        {error, {processes_down, _}} ->
-            {?status_disconnected, <<"pool_crashed">>};
-        {error, Reason} ->
-            {?status_connecting, enhance_reason(Reason)}
+    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
+    Res = emqx_resource_pool:common_health_check_workers(PoolName, Opts),
+    case Res of
+        {Status, Reason} ->
+            {Status, enhance_reason(Reason)};
+        Status ->
+            Status
     end.
 
 do_get_status(Conn) ->
@@ -293,7 +279,7 @@ do_get_status(Conn) ->
         )
     of
         {ok, _} ->
-            true;
+            ok;
         {error, _} = Error ->
             Error
     catch

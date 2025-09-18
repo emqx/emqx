@@ -35,6 +35,7 @@ The module contains the registry of Message Queues.
     key :: emqx_topic_index:key(nil()) | '_',
     id :: emqx_mq_types:mqid() | '_',
     is_lastvalue :: boolean() | '_',
+    key_expr :: emqx_variform:compiled() | undefined | '_',
     extra = #{} :: map() | '_'
 }).
 
@@ -64,15 +65,21 @@ create_tables() ->
 -doc """
 Create a new MQ.
 """.
--spec create(emqx_mq_types:mq()) -> {ok, emqx_mq_types:mq()} | {error, queue_exists}.
-create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) ->
+-spec create(emqx_mq_types:mq()) ->
+    {ok, emqx_mq_types:mq()} | {error, queue_exists} | {error, term()}.
+create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) when
+    (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, MQ0)))
+->
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),
     {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
         case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
             [] ->
                 ok = mnesia:write(#?MQ_REGISTRY_INDEX_TAB{
-                    key = Key, id = Id, is_lastvalue = IsLastValue
+                    key = Key,
+                    id = Id,
+                    is_lastvalue = IsLastValue,
+                    key_expr = maps:get(key_expression, MQ0, undefined)
                 }),
                 ok;
             [_] ->
@@ -82,8 +89,26 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) ->
     case Result of
         ok ->
             MQ = MQ0#{id => Id},
-            {ok, _} = emqx_mq_state_storage:create_mq_state(MQ),
-            {ok, MQ};
+            try emqx_mq_state_storage:create_mq_state(MQ) of
+                {ok, _} ->
+                    {ok, MQ};
+                {error, Reason} ->
+                    ?tp(error, mq_registry_create_mq_state_error, #{
+                        mq => MQ,
+                        reason => Reason
+                    }),
+                    mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
+                    {error, Reason}
+            catch
+                Class:Reason ->
+                    ?tp(error, mq_registry_create_mq_state_error, #{
+                        mq => MQ,
+                        class => Class,
+                        reason => Reason
+                    }),
+                    mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
+                    {error, Reason}
+            end;
         {error, _} = Error ->
             Error
     end.
@@ -99,12 +124,13 @@ match(Topic) ->
             case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
                 [] ->
                     [];
-                [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue}] ->
+                [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue, key_expr = KeyExpr}] ->
                     [
                         #{
                             id => Id,
                             topic_filter => emqx_topic_index:get_topic(Key),
-                            is_lastvalue => IsLastValue
+                            is_lastvalue => IsLastValue,
+                            key_expression => KeyExpr
                         }
                     ]
             end
@@ -174,16 +200,33 @@ delete_all() ->
 Update the MQ by its topic filter.
 `is_lastvalue` is not allowed to be updated.
 """.
--spec update(emqx_mq_types:mq_topic(), emqx_mq_types:mq()) ->
-    {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
-update(TopicFilter, UpdateFields0) ->
+-spec update(emqx_mq_types:mq_topic(), map()) ->
+    {ok, emqx_mq_types:mq()}
+    | not_found
+    | {error, is_lastvalue_not_allowed_to_be_updated}
+    | {error, term()}.
+update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
     Key = make_key(TopicFilter),
-    UpdateFields = maps:without([topic_filter, id, is_lastvalue], UpdateFields0),
+    UpdateFields = maps:without([topic_filter, id], UpdateFields0),
     case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
         [] ->
             not_found;
-        [#?MQ_REGISTRY_INDEX_TAB{id = Id}] ->
-            emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id, key_expr = KeyExpr, is_lastvalue = OldIsLastValue}] ->
+            case UpdateFields of
+                #{key_expression := NewKeyExpr, is_lastvalue := OldIsLastValue} when
+                    NewKeyExpr =/= KeyExpr andalso OldIsLastValue
+                ->
+                    case update_key_expr(Key, Id, NewKeyExpr) of
+                        ok ->
+                            emqx_mq_state_storage:update_mq_state(Id, UpdateFields);
+                        not_found ->
+                            not_found
+                    end;
+                #{is_lastvalue := NewIsLastValue} when NewIsLastValue =/= OldIsLastValue ->
+                    {error, is_lastvalue_not_allowed_to_be_updated};
+                _ ->
+                    emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
+            end
     end.
 
 -doc """
@@ -263,3 +306,15 @@ mq_record_stream_to_queues(Stream) ->
 
 make_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
+
+update_key_expr(Key, Id, NewKeyExpr) ->
+    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
+        case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
+            [] ->
+                not_found;
+            [#?MQ_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
+                mnesia:write(Rec#?MQ_REGISTRY_INDEX_TAB{key_expr = NewKeyExpr}),
+                ok
+        end
+    end),
+    Result.

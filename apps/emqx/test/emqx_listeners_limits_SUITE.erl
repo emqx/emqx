@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -161,6 +162,59 @@ t_max_conn_rate_update(Config) ->
         ?assertEqual([pong], lists:usort([emqtt:ping(C) || C <- Clients3])),
         %% Cleanup:
         lists:foreach(fun emqtt:disconnect/1, Clients1 ++ [Client2] ++ Clients3)
+    end).
+
+%% Verify message rate limit is respected per listener connection.
+t_message_rate(Config) ->
+    Type = ?config(proto, Config),
+    Name = ?FUNCTION_NAME,
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    LConf = listener_config(
+        Type,
+        #{
+            <<"bind">> => format_bind({"127.0.0.1", Port}),
+            <<"messages_rate">> => <<"1/s">>,
+            <<"messages_burst">> => <<"4/m">>
+        },
+        Config
+    ),
+    with_listener(Type, Name, LConf, fun() ->
+        %% Spawn 3 connections:
+        Clients =
+            [C1, C2, C3] = emqx_utils:pmap(
+                fun(_) -> emqtt_connect("127.0.0.1", Port, Config) end,
+                [1, 2, 3]
+            ),
+        %% Shoot 6 message per first 2 clients:
+        %% NOTE
+        %% All of them should be allowed as burst capacity are currently computed
+        %% as sum of burst _and_ regular rate tokens.
+        Topic = <<"t/msgrate">>,
+        ok = emqx_broker:subscribe(Topic),
+        _ = emqx_utils:pmap(
+            fun(C) ->
+                [
+                    {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C, Topic, Payload, qos1)
+                 || Payload <- [<<"M1">>, <<"M2">>, <<"M3">>, <<"M4">>, <<"M5">>, <<"M6">>]
+                ]
+            end,
+            [C1, C2]
+        ),
+        %% Each of them should hit the limit, while the third is still unlimited:
+        {ok, #{reason_code := ?RC_QUOTA_EXCEEDED}} = emqtt:publish(C1, Topic, <<"X1">>, qos1),
+        {ok, #{reason_code := ?RC_QUOTA_EXCEEDED}} = emqtt:publish(C2, Topic, <<"X1">>, qos1),
+        {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C3, Topic, <<"X1">>, qos1),
+        %% Cooldown:
+        ok = timer:sleep(1_200),
+        %% One more message should be allowed for first 2 clients:
+        {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C1, Topic, <<"X2">>, qos1),
+        {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C2, Topic, <<"X2">>, qos1),
+        {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C3, Topic, <<"X2">>, qos1),
+        {ok, #{reason_code := ?RC_QUOTA_EXCEEDED}} = emqtt:publish(C1, Topic, <<"X3">>, qos1),
+        {ok, #{reason_code := ?RC_QUOTA_EXCEEDED}} = emqtt:publish(C2, Topic, <<"X3">>, qos1),
+        {ok, #{reason_code := ?RC_SUCCESS}} = emqtt:publish(C3, Topic, <<"X3">>, qos1),
+        %% Cleanup:
+        lists:foreach(fun emqtt:disconnect/1, Clients)
     end).
 
 assert_connect_refused(Host, Port, Config) ->
