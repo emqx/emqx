@@ -40,8 +40,8 @@
 {emqx_gateway_api_listeners,1}.
 {emqx_gateway_cm,1}.
 {emqx_gateway_http,1}.
-{emqx_license,1}.
 {emqx_license,2}.
+{emqx_license,3}.
 {emqx_management,1}.
 {emqx_management,2}.
 {emqx_management,3}.

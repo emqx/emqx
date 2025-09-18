@@ -61,6 +61,7 @@
     license_type/1,
     expiry_date/1,
     max_sessions/1,
+    max_tps/1,
     max_uptime_seconds/1,
     is_business_critical/1,
     is_single_node/1
@@ -169,6 +170,10 @@ max_uptime_seconds(#{module := Module, data := LicenseData}) ->
 -spec max_sessions(license()) -> non_neg_integer().
 max_sessions(#{module := Module, data := LicenseData}) ->
     Module:max_sessions(LicenseData).
+
+-spec max_tps(license()) -> non_neg_integer() | infinity.
+max_tps(#{module := Module, data := LicenseData}) ->
+    Module:max_tps(LicenseData).
 
 -spec is_business_critical(license() | raw_license()) -> boolean().
 is_business_critical(#{module := Module, data := LicenseData}) ->

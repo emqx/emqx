@@ -17,7 +17,7 @@
 -define(TIMEOUT, 500).
 
 introduced_in() ->
-    "e5.0.0".
+    "5.0.0".
 
 -spec remote_connection_counts(list(node())) -> list({atom(), term()}).
 remote_connection_counts(Nodes) ->

@@ -51,7 +51,10 @@
 
 -define(LICENSE_TAB, emqx_license).
 
--type limits() :: #{max_sessions := non_neg_integer() | ?ERR_EXPIRED | ?ERR_MAX_UPTIME}.
+-type limits() :: #{
+    max_sessions := non_neg_integer() | ?ERR_EXPIRED | ?ERR_MAX_UPTIME,
+    max_tps := non_neg_integer() | infinity
+}.
 -type license() :: emqx_license_parser:license().
 -type fetcher() :: fun(() -> {ok, license()} | {error, term()}).
 
@@ -274,17 +277,20 @@ warn_evaluation(License, false, MaxConn) ->
 warn_evaluation(_License, _IsOverdue, _MaxConn) ->
     false.
 
-limits(_License, #{is_overdue := true}) ->
+limits(License, #{is_overdue := true}) ->
     #{
-        max_sessions => ?ERR_EXPIRED
+        max_sessions => ?ERR_EXPIRED,
+        max_tps => emqx_license_parser:max_tps(License)
     };
-limits(_License, #{is_max_uptime_reached := true}) ->
+limits(License, #{is_max_uptime_reached := true}) ->
     #{
-        max_sessions => ?ERR_MAX_UPTIME
+        max_sessions => ?ERR_MAX_UPTIME,
+        max_tps => emqx_license_parser:max_tps(License)
     };
 limits(License, #{}) ->
     #{
-        max_sessions => get_max_sessions(License)
+        max_sessions => get_max_sessions(License),
+        max_tps => emqx_license_parser:max_tps(License)
     }.
 
 %% @doc Return the max_sessions limit defined in license.
