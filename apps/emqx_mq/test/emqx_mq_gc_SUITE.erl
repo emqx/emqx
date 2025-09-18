@@ -23,9 +23,9 @@ init_per_testcase(TestCase, Config) ->
         emqx_cth_suite:start(
             [
                 emqx_durable_storage,
-                emqx,
+                {emqx, emqx_mq_test_utils:cth_config(emqx)},
                 {emqx_mq,
-                    emqx_mq_test_utils:cth_config(#{
+                    emqx_mq_test_utils:cth_config(emqx_mq, #{
                         <<"mq">> =>
                             #{
                                 <<"regular_queue_retention_period">> =>

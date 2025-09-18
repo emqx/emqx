@@ -19,18 +19,6 @@ emqx_mq_schema {
         label: "Find Queue Retry Interval"
     }
 
-    state_db {
-        desc: """~
-            Settings for the database storing the Message Queue state."""
-        label: "State DB Settings"
-    }
-
-    message_db {
-        desc: """~
-            Settings for the database storing the Message Queue messages."""
-        label: "Message DB Settings"
-    }
-
     mq {
         desc: """~
             Settings for an individual Message Queue."""

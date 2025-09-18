@@ -10,21 +10,7 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
--export([db_mq_state/0, db_mq_message/0]).
-
 -export([mq_sctype_api_get/0, mq_sctype_api_put/0, mq_sctype_api_post/0]).
-
-%%------------------------------------------------------------------------------
-%% API
-%%------------------------------------------------------------------------------
-
--spec db_mq_state() -> emqx_ds:create_db_opts().
-db_mq_state() ->
-    emqx_ds_schema:db_config([mq, state_db]).
-
--spec db_mq_message() -> emqx_ds:create_db_opts().
-db_mq_message() ->
-    emqx_ds_schema:db_config([mq, message_db]).
 
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
@@ -44,20 +30,6 @@ tags() ->
 %%
 fields(mq) ->
     [
-        {state_db,
-            emqx_ds_schema:db_schema(
-                [builtin_raft, builtin_local],
-                ?IMPORTANCE_MEDIUM,
-                ?DESC(state_db),
-                #{}
-            )},
-        {message_db,
-            emqx_ds_schema:db_schema(
-                [builtin_raft, builtin_local],
-                ?IMPORTANCE_MEDIUM,
-                ?DESC(message_db),
-                #{}
-            )},
         {gc_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)
@@ -104,7 +76,7 @@ fields(message_queues_api_get) ->
 %% Config structs
 %%
 fields(api_config_get) ->
-    without_fields([state_db, message_db], fields(mq));
+    fields(mq);
 fields(api_config_put) ->
     fields(api_config_get).
 

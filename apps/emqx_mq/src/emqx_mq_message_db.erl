@@ -58,7 +58,7 @@ Facade for all operations with the message database.
 
 -spec open() -> ok.
 open() ->
-    Config = maps:merge(emqx_mq_schema:db_mq_message(), #{
+    Config = maps:merge(emqx_ds_schema:db_config_mq_messages(), #{
         storage => {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS},
         store_ttv => true,
         atomic_batches => true

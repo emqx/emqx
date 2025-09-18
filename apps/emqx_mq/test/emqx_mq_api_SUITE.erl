@@ -27,8 +27,8 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            emqx,
-            {emqx_mq, emqx_mq_test_utils:cth_config()},
+            {emqx, emqx_mq_test_utils:cth_config(emqx)},
+            {emqx_mq, emqx_mq_test_utils:cth_config(emqx_mq)},
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],

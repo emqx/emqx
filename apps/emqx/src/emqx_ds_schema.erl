@@ -7,10 +7,14 @@
 
 %% API:
 -export([schema/0]).
--export([db_config_messages/0, db_config_sessions/0, db_config_timers/0, db_config_shared_subs/0]).
-
-%% API for external apps using DS databases:
--export([db_config/1, db_schema/4]).
+-export([
+    db_config_messages/0,
+    db_config_sessions/0,
+    db_config_timers/0,
+    db_config_shared_subs/0,
+    db_config_mq_states/0,
+    db_config_mq_messages/0
+]).
 
 %% Behavior callbacks:
 -export([fields/1, desc/1, namespace/0]).
@@ -47,6 +51,12 @@ db_config_timers() ->
 
 db_config_shared_subs() ->
     db_config([durable_storage, shared_subs]).
+
+db_config_mq_states() ->
+    db_config([durable_storage, mq_states]).
+
+db_config_mq_messages() ->
+    db_config([durable_storage, mq_messages]).
 
 %%================================================================================
 %% Behavior callbacks
@@ -103,10 +113,24 @@ schema() ->
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(shared_subs),
                 #{}
+            )},
+        {mq_states,
+            db_schema(
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(mq_states),
+                #{}
+            )},
+        {mq_messages,
+            db_schema(
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(mq_messages),
+                #{}
             )}
-    ] ++ emqx_schema_hooks:list_injection_point('durable_storage', []).
+    ].
 
--spec db_schema([backend()], _Importance, ?DESC(_, _), Defaults) ->
+-spec db_schema([backend()], _Importance, ?DESC(_), Defaults) ->
     #{type := _, _ => _}
 when
     Defaults :: map().

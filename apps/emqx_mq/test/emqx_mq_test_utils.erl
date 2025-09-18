@@ -21,7 +21,7 @@
 
 -export([cleanup_mqs/0, stop_all_consumers/0, all_consumers/0]).
 
--export([cth_config/0, cth_config/1]).
+-export([cth_config/1, cth_config/2]).
 
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -185,14 +185,23 @@ stop_all_consumers() ->
 all_consumers() ->
     [Pid || {_, Pid, _, _} <- supervisor:which_children(emqx_mq_consumer_sup), is_pid(Pid)].
 
-cth_config() ->
-    cth_config(#{}).
+cth_config(App) ->
+    cth_config(App, #{}).
 
-cth_config(ConfigOverrides) ->
+cth_config(emqx_mq, ConfigOverrides) ->
     DefaultConfig = #{
         <<"mq">> => #{
-            <<"gc_interval">> => <<"1h">>,
-            <<"message_db">> => #{
+            <<"gc_interval">> => <<"1h">>
+        }
+    },
+    Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
+    #{
+        config => Config
+    };
+cth_config(emqx, ConfigOverrides) ->
+    DefaultConfig = #{
+        <<"durable_storage">> => #{
+            <<"mq_messages">> => #{
                 <<"transaction">> => #{
                     <<"flush_interval">> => 100,
                     <<"idle_flush_interval">> => 20,
