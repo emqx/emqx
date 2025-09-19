@@ -142,9 +142,9 @@ connection_quota_early_alarm({ok, #{max_sessions := Max}}) when is_integer(Max) 
 connection_quota_early_alarm(_Limits) ->
     ok.
 
-%% @private The cache table keeps track of the max TPS of the cluster (computed locally).
+%% @private The cache table keeps track of the max TPS of the cluster (computed locally) over time.
 %% However, the cache is ephemeral (ets), so we need to read from the alarm state too to compare
-%% with the existing alarm (if any). The alarm is activated when the max TPS exceeds the limit.
+%% with the existing alarm (if any). The alarm is activated when the latest observed cluster TPS exceeds the limit.
 %% The alarm is deactivated after a new license is loaded with higher TPS limit.
 max_tps_alarm({ok, #{max_tps := Limit}}) ->
     LatestTps = cached_latest_cluster_tps(),
@@ -152,7 +152,9 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
     {Action, AlarmDetails} =
         case emqx_alarm:read_details(license_tps) of
             {ok, #{max_tps := AlarmTps} = Details} when LatestTps > AlarmTps ->
-                {update, Details#{max_tps => LatestTps, observed_at => now_rfc3339()}};
+                {update, Details#{
+                    max_tps => LatestTps, observed_at => now_rfc3339(), hist_max_tps => HistMaxTps
+                }};
             {ok, Details} ->
                 {ignore, Details};
             {error, not_found} ->
