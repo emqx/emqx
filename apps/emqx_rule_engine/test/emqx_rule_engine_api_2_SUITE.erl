@@ -2711,7 +2711,7 @@ t_namespaced_bulk_import_order(matrix) ->
     [[?custom_cluster]];
 t_namespaced_bulk_import_order(TCConfig0) when is_list(TCConfig0) ->
     #{
-        tc_config := _TCConfigNS,
+        tc_config := TCConfigNS,
         source_hookpoint := _SourceHookPoint,
         namespace := Namespace,
         action_name := ActionName,
@@ -2759,6 +2759,24 @@ t_namespaced_bulk_import_order(TCConfig0) when is_list(TCConfig0) ->
                         )
                     )
                 )
+            ),
+            ?assertMatch(
+                {200, [
+                    #{
+                        <<"description">> := <<"action ns1">>,
+                        <<"status">> := <<"connected">>
+                    }
+                ]},
+                emqx_bridge_v2_api_SUITE:list([{conf_root_key, actions} | TCConfigNS])
+            ),
+            ?assertMatch(
+                {200, [
+                    #{
+                        <<"description">> := <<"source ns1">>,
+                        <<"status">> := <<"connected">>
+                    }
+                ]},
+                emqx_bridge_v2_api_SUITE:list([{conf_root_key, sources} | TCConfigNS])
             ),
             ok
         end,
