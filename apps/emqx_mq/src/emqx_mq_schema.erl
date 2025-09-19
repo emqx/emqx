@@ -71,7 +71,7 @@ fields(mq) ->
                 default => <<"10s">>,
                 required => true,
                 desc => ?DESC(find_queue_retry_interval),
-                importance => ?IMPORTANCE_HIDDEN
+                importance => ?IMPORTANCE_MEDIUM
             })}
     ];
 %%
