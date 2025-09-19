@@ -147,15 +147,16 @@ connection_quota_early_alarm(_Limits) ->
 %% with the existing alarm (if any). The alarm is activated when the max TPS exceeds the limit.
 %% The alarm is deactivated after a new license is loaded with higher TPS limit.
 max_tps_alarm({ok, #{max_tps := Limit}}) ->
-    MaxTps0 = cached_max_tps(),
+    LatestTps = cached_latest_cluster_tps(),
+    HistMaxTps = cached_max_tps(),
     {Action, AlarmDetails} =
         case emqx_alarm:read_details(license_tps) of
-            {ok, #{max_tps := AlarmTps} = Details} when MaxTps0 > AlarmTps ->
-                {update, Details#{max_tps => MaxTps0, observed_at => now_rfc3339()}};
+            {ok, #{max_tps := AlarmTps} = Details} when LatestTps > AlarmTps ->
+                {update, Details#{max_tps => LatestTps, observed_at => now_rfc3339()}};
             {ok, Details} ->
                 {ignore, Details};
             {error, not_found} ->
-                {activate, new_tps_alarm_details(MaxTps0)}
+                {activate, new_tps_alarm_details(LatestTps, HistMaxTps)}
         end,
     MaxTps = maps:get(max_tps, AlarmDetails),
     case is_integer(Limit) andalso MaxTps > Limit of
@@ -172,14 +173,21 @@ max_tps_alarm({ok, #{max_tps := Limit}}) ->
             ?OK(emqx_alarm:ensure_deactivated(license_tps))
     end.
 
-new_tps_alarm_details(MaxTps0) ->
-    emqx_alarm:make_persistent_details(#{max_tps => MaxTps0, observed_at => now_rfc3339()}).
+new_tps_alarm_details(MaxTps, HistMaxTps) ->
+    emqx_alarm:make_persistent_details(#{
+        max_tps => MaxTps,
+        hist_max_tps => HistMaxTps,
+        observed_at => now_rfc3339()
+    }).
 
 now_rfc3339() ->
     emqx_utils_calendar:epoch_to_rfc3339(erlang:system_time(millisecond), millisecond).
 
 cached_connection_count() ->
     ?SAFE_CACHE_LOOKUP(total_connection_count, 0).
+
+cached_latest_cluster_tps() ->
+    ?SAFE_CACHE_LOOKUP(latest_cluster_tps, 0).
 
 cached_max_tps() ->
     ?SAFE_CACHE_LOOKUP(max_cluster_tps, 0).
@@ -189,6 +197,7 @@ update_resources() ->
     ets:insert(?MODULE, {total_connection_count, Sessions}),
     Max0 = cached_max_tps(),
     Max = max(Max0, TPS),
+    ets:insert(?MODULE, {latest_cluster_tps, TPS}),
     ets:insert(?MODULE, {max_cluster_tps, Max}),
     ok.
 
