@@ -64,13 +64,15 @@
 %% Random functions
 -export([rand_str/1, rand_int/1]).
 
-%% Schema-less encod/decode
+%% Schema-less encode/decode
 -export([
     bin2hexstr/1,
     hexstr2bin/1,
     int2hexstr/1,
     base64_encode/1,
-    base64_decode/1
+    base64_decode/1,
+    json_encode/1,
+    json_decode/1
 ]).
 
 %% Hash functions
@@ -584,6 +586,26 @@ base64_encode(Bin) ->
 %% @doc Decode base64 encoded string.
 base64_decode(Bin) ->
     base64:decode(Bin).
+
+%% @doc Encode a term to JSON string.
+json_encode(Term) ->
+    case emqx_utils_json:safe_encode(Term) of
+        {ok, JSON} ->
+            JSON;
+        {error, _Reason} ->
+            ?BADARG()
+    end.
+
+%% @doc Decode JSON string to a data structure.
+json_decode(Bin) when is_binary(Bin) ->
+    case emqx_utils_json:safe_decode(Bin) of
+        {ok, JSON} ->
+            JSON;
+        {error, _Reason} ->
+            ?BADARG()
+    end;
+json_decode(_) ->
+    ?BADARG().
 
 %%------------------------------------------------------------------------------
 %% Hash functions

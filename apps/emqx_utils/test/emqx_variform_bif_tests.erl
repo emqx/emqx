@@ -192,6 +192,21 @@ int2hexstr_test_() ->
         ?_assertEqual(<<"1A">>, emqx_variform_bif:int2hexstr(26))
     ].
 
+json_encode_decode_test_() ->
+    [
+        ?_assertEqual(<<"\"a\"">>, emqx_variform_bif:json_encode(<<"a">>)),
+        ?_assertEqual(<<"a">>, emqx_variform_bif:json_decode(~b|"a"|)),
+        ?_assertEqual(<<"{\"a\":1}">>, emqx_variform_bif:json_encode(#{<<"a">> => 1})),
+        ?_assertEqual(#{<<"a">> => 1}, emqx_variform_bif:json_decode(~b|{"a": 1}|)),
+        ?_assertEqual(<<"[1,2,3]">>, emqx_variform_bif:json_encode([1, 2, 3])),
+        ?_assertEqual([1, 2, 3], emqx_variform_bif:json_decode(<<"[1,2,3]">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:json_decode(~b|{"a": 1|)),
+        ?ASSERT_BADARG(emqx_variform_bif:json_decode(null)),
+        ?ASSERT_BADARG(emqx_variform_bif:json_decode(#{})),
+        ?_assertEqual(<<"null">>, emqx_variform_bif:json_encode(null)),
+        ?_assertEqual(~b|"undefined"|, emqx_variform_bif:json_encode(undefined))
+    ].
+
 atom_input_test_() ->
     [
         ?_assertEqual(<<"ATOM">>, emqx_variform_bif:upper('atom')),
