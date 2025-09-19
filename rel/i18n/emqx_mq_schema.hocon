@@ -12,6 +12,13 @@ emqx_mq_schema {
         label: "Regular Queue Retention Period"
     }
 
+    find_queue_retry_interval {
+        desc: """~
+            The interval at which subscribers will retry to find a queue if the queue is not found
+            when subscribing to a queue topic."""
+        label: "Find Queue Retry Interval"
+    }
+
     state_db {
         desc: """~
             Settings for the database storing the Message Queue state."""
