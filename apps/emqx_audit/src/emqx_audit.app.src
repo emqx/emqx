@@ -1,6 +1,6 @@
 {application, emqx_audit, [
     {description, "Audit log for EMQX"},
-    {vsn, "0.1.2"},
+    {vsn, "0.1.3"},
     {registered, []},
     {mod, {emqx_audit_app, []}},
     {applications, [kernel, stdlib, emqx]},
