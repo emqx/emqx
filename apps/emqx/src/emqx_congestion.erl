@@ -73,7 +73,7 @@ do_alarm_congestion(ConnMod, State, Reason) ->
     Name = tcp_congestion_alarm_name(Reason, ConnMod, State),
     Details = tcp_congestion_alarm_details(ConnMod, State),
     Message = io_lib:format("connection congested: ~0p", [Details]),
-    emqx_alarm:activate(Name, Details, Message),
+    emqx_alarm:safe_activate(Name, Details, Message),
     ok.
 
 do_cancel_alarm_congestion(ConnMod, State, Reason) ->
