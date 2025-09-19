@@ -29,6 +29,20 @@ emqx_ds_schema {
        Configuration of the durable storage containing metadata and topic replay progress by shared subscriptions.~"""
   }
 
+  mq_states {
+      label: "Message Queue states"
+      desc:
+        """~
+        Configuration of the durable storage containing Message Queue states."""
+  }
+
+  mq_messages {
+      label: "Message Queue messages"
+      desc:
+        """~
+        Configuration of the durable storage containing Message Queue messages."""
+  }
+
   // Backends types:
 
   backend_type {

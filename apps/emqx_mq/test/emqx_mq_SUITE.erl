@@ -33,8 +33,8 @@ init_per_suite(Config) ->
         emqx_cth_suite:start(
             [
                 emqx_durable_storage,
-                emqx,
-                {emqx_mq, emqx_mq_test_utils:cth_config()}
+                {emqx, emqx_mq_test_utils:cth_config(emqx)},
+                {emqx_mq, emqx_mq_test_utils:cth_config(emqx_mq)}
             ],
             #{work_dir => emqx_cth_suite:work_dir(Config)}
         ),

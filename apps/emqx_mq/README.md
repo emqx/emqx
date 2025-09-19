@@ -100,9 +100,12 @@ mq {
     ## The interval at which subscribers will retry to find a queue if the queue is not found
     ## when subscribing to a queue topic.
     find_queue_retry_interval = 10s
+}
+
+durable_storage {
     ## Settings for the database storing the Message Queue state.
     ## See Durable Storage configuration for more details.
-    state_db {
+    mq_states {
         transaction {
             flush_interval = 10
             idle_flush_interval = 5
@@ -111,7 +114,7 @@ mq {
     }
     ## Settings for the database storing the Message Queue messages.
     ## See Durable Storage configuration for more details.
-    message_db {
+    mq_messages {
         transaction {
             flush_interval = 100
             idle_flush_interval = 20
