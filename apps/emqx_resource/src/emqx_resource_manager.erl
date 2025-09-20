@@ -200,6 +200,7 @@
 -record(remove_channel, {channel_id :: channel_id()}).
 -record(manual_resource_health_check, {}).
 -record(start_channel_health_check, {channel_id :: channel_id()}).
+-record(nudge_add_channels_to_resource_state, {}).
 -record(retry_add_channel, {channel_id :: channel_id()}).
 -record(retry_remove_channel, {channel_id :: channel_id()}).
 -record(retry_update_channel, {channel_id :: channel_id()}).
@@ -208,6 +209,9 @@
 -type generic_timeout(Id, Content) :: {{timeout, Id}, timeout(), Content}.
 -type start_channel_health_check_action() :: generic_timeout(
     #start_channel_health_check{}, #start_channel_health_check{}
+).
+-type nudge_add_channels_to_resource_state_action() :: generic_timeout(
+    #nudge_add_channels_to_resource_state{}, #nudge_add_channels_to_resource_state{}
 ).
 -type retry_add_channel_action() :: generic_timeout(
     #retry_add_channel{}, #retry_add_channel{}
@@ -822,6 +826,13 @@ handle_event(
     {timeout, #retry_add_channel{channel_id = ChannelId}}, _, ?state_connected = _State, Data
 ) ->
     handle_retry_add_channel(Data, ChannelId);
+handle_event(
+    {timeout, #nudge_add_channels_to_resource_state{}},
+    _,
+    ?state_connected = _State,
+    Data
+) ->
+    handle_nudge_add_channels_to_resource_state(Data);
 %%--------------------------
 %% State: DISCONNECTED
 %%--------------------------
@@ -911,7 +922,19 @@ handle_event(
 handle_event({timeout, #start_channel_health_check{channel_id = _}}, _, _State, _Data) ->
     %% Stale health check action; currently, we only probe channel health when connected.
     keep_state_and_data;
-% Ignore all other events
+handle_event(
+    {timeout, #nudge_add_channels_to_resource_state{}},
+    _,
+    _State,
+    _Data
+) ->
+    %% We only accept the nudge to add channels to the resource state when we're
+    %% connected.  This is either a stale timeout (and we've transitioned from
+    %% `?state_connected` to another state), or it was triggered by handling async channel
+    %% operations.  Either way, when the resource enters `?state_connected` again, it'll
+    %% add the channels back to its state as part of its normal lifecycle.
+    keep_state_and_data;
+%% Ignore all other events
 handle_event(EventType, EventData, State, Data) ->
     ?LOG(
         error,
@@ -1804,6 +1827,13 @@ start_channel_health_check_action(ChannelId, NewChanStatus, PreviousChanStatus, 
     Event = #start_channel_health_check{channel_id = ChannelId},
     [generic_timeout_action(Event, Timeout, Event)].
 
+-spec nudge_add_channels_to_resource_state_action() ->
+    nudge_add_channels_to_resource_state_action().
+nudge_add_channels_to_resource_state_action() ->
+    Timeout = 0,
+    Event = #nudge_add_channels_to_resource_state{},
+    generic_timeout_action(Event, Timeout, Event).
+
 -spec retry_add_channel_action(channel_id(), map(), data()) -> retry_add_channel_action().
 retry_add_channel_action(ChannelId, ChannelConfig, Data) ->
     Timeout = get_channel_health_check_interval(ChannelId, [ChannelConfig], Data),
@@ -2088,6 +2118,14 @@ reply_pending_channel_health_check_callers(
     CPending = maps:remove(ChannelId, CPending0),
     Data = Data0#data{hc_pending_callers = Pending0#{channel := CPending}},
     {Actions, Data}.
+
+-spec handle_nudge_add_channels_to_resource_state(data()) ->
+    gen_statem:event_handler_result(state(), data()).
+handle_nudge_add_channels_to_resource_state(Data0) ->
+    %% We only nudge if the connector is in `?state_connected`, which corresponds to
+    %% `?status_connected`.
+    {Actions, Data} = channels_health_check(?status_connected, Data0),
+    {keep_state, Data, Actions}.
 
 handle_retry_add_channel(Data0, ChannelId) ->
     ?tp(retry_add_channel, #{channel_id => ChannelId}),
@@ -2533,18 +2571,46 @@ abort_health_checks_for_channel(Data0, ChannelId) ->
 collect_and_handle_channel_operations(Op, Data0) ->
     From = undefined,
     Ops = collect_and_compress_channel_operations([Op]),
-    lists:foldl(
-        fun
-            (#add_channel{channel_id = ChannelId, config = Config}, {AccActions, AccData}) ->
-                {Actions, Data} = handle_add_channel(From, AccData, ChannelId, Config),
-                {AccActions ++ Actions, Data};
-            (#remove_channel{channel_id = ChannelId}, {AccActions, AccData}) ->
-                {Actions, Data} = handle_remove_channel(From, ChannelId, AccData),
-                {AccActions ++ Actions, Data}
-        end,
-        {[], Data0},
-        Ops
-    ).
+    #{
+        actions := Actions,
+        data := Data,
+        num_added := NumAdded
+    } =
+        lists:foldl(
+            fun
+                (#add_channel{channel_id = ChannelId, config = Config}, Acc0) ->
+                    #{
+                        actions := AccActions,
+                        data := AccData,
+                        num_added := AccNumAdded
+                    } = Acc0,
+                    {Actions, Data} = handle_add_channel(From, AccData, ChannelId, Config),
+                    Acc0#{
+                        actions := AccActions ++ Actions,
+                        data := Data,
+                        num_added := AccNumAdded + 1
+                    };
+                (#remove_channel{channel_id = ChannelId}, Acc0) ->
+                    #{
+                        actions := AccActions,
+                        data := AccData
+                    } = Acc0,
+                    {Actions, Data} = handle_remove_channel(From, ChannelId, AccData),
+                    Acc0#{
+                        actions := AccActions ++ Actions,
+                        data := Data
+                    }
+            end,
+            #{actions => [], data => Data0, num_added => 0},
+            Ops
+        ),
+    case NumAdded > 0 of
+        true ->
+            NudgeAddAction = nudge_add_channels_to_resource_state_action(),
+            {Actions ++ [NudgeAddAction], Data};
+        false ->
+            {Actions, Data}
+    end.
 
 collect_and_compress_channel_operations(Acc) ->
     MaxRequests = 500,

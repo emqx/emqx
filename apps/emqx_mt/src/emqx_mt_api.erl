@@ -946,7 +946,7 @@ save_config(_IsDryRun = false, Namespace, NewConfig0, OldConfig) ->
             maybe
                 {ok, Config} ?= maps:find(RootKey, NewConfig),
                 ?tp("mt_bulk_importing_config", #{root_key => RootKey, namespace => Namespace}),
-                {ok, _} = emqx:update_config([RootKey], Config, #{namespace => Namespace})
+                {ok, _} = emqx_conf:update([RootKey], Config, #{namespace => Namespace})
             end
         end,
         SortedRootKeys

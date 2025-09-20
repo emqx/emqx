@@ -804,10 +804,13 @@ t_resource_manager_crash_after_producers_started(TCConfig) ->
                         InstanceId =/= undefined,
                     10_000
                 ),
-            ?assertEqual([], get_pulsar_producers()),
             ok
         end,
-        []
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(pulsar_bridge_client_stopped, Trace)),
+            ?assertMatch([_ | _], ?of_kind(pulsar_bridge_producer_stopped, Trace)),
+            ok
+        end
     ),
     ok.
 
@@ -839,10 +842,12 @@ t_resource_manager_crash_before_producers_started(TCConfig) ->
                     #{?snk_kind := pulsar_bridge_stopped},
                     10_000
                 ),
-            ?assertEqual([], get_pulsar_producers()),
             ok
         end,
-        []
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(pulsar_bridge_client_stopped, Trace)),
+            ok
+        end
     ),
     ok.
 
