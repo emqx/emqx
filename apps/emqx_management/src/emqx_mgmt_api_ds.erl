@@ -3,8 +3,6 @@
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_ds).
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 -behaviour(minirest_api).
 
 -import(hoconsc, [mk/2, ref/1, enum/1, array/1]).
@@ -13,6 +11,7 @@
 -export([
     list_sites/2,
     get_site/2,
+    forget_site/2,
     list_dbs/2,
     get_db/2,
     db_replicas/2,
@@ -84,6 +83,7 @@ paths() ->
     [
         "/ds/sites",
         "/ds/sites/:site",
+        "/ds/sites/:site/forget",
         "/ds/storages",
         "/ds/storages/:ds",
         "/ds/storages/:ds/replicas",
@@ -115,6 +115,22 @@ schema("/ds/sites/:site") ->
                 responses =>
                     #{
                         200 => mk(ref(site), #{desc => <<"Get information about the site">>}),
+                        404 => not_found(<<"Site">>)
+                    }
+            }
+    };
+schema("/ds/sites/:site/forget") ->
+    #{
+        'operationId' => forget_site,
+        put =>
+            #{
+                description => <<"Forget site">>,
+                parameters => [param_site_id()],
+                tags => ?TAGS,
+                responses =>
+                    #{
+                        204 => <<"Site forgotten">>,
+                        400 => bad_request(),
                         404 => not_found(<<"Site">>)
                     }
             }
@@ -357,6 +373,19 @@ get_site(get, #{bindings := #{site := Site}}) ->
                 up => emqx_ds_builtin_raft_meta:node_status(Node) == up,
                 shards => Shards
             })
+    end.
+
+forget_site(put, #{bindings := #{site := Site}}) ->
+    case lists:member(Site, emqx_ds_builtin_raft_meta:sites()) of
+        false ->
+            ?NOT_FOUND(<<"Site not found: ", Site/binary>>);
+        true ->
+            case forget(Site, rest) of
+                ok ->
+                    {204, <<>>};
+                {error, Description} ->
+                    ?BAD_REQUEST(400, Description)
+            end
     end.
 
 list_dbs(get, _Params) ->
@@ -637,5 +666,3 @@ meta_error_to_binary(Err) ->
 
 is_enabled() ->
     emqx_ds_builtin_raft_sup:which_dbs() =/= {error, inactive}.
-
--endif.
