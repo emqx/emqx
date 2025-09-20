@@ -33,3 +33,11 @@ PROFILE=${PROFILE:-emqx-enterprise}
     [[ $status -ne 0 ]]
     rm -f $conffile
 }
+
+# With the help of QUICER_SKIP_NIF_LOAD=1, EMQX could start with absent libquicer_nif.so
+@test "skip quic NIF load" {
+    find ./ -name libquicer_nif.so -exec rm {} \;
+    run QUICER_SKIP_NIF_LOAD=1 ./_build/$PROFILE/rel/emqx/bin/emqx start
+    [[ $status -eq 0 ]]
+    run ./_build/$PROFILE/rel/emqx/bin/emqx stop
+}
