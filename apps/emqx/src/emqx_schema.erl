@@ -1933,7 +1933,7 @@ mqtt_parse_options() ->
             sc(
                 hoconsc:enum([chunk, frame]),
                 #{
-                    default => <<"chunk">>,
+                    default => <<"frame">>,
                     desc => ?DESC(fields_mqtt_opts_parse_unit),
                     importance => ?IMPORTANCE_LOW
                 }
