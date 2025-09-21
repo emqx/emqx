@@ -172,11 +172,11 @@ t_current_conns_tcp(_Config) ->
         )
     end).
 
-t_tcp_frame_parsing_conn(_Config) ->
+t_tcp_chunk_parsing_conn(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
-        <<"parse_unit">> => <<"frame">>
+        <<"parse_unit">> => <<"chunk">>
     },
     with_listener(tcp, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_tcp({127, 0, 0, 1}, Port),
@@ -185,11 +185,10 @@ t_tcp_frame_parsing_conn(_Config) ->
         [CPid] = emqx_cm:lookup_channels(ClientId),
         CState = emqx_connection:get_state(CPid),
         ?assertMatch(#{listener := {tcp, ?FUNCTION_NAME}}, CState),
-        emqx_listeners:is_packet_parser_available(mqtt) andalso
-            ?assertMatch(#{parser := {frame, _Options}}, CState)
+        ?assertMatch(#{parser := Tuple} when element(1, Tuple) =:= options, CState)
     end).
 
-t_ssl_frame_parsing_conn(Config) ->
+t_ssl_chunk_parsing_conn(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Port = emqx_common_test_helpers:select_free_port(ssl),
     Conf = #{
@@ -199,7 +198,7 @@ t_ssl_frame_parsing_conn(Config) ->
             <<"certfile">> => filename:join(PrivDir, "server.pem"),
             <<"keyfile">> => filename:join(PrivDir, "server.key")
         },
-        <<"parse_unit">> => <<"frame">>
+        <<"parse_unit">> => <<"chunk">>
     },
     with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
         Client = emqtt_connect_ssl({127, 0, 0, 1}, Port, [{verify, verify_none}]),
@@ -208,8 +207,7 @@ t_ssl_frame_parsing_conn(Config) ->
         [CPid] = emqx_cm:lookup_channels(ClientId),
         CState = emqx_connection:get_state(CPid),
         ?assertMatch(#{listener := {ssl, ?FUNCTION_NAME}}, CState),
-        emqx_listeners:is_packet_parser_available(mqtt) andalso
-            ?assertMatch(#{parser := {frame, _Options}}, CState)
+        ?assertMatch(#{parser := Tuple} when element(1, Tuple) =:= options, CState)
     end).
 
 t_wss_conn(Config) ->
@@ -774,6 +772,39 @@ t_quic_update_opts_fail(Config) ->
         ok = emqtt:stop(C2),
         ok = emqtt:stop(C3)
     end).
+
+t_max_packet_size_update(_Config) ->
+    case emqx_listeners:is_packet_parser_available(mqtt) of
+        true ->
+            test_max_packet_size_update();
+        false ->
+            ok
+    end.
+
+test_max_packet_size_update() ->
+    Tester = self(),
+    meck:new(emqx_listeners, [passthrough]),
+    meck:expect(
+        emqx_listeners,
+        update_listener_for_zone_changes,
+        fun(Type, Name, Conf) ->
+            Tester ! {update, Type, Name, Conf},
+            meck:passthrough([Type, Name, Conf])
+        end
+    ),
+    KeyPath = [mqtt, max_packet_size],
+    MaxPacketSize = emqx_config:get_zone_conf(default, KeyPath),
+    emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize + 1),
+    %% two updates, one for tcp, one for ssl, without order
+    ?assertReceive({update, Type, default, _} when Type =:= tcp orelse Type =:= ssl, 1000),
+    ?assertReceive({update, Type, default, _} when Type =:= tcp orelse Type =:= ssl, 1000),
+    ?assertNotReceive({update, ws, default, _}, 200),
+    %% update without diff should not result in listener update
+    emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize + 1),
+    ?assertNotReceive({update, _, default, _}, 200),
+    %% restore the original value
+    emqx_config:put_zone_conf(default, KeyPath, MaxPacketSize),
+    ok.
 
 t_symlink_certs(Config) ->
     PrivDir = ?config(priv_dir, Config),

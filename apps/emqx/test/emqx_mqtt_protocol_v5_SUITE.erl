@@ -148,6 +148,13 @@ clean_retained(Topic, Config) ->
     {ok, _} = emqtt:publish(Clean, Topic, #{}, <<"">>, [{qos, ?QOS_1}, {retain, true}]),
     ok = emqtt:disconnect(Clean).
 
+check_zone_config(ConfString) ->
+    Fields = [{zone, hoconsc:mk(hoconsc:ref(emqx_schema, "zone"))}],
+    Schema = #{roots => Fields},
+    {ok, RawConf} = hocon:binary(unicode:characters_to_binary(ConfString)),
+    {_, Conf} = emqx_config:check_config(Schema, #{<<"zone">> => RawConf}),
+    maps:get(zone, Conf).
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -1142,5 +1149,73 @@ t_share_subscribe_no_local(Config) ->
         {'EXIT', {Reason, _Stk}} ->
             ?assertEqual({shutdown, {disconnected, ?RC_PROTOCOL_ERROR, #{}}}, Reason)
     end,
-
     process_flag(trap_exit, false).
+
+t_CONNECT_packet_too_large(init, Config) ->
+    MaxSize = 1024,
+    #{mqtt := MQTTConf} = check_zone_config(
+        "mqtt {" ++
+            "\n max_packet_size = " ++ integer_to_list(MaxSize) ++
+            "\n}"
+    ),
+    emqx_config:put_zone_conf(default, [mqtt], MQTTConf),
+    [{max_size, MaxSize} | Config];
+t_CONNECT_packet_too_large('end', _Config) ->
+    emqx_config:put_zone_conf(default, [], check_zone_config(_Default = "")).
+
+t_CONNECT_packet_too_large(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    MaxSize = ?config(max_size, Config),
+    Payload = lists:duplicate(MaxSize, $a),
+    {ok, ClientPid} = emqtt:start_link([
+        {proto_ver, v5},
+        {clean_start, true},
+        {will_flag, true},
+        {will_topic, Topic},
+        {will_payload, Payload}
+        | Config
+    ]),
+    unlink(ClientPid),
+    try
+        ?assertMatch({error, _}, emqtt:ConnFun(ClientPid))
+    catch
+        exit:{normal, W} when ConnFun =:= quic_connect ->
+            %% TODO: fix quic_connect to return error
+            ?assertMatch({gen_statem, call, _}, W)
+    end.
+
+t_PUBLISH_packet_too_large(init, Config) ->
+    MaxSize = 1024,
+    #{mqtt := MQTTConf} = check_zone_config(
+        "mqtt {" ++
+            "\n max_packet_size = " ++ integer_to_list(MaxSize) ++
+            "\n}"
+    ),
+    emqx_config:put_zone_conf(default, [mqtt], MQTTConf),
+    [{max_size, MaxSize} | Config];
+t_PUBLISH_packet_too_large('end', _Config) ->
+    emqx_config:put_zone_conf(default, [], check_zone_config(_Default = "")).
+
+t_PUBLISH_packet_too_large(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    MaxSize = ?config(max_size, Config),
+    Payload = lists:duplicate(MaxSize, $a),
+    {ok, ClientPid} = emqtt:start_link([
+        {proto_ver, v5},
+        {clean_start, true}
+        | Config
+    ]),
+    unlink(ClientPid),
+    monitor(process, ClientPid),
+    {ok, _} = emqtt:ConnFun(ClientPid),
+    ?assertMatch(
+        {error, {disconnected, ?RC_PACKET_TOO_LARGE, _}},
+        emqtt:publish(ClientPid, Topic, Payload, 1)
+    ),
+    ?assertReceive(
+        {'DOWN', _Ref, process, ClientPid, {shutdown, {disconnected, ?RC_PACKET_TOO_LARGE, _}}},
+        1000
+    ),
+    ok.
