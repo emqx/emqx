@@ -310,12 +310,12 @@ format_insert_tx_results([{error, _, _} = Error | Results], ErrorAcc) ->
     format_insert_tx_results(Results, [Error | ErrorAcc]).
 
 delete(DB, Topic) ->
-    {Time, ok} = timer:tc(fun() ->
+    {_Time, ok} = timer:tc(fun() ->
         do_delete(DB, Topic)
     end),
     ?tp_debug(mq_message_db_delete, #{
         topic => Topic,
-        time => erlang:convert_time_unit(Time, microsecond, millisecond)
+        time => erlang:convert_time_unit(_Time, microsecond, millisecond)
     }),
     ok.
 
