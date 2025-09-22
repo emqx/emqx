@@ -695,30 +695,43 @@ clean_stale_trace_files() ->
         {ok, ["zip"]} ->
             ok;
         {ok, Files} ->
-            %% NOTE: Cleaning both stale and foreign files.
-            TraceFiles = [
-                log_filename(Name, StartAt)
-             || #?TRACE{name = Name, start_at = StartAt} <- list_traces()
-            ],
-            StaleFiles = [Filename || Filename <- Files, trace_file_is_stale(Filename, TraceFiles)],
-            lists:foreach(
-                fun(Filename) ->
-                    ?tp(debug, "trace_cleaning_stale_file", #{filename => Filename}),
-                    file:delete(filename:join(TraceDir, Filename))
-                end,
-                StaleFiles
-            );
+            clean_stale_trace_files(TraceDir, Files);
         _Error ->
             ok
     end.
 
+clean_stale_trace_files(TraceDir, Files) ->
+    %% NOTE: Cleaning both stale and foreign files.
+    TraceFileSet = lists:foldl(
+        fun(#?TRACE{name = Name, start_at = StartAt}, Acc) ->
+            %% NOTE: If `Name` is unique = filename is unique, `gb_sets:insert/2` is safe.
+            gb_sets:insert(log_filename(Name, StartAt), Acc)
+        end,
+        gb_sets:new(),
+        list_traces()
+    ),
+    StaleFiles = [Filename || Filename <- Files, trace_file_is_stale(Filename, TraceFileSet)],
+    lists:foreach(
+        fun(Filename) ->
+            ?tp(debug, "trace_cleaning_stale_file", #{filename => Filename}),
+            file:delete(filename:join(TraceDir, Filename))
+        end,
+        StaleFiles
+    ).
+
 clean_zip_dir() ->
     file:del_dir_r(zip_dir()).
 
-trace_file_is_stale("zip", _TraceFiles) ->
+trace_file_is_stale("zip", _TraceFileSet) ->
     false;
-trace_file_is_stale(Filename, TraceFiles) ->
-    lists:all(fun(Basename) -> string:prefix(Filename, Basename) =:= nomatch end, TraceFiles).
+trace_file_is_stale(Filename, TraceFileSet) ->
+    %% NOTE: Basename should be the nearest predecessor of `Filename` if trace exists.
+    case gb_sets:next(gb_sets:iterator_from(Filename, TraceFileSet, reversed)) of
+        {Basename, _It} ->
+            string:prefix(Filename, Basename) =:= nomatch;
+        none ->
+            true
+    end.
 
 classify_by_time(Traces, Now) ->
     classify_by_time(Traces, Now, [], [], []).
