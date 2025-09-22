@@ -432,8 +432,10 @@ log_filepath(Name, Start) ->
     filename:join(trace_dir(), log_filename(Name, Start)).
 
 log_filename(Name, Start) ->
-    [Time, _] = string:split(calendar:system_time_to_rfc3339(Start), "T", leading),
-    lists:flatten(["trace_", binary_to_list(Name), "_", Time, ".log"]).
+    lists:flatten(["trace_", binary_to_list(Name), "_", log_start_date(Start), ".log"]).
+
+log_start_date(Start) ->
+    hd(string:split(calendar:system_time_to_rfc3339(Start), "T", leading)).
 
 check() ->
     gen_server:call(?MODULE, check).
@@ -688,21 +690,29 @@ stop_trace(#{id := HandlerID, dst := Basename, filter := {Type, Filter}} = Handl
 clean_stale_trace_files() ->
     TraceDir = trace_dir(),
     case file:list_dir(TraceDir) of
-        {ok, AllFiles} when AllFiles =/= ["zip"] ->
-            KeepFiles = [
+        {ok, []} ->
+            ok;
+        {ok, ["zip"]} ->
+            ok;
+        {ok, Files} ->
+            %% NOTE: Cleaning both stale and foreign files.
+            TraceFiles = [
                 log_filename(Name, StartAt)
              || #?TRACE{name = Name, start_at = StartAt} <- list_traces()
             ],
-            case AllFiles -- ["zip" | KeepFiles] of
-                [] ->
-                    ok;
-                DeleteFiles ->
-                    DelFun = fun(F) -> file:delete(filename:join(TraceDir, F)) end,
-                    lists:foreach(DelFun, DeleteFiles)
-            end;
-        _ ->
+            StaleFiles = [Filename || Filename <- Files, trace_file_is_stale(Filename, TraceFiles)],
+            lists:foreach(
+                fun(Filename) -> file:delete(filename:join(TraceDir, Filename)) end,
+                StaleFiles
+            );
+        _Error ->
             ok
     end.
+
+trace_file_is_stale("zip", _TraceFiles) ->
+    false;
+trace_file_is_stale(Filename, TraceFiles) ->
+    lists:all(fun(Basename) -> string:prefix(Filename, Basename) =:= nomatch end, TraceFiles).
 
 classify_by_time(Traces, Now) ->
     classify_by_time(Traces, Now, [], [], []).
