@@ -490,13 +490,12 @@ format(#?TRACE{
 
 init([]) ->
     erlang:process_flag(trap_exit, true),
-    Fields = record_info(fields, ?TRACE),
     ok = mria:create_table(?TRACE, [
         {type, set},
         {rlog_shard, ?SHARD},
         {storage, disc_copies},
         {record_name, ?TRACE},
-        {attributes, Fields}
+        {attributes, record_info(fields, ?TRACE)}
     ]),
     ok = mria:wait_for_tables([?TRACE]),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
@@ -505,6 +504,7 @@ init([]) ->
     Traces = get_enabled_trace(),
     TRef = update_trace(Traces),
     update_trace_handler(),
+    _ = clean_zip_dir(),
     {ok, #{timer => TRef, monitors => #{}}}.
 
 handle_call(check, _From, State) ->
@@ -547,7 +547,7 @@ terminate(_Reason, #{timer := TRef}) ->
     emqx_utils:cancel_timer(TRef),
     stop_all_trace_handler(),
     update_trace_handler(),
-    _ = file:del_dir_r(zip_dir()),
+    _ = clean_zip_dir(),
     ok.
 
 insert_new_trace(Trace) ->
@@ -711,6 +711,9 @@ clean_stale_trace_files() ->
         _Error ->
             ok
     end.
+
+clean_zip_dir() ->
+    file:del_dir_r(zip_dir()).
 
 trace_file_is_stale("zip", _TraceFiles) ->
     false;
