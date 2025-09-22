@@ -1,0 +1,94 @@
+emqx_mgmt_api_ds {
+    list_sites {
+        label = "List Sites"
+        desc = "List durable storage sites."
+    }
+    get_site {
+        label = "Get Site"
+        desc = "Get information about a durable storage site."
+    }
+    site_not_found {
+        label = "Site Not Found"
+        desc = "The specified site was not found."
+    }
+    list_dbs {
+        label = "List Storages"
+        desc = "List durable storages."
+    }
+    durable_storage_disabled {
+        label = "Durable Storage Disabled"
+        desc = "The durable storage feature is disabled."
+    }
+    get_db {
+        label = "Get Storage"
+        desc = "Get information about a durable storage."
+    }
+    durable_storage_not_found {
+        label = "Storage Not Found"
+        desc = "The specified durable storage was not found."
+    }
+    list_db_replicas {
+        label = "List Storage Replicas"
+        desc = "List sites that contain replicas of the durable storage."
+    }
+    update_db_replicas {
+        label = "Update Storage Replicas"
+        desc = "Update the list of sites that contain replicas of the durable storage."
+    }
+    new_list_of_sites {
+        label = "New List of Sites"
+        desc = "The new list of sites that should contain replicas of the durable storage."
+    }
+    add_db_replica {
+        label = "Add Storage Replica"
+        desc = "Add a site as a replica for the durable storage."
+    }
+    storage_not_found {
+        label = "Storage Not Found"
+        desc = "The specified durable storage was not found."
+    }
+    remove_db_replica {
+        label = "Remove Storage Replica"
+        desc = "Remove a site from the replica set of the durable storage."
+    }
+    node_name {
+        label = "Node Name"
+        desc = "The name of the node."
+    }
+    site_up_and_running {
+        label = "Site Status"
+        desc = "Whether the site is up and running."
+    }
+    site_shards {
+        label = "Shards"
+        desc = "The list of shards hosted by this site."
+    }
+    durable_storage_name {
+        label = "Storage ID"
+        desc = "The identifier of the durable storage."
+    }
+    shard_id {
+        label = "Shard ID"
+        desc = "The identifier of the shard."
+    }
+    shard_status {
+        label = "Shard Status"
+        desc = "The status of the shard."
+    }
+    shard_transition {
+        label = "Shard Transition"
+        desc = "The current transition state of the shard (joining or leaving)."
+    }
+    list_of_shards {
+        label = "Storage Shards"
+        desc = "The list of shards in the durable storage."
+    }
+    shard_replicas {
+        label = "Shard Replicas"
+        desc = "The list of replicas for this shard."
+    }
+    bad_request {
+        label = "Bad Request"
+        desc = "The request was invalid or malformed."
+    }
+}
