@@ -15,7 +15,7 @@
 -export([
     on_message_publish/1,
     on_session_subscribed/3,
-    on_session_unsubscribed/2,
+    on_session_unsubscribed/3,
     on_session_resumed/2,
     on_session_disconnected/2,
     on_delivery_completed/2,
@@ -82,7 +82,10 @@ on_session_subscribed(_ClientInfo, _FullTopic, _SubOpts) ->
     ?tp_debug(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => false}),
     ok.
 
-on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>>) ->
+on_session_unsubscribed(ClientInfo, Topic, _SubOpts) ->
+    on_session_unsubscribed(ClientInfo, Topic).
+
+on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>> = _FullTopic) ->
     case emqx_mq_sub_registry:delete(Topic) of
         undefined ->
             ok;

@@ -28,9 +28,9 @@ end_per_suite(_Config) ->
 init_per_testcase(TCName, Config) ->
     Apps = [
         emqx_durable_storage,
-        emqx,
+        {emqx, emqx_mq_test_utils:cth_config(emqx)},
         {emqx_mq,
-            emqx_mq_test_utils:cth_config(#{
+            emqx_mq_test_utils:cth_config(emqx_mq, #{
                 <<"mq">> => #{<<"find_queue_retry_interval">> => <<"100ms">>}
             })}
     ],

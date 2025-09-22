@@ -134,6 +134,28 @@ t_get_site(Config) ->
     ),
     ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(messages)).
 
+t_forget_site(Config) ->
+    [N1 | _] = ?config(cluster, Config),
+    [S1 | _] = ?config(sites, Config),
+    %% Unknown site:
+    ?assertMatch(
+        {error, {_HTTP, 404, _}},
+        request_api(put, ["ds", "sites", "unknown_site", "forget"], Config)
+    ),
+    %% Site is up:
+    ?assertMatch(
+        {error, {_HTTP, 400, _}},
+        request_api(put, ["ds", "sites", S1, "forget"], Config)
+    ),
+    %% Site should be forgotten cleanly:
+    Site = atom_to_binary(?FUNCTION_NAME),
+    Node = node(),
+    ok = ?ON(N1, emqx_ds_builtin_raft_meta:claim_site(Site, Node)),
+    ?assertMatch(
+        {ok, []},
+        request_api(put, ["ds", "sites", Site, "forget"], Config)
+    ).
+
 t_get_db(Config) ->
     [N1 | _] = ?config(cluster, Config),
     [S1, S2] = lists:sort(?config(sites, Config)),

@@ -28,6 +28,7 @@
     node_status/1,
     this_site/0,
     forget_site/1,
+    claim_site/2,
     print_status/0
 ]).
 
@@ -313,6 +314,10 @@ forget_site(Site) ->
             %% If it's gone, it should leave the cluster first.
             {error, site_temporarily_down}
     end.
+
+-spec claim_site(site(), node()) -> ok | {error, _Reason}.
+claim_site(Site, Node) ->
+    transaction(fun ?MODULE:claim_site_trans/2, [Site, Node]).
 
 %%===============================================================================
 
