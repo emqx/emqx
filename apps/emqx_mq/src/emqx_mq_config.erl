@@ -40,9 +40,8 @@ mq_update_from_raw_put(UpdatedMessageQueueRaw) ->
 
 -spec raw_api_config() -> map().
 raw_api_config() ->
-    RawConfig0 = emqx:get_raw_config([mq]),
-    RawConfig = emqx_schema:fill_defaults_for_type(hoconsc:ref(emqx_mq_schema, mq), RawConfig0),
-    maps:without([<<"state_db">>, <<"message_db">>], RawConfig).
+    RawConfig = emqx:get_raw_config([mq]),
+    emqx_schema:fill_defaults_for_type(hoconsc:ref(emqx_mq_schema, mq), RawConfig).
 
 -spec update_config(emqx_config:update_request()) ->
     {ok, emqx_config:update_result()} | {error, emqx_config:update_error()}.

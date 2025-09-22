@@ -49,13 +49,24 @@ t_deactivate_all_alarms(_) ->
     {error, already_existed} = emqx_alarm:activate(unknown_alarm),
     ?assertNotEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(activated))),
 
-    emqx_alarm:deactivate_all_alarms(),
+    emqx_alarm:deactivate_ephemral_alarms(),
     ?assertNotEqual(
         {error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))
     ),
 
     emqx_alarm:delete_all_deactivated_alarms(),
     ?assertEqual({error, not_found}, get_alarm(unknown_alarm, emqx_alarm:get_alarms(deactivated))).
+
+t_persistence(_) ->
+    Name = ?FUNCTION_NAME,
+    ok = emqx_alarm:activate(
+        Name, #{'_persistence' => true, test => "test_details"}, <<"Reach Rate Limit">>
+    ),
+    emqx_alarm:deactivate_ephemral_alarms(),
+    ?assertEqual({error, not_found}, get_alarm(Name, emqx_alarm:get_alarms(deactivated))),
+    ok = emqx_alarm:deactivate(Name),
+    ?assertNotEqual({error, not_found}, get_alarm(Name, emqx_alarm:get_alarms(deactivated))),
+    ok = emqx_alarm:delete_all_deactivated_alarms().
 
 t_size_limit(_) ->
     ok = emqx_alarm:activate(a),
@@ -116,7 +127,7 @@ t_format(_Config) ->
     Name = test_alarm,
     Message = "test_msg",
     At = erlang:system_time(microsecond),
-    Details = "test_details",
+    Details = #{test => "test_details"},
     Node = node(),
     Activate = #activated_alarm{
         name = Name, message = Message, activate_at = At, details = Details

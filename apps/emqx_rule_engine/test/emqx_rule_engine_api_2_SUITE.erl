@@ -27,6 +27,8 @@
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
+
 -define(assertReceivePublish(TOPIC, EXPR), begin
     ?assertMatch(
         EXPR,
@@ -640,6 +642,9 @@ setup_namespaced_actions_sources_scenario2(TCConfig0) ->
 
     #{
         namespace => Namespace,
+        action_name => ActionName,
+        source_name => SourceName,
+        connector_name => ConnectorName,
         auth_header => AuthHeader,
         source_hookpoint => SourceHookPoint,
         tc_config => TCConfigNS
@@ -692,6 +697,9 @@ setup_namespaced_actions_sources_deletion_scenario(TestCase, TCConfig0) ->
         GlobalAdminHeader
     ),
     #{
+        action_name := ActionName,
+        source_name := SourceName,
+        connector_name := ConnectorName,
         tc_config := TCConfigNS,
         source_hookpoint := SourceHookPoint
     } = setup_namespaced_actions_sources_scenario2([
@@ -716,6 +724,9 @@ setup_namespaced_actions_sources_deletion_scenario(TestCase, TCConfig0) ->
         tc_config => TCConfigNS,
         source_hookpoint => SourceHookPoint,
         namespace => Namespace,
+        action_name => ActionName,
+        source_name => SourceName,
+        connector_name => ConnectorName,
         username => Username,
         nodes => Nodes
     }.
@@ -2700,22 +2711,29 @@ t_namespaced_bulk_import_order(matrix) ->
     [[?custom_cluster]];
 t_namespaced_bulk_import_order(TCConfig0) when is_list(TCConfig0) ->
     #{
-        tc_config := _TCConfigNS,
+        tc_config := TCConfigNS,
         source_hookpoint := _SourceHookPoint,
         namespace := Namespace,
+        action_name := ActionName,
         username := _Username,
-        nodes := [N1 | _] = _Nodes
+        nodes := Nodes
     } = setup_namespaced_actions_sources_deletion_scenario(?FUNCTION_NAME, TCConfig0),
     {200, OriginalConfig} = emqx_mt_api_SUITE:bulk_export_ns_configs(#{
         <<"namespaces">> => [Namespace]
     }),
     %% Clear all resource befores re-importing
-    ?ON(N1, begin
+    ?ON_ALL(Nodes, begin
         emqx_bridge_v2_testlib:delete_all_rules(),
         emqx_bridge_v2_testlib:delete_all_bridges_and_connectors()
     end),
     %% Sanity check
-    [] = ?ON(N1, emqx_resource:list_instances()),
+    [{ok, []}] = lists:usort(?ON_ALL(Nodes, emqx_resource:list_instances())),
+    [{ok, missing}] =
+        lists:usort(
+            ?ON_ALL(
+                Nodes, emqx:get_namespaced_config(Namespace, [actions, mqtt, ActionName], missing)
+            )
+        ),
     %% Re-importing the config should work.
     %% The original issue was that actions could be created before their connectors.
     ?check_trace(
@@ -2726,6 +2744,39 @@ t_namespaced_bulk_import_order(TCConfig0) when is_list(TCConfig0) ->
                     <<"configs">> => OriginalConfig,
                     <<"dry_run">> => false
                 })
+            ),
+            ?assertMatch(
+                [{ok, [_]}],
+                lists:usort(?ON_ALL(Nodes, emqx_resource:list_instances()))
+            ),
+            ?assertMatch(
+                [{ok, <<"action ns1">>}],
+                lists:usort(
+                    ?ON_ALL(
+                        Nodes,
+                        emqx:get_namespaced_config(
+                            Namespace, [actions, mqtt, ActionName, description], missing
+                        )
+                    )
+                )
+            ),
+            ?assertMatch(
+                {200, [
+                    #{
+                        <<"description">> := <<"action ns1">>,
+                        <<"status">> := <<"connected">>
+                    }
+                ]},
+                emqx_bridge_v2_api_SUITE:list([{conf_root_key, actions} | TCConfigNS])
+            ),
+            ?assertMatch(
+                {200, [
+                    #{
+                        <<"description">> := <<"source ns1">>,
+                        <<"status">> := <<"connected">>
+                    }
+                ]},
+                emqx_bridge_v2_api_SUITE:list([{conf_root_key, sources} | TCConfigNS])
             ),
             ok
         end,

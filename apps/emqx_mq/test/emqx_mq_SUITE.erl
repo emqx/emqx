@@ -33,8 +33,8 @@ init_per_suite(Config) ->
         emqx_cth_suite:start(
             [
                 emqx_durable_storage,
-                emqx,
-                {emqx_mq, emqx_mq_test_utils:cth_config()}
+                {emqx, emqx_mq_test_utils:cth_config(emqx)},
+                {emqx_mq, emqx_mq_test_utils:cth_config(emqx_mq)}
             ],
             #{work_dir => emqx_cth_suite:work_dir(Config)}
         ),
@@ -1091,6 +1091,38 @@ t_update_key_expression(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub1).
+
+t_unsubscribe(_Config) ->
+    %% Create a non-lastvalue Queue
+    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
+
+    %% Connect a client and subscribe to the queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+
+    %% Verify that the client is subscribed to the queue
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>, payload_prefix => <<"payload-old-">>}),
+    receive
+        {publish, #{payload := <<"payload-old-", _/binary>>, client_pid := CSub}} ->
+            ok
+    after 1000 ->
+        ct:fail("Message not received")
+    end,
+
+    %% Unsubscribe from the queue
+    {ok, _, [0]} = emqtt:unsubscribe(CSub, <<"$q/t/#">>),
+
+    %% Verify that the client is not subscribed to the queue
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>, payload_prefix => <<"payload-new-">>}),
+    receive
+        {publish, #{payload := <<"payload-new-", _/binary>>, client_pid := CSub}} ->
+            ct:fail("Message received")
+    after 1000 ->
+        ok
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
 
 %%--------------------------------------------------------------------
 %% Helpers

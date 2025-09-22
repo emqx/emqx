@@ -56,7 +56,7 @@ t_parse(_Config) ->
     ),
     ?assertMatch({error, _}, Res1),
     {error, Err1} = Res1,
-    ?assertMatch(#{error := invalid_version}, find_error(Parser, Err1)),
+    ?assertMatch(#{error := invalid_license_format}, find_error(Parser, Err1)),
 
     %% invalid field number
     Res2 = emqx_license_parser:parse(
@@ -66,13 +66,13 @@ t_parse(_Config) ->
                 "0",
                 "10",
                 "Foo",
-                % one extra field
-                "Bar",
                 "contact@foo.com",
                 "default-deployment",
                 "20220111",
                 "100000",
-                "10"
+                "10",
+                "inf",
+                "unknown"
             ]
         ),
         public_key_pem()
@@ -201,6 +201,31 @@ t_parse(_Config) ->
         )
     ),
 
+    %% invalid max_tps
+    Res6 = emqx_license_parser:parse(
+        emqx_license_test_lib:make_license(
+            [
+                "220111",
+                "0",
+                "10",
+                "Foo",
+                "contact@foo.com",
+                "default-deployment",
+                "20220111",
+                "100000",
+                "100",
+                "invalid_tps"
+            ]
+        ),
+        public_key_pem()
+    ),
+    ?assertMatch({error, _}, Res6),
+    {error, Err6} = Res6,
+    ?assertMatch(
+        #{error := #{max_tps := invalid_max_tps}},
+        find_error(Parser, Err6)
+    ),
+
     ?assertMatch(
         {error, #{parse_results := [#{error := bad_license_format}]}},
         emqx_license_parser:parse(
@@ -222,7 +247,8 @@ t_dump(_Config) ->
             {expiry_at, <<"2295-10-27">>},
             {type, <<"trial">>},
             {customer_type, 10},
-            {expiry, false}
+            {expiry, false},
+            {max_tps, infinity}
         ],
         emqx_license_parser:dump(License)
     ).
