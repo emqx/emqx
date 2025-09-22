@@ -702,7 +702,10 @@ clean_stale_trace_files() ->
             ],
             StaleFiles = [Filename || Filename <- Files, trace_file_is_stale(Filename, TraceFiles)],
             lists:foreach(
-                fun(Filename) -> file:delete(filename:join(TraceDir, Filename)) end,
+                fun(Filename) ->
+                    ?tp(debug, "trace_cleaning_stale_file", #{filename => Filename}),
+                    file:delete(filename:join(TraceDir, Filename))
+                end,
                 StaleFiles
             );
         _Error ->
