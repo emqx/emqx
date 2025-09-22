@@ -204,7 +204,7 @@ client_info(Key, Client) ->
     maps:get(Key, maps:from_list(emqtt:info(Client)), undefined).
 
 receive_messages(Count) ->
-    receive_messages(Count, 15000).
+    receive_messages(Count, 15_000).
 
 receive_messages(Count, Timeout) ->
     Deadline = erlang:monotonic_time(millisecond) + Timeout,
@@ -219,7 +219,8 @@ receive_message_loop(Count, Deadline) ->
             [Msg | receive_message_loop(Count - 1, Deadline)];
         {pubrel, Msg} ->
             [{pubrel, Msg} | receive_message_loop(Count - 1, Deadline)];
-        _Other ->
+        Other ->
+            ct:pal("received other message:\n  ~p", [Other]),
             receive_message_loop(Count, Deadline)
     after Timeout ->
         []
@@ -1040,10 +1041,16 @@ t_unsubscribe(Config) ->
     ?assertMatch([], [Sub || {ST, _} = Sub <- emqtt:subscriptions(Client), ST =:= STopic]),
     ok = emqtt:disconnect(Client).
 
+t_unsubscribe_replay_qos1(Config) ->
+    t_unsubscribe_replay(?QOS_1, Config).
+
+t_unsubscribe_replay_qos2(Config) ->
+    t_unsubscribe_replay(?QOS_2, Config).
+
 %% This testcase verifies that un-acked messages that were once sent
 %% to the client are retransmitted after the session
 %% unsubscribes from the topic and reconnects.
-t_unsubscribe_replay(Config) ->
+t_unsubscribe_replay(UnackedQoS, Config) ->
     ConnFun = ?config(conn_fun, Config),
     TopicPrefix = ?config(topic, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -1064,25 +1071,21 @@ t_unsubscribe_replay(Config) ->
     ?assertMatch({ok, _, _}, emqtt:subscribe(Sub, Topic2, qos2)),
     %% 2. Publish 2 messages to the first and second topics each
     %% (client doesn't ack them):
-    ok = publish(Topic1, <<"1">>, ?QOS_1),
-    ok = publish(Topic1, <<"2">>, ?QOS_2),
-    [Msg1, Msg2] = receive_messages(2),
+    ok = publish(Topic1, <<"1">>, UnackedQoS),
+    [Msg1] = receive_messages(1),
     ?assertMatch(
         [
-            #{payload := <<"1">>},
+            #{payload := <<"1">>}
+        ],
+        [Msg1]
+    ),
+    ok = publish(Topic2, <<"2">>, UnackedQoS),
+    [Msg2] = receive_messages(1),
+    ?assertMatch(
+        [
             #{payload := <<"2">>}
         ],
-        [Msg1, Msg2]
-    ),
-    ok = publish(Topic2, <<"3">>, ?QOS_1),
-    ok = publish(Topic2, <<"4">>, ?QOS_2),
-    [Msg3, Msg4] = receive_messages(2),
-    ?assertMatch(
-        [
-            #{payload := <<"3">>},
-            #{payload := <<"4">>}
-        ],
-        [Msg3, Msg4]
+        [Msg2]
     ),
     %% 3. Unsubscribe from the topic and disconnect:
     ?assertMatch({ok, _, _}, emqtt:unsubscribe(Sub, Topic1)),
@@ -1095,14 +1098,14 @@ t_unsubscribe_replay(Config) ->
     {ok, Sub1} = emqtt_start_and_connect(ConnFun, [
         {clean_start, false}, {auto_ack, true} | ClientOpts
     ]),
-    %% Note: we ask for 6 messages, but expect only 4, it's
+    %% Note: we ask for 4 messages, but expect only 2, it's
     %% intentional:
     ?assertMatch(
         #{
-            Topic1 := [<<"1">>, <<"2">>],
-            Topic2 := [<<"3">>, <<"4">>]
+            Topic1 := [<<"1">>],
+            Topic2 := [<<"2">>]
         },
-        get_topicwise_order(receive_messages(6, 5_000)),
+        get_topicwise_order(receive_messages(4, 5_000)),
         debug_info(ClientId)
     ),
     %% 5. Now let's resubscribe, and check that the session can receive new messages:
