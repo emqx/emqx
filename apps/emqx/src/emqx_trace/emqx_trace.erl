@@ -725,7 +725,7 @@ clean_zip_dir() ->
 trace_file_is_stale("zip", _TraceFileSet) ->
     false;
 trace_file_is_stale(Filename, TraceFileSet) ->
-    %% NOTE: Basename should be the nearest predecessor of `Filename` if trace exists.
+    %% NOTE: Basename should be `Filename` or its nearest predecessor if trace exists.
     case gb_sets:next(gb_sets:iterator_from(Filename, TraceFileSet, reversed)) of
         {Basename, _It} ->
             string:prefix(Filename, Basename) =:= nomatch;

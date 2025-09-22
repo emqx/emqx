@@ -368,10 +368,11 @@ t_clean_stale(_Config) ->
     ok = timer:sleep(100),
     %% Construct fake traces, and several files corresponding to them:
     TraceFake1 = Trace1#{name := <<"clean_stale_fake">>},
-    TraceFake2 = Trace1#{start_at := Now - 48 * 3600},
+    TraceFake2 = Trace1#{name := <<"abc">>},
+    TraceFake3 = Trace1#{start_at := Now - 48 * 3600},
     FilenamesFake = [
         emqx_trace:log_filename(Trace) ++ Suffix
-     || Trace <- [TraceFake1, TraceFake2],
+     || Trace <- [TraceFake1, TraceFake2, TraceFake3],
         Suffix <- ["", ".0", ".1", ".100"]
     ],
     %% Create all "fake" files in the trace directory:
