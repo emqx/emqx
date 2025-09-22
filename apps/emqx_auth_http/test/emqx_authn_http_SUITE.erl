@@ -1013,6 +1013,37 @@ t_clientid_override(TCConfig) when is_list(TCConfig) ->
     emqx_authn_test_lib:t_clientid_override(TCConfig, Opts),
     ok.
 
+-doc """
+Checks that, if an authentication backend returns the `zone_override` attribute, it's
+used to override the listener's zone.
+""".
+t_zone_override(TCConfig) when is_list(TCConfig) ->
+    OverriddenZone = new_zone,
+    MkConfigFn = fun raw_http_auth_config/0,
+    PostConfigFn = fun() ->
+        ok = emqx_utils_http_test_server:set_handler(
+            fun(Req0, State) ->
+                Req = cowboy_req:reply(
+                    200,
+                    #{<<"content-type">> => <<"application/json">>},
+                    emqx_utils_json:encode(#{
+                        result => allow,
+                        zone_override => atom_to_binary(OverriddenZone)
+                    }),
+                    Req0
+                ),
+                {ok, Req, State}
+            end
+        )
+    end,
+    Opts = #{
+        mk_config_fn => MkConfigFn,
+        post_config_fn => PostConfigFn,
+        overridden_zone => OverriddenZone
+    },
+    emqx_authn_test_lib:t_zone_override(TCConfig, Opts),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
