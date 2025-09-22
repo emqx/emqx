@@ -95,11 +95,11 @@ schema("/ds/sites") ->
         'operationId' => list_sites,
         get =>
             #{
-                description => <<"List sites">>,
+                description => ?DESC("list_sites"),
                 tags => ?TAGS,
                 responses =>
                     #{
-                        200 => mk(array(binary()), #{desc => <<"List sites">>}),
+                        200 => mk(array(binary()), #{desc => ?DESC("list_sites")}),
                         404 => disabled_schema()
                     }
             }
@@ -109,13 +109,13 @@ schema("/ds/sites/:site") ->
         'operationId' => get_site,
         get =>
             #{
-                description => <<"Get sites">>,
+                description => ?DESC("get_site"),
                 parameters => [param_site_id()],
                 tags => ?TAGS,
                 responses =>
                     #{
-                        200 => mk(ref(site), #{desc => <<"Get information about the site">>}),
-                        404 => not_found(<<"Site">>)
+                        200 => mk(ref(site), #{desc => ?DESC("get_site")}),
+                        404 => not_found(?DESC("site_not_found"))
                     }
             }
     };
@@ -124,11 +124,11 @@ schema("/ds/storages") ->
         'operationId' => list_dbs,
         get =>
             #{
-                description => <<"List durable storages">>,
+                description => ?DESC("list_dbs"),
                 tags => ?TAGS,
                 responses =>
                     #{
-                        200 => mk(array(atom()), #{desc => <<"List durable storages">>}),
+                        200 => mk(array(atom()), #{desc => ?DESC("list_dbs")}),
                         404 => disabled_schema()
                     }
             }
@@ -138,13 +138,13 @@ schema("/ds/storages/:ds") ->
         'operationId' => get_db,
         get =>
             #{
-                description => <<"Get durable storage">>,
+                description => ?DESC("get_db"),
                 tags => ?TAGS,
                 parameters => [param_storage_id()],
                 responses =>
                     #{
-                        200 => mk(ref(db), #{desc => <<"Get information about a durable storage">>}),
-                        400 => not_found(<<"Durable storage">>),
+                        200 => mk(ref(db), #{desc => ?DESC("get_db")}),
+                        400 => not_found(?DESC("durable_storage_not_found")),
                         404 => disabled_schema()
                     }
             }
@@ -155,13 +155,13 @@ schema("/ds/storages/:ds/replicas") ->
         'operationId' => db_replicas,
         get =>
             #{
-                description => <<"List replicas of the durable storage">>,
+                description => ?DESC("list_db_replicas"),
                 tags => ?TAGS,
                 parameters => Parameters,
                 responses =>
                     #{
                         200 => mk(array(binary()), #{
-                            desc => <<"List sites that contain replicas of the durable storage">>
+                            desc => ?DESC("list_db_replicas")
                         }),
                         400 => bad_request(),
                         404 => disabled_schema()
@@ -169,7 +169,7 @@ schema("/ds/storages/:ds/replicas") ->
             },
         put =>
             #{
-                description => <<"Update replicas of the durable storage">>,
+                description => ?DESC("update_db_replicas"),
                 tags => ?TAGS,
                 parameters => Parameters,
                 responses =>
@@ -178,7 +178,7 @@ schema("/ds/storages/:ds/replicas") ->
                         400 => bad_request(),
                         404 => disabled_schema()
                     },
-                'requestBody' => mk(array(binary()), #{desc => <<"New list of sites">>})
+                'requestBody' => mk(array(binary()), #{desc => ?DESC("new_list_of_sites")})
             }
     };
 schema("/ds/storages/:ds/replicas/:site") ->
@@ -187,26 +187,26 @@ schema("/ds/storages/:ds/replicas/:site") ->
         'operationId' => db_replica,
         put =>
             #{
-                description => <<"Add site as a replica for the durable storage">>,
+                description => ?DESC("add_db_replica"),
                 tags => ?TAGS,
                 parameters => Parameters,
                 responses =>
                     #{
                         202 => <<"OK">>,
                         400 => bad_request(),
-                        404 => not_found(<<"Object">>)
+                        404 => not_found(?DESC("storage_not_found"))
                     }
             },
         delete =>
             #{
-                description => <<"Remove site as a replica for the durable storage">>,
+                description => ?DESC("remove_db_replica"),
                 tags => ?TAGS,
                 parameters => Parameters,
                 responses =>
                     #{
                         202 => <<"OK">>,
                         400 => bad_request(),
-                        404 => not_found(<<"Object">>)
+                        404 => not_found(?DESC("storage_not_found"))
                     }
             }
     }.
@@ -217,19 +217,19 @@ fields(site) ->
             mk(
                 atom(),
                 #{
-                    desc => <<"Name of the EMQX handling the site">>,
+                    desc => ?DESC("node_name"),
                     example => <<"'emqx@example.com'">>
                 }
             )},
         {up,
             mk(
                 boolean(),
-                #{desc => <<"Site is up and running">>}
+                #{desc => ?DESC("site_up_and_running")}
             )},
         {shards,
             mk(
                 array(ref(sites_shard)),
-                #{desc => <<"Durable storages that have replicas at the site">>}
+                #{desc => ?DESC("site_shards")}
             )}
     ];
 fields(sites_shard) ->
@@ -238,7 +238,7 @@ fields(sites_shard) ->
             mk(
                 atom(),
                 #{
-                    desc => <<"Durable storage ID">>,
+                    desc => ?DESC("durable_storage_name"),
                     example => ?PERSISTENT_MESSAGE_DB
                 }
             )},
@@ -246,7 +246,7 @@ fields(sites_shard) ->
             mk(
                 binary(),
                 #{
-                    desc => <<"Shard ID">>,
+                    desc => ?DESC("shard_id"),
                     example => <<"1">>
                 }
             )},
@@ -254,7 +254,7 @@ fields(sites_shard) ->
             mk(
                 atom(),
                 #{
-                    desc => <<"Shard status">>,
+                    desc => ?DESC("shard_status"),
                     example => up
                 }
             )},
@@ -262,7 +262,7 @@ fields(sites_shard) ->
             mk(
                 enum([joining, leaving]),
                 #{
-                    desc => <<"Shard transition">>,
+                    desc => ?DESC("shard_transition"),
                     example => joining
                 }
             )}
@@ -273,14 +273,14 @@ fields(db) ->
             mk(
                 atom(),
                 #{
-                    desc => <<"Name of the durable storage">>,
+                    desc => ?DESC("durable_storage_name"),
                     example => ?PERSISTENT_MESSAGE_DB
                 }
             )},
         {shards,
             mk(
                 array(ref(db_shard)),
-                #{desc => <<"List of storage shards">>}
+                #{desc => ?DESC("list_of_shards")}
             )}
     ];
 fields(db_shard) ->
@@ -289,14 +289,14 @@ fields(db_shard) ->
             mk(
                 binary(),
                 #{
-                    desc => <<"Shard ID">>,
+                    desc => ?DESC("shard_id"),
                     example => <<"1">>
                 }
             )},
         {replicas,
             mk(
                 hoconsc:array(ref(db_site)),
-                #{desc => <<"List of sites containing replicas of the storage">>}
+                #{desc => ?DESC("shard_replicas")}
             )}
     ];
 fields(db_site) ->
@@ -305,20 +305,20 @@ fields(db_site) ->
             mk(
                 binary(),
                 #{
-                    desc => <<"Site ID">>,
+                    desc => ?DESC("site_id"),
                     example => example_site()
                 }
             )},
         {status,
             mk(
                 enum([up, down, lost]),
-                #{desc => <<"Status of the replica">>}
+                #{desc => ?DESC("status_of_replica")}
             )},
         {transition,
             mk(
                 enum([joining, leaving]),
                 #{
-                    desc => <<"Shard transition">>,
+                    desc => ?DESC("shard_transition"),
                     example => joining
                 }
             )}
@@ -514,19 +514,19 @@ annotate_target_status(Site, TargetSet, Acc) ->
 %%================================================================================
 
 disabled_schema() ->
-    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Durable storage is disabled">>).
+    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("durable_storage_disabled")).
 
-not_found(What) ->
-    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<What/binary, " not found">>).
+not_found(Desc) ->
+    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], Desc).
 
 bad_request() ->
-    emqx_dashboard_swagger:error_codes(['BAD_REQUEST'], <<"Bad request">>).
+    emqx_dashboard_swagger:error_codes(['BAD_REQUEST'], ?DESC("bad_request")).
 
 param_site_id() ->
     Info = #{
         required => true,
         in => path,
-        desc => <<"Site ID">>,
+        desc => ?DESC("site_id"),
         example => example_site()
     },
     {site, mk(binary(), Info)}.
@@ -535,7 +535,7 @@ param_storage_id() ->
     Info = #{
         required => true,
         in => path,
-        desc => <<"Durable storage ID">>,
+        desc => ?DESC("durable_storage_name"),
         example => ?PERSISTENT_MESSAGE_DB
     },
     {ds, mk(atom(), Info)}.
