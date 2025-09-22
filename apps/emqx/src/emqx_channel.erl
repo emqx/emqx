@@ -60,6 +60,9 @@
     prepare_will_message_for_publishing/2
 ]).
 
+%% Exports for manual inspection/debugging only
+-export([inspect/1]).
+
 %% Exports for tests
 -ifdef(TEST).
 -export([
@@ -215,6 +218,15 @@ info(session_state, #channel{session = Session}) ->
     Session;
 info(impl, #channel{session = Session}) ->
     emqx_session:info(impl, Session).
+
+inspect(#channel{} = Channel) ->
+    lists:foldl(
+        fun({I, Field}, Acc) ->
+            Acc#{Field => element(I, Channel)}
+        end,
+        #{},
+        lists:enumerate(2, record_info(fields, channel))
+    ).
 
 -spec set_conn_state(conn_state(), channel()) -> channel().
 set_conn_state(ConnState, Channel) ->
@@ -1348,8 +1360,10 @@ handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) -
     {ok, [?REPLY_OUTGOING(Packet), ?REPLY_CLOSE(ReasonName)], Channel};
 handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, ?REPLY_CLOSE(ReasonName), Channel};
-handle_out(auth, {ReasonCode, Properties}, Channel) ->
-    {ok, ?AUTH_PACKET(ReasonCode, Properties), Channel};
+handle_out(auth, {ReasonCode, Properties}, Channel0) ->
+    Replies0 = ?AUTH_PACKET(ReasonCode, Properties),
+    {Replies, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    {ok, Replies, Channel};
 handle_out(Type, Data, Channel) ->
     ?SLOG(error, #{msg => "unexpected_outgoing", type => Type, data => Data}),
     {ok, Channel}.
@@ -1358,10 +1372,21 @@ handle_out(Type, Data, Channel) ->
 %% Return ConnAck
 %%--------------------------------------------------------------------
 
-return_connack(?CONNACK_PACKET(_RC, _SessPresent) = AckPacket, Channel) ->
+return_connack(?CONNACK_PACKET(_RC, _SessPresent) = AckPacket, Channel0) ->
     ?EXT_TRACE_ADD_ATTRS(#{'client.connack.reason_code' => _RC}),
-    Replies = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
+    Replies0 = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
+    {Replies, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
     {continue, Replies, Channel}.
+
+maybe_add_zone_changed_event(Replies, #channel{clientinfo = ClientInfo0} = Channel0) ->
+    case ClientInfo0 of
+        #{old_zone := _, zone := NewZone} ->
+            ClientInfo = maps:remove(old_zone, ClientInfo0),
+            Channel = Channel0#channel{clientinfo = ClientInfo},
+            {[?REPLY_EVENT({zone_changed, NewZone}) | Replies], Channel};
+        _ ->
+            {Replies, Channel0}
+    end.
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
@@ -2341,7 +2366,8 @@ log_auth_failure(Reason) ->
 %% 3. `acl': ACL rules from JWT, HTTP auth backend
 %% 4. `client_attrs': Extra client attributes from JWT, HTTP auth backend
 %% 5. `clientid_override': This result should override the current clientid.
-%% 6. Maybe more non-standard fields used by hook callbacks
+%% 6. `zone_override': This result should override the current zone.
+%% 7. Maybe more non-standard fields used by hook callbacks
 merge_auth_result(ClientInfo0, AuthResult0) when is_map(ClientInfo0) andalso is_map(AuthResult0) ->
     IsSuperuser = maps:get(is_superuser, AuthResult0, false),
     ExpireAt = maps:get(expire_at, AuthResult0, undefined),
@@ -2350,16 +2376,29 @@ merge_auth_result(ClientInfo0, AuthResult0) when is_map(ClientInfo0) andalso is_
     Attrs1 = maps:get(client_attrs, AuthResult0, #{}),
     Attrs = maps:merge(Attrs0, Attrs1),
     ClientIdOverride = maps:get(clientid_override, AuthResult0, undefined),
+    ZoneOverride = maps:get(zone_override, AuthResult0, undefined),
+    ClientInfo1 =
+        case parse_zone_override(ZoneOverride) of
+            false ->
+                ClientInfo0;
+            {ok, NewZone} ->
+                OldZone = maps:get(zone, ClientInfo0, default),
+                ?TRACE("MQTT", "zone_overridden_by_authn", #{
+                    zone => NewZone,
+                    original_zone => OldZone
+                }),
+                ClientInfo0#{zone => NewZone, old_zone => OldZone}
+        end,
     ClientInfo =
         case is_binary(ClientIdOverride) andalso ClientIdOverride /= <<"">> of
             true ->
                 ?TRACE("MQTT", "clientid_overridden_by_authn", #{
                     clientid => ClientIdOverride,
-                    original_clientid => maps:get(clientid, ClientInfo0, undefined)
+                    original_clientid => maps:get(clientid, ClientInfo1, undefined)
                 }),
-                ClientInfo0#{clientid => ClientIdOverride};
+                ClientInfo1#{clientid => ClientIdOverride};
             false ->
-                ClientInfo0
+                ClientInfo1
         end,
     maps:merge(
         ClientInfo#{client_attrs => Attrs},
@@ -2368,6 +2407,17 @@ merge_auth_result(ClientInfo0, AuthResult0) when is_map(ClientInfo0) andalso is_
             auth_expire_at => ExpireAt
         }
     ).
+
+parse_zone_override(undefined) ->
+    false;
+parse_zone_override(ZoneOverride) when is_binary(ZoneOverride) ->
+    try emqx_config_zones:assert_zone_exists(ZoneOverride) of
+        ok -> {ok, binary_to_existing_atom(ZoneOverride, utf8)}
+    catch
+        throw:{unknown_zone, _} ->
+            ?TRACE("MQTT", "unknown_zone_override_in_authn", #{zone => ZoneOverride}),
+            false
+    end.
 
 %%--------------------------------------------------------------------
 %% Process Topic Alias
