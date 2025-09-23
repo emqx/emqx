@@ -432,8 +432,10 @@ log_filepath(Name, Start) ->
     filename:join(trace_dir(), log_filename(Name, Start)).
 
 log_filename(Name, Start) ->
-    [Time, _] = string:split(calendar:system_time_to_rfc3339(Start), "T", leading),
-    lists:flatten(["trace_", binary_to_list(Name), "_", Time, ".log"]).
+    lists:flatten(["trace_", binary_to_list(Name), "_", log_start_date(Start), ".log"]).
+
+log_start_date(Start) ->
+    hd(string:split(calendar:system_time_to_rfc3339(Start), "T", leading)).
 
 check() ->
     gen_server:call(?MODULE, check).
@@ -488,13 +490,12 @@ format(#?TRACE{
 
 init([]) ->
     erlang:process_flag(trap_exit, true),
-    Fields = record_info(fields, ?TRACE),
     ok = mria:create_table(?TRACE, [
         {type, set},
         {rlog_shard, ?SHARD},
         {storage, disc_copies},
         {record_name, ?TRACE},
-        {attributes, Fields}
+        {attributes, record_info(fields, ?TRACE)}
     ]),
     ok = mria:wait_for_tables([?TRACE]),
     {ok, _} = mnesia:subscribe({table, ?TRACE, simple}),
@@ -503,6 +504,7 @@ init([]) ->
     Traces = get_enabled_trace(),
     TRef = update_trace(Traces),
     update_trace_handler(),
+    _ = clean_zip_dir(),
     {ok, #{timer => TRef, monitors => #{}}}.
 
 handle_call(check, _From, State) ->
@@ -545,7 +547,7 @@ terminate(_Reason, #{timer := TRef}) ->
     emqx_utils:cancel_timer(TRef),
     stop_all_trace_handler(),
     update_trace_handler(),
-    _ = file:del_dir_r(zip_dir()),
+    _ = clean_zip_dir(),
     ok.
 
 insert_new_trace(Trace) ->
@@ -688,20 +690,47 @@ stop_trace(#{id := HandlerID, dst := Basename, filter := {Type, Filter}} = Handl
 clean_stale_trace_files() ->
     TraceDir = trace_dir(),
     case file:list_dir(TraceDir) of
-        {ok, AllFiles} when AllFiles =/= ["zip"] ->
-            KeepFiles = [
-                log_filename(Name, StartAt)
-             || #?TRACE{name = Name, start_at = StartAt} <- list_traces()
-            ],
-            case AllFiles -- ["zip" | KeepFiles] of
-                [] ->
-                    ok;
-                DeleteFiles ->
-                    DelFun = fun(F) -> file:delete(filename:join(TraceDir, F)) end,
-                    lists:foreach(DelFun, DeleteFiles)
-            end;
-        _ ->
+        {ok, []} ->
+            ok;
+        {ok, ["zip"]} ->
+            ok;
+        {ok, Files} ->
+            clean_stale_trace_files(TraceDir, Files);
+        _Error ->
             ok
+    end.
+
+clean_stale_trace_files(TraceDir, Files) ->
+    %% NOTE: Cleaning both stale and foreign files.
+    TraceFileSet = lists:foldl(
+        fun(#?TRACE{name = Name, start_at = StartAt}, Acc) ->
+            %% NOTE: If `Name` is unique = filename is unique, `gb_sets:insert/2` is safe.
+            gb_sets:insert(log_filename(Name, StartAt), Acc)
+        end,
+        gb_sets:new(),
+        list_traces()
+    ),
+    StaleFiles = [Filename || Filename <- Files, trace_file_is_stale(Filename, TraceFileSet)],
+    lists:foreach(
+        fun(Filename) ->
+            ?tp(debug, "trace_cleaning_stale_file", #{filename => Filename}),
+            file:delete(filename:join(TraceDir, Filename))
+        end,
+        StaleFiles
+    ).
+
+clean_zip_dir() ->
+    file:del_dir_r(zip_dir()).
+
+trace_file_is_stale("zip", _TraceFileSet) ->
+    false;
+trace_file_is_stale(Filename, TraceFileSet) ->
+    %% NOTE: Basename should be `Filename` or its nearest predecessor if trace exists.
+    case gb_sets:next(gb_sets:iterator_from(Filename, TraceFileSet, reversed)) of
+        {Basename, _It} ->
+            string:prefix(Filename, Basename) =:= nomatch;
+        none ->
+            true
     end.
 
 classify_by_time(Traces, Now) ->
