@@ -17,6 +17,10 @@ Facade for all operations with the message database.
 -export([
     open/0,
     close/0,
+    wait_readiness/1
+]).
+
+-export([
     insert/2,
     suback/3,
     create_client/1,
@@ -65,9 +69,7 @@ open() ->
     }),
     maybe
         ok ?= emqx_ds:open_db(?MQ_MESSAGE_LASTVALUE_DB, Config),
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, Config),
-        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_LASTVALUE_DB, all, infinity),
-        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, infinity)
+        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, Config)
     else
         _ -> error(failed_to_open_mq_databases)
     end.
@@ -76,6 +78,13 @@ open() ->
 close() ->
     ok = emqx_ds:close_db(?MQ_MESSAGE_LASTVALUE_DB),
     ok = emqx_ds:close_db(?MQ_MESSAGE_REGULAR_DB).
+
+-spec wait_readiness(timeout()) -> ok | timeout.
+wait_readiness(Timeout) ->
+    maybe
+        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_LASTVALUE_DB, all, Timeout),
+        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, Timeout)
+    end.
 
 -spec insert(emqx_mq_types:mq_handle(), list(emqx_types:message())) ->
     ok | {error, list(emqx_ds:error(_Reason))}.
