@@ -144,6 +144,7 @@ start_connect_client(Opts = #{}) ->
             ct:pal("~s reconnect after delay", [ClientId]),
             start_connect_client(Opts);
         {error, Reason} when Attempts > 100 ->
+            erase(RetryKey),
             error(Reason);
         {error, Reason} ->
             timer:sleep(100),
