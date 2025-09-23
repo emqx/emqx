@@ -104,3 +104,37 @@ t_clientid_override(TCConfig, Opts) when is_list(TCConfig) ->
     ?assertMatch(OriginalClientId, proplists:get_value(clientid, emqtt:info(C))),
     ok = emqtt:stop(C),
     ok.
+
+-doc """
+Checks that, if an authentication backend returns the `zone_override` attribute, it's
+used to override the listener's zone.
+""".
+t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
+    #{
+        mk_config_fn := MkConfigFn,
+        overridden_zone := OverriddenZone
+    } = Opts,
+    PostConfigFn = maps:get(post_config_fn, Opts, fun() -> ok end),
+    ClientOpts = maps:get(client_opts, Opts, #{}),
+    Config = MkConfigFn(),
+    OldZoneConfig = emqx_config:get_raw([zones]),
+    NewZoneConfig = OldZoneConfig#{atom_to_binary(OverriddenZone) => #{}},
+    {ok, _} = emqx:update_config([zones], NewZoneConfig),
+    on_exit(fun() ->
+        _ = emqx_authn_test_lib:delete_authenticators([?CONF_NS_ATOM], ?GLOBAL),
+        {ok, _} = emqx:update_config([zones], OldZoneConfig)
+    end),
+    {ok, _} = emqx:update_config(
+        [?CONF_NS_ATOM],
+        {create_authenticator, ?GLOBAL, Config}
+    ),
+    PostConfigFn(),
+    {ok, C} = emqtt:start_link(ClientOpts),
+    {ok, _} = emqtt:connect(C),
+    %% We use the zone override internally.
+    [ChanPid] = emqx_cm:all_channels(),
+    ConnState = sys:get_state(ChanPid),
+    ?assertEqual(OverriddenZone, emqx_connection:info({channel, zone}, ConnState)),
+    ?assertEqual(OverriddenZone, emqx_connection:info(zone, ConnState)),
+    ok = emqtt:stop(C),
+    ok.

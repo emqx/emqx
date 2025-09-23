@@ -182,6 +182,8 @@
     ]}
 ).
 -dialyzer({no_missing_calls, [handle_msg/2]}).
+%% For unknown reasons, dialyzer thinks that this function is never called...
+-compile({nowarn_unused_function, [set_tcp_keepalive/1]}).
 
 -ifndef(BUILD_WITHOUT_QUIC).
 -spec start_link
@@ -228,6 +230,8 @@ info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
+info(zone, #state{zone = Zone}) ->
+    Zone;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
@@ -339,36 +343,21 @@ init_state(
     },
 
     ActiveN = get_active_n(Type, Listener),
-    FrameOpts = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
-    },
-    Parser = init_parser(Transport, Socket, FrameOpts),
-    Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
-    GcState =
-        case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} -> undefined;
-            GcPolicy -> emqx_gc:init(GcPolicy)
-        end,
 
-    #state{
+    State0 = #state{
         transport = Transport,
         socket = Socket,
         sockstate = idle,
-        parser = Parser,
-        serialize = Serialize,
         channel = Channel,
-        gc_state = GcState,
         gc_tracker = init_gc_tracker(ActiveN),
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
-        zone = Zone,
         listener = {Type, Listener},
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
         extra = []
-    }.
+    },
+    init_zone_specific_state(Zone, Opts, State0).
 
 init_gc_tracker(ActiveN) ->
     {ActiveN, {0, 0}, {0, 0}}.
@@ -609,6 +598,9 @@ handle_msg(
 handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
+    {ok, State};
+handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
+    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
     {ok, State};
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
@@ -1263,6 +1255,32 @@ wait_for_quic_stream_close(
 
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
+
+init_zone_specific_state(Zone, Opts, #state{} = State0) ->
+    #state{
+        transport = Transport,
+        socket = Socket
+    } = State0,
+    FrameOpts = #{
+        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
+        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+        %% zone will **not** take effect after the override.
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
+    },
+    Parser = init_parser(Transport, Socket, FrameOpts),
+    Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
+    GcState =
+        case emqx_config:get_zone_conf(Zone, [force_gc]) of
+            #{enable := false} -> undefined;
+            GcPolicy -> emqx_gc:init(GcPolicy)
+        end,
+    State0#state{
+        parser = Parser,
+        serialize = Serialize,
+        gc_state = GcState,
+        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
+        zone = Zone
+    }.
 
 %%--------------------------------------------------------------------
 %% For CT tests
