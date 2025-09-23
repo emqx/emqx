@@ -207,10 +207,13 @@ t_trace(_Config) ->
 
 t_traces(_Config) ->
     %% traces list                             # List all cluster traces started
-    emqx_ctl:run_command(["traces", "list"]),
+    0 = emqx_ctl:run_command(["traces", "list"]),
     %% traces start <Name> client <ClientId>   # Traces for a client in cluster
     %% traces start <Name> topic <Topic>       # Traces for a topic in cluster
     %% traces start <Name> ip_address <IPAddr> # Traces for a IP in cluster
+    ok = emqx_ctl:run_command(["traces", "start", ?MODULE_STRING, "ip_address", "1.2.3.4"]),
+    1 = emqx_ctl:run_command(["traces", "list"]),
+    ok = emqx_ctl:run_command(["traces", "stop", ?MODULE_STRING, "ip_address", "1.2.3.4"]),
     %% traces stop  <Name>                     # Stop trace in cluster
     %% traces delete  <Name>                   # Delete trace in cluster
     ok.

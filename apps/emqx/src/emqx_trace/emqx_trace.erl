@@ -92,7 +92,7 @@
     | {ip_address, ip_address()}
     | {ruleid, ruleid()}.
 
--type ip_address() :: string().
+-type ip_address() :: binary().
 -type ruleid() :: binary().
 
 -export_type([rendered_action_template_ctx/0]).
