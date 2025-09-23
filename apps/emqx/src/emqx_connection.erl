@@ -1263,6 +1263,8 @@ init_zone_specific_state(Zone, Opts, #state{} = State0) ->
     } = State0,
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
+        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+        %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
     Parser = init_parser(Transport, Socket, FrameOpts),
