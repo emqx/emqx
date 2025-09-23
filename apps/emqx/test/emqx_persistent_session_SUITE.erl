@@ -1119,6 +1119,12 @@ t_unsubscribe_replay(UnackedQoS, Config) ->
     ),
     ok = emqtt:disconnect(Sub1).
 
+t_transient_qos1(Config) ->
+    t_transient(?QOS_1, Config).
+
+t_transient_qos2(Config) ->
+    t_transient(?QOS_2, Config).
+
 %% This testcase verifies that persistent sessions handle "transient"
 %% mesages correctly.
 %%
@@ -1133,7 +1139,10 @@ t_unsubscribe_replay(UnackedQoS, Config) ->
 %% appear in the middle of the replay, to make sure the durable
 %% session doesn't get confused and/or stuck if retained messages are
 %% changed while the session was down.
-t_transient(Config) ->
+%%
+%% `QoSNormal` is the QoS for the message published before and after the transient
+%% messages are published.
+t_transient(QoSNormal, Config) ->
     ConnFun = ?config(conn_fun, Config),
     TopicPrefix = ?config(topic, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -1158,28 +1167,26 @@ t_transient(Config) ->
     ]),
     ?assertMatch({ok, _, _}, emqtt:subscribe(Sub, <<TopicPrefix/binary, "/#">>, qos2)),
     %% 2. Publish regular messages:
-    publish(Topic1, <<"1">>, ?QOS_1),
-    publish(Topic1, <<"2">>, ?QOS_2),
-    Msgs1 = receive_messages(2),
-    [#{payload := <<"1">>, packet_id := PI1}, #{payload := <<"2">>, packet_id := PI2}] = Msgs1,
+    publish(Topic1, <<"1">>, QoSNormal),
+    Msgs1 = receive_messages(1),
+    [#{payload := <<"1">>, packet_id := PI1}] = Msgs1,
     %% 3. Publish and recieve transient messages:
-    Deliver(Topic2, <<"3">>, ?QOS_0),
-    Deliver(Topic2, <<"4">>, ?QOS_1),
-    Deliver(Topic2, <<"5">>, ?QOS_2),
+    Deliver(Topic2, <<"2">>, ?QOS_0),
+    Deliver(Topic2, <<"3">>, ?QOS_1),
+    Deliver(Topic2, <<"4">>, ?QOS_2),
     Msgs2 = receive_messages(3),
     ?assertMatch(
         [
-            #{payload := <<"3">>, qos := ?QOS_0},
-            #{payload := <<"4">>, qos := ?QOS_1},
-            #{payload := <<"5">>, qos := ?QOS_2}
+            #{payload := <<"2">>, qos := ?QOS_0},
+            #{payload := <<"3">>, qos := ?QOS_1},
+            #{payload := <<"4">>, qos := ?QOS_2}
         ],
         Msgs2
     ),
     %% 4. Publish more regular messages:
-    publish(Topic3, <<"6">>, ?QOS_1),
-    publish(Topic3, <<"7">>, ?QOS_2),
-    Msgs3 = receive_messages(2),
-    [#{payload := <<"6">>, packet_id := PI6}, #{payload := <<"7">>, packet_id := PI7}] = Msgs3,
+    publish(Topic3, <<"5">>, QoSNormal),
+    Msgs3 = receive_messages(1),
+    [#{payload := <<"5">>, packet_id := PI6}] = Msgs3,
     %% 5. Reconnect the client:
     ok = emqtt:disconnect(Sub),
     {ok, Sub1} = emqtt_start_and_connect(ConnFun, [
@@ -1190,10 +1197,10 @@ t_transient(Config) ->
     ProcessMessage = fun(#{payload := P, packet_id := ID}) -> {ID, P} end,
     ?assertMatch(
         #{
-            Topic1 := [{PI1, <<"1">>}, {PI2, <<"2">>}],
-            Topic3 := [{PI6, <<"6">>}, {PI7, <<"7">>}]
+            Topic1 := [{PI1, <<"1">>}],
+            Topic3 := [{PI6, <<"5">>}]
         },
-        maps:groups_from_list(fun get_msgpub_topic/1, ProcessMessage, receive_messages(7, 5_000))
+        maps:groups_from_list(fun get_msgpub_topic/1, ProcessMessage, receive_messages(5, 5_000))
     ),
     %% 7. Finish off by sending messages to all the topics to make
     %% sure none of the streams are blocked:
