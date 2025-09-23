@@ -1042,15 +1042,15 @@ t_unsubscribe(Config) ->
     ok = emqtt:disconnect(Client).
 
 t_unsubscribe_replay_qos1(Config) ->
-    t_unsubscribe_replay(?QOS_1, Config).
+    do_t_unsubscribe_replay(?QOS_1, Config).
 
 t_unsubscribe_replay_qos2(Config) ->
-    t_unsubscribe_replay(?QOS_2, Config).
+    do_t_unsubscribe_replay(?QOS_2, Config).
 
 %% This testcase verifies that un-acked messages that were once sent
 %% to the client are retransmitted after the session
 %% unsubscribes from the topic and reconnects.
-t_unsubscribe_replay(UnackedQoS, Config) ->
+do_t_unsubscribe_replay(UnackedQoS, Config) ->
     ConnFun = ?config(conn_fun, Config),
     TopicPrefix = ?config(topic, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
@@ -1120,10 +1120,10 @@ t_unsubscribe_replay(UnackedQoS, Config) ->
     ok = emqtt:disconnect(Sub1).
 
 t_transient_qos1(Config) ->
-    t_transient(?QOS_1, Config).
+    do_t_transient(?QOS_1, Config).
 
 t_transient_qos2(Config) ->
-    t_transient(?QOS_2, Config).
+    do_t_transient(?QOS_2, Config).
 
 %% This testcase verifies that persistent sessions handle "transient"
 %% mesages correctly.
@@ -1142,7 +1142,7 @@ t_transient_qos2(Config) ->
 %%
 %% `QoSNormal` is the QoS for the message published before and after the transient
 %% messages are published.
-t_transient(QoSNormal, Config) ->
+do_t_transient(QoSNormal, Config) ->
     ConnFun = ?config(conn_fun, Config),
     TopicPrefix = ?config(topic, Config),
     ClientId = atom_to_binary(?FUNCTION_NAME),
