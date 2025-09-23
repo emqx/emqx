@@ -164,14 +164,14 @@ t_create_default(_Config) ->
         start_at => T0,
         end_at => T0 - 1
     },
-    {error, "end_at time has already passed"} = emqx_trace:create(Trace),
+    {error, "End time has already passed"} = emqx_trace:create(Trace),
     Trace2 = #{
         name => <<"test-name">>,
         filter => {topic, <<"/x/y/z">>},
         start_at => T0 + 10,
         end_at => T0 + 3
     },
-    {error, "failed by start_at >= end_at"} = emqx_trace:create(Trace2),
+    {error, "Start time is ahead of end time"} = emqx_trace:create(Trace2),
     {ok, _} = emqx_trace:create(#{
         name => <<"test-name">>,
         filter => {topic, <<"/x/y/z">>}
@@ -243,7 +243,7 @@ t_load_state(_Config) ->
     },
     {ok, _} = emqx_trace:create(Running),
     {ok, _} = emqx_trace:create(Waiting),
-    {error, "end_at time has already passed"} = emqx_trace:create(Finished),
+    {error, "End time has already passed"} = emqx_trace:create(Finished),
     ?assertMatch(
         [
             #{name := <<"Running">>, enable := true},

@@ -544,7 +544,7 @@ format_trace(
     TraceOut#{
         name => Name,
         type => Type,
-        Type => iolist_to_binary(Filter),
+        Type => Filter,
         start_at => emqx_utils_calendar:epoch_to_rfc3339(Start, second),
         end_at => emqx_utils_calendar:epoch_to_rfc3339(End, second),
         status => emqx_trace:status(Trace, Now),

@@ -92,7 +92,7 @@
     | {ip_address, ip_address()}
     | {ruleid, ruleid()}.
 
--type ip_address() :: string().
+-type ip_address() :: binary().
 -type ruleid() :: binary().
 
 -export_type([rendered_action_template_ctx/0]).
@@ -762,7 +762,7 @@ fill_default(Trace) ->
     Trace.
 
 validate_time_range(#?TRACE{start_at = Start, end_at = End}) when End =< Start ->
-    {error, "failed by start_at >= end_at"};
+    {error, "Start time is ahead of end time"};
 validate_time_range(_) ->
     ok.
 
@@ -798,7 +798,7 @@ validate_end_at(EndAt) ->
         Now when Now < EndAt ->
             ok;
         _ ->
-            {error, "end_at time has already passed"}
+            {error, "End time has already passed"}
     end.
 
 validate_topic(TopicName) ->
