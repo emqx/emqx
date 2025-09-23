@@ -143,13 +143,13 @@ start_connect_client(Opts = #{}) ->
             ClientId = maps:get(clientid, Opts),
             ct:pal("~s reconnect after delay", [ClientId]),
             start_connect_client(Opts);
-        {error, Reason} when Attempts > 10 ->
+        {error, Reason} when Attempts > 100 ->
             error(Reason);
         {error, Reason} ->
-            timer:sleep(50),
+            timer:sleep(100),
             inc(RetryKey),
             ClientId = maps:get(clientid, Opts),
-            ct:pal("~s reconnect after delay; unexpected error: ~p", [ClientId, Reason]),
+            ct:pal("~s reconnect after delay; unexpected error:\n  ~p", [ClientId, Reason]),
             start_connect_client(Opts)
     end.
 
