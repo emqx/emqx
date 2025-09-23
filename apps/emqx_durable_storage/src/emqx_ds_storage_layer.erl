@@ -810,19 +810,22 @@ rocksdb_open(Shard, Options) ->
 
 -spec base_dir() -> file:filename().
 base_dir() ->
-    application:get_env(?APP, db_data_dir, emqx:data_dir()).
+    application:get_env(?APP, db_data_dir, filename:join(emqx:data_dir(), "ds")).
 
 -spec db_dir(dbshard()) -> file:filename().
 db_dir({DB, ShardId}) ->
-    filename:join([base_dir(), "ds", DB, binary_to_list(ShardId)]).
+    filename:join([base_dir(), DB, shard_dir(ShardId)]).
 
 -spec checkpoints_dir(dbshard()) -> file:filename().
 checkpoints_dir({DB, ShardId}) ->
-    filename:join([base_dir(), DB, checkpoints, binary_to_list(ShardId)]).
+    filename:join([base_dir(), DB, "checkpoints", shard_dir(ShardId)]).
 
 -spec checkpoint_dir(dbshard(), _Name :: file:name()) -> file:filename().
 checkpoint_dir(ShardId, Name) ->
     filename:join([checkpoints_dir(ShardId), Name]).
+
+shard_dir(ShardId) ->
+    [$s | binary_to_list(ShardId)].
 
 -spec update_last_until(Schema, emqx_ds:time()) ->
     Schema | {error, exists | overlaps_existing_generations}
