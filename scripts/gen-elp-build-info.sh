@@ -65,35 +65,19 @@ generate_json_content() {
         make test-compile
     fi
 
-    # 3. Process dependencies with advanced filtering
-    local DEP_ROOTS=('_build/emqx-enterprise/lib' '_build/emqx-enterprise-test/lib')
-    # shellcheck disable=SC2155
-    local PROJECT_ROOT=$(pwd)
+    # 3. Process dependencies from the 'deps' directory
+    local DEP_ROOTS=('deps')
     echo -e "Processing dependencies in ${beginfmt}${DEP_ROOTS[*]}${endfmt}..."
     for dep_root in "${DEP_ROOTS[@]}";
     do
         if [ ! -d "$dep_root" ]; then
-            echo -e "${beginfmt}Warning: Dependency directory not found, skipping: $dep_root${endfmt}"
+            echo -e "Warning: Dependency directory ${beginfmt}'$dep_root'${endfmt} not found. Did you run 'make test-compile'?"
             continue
         fi
         find "$dep_root" -mindepth 1 -maxdepth 1 -not -name ".rebar3" | while read -r dep_path;
         do
-            if [[ "$dep_root" == "_build/emqx-enterprise-test/lib" ]] && [ -L "$dep_path" ]; then
-                target_path=$(readlink -f "$dep_path")
-                if [[ "$target_path" == */"_build/emqx-enterprise/lib/"* ]]; then continue; fi
-            fi
-            is_in_project_app=false
-            for subdir_to_check in src include; do
-               check_path="$dep_path/$subdir_to_check"
-               if [ -L "$check_path" ]; then
-                   target_path=$(readlink -f "$check_path")
-                   if [[ "$target_path" == "$PROJECT_ROOT/apps/"* ]]; then
-                       is_in_project_app=true
-                       break
-                   fi
-               fi
-            done
-            if [ "$is_in_project_app" = true ]; then continue; fi
+            # With mix, the distinction is simple, in_project_apps: `apps/` and dependencies: `deps/`. No complex checks needed.
+            # The logic for nested apps within a dep is still needed.
             if [ -d "$dep_path/src" ]; then
                 process_app "$dep_path" >> "$TMP_DEPS_FILE"
             elif [ -d "$dep_path/apps" ]; then
