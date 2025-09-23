@@ -1110,6 +1110,9 @@ do_t_unsubscribe_replay(UnackedQoS, Config) ->
     ),
     %% 5. Now let's resubscribe, and check that the session can receive new messages:
     ?assertMatch({ok, _, _}, emqtt:subscribe(Sub1, Topic1, qos2)),
+    %% Give it some time to ensure subscription is in place to avoid flakiness such as
+    %% missing the qos 0 message...
+    ct:sleep(50),
     ok = publish(Topic1, <<"7">>, ?QOS_0),
     ok = publish(Topic1, <<"8">>, ?QOS_1),
     ok = publish(Topic1, <<"9">>, ?QOS_2),
