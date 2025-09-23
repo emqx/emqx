@@ -223,7 +223,8 @@ t_session_limit_exceeded(_Config) ->
     ?assertEqual({ok, 1}, emqx_mt:count_clients(Ns)),
     %% two reasons may race
     try
-        {ok, _} = connect(C2, Ns)
+        {ok, _} = connect(C2, Ns),
+        ct:fail("unexpected success")
     catch
         error:{error, {quota_exceeded, _}} ->
             ok;
@@ -250,11 +251,12 @@ t_session_reconnect(_Config) ->
         )
     ),
     ?assertEqual({ok, 1}, emqx_mt:count_clients(Ns)),
-    Pid2 = connect(C1, Ns),
-    {ok, #{tns := Ns, clientid := C1, proc := CPid2}} = ?block_until(
-        #{?snk_kind := multi_tenant_client_added},
-        3000
-    ),
+    {Pid2, {ok, #{tns := Ns, clientid := C1, proc := CPid2}}} =
+        ?wait_async_action(
+            connect(C1, Ns),
+            #{?snk_kind := multi_tenant_client_added},
+            3000
+        ),
     R = ?WAIT_FOR_DOWN(Pid1, 3000),
     ?assertMatch({shutdown, {disconnected, ?RC_SESSION_TAKEN_OVER, _}}, R),
     ok = emqtt:stop(Pid2),
