@@ -21,7 +21,8 @@ Persistence of Message queue state:
 
 -export([
     open_db/0,
-    close_db/0
+    close_db/0,
+    wait_readiness/1
 ]).
 
 -export([
@@ -102,11 +103,14 @@ open_db() ->
         append_only => false,
         store_ttv => true,
         storage => emqx_ds_pmap:storage_opts(#{})
-    }),
-    emqx_ds:wait_db(?DB, all, infinity).
+    }).
 
 close_db() ->
     emqx_ds:close_db(?DB).
+
+-spec wait_readiness(timeout()) -> ok | timeout.
+wait_readiness(Timeout) ->
+    emqx_ds:wait_db(?DB, all, Timeout).
 
 %%------------------------------------------------------------------------------
 %% Consumer State API
