@@ -29,8 +29,8 @@
 -define(ACTION_TYPE, datalayers).
 
 -define(DEFAULT_SQL, <<
-    "insert into t_mqtt_msg(msgid, topic, qos, payload, arrived) "
-    "values (${id}, ${topic}, ${qos}, ${payload}, ${timestamp})"
+    "insert into mqtt.t_mqtt_msg(time, msgid, sender, topic, qos, payload, arrived) "
+    "values (${timestamp}, ${id}, ${clientid}, ${topic}, ${qos}, ${payload}, ${timestamp})"
 >>).
 
 -define(write_syntax_example, <<
