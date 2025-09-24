@@ -18,7 +18,7 @@ type_name() ->
     redis.
 
 bridge_types() ->
-    [redis, redis_single, redis_sentinel, redis_cluster].
+    [redis].
 
 resource_callback_module() ->
     emqx_bridge_redis_connector.

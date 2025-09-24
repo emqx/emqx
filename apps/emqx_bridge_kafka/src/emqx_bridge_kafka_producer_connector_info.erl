@@ -19,7 +19,7 @@ type_name() ->
     kafka_producer.
 
 bridge_types() ->
-    [kafka, kafka_producer].
+    [kafka_producer].
 
 resource_callback_module() ->
     emqx_bridge_kafka_impl_producer.
