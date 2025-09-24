@@ -4,8 +4,6 @@
 
 -module(emqx_mq_app).
 -moduledoc """
-Root application supervisor.
-
 Application startup is separated in 2 phases, both of them are orchestrated
 by this module:
 1. Initialization: setting up supervision tree, creating DBs.
@@ -43,6 +41,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 stop(_State) ->
+    ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_mq:unregister_hooks(),
     ok = emqx_mq_message_db:close(),
     ok = emqx_mq_state_storage:close_db(),
