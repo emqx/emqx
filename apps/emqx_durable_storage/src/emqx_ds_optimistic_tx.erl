@@ -152,7 +152,14 @@
 %% Timeouts
 -define(timeout_initialize, timeout_initialize).
 %%   Flush pending transactions to the storage:
--define(timeout_flush, timout_flush).
+-define(timeout_flush, timeout_flush).
+%%   Reannounce global registration:
+%%   When new, identically configured nodes join the existing cluster,
+%%   global name registration of this process may be lost. Precise
+%%   sequence of events (name conflicts, OTX processess terminating on
+%%   the other node) is unclear, so opt for periodic unconditional
+%%   attempts to reannounce the name globally when idling.
+-define(timeout_reannounce, timeout_reannounce).
 
 -record(gen_data, {
     dirty_w :: emqx_ds_tx_conflict_trie:t(),
@@ -176,6 +183,7 @@
     flush_interval :: pos_integer(),
     idle_flush_interval :: pos_integer(),
     rotate_interval :: pos_integer(),
+    announce_interval :: pos_integer(),
     max_items :: pos_integer(),
     last_rotate_ts,
     n_items = 0,
@@ -372,6 +380,7 @@ init([DB, Shard, CBM]) ->
         last_rotate_ts = erlang:monotonic_time(millisecond),
         flush_interval = FI,
         idle_flush_interval = IFI,
+        announce_interval = 5_000,
         max_items = MaxItems
     },
     {ok, ?initial, D, {state_timeout, 0, ?timeout_initialize}}.
@@ -392,6 +401,9 @@ handle_event(enter, _OldState, ?leader(?pending), D0 = #d{flush_interval = T}) -
     %% Schedule unconditional flush after the given interval:
     D = D0#d{entered_pending_at = erlang:monotonic_time(millisecond)},
     {keep_state, D, {state_timeout, T, ?timeout_flush}};
+handle_event(enter, _OldState, ?leader(?idle), D = #d{announce_interval = T}) ->
+    %% Schedule reannouncement only if idle, because pending means name is known:
+    {keep_state, D, {state_timeout, T, ?timeout_reannounce}};
 handle_event(enter, _, _, _) ->
     keep_state_and_data;
 handle_event(state_timeout, ?timeout_initialize, ?initial, D) ->
@@ -418,6 +430,10 @@ handle_event(ET, ?timeout_flush, ?leader(_LeaderState), D) when
     ET =:= state_timeout; ET =:= timeout
 ->
     handle_flush(D, []);
+handle_event(state_timeout, ?timeout_reannounce, _State, D = #d{announce_interval = T}) ->
+    %% Extermely cheap if name is still ours:
+    ensure_global(D),
+    {keep_state, D, {state_timeout, T, ?timeout_reannounce}};
 handle_event(ET, Event, State, _D) ->
     ?tp(
         error,
@@ -434,8 +450,8 @@ handle_event(ET, Event, State, _D) ->
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
-        global:unregister_name(?global(DB, Shard)),
-        yes = global:register_name(?global(DB, Shard), self()),
+        %% Announce this process in the global name registry:
+        register_global(DB, Shard),
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
@@ -448,6 +464,19 @@ async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
         Err ->
             {stop, {init_failed, Err}}
     end.
+
+ensure_global(#d{db = DB, shard = Shard}) ->
+    case global(DB, Shard) of
+        Pid when Pid == self() ->
+            unchanged;
+        _ ->
+            Ret = register_global(DB, Shard),
+            ?tp(notice, ds_otx_reannounced_global_name, #{db => DB, shard => Shard}),
+            Ret
+    end.
+
+register_global(DB, Shard) ->
+    global:re_register_name(?global(DB, Shard), self()).
 
 -spec handle_flush(d(), [gen_statem:action()]) ->
     leader_loop_result().
