@@ -305,7 +305,6 @@ commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, 
     ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
     case global(DB, Shard) of
         Leader when is_pid(Leader) ->
-            #kv_tx_ctx{} = Ctx,
             Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
             TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
             put({?pending_commit_timer, Alias}, TRef),
@@ -384,16 +383,11 @@ terminate(Reason, State, _Data) ->
                 info;
             false ->
                 %% Sleep some to prevent a hot restart loop
-                timer:sleep(1_000),
+                timer:sleep(500),
                 error
         end,
     ?tp(Level, ds_otx_terminate, #{state => State, reason => Reason}).
 
-handle_event(info, {'EXIT', _, Reason}, _State, _Data) ->
-    case Reason of
-        normal -> keep_state_and_data;
-        _ -> {stop, shutdown}
-    end;
 handle_event(enter, _OldState, ?leader(?pending), D0 = #d{flush_interval = T}) ->
     %% Schedule unconditional flush after the given interval:
     D = D0#d{entered_pending_at = erlang:monotonic_time(millisecond)},
