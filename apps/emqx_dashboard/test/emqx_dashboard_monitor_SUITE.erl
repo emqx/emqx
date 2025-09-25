@@ -950,17 +950,17 @@ t_smoke_test_monitor_multiple_windows(Config) when is_list(Config) ->
     Port2 = get_mqtt_port(N2, tcp),
     NonPSClient = start_and_connect(#{
         port => Port1,
-        clientid => <<"non-ps">>,
+        clientid => <<"non-ps0">>,
         expiry_interval => 0
     }),
     PSClient1 = start_and_connect(#{
         port => Port1,
-        clientid => <<"ps1">>,
+        clientid => <<"ps01">>,
         expiry_interval => 30
     }),
     PSClient2 = start_and_connect(#{
         port => Port2,
-        clientid => <<"ps2">>,
+        clientid => <<"ps02">>,
         expiry_interval => 30
     }),
     {ok, _} =
