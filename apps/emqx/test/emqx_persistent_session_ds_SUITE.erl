@@ -1499,7 +1499,8 @@ no_abnormal_session_terminate(Trace) ->
                 case E of
                     #{reason := takenover} -> ok;
                     #{reason := kicked} -> ok;
-                    #{reason := {shutdown, tcp_closed}} -> ok
+                    #{reason := {shutdown, tcp_closed}} -> ok;
+                    #{reason := {shutdown, closed}} -> ok
                 end;
             (_) ->
                 ok
