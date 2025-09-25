@@ -534,6 +534,8 @@ ra_overview_termidx(Overview) ->
     db :: emqx_ds:db(),
     shard :: emqx_ds:shard(),
     server :: server(),
+    %% Ra server process monitor:
+    mref :: reference() | undefined,
     bootstrapped :: boolean(),
     stage :: term()
 }).
@@ -557,12 +559,13 @@ init({DB, Shard, Schema, RTConf}) ->
 
 handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
     {noreply, St};
-handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, stage = Stage}) ->
+handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, server = {Name, _}, stage = Stage}) ->
     ?tp(emqx_ds_replshard_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
     case bootstrap(St0) of
         St = #st{bootstrapped = true} ->
             ?tp(emqx_ds_replshard_bootstrapped, #{db => DB, shard => Shard}),
-            {noreply, St};
+            MRef = erlang:monitor(process, Name),
+            {noreply, St#st{mref = MRef}};
         St = #st{bootstrapped = false} ->
             {noreply, St, {continue, bootstrap}};
         {retry, Timeout, St} ->
@@ -578,6 +581,17 @@ handle_cast(_Msg, State) ->
 
 handle_info({timeout, _TRef, bootstrap}, St) ->
     {noreply, St, {continue, bootstrap}};
+handle_info({'DOWN', MRef, process, _Pid, Reason}, State = #st{mref = MRef}) ->
+    case Reason of
+        R when R == normal; R == shutdown; element(1, R) == shutdown ->
+            %% Ra server orderly shutdown:
+            {noreply, State};
+        Error ->
+            %% Ra server abnormal terminate:
+            %% Need to terminate too to make sure the rest of the supervision tree
+            %% terminates as well.
+            {stop, {ra_server_terminated, Error}, State}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -628,39 +642,61 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
 
 %%
 
-start_server(DB, Shard, Schema, #{replication_options := ReplicationOpts}) ->
-    ClusterName = cluster_name(DB, Shard),
+start_server(DB, Shard, Schema, RTConf) ->
     LocalServer = local_server(DB, Shard),
-    Servers = known_shard_servers(DB, Shard),
+    UID = server_uid(DB, Shard),
+    case ra_directory:uid_of(DB, LocalServer) of
+        UID ->
+            %% Server is known, and has the expected UID, restart it.
+            restart_server(DB, Shard, LocalServer);
+        undefined ->
+            %% Server is unknown, start a fresh one:
+            create_start_server(DB, Shard, LocalServer, UID, Schema, RTConf);
+        ExistingUID ->
+            %% Server has unexpected UID, might have been part of the previous cluster.
+            %% Start a fresh server, effectively abandoning existing one:
+            ?tp(notice, "Recreating existing DS shard server", #{
+                db => DB,
+                shard => Shard,
+                server_uid => UID,
+                existing_server_uid => ExistingUID
+            }),
+            create_start_server(DB, Shard, LocalServer, UID, Schema, RTConf)
+    end.
+
+restart_server(DB, _Shard, LocalServer) ->
     MutableConfig = #{},
     case ra:restart_server(DB, LocalServer, MutableConfig) of
-        {error, name_not_registered} ->
-            UID = server_uid(DB, Shard),
-            Machine =
-                {module, emqx_ds_builtin_raft_machine, #{
-                    db => DB, shard => Shard, schema => Schema
-                }},
-            LogOpts = maps:with(
-                [
-                    snapshot_interval,
-                    resend_window
-                ],
-                ReplicationOpts
-            ),
-            ok = ra:start_server(DB, MutableConfig#{
-                id => LocalServer,
-                uid => UID,
-                cluster_name => ClusterName,
-                initial_members => Servers,
-                machine => Machine,
-                log_init_args => LogOpts#{uid => UID}
-            }),
-            {_NewServer = true, LocalServer};
         ok ->
             {_NewServer = false, LocalServer};
         {error, {already_started, _}} ->
             {_NewServer = false, LocalServer}
     end.
+
+create_start_server(DB, Shard, LocalServer, UID, Schema, RTConf) ->
+    #{replication_options := ReplicationOpts} = RTConf,
+    ClusterName = cluster_name(DB, Shard),
+    Servers = known_shard_servers(DB, Shard),
+    Machine =
+        {module, emqx_ds_builtin_raft_machine, #{
+            db => DB, shard => Shard, schema => Schema
+        }},
+    LogOpts = maps:with(
+        [
+            snapshot_interval,
+            resend_window
+        ],
+        ReplicationOpts
+    ),
+    ok = ra:start_server(DB, #{
+        id => LocalServer,
+        uid => UID,
+        cluster_name => ClusterName,
+        initial_members => Servers,
+        machine => Machine,
+        log_init_args => LogOpts#{uid => UID}
+    }),
+    {_NewServer = true, LocalServer}.
 
 trigger_election(Server) ->
     %% NOTE
@@ -682,15 +718,13 @@ trigger_election(Server) ->
 announce_shard_ready(DB, Shard) ->
     set_shard_info(DB, Shard, ready, true).
 
-server_uid(_DB, Shard) ->
+server_uid(DB, Shard) ->
     %% NOTE
     %% Each new "instance" of a server should have a unique identifier. Otherwise,
     %% if some server migrates to another node during rebalancing, and then comes
     %% back, `ra` will be very confused by it having the same UID as before.
-    %% Keeping the shard ID as a prefix to make it easier to identify the server
-    %% in the filesystem / logs / etc.
-    Ts = integer_to_binary(erlang:system_time(microsecond)),
-    <<Shard/binary, "_", Ts/binary>>.
+    ClusterID = emqx_ds_builtin_raft_meta:this_cluster(),
+    iolist_to_binary([atom_to_binary(DB), Shard, $_, ClusterID]).
 
 %%
 
