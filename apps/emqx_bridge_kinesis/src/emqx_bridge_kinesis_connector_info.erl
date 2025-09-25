@@ -19,7 +19,7 @@ type_name() ->
     kinesis.
 
 bridge_types() ->
-    [kinesis, kinesis_producer].
+    [kinesis].
 
 resource_callback_module() ->
     emqx_bridge_kinesis_impl_producer.

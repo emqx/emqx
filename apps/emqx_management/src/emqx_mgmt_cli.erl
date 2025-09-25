@@ -700,7 +700,8 @@ trace_type(Op, Match, "text") -> trace_type(Op, Match, text);
 trace_type(Op, Match, "json") -> trace_type(Op, Match, json);
 trace_type("client", ClientId, Formatter) -> {ok, {clientid, bin(ClientId)}, Formatter};
 trace_type("topic", Topic, Formatter) -> {ok, {topic, bin(Topic)}, Formatter};
-trace_type("ip_address", IP, Formatter) -> {ok, {ip_address, IP}, Formatter};
+trace_type("ip_address", IP, Formatter) -> {ok, {ip_address, bin(IP)}, Formatter};
+trace_type("ruleid", RuleId, Formatter) -> {ok, {ruleid, bin(RuleId)}, Formatter};
 trace_type(_, _, _) -> error.
 
 %%--------------------------------------------------------------------

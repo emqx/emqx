@@ -58,7 +58,7 @@ schema("/nodes") ->
                     #{
                         200 => mk(
                             array(ref(node_info)),
-                            #{desc => <<"List all EMQX nodes">>}
+                            #{desc => ?DESC("list_nodes")}
                         )
                     }
             }
@@ -75,7 +75,7 @@ schema("/nodes/:node") ->
                     #{
                         200 => mk(
                             ref(node_info),
-                            #{desc => <<"Get node info successfully">>}
+                            #{desc => ?DESC("get_node_info_success")}
                         ),
                         404 => not_found()
                     }
@@ -93,7 +93,7 @@ schema("/nodes/:node/metrics") ->
                     #{
                         200 => mk(
                             ref(?NODE_METRICS_MODULE, node_metrics),
-                            #{desc => <<"Get node metrics successfully">>}
+                            #{desc => ?DESC("get_node_metrics_success")}
                         ),
                         404 => not_found()
                     }
@@ -111,7 +111,7 @@ schema("/nodes/:node/stats") ->
                     #{
                         200 => mk(
                             ref(?NODE_STATS_MODULE, aggregated_data),
-                            #{desc => <<"Get node stats successfully">>}
+                            #{desc => ?DESC("get_node_stats_success")}
                         ),
                         404 => not_found()
                     }
@@ -128,7 +128,7 @@ fields(node_name) ->
                 binary(),
                 #{
                     in => path,
-                    description => <<"Node name">>,
+                    description => ?DESC("node_name"),
                     required => true,
                     example => <<"emqx@127.0.0.1">>
                 }
@@ -139,113 +139,108 @@ fields(node_info) ->
         {node,
             mk(
                 atom(),
-                #{desc => <<"Node name">>, example => <<"emqx@127.0.0.1">>}
+                #{desc => ?DESC("node_name"), example => <<"emqx@127.0.0.1">>}
             )},
         {connections,
             mk(
                 non_neg_integer(),
-                #{desc => <<"Number of clients session in this node">>, example => 0}
+                #{desc => ?DESC("clients_session_count"), example => 0}
             )},
         {live_connections,
             mk(
                 non_neg_integer(),
-                #{desc => <<"Number of clients currently connected to this node">>, example => 0}
+                #{desc => ?DESC("live_connections_count"), example => 0}
             )},
         {cluster_sessions,
             mk(
                 non_neg_integer(),
                 #{
-                    desc =>
-                        <<
-                            "By default, it includes only those sessions that have not expired. "
-                            "If the `broker.session_history_retain` config is set to a duration greater than `0s`, "
-                            "this count will also include sessions that expired within the specified retain time"
-                        >>,
+                    desc => ?DESC("cluster_sessions_desc"),
                     example => 0
                 }
             )},
         {load1,
             mk(
                 float(),
-                #{desc => <<"CPU average load in 1 minute">>, example => 2.66}
+                #{desc => ?DESC("cpu_load_1min"), example => 2.66}
             )},
         {load5,
             mk(
                 float(),
-                #{desc => <<"CPU average load in 5 minute">>, example => 2.66}
+                #{desc => ?DESC("cpu_load_5min"), example => 2.66}
             )},
         {load15,
             mk(
                 float(),
-                #{desc => <<"CPU average load in 15 minute">>, example => 2.66}
+                #{desc => ?DESC("cpu_load_15min"), example => 2.66}
             )},
         {max_fds,
             mk(
                 non_neg_integer(),
-                #{desc => <<"File descriptors limit">>, example => 1024}
+                #{desc => ?DESC("file_descriptors_limit"), example => 1024}
             )},
         {memory_total,
             mk(
                 emqx_schema:bytesize(),
-                #{desc => <<"Allocated memory">>, example => "512.00M"}
+                #{desc => ?DESC("allocated_memory"), example => "512.00M"}
             )},
         {memory_used,
             mk(
                 emqx_schema:bytesize(),
-                #{desc => <<"Used memory">>, example => "256.00M"}
+                #{desc => ?DESC("used_memory"), example => "256.00M"}
             )},
         {node_status,
             mk(
                 enum(['running', 'stopped']),
-                #{desc => <<"Node status">>, example => "running"}
+                #{desc => ?DESC("node_status"), example => "running"}
             )},
         {otp_release,
             mk(
                 string(),
-                #{desc => <<"Erlang/OTP version">>, example => "24.2/12.2"}
+                #{desc => ?DESC("erlang_otp_version"), example => "24.2/12.2"}
             )},
         {process_available,
             mk(
                 non_neg_integer(),
-                #{desc => <<"Erlang processes limit">>, example => 2097152}
+                #{desc => ?DESC("erlang_processes_limit"), example => 2097152}
             )},
         {process_used,
             mk(
                 non_neg_integer(),
-                #{desc => <<"Running Erlang processes">>, example => 1024}
+                #{desc => ?DESC("running_erlang_processes"), example => 1024}
             )},
         {uptime,
             mk(
                 non_neg_integer(),
-                #{desc => <<"System uptime, milliseconds">>, example => 5120000}
+                #{desc => ?DESC("system_uptime"), example => 5120000}
             )},
         {version,
             mk(
                 string(),
-                #{desc => <<"Release version">>, example => "5.0.0"}
+                #{desc => ?DESC("release_version"), example => "5.0.0"}
             )},
         {edition,
             mk(
                 enum(['Opensource', 'Enterprise']),
-                #{desc => <<"Release edition">>, example => "Opensource"}
+                #{desc => ?DESC("release_edition"), example => "Opensource"}
             )},
         {sys_path,
             mk(
                 string(),
-                #{desc => <<"Path to system files">>, example => "path/to/emqx"}
+                #{desc => ?DESC("system_files_path"), example => "path/to/emqx"}
             )},
         {log_path,
             mk(
                 string(),
                 #{
-                    desc => <<"Path to log files">>,
+                    desc => ?DESC("log_files_path"),
                     example => "path/to/log | The log path is not yet set"
                 }
             )},
         {role,
             mk(
                 enum([core, replicant]),
-                #{desc => <<"Node role">>, example => "core"}
+                #{desc => ?DESC("node_role"), example => "core"}
             )}
     ].
 
@@ -299,7 +294,7 @@ to_ok_result_fun(Fun) when is_function(Fun) ->
     end.
 
 not_found() ->
-    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>).
+    emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("node_not_found")).
 
 with_node(Name, Fn) ->
     emqx_mgmt_api_lib:with_node(Name, Fn).

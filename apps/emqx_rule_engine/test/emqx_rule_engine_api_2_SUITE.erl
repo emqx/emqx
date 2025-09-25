@@ -2800,3 +2800,67 @@ t_namespaced_bulk_import_order(TCConfig0) when is_list(TCConfig0) ->
         end
     ),
     ok.
+
+-doc """
+Some configurations from older clusters might reference bridge types which have been
+renamed between the legacy bridge v1 schemas and the current v2.
+
+This test checks that we automatically upgrade such actions when detecting them, so that
+the rule keeps working without the user making the effort of renaming the actions.
+""".
+t_legacy_bridge_v1_action_migration(_TCConfig) ->
+    DeprecatedTypes =
+        [
+            <<"gcp_pubsub">>,
+            <<"influxdb_api_v1">>,
+            <<"influxdb_api_v2">>,
+            <<"kafka">>,
+            <<"kinesis_producer">>,
+            <<"mongodb_rs">>,
+            <<"mongodb_sharded">>,
+            <<"mongodb_single">>,
+            <<"pulsar_producer">>,
+            <<"redis_cluster">>,
+            <<"redis_sentinel">>,
+            <<"redis_single">>,
+            <<"webhook">>
+        ],
+    LegacyActions = lists:map(fun(T) -> iolist_to_binary([T, ":", T]) end, DeprecatedTypes),
+    ?check_trace(
+        lists:foreach(
+            fun(LegacyAction) ->
+                ok = snabbkaffe:start_trace(),
+                {201, _} = create_rule(#{
+                    <<"sql">> => <<"select * from t">>,
+                    <<"actions">> => [LegacyAction]
+                }),
+                ok
+            end,
+            LegacyActions
+        ),
+        fun(Trace) ->
+            Upgraded = ?of_kind("action_references_deprecated_bridge_v1", Trace),
+            ct:pal("upgraded: ~p", [Upgraded]),
+            TraceDeprecatedTypes =
+                lists:map(fun(#{deprecated_type := T}) -> atom_to_binary(T) end, Upgraded),
+            ?assertEqual(lists:sort(DeprecatedTypes), lists:sort(TraceDeprecatedTypes), #{
+                missing_upgrades => DeprecatedTypes -- TraceDeprecatedTypes
+            }),
+            TraceCorrectTypes = [_ | _] = ?projection([correct_type], Upgraded),
+            WrongTypes =
+                lists:filter(fun(T) -> not emqx_action_info:is_action(T) end, TraceCorrectTypes),
+            ?assertEqual([], WrongTypes),
+            lists:foreach(
+                fun(DT) ->
+                    ?assertEqual(
+                        undefined,
+                        emqx_action_info:get_action_info_module(DT),
+                        #{deprecated_type => DT}
+                    )
+                end,
+                DeprecatedTypes
+            ),
+            ok
+        end
+    ),
+    ok.

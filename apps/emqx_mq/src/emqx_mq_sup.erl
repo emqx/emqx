@@ -8,7 +8,9 @@
 
 -export([
     start_link/0,
+    start_post_starter/1,
     start_consumer_sup/0,
+    start_gc_scheduler/0,
     start_gc_sup/0,
     start_consumer/2,
     start_gc/0
@@ -28,6 +30,17 @@ start_consumer_sup() ->
 
 start_gc_sup() ->
     supervisor:start_link({local, ?GC_SUP}, ?MODULE, ?GC_SUP).
+
+start_post_starter(MFA) ->
+    supervisor:start_child(?ROOT_SUP, post_start_child_spec(MFA)).
+
+start_gc_scheduler() ->
+    case supervisor:start_child(?ROOT_SUP, emqx_mq_gc:child_spec()) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok
+    end.
 
 start_consumer(Id, Args) ->
     case supervisor:start_child(?CONSUMER_SUP, emqx_mq_consumer:child_spec(Id, Args)) of
@@ -51,6 +64,8 @@ start_gc() ->
             {error, Reason}
     end.
 
+%% Internals
+
 init(?ROOT_SUP) ->
     SupFlags = #{
         strategy => one_for_one,
@@ -60,8 +75,7 @@ init(?ROOT_SUP) ->
     ChildSpecs = [
         emqx_mq_metrics:child_spec(),
         consumer_sup_child_spec(),
-        gc_sup_child_spec(),
-        emqx_mq_gc:child_spec()
+        gc_sup_child_spec()
     ],
     {ok, {SupFlags, ChildSpecs}};
 init(?CONSUMER_SUP) ->
@@ -99,4 +113,13 @@ gc_sup_child_spec() ->
         shutdown => infinity,
         type => supervisor,
         modules => [?MODULE]
+    }.
+
+post_start_child_spec(MFA) ->
+    #{
+        id => post_start,
+        start => MFA,
+        restart => transient,
+        type => worker,
+        shutdown => brutal_kill
     }.

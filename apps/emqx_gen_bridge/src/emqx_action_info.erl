@@ -19,6 +19,10 @@
 %% For tests
 -export([hard_coded_test_action_info_modules/0]).
 
+-ifdef(TEST).
+-export([get_action_info_module/1]).
+-endif.
+
 -callback action_type_name() -> atom().
 -callback connector_type_name() -> atom().
 -callback schema_module() -> atom().

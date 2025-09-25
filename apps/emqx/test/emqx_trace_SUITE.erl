@@ -164,14 +164,14 @@ t_create_default(_Config) ->
         start_at => T0,
         end_at => T0 - 1
     },
-    {error, "end_at time has already passed"} = emqx_trace:create(Trace),
+    {error, "End time has already passed"} = emqx_trace:create(Trace),
     Trace2 = #{
         name => <<"test-name">>,
         filter => {topic, <<"/x/y/z">>},
         start_at => T0 + 10,
         end_at => T0 + 3
     },
-    {error, "failed by start_at >= end_at"} = emqx_trace:create(Trace2),
+    {error, "Start time is ahead of end time"} = emqx_trace:create(Trace2),
     {ok, _} = emqx_trace:create(#{
         name => <<"test-name">>,
         filter => {topic, <<"/x/y/z">>}
@@ -243,7 +243,7 @@ t_load_state(_Config) ->
     },
     {ok, _} = emqx_trace:create(Running),
     {ok, _} = emqx_trace:create(Waiting),
-    {error, "end_at time has already passed"} = emqx_trace:create(Finished),
+    {error, "End time has already passed"} = emqx_trace:create(Finished),
     ?assertMatch(
         [
             #{name := <<"Running">>, enable := true},
@@ -344,6 +344,64 @@ t_client_huge_payload_truncated(_Config) ->
     ?assertMatch({match, _}, re:run(Bin2, ReN(TruncatedBytes1), [unicode])),
     ?assertMatch({match, _}, re:run(Bin3, ReN(TruncatedBytes2), [unicode])),
     ok.
+
+%% Verify that cleanup routine does not touch log files of existing traces:
+t_clean_stale(_Config) ->
+    Now = erlang:system_time(second),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    TraceDir = emqx_trace:trace_dir(),
+    %% Configure small file size limit to trigger rotation:
+    MaxSize = 25 * 1024,
+    MaxSizeDefault = emqx_config:get([trace, max_file_size]),
+    ok = emqx_config:put([trace, max_file_size], MaxSize),
+    %% Create legit trace for `ClientId`:
+    Name = <<"clean_stale_1">>,
+    {ok, Trace1} = emqx_trace:create(#{
+        name => Name,
+        filter => {clientid, ClientId},
+        start_at => Now
+    }),
+    %% Trigger a bunch of events:
+    {ok, Client} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(Client),
+    [pong = emqtt:ping(Client) || _ <- lists:seq(1, 40)],
+    ok = timer:sleep(100),
+    %% Construct fake traces, and several files corresponding to them:
+    TraceFake1 = Trace1#{name := <<"clean_stale_fake">>},
+    TraceFake2 = Trace1#{name := <<"abc">>},
+    TraceFake3 = Trace1#{start_at := Now - 48 * 3600},
+    FilenamesFake = [
+        emqx_trace:log_filename(Trace) ++ Suffix
+     || Trace <- [TraceFake1, TraceFake2, TraceFake3],
+        Suffix <- ["", ".0", ".1", ".100"]
+    ],
+    %% Create all "fake" files in the trace directory:
+    ok = lists:foreach(
+        fun(Filename) -> file:write_file(filename:join(TraceDir, Filename), Filename) end,
+        FilenamesFake
+    ),
+    %% Subscribe to cleanup events:
+    %% Extra event to verify nothing besides `FilenamesFake` is cleaned.
+    ok = snabbkaffe:start_trace(),
+    {ok, SRef} = snabbkaffe_collector:subscribe(
+        ?match_event(#{?snk_kind := "trace_cleaning_stale_file"}),
+        length(FilenamesFake) + 1,
+        _Timeout = 2_500,
+        _BackInTime = 0
+    ),
+    %% Trigger cleanups by disabling the legit trace:
+    ok = emqx_trace:update(Name, false),
+    {timeout, Events} = snabbkaffe_collector:receive_events(SRef),
+    ?assertEqual(
+        lists:sort(FilenamesFake),
+        lists:sort(?projection(filename, Events)),
+        Events
+    ),
+    %% Cleanup:
+    ok = snabbkaffe:stop(),
+    ok = emqx_trace:delete(Name),
+    ok = emqtt:disconnect(Client),
+    ok = emqx_config:put([trace, max_file_size], MaxSizeDefault).
 
 %% If no relevant event occurred, the log file size must be exactly 0 after stopping the trace.
 t_empty_trace_log_file(_Config) ->

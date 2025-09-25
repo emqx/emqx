@@ -18,7 +18,7 @@ type_name() ->
     influxdb.
 
 bridge_types() ->
-    [influxdb, influxdb_api_v1, influxdb_api_v2].
+    [influxdb].
 
 resource_callback_module() ->
     emqx_bridge_influxdb_connector.

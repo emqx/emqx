@@ -20,7 +20,7 @@ type_name() ->
     pulsar.
 
 bridge_types() ->
-    [pulsar_producer, pulsar].
+    [pulsar].
 
 resource_callback_module() ->
     emqx_bridge_pulsar_connector.
