@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-# The script requires a PR number, a Gemini API key, and GitHub authentication.
+# The script requires a PR number, a Gemini or OpenAI API key, and GitHub authentication.
 # It can get them from environment variables or command-line arguments.
 
 PR_NUMBER="${1:-${GITHUB_PULL_REQUEST_NUMBER}}"
@@ -13,8 +13,16 @@ if [ -z "${PR_NUMBER}" ]; then
   exit 1
 fi
 
-if [ -z "${GEMINI_API_KEY}" ]; then
-  echo "Error: GEMINI_API_KEY is not set."
+if [ -n "${OPENAI_API_KEY:-}" ]; then
+  API_PROVIDER="openai"
+  API_KEY="${OPENAI_API_KEY}"
+  echo "Using OpenAI API."
+elif [ -n "${GEMINI_API_KEY:-}" ]; then
+  API_PROVIDER="gemini"
+  API_KEY="${GEMINI_API_KEY}"
+  echo "Using Gemini API."
+else
+  echo "Error: Neither OPENAI_API_KEY nor GEMINI_API_KEY is set."
   exit 1
 fi
 
@@ -55,8 +63,6 @@ if [ -z "${DIFF_CONTENT}" ]; then
   exit 0
 fi
 
-echo "Calling Gemini API..."
-
 PROMPT="Based on the following git diff, classify the change as a feature ('feat'), a fix ('fix'), or a performance improvement ('perf'). Then, write a VERY COMPACT changelog entry.
 
 Respond ONLY with a valid JSON object containing two keys:
@@ -70,17 +76,33 @@ Diff:
 ${DIFF_CONTENT}
 \`\`\`"
 
-JSON_PAYLOAD=$(jq -n \
-  --arg prompt_text "$PROMPT" \
-  '{contents: [{parts: [{text: $prompt_text}]}]}')
+API_RESPONSE_TEXT=""
+if [ "${API_PROVIDER}" = "openai" ]; then
+  echo "Calling OpenAI API..."
+  JSON_PAYLOAD=$(jq -n \
+    --arg prompt_text "$PROMPT" \
+    '{model: "gpt-4o-mini", response_format: {type: "json_object"}, messages: [{role: "user", content: $prompt_text}]}')
 
-API_RESPONSE_TEXT=$(curl -s -f -H 'Content-Type: application/json' \
-  -d "$JSON_PAYLOAD" \
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}" \
-  | jq -r '.candidates[0].content.parts[0].text')
+  API_RESPONSE_TEXT=$(curl -s -f -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${API_KEY}" \
+    -d "$JSON_PAYLOAD" \
+    "https://api.openai.com/v1/chat/completions" \
+    | jq -r '.choices[0].message.content')
+
+elif [ "${API_PROVIDER}" = "gemini" ]; then
+  echo "Calling Gemini API..."
+  JSON_PAYLOAD=$(jq -n \
+    --arg prompt_text "$PROMPT" \
+    '{contents: [{parts: [{text: $prompt_text}]}]}')
+
+  API_RESPONSE_TEXT=$(curl -s -f -H 'Content-Type: application/json' \
+    -d "$JSON_PAYLOAD" \
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}" \
+    | jq -r '.candidates[0].content.parts[0].text')
+fi
 
 if [[ -z "${API_RESPONSE_TEXT}" ]] || [[ "${API_RESPONSE_TEXT}" == "null" ]]; then
-  echo "Error: Failed to get a valid response from the Gemini API."
+  echo "Error: Failed to get a valid response from the ${API_PROVIDER} API."
   exit 1
 fi
 
