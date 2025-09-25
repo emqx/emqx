@@ -963,8 +963,7 @@ ensure_site() ->
     end.
 
 ensure_cluster() ->
-    %% NOTE: Using Site ID as a provisional Cluster ID, for simplicity.
-    ClusterID = emqx_dsch:this_site(),
+    ClusterID = binary:encode_hex(crypto:strong_rand_bytes(4)),
     transaction(fun ?MODULE:ensure_cluster_trans/1, [ClusterID]).
 
 forget_node(Node) when is_atom(Node) ->
