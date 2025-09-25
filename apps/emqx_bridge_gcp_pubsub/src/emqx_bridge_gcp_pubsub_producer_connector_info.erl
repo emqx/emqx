@@ -19,7 +19,7 @@ type_name() ->
     gcp_pubsub_producer.
 
 bridge_types() ->
-    [gcp_pubsub, gcp_pubsub_producer].
+    [gcp_pubsub_producer].
 
 resource_callback_module() ->
     emqx_bridge_gcp_pubsub_impl_producer.
