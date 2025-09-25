@@ -534,6 +534,8 @@ ra_overview_termidx(Overview) ->
     db :: emqx_ds:db(),
     shard :: emqx_ds:shard(),
     server :: server(),
+    %% Ra server process monitor:
+    mref :: reference() | undefined,
     bootstrapped :: boolean(),
     stage :: term()
 }).
@@ -557,12 +559,13 @@ init({DB, Shard, Schema, RTConf}) ->
 
 handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
     {noreply, St};
-handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, stage = Stage}) ->
+handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, server = {Name, _}, stage = Stage}) ->
     ?tp(emqx_ds_replshard_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
     case bootstrap(St0) of
         St = #st{bootstrapped = true} ->
             ?tp(emqx_ds_replshard_bootstrapped, #{db => DB, shard => Shard}),
-            {noreply, St};
+            MRef = erlang:monitor(process, Name),
+            {noreply, St#st{mref = MRef}};
         St = #st{bootstrapped = false} ->
             {noreply, St, {continue, bootstrap}};
         {retry, Timeout, St} ->
@@ -578,6 +581,17 @@ handle_cast(_Msg, State) ->
 
 handle_info({timeout, _TRef, bootstrap}, St) ->
     {noreply, St, {continue, bootstrap}};
+handle_info({'DOWN', MRef, process, _Pid, Reason}, State = #st{mref = MRef}) ->
+    case Reason of
+        R when R == normal; R == shutdown; element(1, R) == shutdown ->
+            %% Ra server orderly shutdown:
+            {noreply, State};
+        Error ->
+            %% Ra server abnormal terminate:
+            %% Need to terminate too to make sure the rest of the supervision tree
+            %% terminates as well.
+            {stop, {ra_server_terminated, Error}, State}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
