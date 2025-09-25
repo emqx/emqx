@@ -688,8 +688,10 @@ otx_become_leader(DB, Shard) ->
             ?err_rec(leader_unavailable);
         Leader ->
             case ra:process_command(Leader, Command, 5_000) of
-                {ok, {Serial, Timestamp}, _Leader} ->
+                {ok, {Serial, Timestamp}, Leader} ->
                     {ok, Serial, Timestamp};
+                {ok, _, _AnotherLeader} ->
+                    ?err_rec(leadership_gone);
                 Err ->
                     ?err_unrec({raft, Err})
             end
@@ -970,10 +972,13 @@ communicate with the Raft machine.
 -spec local_raft_leader(emqx_ds:db(), emqx_ds:shard()) ->
     ra:server_id() | unknown.
 local_raft_leader(DB, Shard) ->
-    emqx_ds_builtin_raft_shard:server_info(
-        leader,
-        emqx_ds_builtin_raft_shard:local_server(DB, Shard)
-    ).
+    LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
+    case emqx_ds_builtin_raft_shard:server_info(leader, LocalServer) of
+        LocalServer ->
+            LocalServer;
+        _ ->
+            unknown
+    end.
 
 list_nodes() ->
     %% TODO: list sites via dsch

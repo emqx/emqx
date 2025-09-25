@@ -357,7 +357,7 @@ shard_beamformers_spec(DB, Shard, _Opts) ->
 shard_optimistic_tx_spec(DB, Shard) ->
     #{
         id => optimistic_tx,
-        type => supervisor,
+        type => worker,
         shutdown => 1_000,
         restart => permanent,
         start =>
