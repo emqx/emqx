@@ -24,6 +24,10 @@
     '/message_queues/config'/2
 ]).
 
+-export([
+    check_ready/2
+]).
+
 -define(TAGS, [<<"Message Queue">>]).
 
 namespace() -> "mq".
@@ -33,7 +37,10 @@ namespace() -> "mq".
 %%--------------------------------------------------------------------
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{
+        check_schema => true,
+        filter => fun ?MODULE:check_ready/2
+    }).
 
 paths() ->
     [
@@ -310,6 +317,17 @@ put_message_queue_config_example() ->
             ?NO_CONTENT;
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
+    end.
+
+check_ready(Request, #{path := "/message_queues/config"}) ->
+    %% NOTE: Configuration does not rely on readiness.
+    {ok, Request};
+check_ready(Request, _Meta) ->
+    case emqx_mq_app:is_ready() of
+        true ->
+            {ok, Request};
+        false ->
+            ?SERVICE_UNAVAILABLE(<<"Not ready">>)
     end.
 
 %%--------------------------------------------------------------------

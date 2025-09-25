@@ -82,7 +82,7 @@ on_start(
         parameters := #{
             username := Username,
             password := Password,
-            database := _Database
+            database := Database
         } = _Parameters,
         ssl := SSL
     }
@@ -105,7 +105,8 @@ on_start(
                 host => bin(Host),
                 port => Port,
                 username => bin(Username),
-                password => Password
+                password => Password,
+                database => Database
             },
             do_start(InstId, ConnConfig, Config);
         {error, _Reason} = Err ->
@@ -146,7 +147,7 @@ do_start(
 
 on_stop(InstId, _State) ->
     ?SLOG(info, #{
-        msg => "stoping_datalayers_arrow_flight_connector",
+        msg => "stopping_datalayers_arrow_flight_connector",
         connector => InstId
     }),
     %% TODO: close all channels prepared statements
@@ -420,7 +421,17 @@ render_row(RowTemplate, Data, _ChannelState) ->
 
 connect(Opts) ->
     #{password := Password} = Config = proplists:get_value(conn_config, Opts),
-    datalayers:connect(Config#{password => bin(emqx_secret:unwrap(Password))}).
+    {ok, Pid} = datalayers:connect(
+        Config#{password => bin(emqx_secret:unwrap(Password))}
+    ),
+    Database = maps:get(database, Config),
+    case datalayers:use_database(Pid, Database) of
+        {ok, _} ->
+            {ok, Pid};
+        {error, _} ->
+            datalayers:stop(Pid),
+            {error, {database_not_existed, Database}}
+    end.
 
 call_driver(Client, {_QueryMode, true} = FuncMode, Args0) ->
     [PreparedRefs | Args] = Args0,

@@ -549,7 +549,7 @@ with_parsed_rule(
                 created_at => CreatedAt,
                 updated_at => LastModifiedAt,
                 sql => Sql,
-                actions => parse_actions(Actions),
+                actions => parse_actions(RuleId, Actions),
                 description => maps:get(description, Params, ""),
                 %% -- calculated fields:
                 from => emqx_rule_sqlparser:select_from(Select),
@@ -564,7 +564,7 @@ with_parsed_rule(
             case validate_bridge_existence_in_actions(Rule0) of
                 ok ->
                     ok;
-                {error, NonExistentBridgeIds} ->
+                {error, #{nonexistent_bridge_ids := NonExistentBridgeIds}} ->
                     ?tp(error, "action_references_nonexistent_bridges", #{
                         rule_id => RuleId,
                         namespace => Namespace,
@@ -617,11 +617,67 @@ do_delete_rule_index(#{id := Id, namespace := Namespace, from := From}) ->
         From
     ).
 
-parse_actions(Actions) ->
-    [do_parse_action(Act) || Act <- Actions].
+parse_actions(RuleId, Actions) ->
+    [do_parse_action(RuleId, Act) || Act <- Actions].
 
-do_parse_action(Action) ->
-    emqx_rule_actions:parse_action(Action).
+do_parse_action(RuleId, Action) ->
+    Res = emqx_rule_actions:parse_action(Action),
+    maybe_upgrade_deprecated_bridge_v1_action_reference(RuleId, Res).
+
+-doc """
+Even though we deprecated v1 bridges, some rules might still reference then in their SQL.
+
+We upgrade the types here and emit a nagging warning so users finally update their types.
+""".
+maybe_upgrade_deprecated_bridge_v1_action_reference(RuleId, {bridge_v2, Type, Name}) ->
+    case upgrade_deprecated_bridge_v1_action_reference(Type) of
+        {ok, CorrectType} ->
+            ?tp(warning, "action_references_deprecated_bridge_v1", #{
+                rule_id => RuleId,
+                deprecated_type => Type,
+                correct_type => CorrectType,
+                hint => <<
+                    "A rule containing an action reference to a deprecated"
+                    " action type has been loaded.  Please update your configuration"
+                    " to use the correct type and prevent the rule from breaking"
+                    " in future releases."
+                >>
+            }),
+            {bridge_v2, CorrectType, Name};
+        error ->
+            {bridge_v2, Type, Name}
+    end;
+maybe_upgrade_deprecated_bridge_v1_action_reference(_RuleId, Action) ->
+    Action.
+
+upgrade_deprecated_bridge_v1_action_reference(gcp_pubsub) ->
+    {ok, gcp_pubsub_producer};
+upgrade_deprecated_bridge_v1_action_reference(influxdb_api_v1) ->
+    {ok, influxdb};
+upgrade_deprecated_bridge_v1_action_reference(influxdb_api_v2) ->
+    {ok, influxdb};
+upgrade_deprecated_bridge_v1_action_reference(kafka) ->
+    {ok, kafka_producer};
+upgrade_deprecated_bridge_v1_action_reference(kinesis_producer) ->
+    {ok, kinesis};
+upgrade_deprecated_bridge_v1_action_reference(mongodb_rs) ->
+    {ok, mongodb};
+upgrade_deprecated_bridge_v1_action_reference(mongodb_sharded) ->
+    {ok, mongodb};
+upgrade_deprecated_bridge_v1_action_reference(mongodb_single) ->
+    {ok, mongodb};
+upgrade_deprecated_bridge_v1_action_reference(pulsar_producer) ->
+    {ok, pulsar};
+upgrade_deprecated_bridge_v1_action_reference(redis_cluster) ->
+    {ok, redis};
+upgrade_deprecated_bridge_v1_action_reference(redis_sentinel) ->
+    {ok, redis};
+upgrade_deprecated_bridge_v1_action_reference(redis_single) ->
+    {ok, redis};
+upgrade_deprecated_bridge_v1_action_reference(webhook) ->
+    {ok, http};
+upgrade_deprecated_bridge_v1_action_reference(_) ->
+    error.
 
 get_all_records(Namespace, Tab) ->
     MS = {?KEY(Namespace, '$1'), '$2'},
@@ -651,7 +707,7 @@ contains_actions(Actions, Mod0, Func0) ->
     ).
 
 forwards_to_bridge(Actions, BridgeId) ->
-    Action = do_parse_action(BridgeId),
+    Action = do_parse_action(_RuleId = undefined, BridgeId),
     lists:any(fun(A) -> A =:= Action end, Actions).
 
 references_ingress_bridge(Froms, BridgeId) ->

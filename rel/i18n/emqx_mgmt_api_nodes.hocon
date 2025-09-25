@@ -1,23 +1,142 @@
 emqx_mgmt_api_nodes {
+    list_nodes {
+        desc = "List EMQX nodes."
+        label = "List EMQX Nodes"
+    }
 
-list_nodes.desc:
-"""List EMQX nodes"""
-list_nodes.label:
-"""List EMQX nodes"""
+    get_node_info {
+        desc = "Get node info."
+        label = "Get Node Info"
+    }
 
-get_node_info.desc:
-"""Get node info"""
-get_node_info.label:
-"""Get node info"""
+    get_node_metrics {
+        desc = "Get node run-time counter metrics. Such as received or sent bytes or messages, the number of succeeded or failed authentications or authorizations, etc."
+        label = "Get Node Metrics"
+    }
 
-get_node_metrics.desc:
-"""Get node run-time counter metrics. Such as received or sent bytes or messages, the number of succeeded or failed authentications or authorizations, etc."""
-get_node_metrics.label:
-"""Get node metrics"""
+    get_node_stats {
+        desc = "Get node run-time stats. Such as the number of topics, connections, etc."
+        label = "Get Node Stats"
+    }
 
-get_node_stats.desc:
-"""Get node run-time stats. Such as the number of topics, connections, etc."""
-get_node_stats.label:
-"""Get node stats"""
+    get_node_info_success {
+        desc = "Get node info successfully."
+        label = "Get Node Info Successfully"
+    }
+
+    get_node_metrics_success {
+        desc = "Get node metrics successfully."
+        label = "Get Node Metrics Successfully"
+    }
+
+    get_node_stats_success {
+        desc = "Get node stats successfully."
+        label = "Get Node Stats Successfully"
+    }
+
+    node_name {
+        desc = "Node name."
+        label = "Node Name"
+    }
+
+    clients_session_count {
+        desc = "Number of clients session in this node."
+        label = "Sessions Count"
+    }
+
+    live_connections_count {
+        desc = "Number of clients currently connected to this node."
+        label = "Live Connections Count"
+    }
+
+    cluster_sessions_desc {
+        desc = "By default, it includes only those sessions that have not expired. If the `broker.session_history_retain` config is set to a duration greater than `0s`, this count will also include sessions that expired within the specified retain time."
+        label = "Cluster Sessions Count"
+    }
+
+    cpu_load_1min {
+        desc = "CPU average load in 1 minute."
+        label = "CPU Load (1 Min)"
+    }
+
+    cpu_load_5min {
+        desc = "CPU average load in 5 minute."
+        label = "CPU Load (5 Min)"
+    }
+
+    cpu_load_15min {
+        desc = "CPU average load in 15 minute."
+        label = "CPU Load (15 Min)"
+    }
+
+    file_descriptors_limit {
+        desc = "File descriptors limit."
+        label = "File Descriptors Limit"
+    }
+
+    allocated_memory {
+        desc = "Allocated memory."
+        label = "Allocated Memory"
+    }
+
+    used_memory {
+        desc = "Used memory."
+        label = "Used Memory"
+    }
+
+    node_status {
+        desc = "Node status."
+        label = "Node Status"
+    }
+
+    erlang_otp_version {
+        desc = "Erlang/OTP version."
+        label = "Erlang/OTP Version"
+    }
+
+    erlang_processes_limit {
+        desc = "Erlang processes limit."
+        label = "Erlang Processes Limit"
+    }
+
+    running_erlang_processes {
+        desc = "Running Erlang processes."
+        label = "Running Erlang Processes"
+    }
+
+    system_uptime {
+        desc = "System uptime, milliseconds."
+        label = "System Uptime"
+    }
+
+    release_version {
+        desc = "Release version."
+        label = "Release Version"
+    }
+
+    release_edition {
+        desc = "Release edition."
+        label = "Release Edition"
+    }
+
+    system_files_path {
+        desc = "Path to system files."
+        label = "System Files Path"
+    }
+
+    log_files_path {
+        desc = "Path to log files."
+        label = "Log Files Path"
+    }
+
+    node_role {
+        desc = "Node role."
+        label = "Node Role"
+    }
+
+    node_not_found {
+        desc = "Node not found."
+        label = "Node Not Found"
+    }
 
 }

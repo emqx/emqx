@@ -126,17 +126,43 @@ start_client(Opts0 = #{}) ->
     Client.
 
 start_connect_client(Opts = #{}) ->
+    %% For unexpected failures
+    RetryKey = '_retry',
+    Attempts =
+        case get(RetryKey) of
+            undefined -> 1;
+            Attempts0 -> Attempts0
+        end,
     Pid = start_client(Opts),
     case emqtt_connect(Pid) of
         {ok, _ConnAck} ->
+            erase(RetryKey),
             Pid;
         {error, {server_busy, _ConnAckProps}} ->
             timer:sleep(10),
-            ClientId = proplists:get_value(clientid, Opts),
+            ClientId = maps:get(clientid, Opts),
             ct:pal("~s reconnect after delay", [ClientId]),
             start_connect_client(Opts);
+        {error, Reason} when Attempts > 100 ->
+            erase(RetryKey),
+            error(Reason);
         {error, Reason} ->
-            error(Reason)
+            timer:sleep(100),
+            inc(RetryKey),
+            ClientId = maps:get(clientid, Opts),
+            ct:pal("~s reconnect after delay; unexpected error:\n  ~p", [ClientId, Reason]),
+            start_connect_client(Opts)
+    end.
+
+inc(Key) ->
+    case get(Key) of
+        undefined ->
+            N = 1,
+            put(Key, N + 1),
+            ok;
+        N ->
+            put(Key, N + 1),
+            ok
     end.
 
 emqtt_connect(ClientPid) ->
