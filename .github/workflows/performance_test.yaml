@@ -7,6 +7,8 @@ on:
         required: false
       download_url:
         required: false
+  schedule:
+    - cron: '0 1 * * *'
 
 permissions:
   contents: read
@@ -61,10 +63,37 @@ jobs:
         version=${{ github.event.inputs.version }}
         aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/e${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
 
-    - name: Download emqx package (latest version)
-      if: github.event.inputs.version == '' && github.event.inputs.download_url == ''
+    - name: Generate GitHub App token
+      id: app-token
+      uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+      with:
+        app-id: ${{ vars.AUTH_APP_ID }}
+        private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+
+    - name: Download emqx package from the latest 'build_packages_cron.yaml' workflow run
+      if: github.event.inputs.version == '' && github.event.inputs.download_url == '' && github.event_name == 'schedule'
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+      run: |
+        set -xeuo pipefail
+
+        run_id=$(gh run list --repo "${{ github.repository }}" --workflow="build_packages_cron.yaml" --branch="master" --status="success" --limit=1 --json databaseId --jq '.[0].databaseId')
+        if [ -z "$run_id" ] || [ "$run_id" == "null" ]; then
+          echo "Could not find a successful run for build_packages_cron.yaml on master branch."
+          exit 1
+        fi
+        echo "Found run ID: $run_id"
+        gh run download --repo "${{ github.repository }}" "$run_id" --name "emqx-enterprise-release-60-ubuntu22.04"
+        if ! ls *.deb 1> /dev/null 2>&1; then
+           echo "No .deb file found in the downloaded artifact."
+           ls -al
+           exit 1
+        fi
+
+    - name: Download emqx package (latest version)
+      if: github.event.inputs.version == '' && github.event.inputs.download_url == '' && github.event_name != 'schedule'
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
         AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
       run: |
         set -xeuo pipefail
@@ -74,7 +103,7 @@ jobs:
         version=${version:1}
         aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/e${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
 
-    - name: Configure AWS Credentials
+    - name: Configure AWS Credentials for performance test infra
       uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 # v5.0.0
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
