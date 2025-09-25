@@ -892,7 +892,7 @@ site_shards_trans(Site) ->
     Target = [
         {target, R#?SHARD_TAB.shard}
      || R <- ShardRecords,
-        {_T, S} <- pending_transitions(R, shard_transition_trans(R, read)),
+        {add, S} <- pending_transitions(R, shard_transition_trans(R, read)),
         S == Site
     ],
     Current ++ Target.
