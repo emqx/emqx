@@ -1023,8 +1023,9 @@ communicate with the Raft machine.
     ra:server_id() | unknown.
 local_raft_leader(DB, Shard) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
-    case emqx_ds_builtin_raft_shard:server_info(leader, LocalServer) of
-        LocalServer ->
+    case ra:ping(LocalServer, 1_000) of
+        {pong, leader} ->
+            %% Local server still considers itself a leader:
             LocalServer;
         _ ->
             unknown
