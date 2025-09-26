@@ -15,7 +15,8 @@
     stop_shard/1,
     terminate_storage/1,
     restart_storage/1,
-    ensure_shard/1
+    ensure_shard/1,
+    where/2
 ]).
 -export([which_dbs/0, which_shards/1]).
 
@@ -34,15 +35,18 @@
 %% Type declarations
 %%================================================================================
 
--define(via(REC), {via, gproc, {n, l, REC}}).
+-define(name(REC), {n, l, REC}).
+-define(via(REC), {via, gproc, ?name(REC)}).
 
 -define(db_sup, ?MODULE).
 -define(shards_sup, emqx_ds_builtin_local_db_shards_sup).
 -define(shard_sup, emqx_ds_builtin_local_db_shard_sup).
+-define(shard_otx, emqx_ds_builtin_local_db_shard_otx).
 
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
 -record(?shard_sup, {db, shard}).
+-record(?shard_otx, {db, shard}).
 
 %%================================================================================
 %% API functions
@@ -86,6 +90,10 @@ restart_storage({DB, Shard}) ->
     ok | {error, _Reason}.
 ensure_shard(Shard) ->
     ensure_started(start_shard(Shard)).
+
+-spec where(emqx_ds_storage_layer:dbshard(), otx) -> pid() | undefined.
+where({DB, Shard}, otx) ->
+    gproc:where(?name(#?shard_otx{db = DB, shard = Shard})).
 
 -spec which_shards(emqx_ds:db()) ->
     [_Child].
@@ -211,9 +219,10 @@ shard_storage_spec(DB, Shard, Opts) ->
     }.
 
 otx_leader_spec(DB, Shard) ->
+    Via = ?via(#?shard_otx{db = DB, shard = Shard}),
     #{
         id => {Shard, otx_leader},
-        start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_local]},
+        start => {emqx_ds_optimistic_tx, start_link, [Via, DB, Shard, emqx_ds_builtin_local]},
         shutdown => 5_000,
         restart => permanent,
         type => worker

@@ -19,7 +19,9 @@
     ensure_shard/1,
 
     start_shard_leader_sup/2,
-    stop_shard_leader_sup/2
+    stop_shard_leader_sup/2,
+
+    shard_optimistic_tx_pname/2
 ]).
 -export([which_dbs/0, which_shards/1]).
 
@@ -155,6 +157,11 @@ stop_shard_leader_sup(DB, Shard) ->
         {error, Reason} ->
             {error, Reason}
     end.
+
+-spec shard_optimistic_tx_pname(emqx_ds:db(), emqx_ds:shard()) -> atom().
+shard_optimistic_tx_pname(DB, Shard) ->
+    DBName = atom_to_binary(DB),
+    binary_to_atom(<<"dsraft_otx_", DBName/binary, Shard/binary>>).
 
 %%================================================================================
 %% behaviour callbacks
@@ -355,13 +362,14 @@ shard_beamformers_spec(DB, Shard, _Opts) ->
     ].
 
 shard_optimistic_tx_spec(DB, Shard) ->
+    Via = {local, shard_optimistic_tx_pname(DB, Shard)},
     #{
         id => optimistic_tx,
         type => worker,
         shutdown => 1_000,
         restart => permanent,
         start =>
-            {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
+            {emqx_ds_optimistic_tx, start_link, [Via, DB, Shard, emqx_ds_builtin_raft]}
     }.
 
 shard_sentinel_spec(DB, Shard) ->
