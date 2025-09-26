@@ -155,9 +155,11 @@ t_store_and_clean(_) ->
     ),
 
     {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained">>),
+    timer:sleep(100),
 
     emqtt:publish(C1, <<"retained">>, <<"">>, [{qos, 0}, {retain, true}]),
     timer:sleep(100),
+
     {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained">>, [{qos, 0}, {rh, 0}]),
     ?assertEqual(0, length(receive_messages(1))),
     ?assertMatch(
