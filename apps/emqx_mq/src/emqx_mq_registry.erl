@@ -124,15 +124,8 @@ match(Topic) ->
             case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
                 [] ->
                     [];
-                [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue, key_expr = KeyExpr}] ->
-                    [
-                        #{
-                            id => Id,
-                            topic_filter => emqx_topic_index:get_topic(Key),
-                            is_lastvalue => IsLastValue,
-                            key_expression => KeyExpr
-                        }
-                    ]
+                [#?MQ_REGISTRY_INDEX_TAB{} = Rec] ->
+                    [record_to_mq_handle(Rec)]
             end
         end,
         Keys
@@ -155,36 +148,27 @@ find(TopicFilter) ->
 -doc """
 Delete the MQ by its topic filter.
 """.
--spec delete(emqx_mq_types:mq_topic()) -> ok | not_found.
+-spec delete(emqx_mq_types:mq_topic()) -> ok | not_found | {error, term()}.
 delete(TopicFilter) ->
     ?tp_debug(mq_registry_delete, #{topic_filter => TopicFilter}),
     Key = make_key(TopicFilter),
-    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
-        case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
-            [] ->
-                not_found;
-            [#?MQ_REGISTRY_INDEX_TAB{id = Id, is_lastvalue = IsLastValue}] ->
-                ok = mnesia:delete(?MQ_REGISTRY_INDEX_TAB, Key, write),
-                {ok, #{
-                    id => Id,
-                    topic_filter => emqx_topic_index:get_topic(Key),
-                    is_lastvalue => IsLastValue
-                }}
-        end
-    end),
-    case Result of
-        not_found ->
+    case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
+        [] ->
             not_found;
-        {ok, #{id := Id} = MQHandle} ->
+        [#?MQ_REGISTRY_INDEX_TAB{} = Rec] ->
+            #{id := Id} = MQHandle = record_to_mq_handle(Rec),
+            ok = mria:dirty_delete_object(Rec),
             case emqx_mq_consumer:find(Id) of
                 {ok, ConsumerRef} ->
                     ok = emqx_mq_consumer:stop(ConsumerRef);
                 not_found ->
                     ok
             end,
-            ok = emqx_mq_state_storage:destroy_mq_state(MQHandle),
-            ok = emqx_mq_state_storage:destroy_consumer_state(MQHandle),
-            ok = emqx_mq_message_db:drop(MQHandle)
+            maybe
+                ok ?= emqx_mq_message_db:drop(MQHandle),
+                ok ?= emqx_mq_state_storage:destroy_consumer_state(MQHandle),
+                ok ?= emqx_mq_state_storage:destroy_mq_state(MQHandle)
+            end
     end.
 
 -doc """
@@ -318,3 +302,13 @@ update_key_expr(Key, Id, NewKeyExpr) ->
         end
     end),
     Result.
+
+record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
+    key = Key, id = Id, key_expr = KeyExpr, is_lastvalue = IsLastValue
+}) ->
+    #{
+        id => Id,
+        topic_filter => emqx_topic_index:get_topic(Key),
+        is_lastvalue => IsLastValue,
+        key_expression => KeyExpr
+    }.

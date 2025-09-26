@@ -758,6 +758,17 @@ t_queue_deletion(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
+%% Verify that the queue is deleted correctly when there is a new empty generation
+%% TODO
+%% Drop this test and the related workaround once the bug in tx manager is fixed
+t_queue_deletion_with_new_empty_generation(_Config) ->
+    %% Create a non-lastvalue Queue and a new generation
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+
+    %% Delete the queue
+    ok = emqx_mq_registry:delete(<<"t/#">>).
+
 %% Check that a session of a disconnected client does not receive messages
 t_disconnected_session_does_not_receive_messages(_Config) ->
     %% Create a non-lastvalue Queue
