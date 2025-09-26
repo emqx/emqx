@@ -571,8 +571,9 @@ new_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
     end,
     Query = {?MODULE, ra_new_kv_tx_ctx_v1, [Generation, Options]},
     Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
-    case emqx_ds_builtin_raft_shard:try_servers(Servers, fun ra:leader_query/2, [Query]) of
-        {ok, {_RaTermIdx, Ret}, _Leader} ->
+    Timeout = 1_000,
+    case emqx_ds_builtin_raft_shard:try_servers(Servers, fun ra:leader_query/3, [Query, Timeout]) of
+        {ok, {_RaIndex, Ret}, _Leader} ->
             Ret;
         Error ->
             ?err_rec(Error)
@@ -685,14 +686,18 @@ otx_current_leader(DB, Shard) ->
             {?regname_shard_otx(DB, Shard), Node};
         [] ->
             %% Leader is unknown, leader-query the remote Ra cluster:
-            Query = {?MODULE, ra_otx_current_leader_v1, []},
-            Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
-            case emqx_ds_builtin_raft_shard:try_servers(Servers, fun ra:leader_query/2, [Query]) of
-                {ok, {_RaTermIdx, Ret}, _Leader} ->
-                    Ret;
-                _Error ->
-                    undefined
-            end
+            otx_locate_remote_leader(DB, Shard)
+    end.
+
+otx_locate_remote_leader(DB, Shard) ->
+    Query = {?MODULE, ra_otx_current_leader_v1, []},
+    Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
+    Timeout = 1_000,
+    case emqx_ds_builtin_raft_shard:try_servers(Servers, fun ra:leader_query/3, [Query, Timeout]) of
+        {ok, {_RaIndex, Ret}, _Leader} ->
+            Ret;
+        _Error ->
+            undefined
     end.
 
 otx_get_latest_generation(DB, Shard) ->
