@@ -1651,3 +1651,87 @@ t_fallback_actions_cycles(_Config) ->
         []
     ),
     ok.
+
+-doc """
+Checks that republish fallback action works when originating rule SQL does not output
+everything from the rule environment.
+""".
+t_fallback_actions_republish_filtered_sql(_TCConfig) ->
+    ConnectorConfig = emqx_utils_maps:deep_merge(con_config(), #{
+        <<"resource_opts">> => #{<<"start_timeout">> => 100}
+    }),
+    ConnectorName = ?FUNCTION_NAME,
+    ct:pal("connector config:\n  ~p", [ConnectorConfig]),
+    ?check_trace(
+        #{timetrap => 3_000},
+        begin
+            {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
+
+            TestPid = self(),
+            OnQueryFn = wrap_fun(fun(Ctx) ->
+                TestPid ! {query_called, Ctx},
+                {error, {unrecoverable_error, fallback_time}}
+            end),
+
+            ActionTypeBin = atom_to_binary(bridge_type()),
+            PrimaryActionName = <<"primary">>,
+
+            RepublishTopic = <<"republish/fallback">>,
+            RepublishArgs = #{
+                <<"topic">> => RepublishTopic,
+                <<"qos">> => 1,
+                <<"retain">> => false,
+                <<"payload">> => <<"${payload}">>,
+                <<"mqtt_properties">> => #{},
+                <<"user_properties">> => <<"${pub_props.'User-Property'}">>,
+                <<"direct_dispatch">> => false
+            },
+            PrimaryActionConfig = (bridge_config())#{
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>},
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => RepublishArgs
+                    }
+                ]
+            },
+            ct:pal("primary action config:\n  ~p", [PrimaryActionConfig]),
+
+            {ok, _} = emqx_bridge_v2:create(bridge_type(), PrimaryActionName, PrimaryActionConfig),
+            _ = emqx_bridge_v2_testlib:kickoff_action_health_check(
+                bridge_type(), PrimaryActionName
+            ),
+
+            {ok, #{id := RuleId}} = emqx_rule_engine:create_rule(
+                #{
+                    sql => <<"select 1 as x from \"t/a\"">>,
+                    id => atom_to_binary(?FUNCTION_NAME),
+                    actions => [
+                        emqx_bridge_resource:bridge_id(bridge_type(), PrimaryActionName)
+                    ]
+                }
+            ),
+            on_exit(fun() -> emqx_rule_engine:delete_rule(RuleId) end),
+            emqx:subscribe(RepublishTopic),
+
+            ct:pal("publishing initial message"),
+            Payload = <<"payload">>,
+            Msg = emqx_message:make(<<"t/a">>, Payload),
+            emqx:publish(Msg),
+
+            ct:pal("waiting for fallback actions effects..."),
+            PrimaryResId = emqx_bridge_v2:id(bridge_type(), PrimaryActionName),
+            SmallMsg = #{<<"x">> => 1},
+            ?assertReceive(
+                {query_called, #{action_res_id := PrimaryResId, message := SmallMsg}}
+            ),
+            ?assertNotReceive({query_called, _}),
+            ?assertReceive({deliver, RepublishTopic, _}),
+
+            ok
+        end,
+        []
+    ),
+    ok.

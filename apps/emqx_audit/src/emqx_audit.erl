@@ -178,15 +178,15 @@ clean_expired_logs() ->
     case CurSize - MaxSize of
         DelSize when DelSize > 0 ->
             case
-                mria:transaction(
+                mria:sync_dirty(
                     ?COMMON_SHARD,
                     fun ?MODULE:trans_clean_expired/2,
                     [Oldest, DelSize]
                 )
             of
-                {atomic, ok} ->
+                ok ->
                     0;
-                {aborted, Reason} ->
+                {error, Reason} ->
                     ?SLOG(error, #{
                         msg => "clean_expired_audit_aborted",
                         reason => Reason,
