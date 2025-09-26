@@ -207,7 +207,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:telemetry), do: {:telemetry, "1.3.0", manager: :rebar3, override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
-  def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.15.2-emqx-3", override: true}
+  def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-1", override: true}
 
   # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.4", override: true}

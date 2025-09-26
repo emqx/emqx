@@ -1,0 +1,40 @@
+name: Generate Changelog Entry on Label
+
+on:
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  generate-changelog:
+    if: github.event.label.name == 'generate-changelog'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Base Repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        # We check out the base repository to ensure we use the trusted script version.
+        with:
+          ref: ${{ github.base_ref }}
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+
+      - name: Generate Changelog
+        run: ./scripts/generate-changelog.sh
+        env:
+          # The script will automatically pick up these environment variables.
+          GITHUB_PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}

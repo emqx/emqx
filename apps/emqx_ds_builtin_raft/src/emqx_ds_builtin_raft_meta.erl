@@ -27,6 +27,7 @@
     node/1,
     node_status/1,
     this_site/0,
+    this_cluster/0,
     forget_site/1,
     claim_site/2,
     print_status/0
@@ -77,6 +78,7 @@
     drop_db_trans/1,
     claim_site_trans/2,
     forget_site_trans/1,
+    ensure_cluster_trans/1,
     n_shards/1
 ]).
 
@@ -114,9 +116,14 @@
     db_props :: emqx_ds_builtin_raft:db_opts()
 }).
 
+-define(cluster, cluster).
+
+%% Contains:
+%% * exactly one record `?cluster => cluster()`,
+%% * one `site() => node()` per each known site.
 -record(?NODE_TAB, {
-    site :: site(),
-    node :: node(),
+    site :: site() | ?cluster,
+    node :: node() | cluster(),
     misc = #{} :: map()
 }).
 
@@ -135,6 +142,10 @@
     transition :: transition(),
     misc = #{} :: map()
 }).
+
+%% Persistent ID of the cluster:
+%% Changes only if the node leaves the cluser or joins another one.
+-type cluster() :: binary().
 
 %% Persistent ID of the node (independent from the IP/FQDN):
 -type site() :: binary().
@@ -168,11 +179,6 @@
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
 
 %% Make Dialyzer happy
--define(NODE_PAT(),
-    %% Equivalent of `#?NODE_TAB{_ = '_'}`:
-    erlang:make_tuple(record_info(size, ?NODE_TAB), '_')
-).
-
 -define(NODE_PAT(NODE),
     %% Equivalent of `#?NODE_TAB{node = NODE, _ = '_'}`:
     erlang:make_tuple(record_info(size, ?NODE_TAB), '_', [{#?NODE_TAB.node, NODE}])
@@ -195,6 +201,13 @@
 -spec this_site() -> site().
 this_site() ->
     persistent_term:get(?emqx_ds_builtin_site).
+
+-spec this_cluster() -> cluster().
+this_cluster() ->
+    case mnesia:dirty_read(?NODE_TAB, ?cluster) of
+        [#?NODE_TAB{node = ClusterID}] -> ClusterID;
+        [] -> error(cluster_unknown)
+    end.
 
 -spec n_shards(emqx_ds:db()) -> pos_integer().
 n_shards(DB) ->
@@ -281,7 +294,7 @@ sites(lost) ->
     [S || #?NODE_TAB{site = S, node = N} <- all_nodes(), node_status(N) == lost].
 
 -spec node(site()) -> node() | undefined.
-node(Site) ->
+node(Site) when is_binary(Site) ->
     case mnesia:dirty_read(?NODE_TAB, Site) of
         [#?NODE_TAB{node = Node}] ->
             Node;
@@ -298,7 +311,7 @@ node_status(Node) when is_atom(Node) ->
     end.
 
 -spec forget_site(site()) -> ok | {error, _Reason}.
-forget_site(Site) ->
+forget_site(Site) when is_binary(Site) ->
     maybe
         [Record] ?= mnesia:dirty_read(?NODE_TAB, Site),
         lost ?= node_status(Record#?NODE_TAB.node),
@@ -316,7 +329,7 @@ forget_site(Site) ->
     end.
 
 -spec claim_site(site(), node()) -> ok | {error, _Reason}.
-claim_site(Site, Node) ->
+claim_site(Site, Node) when is_binary(Site) ->
     transaction(fun ?MODULE:claim_site_trans/2, [Site, Node]).
 
 %%===============================================================================
@@ -582,6 +595,7 @@ init([]) ->
     ensure_tables(),
     run_migrations(),
     ensure_site(),
+    ensure_cluster(),
     {ok, _Node} = mnesia:subscribe({table, ?SHARD_TAB, simple}),
     {ok, #s{}}.
 
@@ -840,6 +854,16 @@ claim_site_trans(Site, Node) ->
             mnesia:abort({conflicting_node_site, ExistingSites})
     end.
 
+-spec ensure_cluster_trans(cluster()) -> ok.
+ensure_cluster_trans(ClusterID) ->
+    %% NOTE: Reusing existing `?NODE_TAB` table.
+    case mnesia:read(?NODE_TAB, ?cluster, write) of
+        [#?NODE_TAB{node = _RegisteredClusterID}] ->
+            ok;
+        [] ->
+            mnesia:write(#?NODE_TAB{site = ?cluster, node = ClusterID})
+    end.
+
 -spec forget_site_trans(_Record :: tuple()) -> ok.
 forget_site_trans(Record = #?NODE_TAB{site = Site}) ->
     %% Safeguards.
@@ -868,7 +892,7 @@ site_shards_trans(Site) ->
     Target = [
         {target, R#?SHARD_TAB.shard}
      || R <- ShardRecords,
-        {_T, S} <- pending_transitions(R, shard_transition_trans(R, read)),
+        {add, S} <- pending_transitions(R, shard_transition_trans(R, read)),
         S == Site
     ],
     Current ++ Target.
@@ -877,7 +901,7 @@ node_sites_trans(Node) ->
     mnesia:match_object(?NODE_TAB, ?NODE_PAT(Node), write).
 
 all_nodes() ->
-    mnesia:dirty_match_object(?NODE_TAB, ?NODE_PAT()).
+    mnesia:dirty_select(?NODE_TAB, [{?NODE_PAT('$1'), [{is_atom, '$1'}], ['$_']}]).
 
 all_shards() ->
     mnesia:dirty_match_object(?SHARD_TAB, ?SHARD_PAT('_')).
@@ -938,7 +962,11 @@ ensure_site() ->
             logger:error("Attempt to claim site with ID=~s failed: ~p", [Site, Reason])
     end.
 
-forget_node(Node) ->
+ensure_cluster() ->
+    ClusterID = binary:encode_hex(crypto:strong_rand_bytes(4)),
+    transaction(fun ?MODULE:ensure_cluster_trans/1, [ClusterID]).
+
+forget_node(Node) when is_atom(Node) ->
     Sites = node_sites(Node),
     Result = transaction(fun lists:map/2, [fun ?MODULE:forget_site_trans/1, Sites]),
     case Result of
