@@ -69,6 +69,7 @@ This is the entrypoint into the `builtin_raft` backend.
     otx_get_tx_serial/2,
     otx_get_leader/2,
     otx_get_latest_generation/2,
+    otx_current_leader/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
     otx_commit_tx_batch/5,
@@ -381,7 +382,7 @@ shard_of(DB, Obj) ->
 -spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
 dirty_append(#{db := _, shard := _} = Opts, Data) ->
-    emqx_ds_optimistic_tx:dirty_append(Opts, Data).
+    emqx_ds_optimistic_tx:dirty_append(?MODULE, Opts, Data).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:get_streams_opts()) ->
     emqx_ds:get_streams_result().
@@ -585,7 +586,7 @@ new_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
 commit_tx(DB, Ctx, Ops) ->
     %% NOTE: pid of the leader is stored in the context, this should
     %% work for remote processes too.
-    emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
+    emqx_ds_optimistic_tx:commit_kv_tx(?MODULE, DB, Ctx, Ops).
 
 -spec tx_commit_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:commit_result().
 tx_commit_outcome(Reply) ->
@@ -668,6 +669,10 @@ update_iterator(ShardId, #'Iterator'{} = Iter, DSKey) ->
 %% emqx_ds_optimistic_tx callbacks
 %%================================================================================
 
+-define(otx_global_regname(CLUSTER, DB, SHARD),
+    {emqx_ds_builtin_raft_shard_otx, CLUSTER, DB, SHARD}
+).
+
 otx_get_tx_serial(DB, Shard) ->
     emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
 
@@ -677,6 +682,11 @@ otx_get_leader(DB, Shard) ->
         {ok, Pid} -> Pid;
         undefined -> undefined
     end.
+
+-spec otx_current_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
+otx_current_leader(DB, Shard) ->
+    ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
+    global:whereis_name(?otx_global_regname(ClusterId, DB, Shard)).
 
 otx_get_latest_generation(DB, Shard) ->
     emqx_ds_storage_layer:generation_current({DB, Shard}).
@@ -689,6 +699,8 @@ otx_become_leader(DB, Shard) ->
         Leader ->
             case ra:process_command(Leader, Command, 5_000) of
                 {ok, {Serial, Timestamp}, Leader} ->
+                    %% Announce this process in the global name registry:
+                    otx_register_global(DB, Shard),
                     {ok, Serial, Timestamp};
                 {ok, _, _AnotherLeader} ->
                     ?err_rec(leadership_gone);
@@ -733,6 +745,12 @@ otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
 otx_get_runtime_config(DB) ->
     #{runtime := #{transactions := Conf}} = emqx_dsch:get_db_runtime(DB),
     Conf.
+
+otx_register_global(DB, Shard) ->
+    ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
+    RegName = ?otx_global_regname(ClusterId, DB, Shard),
+    yes = global:re_register_name(RegName, self()),
+    ok.
 
 %%================================================================================
 %% Internal exports
@@ -832,7 +850,7 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
 
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
 add_generation_to_shard(DB, Shard, Retries) ->
-    case emqx_ds_optimistic_tx:add_generation(DB, Shard) of
+    case emqx_ds_optimistic_tx:add_generation(?MODULE, DB, Shard) of
         ok ->
             ok;
         ?err_rec(_) when Retries > 0 ->

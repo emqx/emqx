@@ -360,8 +360,7 @@ shard_optimistic_tx_spec(DB, Shard) ->
         type => worker,
         shutdown => 1_000,
         restart => permanent,
-        start =>
-            {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
+        start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
     }.
 
 shard_sentinel_spec(DB, Shard) ->
