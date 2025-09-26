@@ -1227,7 +1227,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.12", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.14", override: true}],
       else: []
   end
 
