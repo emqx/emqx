@@ -69,6 +69,7 @@ This is the entrypoint into the `builtin_raft` backend.
     otx_get_tx_serial/2,
     otx_get_leader/2,
     otx_get_latest_generation/2,
+    otx_current_leader/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
     otx_commit_tx_batch/5,
@@ -84,7 +85,10 @@ This is the entrypoint into the `builtin_raft` backend.
     do_make_iterator_v1/5,
     do_next_v1/3,
     do_list_slabs_v1/2,
-    do_new_kv_tx_ctx_v1/4
+    do_new_kv_tx_ctx_v1/4,
+    %% `ra:leader_query/2`:
+    ra_new_kv_tx_ctx_v1/3,
+    ra_otx_current_leader_v1/1
 ]).
 
 %% Internal exports:
@@ -381,7 +385,7 @@ shard_of(DB, Obj) ->
 -spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
 dirty_append(#{db := _, shard := _} = Opts, Data) ->
-    emqx_ds_optimistic_tx:dirty_append(Opts, Data).
+    emqx_ds_optimistic_tx:dirty_append(?MODULE, Opts, Data).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:get_streams_opts()) ->
     emqx_ds:get_streams_result().
@@ -565,27 +569,20 @@ new_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
         Shard ->
             ok
     end,
-    ?LEADER_RPC(
-        DB,
-        Shard,
-        Node,
-        case proto_vsn(Node) of
-            Vsn when Vsn >= 1 ->
-                ?SAFE_ERPC(
-                    emqx_ds_builtin_raft_proto_v1:new_kv_tx_ctx(
-                        Node, DB, Shard, Generation, Options
-                    )
-                );
-            Vsn ->
-                ?ERR_UPGRADE(Node, Vsn)
-        end
-    ).
+    Query = {?MODULE, ra_new_kv_tx_ctx_v1, [Generation, Options]},
+    Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
+    case emqx_ds_builtin_raft_shard:try_servers(Servers, fun ra:leader_query/2, [Query]) of
+        {ok, {_RaTermIdx, Ret}, _Leader} ->
+            Ret;
+        Error ->
+            ?err_rec(Error)
+    end.
 
 -spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:tx_ops()) -> reference().
 commit_tx(DB, Ctx, Ops) ->
     %% NOTE: pid of the leader is stored in the context, this should
     %% work for remote processes too.
-    emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
+    emqx_ds_optimistic_tx:commit_kv_tx(?MODULE, DB, Ctx, Ops).
 
 -spec tx_commit_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:commit_result().
 tx_commit_outcome(Reply) ->
@@ -668,14 +665,34 @@ update_iterator(ShardId, #'Iterator'{} = Iter, DSKey) ->
 %% emqx_ds_optimistic_tx callbacks
 %%================================================================================
 
+%% @doc Currently ununsed.
 otx_get_tx_serial(DB, Shard) ->
     emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
 
+%% @doc Currently ununsed.
 -spec otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 otx_get_leader(DB, Shard) ->
     case emqx_dsch:gvar_get(DB, Shard, ?gv_sc_replica, ?gv_otx_leader_pid) of
         {ok, Pid} -> Pid;
         undefined -> undefined
+    end.
+
+-spec otx_current_leader(emqx_ds:db(), emqx_ds:shard()) -> {atom(), node()} | undefined.
+otx_current_leader(DB, Shard) ->
+    case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader) of
+        [_Leader = {_, Node}] ->
+            %% Leader is known:
+            {?regname_shard_otx(DB, Shard), Node};
+        [] ->
+            %% Leader is unknown, leader-query the remote Ra cluster:
+            Query = {?MODULE, ra_otx_current_leader_v1, []},
+            Servers = emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred),
+            case emqx_ds_builtin_raft_shard:try_servers(Servers, fun ra:leader_query/2, [Query]) of
+                {ok, {_RaTermIdx, Ret}, _Leader} ->
+                    Ret;
+                _Error ->
+                    undefined
+            end
     end.
 
 otx_get_latest_generation(DB, Shard) ->
@@ -819,6 +836,7 @@ do_next_v1(DB, Iter = #'Iterator'{shard = Shard}, NextLimit) ->
         end
     ).
 
+%% @doc Currently unused.
 -spec do_new_kv_tx_ctx_v1(
     emqx_ds:db(), emqx_ds:shard(), emqx_ds:generation(), emqx_ds:transaction_opts()
 ) ->
@@ -827,12 +845,44 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
     emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options).
 
 %%================================================================================
+%% `ra:leader_query/2` targets
+%% Executed in the context of Ra server that currently consirders itself leader.
+%%================================================================================
+
+-spec ra_new_kv_tx_ctx_v1(
+    emqx_ds:generation(),
+    emqx_ds:transaction_opts(),
+    emqx_ds_builtin_raft_machine:ra_state()
+) ->
+    {ok, tx_context()} | emqx_ds:error(_).
+ra_new_kv_tx_ctx_v1(_Generation, _Options, #{otx_leader_pid := undefined}) ->
+    ?err_rec(leader_down);
+ra_new_kv_tx_ctx_v1(Generation0, Options, RaState) ->
+    #{
+        db_shard := {DB, Shard},
+        tx_serial := Serial,
+        otx_leader_pid := Leader
+    } = RaState,
+    case Generation0 of
+        latest ->
+            Generation = otx_get_latest_generation(DB, Shard),
+            IsLatest = true;
+        Generation when is_integer(Generation) ->
+            IsLatest = false
+    end,
+    emqx_ds_optimistic_tx:new_kv_tx_ctx(Shard, Generation, IsLatest, Serial, Leader, Options).
+
+-spec ra_otx_current_leader_v1(emqx_ds_builtin_raft_machine:ra_state()) -> {atom(), node()}.
+ra_otx_current_leader_v1(#{db_shard := {DB, Shard}}) ->
+    {?regname_shard_otx(DB, Shard), node()}.
+
+%%================================================================================
 %% Internal functions
 %%================================================================================
 
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
 add_generation_to_shard(DB, Shard, Retries) ->
-    case emqx_ds_optimistic_tx:add_generation(DB, Shard) of
+    case emqx_ds_optimistic_tx:add_generation(?MODULE, DB, Shard) of
         ok ->
             ok;
         ?err_rec(_) when Retries > 0 ->
