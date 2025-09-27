@@ -227,9 +227,9 @@ t_ssl_change_parse_unit(_Conf) ->
     }).
 
 test_change_parse_unit(ConfPath, ClientOpts) ->
-    ListenerRawConf0 = #{<<"parse_unit">> := <<"chunk">>} = emqx:get_raw_config(ConfPath),
+    ListenerRawConf0 = #{<<"parse_unit">> := <<"frame">>} = emqx:get_raw_config(ConfPath),
     ListenerRawConf1 = ListenerRawConf0#{
-        <<"parse_unit">> := <<"frame">>
+        <<"parse_unit">> := <<"chunk">>
     },
     %% Update listener and verify `parse_unit` came into effect:
     ?assertMatch({ok, _}, emqx:update_config(ConfPath, {update, ListenerRawConf1})),
@@ -238,7 +238,7 @@ test_change_parse_unit(ConfPath, ClientOpts) ->
     CState1 = get_conn_state(Client1),
     emqx_listeners:is_packet_parser_available(mqtt) andalso
         ?assertMatch(
-            #{parser := {frame, _Options}},
+            #{parser := Tuple} when element(1, Tuple) =:= options,
             CState1
         ),
     %% Restore original config and verify original `parse_unit` came into effect as well:

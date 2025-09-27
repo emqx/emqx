@@ -2682,12 +2682,27 @@ trigger_fallback_action(Id, #{kind := republish, args := #{?COMPUTED := Args}}, 
             %% This simulates what `emqx_rule_runtime:do_handle_action2` does.
             RuleActionInfo = #{mod => emqx_rule_actions, func => republish, args => Args},
             logger:update_process_metadata(ProcessMetadata#{action_id => RuleActionInfo}),
-            _ = emqx_rule_actions:republish(Req, Req, Args),
+            Env =
+                case Req of
+                    #{metadata := #{rule_id := _}} ->
+                        Req;
+                    #{} ->
+                        %% Rule metadata might be missing if the originating rule SQL is
+                        %% strict.  We inject the action id in its stead, since
+                        %% `emqx_rule_actions:republish` expects it.
+                        maps:update_with(
+                            metadata,
+                            fun(M) -> M#{rule_id => Id} end,
+                            #{rule_id => Id},
+                            Req
+                        )
+                end,
+            _ = emqx_rule_actions:republish(Req, Env, Args),
             ok
         end),
         ok
     catch
-        K:E ->
+        K:E:S ->
             ?SLOG_THROTTLE(
                 error,
                 Id,
@@ -2696,7 +2711,8 @@ trigger_fallback_action(Id, #{kind := republish, args := #{?COMPUTED := Args}}, 
                     primary_action_resource_id => Id,
                     fallback_kind => republish,
                     republish_topic => maps:get(topic, Args, undefined),
-                    reason => {K, E}
+                    reason => {K, E},
+                    stacktrace => S
                 },
                 #{tag => ?TAG}
             ),
