@@ -712,8 +712,6 @@ resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = 
         end,
         Subs
     ),
-    ok = emqx_metrics:inc('session.resumed'),
-    ok = emqx_hooks:run('session.resumed', [ClientInfo, emqx_session:info(Session)]),
     Session.
 
 -spec replay(emqx_types:clientinfo(), replayctx(), session()) ->
