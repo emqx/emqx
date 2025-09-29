@@ -53,7 +53,8 @@
 
 %% For testing
 -export([
-    merge_current_rate_cluster/1
+    merge_current_rate_cluster/1,
+    test_only_sample_now/0
 ]).
 
 -define(TAB, ?MODULE).
@@ -185,6 +186,12 @@ merge_current_rate_cluster(L1) ->
     lists:foldl(Fun, #{}, L1).
 
 %% -------------------------------------------------------------------------------------------------
+%% Exposed only for use in tests
+
+test_only_sample_now() ->
+    gen_server:call(?MODULE, test_only_sample_now).
+
+%% -------------------------------------------------------------------------------------------------
 %% gen_server functions
 
 start_link() ->
@@ -218,6 +225,11 @@ handle_call(current_rate, _From, State = #state{last = Last}) ->
     Result1 = maps:merge(Rate, NonRateValue),
     Result = format_hwmarks(Result1, NowSamplers),
     {reply, {ok, Result}, State};
+handle_call(test_only_sample_now, _From, State0) ->
+    %% N.B.: This is only for use in tests!
+    {NextTime, _} = next_interval(),
+    {noreply, State} = handle_info({sample, NextTime}, State0),
+    {reply, ok, State};
 handle_call(_Request, _From, State = #state{}) ->
     {reply, ok, State}.
 
@@ -302,10 +314,10 @@ compare([{T, Data} | All], [{T, Data} | Compacted], Deletes, Writes) ->
     %% no change, do nothing
     compare(All, Compacted, Deletes, Writes);
 compare([{T, _} | All], [{T, Data} | Compacted], Deletes, Writes) ->
-    %% this timetamp has been compacted away, but overwrite it with new data
+    %% this timestamp has been compacted away, but overwrite it with new data
     compare(All, Compacted, Deletes, [{T, Data} | Writes]);
 compare([{T0, _} | All], [{T1, _} | _] = Compacted, Deletes, Writes) when T0 < T1 ->
-    %% this timstamp has been compacted away, delete it
+    %% this timestamp has been compacted away, delete it
     compare(All, Compacted, [T0 | Deletes], Writes);
 compare([{T0, _} | _] = All, [{T1, Data1} | Compacted], Deletes, Writes) when T0 > T1 ->
     %% compare with the next compacted bucket timestamp
@@ -761,7 +773,7 @@ delta(LastData, NowData) ->
     Fun =
         fun(Key, Data) ->
             Value = maps:get(Key, NowData) - maps:get(Key, LastData, 0),
-            Data#{Key => Value}
+            Data#{Key => max(0, Value)}
         end,
     lists:foldl(Fun, NowData, ?DELTA_SAMPLER_LIST).
 

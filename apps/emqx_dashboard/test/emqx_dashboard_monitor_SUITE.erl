@@ -1034,6 +1034,61 @@ t_smoke_test_monitor_multiple_windows(Config) when is_list(Config) ->
     ok = emqtt:stop(PSClient2),
     ok.
 
+-doc """
+Simulates the following scenario:
+
+1) A node is running, and has just recorded a sample to the metrics sample table with some
+   positive value (let's say, for example, `dropped = 10`).
+
+2) Just as the freshly written data row is written, the node is restarted, thus restarting
+   the `emqx_dashboard_monitor` process with it.
+
+3) When `emqx_dashboard_monitor` process (re)starts, it reads the last data point and puts
+   it in its state.
+
+4) So, at this point, `emqx_dashboard_monitor` has as its last data point a row with
+   `dropped = 10`.  However, since the node just restarted, all metrics were reset to 0,
+   including `dropped`.  Let's say we don't record any further `dropped` events, thus
+   `dropped = 0` now.
+
+5) When `emqx_dashboard_monitor` next samples the metrics, it'll calculate the delta
+   between the last data point and the current sample.  Thus, naively, it could record
+   `dropped = 0 - 10` as the next data point, which was the original issue this case
+   attempts to capture.
+""".
+t_restart_node_with_freshly_inserted_data(TCConfig) when is_list(TCConfig) ->
+    %% 1) Assert we have a positive last value.
+    Metric = 'messages.dropped',
+    emqx_metrics:inc(Metric, 10),
+    ok = emqx_dashboard_monitor:test_only_sample_now(),
+    %% 2,3,4) Zero the metric and restart the process to simulate node restart.
+    %% Supervisor will restart it.
+    emqx_metrics:set(Metric, 0),
+    MRef = monitor(process, emqx_dashboard_monitor),
+    exit(whereis(emqx_dashboard_monitor), die),
+    receive
+        {'DOWN', MRef, process, _, _} ->
+            ok
+    after 1_000 -> ct:fail("process didn't die")
+    end,
+    %% 5) Trigger the new sample on the new process.
+    ct:timetrap({seconds, 5}),
+    SampleNow = fun Recur() ->
+        case whereis(emqx_dashboard_monitor) of
+            undefined ->
+                ct:sleep(100),
+                Recur();
+            Pid when is_pid(Pid) ->
+                ok = emqx_dashboard_monitor:test_only_sample_now()
+        end
+    end,
+    SampleNow(),
+    Series = emqx_dashboard_monitor:all_data(),
+    {_Time, Data} = lists:last(Series),
+    %% We should guard against writing negative values for counters.
+    ?assertMatch(#{dropped := 0}, Data),
+    ok.
+
 request(Path) ->
     request(Path, "").
 
