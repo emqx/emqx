@@ -705,7 +705,7 @@ takeover(#session{subscriptions = Subs}) ->
 
 -spec resume(emqx_types:clientinfo(), session()) ->
     session().
-resume(ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = Subs}) ->
+resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = Subs}) ->
     ok = maps:foreach(
         fun(TopicFilter, SubOpts) ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
