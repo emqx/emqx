@@ -1994,6 +1994,13 @@ start_channel_health_check(
 ->
     #data{hc_workers = HCWorkers0 = #{channel := CHCWorkers0}} = Data0,
     WorkerPid = spawn_channel_health_check_worker(Data0, ChannelId),
+    %% N.B.: The following `erlang:garbage_collect()` call is important, especially when
+    %% spawning several hundred HC workers at once (e.g., when loading a large
+    %% config/restart a node with such config).  Without this, too many processes may
+    %% spawn at once and consume a lot of memory.  By yielding here (`erlang:yield` also
+    %% works), we have some natural throttling for spawning such workers that helps
+    %% prevent OOM.
+    erlang:garbage_collect(),
     ChannelStatus = maps:get(ChannelId, AddedChannels),
     CHCOngoing = CHCOngoing0#{ChannelId => ChannelStatus},
     CHCKickedOff = CHCKickedOff0#{ChannelId => true},
