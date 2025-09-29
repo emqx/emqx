@@ -177,6 +177,7 @@
 
 %% Peristent term key:
 -define(emqx_ds_builtin_site, emqx_ds_builtin_site).
+-define(emqx_ds_builtin_cluster_id, emqx_ds_builtin_cluster_id).
 
 %% Make Dialyzer happy
 -define(NODE_PAT(NODE),
@@ -204,10 +205,7 @@ this_site() ->
 
 -spec this_cluster() -> cluster().
 this_cluster() ->
-    case mnesia:dirty_read(?NODE_TAB, ?cluster) of
-        [#?NODE_TAB{node = ClusterID}] -> ClusterID;
-        [] -> error(cluster_unknown)
-    end.
+    persistent_term:get(?emqx_ds_builtin_cluster_id).
 
 -spec n_shards(emqx_ds:db()) -> pos_integer().
 n_shards(DB) ->
@@ -854,14 +852,15 @@ claim_site_trans(Site, Node) ->
             mnesia:abort({conflicting_node_site, ExistingSites})
     end.
 
--spec ensure_cluster_trans(cluster()) -> ok.
+-spec ensure_cluster_trans(cluster()) -> {ok, cluster()}.
 ensure_cluster_trans(ClusterID) ->
     %% NOTE: Reusing existing `?NODE_TAB` table.
     case mnesia:read(?NODE_TAB, ?cluster, write) of
-        [#?NODE_TAB{node = _RegisteredClusterID}] ->
-            ok;
+        [#?NODE_TAB{node = RegisteredClusterID}] ->
+            {ok, RegisteredClusterID};
         [] ->
-            mnesia:write(#?NODE_TAB{site = ?cluster, node = ClusterID})
+            mnesia:write(#?NODE_TAB{site = ?cluster, node = ClusterID}),
+            {ok, ClusterID}
     end.
 
 -spec forget_site_trans(_Record :: tuple()) -> ok.
@@ -963,8 +962,9 @@ ensure_site() ->
     end.
 
 ensure_cluster() ->
-    ClusterID = binary:encode_hex(crypto:strong_rand_bytes(4)),
-    transaction(fun ?MODULE:ensure_cluster_trans/1, [ClusterID]).
+    ProvisionalClusterID = binary:encode_hex(crypto:strong_rand_bytes(4)),
+    {ok, ClusterID} = transaction(fun ?MODULE:ensure_cluster_trans/1, [ProvisionalClusterID]),
+    persistent_term:put(?emqx_ds_builtin_cluster_id, ClusterID).
 
 forget_node(Node) when is_atom(Node) ->
     Sites = node_sites(Node),
