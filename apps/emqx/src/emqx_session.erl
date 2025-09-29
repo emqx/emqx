@@ -163,7 +163,8 @@
     subscriptions,
     upgrade_qos,
     retry_interval,
-    await_rel_timeout
+    await_rel_timeout,
+    impl
 ]).
 
 -define(IMPL(S), (get_impl_mod(S))).
@@ -262,7 +263,9 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     %% Try to look the existing session up in session stores corresponding to the given
     %% `Mods` in order, starting from the last one.
     case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
-        {_IsPresent = true, _, _} = Present ->
+        {_IsPresent = true, Session, _} = Present ->
+            ok = emqx_metrics:inc('session.resumed'),
+            ok = emqx_hooks:run('session.resumed', [ClientInfo, info(Session)]),
             Present;
         false ->
             %% NOTE

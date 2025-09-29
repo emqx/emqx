@@ -317,7 +317,8 @@ messages_v1(SubscriberRef, ConsumerRef, Messages) ->
 
 handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
     ?tp_debug(handle_connected, #{sub => inspect(Sub0), consumer_ref => ConsumerRef}),
-    Sub = Sub0#{
+    Sub1 = cancel_consumer_connect_timeout_timer(Sub0),
+    Sub = Sub1#{
         status => #connected{
             mq = MQ,
             consumer_ref = ConsumerRef,
@@ -428,6 +429,16 @@ send_info_to_subscriber(SubscriberRef, InfoMsg) ->
 %%--------------------------------------------------------------------
 %% Timers
 %%--------------------------------------------------------------------
+
+cancel_consumer_connect_timeout_timer(
+    #{status := #connecting{connect_timeout_tref = TRef} = Status} = Sub
+) ->
+    _ = emqx_utils:cancel_timer(TRef),
+    Sub#{
+        status => Status#connecting{
+            connect_timeout_tref = undefined
+        }
+    }.
 
 reset_consumer_timeout_timer(
     #{status := #connected{consumer_timeout_tref = TRef, mq = MQ} = Status} = Sub
