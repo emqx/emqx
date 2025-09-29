@@ -52,7 +52,7 @@ async_stop_leader_sup(DB, Shard) ->
 
 -type state() :: #{db := emqx_ds:db()}.
 
--spec init(emqx_ds:db()) -> {ok, state()}.
+-spec init(emqx_ds:db()) -> {ok, state(), hibernate}.
 init(DB) ->
     _ = erlang:process_flag(trap_exit, true),
     {ok, #{db => DB}, hibernate}.
@@ -63,7 +63,7 @@ handle_call(_Call, _From, State) ->
 
 -spec handle_cast(_Cast, state()) -> {noreply, state()}.
 handle_cast(#start_leader_sup{db = DB, shard = Shard}, State) ->
-    ?tp_span(
+    _ = ?tp_span(
         debug,
         dsrepl_start_otx_leader,
         #{db => DB, shard => Shard},
@@ -71,7 +71,7 @@ handle_cast(#start_leader_sup{db = DB, shard = Shard}, State) ->
     ),
     {noreply, State};
 handle_cast(#stop_leader_sup{db = DB, shard = Shard}, State) ->
-    ?tp_span(
+    _ = ?tp_span(
         debug,
         dsrepl_stop_otx_leader,
         #{db => DB, shard => Shard},
