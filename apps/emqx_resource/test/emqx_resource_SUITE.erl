@@ -5193,3 +5193,82 @@ t_independent_channel_health_check_interval(_Config) ->
         [log_consistency_prop()]
     ),
     ok.
+
+%% This verifies that we yield in the resource manager process after spawning health check
+%% workers, so that we avoiding spawning too many in a hot loop.  Such workers may either
+%% have a fat state, or consume a lot of heap memory while running, thus spawning too many
+%% at once risks killing the node by OOM.
+t_add_large_number_of_channels_oom(_TCConfig) ->
+    ct:timetrap({seconds, 60}),
+    ConnName = <<"cname">>,
+    %% Needs to have this form to satifisfy internal, implicit requirements of
+    %% `emqx_resource_cache'.
+    ConnResId = <<"connector:ctype:", ConnName/binary>>,
+    TestPid = self(),
+    {_, TotalMem} = load_ctl:get_sys_memory(),
+    NumChannels = 750,
+    MemHog = floor(TotalMem / NumChannels * 1.1),
+    ChanHC = fun(ChanId, _ConnState) ->
+        binary:copy(<<"a">>, MemHog),
+        timer:sleep(500),
+        TestPid ! {chan_connected, ChanId},
+        ?status_connected
+    end,
+    {ok, _} =
+        create(
+            ConnResId,
+            ?DEFAULT_RESOURCE_GROUP,
+            ?TEST_RESOURCE,
+            #{
+                name => test_resource,
+                channel_health_check_fn => ChanHC
+            },
+            #{
+                health_check_interval => 100,
+                start_timeout => 100
+            }
+        ),
+    ResManPid = emqx_resource_cache:read_manager_pid(ConnResId),
+    true = is_pid(ResManPid),
+    ok = sys:suspend(ResManPid),
+    ChanIds = lists:map(
+        fun(I) ->
+            IBin = integer_to_binary(I),
+            ChanId = iolist_to_binary([
+                <<"action:atype:aname">>,
+                IBin,
+                ":",
+                ConnResId
+            ]),
+            ok =
+                emqx_resource_manager:add_channel_async(
+                    ConnResId,
+                    ChanId,
+                    #{
+                        resource_opts => #{health_check_interval => 45_000}
+                    }
+                ),
+            ChanId
+        end,
+        lists:seq(1, NumChannels)
+    ),
+    ok = sys:resume(ResManPid),
+    ct:pal("resumed"),
+    ct:print(
+        "N.B. if this test OOM crashes, there's something wrong with"
+        " yielding after spawning health check workers"
+    ),
+    %% Trigger connector health check, which in turn triggers health checks for all
+    %% channels.
+    emqx_resource:health_check(ConnResId),
+    lists:foreach(
+        fun(_) ->
+            receive
+                {chan_connected, _ChanId} -> ok
+            after 30_000 -> ct:fail("timeout waiting for chan")
+            end
+        end,
+        lists:seq(1, NumChannels)
+    ),
+    ct:pal("all connected"),
+    ok.
