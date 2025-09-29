@@ -21,7 +21,8 @@
     on_session_disconnected/2,
     on_delivery_completed/2,
     on_message_nack/2,
-    on_client_handle_info/3
+    on_client_handle_info/3,
+    on_client_authorize/4
 ]).
 
 -export([
@@ -34,6 +35,7 @@
 
 -spec register_hooks() -> ok.
 register_hooks() ->
+    ok = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
     ok = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
@@ -46,6 +48,7 @@ register_hooks() ->
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
+    emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
     emqx_hooks:del('session.created', {?MODULE, on_session_created}),
@@ -197,6 +200,25 @@ on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
         Subs
     ).
 
+on_session_created(ClientInfo, SessionInfo) ->
+    ?tp_mq_client(mq_on_session_created, #{client_info => ClientInfo, session_info => SessionInfo}),
+    ok = set_mq_supported(SessionInfo).
+
+on_client_authorize(
+    _ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = _Topic, Result
+) ->
+    ?tp_mq_client(mq_on_client_authorize, #{
+        client_info => _ClientInfo, action => _Action, topic => _Topic
+    }),
+    case is_mq_supported() of
+        true ->
+            {ok, Result};
+        false ->
+            {stop, #{result => deny, from => mq}}
+    end;
+on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
+    {ok, Result}.
+
 %%
 %% Introspection
 %%
@@ -208,10 +230,6 @@ inspect(ChannelPid, TopicFilter) ->
         {Self, Info} ->
             Info
     end.
-
-on_session_created(ClientInfo, SessionInfo) ->
-    ?tp_mq_client(mq_on_session_created, #{client_info => ClientInfo, session_info => SessionInfo}),
-    ok = set_mq_supported(SessionInfo).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -272,4 +290,9 @@ set_mq_supported(_SessionInfo) ->
     ok.
 
 is_mq_supported() ->
-    erlang:get(?IS_MQ_SUPPORTED_PD_KEY).
+    case erlang:get(?IS_MQ_SUPPORTED_PD_KEY) of
+        undefined ->
+            false;
+        IsSupported ->
+            IsSupported
+    end.
