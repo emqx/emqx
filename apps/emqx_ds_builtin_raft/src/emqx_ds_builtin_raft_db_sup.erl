@@ -32,7 +32,7 @@
 -export([init/1]).
 
 %% internal exports:
--export([start_link_sup/2, start_link_sentinel/1, init_sentinel/2]).
+-export([start_link_sup/2, start_link_sentinel/1, init_sentinel/2, start_link_otx/2]).
 
 -include("emqx_ds_builtin_raft.hrl").
 
@@ -276,6 +276,16 @@ init_sentinel(Parent, Id) ->
             exit(Reason)
     end.
 
+-spec start_link_otx(emqx_ds:db(), emqx_ds:shard()) -> {ok, pid()} | {error, _}.
+start_link_otx(DB, Shard) ->
+    case emqx_ds_optimistic_tx:start_link(DB, Shard, emqx_ds_builtin_raft) of
+        {ok, Pid} ->
+            erlang:register(?regname_shard_otx(DB, Shard), Pid),
+            {ok, Pid};
+        Error ->
+            Error
+    end.
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
@@ -360,8 +370,7 @@ shard_optimistic_tx_spec(DB, Shard) ->
         type => worker,
         shutdown => 1_000,
         restart => permanent,
-        start =>
-            {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
+        start => {?MODULE, start_link_otx, [DB, Shard]}
     }.
 
 shard_sentinel_spec(DB, Shard) ->
