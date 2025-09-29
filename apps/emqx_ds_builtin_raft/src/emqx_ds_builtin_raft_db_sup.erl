@@ -14,6 +14,7 @@
     start_shard/1,
     stop_shard/1,
     shard_info/2,
+    shard_sup/1,
     terminate_storage/1,
     restart_storage/1,
     ensure_shard/1,
@@ -86,6 +87,10 @@ shard_info(ShardId = {DB, Shard}, Info) ->
         true -> emqx_ds_builtin_raft_shard:shard_info(DB, Shard, Info);
         false -> down
     end.
+
+-spec shard_sup(emqx_ds_storage_layer:dbshard()) -> pid() | undefined.
+shard_sup({DB, Shard}) ->
+    gproc:where(?name(#?shard_sup{db = DB, shard = Shard})).
 
 -spec terminate_storage(emqx_ds_storage_layer:dbshard()) -> ok | {error, _Reason}.
 terminate_storage({DB, Shard}) ->
@@ -176,7 +181,8 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
           fun() -> ok = emqx_dsch:close_db(DB) end
          ),
         sup_spec(#?shards_sup{db = DB}, []),
-        shard_allocator_spec(DB)
+        shard_allocator_spec(DB),
+        db_lifecycle_spec(DB)
     ],
     SupFlags = #{
         strategy => one_for_all,
@@ -293,7 +299,7 @@ shard_spec(DB, Shard) ->
         id => Shard,
         start => {?MODULE, start_link_sup, [#?shard_sup{db = DB, shard = Shard}, []]},
         shutdown => infinity,
-        restart => permanent,
+        restart => transient,
         type => supervisor
     }.
 
@@ -325,7 +331,7 @@ shard_replication_spec(DB, Shard, Schema, RTConf) ->
         id => {Shard, replication},
         start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, Schema, RTConf]},
         shutdown => 10_000,
-        restart => permanent,
+        restart => transient,
         type => worker
     }.
 
@@ -333,6 +339,14 @@ shard_allocator_spec(DB) ->
     #{
         id => shard_allocator,
         start => {emqx_ds_builtin_raft_shard_allocator, start_link, [DB]},
+        restart => permanent,
+        type => worker
+    }.
+
+db_lifecycle_spec(DB) ->
+    #{
+        id => lifecycle,
+        start => {emqx_ds_builtin_raft_db_lifecycle, start_link, [DB]},
         restart => permanent,
         type => worker
     }.
