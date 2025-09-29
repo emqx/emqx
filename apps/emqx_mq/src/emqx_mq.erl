@@ -77,8 +77,8 @@ on_message_publish(#message{topic = Topic} = Message) ->
     {ok, Message}.
 
 on_delivery_completed(Msg, Info) ->
-    MessageId = emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg, undefined),
-    ?tp_mq_client(mq_on_delivery_completed, #{message_id => MessageId}),
+    _MessageId = emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg, undefined),
+    ?tp_mq_client(mq_on_delivery_completed, #{message_id => _MessageId}),
     case emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined) of
         undefined ->
             ok;
@@ -200,8 +200,8 @@ on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
         Subs
     ).
 
-on_session_created(ClientInfo, SessionInfo) ->
-    ?tp_mq_client(mq_on_session_created, #{client_info => ClientInfo, session_info => SessionInfo}),
+on_session_created(_ClientInfo, SessionInfo) ->
+    ?tp_mq_client(mq_on_session_created, #{client_info => _ClientInfo, session_info => SessionInfo}),
     ok = set_mq_supported(SessionInfo).
 
 on_client_authorize(
