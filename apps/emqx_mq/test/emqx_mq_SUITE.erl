@@ -1078,11 +1078,13 @@ t_update_key_expression(_Config) ->
 
     %% Update the key expression
     {ok, _} = emqx_mq_registry:update(<<"t/#">>, #{
-        is_lastvalue => true, key_expression => <<"message.from">>
+        is_lastvalue => true,
+        key_expression =>
+            <<"concat([message.from, message.headers.peername, message.headers.peerhost])">>
     }),
 
     %% Publish 10 more messages to the queue, with "mq-key" keys wich are ignored now.
-    %% The key expression is "message.from" which is the same for all messages.
+    %% The key expression is now the same for all messages (based on client connection info).
     emqx_mq_test_utils:populate_lastvalue(10, #{
         topic_prefix => <<"t/">>,
         payload_prefix => <<"payload-new-">>,
