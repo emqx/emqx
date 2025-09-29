@@ -47,7 +47,9 @@ Facade for all operations with the message database.
     dirty_read_all/1
 ]).
 
--define(MQ_MESSAGE_DB_APPEND_RETRY, 5).
+-define(MQ_MESSAGE_DB_APPEND_RETRY, 1).
+-define(MQ_MESSAGE_DB_DELETE_RETRY, 1).
+-define(MQ_MESSAGE_DB_DELETE_RETRY_DELAY, 1000).
 -define(MQ_MESSAGE_DB_LTS_SETTINGS, #{
     %% "topic/MQ_TOPIC/MQ_ID/key/СOMPACTION_KEY"
     lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
@@ -129,14 +131,14 @@ insert(MQHandle, Messages, TxInsertFun) ->
     ),
     format_insert_tx_results(Results).
 
--spec drop(emqx_mq_types:mq_handle()) -> ok.
+-spec drop(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
 drop(MQHandle) ->
     delete(db(MQHandle), mq_message_topic(MQHandle, '#')).
 
 -spec delete_all() -> ok.
 delete_all() ->
-    delete(?MQ_MESSAGE_LASTVALUE_DB, ['#']),
-    delete(?MQ_MESSAGE_REGULAR_DB, ['#']).
+    ok = delete(?MQ_MESSAGE_LASTVALUE_DB, ['#']),
+    ok = delete(?MQ_MESSAGE_REGULAR_DB, ['#']).
 
 -spec create_client(module()) -> emqx_ds_client:t().
 create_client(Module) ->
@@ -319,50 +321,87 @@ format_insert_tx_results([{error, _, _} = Error | Results], ErrorAcc) ->
     format_insert_tx_results(Results, [Error | ErrorAcc]).
 
 delete(DB, Topic) ->
-    {Time, ok} = timer:tc(fun() ->
-        do_delete(DB, Topic)
+    {_Time, Errors} = timer:tc(fun() ->
+        %% NOTE
+        %% This is a temporary workaround for the behavior of the ds tx manager.
+        %% Simultaneous asycnhronous txs to the same shard having a new generation
+        %% may result to a conflict.
+        %% So we delete in groups with all different shards.
+        lists:flatmap(
+            fun(Slabs) ->
+                do_delete(DB, Topic, ?MQ_MESSAGE_DB_DELETE_RETRY + 1, Slabs, [])
+            end,
+            slabs_by_generation(DB)
+        )
     end),
     ?tp_debug(mq_message_db_delete, #{
         topic => Topic,
-        time => erlang:convert_time_unit(Time, microsecond, millisecond)
+        time => erlang:convert_time_unit(_Time, microsecond, millisecond),
+        errors => Errors
     }),
-    ok.
+    case Errors of
+        [] ->
+            ok;
+        _ ->
+            {error, Errors}
+    end.
 
-do_delete(DB, Topic) ->
+slabs_by_generation(DB) ->
+    ByGeneration = lists:foldl(
+        fun({_Shard, Generation} = Slab, Acc) ->
+            maps:update_with(Generation, fun(Slabs) -> [Slab | Slabs] end, [Slab], Acc)
+        end,
+        #{},
+        maps:keys(emqx_ds:list_slabs(DB))
+    ),
+    maps:values(ByGeneration).
+
+do_delete(_DB, _Topic, 0, _Slabs, Errors) ->
+    Errors;
+do_delete(DB, Topic, Retries, Slabs0, _Errors0) ->
     Refs = lists:map(
-        fun({Shard, Generation}) ->
+        fun({Shard, Generation} = Slab) ->
             TxOpts = #{
                 db => DB,
                 shard => Shard,
                 generation => Generation,
-                sync => false,
-                retries => ?MQ_MESSAGE_DB_APPEND_RETRY
+                sync => false
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 emqx_ds:tx_del_topic(Topic)
             end),
-            Ref
+            {Ref, Slab}
         end,
-        maps:keys(emqx_ds:list_slabs(DB))
+        Slabs0
     ),
-    lists:foreach(
-        fun(Ref) ->
+    Errors = lists:filtermap(
+        fun({Ref, Slab}) ->
             receive
                 ?ds_tx_commit_reply(Ref, Reply) ->
                     case emqx_ds:tx_commit_outcome(DB, Ref, Reply) of
                         {ok, _} ->
-                            ok;
+                            false;
                         {error, IsRecoverable, Reason} ->
-                            ?tp(error, mq_message_db_delete_error, #{
+                            ?tp(warning, mq_message_db_delete_error, #{
                                 topic => Topic,
                                 is_recoverable => IsRecoverable,
-                                reason => Reason
-                            })
+                                reason => Reason,
+                                slab => Slab
+                            }),
+                            {true, {Slab, {IsRecoverable, Reason}}}
                     end
             end
         end,
         Refs
-    ).
+    ),
+    case Errors of
+        [] ->
+            [];
+        _ ->
+            {Slabs, _} = lists:unzip(Errors),
+            timer:sleep(?MQ_MESSAGE_DB_DELETE_RETRY_DELAY),
+            do_delete(DB, Topic, Retries - 1, Slabs, Errors)
+    end.
 
 mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, Key) ->
     ?MQ_MESSAGE_DB_TOPIC(TopicFilter, Id, Key).

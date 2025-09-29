@@ -92,6 +92,8 @@ Persistence of Message queue state:
     mq_state/0
 ]).
 
+-define(STATE_DELETE_RETRY, 1).
+
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
@@ -116,6 +118,7 @@ wait_readiness(Timeout) ->
 %% Consumer State API
 %%------------------------------------------------------------------------------
 
+-spec open_consumer_state(emqx_mq_types:mq()) -> {ok, consumer_state()} | {error, term()}.
 open_consumer_state(MQ) ->
     Id = consumer_state_id(MQ),
     TxRes = emqx_ds:trans(
@@ -156,6 +159,8 @@ get_shards_progress(#{?col_shard_progress := ShardProgress}) ->
         ShardProgress
     ).
 
+-spec commit_consumer_state(boolean(), consumer_state()) ->
+    {ok, consumer_state()} | {error, term()}.
 commit_consumer_state(_NeedClaimOwnership = false, #{?collection_dirty := false} = CSRec) ->
     {ok, CSRec};
 commit_consumer_state(
@@ -177,11 +182,11 @@ commit_consumer_state(
             {error, {failed_to_commit_consumer_state, Err}}
     end.
 
--spec destroy_consumer_state(emqx_mq_types:mq_handle()) -> ok.
+-spec destroy_consumer_state(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
 destroy_consumer_state(MQHandle) ->
     Id = consumer_state_id(MQHandle),
     TxRes = emqx_ds:trans(
-        trans_opts(Id),
+        trans_opts(Id, #{retries => ?STATE_DELETE_RETRY}),
         fun() ->
             emqx_ds_pmap:tx_delete_guard(Id),
             emqx_ds_pmap:tx_destroy(Id, ?pn_shard_progress)
@@ -253,6 +258,7 @@ update_mq_state(MQId, MQFields) ->
             {error, {failed_to_update_mq_state, Err}}
     end.
 
+-spec find_mq(emqx_mq_types:mqid()) -> {ok, emqx_mq_types:mq()} | not_found.
 find_mq(MQId) ->
     Id = mq_state_id(MQId),
     FoldOptions = maps:merge(trans_opts(Id), #{errors => ignore}),
@@ -263,10 +269,11 @@ find_mq(MQId) ->
             not_found
     end.
 
+-spec destroy_mq_state(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
 destroy_mq_state(MQ) ->
     Id = mq_state_id(MQ),
     TxRes = emqx_ds:trans(
-        trans_opts(Id),
+        trans_opts(Id, #{retries => ?STATE_DELETE_RETRY}),
         fun() ->
             emqx_ds_pmap:tx_delete_guard(Id),
             emqx_ds_pmap:tx_destroy(Id, ?pn_mq)
@@ -281,6 +288,7 @@ destroy_mq_state(MQ) ->
             {error, {failed_to_destroy_mq_state, Err}}
     end.
 
+-spec delete_all() -> ok.
 delete_all() ->
     Shards = emqx_ds:list_shards(?DB),
     lists:foreach(
@@ -524,11 +532,17 @@ persist_mq_state_tx(#{id := Id, ?col_mq := MQPmap} = MQStateRec) ->
     }.
 
 trans_opts(Id) ->
-    #{
-        db => ?DB,
-        shard => emqx_ds:shard_of(?DB, Id),
-        generation => 1
-    }.
+    trans_opts(Id, #{}).
+
+trans_opts(Id, Opts) ->
+    maps:merge(
+        #{
+            db => ?DB,
+            shard => emqx_ds:shard_of(?DB, Id),
+            generation => 1
+        },
+        Opts
+    ).
 
 consumer_state_id(#{id := Id}) ->
     <<"c-", Id/binary>>.
