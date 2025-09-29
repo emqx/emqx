@@ -114,9 +114,7 @@ fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ0) ->
     },
     LastVelueDefault = #{
         key_expression =>
-            compile_key_expression(
-                ~b{maps.get("mq-key", maps.from_list(message.headers.properties.User-Property))}
-            )
+            compile_key_expression(<<"message.headers.properties.User-Property.mq-key">>)
     },
     MQ1 = maps:merge(Default, MQ0),
     case MQ1 of

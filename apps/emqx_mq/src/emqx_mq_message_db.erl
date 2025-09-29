@@ -269,7 +269,7 @@ group_by_shard(#{is_lastvalue := false} = MQ, Messages) ->
 group_by_shard(#{is_lastvalue := true, key_expression := KeyExpression} = MQ, Messages) ->
     ByShard = lists:foldl(
         fun(Message, Acc) ->
-            Bindings = #{message => emqx_message:to_map(Message)},
+            Bindings = #{message => message_to_map(Message)},
             case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
                 {error, Reason} ->
                     ?tp(warning, mq_message_db_key_expression_error, #{
@@ -415,3 +415,23 @@ insert_generation(?MQ_MESSAGE_LASTVALUE_DB) ->
     1;
 insert_generation(?MQ_MESSAGE_REGULAR_DB) ->
     latest.
+
+message_to_map(Message) ->
+    convert([user_property, peername, peerhost], emqx_message:to_map(Message)).
+
+convert(
+    [user_property | Rest],
+    #{headers := #{properties := #{'User-Property' := UserProperty}} = Headers} = Map
+) ->
+    convert(Rest, Map#{
+        headers => Headers#{properties => #{'User-Property' => maps:from_list(UserProperty)}}
+    });
+convert([peername | Rest], #{headers := #{peername := {_Host, _Port} = Peername} = Headers} = Map) ->
+    convert(Rest, Map#{headers => Headers#{peername => ntoa(Peername)}});
+convert([peerhost | Rest], #{headers := #{peerhost := Peerhost} = Headers} = Map) ->
+    convert(Rest, Map#{headers => Headers#{peerhost => ntoa(Peerhost)}});
+convert(_, Map) ->
+    Map.
+
+ntoa(Addr) ->
+    list_to_binary(emqx_utils:ntoa(Addr)).
