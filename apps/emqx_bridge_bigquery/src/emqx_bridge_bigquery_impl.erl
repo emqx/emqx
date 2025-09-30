@@ -104,7 +104,10 @@ callback_mode() ->
 on_start(ConnResId, ConnConfig0) ->
     ConnConfig1 = maps:update_with(
         service_account_json,
-        fun(X) -> emqx_utils_json:decode(X) end,
+        fun(X) ->
+            JsonBin = emqx_secret:unwrap(X),
+            emqx_utils_json:decode(JsonBin)
+        end,
         ConnConfig0
     ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(bigquery),
