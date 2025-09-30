@@ -33,7 +33,7 @@
 -export([init/1]).
 
 %% internal exports:
--export([start_link_sup/2, start_link_sentinel/1, init_sentinel/2]).
+-export([start_link_sup/2]).
 
 -include("emqx_ds_builtin_raft.hrl").
 
@@ -47,13 +47,11 @@
 -define(db_sup, ?MODULE).
 -define(shards_sup, emqx_ds_builtin_raft_db_shards_sup).
 -define(shard_sup, emqx_ds_builtin_raft_db_shard_sup).
--define(shard_sentinel, emqx_ds_builtin_raft_db_shard_sentinel).
 -define(shard_leader_sup, emqx_ds_builtin_raft_db_shard_leader_sup).
 
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
 -record(?shard_sup, {db, shard}).
--record(?shard_sentinel, {shardid}).
 -record(?shard_leader_sup, {db, shard}).
 
 %%================================================================================
@@ -82,8 +80,8 @@ stop_shard({DB, Shard}) ->
     end.
 
 -spec shard_info(emqx_ds_storage_layer:dbshard(), ready) -> boolean() | down.
-shard_info(ShardId = {DB, Shard}, Info) ->
-    case sentinel_alive(ShardId) of
+shard_info({DB, Shard}, Info) ->
+    case emqx_ds:is_shard_up(DB, Shard) of
         true -> emqx_ds_builtin_raft_shard:shard_info(DB, Shard, Info);
         false -> down
     end.
@@ -212,8 +210,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     Children =
         [shard_storage_spec(DB, Shard, Opts),
          shard_replication_spec(DB, Shard, Schema, RTConf)] ++
-         shard_beamformers_spec(DB, Shard, Opts) ++
-        [shard_sentinel_spec(DB, Shard)],
+         shard_beamformers_spec(DB, Shard, Opts),
     {ok, {SupFlags, Children}};
 init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
     %% Spec for a temporary supervisor that runs on the node only when
@@ -265,22 +262,6 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
 
 start_link_sup(Id, Options) ->
     supervisor:start_link(?via(Id), ?MODULE, {Id, Options}).
-
--spec start_link_sentinel(emqx_ds_storage_layer:dbshard()) -> {ok, pid()}.
-start_link_sentinel(Id) ->
-    proc_lib:start_link(?MODULE, init_sentinel, [self(), Id]).
-
--spec init_sentinel(pid(), emqx_ds_storage_layer:dbshard()) -> no_return().
-init_sentinel(Parent, Id) ->
-    Name = ?name(#?shard_sentinel{shardid = Id}),
-    gproc:reg(Name),
-    proc_lib:init_ack(Parent, {ok, self()}),
-    receive
-        %% Not trapping exits, but just in case.
-        {'EXIT', _Pid, Reason} ->
-            gproc:unreg(Name),
-            exit(Reason)
-    end.
 
 %%================================================================================
 %% Internal functions
@@ -376,18 +357,6 @@ shard_optimistic_tx_spec(DB, Shard) ->
         restart => permanent,
         start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
     }.
-
-shard_sentinel_spec(DB, Shard) ->
-    #{
-        id => {Shard, sentinel},
-        type => worker,
-        restart => permanent,
-        shutdown => brutal_kill,
-        start => {?MODULE, start_link_sentinel, [{DB, Shard}]}
-    }.
-
-sentinel_alive(Id) ->
-    gproc:where(?name(#?shard_sentinel{shardid = Id})) =/= undefined.
 
 ensure_started(Res) ->
     case Res of
