@@ -362,7 +362,8 @@ t_key_tag_templates(TCConfig) when is_list(TCConfig) ->
         create_action_api(TCConfig, #{
             <<"parameters">> => #{
                 <<"key">> => <<"${.mykey}">>,
-                <<"tag">> => <<"${.mytag}">>
+                <<"tag">> => <<"${.mytag}">>,
+                <<"template">> => <<"${.payload}">>
             },
             <<"resource_opts">> => #{<<"batch_size">> => BatchSize}
         })
@@ -375,7 +376,8 @@ t_key_tag_templates(TCConfig) when is_list(TCConfig) ->
         TCConfig
     ),
     C = start_client(),
-    Payload = emqx_utils_json:encode(#{<<"key">> => <<"k1">>, <<"tag">> => <<"t1">>}),
+    PayloadMap = #{<<"key">> => <<"k1">>, <<"tag">> => <<"t1">>},
+    Payload = emqx_utils_json:encode(PayloadMap),
     ct:timetrap({seconds, 10}),
     ok = snabbkaffe:start_trace(),
     {{ok, _}, {ok, #{data := Data}}} =
@@ -404,6 +406,16 @@ t_key_tag_templates(TCConfig) when is_list(TCConfig) ->
                 Data
             )
     end,
+    PayloadOut =
+        case BatchSize of
+            1 ->
+                {Payload0, _} = Data,
+                Payload0;
+            _ ->
+                [{Payload0, _} | _] = Data,
+                Payload0
+        end,
+    ?assertEqual(PayloadMap, emqx_utils_json:decode(PayloadOut)),
     ok.
 
 -doc """
