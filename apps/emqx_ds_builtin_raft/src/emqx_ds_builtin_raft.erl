@@ -221,8 +221,9 @@ This is the entrypoint into the `builtin_raft` backend.
 %% TODO
 %% There's a possibility of race condition: storage may shut down right after we
 %% ask for its status.
--define(IF_SHARD_READY(DBSHARD, EXPR),
-    case emqx_ds_builtin_raft_db_sup:shard_info(DBSHARD, ready) of
+-define(IF_SHARD_READY(DB, SHARD, EXPR),
+    %% NOTE: Tolerates when the backend and/or dependencies has not yet started.
+    case emqx_ds_builtin_raft_shard:shard_info(DB, SHARD, ready) of
         true -> EXPR;
         _Unready -> ?err_rec(shard_unavailable)
     end
@@ -635,7 +636,8 @@ high_watermark(DBShard = {DB, Shard}, Stream = #'Stream'{}) ->
 
 fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key, BatchSize) ->
     ?IF_SHARD_READY(
-        DBShard,
+        DB,
+        Shard,
         maybe
             {ok, Now} ?= current_timestamp(DB, Shard),
             emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize)
@@ -650,7 +652,8 @@ iterator_match_context(DBShard, Iterator = #'Iterator'{}) ->
 
 scan_stream(DBShard = {DB, Shard}, Stream = #'Stream'{}, TopicFilter, StartMsg, BatchSize) ->
     ?IF_SHARD_READY(
-        DBShard,
+        DB,
+        Shard,
         maybe
             %% TODO: this has been changed during refactoring. Double-check.
             {ok, Now} ?= current_timestamp(DB, Shard),
@@ -793,10 +796,10 @@ do_drop_db_v1(DB) ->
     [{emqx_ds:generation(), emqx_ds_storage_layer:stream() | emqx_ds_storage_layer_ttv:stream()}]
     | emqx_ds:error(storage_down).
 do_get_streams_v1(DB, Shard, TopicFilter, StartTime, MinGeneration) ->
-    DBShard = {DB, Shard},
     ?IF_SHARD_READY(
-        DBShard,
-        emqx_ds_storage_layer_ttv:get_streams(DBShard, TopicFilter, StartTime, MinGeneration)
+        DB,
+        Shard,
+        emqx_ds_storage_layer_ttv:get_streams({DB, Shard}, TopicFilter, StartTime, MinGeneration)
     ).
 
 -spec do_make_iterator_v1(
@@ -809,17 +812,18 @@ do_get_streams_v1(DB, Shard, TopicFilter, StartTime, MinGeneration) ->
     emqx_ds:make_iterator_result().
 do_make_iterator_v1(DB, Shard, Stream = #'Stream'{}, TopicFilter, Time) ->
     ?IF_SHARD_READY(
-        {DB, Shard},
+        DB,
+        Shard,
         emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, Time)
     ).
 
 -spec do_list_slabs_v1(emqx_ds:db(), emqx_ds:shard()) ->
     #{emqx_ds:generation() => emqx_ds:slab_info()} | emqx_ds:error(_).
 do_list_slabs_v1(DB, Shard) ->
-    DBShard = {DB, Shard},
     ?IF_SHARD_READY(
-        DBShard,
-        emqx_ds_storage_layer:list_slabs(DBShard)
+        DB,
+        Shard,
+        emqx_ds_storage_layer:list_slabs({DB, Shard})
     ).
 
 -spec do_next_v1(
@@ -830,7 +834,8 @@ do_list_slabs_v1(DB, Shard) ->
     emqx_ds:next_result().
 do_next_v1(DB, Iter = #'Iterator'{shard = Shard}, NextLimit) ->
     ?IF_SHARD_READY(
-        {DB, Shard},
+        DB,
+        Shard,
         begin
             {BatchSize, TimeLimit} = batch_size_and_time_limit(DB, Shard, NextLimit),
             emqx_ds_storage_layer_ttv:next(DB, Iter, BatchSize, TimeLimit)

@@ -247,6 +247,11 @@ local_site() ->
 
 %%
 
+%% @doc Shard information.
+%% * `ready` :: boolean()
+%%    Shard is considered ready when the backend is running, the shard process is up,
+%%    and shard has bootstrapped and caught up with the leader (including when it is
+%%    the leader).
 -spec shard_info(emqx_ds:db(), emqx_ds:shard(), _Info) -> _Value.
 shard_info(DB, Shard, ready) ->
     get_shard_info(DB, Shard, ready, false).
