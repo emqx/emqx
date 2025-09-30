@@ -847,7 +847,11 @@ do_next_v1(DB, Iter = #'Iterator'{shard = Shard}, NextLimit) ->
 ) ->
     {ok, tx_context()} | emqx_ds:error(_).
 do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
-    emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options).
+    ?IF_SHARD_READY(
+        DB,
+        Shard,
+        emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options)
+    ).
 
 %%================================================================================
 %% Internal functions
