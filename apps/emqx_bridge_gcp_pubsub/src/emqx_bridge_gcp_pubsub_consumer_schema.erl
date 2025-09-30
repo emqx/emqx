@@ -64,6 +64,15 @@ fields(consumer_source) ->
 fields(source_parameters) ->
     Fields = emqx_bridge_gcp_pubsub:fields(consumer),
     [
+        {topic_mapping,
+            mk(
+                any(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    deprecated => {since, "6.0.0"}
+                }
+            )},
         {topic,
             mk(
                 binary(),

@@ -61,6 +61,15 @@ fields(source_parameters) ->
     Fields2 = proplists:delete(kafka, Fields1),
     Fields = Fields0 ++ Fields2,
     [
+        {topic_mapping,
+            mk(
+                any(),
+                #{
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    deprecated => {since, "6.0.0"}
+                }
+            )},
         {topic,
             mk(
                 binary(),
