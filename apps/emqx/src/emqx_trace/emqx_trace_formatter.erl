@@ -199,7 +199,7 @@ kvs_to_iolist(KVs) ->
                     K == ?FORMAT_META_KEY_PACKET
                 ->
                     %% Already formatted
-                    [to_iolist(K), ": ", V];
+                    [?FORMAT_META_KEY_PACKET_BIN, ": ", V];
                 ({K, V}) ->
                     [to_iolist(K), ": ", to_iolist(V)]
             end,
