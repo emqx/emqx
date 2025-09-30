@@ -157,7 +157,6 @@ jobs:
           - debian11
           - el9
           - el8
-          - amzn2
           - amzn2023
         arch:
           - amd64

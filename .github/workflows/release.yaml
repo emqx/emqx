@@ -115,8 +115,6 @@ jobs:
           push "el/8" "packages/$PROFILE-$VERSION-el8-arm64.rpm"
           push "el/9" "packages/$PROFILE-$VERSION-el9-amd64.rpm"
           push "el/9" "packages/$PROFILE-$VERSION-el9-arm64.rpm"
-          push "amazon/2" "packages/$PROFILE-$VERSION-amzn2-amd64.rpm"
-          push "amazon/2" "packages/$PROFILE-$VERSION-amzn2-arm64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-amd64.rpm"
           push "amazon/2023" "packages/$PROFILE-$VERSION-amzn2023-arm64.rpm"
 
