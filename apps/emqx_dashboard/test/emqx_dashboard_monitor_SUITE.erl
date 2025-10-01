@@ -39,6 +39,7 @@
 >>).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 %%--------------------------------------------------------------------
 %% CT boilerplate
@@ -75,7 +76,10 @@ init_per_group(persistent_sessions, Config) ->
         {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
         {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
     ],
-    DurableSessionsOpts = #{<<"enable">> => true},
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"subscription_count_refresh_interval">> => <<"500ms">>
+    },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
 init_per_group(common = Group, Config0) ->
@@ -798,27 +802,31 @@ t_monitor_api_error(Config) when is_list(Config) ->
 
 %% Verifies that subscriptions from persistent sessions are correctly accounted for.
 t_persistent_session_stats(Config) when is_list(Config) ->
-    [N1, N2 | _] = ?config(cluster_nodes, Config),
+    [N1, N2 | _] = Nodes = ?config(cluster_nodes, Config),
     %% pre-condition
     true = ?ON(N1, emqx_persistent_message:is_persistence_enabled()),
     Port1 = get_mqtt_port(N1, tcp),
     Port2 = get_mqtt_port(N2, tcp),
 
+    ct:pal("connecting NonPSClient"),
     NonPSClient = start_and_connect(#{
         port => Port1,
         clientid => <<"non-ps">>,
         expiry_interval => 0
     }),
+    ct:pal("connecting PSClient1"),
     PSClient1 = start_and_connect(#{
         port => Port1,
         clientid => <<"ps1">>,
         expiry_interval => 30
     }),
+    ct:pal("connecting PSClient2"),
     PSClient2 = start_and_connect(#{
         port => Port2,
         clientid => <<"ps2">>,
         expiry_interval => 30
     }),
+    ct:pal("subscribing"),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"non/ps/topic/+">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"non/ps/topic">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"common/topic/+">>, 2),
@@ -827,11 +835,9 @@ t_persistent_session_stats(Config) when is_list(Config) ->
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient1, <<"ps/topic">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient1, <<"common/topic/+">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient1, <<"common/topic">>, 2),
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
-        ),
+    ct:pal("subscribed"),
+    ?ON_ALL(Nodes, emqx_dashboard_monitor:test_only_sample_now()),
+    ?ON_ALL(Nodes, emqx_dashboard_monitor:test_only_sample_now()),
     ?retry(1_000, 10, begin
         ?assertMatch(
             {ok, #{
@@ -854,7 +860,7 @@ t_persistent_session_stats(Config) when is_list(Config) ->
     PSSubCount = ?ON(N1, emqx_persistent_session_bookkeeper:get_subscription_count()),
     ?assert(PSSubCount > 0, #{ps_sub_count => PSSubCount}),
 
-    %% Now with disconnected but alive persistent sessions
+    ct:pal("Now with disconnected but alive persistent sessions"),
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:disconnect(PSClient1),
@@ -876,27 +882,27 @@ t_persistent_session_stats(Config) when is_list(Config) ->
             ?ON(N1, request(["monitor_current"]))
         )
     end),
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(1, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity,
-            0
-        ),
-    %% Verify that historical metrics are in line with the current ones.
-    ?assertMatch(
-        {ok, [
-            #{
-                <<"time_stamp">> := _,
-                <<"connections">> := 3,
-                <<"disconnected_durable_sessions">> := 1,
-                <<"topics">> := 8,
-                <<"subscriptions">> := 8,
-                <<"subscriptions_ram">> := 4,
-                <<"subscriptions_durable">> := 4
-            }
-        ]},
-        ?ON(N1, request(["monitor"], "latest=1"))
+    ?ON_ALL(Nodes, emqx_dashboard_monitor:test_only_sample_now()),
+    ct:pal("Verify that historical metrics are in line with the current ones."),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, [
+                #{
+                    <<"time_stamp">> := _,
+                    <<"connections">> := 3,
+                    <<"disconnected_durable_sessions">> := 1,
+                    <<"topics">> := 8,
+                    <<"subscriptions">> := 8,
+                    <<"subscriptions_ram">> := 4,
+                    <<"subscriptions_durable">> := 4
+                }
+            ]},
+            ?ON(N1, request(["monitor"], "latest=1"))
+        )
     ),
+    ct:pal("disconnect PSClient2"),
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:disconnect(PSClient2),
@@ -1032,6 +1038,61 @@ t_smoke_test_monitor_multiple_windows(Config) when is_list(Config) ->
         )
     end),
     ok = emqtt:stop(PSClient2),
+    ok.
+
+-doc """
+Simulates the following scenario:
+
+1) A node is running, and has just recorded a sample to the metrics sample table with some
+   positive value (let's say, for example, `dropped = 10`).
+
+2) Just as the freshly written data row is written, the node is restarted, thus restarting
+   the `emqx_dashboard_monitor` process with it.
+
+3) When `emqx_dashboard_monitor` process (re)starts, it reads the last data point and puts
+   it in its state.
+
+4) So, at this point, `emqx_dashboard_monitor` has as its last data point a row with
+   `dropped = 10`.  However, since the node just restarted, all metrics were reset to 0,
+   including `dropped`.  Let's say we don't record any further `dropped` events, thus
+   `dropped = 0` now.
+
+5) When `emqx_dashboard_monitor` next samples the metrics, it'll calculate the delta
+   between the last data point and the current sample.  Thus, naively, it could record
+   `dropped = 0 - 10` as the next data point, which was the original issue this case
+   attempts to capture.
+""".
+t_restart_node_with_freshly_inserted_data(TCConfig) when is_list(TCConfig) ->
+    %% 1) Assert we have a positive last value.
+    Metric = 'messages.dropped',
+    emqx_metrics:inc(Metric, 10),
+    ok = emqx_dashboard_monitor:test_only_sample_now(),
+    %% 2,3,4) Zero the metric and restart the process to simulate node restart.
+    %% Supervisor will restart it.
+    emqx_metrics:set(Metric, 0),
+    MRef = monitor(process, emqx_dashboard_monitor),
+    exit(whereis(emqx_dashboard_monitor), die),
+    receive
+        {'DOWN', MRef, process, _, _} ->
+            ok
+    after 1_000 -> ct:fail("process didn't die")
+    end,
+    %% 5) Trigger the new sample on the new process.
+    ct:timetrap({seconds, 5}),
+    SampleNow = fun Recur() ->
+        case whereis(emqx_dashboard_monitor) of
+            undefined ->
+                ct:sleep(100),
+                Recur();
+            Pid when is_pid(Pid) ->
+                ok = emqx_dashboard_monitor:test_only_sample_now()
+        end
+    end,
+    SampleNow(),
+    Series = emqx_dashboard_monitor:all_data(),
+    {_Time, Data} = lists:last(Series),
+    %% We should guard against writing negative values for counters.
+    ?assertMatch(#{dropped := 0}, Data),
     ok.
 
 request(Path) ->

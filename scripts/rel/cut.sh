@@ -280,7 +280,7 @@ check_bpapi() {
     case "$TAG" in
         *.0)
             fname="$(echo "$TAG" | sed 's/^e//; s/\.0$//')"
-            fpath="apps/emqx/test/emqx_static_checks_data/${fname}.bpapi2"
+            fpath="apps/emqx_bpapi/test/emqx_static_checks_data/${fname}.bpapi2"
             logmsg "Checking $fpath"
             if [ ! -f "$fpath" ]; then
                 logerr "BPAPI file missing: $fpath"

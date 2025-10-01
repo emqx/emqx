@@ -5,7 +5,7 @@ defmodule EMQXBridgeMysql.MixProject do
   def project do
     [
       app: :emqx_bridge_mysql,
-      version: "6.0.0",
+      version: "6.0.1",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),

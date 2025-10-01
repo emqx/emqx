@@ -305,6 +305,8 @@ put_message_queue_config_example() ->
     case delete_message_queue(TopicFilter) of
         not_found ->
             ?NOT_FOUND(<<"Message queue not found">>);
+        {error, Reason} ->
+            ?SERVICE_UNAVAILABLE(Reason);
         ok ->
             ?NO_CONTENT
     end.

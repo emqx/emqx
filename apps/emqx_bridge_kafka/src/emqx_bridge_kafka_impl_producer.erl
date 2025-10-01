@@ -712,9 +712,9 @@ check_if_healthy_leaders(ActionResId, ClientId, ClientPid, KafkaTopic, MaxPartit
                 {_, Errors} ->
                     ?SLOG(
                         warning,
-                        "not_all_kafka_partitions_connected",
                         error_summary(
                             #{
+                                msg => "not_all_kafka_partitions_connected",
                                 kafka_client => ClientId,
                                 kafka_topic => KafkaTopic
                             },

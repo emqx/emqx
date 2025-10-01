@@ -30,6 +30,13 @@ of channels to the Message Queue consumers.
 register(Sub) ->
     SubscriberRef = emqx_mq_sub:subscriber_ref(Sub),
     MQTopicFilter = emqx_mq_sub:mq_topic_filter(Sub),
+    case erlang:get(?TOPIC_PD_KEY(MQTopicFilter)) of
+        undefined ->
+            ok;
+        _OldSubscriberRef ->
+            %% This should never happen.
+            error({mq_sub_registry_topic_conflict, MQTopicFilter})
+    end,
     ?tp_debug(mq_sub_registry_register, #{
         subscriber_ref => SubscriberRef, mq_topic_filter => MQTopicFilter, sub => Sub
     }),

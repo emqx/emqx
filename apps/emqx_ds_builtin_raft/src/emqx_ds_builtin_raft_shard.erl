@@ -239,9 +239,6 @@ is_server_known({_Name, Node}) ->
 get_cluster_name(DB, Shard) ->
     memoize(fun cluster_name/2, [DB, Shard]).
 
-get_local_server(DB, Shard) ->
-    memoize(fun local_server/2, [DB, Shard]).
-
 get_shard_servers(DB, Shard) ->
     persistent_term:get(?PTERM(DB, Shard, servers), []).
 
@@ -250,6 +247,11 @@ local_site() ->
 
 %%
 
+%% @doc Shard information.
+%% * `ready` :: boolean()
+%%    Shard is considered ready when the backend is running, the shard process is up,
+%%    and shard has bootstrapped and caught up with the leader (including when it is
+%%    the leader).
 -spec shard_info(emqx_ds:db(), emqx_ds:shard(), _Info) -> _Value.
 shard_info(DB, Shard, ready) ->
     get_shard_info(DB, Shard, ready, false).
@@ -600,8 +602,7 @@ terminate(_Reason, #st{db = DB, shard = Shard}) ->
     ok = erase_shard_info(DB, Shard),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
     catch prep_stop_server(DB, Shard),
-    LocalServer = get_local_server(DB, Shard),
-    ok = ra:stop_server(DB, LocalServer).
+    ok = ra:stop_server(DB, local_server(DB, Shard)).
 
 %%
 
@@ -748,20 +749,54 @@ prep_stop_server(DB, Shard) ->
     prep_stop_server(DB, Shard, 5_000).
 
 prep_stop_server(DB, Shard, Timeout) ->
-    LocalServer = get_local_server(DB, Shard),
-    Candidates = lists:delete(LocalServer, shard_servers(DB, Shard)),
+    LocalServer = local_server(DB, Shard),
+    Servers = shard_servers(DB, Shard),
+    Candidates = [S || S <- Servers, S =/= LocalServer, is_server_known(S), is_server_online(S)],
+    HasQuorum = length(Candidates) >= (length(Servers) div 2 + 1),
     case lookup_leader(DB, Shard) of
-        LocalServer when Candidates =/= [] ->
+        LocalServer when HasQuorum andalso Candidates =/= [] ->
             %% NOTE
             %% Trigger leadership transfer *and* force to wait until the new leader
-            %% is elected and updated in the leaderboard. This should help to avoid
-            %% edge cases where entries appended right before removal are duplicated
-            %% due to client retries.
-            %% TODO: Candidate may be offline.
+            %% is elected and updated in the local server's state. This should help
+            %% to avoid edge cases where entries appended right before removal are
+            %% duplicated due to client retries.
             [Candidate | _] = Candidates,
-            _ = ra:transfer_leadership(LocalServer, Candidate),
-            wait_until(fun() -> lookup_leader(DB, Shard) == Candidate end, Timeout);
-        _Another ->
+            case ra:transfer_leadership(LocalServer, Candidate) of
+                ok ->
+                    case ra:members(LocalServer, Timeout) of
+                        {ok, _, Server} when Server =/= LocalServer ->
+                            ?tp(info, "Shard leadership transferred", #{
+                                db => DB,
+                                shard => Shard,
+                                to => Server
+                            });
+                        {ok, _, LocalServer} ->
+                            ?tp(warning, "Shard leadership transfer incomplete", #{
+                                db => DB,
+                                shard => Shard,
+                                leader => LocalServer
+                            })
+                    end;
+                already_leader ->
+                    ok;
+                Error ->
+                    ?tp(warning, "Shard leadership transfer failed", #{
+                        db => DB,
+                        shard => Shard,
+                        candidate => Candidate,
+                        error => Error
+                    })
+            end;
+        LocalServer ->
+            %% Liekly no quorum, no risk of occasional duplicates anyway.
+            ?tp(info, "Shard leadership transfer skipped", #{
+                db => DB,
+                shard => Shard,
+                quorum => HasQuorum,
+                candidates => Candidates
+            });
+        _ ->
+            %% Not a leader
             ok
     end.
 
@@ -776,25 +811,4 @@ memoize(Fun, Args) ->
             Result;
         Result ->
             Result
-    end.
-
-wait_until(Fun, Timeout) ->
-    wait_until(Fun, Timeout, 100).
-
-wait_until(Fun, Timeout, Sleep) ->
-    Deadline = erlang:monotonic_time(millisecond) + Timeout,
-    loop_until(Fun, Deadline, Sleep).
-
-loop_until(Fun, Deadline, Sleep) ->
-    case Fun() of
-        true ->
-            ok;
-        false ->
-            case erlang:monotonic_time(millisecond) of
-                Now when Now < Deadline ->
-                    timer:sleep(Sleep),
-                    loop_until(Fun, Deadline, Sleep);
-                _ ->
-                    timeout
-            end
     end.

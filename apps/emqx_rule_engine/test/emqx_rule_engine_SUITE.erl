@@ -4042,9 +4042,10 @@ t_trace_truncated(_Config) ->
     ?assertNotEqual(
         nomatch,
         binary:match(Bin, [
-            <<"input: Encoded(text)=[...(">>,
-            <<"result: Encoded(text)=[...(">>
-        ])
+            <<"input: [Encoded(text)=[[...(">>,
+            <<"result: [Encoded(text)=[[...(">>
+        ]),
+        #{bin => Bin}
     ),
 
     %% Stop tracing

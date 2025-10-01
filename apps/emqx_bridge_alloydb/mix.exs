@@ -5,7 +5,7 @@ defmodule EMQXBridgeAlloydb.MixProject do
   def project do
     [
       app: :emqx_bridge_alloydb,
-      version: "6.0.0",
+      version: "6.0.1",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler

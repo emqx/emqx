@@ -374,9 +374,9 @@ state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
     _ =
         case MemberState of
             leader ->
-                start_otx_leader(DB, Shard);
+                emqx_ds_builtin_raft_db_lifecycle:async_start_leader_sup(DB, Shard);
             _ ->
-                emqx_ds_builtin_raft_db_sup:stop_shard_leader_sup(DB, Shard)
+                emqx_ds_builtin_raft_db_lifecycle:async_stop_leader_sup(DB, Shard)
         end,
     [].
 
@@ -387,14 +387,6 @@ state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-start_otx_leader(DB, Shard) ->
-    ?tp_span(
-        debug,
-        dsrepl_start_otx_leader,
-        #{db => DB, shard => Shard},
-        emqx_ds_builtin_raft_db_sup:start_shard_leader_sup(DB, Shard)
-    ).
 
 set_cache(MemberState, State = #{db_shard := DBShard, latest := Latest}) when
     MemberState =:= leader; MemberState =:= follower

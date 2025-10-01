@@ -245,7 +245,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
 
   def common_dep(:rocksdb),
-    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-8", override: true}
+    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-10", override: true}
 
   def common_dep(:emqx_http_lib),
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
@@ -1128,7 +1128,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def jq_dep() do
     if enable_jq?(),
-      do: [{:jq, github: "emqx/jq", tag: "v0.3.12", override: true}],
+      do: [{:jq, github: "emqx/jq", tag: "v0.3.14", override: true}],
       else: []
   end
 
@@ -1136,7 +1136,7 @@ defmodule EMQXUmbrella.MixProject do
     if enable_quicer?(),
       # in conflict with emqx and emqtt
       do: [
-        {:quicer, github: "emqx/quic", tag: "0.2.14", override: true}
+        {:quicer, github: "emqx/quic", tag: "0.2.15", override: true}
       ],
       else: []
   end

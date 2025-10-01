@@ -17,7 +17,7 @@ format_no_tns_in_meta_test() ->
     },
     Config = #{payload_fmt_opts => #{payload_encode => hidden}},
     Formatted = format(Event, Config),
-    ?assertMatch(nomatch, re:run(Formatted, "tns:")),
+    ?assertMatch(nomatch, re:run(Formatted, "tns:"), #{formatted => Formatted}),
     ok.
 
 format_tns_in_meta_test() ->
@@ -33,7 +33,7 @@ format_tns_in_meta_test() ->
     },
     Config = #{payload_fmt_opts => #{payload_encode => hidden}},
     Formatted = format(Event, Config),
-    ?assertMatch({match, _}, re:run(Formatted, "\stns:\sa\s")),
+    ?assertMatch({match, _}, re:run(Formatted, "\stns:\sa\s"), #{formatted => Formatted}),
     ok.
 
 format(Event, Config) ->

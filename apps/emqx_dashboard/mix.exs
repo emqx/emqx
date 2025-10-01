@@ -5,7 +5,7 @@ defmodule EMQXDashboard.MixProject do
   def project do
     [
       app: :emqx_dashboard,
-      version: "6.0.0",
+      version: "6.0.1",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: [{:d, :APPLICATION, :emqx} | UMP.strict_erlc_options()],
