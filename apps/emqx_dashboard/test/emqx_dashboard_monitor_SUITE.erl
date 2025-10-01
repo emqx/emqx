@@ -39,6 +39,7 @@
 >>).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 %%--------------------------------------------------------------------
 %% CT boilerplate
@@ -75,7 +76,10 @@ init_per_group(persistent_sessions, Config) ->
         {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
         {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
     ],
-    DurableSessionsOpts = #{<<"enable">> => true},
+    DurableSessionsOpts = #{
+        <<"enable">> => true,
+        <<"subscription_count_refresh_interval">> => <<"500ms">>
+    },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
 init_per_group(common = Group, Config0) ->
@@ -798,27 +802,31 @@ t_monitor_api_error(Config) when is_list(Config) ->
 
 %% Verifies that subscriptions from persistent sessions are correctly accounted for.
 t_persistent_session_stats(Config) when is_list(Config) ->
-    [N1, N2 | _] = ?config(cluster_nodes, Config),
+    [N1, N2 | _] = Nodes = ?config(cluster_nodes, Config),
     %% pre-condition
     true = ?ON(N1, emqx_persistent_message:is_persistence_enabled()),
     Port1 = get_mqtt_port(N1, tcp),
     Port2 = get_mqtt_port(N2, tcp),
 
+    ct:pal("connecting NonPSClient"),
     NonPSClient = start_and_connect(#{
         port => Port1,
         clientid => <<"non-ps">>,
         expiry_interval => 0
     }),
+    ct:pal("connecting PSClient1"),
     PSClient1 = start_and_connect(#{
         port => Port1,
         clientid => <<"ps1">>,
         expiry_interval => 30
     }),
+    ct:pal("connecting PSClient2"),
     PSClient2 = start_and_connect(#{
         port => Port2,
         clientid => <<"ps2">>,
         expiry_interval => 30
     }),
+    ct:pal("subscribing"),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"non/ps/topic/+">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"non/ps/topic">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(NonPSClient, <<"common/topic/+">>, 2),
@@ -827,11 +835,9 @@ t_persistent_session_stats(Config) when is_list(Config) ->
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient1, <<"ps/topic">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient1, <<"common/topic/+">>, 2),
     {ok, _, [?RC_GRANTED_QOS_2]} = emqtt:subscribe(PSClient1, <<"common/topic">>, 2),
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(2, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity
-        ),
+    ct:pal("subscribed"),
+    ?ON_ALL(Nodes, emqx_dashboard_monitor:test_only_sample_now()),
+    ?ON_ALL(Nodes, emqx_dashboard_monitor:test_only_sample_now()),
     ?retry(1_000, 10, begin
         ?assertMatch(
             {ok, #{
@@ -854,7 +860,7 @@ t_persistent_session_stats(Config) when is_list(Config) ->
     PSSubCount = ?ON(N1, emqx_persistent_session_bookkeeper:get_subscription_count()),
     ?assert(PSSubCount > 0, #{ps_sub_count => PSSubCount}),
 
-    %% Now with disconnected but alive persistent sessions
+    ct:pal("Now with disconnected but alive persistent sessions"),
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:disconnect(PSClient1),
@@ -876,27 +882,27 @@ t_persistent_session_stats(Config) when is_list(Config) ->
             ?ON(N1, request(["monitor_current"]))
         )
     end),
-    {ok, _} =
-        snabbkaffe:block_until(
-            ?match_n_events(1, #{?snk_kind := dashboard_monitor_flushed}),
-            infinity,
-            0
-        ),
-    %% Verify that historical metrics are in line with the current ones.
-    ?assertMatch(
-        {ok, [
-            #{
-                <<"time_stamp">> := _,
-                <<"connections">> := 3,
-                <<"disconnected_durable_sessions">> := 1,
-                <<"topics">> := 8,
-                <<"subscriptions">> := 8,
-                <<"subscriptions_ram">> := 4,
-                <<"subscriptions_durable">> := 4
-            }
-        ]},
-        ?ON(N1, request(["monitor"], "latest=1"))
+    ?ON_ALL(Nodes, emqx_dashboard_monitor:test_only_sample_now()),
+    ct:pal("Verify that historical metrics are in line with the current ones."),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, [
+                #{
+                    <<"time_stamp">> := _,
+                    <<"connections">> := 3,
+                    <<"disconnected_durable_sessions">> := 1,
+                    <<"topics">> := 8,
+                    <<"subscriptions">> := 8,
+                    <<"subscriptions_ram">> := 4,
+                    <<"subscriptions_durable">> := 4
+                }
+            ]},
+            ?ON(N1, request(["monitor"], "latest=1"))
+        )
     ),
+    ct:pal("disconnect PSClient2"),
     {ok, {ok, _}} =
         ?wait_async_action(
             emqtt:disconnect(PSClient2),

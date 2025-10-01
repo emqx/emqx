@@ -5406,7 +5406,7 @@ t_add_large_number_of_channels_oom(_TCConfig) ->
     ResManPid = emqx_resource_cache:read_manager_pid(ConnResId),
     true = is_pid(ResManPid),
     ok = sys:suspend(ResManPid),
-    ChanIds = lists:map(
+    lists:foreach(
         fun(I) ->
             IBin = integer_to_binary(I),
             ChanId = iolist_to_binary([
@@ -5422,8 +5422,7 @@ t_add_large_number_of_channels_oom(_TCConfig) ->
                     #{
                         resource_opts => #{health_check_interval => 45_000}
                     }
-                ),
-            ChanId
+                )
         end,
         lists:seq(1, NumChannels)
     ),
