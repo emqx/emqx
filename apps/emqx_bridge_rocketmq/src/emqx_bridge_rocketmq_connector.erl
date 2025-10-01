@@ -173,12 +173,12 @@ create_channel_state(
     } = Conf,
     TopicTks = emqx_placeholder:preproc_tmpl(Topic),
     ProducerOpts = make_producer_opts(Conf, ACLInfo, Namespace, Strategy, SSLOpts),
-    Templates = parse_template(Conf),
+    Template = parse_template(Conf),
     DispatchStrategy = parse_dispatch_strategy(Strategy),
     State = #{
         topic => Topic,
         topic_tokens => TopicTks,
-        templates => Templates,
+        template => Template,
         dispatch_strategy => DispatchStrategy,
         sync_timeout => SyncTimeout,
         acl_info => ACLInfo,
@@ -269,14 +269,15 @@ do_query(
     ChannelId = get_channel_id(Query),
     #{
         topic_tokens := TopicTks,
-        templates := Templates,
+        template := Template,
         dispatch_strategy := DispatchStrategy,
         sync_timeout := RequestTimeout,
         producers_opts := ProducerOpts
     } = maps:get(ChannelId, Channels),
 
     TopicKey = get_topic_key(Query, TopicTks),
-    Data = apply_template(Query, Templates, DispatchStrategy),
+    Data = apply_template(Query, Template, DispatchStrategy),
+    ?tp("rocketmq_rendered_data", #{data => Data}),
     emqx_trace:rendered_action_template(ChannelId, #{
         topic_key => TopicKey,
         data => Data,
@@ -324,23 +325,16 @@ produce(_InstanceId, QueryFunc, Producers, Data, RequestTimeout) ->
     rocketmq:QueryFunc(Producers, Data, RequestTimeout).
 
 parse_template(Config) ->
-    Templates =
+    TemplateStr =
         case maps:get(template, Config, undefined) of
-            undefined -> #{};
-            <<>> -> #{};
-            Template -> #{send_message => Template}
+            undefined ->
+                <<"${.}">>;
+            <<>> ->
+                <<"${.}">>;
+            Template ->
+                Template
         end,
-
-    parse_template(maps:to_list(Templates), #{}).
-
-parse_template([{Key, H} | T], Templates) ->
-    ParamsTks = emqx_placeholder:preproc_tmpl(H),
-    parse_template(
-        T,
-        Templates#{Key => ParamsTks}
-    );
-parse_template([], Templates) ->
-    Templates.
+    emqx_placeholder:preproc_tmpl(TemplateStr).
 
 %% returns a procedure to generate the produce context
 parse_dispatch_strategy(roundrobin) ->
@@ -374,26 +368,16 @@ get_topic_key([Query | _], TopicTks) ->
 
 %% return a message data and its context,
 %% {binary(), rocketmq_producers:produce_context()})
-apply_template({Key, Msg} = _Req, Templates, DispatchStrategy) ->
+apply_template({_Key, Msg} = _Req, Template, DispatchStrategy) ->
     {
-        case maps:get(Key, Templates, undefined) of
-            undefined ->
-                emqx_utils_json:encode(Msg);
-            Template ->
-                emqx_placeholder:proc_tmpl(Template, Msg)
-        end,
+        emqx_placeholder:proc_tmpl(Template, Msg),
         DispatchStrategy(Msg)
     };
-apply_template([{Key, _} | _] = Reqs, Templates, DispatchStrategy) ->
-    case maps:get(Key, Templates, undefined) of
-        undefined ->
-            [{emqx_utils_json:encode(Msg), DispatchStrategy(Msg)} || {_, Msg} <- Reqs];
-        Template ->
-            [
-                {emqx_placeholder:proc_tmpl(Template, Msg), DispatchStrategy(Msg)}
-             || {_, Msg} <- Reqs
-            ]
-    end.
+apply_template([{_, _} | _] = Reqs, Template, DispatchStrategy) ->
+    [
+        {emqx_placeholder:proc_tmpl(Template, Msg), DispatchStrategy(Msg)}
+     || {_, Msg} <- Reqs
+    ].
 
 client_id(ResourceId) ->
     erlang:binary_to_atom(ResourceId, utf8).

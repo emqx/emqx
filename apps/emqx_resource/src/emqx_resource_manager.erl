@@ -2361,7 +2361,7 @@ abort_all_channel_health_checks(Data0) ->
     } = Data0,
     lists:foreach(
         fun(From) ->
-            gen_statem:reply(From, {error, resource_disconnected})
+            gen_statem:reply(From, channel_error_status(resource_disconnected))
         end,
         lists:flatten(maps:values(CPending))
     ),
@@ -2418,7 +2418,7 @@ abort_health_checks_for_channel(Data0, ChannelId) ->
     {Callers, CPending} = map_take_or(CPending0, ChannelId, []),
     lists:foreach(
         fun(From) ->
-            gen_statem:reply(From, {error, resource_disconnected})
+            gen_statem:reply(From, channel_error_status(resource_disconnected))
         end,
         Callers
     ),

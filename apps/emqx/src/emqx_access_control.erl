@@ -260,7 +260,7 @@ log_result(Topic, Action, From, Result) ->
     do_log_result(Action, Result, LogMeta).
 
 do_log_result(_Action, allow, LogMeta) ->
-    ?SLOG(info, (LogMeta())#{msg => "authorization_permission_allowed"}, #{tag => "AUTHZ"});
+    ?SLOG(debug, (LogMeta())#{msg => "authorization_permission_allowed"}, #{tag => "AUTHZ"});
 do_log_result(?AUTHZ_PUBLISH_MATCH_MAP(_, _), deny, LogMeta) ->
     %% for publish action, we do not log permission deny at warning level here
     %% because it will be logged as cannot_publish_to_topic_due_to_not_authorized
