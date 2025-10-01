@@ -45,6 +45,7 @@
 -export([is_packet_parser_available/1]).
 
 -export([pre_config_update/3, post_config_update/5]).
+-export([post_zone_config_update/2, update_listener_for_zone_changes/3]).
 
 -export([format_bind/1]).
 
@@ -233,7 +234,7 @@ start() ->
 
 -spec start_listener(listener_id()) -> ok | {error, term()}.
 start_listener(ListenerId) ->
-    apply_on_listener(ListenerId, fun start_listener/3).
+    apply_on_listener(ListenerId, fun ?MODULE:start_listener/3).
 
 -spec start_listener(listener_type(), atom(), map()) -> ok | {error, term()}.
 start_listener(Type, Name, #{bind := Bind, enable := true} = Conf) ->
@@ -291,11 +292,17 @@ restart() ->
 
 -spec restart_listener(listener_id()) -> ok | {error, term()}.
 restart_listener(ListenerId) ->
-    apply_on_listener(ListenerId, fun restart_listener/3).
+    apply_on_listener(ListenerId, fun ?MODULE:restart_listener/3).
 
 -spec restart_listener(listener_type(), atom(), map()) -> ok | {error, term()}.
 restart_listener(Type, ListenerName, Conf) ->
     restart_listener(Type, ListenerName, Conf, Conf).
+
+update_listener_for_zone_changes(Type, Name, Conf) ->
+    %% Listener config is not changed, so pass the current Conf as olad AND new
+    Res = update_listener(Type, Name, _Old = Conf, _New = Conf),
+    ?SLOG(info, #{msg => ?FUNCTION_NAME, result => Res, listener => listener_id(Type, Name)}),
+    ok.
 
 update_listener(_Type, _Name, #{enable := false}, #{enable := false}) ->
     ok;
@@ -590,6 +597,51 @@ post_config_update([?ROOT_KEY], _Request, NewConf, OldConf, _AppEnvs) ->
 post_config_update(_Path, _Request, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
+post_zone_config_update(OldZones, NewZones) ->
+    Zones0 = maps:keys(OldZones),
+    case find_zones_with_relevant_changes(Zones0, OldZones, NewZones, []) of
+        [] ->
+            ok;
+        Zones ->
+            Listeners = emqx_config:get([listeners], #{}),
+            maps:foreach(
+                fun(Type, NameConfig) ->
+                    update_listeners_in_zones(Type, NameConfig, Zones)
+                end,
+                Listeners
+            )
+    end.
+
+find_zones_with_relevant_changes([], _OldZones, _NewZones, Acc) ->
+    Acc;
+find_zones_with_relevant_changes([Zone | Zones], OldZones, NewZones, Acc) ->
+    OldConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], OldZones, none),
+    NewConfig = emqx_utils_maps:deep_get([Zone, mqtt, max_packet_size], NewZones, none),
+    case OldConfig =:= NewConfig of
+        true ->
+            find_zones_with_relevant_changes(Zones, OldZones, NewZones, Acc);
+        false ->
+            find_zones_with_relevant_changes(Zones, OldZones, NewZones, [Zone | Acc])
+    end.
+
+%% So far zone config change only impacts tcp and ssl listeners
+update_listeners_in_zones(Type, NameConfig, Zones) when Type =:= tcp orelse Type =:= ssl ->
+    maps:foreach(
+        fun(Name, Config) ->
+            Zone = maps:get(zone, Config),
+            case lists:member(Zone, Zones) of
+                true ->
+                    ListenerId = listener_id(Type, Name),
+                    apply_on_listener(ListenerId, fun ?MODULE:update_listener_for_zone_changes/3);
+                false ->
+                    ok
+            end
+        end,
+        NameConfig
+    );
+update_listeners_in_zones(_Type, _NameConfig, _Zones) ->
+    ok.
+
 perform_listener_changes([]) ->
     ok;
 perform_listener_changes([{Action, Listener} | Rest]) ->
@@ -694,7 +746,7 @@ ranch_opts(ListenerId, Type, Opts = #{bind := ListenOn}) ->
     }.
 
 choose_packet_opts(Opts) ->
-    ParseUnit = maps:get(parse_unit, Opts, chunk),
+    ParseUnit = maps:get(parse_unit, Opts, frame),
     HasPacketParser = is_packet_parser_available(mqtt),
     case ParseUnit of
         frame when HasPacketParser ->

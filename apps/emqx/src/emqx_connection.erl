@@ -168,7 +168,9 @@
         % Socket handle is no longer valid in os
         R =:= einval orelse
         % Some race condition may cause enotconn instead of einval, hard to reproduce
-        R =:= enotconn)
+        R =:= enotconn orelse
+        % Packet size too large when {packet, mqtt} option is set for gen_tcp
+        R =:= emsgsize)
 ).
 
 -dialyzer({no_match, [info/2]}).

@@ -76,6 +76,11 @@
 -define(SMALL_BINARY, 64).
 
 %% @doc Describe state for logging.
+describe_state({frame, Options = #options{}}) ->
+    #{
+        state => frame,
+        proto_ver => Options#options.version
+    };
 describe_state(Options = #options{}) ->
     #{
         state => clean,
@@ -151,7 +156,7 @@ parse(<<>>, State) ->
 -spec parse_complete(iodata(), parse_state_initial()) ->
     emqx_types:packet() | [emqx_types:packet() | parse_state_initial()].
 parse_complete(
-    <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
+    <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>> = MaybeComplete,
     Options = #options{strict_mode = StrictMode}
 ) ->
     %% Validate header if strict mode.
@@ -166,8 +171,21 @@ parse_complete(
         <<0:8>> ->
             parse_bodyless_packet(Header);
         _ ->
-            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
-            parse_packet_complete(Rest2, Header, Options)
+            {RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            case RemLen > byte_size(Rest2) of
+                true ->
+                    %% inet delivers an incomplete packet which means it's too large
+                    %% according to the [{packet_size, MaxPacketSize}] set to listener
+                    HeaderLen = byte_size(MaybeComplete) - byte_size(Rest2),
+                    FrameLen = HeaderLen + RemLen,
+                    ?PARSE_ERR(#{
+                        cause => frame_too_large,
+                        received => FrameLen,
+                        note => "controlled by zone config mqtt.max_packet_size"
+                    });
+                false ->
+                    parse_packet_complete(Rest2, Header, Options)
+            end
     end.
 
 parse_remaining_len(<<>>, Header, Mult, Length, Options) ->
@@ -726,7 +744,6 @@ do_parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause)
 do_parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
         cause => Cause,
-        reason => malformed_utf8_string,
         parsed_length => Len,
         remaining_bytes_length => byte_size(Rest)
     });
