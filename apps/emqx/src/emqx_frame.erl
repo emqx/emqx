@@ -76,6 +76,11 @@
 -define(SMALL_BINARY, 64).
 
 %% @doc Describe state for logging.
+describe_state({frame, Options = #options{}}) ->
+    #{
+        state => frame,
+        proto_ver => Options#options.version
+    };
 describe_state(Options = #options{}) ->
     #{
         state => clean,
@@ -726,7 +731,6 @@ do_parse_utf8_string(<<Len:16/big, Str:Len/binary, Rest/binary>>, false, _Cause)
 do_parse_utf8_string(<<Len:16/big, Rest/binary>>, _, Cause) when Len > byte_size(Rest) ->
     ?PARSE_ERR(#{
         cause => Cause,
-        reason => malformed_utf8_string,
         parsed_length => Len,
         remaining_bytes_length => byte_size(Rest)
     });
