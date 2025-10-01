@@ -57,14 +57,25 @@ groups() ->
     ].
 
 init_per_group(tcp, Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{conn_type, tcp}, {port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
-init_per_group(tcp_beam_framing, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = frame }"}],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = chunk }"}], #{
+            work_dir => emqx_cth_suite:work_dir(Config)
+        }
     ),
     [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+init_per_group(tcp_beam_framing, Config) ->
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2884, parse_unit = frame }"}],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [
+        {conn_type, tcp},
+        {port, 2884},
+        {conn_fun, connect},
+        {group_apps, Apps},
+        {parse_unit, frame}
+        | Config
+    ];
 init_per_group(quic, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
@@ -1250,12 +1261,21 @@ t_PUBLISH_packet_too_large(Config) ->
     unlink(ClientPid),
     monitor(process, ClientPid),
     {ok, _} = emqtt:ConnFun(ClientPid),
-    ?assertMatch(
-        {error, {disconnected, ?RC_PACKET_TOO_LARGE, _}},
-        emqtt:publish(ClientPid, Topic, Payload, 1)
-    ),
-    ?assertReceive(
-        {'DOWN', _Ref, process, ClientPid, {shutdown, {disconnected, ?RC_PACKET_TOO_LARGE, _}}},
-        1000
-    ),
+    case ?config(parse_unit, Config) of
+        frame ->
+            ?assertMatch(
+                {error, tcp_closed},
+                emqtt:publish(ClientPid, Topic, Payload, 1)
+            );
+        _ ->
+            ?assertMatch(
+                {error, {disconnected, ?RC_PACKET_TOO_LARGE, _}},
+                emqtt:publish(ClientPid, Topic, Payload, 1)
+            ),
+            ?assertReceive(
+                {'DOWN', _Ref, process, ClientPid,
+                    {shutdown, {disconnected, ?RC_PACKET_TOO_LARGE, _}}},
+                1000
+            )
+    end,
     ok.
