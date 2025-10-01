@@ -69,6 +69,7 @@ This is the entrypoint into the `builtin_raft` backend.
     otx_get_tx_serial/2,
     otx_get_leader/2,
     otx_get_latest_generation/2,
+    otx_current_leader/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
     otx_commit_tx_batch/5,
@@ -220,8 +221,9 @@ This is the entrypoint into the `builtin_raft` backend.
 %% TODO
 %% There's a possibility of race condition: storage may shut down right after we
 %% ask for its status.
--define(IF_SHARD_READY(DBSHARD, EXPR),
-    case emqx_ds_builtin_raft_db_sup:shard_info(DBSHARD, ready) of
+-define(IF_SHARD_READY(DB, SHARD, EXPR),
+    %% NOTE: Tolerates when the backend and/or dependencies has not yet started.
+    case emqx_ds_builtin_raft_shard:shard_info(DB, SHARD, ready) of
         true -> EXPR;
         _Unready -> ?err_rec(shard_unavailable)
     end
@@ -381,7 +383,7 @@ shard_of(DB, Obj) ->
 -spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
 dirty_append(#{db := _, shard := _} = Opts, Data) ->
-    emqx_ds_optimistic_tx:dirty_append(Opts, Data).
+    emqx_ds_optimistic_tx:dirty_append(?MODULE, Opts, Data).
 
 -spec get_streams(emqx_ds:db(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:get_streams_opts()) ->
     emqx_ds:get_streams_result().
@@ -585,7 +587,7 @@ new_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
 commit_tx(DB, Ctx, Ops) ->
     %% NOTE: pid of the leader is stored in the context, this should
     %% work for remote processes too.
-    emqx_ds_optimistic_tx:commit_kv_tx(DB, Ctx, Ops).
+    emqx_ds_optimistic_tx:commit_kv_tx(?MODULE, DB, Ctx, Ops).
 
 -spec tx_commit_outcome({'DOWN', reference(), _, _, _}) -> emqx_ds:commit_result().
 tx_commit_outcome(Reply) ->
@@ -634,7 +636,8 @@ high_watermark(DBShard = {DB, Shard}, Stream = #'Stream'{}) ->
 
 fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key, BatchSize) ->
     ?IF_SHARD_READY(
-        DBShard,
+        DB,
+        Shard,
         maybe
             {ok, Now} ?= current_timestamp(DB, Shard),
             emqx_ds_storage_layer_ttv:fast_forward(DBShard, It, Key, Now, BatchSize)
@@ -649,7 +652,8 @@ iterator_match_context(DBShard, Iterator = #'Iterator'{}) ->
 
 scan_stream(DBShard = {DB, Shard}, Stream = #'Stream'{}, TopicFilter, StartMsg, BatchSize) ->
     ?IF_SHARD_READY(
-        DBShard,
+        DB,
+        Shard,
         maybe
             %% TODO: this has been changed during refactoring. Double-check.
             {ok, Now} ?= current_timestamp(DB, Shard),
@@ -668,6 +672,10 @@ update_iterator(ShardId, #'Iterator'{} = Iter, DSKey) ->
 %% emqx_ds_optimistic_tx callbacks
 %%================================================================================
 
+-define(otx_global_regname(CLUSTER, DB, SHARD),
+    {emqx_ds_builtin_raft_shard_otx, CLUSTER, DB, SHARD}
+).
+
 otx_get_tx_serial(DB, Shard) ->
     emqx_ds_storage_layer_ttv:get_read_tx_serial({DB, Shard}).
 
@@ -677,6 +685,11 @@ otx_get_leader(DB, Shard) ->
         {ok, Pid} -> Pid;
         undefined -> undefined
     end.
+
+-spec otx_current_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
+otx_current_leader(DB, Shard) ->
+    ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
+    global:whereis_name(?otx_global_regname(ClusterId, DB, Shard)).
 
 otx_get_latest_generation(DB, Shard) ->
     emqx_ds_storage_layer:generation_current({DB, Shard}).
@@ -689,6 +702,8 @@ otx_become_leader(DB, Shard) ->
         Leader ->
             case ra:process_command(Leader, Command, 5_000) of
                 {ok, {Serial, Timestamp}, Leader} ->
+                    %% Announce this process in the global name registry:
+                    otx_register_global(DB, Shard),
                     {ok, Serial, Timestamp};
                 {ok, _, _AnotherLeader} ->
                     ?err_rec(leadership_gone);
@@ -734,6 +749,12 @@ otx_get_runtime_config(DB) ->
     #{runtime := #{transactions := Conf}} = emqx_dsch:get_db_runtime(DB),
     Conf.
 
+otx_register_global(DB, Shard) ->
+    ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
+    RegName = ?otx_global_regname(ClusterId, DB, Shard),
+    yes = global:re_register_name(RegName, self()),
+    ok.
+
 %%================================================================================
 %% Internal exports
 %%================================================================================
@@ -775,10 +796,10 @@ do_drop_db_v1(DB) ->
     [{emqx_ds:generation(), emqx_ds_storage_layer:stream() | emqx_ds_storage_layer_ttv:stream()}]
     | emqx_ds:error(storage_down).
 do_get_streams_v1(DB, Shard, TopicFilter, StartTime, MinGeneration) ->
-    DBShard = {DB, Shard},
     ?IF_SHARD_READY(
-        DBShard,
-        emqx_ds_storage_layer_ttv:get_streams(DBShard, TopicFilter, StartTime, MinGeneration)
+        DB,
+        Shard,
+        emqx_ds_storage_layer_ttv:get_streams({DB, Shard}, TopicFilter, StartTime, MinGeneration)
     ).
 
 -spec do_make_iterator_v1(
@@ -791,17 +812,18 @@ do_get_streams_v1(DB, Shard, TopicFilter, StartTime, MinGeneration) ->
     emqx_ds:make_iterator_result().
 do_make_iterator_v1(DB, Shard, Stream = #'Stream'{}, TopicFilter, Time) ->
     ?IF_SHARD_READY(
-        {DB, Shard},
+        DB,
+        Shard,
         emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, Time)
     ).
 
 -spec do_list_slabs_v1(emqx_ds:db(), emqx_ds:shard()) ->
     #{emqx_ds:generation() => emqx_ds:slab_info()} | emqx_ds:error(_).
 do_list_slabs_v1(DB, Shard) ->
-    DBShard = {DB, Shard},
     ?IF_SHARD_READY(
-        DBShard,
-        emqx_ds_storage_layer:list_slabs(DBShard)
+        DB,
+        Shard,
+        emqx_ds_storage_layer:list_slabs({DB, Shard})
     ).
 
 -spec do_next_v1(
@@ -812,7 +834,8 @@ do_list_slabs_v1(DB, Shard) ->
     emqx_ds:next_result().
 do_next_v1(DB, Iter = #'Iterator'{shard = Shard}, NextLimit) ->
     ?IF_SHARD_READY(
-        {DB, Shard},
+        DB,
+        Shard,
         begin
             {BatchSize, TimeLimit} = batch_size_and_time_limit(DB, Shard, NextLimit),
             emqx_ds_storage_layer_ttv:next(DB, Iter, BatchSize, TimeLimit)
@@ -824,7 +847,11 @@ do_next_v1(DB, Iter = #'Iterator'{shard = Shard}, NextLimit) ->
 ) ->
     {ok, tx_context()} | emqx_ds:error(_).
 do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
-    emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options).
+    ?IF_SHARD_READY(
+        DB,
+        Shard,
+        emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options)
+    ).
 
 %%================================================================================
 %% Internal functions
@@ -832,7 +859,7 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
 
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
 add_generation_to_shard(DB, Shard, Retries) ->
-    case emqx_ds_optimistic_tx:add_generation(DB, Shard) of
+    case emqx_ds_optimistic_tx:add_generation(?MODULE, DB, Shard) of
         ok ->
             ok;
         ?err_rec(_) when Retries > 0 ->
@@ -973,8 +1000,9 @@ communicate with the Raft machine.
     ra:server_id() | unknown.
 local_raft_leader(DB, Shard) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
-    case emqx_ds_builtin_raft_shard:server_info(leader, LocalServer) of
-        LocalServer ->
+    case ra:ping(LocalServer, 1_000) of
+        {pong, leader} ->
+            %% Local server still considers itself a leader:
             LocalServer;
         _ ->
             unknown

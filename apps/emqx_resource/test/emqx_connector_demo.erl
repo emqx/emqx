@@ -499,6 +499,8 @@ on_get_channel_status(ConnResId, ChanId, #{health_check_agent := Agent}) ->
         Result ->
             Result
     end;
+on_get_channel_status(_ConnResId, ChanId, #{channel_health_check_fn := Fn} = ConnState) ->
+    Fn(ChanId, ConnState);
 on_get_channel_status(_ConnResId, ChanId, #{channels := Chans}) ->
     case Chans of
         #{ChanId := #{health_check_delay := Delay}} ->

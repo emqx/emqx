@@ -29,13 +29,12 @@
     start_link/3,
 
     where/2,
-    global/2,
 
-    dirty_append/2,
-    add_generation/2,
+    dirty_append/3,
+    add_generation/3,
 
     new_kv_tx_ctx/5,
-    commit_kv_tx/3,
+    commit_kv_tx/4,
     tx_commit_outcome/1,
 
     get_monotonic_timestamp/0
@@ -134,10 +133,14 @@
 %% Executed by the readers
 -callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 
--type ctx() :: #kv_tx_ctx{}.
+%% Locate _current_ OTX leader process.
+%% Executed by the readers.
+-callback otx_current_leader(emqx_ds:db(), emqx_ds:shard()) ->
+    pid() | atom() | {atom(), node()} | undefined.
 
 -define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
 -define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
+-type ctx() :: #kv_tx_ctx{}.
 
 %% States
 -define(initial, initial).
@@ -153,13 +156,6 @@
 -define(timeout_initialize, timeout_initialize).
 %%   Flush pending transactions to the storage:
 -define(timeout_flush, timeout_flush).
-%%   Reannounce global registration:
-%%   When new, identically configured nodes join the existing cluster,
-%%   global name registration of this process may be lost. Precise
-%%   sequence of events (name conflicts, OTX processess terminating on
-%%   the other node) is unclear, so opt for periodic unconditional
-%%   attempts to reannounce the name globally when idling.
--define(timeout_reannounce, timeout_reannounce).
 
 -record(gen_data, {
     dirty_w :: emqx_ds_tx_conflict_trie:t(),
@@ -201,8 +197,6 @@
 %% initiated commit of the transaction:
 -define(pending_commit_timer, emqx_ds_optimistic_tx_pending_commit).
 
--define(global(DB, SHARD), {?MODULE, DB, SHARD}).
-
 -record(cast_dirty_append, {
     reply_to :: pid() | reference() | undefined,
     ref :: reference() | undefined,
@@ -227,10 +221,6 @@
 where(DB, Shard) ->
     gproc:where(?name(DB, Shard)).
 
--spec global(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
-global(DB, Shard) ->
-    global:whereis_name(?global(DB, Shard)).
-
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
     gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
@@ -240,12 +230,12 @@ ls() ->
     MS = {{?name('$1', '$2'), '_', '_'}, [], [{{'$1', '$2'}}]},
     gproc:select({local, names}, [MS]).
 
--spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
+-spec dirty_append(module(), emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
-dirty_append(#{db := DB, shard := Shard} = Opts, Data = [{_, ?ds_tx_ts_monotonic, _} | _]) ->
+dirty_append(CBM, #{db := DB, shard := Shard} = Opts, Data = [{_, ?ds_tx_ts_monotonic, _} | _]) ->
     Reply = maps:get(reply, Opts, true),
-    case global(DB, Shard) of
-        Leader when is_pid(Leader) ->
+    case CBM:otx_current_leader(DB, Shard) of
+        Leader when Leader =/= undefined ->
             case Reply of
                 true ->
                     Alias = Result = monitor(process, Leader, [{alias, reply_demonitor}]);
@@ -267,10 +257,10 @@ dirty_append(#{db := DB, shard := Shard} = Opts, Data = [{_, ?ds_tx_ts_monotonic
             noreply
     end.
 
--spec add_generation(emqx_ds:db(), emqx_ds:shard()) -> ok | emqx_ds:error(_).
-add_generation(DB, Shard) ->
-    case global(DB, Shard) of
-        Leader when is_pid(Leader) ->
+-spec add_generation(module(), emqx_ds:db(), emqx_ds:shard()) -> ok | emqx_ds:error(_).
+add_generation(CBM, DB, Shard) ->
+    case CBM:otx_current_leader(DB, Shard) of
+        Leader when Leader =/= undefined ->
             gen_statem:call(Leader, #call_add_generation{}, infinity);
         undefined ->
             ?err_rec(leader_down)
@@ -309,10 +299,10 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation0, Opts) ->
             ?err_rec(leader_down)
     end.
 
-commit_kv_tx(DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, Ops) ->
+commit_kv_tx(CBM, DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, Ops) ->
     ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
-    case global(DB, Shard) of
-        Leader when is_pid(Leader) ->
+    case CBM:otx_current_leader(DB, Shard) of
+        Leader when Leader =/= undefined ->
             Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
             TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
             put({?pending_commit_timer, Alias}, TRef),
@@ -401,9 +391,6 @@ handle_event(enter, _OldState, ?leader(?pending), D0 = #d{flush_interval = T}) -
     %% Schedule unconditional flush after the given interval:
     D = D0#d{entered_pending_at = erlang:monotonic_time(millisecond)},
     {keep_state, D, {state_timeout, T, ?timeout_flush}};
-handle_event(enter, _OldState, ?leader(?idle), D = #d{announce_interval = T}) ->
-    %% Schedule reannouncement only if idle, because pending means name is known:
-    {keep_state, D, {state_timeout, T, ?timeout_reannounce}};
 handle_event(enter, _, _, _) ->
     keep_state_and_data;
 handle_event(state_timeout, ?timeout_initialize, ?initial, D) ->
@@ -430,10 +417,6 @@ handle_event(ET, ?timeout_flush, ?leader(_LeaderState), D) when
     ET =:= state_timeout; ET =:= timeout
 ->
     handle_flush(D, []);
-handle_event(state_timeout, ?timeout_reannounce, _State, D = #d{announce_interval = T}) ->
-    %% Extermely cheap if name is still ours:
-    ensure_global(D),
-    {keep_state, D, {state_timeout, T, ?timeout_reannounce}};
 handle_event(ET, Event, State, _D) ->
     ?tp(
         error,
@@ -450,8 +433,6 @@ handle_event(ET, Event, State, _D) ->
 async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
-        %% Announce this process in the global name registry:
-        register_global(DB, Shard),
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
@@ -464,19 +445,6 @@ async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
         Err ->
             {stop, {init_failed, Err}}
     end.
-
-ensure_global(#d{db = DB, shard = Shard}) ->
-    case global(DB, Shard) of
-        Pid when Pid == self() ->
-            unchanged;
-        _ ->
-            Ret = register_global(DB, Shard),
-            ?tp(notice, ds_otx_reannounced_global_name, #{db => DB, shard => Shard}),
-            Ret
-    end.
-
-register_global(DB, Shard) ->
-    global:re_register_name(?global(DB, Shard), self()).
 
 -spec handle_flush(d(), [gen_statem:action()]) ->
     leader_loop_result().

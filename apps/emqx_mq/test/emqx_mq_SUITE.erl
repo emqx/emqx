@@ -758,6 +758,17 @@ t_queue_deletion(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
+%% Verify that the queue is deleted correctly when there is a new empty generation
+%% TODO
+%% Drop this test and the related workaround once the bug in tx manager is fixed
+t_queue_deletion_with_new_empty_generation(_Config) ->
+    %% Create a non-lastvalue Queue and a new generation
+    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    ok = emqx_mq_message_db:add_regular_db_generation(),
+
+    %% Delete the queue
+    ok = emqx_mq_registry:delete(<<"t/#">>).
+
 %% Check that a session of a disconnected client does not receive messages
 t_disconnected_session_does_not_receive_messages(_Config) ->
     %% Create a non-lastvalue Queue
@@ -1067,11 +1078,13 @@ t_update_key_expression(_Config) ->
 
     %% Update the key expression
     {ok, _} = emqx_mq_registry:update(<<"t/#">>, #{
-        is_lastvalue => true, key_expression => <<"message.from">>
+        is_lastvalue => true,
+        key_expression =>
+            <<"concat([message.from, message.headers.peername, message.headers.peerhost])">>
     }),
 
     %% Publish 10 more messages to the queue, with "mq-key" keys wich are ignored now.
-    %% The key expression is "message.from" which is the same for all messages.
+    %% The key expression is now the same for all messages (based on client connection info).
     emqx_mq_test_utils:populate_lastvalue(10, #{
         topic_prefix => <<"t/">>,
         payload_prefix => <<"payload-new-">>,

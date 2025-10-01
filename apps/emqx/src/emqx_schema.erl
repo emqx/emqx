@@ -1834,6 +1834,51 @@ fields("durable_sessions") ->
                     mapping => "emqx_durable_session.poll_batch_size"
                 }
             )},
+        {"idle_poll_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"10s">>,
+                    deprecated => {since, "6.0.0"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"heartbeat_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5000ms">>,
+                    deprecated => {since, "6.0.0"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"session_gc_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"10m">>,
+                    deprecated => {since, "6.0.0"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"session_gc_batch_size",
+            sc(
+                pos_integer(),
+                #{
+                    default => 100,
+                    deprecated => {since, "6.0.0"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {"renew_streams_interval",
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"1s">>,
+                    deprecated => {since, "6.0.0"},
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
         {"checkpoint_interval",
             sc(
                 timeout_duration(),

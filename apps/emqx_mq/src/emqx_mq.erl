@@ -14,23 +14,31 @@
 
 -export([
     on_message_publish/1,
+    on_session_created/2,
     on_session_subscribed/3,
     on_session_unsubscribed/3,
     on_session_resumed/2,
     on_session_disconnected/2,
     on_delivery_completed/2,
     on_message_nack/2,
-    on_client_handle_info/3
+    on_client_handle_info/3,
+    on_client_authorize/4
 ]).
 
 -export([
     inspect/2
 ]).
 
+-define(tp_mq_client(KIND, EVENT), ?tp_debug(KIND, EVENT)).
+
+-define(IS_MQ_SUPPORTED_PD_KEY, {?MODULE, is_mq_supported}).
+
 -spec register_hooks() -> ok.
 register_hooks() ->
+    ok = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
     ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
     ok = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
@@ -40,8 +48,10 @@ register_hooks() ->
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
+    emqx_hooks:del('client.authorize', {?MODULE, on_client_authorize}),
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     emqx_hooks:del('delivery.completed', {?MODULE, on_delivery_completed}),
+    emqx_hooks:del('session.created', {?MODULE, on_session_created}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
@@ -56,6 +66,7 @@ unregister_hooks() ->
 on_message_publish(#message{topic = <<"$SYS/", _/binary>>} = Message) ->
     {ok, Message};
 on_message_publish(#message{topic = Topic} = Message) ->
+    ?tp_mq_client(mq_on_message_publish, #{topic => Topic}),
     Queues = emqx_mq_registry:match(Topic),
     ok = lists:foreach(
         fun(Queue) ->
@@ -66,6 +77,8 @@ on_message_publish(#message{topic = Topic} = Message) ->
     {ok, Message}.
 
 on_delivery_completed(Msg, Info) ->
+    _MessageId = emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg, undefined),
+    ?tp_mq_client(mq_on_delivery_completed, #{message_id => _MessageId}),
     case emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg, undefined) of
         undefined ->
             ok;
@@ -75,27 +88,47 @@ on_delivery_completed(Msg, Info) ->
     end.
 
 on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = _FullTopic, _SubOpts) ->
-    ?tp_debug(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => true}),
-    Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
-    ok = emqx_mq_sub_registry:register(Sub);
+    ?tp_mq_client(mq_on_session_subscribed, #{
+        full_topic => _FullTopic, handle => true, client_info => ClientInfo
+    }),
+    case is_mq_supported() of
+        true ->
+            case emqx_mq_sub_registry:find(Topic) of
+                undefined ->
+                    Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
+                    ok = emqx_mq_sub_registry:register(Sub);
+                _Sub ->
+                    ok
+            end;
+        false ->
+            ?tp(info, mq_cannot_subscribe_to_mq, #{
+                reason => "mq is not supported for this type of session"
+            }),
+            ok
+    end;
 on_session_subscribed(_ClientInfo, _FullTopic, _SubOpts) ->
-    ?tp_debug(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => false}),
+    ?tp_mq_client(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => false}),
     ok.
 
 on_session_unsubscribed(ClientInfo, Topic, _SubOpts) ->
     on_session_unsubscribed(ClientInfo, Topic).
 
 on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>> = _FullTopic) ->
+    ?tp_mq_client(mq_on_session_unsubscribed, #{full_topic => _FullTopic}),
     case emqx_mq_sub_registry:delete(Topic) of
         undefined ->
             ok;
         Sub ->
+            ?tp_mq_client(mq_on_session_unsubscribed_sub_deleted, #{full_topic => _FullTopic}),
             ok = emqx_mq_sub:handle_disconnect(Sub)
     end;
 on_session_unsubscribed(_ClientInfo, _FullTopic) ->
+    ?tp_mq_client(mq_on_session_unsubscribed_unknown, #{full_topic => _FullTopic}),
     ok.
 
-on_session_resumed(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
+on_session_resumed(ClientInfo, #{subscriptions := Subs} = SessionInfo) ->
+    ?tp_mq_client(mq_on_session_resumed, #{subscriptions => Subs, session_info => SessionInfo}),
+    ok = set_mq_supported(SessionInfo),
     ok = maps:foreach(
         fun
             (<<"$q/", _/binary>> = FullTopic, SubOpts) ->
@@ -107,6 +140,7 @@ on_session_resumed(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ).
 
 on_message_nack(Msg, false) ->
+    ?tp_mq_client(mq_on_message_nack, #{msg => Msg}),
     SubscriberRef = emqx_message:get_header(?MQ_HEADER_SUBSCRIBER_ID, Msg),
     case with_sub(SubscriberRef, handle_ack, [Msg, ?MQ_NACK]) of
         not_found ->
@@ -123,6 +157,7 @@ on_message_nack(_Msg, true) ->
 on_client_handle_info(
     _ClientInfo, #info_mq_inspect{receiver = Receiver, topic_filter = TopicFilter}, Acc
 ) ->
+    ?tp_mq_client(mq_on_client_handle_info_inspect, #{topic_filter => TopicFilter}),
     Info =
         case emqx_mq_sub_registry:find(TopicFilter) of
             undefined ->
@@ -137,21 +172,24 @@ on_client_handle_info(
     #info_to_mq_sub{subscriber_ref = SubscriberRef, info = InfoMsg},
     #{deliver := Delivers} = Acc
 ) ->
+    ?tp_mq_client(mq_on_client_handle_info_to_mq_sub, #{info => InfoMsg}),
     case with_sub(SubscriberRef, handle_info, [InfoMsg]) of
         not_found ->
             ok;
         ok ->
             ok;
         {ok, Messages} ->
+            ?tp_mq_client(mq_on_client_handle_info_to_mq_sub_messages, #{messages => Messages}),
             {ok, Acc#{deliver => delivers(SubscriberRef, Messages) ++ Delivers}};
         {error, recreate} ->
             ok = recreate_sub(SubscriberRef, ClientInfo)
     end;
 on_client_handle_info(_ClientInfo, _Message, Acc) ->
-    ?tp_debug(mq_on_client_handle_info, #{message => _Message}),
+    ?tp_mq_client(mq_on_client_handle_info_unknown, #{message => _Message}),
     {ok, Acc}.
 
 on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
+    ?tp_mq_client(mq_on_session_disconnected, #{subscriptions => Subs}),
     ok = maps:foreach(
         fun
             (<<"$q/", _/binary>> = FullTopic, _SubOpts) ->
@@ -161,6 +199,25 @@ on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
         end,
         Subs
     ).
+
+on_session_created(_ClientInfo, SessionInfo) ->
+    ?tp_mq_client(mq_on_session_created, #{client_info => _ClientInfo, session_info => SessionInfo}),
+    ok = set_mq_supported(SessionInfo).
+
+on_client_authorize(
+    _ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = _Topic, Result
+) ->
+    ?tp_mq_client(mq_on_client_authorize, #{
+        client_info => _ClientInfo, action => _Action, topic => _Topic
+    }),
+    case is_mq_supported() of
+        true ->
+            {ok, Result};
+        false ->
+            {stop, #{result => deny, from => mq}}
+    end;
+on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
+    {ok, Result}.
 
 %%
 %% Introspection
@@ -224,3 +281,18 @@ delivers(SubscriberRef, Messages) ->
         end,
         Messages
     ).
+
+set_mq_supported(#{impl := emqx_session_mem} = _SessionInfo) ->
+    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, true),
+    ok;
+set_mq_supported(_SessionInfo) ->
+    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, false),
+    ok.
+
+is_mq_supported() ->
+    case erlang:get(?IS_MQ_SUPPORTED_PD_KEY) of
+        undefined ->
+            false;
+        IsSupported ->
+            IsSupported
+    end.

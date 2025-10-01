@@ -178,7 +178,7 @@ create_channel_state(
     KeyTemplate = maybe_parse_template(maps:get(key, Conf, undefined)),
     TagTemplate = maybe_parse_template(maps:get(tag, Conf, undefined)),
     ProducerOpts = make_producer_opts(Conf, ACLInfo, Namespace, Strategy, SSLOpts),
-    Templates = parse_template(Conf),
+    Template = parse_template(Conf),
     maybe_warn_deprecated_dispatch(ActionResId, Strategy),
     ContextFn = mk_context_fn(Strategy, KeyTemplate, TagTemplate),
     State = #{
@@ -186,7 +186,7 @@ create_channel_state(
         tag => TagTemplate,
         topic => Topic,
         topic_tokens => TopicTks,
-        templates => Templates,
+        template => Template,
         context_fn => ContextFn,
         sync_timeout => SyncTimeout,
         acl_info => ACLInfo,
@@ -278,13 +278,13 @@ do_query(
     ChannelId = get_channel_id(Query),
     #{
         topic_tokens := TopicTks,
-        templates := Templates,
+        template := Template,
         context_fn := ContextFn,
         sync_timeout := RequestTimeout,
         producers_opts := ProducerOpts
     } = maps:get(ChannelId, Channels),
     TopicKey = get_topic_key(Query, TopicTks),
-    Data = apply_template(Query, Templates, ContextFn),
+    Data = apply_template(Query, Template, ContextFn),
     ?tp("rocketmq_rendered_data", #{data => Data}),
     emqx_trace:rendered_action_template(ChannelId, #{
         topic_key => TopicKey,
@@ -333,23 +333,16 @@ produce(_InstanceId, QueryFunc, Producers, Data, RequestTimeout) ->
     rocketmq:QueryFunc(Producers, Data, RequestTimeout).
 
 parse_template(Config) ->
-    Templates =
+    TemplateStr =
         case maps:get(template, Config, undefined) of
-            undefined -> #{};
-            <<>> -> #{};
-            Template -> #{send_message => Template}
+            undefined ->
+                <<"${.}">>;
+            <<>> ->
+                <<"${.}">>;
+            Template ->
+                Template
         end,
-
-    parse_template(maps:to_list(Templates), #{}).
-
-parse_template([{Key, H} | T], Templates) ->
-    ParamsTks = emqx_placeholder:preproc_tmpl(H),
-    parse_template(
-        T,
-        Templates#{Key => ParamsTks}
-    );
-parse_template([], Templates) ->
-    Templates.
+    emqx_placeholder:preproc_tmpl(TemplateStr).
 
 maybe_warn_deprecated_dispatch(ActionResId, Strategy) when is_binary(Strategy) ->
     ?tp(warning, "rocketmq_deprecated_placeholder_strategy", #{
@@ -380,26 +373,16 @@ get_topic_key([Query | _], TopicTks) ->
 
 %% return a message data and its context,
 %% {binary(), rocketmq_producers:produce_context()})
-apply_template({Key, Msg} = _Req, Templates, ContextFn) ->
+apply_template({_, Msg} = _Req, Template, ContextFn) ->
     {
-        case maps:get(Key, Templates, undefined) of
-            undefined ->
-                emqx_utils_json:encode(Msg);
-            Template ->
-                emqx_placeholder:proc_tmpl(Template, Msg)
-        end,
+        emqx_placeholder:proc_tmpl(Template, Msg),
         ContextFn(Msg)
     };
-apply_template([{Key, _} | _] = Reqs, Templates, ContextFn) ->
-    case maps:get(Key, Templates, undefined) of
-        undefined ->
-            [{emqx_utils_json:encode(Msg), ContextFn(Msg)} || {_, Msg} <- Reqs];
-        Template ->
-            [
-                {emqx_placeholder:proc_tmpl(Template, Msg), ContextFn(Msg)}
-             || {_, Msg} <- Reqs
-            ]
-    end.
+apply_template([{_, _} | _] = Reqs, Template, ContextFn) ->
+    [
+        {emqx_placeholder:proc_tmpl(Template, Msg), ContextFn(Msg)}
+     || {_, Msg} <- Reqs
+    ].
 
 client_id(ResourceId) ->
     case emqx_resource:is_dry_run(ResourceId) of

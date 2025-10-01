@@ -36,6 +36,33 @@ t_json_fmt_lazy_values_only_in_debug_level_events(_) ->
 t_json_payload(_) ->
     check_fmt_payload(emqx_logger_jsonfmt).
 
+t_nested_report_with_utf8_strings(_TCConfig) ->
+    Conf = maps:merge(conf(), #{depth => 1_000}),
+    UTF8Msg = <<"将输入的 JSON 数据中"/utf8>>,
+    Meta = #{
+        clientid => <<"c">>,
+        some_meta => UTF8Msg,
+        time => 0
+    },
+    Report = #{
+        soem_meta => Meta,
+        msg => <<"event">>,
+        request => #{
+            messages => [#{user => UTF8Msg}],
+            system => UTF8Msg
+        }
+    },
+    Event = #{
+        level => warning,
+        msg => {report, Report},
+        meta => Meta
+    },
+    %% Original bug: this crashed with `badarg` when calling `iolist_to_binary`.
+    Formatted0 = emqx_logger_textfmt:format(Event, Conf),
+    Formatted = unicode:characters_to_binary(Formatted0, utf8),
+    ?assertMatch({match, _}, re:run(Formatted, UTF8Msg)),
+    ok.
+
 check_fmt_lazy_values(FormatModule) ->
     LogEntryIOData = FormatModule:format(event_with_lazy_value(), conf()),
     LogEntryBin = unicode:characters_to_binary(LogEntryIOData),
