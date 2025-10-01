@@ -964,7 +964,7 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
             handle_info({sock_error, Reason}, State)
     end;
 handle_info({sock_error, Reason}, State) ->
-    case Reason =/= closed andalso Reason =/= einval of
+    case Reason =/= closed andalso Reason =/= einval andalso Reason =/= emsgsize of
         true -> ?SLOG(warning, #{msg => "socket_error", reason => Reason});
         false -> ok
     end,

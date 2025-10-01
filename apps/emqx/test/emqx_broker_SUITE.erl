@@ -537,16 +537,16 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     NumClients = 20,
     ConnectSuccessCntr = counters:new(1, []),
     ConnectFailCntr = counters:new(1, []),
+    Opts = [
+        {clean_start, true},
+        {clientid, ClientID}
+        | Config
+    ],
     ConnectFun =
         fun() ->
             process_flag(trap_exit, true),
             try
-                {ok, ConnPid} =
-                    emqtt:start_link([
-                        {clean_start, true},
-                        {clientid, ClientID}
-                        | Config
-                    ]),
+                {ok, ConnPid} = emqtt:start_link(Opts),
                 {ok, _} = emqtt:ConnFun(ConnPid),
                 counters:add(ConnectSuccessCntr, 1, 1)
             catch
@@ -599,15 +599,10 @@ t_connected_client_count_transient_takeover(Config) when is_list(Config) ->
     %% It must be 0 again because we got enough
     %% emqx_cm_connected_client_count_dec events
     ?assertEqual(0, emqx_cm:get_connected_client_count()),
-    %% connecting again
-    {ok, ConnPid1} = emqtt:start_link([
-        {clean_start, true},
-        {clientid, ClientID}
-        | Config
-    ]),
+    %% connecting again, this time, retry until server is not busy
     {{ok, _}, {ok, [_]}} =
         wait_for_events(
-            fun() -> emqtt:ConnFun(ConnPid1) end,
+            fun() -> start_connect_client(Opts, ConnFun) end,
             [emqx_cm_connected_client_count_inc]
         ),
     ?assertEqual(1, emqx_cm:get_connected_client_count()),
@@ -800,3 +795,28 @@ timestep() ->
 
 since(T0) ->
     erlang:monotonic_time(millisecond) - T0.
+
+start_connect_client(Opts, ConnFun) ->
+    {ok, Pid} = emqtt:start_link(Opts),
+    case emqtt_connect(Pid, ConnFun) of
+        {ok, _ConnAck} ->
+            {ok, Pid};
+        {error, {server_busy, _ConnAckProps}} ->
+            timer:sleep(10),
+            ClientId = proplists:get_value(clientid, Opts),
+            ct:pal("~s reconnect after delay", [ClientId]),
+            start_connect_client(Opts, ConnFun);
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+emqtt_connect(ClientPid, ConnFun) ->
+    unlink(ClientPid),
+    case emqtt:ConnFun(ClientPid) of
+        {ok, ConnAck} ->
+            {ok, ConnAck};
+        {error, Reason} ->
+            %% ensure failed client is killed
+            exit(ClientPid, kill),
+            {error, Reason}
+    end.
