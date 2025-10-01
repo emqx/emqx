@@ -36,6 +36,7 @@
 -define(TRUNCATED_PAYLOAD_SIZE, 100).
 
 -define(FORMAT_META_KEY_PACKET, packet).
+-define(FORMAT_META_KEY_PACKET_BIN, <<"packet">>).
 -define(FORMAT_META_KEY_PAYLOAD, payload).
 -define(FORMAT_META_KEY_PAYLOAD_BIN, <<"payload">>).
 -define(FORMAT_META_KEY_INPUT, input).

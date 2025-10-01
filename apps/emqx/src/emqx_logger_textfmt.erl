@@ -8,7 +8,7 @@
 
 -export([format/2]).
 -export([check_config/1]).
--export([try_format_unicode/1, try_encode_meta/2]).
+-export([try_format_unicode/1, try_format_unicode_to_binary/1, try_encode_meta/2]).
 %% Used in the other log formatters
 -export([evaluate_lazy_values_if_dbg_level/1, evaluate_lazy_values/1]).
 
@@ -152,8 +152,27 @@ try_format_unicode(Char) ->
                 error
         end,
     case List of
-        error -> io_lib:format("~0p", [Char]);
+        error -> io_lib:format("~0tp", [Char]);
         _ -> List
+    end.
+
+try_format_unicode_to_binary(undefined) ->
+    undefined;
+try_format_unicode_to_binary(Char) ->
+    Bin =
+        try
+            case unicode:characters_to_binary(Char, utf8) of
+                {error, _, _} -> error;
+                {incomplete, _, _} -> error;
+                Bin1 -> Bin1
+            end
+        catch
+            _:_ ->
+                error
+        end,
+    case Bin of
+        error -> io_lib:format("~0tp", [Char]);
+        _ -> Bin
     end.
 
 enrich_client_info({Fmt, Args}, #{clientid := ClientId, peername := Peer}) when is_list(Fmt) ->

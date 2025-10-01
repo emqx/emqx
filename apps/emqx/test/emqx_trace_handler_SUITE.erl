@@ -107,6 +107,7 @@ t_trace_clientid(_Config) ->
     ok = wait_filesync(),
     {ok, _, _, Frag0} = emqx_trace_handler:find_log_fragment(first, Filename1),
     {ok, Bin, Frag1} = emqx_trace_handler:read_log_fragment_at(Frag0, Filename1, 0, 1 bsl 24),
+    ct:pal("bin:\n~s", [Bin]),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"CONNECT">>])),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"CONNACK">>])),
     ?assertNotEqual(nomatch, binary:match(Bin, [<<"PUBLISH">>])),

@@ -9,6 +9,8 @@
 
 -export([format_term/2]).
 
+-export([format_meta_map/2]).
+
 %% logger_formatter:config/0 is not exported.
 -type config() :: map().
 
@@ -27,6 +29,7 @@ format(
     Tns =
         case to_iolist(maps:get(tns, Meta, "")) of
             "" -> "";
+            <<"">> -> "";
             X -> [" tns: ", X]
         end,
     ClientId = to_iolist(maps:get(clientid, Meta, "")),
@@ -78,7 +81,18 @@ format_meta_map(Meta, PayloadFmtOpts, [{Name, FormatFun} | Rest]) ->
 
 format_meta_data(Meta0, PayloadFmtOpts) when is_map(Meta0) ->
     Meta1 = format_meta_map(Meta0, PayloadFmtOpts),
-    maps:map(fun(_K, V) -> format_meta_data(V, PayloadFmtOpts) end, Meta1);
+    maps:map(
+        fun
+            (K, V) when
+                K == ?FORMAT_META_KEY_PACKET
+            ->
+                %% Already formatted
+                V;
+            (_K, V) ->
+                format_meta_data(V, PayloadFmtOpts)
+        end,
+        Meta1
+    );
 format_meta_data(Meta, PayloadFmtOpts) when is_list(Meta) ->
     [format_meta_data(Item, PayloadFmtOpts) || Item <- Meta];
 format_meta_data(Meta, PayloadFmtOpts) when is_tuple(Meta) ->
@@ -166,13 +180,29 @@ to_iolist(Atom) when is_atom(Atom) -> atom_to_list(Atom);
 to_iolist(Int) when is_integer(Int) -> integer_to_list(Int);
 to_iolist(Float) when is_float(Float) -> float_to_list(Float, [{decimals, 2}]);
 to_iolist(SubMap) when is_map(SubMap) -> ["[", kvs_to_iolist(maps:to_list(SubMap)), "]"];
-to_iolist(Char) -> emqx_logger_textfmt:try_format_unicode(Char).
+to_iolist(List) when is_list(List) ->
+    case io_lib:printable_unicode_list(List) of
+        true ->
+            emqx_logger_textfmt:try_format_unicode_to_binary(List);
+        false ->
+            ["[", lists:map(fun to_iolist/1, List), "]"]
+    end;
+to_iolist(Char) ->
+    emqx_logger_textfmt:try_format_unicode_to_binary(Char).
 
 kvs_to_iolist(KVs) ->
     lists:join(
         ", ",
         lists:map(
-            fun({K, V}) -> [to_iolist(K), ": ", to_iolist(V)] end,
+            fun
+                ({K, V}) when
+                    K == ?FORMAT_META_KEY_PACKET
+                ->
+                    %% Already formatted
+                    [?FORMAT_META_KEY_PACKET_BIN, ": ", V];
+                ({K, V}) ->
+                    [to_iolist(K), ": ", to_iolist(V)]
+            end,
             KVs
         )
     ).
