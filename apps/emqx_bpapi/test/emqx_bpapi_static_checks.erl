@@ -92,7 +92,10 @@
     % check it
     "emqx_mgmt_api:do_query/2, emqx_mgmt_api:collect_total_from_tail_nodes/2,"
     %% Reason: `emqx_machine' should not depend on `emqx', where the `bpapi' modules live.
-    " emqx_machine_replicant_health_probe:get_core_custom_infos/0"
+    " emqx_machine_replicant_health_probe:get_core_custom_infos/0,"
+    %% Reason: avoid requiring the user to do manual intervention on older (pre-6.0) nodes
+    %% before rolling upgrade.
+    " emqx_conf_app:upgrade_remote_raw_config/2"
 ).
 
 %% Only the APIs for the features that haven't reached General
