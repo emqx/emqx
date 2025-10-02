@@ -14,6 +14,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -72,6 +74,13 @@ end_per_suite(Config) ->
         emqx_banned,
         emqx_access_control
     ]).
+
+init_per_testcase(_TestCase, TCConfig) ->
+    TCConfig.
+
+end_per_testcase(_TestCase, _TCConfig) ->
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for channel info/stats/caps
@@ -1197,6 +1206,7 @@ session(ClientInfo, InitFields) when is_map(InitFields) ->
     ).
 
 mock_cm_open_session() ->
+    on_exit(fun() -> ok = meck:delete(emqx_cm, open_session, 4) end),
     ok = meck:expect(
         emqx_cm,
         open_session,
