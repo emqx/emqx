@@ -21,7 +21,8 @@ namespace() -> emqx_shared_subs.
 
 roots() ->
     [
-        durable_queues
+        {durable_queues,
+            ?HOCON(hoconsc:ref(?MODULE, durable_queues), #{importance => ?IMPORTANCE_HIDDEN})}
     ].
 
 fields(durable_queues) ->
