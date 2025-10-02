@@ -107,3 +107,31 @@ t_quick_reconnect(_Config) ->
 
     %% Clean up
     ok = emqtt:disconnect(CSub).
+
+%% A subscriber may be considered dead and removed by the consumer,
+%% but the it may still try to send late acks/pings.
+%% We verify that such acks/pings are ignored.
+t_ack_from_unknown_subscriber(_Config) ->
+    %% Create a non-lastvalue Queue
+    _ = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
+    }),
+
+    %% Create a subscriber spawning a consumer
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+
+    %% Find the consumer send ack & ping from a fake subscriber
+    [Consumer] = emqx_mq_test_utils:all_consumers(),
+    FakeSub = make_ref(),
+    ok = emqx_mq_consumer:ack(Consumer, FakeSub, {{<<"0">>, 1}, 123}, ?MQ_ACK),
+    ok = emqx_mq_consumer:ping(Consumer, FakeSub),
+
+    %% Verify that the consumer is fully functional and ignored the ack & ping
+    ok = emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 100),
+    ?assertEqual(1, length(Msgs)),
+    ?assert(is_process_alive(Consumer)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
