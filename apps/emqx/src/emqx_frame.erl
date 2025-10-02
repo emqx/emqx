@@ -156,7 +156,7 @@ parse(<<>>, State) ->
 -spec parse_complete(iodata(), parse_state_initial()) ->
     emqx_types:packet() | [emqx_types:packet() | parse_state_initial()].
 parse_complete(
-    <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>> = MaybeComplete,
+    <<Type:4, Dup:1, QoS:2, Retain:1, Rest1/binary>>,
     Options = #options{strict_mode = StrictMode}
 ) ->
     %% Validate header if strict mode.
@@ -171,21 +171,8 @@ parse_complete(
         <<0:8>> ->
             parse_bodyless_packet(Header);
         _ ->
-            {RemLen, Rest2} = parse_variable_byte_integer(Rest1),
-            case RemLen > byte_size(Rest2) of
-                true ->
-                    %% inet delivers an incomplete packet which means it's too large
-                    %% according to the [{packet_size, MaxPacketSize}] set to listener
-                    HeaderLen = byte_size(MaybeComplete) - byte_size(Rest2),
-                    FrameLen = HeaderLen + RemLen,
-                    ?PARSE_ERR(#{
-                        cause => frame_too_large,
-                        received => FrameLen,
-                        note => "controlled by zone config mqtt.max_packet_size"
-                    });
-                false ->
-                    parse_packet_complete(Rest2, Header, Options)
-            end
+            {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
+            parse_packet_complete(Rest2, Header, Options)
     end.
 
 parse_remaining_len(<<>>, Header, Mult, Length, Options) ->
