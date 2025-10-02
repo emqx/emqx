@@ -415,8 +415,6 @@ handle_in(
                 case ConnState of
                     connecting ->
                         post_process_connect(NProperties, NChannel);
-                    reauthenticating ->
-                        post_process_connect(NProperties, NChannel);
                     _ ->
                         handle_out(
                             auth,
@@ -425,10 +423,15 @@ handle_in(
                         )
                 end;
             {continue, NProperties, NChannel} ->
+                NConnState =
+                    case ConnState of
+                        connected -> reauthenticating;
+                        _ -> ConnState
+                    end,
                 handle_out(
                     auth,
                     {?RC_CONTINUE_AUTHENTICATION, NProperties},
-                    NChannel#channel{conn_state = reauthenticating}
+                    NChannel#channel{conn_state = NConnState}
                 );
             {error, NReasonCode} ->
                 case ConnState of

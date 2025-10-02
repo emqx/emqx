@@ -26,6 +26,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -63,6 +65,22 @@ end_per_suite(Config) ->
         emqx_cm,
         emqx_banned
     ]).
+
+init_per_testcase(t_handle_in_extended_reauthentication, TCConfig) ->
+    %% note: this clause can be dropped in 6.0, since we dropped standalone tests.
+    case emqx_common_test_helpers:is_standalone_test() of
+        true ->
+            %% requires `emqx_utils` app
+            {skip, standalone_not_supported};
+        false ->
+            TCConfig
+    end;
+init_per_testcase(_TestCase, TCConfig) ->
+    TCConfig.
+
+end_per_testcase(_TestCase, _TCConfig) ->
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test cases for channel info/stats/caps
@@ -152,7 +170,8 @@ t_handle_in_extended_reauthentication(_) ->
             properties = Properties
         },
         PacketIn0 = ?CONNECT_PACKET(ConnPkt1),
-        {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel1} =
+        %% n.b.: the following `ok` becomes `continue` from 5.9 onwards
+        {ok, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel1} =
             emqx_channel:handle_in(PacketIn0, Channel0),
         %% Then, client triggers reauthentication.  Channel state becomes
         %% reauthenticating.  The authentication backend returns `{continue, _}`.
@@ -1156,6 +1175,7 @@ session(ClientInfo, InitFields) when is_map(InitFields) ->
     ).
 
 mock_cm_open_session() ->
+    on_exit(fun() -> ok = meck:delete(emqx_cm, open_session, 4) end),
     ok = meck:expect(
         emqx_cm,
         open_session,

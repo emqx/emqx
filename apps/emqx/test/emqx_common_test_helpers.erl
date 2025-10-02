@@ -105,6 +105,9 @@
     gen_host_cert/4
 ]).
 
+-export([ensure_loaded/1]).
+-export([is_standalone_test/0]).
+
 -define(CERTS_PATH(CertName), filename:join(["etc", "certs", CertName])).
 
 -define(MQTT_SSL_CLIENT_CERTS, [
@@ -1413,3 +1416,13 @@ ssl_verify_fun_allow_any_host() ->
         {verify, verify_peer},
         {verify_fun, {fun ?MODULE:ssl_verify_fun_allow_any_host_impl/3, _State = #{}}}
     ].
+
+ensure_loaded(Mod) ->
+    case code:ensure_loaded(Mod) of
+        {module, Mod} -> true;
+        _ -> false
+    end.
+
+%% In standalone tests, other applications such as `emqx_conf` are not available.
+is_standalone_test() ->
+    not ensure_loaded(emqx_conf).
