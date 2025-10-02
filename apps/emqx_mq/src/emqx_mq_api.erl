@@ -323,6 +323,13 @@ put_message_queue_config_example() ->
             ?NO_CONTENT;
         {error, {post_config_update, emqx_mq_config, #{reason := cannot_disable_mq_in_runtime}}} ->
             ?BAD_REQUEST(<<"Cannot disable MQ subsystem via API">>);
+        {error,
+            {post_config_update, emqx_mq_config, #{
+                reason := cannot_enable_both_regular_and_lastvalue_auto_create
+            }}} ->
+            ?BAD_REQUEST(
+                <<"Queues should be configured to be automatically created either as regular or lastvalue">>
+            );
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end.

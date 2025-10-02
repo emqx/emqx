@@ -184,6 +184,38 @@ t_config(_Config) ->
             <<"find_queue_retry_interval">> := <<"20s">>
         }},
         api_get([message_queues, config])
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([message_queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => #{<<"enable">> => false},
+                <<"lastvalue">> => #{<<"enable">> => true}
+            }
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, #{
+            <<"auto_create">> := #{
+                <<"regular">> := #{<<"enable">> := false},
+                <<"lastvalue">> := #{
+                    <<"enable">> := true, <<"key_expression">> := <<"message.from">>
+                }
+            }
+        }},
+        api_get([message_queues, config])
+    ),
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Queues should be configured to be automatically created either as regular or lastvalue">>
+        }},
+        api_put([message_queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => #{<<"enable">> => true}, <<"lastvalue">> => #{<<"enable">> => true}
+            }
+        })
     ).
 
 %% Verify queue state creation failure is handled gracefully.

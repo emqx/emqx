@@ -56,8 +56,44 @@ fields(mq) ->
                 required => true,
                 desc => ?DESC(find_queue_retry_interval),
                 importance => ?IMPORTANCE_MEDIUM
+            })},
+        {auto_create,
+            mk(ref(auto_create), #{
+                required => true,
+                desc => ?DESC(auto_create),
+                default => #{
+                    <<"regular">> => #{<<"enable">> => false},
+                    <<"lastvalue">> => #{<<"enable">> => true}
+                }
             })}
     ];
+fields(auto_create) ->
+    [
+        {regular,
+            mk(ref(auto_create_regular), #{required => true, desc => ?DESC(auto_create_regular)})},
+        {lastvalue,
+            mk(ref(auto_create_lastvalue), #{required => true, desc => ?DESC(auto_create_lastvalue)})}
+    ];
+fields(auto_create_regular) ->
+    RegularMQFields = message_queue_fields(false),
+    [
+        {enable,
+            mk(boolean(), #{
+                default => false,
+                required => true,
+                desc => ?DESC(auto_create_regular_enable)
+            })}
+    ] ++ without_fields([is_lastvalue, topic_filter], RegularMQFields);
+fields(auto_create_lastvalue) ->
+    LastvalueMQFields = message_queue_fields(true) ++ message_queue_lastvalue_fields(),
+    [
+        {enable,
+            mk(boolean(), #{
+                default => true,
+                required => true,
+                desc => ?DESC(auto_create_lastvalue_enable)
+            })}
+    ] ++ without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
 %%
 %% Lastvalue structs
 %%
@@ -94,6 +130,12 @@ fields(api_config_put) ->
 
 desc(mq) ->
     ?DESC(mq);
+desc(auto_create) ->
+    ?DESC(auto_create);
+desc(auto_create_regular) ->
+    ?DESC(auto_create_regular);
+desc(auto_create_lastvalue) ->
+    ?DESC(auto_create_lastvalue);
 desc(_) ->
     undefined.
 
