@@ -178,22 +178,26 @@ handle_ack(
     ?tp_debug(mq_consumer_handle_ack, #{
         subscriber_ref => SubscriberRef, message_id => MessageId, ack => Ack
     }),
-    #{SubscriberRef := SubscriberData0} = Subscribers0,
-    #{inflight_messages := InflightMessages0} = SubscriberData0,
-    #{MessageId := _} = InflightMessages0,
-    InflightMessages = maps:remove(MessageId, InflightMessages0),
-    SubscriberData1 = SubscriberData0#{inflight_messages := InflightMessages},
-    SubscriberData2 = refresh_subscriber_timeout(State0, SubscriberRef, SubscriberData1),
-    SubscriberData3 = update_last_ack(SubscriberData2),
-    Subscribers = Subscribers0#{SubscriberRef => SubscriberData3},
-    State1 = State0#state{subscribers = Subscribers},
-    case Ack of
-        ?MQ_ACK ->
-            Messages = maps:remove(MessageId, Messages0),
-            State = State1#state{messages = Messages},
-            {ok, [{ds_ack, MessageId}], State};
-        ?MQ_REJECTED ->
-            {ok, [], redispatch_on_reject(State1, SubscriberRef, MessageId)}
+    case Subscribers0 of
+        #{SubscriberRef := SubscriberData0} ->
+            #{inflight_messages := InflightMessages0} = SubscriberData0,
+            #{MessageId := _} = InflightMessages0,
+            InflightMessages = maps:remove(MessageId, InflightMessages0),
+            SubscriberData1 = SubscriberData0#{inflight_messages := InflightMessages},
+            SubscriberData2 = refresh_subscriber_timeout(State0, SubscriberRef, SubscriberData1),
+            SubscriberData3 = update_last_ack(SubscriberData2),
+            Subscribers = Subscribers0#{SubscriberRef => SubscriberData3},
+            State1 = State0#state{subscribers = Subscribers},
+            case Ack of
+                ?MQ_ACK ->
+                    Messages = maps:remove(MessageId, Messages0),
+                    State = State1#state{messages = Messages},
+                    {ok, [{ds_ack, MessageId}], State};
+                ?MQ_REJECTED ->
+                    {ok, [], redispatch_on_reject(State1, SubscriberRef, MessageId)}
+            end;
+        _ ->
+            {ok, [], State0}
     end.
 
 handle_ping(#state{subscribers = Subscribers0} = State, SubscriberRef) ->
