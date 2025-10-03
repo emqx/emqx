@@ -60,20 +60,31 @@ groups() ->
     ].
 
 init_per_group(tcp, Config) ->
-    Apps = emqx_cth_suite:start([emqx], #{work_dir => emqx_cth_suite:work_dir(Config)}),
-    [{conn_type, tcp}, {port, 1883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+    Apps = emqx_cth_suite:start(
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = chunk }"}], #{
+            work_dir => emqx_cth_suite:work_dir(Config)
+        }
+    ),
+    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(tcp_beam_framing, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, parse_unit = frame }"}],
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2884, parse_unit = frame }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+    [
+        {conn_type, tcp},
+        {port, 2884},
+        {conn_fun, connect},
+        {group_apps, Apps},
+        {parse_unit, frame}
+        | Config
+    ];
 init_per_group(tcp_socket, Config) ->
     Apps = emqx_cth_suite:start(
-        [{emqx, "listeners.tcp.test { enable = true, bind = 2883, tcp_backend = socket }"}],
+        [{emqx, "listeners.tcp.test { enable = true, bind = 2885, tcp_backend = socket }"}],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{conn_type, tcp}, {port, 2883}, {conn_fun, connect}, {group_apps, Apps} | Config];
+    [{conn_type, tcp}, {port, 2885}, {conn_fun, connect}, {group_apps, Apps} | Config];
 init_per_group(quic, Config) ->
     Apps = emqx_cth_suite:start(
         [{emqx, "listeners.quic.test { enable = true, bind = 1884 }"}],
@@ -1186,5 +1197,82 @@ t_share_subscribe_no_local(Config) ->
         {'EXIT', {Reason, _Stk}} ->
             ?assertEqual({shutdown, {disconnected, ?RC_PROTOCOL_ERROR, #{}}}, Reason)
     end,
-
     process_flag(trap_exit, false).
+
+t_CONNECT_packet_too_large(init, Config) ->
+    MaxSize = 1024,
+    #{mqtt := MQTTConf} = check_zone_config(
+        "mqtt {" ++
+            "\n max_packet_size = " ++ integer_to_list(MaxSize) ++
+            "\n}"
+    ),
+    emqx_config:put_zone_conf(default, [mqtt], MQTTConf),
+    [{max_size, MaxSize} | Config];
+t_CONNECT_packet_too_large('end', _Config) ->
+    emqx_config:put_zone_conf(default, [], check_zone_config(_Default = "")).
+
+t_CONNECT_packet_too_large(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    MaxSize = ?config(max_size, Config),
+    Payload = lists:duplicate(MaxSize, $a),
+    {ok, ClientPid} = emqtt:start_link([
+        {proto_ver, v5},
+        {clean_start, true},
+        {will_flag, true},
+        {will_topic, Topic},
+        {will_payload, Payload}
+        | Config
+    ]),
+    unlink(ClientPid),
+    try
+        ?assertMatch({error, _}, emqtt:ConnFun(ClientPid))
+    catch
+        exit:{normal, W} when ConnFun =:= quic_connect ->
+            %% TODO: fix quic_connect to return error
+            ?assertMatch({gen_statem, call, _}, W)
+    end.
+
+t_PUBLISH_packet_too_large(init, Config) ->
+    MaxSize = 1024,
+    #{mqtt := MQTTConf} = check_zone_config(
+        "mqtt {" ++
+            "\n max_packet_size = " ++ integer_to_list(MaxSize) ++
+            "\n}"
+    ),
+    emqx_config:put_zone_conf(default, [mqtt], MQTTConf),
+    [{max_size, MaxSize} | Config];
+t_PUBLISH_packet_too_large('end', _Config) ->
+    emqx_config:put_zone_conf(default, [], check_zone_config(_Default = "")).
+
+t_PUBLISH_packet_too_large(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = nth(1, ?TOPICS),
+    MaxSize = ?config(max_size, Config),
+    Payload = lists:duplicate(MaxSize, $a),
+    {ok, ClientPid} = emqtt:start_link([
+        {proto_ver, v5},
+        {clean_start, true}
+        | Config
+    ]),
+    unlink(ClientPid),
+    monitor(process, ClientPid),
+    {ok, _} = emqtt:ConnFun(ClientPid),
+    case ?config(parse_unit, Config) of
+        frame ->
+            ?assertMatch(
+                {error, tcp_closed},
+                emqtt:publish(ClientPid, Topic, Payload, 1)
+            );
+        _ ->
+            ?assertMatch(
+                {error, {disconnected, ?RC_PACKET_TOO_LARGE, _}},
+                emqtt:publish(ClientPid, Topic, Payload, 1)
+            ),
+            ?assertReceive(
+                {'DOWN', _Ref, process, ClientPid,
+                    {shutdown, {disconnected, ?RC_PACKET_TOO_LARGE, _}}},
+                1000
+            )
+    end,
+    ok.

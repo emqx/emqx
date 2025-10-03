@@ -38,8 +38,7 @@ namespace() -> "mq".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
-        check_schema => true,
-        filter => fun ?MODULE:check_ready/2
+        check_schema => true
     }).
 
 paths() ->
@@ -52,6 +51,7 @@ paths() ->
 schema("/message_queues/queues") ->
     #{
         'operationId' => '/message_queues/queues',
+        filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
             summary => <<"List all message queues">>,
@@ -98,6 +98,7 @@ schema("/message_queues/queues") ->
 schema("/message_queues/queues/:topic_filter") ->
     #{
         'operationId' => '/message_queues/queues/:topic_filter',
+        filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
             summary => <<"Get message queue">>,
@@ -317,19 +318,23 @@ put_message_queue_config_example() ->
     case emqx_mq_config:update_config(Body) of
         {ok, _} ->
             ?NO_CONTENT;
+        {error, {post_config_update, emqx_mq_config, #{reason := cannot_disable_mq_in_runtime}}} ->
+            ?BAD_REQUEST(<<"Cannot disable MQ subsystem via API">>);
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end.
 
-check_ready(Request, #{path := "/message_queues/config"}) ->
-    %% NOTE: Configuration does not rely on readiness.
-    {ok, Request};
 check_ready(Request, _Meta) ->
-    case emqx_mq_app:is_ready() of
+    case emqx_mq_config:is_enabled() of
         true ->
-            {ok, Request};
+            case emqx_mq_app:is_ready() of
+                true ->
+                    {ok, Request};
+                false ->
+                    ?SERVICE_UNAVAILABLE(<<"Not ready">>)
+            end;
         false ->
-            ?SERVICE_UNAVAILABLE(<<"Not ready">>)
+            ?SERVICE_UNAVAILABLE(<<"Not enabled">>)
     end.
 
 %%--------------------------------------------------------------------

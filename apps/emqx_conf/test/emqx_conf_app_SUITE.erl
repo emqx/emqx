@@ -18,7 +18,8 @@ all() ->
 
 flaky_tests() ->
     #{
-        t_copy_new_data_dir => 3
+        t_copy_new_data_dir => 3,
+        t_copy_deprecated_data_dir => 3
     }.
 
 t_copy_conf_override_on_restarts(Config) ->

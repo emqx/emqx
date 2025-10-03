@@ -107,4 +107,9 @@ emqx_mq_schema {
         label: "Key Expression"
     }
 
+    enable {
+        desc: """~
+            Whether to enable the Message Queue."""
+        label: "Enable"
+    }
 }
