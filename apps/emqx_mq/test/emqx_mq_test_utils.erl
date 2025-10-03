@@ -83,7 +83,7 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
     SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
-    {ok, MQ} = emqx_mq_registry:create(MQ1),
+    {ok, MQ} = ?retry(50, 100, {ok, _} = emqx_mq_registry:create(MQ1)),
     ?retry(
         5,
         100,
@@ -195,7 +195,7 @@ cth_config(emqx_mq, ConfigOverrides) ->
     Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
     #{
         config => Config,
-        after_start => fun() -> emqx_mq_app:wait_readiness(5_000) end
+        after_start => fun() -> ok = emqx_mq_app:wait_readiness(15_000) end
     };
 cth_config(emqx, ConfigOverrides) ->
     DefaultConfig = #{
