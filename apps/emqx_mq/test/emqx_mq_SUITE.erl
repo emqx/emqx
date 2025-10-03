@@ -1137,6 +1137,37 @@ t_unsubscribe(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that we gracefully handle acks to a message from a lost consumer.
+t_ack_to_message_from_lost_consumer(_Config) ->
+    %% Create a non-lastvalue Queue
+    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, ping_interval => 100}),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+
+    %% Connect a client and subscribe to the queue
+    CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+
+    %% Drain the message
+    {ok, [#{packet_id := PacketId}]} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+
+    %% Kill the consumer
+    [Pid] = emqx_mq_test_utils:all_consumers(),
+    ?assertWaitEvent(
+        exit(Pid, kill),
+        #{?snk_kind := mq_sub_consumer_timeout, mq_topic_filter := <<"t/#">>},
+        1000
+    ),
+
+    %% Ack the message, check that the event is emitted implying that the ack was handled gracefully
+    ?assertWaitEvent(
+        ok = emqtt:puback(CSub, PacketId),
+        #{?snk_kind := mq_on_delivery_completed_sub_not_found},
+        1000
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
