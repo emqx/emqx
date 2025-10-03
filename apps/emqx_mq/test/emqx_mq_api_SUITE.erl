@@ -12,11 +12,13 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -import(
-    emqx_mgmt_api_test_util,
+    emqx_mq_api_helpers,
     [
-        request/2,
-        request/3,
-        uri/1
+        api_get/1,
+        api_post/2,
+        api_put/2,
+        api_delete/1,
+        urlencode/1
     ]
 ).
 
@@ -258,41 +260,3 @@ t_defaults(_Config) ->
 
     %% Verify the messages. Default key expression is clientid, so we should receive only one message.
     ?assertEqual(1, length(Msgs)).
-
-%%--------------------------------------------------------------------
-%% Helpers
-%%--------------------------------------------------------------------
-
-api_get(Path) ->
-    R = request(get, uri(Path)),
-    decode_body(R).
-
-api_post(Path, Data) ->
-    decode_body(request(post, uri(Path), Data)).
-
-api_put(Path, Data) ->
-    decode_body(request(put, uri(Path), Data)).
-
-api_delete(Path) ->
-    decode_body(request(delete, uri(Path))).
-
-decode_body(Response) ->
-    do_decode_body(Response).
-
-do_decode_body({ok, Code, <<>>}) ->
-    {ok, Code};
-do_decode_body({ok, Code, Body}) ->
-    case emqx_utils_json:safe_decode(Body) of
-        {ok, Decoded} ->
-            {ok, Code, Decoded};
-        {error, _} = Error ->
-            ct:pal("Invalid body: ~p", [Body]),
-            Error
-    end;
-do_decode_body(Error) ->
-    Error.
-
-urlencode(X) when is_list(X) ->
-    uri_string:quote(X);
-urlencode(X) when is_binary(X) ->
-    urlencode(binary_to_list(X)).

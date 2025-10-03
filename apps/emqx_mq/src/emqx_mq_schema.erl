@@ -30,6 +30,12 @@ tags() ->
 %%
 fields(mq) ->
     [
+        {enable,
+            mk(boolean(), #{
+                default => true,
+                required => true,
+                desc => ?DESC(enable)
+            })},
         {gc_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"1h">>, required => true, desc => ?DESC(gc_interval)

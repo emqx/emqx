@@ -18,6 +18,8 @@
 -include_lib("emqx/include/logger.hrl").
 -include("emqx_conf.hrl").
 
+-elvis([{elvis_style, invalid_dynamic_call, disable}]).
+
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_rpc:create_tables()),
     _ = emqx_config:create_tables(),
@@ -279,7 +281,7 @@ is_older_or_same_version(_) ->
 %% Try to sort the results and save the first one for local use.
 sync_cluster_conf4(Ready) ->
     [{ok, Info} | _] = lists:sort(fun conf_sort/2, Ready),
-    #{node := Node, conf := RawOverrideConf, tnx_id := TnxId} = Info,
+    #{node := Node, conf := RawOverrideConf0, tnx_id := TnxId} = Info,
     HasDeprecatedFile = has_deprecated_file(Info),
     ?SLOG(info, #{
         msg => "sync_cluster_conf_success",
@@ -290,6 +292,7 @@ sync_cluster_conf4(Ready) ->
         data_dir => emqx:data_dir(),
         tnx_id => TnxId
     }),
+    RawOverrideConf = upgrade_remote_raw_config(Node, RawOverrideConf0),
     ok = emqx_config:save_to_override_conf(
         HasDeprecatedFile,
         RawOverrideConf,
@@ -297,6 +300,29 @@ sync_cluster_conf4(Ready) ->
     ),
     ok = sync_data_from_node(Node),
     {ok, TnxId}.
+
+upgrade_remote_raw_config(Node, RawOverrideConf0) ->
+    RawOverrideConf1 =
+        try
+            RemoteMod = erpc:call(Node, emqx_conf, schema_module, []),
+            erpc:call(Node, RemoteMod, upgrade_raw_conf, [RawOverrideConf0], 60_000)
+        catch
+            Kind:Reason:Stacktrace ->
+                ?SLOG(warning, #{
+                    msg => "failed_to_upgrade_remote_raw_conf",
+                    remote_node => Node,
+                    error => {Kind, Reason},
+                    stacktrace => Stacktrace
+                }),
+                RawOverrideConf0
+        end,
+    RawOverrideConf1 /= RawOverrideConf0 andalso
+        ?SLOG(info, #{
+            msg => "upgraded_remote_raw_conf",
+            remote_node => Node
+        }),
+    Mod = emqx_conf:schema_module(),
+    Mod:upgrade_raw_conf(RawOverrideConf1).
 
 tx_commit_table_status() ->
     TablesStatus = emqx_cluster_rpc:get_tables_status(),

@@ -84,7 +84,14 @@ on_delivery_completed(Msg, Info) ->
             ok;
         SubscriberRef ->
             ReasonCode = maps:get(reason_code, Info, ?RC_SUCCESS),
-            ok = with_sub(SubscriberRef, handle_ack, [Msg, ack_from_rc(ReasonCode)])
+            case with_sub(SubscriberRef, handle_ack, [Msg, ack_from_rc(ReasonCode)]) of
+                ok ->
+                    ok;
+                not_found ->
+                    ?tp_debug(mq_on_delivery_completed_sub_not_found, #{
+                        subscriber_ref => SubscriberRef
+                    })
+            end
     end.
 
 on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = _FullTopic, _SubOpts) ->

@@ -1585,7 +1585,8 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     ClusterOpts = #{work_dir => WorkDir},
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
     Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
-    erpc:multicall(Nodes, emqx_persistent_message, wait_readiness, [5_000], infinity),
+    ExpectedOk = lists:duplicate(length(Nodes), {ok, ok}),
+    ExpectedOk = erpc:multicall(Nodes, emqx_persistent_message, wait_readiness, [15_000], infinity),
     [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config].
 
 stop_cluster_ds(Config) ->
