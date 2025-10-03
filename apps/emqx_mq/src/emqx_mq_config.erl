@@ -9,8 +9,16 @@
     mq_to_raw_get/1,
     mq_update_from_raw_put/1,
     raw_api_config/0,
-    update_config/1
+    update_config/1,
+    is_enabled/0
 ]).
+
+-export([
+    pre_config_update/3,
+    post_config_update/5
+]).
+
+-define(MQ_CONFIG_PATH, [mq]).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -53,9 +61,30 @@ update_config(UpdateRequest0) ->
         override_to => cluster
     }).
 
+-spec is_enabled() -> boolean().
+is_enabled() ->
+    emqx:get_config(?MQ_CONFIG_PATH ++ [enable]).
+
+%%------------------------------------------------------------------------------
+%% Config hooks
+%%------------------------------------------------------------------------------
+
+pre_config_update(?MQ_CONFIG_PATH, NewConf, _OldConf) ->
+    {ok, NewConf}.
+
+post_config_update(?MQ_CONFIG_PATH, _Request, NewConf, OldConf, _AppEnvs) ->
+    maybe_enable(NewConf, OldConf).
+
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+maybe_enable(#{enable := Enable} = _NewConf, #{enable := Enable} = _OldConf) ->
+    ok;
+maybe_enable(#{enable := false} = _NewConf, #{enable := true} = _OldConf) ->
+    {error, #{reason => cannot_disable_mq_in_runtime}};
+maybe_enable(#{enable := true} = _NewConf, #{enable := false} = _OldConf) ->
+    ok = emqx_mq_app:do_start().
 
 binary_key_map(Map) ->
     maps:fold(

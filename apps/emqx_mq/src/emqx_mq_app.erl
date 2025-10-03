@@ -4,7 +4,10 @@
 
 -module(emqx_mq_app).
 -moduledoc """
-Application startup is separated in 2 phases, both of them are orchestrated
+Application may start in disabled state, and be enabled later.
+When enabled, actual startup is triggered.
+
+The startup is separated in 2 phases, both of them are orchestrated
 by this module:
 1. Initialization: setting up supervision tree, creating DBs.
 2. Post-start: awaiting DBs readiness, starting rest of the supervision tree
@@ -22,7 +25,7 @@ to wait for a certain number of replicas.
 
 -behaviour(application).
 
--export([start/2, stop/1]).
+-export([start/2, stop/1, do_start/0]).
 -export([is_ready/0, wait_readiness/1]).
 
 -export([start_link_post_start/0]).
@@ -33,14 +36,20 @@ to wait for a certain number of replicas.
 %% Behaviour callbacks
 
 start(_StartType, _StartArgs) ->
+    {ok, Sup} = emqx_mq_sup:start_link(),
+    emqx_conf:add_handler([mq], emqx_mq_config),
+    emqx_mq_config:is_enabled() andalso do_start(),
+    {ok, Sup}.
+
+do_start() ->
     ok = mria:wait_for_tables(emqx_mq_registry:create_tables()),
     ok = emqx_mq_message_db:open(),
     ok = emqx_mq_state_storage:open_db(),
-    {ok, Sup} = emqx_mq_sup:start_link(),
     {ok, _} = emqx_mq_sup:start_post_starter({?MODULE, start_link_post_start, []}),
-    {ok, Sup}.
+    ok.
 
 stop(_State) ->
+    ok = emqx_conf:remove_handler([mq]),
     ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_mq:unregister_hooks(),
     ok = emqx_mq_message_db:close(),

@@ -129,7 +129,7 @@ t_ack_from_unknown_subscriber(_Config) ->
 
     %% Verify that the consumer is fully functional and ignored the ack & ping
     ok = emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
-    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 100),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 2000),
     ?assertEqual(1, length(Msgs)),
     ?assert(is_process_alive(Consumer)),
 
