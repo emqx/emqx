@@ -18,7 +18,7 @@
 -module(emqx_utils_agent).
 
 %% API
--export([start_link/1, get/1, get_and_update/2]).
+-export([start_link/1, get/1, get_and_update/2, update/2, set/2]).
 
 %% `gen_server' API
 -export([init/1, handle_call/3]).
@@ -30,6 +30,7 @@
 -type state() :: term().
 
 -type get_and_update_fn() :: fun((state()) -> {term(), state()}).
+-type update_fn() :: fun((state()) -> state()).
 
 -record(get_and_update, {fn :: get_and_update_fn()}).
 
@@ -48,6 +49,16 @@ get(ServerRef) ->
 
 -spec get_and_update(gen_server:server_ref(), get_and_update_fn()) -> term().
 get_and_update(ServerRef, Fn) ->
+    gen_server:call(ServerRef, #get_and_update{fn = Fn}).
+
+-spec update(gen_server:server_ref(), update_fn()) -> ok.
+update(ServerRef, Fn0) ->
+    Fn = fun(St) -> {ok, Fn0(St)} end,
+    gen_server:call(ServerRef, #get_and_update{fn = Fn}).
+
+-spec set(gen_server:server_ref(), term()) -> ok.
+set(ServerRef, X) ->
+    Fn = fun(_St) -> {ok, X} end,
     gen_server:call(ServerRef, #get_and_update{fn = Fn}).
 
 %%------------------------------------------------------------------------------
