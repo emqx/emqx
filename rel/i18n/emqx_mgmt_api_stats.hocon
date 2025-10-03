@@ -1,92 +1,92 @@
 emqx_mgmt_api_stats {
 
 emqx_stats.desc:
-"""EMQX stats"""
+"""EMQX stats."""
 emqx_stats.label:
-"""EMQX stats"""
+"""EMQX Stats"""
 
-api_rsp_200.desc: "OK"
+api_rsp_200.desc: "OK."
 api_rsp_200.label: "OK"
 
 aggregate.desc: "Set to 'true' to aggregate data from cluster nodes."
 aggregate.label: "Aggregate"
 
-node_name.label: "EMQX Node Name"
-node_name.desc: "EMQX node name. For example, emqx@172.18.0.2"
+node_name.label: "Node Name"
+node_name.desc: "EMQX node name. For example, emqx@172.18.0.2."
 
-channels_count.desc: "sessions.count"
-channels_count.label: "sessions.count"
+channels_count.desc: "Number of current sessions."
+channels_count.label: "Sessions Count"
 
-channels_max.desc: "session.max"
-channels_max.label: "session.max"
+channels_max.desc: "Historical maximum number of sessions."
+channels_max.label: "Sessions Max"
 
-connections_count.desc: "Number of current connections"
-connections_count.label: "Number of current connections"
+connections_count.desc: "Number of current connections."
+connections_count.label: "Connections Count"
 
-connections_max.desc: "Historical maximum number of connections"
-connections_max.label: "Historical maximum number of connections"
+connections_max.desc: "Historical maximum number of connections."
+connections_max.label: "Connections Max"
 
-delayed_count.desc: "Number of delayed messages"
-delayed_count.label: "Number of delayed messages"
+delayed_count.desc: "Number of delayed messages."
+delayed_count.label: "Delayed Count"
 
-delayed_max.desc: "Historical maximum number of delayed messages"
-delayed_max.label: "Historical maximum number of delayed messages"
+delayed_max.desc: "Historical maximum number of delayed messages."
+delayed_max.label: "Delayed Max"
 
-live_connections_count.desc: "Number of current live connections"
-live_connections_count.label: "Number of current live connections"
+live_connections_count.desc: "Number of current live connections."
+live_connections_count.label: "Live Connections Count"
 
-live_connections_max.desc: "Historical maximum number of live connections"
-live_connections_max.label: "Historical maximum number of live connections"
+live_connections_max.desc: "Historical maximum number of live connections."
+live_connections_max.label: "Live Connections Max"
 
-cluster_sessions_count.desc: "Number of sessions in the cluster"
-cluster_sessions_count.label: "Number of sessions in the cluster"
+cluster_sessions_count.desc: "Number of sessions in the cluster."
+cluster_sessions_count.label: "Cluster Sessions Count"
 
-cluster_sessions_max.desc: "Historical maximum number of sessions in the cluster"
-cluster_sessions_max.label: "Historical maximum number of sessions in the cluster"
+cluster_sessions_max.desc: "Historical maximum number of sessions in the cluster."
+cluster_sessions_max.label: "Cluster Sessions Max"
 
-retained_count.desc: "Number of currently retained messages"
-retained_count.label: "Number of currently retained messages"
+retained_count.desc: "Number of currently retained messages."
+retained_count.label: "Retained Count"
 
-retained_max.desc: "Historical maximum number of retained messages"
-retained_max.label: "Historical maximum number of retained messages"
+retained_max.desc: "Historical maximum number of retained messages."
+retained_max.label: "Retained Max"
 
-sessions_count.desc: "Number of current sessions"
-sessions_count.label: "Number of current sessions"
+sessions_count.desc: "Number of current sessions."
+sessions_count.label: "Sessions Count"
 
-sessions_max.desc: "Historical maximum number of sessions"
-sessions_max.label: "Historical maximum number of sessions"
+sessions_max.desc: "Historical maximum number of sessions."
+sessions_max.label: "Sessions Max"
 
-suboptions_count.desc: "subscriptions.count"
-suboptions_count.label: "subscriptions.count"
+suboptions_count.desc: "Number of current subscriptions."
+suboptions_count.label: "Subscriptions Count"
 
-suboptions_max.desc: "subscriptions.max"
-suboptions_max.label: "subscriptions.max"
+suboptions_max.desc: "Historical maximum number of subscriptions."
+suboptions_max.label: "Subscriptions Max"
 
-subscribers_count.desc: "Number of current subscribers"
-subscribers_count.label: "Number of current subscribers"
+subscribers_count.desc: "Number of current subscribers."
+subscribers_count.label: "Subscribers Count"
 
-subscribers_max.desc: "Historical maximum number of subscribers"
-subscribers_max.label: "Historical maximum number of subscribers"
+subscribers_max.desc: "Historical maximum number of subscribers."
+subscribers_max.label: "Subscribers Max"
 
-subscriptions_count.desc: "Number of current subscriptions, including shared subscriptions, but not subscriptions from durable sessions"
-subscriptions_count.label: "Number of current subscriptions, including shared subscriptions, but not subscriptions from durable sessions"
+subscriptions_count.desc: "Number of current subscriptions, including shared subscriptions, but not subscriptions from durable sessions."
+subscriptions_count.label: "Subscriptions Count"
 
-subscriptions_max.desc: "Historical maximum number of subscriptions"
-subscriptions_max.label: "Historical maximum number of subscriptions"
+subscriptions_max.desc: "Historical maximum number of subscriptions."
+subscriptions_max.label: "Subscriptions Max"
 
-subscriptions_shared_count.desc: "Number of current shared subscriptions"
-subscriptions_shared_count.label: "Number of current shared subscriptions"
+subscriptions_shared_count.desc: "Number of current shared subscriptions."
+subscriptions_shared_count.label: "Shared Subscriptions Count"
 
-subscriptions_shared_max.desc: "Historical maximum number of shared subscriptions"
-subscriptions_shared_max.label: "Historical maximum number of shared subscriptions"
+subscriptions_shared_max.desc: "Historical maximum number of shared subscriptions."
+subscriptions_shared_max.label: "Shared Subscriptions Max"
 
-topics_count.desc: "Number of current topics"
-topics_count.label: "Number of current topics"
+topics_count.desc: "Number of current topics."
+topics_count.label: "Topics Count"
 
-topics_max.desc: "Historical maximum number of topics"
-topics_max.label: "Historical maximum number of topics"
+topics_max.desc: "Historical maximum number of topics."
+topics_max.label: "Topics Max"
 
-durable_subscriptions_count.desc: "Number of current subscriptions from durable sessions in the cluster"
-durable_subscriptions_count.label: "Number of current subscriptions from durable sessions in the cluster"
+durable_subscriptions_count.desc: "Number of current subscriptions from durable sessions in the cluster."
+durable_subscriptions_count.label: "Durable Subscriptions Count"
 
 }
