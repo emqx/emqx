@@ -6,6 +6,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 -include_lib("erlavro/include/erlavro.hrl").
@@ -78,7 +79,7 @@ schema("/plugins") ->
     #{
         'operationId' => list_plugins,
         get => #{
-            summary => <<"List all installed plugins">>,
+            summary => ?DESC("list_plugins"),
             description =>
                 "Plugins are launched in top-down order.<br/>"
                 "Use `POST /plugins/{name}/move` to change the boot order.",
@@ -93,7 +94,7 @@ schema("/plugins/install") ->
         'operationId' => upload_install,
         filter => fun ?MODULE:validate_file_name/2,
         post => #{
-            summary => <<"Install a new plugin">>,
+            summary => ?DESC("install_plugin"),
             description =>
                 "Upload a plugin tarball (plugin-vsn.tar.gz)."
                 "Follow [emqx-plugin-template](https://github.com/emqx/emqx-plugin-template) "
@@ -113,7 +114,7 @@ schema("/plugins/install") ->
                 }
             },
             responses => #{
-                204 => <<"Install plugin successfully">>,
+                204 => ?DESC("install_success"),
                 400 => emqx_dashboard_swagger:error_codes(
                     [
                         'UNEXPECTED_ERROR',
@@ -130,24 +131,24 @@ schema("/plugins/:name") ->
     #{
         'operationId' => plugin,
         get => #{
-            summary => <<"Get a plugin description">>,
+            summary => ?DESC("get_plugin"),
             description => "Describe a plugin according to its `release.json` and `README.md`.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => hoconsc:ref(plugin),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
             }
         },
         delete => #{
-            summary => <<"Delete a plugin">>,
+            summary => ?DESC("delete_plugin"),
             description => "Uninstalls a previously uploaded plugin package.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
-                204 => <<"Uninstall successfully">>,
-                400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], <<"Bad parameter">>),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+                204 => ?DESC("uninstall_success"),
+                400 => emqx_dashboard_swagger:error_codes(['PARAM_ERROR'], ?DESC("bad_parameter")),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
             }
         }
     };
@@ -155,7 +156,7 @@ schema("/plugins/:name/:action") ->
     #{
         'operationId' => update_plugin,
         put => #{
-            summary => <<"Trigger action on an installed plugin">>,
+            summary => ?DESC("trigger_action"),
             description =>
                 "start/stop a installed plugin.<br/>"
                 "- **start**: start the plugin.<br/>"
@@ -163,11 +164,12 @@ schema("/plugins/:name/:action") ->
             tags => ?TAGS,
             parameters => [
                 hoconsc:ref(name),
-                {action, hoconsc:mk(hoconsc:enum([start, stop]), #{desc => "Action", in => path})}
+                {action,
+                    hoconsc:mk(hoconsc:enum([start, stop]), #{desc => ?DESC("action"), in => path})}
             ],
             responses => #{
-                204 => <<"Trigger action successfully">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+                204 => ?DESC("trigger_success"),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
             }
         }
     };
@@ -175,7 +177,7 @@ schema("/plugins/:name/config") ->
     #{
         'operationId' => plugin_config,
         get => #{
-            summary => <<"Get plugin config">>,
+            summary => ?DESC("get_plugin_config"),
             description =>
                 "Get plugin config. Config schema is defined by user's schema.avsc file.<br/>",
             tags => ?TAGS,
@@ -184,14 +186,14 @@ schema("/plugins/:name/config") ->
                 %% avro data, json encoded
                 200 => hoconsc:mk(binary()),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_CONFIG'], <<"Plugin Config Not Found">>
+                    ['BAD_CONFIG'], ?DESC("plugin_config_not_found")
                 ),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
             }
         },
         put => #{
             summary =>
-                <<"Update plugin config">>,
+                ?DESC("update_plugin_config"),
             description =>
                 "Update plugin config. Config schema defined by user's schema.avsc file.<br/>",
             tags => ?TAGS,
@@ -206,12 +208,14 @@ schema("/plugins/:name/config") ->
                 }
             },
             responses => #{
-                204 => <<"Config updated successfully">>,
+                204 => ?DESC("config_updated"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], <<"Update plugin config failed">>
+                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
                 ),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>),
-                500 => emqx_dashboard_swagger:error_codes(['INTERNAL_ERROR'], <<"Internal Error">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                500 => emqx_dashboard_swagger:error_codes(
+                    ['INTERNAL_ERROR'], ?DESC("internal_error")
+                )
             }
         }
     };
@@ -219,16 +223,16 @@ schema("/plugins/:name/config/download") ->
     #{
         'operationId' => download_plugin_config,
         get => #{
-            summary => <<"Download plugin config">>,
+            summary => ?DESC("download_plugin_config"),
             description => "Download plugin config",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => hoconsc:mk(binary()),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_CONFIG'], <<"Plugin Config Not Found">>
+                    ['BAD_CONFIG'], ?DESC("plugin_config_not_found")
                 ),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found"))
             }
         }
     };
@@ -237,7 +241,7 @@ schema("/plugins/:name/config/upload") ->
         'operationId' => upload_plugin_config,
         post => #{
             summary =>
-                <<"Upload plugin config">>,
+                ?DESC("upload_plugin_config"),
             description => "Upload plugin config",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -255,12 +259,14 @@ schema("/plugins/:name/config/upload") ->
                 }
             },
             responses => #{
-                204 => <<"Config updated successfully">>,
+                204 => ?DESC("config_updated"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], <<"Update plugin config failed">>
+                    ['BAD_CONFIG', 'UNEXPECTED_ERROR'], ?DESC("update_config_failed")
                 ),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Plugin Not Found">>),
-                500 => emqx_dashboard_swagger:error_codes(['INTERNAL_ERROR'], <<"Internal Error">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("plugin_not_found")),
+                500 => emqx_dashboard_swagger:error_codes(
+                    ['INTERNAL_ERROR'], ?DESC("internal_error")
+                )
             }
         }
     };
@@ -268,7 +274,7 @@ schema("/plugins/:name/schema") ->
     #{
         'operationId' => plugin_schema,
         get => #{
-            summary => <<"Get installed plugin's AVRO schema">>,
+            summary => ?DESC("get_plugin_schema"),
             description => "Get plugin's config AVRO schema.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -277,7 +283,7 @@ schema("/plugins/:name/schema") ->
                 200 => hoconsc:mk(binary()),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND', 'FILE_NOT_EXISTED'],
-                    <<"Plugin Not Found or Plugin not given a schema file">>
+                    ?DESC("plugin_not_found")
                 )
             }
         }
@@ -286,14 +292,14 @@ schema("/plugins/:name/move") ->
     #{
         'operationId' => update_boot_order,
         post => #{
-            summary => <<"Move plugin within plugin hierarchy">>,
+            summary => ?DESC("move_plugin"),
             description => "Setting the boot order of plugins.",
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             'requestBody' => move_request_body(),
             responses => #{
-                204 => <<"Boot order changed successfully">>,
-                400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], <<"Move failed">>)
+                204 => ?DESC("boot_order_changed"),
+                400 => emqx_dashboard_swagger:error_codes(['MOVE_FAILED'], ?DESC("move_failed"))
             }
         }
     };
@@ -301,18 +307,18 @@ schema("/plugins/cluster_sync") ->
     #{
         'operationId' => sync_plugin,
         post => #{
-            summary => <<"Sync specific version of plugin to cluster">>,
+            summary => ?DESC("sync_plugin"),
             description =>
                 "Forces a plugin to be synced to the cluster and removes other versions of the plugin.",
             tags => ?TAGS,
             'requestBody' => sync_request_body(),
             responses => #{
-                204 => <<"Sync plugin successfully">>,
+                204 => ?DESC("sync_success"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_PLUGIN_INFO'], <<"Bad Plugin Name Vsn">>
+                    ['BAD_PLUGIN_INFO'], ?DESC("bad_plugin_info")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Plugin Not Found">>
+                    ['NOT_FOUND'], ?DESC("plugin_not_found")
                 )
             }
         }
@@ -324,32 +330,42 @@ fields(plugin) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Name-Vsn: without .tar.gz",
+                    desc => ?DESC("plugin_name"),
                     validator => fun ?MODULE:validate_name/1,
                     required => true,
                     example => "emqx_plugin_template-5.0-rc.1"
                 }
             )},
-        {author, hoconsc:mk(list(string()), #{example => [<<"EMQX Team">>]})},
+        {author,
+            hoconsc:mk(list(string()), #{
+                desc => ?DESC("plugin_author"), example => [<<"EMQX Team">>]
+            })},
         {builder, hoconsc:ref(?MODULE, builder)},
-        {built_on_otp_release, hoconsc:mk(string(), #{example => "24"})},
-        {compatibility, hoconsc:mk(map(), #{example => #{<<"emqx">> => <<"~>5.0">>}})},
+        {built_on_otp_release,
+            hoconsc:mk(string(), #{desc => ?DESC("built_on_otp_release"), example => "24"})},
+        {compatibility,
+            hoconsc:mk(map(), #{
+                desc => ?DESC("compatibility"), example => #{<<"emqx">> => <<"~>5.0">>}
+            })},
         {git_commit_or_build_date,
             hoconsc:mk(string(), #{
                 example => "2021-12-25",
-                desc =>
-                    "Last git commit date by `git log -1 --pretty=format:'%cd' "
-                    "--date=format:'%Y-%m-%d`.\n"
-                    " If the last commit date is not available, the build date will be presented."
+                desc => ?DESC("git_commit_or_build_date")
             })},
-        {functionality, hoconsc:mk(hoconsc:array(string()), #{example => [<<"Demo">>]})},
-        {git_ref, hoconsc:mk(string(), #{example => "ddab50fafeed6b1faea70fc9ffd8c700d7e26ec1"})},
-        {metadata_vsn, hoconsc:mk(string(), #{example => "0.1.0"})},
+        {functionality,
+            hoconsc:mk(hoconsc:array(string()), #{
+                desc => ?DESC("functionality"), example => [<<"Demo">>]
+            })},
+        {git_ref,
+            hoconsc:mk(string(), #{
+                desc => ?DESC("git_ref"), example => "ddab50fafeed6b1faea70fc9ffd8c700d7e26ec1"
+            })},
+        {metadata_vsn, hoconsc:mk(string(), #{desc => ?DESC("metadata_vsn"), example => "0.1.0"})},
         {rel_vsn,
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Plugins release version",
+                    desc => ?DESC("rel_vsn"),
                     required => true,
                     example => <<"5.0-rc.1">>
                 }
@@ -358,17 +374,20 @@ fields(plugin) ->
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
-                    desc => "Aplications in plugin.",
+                    desc => ?DESC("rel_apps"),
                     required => true,
                     example => [<<"emqx_plugin_template-5.0.0">>, <<"map_sets-1.1.0">>]
                 }
             )},
-        {repo, hoconsc:mk(string(), #{example => "https://github.com/emqx/emqx-plugin-template"})},
+        {repo,
+            hoconsc:mk(string(), #{
+                desc => ?DESC("repo"), example => "https://github.com/emqx/emqx-plugin-template"
+            })},
         {description,
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => "Plugin description.",
+                    desc => ?DESC("description"),
                     required => true,
                     example => "This is an demo plugin description"
                 }
@@ -376,20 +395,24 @@ fields(plugin) ->
         {running_status,
             hoconsc:mk(
                 hoconsc:array(hoconsc:ref(running_status)),
-                #{required => true}
+                #{desc => ?DESC("running_status"), required => true}
             )},
         {readme,
             hoconsc:mk(binary(), #{
                 example => "This is an demo plugin.",
-                desc => "only return when `GET /plugins/{name}`.",
+                desc => ?DESC("readme"),
                 required => false
             })},
         {health_status, hoconsc:ref(?MODULE, health_status)}
     ];
 fields(health_status) ->
     [
-        {status, hoconsc:mk(hoconsc:enum([ok, error]), #{example => error})},
-        {message, hoconsc:mk(binary(), #{example => <<"Port unavailable: 3306">>})}
+        {status,
+            hoconsc:mk(hoconsc:enum([ok, error]), #{desc => ?DESC("status"), example => error})},
+        {message,
+            hoconsc:mk(binary(), #{
+                desc => ?DESC("message"), example => <<"Port unavailable: 3306">>
+            })}
     ];
 fields(name) ->
     [
@@ -397,7 +420,7 @@ fields(name) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => list_to_binary(?NAME_RE),
+                    desc => ?DESC("plugin_name"),
                     example => "emqx_plugin_template-5.0-rc.1",
                     in => path,
                     validator => fun ?MODULE:validate_name/1
@@ -406,9 +429,13 @@ fields(name) ->
     ];
 fields(builder) ->
     [
-        {contact, hoconsc:mk(string(), #{example => "emqx-support@emqx.io"})},
-        {name, hoconsc:mk(string(), #{example => "EMQX Team"})},
-        {website, hoconsc:mk(string(), #{example => "www.emqx.com"})}
+        {contact,
+            hoconsc:mk(string(), #{
+                desc => ?DESC("plugin_builder"), example => "emqx-support@emqx.io"
+            })},
+        {name, hoconsc:mk(string(), #{desc => ?DESC("plugin_builder"), example => "EMQX Team"})},
+        {website,
+            hoconsc:mk(string(), #{desc => ?DESC("plugin_builder"), example => "www.emqx.com"})}
     ];
 fields(position) ->
     [
@@ -416,14 +443,7 @@ fields(position) ->
             hoconsc:mk(
                 hoconsc:union([front, rear, binary()]),
                 #{
-                    desc =>
-                        ""
-                        "\n"
-                        "             Enable auto-boot at position in the boot list, where Position could be\n"
-                        "             'front', 'rear', or 'before:other-vsn', 'after:other-vsn'\n"
-                        "             to specify a relative position.\n"
-                        "            "
-                        "",
+                    desc => ?DESC("position"),
                     required => false
                 }
             )}
@@ -432,19 +452,17 @@ fields(sync_request) ->
     [
         {name,
             hoconsc:mk(string(), #{
+                desc => ?DESC("sync_request"),
                 example => "emqx_plugin_demo-5.1-rc.2",
                 required => true
             })}
     ];
 fields(running_status) ->
     [
-        {node, hoconsc:mk(string(), #{example => "emqx@127.0.0.1"})},
+        {node, hoconsc:mk(string(), #{desc => ?DESC("node"), example => "emqx@127.0.0.1"})},
         {status,
             hoconsc:mk(hoconsc:enum([running, stopped]), #{
-                desc =>
-                    "Install plugin status at runtime<br/>"
-                    "1. running: plugin is running.<br/>"
-                    "2. stopped: plugin is stopped.<br/>"
+                desc => ?DESC("status")
             })}
     ].
 
@@ -453,19 +471,19 @@ move_request_body() ->
         hoconsc:ref(?MODULE, position),
         #{
             move_to_front => #{
-                summary => <<"move plugin on the front">>,
+                summary => ?DESC("move_plugin"),
                 value => #{position => <<"front">>}
             },
             move_to_rear => #{
-                summary => <<"move plugin on the rear">>,
+                summary => ?DESC("move_plugin"),
                 value => #{position => <<"rear">>}
             },
             move_to_before => #{
-                summary => <<"move plugin before other plugins">>,
+                summary => ?DESC("move_plugin"),
                 value => #{position => <<"before:emqx_plugin_demo-5.1-rc.2">>}
             },
             move_to_after => #{
-                summary => <<"move plugin after other plugins">>,
+                summary => ?DESC("move_plugin"),
                 value => #{position => <<"after:emqx_plugin_demo-5.1-rc.2">>}
             }
         }
@@ -476,7 +494,7 @@ sync_request_body() ->
         hoconsc:ref(?MODULE, sync_request),
         #{
             sync_from_node => #{
-                summary => <<"sync specific version of plugin to cluster">>,
+                summary => ?DESC("sync_plugin"),
                 value => #{name => <<"emqx_plugin_demo-5.1-rc.2">>}
             }
         }
