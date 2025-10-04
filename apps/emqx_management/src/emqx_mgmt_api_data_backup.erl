@@ -22,6 +22,11 @@
     data_file_by_name/2
 ]).
 
+%% Smoke test
+-export([
+    check_desc/0
+]).
+
 -define(TAGS, [<<"Data Backup">>]).
 -define(BPAPI_NAME, emqx_mgmt_data_backup).
 
@@ -463,3 +468,35 @@ files_response_example() ->
             count => 300
         }
     }.
+
+%% This function is called when running smoke test.
+check_desc() ->
+    Current = lists:sort(emqx_mgmt_data_backup:all_table_set_names()),
+    {ok, Map} = hocon:load(filename:join([code:priv_dir(emqx_dashboard), "desc.en.hocon"])),
+    DescPath = "emqx_mgmt_api_data_backup.table_sets",
+    Desc = maps:get(<<"desc">>, hocon_maps:deep_get(DescPath, Map, map)),
+    DescLines = binary:split(Desc, <<"\n">>, [global]),
+    Matched = lists:filter(
+        fun(Line) ->
+            re:run(Line, <<"^\\s*-\\s*`[a-zA-Z0-9_]+`:">>, [unicode]) =/= nomatch
+        end,
+        DescLines
+    ),
+    %% Extract just the table set names (the part inside backticks)
+    Documented = lists:sort(
+        lists:map(
+            fun(Line) ->
+                case re:run(Line, <<"`([a-zA-Z0-9_]+)`">>, [{capture, [1], binary}, unicode]) of
+                    {match, [Name]} -> Name;
+                    _ -> <<>>
+                end
+            end,
+            Matched
+        )
+    ),
+    Current =:= Documented orelse
+        error(#{
+            reason => "table_sets_desc_needs_update",
+            documented => Documented,
+            current => Current
+        }).

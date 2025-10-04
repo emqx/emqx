@@ -140,6 +140,7 @@ jobs:
         ./emqx/bin/emqx ping
         ./emqx/bin/emqx help
         ./emqx/bin/emqx ctl status
+        ./emqx/bin/emqx eval 'emqx_conf:check_dynamic_desc()'
         ./emqx/bin/emqx stop || cat emqx/log/erlang.log.1
 
   linux:

@@ -21,6 +21,9 @@
 -export([dump_schema/2, reformat_schema_dump/2]).
 -export([schema_module/0]).
 
+%% Smoke test
+-export([check_dynamic_desc/0]).
+
 %% DEPRECATED: Unused RPC target for `emqx_conf_proto_v{1..4}`.
 -export([get_node_and_config/1]).
 
@@ -502,3 +505,6 @@ to_bin(List) when is_list(List) -> iolist_to_binary(List);
 to_bin(Boolean) when is_boolean(Boolean) -> Boolean;
 to_bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8);
 to_bin(X) -> X.
+
+check_dynamic_desc() ->
+    true = emqx_mgmt_api_data_backup:check_desc().
