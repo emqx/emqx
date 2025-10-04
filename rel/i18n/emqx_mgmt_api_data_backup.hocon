@@ -1,0 +1,122 @@
+emqx_mgmt_api_data_backup {
+
+data_export.desc:
+"""Export a data backup file."""
+data_export.label:
+"""Export Data Backup"""
+
+data_import.desc:
+"""Import a data backup file."""
+data_import.label:
+"""Import Data Backup"""
+
+upload_backup_file.desc:
+"""Upload a data backup file."""
+upload_backup_file.label:
+"""Upload Backup File"""
+
+list_backup_files.desc:
+"""List backup files."""
+list_backup_files.label:
+"""List Backup Files"""
+
+download_backup_file.desc:
+"""Download a data backup file."""
+download_backup_file.label:
+"""Download Backup File"""
+
+delete_backup_file.desc:
+"""Delete a data backup file."""
+delete_backup_file.label:
+"""Delete Backup File"""
+
+node_name.desc:
+"""Node name."""
+node_name.label:
+"""Node Name"""
+
+filename.desc:
+"""Data backup file name."""
+filename.label:
+"""Filename"""
+
+created_at.desc:
+"""Data backup file creation date and time."""
+created_at.label:
+"""Created At"""
+
+table_sets.desc: """~
+Table sets to export. Supported values are:
+  - `api_keys`: REST API keys.
+  - `banned`: Banned MQTT clients.
+  - `builtin_authn`: Builtin authentication tables.
+  - `builtin_authz`: Builtin authorization tables.
+  - `builtin_retainer`: Retained messages.
+  - `dashboard_users`: Dashboard login users.
+  - `mt`: Multi-tenancy tables.
+  - `psk`: PSK authentication tables.
+Exports all table sets if omitted.~"""
+table_sets.label:
+"""Table Sets"""
+
+root_keys.desc:
+"""Sets of root configuration keys to export. Exports all if omitted."""
+root_keys.label:
+"""Root Keys"""
+
+file_content.desc:
+"""Data backup file content."""
+file_content.label:
+"""File Content"""
+
+invalid_table_sets.desc:
+"""Invalid table sets."""
+invalid_table_sets.label:
+"""Invalid Table Sets"""
+
+invalid_root_keys.desc:
+"""Invalid root keys."""
+invalid_root_keys.label:
+"""Invalid Root Keys"""
+
+export_error.desc:
+"""Error processing export."""
+export_error.label:
+"""Export Error"""
+
+import_failed.desc:
+"""Backup file import failed."""
+import_failed.label:
+"""Import Failed"""
+
+bad_backup_file.desc:
+"""Bad backup file."""
+bad_backup_file.label:
+"""Bad Backup File"""
+
+backup_file_not_found.desc:
+"""Backup file not found."""
+backup_file_not_found.label:
+"""Backup File Not Found"""
+
+bad_request.desc:
+"""Bad request."""
+bad_request.label:
+"""Bad Request"""
+
+no_content.desc:
+"""No Content."""
+no_content.label:
+"""No Content"""
+
+missing_filename.desc:
+"""Missing required parameter: filename."""
+missing_filename.label:
+"""Missing Filename"""
+
+page_limit_invalid.desc:
+"""Invalid page limit."""
+page_limit_invalid.label:
+"""Page Limit Invalid"""
+
+}
