@@ -43,7 +43,7 @@ schema("/data/export") ->
         'operationId' => data_export,
         post => #{
             tags => ?TAGS,
-            desc => <<"Export a data backup file">>,
+            desc => ?DESC("data_export"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ?R_REF(export_request_body),
                 export_request_example()
@@ -55,10 +55,10 @@ schema("/data/export") ->
                         backup_file_info_example()
                     ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST], <<"Invalid table sets: bar, foo">>
+                    [?BAD_REQUEST], ?DESC("invalid_table_sets")
                 ),
                 500 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST], <<"Error processing export: ...">>
+                    [?BAD_REQUEST], ?DESC("export_error")
                 )
             }
         }
@@ -68,7 +68,7 @@ schema("/data/import") ->
         'operationId' => data_import,
         post => #{
             tags => ?TAGS,
-            desc => <<"Import a data backup file">>,
+            desc => ?DESC("data_import"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ?R_REF(import_request_body),
                 maps:with([node, filename], backup_file_info_example())
@@ -77,7 +77,7 @@ schema("/data/import") ->
             responses => #{
                 204 => <<"No Content">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST], <<"Backup file import failed">>
+                    [?BAD_REQUEST], ?DESC("import_failed")
                 )
             }
         }
@@ -87,18 +87,18 @@ schema("/data/files") ->
         'operationId' => data_files,
         post => #{
             tags => ?TAGS,
-            desc => <<"Upload a data backup file">>,
+            desc => ?DESC("upload_backup_file"),
             'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
                 204 => <<"No Content">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST], <<"Bad backup file">>
+                    [?BAD_REQUEST], ?DESC("bad_backup_file")
                 )
             }
         },
         get => #{
             tags => ?TAGS,
-            desc => <<"List backup files">>,
+            desc => ?DESC("list_backup_files"),
             parameters => [
                 ?R_REF(emqx_dashboard_swagger, page),
                 ?R_REF(emqx_dashboard_swagger, limit)
@@ -117,7 +117,7 @@ schema("/data/files/:filename") ->
         'operationId' => data_file_by_name,
         get => #{
             tags => ?TAGS,
-            desc => <<"Download a data backup file">>,
+            desc => ?DESC("download_backup_file"),
             parameters => [
                 field_filename(true, #{in => path}),
                 field_node(false, #{in => query})
@@ -125,16 +125,16 @@ schema("/data/files/:filename") ->
             responses => #{
                 200 => ?HOCON(binary),
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST], <<"Bad request">>
+                    [?BAD_REQUEST], ?DESC("bad_request")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    [?NOT_FOUND], <<"Backup file not found">>
+                    [?NOT_FOUND], ?DESC("backup_file_not_found")
                 )
             }
         },
         delete => #{
             tags => ?TAGS,
-            desc => <<"Delete a data backup file">>,
+            desc => ?DESC("delete_backup_file"),
             parameters => [
                 field_filename(true, #{in => path}),
                 field_node(false, #{in => query})
@@ -142,10 +142,10 @@ schema("/data/files/:filename") ->
             responses => #{
                 204 => <<"No Content">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    [?BAD_REQUEST], <<"Bad request">>
+                    [?BAD_REQUEST], ?DESC("bad_request")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    [?NOT_FOUND], <<"Backup file not found">>
+                    [?NOT_FOUND], ?DESC("backup_file_not_found")
                 )
             }
         }
@@ -162,26 +162,18 @@ fields(backup_file_info) ->
         field_filename(true),
         {created_at,
             ?HOCON(binary(), #{
-                desc => "Data backup file creation date and time",
+                desc => ?DESC("created_at"),
                 required => true
             })}
     ];
 fields(export_request_body) ->
-    AllTableSetNames = emqx_mgmt_data_backup:all_table_set_names(),
-    TableSetsDesc = iolist_to_binary([
-        [
-            <<"Sets of tables to export. Exports all if omitted.">>,
-            <<" Valid values:\n\n">>
-        ]
-        | lists:map(fun(Name) -> ["- ", Name, $\n] end, AllTableSetNames)
-    ]),
     [
         {table_sets,
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
                     required => false,
-                    desc => TableSetsDesc
+                    desc => ?DESC("table_sets")
                 }
             )},
         {root_keys,
@@ -189,7 +181,7 @@ fields(export_request_body) ->
                 hoconsc:array(binary()),
                 #{
                     required => false,
-                    desc => <<"Sets of root configuration keys to export. Exports all if omitted.">>
+                    desc => ?DESC("root_keys")
                 }
             )}
     ];
@@ -200,7 +192,7 @@ fields(data_backup_file) ->
         field_filename(true),
         {file,
             ?HOCON(binary(), #{
-                desc => "Data backup file content",
+                desc => ?DESC("file_content"),
                 required => true
             })}
     ].
@@ -209,7 +201,7 @@ field_node(IsRequired) ->
     field_node(IsRequired, #{}).
 
 field_node(IsRequired, Meta) ->
-    {node, ?HOCON(binary(), Meta#{desc => "Node name", required => IsRequired})}.
+    {node, ?HOCON(binary(), Meta#{desc => ?DESC("node_name"), required => IsRequired})}.
 
 field_filename(IsRequired) ->
     field_filename(IsRequired, #{}).
@@ -217,7 +209,7 @@ field_filename(IsRequired) ->
 field_filename(IsRequired, Meta) ->
     {filename,
         ?HOCON(binary(), Meta#{
-            desc => "Data backup file name",
+            desc => ?DESC("filename"),
             required => IsRequired
         })}.
 
@@ -326,11 +318,11 @@ data_files(post, #{body := #{<<"filename">> := #{type := _} = File}}) ->
             {400, #{code => ?BAD_REQUEST, message => emqx_mgmt_data_backup:format_error(Reason)}}
     end;
 data_files(post, #{body := _}) ->
-    {400, #{code => ?BAD_REQUEST, message => "Missing required parameter: filename"}};
+    {400, #{code => ?BAD_REQUEST, message => ?DESC("missing_filename")}};
 data_files(get, #{query_string := PageParams}) ->
     case emqx_mgmt_api:parse_pager_params(PageParams) of
         false ->
-            {400, #{code => ?BAD_REQUEST, message => <<"page_limit_invalid">>}};
+            {400, #{code => ?BAD_REQUEST, message => ?DESC("page_limit_invalid")}};
         #{page := Page, limit := Limit} = Pager ->
             {Count, HasNext, Data} = list_backup_files(Page, Limit),
             {200, #{data => Data, meta => Pager#{count => Count, hasnext => HasNext}}}
