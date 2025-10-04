@@ -96,6 +96,7 @@ schema("/configs") ->
                         #{
                             in => query,
                             required => false,
+                            deprecated => {since, "5.2.0"},
                             description => ?DESC(node_name),
                             hidden => true
                         }
@@ -139,7 +140,7 @@ schema("/configs") ->
                     }
             },
             responses => #{
-                200 => <<"Configurations updated">>,
+                200 => ?DESC("configurations_updated"),
                 400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
@@ -167,12 +168,12 @@ schema("/configs_reset/:rootname") ->
                             in => query,
                             required => false,
                             example => <<"os.sysmem_high_watermark">>,
-                            desc => <<"The config path separated by '.' character">>
+                            desc => ?DESC("config_path_desc")
                         }
                     )}
             ],
             responses => #{
-                200 => <<"Rest config successfully">>,
+                200 => ?DESC("reset_config_success"),
                 400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'REST_FAILED']),
                 403 => emqx_dashboard_swagger:error_codes(['REST_FAILED'])
             }
@@ -199,32 +200,22 @@ schema("/configs/global_zone") ->
         }
     };
 schema(Path) ->
-    {RootKey, {_Root, Schema}} = find_schema(Path),
-    GetDesc = iolist_to_binary([
-        <<"Get the sub-configurations under *">>,
-        RootKey,
-        <<"*">>
-    ]),
-    PutDesc = iolist_to_binary([
-        <<"Update the sub-configurations under *">>,
-        RootKey,
-        <<"*">>
-    ]),
+    Schema = find_schema(Path),
+    GetDesc = ?DESC("get_sub_configurations"),
+    PutDesc = ?DESC("update_sub_configurations"),
     #{
         'operationId' => config,
         get => #{
             tags => ?TAGS,
-            desc => GetDesc,
-            summary => GetDesc,
+            description => GetDesc,
             responses => #{
                 200 => Schema,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"config not found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("config_not_found"))
             }
         },
         put => #{
             tags => ?TAGS,
-            desc => PutDesc,
-            summary => PutDesc,
+            description => PutDesc,
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
@@ -237,7 +228,8 @@ schema(Path) ->
 find_schema(Path) ->
     [_, _Prefix, Root | _] = string:split(Path, "/", all),
     Configs = config_list(),
-    lists:keyfind(list_to_binary(Root), 1, Configs).
+    {_RootKey, {_Root, Schema}} = lists:keyfind(list_to_binary(Root), 1, Configs),
+    Schema.
 
 %% we load all configs from emqx_*_schema, some of them are defined as local ref
 %% we need redirect to emqx_*_schema.
@@ -307,7 +299,7 @@ config_reset(post, _Params, Req) ->
         {ok, _} ->
             {200};
         {error, no_default_value} ->
-            {400, #{code => 'NO_DEFAULT_VALUE', message => <<"No Default Value.">>}};
+            {400, #{code => 'NO_DEFAULT_VALUE', message => ?DESC("no_default_value")}};
         {error, Reason} ->
             {400, #{code => 'REST_FAILED', message => ?ERR_MSG(Reason)}}
     end.
