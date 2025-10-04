@@ -486,10 +486,10 @@ check_desc() ->
     Documented = lists:sort(
         lists:map(
             fun(Line) ->
-                case re:run(Line, <<"`([a-zA-Z0-9_]+)`">>, [{capture, [1], binary}, unicode]) of
-                    {match, [Name]} -> Name;
-                    _ -> <<>>
-                end
+                {match, [Name]} = re:run(Line, <<"`([a-zA-Z0-9_]+)`">>, [
+                    {capture, [1], binary}, unicode
+                ]),
+                Name
             end,
             Matched
         )
