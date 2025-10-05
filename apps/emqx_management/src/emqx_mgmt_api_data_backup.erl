@@ -48,7 +48,7 @@ schema("/data/export") ->
         'operationId' => data_export,
         post => #{
             tags => ?TAGS,
-            desc => ?DESC("data_export"),
+            description => ?DESC("data_export"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ?R_REF(export_request_body),
                 export_request_example()
@@ -73,7 +73,7 @@ schema("/data/import") ->
         'operationId' => data_import,
         post => #{
             tags => ?TAGS,
-            desc => ?DESC("data_import"),
+            description => ?DESC("data_import"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ?R_REF(import_request_body),
                 maps:with([node, filename], backup_file_info_example())
@@ -92,7 +92,7 @@ schema("/data/files") ->
         'operationId' => data_files,
         post => #{
             tags => ?TAGS,
-            desc => ?DESC("upload_backup_file"),
+            description => ?DESC("upload_backup_file"),
             'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
                 204 => <<"No Content">>,
@@ -122,7 +122,7 @@ schema("/data/files/:filename") ->
         'operationId' => data_file_by_name,
         get => #{
             tags => ?TAGS,
-            desc => ?DESC("download_backup_file"),
+            description => ?DESC("download_backup_file"),
             parameters => [
                 field_filename(true, #{in => path}),
                 field_node(false, #{in => query})
