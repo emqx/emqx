@@ -484,7 +484,7 @@ reserved_idx('client.connect') -> 200;
 reserved_idx('client.connack') -> 201;
 reserved_idx('client.connected') -> 202;
 reserved_idx('client.authenticate') -> 203;
-%% reserved_idx('client.enhanced_authenticate') -> 204; %% have never used
+reserved_idx('client.ping') -> 204;
 reserved_idx('client.auth.anonymous') -> 205;
 reserved_idx('client.authorize') -> 206;
 reserved_idx('client.subscribe') -> 207;

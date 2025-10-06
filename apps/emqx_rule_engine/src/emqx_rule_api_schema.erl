@@ -19,6 +19,8 @@
 -export([event_to_event_type/1]).
 -endif.
 
+-elvis([{elvis_style, dont_repeat_yourself, disable}]).
+
 -type tag() :: rule_creation | rule_test | rule_engine | rule_apply_test.
 
 -spec check_params(map(), tag()) -> {ok, map()} | {error, term()}.
@@ -327,6 +329,25 @@ fields("ctx_check_authn_complete") ->
         {"is_anonymous", sc(boolean(), #{desc => ?DESC("event_is_anonymous"), required => false})},
         {"is_superuser", sc(boolean(), #{desc => ?DESC("event_is_superuser"), required => false})}
     ];
+fields("ctx_ping") ->
+    Event = 'client.ping',
+    [
+        {"event_type", event_type_sc(Event)},
+        {"event", event_sc(Event)},
+        {"clientid", sc(binary(), #{desc => ?DESC("event_clientid")})},
+        {"clean_start", sc(boolean(), #{desc => ?DESC("event_clean_start"), default => true})},
+        {"username", sc(binary(), #{desc => ?DESC("event_username")})},
+        {"peername", sc(binary(), #{desc => ?DESC("event_peername")})},
+        {"sockname", sc(binary(), #{desc => ?DESC("event_sockname")})},
+        {"proto_name", sc(binary(), #{desc => ?DESC("event_proto_name")})},
+        {"proto_ver", sc(binary(), #{desc => ?DESC("event_proto_ver")})},
+        {"keepalive", sc(integer(), #{desc => ?DESC("event_keepalive")})},
+        {"expiry_interval", sc(integer(), #{desc => ?DESC("event_expiry_interval")})},
+        {"connected_at",
+            sc(integer(), #{
+                desc => ?DESC("event_connected_at")
+            })}
+    ];
 fields("ctx_bridge_mqtt") ->
     Event = '$bridges/mqtt:*',
     EventBin = atom_to_binary(Event),
@@ -414,6 +435,7 @@ rule_test_context_refs() ->
         ref("ctx_connack"),
         ref("ctx_check_authz_complete"),
         ref("ctx_check_authn_complete"),
+        ref("ctx_ping"),
         ref("ctx_bridge_mqtt"),
         ref("ctx_delivery_dropped"),
         ref("ctx_schema_validation_failed"),

@@ -40,6 +40,7 @@
     'client.unsubscribe',
     'client.timeout',
     'client.handle_info',
+    'client.ping',
     'session.created',
     'session.subscribed',
     'session.unsubscribed',
@@ -172,6 +173,9 @@ when
     fold_callback_result(Replies)
 when
     Replies :: #{deliver := list(emqx_types:deliver()), replies := emqx_channel:replies()}.
+
+-callback 'client.ping'(emqx_types:clientinfo(), _SessionInfo :: emqx_types:infos()) ->
+    callback_result().
 
 -callback 'session.created'(emqx_types:clientinfo(), _SessionInfo :: emqx_types:infos()) ->
     callback_result().

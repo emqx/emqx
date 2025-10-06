@@ -33,6 +33,7 @@
     on_client_connack/4,
     on_client_check_authz_complete/6,
     on_client_check_authn_complete/3,
+    on_client_ping/4,
     on_session_subscribed/4,
     on_session_unsubscribed/4,
     on_message_publish/2,
@@ -69,6 +70,7 @@ event_names() ->
         'client.connack',
         'client.check_authn_complete',
         'client.check_authz_complete',
+        'client.ping',
         'session.subscribed',
         'session.unsubscribed',
         'message.publish',
@@ -87,6 +89,7 @@ event_topics_enum() ->
         '$events/client/connected',
         '$events/client/disconnected',
         '$events/client/connack',
+        '$events/client/ping',
         '$events/auth/check_authn_complete',
         '$events/auth/check_authz_complete',
         '$events/session/subscribed',
@@ -203,6 +206,13 @@ on_client_connack(ConnInfo, Reason, _, Conf) ->
     apply_event(
         'client.connack',
         fun() -> eventmsg_connack(ConnInfo, Reason) end,
+        Conf
+    ).
+
+on_client_ping(ClientInfo, ConnInfo, _Acc, Conf) ->
+    apply_event(
+        'client.ping',
+        fun() -> eventmsg_ping(ClientInfo, ConnInfo) end,
         Conf
     ).
 
@@ -514,6 +524,38 @@ eventmsg_connack(
         'client.connack',
         #{
             reason_code => reason(Reason),
+            clientid => ClientId,
+            clean_start => CleanStart,
+            username => Username,
+            peername => ntoa(PeerName),
+            sockname => ntoa(SockName),
+            proto_name => ProtoName,
+            proto_ver => ProtoVer,
+            keepalive => Keepalive,
+            expiry_interval => ExpiryInterval,
+            conn_props => emqx_utils_maps:printable_props(ConnProps)
+        },
+        #{}
+    ).
+
+eventmsg_ping(
+    _ClientInfo,
+    ConnInfo = #{
+        clientid := ClientId,
+        clean_start := CleanStart,
+        username := Username,
+        peername := PeerName,
+        sockname := SockName,
+        proto_name := ProtoName,
+        proto_ver := ProtoVer
+    }
+) ->
+    Keepalive = maps:get(keepalive, ConnInfo, 0),
+    ConnProps = maps:get(conn_props, ConnInfo, #{}),
+    ExpiryInterval = maps:get(expiry_interval, ConnInfo, 0),
+    with_basic_columns(
+        'client.ping',
+        #{
             clientid => ClientId,
             clean_start => CleanStart,
             username => Username,
@@ -896,6 +938,7 @@ event_info() ->
         event_info_client_connack(),
         event_info_client_check_authz_complete(),
         event_info_client_check_authn_complete(),
+        event_info_client_ping(),
         event_info_session_subscribed(),
         event_info_session_unsubscribed(),
         event_info_delivery_dropped(),
@@ -1008,6 +1051,13 @@ event_info_client_check_authn_complete() ->
         {<<"client check authn complete">>, <<"认证结果"/utf8>>},
         <<"SELECT * FROM \"$events/auth/check_authn_complete\"">>
     ).
+event_info_client_ping() ->
+    event_info_common(
+        'client.ping',
+        {<<"client ping">>, <<"连接确认"/utf8>>},
+        {<<"client ping">>, <<"连接确认"/utf8>>},
+        <<"SELECT * FROM \"$events/client/ping\"">>
+    ).
 event_info_session_subscribed() ->
     event_info_common(
         'session.subscribed',
@@ -1114,6 +1164,11 @@ test_columns('client.check_authn_complete') ->
         {<<"reason_code">>, [<<"success">>, <<"the reason code">>]},
         {<<"is_superuser">>, [true, <<"Whether this is a superuser">>]},
         {<<"is_anonymous">>, [false, <<"Whether this is a superuser">>]}
+    ];
+test_columns('client.ping') ->
+    [
+        {<<"clientid">>, [<<"c_emqx">>, <<"the clientid if the client">>]},
+        {<<"username">>, [<<"u_emqx">>, <<"the username if the client">>]}
     ];
 test_columns('session.unsubscribed') ->
     test_columns('session.subscribed');
@@ -1336,6 +1391,23 @@ columns_with_exam('client.check_authn_complete') ->
         {<<"node">>, node()},
         columns_example_client_attrs()
     ];
+columns_with_exam('client.ping') ->
+    [
+        {<<"event">>, 'client.ping'},
+        {<<"clientid">>, <<"c_emqx">>},
+        {<<"username">>, <<"u_emqx">>},
+        {<<"peername">>, <<"192.168.0.10:56431">>},
+        {<<"sockname">>, <<"0.0.0.0:1883">>},
+        {<<"proto_name">>, <<"MQTT">>},
+        {<<"proto_ver">>, 5},
+        {<<"keepalive">>, 60},
+        {<<"clean_start">>, true},
+        {<<"expiry_interval">>, 3600},
+        {<<"connected_at">>, erlang:system_time(millisecond)},
+        columns_example_props(conn_props),
+        {<<"timestamp">>, erlang:system_time(millisecond)},
+        {<<"node">>, node()}
+    ];
 columns_with_exam('session.subscribed') ->
     [columns_example_props(sub_props), columns_example_client_attrs()] ++
         columns_message_sub_unsub('session.subscribed');
@@ -1450,6 +1522,7 @@ hook_fun('client.disconnected') -> fun ?MODULE:on_client_disconnected/4;
 hook_fun('client.connack') -> fun ?MODULE:on_client_connack/4;
 hook_fun('client.check_authz_complete') -> fun ?MODULE:on_client_check_authz_complete/6;
 hook_fun('client.check_authn_complete') -> fun ?MODULE:on_client_check_authn_complete/3;
+hook_fun('client.ping') -> fun ?MODULE:on_client_ping/4;
 hook_fun('session.subscribed') -> fun ?MODULE:on_session_subscribed/4;
 hook_fun('session.unsubscribed') -> fun ?MODULE:on_session_unsubscribed/4;
 hook_fun('message.delivered') -> fun ?MODULE:on_message_delivered/3;
@@ -1541,6 +1614,7 @@ event_name(<<"$events/client/disconnected">>) -> 'client.disconnected';
 event_name(<<"$events/client/connack">>) -> 'client.connack';
 event_name(<<"$events/auth/check_authz_complete">>) -> 'client.check_authz_complete';
 event_name(<<"$events/auth/check_authn_complete">>) -> 'client.check_authn_complete';
+event_name(<<"$events/client/ping">>) -> 'client.ping';
 event_name(<<"$events/session/subscribed">>) -> 'session.subscribed';
 event_name(<<"$events/session/unsubscribed">>) -> 'session.unsubscribed';
 event_name(<<"$events/message/delivered">>) -> 'message.delivered';
@@ -1576,6 +1650,7 @@ event_topic('client.disconnected') -> <<"$events/client/disconnected">>;
 event_topic('client.connack') -> <<"$events/client/connack">>;
 event_topic('client.check_authz_complete') -> <<"$events/auth/check_authz_complete">>;
 event_topic('client.check_authn_complete') -> <<"$events/auth/check_authn_complete">>;
+event_topic('client.ping') -> <<"$events/client/ping">>;
 event_topic('session.subscribed') -> <<"$events/session/subscribed">>;
 event_topic('session.unsubscribed') -> <<"$events/session/unsubscribed">>;
 event_topic('message.delivered') -> <<"$events/message/delivered">>;

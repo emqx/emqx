@@ -507,6 +507,7 @@ handle_in(
 handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = KeepAlive}) ->
     {ok, NKeepAlive} = emqx_keepalive:check(KeepAlive),
     NChannel = Channel#channel{keepalive = NKeepAlive},
+    _ = run_hooks('client.ping', [NChannel#channel.clientinfo, NChannel#channel.conninfo], ok),
     {ok, ?PACKET(?PINGRESP), reset_timer(keepalive, NChannel)};
 handle_in(
     ?PACKET(?DISCONNECT, _PktVar) = Packet,

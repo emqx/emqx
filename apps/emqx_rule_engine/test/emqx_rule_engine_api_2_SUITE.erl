@@ -1412,6 +1412,40 @@ do_t_alarm_events(_Config) ->
 
     ok.
 
+%% Smoke tests for `$events/client/ping`.
+t_ping_event(_TCConfig) ->
+    TestPidBin = list_to_binary(pid_to_list(self())),
+    RuleId = <<"client_ping">>,
+    {201, _} = create_rule(#{
+        <<"id">> => RuleId,
+        <<"sql">> => iolist_to_binary([
+            <<" select * from ">>,
+            <<" \"$events/client/ping\" ">>
+        ]),
+        <<"actions">> => [
+            #{
+                <<"function">> => <<?MODULE_STRING, ":spy_action">>,
+                <<"args">> => #{<<"pid">> => TestPidBin}
+            }
+        ]
+    }),
+    {ok, C} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C),
+    pong = emqtt:ping(C),
+    ok = emqtt:stop(C),
+    ?assertReceive(
+        {rule_called, #{
+            selected := #{event := 'client.ping'},
+            envs := #{
+                metadata := #{
+                    matched := <<"$events/client/ping">>,
+                    trigger := <<"$events/client/ping">>
+                }
+            }
+        }}
+    ),
+    ok.
+
 %% Checks that, when removing a rule with a wildcard, we remove the hook function for each
 %% event for which such rule is the last referencing one.
 t_remove_rule_with_wildcard(_Config) ->
