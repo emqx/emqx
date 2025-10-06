@@ -96,7 +96,6 @@ schema("/configs") ->
                         #{
                             in => query,
                             required => false,
-                            deprecated => {since, "5.2.0"},
                             description => ?DESC(node_name),
                             hidden => true
                         }
