@@ -273,7 +273,7 @@ ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_REJECTED.
 
 publish_to_queue(MQ, #message{} = Message) ->
-    emqx_mq_message_db:insert(MQ, [Message]).
+    emqx_mq_message_db:insert(MQ, Message).
 
 delivers(SubscriberRef, Messages) ->
     lists:map(

@@ -57,6 +57,7 @@ Facade for all operations with the message database.
 -define(MQ_MESSAGE_DB_TOPIC(MQ_TOPIC, MQ_ID, KEY), [
     <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, KEY
 ]).
+-define(MQ_MESSAGE_REGULAR_DB_DIRTY_APPEND_TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
 %% API
@@ -88,23 +89,17 @@ wait_readiness(Timeout) ->
         ok ?= emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, Timeout)
     end.
 
--spec insert(emqx_mq_types:mq_handle(), list(emqx_types:message())) ->
-    ok | {error, list(emqx_ds:error(_Reason))}.
-insert(#{is_lastvalue := true} = MQHandle, Messages) ->
-    insert(MQHandle, Messages, fun(_MQ, Topic, Value) ->
-        emqx_ds:tx_del_topic(Topic),
-        emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
-    end);
-insert(#{is_lastvalue := false} = MQHandle, Messages) ->
-    insert(MQHandle, Messages, fun(_MQ, Topic, Value) ->
-        emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
-    end).
-
-insert(MQHandle, Messages, TxInsertFun) ->
-    TopicValueByShard = group_by_shard(MQHandle, Messages),
-    DB = db(MQHandle),
-    Results = lists:map(
-        fun({Shard, TVs}) ->
+-spec insert(emqx_mq_types:mq_handle(), emqx_types:message()) ->
+    ok | {error, term()}.
+insert(#{is_lastvalue := true} = MQHandle, Message) ->
+    DB = ?MQ_MESSAGE_LASTVALUE_DB,
+    case key(MQHandle, Message) of
+        {error, _} = Error ->
+            Error;
+        {ok, Key} ->
+            Shard = emqx_ds:shard_of(DB, Key),
+            Topic = mq_message_topic(MQHandle, Key),
+            Value = encode_message(Message),
             TxOpts = #{
                 db => DB,
                 shard => Shard,
@@ -112,24 +107,58 @@ insert(MQHandle, Messages, TxInsertFun) ->
                 sync => true,
                 retries => ?MQ_MESSAGE_DB_APPEND_RETRY
             },
-            Res = emqx_ds:trans(TxOpts, fun() ->
-                ok = lists:foreach(
-                    fun({Topic, Value}) ->
-                        TxInsertFun(MQHandle, Topic, Value)
-                    end,
-                    TVs
-                ),
-                ok
-            end),
-            ?tp_debug(mq_message_db_insert, #{
-                shard => Shard,
-                result => Res
+            ?tp(debug, mq_message_db_insert, #{
+                mq => MQHandle,
+                topic => Topic,
+                key => Key,
+                tx_opts => TxOpts
             }),
-            Res
-        end,
-        TopicValueByShard
-    ),
-    format_insert_tx_results(Results).
+            TxFun = fun() ->
+                emqx_ds:tx_del_topic(Topic),
+                emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, Value})
+            end,
+            case emqx_ds:trans(TxOpts, TxFun) of
+                {atomic, _Serial, ok} ->
+                    ok;
+                {error, IsRecoverable, Reason} ->
+                    {error, {IsRecoverable, Reason}}
+            end
+    end;
+insert(#{is_lastvalue := false} = MQHandle, Message) ->
+    DB = ?MQ_MESSAGE_REGULAR_DB,
+    ClientId = emqx_message:from(Message),
+    Shard = emqx_ds:shard_of(DB, ClientId),
+    Topic = mq_message_topic(MQHandle, ClientId),
+    Value = encode_message(Message),
+    NeedReply = need_reply(Message),
+    DirtyOpts = #{
+        db => DB,
+        shard => Shard,
+        reply => NeedReply
+    },
+    ?tp(debug, mq_message_db_insert, #{
+        mq => MQHandle,
+        topic => Topic,
+        dirty_opts => DirtyOpts
+    }),
+    case emqx_ds:dirty_append(DirtyOpts, [{Topic, ?ds_tx_ts_monotonic, Value}]) of
+        noreply ->
+            ok;
+        {error, IsRecoverable, Reason} ->
+            {error, {IsRecoverable, Reason}};
+        Ref when is_reference(Ref) ->
+            receive
+                ?ds_tx_commit_reply(Ref, Reply) ->
+                    case emqx_ds:dirty_append_outcome(Ref, Reply) of
+                        {ok, _Serial} ->
+                            ok;
+                        {error, IsRecoverable, Reason} ->
+                            {error, {IsRecoverable, Reason}}
+                    end
+            after ?MQ_MESSAGE_REGULAR_DB_DIRTY_APPEND_TIMEOUT ->
+                {error, dirty_append_timeout}
+            end
+    end.
 
 -spec drop(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
 drop(MQHandle) ->
@@ -253,72 +282,26 @@ dirty_read_all(MQ) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-group_by_shard(#{is_lastvalue := false} = MQ, Messages) ->
-    ByShard = lists:foldl(
-        fun(Message, Acc) ->
-            ClientId = emqx_message:from(Message),
-            Shard = emqx_ds:shard_of(?MQ_MESSAGE_REGULAR_DB, ClientId),
-            Topic = mq_message_topic(MQ, ClientId),
-            Value = encode_message(Message),
-            maps:update_with(Shard, fun(Msgs) -> [{Topic, Value} | Msgs] end, [{Topic, Value}], Acc)
-        end,
-        #{},
-        Messages
-    ),
-    grouped_by_shard_to_list(ByShard);
-group_by_shard(#{is_lastvalue := true, key_expression := KeyExpression} = MQ, Messages) ->
-    ByShard = lists:foldl(
-        fun(Message, Acc) ->
-            Bindings = #{message => message_to_map(Message)},
-            case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
-                {error, Reason} ->
-                    ?tp(warning, mq_message_db_key_expression_error, #{
-                        mq => MQ,
-                        reason => Reason,
-                        key_expression => emqx_variform:decompile(KeyExpression),
-                        bindings => Bindings
-                    }),
-                    Acc;
-                {ok, Key} ->
-                    Shard = emqx_ds:shard_of(?MQ_MESSAGE_LASTVALUE_DB, Key),
-                    Topic = mq_message_topic(MQ, Key),
-                    ?tp(debug, mq_message_db_insert, #{
-                        mq => MQ,
-                        topic => Topic,
-                        shard => Shard,
-                        key => Key,
-                        bindings => Bindings
-                    }),
-                    Value = encode_message(Message),
-                    maps:update_with(
-                        Shard, fun(Msgs) -> [{Topic, Value} | Msgs] end, [{Topic, Value}], Acc
-                    )
-            end
-        end,
-        #{},
-        Messages
-    ),
-    grouped_by_shard_to_list(ByShard).
+key(#{is_lastvalue := true, key_expression := KeyExpression} = MQ, Message) ->
+    Bindings = #{message => message_to_map(Message)},
+    case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
+        {error, Reason} ->
+            ?tp(warning, mq_message_db_key_expression_error, #{
+                mq => MQ,
+                reason => Reason,
+                key_expression => emqx_variform:decompile(KeyExpression),
+                bindings => Bindings
+            }),
+            {error, Reason};
+        {ok, Key} ->
+            {ok, Key}
+    end.
 
-grouped_by_shard_to_list(ByShard) ->
-    lists:map(
-        fun({Shard, TVs}) ->
-            {Shard, lists:reverse(TVs)}
-        end,
-        maps:to_list(ByShard)
-    ).
-
-format_insert_tx_results(Results) ->
-    format_insert_tx_results(Results, []).
-
-format_insert_tx_results([] = _Results, [] = _ErrorAcc) ->
-    ok;
-format_insert_tx_results([] = _Results, ErrorAcc) ->
-    {error, lists:reverse(ErrorAcc)};
-format_insert_tx_results([{atomic, _Serial, ok} | Results], ErrorAcc) ->
-    format_insert_tx_results(Results, ErrorAcc);
-format_insert_tx_results([{error, _, _} = Error | Results], ErrorAcc) ->
-    format_insert_tx_results(Results, [Error | ErrorAcc]).
+need_reply(Message) ->
+    case emqx_message:qos(Message) of
+        ?QOS_0 -> false;
+        _ -> true
+    end.
 
 delete(DB, Topic) ->
     {_Time, Errors} = timer:tc(fun() ->
@@ -412,9 +395,7 @@ db(#{is_lastvalue := false} = _MQ) ->
     ?MQ_MESSAGE_REGULAR_DB.
 
 insert_generation(?MQ_MESSAGE_LASTVALUE_DB) ->
-    1;
-insert_generation(?MQ_MESSAGE_REGULAR_DB) ->
-    latest.
+    1.
 
 message_to_map(Message) ->
     convert([user_property, peername, peerhost], emqx_message:to_map(Message)).

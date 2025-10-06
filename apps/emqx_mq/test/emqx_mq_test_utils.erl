@@ -6,8 +6,8 @@
 
 -export([
     emqtt_connect/1,
-    emqtt_pub_mq/4,
     emqtt_pub_mq/3,
+    emqtt_pub_mq/4,
     emqtt_sub_mq/2,
     emqtt_drain/0,
     emqtt_drain/1,
@@ -33,14 +33,17 @@ emqtt_connect(Opts) ->
     {ok, _} = emqtt:connect(C),
     C.
 
-emqtt_pub_mq(Client, Topic, Payload, Key) ->
-    PubOpts = [{qos, 1}],
-    Properties = #{'User-Property' => [{?MQ_KEY_USER_PROPERTY, Key}]},
-    emqtt:publish(Client, Topic, Properties, Payload, PubOpts).
-
 emqtt_pub_mq(Client, Topic, Payload) ->
-    PubOpts = [{qos, 1}],
-    Properties = #{},
+    emqtt_pub_mq(Client, Topic, Payload, #{}).
+
+emqtt_pub_mq(Client, Topic, Payload, Opts) ->
+    Properties =
+        case Opts of
+            #{key := Key} -> #{'User-Property' => [{?MQ_KEY_USER_PROPERTY, Key}]};
+            _ -> #{}
+        end,
+    Qos = maps:get(qos, Opts, 1),
+    PubOpts = [{qos, Qos}],
     emqtt:publish(Client, Topic, Properties, Payload, PubOpts).
 
 emqtt_sub_mq(Client, Topic) ->
@@ -128,18 +131,13 @@ fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ0) ->
 
 populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
-    populate(N, fun(I) ->
-        IBin = integer_to_binary(I),
-        Topic = <<TopicPrefix/binary, IBin/binary>>,
-        Payload = <<PayloadPrefix/binary, IBin/binary>>,
-        {Topic, Payload}
-    end);
-populate(N, Fun) ->
     C = emqx_mq_test_utils:emqtt_connect([]),
     lists:foreach(
         fun(I) ->
-            {Topic, Payload} = Fun(I),
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload)
+            IBin = integer_to_binary(I),
+            Topic = <<TopicPrefix/binary, IBin/binary>>,
+            Payload = <<PayloadPrefix/binary, IBin/binary>>,
+            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, pub_opts(Opts, #{}))
         end,
         lists:seq(0, N - 1)
     ),
@@ -148,23 +146,21 @@ populate(N, Fun) ->
 populate_lastvalue(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
     NKeys = maps:get(n_keys, Opts, N),
-    populate_lastvalue(N, fun(I) ->
-        IBin = integer_to_binary(I),
-        Topic = <<TopicPrefix/binary, IBin/binary>>,
-        Payload = <<PayloadPrefix/binary, IBin/binary>>,
-        Key = <<"k-", (integer_to_binary(I rem NKeys))/binary>>,
-        {Topic, Payload, Key}
-    end);
-populate_lastvalue(N, Fun) ->
     C = emqx_mq_test_utils:emqtt_connect([]),
     lists:foreach(
         fun(I) ->
-            {Topic, Payload, Key} = Fun(I),
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, Key)
+            IBin = integer_to_binary(I),
+            Topic = <<TopicPrefix/binary, IBin/binary>>,
+            Payload = <<PayloadPrefix/binary, IBin/binary>>,
+            Key = <<"k-", (integer_to_binary(I rem NKeys))/binary>>,
+            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, pub_opts(Opts, #{key => Key}))
         end,
         lists:seq(0, N - 1)
     ),
     ok = emqtt:disconnect(C).
+
+pub_opts(PopulateOpts, PubOpts) ->
+    maps:merge(maps:with([qos], PopulateOpts), PubOpts).
 
 cleanup_mqs() ->
     ok = stop_all_consumers(),
