@@ -738,3 +738,12 @@ fix_log_dir_path_test() ->
         os:unsetenv("EMQX_LOG_DIR")
     end,
     ok.
+
+%% This test is only to ensure line coverage.
+%% The real check is done as a part of smoke test.
+%% During ct emqx_mgmt_api_data_backup:check_desc() always raises an error exception.
+check_desc_test() ->
+    ?assertError(
+        #{reason := "table_sets_desc_needs_update"},
+        emqx_conf:check_dynamic_desc()
+    ).

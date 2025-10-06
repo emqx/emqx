@@ -3,43 +3,78 @@ emqx_mgmt_api_configs {
 get_configs.desc:
 """Get all the configurations of the specified keys, including hot and non-hot updatable items."""
 get_configs.label:
-"""Get all the configurations."""
+"""Get All Configurations"""
 
 update_configs.desc:
 """Update the configurations of the specified keys."""
 update_configs.label:
-"""Update Configurations."""
+"""Update Configurations"""
 
 node_name.desc:
-"""Node's name. Will deprecated in 5.2.0."""
+"""Node's name. Deprecated since 5.2.0."""
 node_name.label:
-"""Node's name (deprecated)."""
+"""Node Name"""
 
 rest_conf_query.desc:
 """Reset the config entry specified by the query string parameter `conf_path`.<br/>
 - For a config entry that has default value, this resets it to the default value;
 - For a config entry that has no default value, an error 400 will be returned"""
 rest_conf_query.label:
-"""Reset the config entry with query"""
+"""Reset Config Entry With Query"""
 
 get_global_zone_configs.desc:
 """Get the MQTT-related configuration"""
 get_global_zone_configs.label:
-"""Get the MQTT-related configuration"""
+"""Get MQTT-Related Configuration"""
 
 update_global_zone_configs.desc:
 """Update MQTT-related configuration"""
 update_global_zone_configs.label:
-"""Update MQTT-related configuration"""
+"""Update MQTT-Related Configuration"""
 
 get_node_level_limiter_configs.desc:
 """Get the node-level limiter configs"""
 get_node_level_limiter_configs.label:
-"""Get the node-level limiter configs"""
+"""Get Node-Level Limiter Configs"""
 
 update_node_level_limiter_configs.desc:
 """Update the node-level limiter configs"""
 update_node_level_limiter_configs.label:
-"""Update the node-level limiter configs"""
+"""Update Node-Level Limiter Configs"""
+
+configurations_updated.desc:
+"""Configurations updated."""
+configurations_updated.label:
+"""Configurations Updated"""
+
+config_path_desc.desc:
+"""The config path separated by '.' character."""
+config_path_desc.label:
+"""Config Path Description"""
+
+reset_config_success.desc:
+"""Reset config successfully."""
+reset_config_success.label:
+"""Reset Config Successfully"""
+
+config_not_found.desc:
+"""Config not found."""
+config_not_found.label:
+"""Config Not Found"""
+
+no_default_value.desc:
+"""No Default Value."""
+no_default_value.label:
+"""No Default Value"""
+
+get_sub_configurations.desc:
+"""Get the sub-configurations under the specified root key."""
+get_sub_configurations.label:
+"""Get Sub-Configurations"""
+
+update_sub_configurations.desc:
+"""Update the sub-configurations under the specified root key."""
+update_sub_configurations.label:
+"""Update Sub-Configurations"""
 
 }

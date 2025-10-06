@@ -31,7 +31,7 @@ fields(action) ->
             hoconsc:map(name, ref(?MODULE, "http_action")),
             #{
                 aliases => [webhook],
-                desc => <<"HTTP Action Config">>,
+                desc => ?DESC("http_action_config"),
                 required => false
             }
         )};
@@ -69,8 +69,7 @@ fields("parameters_opts") ->
         method_field(),
         headers_field(),
         body_field(),
-        max_retries_field(),
-        request_timeout_field()
+        max_retries_field()
     ];
 %% v2: api schema
 %% The parameter equls to
@@ -101,7 +100,7 @@ desc(connector_resource_opts) ->
 desc(action_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
-    ["Configuration for WebHook using `", string:to_upper(Method), "` method."];
+    ?DESC("webhook_config_method");
 desc("config_connector") ->
     ?DESC("desc_config");
 desc("http_action") ->
@@ -197,17 +196,6 @@ max_retries_field() ->
             }
         )}.
 
-request_timeout_field() ->
-    {request_timeout,
-        mk(
-            emqx_schema:duration_ms(),
-            #{
-                default => <<"15s">>,
-                deprecated => {since, "v5.0.26"},
-                desc => ?DESC("config_request_timeout")
-            }
-        )}.
-
 connector_opts() ->
     mark_request_field_deperecated(
         proplists:delete(max_retries, emqx_bridge_http_connector:fields(config))
@@ -222,8 +210,7 @@ mark_request_field_deperecated(Fields) ->
                         %% Note: if we want to deprecate a reference type, we have to change
                         %% it to a direct type first.
                         type => typerefl:map(),
-                        deprecated => {since, "5.3.2"},
-                        desc => <<"This field is never used, so we deprecated it since 5.3.2.">>
+                        deprecated => {since, "5.3.2"}
                     }};
                 _ ->
                     {K, V}
