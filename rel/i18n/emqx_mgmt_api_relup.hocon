@@ -35,4 +35,101 @@ upgrade_node.desc:
 upgrade_node.label:
 """Upgrade Node"""
 
+package_name.desc:
+"""File name of the package."""
+package_name.label:
+"""Package Name"""
+
+target_vsn.desc:
+"""Target EMQX version for this package."""
+target_vsn.label:
+"""Target Version"""
+
+applicable_vsns.desc:
+"""The EMQX versions that this package can be applied to."""
+applicable_vsns.label:
+"""Applicable Versions"""
+
+build_date.desc:
+"""The date when the package was built."""
+build_date.label:
+"""Build Date"""
+
+change_logs.desc:
+"""Changes that this package brings."""
+change_logs.label:
+"""Change Logs"""
+
+started_at.desc:
+"""The timestamp (in format of RFC3339) when the upgrade started."""
+started_at.label:
+"""Started At"""
+
+finished_at.desc:
+"""The timestamp (in format of RFC3339) when the upgrade finished."""
+finished_at.label:
+"""Finished At"""
+
+from_vsn.desc:
+"""The version before the upgrade."""
+from_vsn.label:
+"""From Version"""
+
+target_vsn_upgrade.desc:
+"""The target version of the upgrade."""
+target_vsn_upgrade.label:
+"""Target Version"""
+
+upgrade_opts.desc:
+"""The options used for the upgrade."""
+upgrade_opts.label:
+"""Upgrade Options"""
+
+upgrade_status.desc:
+"""The upgrade status of the node."""
+upgrade_status.label:
+"""Upgrade Status"""
+
+upgrade_result.desc:
+"""The upgrade result."""
+upgrade_result.label:
+"""Upgrade Result"""
+
+running_status.desc:
+"""The upgrade status of a node:<br/>
+1. in-progress: hot upgrade is in progress.<br/>
+2. idle: hot upgrade is not started."""
+running_status.label:
+"""Running Status"""
+
+node_role.desc:
+"""The role of the node."""
+node_role.label:
+"""Node Role"""
+
+live_connections.desc:
+"""The number of live connections."""
+live_connections.label:
+"""Live Connections"""
+
+current_vsn.desc:
+"""The current version of the node."""
+current_vsn.label:
+"""Current Version"""
+
+upgrade_history.desc:
+"""The upgrade history of the node."""
+upgrade_history.label:
+"""Upgrade History"""
+
+err_type.desc:
+"""The type of the error."""
+err_type.label:
+"""Error Type"""
+
+err_details.desc:
+"""The details of the error."""
+err_details.label:
+"""Error Details"""
+
 }

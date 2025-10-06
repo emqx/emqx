@@ -188,7 +188,7 @@ fields(package) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"File name of the package">>,
+                    desc => ?DESC("package_name"),
                     validator => fun ?MODULE:validate_name/1,
                     example => ?EXAM_PACKAGE_NAME_3
                 }
@@ -197,7 +197,7 @@ fields(package) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"Target emqx version for this package">>,
+                    desc => ?DESC("target_vsn"),
                     example => ?EXAM_VSN3
                 }
             )},
@@ -205,18 +205,18 @@ fields(package) ->
         {applicable_vsns,
             hoconsc:mk(hoconsc:array(binary()), #{
                 example => [?EXAM_VSN1, ?EXAM_VSN2],
-                desc => <<"The emqx versions that this package can be applied to.">>
+                desc => ?DESC("applicable_vsns")
             })},
         {build_date,
             hoconsc:mk(binary(), #{
                 example => <<"2021-12-25">>,
-                desc => <<"The date when the package was built.">>
+                desc => ?DESC("build_date")
             })},
         {change_logs,
             hoconsc:mk(
                 hoconsc:array(binary()),
                 #{
-                    desc => <<"Changes that this package brings">>,
+                    desc => ?DESC("change_logs"),
                     example => [
                         <<
                             "1. Fix a bug foo in the plugin."
@@ -233,7 +233,7 @@ fields(upgrade_history) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"The timestamp (in format of RFC3339) when the upgrade started">>,
+                    desc => ?DESC("started_at"),
                     example => <<"2024-07-15T13:48:02.648559+08:00">>
                 }
             )},
@@ -241,7 +241,7 @@ fields(upgrade_history) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"The timestamp (in format of RFC3339) when the upgrade finished">>,
+                    desc => ?DESC("finished_at"),
                     example => <<"2024-07-16T11:00:01.875627+08:00">>
                 }
             )},
@@ -249,7 +249,7 @@ fields(upgrade_history) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"The version before the upgrade">>,
+                    desc => ?DESC("from_vsn"),
                     example => ?EXAM_VSN1
                 }
             )},
@@ -257,7 +257,7 @@ fields(upgrade_history) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"The target version of the upgrade">>,
+                    desc => ?DESC("target_vsn_upgrade"),
                     example => ?EXAM_VSN3
                 }
             )},
@@ -265,7 +265,7 @@ fields(upgrade_history) ->
             hoconsc:mk(
                 map(),
                 #{
-                    desc => <<"The options used for the upgrade">>,
+                    desc => ?DESC("upgrade_opts"),
                     example => #{deploy_inplace => false}
                 }
             )},
@@ -273,7 +273,7 @@ fields(upgrade_history) ->
             hoconsc:mk(
                 hoconsc:enum(['in-progress', finished]),
                 #{
-                    desc => <<"The upgrade status of the node">>,
+                    desc => ?DESC("upgrade_status"),
                     example => 'in-progress'
                 }
             )},
@@ -281,7 +281,7 @@ fields(upgrade_history) ->
             hoconsc:mk(
                 hoconsc:union([success, hoconsc:ref(?MODULE, upgrade_error)]),
                 #{
-                    desc => <<"The upgrade result">>,
+                    desc => ?DESC("upgrade_result"),
                     example => success
                 }
             )}
@@ -291,32 +291,28 @@ fields(running_status) ->
         {node, hoconsc:mk(binary(), #{example => <<"emqx@127.0.0.1">>})},
         {status,
             hoconsc:mk(hoconsc:enum(['in-progress', idle]), #{
-                desc => <<
-                    "The upgrade status of a node:<br/>"
-                    "1. in-progress: hot upgrade is in progress.<br/>"
-                    "2. idle: hot upgrade is not started.<br/>"
-                >>
+                desc => ?DESC("running_status")
             })},
         {role,
             hoconsc:mk(hoconsc:enum([core, replicant]), #{
-                desc => <<"The role of the node">>,
+                desc => ?DESC("node_role"),
                 example => core
             })},
         {live_connections,
             hoconsc:mk(integer(), #{
-                desc => <<"The number of live connections">>,
+                desc => ?DESC("live_connections"),
                 example => 100
             })},
         {current_vsn,
             hoconsc:mk(binary(), #{
-                desc => <<"The current version of the node">>,
+                desc => ?DESC("current_vsn"),
                 example => ?EXAM_VSN1
             })},
         {upgrade_history,
             hoconsc:mk(
                 hoconsc:array(hoconsc:ref(upgrade_history)),
                 #{
-                    desc => <<"The upgrade history of the node">>,
+                    desc => ?DESC("upgrade_history"),
                     example => [
                         #{
                             started_at => <<"2024-07-15T13:48:02.648559+08:00">>,
@@ -337,7 +333,7 @@ fields(upgrade_error) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"The type of the error">>,
+                    desc => ?DESC("err_type"),
                     example => <<"no_write_permission">>
                 }
             )},
@@ -345,7 +341,7 @@ fields(upgrade_error) ->
             hoconsc:mk(
                 map(),
                 #{
-                    desc => <<"The details of the error">>,
+                    desc => ?DESC("err_details"),
                     example => #{
                         dir => <<"emqx/relup">>,
                         msg => <<"no write permission in dir 'emqx/relup'">>
@@ -361,7 +357,7 @@ fields(node_name) ->
                 #{
                     default => all,
                     in => path,
-                    desc => <<"The node to be upgraded">>,
+                    desc => ?DESC("upgrade_node"),
                     example => <<"emqx@127.0.0.1">>
                 }
             )}
