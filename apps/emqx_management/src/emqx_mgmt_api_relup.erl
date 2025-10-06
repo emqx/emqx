@@ -6,6 +6,7 @@
 -behaviour(minirest_api).
 
 -include_lib("typerefl/include/types.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -export([get_upgrade_status/0, emqx_relup_upgrade/0]).
@@ -69,11 +70,7 @@ schema("/relup/package/upload") ->
     #{
         'operationId' => '/relup/package/upload',
         post => #{
-            summary => <<"Upload a hot upgrade package">>,
-            description => <<
-                "Upload a hot upgrade package (emqx_relup-vsn.tar.gz).<br/>"
-                "Note that only one package is alllowed to be installed at a time."
-            >>,
+            description => ?DESC("upload_package"),
             tags => ?TAGS,
             'requestBody' => #{
                 content => #{
@@ -100,9 +97,7 @@ schema("/relup/package") ->
     #{
         'operationId' => '/relup/package',
         get => #{
-            summary => <<"Get the installed hot upgrade package">>,
-            description =>
-                <<"Get information of the installed hot upgrade package.<br/>">>,
+            description => ?DESC("get_package"),
             tags => ?TAGS,
             responses => #{
                 200 => hoconsc:ref(package),
@@ -113,9 +108,7 @@ schema("/relup/package") ->
             }
         },
         delete => #{
-            summary => <<"Delete the installed hot upgrade package">>,
-            description =>
-                <<"Delete the installed hot upgrade package.<br/>">>,
+            description => ?DESC("delete_package"),
             tags => ?TAGS,
             responses => #{
                 204 => <<"Packages are deleted successfully">>
@@ -126,8 +119,7 @@ schema("/relup/status") ->
     #{
         'operationId' => '/relup/status',
         get => #{
-            summary => <<"Get the hot upgrade status of all nodes">>,
-            description => <<"Get the hot upgrade status of all nodes">>,
+            description => ?DESC("get_status_all"),
             tags => ?TAGS,
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(running_status))
@@ -138,8 +130,7 @@ schema("/relup/status/:node") ->
     #{
         'operationId' => '/relup/status/:node',
         get => #{
-            summary => <<"Get the hot upgrade status of a specified node">>,
-            description => <<"Get the hot upgrade status of a specified node">>,
+            description => ?DESC("get_status_node"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(node_name)],
             responses => #{
@@ -151,10 +142,7 @@ schema("/relup/upgrade") ->
     #{
         'operationId' => '/relup/upgrade',
         post => #{
-            summary => <<"Upgrade all nodes">>,
-            description => <<
-                "Upgrade all nodes to the target version with the installed package."
-            >>,
+            description => ?DESC("upgrade_all"),
             tags => ?TAGS,
             responses => #{
                 204 => <<"Upgrade is started successfully">>,
@@ -172,10 +160,7 @@ schema("/relup/upgrade/:node") ->
     #{
         'operationId' => '/relup/upgrade/:node',
         post => #{
-            summary => <<"Upgrade a specified node">>,
-            description => <<
-                "Upgrade a specified node to the target version with the installed package."
-            >>,
+            description => ?DESC("upgrade_node"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(node_name)],
             responses => #{

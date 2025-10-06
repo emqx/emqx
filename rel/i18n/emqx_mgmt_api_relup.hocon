@@ -1,0 +1,38 @@
+emqx_mgmt_api_relup {
+
+upload_package.desc:
+"""Upload a hot upgrade package (emqx_relup-vsn.tar.gz). Note that only one package is allowed to be installed at a time."""
+upload_package.label:
+"""Upload Package"""
+
+get_package.desc:
+"""Get information of the installed hot upgrade package."""
+get_package.label:
+"""Get Package"""
+
+delete_package.desc:
+"""Delete the installed hot upgrade package."""
+delete_package.label:
+"""Delete Package"""
+
+get_status_all.desc:
+"""Get the hot upgrade status of all nodes."""
+get_status_all.label:
+"""Get Status All"""
+
+get_status_node.desc:
+"""Get the hot upgrade status of a specified node."""
+get_status_node.label:
+"""Get Status Node"""
+
+upgrade_all.desc:
+"""Upgrade all nodes to the target version with the installed package."""
+upgrade_all.label:
+"""Upgrade All"""
+
+upgrade_node.desc:
+"""Upgrade a specified node to the target version with the installed package."""
+upgrade_node.label:
+"""Upgrade Node"""
+
+}
