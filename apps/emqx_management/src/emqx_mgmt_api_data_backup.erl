@@ -473,8 +473,8 @@ files_response_example() ->
 check_desc() ->
     Current = lists:sort(emqx_mgmt_data_backup:all_table_set_names()),
     {ok, Map} = hocon:load(filename:join([code:priv_dir(emqx_dashboard), "desc.en.hocon"])),
-    DescPath = "emqx_mgmt_api_data_backup.table_sets",
-    Desc = maps:get(<<"desc">>, hocon_maps:deep_get(DescPath, Map, map)),
+    DescPath = "emqx_mgmt_api_data_backup.table_sets.desc",
+    Desc = hocon_maps:deep_get(DescPath, Map, map),
     DescLines = binary:split(Desc, <<"\n">>, [global]),
     Matched = lists:filter(
         fun(Line) ->
