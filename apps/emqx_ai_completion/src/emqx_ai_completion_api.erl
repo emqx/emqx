@@ -51,7 +51,7 @@ schema("/ai/models") ->
         'operationId' => '/ai/models',
         post => #{
             tags => ?TAGS,
-            description => ?DESC(ai_model_list),
+            description => ?DESC("ai_model_list"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:provider_sctype_api(put),
                 post_provider_example()
@@ -62,13 +62,13 @@ schema("/ai/models") ->
                     [get_models_example()]
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(provider_not_found)
+                    ['NOT_FOUND'], ?DESC("provider_not_found")
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], ?DESC(invalid_provider)
+                    ['INVALID_CREDENTIAL'], ?DESC("invalid_provider")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -78,7 +78,7 @@ schema("/ai/providers") ->
         'operationId' => '/ai/providers',
         get => #{
             tags => ?TAGS,
-            description => ?DESC(ai_providers_list),
+            description => ?DESC("ai_providers_list"),
             parameters => [],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -86,24 +86,24 @@ schema("/ai/providers") ->
                     [get_provider_example()]
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         },
         post => #{
             tags => ?TAGS,
-            description => ?DESC(ai_providers_create),
+            description => ?DESC("ai_providers_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:provider_sctype_api(post),
                 post_provider_example()
             ),
             responses => #{
-                204 => ?DESC(operation_success),
+                204 => ?DESC("operation_success"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], ?DESC(invalid_provider)
+                    ['INVALID_CREDENTIAL'], ?DESC("invalid_provider")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -113,7 +113,7 @@ schema("/ai/providers/:name") ->
         'operationId' => '/ai/providers/:name',
         get => #{
             tags => ?TAGS,
-            description => ?DESC(ai_providers_get),
+            description => ?DESC("ai_providers_get"),
             parameters => [name_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -121,45 +121,45 @@ schema("/ai/providers/:name") ->
                     get_provider_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(provider_not_found)
+                    ['NOT_FOUND'], ?DESC("provider_not_found")
                 )
             }
         },
         put => #{
             tags => ?TAGS,
-            description => ?DESC(ai_providers_update),
+            description => ?DESC("ai_providers_update"),
             parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:provider_sctype_api(put),
                 put_provider_example()
             ),
             responses => #{
-                204 => ?DESC(operation_success),
+                204 => ?DESC("operation_success"),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(provider_not_found)
+                    ['NOT_FOUND'], ?DESC("provider_not_found")
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], ?DESC(invalid_provider)
+                    ['INVALID_CREDENTIAL'], ?DESC("invalid_provider")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         },
         delete => #{
             tags => ?TAGS,
-            description => ?DESC(ai_providers_delete),
+            description => ?DESC("ai_providers_delete"),
             parameters => [name_param()],
             responses => #{
-                204 => ?DESC(operation_success),
+                204 => ?DESC("operation_success"),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(provider_not_found)
+                    ['NOT_FOUND'], ?DESC("provider_not_found")
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], ?DESC(invalid_provider)
+                    ['INVALID_CREDENTIAL'], ?DESC("invalid_provider")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -169,7 +169,7 @@ schema("/ai/providers/:name/models") ->
         'operationId' => '/ai/providers/:name/models',
         get => #{
             tags => ?TAGS,
-            description => ?DESC(ai_providers_model_list),
+            description => ?DESC("ai_providers_model_list"),
             parameters => [name_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -177,13 +177,13 @@ schema("/ai/providers/:name/models") ->
                     [get_models_example()]
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(provider_not_found)
+                    ['NOT_FOUND'], ?DESC("provider_not_found")
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CREDENTIAL'], ?DESC(invalid_provider)
+                    ['INVALID_CREDENTIAL'], ?DESC("invalid_provider")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -193,7 +193,7 @@ schema("/ai/completion_profiles") ->
         'operationId' => '/ai/completion_profiles',
         get => #{
             tags => ?TAGS,
-            description => ?DESC(ai_completion_profiles_list),
+            description => ?DESC("ai_completion_profiles_list"),
             parameters => [],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -201,24 +201,24 @@ schema("/ai/completion_profiles") ->
                     [get_completion_profile_example()]
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         },
         post => #{
             tags => ?TAGS,
-            description => ?DESC(ai_completion_profiles_create),
+            description => ?DESC("ai_completion_profiles_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:completion_profile_sctype_api(post),
                 post_completion_profile_example()
             ),
             responses => #{
-                204 => ?DESC(operation_success),
+                204 => ?DESC("operation_success"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_COMPLETION_PROFILE'], ?DESC(invalid_completion_profile)
+                    ['INVALID_COMPLETION_PROFILE'], ?DESC("invalid_completion_profile")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -228,7 +228,7 @@ schema("/ai/completion_profiles/:name") ->
         'operationId' => '/ai/completion_profiles/:name',
         get => #{
             tags => ?TAGS,
-            description => ?DESC(ai_completion_profiles_get),
+            description => ?DESC("ai_completion_profiles_get"),
             parameters => [name_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -236,45 +236,45 @@ schema("/ai/completion_profiles/:name") ->
                     get_completion_profile_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(completion_profile_not_found)
+                    ['NOT_FOUND'], ?DESC("completion_profile_not_found")
                 )
             }
         },
         put => #{
             tags => ?TAGS,
-            description => ?DESC(ai_completion_profiles_update),
+            description => ?DESC("ai_completion_profiles_update"),
             parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:completion_profile_sctype_api(put),
                 put_completion_profile_example()
             ),
             responses => #{
-                204 => ?DESC(operation_success),
+                204 => ?DESC("operation_success"),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(completion_profile_not_found)
+                    ['NOT_FOUND'], ?DESC("completion_profile_not_found")
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_COMPLETION_PROFILE'], ?DESC(invalid_completion_profile)
+                    ['INVALID_COMPLETION_PROFILE'], ?DESC("invalid_completion_profile")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         },
         delete => #{
             tags => ?TAGS,
-            description => ?DESC(ai_completion_profiles_delete),
+            description => ?DESC("ai_completion_profiles_delete"),
             parameters => [name_param()],
             responses => #{
-                204 => ?DESC(operation_success),
+                204 => ?DESC("operation_success"),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], ?DESC(completion_profile_not_found)
+                    ['NOT_FOUND'], ?DESC("completion_profile_not_found")
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_COMPLETION_PROFILE'], ?DESC(invalid_request)
+                    ['INVALID_COMPLETION_PROFILE'], ?DESC("invalid_request")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -362,7 +362,7 @@ get_models_example() ->
 '/ai/providers/:name'(get, #{bindings := #{name := Name}}) ->
     case get_provider_for_output(Name) of
         not_found ->
-            {404, #{code => 'NOT_FOUND', message => ?DESC(provider_not_found)}};
+            {404, #{code => 'NOT_FOUND', message => ?DESC("provider_not_found")}};
         Provider ->
             {200, Provider}
     end;
@@ -374,7 +374,7 @@ get_models_example() ->
 '/ai/providers/:name/models'(get, #{bindings := #{name := Name}}) ->
     case emqx_ai_completion:list_models(Name) of
         {error, provider_not_found} ->
-            {404, #{code => 'NOT_FOUND', message => ?DESC(provider_not_found)}};
+            {404, #{code => 'NOT_FOUND', message => ?DESC("provider_not_found")}};
         {ok, Models} ->
             {200, Models};
         {error, Reason} ->
@@ -391,7 +391,7 @@ get_models_example() ->
 '/ai/completion_profiles/:name'(get, #{bindings := #{name := Name}}) ->
     case get_completion_profile_for_output(Name) of
         not_found ->
-            {404, #{code => 'NOT_FOUND', message => ?DESC(completion_profile_not_found)}};
+            {404, #{code => 'NOT_FOUND', message => ?DESC("completion_profile_not_found")}};
         CompletionProfile ->
             {200, CompletionProfile}
     end;
@@ -525,19 +525,19 @@ wrap_delete_error(Result) ->
     wrap_update_error(Result).
 
 error_response(duplicate_provider_name) ->
-    {'INVALID_CREDENTIAL', ?DESC(duplicate_provider_name)};
+    {'INVALID_CREDENTIAL', ?DESC("duplicate_provider_name")};
 error_response(provider_in_use) ->
-    {'INVALID_CREDENTIAL', ?DESC(provider_in_use)};
+    {'INVALID_CREDENTIAL', ?DESC("provider_in_use")};
 error_response(completion_profile_provider_type_mismatch) ->
-    {'INVALID_COMPLETION_PROFILE', ?DESC(completion_profile_type_mismatch)};
+    {'INVALID_COMPLETION_PROFILE', ?DESC("completion_profile_type_mismatch")};
 error_response(provider_not_found) ->
-    {'NOT_FOUND', ?DESC(provider_not_found)};
+    {'NOT_FOUND', ?DESC("provider_not_found")};
 error_response(duplicate_completion_profile_name) ->
-    {'INVALID_COMPLETION_PROFILE', ?DESC(duplicate_completion_profile_name)};
+    {'INVALID_COMPLETION_PROFILE', ?DESC("duplicate_completion_profile_name")};
 error_response(completion_profile_provider_not_found) ->
-    {'INVALID_COMPLETION_PROFILE', ?DESC(completion_profile_provider_not_found)};
+    {'INVALID_COMPLETION_PROFILE', ?DESC("completion_profile_provider_not_found")};
 error_response(completion_profile_not_found) ->
-    {'NOT_FOUND', ?DESC(completion_profile_not_found)};
+    {'NOT_FOUND', ?DESC("completion_profile_not_found")};
 error_response(UnknownError) ->
     {'SERVICE_UNAVAILABLE', emqx_utils:readable_error_msg(UnknownError)}.
 
