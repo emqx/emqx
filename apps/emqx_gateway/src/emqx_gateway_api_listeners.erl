@@ -95,7 +95,7 @@ listeners(post, #{bindings := #{name := Name0}, body := LConf}) ->
                 ),
                 {201, RespConf};
             _ ->
-                return_http_error(400, "Listener name has occupied")
+                return_http_error(400, ?DESC("listener_name_occupied"))
         end
     end).
 
@@ -106,7 +106,7 @@ listeners_insta(delete, #{bindings := #{name := Name0, id := ListenerId}}) ->
                 ok = emqx_gateway_http:remove_listener(ListenerId),
                 {204};
             {error, not_found} ->
-                return_http_error(404, "Listener not found")
+                return_http_error(404, ?DESC("listener_not_found"))
         end
     end);
 listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId}}) ->
@@ -115,7 +115,7 @@ listeners_insta(get, #{bindings := #{name := Name0, id := ListenerId}}) ->
             {ok, Listener} ->
                 {200, bind2str(Listener)};
             {error, not_found} ->
-                return_http_error(404, "Listener not found");
+                return_http_error(404, ?DESC("listener_not_found"));
             {error, Reason} ->
                 return_http_error(500, Reason)
         end
@@ -427,7 +427,7 @@ schema("/gateways/:name/listeners/:id") ->
                 parameters => params_gateway_name_in_path() ++
                     params_listener_id_in_path(),
                 responses =>
-                    ?STANDARD_RESP(#{204 => <<"Deleted">>})
+                    ?STANDARD_RESP(#{204 => ?DESC(deleted)})
             },
         put =>
             #{
@@ -463,7 +463,7 @@ schema("/gateways/:name/listeners/:id/authentication") ->
                     ?STANDARD_RESP(
                         #{
                             200 => schema_authn(),
-                            204 => <<"Authentication or listener does not existed">>
+                            204 => ?DESC(auth_not_existed)
                         }
                     )
             },
@@ -494,7 +494,7 @@ schema("/gateways/:name/listeners/:id/authentication") ->
                 parameters => params_gateway_name_in_path() ++
                     params_listener_id_in_path(),
                 responses =>
-                    ?STANDARD_RESP(#{200 => <<"Deleted">>})
+                    ?STANDARD_RESP(#{200 => ?DESC(deleted)})
             }
     };
 schema("/gateways/:name/listeners/:id/authentication/users") ->
@@ -587,7 +587,7 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
                     params_listener_id_in_path() ++
                     params_userid_in_path(),
                 responses =>
-                    ?STANDARD_RESP(#{204 => <<"Deleted">>})
+                    ?STANDARD_RESP(#{204 => ?DESC(deleted)})
             }
     }.
 

@@ -102,4 +102,30 @@ update_user.desc:
 update_user.label:
 """Update User"""
 
+deleted.desc:
+"""Deleted"""
+deleted.label:
+"""Deleted"""
+
+auth_not_existed.desc:
+"""Authentication or listener does not existed"""
+auth_not_existed.label:
+"""Authentication Not Existed"""
+
+listener_name_occupied.desc:
+"""Listener name has occupied"""
+listener_name_occupied.label:
+"""Listener Name Occupied"""
+
+listener_not_found.desc:
+"""Listener not found"""
+listener_not_found.label:
+"""Listener Not Found"""
+
+bad_request.desc: """Bad request."""
+bad_request.label: """Bad Request"""
+
+not_found.desc: """Listener not found."""
+not_found.label: """Not Found"""
+
 }
