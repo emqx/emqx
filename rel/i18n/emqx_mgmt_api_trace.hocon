@@ -138,4 +138,54 @@ trace_log_formatter.desc:
 trace_log_formatter.label:
 """Trace Log Entry Formatter"""
 
+name_pattern.desc:
+"""Name pattern [a-zA-Z0-9-_]."""
+name_pattern.label:
+"""Name Pattern"""
+
+invalid_trace_params.desc:
+"""Invalid trace params."""
+invalid_trace_params.label:
+"""Invalid Trace Params"""
+
+trace_already_exists.desc:
+"""Trace already exists."""
+trace_already_exists.label:
+"""Trace Already Exists"""
+
+no_content.desc:
+"""No Content."""
+no_content.label:
+"""No Content"""
+
+delete_successfully.desc:
+"""Delete successfully."""
+delete_successfully.label:
+"""Delete Successfully"""
+
+trace_name_not_found.desc:
+"""Trace Name Not Found."""
+trace_name_not_found.label:
+"""Trace Name Not Found"""
+
+trace_name_or_node_not_found.desc:
+"""Trace Name or Node Not Found."""
+trace_name_or_node_not_found.label:
+"""Trace Name or Node Not Found"""
+
+bad_input_parameter.desc:
+"""Bad input parameter."""
+bad_input_parameter.label:
+"""Bad Input Parameter"""
+
+requested_chunk_size_too_big.desc:
+"""Requested chunk size too big."""
+requested_chunk_size_too_big.label:
+"""Requested Chunk Size Too Big"""
+
+provided_configuration_invalid.desc:
+"""Provided configuration is invalid."""
+provided_configuration_invalid.label:
+"""Provided Configuration Invalid"""
+
 }
