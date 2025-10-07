@@ -1,39 +1,128 @@
 emqx_ai_completion_api {
 
+ai_model_list.desc:
+"""List all AI models for a provider type."""
+ai_model_list.label:
+"""List AI Models"""
+
 ai_providers_list.desc:
-"""List AI provider providers."""
+"""List all AI providers."""
+ai_providers_list.label:
+"""List AI Providers"""
 
 ai_providers_create.desc:
-"""Create provider entry for an AI provider."""
+"""Create AI provider."""
+ai_providers_create.label:
+"""Create AI Provider"""
 
 ai_providers_get.desc:
-"""Get provider entry for an AI provider."""
+"""Get AI provider."""
+ai_providers_get.label:
+"""Get AI Provider"""
 
 ai_providers_update.desc:
-"""Update provider entry for an AI provider."""
+"""Update AI provider."""
+ai_providers_update.label:
+"""Update AI Provider"""
 
 ai_providers_delete.desc:
-"""Delete provider entry for an AI provider."""
+"""Delete AI provider."""
+ai_providers_delete.label:
+"""Delete AI Provider"""
 
 ai_providers_model_list.desc:
 """List all AI models available for a provider."""
-
-ai_model_list.desc:
-"""List all AI models available for a provider type"""
+ai_providers_model_list.label:
+"""List Provider Models"""
 
 ai_completion_profiles_list.desc:
 """List all AI completion profiles."""
+ai_completion_profiles_list.label:
+"""List Completion Profiles"""
 
 ai_completion_profiles_create.desc:
 """Create AI completion profile."""
+ai_completion_profiles_create.label:
+"""Create Completion Profile"""
 
 ai_completion_profiles_get.desc:
 """Get AI completion profile."""
+ai_completion_profiles_get.label:
+"""Get Completion Profile"""
 
 ai_completion_profiles_update.desc:
 """Update AI completion profile."""
+ai_completion_profiles_update.label:
+"""Update Completion Profile"""
 
 ai_completion_profiles_delete.desc:
-"""Delete AI completion profile"""
+"""Delete AI completion profile."""
+ai_completion_profiles_delete.label:
+"""Delete Completion Profile"""
+
+name.desc:
+"""Name."""
+name.label:
+"""Name"""
+
+operation_success.desc:
+"""Operation success."""
+operation_success.label:
+"""Operation Success"""
+
+provider_not_found.desc:
+"""Provider not found."""
+provider_not_found.label:
+"""Provider Not Found"""
+
+completion_profile_not_found.desc:
+"""Completion profile not found."""
+completion_profile_not_found.label:
+"""Completion Profile Not Found"""
+
+invalid_provider.desc:
+"""Invalid provider."""
+invalid_provider.label:
+"""Invalid Provider"""
+
+invalid_completion_profile.desc:
+"""Invalid completion profile."""
+invalid_completion_profile.label:
+"""Invalid Completion Profile"""
+
+service_unavailable.desc:
+"""Service unavailable."""
+service_unavailable.label:
+"""Service Unavailable"""
+
+duplicate_provider_name.desc:
+"""Duplicate provider name."""
+duplicate_provider_name.label:
+"""Duplicate Provider Name"""
+
+provider_in_use.desc:
+"""Provider in use."""
+provider_in_use.label:
+"""Provider In Use"""
+
+completion_profile_type_mismatch.desc:
+"""Completion profile type does not match provider type."""
+completion_profile_type_mismatch.label:
+"""Completion Profile Type Mismatch"""
+
+duplicate_completion_profile_name.desc:
+"""Duplicate completion profile name."""
+duplicate_completion_profile_name.label:
+"""Duplicate Completion Profile Name"""
+
+completion_profile_provider_not_found.desc:
+"""Completion profile provider not found."""
+completion_profile_provider_not_found.label:
+"""Completion Profile Provider Not Found"""
+
+invalid_request.desc:
+"""Invalid request."""
+invalid_request.label:
+"""Invalid Request"""
 
 }

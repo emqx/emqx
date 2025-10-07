@@ -83,7 +83,7 @@ schema("/trace") ->
                         'INVALID_PARAMS',
                         ?EXCEED_LIMIT
                     ],
-                    <<"invalid trace params">>
+                    ?DESC("invalid_trace_params")
                 ),
                 409 => emqx_dashboard_swagger:error_codes(
                     [
@@ -91,7 +91,7 @@ schema("/trace") ->
                         'DUPLICATE_CONDITION',
                         'BAD_TYPE'
                     ],
-                    <<"trace already exists">>
+                    ?DESC("trace_already_exists")
                 )
             }
         },
@@ -99,7 +99,7 @@ schema("/trace") ->
             description => ?DESC(clear_all),
             tags => ?TAGS,
             responses => #{
-                204 => <<"No Content">>
+                204 => ?DESC("no_content")
             }
         }
     };
@@ -111,8 +111,10 @@ schema("/trace/:name") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
             responses => #{
-                204 => <<"Delete successfully">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+                204 => ?DESC("delete_successfully"),
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], ?DESC("trace_name_not_found")
+                )
             }
         }
     };
@@ -125,7 +127,9 @@ schema("/trace/:name/stop") ->
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => hoconsc:ref(trace),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], ?DESC("trace_name_not_found")
+                )
             }
         }
     };
@@ -146,7 +150,7 @@ schema("/trace/:name/download") ->
                         }
                     },
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
+                    ['NOT_FOUND', 'NODE_ERROR'], ?DESC("trace_name_or_node_not_found")
                 )
             }
         }
@@ -160,7 +164,9 @@ schema("/trace/:name/log_detail") ->
             parameters => [hoconsc:ref(name)],
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(log_file_detail)),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Trace Name Not Found">>)
+                404 => emqx_dashboard_swagger:error_codes(
+                    ['NOT_FOUND'], ?DESC("trace_name_not_found")
+                )
             }
         }
     };
@@ -183,13 +189,14 @@ schema("/trace/:name/log") ->
                         {meta, fields(bytes) ++ fields(position) ++ fields(stream_hint)}
                     ],
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST', 'INVALID_PARAMETER', 'STALE_CURSOR'], <<"Bad input parameter">>
+                    ['BAD_REQUEST', 'INVALID_PARAMETER', 'STALE_CURSOR'],
+                    ?DESC("bad_input_parameter")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND', 'NODE_ERROR'], <<"Trace Name or Node Not Found">>
+                    ['NOT_FOUND', 'NODE_ERROR'], ?DESC("trace_name_or_node_not_found")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Requested chunk size too big">>
+                    ['SERVICE_UNAVAILABLE'], ?DESC("requested_chunk_size_too_big")
                 )
             }
         }
@@ -207,13 +214,12 @@ schema("/tracing") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update Tracing configuration">>,
             description => ?DESC(update_config),
             'requestBody' => ConfigSchema,
             responses => #{
                 200 => ConfigSchema,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_CONFIG'], <<"Provided configuration is invalid">>
+                    ['INVALID_CONFIG'], ?DESC("provided_configuration_invalid")
                 )
             }
         }
@@ -363,7 +369,7 @@ fields(name) ->
             hoconsc:mk(
                 binary(),
                 #{
-                    desc => <<"[a-zA-Z0-9-_]">>,
+                    desc => ?DESC("name_pattern"),
                     example => <<"EMQX-TRACE-1">>,
                     in => path,
                     validator => fun ?MODULE:validate_name/1

@@ -56,26 +56,26 @@ schema("/subscriptions") ->
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{}),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['INVALID_PARAMETER'], <<"Invalid parameter">>
+                    ['INVALID_PARAMETER'], ?DESC("invalid_parameter")
                 ),
-                500 => emqx_dashboard_swagger:error_codes(['NODE_DOWN'], <<"Bad RPC">>)
+                500 => emqx_dashboard_swagger:error_codes(['NODE_DOWN'], ?DESC("bad_rpc"))
             }
         }
     }.
 
 fields(subscription) ->
     [
-        {node, hoconsc:mk(binary(), #{desc => <<"Access type">>, example => <<"emqx@127.0.0.1">>})},
-        {topic, hoconsc:mk(binary(), #{desc => <<"Topic name">>, example => <<"testtopic/1">>})},
+        {node, hoconsc:mk(binary(), #{desc => ?DESC("node"), example => <<"emqx@127.0.0.1">>})},
+        {topic, hoconsc:mk(binary(), #{desc => ?DESC("topic"), example => <<"testtopic/1">>})},
         {clientid,
             hoconsc:mk(binary(), #{
-                desc => <<"Client identifier">>, example => <<"emqx_clientid_xx128cdhfc">>
+                desc => ?DESC("clientid"), example => <<"emqx_clientid_xx128cdhfc">>
             })},
-        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => <<"QoS">>, example => 0})},
-        {nl, hoconsc:mk(integer(), #{desc => <<"No Local">>, example => 0})},
-        {rap, hoconsc:mk(integer(), #{desc => <<"Retain as Published">>, example => 0})},
-        {rh, hoconsc:mk(integer(), #{desc => <<"Retain Handling">>, example => 0})},
-        {durable, hoconsc:mk(boolean(), #{desc => <<"Durable subscription">>, example => false})}
+        {qos, hoconsc:mk(emqx_schema:qos(), #{desc => ?DESC("qos"), example => 0})},
+        {nl, hoconsc:mk(integer(), #{desc => ?DESC("nl"), example => 0})},
+        {rap, hoconsc:mk(integer(), #{desc => ?DESC("rap"), example => 0})},
+        {rh, hoconsc:mk(integer(), #{desc => ?DESC("rh"), example => 0})},
+        {durable, hoconsc:mk(boolean(), #{desc => ?DESC("durable"), example => false})}
     ].
 
 parameters() ->
@@ -87,7 +87,7 @@ parameters() ->
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Node name">>,
+                desc => ?DESC("node_name"),
                 example => atom_to_list(node())
             })
         },
@@ -96,7 +96,7 @@ parameters() ->
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Client ID">>
+                desc => ?DESC("client_id")
             })
         },
         {
@@ -104,7 +104,7 @@ parameters() ->
             hoconsc:mk(emqx_schema:qos(), #{
                 in => query,
                 required => false,
-                desc => <<"QoS">>
+                desc => ?DESC("qos")
             })
         },
         {
@@ -112,7 +112,7 @@ parameters() ->
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Topic, url encoding">>
+                desc => ?DESC("topic_url_encoding")
             })
         },
         {
@@ -120,7 +120,7 @@ parameters() ->
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Match topic string, url encoding">>
+                desc => ?DESC("match_topic_url_encoding")
             })
         },
         {
@@ -128,7 +128,7 @@ parameters() ->
             hoconsc:mk(binary(), #{
                 in => query,
                 required => false,
-                desc => <<"Shared subscription group name">>
+                desc => ?DESC("shared_subscription_group_name")
             })
         },
         {
@@ -136,7 +136,7 @@ parameters() ->
             hoconsc:mk(boolean(), #{
                 in => query,
                 required => false,
-                desc => <<"Filter subscriptions by durability">>
+                desc => ?DESC("filter_subscriptions_by_durability")
             })
         }
     ].
