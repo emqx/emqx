@@ -11,9 +11,9 @@
     R
 end)#{
     400 => emqx_dashboard_swagger:error_codes(
-        [?BAD_REQUEST], <<"Bad request">>
+        [?BAD_REQUEST], ?DESC("bad_request")
     ),
     404 => emqx_dashboard_swagger:error_codes(
-        [?NOT_FOUND, ?RESOURCE_NOT_FOUND], <<"Not Found">>
+        [?NOT_FOUND, ?RESOURCE_NOT_FOUND], ?DESC("not_found")
     )
 }).
