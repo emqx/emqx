@@ -104,10 +104,8 @@ paths() ->
 
 error_schema(Code, Message) when is_atom(Code) ->
     error_schema([Code], Message);
-error_schema(Codes, Message) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message));
-error_schema(Codes, Message) when is_list(Codes) andalso is_binary(Message) ->
-    emqx_dashboard_swagger:error_codes(Codes, Message).
+error_schema(Codes, ?DESC(_) = Desc) when is_list(Codes) ->
+    emqx_dashboard_swagger:error_codes(Codes, Desc).
 
 get_response_body_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -186,7 +184,6 @@ schema("/connectors") ->
         'operationId' => '/connectors',
         get => #{
             tags => [<<"connectors">>],
-            summary => <<"List connectors">>,
             description => ?DESC("desc_api1"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -197,7 +194,6 @@ schema("/connectors") ->
         },
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Create connector">>,
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_connector_schema:post_request(),
@@ -205,7 +201,7 @@ schema("/connectors") ->
             ),
             responses => #{
                 201 => get_response_body_schema(),
-                400 => error_schema('ALREADY_EXISTS', "Connector already exists")
+                400 => error_schema('ALREADY_EXISTS', ?DESC("connector_already_exists"))
             }
         }
     };
@@ -214,17 +210,15 @@ schema("/connectors/:id") ->
         'operationId' => '/connectors/:id',
         get => #{
             tags => [<<"connectors">>],
-            summary => <<"Get connector">>,
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Connector not found")
+                404 => error_schema('NOT_FOUND', ?DESC("connector_not_found"))
             }
         },
         put => #{
             tags => [<<"connectors">>],
-            summary => <<"Update connector">>,
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -233,23 +227,22 @@ schema("/connectors/:id") ->
             ),
             responses => #{
                 200 => get_response_body_schema(),
-                404 => error_schema('NOT_FOUND', "Connector not found"),
-                400 => error_schema('BAD_REQUEST', "Update connector failed")
+                404 => error_schema('NOT_FOUND', ?DESC("connector_not_found")),
+                400 => error_schema('BAD_REQUEST', ?DESC("update_connector_failed"))
             }
         },
         delete => #{
             tags => [<<"connectors">>],
-            summary => <<"Delete connector">>,
             description => ?DESC("desc_api5"),
             parameters => [param_path_id()],
             responses => #{
                 204 => <<"Connector deleted">>,
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Cannot delete connector while active rules are defined for this connector"
+                    ?DESC("cannot_delete_connector_with_active_rules")
                 ),
-                404 => error_schema('NOT_FOUND', "Connector not found"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("connector_not_found")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -259,16 +252,15 @@ schema("/connectors/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"connectors">>],
-                summary => <<"Enable or disable connector">>,
                 desc => ?DESC("desc_enable_connector"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
                     #{
                         204 => <<"Success">>,
                         404 => error_schema(
-                            'NOT_FOUND', "Connector not found or invalid operation"
+                            'NOT_FOUND', ?DESC("connector_not_found_or_invalid_operation")
                         ),
-                        503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                        503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
                     }
             }
     };
@@ -277,7 +269,6 @@ schema("/connectors/:id/:operation") ->
         'operationId' => '/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Manually start a connector">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -286,11 +277,11 @@ schema("/connectors/:id/:operation") ->
             responses => #{
                 204 => <<"Operation success">>,
                 400 => error_schema(
-                    'BAD_REQUEST', "Problem with configuration of external service"
+                    'BAD_REQUEST', ?DESC("problem_with_external_service")
                 ),
-                404 => error_schema('NOT_FOUND', "Connector not found or invalid operation"),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                404 => error_schema('NOT_FOUND', ?DESC("connector_not_found_or_invalid_operation")),
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -299,7 +290,6 @@ schema("/nodes/:node/connectors/:id/:operation") ->
         'operationId' => '/nodes/:node/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => <<"Manually start a connector on a given node">>,
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -310,13 +300,13 @@ schema("/nodes/:node/connectors/:id/:operation") ->
                 204 => <<"Operation success">>,
                 400 => error_schema(
                     'BAD_REQUEST',
-                    "Problem with configuration of external service or connector not enabled"
+                    ?DESC("problem_with_external_service_or_not_enabled")
                 ),
                 404 => error_schema(
-                    'NOT_FOUND', "Connector or node not found or invalid operation"
+                    'NOT_FOUND', ?DESC("connector_or_node_not_found")
                 ),
-                501 => error_schema('NOT_IMPLEMENTED', "Not Implemented"),
-                503 => error_schema('SERVICE_UNAVAILABLE', "Service unavailable")
+                501 => error_schema('NOT_IMPLEMENTED', ?DESC("not_implemented")),
+                503 => error_schema('SERVICE_UNAVAILABLE', ?DESC("service_unavailable"))
             }
         }
     };
@@ -326,14 +316,13 @@ schema("/connectors_probe") ->
         post => #{
             tags => [<<"connectors">>],
             desc => ?DESC("desc_api9"),
-            summary => <<"Test creating connector">>,
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_connector_schema:post_request(),
                 connector_info_examples(post)
             ),
             responses => #{
                 204 => <<"Test connector OK">>,
-                400 => error_schema(['TEST_FAILED'], "connector test failed")
+                400 => error_schema(['TEST_FAILED'], ?DESC("connector_test_failed"))
             }
         }
     }.
