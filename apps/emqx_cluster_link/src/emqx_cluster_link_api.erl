@@ -49,14 +49,14 @@ schema("/cluster/links") ->
         'operationId' => '/cluster/links',
         get =>
             #{
-                description => "Get cluster links configuration",
+                description => ?DESC("get_cluster_links_config"),
                 tags => ?TAGS,
                 responses =>
                     #{200 => links_config_schema_response()}
             },
         post =>
             #{
-                description => "Create a cluster link",
+                description => ?DESC("create_cluster_link"),
                 tags => ?TAGS,
                 'requestBody' => link_config_schema(),
                 responses =>
@@ -65,7 +65,7 @@ schema("/cluster/links") ->
                         400 =>
                             emqx_dashboard_swagger:error_codes(
                                 [?BAD_REQUEST, ?ALREADY_EXISTS],
-                                <<"Update Config Failed">>
+                                ?DESC("update_config_failed")
                             )
                     }
             }
@@ -75,33 +75,33 @@ schema("/cluster/links/link/:name") ->
         'operationId' => '/cluster/links/link/:name',
         get =>
             #{
-                description => "Get a cluster link configuration",
+                description => ?DESC("get_cluster_link_config"),
                 tags => ?TAGS,
                 parameters => [param_path_name()],
                 responses =>
                     #{
                         200 => link_config_schema_response(),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Cluster link not found">>
+                            [?NOT_FOUND], ?DESC("cluster_link_not_found")
                         )
                     }
             },
         delete =>
             #{
-                description => "Delete a cluster link",
+                description => ?DESC("delete_cluster_link"),
                 tags => ?TAGS,
                 parameters => [param_path_name()],
                 responses =>
                     #{
-                        204 => <<"Link deleted">>,
+                        204 => ?DESC("link_deleted"),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Cluster link not found">>
+                            [?NOT_FOUND], ?DESC("cluster_link_not_found")
                         )
                     }
             },
         put =>
             #{
-                description => "Update a cluster link configuration",
+                description => ?DESC("update_cluster_link_config"),
                 tags => ?TAGS,
                 parameters => [param_path_name()],
                 'requestBody' => update_link_config_schema(),
@@ -109,11 +109,11 @@ schema("/cluster/links/link/:name") ->
                     #{
                         200 => link_config_schema_response(),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Cluster link not found">>
+                            [?NOT_FOUND], ?DESC("cluster_link_not_found")
                         ),
                         400 =>
                             emqx_dashboard_swagger:error_codes(
-                                [?BAD_REQUEST], <<"Update Config Failed">>
+                                [?BAD_REQUEST], ?DESC("update_config_failed")
                             )
                     }
             }
@@ -123,14 +123,14 @@ schema("/cluster/links/link/:name/metrics") ->
         'operationId' => '/cluster/links/link/:name/metrics',
         get =>
             #{
-                description => "Get a cluster link metrics",
+                description => ?DESC("get_cluster_link_metrics"),
                 tags => ?TAGS,
                 parameters => [param_path_name()],
                 responses =>
                     #{
                         200 => link_metrics_schema_response(),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Cluster link not found">>
+                            [?NOT_FOUND], ?DESC("cluster_link_not_found")
                         )
                     }
             }
@@ -140,14 +140,14 @@ schema("/cluster/links/link/:name/metrics/reset") ->
         'operationId' => '/cluster/links/link/:name/metrics/reset',
         put =>
             #{
-                description => "Reset a cluster link's metrics",
+                description => ?DESC("reset_cluster_link_metrics"),
                 tags => ?TAGS,
                 parameters => [param_path_name()],
                 responses =>
                     #{
-                        204 => <<"Reset">>,
+                        204 => ?DESC("reset"),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND], <<"Cluster link not found">>
+                            [?NOT_FOUND], ?DESC("cluster_link_not_found")
                         )
                     }
             }
