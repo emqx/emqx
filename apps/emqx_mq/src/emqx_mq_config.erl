@@ -92,11 +92,11 @@ post_config_update(?MQ_CONFIG_PATH, _Request, NewConf, OldConf, _AppEnvs) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-auto_create(Topic, #{regular := #{enable := true} = RegularAutoCreate}) ->
-    MQ = maps:without([enable], RegularAutoCreate#{topic_filter => Topic, is_lastvalue => false}),
+auto_create(Topic, #{regular := #{} = RegularAutoCreate}) ->
+    MQ = RegularAutoCreate#{topic_filter => Topic, is_lastvalue => false},
     {true, MQ};
-auto_create(Topic, #{lastvalue := #{enable := true} = LastvalueAutoCreate}) ->
-    MQ = maps:without([enable], LastvalueAutoCreate#{topic_filter => Topic, is_lastvalue => true}),
+auto_create(Topic, #{lastvalue := #{} = LastvalueAutoCreate}) ->
+    MQ = LastvalueAutoCreate#{topic_filter => Topic, is_lastvalue => true},
     {true, MQ};
 auto_create(_Topic, _Config) ->
     false.
@@ -109,7 +109,7 @@ maybe_enable(#{enable := true} = _NewConf, #{enable := false} = _OldConf) ->
     ok = emqx_mq_app:do_start().
 
 validate_auto_create(
-    #{auto_create := #{regular := #{enable := true}, lastvalue := #{enable := true}}} = _NewConf
+    #{auto_create := #{regular := #{}, lastvalue := #{}}} = _NewConf
 ) ->
     {error, #{reason => cannot_enable_both_regular_and_lastvalue_auto_create}};
 validate_auto_create(_NewConf) ->

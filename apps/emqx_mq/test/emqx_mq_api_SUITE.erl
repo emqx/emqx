@@ -189,17 +189,17 @@ t_config(_Config) ->
         {ok, 204},
         api_put([message_queues, config], #{
             <<"auto_create">> => #{
-                <<"regular">> => #{<<"enable">> => false},
-                <<"lastvalue">> => #{<<"enable">> => true}
+                <<"regular">> => false,
+                <<"lastvalue">> => #{}
             }
         })
     ),
     ?assertMatch(
         {ok, 200, #{
             <<"auto_create">> := #{
-                <<"regular">> := #{<<"enable">> := false},
+                <<"regular">> := false,
                 <<"lastvalue">> := #{
-                    <<"enable">> := true, <<"key_expression">> := <<"message.from">>
+                    <<"key_expression">> := <<"message.from">>
                 }
             }
         }},
@@ -213,7 +213,7 @@ t_config(_Config) ->
         }},
         api_put([message_queues, config], #{
             <<"auto_create">> => #{
-                <<"regular">> => #{<<"enable">> => true}, <<"lastvalue">> => #{<<"enable">> => true}
+                <<"regular">> => #{}, <<"lastvalue">> => #{}
             }
         })
     ).

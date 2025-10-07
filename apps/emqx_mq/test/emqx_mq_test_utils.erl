@@ -189,19 +189,7 @@ cth_config(App) ->
     cth_config(App, #{}).
 
 cth_config(emqx_mq, ConfigOverrides) ->
-    DefaultConfig = #{
-        <<"mq">> => #{
-            <<"gc_interval">> => <<"1h">>,
-            <<"auto_create">> => #{
-                <<"regular">> => #{
-                    <<"enable">> => false
-                },
-                <<"lastvalue">> => #{
-                    <<"enable">> => false
-                }
-            }
-        }
-    },
+    DefaultConfig = #{<<"mq">> => default_mq_config()},
     Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
     #{
         config => Config,
@@ -232,5 +220,14 @@ compile_key_expression(KeyExpression) ->
     KeyExpressionCompiled.
 
 reset_config() ->
-    {ok, _} = emqx:update_config([mq], #{}),
+    {ok, _} = emqx:update_config([mq], default_mq_config()),
     ok.
+
+default_mq_config() ->
+    #{
+        <<"gc_interval">> => <<"1h">>,
+        <<"auto_create">> => #{
+            <<"regular">> => false,
+            <<"lastvalue">> => false
+        }
+    }.
