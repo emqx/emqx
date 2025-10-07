@@ -75,7 +75,8 @@ t_publish_and_consume(_Config) ->
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Publish 100 messages to the queue
-    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>, qos => 0}),
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
@@ -91,7 +92,8 @@ t_publish_and_consume(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
 
     %% Publish 100 more messages to the queue
-    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>, qos => 0}),
 
     %% Consume the rest messages
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 100, _Timeout1 = 1000),
