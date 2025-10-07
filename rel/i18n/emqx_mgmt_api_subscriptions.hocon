@@ -1,8 +1,88 @@
 emqx_mgmt_api_subscriptions {
 
 list_subs.desc:
-"""List subscriptions"""
+"""List subscriptions."""
 list_subs.label:
-"""List subscriptions"""
+"""List Subscriptions"""
+
+node.desc:
+"""Node name."""
+node.label:
+"""Node"""
+
+topic.desc:
+"""Topic name."""
+topic.label:
+"""Topic"""
+
+clientid.desc:
+"""Client identifier."""
+clientid.label:
+"""Client ID"""
+
+qos.desc:
+"""QoS."""
+qos.label:
+"""QoS"""
+
+nl.desc:
+"""No Local."""
+nl.label:
+"""No Local"""
+
+rap.desc:
+"""Retain as Published."""
+rap.label:
+"""Retain as Published"""
+
+rh.desc:
+"""Retain Handling."""
+rh.label:
+"""Retain Handling"""
+
+durable.desc:
+"""Durable subscription."""
+durable.label:
+"""Durable Subscription"""
+
+node_name.desc:
+"""Node name."""
+node_name.label:
+"""Node Name"""
+
+client_id.desc:
+"""Client ID."""
+client_id.label:
+"""Client ID"""
+
+topic_url_encoding.desc:
+"""Topic, url encoding."""
+topic_url_encoding.label:
+"""Topic URL Encoding"""
+
+match_topic_url_encoding.desc:
+"""Match topic string, url encoding."""
+match_topic_url_encoding.label:
+"""Match Topic URL Encoding"""
+
+shared_subscription_group_name.desc:
+"""Shared subscription group name."""
+shared_subscription_group_name.label:
+"""Shared Subscription Group Name"""
+
+filter_subscriptions_by_durability.desc:
+"""Filter subscriptions by durability."""
+filter_subscriptions_by_durability.label:
+"""Filter Subscriptions by Durability"""
+
+invalid_parameter.desc:
+"""Invalid parameter."""
+invalid_parameter.label:
+"""Invalid Parameter"""
+
+bad_rpc.desc:
+"""Bad RPC."""
+bad_rpc.label:
+"""Bad RPC"""
 
 }
