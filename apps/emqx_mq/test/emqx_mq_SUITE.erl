@@ -62,7 +62,8 @@ init_per_testcase(_CaseName, Config) ->
 
 end_per_testcase(_CaseName, _Config) ->
     ok = snabbkaffe:stop(),
-    ok = emqx_mq_test_utils:cleanup_mqs().
+    ok = emqx_mq_test_utils:cleanup_mqs(),
+    ok = emqx_mq_test_utils:reset_config().
 
 %%--------------------------------------------------------------------
 %% Test cases

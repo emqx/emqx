@@ -87,7 +87,8 @@ schema("/message_queues/queues") ->
                     get_message_queue_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['ALREADY_EXISTS'], ?DESC(message_queue_already_exists)
+                    ['ALREADY_EXISTS', 'MAX_QUEUE_COUNT_REACHED'],
+                    ?DESC(cannot_create_message_queue)
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
@@ -278,6 +279,8 @@ put_message_queue_config_example() ->
             ?OK(CreatedMessageQueueRaw);
         {error, queue_exists} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>);
+        {error, max_queue_count_reached} ->
+            ?BAD_REQUEST('MAX_QUEUE_COUNT_REACHED', <<"Max queue count reached">>);
         {error, Reason} ->
             ?SERVICE_UNAVAILABLE(Reason)
     end.

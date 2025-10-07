@@ -10,7 +10,8 @@
     mq_update_from_raw_put/1,
     raw_api_config/0,
     update_config/1,
-    is_enabled/0
+    is_enabled/0,
+    max_queue_count/0
 ]).
 
 -export([
@@ -64,6 +65,10 @@ update_config(UpdateRequest0) ->
 -spec is_enabled() -> boolean().
 is_enabled() ->
     emqx:get_config(?MQ_CONFIG_PATH ++ [enable]).
+
+-spec max_queue_count() -> pos_integer().
+max_queue_count() ->
+    emqx:get_config(?MQ_CONFIG_PATH ++ [max_queue_count]).
 
 %%------------------------------------------------------------------------------
 %% Config hooks

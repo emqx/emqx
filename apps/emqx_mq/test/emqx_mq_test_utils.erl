@@ -23,6 +23,8 @@
 
 -export([cth_config/1, cth_config/2]).
 
+-export([reset_config/0]).
+
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -220,3 +222,7 @@ cth_config(emqx, ConfigOverrides) ->
 compile_key_expression(KeyExpression) ->
     {ok, KeyExpressionCompiled} = emqx_variform:compile(KeyExpression),
     KeyExpressionCompiled.
+
+reset_config() ->
+    {ok, _} = emqx:update_config([mq], #{}),
+    ok.

@@ -44,6 +44,12 @@ fields(mq) ->
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"7d">>, required => true, desc => ?DESC(regular_queue_retention_period)
             })},
+        {max_queue_count,
+            mk(pos_integer(), #{
+                default => 100,
+                required => true,
+                desc => ?DESC(max_queue_count)
+            })},
         {find_queue_retry_interval,
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"10s">>,
