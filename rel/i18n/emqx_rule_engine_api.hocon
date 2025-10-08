@@ -103,7 +103,7 @@ api1_qs_source.desc:
 """Filters rules that contain any of the given source id(s).  When used in conjunction with action id filtering, the rules must contain sources *and* actions that match some of the criteria."""
 
 invalid_parameters.desc:
-"""Invalid Parameters."""
+"""Invalid parameters."""
 invalid_parameters.label:
 """Invalid Parameters"""
 
@@ -113,7 +113,7 @@ rule_not_found.label:
 """Rule Not Found"""
 
 sql_not_match.desc:
-"""SQL Not Match."""
+"""SQL not match."""
 sql_not_match.label:
 """SQL Not Match"""
 
@@ -133,17 +133,17 @@ delete_rule_successfully.label:
 """Delete Rule Successfully"""
 
 rule_applied.desc:
-"""Rule Applied."""
+"""Rule applied."""
 rule_applied.label:
 """Rule Applied"""
 
 reset_success.desc:
-"""Reset Success."""
+"""Reset success."""
 reset_success.label:
 """Reset Success"""
 
 rule_test_pass.desc:
-"""Rule Test Pass."""
+"""Rule test pass."""
 rule_test_pass.label:
 """Rule Test Pass"""
 
