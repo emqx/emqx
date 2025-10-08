@@ -165,7 +165,7 @@ paths() ->
     ].
 
 error_schema(Code, Message) when is_atom(Code) ->
-    emqx_dashboard_swagger:error_codes([Code], list_to_binary(Message)).
+    emqx_dashboard_swagger:error_codes([Code], Message).
 
 rule_engine_schema() ->
     ref(emqx_rule_api_schema, "rule_engine").
@@ -212,23 +212,21 @@ schema("/rules") ->
                 ref(emqx_dashboard_swagger, page),
                 ref(emqx_dashboard_swagger, limit)
             ],
-            summary => <<"List rules">>,
             responses => #{
                 200 =>
                     [
                         {data, mk(array(rule_info_schema()), #{desc => ?DESC("api1_resp")})},
                         {meta, mk(ref(emqx_dashboard_swagger, meta), #{})}
                     ],
-                400 => error_schema('BAD_REQUEST', "Invalid Parameters")
+                400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters"))
             }
         },
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api2"),
-            summary => <<"Create a rule">>,
             'requestBody' => rule_creation_schema(),
             responses => #{
-                400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
+                400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
                 201 => rule_info_schema()
             }
         }
@@ -239,7 +237,6 @@ schema("/rule_events") ->
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api3"),
-            summary => <<"List rule events">>,
             responses => #{
                 200 => mk(ref(emqx_rule_api_schema, "rule_events"), #{})
             }
@@ -251,33 +248,30 @@ schema("/rules/:id") ->
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api4"),
-            summary => <<"Get rule">>,
             parameters => param_path_id(),
             responses => #{
-                404 => error_schema('NOT_FOUND', "Rule not found"),
+                404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
                 200 => rule_info_schema()
             }
         },
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api5"),
-            summary => <<"Update rule">>,
             parameters => param_path_id(),
             'requestBody' => rule_creation_schema(),
             responses => #{
-                400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
-                404 => error_schema('NOT_FOUND', "Rule not found"),
+                400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
+                404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
                 200 => rule_info_schema()
             }
         },
         delete => #{
             tags => [<<"rules">>],
             description => ?DESC("api6"),
-            summary => <<"Delete rule">>,
             parameters => param_path_id(),
             responses => #{
-                404 => error_schema('NOT_FOUND', "Rule not found"),
-                204 => <<"Delete rule successfully">>
+                404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
+                204 => ?DESC("delete_rule_successfully")
             }
         }
     };
@@ -287,14 +281,13 @@ schema("/rules/:id/test") ->
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api11"),
-            summary => <<"Apply a rule for testing">>,
             parameters => param_path_id(),
             'requestBody' => rule_apply_test_schema(),
             responses => #{
-                400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
-                412 => error_schema('NOT_MATCH', "SQL Not Match"),
-                404 => error_schema('RULE_NOT_FOUND', "The rule could not be found"),
-                200 => <<"Rule Applied">>
+                400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
+                412 => error_schema('NOT_MATCH', ?DESC("sql_not_match")),
+                404 => error_schema('RULE_NOT_FOUND', ?DESC("rule_could_not_be_found")),
+                200 => ?DESC("rule_applied")
             }
         }
     };
@@ -304,10 +297,9 @@ schema("/rules/:id/metrics") ->
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api4_1"),
-            summary => <<"Get rule metrics">>,
             parameters => param_path_id(),
             responses => #{
-                404 => error_schema('NOT_FOUND', "Rule not found"),
+                404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
                 200 => rule_metrics_schema()
             }
         }
@@ -318,11 +310,10 @@ schema("/rules/:id/metrics/reset") ->
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api7"),
-            summary => <<"Reset rule metrics">>,
             parameters => param_path_id(),
             responses => #{
-                404 => error_schema('NOT_FOUND', "Rule not found"),
-                204 => <<"Reset Success">>
+                404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
+                204 => ?DESC("reset_success")
             }
         }
     };
@@ -332,12 +323,11 @@ schema("/rule_test") ->
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api8"),
-            summary => <<"Test a rule">>,
             'requestBody' => rule_test_schema(),
             responses => #{
-                400 => error_schema('BAD_REQUEST', "Invalid Parameters"),
-                412 => error_schema('NOT_MATCH', "SQL Not Match"),
-                200 => <<"Rule Test Pass">>
+                400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
+                412 => error_schema('NOT_MATCH', ?DESC("sql_not_match")),
+                200 => ?DESC("rule_test_pass")
             }
         }
     };
@@ -357,7 +347,7 @@ schema("/rule_engine") ->
             'requestBody' => rule_engine_schema(),
             responses => #{
                 200 => rule_engine_schema(),
-                400 => error_schema('BAD_REQUEST', "Invalid request")
+                400 => error_schema('BAD_REQUEST', ?DESC("invalid_request"))
             }
         }
     }.
