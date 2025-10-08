@@ -33,4 +33,49 @@ emqx_schema_validation_http_api {
   param_path_enable.desc:
   """Enable or disable validation"""
 
+  validation_already_exists.desc:
+  """Validation already exists."""
+  validation_already_exists.label:
+  """Validation Already Exists"""
+
+  validation_not_found.desc:
+  """Validation not found."""
+  validation_not_found.label:
+  """Validation Not Found"""
+
+  bad_params.desc:
+  """Bad params."""
+  bad_params.label:
+  """Bad Params"""
+
+  bad_request.desc:
+  """Bad request."""
+  bad_request.label:
+  """Bad Request"""
+
+  no_content.desc:
+  """No content."""
+  no_content.label:
+  """No Content"""
+
+  validation_deleted.desc:
+  """Validation deleted."""
+  validation_deleted.label:
+  """Validation Deleted"""
+
+  validations_not_found.desc:
+  """Validations not found."""
+  validations_not_found.label:
+  """Validations Not Found"""
+
+  validations_not_referenced.desc:
+  """Validations not referenced in input."""
+  validations_not_referenced.label:
+  """Validations Not Referenced"""
+
+  duplicated_validations.desc:
+  """Duplicated validations in input."""
+  duplicated_validations.label:
+  """Duplicated Validations"""
+
 }
