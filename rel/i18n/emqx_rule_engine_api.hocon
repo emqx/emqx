@@ -113,7 +113,7 @@ rule_not_found.label:
 """Rule Not Found"""
 
 sql_not_match.desc:
-"""SQL not match."""
+"""SQL does not match."""
 sql_not_match.label:
 """SQL Not Match"""
 
@@ -143,7 +143,7 @@ reset_success.label:
 """Reset Success"""
 
 rule_test_pass.desc:
-"""Rule test pass."""
+"""Rule test passed."""
 rule_test_pass.label:
 """Rule Test Pass"""
 

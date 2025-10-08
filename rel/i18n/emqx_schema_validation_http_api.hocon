@@ -44,9 +44,9 @@ emqx_schema_validation_http_api {
   """Validation Not Found"""
 
   bad_params.desc:
-  """Bad params."""
+  """Bad parameters."""
   bad_params.label:
-  """Bad Params"""
+  """Bad Parameters"""
 
   bad_request.desc:
   """Bad request."""
@@ -74,8 +74,8 @@ emqx_schema_validation_http_api {
   """Validations Not Referenced"""
 
   duplicated_validations.desc:
-  """Duplicated validations in input."""
+  """Duplicate validations in input."""
   duplicated_validations.label:
-  """Duplicated Validations"""
+  """Duplicate Validations"""
 
 }
