@@ -14,6 +14,7 @@ The module contains the registry of Message Queues.
     create_tables/0,
     create/1,
     find/1,
+    is_present/1,
     match/1,
     delete/1,
     update/2,
@@ -152,6 +153,19 @@ find(TopicFilter) ->
             not_found;
         [#?MQ_REGISTRY_INDEX_TAB{id = Id}] ->
             emqx_mq_state_storage:find_mq(Id)
+    end.
+
+-doc """
+Check if the MQ exists by its topic filter.
+""".
+-spec is_present(emqx_mq_types:mq_topic()) -> boolean().
+is_present(TopicFilter) ->
+    Key = make_key(TopicFilter),
+    case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
+        [] ->
+            false;
+        [#?MQ_REGISTRY_INDEX_TAB{}] ->
+            true
     end.
 
 -doc """

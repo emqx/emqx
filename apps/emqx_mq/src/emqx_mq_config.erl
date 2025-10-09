@@ -11,7 +11,8 @@
     raw_api_config/0,
     update_config/1,
     is_enabled/0,
-    max_queue_count/0
+    max_queue_count/0,
+    auto_create/1
 ]).
 
 -export([
@@ -70,6 +71,10 @@ is_enabled() ->
 max_queue_count() ->
     emqx:get_config(?MQ_CONFIG_PATH ++ [max_queue_count]).
 
+-spec auto_create(emqx_mq_types:mq_topic()) -> false | {true, emqx_mq_types:mq()}.
+auto_create(Topic) ->
+    auto_create(Topic, emqx:get_config(?MQ_CONFIG_PATH ++ [auto_create])).
+
 %%------------------------------------------------------------------------------
 %% Config hooks
 %%------------------------------------------------------------------------------
@@ -78,11 +83,23 @@ pre_config_update(?MQ_CONFIG_PATH, NewConf, _OldConf) ->
     {ok, NewConf}.
 
 post_config_update(?MQ_CONFIG_PATH, _Request, NewConf, OldConf, _AppEnvs) ->
-    maybe_enable(NewConf, OldConf).
+    maybe
+        ok ?= validate_auto_create(NewConf),
+        ok ?= maybe_enable(NewConf, OldConf)
+    end.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+auto_create(Topic, #{regular := #{} = RegularAutoCreate}) ->
+    MQ = RegularAutoCreate#{topic_filter => Topic, is_lastvalue => false},
+    {true, MQ};
+auto_create(Topic, #{lastvalue := #{} = LastvalueAutoCreate}) ->
+    MQ = LastvalueAutoCreate#{topic_filter => Topic, is_lastvalue => true},
+    {true, MQ};
+auto_create(_Topic, _Config) ->
+    false.
 
 maybe_enable(#{enable := Enable} = _NewConf, #{enable := Enable} = _OldConf) ->
     ok;
@@ -90,6 +107,13 @@ maybe_enable(#{enable := false} = _NewConf, #{enable := true} = _OldConf) ->
     {error, #{reason => cannot_disable_mq_in_runtime}};
 maybe_enable(#{enable := true} = _NewConf, #{enable := false} = _OldConf) ->
     ok = emqx_mq_app:do_start().
+
+validate_auto_create(
+    #{auto_create := #{regular := #{}, lastvalue := #{}}} = _NewConf
+) ->
+    {error, #{reason => cannot_enable_both_regular_and_lastvalue_auto_create}};
+validate_auto_create(_NewConf) ->
+    ok.
 
 binary_key_map(Map) ->
     maps:fold(

@@ -56,8 +56,54 @@ fields(mq) ->
                 required => true,
                 desc => ?DESC(find_queue_retry_interval),
                 importance => ?IMPORTANCE_MEDIUM
+            })},
+        {auto_create,
+            mk(ref(auto_create), #{
+                required => true,
+                desc => ?DESC(auto_create),
+                default => #{
+                    <<"regular">> => false,
+                    <<"lastvalue">> => #{}
+                }
             })}
     ];
+fields(auto_create) ->
+    [
+        {regular,
+            mk(hoconsc:union([false, ref(auto_create_regular)]), #{
+                required => true,
+                default => false,
+                converter => serialize_converter(
+                    fun
+                        (false) ->
+                            false;
+                        (#{} = Val) ->
+                            emqx_schema:fill_defaults_for_type(ref(auto_create_regular), Val)
+                    end
+                ),
+                desc => ?DESC(auto_create_regular)
+            })},
+        {lastvalue,
+            mk(hoconsc:union([false, ref(auto_create_lastvalue)]), #{
+                required => true,
+                default => #{},
+                converter => serialize_converter(
+                    fun
+                        (false) ->
+                            false;
+                        (#{} = Val) ->
+                            emqx_schema:fill_defaults_for_type(ref(auto_create_lastvalue), Val)
+                    end
+                ),
+                desc => ?DESC(auto_create_lastvalue)
+            })}
+    ];
+fields(auto_create_regular) ->
+    RegularMQFields = message_queue_fields(false),
+    without_fields([is_lastvalue, topic_filter], RegularMQFields);
+fields(auto_create_lastvalue) ->
+    LastvalueMQFields = message_queue_fields(true) ++ message_queue_lastvalue_fields(),
+    without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
 %%
 %% Lastvalue structs
 %%
@@ -94,6 +140,12 @@ fields(api_config_put) ->
 
 desc(mq) ->
     ?DESC(mq);
+desc(auto_create) ->
+    ?DESC(auto_create);
+desc(auto_create_regular) ->
+    ?DESC(auto_create_regular);
+desc(auto_create_lastvalue) ->
+    ?DESC(auto_create_lastvalue);
 desc(_) ->
     undefined.
 
@@ -211,7 +263,6 @@ mk(Type, Meta) ->
 ref(Struct) -> hoconsc:ref(?MODULE, Struct).
 ref(Module, Struct) -> hoconsc:ref(Module, Struct).
 array(Type) -> hoconsc:array(Type).
-
 enum(Values) -> hoconsc:enum(Values).
 
 without_fields(FieldNames, Fields) ->
@@ -221,6 +272,14 @@ without_fields(FieldNames, Fields) ->
         end,
         Fields
     ).
+
+serialize_converter(Fun) ->
+    fun
+        (Val, #{make_serializable := true}) ->
+            Fun(Val);
+        (Val, _Opts) ->
+            Val
+    end.
 
 compile_variform(Expression, #{make_serializable := true}) ->
     case is_binary(Expression) of
