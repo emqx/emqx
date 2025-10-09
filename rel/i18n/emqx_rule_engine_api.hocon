@@ -102,4 +102,49 @@ api1_qs_action.desc:
 api1_qs_source.desc:
 """Filters rules that contain any of the given source id(s).  When used in conjunction with action id filtering, the rules must contain sources *and* actions that match some of the criteria."""
 
+invalid_parameters.desc:
+"""Invalid parameters."""
+invalid_parameters.label:
+"""Invalid Parameters"""
+
+rule_not_found.desc:
+"""Rule not found."""
+rule_not_found.label:
+"""Rule Not Found"""
+
+sql_not_match.desc:
+"""SQL does not match."""
+sql_not_match.label:
+"""SQL Not Match"""
+
+rule_could_not_be_found.desc:
+"""The rule could not be found."""
+rule_could_not_be_found.label:
+"""Rule Could Not Be Found"""
+
+invalid_request.desc:
+"""Invalid request."""
+invalid_request.label:
+"""Invalid Request"""
+
+delete_rule_successfully.desc:
+"""Delete rule successfully."""
+delete_rule_successfully.label:
+"""Delete Rule Successfully"""
+
+rule_applied.desc:
+"""Rule applied."""
+rule_applied.label:
+"""Rule Applied"""
+
+reset_success.desc:
+"""Reset success."""
+reset_success.label:
+"""Reset Success"""
+
+rule_test_pass.desc:
+"""Rule test passed."""
+rule_test_pass.label:
+"""Rule Test Pass"""
+
 }
