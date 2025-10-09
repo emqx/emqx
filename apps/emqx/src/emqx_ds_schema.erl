@@ -89,7 +89,11 @@ schema() ->
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(sessions),
-                #{}
+                #{
+                    <<"transaction">> => #{
+                        <<"idle_flush_interval">> => <<"0ms">>
+                    }
+                }
             )},
         {timers,
             db_schema(
@@ -102,8 +106,7 @@ schema() ->
                 %% this value should be ok.
                 #{
                     <<"transaction">> => #{
-                        <<"idle_flush_interval">> => <<"1ms">>,
-                        <<"flush_interval">> => <<"500ms">>
+                        <<"idle_flush_interval">> => <<"0ms">>
                     }
                 }
             )},
