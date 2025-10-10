@@ -52,7 +52,7 @@ $(REBAR): .prepare ensure-rebar3
 
 .PHONY: ensure-hex
 ensure-hex:
-	@mix local.hex 2.2.1 --if-missing --force
+	@mix local.hex --if-missing --force
 
 .PHONY: ensure-mix-rebar3
 ensure-mix-rebar3: $(REBAR)
