@@ -792,7 +792,7 @@ clear_table(#{type := ds, db := DB}) ->
                 end
             )
         end,
-        emqx_ds:list_generations_with_lifetimes(DB)
+        emqx_ds:list_slabs(DB)
     ).
 
 multicall(Fun) ->
