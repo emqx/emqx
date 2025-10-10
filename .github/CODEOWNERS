@@ -22,7 +22,11 @@
 /apps/emqx_plugins/        @emqx/emqx-review-board @JimMoen
 /apps/emqx_prometheus/     @emqx/emqx-review-board @JimMoen
 /apps/emqx_statsd/         @emqx/emqx-review-board @JimMoen
-/apps/emqx_durable_storage/ @emqx/emqx-review-board @keynslug
+/apps/emqx_durable_storage/ @ieQu1
+/apps/emqx_ds_builtin_local/ @ieQu1
+/apps/emqx_ds_builtin_raft/ @ieQu1
+/apps/emqx_ds_backends/ @ieQu1
+/apps/emqx/src/emqx_persistent_session_ds/ @ieQu1
 
 ## CI
 /deploy/  @emqx/emqx-review-board @Rory-Z
