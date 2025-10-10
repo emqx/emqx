@@ -66,7 +66,6 @@
     otx_get_tx_serial/2,
     otx_get_leader/2,
     otx_get_latest_generation/2,
-    otx_current_leader/2,
     otx_become_leader/2,
     otx_prepare_tx/5,
     otx_commit_tx_batch/5,
@@ -196,7 +195,8 @@ add_generation(DB) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
     lists:foreach(
         fun(Shard) ->
-            ok = emqx_ds_optimistic_tx:add_generation(?MODULE, DB, Shard)
+            Leader = otx_get_leader(DB, Shard),
+            ok = emqx_ds_optimistic_tx:add_generation(Leader)
         end,
         Shards
     ).
@@ -257,8 +257,9 @@ drop_db(DB) ->
 
 -spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
-dirty_append(#{db := _, shard := _} = Opts, Data) ->
-    emqx_ds_optimistic_tx:dirty_append(?MODULE, Opts, Data).
+dirty_append(#{db := DB, shard := Shard} = Opts, Data) ->
+    Leader = otx_get_leader(DB, Shard),
+    emqx_ds_optimistic_tx:dirty_append(Leader, Opts, Data).
 
 -spec new_tx(emqx_ds:db(), emqx_ds:transaction_opts()) ->
     {ok, tx_context()} | emqx_ds:error(_).
@@ -272,8 +273,9 @@ new_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
     emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options).
 
 -spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:tx_ops()) -> reference().
-commit_tx(DB, Ctx, Ops) ->
-    emqx_ds_optimistic_tx:commit_kv_tx(?MODULE, DB, Ctx, Ops).
+commit_tx(DB, Ctx = #kv_tx_ctx{shard = Shard}, Ops) ->
+    Leader = otx_get_leader(DB, Shard),
+    emqx_ds_optimistic_tx:commit_kv_tx(Leader, DB, Ctx, Ops).
 
 tx_commit_outcome(Reply) ->
     emqx_ds_optimistic_tx:tx_commit_outcome(Reply).
@@ -426,9 +428,6 @@ otx_become_leader(DB, Shard) ->
     {ok, Serial, Timestamp}.
 
 otx_get_leader(DB, Shard) ->
-    emqx_ds_optimistic_tx:where(DB, Shard).
-
-otx_current_leader(DB, Shard) ->
     emqx_ds_optimistic_tx:where(DB, Shard).
 
 otx_get_latest_generation(DB, Shard) ->

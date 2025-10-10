@@ -31,7 +31,7 @@
     where/2,
 
     dirty_append/3,
-    add_generation/3,
+    add_generation/1,
 
     new_kv_tx_ctx/5,
     commit_kv_tx/4,
@@ -133,14 +133,12 @@
 %% Executed by the readers
 -callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 
-%% Locate _current_ OTX leader process.
-%% Executed by the readers.
--callback otx_current_leader(emqx_ds:db(), emqx_ds:shard()) ->
-    pid() | atom() | {atom(), node()} | undefined.
+-type ctx() :: #kv_tx_ctx{}.
+-type process_ref() :: pid() | atom() | {atom(), node()}.
+-type leader() :: process_ref() | undefined.
 
 -define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
 -define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
--type ctx() :: #kv_tx_ctx{}.
 
 %% States
 -define(initial, initial).
@@ -230,12 +228,12 @@ ls() ->
     MS = {{?name('$1', '$2'), '_', '_'}, [], [{{'$1', '$2'}}]},
     gproc:select({local, names}, [MS]).
 
--spec dirty_append(module(), emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
+-spec dirty_append(leader(), emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
-dirty_append(CBM, #{db := DB, shard := Shard} = Opts, Data = [{_, ?ds_tx_ts_monotonic, _} | _]) ->
+dirty_append(Leader, Opts, Data = [{_, ?ds_tx_ts_monotonic, _} | _]) ->
     Reply = maps:get(reply, Opts, true),
-    case CBM:otx_current_leader(DB, Shard) of
-        Leader when Leader =/= undefined ->
+    case Leader of
+        P when P =/= undefined ->
             case Reply of
                 true ->
                     Alias = Result = monitor(process, Leader, [{alias, reply_demonitor}]);
@@ -257,10 +255,10 @@ dirty_append(CBM, #{db := DB, shard := Shard} = Opts, Data = [{_, ?ds_tx_ts_mono
             noreply
     end.
 
--spec add_generation(module(), emqx_ds:db(), emqx_ds:shard()) -> ok | emqx_ds:error(_).
-add_generation(CBM, DB, Shard) ->
-    case CBM:otx_current_leader(DB, Shard) of
-        Leader when Leader =/= undefined ->
+-spec add_generation(leader()) -> ok | emqx_ds:error(_).
+add_generation(Leader) ->
+    case Leader of
+        P when P =/= undefined ->
             gen_statem:call(Leader, #call_add_generation{}, infinity);
         undefined ->
             ?err_rec(leader_down)
@@ -299,10 +297,11 @@ new_kv_tx_ctx(CBM, DB, Shard, Generation0, Opts) ->
             ?err_rec(leader_down)
     end.
 
-commit_kv_tx(CBM, DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}, shard = Shard}, Ops) ->
+-spec commit_kv_tx(leader(), emqx_ds:db(), ctx(), emqx_ds:tx_ops()) -> reference().
+commit_kv_tx(Leader, DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
     ?tp(emqx_ds_optimistic_tx_commit_begin, #{db => DB, ctx => Ctx, ops => Ops}),
-    case CBM:otx_current_leader(DB, Shard) of
-        Leader when Leader =/= undefined ->
+    case Leader of
+        P when P =/= undefined ->
             Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
             TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
             put({?pending_commit_timer, Alias}, TRef),
