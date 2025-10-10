@@ -104,6 +104,7 @@
 -callback delete_cursor(backend_state(), cursor()) -> ok.
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
+-callback current_index_incarnation(backend_state()) -> integer().
 
 %%------------------------------------------------------------------------------
 %% Hook API
@@ -111,11 +112,14 @@
 -spec on_session_subscribed(_, _, emqx_types:subopts()) -> any().
 on_session_subscribed(_, #share{} = _Topic, _SubOpts) ->
     ok;
-on_session_subscribed(_, Topic, #{rh := Rh} = Opts) ->
+on_session_subscribed(ClientInfo, Topic, #{rh := Rh} = Opts) ->
+    #{clientid := Clientid} = ClientInfo,
     IsNew = maps:get(is_new, Opts, true),
     case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
-        true -> emqx_retainer_dispatcher:dispatch(Topic);
-        _ -> ok
+        true ->
+            emqx_retainer_ephemeral_dispatcher:start(Topic, Clientid, self());
+        _ ->
+            ok
     end.
 
 %% RETAIN flag set to 1 and payload containing zero bytes

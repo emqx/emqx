@@ -23,7 +23,8 @@
     match_messages/3,
     delete_cursor/2,
     clean/1,
-    size/1
+    size/1,
+    current_index_incarnation/1
 ]).
 
 -behaviour(emqx_retainer_gc).
@@ -328,6 +329,14 @@ clean(_) ->
 size(_) ->
     table_size().
 
+current_index_incarnation(_) ->
+    case ets:lookup(?TAB_INDEX_META, ?META_KEY) of
+        [#retained_index_meta{extra = #{incarnation := Incarnation}}] ->
+            Incarnation;
+        _ ->
+            0
+    end.
+
 reindex(Force, StatusFun) ->
     Config = emqx:get_config([retainer, backend]),
     reindex(config_indices(Config), Force, StatusFun).
@@ -396,8 +405,12 @@ msg_stream(SearchStream) ->
     ).
 
 search_stream(Tokens, Now) ->
-    Indices = dirty_indices(read),
+    {Indices, Incarnation} = dirty_indices(read, _ReturnIncarnation = true),
     Index = emqx_retainer_index:select_index(Tokens, Indices),
+    case Index of
+        undefined -> ok;
+        _ -> emqx_retainer_dispatcher:register_reader(self(), Incarnation)
+    end,
     search_stream(Index, Tokens, Now).
 
 all_stream(Now) ->
@@ -589,20 +602,29 @@ do_populate_index_meta(ConfigIndices) ->
     end.
 
 dirty_indices(Type) ->
-    indices(ets:lookup(?TAB_INDEX_META, ?META_KEY), Type).
+    dirty_indices(Type, _ReturnIncarnation = false).
+
+dirty_indices(Type, ReturnIncarnation) ->
+    indices(ets:lookup(?TAB_INDEX_META, ?META_KEY), Type, ReturnIncarnation).
 
 db_indices(Type) ->
-    indices(mnesia:read(?TAB_INDEX_META, ?META_KEY), Type).
+    indices(mnesia:read(?TAB_INDEX_META, ?META_KEY), Type, _ReturnIncarnation = false).
 
-indices(IndexRecords, Type) ->
-    case IndexRecords of
-        [#retained_index_meta{read_indices = ReadIndices, write_indices = WriteIndices}] ->
-            case Type of
-                read -> ReadIndices;
-                write -> WriteIndices
-            end;
-        [] ->
-            []
+indices(IndexRecords, Type, ReturnIncarnation) ->
+    {Indices, Incarnation} =
+        case IndexRecords of
+            [#retained_index_meta{read_indices = ReadIndices, write_indices = WriteIndices} = Rec] ->
+                Incarnation0 = get_incarnation(Rec#retained_index_meta.extra),
+                case Type of
+                    read -> {ReadIndices, Incarnation0};
+                    write -> {WriteIndices, Incarnation0}
+                end;
+            [] ->
+                {[], 0}
+        end,
+    case ReturnIncarnation of
+        true -> {Indices, Incarnation};
+        false -> Indices
     end.
 
 batch_read_number() ->
@@ -646,26 +668,32 @@ reindex(NewIndices, Force, StatusFun) when
             Reason
     end.
 
-try_start_reindex(NewIndices, true) ->
-    %% Note: we don't expect reindexing during upgrade, so this function is internal
-    mria:transaction(
-        ?RETAINER_SHARD,
-        fun() -> start_reindex(NewIndices) end
-    );
-try_start_reindex(NewIndices, false) ->
+get_incarnation(#{incarnation := Incarnation}) ->
+    Incarnation;
+get_incarnation(_) ->
+    0.
+
+%% Note: we don't expect reindexing during upgrade, so this function is internal
+try_start_reindex(NewIndices, Force) ->
     mria:transaction(
         ?RETAINER_SHARD,
         fun() ->
             case mnesia:read(?TAB_INDEX_META, ?META_KEY, write) of
-                [#retained_index_meta{reindexing = false}] ->
-                    start_reindex(NewIndices);
+                [#retained_index_meta{reindexing = false, extra = Extra}] ->
+                    Incarnation = get_incarnation(Extra),
+                    start_reindex(NewIndices, Incarnation + 1);
+                [#retained_index_meta{reindexing = true, extra = Extra}] when Force ->
+                    Incarnation = get_incarnation(Extra),
+                    start_reindex(NewIndices, Incarnation + 1);
+                [] when Force ->
+                    start_reindex(NewIndices, _Incarnation = 0);
                 _ ->
                     {error, already_started}
             end
         end
     ).
 
-start_reindex(NewIndices) ->
+start_reindex(NewIndices, Incarnation) ->
     ?tp(warning, retainer_message_reindexing_started, #{
         hint => <<"during reindexing, subscription performance may degrade">>
     }),
@@ -675,7 +703,8 @@ start_reindex(NewIndices) ->
             key = ?META_KEY,
             read_indices = [],
             write_indices = NewIndices,
-            reindexing = true
+            reindexing = true,
+            extra = #{incarnation => Incarnation}
         },
         write
     ).
