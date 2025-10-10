@@ -188,6 +188,7 @@ deliver_in_batches(Msgs, BatchSize, Pid, Topic, Limiter0) ->
             ok = deliver_to_client(Batch, Pid, Topic),
             deliver_in_batches(RestMsgs, BatchSize, Pid, Topic, Limiter1);
         {false, Limiter1, Reason} ->
+            ?tp(retained_dispatch_failed_for_rate_exceeded_limit, #{}),
             ?SLOG_THROTTLE(
                 warning,
                 #{
