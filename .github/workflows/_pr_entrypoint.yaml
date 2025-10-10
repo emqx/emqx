@@ -97,8 +97,7 @@ jobs:
           ./scripts/apps-version-check.exs
       - name: Setup mix
         run: |
-          # mix local.hex --force --if-missing && mix local.rebar --force --if-missing
-          mix local.hex 2.0.6 --force --if-missing && mix local.rebar --force --if-missing
+          mix local.hex --force --if-missing && mix local.rebar --force --if-missing
       - name: Check formatting
         run: |
           ./scripts/check-format.sh

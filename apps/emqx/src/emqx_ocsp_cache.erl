@@ -266,10 +266,15 @@ read_server_cert(ServerCertPemPath0) ->
             public_key:der_decode('Certificate', ServerCertDer);
         [] ->
             case file:read_file(ServerCertPemPath) of
-                {ok, ServerCertPem} ->
-                    [{'Certificate', ServerCertDer, _} | _] =
-                        public_key:pem_decode(ServerCertPem),
-                    public_key:der_decode('Certificate', ServerCertDer);
+                {ok, ServerCertPem} when byte_size(ServerCertPem) > 0 ->
+                    case public_key:pem_decode(ServerCertPem) of
+                        [{'Certificate', ServerCertDer, _} | _] ->
+                            public_key:der_decode('Certificate', ServerCertDer);
+                        [] ->
+                            error({empty_pem_file, ServerCertPemPath})
+                    end;
+                {ok, <<>>} ->
+                    error({empty_server_cert_file, ServerCertPemPath});
                 {error, Error1} ->
                     error({bad_server_cert_file, Error1})
             end
@@ -304,11 +309,13 @@ with_refresh_params(ListenerID, Conf, ErrorRet, Fn) ->
             try
                 Fn(Params)
             catch
-                Kind:Error ->
+                Kind:Error:Stack ->
                     ?SLOG(error, #{
                         msg => "error_fetching_ocsp_response",
                         listener_id => ListenerID,
-                        error => {Kind, Error}
+                        exception => Kind,
+                        reason => Error,
+                        stacktrace => Stack
                     }),
                     ErrorRet
             end
@@ -328,7 +335,7 @@ get_refresh_params(ListenerID, undefined = _Conf) ->
             }
         ) ->
             {ok, #{
-                issuer_pem => IssuerPemPath,
+                issuer_pem => to_bin(IssuerPemPath),
                 responder_url => ResponderURL,
                 refresh_http_timeout => HTTPTimeout,
                 server_certfile => ServerCertPemPath
@@ -352,7 +359,7 @@ get_refresh_params(_ListenerID, #{
     }
 }) ->
     {ok, #{
-        issuer_pem => IssuerPemPath,
+        issuer_pem => to_bin(IssuerPemPath),
         responder_url => ResponderURL,
         refresh_http_timeout => HTTPTimeout,
         server_certfile => ServerCertPemPath
@@ -367,10 +374,19 @@ do_http_fetch_and_cache(ListenerID, Params) ->
         refresh_http_timeout := HTTPTimeout,
         server_certfile := ServerCertPemPath
     } = Params,
+    IssuerPemPathBin = to_bin(IssuerPemPath),
     IssuerPem =
-        case file:read_file(IssuerPemPath) of
-            {ok, IssuerPem0} -> IssuerPem0;
-            {error, Error0} -> error({bad_issuer_pem_file, Error0})
+        %% Check if IssuerPemPath is PEM content (starts with "-----BEGIN") or a file path
+        case binary:match(IssuerPemPathBin, <<"-----BEGIN">>) of
+            {0, _} ->
+                %% It's PEM content, use it directly
+                IssuerPemPathBin;
+            nomatch ->
+                %% It's a file path, read from file
+                case file:read_file(IssuerPemPathBin) of
+                    {ok, IssuerPem0} -> IssuerPem0;
+                    {error, Error0} -> error({bad_issuer_pem_file, Error0})
+                end
         end,
     ServerCert = read_server_cert(ServerCertPemPath),
     Request = build_ocsp_request(IssuerPem, ServerCert),
@@ -486,7 +502,13 @@ ensure_timer(ListenerID, Message, State, Timeout) ->
     }.
 
 build_ocsp_request(IssuerPem, ServerCert) ->
-    [{'Certificate', IssuerDer, _} | _] = public_key:pem_decode(IssuerPem),
+    IssuerDer =
+        case public_key:pem_decode(IssuerPem) of
+            [{'Certificate', Der, _} | _] ->
+                Der;
+            [] ->
+                error({empty_issuer_pem, "No certificates found in issuer PEM data"})
+        end,
     #'Certificate'{
         tbsCertificate =
             #'TBSCertificate'{
@@ -515,8 +537,7 @@ build_ocsp_request(IssuerPem, ServerCert) ->
                                     hashAlgorithm =
                                         #'AlgorithmIdentifier'{
                                             algorithm = ?'id-sha1',
-                                            %% ???
-                                            parameters = <<5, 0>>
+                                            parameters = asn1_NOVALUE
                                         },
                                     issuerNameHash = IssuerDNHash,
                                     issuerKeyHash = IssuerPKHash,

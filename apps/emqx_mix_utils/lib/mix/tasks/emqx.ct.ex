@@ -414,8 +414,9 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   def cover_compile_files() do
-    info("Cover compiling project modules...")
     real_modules = real_modules()
+    modules_count = MapSet.size(real_modules)
+    info("Cover compiling #{modules_count} project modules...")
 
     Mix.Dep.Umbrella.loaded()
     |> Stream.flat_map(fn umbrella_app ->
@@ -459,25 +460,77 @@ defmodule Mix.Tasks.Emqx.Ct do
                 :ok
 
               {:error, reason} ->
-                warn("Cover compilation failed: #{inspect(reason, pretty: true)}")
+                warn("Cover compilation failed #{mod}: #{inspect(reason, pretty: true)}")
             end
         end
       catch
         kind, reason ->
-          warn("Cover compilation failed: #{inspect({kind, reason}, pretty: true)}")
+          warn("Cover compilation failed #{mod}: #{inspect({kind, reason}, pretty: true)}")
       end
     end)
   end
 
   # Set of "real" module names in the project as strings, i.e., excluding test modules
+  # and modules generated from .xrl (Leex) and .yrl (Yecc) files
   defp real_modules() do
+    # Add build directories to code path so we can load modules
     Mix.Dep.Umbrella.loaded()
-    |> Stream.flat_map(fn dep ->
-      dep.opts[:path]
-      |> Path.join("{src,gen_src}/**/*.erl")
-      |> Path.wildcard()
+    |> Enum.each(fn dep ->
+      beams_dir = Path.join(dep.opts[:build], "ebin")
+
+      if File.exists?(beams_dir) do
+        :code.add_path(Path.expand(beams_dir) |> to_charlist())
+      end
     end)
-    |> MapSet.new(&Path.basename(&1, ".erl"))
+
+    all_modules =
+      Mix.Dep.Umbrella.loaded()
+      |> Stream.flat_map(fn dep ->
+        dep.opts[:path]
+        |> Path.join("{src,gen_src}/**/*.erl")
+        |> Path.wildcard()
+      end)
+      |> MapSet.new(&Path.basename(&1, ".erl"))
+
+    # Exclude modules generated from .xrl (Leex) and .yrl (Yecc) files
+    # by checking if they have characteristic exports
+    Enum.reject(all_modules, fn mod_name ->
+      is_generated_parser_or_lexer?(mod_name)
+    end)
+    |> MapSet.new()
+  end
+
+  # Check if a module is generated from .xrl (Leex) or .yrl (Yecc) files
+  # by loading the module and checking for characteristic exports
+  defp is_generated_parser_or_lexer?(mod_name) do
+    mod_atom = String.to_atom(mod_name)
+
+    # Try to load the module if not already loaded
+    case :code.ensure_loaded(mod_atom) do
+      {:module, _} ->
+        # Get exports using module_info
+        try do
+          exports = mod_atom.module_info(:exports)
+
+          # Yecc parsers export: parse/1, parse_and_scan/1
+          # (return_error/2 is optional and not always exported)
+          # Leex lexers export: string/1, token/2, token/3
+          yecc_core_exports = [{:parse, 1}, {:parse_and_scan, 1}]
+          leex_exports = [{:string, 1}, {:token, 2}, {:token, 3}]
+
+          yecc_match = Enum.all?(yecc_core_exports, &(&1 in exports))
+          leex_match = Enum.all?(leex_exports, &(&1 in exports))
+
+          yecc_match or leex_match
+        rescue
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
   end
 
   def write_coverdata(opts) do

@@ -29,7 +29,7 @@ defmodule EMQXBridgeClickhouse.MixProject do
 
   def deps() do
     UMP.deps([
-      {:clickhouse, github: "emqx/clickhouse-client-erl", tag: "0.3.3"},
+      {:clickhouse, github: "emqx/clickhouse-client-erl", tag: "0.3.4"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}

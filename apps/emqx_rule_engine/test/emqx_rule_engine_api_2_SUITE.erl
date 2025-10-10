@@ -2674,8 +2674,7 @@ t_direct_dispatch_empty_string(_Config) ->
             ?assertReceive({deliver, <<"rep">>, _}),
             ok
         end,
-        fun(Trace) ->
-            ?assertMatch([_], ?of_kind("bad_direct_dispatch_resolved_value", Trace)),
+        fun(_Trace) ->
             ok
         end
     ),

@@ -15,6 +15,9 @@ case ${OTP_VSN} in
     27*)
         VERSION="3.24.0-emqx-1"
         ;;
+    28*)
+        VERSION="3.25.1-emqx-1"
+        ;;
     *)
         echo "Unsupported Erlang/OTP version $OTP_VSN"
         exit 1
