@@ -1045,8 +1045,10 @@ t_write_failure(Config) ->
     ),
     ok.
 
-%% XXX: this required the previous test to be run first.
-%% otherwise the table `mqtt` won't be created.
+%% XXX: this case need:
+%% [ts_engine.schemaless]
+%% auto_alter_table = true
+%% aka: DATALAYERS_TS_ENGINE__SCHEMALESS__AUTO_ALTER_TABLE = true
 t_missing_field(Config) ->
     BatchSize = ?config(batch_size, Config),
     IsBatch = BatchSize > 1,
