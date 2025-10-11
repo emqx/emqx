@@ -148,7 +148,7 @@ cli(_) ->
 
             {
                 "rebalance start \\\n"
-                "  [--nodes \"eqmx@h.1 emqx@h.2 ..\"] \\\n"
+                "  [--nodes \"emqx@h.1 emqx@h.2 ..\"] \\\n"
                 "  [--wait-health-check Secs] \\\n"
                 "  [--conn-evict-rate ConnPerSec] \\\n"
                 "  [--conn-evict-rpc-timeout Secs] \\\n"
