@@ -597,6 +597,80 @@ t_ssl_clear(_) ->
     ?assertMatch({error, enoent}, list_pem_dir(SvrName)),
     ok.
 
+t_topic_filters_modification(_) ->
+    ?assertMatch(
+        [{on_provider_loaded, #{broker := _Broker}}],
+        emqx_exhook_demo_svr:flush()
+    ),
+
+    %% Test that gRPC hook can modify topic filters
+    %% Connect with special username that triggers topic filter modification
+    ClientId = <<"exhook_topic_modify">>,
+    {ok, C} = emqtt:start_link([
+        {host, "localhost"},
+        {port, 1883},
+        {username, <<"modify_topics_user">>},
+        {clientid, ClientId}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    _ = emqx_exhook_demo_svr:flush(),
+
+    %% Subscribe to "test/topic" - hook should modify it to "modified/test/topic"
+    {ok, _, [0]} = emqtt:subscribe(C, <<"test/topic">>, qos0),
+    timer:sleep(100),
+
+    %% Verify that we subscribed to the MODIFIED topic
+    %% Publish to modified topic should be received
+    ok = emqtt:publish(C, <<"modified/test/topic">>, <<"payload1">>, qos0),
+    timer:sleep(100),
+
+    %% Should receive message on modified topic
+    receive
+        {publish, #{topic := <<"modified/test/topic">>, payload := <<"payload1">>}} ->
+            ok
+    after 1000 ->
+        ct:fail("Did not receive message on modified topic")
+    end,
+
+    %% Publish to original topic should NOT be received
+    ok = emqtt:publish(C, <<"test/topic">>, <<"payload2">>, qos0),
+    timer:sleep(100),
+
+    receive
+        {publish, #{topic := <<"test/topic">>}} ->
+            ct:fail("Received message on original topic (should only receive on modified)")
+    after 500 ->
+        % This is expected - we should not receive on original topic
+        ok
+    end,
+
+    %% Test unsubscribe modification
+    {ok, _, _} = emqtt:unsubscribe(C, <<"test/topic2">>),
+    timer:sleep(100),
+
+    %% Check hook events
+    Events = emqx_exhook_demo_svr:flush(),
+
+    %% Verify subscribe hook received original topic
+    ?assertMatch(
+        {on_client_subscribe, #{
+            topic_filters := [#{name := <<"test/topic">>}]
+        }},
+        lists:keyfind(on_client_subscribe, 1, Events)
+    ),
+
+    %% Verify session subscribed to MODIFIED topic
+    ?assertMatch(
+        {on_session_subscribed, #{
+            topic := <<"modified/test/topic">>
+        }},
+        lists:keyfind(on_session_subscribed, 1, Events)
+    ),
+
+    emqtt:stop(C),
+    timer:sleep(100),
+    ok.
+
 t_format_props(_) ->
     ?assertMatch(
         [{on_provider_loaded, #{broker := _Broker}}],
