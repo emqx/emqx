@@ -291,20 +291,60 @@ on_client_authorize(#{clientinfo := #{username := Username}} = Req, Md) ->
     end.
 
 -spec on_client_subscribe(emqx_exhook_pb:client_subscribe_request(), grpc:metadata()) ->
-    {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
+    {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
     | {error, grpc_cowboy_h:error_response()}.
-on_client_subscribe(Req, Md) ->
+on_client_subscribe(
+    #{clientinfo := #{username := Username}, topic_filters := TopicFilters} = Req, Md
+) ->
     in(?FUNCTION_NAME, Req),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{}, Md}.
+    %% Example: modify topic filters for specific users
+    case Username of
+        <<"modify_topics_user">> ->
+            %% Example: modify all topics to add prefix
+            NTopicFilters = lists:map(
+                fun(#{name := Name, subopts := SubOpts}) ->
+                    #{name => <<"modified/", Name/binary>>, subopts => SubOpts}
+                end,
+                TopicFilters
+            ),
+            {ok,
+                #{
+                    type => 'STOP_AND_RETURN',
+                    value => {topic_filters, #{filters => NTopicFilters}}
+                },
+                Md};
+        _ ->
+            {ok, #{type => 'IGNORE'}, Md}
+    end.
 
 -spec on_client_unsubscribe(emqx_exhook_pb:client_unsubscribe_request(), grpc:metadata()) ->
-    {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
+    {ok, emqx_exhook_pb:valued_response(), grpc:metadata()}
     | {error, grpc_cowboy_h:error_response()}.
-on_client_unsubscribe(Req, Md) ->
+on_client_unsubscribe(
+    #{clientinfo := #{username := Username}, topic_filters := TopicFilters} = Req, Md
+) ->
     in(?FUNCTION_NAME, Req),
     %io:format("fun: ~p, req: ~0p~n", [?FUNCTION_NAME, Req]),
-    {ok, #{}, Md}.
+    %% Example: modify topic filters for specific users
+    case Username of
+        <<"modify_topics_user">> ->
+            %% Example: modify all topics to add prefix
+            NTopicFilters = lists:map(
+                fun(#{name := Name, subopts := SubOpts}) ->
+                    #{name => <<"modified/", Name/binary>>, subopts => SubOpts}
+                end,
+                TopicFilters
+            ),
+            {ok,
+                #{
+                    type => 'STOP_AND_RETURN',
+                    value => {topic_filters, #{filters => NTopicFilters}}
+                },
+                Md};
+        _ ->
+            {ok, #{type => 'IGNORE'}, Md}
+    end.
 
 -spec on_session_created(emqx_exhook_pb:session_created_request(), grpc:metadata()) ->
     {ok, emqx_exhook_pb:empty_success(), grpc:metadata()}
