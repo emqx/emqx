@@ -3,8 +3,8 @@ Fixes <issue-or-jira-number>
 <!--
 5.8.9
 5.9.2
-5.10.1
-6.0.0
+5.10.2
+6.0.1
 6.1.0
 -->
 Release version:
