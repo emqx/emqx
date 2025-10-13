@@ -32,7 +32,7 @@ defmodule EMQXBridgeGreptimedb.MixProject do
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},
-      {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.0.1"}
+      {:greptimedb, github: "GreptimeTeam/greptimedb-ingester-erl", tag: "v0.2.2"}
     ])
   end
 end
