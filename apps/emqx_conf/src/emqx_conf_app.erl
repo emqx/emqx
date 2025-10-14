@@ -84,7 +84,7 @@ get_override_config_file() ->
             end
     end.
 
--define(DATA_DIRS, ["authz", "certs", "schemas"]).
+-define(DATA_DIRS, ["authz", "certs", "certs2", "schemas"]).
 
 sync_data_from_node() ->
     DataDir = emqx:data_dir(),
