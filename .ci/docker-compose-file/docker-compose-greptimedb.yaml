@@ -2,7 +2,7 @@ services:
   greptimedb:
     container_name: greptimedb
     hostname: greptimedb
-    image: greptime/greptimedb:v0.14.2
+    image: greptime/greptimedb:v0.17.2
     expose:
       - "4000"
       - "4001"

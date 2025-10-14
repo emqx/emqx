@@ -750,7 +750,7 @@ value_type(Val0) ->
             _Error ->
                 throw({unrecoverable_error, {non_utf8_string_value, Val0}})
         end,
-    #{values => #{string_values => Val}, datatype => 'STRING'}.
+    greptimedb_values:string_value(Val).
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
