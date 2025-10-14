@@ -42,7 +42,15 @@ backend can reject flush request.
 %% Internal exports
 -export([
     init/4,
+    code_change/2,
     loop/1
+]).
+
+%% System exports
+-export([
+    system_continue/3,
+    system_terminate/4,
+    system_code_change/4
 ]).
 
 -export_type([
@@ -55,6 +63,7 @@ backend can reject flush request.
 
 -include("emqx_ds.hrl").
 -include("emqx_ds_builtin_tx.hrl").
+-include("emqx_ds_optimistic_tx_internals.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -134,9 +143,6 @@ backend can reject flush request.
 -type process_ref() :: pid() | atom() | {atom(), node()}.
 -type leader() :: process_ref() | undefined.
 
--define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
--define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
-
 %% Timeouts
 %%   Flush pending transactions to the storage:
 -define(timeout_flush, timeout_flush).
@@ -153,6 +159,8 @@ backend can reject flush request.
 -type generations() :: #{emqx_ds:generation() => gen_data()}.
 
 -record(d, {
+    parent :: pid(),
+    version :: string(),
     db :: emqx_ds:db(),
     shard :: emqx_ds:shard(),
     cbm :: module(),
@@ -203,7 +211,7 @@ where(DB, Shard) ->
 start_link(DB, Shard, CBM) ->
     case where(DB, Shard) of
         undefined ->
-            proc_lib:start_link(?MODULE, init, [self(), DB, Shard, CBM]);
+            proc_lib:start_link(emqx_ds_optimistic_tx_wrapper, init, [self(), DB, Shard, CBM]);
         Pid when is_pid(Pid) ->
             {error, {already_started, Pid}}
     end.
@@ -328,52 +336,51 @@ get_monotonic_timestamp() ->
     TS.
 
 %%================================================================================
-%% Behavior callbacks
+%% Internal exports
 %%================================================================================
 
+-spec init(pid(), emqx_ds:db(), emqx_ds:shard(), module()) -> no_return().
 init(Parent, DB, Shard, CBM) ->
     erlang:process_flag(trap_exit, true),
-    gproc:register_name(?name(DB, Shard), self()),
-    try
-        logger:update_process_metadata(#{db => DB, shard => Shard}),
-        ?tp(info, ds_otx_start, #{db => DB, shard => Shard}),
-        #{
-            flush_interval := FI,
-            idle_flush_interval := IFI,
-            conflict_window := CW,
-            max_items := MaxItems
-        } = CBM:otx_get_runtime_config(DB),
-        ok = emqx_ds_builtin_metrics:init_for_buffer(DB, Shard),
-        D = #d{
-            db = DB,
-            shard = Shard,
-            cbm = CBM,
-            metrics = emqx_ds_builtin_metrics:metric_id([{db, DB}, {shard, Shard}]),
-            rotate_interval = CW,
-            last_rotate_ts = erlang:monotonic_time(millisecond),
-            flush_interval = FI,
-            idle_flush_interval = IFI,
-            announce_interval = 5_000,
-            max_items = MaxItems
-        },
-        proc_lib:init_ack(Parent, {ok, self()}),
-        async_init(D)
-    after
-        gen:unregister_name(?via(DB, Shard))
+    logger:update_process_metadata(#{db => DB, shard => Shard}),
+    ?tp(info, ds_otx_start, #{db => DB, shard => Shard}),
+    #{
+        flush_interval := FI,
+        idle_flush_interval := IFI,
+        conflict_window := CW,
+        max_items := MaxItems
+    } = CBM:otx_get_runtime_config(DB),
+    ok = emqx_ds_builtin_metrics:init_for_buffer(DB, Shard),
+    D = #d{
+        parent = Parent,
+        version = version(),
+        db = DB,
+        shard = Shard,
+        cbm = CBM,
+        metrics = emqx_ds_builtin_metrics:metric_id([{db, DB}, {shard, Shard}]),
+        rotate_interval = CW,
+        last_rotate_ts = erlang:monotonic_time(millisecond),
+        flush_interval = FI,
+        idle_flush_interval = IFI,
+        announce_interval = 5_000,
+        max_items = MaxItems
+    },
+    proc_lib:init_ack(Parent, {ok, self()}),
+    %% Async init:
+    maybe
+        {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
+        %% Issue a dummy transaction to trigger metadata update:
+        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
+        ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
+        loop(D#d{
+            serial = Serial,
+            timestamp = Timestamp,
+            committed_serial = Serial
+        })
+    else
+        Err ->
+            terminate({init_failed, Err}, D)
     end.
-
-terminate(Reason, _Data) ->
-    Level =
-        case Reason =:= normal orelse Reason =:= shutdown of
-            true ->
-                info;
-            false ->
-                %% Sleep some to prevent a hot restart loop
-                timer:sleep(500),
-                error
-        end,
-    ?tp(Level, ds_otx_terminate, #{reason => Reason}),
-    exit(Reason).
 
 -spec loop(d()) -> no_return().
 loop(D0) ->
@@ -408,6 +415,9 @@ loop(D0) ->
                 normal -> loop(D0);
                 _ -> terminate(Reason, D0)
             end;
+        {system, From, SysReq} ->
+            Debug = [],
+            sys:handle_system_msg(SysReq, From, D0#d.parent, ?MODULE, Debug, D0);
         Other ->
             ?tp(warning, emqx_ds_optimistic_tx_unknown_event, #{
                 event => Other,
@@ -419,26 +429,40 @@ loop(D0) ->
         loop(flush(D0))
     end.
 
+code_change(D, _Extra) ->
+    D#d{version = version()}.
+
+%%================================================================================
+%% System functions
+%%================================================================================
+
+system_continue(Parent, _Debug, D0) ->
+    ?MODULE:loop(D0#d{parent = Parent}).
+
+-spec system_terminate(_, _, _, _) -> no_return().
+system_terminate(Reason, _Parent, _Debug, D) ->
+    terminate(Reason, D).
+
+system_code_change(D, _Module, _OldVsn, Extra) ->
+    {ok, ?MODULE:code_change(D, Extra)}.
+
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
--spec async_init(d()) -> no_return().
-async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
-    maybe
-        {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
-        %% Issue a dummy transaction to trigger metadata update:
-        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
-        ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
-        loop(D#d{
-            serial = Serial,
-            timestamp = Timestamp,
-            committed_serial = Serial
-        })
-    else
-        Err ->
-            terminate({init_failed, Err}, D)
-    end.
+-spec terminate(term(), term()) -> no_return().
+terminate(Reason, _Data) ->
+    Level =
+        case Reason =:= normal orelse Reason =:= shutdown of
+            true ->
+                info;
+            false ->
+                %% Sleep some to prevent a hot restart loop
+                timer:sleep(500),
+                error
+        end,
+    ?tp(Level, ds_otx_terminate, #{reason => Reason}),
+    exit(Reason).
 
 -spec flush(d()) -> d().
 flush(D0) ->
@@ -456,7 +480,8 @@ handle_dirty_append(
         n_items = NItems + 1
     }.
 
--spec handle_add_generation(d()) -> {_TODO, d()}.
+-spec handle_add_generation(d()) -> {Reply, d()} when
+    Reply :: ok | emqx_ds:error(_).
 handle_add_generation(D = #d{db = DB, shard = Shard, cbm = CBM, timestamp = TS0}) ->
     put(?ds_tx_monotonic_ts, TS0),
     TS = get_monotonic_timestamp(),
@@ -1086,6 +1111,10 @@ call(Server, Request, Timeout) ->
                 Stack
             )
     end.
+
+version() ->
+    {ok, Version} = application:get_key(emqx_durable_storage, vsn),
+    Version.
 
 %%================================================================================
 %% Tests
