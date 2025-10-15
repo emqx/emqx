@@ -87,12 +87,11 @@ fields(connector_config) ->
             )},
         emqx_connector_schema:ehttpc_max_inactive_sc(),
         {service_account_json,
-            mk(
-                binary(),
+            emqx_schema_secret:mk(
                 #{
                     required => true,
                     validator => fun emqx_bridge_gcp_pubsub:service_account_json_validator/1,
-                    sensitive => true,
+                    converter => fun emqx_bridge_gcp_pubsub:service_account_json_converter/2,
                     desc => ?DESC(emqx_bridge_gcp_pubsub, "service_account_json")
                 }
             )}
