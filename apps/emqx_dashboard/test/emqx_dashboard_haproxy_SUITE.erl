@@ -8,23 +8,28 @@
 -compile(export_all).
 
 -include_lib("eunit/include/eunit.hrl").
--include("emqx_dashboard.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    emqx_mgmt_api_test_util:init_suite([emqx_management], fun set_special_configs/1),
-    Config.
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_dashboard, """
+                dashboard.listeners.http {
+                    enable = true
+                    bind = 18083
+                    proxy_header = true          
+                }
+            """}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    [{suite_apps, Apps} | Config].
 
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(<<"admin">>, true),
-    ok;
-set_special_configs(_) ->
-    ok.
-
-end_per_suite(_Config) ->
-    emqx_mgmt_api_test_util:end_suite([emqx_management]).
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 t_status(_Config) ->
     ProxyInfo = #{

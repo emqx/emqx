@@ -115,8 +115,7 @@ t_update_conf(_Config) ->
     ),
     {ok, Client2} = emqx_dashboard_SUITE:request_dashboard(
         get, http_api_path(["clients"]), Headers
-    ),
-    emqx_mgmt_api_test_util:end_suite([emqx_management]).
+    ).
 
 t_default_ssl_cert(init, Config) ->
     DashboardConf = #{

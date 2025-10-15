@@ -8,44 +8,14 @@
 -define(SERVER, "http://127.0.0.1:18083").
 -define(BASE_PATH, "/api/v5").
 
-init_suite() ->
-    init_suite([]).
-
-init_suite(Apps) ->
-    init_suite(Apps, fun set_special_configs/1, #{}).
-
-init_suite(Apps, SetConfigs) when is_function(SetConfigs) ->
-    init_suite(Apps, SetConfigs, #{}).
-
-init_suite(Apps, SetConfigs, Opts) ->
-    emqx_common_test_helpers:start_apps(
-        Apps ++ [emqx_management, emqx_dashboard], SetConfigs, Opts
-    ),
-    _ = emqx_common_test_http:create_default_app(),
-    ok.
-
-end_suite() ->
-    end_suite([]).
-
-end_suite(Apps) ->
-    emqx_common_test_http:delete_default_app(),
-    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_management, emqx_dashboard]),
-    ok.
-
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config(),
-    ok;
-set_special_configs(_App) ->
-    ok.
-
 -spec emqx_dashboard() -> emqx_cth_suite:appspec().
 emqx_dashboard() ->
-    emqx_dashboard(
-        "dashboard {\n"
-        "           listeners.http { enable = true, bind = 18083}, \n"
-        "           password_expired_time = \"86400s\"\n"
-        "}"
-    ).
+    emqx_dashboard("""
+        dashboard {
+            listeners.http { enable = true, bind = 18083 } 
+            password_expired_time = "86400s"
+        }
+    """).
 
 emqx_dashboard(Config) ->
     {emqx_dashboard, #{
