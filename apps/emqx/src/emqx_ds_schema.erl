@@ -2,11 +2,15 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Schema for EMQX_DS databases.
 -module(emqx_ds_schema).
+-moduledoc """
+Schema for EMQX_DS databases.
+""".
+
+-behaviour(emqx_config_handler).
 
 %% API:
--export([schema/0]).
+-export([add_handler/0]).
 -export([
     db_config_messages/0,
     db_config_sessions/0,
@@ -17,11 +21,14 @@
 ]).
 
 %% Behavior callbacks:
--export([fields/1, desc/1, namespace/0]).
+-export([schema/0, fields/1, desc/1, namespace/0]).
+-export([pre_config_update/3, post_config_update/6]).
 
 -include("emqx_schema.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
+
+-include_lib("emqx/include/logger.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -38,6 +45,14 @@
 %%================================================================================
 %% API
 %%================================================================================
+
+add_handler() ->
+    A = '?',
+    [
+        ok = emqx_config_handler:add_handler([namespace() | L], ?MODULE)
+     || L <- [[A], [A, A], [A, A, A], [A, A, A, A]]
+    ],
+    ok.
 
 -spec db_config_messages() -> emqx_ds:create_db_opts().
 db_config_messages() ->
@@ -59,7 +74,7 @@ db_config_mq_messages() ->
     db_config([durable_storage, mq_messages]).
 
 %%================================================================================
-%% Behavior callbacks
+%% HOCON schema callbacks
 %%================================================================================
 
 namespace() ->
@@ -456,6 +471,38 @@ desc(_) ->
     undefined.
 
 %%================================================================================
+%% emqx_config_handler callbacks
+%%================================================================================
+
+-spec post_config_update(
+    [atom()],
+    emqx_config:update_request(),
+    emqx_config:config(),
+    emqx_config:config(),
+    emqx_config:app_envs(),
+    emqx_config_handler:extra_context()
+) ->
+    ok | {error, _Reason}.
+post_config_update([durable_storage, DB | _], _UpdateReq, _NewConf, _OldConf, _AppEnv, _Extra) when
+    DB =:= timers; DB =:= messages; DB =:= sessions; DB =:= shared_subs
+->
+    %% Handle trivial cases when config root name matches with DS DB
+    %% name and it's safe to pass the entire configuration to DS as
+    %% is:
+    update_db_config(DB, db_config([durable_storage, DB])),
+    ok;
+post_config_update(_, _, _, _, _, _) ->
+    %% TODO: Handle dynamic config update for more exoctic cases.
+    ok.
+
+-spec pre_config_update(
+    [atom()], emqx_config:update_request(), emqx_config:raw_config()
+) ->
+    ok | {error, term()}.
+pre_config_update(_Root, _UpdateReq, _Conf) ->
+    ok.
+
+%%================================================================================
 %% Internal functions
 %%================================================================================
 
@@ -550,3 +597,13 @@ validate_wildcard_thresholds([_ | _]) ->
 
 translate_lts_wildcard_thresholds(L = [_ | _]) ->
     {simple, list_to_tuple(L)}.
+
+update_db_config(DB, Conf) ->
+    case emqx_ds:update_db_config(DB, Conf) of
+        ok ->
+            ok;
+        {error, recoverable, db_is_closed} ->
+            ok;
+        Err ->
+            ?SLOG(warning, #{msg => "ds_db_runtime_config_update_failed", db => DB, reason => Err})
+    end.

@@ -86,6 +86,7 @@
     [atom()], emqx_config:update_request(), emqx_config:raw_config(), emqx_config:cluster_rpc_opts()
 ) ->
     ok | {ok, emqx_config:update_request()} | {error, term()}.
+
 -callback propagated_pre_config_update(
     [binary()],
     emqx_config:update_request(),

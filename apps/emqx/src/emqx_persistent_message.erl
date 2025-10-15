@@ -186,6 +186,7 @@ init(_) ->
     process_flag(trap_exit, true),
     Zones = maps:keys(emqx_config:get([zones])),
     IsEnabled = lists:any(fun is_persistence_enabled/1, Zones),
+    emqx_ds_schema:add_handler(),
     persistent_term:put(?PERSISTENCE_ENABLED, IsEnabled),
     case is_persistence_enabled() of
         true ->
