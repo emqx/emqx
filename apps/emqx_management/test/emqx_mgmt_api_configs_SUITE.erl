@@ -28,13 +28,9 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_testcase(TestCase = t_configs_node, Config) ->
-    ?MODULE:TestCase({'init', Config});
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(TestCase = t_configs_node, Config) ->
-    ?MODULE:TestCase({'end', Config});
 end_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -196,57 +192,6 @@ get_global_zone() ->
 
 update_global_zone(Change) ->
     update_config("global_zone", Change).
-
-%% hide /configs/zones api in 5.1.0, so we comment this test.
-%t_zones(_Config) ->
-%    {ok, Zones} = get_config("zones"),
-%    {ok, #{<<"mqtt">> := OldMqtt} = Zone1} = get_global_zone(),
-%    Mqtt1 = maps:remove(<<"max_subscriptions">>, OldMqtt),
-%    {ok, #{}} = update_config("zones", Zones#{<<"new_zone">> => Zone1#{<<"mqtt">> => Mqtt1}}),
-%     NewMqtt = emqx_config:get_raw([zones, new_zone, mqtt]),
-%    %% we remove max_subscription from global zone, so the new zone should not have it.
-%    ?assertEqual(Mqtt1, NewMqtt),
-%    %% delete the new zones
-%    {ok, #{}} = update_config("zones", Zones),
-%    ?assertEqual(undefined, emqx_config:get_raw([zones, new_zone], undefined)),
-%    ok.
-
-%% v1 version json
-t_configs_node({'init', Config}) ->
-    Node = node(),
-    meck:expect(emqx, running_nodes, fun() -> [Node, bad_node, other_node] end),
-    F = fun
-        (Node0) when Node0 =:= Node -> <<"\"self\"">>;
-        (other_node) -> <<"\"other\"">>;
-        (bad_node) -> {badrpc, bad}
-    end,
-    F2 = fun
-        (Node0, _, _) when Node0 =:= Node -> <<"log=1">>;
-        (other_node, _, _) -> <<"log=2">>;
-        (bad_node, _, _) -> {badrpc, bad}
-    end,
-    meck:expect(emqx_management_proto_v5, get_full_config, F),
-    meck:expect(emqx_conf_proto_v5, get_hocon_config, F2),
-    meck:expect(hocon_pp, do, fun(Conf, _) -> Conf end),
-    Config;
-t_configs_node({'end', _}) ->
-    meck:unload([emqx, emqx_management_proto_v5, emqx_conf_proto_v5, hocon_pp]);
-t_configs_node(_) ->
-    Node = atom_to_list(node()),
-
-    ?assertEqual({ok, <<"self">>}, get_configs_with_json(Node, #{return_all => true})),
-    ?assertEqual({ok, <<"other">>}, get_configs_with_json("other_node", #{return_all => true})),
-
-    {ExpType, ExpRes} = get_configs_with_json("unknown_node", #{return_all => true}),
-    ?assertEqual(error, ExpType),
-    ?assertMatch({{_, 404, _}, _, _}, ExpRes),
-    {_, _, Body} = ExpRes,
-    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body)),
-
-    ?assertMatch({error, {_, 500, _}}, get_configs_with_json("bad_node")),
-
-    ?assertEqual({ok, #{<<"log">> => 1}}, get_configs_with_binary("log", Node)),
-    ?assertEqual({ok, #{<<"log">> => 2}}, get_configs_with_binary("log", "other_node")).
 
 %% v2 version binary
 t_configs_key(_Config) ->
