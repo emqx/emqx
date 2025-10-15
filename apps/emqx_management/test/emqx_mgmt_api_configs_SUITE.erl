@@ -320,6 +320,9 @@ t_config_update_unknown_root(_Config) ->
         update_configs_with_binary(<<"a = \"tlsv1.3\"">>)
     ).
 
+t_config_update_empty(_Config) ->
+    ?assertMatch({200, _}, update_configs_with_binary("")).
+
 %% Helpers
 
 get_config(Name) ->
