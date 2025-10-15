@@ -242,7 +242,7 @@ This is the entrypoint into the `builtin_raft` backend.
 -spec default_db_opts() -> map().
 default_db_opts() ->
     #{
-        backend => builtin_local,
+        backend => builtin_raft,
         reads => local_preferred,
         transactions => #{
             flush_interval => 1_000,

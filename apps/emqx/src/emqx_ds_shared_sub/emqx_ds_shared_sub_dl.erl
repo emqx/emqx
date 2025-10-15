@@ -109,9 +109,6 @@ This module abstracts all CRUD operations on the shared sub leader durable state
 open_db() ->
     Config = emqx_ds_schema:db_config_shared_subs(),
     emqx_ds:open_db(?DB, Config#{
-        atomic_batches => true,
-        append_only => false,
-        store_ttv => true,
         storage => emqx_ds_pmap:storage_opts(#{})
     }).
 

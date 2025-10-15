@@ -218,11 +218,7 @@
 
 %% Which DB options to provide to the storage layout module:
 %% See `emqx_ds:db_opts()`.
--define(STORAGE_LAYOUT_DB_OPTS, [
-    append_only,
-    atomic_batches,
-    store_ttv
-]).
+-define(STORAGE_LAYOUT_DB_OPTS, []).
 
 -define(GLOBAL(K), <<"G/", K/binary>>).
 

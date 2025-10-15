@@ -79,7 +79,6 @@ is_persistence_enabled(Zone) ->
 get_db_config() ->
     Opts = emqx_ds_schema:db_config_messages(),
     Opts#{
-        store_ttv => true,
         payload_type => ?ds_pt_mqtt
     }.
 

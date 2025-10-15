@@ -172,9 +172,6 @@ open_db() ->
         #{lts_threshold_spec => {mf, emqx_persistent_session_ds_state_v2, lts_threshold_cb}}
     ),
     emqx_ds:open_db(?DB, Config#{
-        atomic_batches => true,
-        append_only => false,
-        store_ttv => true,
         storage => Storage
     }).
 

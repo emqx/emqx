@@ -371,10 +371,7 @@ ensure_tables() ->
     ok = emqx_ds:open_db(
         ?DB_GLOB,
         DBConf#{
-            store_ttv => true,
             storage => Storage,
-            atomic_batches => true,
-            append_only => false,
             reads => leader_preferred
         }
     ),
