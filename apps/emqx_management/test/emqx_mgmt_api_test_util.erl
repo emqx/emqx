@@ -331,11 +331,11 @@ maybe_json_decode(X) ->
         {error, _} -> X
     end.
 
-simple_request(Method, Path, Params) ->
+simple_request(Method, Path, Body) ->
     simple_request(#{
         method => Method,
         url => Path,
-        body => Params
+        body => Body
     }).
 
 simple_request(Method, Path, Body, AuthHeader) ->
@@ -347,9 +347,12 @@ simple_request(Method, Path, Body, AuthHeader) ->
     }).
 
 simple_request(#{method := Method, url := Url} = Params) ->
-    Opts = #{return_all => true},
     AuthHeader = emqx_utils_maps:get_lazy(auth_header, Params, fun auth_header_/0),
+    AuthHeaders = build_http_header(AuthHeader),
     QueryParams = maps:get(query_params, Params, #{}),
     Body = maps:get(body, Params, ""),
-    Res = request_api(Method, Url, QueryParams, AuthHeader, Body, Opts),
+    Headers = maps:get(extra_headers, Params, []),
+    ExtraOpts = maps:get(extra_opts, Params, #{}),
+    Opts = ExtraOpts#{return_all => true},
+    Res = request_api(Method, Url, QueryParams, AuthHeaders ++ Headers, Body, Opts),
     simplify_decode_result(Res).
