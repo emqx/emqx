@@ -323,6 +323,21 @@ t_config_update_unknown_root(_Config) ->
 t_config_update_empty(_Config) ->
     ?assertMatch({200, _}, update_configs_with_binary("")).
 
+t_config_update_unknown_field(_Config) ->
+    ?assertMatch(
+        {400, #{
+            <<"errors">> := #{
+                <<"dashboard">> :=
+                    #{
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"unknown_fields">>,
+                        <<"unknown">> := <<"nofield">>
+                    }
+            }
+        }},
+        update_configs_with_binary("dashboard { nofield { bind = novalue } }")
+    ).
+
 %% Helpers
 
 get_config(Name) ->

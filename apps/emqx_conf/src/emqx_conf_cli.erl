@@ -677,9 +677,8 @@ check_config(Conf0, Opts) ->
     maybe
         {ok, Conf1} ?= check_keys_is_not_readonly(Conf0, Opts),
         {ok, Conf2} ?= check_cluster_keys(Conf1, Opts),
-        Conf3 = emqx_config:fill_defaults(Conf2),
-        ok ?= check_config_schema(Conf3),
-        {ok, Conf3}
+        ok ?= check_config_schema(Conf2),
+        {ok, emqx_config:fill_defaults(Conf2)}
     else
         Error -> Error
     end.
