@@ -172,7 +172,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.1", override: true}
 
   def common_dep(:esockd),
-    do: {:esockd, github: "emqx/esockd", tag: "5.15.0", override: true}
+    do: {:esockd, github: "emqx/esockd", tag: "5.16.0", override: true}
 
   def common_dep(:gproc), do: {:gproc, github: "emqx/gproc", tag: "0.9.0.1", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.4", override: true}
@@ -302,8 +302,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:unicode_util_compat, "0.7.1", override: true}
 
   def common_dep(:proper),
-    # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
-    do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
+    do: {:proper, "1.5.0"}
 
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
