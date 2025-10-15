@@ -746,7 +746,7 @@ value_type(Val0) ->
     Val =
         case unicode:characters_to_binary(Val0, utf8) of
             Val1 when is_binary(Val1) ->
-                [Val1];
+                Val1;
             _Error ->
                 throw({unrecoverable_error, {non_utf8_string_value, Val0}})
         end,
