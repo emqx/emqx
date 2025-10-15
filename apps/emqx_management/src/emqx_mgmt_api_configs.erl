@@ -332,7 +332,7 @@ configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode} = QS}, _Req) 
         %% bad hocon format
         {error, Errors} ->
             Msg = emqx_utils_json:best_effort_json_obj(#{errors => Errors}),
-            {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
+            {400, Msg}
     end.
 
 find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Preferences) > 0 ->
