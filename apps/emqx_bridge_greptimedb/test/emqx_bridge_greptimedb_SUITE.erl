@@ -401,6 +401,15 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
         ?assert(lists:all(fun is_binary/1, maps:keys(Fields))),
         ?assertNot(maps:is_key(<<"undefined">>, Fields)),
         ?assertNot(maps:is_key(<<"undef_value">>, Fields)),
+        #{tags := Tags} = Point,
+        ?assert(lists:all(fun is_binary/1, maps:keys(Tags))),
+        ?assert(maps:is_key(<<"clientid">>, Tags)),
+        ?assertMatch(
+            #{
+                value_data := {string_value, Val}
+            } when is_binary(Val),
+            maps:get(<<"clientid">>, Tags)
+        ),
         ok
     end,
     Opts = #{
