@@ -403,7 +403,6 @@ drop_hidden_roots(Conf) ->
 
 hidden_roots() ->
     [
-        <<"trace">>,
         <<"stats">>,
         <<"broker">>,
         <<"plugins">>,
