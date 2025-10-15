@@ -1,27 +1,26 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
-
-%% @doc This module implements a per-shard singleton process
-%% facilitating optimistic transactions. This process is dynamically
-%% spawned on the leader node.
-%%
-%% Optimistic transaction leader tracks recent writes and verifies
-%% transactions from the clients. Transactions containing reads that
-%% may race with the recently updated topics are rejected. Valid
-%% transactions are "cooked" and added to the buffer.
-%%
-%% Buffer is periodically flushed in a single call to the backend.
-%%
-%% Leader is also tasked with keeping and incrementing the transaction
-%% serial for the pending transactions. The latest serial is committed
-%% to the storage together with the batches.
-%%
-%% Potential split brain situations are handled optimistically: the
-%% backend can reject flush request.
 -module(emqx_ds_optimistic_tx).
+-moduledoc """
+This module implements a per-shard singleton process
+facilitating optimistic transactions. This process is dynamically
+spawned on the leader node.
 
--behaviour(gen_statem).
+Optimistic transaction leader tracks recent writes and verifies
+transactions from the clients. Transactions containing reads that
+may race with the recently updated topics are rejected. Valid
+transactions are "cooked" and added to the buffer.
+
+Buffer is periodically flushed in a single call to the backend.
+
+Leader is also tasked with keeping and incrementing the transaction
+serial for the pending transactions. The latest serial is committed
+to the storage together with the batches.
+
+Potential split brain situations are handled optimistically: the
+backend can reject flush request.
+""".
 
 %% API:
 -export([
@@ -40,12 +39,18 @@
     get_monotonic_timestamp/0
 ]).
 
-%% Behaviour callbacks
+%% Internal exports
 -export([
-    init/1,
-    terminate/3,
-    handle_event/4,
-    callback_mode/0
+    init/4,
+    code_change/2,
+    loop/1
+]).
+
+%% System exports
+-export([
+    system_continue/3,
+    system_terminate/4,
+    system_code_change/4
 ]).
 
 -export_type([
@@ -58,6 +63,7 @@
 
 -include("emqx_ds.hrl").
 -include("emqx_ds_builtin_tx.hrl").
+-include("emqx_ds_optimistic_tx_internals.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -137,21 +143,7 @@
 -type process_ref() :: pid() | atom() | {atom(), node()}.
 -type leader() :: process_ref() | undefined.
 
--define(name(DB, SHARD), {n, l, {?MODULE, DB, SHARD}}).
--define(via(DB, SHARD), {via, gproc, ?name(DB, SHARD)}).
-
-%% States
--define(initial, initial).
--define(leader(SUBSTATE), {leader, SUBSTATE}).
--define(idle, idle).
--define(pending, pending).
-
--type leader_state() :: ?idle | ?pending.
-%% Note: not including ?initial here because it shouldn't occur normally.
--type state() :: ?leader(leader_state()).
-
 %% Timeouts
--define(timeout_initialize, timeout_initialize).
 %%   Flush pending transactions to the storage:
 -define(timeout_flush, timeout_flush).
 
@@ -167,6 +159,8 @@
 -type generations() :: #{emqx_ds:generation() => gen_data()}.
 
 -record(d, {
+    parent :: pid(),
+    version :: string(),
     db :: emqx_ds:db(),
     shard :: emqx_ds:shard(),
     cbm :: module(),
@@ -205,12 +199,6 @@
 
 -record(call_add_generation, {}).
 
--type leader_loop_result() ::
-    {next_state, ?leader(leader_state()), d(), [gen_statem:action()]}
-    | {keep_state, d(), [gen_statem:action()] | gen_statem:action()}
-    | {keep_state, d()}
-    | keep_state_and_data.
-
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -221,7 +209,12 @@ where(DB, Shard) ->
 
 -spec start_link(emqx_ds:db(), emqx_ds:shard(), module()) -> {ok, pid()}.
 start_link(DB, Shard, CBM) ->
-    gen_statem:start_link(?via(DB, Shard), ?MODULE, [DB, Shard, CBM], []).
+    case where(DB, Shard) of
+        undefined ->
+            proc_lib:start_link(emqx_ds_optimistic_tx_wrapper, init, [self(), DB, Shard, CBM]);
+        Pid when is_pid(Pid) ->
+            {error, {already_started, Pid}}
+    end.
 
 -spec ls() -> [{emqx_ds:db(), emqx_ds:shard()}].
 ls() ->
@@ -241,7 +234,7 @@ dirty_append(Leader, Opts, Data = [{_, ?ds_tx_ts_monotonic, _} | _]) ->
                     Alias = undefined,
                     Result = noreply
             end,
-            gen_statem:cast(Leader, #cast_dirty_append{
+            cast(Leader, #cast_dirty_append{
                 reply_to = Alias,
                 ref = Alias,
                 data = Data
@@ -259,7 +252,7 @@ dirty_append(Leader, Opts, Data = [{_, ?ds_tx_ts_monotonic, _} | _]) ->
 add_generation(Leader) ->
     case Leader of
         P when P =/= undefined ->
-            gen_statem:call(Leader, #call_add_generation{}, infinity);
+            call(Leader, #call_add_generation{}, infinity);
         undefined ->
             ?err_rec(leader_down)
     end.
@@ -305,7 +298,7 @@ commit_kv_tx(Leader, DB, Ctx = #kv_tx_ctx{opts = #{timeout := Timeout}}, Ops) ->
             Alias = monitor(process, Leader, [{alias, reply_demonitor}]),
             TRef = emqx_ds_lib:send_after(Timeout, self(), tx_timeout_msg(Alias)),
             put({?pending_commit_timer, Alias}, TRef),
-            gen_statem:cast(
+            cast(
                 Leader,
                 #ds_tx{ctx = Ctx, ops = Ops, from = Alias, ref = Alias}
             ),
@@ -343,13 +336,11 @@ get_monotonic_timestamp() ->
     TS.
 
 %%================================================================================
-%% Behavior callbacks
+%% Internal exports
 %%================================================================================
 
-callback_mode() ->
-    [handle_event_function, state_enter].
-
-init([DB, Shard, CBM]) ->
+-spec init(pid(), emqx_ds:db(), emqx_ds:shard(), module()) -> no_return().
+init(Parent, DB, Shard, CBM) ->
     erlang:process_flag(trap_exit, true),
     logger:update_process_metadata(#{db => DB, shard => Shard}),
     ?tp(info, ds_otx_start, #{db => DB, shard => Shard}),
@@ -361,6 +352,8 @@ init([DB, Shard, CBM]) ->
     } = CBM:otx_get_runtime_config(DB),
     ok = emqx_ds_builtin_metrics:init_for_buffer(DB, Shard),
     D = #d{
+        parent = Parent,
+        version = version(),
         db = DB,
         shard = Shard,
         cbm = CBM,
@@ -372,9 +365,93 @@ init([DB, Shard, CBM]) ->
         announce_interval = 5_000,
         max_items = MaxItems
     },
-    {ok, ?initial, D, {state_timeout, 0, ?timeout_initialize}}.
+    proc_lib:init_ack(Parent, {ok, self()}),
+    %% Async init:
+    maybe
+        {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
+        %% Issue a dummy transaction to trigger metadata update:
+        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
+        ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
+        loop(D#d{
+            serial = Serial,
+            timestamp = Timestamp,
+            committed_serial = Serial
+        })
+    else
+        Err ->
+            terminate({init_failed, Err}, D)
+    end.
 
-terminate(Reason, State, _Data) ->
+-spec loop(d()) -> no_return().
+loop(D0) ->
+    #d{
+        idle_flush_interval = IdleFlushInterval,
+        n_items = NItems
+    } = D0,
+    Sleep =
+        case NItems of
+            0 -> infinity;
+            _ -> IdleFlushInterval
+        end,
+    receive
+        {'$gen_cast', Tx = #ds_tx{}} ->
+            case handle_tx(D0, Tx) of
+                {ok, _PresumedCommitSerial, D} ->
+                    loop(finalize_add_pending(D));
+                aborted ->
+                    loop(D0)
+            end;
+        {'$gen_cast', #cast_dirty_append{} = Tx} ->
+            D = handle_dirty_append(Tx, D0),
+            loop(finalize_add_pending(D));
+        {'$gen_call', From, #call_add_generation{}} ->
+            {Reply, D} = handle_add_generation(D0),
+            gen:reply(From, Reply),
+            loop(D);
+        ?timeout_flush ->
+            loop(flush(D0));
+        {'EXIT', _From, Reason} ->
+            case Reason of
+                normal -> loop(D0);
+                _ -> terminate(Reason, D0)
+            end;
+        {system, From, SysReq} ->
+            Debug = [],
+            sys:handle_system_msg(SysReq, From, D0#d.parent, ?MODULE, Debug, D0);
+        Other ->
+            ?tp(warning, emqx_ds_optimistic_tx_unknown_event, #{
+                event => Other,
+                db => D0#d.db,
+                shard => D0#d.shard
+            }),
+            loop(D0)
+    after Sleep ->
+        loop(flush(D0))
+    end.
+
+code_change(D, _Extra) ->
+    D#d{version = version()}.
+
+%%================================================================================
+%% System functions
+%%================================================================================
+
+system_continue(Parent, _Debug, D0) ->
+    ?MODULE:loop(D0#d{parent = Parent}).
+
+-spec system_terminate(_, _, _, _) -> no_return().
+system_terminate(Reason, _Parent, _Debug, D) ->
+    terminate(Reason, D).
+
+system_code_change(D, _Module, _OldVsn, Extra) ->
+    {ok, ?MODULE:code_change(D, Extra)}.
+
+%%================================================================================
+%% Internal functions
+%%================================================================================
+
+-spec terminate(term(), term()) -> no_return().
+terminate(Reason, _Data) ->
     Level =
         case Reason =:= normal orelse Reason =:= shutdown of
             true ->
@@ -384,94 +461,34 @@ terminate(Reason, State, _Data) ->
                 timer:sleep(500),
                 error
         end,
-    ?tp(Level, ds_otx_terminate, #{state => State, reason => Reason}).
+    ?tp(Level, ds_otx_terminate, #{reason => Reason}),
+    exit(Reason).
 
-handle_event(enter, _OldState, ?leader(?pending), D0 = #d{flush_interval = T}) ->
-    %% Schedule unconditional flush after the given interval:
-    D = D0#d{entered_pending_at = erlang:monotonic_time(millisecond)},
-    {keep_state, D, {state_timeout, T, ?timeout_flush}};
-handle_event(enter, _, _, _) ->
-    keep_state_and_data;
-handle_event(state_timeout, ?timeout_initialize, ?initial, D) ->
-    async_init(D);
-handle_event(ET, Evt, ?initial, _) ->
-    ?tp(warning, unexpected_event_in_initial_state, #{ET => Evt}),
-    {keep_state_and_data, postpone};
-handle_event(cast, Tx = #ds_tx{}, ?leader(LeaderState), D0) ->
-    %% Enqueue transaction commit:
-    case handle_tx(D0, Tx) of
-        {ok, _PresumedCommitSerial, D} ->
-            finalize_add_pending(LeaderState, D, []);
-        aborted ->
-            keep_state_and_data
-    end;
-handle_event(cast, #ds_tx{from = From, ref = Ref, meta = Meta}, _Other, _) ->
-    reply_error(From, Ref, Meta, recoverable, not_the_leader),
-    keep_state_and_data;
-handle_event(cast, #cast_dirty_append{} = DirtyAppend, State, D) ->
-    handle_dirty_append(DirtyAppend, State, D);
-handle_event({call, From}, #call_add_generation{}, ?leader(_LeaderState), D) ->
-    handle_add_generation(From, D);
-handle_event(ET, ?timeout_flush, ?leader(_LeaderState), D) when
-    ET =:= state_timeout; ET =:= timeout
-->
-    handle_flush(D, []);
-handle_event(ET, Event, State, _D) ->
-    ?tp(
-        error,
-        emqx_ds_tx_serializer_unknown_event,
-        #{ET => Event, state => State}
-    ),
-    keep_state_and_data.
-
-%%================================================================================
-%% Internal functions
-%%================================================================================
-
--spec async_init(d()) -> leader_loop_result() | {stop, _}.
-async_init(D = #d{db = DB, shard = Shard, cbm = CBM}) ->
-    maybe
-        {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
-        %% Issue a dummy transaction to trigger metadata update:
-        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
-        ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
-        {next_state, ?leader(?idle), D#d{
-            serial = Serial,
-            timestamp = Timestamp,
-            committed_serial = Serial
-        }}
-    else
-        Err ->
-            {stop, {init_failed, Err}}
-    end.
-
--spec handle_flush(d(), [gen_statem:action()]) ->
-    leader_loop_result().
-handle_flush(D0, Actions) ->
+-spec flush(d()) -> d().
+flush(D0) ->
     %% Execute flush. After flushing the buffer it's safe to rotate
     %% the conflict tree.
-    D = maybe_rotate(flush(D0)),
-    {next_state, ?leader(?idle), D, Actions}.
+    maybe_rotate(do_flush(D0)).
 
--spec handle_dirty_append(dirty_append(), state(), d()) -> leader_loop_result().
+-spec handle_dirty_append(dirty_append(), d()) -> d().
 handle_dirty_append(
-    DirtyAppend, ?leader(LeaderState), D0 = #d{pending_dirty = Buff, n_items = NItems}
+    DirtyAppend, D = #d{pending_dirty = Buff, n_items = NItems}
 ) ->
     %% Note: all dirty appends are cooked in a single `otx_prepare_tx` call during the flush:
-    D = D0#d{
+    D#d{
         pending_dirty = [DirtyAppend | Buff],
         n_items = NItems + 1
-    },
-    finalize_add_pending(LeaderState, D, []).
+    }.
 
--spec handle_add_generation(gen_statem:from(), d()) -> leader_loop_result().
-handle_add_generation(From, D = #d{db = DB, shard = Shard, cbm = CBM, timestamp = TS0}) ->
+-spec handle_add_generation(d()) -> {Reply, d()} when
+    Reply :: ok | emqx_ds:error(_).
+handle_add_generation(D = #d{db = DB, shard = Shard, cbm = CBM, timestamp = TS0}) ->
     put(?ds_tx_monotonic_ts, TS0),
     TS = get_monotonic_timestamp(),
     _ = erase(?ds_tx_monotonic_ts),
     Reply = CBM:otx_add_generation(DB, Shard, TS),
     %% TODO: commit an empty batch to persist down timestamp:
-    {keep_state, D#d{timestamp = TS}, {reply, From, Reply}}.
+    {Reply, D#d{timestamp = TS}}.
 
 -spec send_dirty_append_replies(ok | false | emqx_ds:error(_), serial(), [dirty_append()]) -> ok.
 send_dirty_append_replies(Result, Serial, PendingReplies) ->
@@ -556,18 +573,27 @@ do_cook_dirty_appends(DB, Shard, CBM, Gen, GenData, PresumedCommitSerial, Pendin
 This function must be called after adding a new item pending for commit.
 It (re)schedules flushing of the data.
 """.
--spec finalize_add_pending(leader_state(), d(), [gen_statem:action()]) ->
-    leader_loop_result().
-finalize_add_pending(_, D = #d{n_items = N, max_items = MaxItems}, Actions) when
-    N >= MaxItems, MaxItems > 0
-->
-    handle_flush(D, Actions);
-finalize_add_pending(?idle, D = #d{idle_flush_interval = IdleInterval}, Actions) ->
-    %% Schedule early flush if the shard is idle:
-    Timeout = {timeout, IdleInterval, ?timeout_flush},
-    {next_state, ?leader(?pending), D, [Timeout | Actions]};
-finalize_add_pending(_, D, Actions) ->
-    {keep_state, D, Actions}.
+-spec finalize_add_pending(d()) -> d().
+finalize_add_pending(
+    D0 = #d{
+        entered_pending_at = EP, flush_interval = FlushInterval, n_items = N, max_items = MaxItems
+    }
+) ->
+    D =
+        case EP of
+            _ when is_integer(EP) ->
+                D0;
+            undefined ->
+                %% Schedule unconditional flush after FlushInterval:
+                erlang:send_after(FlushInterval, self(), ?timeout_flush),
+                D0#d{entered_pending_at = erlang:monotonic_time(millisecond)}
+        end,
+    case N >= MaxItems andalso MaxItems > 0 of
+        true ->
+            flush(D);
+        false ->
+            D
+    end.
 
 -doc """
 A wrapper that sets up the environment for calling CBM:tx_prepare_tx.
@@ -768,8 +794,10 @@ update_dirty_w(Serial, Ops, Dirty) ->
         maps:get(?ds_tx_write, Ops, [])
     ).
 
--spec flush(d()) -> d().
-flush(D0 = #d{n_items = NItems}) ->
+-spec do_flush(d()) -> d().
+do_flush(D = #d{n_items = 0}) ->
+    D;
+do_flush(D0 = #d{n_items = NItems}) ->
     %% Note: we take n_items before cooking_dirty_append to avoid
     %% off-by-one error when it adds a batch.
     {CookDirtySuccess, PresumedDirtyCommitSerial, OldDirtyAppends, D} = cook_dirty_appends(D0),
@@ -808,6 +836,7 @@ flush(D0 = #d{n_items = NItems}) ->
             emqx_ds_builtin_metrics:observe_buffer_latency(Metrics, Latency),
             erlang:garbage_collect(),
             D#d{
+                entered_pending_at = undefined,
                 committed_serial = Serial,
                 gens = Gens,
                 flush_interval = FI,
@@ -1062,6 +1091,30 @@ prepare_tx(CBM, DBShard, Gen, SerialBin, Ops, CookOpts) ->
         EC:Err:Stack ->
             {error, recoverable, {EC, Err, Stack}}
     end.
+
+cast(Server, Message) ->
+    try erlang:send(Server, {'$gen_cast', Message}) of
+        _ -> ok
+    catch
+        _:_ -> ok
+    end.
+
+call(Server, Request, Timeout) ->
+    try gen:call(Server, '$gen_call', Request, Timeout) of
+        {ok, Reply} ->
+            Reply
+    catch
+        Class:Err:Stack ->
+            erlang:raise(
+                Class,
+                {Err, {?MODULE, call, [Server, Request, Timeout]}},
+                Stack
+            )
+    end.
+
+version() ->
+    {ok, Version} = application:get_key(emqx_durable_storage, vsn),
+    Version.
 
 %%================================================================================
 %% Tests
