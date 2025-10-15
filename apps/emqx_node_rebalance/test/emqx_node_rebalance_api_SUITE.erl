@@ -12,12 +12,7 @@
 
 -import(
     emqx_mgmt_api_test_util,
-    [
-        request_api/3,
-        request/2,
-        request/3,
-        uri/1
-    ]
+    [uri/1]
 ).
 
 -import(
@@ -46,14 +41,16 @@ init_per_testcase(Case, Config) ->
         listeners => true,
         apps => app_specs()
     },
-    Cluster = [{Node, Spec} || Node <- [DonorNode, RecipientNode]],
-    ClusterNodes =
-        [Node1 | _] = emqx_cth_cluster:start(
-            Cluster,
-            #{work_dir => ?config(priv_dir, Config)}
-        ),
-    ok = rpc:call(Node1, emqx_mgmt_api_test_util, init_suite, []),
-    ok = take_auth_header_from(Node1),
+    DonorSpec = Spec#{
+        apps => app_specs() ++ [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()]
+    },
+    Cluster = [{DonorNode, DonorSpec}, {RecipientNode, Spec}],
+    ClusterNodes = emqx_cth_cluster:start(
+        Cluster,
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
+    AuthHeader = rpc:call(hd(ClusterNodes), emqx_common_test_http, default_auth_header, []),
+    _ = erlang:put(api_auth_header, AuthHeader),
     [{cluster_nodes, ClusterNodes} | Config].
 end_per_testcase(_Case, Config) ->
     Nodes = ?config(cluster_nodes, Config),
@@ -503,10 +500,12 @@ t_availability_check(Config) ->
 %%--------------------------------------------------------------------
 
 api_get_noauth(Path) ->
-    request_api(get, uri(Path), emqx_common_test_http:auth_header("invalid", "password")).
+    AuthHeader = emqx_common_test_http:auth_header("invalid", "password"),
+    emqx_mgmt_api_test_util:request_api(get, uri(Path), AuthHeader).
 
 api_get(Path) ->
-    case request(get, uri(Path)) of
+    AuthHeader = get(api_auth_header),
+    case emqx_mgmt_api_test_util:request_api_with_body(get, uri(Path), AuthHeader, []) of
         {ok, Code, ResponseBody} ->
             {ok, Code, jiffy:decode(ResponseBody, [return_maps])};
         {error, _} = Error ->
@@ -514,7 +513,8 @@ api_get(Path) ->
     end.
 
 api_post(Path, Data) ->
-    case request(post, uri(Path), Data) of
+    AuthHeader = get(api_auth_header),
+    case emqx_mgmt_api_test_util:request_api_with_body(post, uri(Path), AuthHeader, Data) of
         {ok, Code, ResponseBody} ->
             Res =
                 case emqx_utils_json:safe_decode(ResponseBody) of
@@ -525,15 +525,6 @@ api_post(Path, Data) ->
         {error, _} = Error ->
             Error
     end.
-
-take_auth_header_from(Node) ->
-    meck:new(emqx_common_test_http, [passthrough]),
-    meck:expect(
-        emqx_common_test_http,
-        default_auth_header,
-        fun() -> rpc:call(Node, emqx_common_test_http, default_auth_header, []) end
-    ),
-    ok.
 
 case_specific_data_dir(Case, Config) ->
     case ?config(priv_dir, Config) of
@@ -546,15 +537,12 @@ app_specs() ->
         {emqx, #{
             before_start => fun() ->
                 emqx_app:set_config_loader(?MODULE)
-            end,
-            override_env => [{boot_modules, [broker, listeners]}]
+            end
         }},
         {emqx_retainer, #{
-            config =>
-                #{
-                    retainer =>
-                        #{enable => true}
-                }
+            config => #{
+                retainer => #{enable => true}
+            }
         }},
         emqx_node_rebalance
     ].
