@@ -102,7 +102,7 @@ t_clear(_) ->
 
     ?assertEqual(0, ets:info(?TOPK_TAB, size)).
 
-t_settting(_) ->
+t_setting(_) ->
     RawConf = emqx:get_raw_config([slow_subs]),
     RawConf2 = RawConf#{<<"stats_type">> => <<"internal">>},
     {ok, Data} = request_api(
@@ -114,9 +114,7 @@ t_settting(_) ->
     ),
 
     Return = decode_json(Data),
-    Expect = emqx_config:fill_defaults(RawConf2),
-
-    ?assertEqual(Expect, Return),
+    ?assertEqual(RawConf2, Return),
 
     timer:sleep(800),
     {ok, GetData} = request_api(
@@ -126,7 +124,7 @@ t_settting(_) ->
         auth_header_()
     ),
     GetReturn = decode_json(GetData),
-    ?assertEqual(Expect, GetReturn).
+    ?assertEqual(RawConf2, GetReturn).
 
 decode_json(Data) ->
     emqx_utils_json:decode(Data).
