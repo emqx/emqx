@@ -1101,6 +1101,7 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(not_found, Msg), _HasBeenSent, Tr
             TraceCtx#{id => Id, info => Msg}
         ),
         maybe_trigger_fallback_actions(Id, ResultContext),
+        inc_actions_executed_metrics(),
         ok
     end,
     {?ack, PostFn, #{dropped_resource_not_found => 1}};
@@ -1108,6 +1109,7 @@ handle_query_result_pure(Id, ?RESOURCE_ERROR_M(stopped, Msg), _HasBeenSent, Trac
     PostFn = fun(ResultContext) ->
         ?TRACE(error, "ERROR", "resource_stopped", TraceCtx#{id => Id, info => Msg}),
         maybe_trigger_fallback_actions(Id, ResultContext),
+        inc_actions_executed_metrics(),
         ok
     end,
     {?ack, PostFn, #{dropped_resource_stopped => 1}};
@@ -1135,6 +1137,7 @@ handle_query_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCtx) ->
                         #{tag => ?TAG}
                     ),
                     maybe_trigger_fallback_actions(Id, ResultContext),
+                    inc_actions_executed_metrics(),
                     ok
                 end,
             Counters =
@@ -1158,6 +1161,7 @@ handle_query_result_pure(Id, {async_return, Result}, HasBeenSent, TraceCtx) ->
 handle_query_result_pure(_Id, Result, HasBeenSent, _TraceCtx) ->
     PostFn = fun(_ResultContext) ->
         assert_ok_result(Result),
+        inc_actions_executed_metrics(),
         ok
     end,
     Counters =
@@ -1185,6 +1189,7 @@ handle_query_async_result_pure(Id, {error, Reason} = Error, HasBeenSent, TraceCt
                         #{tag => ?TAG}
                     ),
                     maybe_trigger_fallback_actions(Id, ResultContext),
+                    inc_actions_executed_metrics(),
                     ok
                 end,
             Counters =
@@ -2717,6 +2722,9 @@ trigger_fallback_action(Id, #{kind := republish, args := #{?COMPUTED := Args}}, 
 trigger_fallback_action(Id, FallbackFn, Req, QueryOpts) when is_function(FallbackFn) ->
     %% This clause is only for tests.
     FallbackFn(#{action_res_id => Id, request => Req, query_opts => QueryOpts}).
+
+inc_actions_executed_metrics() ->
+    ok = emqx_metrics:inc('actions.executed').
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
