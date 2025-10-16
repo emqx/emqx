@@ -211,7 +211,8 @@ otx_add_generation(DB, Shard, Since) ->
 update_db_config(DB, NewSchema, NewRTConf) ->
     maybe
         ok ?= emqx_dsch:update_db_schema(DB, NewSchema),
-        ok ?= emqx_dsch:update_db_config(DB, NewRTConf)
+        ok ?= emqx_dsch:update_db_config(DB, NewRTConf),
+        emqx_ds_optimistic_tx:config_change(DB)
     end.
 
 -spec list_slabs(emqx_ds:db(), emqx_ds:list_slabs_opts()) -> emqx_ds:list_slabs_result().

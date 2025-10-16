@@ -25,6 +25,7 @@ backend can reject flush request.
 %% API:
 -export([
     ls/0,
+    config_change/1,
     start_link/3,
 
     where/2,
@@ -221,6 +222,21 @@ ls() ->
     MS = {{?name('$1', '$2'), '_', '_'}, [], [{{'$1', '$2'}}]},
     gproc:select({local, names}, [MS]).
 
+-doc """
+Notify local workers that DB config has changed.
+
+The backends can call this function from `CBM:update_db_config`.
+""".
+-spec config_change(emqx_ds:db()) -> ok.
+config_change(DB) ->
+    MS = {{?name(DB, '_'), '$1', '_'}, [], ['$1']},
+    lists:foreach(
+        fun(Server) ->
+            cast(Server, config_change)
+        end,
+        gproc:select({local, names}, [MS])
+    ).
+
 -spec dirty_append(leader(), emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
 dirty_append(Leader, Opts, Data = [{_, ?ds_tx_ts_monotonic, _} | _]) ->
@@ -385,6 +401,8 @@ init(Parent, DB, Shard, CBM) ->
 -spec loop(d()) -> no_return().
 loop(D0) ->
     #d{
+        db = DB,
+        shard = Shard,
         idle_flush_interval = IdleFlushInterval,
         n_items = NItems
     } = D0,
@@ -408,6 +426,8 @@ loop(D0) ->
             {Reply, D} = handle_add_generation(D0),
             gen:reply(From, Reply),
             loop(D);
+        {'$gen_cast', config_change} ->
+            loop(do_update_config(D0));
         ?timeout_flush ->
             loop(flush(D0));
         {'EXIT', _From, Reason} ->
@@ -421,8 +441,8 @@ loop(D0) ->
         Other ->
             ?tp(warning, emqx_ds_optimistic_tx_unknown_event, #{
                 event => Other,
-                db => D0#d.db,
-                shard => D0#d.shard
+                db => DB,
+                shard => Shard
             }),
             loop(D0)
     after Sleep ->
@@ -468,7 +488,7 @@ terminate(Reason, _Data) ->
 flush(D0) ->
     %% Execute flush. After flushing the buffer it's safe to rotate
     %% the conflict tree.
-    maybe_rotate(do_flush(D0)).
+    maybe_rotate(do_update_config(do_flush(D0))).
 
 -spec handle_dirty_append(dirty_append(), d()) -> d().
 handle_dirty_append(
@@ -822,12 +842,6 @@ do_flush(D0 = #d{n_items = NItems}) ->
     send_dirty_append_replies(
         CookDirtySuccess andalso Result, PresumedDirtyCommitSerial, OldDirtyAppends
     ),
-    #{
-        flush_interval := FI,
-        idle_flush_interval := IFI,
-        max_items := MaxItems,
-        conflict_window := CW
-    } = CBM:otx_get_runtime_config(DB),
     case Result of
         ok ->
             Latency = erlang:monotonic_time(millisecond) - EnteredPendingAt,
@@ -839,16 +853,27 @@ do_flush(D0 = #d{n_items = NItems}) ->
                 entered_pending_at = undefined,
                 committed_serial = Serial,
                 gens = Gens,
-                flush_interval = FI,
-                idle_flush_interval = IFI,
-                max_items = MaxItems,
-                n_items = 0,
-                rotate_interval = CW
+                n_items = 0
             };
         _ ->
             emqx_ds_builtin_metrics:inc_buffer_batches_failed(Metrics),
             exit({flush_failed, #{db => DB, shard => Shard, result => Result}})
     end.
+
+-spec do_update_config(d()) -> d().
+do_update_config(D = #d{db = DB, cbm = CBM}) ->
+    #{
+        flush_interval := FI,
+        idle_flush_interval := IFI,
+        max_items := MaxItems,
+        conflict_window := CW
+    } = CBM:otx_get_runtime_config(DB),
+    D#d{
+        flush_interval = FI,
+        idle_flush_interval = IFI,
+        max_items = MaxItems,
+        rotate_interval = CW
+    }.
 
 -spec make_batch(generations()) -> batch().
 make_batch(Generations) ->

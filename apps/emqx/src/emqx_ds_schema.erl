@@ -28,7 +28,7 @@ Schema for EMQX_DS databases.
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
--include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -484,7 +484,6 @@ desc(_) ->
 ) ->
     ok | {error, _Reason}.
 post_config_update([durable_storage, Config | _], _UpdateReq, _NewConf, _OldConf, _AppEnv, _Extra) ->
-    ?SLOG(warning, #{msg => triggered_normally, db => Config}),
     lists:foreach(
         fun(DB) ->
             update_db_config(DB, db_config(Config))
@@ -598,13 +597,14 @@ translate_lts_wildcard_thresholds(L = [_ | _]) ->
     {simple, list_to_tuple(L)}.
 
 update_db_config(DB, Conf) ->
+    ?tp(debug, "ds_db_runtime_config_update", #{db => DB}),
     case emqx_ds:update_db_config(DB, Conf) of
         ok ->
             ok;
         {error, recoverable, db_is_closed} ->
             ok;
         Err ->
-            ?SLOG(warning, #{msg => "ds_db_runtime_config_update_failed", db => DB, reason => Err})
+            ?tp(warning, "ds_db_runtime_config_update_failed", #{db => DB, reason => Err})
     end.
 
 config_root_to_dbs(DB) when
