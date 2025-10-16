@@ -56,7 +56,9 @@
     transformation_succeeded,
     transformation_failed,
     dropped,
-    persisted
+    persisted,
+    rules_matched,
+    actions_executed
 ]).
 
 -define(GAUGE_SAMPLER_LIST, [
@@ -78,7 +80,9 @@
     transformation_succeeded => transformation_succeeded_rate,
     transformation_failed => transformation_failed_rate,
     dropped => dropped_msg_rate,
-    persisted => persisted_rate
+    persisted => persisted_rate,
+    rules_matched => rules_matched_rate,
+    actions_executed => actions_executed_rate
 }).
 
 -define(CURRENT_SAMPLE_NON_RATE, [

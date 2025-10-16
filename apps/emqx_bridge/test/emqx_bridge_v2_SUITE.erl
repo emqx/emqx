@@ -1496,6 +1496,8 @@ t_fallback_actions_cycles(_Config) ->
     ?check_trace(
         #{timetrap => 3_000},
         begin
+            RulesMatched0 = emqx_metrics:val('rules.matched'),
+            ActionsExecuted0 = emqx_metrics:val('actions.executed'),
             {ok, _} = emqx_connector:create(con_type(), ConnectorName, ConnectorConfig),
 
             TestPid = self(),
@@ -1645,6 +1647,14 @@ t_fallback_actions_cycles(_Config) ->
                     emqx_bridge_v2:get_metrics(ActionTypeBin, FallbackActionName)
                 )
             ),
+
+            RulesMatched1 = emqx_metrics:val('rules.matched'),
+            ActionsExecuted1 = emqx_metrics:val('actions.executed'),
+
+            %% 1 rule matched
+            ?assertEqual(RulesMatched0 + 1, RulesMatched1),
+            %% 1 primary + 1 fallback executed
+            ?assertEqual(ActionsExecuted0 + 2, ActionsExecuted1),
 
             ok
         end,

@@ -226,7 +226,11 @@ swagger_desc(persisted_rate) -> ?DESC("persisted_rate");
 swagger_desc(retained_msg_count) -> ?DESC("retained_msg_count");
 swagger_desc(shared_subscriptions) -> ?DESC("shared_subscriptions");
 swagger_desc(node_uptime) -> ?DESC("node_uptime");
-swagger_desc(license_quota) -> ?DESC("license_quota").
+swagger_desc(license_quota) -> ?DESC("license_quota");
+swagger_desc(rules_matched) -> ?DESC("rules_matched");
+swagger_desc(actions_executed) -> ?DESC("actions_executed");
+swagger_desc(rules_matched_rate) -> ?DESC("rules_matched_rate");
+swagger_desc(actions_executed_rate) -> ?DESC("actions_executed_rate").
 
 maybe_reject_cluster_only_metrics(<<"all">>, Rates) ->
     Rates;
