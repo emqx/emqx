@@ -105,6 +105,16 @@ persisted: {
     label: "Persisted Messages"
 }
 
+rules_matched: {
+    desc: "Number of Rules that matched their where clauses in the last sample window."
+    label: "Matched Rules"
+}
+
+actions_executed: {
+    desc: "Number of Action executions (failures + successes) in the last sample window."
+    label: "Actions Executed"
+}
+
 disconnected_durable_sessions: {
     desc: "Number of disconnected durable sessions at the time of sampling. Can only represent an approximation."
     label: "Disconnected Durable Sessions"
@@ -177,6 +187,16 @@ transformation_failed_rate: {
 persisted_rate: {
     desc: "Messages persisted rate in the last sampling window."
     label: "Persisted Message Rate"
+}
+
+rules_matched_rate: {
+    desc: "Rule match rate in the last sampling window."
+    label: "Rule Match Rate"
+}
+
+actions_executed_rate: {
+    desc: "Action execution rate in the last sampling window."
+    label: "Action Execution Rate"
 }
 
 retained_msg_count: {

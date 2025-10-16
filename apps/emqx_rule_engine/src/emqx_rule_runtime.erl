@@ -110,7 +110,7 @@ do_apply_rule(
         },
         debug
     ),
-    ok = metric_inc(RuleResId, 'matched'),
+    ok = inc_rule_matched_metrics(RuleResId),
     clear_rule_payload(),
     try
         do_apply_rule2(Rule, Columns, Envs)
@@ -1030,3 +1030,8 @@ metric_inc(RuleId, Metric) ->
             ),
             ok
     end.
+
+inc_rule_matched_metrics(RuleResId) ->
+    ok = metric_inc(RuleResId, 'matched'),
+    ok = emqx_metrics:inc('rules.matched'),
+    ok.
