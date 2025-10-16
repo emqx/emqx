@@ -1,0 +1,68 @@
+emqx_mgmt_api_certs {
+    global_bundle_list {
+        desc: """~
+            List all bundles in global namespace.~"""
+        label: "List Global Bundles"
+    }
+
+    ns_bundle_list {
+        desc: """~
+            List all bundles in a managed namespace.~"""
+        label: "List Managed Namespace Bundles"
+    }
+
+    global_file_list {
+        desc: """~
+            List all files in a global namespace bundle.~"""
+        label: "List Files"
+    }
+
+    ns_file_list {
+        desc: """~
+            List all files in a managed namespace bundle.~"""
+        label: "List Files"
+    }
+
+    global_file_upload {
+        desc: """~
+            Upload a file to a global namespace bundle.~"""
+        label: "Upload File"
+    }
+
+    ns_file_upload {
+        desc: """~
+            Upload a file to a managed namespace bundle.~"""
+        label: "Upload File"
+    }
+
+    global_bundle_delete {
+        desc: """~
+            Delete a global namespace bundle.~"""
+        label: "Delete Bundle"
+    }
+
+    ns_bundle_delete {
+        desc: """~
+            Delete a managed namespace bundle.~"""
+        label: "Delete Bundle"
+    }
+
+    bundle_not_found {
+        desc: """~
+            Bundle not found.~"""
+        label: "Bundle not found"
+    }
+
+    bad_request {
+        desc: """~
+            Bad request.~"""
+        label: "Bad Request"
+    }
+
+    internal_error {
+        desc: """~
+            Internal error.  Generally, indicates a problem with file permissions.~"""
+        label: "Internal Error"
+    }
+
+}

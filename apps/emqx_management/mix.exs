@@ -24,6 +24,7 @@ defmodule EMQXManagement.MixProject do
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true},
+      {:emqx_conf, in_umbrella: true, runtime: false},
       {:emqx_utils, in_umbrella: true},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_plugins, in_umbrella: true},
