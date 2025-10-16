@@ -46,9 +46,9 @@ service HookProvider {
 
   rpc OnClientAuthorize(ClientAuthorizeRequest) returns (ValuedResponse) {};
 
-  rpc OnClientSubscribe(ClientSubscribeRequest) returns (EmptySuccess) {};
+  rpc OnClientSubscribe(ClientSubscribeRequest) returns (ValuedResponse) {};
 
-  rpc OnClientUnsubscribe(ClientUnsubscribeRequest) returns (EmptySuccess) {};
+  rpc OnClientUnsubscribe(ClientUnsubscribeRequest) returns (ValuedResponse) {};
 
   rpc OnSessionCreated(SessionCreatedRequest) returns (EmptySuccess) {};
 
@@ -296,7 +296,7 @@ message LoadedResponse {
   repeated HookSpec hooks = 1;
 }
 
-// Responsed by `ClientAuthenticateRequest` `ClientAuthorizeRequest` `MessagePublishRequest`
+// Responsed by `ClientAuthenticateRequest` `ClientAuthorizeRequest` `MessagePublishRequest` `ClientSubscribeRequest` `ClientUnsubscribeRequest`
 
 message ValuedResponse {
 
@@ -322,7 +322,15 @@ message ValuedResponse {
 
     // Message result, used on the 'message.*' hooks
     Message message = 4;
+
+    // TopicFilters result, used on the 'client.subscribe', 'client.unsubscribe' hooks
+    TopicFilters topic_filters = 5;
   }
+}
+
+message TopicFilters {
+
+  repeated TopicFilter filters = 1;
 }
 
 // no Response by other Requests
