@@ -513,6 +513,8 @@ reserved_idx('messages.validation_failed') -> 406;
 reserved_idx('messages.persisted') -> 407;
 reserved_idx('messages.transformation_succeeded') -> 408;
 reserved_idx('messages.transformation_failed') -> 409;
+reserved_idx('rules.matched') -> 410;
+reserved_idx('actions.executed') -> 411;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -525,7 +527,8 @@ all_metrics() ->
         session_metrics(),
         stats_acl_metrics(),
         stats_authn_metrics(),
-        olp_metrics()
+        olp_metrics(),
+        data_integration_metrics()
     ]).
 
 %% Bytes sent and received
@@ -607,6 +610,13 @@ message_metrics() ->
         {counter, 'messages.transformation_failed', ?DESC("messages_transformation_failed")},
         {counter, 'messages.transformation_succeeded', ?DESC("messages_transformation_succeeded")},
         {counter, 'messages.persisted', ?DESC("messages_persisted")}
+    ].
+
+%% Rule and Action related metrics
+data_integration_metrics() ->
+    [
+        {counter, 'rules.matched', ?DESC("rules_matched")},
+        {counter, 'actions.executed', ?DESC("actions_executed")}
     ].
 
 %% Delivery metrics
