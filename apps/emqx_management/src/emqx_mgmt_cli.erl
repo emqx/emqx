@@ -297,10 +297,13 @@ write_client_stats_row({{ClientId, _Pid}, _Info, Stats}, FileHandle) ->
     MqueueLen = maps:get(mqueue_len, StatsMap, 0),
     MqueueDropped = maps:get(mqueue_dropped, StatsMap, 0),
 
+    % Escape the clientid for CSV
+    EscapedClientId = emqx_utils_csv:escape_field(ClientId),
+
     % Format CSV row
-    CsvRow = io_lib:format("~w,~s,~w,~w,~w,~w,~w,~w,~w,~w\n", [
+    CsvRow = io_lib:format("~w,~ts,~w,~w,~w,~w,~w,~w,~w,~w\n", [
         Timestamp,
-        ClientId,
+        EscapedClientId,
         % recv_oct
         RecvOct,
         % recv_cnt
