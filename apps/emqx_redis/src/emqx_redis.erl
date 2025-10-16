@@ -289,7 +289,7 @@ sum_worker_results([Error | _Rest]) ->
             error => Error
         }
     ),
-    {?status_connecting, Error}.
+    {?status_disconnected, Error}.
 
 do_cmd(PoolName, cluster, {cmd, Command}) ->
     eredis_cluster:q(PoolName, Command);
