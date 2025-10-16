@@ -25,6 +25,8 @@
     streams_available/3,
     peer_needs_streams/3,
     resumed/3,
+    dgram_state_changed/3,
+    dgram_recv/4,
     new_stream/3
 ]).
 
@@ -38,6 +40,8 @@
 %% Connection scope shared counter
 -export([step_cnt/3]).
 -export([read_cnt/2]).
+
+-export([probe/2]).
 
 -define(MAX_CNTS, 8).
 
@@ -143,6 +147,16 @@ connected(_Conn, Props, S) ->
 %%     ResumeFun(Conn, Data, S);
 resumed(_Conn, _Data, S) ->
     {ok, S#{is_resumed := true}}.
+
+%% @doc callback when datagram state is changed.
+-spec dgram_state_changed(quicer:connection_handle(), quicer:dgram_state(), cb_state()) -> cb_ret().
+dgram_state_changed(_Conn, DgramState, CBState) ->
+    NewCBState = maps:merge(CBState, DgramState),
+    {ok, NewCBState}.
+
+%% @doc callback for received datagram, currently we ignore/drop them.
+dgram_recv(_Conn, _Bin, _Flag, S) ->
+    {ok, S}.
 
 %% @doc callback for handling orphan data streams
 %%      depends on the connecion state and control stream state.
@@ -264,6 +278,9 @@ handle_call(
         serialize := Serialize,
         parse_state := PS
     }};
+handle_call({probe, Timeout}, _From, #{conn := Conn} = S) ->
+    Res = quicer:probe(Conn, Timeout),
+    {reply, Res, S};
 handle_call(_Req, _From, S) ->
     {reply, {error, unimpl}, S}.
 
@@ -303,6 +320,10 @@ read_cnt(CounterRef, Name) ->
 
 cnt_id(control_packet) ->
     1.
+
+-spec probe(pid(), timeout()) -> quicer:probe_res().
+probe(Conn, Timeout) ->
+    gen_server:call(Conn, {probe, Timeout}).
 
 %%%
 %%%  Internals
