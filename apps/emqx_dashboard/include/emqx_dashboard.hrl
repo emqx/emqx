@@ -68,7 +68,9 @@
     transformation_succeeded,
     transformation_failed,
     dropped,
-    persisted
+    persisted,
+    rules_matched,
+    actions_executed
 ]).
 
 -define(GAUGE_SAMPLER_LIST, [
