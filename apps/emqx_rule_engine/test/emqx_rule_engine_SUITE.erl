@@ -210,18 +210,6 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(Apps),
     ok.
 
-set_special_configs(emqx_auth) ->
-    {ok, _} = emqx:update_config(
-        [authorization],
-        #{
-            <<"no_match">> => atom_to_binary(allow),
-            <<"cache">> => #{<<"enable">> => atom_to_binary(true)},
-            <<"sources">> => []
-        }
-    ),
-    ok;
-set_special_configs(_) ->
-    ok.
 on_resource_create(_id, _) -> #{}.
 on_resource_destroy(_id, _) -> ok.
 on_get_resource_status(_id, _) -> #{}.

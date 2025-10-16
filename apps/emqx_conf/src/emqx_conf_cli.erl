@@ -403,7 +403,6 @@ drop_hidden_roots(Conf) ->
 
 hidden_roots() ->
     [
-        <<"trace">>,
         <<"stats">>,
         <<"broker">>,
         <<"plugins">>,
@@ -445,9 +444,9 @@ load_config(Namespace, Bin, Opts) when is_binary(Bin) ->
 load_config_from_raw(Namespace, RawConf0, Opts) ->
     case Namespace of
         ?global_ns ->
-            emqx_ctl:print("loading config for global namespace~n", []);
+            print(Opts, "loading config for global namespace~n", []);
         _ ->
-            emqx_ctl:print("loading config for namespace \"~s\"~n", [Namespace])
+            print(Opts, "loading config for namespace \"~s\"~n", [Namespace])
     end,
     SchemaMod = emqx_conf:schema_module(),
     RawConf1 = emqx_config:upgrade_raw_conf(SchemaMod, RawConf0),
@@ -678,9 +677,8 @@ check_config(Conf0, Opts) ->
     maybe
         {ok, Conf1} ?= check_keys_is_not_readonly(Conf0, Opts),
         {ok, Conf2} ?= check_cluster_keys(Conf1, Opts),
-        Conf3 = emqx_config:fill_defaults(Conf2),
-        ok ?= check_config_schema(Conf3),
-        {ok, Conf3}
+        ok ?= check_config_schema(Conf2),
+        {ok, emqx_config:fill_defaults(Conf2)}
     else
         Error -> Error
     end.

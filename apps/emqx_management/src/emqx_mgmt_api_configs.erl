@@ -319,20 +319,25 @@ configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
         {ok, <<"text/plain">>} -> get_configs_v2(QueryStr);
         {error, _} = Error -> {400, #{code => 'INVALID_ACCEPT', message => ?ERR_MSG(Error)}}
     end;
-configs(put, #{body := Conf, query_string := #{<<"mode">> := Mode} = QS}, _Req) ->
+configs(put, #{body := Body, query_string := #{<<"mode">> := Mode} = QS}, _Req) ->
     %% Note: currently, this API is available only for global namespace.
-    IgnoreReadonly = maps:get(<<"ignore_readonly">>, QS, false),
-    case
-        emqx_conf_cli:load_config(?global_ns, Conf, #{
-            mode => Mode, log => none, ignore_readonly => IgnoreReadonly
-        })
-    of
+    case Body of
+        %% NOTE: Hacking around `minirest` shenanigans.
+        #{} -> Conf = <<>>;
+        _NonEmpty -> Conf = Body
+    end,
+    Opts = #{
+        mode => Mode,
+        log => none,
+        ignore_readonly => maps:get(<<"ignore_readonly">>, QS, false)
+    },
+    case emqx_conf_cli:load_config(?global_ns, Conf, Opts) of
         ok ->
             {200};
         %% bad hocon format
         {error, Errors} ->
             Msg = emqx_utils_json:best_effort_json_obj(#{errors => Errors}),
-            {400, #{<<"content-type">> => <<"text/plain">>}, Msg}
+            {400, Msg}
     end.
 
 find_suitable_accept(Headers, Preferences) when is_list(Preferences), length(Preferences) > 0 ->

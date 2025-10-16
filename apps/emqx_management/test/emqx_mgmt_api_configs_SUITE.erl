@@ -28,13 +28,9 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_testcase(TestCase = t_configs_node, Config) ->
-    ?MODULE:TestCase({'init', Config});
 init_per_testcase(_TestCase, Config) ->
     Config.
 
-end_per_testcase(TestCase = t_configs_node, Config) ->
-    ?MODULE:TestCase({'end', Config});
 end_per_testcase(_TestCase, Config) ->
     Config.
 
@@ -68,14 +64,14 @@ t_update(_Config) ->
     %% update failed
     ErrorSysMon = emqx_utils_maps:deep_put([<<"vm">>, <<"busy_port">>], SysMon, "123"),
     ?assertMatch(
-        {error, {"HTTP/1.1", 400, "Bad Request"}},
+        {400, #{<<"code">> := <<"BAD_REQUEST">>}},
         update_config(<<"sysmon">>, ErrorSysMon)
     ),
     {ok, SysMon2} = get_config(<<"sysmon">>),
     ?assertEqual(SysMon1, SysMon2),
 
     %% reset specific config
-    ok = reset_config(<<"sysmon">>, "conf_path=vm.busy_port"),
+    ok = reset_config(<<"sysmon">>, [{conf_path, <<"vm.busy_port">>}]),
     {ok, SysMon3} = get_config(<<"sysmon">>),
     ?assertMatch(#{<<"vm">> := #{<<"busy_port">> := true}}, SysMon3),
     assert_busy_port(true),
@@ -83,7 +79,10 @@ t_update(_Config) ->
     %% reset no_default_value config
     NewSysMon1 = emqx_utils_maps:deep_put([<<"vm">>, <<"busy_port">>], SysMon, false),
     {ok, #{}} = update_config(<<"sysmon">>, NewSysMon1),
-    ?assertMatch({error, {"HTTP/1.1", 400, _}}, reset_config(<<"sysmon">>, "")),
+    ?assertMatch(
+        {400, #{<<"code">> := <<"NO_DEFAULT_VALUE">>}},
+        reset_config(<<"sysmon">>, [])
+    ),
     {ok, SysMon4} = get_config(<<"sysmon">>),
     ?assertMatch(#{<<"vm">> := #{<<"busy_port">> := false}}, SysMon4),
     ok.
@@ -103,11 +102,11 @@ t_log(_Config) ->
     {ok, Log3} = logger:get_handler_config(default),
     ?assertMatch(#{config := #{file := File}}, Log3),
     ErrLog1 = emqx_utils_maps:deep_put([<<"file">>, <<"default">>, <<"enable">>], Log, 1),
-    ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_config(<<"log">>, ErrLog1)),
+    ?assertMatch({400, #{<<"code">> := <<"BAD_REQUEST">>}}, update_config(<<"log">>, ErrLog1)),
     ErrLog2 = emqx_utils_maps:deep_put(
         [<<"file">>, <<"default">>, <<"enabfe">>], Log, true
     ),
-    ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_config(<<"log">>, ErrLog2)),
+    ?assertMatch({400, #{<<"code">> := <<"BAD_REQUEST">>}}, update_config(<<"log">>, ErrLog2)),
 
     %% add new handler
     File1 = "log/emqx-test1.log",
@@ -163,7 +162,7 @@ t_global_zone(_Config) ->
     ?assertMatch(#{<<"max_qos_allowed">> := 1}, read_conf(<<"mqtt">>)),
 
     BadZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 3),
-    ?assertMatch({error, {"HTTP/1.1", 400, _}}, update_global_zone(BadZones)),
+    ?assertMatch({400, #{<<"code">> := <<"BAD_REQUEST">>}}, update_global_zone(BadZones)),
 
     %% Remove max_qos_allowed from raw config, but we still get default value(2).
     Mqtt0 = emqx_conf:get_raw([<<"mqtt">>]),
@@ -197,57 +196,6 @@ get_global_zone() ->
 update_global_zone(Change) ->
     update_config("global_zone", Change).
 
-%% hide /configs/zones api in 5.1.0, so we comment this test.
-%t_zones(_Config) ->
-%    {ok, Zones} = get_config("zones"),
-%    {ok, #{<<"mqtt">> := OldMqtt} = Zone1} = get_global_zone(),
-%    Mqtt1 = maps:remove(<<"max_subscriptions">>, OldMqtt),
-%    {ok, #{}} = update_config("zones", Zones#{<<"new_zone">> => Zone1#{<<"mqtt">> => Mqtt1}}),
-%     NewMqtt = emqx_config:get_raw([zones, new_zone, mqtt]),
-%    %% we remove max_subscription from global zone, so the new zone should not have it.
-%    ?assertEqual(Mqtt1, NewMqtt),
-%    %% delete the new zones
-%    {ok, #{}} = update_config("zones", Zones),
-%    ?assertEqual(undefined, emqx_config:get_raw([zones, new_zone], undefined)),
-%    ok.
-
-%% v1 version json
-t_configs_node({'init', Config}) ->
-    Node = node(),
-    meck:expect(emqx, running_nodes, fun() -> [Node, bad_node, other_node] end),
-    F = fun
-        (Node0) when Node0 =:= Node -> <<"\"self\"">>;
-        (other_node) -> <<"\"other\"">>;
-        (bad_node) -> {badrpc, bad}
-    end,
-    F2 = fun
-        (Node0, _, _) when Node0 =:= Node -> <<"log=1">>;
-        (other_node, _, _) -> <<"log=2">>;
-        (bad_node, _, _) -> {badrpc, bad}
-    end,
-    meck:expect(emqx_management_proto_v5, get_full_config, F),
-    meck:expect(emqx_conf_proto_v5, get_hocon_config, F2),
-    meck:expect(hocon_pp, do, fun(Conf, _) -> Conf end),
-    Config;
-t_configs_node({'end', _}) ->
-    meck:unload([emqx, emqx_management_proto_v5, emqx_conf_proto_v5, hocon_pp]);
-t_configs_node(_) ->
-    Node = atom_to_list(node()),
-
-    ?assertEqual({ok, <<"self">>}, get_configs_with_json(Node, #{return_all => true})),
-    ?assertEqual({ok, <<"other">>}, get_configs_with_json("other_node", #{return_all => true})),
-
-    {ExpType, ExpRes} = get_configs_with_json("unknown_node", #{return_all => true}),
-    ?assertEqual(error, ExpType),
-    ?assertMatch({{_, 404, _}, _, _}, ExpRes),
-    {_, _, Body} = ExpRes,
-    ?assertMatch(#{<<"code">> := <<"NOT_FOUND">>}, emqx_utils_json:decode(Body)),
-
-    ?assertMatch({error, {_, 500, _}}, get_configs_with_json("bad_node")),
-
-    ?assertEqual({ok, #{<<"log">> => 1}}, get_configs_with_binary("log", Node)),
-    ?assertEqual({ok, #{<<"log">> => 2}}, get_configs_with_binary("log", "other_node")).
-
 %% v2 version binary
 t_configs_key(_Config) ->
     Keys = lists:sort(emqx_conf_cli:keys()),
@@ -269,22 +217,23 @@ t_configs_key(_Config) ->
         Log
     ),
     Log1 = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"error">>),
-    ?assertEqual({ok, <<>>}, update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
+    ?assertMatch({200, _}, update_configs_with_binary(iolist_to_binary(hocon_pp:do(Log1, #{})))),
     ?assertEqual(<<"error">>, read_conf([<<"log">>, <<"console">>, <<"level">>])),
     BadLog = emqx_utils_maps:deep_put([<<"log">>, <<"console">>, <<"level">>], Log, <<"erro1r">>),
-    {error, Error} = update_configs_with_binary(iolist_to_binary(hocon_pp:do(BadLog, #{}))),
-    ExpectError = #{
-        <<"errors">> => #{
-            <<"log">> =>
-                #{
-                    <<"kind">> => <<"validation_error">>,
-                    <<"path">> => <<"log.console.level">>,
-                    <<"reason">> => <<"unable_to_convert_to_enum_symbol">>,
-                    <<"value">> => <<"erro1r">>
-                }
-        }
-    },
-    ?assertEqual(ExpectError, emqx_utils_json:decode(Error)),
+    ?assertEqual(
+        {400, #{
+            <<"errors">> => #{
+                <<"log">> =>
+                    #{
+                        <<"kind">> => <<"validation_error">>,
+                        <<"path">> => <<"log.console.level">>,
+                        <<"reason">> => <<"unable_to_convert_to_enum_symbol">>,
+                        <<"value">> => <<"erro1r">>
+                    }
+            }
+        }},
+        update_configs_with_binary(iolist_to_binary(hocon_pp:do(BadLog, #{})))
+    ),
     ReadOnlyConf = #{
         <<"cluster">> =>
             #{
@@ -294,10 +243,14 @@ t_configs_key(_Config) ->
             }
     },
     ReadOnlyBin = iolist_to_binary(hocon_pp:do(ReadOnlyConf, #{})),
-    {error, ReadOnlyError} = update_configs_with_binary(ReadOnlyBin),
-    ?assertMatch(<<"{\"errors\":\"Cannot update read-only key 'cluster", _/binary>>, ReadOnlyError),
-    ?assertMatch({ok, <<>>}, update_configs_with_binary(ReadOnlyBin, _IgnoreReadonly = true)),
-    ok.
+    ?assertMatch(
+        {400, #{<<"errors">> := <<"Cannot update read-only key 'cluster", _/binary>>}},
+        update_configs_with_binary(ReadOnlyBin)
+    ),
+    ?assertMatch(
+        {200, _},
+        update_configs_with_binary(ReadOnlyBin, _IgnoreReadonly = true)
+    ).
 
 t_get_configs_in_different_accept(_Config) ->
     [Key | _] = lists:sort(emqx_conf_cli:keys()),
@@ -336,88 +289,91 @@ t_config_update_parse_error(_Config) ->
     ],
     lists:map(
         fun(BadHocon) ->
-            {error, ParseError} = update_configs_with_binary(BadHocon),
             ?assertMatch(
-                #{
+                {400, #{
                     <<"errors">> :=
                         #{
                             <<"line">> := 1,
                             <<"reason">> := _,
                             <<"type">> := <<"parse_error">>
                         }
-                },
-                emqx_utils_json:decode(ParseError)
+                }},
+                update_configs_with_binary(BadHocon)
             )
         end,
         BadHoconList
     ),
-
-    {error, ScanError} = update_configs_with_binary(<<"a=测试"/utf8>>),
     ?assertMatch(
-        #{
+        {400, #{
             <<"errors">> := #{
                 <<"line">> := 1,
                 <<"reason">> := _,
                 <<"type">> := <<"scan_error">>
             }
-        },
-        emqx_utils_json:decode(ScanError)
+        }},
+        update_configs_with_binary(<<"a=测试"/utf8>>)
     ).
 
 t_config_update_unknown_root(_Config) ->
     ?assertMatch(
-        {error, <<"{\"errors\":{\"a\":\"{root_key_not_found,", _/binary>>},
+        {400, #{<<"errors">> := #{<<"a">> := <<"{root_key_not_found", _/binary>>}}},
         update_configs_with_binary(<<"a = \"tlsv1.3\"">>)
+    ).
+
+t_config_update_empty(_Config) ->
+    ?assertMatch({200, _}, update_configs_with_binary("")).
+
+t_config_update_unknown_field(_Config) ->
+    ?assertMatch(
+        {400, #{
+            <<"errors">> := #{
+                <<"dashboard">> :=
+                    #{
+                        <<"kind">> := <<"validation_error">>,
+                        <<"reason">> := <<"unknown_fields">>,
+                        <<"unknown">> := <<"nofield">>
+                    }
+            }
+        }},
+        update_configs_with_binary("dashboard { nofield { bind = novalue } }")
     ).
 
 %% Helpers
 
 get_config(Name) ->
     Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
-    case emqx_mgmt_api_test_util:request_api(get, Path) of
-        {ok, Res} ->
-            {ok, emqx_utils_json:decode(Res)};
-        Error ->
-            Error
+    case emqx_mgmt_api_test_util:simple_request(get, Path, []) of
+        {200, Config} -> {ok, Config};
+        Error -> Error
     end.
 
 get_configs_with_json() ->
-    get_configs_with_json([], #{}).
+    get_configs_with_json("").
 
 get_configs_with_json(Node) ->
-    get_configs_with_json(Node, #{}).
-
-get_configs_with_json(Node, Opts) ->
-    Path =
-        case Node of
-            [] -> ["configs"];
-            _ -> ["configs?node=" ++ Node]
-        end,
-    URI = emqx_mgmt_api_test_util:api_path(Path),
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Headers = [{"accept", "application/json"}, Auth],
-    case emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], Opts) of
-        {ok, {_, _, Res}} -> {ok, emqx_utils_json:decode(Res)};
-        {ok, Res} -> {ok, emqx_utils_json:decode(Res)};
+    Req = #{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["configs"]),
+        query_params => [{node, Node} || Node =/= ""],
+        extra_headers => [{"accept", "application/json"}]
+    },
+    case emqx_mgmt_api_test_util:simple_request(Req) of
+        {200, Config} -> {ok, Config};
         Error -> Error
     end.
 
 get_configs_with_binary(Key) ->
-    get_configs_with_binary(Key, atom_to_list(node())).
+    get_configs_with_binary(Key, "").
 
 get_configs_with_binary(Key, Node) ->
-    Path0 = "configs?node=" ++ Node,
-    Path =
-        case Key of
-            undefined -> Path0;
-            _ -> Path0 ++ "&key=" ++ Key
-        end,
-    URI = emqx_mgmt_api_test_util:api_path([Path]),
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Headers = [{"accept", "text/plain"}, Auth],
-    case emqx_mgmt_api_test_util:request_api(get, URI, [], Headers, [], #{return_all => true}) of
-        {ok, {_, _, Res}} -> hocon:binary(Res);
-        {ok, Res} -> hocon:binary(Res);
+    Req = #{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["configs"]),
+        query_params => [{node, Node} || Node =/= ""] ++ [{key, Key} || Key =/= undefined],
+        extra_headers => [{"accept", "text/plain"}]
+    },
+    case emqx_mgmt_api_test_util:simple_request(Req) of
+        {200, Config} -> hocon:binary(Config);
         Error -> Error
     end.
 
@@ -425,45 +381,30 @@ update_configs_with_binary(Bin) ->
     update_configs_with_binary(Bin, _InogreReadonly = undefined).
 
 update_configs_with_binary(Bin, IgnoreReadonly) ->
-    Path =
-        case IgnoreReadonly of
-            undefined ->
-                emqx_mgmt_api_test_util:api_path(["configs"]);
-            Boolean ->
-                emqx_mgmt_api_test_util:api_path([
-                    "configs?ignore_readonly=" ++ atom_to_list(Boolean)
-                ])
-        end,
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Headers = [{"accept", "text/plain"}, Auth],
-    case httpc:request(put, {Path, Headers, "text/plain", Bin}, [], [{body_format, binary}]) of
-        {ok, {{"HTTP/1.1", Code, _}, _Headers, Body}} when
-            Code >= 200 andalso Code =< 299
-        ->
-            {ok, Body};
-        {ok, {{"HTTP/1.1", 400, _}, _Headers, Body}} ->
-            {error, Body};
-        Error ->
-            error({unexpected, Error})
-    end.
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => put,
+        url => emqx_mgmt_api_test_util:api_path(["configs"]),
+        query_params => [{ignore_readonly, IgnoreReadonly} || is_boolean(IgnoreReadonly)],
+        body => {raw, Bin},
+        extra_headers => [{"accept", "text/plain"}],
+        extra_opts => #{'content-type' => "text/plain"}
+    }).
 
 update_config(Name, Change) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    UpdatePath = emqx_mgmt_api_test_util:api_path(["configs", Name]),
-    case emqx_mgmt_api_test_util:request_api(put, UpdatePath, "", AuthHeader, Change) of
-        {ok, Update} -> {ok, emqx_utils_json:decode(Update)};
+    Path = emqx_mgmt_api_test_util:api_path(["configs", Name]),
+    case emqx_mgmt_api_test_util:simple_request(put, Path, Change) of
+        {200, Resp} -> {ok, Resp};
         Error -> Error
     end.
 
-reset_config(Name, Key) ->
-    AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
-    Path = binary_to_list(
-        iolist_to_binary(
-            emqx_mgmt_api_test_util:api_path(["configs_reset", Name])
-        )
-    ),
-    case emqx_mgmt_api_test_util:request_api(post, Path, Key, AuthHeader, []) of
-        {ok, []} -> ok;
+reset_config(Name, Query) ->
+    Req = #{
+        method => post,
+        url => emqx_mgmt_api_test_util:api_path(["configs_reset", Name]),
+        query_params => Query
+    },
+    case emqx_mgmt_api_test_util:simple_request(Req) of
+        {200, _} -> ok;
         Error -> Error
     end.
 

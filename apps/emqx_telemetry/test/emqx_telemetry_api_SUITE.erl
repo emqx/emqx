@@ -58,16 +58,6 @@ end_per_testcase(t_status, _Config) ->
 end_per_testcase(_TestCase, _Config) ->
     ok.
 
-set_special_configs(emqx_dashboard) ->
-    emqx_dashboard_api_test_helpers:set_default_config();
-set_special_configs(emqx_authz) ->
-    {ok, _} = emqx:update_config([authorization, cache, enable], false),
-    {ok, _} = emqx:update_config([authorization, no_match], deny),
-    {ok, _} = emqx:update_config([authorization, sources], []),
-    ok;
-set_special_configs(_App) ->
-    ok.
-
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------

@@ -849,15 +849,10 @@ fill_defaults(RawConf) ->
 
 -spec fill_defaults(raw_config(), hocon_tconf:opts()) -> map().
 fill_defaults(RawConf, Opts) ->
-    RootNames = get_root_names(),
     maps:fold(
         fun(Key, Conf, Acc) ->
             SubMap = #{Key => Conf},
-            WithDefaults =
-                case lists:member(Key, RootNames) of
-                    true -> fill_defaults(get_schema_mod(Key), SubMap, Opts);
-                    false -> SubMap
-                end,
+            WithDefaults = fill_defaults(get_schema_mod(Key), SubMap, Opts),
             maps:merge(Acc, WithDefaults)
         end,
         #{},
