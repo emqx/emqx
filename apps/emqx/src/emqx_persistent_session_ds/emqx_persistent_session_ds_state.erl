@@ -100,7 +100,7 @@
 -type session_iterator() :: emqx_persistent_session_ds_state_v2:session_iterator().
 -type subscription_iterator() :: emqx_persistent_session_ds_state_v2:subscription_iterator().
 
--define(DB, ?DURABLE_SESSION_STATE).
+-define(DB, ?DURABLE_SESSION_STATE_DB).
 
 -type protocol() :: {binary(), emqx_types:proto_ver()}.
 

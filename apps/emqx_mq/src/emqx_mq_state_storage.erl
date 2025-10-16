@@ -6,7 +6,8 @@
 
 -include_lib("emqx_durable_storage/include/emqx_ds_pmap.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
--include_lib("../gen_src/MessageQueue.hrl").
+-include("../gen_src/MessageQueue.hrl").
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
 -moduledoc """
 Persistence of Message queue state:
@@ -52,7 +53,7 @@ Persistence of Message queue state:
     pmap_decode_val/3
 ]).
 
--define(DB, mq_state).
+-define(DB, ?MQ_STATE_DB).
 
 -type id() :: binary().
 

@@ -27,7 +27,7 @@ Schema for EMQX_DS databases.
 -include("emqx_schema.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
-
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 %%================================================================================
@@ -56,22 +56,22 @@ add_handler() ->
 
 -spec db_config_messages() -> emqx_ds:create_db_opts().
 db_config_messages() ->
-    db_config([durable_storage, messages]).
+    db_config(?PERSISTENT_MESSAGE_DB).
 
 db_config_sessions() ->
-    db_config([durable_storage, sessions]).
+    db_config(?DURABLE_SESSION_STATE_DB).
 
 db_config_timers() ->
-    db_config([durable_storage, timers]).
+    db_config(?DURABLE_TIMERS_DB).
 
 db_config_shared_subs() ->
-    db_config([durable_storage, shared_subs]).
+    db_config(?SHARED_SUBS_DB).
 
 db_config_mq_states() ->
-    db_config([durable_storage, mq_states]).
+    db_config(?MQ_STATE_CONF_ROOT).
 
 db_config_mq_messages() ->
-    db_config([durable_storage, mq_messages]).
+    db_config(?MQ_MESSAGE_CONF_ROOT).
 
 %%================================================================================
 %% HOCON schema callbacks
@@ -92,14 +92,14 @@ schema() ->
                     mapping => "emqx_ds_builtin_raft.n_sites"
                 }
             )},
-        {messages,
+        {?PERSISTENT_MESSAGE_DB,
             db_schema(
                 [builtin_raft_messages, builtin_local_messages],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(messages),
                 #{}
             )},
-        {sessions,
+        {?DURABLE_SESSION_STATE_DB,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
@@ -110,7 +110,7 @@ schema() ->
                     }
                 }
             )},
-        {timers,
+        {?DURABLE_TIMERS_DB,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
@@ -125,21 +125,21 @@ schema() ->
                     }
                 }
             )},
-        {shared_subs,
+        {?SHARED_SUBS_DB,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(shared_subs),
                 #{}
             )},
-        {mq_states,
+        {?MQ_STATE_CONF_ROOT,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(mq_states),
                 #{}
             )},
-        {mq_messages,
+        {?MQ_MESSAGE_CONF_ROOT,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
@@ -483,16 +483,15 @@ desc(_) ->
     emqx_config_handler:extra_context()
 ) ->
     ok | {error, _Reason}.
-post_config_update([durable_storage, DB | _], _UpdateReq, _NewConf, _OldConf, _AppEnv, _Extra) when
-    DB =:= timers; DB =:= messages; DB =:= sessions; DB =:= shared_subs
-->
-    %% Handle trivial cases when config root name matches with DS DB
-    %% name and it's safe to pass the entire configuration to DS as
-    %% is:
-    update_db_config(DB, db_config([durable_storage, DB])),
-    ok;
+post_config_update([durable_storage, Config | _], _UpdateReq, _NewConf, _OldConf, _AppEnv, _Extra) ->
+    ?SLOG(warning, #{msg => triggered_normally, db => Config}),
+    lists:foreach(
+        fun(DB) ->
+            update_db_config(DB, db_config(Config))
+        end,
+        config_root_to_dbs(Config)
+    );
 post_config_update(_, _, _, _, _, _) ->
-    %% TODO: Handle dynamic config update for more exoctic cases.
     ok.
 
 -spec pre_config_update(
@@ -506,8 +505,8 @@ pre_config_update(_Root, _UpdateReq, _Conf) ->
 %% Internal functions
 %%================================================================================
 
-db_config(SchemaKey) ->
-    translate_backend(emqx_config:get(SchemaKey)).
+db_config(ConfRoot) ->
+    translate_backend(emqx_config:get([namespace(), ConfRoot])).
 
 translate_backend(
     #{
@@ -607,3 +606,17 @@ update_db_config(DB, Conf) ->
         Err ->
             ?SLOG(warning, #{msg => "ds_db_runtime_config_update_failed", db => DB, reason => Err})
     end.
+
+config_root_to_dbs(DB) when
+    DB =:= ?DURABLE_TIMERS_DB;
+    DB =:= ?PERSISTENT_MESSAGE_DB;
+    DB =:= ?DURABLE_SESSION_STATE_DB;
+    DB =:= ?SHARED_SUBS_DB
+->
+    [DB];
+config_root_to_dbs(?MQ_STATE_CONF_ROOT) ->
+    [?MQ_STATE_DB];
+config_root_to_dbs(?MQ_MESSAGE_CONF_ROOT) ->
+    [?MQ_MESSAGE_LASTVALUE_DB, ?MQ_MESSAGE_REGULAR_DB];
+config_root_to_dbs(_) ->
+    [].

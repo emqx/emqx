@@ -69,7 +69,7 @@ This module abstracts all CRUD operations on the shared sub leader durable state
 %% Type declarations
 %%================================================================================
 
--define(DB, shared_subs).
+-define(DB, ?SHARED_SUBS_DB).
 
 -type id() :: binary().
 
