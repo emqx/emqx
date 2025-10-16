@@ -92,7 +92,10 @@ insert_new_trace(
                     %% Allow only one trace for each filter in the same second:
                     mnesia:abort({duplicate_condition, Trace#?TRACE.name});
                 #?TRACE{extra = #{slot := Slot}} ->
-                    emqx_trace_freelist:occupy(Slot, FL)
+                    emqx_trace_freelist:occupy(Slot, FL);
+                #?TRACE{} ->
+                    %% Pre-6.0.0 trace, effectively does not occupy slots.
+                    FL
             end
         end,
         emqx_trace_freelist:range(1, MaxTraces),

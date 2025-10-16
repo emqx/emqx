@@ -513,7 +513,7 @@ trace(post, #{body := Params} = Req) ->
         {error, Reason} ->
             {400, #{
                 code => 'INVALID_PARAMS',
-                message => ?TO_BIN(Reason)
+                message => emqx_utils:readable_error_msg(Reason)
             }}
     end;
 trace(delete, _Param) ->
