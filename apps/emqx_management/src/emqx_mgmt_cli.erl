@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_channel.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
@@ -225,6 +226,8 @@ clients(["list"]) ->
         0 -> emqx_ctl:print("No clients.~n");
         _ -> dump(?CHAN_TAB, client)
     end;
+clients(["dump_stats", FilePath]) ->
+    dump_client_stats(FilePath);
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 clients(["kick", ClientId]) ->
@@ -233,9 +236,87 @@ clients(["kick", ClientId]) ->
 clients(_) ->
     emqx_ctl:usage([
         {"clients list", "List all clients"},
+        {"clients dump_stats <File>",
+            "Dump statistic data for all clients in csv format to the given file."},
         {"clients show <ClientId>", "Show a client"},
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
+
+%%--------------------------------------------------------------------
+%% @doc Dump client statistics to CSV file
+
+dump_client_stats(FilePath) ->
+    try
+        case ets:info(?CHAN_INFO_TAB, size) of
+            0 ->
+                emqx_ctl:print("No clients found.~n");
+            _ ->
+                write_client_stats_csv(FilePath)
+        end
+    catch
+        Error:Reason:Stack ->
+            emqx_ctl:print("[error] Failed to dump client stats: ~p:~p~n", [Error, Reason]),
+            ?SLOG(error, #{
+                msg => "dump_client_stats_failed",
+                error => Error,
+                reason => Reason,
+                stacktrace => Stack
+            })
+    end.
+
+write_client_stats_csv(FilePath) ->
+    CsvHeader =
+        "timestamp,clientid,recv_oct,recv_cnt,send_oct,send_cnt,subscriptions_cnt,awaiting_rel_cnt,mqueue_len,mqueue_dropped\n",
+
+    case file:open(FilePath, [write, raw]) of
+        {ok, FileHandle} ->
+            try
+                ok = file:write(FileHandle, CsvHeader),
+                ok = ets:foldl(fun write_client_stats_row/2, FileHandle, ?CHAN_INFO_TAB),
+                emqx_ctl:print("Client statistics dumped to ~s~n", [FilePath])
+            after
+                file:close(FileHandle)
+            end;
+        {error, Reason} ->
+            emqx_ctl:print("[error] Failed to open file ~s: ~p~n", [FilePath, Reason])
+    end.
+
+write_client_stats_row({{ClientId, _Pid}, _Info, Stats}, FileHandle) ->
+    Timestamp = erlang:system_time(millisecond),
+
+    % Extract stats from the Stats list
+    StatsMap = maps:from_list(Stats),
+    RecvOct = maps:get(recv_oct, StatsMap, 0),
+    RecvCnt = maps:get(recv_cnt, StatsMap, 0),
+    SendOct = maps:get(send_oct, StatsMap, 0),
+    SendCnt = maps:get(send_cnt, StatsMap, 0),
+
+    % Extract session info from Stats (these are available in the stats)
+    SubscriptionsCnt = maps:get(subscriptions_cnt, StatsMap, 0),
+    AwaitingRelCnt = maps:get(awaiting_rel_cnt, StatsMap, 0),
+    MqueueLen = maps:get(mqueue_len, StatsMap, 0),
+    MqueueDropped = maps:get(mqueue_dropped, StatsMap, 0),
+
+    % Format CSV row
+    CsvRow = io_lib:format("~w,~s,~w,~w,~w,~w,~w,~w,~w,~w\n", [
+        Timestamp,
+        ClientId,
+        % recv_oct
+        RecvOct,
+        % recv_cnt
+        RecvCnt,
+        % send_oct
+        SendOct,
+        % send_cnt
+        SendCnt,
+        SubscriptionsCnt,
+        AwaitingRelCnt,
+        MqueueLen,
+        MqueueDropped
+    ]),
+
+    file:write(FileHandle, CsvRow),
+    FileHandle.
 
 if_client(ClientId, Fun) ->
     case ets:lookup(?CHAN_TAB, (bin(ClientId))) of
