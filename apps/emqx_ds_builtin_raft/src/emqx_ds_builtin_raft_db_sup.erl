@@ -174,9 +174,13 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     ok = start_ra_system(DB, Opts),
     Children = [
         emqx_ds_lib:autoclean(
+          autoclean,
           20_000,
           fun() -> ok = emqx_dsch:open_db(DB, RTConf) end,
-          fun() -> ok = emqx_dsch:close_db(DB) end
+          fun() ->
+                  _ = emqx_ds_db_group_mgr:detach(DB),
+                  ok = emqx_dsch:close_db(DB)
+          end
          ),
         sup_spec(#?shards_sup{db = DB}, []),
         shard_allocator_spec(DB),
@@ -223,7 +227,7 @@ init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
     Setup = fun() -> ok end,
     Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader) end,
     Children = [
-                emqx_ds_lib:autoclean(5_000, Setup, Teardown),
+                emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
                 shard_optimistic_tx_spec(DB, Shard)
                ],
     {ok, {SupFlags, Children}}.

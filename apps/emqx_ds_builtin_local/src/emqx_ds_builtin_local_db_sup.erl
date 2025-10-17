@@ -124,9 +124,13 @@ init({#?db_sup{db = DB}, {_Create, _Schema, RTConf}}) ->
     emqx_ds_builtin_metrics:init_for_db(DB),
     Children = [
         emqx_ds_lib:autoclean(
+            autoclean,
             20_000,
             fun() -> ok = emqx_dsch:open_db(DB, RTConf) end,
-            fun() -> ok = emqx_dsch:close_db(DB) end
+            fun() ->
+                _ = emqx_ds_db_group_mgr:detach(DB),
+                ok = emqx_dsch:close_db(DB)
+            end
         ),
         sup_spec(#?shards_sup{db = DB}, undefined),
         meta_spec(DB)
@@ -160,7 +164,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         shard_storage_spec(DB, Shard, Opts),
         otx_leader_spec(DB, Shard),
         shard_beamformers_spec(DB, Shard),
-        emqx_ds_lib:autoclean(5_000, Setup, Teardown)
+        emqx_ds_lib:autoclean(autoclean, 5_000, Setup, Teardown)
     ],
     {ok, {SupFlags, Children}}.
 
