@@ -7,6 +7,10 @@
 
 %% Replication layer API:
 -export([
+    create_db_group/2,
+    update_db_group/3,
+    destroy_db_group/2,
+
     %% Lifecycle
     start_link/2,
     drop_shard/1,
@@ -71,7 +75,8 @@
     options/0,
     prototype/0,
     cooked_batch/0,
-    event_dispatch_f/0
+    event_dispatch_f/0,
+    db_group/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -106,6 +111,7 @@
     }.
 
 -type storage_layer_opts() :: #{
+    db_group := emqx_ds:db_group(),
     rocksdb => rocksdb_options()
 }.
 
@@ -222,11 +228,52 @@
 
 -define(GLOBAL(K), <<"G/", K/binary>>).
 
--type options() :: map().
+-type options() :: #{db_group := emqx_ds:db_group(), _ => _}.
+
+-record(db_group, {
+    env :: rocksdb:env_handle(),
+    sst_file_mgr :: rocksdb:sst_file_manager(),
+    conf :: map()
+}).
+
+-type create_db_group_opts() :: #{
+    backend := _,
+    env_type => default | memenv
+}.
+
+-opaque db_group() :: #db_group{}.
 
 %%================================================================================
 %% API for the replication layer
 %%================================================================================
+
+-spec create_db_group(emqx_ds:db_group(), create_db_group_opts()) -> {ok, db_group()} | {error, _}.
+create_db_group(_GroupId, UserOpts) ->
+    maybe
+        {ok, Opts} ?= verify_db_group_config(UserOpts),
+        EnvType = maps:get(env_type, Opts, default),
+        {ok, Env} ?= rocksdb:new_env(EnvType),
+        {ok, SSTManager} ?= rocksdb:new_sst_file_manager(Env),
+        {ok, #db_group{
+            env = Env,
+            sst_file_mgr = SSTManager,
+            conf = Opts
+        }}
+    end.
+
+-spec update_db_group(emqx_ds:db_group(), create_db_group_opts(), db_group()) ->
+    {ok, db_group()} | {error, _}.
+update_db_group(_Id, UserOpts, Grp = #db_group{}) ->
+    maybe
+        {ok, Opts} ?= verify_db_group_config(UserOpts),
+        {ok, Grp#db_group{conf = Opts}}
+    end.
+
+-spec destroy_db_group(emqx_ds:db_group(), db_group()) -> ok | {error, _}.
+destroy_db_group(_GroupId, #db_group{env = Env, sst_file_mgr = SSTManager}) ->
+    ok = rocksdb:release_sst_file_manager(SSTManager),
+    ok = rocksdb:destroy_env(Env),
+    ok.
 
 %% Note: we specify gen_server requests as records to make use of Dialyzer:
 -record(call_add_generation, {since :: emqx_ds:time()}).
@@ -364,7 +411,7 @@ ls_shards(DB) ->
 
 -spec start_link(dbshard(), storage_layer_opts()) ->
     {ok, pid()}.
-start_link(Shard = {_, _}, Options) ->
+start_link(Shard = {_, _}, Options = #{db_group := _}) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
 
 -record(s, {
@@ -751,6 +798,10 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
 -spec rocksdb_open(dbshard(), options()) ->
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
+    #{db_group := MyGroup} = Options,
+    {ok, #db_group{env = Env, sst_file_mgr = SstFileManager}} = emqx_ds_db_group_mgr:lookup(
+        MyGroup
+    ),
     Defaults = #{
         cache_size => 8 * ?MB,
         write_buffer_size => 10 * ?MB,
@@ -766,6 +817,9 @@ rocksdb_open(Shard, Options) ->
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
+        %% Group settings:
+        {env, Env},
+        {sst_file_mgr, SstFileManager},
         %% Info log file management:
         %%    Maximal log files:
         {keep_log_file_num, 10},
@@ -1097,6 +1151,18 @@ decode_generation_schema_v1(SchemaV1 = #{cf_refs := CFRefs}) ->
     Schema#{cf_names => cf_names(CFRefs)};
 decode_generation_schema_v1(Schema = #{}) ->
     Schema.
+
+verify_db_group_config(UserOpts) ->
+    maybe
+        true ?= is_map(UserOpts),
+        Defaults = #{soft_quota => infinity},
+        #{soft_quota := SQ} = Merged = maps:merge(Defaults, UserOpts),
+        true ?= SQ =:= infinity orelse (is_integer(SQ) andalso SQ > 0),
+        {ok, Merged}
+    else
+        _ ->
+            {error, badarg}
+    end.
 
 %%--------------------------------------------------------------------------------
 

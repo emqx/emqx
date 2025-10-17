@@ -17,6 +17,9 @@ This is the entrypoint into the `builtin_raft` backend.
     update_db_config/3,
     close_db/1,
     drop_db/1,
+    create_db_group/2,
+    update_db_group/3,
+    destroy_db_group/2,
 
     shard_of/2,
     list_shards/1,
@@ -370,6 +373,22 @@ drop_db(DB) ->
     _ = emqx_ds_builtin_raft_proto_v1:drop_db(list_nodes(), DB),
     emqx_ds_builtin_raft_meta:drop_db(DB),
     emqx_dsch:drop_db_schema(DB).
+
+-spec create_db_group(emqx_ds:db_group(), emqx_ds:db_group_opts()) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+create_db_group(Group, Opts) ->
+    emqx_ds_storage_layer:create_db_group(Group, Opts).
+
+-spec update_db_group(
+    emqx_ds:db_group(), emqx_ds:db_group_opts(), emqx_ds_storage_layer:db_group()
+) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+update_db_group(Id, Opts, Grp) ->
+    emqx_ds_storage_layer:update_db_group(Id, Opts, Grp).
+
+-spec destroy_db_group(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) -> ok | {error, _}.
+destroy_db_group(Id, Group) ->
+    emqx_ds_storage_layer:destroy_db_group(Id, Group).
 
 -spec list_shards(emqx_ds:db()) -> [emqx_ds:shard()].
 list_shards(DB) ->
@@ -891,6 +910,7 @@ verify_db_opts(Opts) ->
     maybe
         #{
             backend := builtin_raft,
+            db_group := DBGroup,
             payload_type := PType,
             n_shards := NShards,
             n_sites := NSites,
@@ -923,6 +943,7 @@ verify_db_opts(Opts) ->
             storage => Storage
         },
         RTOpts = #{
+            db_group => DBGroup,
             reads => Reads,
             replication_options => ReplOpts,
             subscriptions => Subs,

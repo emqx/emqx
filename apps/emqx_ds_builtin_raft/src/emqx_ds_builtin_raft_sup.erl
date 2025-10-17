@@ -112,7 +112,13 @@ init(?top) ->
         period => 1,
         auto_shutdown => never
     },
-    {ok, {SupFlags, [MetadataServer, MetricsWorker, DBsSup]}};
+    {ok,
+        {SupFlags, [
+            MetadataServer,
+            MetricsWorker,
+            emqx_ds_db_group_mgr:autoclean(builtin_raft),
+            DBsSup
+        ]}};
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
