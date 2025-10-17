@@ -242,7 +242,7 @@ This is the entrypoint into the `builtin_raft` backend.
 -spec default_db_opts() -> map().
 default_db_opts() ->
     #{
-        backend => builtin_local,
+        backend => builtin_raft,
         reads => local_preferred,
         transactions => #{
             flush_interval => 1_000,
@@ -309,7 +309,8 @@ update_db_config(DB, NewSchema, NewRTConf) ->
     %% TODO: broadcast to the peers
     maybe
         ok ?= emqx_dsch:update_db_schema(DB, NewSchema),
-        ok ?= emqx_dsch:update_db_config(DB, NewRTConf)
+        ok ?= emqx_dsch:update_db_config(DB, NewRTConf),
+        emqx_ds_optimistic_tx:config_change(DB)
     end.
 
 -spec list_slabs(emqx_ds:db(), emqx_ds:list_slabs_opts()) -> emqx_ds:list_slabs_result().

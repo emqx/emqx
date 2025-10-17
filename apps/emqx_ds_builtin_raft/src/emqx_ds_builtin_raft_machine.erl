@@ -153,9 +153,6 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 %% Approximate number of bytes occupied by yet unreleased Ra log entries.
 -define(pd_ra_bytes_need_release, '$emqx_ds_raft_bytes_need_release').
 
-%% Cached value of the `append_only` DS DB configuration setting.
--define(pd_ra_force_monotonic, '$emqx_ds_raft_force_monotonic').
-
 %% How often to release Raft logs?
 %% Each time we written approximately this number of bytes.
 %% Close to the RocksDB's default of 64 MiB.
