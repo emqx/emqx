@@ -14,8 +14,15 @@
 -export([
     start_link/2,
     dispatch/1,
+    next/1,
+    %% RPC target (v2)
     wait_dispatch_complete/1,
     worker/0
+]).
+
+%% Hooks
+-export([
+    on_retainer_request_next/1
 ]).
 
 %% gen_server callbacks
@@ -27,13 +34,50 @@
     terminate/2
 ]).
 
--type limiter() :: emqx_limiter_client:t().
--type topic() :: emqx_types:topic().
-
--define(POOL, ?DISPATCHER_POOL).
+%% Internal exports (only for mocking)
+-export([retry_ttl/0, max_queue_size/0]).
 
 %% This module is `emqx_retainer` companion
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
+
+%%%===================================================================
+%%% Type definitions
+%%%===================================================================
+
+-define(POOL, ?DISPATCHER_POOL).
+-define(DELAY_MS, 100).
+-define(MAX_WAITING_FOR_RETRY, 1_000).
+
+-record(delay, {
+    msgs :: [message()],
+    limiter :: limiter()
+}).
+-record(done, {limiter}).
+-record(more, {limiter}).
+-record(retry, {
+    enqueued_at :: time_ms(),
+    msgs :: [message()],
+    pid :: pid(),
+    topic :: topic(),
+    cursor :: undefined | cursor()
+}).
+-record(dispatch_cursor, {
+    topic :: topic(),
+    rest :: [message()],
+    cursor :: undefined | cursor()
+}).
+
+-type time_ms() :: integer().
+-type cursor() :: emqx_retainer:cursor().
+-type message() :: emqx_types:message().
+-type limiter() :: emqx_limiter_client:t().
+-type topic() :: emqx_types:topic().
+
+-type delay() :: #delay{}.
+-type more() :: #more{}.
+-type done() :: #done{}.
+
+-type state() :: _TODO.
 
 %%%===================================================================
 %%% API
@@ -47,12 +91,17 @@ dispatch(Topic) ->
 dispatch(Topic, Pid) ->
     cast({dispatch, Pid, Topic}).
 
+next(DispatchCursor) ->
+    Pid = self(),
+    cast({next, Pid, DispatchCursor}).
+
+%% RPC target (v2)
 -spec wait_dispatch_complete(timeout()) -> ok.
 wait_dispatch_complete(Timeout) ->
     Workers = gproc_pool:active_workers(?POOL),
-    lists:foreach(
+    emqx_utils:pforeach(
         fun({_, Pid}) ->
-            ok = gen_server:call(Pid, ?FUNCTION_NAME, Timeout)
+            ok = gen_server:call(Pid, wait_dispatch_complete, Timeout)
         end,
         Workers
     ).
@@ -71,6 +120,14 @@ start_link(Pool, Id) ->
     ).
 
 %%%===================================================================
+%%% Hooks
+%%%===================================================================
+
+on_retainer_request_next(Context) ->
+    #{dispatch_cursor := DispatchCursor} = Context,
+    next(DispatchCursor).
+
+%%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 
@@ -78,21 +135,62 @@ init([Pool, Id]) ->
     erlang:process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     Limiter = get_limiter(),
-    {ok, #{pool => Pool, id => Id, limiter => Limiter}}.
+    State = #{
+        id => Id,
+        pool => Pool,
+        limiter => Limiter,
+        %% For retrying dispatches when rate limited
+        retry_tref => undefined,
+        %% Monitors readers that use cursors.
+        readers => emqx_pmon:new(),
+        %% Incarnation number to number of current readers using that index.
+        incarnations => gb_trees:empty(),
+        %% Cursors waiting to be retried.
+        waiting_for_retry => queue:new(),
+        %% Callers waiting for dispatchers older than current incarnation to
+        %% complete, keyed on greatest incarnation number they are waiting on to be
+        %% empty.  Used by reindex.
+        waiting_for_dispatch => gb_trees:empty()
+    },
+    {ok, State}.
 
-handle_call(wait_dispatch_complete, _From, State) ->
-    {reply, ok, State};
+handle_call(wait_dispatch_complete, From, State0) ->
+    #{
+        incarnations := Incarnations,
+        waiting_for_dispatch := Waiting0
+    } = State0,
+    Incarnation = current_index_incarnation(),
+    case gb_trees:smaller(Incarnation, Incarnations) of
+        none ->
+            {reply, ok, State0};
+        {OlderIncarnation, _Count} ->
+            Waiting = add_caller(Waiting0, OlderIncarnation, From),
+            State = State0#{waiting_for_dispatch := Waiting},
+            {noreply, State}
+    end;
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-handle_cast({dispatch, Pid, Topic}, #{limiter := Limiter} = State) ->
-    {ok, Limiter2} = dispatch(Pid, Topic, Limiter),
-    {noreply, State#{limiter := Limiter2}};
+handle_cast({dispatch, Pid, Topic}, State) ->
+    handle_initial_dispatch(Pid, Topic, State);
+handle_cast({next, Pid, DispatchCursor}, State) ->
+    handle_next(DispatchCursor, Pid, State);
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
+handle_info({'DOWN', _, process, Pid, _} = Info, State0) ->
+    case ensure_reader_unregistered(Pid, State0) of
+        {ok, State} ->
+            {noreply, State};
+        {unknown, State} ->
+            ?SLOG(error, #{msg => "unexpected_info", info => Info}),
+            {noreply, State}
+    end;
+handle_info(retry, State0) ->
+    State = State0#{retry_tref := undefined},
+    handle_retry(State);
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -101,110 +199,301 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
 
 %%%===================================================================
+%%% Internal exports (only for mocking)
+%%%===================================================================
+
+retry_ttl() ->
+    %% todo: make configurable?
+    timer:minutes(10).
+
+max_queue_size() ->
+    ?MAX_WAITING_FOR_RETRY.
+
+%%%===================================================================
 %%% Internal functions
 %%%===================================================================
 
 cast(Msg) ->
     gen_server:cast(worker(), Msg).
 
--spec dispatch(pid(), topic(), limiter()) -> {ok, limiter()}.
-dispatch(Pid, Topic, Limiter) ->
+-spec handle_initial_dispatch(pid(), topic(), state()) -> {noreply, state()}.
+handle_initial_dispatch(Pid, Topic, State0) ->
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
-    State = emqx_retainer:backend_state(Context),
+    BackendState = emqx_retainer:backend_state(Context),
     case emqx_topic:wildcard(Topic) of
         true ->
-            {ok, Messages, Cursor} = Mod:match_messages(State, Topic, undefined),
-            dispatch_with_cursor(Context, Messages, Cursor, Pid, Topic, Limiter);
+            {ok, Messages, Cursor} = Mod:match_messages(BackendState, Topic, undefined),
+            State1 = ensure_reader_registered(Pid, Cursor, State0),
+            DispatchCursor = #dispatch_cursor{
+                topic = Topic,
+                rest = Messages,
+                cursor = Cursor
+            },
+            handle_next(DispatchCursor, Pid, State1);
         false ->
-            {ok, Messages} = Mod:read_message(State, Topic),
-            dispatch_at_once(Messages, Pid, Topic, Limiter)
+            {ok, Messages} = Mod:read_message(BackendState, Topic),
+            DispatchCursor = #dispatch_cursor{
+                topic = Topic,
+                rest = Messages,
+                cursor = undefined
+            },
+            handle_next(DispatchCursor, Pid, State0)
     end.
 
-dispatch_at_once(Messages, Pid, Topic, Limiter0) ->
-    case deliver(Messages, Pid, Topic, Limiter0) of
-        {_Result, Limiter1} ->
-            {ok, Limiter1};
-        no_receiver ->
-            ?tp(debug, retainer_dispatcher_no_receiver, #{topic => Topic}),
-            {ok, Limiter0}
+handle_retry(State0) ->
+    #{waiting_for_retry := ToRetry0} = State0,
+    case queue:out(ToRetry0) of
+        {empty, ToRetry} ->
+            State = State0#{waiting_for_retry := ToRetry},
+            {noreply, State};
+        {{value, Retry}, ToRetry} ->
+            State = State0#{waiting_for_retry := ToRetry},
+            NowMS = now_ms(),
+            case NowMS - Retry#retry.enqueued_at > ?MODULE:retry_ttl() of
+                true ->
+                    %% Drop old request.
+                    %% Log? Inc some metric?
+                    ?tp("retainer_retry_request_dropped_due_to_ttl", #{}),
+                    handle_retry(State);
+                false ->
+                    DispatchCursor = #dispatch_cursor{
+                        topic = Retry#retry.topic,
+                        rest = Retry#retry.msgs,
+                        cursor = Retry#retry.cursor
+                    },
+                    handle_next(DispatchCursor, Retry#retry.pid, State)
+            end
     end.
 
-dispatch_with_cursor(Context, [], Cursor, _Pid, _Topic, Limiter) ->
-    ok = delete_cursor(Context, Cursor),
-    {ok, Limiter};
-dispatch_with_cursor(Context, Messages0, Cursor0, Pid, Topic, Limiter0) ->
-    case deliver(Messages0, Pid, Topic, Limiter0) of
-        {true, Limiter1} ->
-            {ok, Messages1, Cursor1} = match_next(Context, Topic, Cursor0),
-            dispatch_with_cursor(Context, Messages1, Cursor1, Pid, Topic, Limiter1);
-        {false, Limiter1} ->
-            ok = delete_cursor(Context, Cursor0),
-            {ok, Limiter1};
-        no_receiver ->
-            ?tp(debug, retainer_dispatcher_no_receiver, #{topic => Topic}),
-            ok = delete_cursor(Context, Cursor0),
-            {ok, Limiter0}
+handle_next(DispatchCursor0, Pid, State0) ->
+    #dispatch_cursor{
+        topic = Topic,
+        rest = RestMsgs,
+        cursor = Cursor
+    } = DispatchCursor0,
+    #{limiter := Limiter0} = State0,
+    case RestMsgs of
+        [] ->
+            State = handle_dispatch_next_cursor(Pid, Topic, Cursor, Limiter0, State0),
+            {noreply, State};
+        [_ | _] ->
+            State = handle_dispatch_next_chunk(RestMsgs, Pid, Topic, Cursor, Limiter0, State0),
+            {noreply, State}
     end.
 
-match_next(_Context, _Topic, undefined) ->
+handle_dispatch_next_chunk(Messages0, Pid, Topic, Cursor0, Limiter0, State0) ->
+    case deliver(Messages0, Pid, Topic, Cursor0, Limiter0) of
+        #more{limiter = Limiter1} ->
+            ?tp("retainer_deliver_more", #{topic => Topic, cursor => Cursor0}),
+            State0#{limiter := Limiter1};
+        #done{limiter = Limiter1} ->
+            ?tp("retainer_deliver_done", #{topic => Topic, cursor => Cursor0}),
+            {_WasKnown, State1} = delete_cursor(Cursor0, Pid, State0),
+            State1#{limiter := Limiter1};
+        #delay{msgs = Messages, limiter = Limiter1} ->
+            ?tp("retainer_deliver_delay", #{topic => Topic, cursor => Cursor0}),
+            #{waiting_for_retry := ToRetry0} = State0,
+            Retry = #retry{
+                enqueued_at = now_ms(),
+                msgs = Messages,
+                pid = Pid,
+                topic = Topic,
+                cursor = Cursor0
+            },
+            ToRetry = enqueue_retry(Retry, ToRetry0),
+            State = State0#{
+                waiting_for_retry := ToRetry,
+                limiter := Limiter1
+            },
+            ensure_delayed_retry(State, ?DELAY_MS)
+    end.
+
+enqueue_retry(Retry, ToRetry0) ->
+    ToRetry1 =
+        case queue:len(ToRetry0) >= ?MODULE:max_queue_size() of
+            true ->
+                %% log?
+                ?tp("retainer_retry_request_dropped_due_to_overflow", #{}),
+                queue:drop(ToRetry0);
+            false ->
+                ToRetry0
+        end,
+    queue:in(Retry, ToRetry1).
+
+handle_dispatch_next_cursor(_Pid, _Topic, undefined = _Cursor, Limiter, State0) ->
+    State0#{limiter := Limiter};
+handle_dispatch_next_cursor(Pid, Topic, Cursor0, Limiter0, State0) ->
+    {ok, Msgs, Cursor} = match_next(Topic, Cursor0),
+    handle_dispatch_next_chunk(Msgs, Pid, Topic, Cursor, Limiter0, State0).
+
+match_next(_Topic, undefined) ->
     {ok, [], undefined};
-match_next(Context, Topic, Cursor) ->
+match_next(Topic, Cursor) ->
+    Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
     Mod:match_messages(State, Topic, Cursor).
 
-delete_cursor(_Context, undefined) ->
-    ok;
-delete_cursor(Context, Cursor) ->
+delete_cursor(undefined, Pid, State0) ->
+    ensure_reader_unregistered(Pid, State0);
+delete_cursor(Cursor, Pid, State0) ->
+    Context = emqx_retainer:context(),
+    Mod = emqx_retainer:backend_module(Context),
+    BackendState = emqx_retainer:backend_state(Context),
+    ok = Mod:delete_cursor(BackendState, Cursor),
+    ensure_reader_unregistered(Pid, State0).
+
+current_index_incarnation() ->
+    Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
-    Mod:delete_cursor(State, Cursor).
+    Mod:current_index_incarnation(State).
 
--spec deliver([emqx_types:message()], pid(), topic(), limiter()) ->
-    {boolean(), limiter()} | no_receiver.
-deliver(Messages, Pid, Topic, Limiter) ->
+ensure_reader_registered(Pid, Cursor, State0) ->
+    #{
+        readers := Readers0,
+        incarnations := Incarnations0
+    } = State0,
+    case emqx_pmon:find(Pid, Readers0) of
+        {ok, _} ->
+            State0;
+        error ->
+            Incarnation = cursor_index_incarnation(Cursor),
+            Readers = emqx_pmon:monitor(Pid, Incarnation, Readers0),
+            Incarnations = inc_incarnation_counter(Incarnations0, Incarnation),
+            State0#{readers := Readers, incarnations := Incarnations}
+    end.
+
+ensure_reader_unregistered(Pid, State0) ->
+    #{
+        readers := Readers0,
+        incarnations := Incarnations0,
+        waiting_for_dispatch := Waiting0
+    } = State0,
+    case emqx_pmon:find(Pid, Readers0) of
+        error ->
+            %% Could happen when deleting an `undefined` cursor (i.e., at-once dispatch).
+            {unknown, State0};
+        {ok, Incarnation} ->
+            Readers = emqx_pmon:erase(Pid, Readers0),
+            {Incarnations, Waiting} =
+                case dec_incarnation_counter(Incarnations0, Incarnation) of
+                    {ok, Incarnations1} ->
+                        %% Not the last one
+                        {Incarnations1, Waiting0};
+                    {last, Incarnations1} ->
+                        Waiting1 = notify_callers(Waiting0, Incarnation),
+                        {Incarnations1, Waiting1}
+                end,
+            State = State0#{
+                readers := Readers,
+                incarnations := Incarnations,
+                waiting_for_dispatch := Waiting
+            },
+            {ok, State}
+    end.
+
+cursor_index_incarnation(Cursor) ->
+    Context = emqx_retainer:context(),
+    Mod = emqx_retainer:backend_module(Context),
+    BackendState = emqx_retainer:backend_state(Context),
+    Mod:cursor_index_incarnation(BackendState, Cursor).
+
+inc_incarnation_counter(Tree, Incarnation) ->
+    case gb_trees:lookup(Incarnation, Tree) of
+        none ->
+            gb_trees:insert(Incarnation, 1, Tree);
+        {value, N} ->
+            gb_trees:update(Incarnation, N + 1, Tree)
+    end.
+
+dec_incarnation_counter(Tree, Incarnation) ->
+    case gb_trees:lookup(Incarnation, Tree) of
+        none ->
+            {ok, Tree};
+        {value, 1} ->
+            {last, gb_trees:delete(Incarnation, Tree)};
+        {value, N} ->
+            {ok, gb_trees:update(Incarnation, N - 1, Tree)}
+    end.
+
+add_caller(Callers0, Incarnation, From) ->
+    case gb_trees:lookup(Incarnation, Callers0) of
+        none ->
+            gb_trees:insert(Incarnation, [From], Callers0);
+        {value, Froms} ->
+            gb_trees:update(Incarnation, [From | Froms], Callers0)
+    end.
+
+notify_callers(Callers0, Incarnation) ->
+    case gb_trees:lookup(Incarnation, Callers0) of
+        none ->
+            Callers0;
+        {value, Waiting} ->
+            Callers1 = gb_trees:delete(Incarnation, Callers0),
+            case gb_trees:smaller(Incarnation, Callers1) of
+                none ->
+                    lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Waiting),
+                    Callers1;
+                {OlderIncarnation, Froms} ->
+                    %% If there are even older readers running, wait for them as well.
+                    gb_trees:update(OlderIncarnation, Froms ++ Waiting, Callers1)
+            end
+    end.
+
+-spec deliver([emqx_types:message()], pid(), topic(), cursor(), limiter()) ->
+    more() | done() | delay().
+deliver(Messages, Pid, Topic, Cursor, Limiter) ->
     case erlang:is_process_alive(Pid) of
         false ->
-            no_receiver;
+            ?tp(debug, retainer_dispatcher_no_receiver, #{topic => Topic}),
+            #done{limiter = Limiter};
         _ ->
+            %% todo: cap at max process mailbox size to avoid killing; but each zone might
+            %% have different max mailbox sizes...
+            %% will have to be part of the dispatch request from the channel itself...
             BatchSize = emqx_conf:get([retainer, flow_control, batch_deliver_number], 0),
             NMessages = filter_delivery(Messages, Topic),
             case BatchSize of
                 0 ->
-                    deliver_to_client(NMessages, Pid, Topic),
-                    {true, Limiter};
+                    deliver_in_batches(NMessages, all, Pid, Topic, Cursor, Limiter);
                 _ ->
-                    deliver_in_batches(NMessages, BatchSize, Pid, Topic, Limiter)
+                    deliver_in_batches(NMessages, BatchSize, Pid, Topic, Cursor, Limiter)
             end
     end.
 
-deliver_in_batches([], _BatchSize, _Pid, _Topic, Limiter) ->
-    {true, Limiter};
-deliver_in_batches(Msgs, BatchSize, Pid, Topic, Limiter0) ->
+deliver_in_batches([], _BatchSize, _Pid, _Topic, _Cursor, Limiter) ->
+    #done{limiter = Limiter};
+deliver_in_batches(Msgs, BatchSize, Pid, Topic, Cursor, Limiter0) ->
     {BatchActualSize, Batch, RestMsgs} = take(BatchSize, Msgs),
     case emqx_limiter_client:try_consume(Limiter0, BatchActualSize) of
         {true, Limiter1} ->
-            ok = deliver_to_client(Batch, Pid, Topic),
-            deliver_in_batches(RestMsgs, BatchSize, Pid, Topic, Limiter1);
+            ok = deliver_to_client(Batch, Pid, Topic, Cursor, RestMsgs),
+            #more{limiter = Limiter1};
         {false, Limiter1, Reason} ->
+            ?tp(retained_dispatch_failed_for_rate_exceeded_limit, #{}),
             ?SLOG_THROTTLE(
                 warning,
                 #{
-                    msg => retained_dispatch_failed_for_rate_exceeded_limit,
+                    msg => retained_dispatch_failed_due_to_quota_exceeded,
                     reason => Reason,
                     topic => Topic,
-                    dropped_count => BatchActualSize
+                    attempted_count => BatchActualSize
                 },
                 #{tag => "RETAINER"}
             ),
-            {false, Limiter1}
+            #delay{limiter = Limiter1, msgs = Msgs}
     end.
 
-deliver_to_client([Msg | Rest], Pid, Topic) ->
-    Pid ! {deliver, Topic, Msg},
-    deliver_to_client(Rest, Pid, Topic);
-deliver_to_client([], _, _) ->
+deliver_to_client(Msgs, Pid, Topic, Cursor, RestMsgs) ->
+    Delivers = lists:map(fun(Msg) -> {deliver, Topic, Msg} end, Msgs),
+    DispatchCursor = #dispatch_cursor{
+        topic = Topic,
+        cursor = Cursor,
+        rest = RestMsgs
+    },
+    Pid ! {retained_batch, Topic, Delivers, DispatchCursor},
     ok.
 
 filter_delivery(Messages, _Topic) ->
@@ -222,6 +511,8 @@ check_clientid_banned(Msg) ->
             false
     end.
 
+take(all, List) ->
+    {length(List), List, []};
 take(N, List) ->
     take(N, List, 0, []).
 
@@ -235,3 +526,14 @@ take(N, [H | T], Count, Acc) ->
 get_limiter() ->
     LimiterId = {?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME},
     emqx_limiter:connect(LimiterId).
+
+-spec ensure_delayed_retry(state(), timeout()) -> state().
+ensure_delayed_retry(State0, Timeout) ->
+    TRef = delay_retry(Timeout),
+    State0#{retry_tref := TRef}.
+
+delay_retry(Timeout) ->
+    erlang:send_after(Timeout, self(), retry).
+
+now_ms() ->
+    erlang:monotonic_time(millisecond).

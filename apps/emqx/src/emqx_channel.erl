@@ -149,6 +149,11 @@
 -define(normal, normal).
 -define(RAND_CLIENTID_BYTES, 16).
 
+-define(RETAINED_BATCH_PD_KEY, retained_batch_queue).
+-define(RETAINED_BATCH_LAST_MSGID_PD_KEY, retained_batch_last_msgid).
+
+-define(TRY_NEXT_RETAINED_BATCH_DELAY, 200).
+
 -dialyzer({no_match, [shutdown/4, ensure_timer/2, interval/2]}).
 
 %%--------------------------------------------------------------------
@@ -757,10 +762,10 @@ process_puback(
 ) ->
     case emqx_session:puback(ClientInfo, PacketId, Session) of
         {ok, Msg, [], NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(ClientInfo, Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(ClientInfo, Msg, Properties, Channel),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
@@ -786,7 +791,7 @@ process_pubrec(
 ) ->
     case emqx_session:pubrec(ClientInfo, PacketId, Session) of
         {ok, Msg, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(ClientInfo, Msg, Properties, Channel),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PROTOCOL_ERROR} ->
@@ -848,9 +853,10 @@ process_pubcomp(
             {ok, Channel}
     end.
 
--compile({inline, [after_message_acked/3]}).
-after_message_acked(ClientInfo, Msg, PubAckProps) ->
+-compile({inline, [after_message_acked/4]}).
+after_message_acked(ClientInfo, Msg, PubAckProps, Channel) ->
     ok = emqx_metrics:inc('messages.acked'),
+    maybe_nudge_next_retained_batch(Msg, ack, Channel),
     emqx_hooks:run('message.acked', [
         ClientInfo,
         emqx_message:set_header(puback_props, PubAckProps, Msg)
@@ -1381,6 +1387,7 @@ do_deliver(
         [ClientInfo],
         emqx_message:update_expiry(Msg)
     ),
+    maybe_nudge_next_retained_batch(Msg1, deliver, Channel),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     Packet = emqx_message:to_packet(PacketId, Msg2),
     {NPacket, NChannel} = packing_alias(Packet, Channel),
@@ -1642,6 +1649,27 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
+handle_info(
+    {retained_batch, Topic, Delivers0, DispatchCursor}, #channel{conn_state = connected} = Channel
+) ->
+    ?tp("channel_received_retained_batch", #{
+        topic => Topic, delivers => Delivers0, cursor => DispatchCursor
+    }),
+    push_retained_batch(Topic, Delivers0, DispatchCursor),
+    case try_pop_next_retained_batch(Channel) of
+        {ok, Delivers} ->
+            handle_deliver(Delivers, Channel);
+        _ ->
+            %% blocked, done, requested
+            %% In any of these cases, we'll eventually retry after messages are delivered.
+            {ok, Channel}
+    end;
+handle_info({retained_batch, _Topic, _Delivers0, _DispatchCursor}, Channel) ->
+    %% Not connected; simply discard, since we'll have to start over when (re)connected.
+    clear_retained_batches(),
+    {ok, Channel};
+handle_info(try_next_retained_batch, Channel) ->
+    handle_try_next_retained_batch(Channel);
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
     Channel = Channel0#channel{session = Session},
@@ -1653,6 +1681,174 @@ handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInf
             end;
         _ ->
             {ok, Channel}
+    end.
+
+handle_try_next_retained_batch(#channel{conn_state = connected} = Channel0) ->
+    case has_available_session_inflight_room(Channel0) of
+        false ->
+            ?tp("channel_retained_batch_blocked", #{where => try_next}),
+            Channel = ensure_timer(try_next_retained_batch, Channel0),
+            {ok, Channel};
+        {true, AvailableRoom} ->
+            case pop_next_retained_batch1(AvailableRoom) of
+                done ->
+                    {ok, Channel0};
+                requested ->
+                    {ok, Channel0};
+                {ok, Delivers} ->
+                    handle_deliver(Delivers, Channel0)
+            end
+    end;
+handle_try_next_retained_batch(#channel{} = Channel) ->
+    %% Not connected, so no need to keep iterating.
+    {ok, Channel}.
+
+push_retained_batch(Topic, Delivers, DispatchCursor) ->
+    Q1 =
+        case get(?RETAINED_BATCH_PD_KEY) of
+            undefined -> queue:new();
+            Q0 -> Q0
+        end,
+    RetainedBatch = #{topic => Topic, delivers => Delivers, dispatch_cursor => DispatchCursor},
+    Q2 = queue:in(RetainedBatch, Q1),
+    put(?RETAINED_BATCH_PD_KEY, Q2),
+    ok.
+
+clear_retained_batches() ->
+    _ = put(?RETAINED_BATCH_PD_KEY, queue:new()),
+    _ = put(?RETAINED_BATCH_LAST_MSGID_PD_KEY, #{}),
+    ok.
+
+has_buffered_retained_batch() ->
+    case get(?RETAINED_BATCH_PD_KEY) of
+        undefined ->
+            false;
+        Q ->
+            queue:len(Q) > 0
+    end.
+
+pop_next_retained_batch() ->
+    case get(?RETAINED_BATCH_PD_KEY) of
+        undefined ->
+            undefined;
+        Q0 ->
+            case queue:out(Q0) of
+                {empty, Q1} ->
+                    _ = put(?RETAINED_BATCH_PD_KEY, Q1),
+                    undefined;
+                {{value, RetainedBatch}, Q1} ->
+                    _ = put(?RETAINED_BATCH_PD_KEY, Q1),
+                    RetainedBatch
+            end
+    end.
+
+try_pop_next_retained_batch(Channel0) ->
+    case has_available_session_inflight_room(Channel0) of
+        false ->
+            ?tp("channel_retained_batch_blocked", #{where => pop_next}),
+            blocked;
+        {true, AvailableRoom} ->
+            pop_next_retained_batch1(AvailableRoom)
+    end.
+
+has_available_session_inflight_room(Channel) ->
+    #channel{session = Session} = Channel,
+    InflightMax = emqx_session:info(inflight_max, Session),
+    InflightCnt = emqx_session:info(inflight_cnt, Session),
+    case InflightMax > 0 andalso InflightCnt >= InflightMax of
+        true ->
+            false;
+        false when InflightMax == 0 ->
+            {true, infinity};
+        false ->
+            {true, InflightMax - InflightCnt}
+    end.
+
+pop_next_retained_batch1(AvailableRoom) ->
+    case pop_next_retained_batch() of
+        undefined ->
+            done;
+        #{topic := _Topic, delivers := [], dispatch_cursor := DispatchCursor} ->
+            ?tp("channel_retained_ask_more", #{cursor => DispatchCursor}),
+            %% No more delivers; time to ask for more.
+            HookContext = #{dispatch_cursor => DispatchCursor},
+            %% Note: we don't call `run_hooks` here because we're not interested in
+            %% bumping the inexistent 'retainer.request_next' metric.
+            ok = emqx_hooks:run('retainer.request_next', [HookContext]),
+            requested;
+        #{topic := Topic, delivers := Delivers0, dispatch_cursor := DispatchCursor} ->
+            ?tp("channel_retained_push_delivers", #{cursor => DispatchCursor}),
+            ToTake =
+                case AvailableRoom of
+                    infinity -> all;
+                    N when is_integer(N) -> N
+                end,
+            {Delivers, RestDelivers} = take_delivers(ToTake, Delivers0),
+            push_retained_batch(Topic, RestDelivers, DispatchCursor),
+            push_last_retained_batch_msgid(Delivers),
+            {ok, Delivers}
+    end.
+
+push_last_retained_batch_msgid([]) ->
+    %% Impossible?
+    ok;
+push_last_retained_batch_msgid([_ | _] = Delivers) ->
+    {deliver, _Topic, Msg} = lists:last(Delivers),
+    do_push_last_retained_batch_msgid(Msg).
+
+pop_last_retained_batch_msgid(Msg) ->
+    MsgId = Msg#message.id,
+    case get(?RETAINED_BATCH_LAST_MSGID_PD_KEY) of
+        #{MsgId := _} = LastIds0 ->
+            LastIds = maps:remove(MsgId, LastIds0),
+            put(?RETAINED_BATCH_LAST_MSGID_PD_KEY, LastIds),
+            true;
+        _ ->
+            false
+    end.
+
+do_push_last_retained_batch_msgid(Msg) ->
+    MsgId = Msg#message.id,
+    case get(?RETAINED_BATCH_LAST_MSGID_PD_KEY) of
+        undefined ->
+            LastIds = #{MsgId => true},
+            _ = put(?RETAINED_BATCH_LAST_MSGID_PD_KEY, LastIds),
+            ok;
+        #{} = LastIds0 ->
+            LastIds = LastIds0#{MsgId => true},
+            _ = put(?RETAINED_BATCH_LAST_MSGID_PD_KEY, LastIds),
+            ok
+    end.
+
+take_delivers(all, Delivers) ->
+    {Delivers, []};
+take_delivers(N, Delivers0) ->
+    do_take_delivers(N, Delivers0, []).
+
+do_take_delivers(0, RestDelivers, Acc) ->
+    {lists:reverse(Acc), RestDelivers};
+do_take_delivers(_N, [] = RestDelivers, Acc) ->
+    {lists:reverse(Acc), RestDelivers};
+do_take_delivers(N, [Deliver | RestDelivers], Acc) ->
+    do_take_delivers(N - 1, RestDelivers, [Deliver | Acc]).
+
+maybe_nudge_next_retained_batch(#message{} = Msg, deliver, _Channel) ->
+    case pop_last_retained_batch_msgid(Msg) of
+        true ->
+            ?tp("channel_retained_try_next_batch", #{}),
+            _ = self() ! try_next_retained_batch,
+            ok;
+        false ->
+            ok
+    end;
+maybe_nudge_next_retained_batch(#message{}, ack, Channel) ->
+    case has_buffered_retained_batch() andalso has_available_session_inflight_room(Channel) of
+        false ->
+            ok;
+        {true, _} ->
+            ?tp("channel_retained_try_next_batch", #{}),
+            _ = self() ! try_next_retained_batch,
+            ok
     end.
 
 -ifdef(TEST).
@@ -1760,6 +1956,9 @@ handle_timeout(
             Channel2 = maybe_publish_will_msg(auth_expired, Channel1),
             handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel2)
     end;
+handle_timeout(_TRef, try_next_retained_batch, Channel0) ->
+    Channel = clean_timer(try_next_retained_batch, Channel0),
+    handle_try_next_retained_batch(Channel);
 handle_timeout(TRef, Msg, Channel) ->
     case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
         [] ->
@@ -1816,7 +2015,9 @@ interval(expire_takeover, #channel{}) ->
     %% NOTE: Equivalent to 2 × `?T_TAKEOVER` for simplicity.
     2 * 5_000;
 interval(will_message, #channel{will_msg = WillMsg}) ->
-    timer:seconds(will_delay_interval(WillMsg)).
+    timer:seconds(will_delay_interval(WillMsg));
+interval(try_next_retained_batch, #channel{}) ->
+    ?TRY_NEXT_RETAINED_BATCH_DELAY.
 
 %%--------------------------------------------------------------------
 %% Terminate

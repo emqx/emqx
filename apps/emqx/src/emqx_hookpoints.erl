@@ -60,7 +60,8 @@
     'delivery.completed',
     'cm.channel.unregistered',
     'tls_handshake.psk_lookup',
-    'config.zones_updated'
+    'config.zones_updated',
+    'retainer.request_next'
 ]).
 
 %% Our template plugin used this hookpoints before its 5.1.0 version,
@@ -87,6 +88,7 @@
 }.
 -type transformation_context() :: #{name := binary()}.
 -type validation_context() :: #{name := binary()}.
+-type retainer_request_next_context() :: #{dispatch_cursor := term()}.
 
 %%-----------------------------------------------------------------------------
 %% Callbacks
@@ -246,6 +248,9 @@ when
 %% NOTE
 %% Executed out of channel process context
 -callback 'config.zones_updated'(_Old :: emqx_config:config(), _New :: emqx_config:config()) ->
+    callback_result().
+
+-callback 'retainer.request_next'(retainer_request_next_context()) ->
     callback_result().
 
 %%-----------------------------------------------------------------------------
