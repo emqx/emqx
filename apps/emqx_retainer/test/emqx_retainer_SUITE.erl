@@ -18,6 +18,7 @@ all() ->
     [
         {group, mnesia_without_indices},
         {group, mnesia_with_indices},
+        {group, mnesia_with_indices_ds},
         {group, mnesia_reindex},
         {group, index_agnostic},
         {group, disabled}
@@ -27,6 +28,7 @@ groups() ->
     [
         {mnesia_without_indices, [sequence], index_related_tests()},
         {mnesia_with_indices, [sequence], index_related_tests()},
+        {mnesia_with_indices_ds, [sequence], [t_dispatch_rate_limit_wildcard]},
         {mnesia_reindex, [sequence], [t_reindex]},
         {index_agnostic, [sequence], [t_disable_then_start, t_start_stop_on_setting_change]},
         {disabled, [t_disabled]}
@@ -72,6 +74,8 @@ init_per_group(mnesia_without_indices = Group, Config) ->
     start_apps(Group, [{index, false} | Config]);
 init_per_group(mnesia_reindex = Group, Config) ->
     start_apps(Group, Config);
+init_per_group(mnesia_with_indices_ds = Group, Config) ->
+    start_apps(Group, [{ds, true} | Config]);
 init_per_group(Group, Config) ->
     start_apps(Group, Config).
 
@@ -106,16 +110,26 @@ end_per_testcase(_TestCase, _Config) ->
 emqx_retainer_app_spec() ->
     {emqx_retainer, ?BASE_CONF}.
 
-emqx_conf_app_spec(disabled) ->
+emqx_conf_app_spec(disabled, _Config) ->
     {emqx_conf, ?DISABLED_CONF};
-emqx_conf_app_spec(_) ->
+emqx_conf_app_spec(mnesia_with_indices_ds, #{ds := true}) ->
+    {emqx_conf, #{config => #{<<"durable_sessions">> => #{<<"enable">> => true}}}};
+emqx_conf_app_spec(_Group, _Config) ->
     emqx_conf.
 
 start_apps(Group, Config) ->
+    ConfigMap = maps:from_list(Config),
+    EMQX =
+        case ConfigMap of
+            #{ds := true} ->
+                {emqx, #{config => #{<<"durable_sessions">> => #{<<"enable">> => true}}}};
+            _ ->
+                emqx
+        end,
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf_app_spec(Group),
+            EMQX,
+            emqx_conf_app_spec(Group, ConfigMap),
             emqx_retainer_app_spec()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -265,7 +279,7 @@ t_wildcard_subscription(Config) ->
     emqtt:publish(C1, <<"/x/y/z">>, <<"">>, [{qos, 0}, {retain, true}]),
     ok = emqtt:disconnect(C1).
 
-'t_wildcard_no_$_prefix'(_Config) ->
+t_wildcard_no_dollar_sign_prefix(_Config) ->
     {ok, C0} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C0),
     emqtt:publish(
@@ -659,6 +673,175 @@ t_publish_rate_limit(_) ->
     ok = emqtt:disconnect(C1),
     ok.
 
+%% Checks that, even if we hit the dispatch rate limit while subscribing to a non-wildcard
+%% topic.
+t_dispatch_rate_limit_non_wildcard(_) ->
+    %% Setup tight dispatch rates
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1/2s">>,
+        %% First, with batches, even though it'll deliver a single one, for code path
+        %% coverage.
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 2}
+    }),
+
+    %% Prepare a retained message
+    QoS = 1,
+    Payload = <<"a">>,
+    Topic = <<"t/", Payload/binary>>,
+    Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+    emqx:publish(Msg),
+    %% Sanity check
+    ?assertEqual(1, emqx_retainer:retained_count()),
+
+    %% Now consume the global retainer limit to make client hit the limit
+    hit_delivery_rate_limit(),
+
+    %% Start and subscribe: should immediately hit limit, but eventually receive the
+    %% retained message.
+    {ok, C1} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C1),
+    snabbkaffe:start_trace(),
+
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C1, Topic, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs1 = receive_messages(1, 5_000),
+    ?assertMatch([_], Msgs1),
+    ok = emqtt:stop(C1),
+
+    %% Same test, now without delivery batches, for coverage.
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1/2s">>,
+        %% Now, without batches
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
+    }),
+
+    {ok, C2} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C2),
+    hit_delivery_rate_limit(),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C2, Topic, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs2 = receive_messages(1, 5_000),
+    ?assertMatch([_], Msgs2),
+    ok = emqtt:stop(C2),
+
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
+    }),
+
+    ok.
+
+%% Checks that, even if we hit the dispatch rate limit while subscribing to a wildcard
+%% topic.
+t_dispatch_rate_limit_wildcard(_) ->
+    %% Setup tight dispatch rates
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"10/1s">>,
+        %% First, with batches
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 3,
+            <<"batch_deliver_number">> => 2
+        }
+    }),
+
+    %% Prepare a bunch of retained messages to hit dispatch limit.
+    NumMsgs = 20,
+    Payloads = lists:map(
+        fun(N) ->
+            QoS = 1,
+            Payload = integer_to_binary(N),
+            Topic = <<"t/", Payload/binary>>,
+            Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+            emqx:publish(Msg),
+            Payload
+        end,
+        lists:seq(1, NumMsgs)
+    ),
+    %% Sanity check
+    ?assertEqual(NumMsgs, emqx_retainer:retained_count()),
+
+    snabbkaffe:start_trace(),
+
+    %% Now we connect and subscribe; should hit delivery rate limit, and yet eventually
+    %% consume all messages.
+    {ok, C1} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C1),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C1, <<"t/+">>, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs1 = receive_messages(NumMsgs),
+    ?assertEqual(NumMsgs, length(Msgs1), #{received => Msgs1}),
+    ok = emqtt:stop(C1),
+
+    %% Same test, now without delivery batches.
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"10/1s">>,
+        %% Now, without batches
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
+    }),
+
+    {ok, C2} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C2),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C2, <<"t/+">>, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs2 = receive_messages(NumMsgs),
+    ?assertEqual(
+        lists:sort(Payloads),
+        lists:sort(lists:map(fun(#{payload := P}) -> P end, Msgs2)),
+        #{received => Msgs2}
+    ),
+    ok = emqtt:stop(C2),
+
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 0,
+            <<"batch_deliver_number">> => 0
+        }
+    }),
+    emqx_retainer:clean(),
+
+    ok.
+
+%% Verifies that we drop retry attempts after a certain TTL.
+t_dispatch_retry_expired(_) ->
+    ct:fail(todo),
+    ok.
+
+%% Verifies that we drop retry attempts if the queue of concurrent requests overflows.
+t_dispatch_retry_overflow(_) ->
+    ct:fail(todo),
+    ok.
+
+%% Verifies that all mesages are delivered when a client subscribes to multiple wildcard
+%% topics simultaneously.
+t_dispatch_multiple_subscriptions_same_client(_) ->
+    ct:fail(todo),
+    ok.
+
 t_delete_rate_limit(_) ->
     %% Setup tight publish rates
     update_retainer_config(#{
@@ -797,7 +980,13 @@ t_only_for_coverage(_) ->
     ok.
 
 t_reindex(_) ->
-    remove_delivery_rate(),
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"100/1s">>,
+        <<"flow_control">> => #{
+            <<"batch_deliver_number">> => 2,
+            <<"batch_read_number">> => 2
+        }
+    }),
     {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C),
 
@@ -872,7 +1061,13 @@ t_reindex(_) ->
             )
         end
     ),
-    reset_delivery_rate_to_default(),
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        <<"flow_control">> => #{
+            <<"batch_deliver_number">> => 0,
+            <<"batch_read_number">> => 0
+        }
+    }),
     ok.
 
 t_get_basic_usage_info(_Config) ->
@@ -1099,21 +1294,21 @@ test_retain_while_reindexing(C, Deadline) ->
     end.
 
 receive_messages(Count) ->
+    receive_messages(Count, _Timeout = 2_000).
+
+receive_messages(Count, Timeout) ->
     lists:reverse(
-        receive_messages(Count, [])
+        do_receive_messages(Count, [], Timeout)
     ).
 
-receive_messages(0, Msgs) ->
+do_receive_messages(0, Msgs, _Timeout) ->
     Msgs;
-receive_messages(Count, Msgs) ->
+do_receive_messages(Count, Msgs, Timeout) ->
     receive
         {publish, Msg} ->
             ct:log("Msg: ~p ~n", [Msg]),
-            receive_messages(Count - 1, [Msg | Msgs]);
-        Other ->
-            ct:print("Other Msg: ~p~n", [Other]),
-            receive_messages(Count, Msgs)
-    after 2000 ->
+            do_receive_messages(Count - 1, [Msg | Msgs], Timeout)
+    after Timeout ->
         Msgs
     end.
 
@@ -1224,3 +1419,16 @@ restart_retainer_limiter() ->
 update_retainer_config(Conf) ->
     {ok, _} = emqx_retainer:update_config(Conf),
     ok = restart_retainer_limiter().
+
+hit_delivery_rate_limit() ->
+    LimiterId = {?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME},
+    Limiter = emqx_limiter:connect(LimiterId),
+    hit_delivery_rate_limit(Limiter).
+
+hit_delivery_rate_limit(Limiter0) ->
+    case emqx_limiter_client:try_consume(Limiter0, 1) of
+        {true, Limiter} ->
+            hit_delivery_rate_limit(Limiter);
+        {false, _, _} ->
+            ok
+    end.

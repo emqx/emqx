@@ -83,6 +83,7 @@
 -type deadline() :: emqx_utils_calendar:epoch_millisecond().
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
+-type index_incarnation() :: integer().
 
 -define(CONTEXT_KEY, {?MODULE, context}).
 
@@ -104,6 +105,8 @@
 -callback delete_cursor(backend_state(), cursor()) -> ok.
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
+-callback current_index_incarnation(backend_state()) -> index_incarnation().
+-callback cursor_index_incarnation(backend_state(), cursor()) -> index_incarnation().
 
 %%------------------------------------------------------------------------------
 %% Hook API
@@ -267,6 +270,11 @@ init([]) ->
     erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([retainer], ?MODULE),
     ok = emqx_hooks:add('config.zones_updated', {?MODULE, on_config_zones_updated, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add(
+        'retainer.request_next',
+        {emqx_retainer_dispatcher, on_retainer_request_next, []},
+        ?HP_RETAINER
+    ),
     State = new_state(),
     RetainerConfig = emqx:get_config([retainer]),
     {ok,
@@ -313,6 +321,7 @@ handle_info(Info, State) ->
 terminate(_Reason, #{is_started := IsStarted} = State) ->
     emqx_conf:remove_handler([retainer]),
     emqx_hooks:del('config.zones_updated', {?MODULE, on_config_zones_updated}),
+    emqx_hooks:del('retainer.request_next', {emqx_retainer_dispatcher, on_retainer_request_next}),
     IsStarted andalso stop_retainer(State),
     ok.
 
