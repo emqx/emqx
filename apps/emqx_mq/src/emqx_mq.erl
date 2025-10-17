@@ -180,7 +180,9 @@ on_message_nack(_Msg, true) ->
     ok.
 
 on_client_handle_info(
-    _ClientInfo, #info_mq_inspect{receiver = Receiver, topic_filter = TopicFilter}, Acc
+    #info_mq_inspect{receiver = Receiver, topic_filter = TopicFilter},
+    _HookContext,
+    Acc
 ) ->
     ?tp_mq_client(mq_on_client_handle_info_inspect, #{topic_filter => TopicFilter}),
     Info =
@@ -193,11 +195,13 @@ on_client_handle_info(
     erlang:send(Receiver, {Receiver, Info}),
     {ok, Acc};
 on_client_handle_info(
-    ClientInfo,
     #info_to_mq_sub{subscriber_ref = SubscriberRef, info = InfoMsg},
+    HookContext,
     #{deliver := Delivers} = Acc
 ) ->
     ?tp_mq_client(mq_on_client_handle_info_to_mq_sub, #{info => InfoMsg}),
+    ChanInfoFn = maps:get(chan_info_fn, HookContext),
+    ClientInfo = ChanInfoFn(clientinfo),
     case with_sub(SubscriberRef, handle_info, [InfoMsg]) of
         not_found ->
             ok;
@@ -209,7 +213,7 @@ on_client_handle_info(
         {error, recreate} ->
             ok = recreate_sub(SubscriberRef, ClientInfo)
     end;
-on_client_handle_info(_ClientInfo, _Message, Acc) ->
+on_client_handle_info(_Message, _HookContext, Acc) ->
     ?tp_mq_client(mq_on_client_handle_info_unknown, #{message => _Message}),
     {ok, Acc}.
 
