@@ -15,6 +15,8 @@ It takes care of forwarding calls to the underlying DBMS.
     set_shard_ready/3,
     set_db_ready/2,
 
+    setup_db_group/2,
+
     open_db/2,
     wait_db/3,
     is_shard_up/2,
@@ -89,6 +91,8 @@ It takes care of forwarding calls to the underlying DBMS.
     verify_db_opts_result/0,
     db_opts/0,
     db/0,
+    db_group/0,
+    db_group_opts/0,
     time/0,
     time_ms/0,
     topic_filter/0,
@@ -151,6 +155,15 @@ It takes care of forwarding calls to the underlying DBMS.
 
 -doc "Identifier of the DB.".
 -type db() :: atom().
+
+-doc """
+Identifier of the database group.
+
+DB groups are used primarily for resource management. They allow to
+set various quotas and rate limits shared between all DBs belonging to
+the group.
+""".
+-type db_group() :: atom().
 
 -doc "Parsed topic.".
 -type topic() :: list(binary()).
@@ -262,6 +275,12 @@ Common options for creation of a DS database.
   This option is meant to optimize fan-out of MQTT messages to
   subscribers.
 
+- **`db_group`** - identifier of a database group created by
+  `setup_db_group/2` call. If this option is omitted, DS will create a
+  new DB group with identifier equal to the DB id and empty config.
+
+  All databases in the group must use the same backend.
+
 Note: all backends MUST handle all options listed here; even if it
 means throwing an exception that says that certain option is not
 supported.
@@ -270,9 +289,12 @@ supported.
     #{
         backend := backend(),
         payload_type => emqx_ds_payload_transform:type(),
+        db_group => db_group(),
         %% Backend-specific options:
         _ => _
     }.
+
+-type db_group_opts() :: #{backend := backend(), _ => _}.
 
 -type verify_db_opts_result() ::
     {ok, emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()} | error(_).
@@ -436,6 +458,29 @@ Options for the `subscribe` API.
 
 -callback default_db_opts() -> map().
 
+-doc """
+Create a new database group with the specified configuration.
+DB groups are transient: backends must not treat them as part of the schema.
+It is possible to change the group next time the DB is opened.
+
+DS makes sure that lifetime of the group covers the lifetimes of all
+DBs attached to it.
+
+Note: DS attaches DB to the group automatically in `open_db` call, but
+to detach it is the responsibility of the backend.
+""".
+-callback create_db_group(db_group(), db_group_opts()) -> {ok, _Group} | {error, _}.
+
+-doc """
+Update an existing database group.
+""".
+-callback update_db_group(db_group(), db_group_opts(), Group) -> {ok, Group} | {error, _}.
+
+-doc """
+Note: backend is responsible for destroying all groups that it owns during the shutdown.
+""".
+-callback destroy_db_group(db_group(), _Group) -> ok | {error, _}.
+
 -callback verify_db_opts(emqx_ds:db(), create_db_opts()) -> verify_db_opts_result().
 
 -doc """
@@ -509,6 +554,23 @@ must not assume the default values.
 %%================================================================================
 
 -doc """
+This is a multi-purpose function that creates or mutates configuation
+of a DB group.
+
+If the group is absent, it creates a new group with the given config.
+
+If the group is present, and the `backend` is the same,
+then the configuration of the group is updated.
+
+If the group is present, there aren't any DBs attached to it, and
+`setup_db_group` is called with a different `backend` parameter, the
+old group is deleted and the new one is created.
+""".
+-spec setup_db_group(db_group(), db_group_opts()) -> ok | {error, _}.
+setup_db_group(Group, Opts) ->
+    emqx_ds_db_group_mgr:setup_group(Group, Opts).
+
+-doc """
 Create a new DS database or open an existing one.
 
 Different DBs are completely independent from each other. They can
@@ -523,7 +585,8 @@ EMQX application.
 open_db(DB, UserOpts = #{backend := Backend}) ->
     maybe
         {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
-        GlobalDefaults = #{payload_type => ?ds_pt_ttv},
+        CreateDbGroup = not maps:is_key(db_group, UserOpts),
+        GlobalDefaults = #{payload_type => ?ds_pt_ttv, db_group => DB},
         Opts = emqx_utils_maps:deep_merge(
             emqx_utils_maps:deep_merge(GlobalDefaults, Mod:default_db_opts()),
             UserOpts
@@ -534,6 +597,13 @@ open_db(DB, UserOpts = #{backend := Backend}) ->
                 DB,
                 NewSchema#{backend => Backend}
             ),
+        #{db_group := Group} = Opts,
+        ok ?=
+            case CreateDbGroup of
+                false -> ok;
+                true -> setup_db_group(Group, #{backend => Backend})
+            end,
+        ok ?= emqx_ds_db_group_mgr:attach(DB, Backend, Group),
         ok ?= Mod:open_db(DB, IsNew, Schema, RuntimeConf),
         emqx_ds_sup:ensure_new_stream_watch(DB)
     end.

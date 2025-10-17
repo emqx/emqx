@@ -14,6 +14,9 @@
     update_db_config/3,
     close_db/1,
     drop_db/1,
+    create_db_group/2,
+    update_db_group/3,
+    destroy_db_group/2,
 
     shard_of/2,
     list_shards/1,
@@ -189,6 +192,22 @@ open_db(DB, Create, Schema, RuntimeConf) ->
 -spec close_db(emqx_ds:db()) -> ok.
 close_db(DB) ->
     emqx_ds_builtin_local_sup:stop_db(DB).
+
+-spec create_db_group(emqx_ds:db_group(), emqx_ds:db_group_opts()) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+create_db_group(Id, Opts) ->
+    emqx_ds_storage_layer:create_db_group(Id, Opts).
+
+-spec update_db_group(
+    emqx_ds:db_group(), emqx_ds:db_group_opts(), emqx_ds_storage_layer:db_group()
+) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+update_db_group(Id, Opts, Grp) ->
+    emqx_ds_storage_layer:update_db_group(Id, Opts, Grp).
+
+-spec destroy_db_group(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) -> ok | {error, _}.
+destroy_db_group(Id, Group) ->
+    emqx_ds_storage_layer:destroy_db_group(Id, Group).
 
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
@@ -562,6 +581,7 @@ verify_db_opts(Opts) ->
     maybe
         #{
             backend := builtin_local,
+            db_group := DBGroup,
             payload_type := PType,
             n_shards := NShards,
             storage := Storage,
@@ -580,6 +600,7 @@ verify_db_opts(Opts) ->
             storage => Storage
         },
         RTOpts = #{
+            db_group => DBGroup,
             subscriptions => Subs,
             transactions => Trans,
             rocksdb => RocksDB
