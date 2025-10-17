@@ -99,14 +99,18 @@ find(Id) ->
     end.
 
 -spec connect(emqx_mq_types:mq(), emqx_mq_types:subscriber_ref(), emqx_types:clientid()) ->
-    ok | {error, already_registered} | {error, no_mq} | {error, term()}.
+    {ok, emqx_mq_types:consumer_ref()}
+    | {error, already_registered}
+    | {error, no_mq}
+    | {error, term()}.
 connect(#{topic_filter := _MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
     ?tp_debug(mq_consumer_connect, #{
         mq_topic_filter => _MQTopicFilter, subscriber_ref => SubscriberRef, client_id => ClientId
     }),
     case find_or_start(MQ) of
         {ok, ConsumerRef} ->
-            do_connect(ConsumerRef, SubscriberRef, ClientId);
+            ok = do_connect(ConsumerRef, SubscriberRef, ClientId),
+            {ok, ConsumerRef};
         {error, _Reason} = Error ->
             Error
     end.

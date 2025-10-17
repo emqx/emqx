@@ -25,6 +25,11 @@ BEGIN
     ...
   }
 
+  Limits ::= SEQUENCE {
+    maxShardMessageCount [0] INTEGER OPTIONAL,
+    maxShardMessageBytes [1] INTEGER OPTIONAL
+  }
+
   MQ ::= SEQUENCE {
     id [0] OCTET STRING,
     topicFilter [1] OCTET STRING,
@@ -40,6 +45,19 @@ BEGIN
     consumerPersistenceInterval [11] INTEGER,
     dataRetentionPeriod [12] INTEGER,
     keyExpression [13] OCTET STRING OPTIONAL,
+    limits [14] Limits OPTIONAL,
+    ...
+  }
+
+  StorageIndexRecord ::= SEQUENCE {
+    tsUs [0] INTEGER,
+    value [1] INTEGER
+  }
+
+  StorageIndex ::= SEQUENCE {
+    maxTsUs [0] INTEGER,
+    count [1] SEQUENCE OF StorageIndexRecord,
+    bytes [2] SEQUENCE OF StorageIndexRecord,
     ...
   }
 
