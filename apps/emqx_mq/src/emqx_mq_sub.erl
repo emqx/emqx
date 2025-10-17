@@ -58,6 +58,7 @@ It uses timers:
 }).
 -record(connecting, {
     mq :: emqx_mq_types:mq(),
+    consumer_ref :: emqx_mq_types:consumer_ref(),
     connect_timeout_tref :: reference() | undefined
 }).
 -record(connected, {
@@ -166,10 +167,11 @@ handle_connect(#{clientid := ClientId}, MQTopic) ->
                         )
                     },
                     Sub#{status => Status};
-                ok ->
+                {ok, ConsumerRef} ->
                     %% MQ and its consumer found, let's connect and wait for the consumer to be ready.
                     Status = #connecting{
                         mq = MQ,
+                        consumer_ref = ConsumerRef,
                         connect_timeout_tref = send_after(
                             Sub, consumer_timeout(MQ), #consumer_connect_timeout{}
                         )
@@ -259,6 +261,11 @@ handle_info(Sub, _InfoMsg) ->
 -spec handle_disconnect(t()) -> ok.
 handle_disconnect(
     #{status := #connected{consumer_ref = ConsumerRef}, subscriber_ref := SubscriberRef} = Sub
+) ->
+    ok = emqx_mq_consumer:disconnect(ConsumerRef, SubscriberRef),
+    destroy(Sub);
+handle_disconnect(
+    #{status := #connecting{consumer_ref = ConsumerRef}, subscriber_ref := SubscriberRef} = Sub
 ) ->
     ok = emqx_mq_consumer:disconnect(ConsumerRef, SubscriberRef),
     destroy(Sub);

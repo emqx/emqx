@@ -52,6 +52,7 @@ stop(_State) ->
     ok = emqx_conf:remove_handler([mq]),
     ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_mq:unregister_hooks(),
+    ok = emqx_mq_message_quota_buffer:stop(),
     ok = emqx_mq_message_db:close(),
     ok = emqx_mq_state_storage:close_db(),
     ok.
@@ -88,5 +89,7 @@ post_start() ->
     optvar:set(?OPTVAR_READY, true).
 
 complete_start() ->
+    ok = emqx_mq_sup:start_metrics(),
+    ok = emqx_mq_message_quota_buffer:start(),
     ok = emqx_mq_sup:start_gc_scheduler(),
     ok = emqx_mq:register_hooks().
