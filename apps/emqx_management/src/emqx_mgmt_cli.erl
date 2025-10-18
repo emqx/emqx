@@ -314,7 +314,7 @@ traverse_chain_info(FileHandle, TotalRows, BatchSize, SleepMs, ProcessedCount, B
     % Process current row
     case ets:lookup(?CHAN_INFO_TAB, Key) of
         [{Key, Info, Stats}] ->
-            write_client_stats_row({Key, Info, Stats}, FileHandle),
+            _ = write_client_stats_row({Key, Info, Stats}, FileHandle),
             NewProcessedCount = ProcessedCount + 1,
             NewBatchCount = BatchCount + 1,
 
@@ -404,7 +404,7 @@ write_client_stats_row({{ClientId, _Pid}, _Info, Stats}, FileHandle) ->
         MqueueDropped
     ]),
 
-    file:write(FileHandle, CsvRow),
+    _ = file:write(FileHandle, CsvRow),
     FileHandle.
 
 if_client(ClientId, Fun) ->
