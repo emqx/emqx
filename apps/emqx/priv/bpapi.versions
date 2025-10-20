@@ -17,6 +17,7 @@
 {emqx_conf,3}.
 {emqx_conf,4}.
 {emqx_conf,5}.
+{emqx_conf_certs,1}.
 {emqx_connector,1}.
 {emqx_connector,2}.
 {emqx_dashboard,1}.
@@ -49,7 +50,6 @@
 {emqx_management,5}.
 {emqx_metrics,1}.
 {emqx_metrics,2}.
-{emqx_mgmt_api_certs,1}.
 {emqx_mgmt_api_clients,1}.
 {emqx_mgmt_api_plugins,1}.
 {emqx_mgmt_api_plugins,2}.

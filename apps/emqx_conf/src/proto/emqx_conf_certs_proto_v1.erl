@@ -1,9 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%-------------------------------------------------------------------
--module(emqx_mgmt_api_certs_proto_v1).
-
-%% FIXME: move to conf_certs_proto...
+-module(emqx_conf_certs_proto_v1).
 
 -behaviour(emqx_bpapi).
 
