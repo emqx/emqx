@@ -370,7 +370,7 @@ t_on_get_status() ->
 t_on_get_status(matrix) ->
     [[?tcp, ?single]];
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
-    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => connecting}).
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, #{failure_status => ?status_disconnected}).
 
 t_rule_action() ->
     [{matrix, true}].
