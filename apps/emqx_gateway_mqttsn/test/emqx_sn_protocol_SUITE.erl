@@ -251,7 +251,7 @@ t_auth_expire(_) ->
         ?wait_async_action(
             begin
                 {ok, Socket} = gen_udp:open(0, [binary]),
-                send_connect_msg(Socket, <<"client_id_test1">>),
+                send_connect_msg(Socket, ClientId),
                 ?assertEqual(<<3, ?SN_CONNACK, 0>>, receive_response(Socket)),
                 ?assertEqual(<<2, ?SN_DISCONNECT>>, receive_response(Socket)),
                 gen_udp:close(Socket)
