@@ -133,7 +133,9 @@ groups() ->
             t_olp_true,
             t_olp_reject,
             t_conn_resume,
-            t_conn_without_ctrl_stream
+            t_conn_without_ctrl_stream,
+            t_probe_client_conn,
+            t_client_probe_conn
         ]}
     ].
 
@@ -165,7 +167,7 @@ mk_emqx_spec() ->
         %% Turn off force_shutdown policy.
         "force_shutdown.enable = false"
         "\n listeners.quic.default {"
-        "\n   enable = true, bind = 14567, acceptors = 16, idle_timeout_ms = 15000"
+        "\n   enable = true, bind = 14567, acceptors = 16, idle_timeout_ms = 15000, datagram_receive_enabled=true"
         "\n }"}.
 
 init_per_group(pub_qos0, Config) ->
@@ -1750,6 +1752,52 @@ t_conn_without_ctrl_stream(Config) ->
     receive
         {quic, transport_shutdown, Conn, _} -> ok
     end.
+
+t_probe_client_conn(Config) ->
+    erlang:process_flag(trap_exit, true),
+    %% GIVEN: a client connect with datagram enabled.
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {quic_opts, {[{datagram_receive_enabled, 1}], []}}
+        | Config
+    ]),
+    {ok, _} = emqtt:quic_connect(C0),
+    Cid = proplists:get_value(clientid, emqtt:info(C0)),
+    #{conninfo := #{conn_shared_state := #{conn_pid := Pid}}} = emqx_cm:get_chan_info(Cid),
+    %% WHEN: EMQX probes the conn state
+    ProbeRes = emqx_quic_connection:probe(Pid, 3000),
+    %% THEN: Probe sucess with 'acknowledged'
+    ?assertMatch(
+        #probe_state{final = dgram_send_acknowledged, sent_at = TS0, final_at = TS1} when
+            TS1 >= TS0,
+        ProbeRes
+    ),
+    ok.
+
+t_client_probe_conn(Config) ->
+    erlang:process_flag(trap_exit, true),
+    %% GIVEN: a client connect with datagram enabled.
+    {ok, C0} = emqtt:start_link([
+        {proto_ver, v5},
+        {connect_timeout, 5},
+        {quic_opts, {[{datagram_receive_enabled, 1}], []}}
+        | Config
+    ]),
+    {ok, _} = emqtt:quic_connect(C0),
+    Info = emqtt:info(C0),
+    {quic, ClientConnH, _Stream} = proplists:get_value(socket, Info),
+    ?assertEqual({ok, true}, quicer:getopt(ClientConnH, datagram_receive_enabled)),
+    ?assertEqual({ok, true}, quicer:getopt(ClientConnH, datagram_send_enabled)),
+    %% WHEN: it probes the connection
+    ProbeRes = quicer:probe(ClientConnH, 3000),
+    %% THEN: Probe sucess with 'acknowledged'
+    ?assertMatch(
+        #probe_state{final = dgram_send_acknowledged, sent_at = TS0, final_at = TS1} when
+            TS1 >= TS0,
+        ProbeRes
+    ),
+    ok.
 
 t_data_stream_race_ctrl_stream(Config) ->
     erlang:process_flag(trap_exit, true),
