@@ -110,7 +110,7 @@ do_apply_rule(
         },
         debug
     ),
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleResId, 'matched'),
+    ok = inc_rule_matched_metrics(RuleResId),
     clear_rule_payload(),
     try
         do_apply_rule2(Rule, Columns, Envs)
@@ -1006,3 +1006,8 @@ rule_attrs(Rule) ->
 
 action_attrs(Action) ->
     emqx_external_trace:action_attrs(Action).
+
+inc_rule_matched_metrics(RuleResId) ->
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleResId, 'matched'),
+    ok = emqx_metrics:inc('rules.matched'),
+    ok.

@@ -186,6 +186,7 @@ handle_counter_telemetry_event(Event, ID, Val) ->
         late_reply ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'late_reply', Val);
         failed ->
+            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
@@ -193,13 +194,16 @@ handle_counter_telemetry_event(Event, ID, Val) ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
+            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.failed', Val);
         retried_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
+            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.success', Val);
         success ->
+            emqx_metrics:inc('actions.executed'),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
         _ ->
             ok
