@@ -94,6 +94,7 @@ init_per_testcase(_TestCase, TCConfig) ->
     TCConfig.
 
 end_per_testcase(_TestCase, _TCConfig) ->
+    emqx_conf_certs:clean_certs_dir(),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -501,7 +502,7 @@ t_bundle_name_validation() ->
     [{matrix, true}].
 t_bundle_name_validation(matrix) ->
     [[?local]];
-t_bundle_name_validation(_TCConfig) ->
+t_bundle_name_validation(TCConfig) when is_list(TCConfig) ->
     Ns = <<"some_ns">>,
     BadBundleNames = [
         binary:copy(<<"a">>, 255),
@@ -542,4 +543,31 @@ t_bundle_name_validation(_TCConfig) ->
         BadBundleNames
     ),
 
+    ok.
+
+-doc """
+Checks that we can list the contents of namespaced bundle dirs when escaping/quoting is
+necessary.
+
+Namespaces currently have no restriction on them, so they need to be escaped.
+""".
+t_escape_namespace_in_dirs() ->
+    [{matrix, true}].
+t_escape_namespace_in_dirs(matrix) ->
+    [[?local]];
+t_escape_namespace_in_dirs(TCConfig) when is_list(TCConfig) ->
+    NsThatNeedsQuoting = <<":bad*nś-!">>,
+    %% We need to quote it here, otherwise it's not a valid HTTP request path.
+    NsQuoted = uri_string:quote(NsThatNeedsQuoting),
+    BundleName = <<"a">>,
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    ?assertMatch({204, _}, upload_file_ns(NsQuoted, BundleName, ?FILE_KIND_CA, CA)),
+    ?assertMatch({200, [#{<<"name">> := BundleName}]}, list_bundles_ns(NsQuoted)),
+    ?assertMatch(
+        {200, #{<<"ca">> := #{<<"path">> := _}}},
+        list_files_ns(NsQuoted, BundleName)
+    ),
+    {200, #{<<"ca">> := #{<<"path">> := Path}}} = list_files_ns(NsQuoted, BundleName),
+    %% Path segments are quoted to avoid bad characters.
+    ?assertEqual(match, re:run(Path, NsQuoted, [{capture, none}]), #{path => Path}),
     ok.

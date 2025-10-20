@@ -18,6 +18,10 @@
     delete_bundle_v1/2
 ]).
 
+-ifdef(TEST).
+-export([clean_certs_dir/0]).
+-endif.
+
 -export_type([
     file_kind/0,
     bundle_name/0
@@ -204,9 +208,9 @@ base_dir(Namespace0) when is_binary(Namespace0) ->
     Namespace = escape_name(Namespace0),
     filename:join([DataDir, certs2, ns, Namespace]).
 
-dir(Namespace, BundleName0) ->
+dir(Namespace, BundleName) ->
     BaseDir = base_dir(Namespace),
-    BundleName = escape_name(BundleName0),
+    %% Bundle name is already safe (validated in HTTP API)
     filename:join([BaseDir, BundleName]).
 
 filename_to_kind(?FILENAME_KEY) ->
@@ -224,3 +228,9 @@ filename_to_kind(_) ->
 
 escape_name(Name) ->
     uri_string:quote(Name).
+
+-ifdef(TEST).
+clean_certs_dir() ->
+    DataDir = emqx:data_dir(),
+    file:del_dir_r(filename:join([DataDir, certs2])).
+-endif.
