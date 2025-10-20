@@ -63,8 +63,8 @@ init(top) ->
             shutdown => 5_000
         },
         #{
-            id => group_mgr,
-            start => {emqx_ds_db_group_mgr, start_link, []},
+            id => db_manager,
+            start => {emqx_ds, start_link, []},
             type => worker,
             restart => permanent,
             shutdown => 5_000

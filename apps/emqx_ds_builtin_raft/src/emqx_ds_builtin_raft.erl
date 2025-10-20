@@ -17,6 +17,7 @@ This is the entrypoint into the `builtin_raft` backend.
     update_db_config/3,
     close_db/1,
     drop_db/1,
+    db_group_stats/2,
     create_db_group/2,
     update_db_group/3,
     destroy_db_group/2,
@@ -372,7 +373,14 @@ drop_db(DB) ->
     end),
     _ = emqx_ds_builtin_raft_proto_v1:drop_db(list_nodes(), DB),
     emqx_ds_builtin_raft_meta:drop_db(DB),
+    emqx_ds:close_db(DB),
     emqx_dsch:drop_db_schema(DB).
+
+-spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->
+    {ok, emqx_ds:db_group_stats()} | emqx_ds:error(_).
+db_group_stats(Id, Group) ->
+    %% Note: here we don't aggregate anything for cluster. This is intentional.
+    emqx_ds_storage_layer:db_group_stats(Id, Group).
 
 -spec create_db_group(emqx_ds:db_group(), emqx_ds:db_group_opts()) ->
     {ok, emqx_ds_storage_layer:db_group()} | {error, _}.

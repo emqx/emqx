@@ -14,6 +14,7 @@
     update_db_config/3,
     close_db/1,
     drop_db/1,
+    db_group_stats/2,
     create_db_group/2,
     update_db_group/3,
     destroy_db_group/2,
@@ -265,7 +266,7 @@ drop_slab(DB, {Shard, GenId}) ->
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     maybe
-        ok ?= close_db(DB),
+        ok ?= emqx_ds:close_db(DB),
         lists:foreach(
             fun(Shard) ->
                 emqx_ds_storage_layer:drop_shard({DB, Shard})
@@ -274,6 +275,11 @@ drop_db(DB) ->
         ),
         emqx_dsch:drop_db_schema(DB)
     end.
+
+-spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->
+    {ok, emqx_ds:db_stats()} | emqx_ds:error(_).
+db_group_stats(Id, Group) ->
+    emqx_ds_storage_layer:db_group_stats(Id, Group).
 
 -spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.

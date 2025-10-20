@@ -58,7 +58,8 @@
     generations_since/2,
     get_gvars/1,
     ls_shards/1,
-    get_stats/1
+    get_stats/1,
+    db_group_stats/2
 ]).
 
 -export_type([
@@ -233,6 +234,7 @@
 -record(db_group, {
     env :: rocksdb:env_handle(),
     sst_file_mgr :: rocksdb:sst_file_manager(),
+    write_buffer_mgr :: rocksdb:write_buffer_mgr(),
     conf :: map()
 }).
 
@@ -249,14 +251,18 @@
 
 -spec create_db_group(emqx_ds:db_group(), create_db_group_opts()) -> {ok, db_group()} | {error, _}.
 create_db_group(_GroupId, UserOpts) ->
+    Defaults = #{write_buffer_size => 100 * ?MB},
+    #{write_buffer_size := WriteBufferSize} = maps:merge(Defaults, UserOpts),
     maybe
         {ok, Opts} ?= verify_db_group_config(UserOpts),
         EnvType = maps:get(env_type, Opts, default),
         {ok, Env} ?= rocksdb:new_env(EnvType),
-        {ok, SSTManager} ?= rocksdb:new_sst_file_manager(Env),
+        {ok, SSTManager} = rocksdb:new_sst_file_manager(Env),
+        {ok, WriteBufferManager} = rocksdb:new_write_buffer_manager(WriteBufferSize),
         {ok, #db_group{
             env = Env,
             sst_file_mgr = SSTManager,
+            write_buffer_mgr = WriteBufferManager,
             conf = Opts
         }}
     end.
@@ -270,7 +276,8 @@ update_db_group(_Id, UserOpts, Grp = #db_group{}) ->
     end.
 
 -spec destroy_db_group(emqx_ds:db_group(), db_group()) -> ok | {error, _}.
-destroy_db_group(_GroupId, #db_group{env = Env, sst_file_mgr = SSTManager}) ->
+destroy_db_group(_GroupId, #db_group{env = Env, sst_file_mgr = SSTManager, write_buffer_mgr = WBM}) ->
+    ok = rocksdb:release_write_buffer_manager(WBM),
     ok = rocksdb:release_sst_file_manager(SSTManager),
     ok = rocksdb:destroy_env(Env),
     ok.
@@ -799,12 +806,11 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
     #{db_group := MyGroup} = Options,
-    {ok, #db_group{env = Env, sst_file_mgr = SstFileManager}} = emqx_ds_db_group_mgr:lookup(
+    {ok, #db_group{env = Env, sst_file_mgr = SstFileManager, write_buffer_mgr = WriteBufManager}} = emqx_ds:lookup_db_group(
         MyGroup
     ),
     Defaults = #{
         cache_size => 8 * ?MB,
-        write_buffer_size => 10 * ?MB,
         max_open_files => 100,
         misc_options => []
     },
@@ -819,7 +825,8 @@ rocksdb_open(Shard, Options) ->
         {create_missing_column_families, true},
         %% Group settings:
         {env, Env},
-        {sst_file_mgr, SstFileManager},
+        {sst_file_manager, SstFileManager},
+        {write_buffer_manager, WriteBufManager},
         %% Info log file management:
         %%    Maximal log files:
         {keep_log_file_num, 10},
@@ -1090,6 +1097,12 @@ get_stats(DB) ->
         ]
     ).
 
+-spec db_group_stats(emqx_ds:db_group(), db_group()) -> {ok, emqx_ds:db_group_stats()}.
+db_group_stats(_GroupId, #db_group{sst_file_mgr = SSTFM, write_buffer_mgr = WBM}) ->
+    Stats1 = sstfm_info(SSTFM),
+    Stats = Stats1#{write_buffer_manager => rocksdb:write_buffer_manager_info(WBM)},
+    {ok, Stats}.
+
 -spec put_schema_runtime(dbshard(), shard()) -> ok.
 put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
     persistent_term:put(?PERSISTENT_TERM(Shard), RuntimeSchema),
@@ -1163,6 +1176,23 @@ verify_db_group_config(UserOpts) ->
         _ ->
             {error, badarg}
     end.
+
+sstfm_info(SSTFM) ->
+    {TotalSize, L} =
+        lists:foldl(
+            fun
+                ({total_size, TS}, {_, Acc}) ->
+                    {TS, Acc};
+                ({Key, Val}, {TS, Acc}) ->
+                    {TS, [{Key, Val} | Acc]}
+            end,
+            {undefined, []},
+            rocksdb:sst_file_manager_info(SSTFM)
+        ),
+    #{
+        total_size => TotalSize,
+        sst_file_mgr => L
+    }.
 
 %%--------------------------------------------------------------------------------
 

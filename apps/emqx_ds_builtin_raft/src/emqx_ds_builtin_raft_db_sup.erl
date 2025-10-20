@@ -173,15 +173,6 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
     Children = [
-        emqx_ds_lib:autoclean(
-          autoclean,
-          20_000,
-          fun() -> ok = emqx_dsch:open_db(DB, RTConf) end,
-          fun() ->
-                  _ = emqx_ds_db_group_mgr:detach(DB),
-                  ok = emqx_dsch:close_db(DB)
-          end
-         ),
         sup_spec(#?shards_sup{db = DB}, []),
         shard_allocator_spec(DB),
         db_lifecycle_spec(DB)

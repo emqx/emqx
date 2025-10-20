@@ -140,6 +140,10 @@ backend can reject flush request.
 %% Executed by the readers
 -callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 
+%% Executed by the leader prior to flush. `true': ok, leader can write
+%% more data, `false': quota exceeded.
+-callback otx_check_quota(emqx_ds:db(), emqx_ds:shard()) -> boolean().
+
 -type ctx() :: #kv_tx_ctx{}.
 -type process_ref() :: pid() | atom() | {atom(), node()}.
 -type leader() :: process_ref() | undefined.
@@ -199,6 +203,8 @@ backend can reject flush request.
 -type dirty_append() :: #cast_dirty_append{}.
 
 -record(call_add_generation, {}).
+
+-optional_callbacks([otx_check_quota/2]).
 
 %%================================================================================
 %% API functions
