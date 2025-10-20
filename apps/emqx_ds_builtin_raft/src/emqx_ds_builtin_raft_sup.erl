@@ -116,7 +116,6 @@ init(?top) ->
         {SupFlags, [
             MetadataServer,
             MetricsWorker,
-            emqx_ds_db_group_mgr:autoclean(builtin_raft),
             DBsSup
         ]}};
 init(?databases) ->

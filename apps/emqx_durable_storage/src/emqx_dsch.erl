@@ -278,7 +278,10 @@ Name of the disk log, as in `disk_log:open([{name, Name}, ...])`
 
 -type dbshard() :: {emqx_ds:db(), emqx_ds:shard()}.
 
--type db_runtime_config() :: #{atom() => _}.
+-type db_runtime_config() :: #{
+    db_group => emqx_ds:db_group(),
+    atom() => _
+}.
 
 -type db_runtime() :: #{
     cbm := module(),
