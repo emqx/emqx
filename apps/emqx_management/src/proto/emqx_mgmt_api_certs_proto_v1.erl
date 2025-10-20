@@ -3,13 +3,15 @@
 %%-------------------------------------------------------------------
 -module(emqx_mgmt_api_certs_proto_v1).
 
+%% FIXME: move to conf_certs_proto...
+
 -behaviour(emqx_bpapi).
 
 -export([
     introduced_in/0,
 
     delete_bundle/3,
-    add_managed_file/5
+    add_managed_files/4
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -26,12 +28,12 @@ introduced_in() ->
 delete_bundle(Nodes, Namespace, BundleName) ->
     erpc:multicall(Nodes, emqx_conf_certs, delete_bundle_v1, [Namespace, BundleName]).
 
--spec add_managed_file([node()], maybe_namespace(), bundle_name(), file_kind(), iodata()) ->
-    emqx_rpc:erpc_multicall(ok | {error, term()}).
-add_managed_file(Nodes, Namespace, BundleName, Kind, Contents) ->
+-spec add_managed_files([node()], maybe_namespace(), bundle_name(), #{file_kind() := iodata()}) ->
+    emqx_rpc:erpc_multicall(ok | {error, #{file_kind() := file:posix()}}).
+add_managed_files(Nodes, Namespace, BundleName, Files) ->
     erpc:multicall(
         Nodes,
         emqx_conf_certs,
-        add_managed_file_v1,
-        [Namespace, BundleName, Kind, Contents]
+        add_managed_files_v1,
+        [Namespace, BundleName, Files]
     ).

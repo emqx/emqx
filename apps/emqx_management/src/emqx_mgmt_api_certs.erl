@@ -94,7 +94,7 @@ schema("/certs/global/name/:name") ->
             tags => ?TAGS,
             description => ?DESC("global_file_upload"),
             parameters => [param_path_bundle_name()],
-            'requestBody' => ref(file_in),
+            'requestBody' => upload_files_request_body(),
             responses =>
                 #{
                     204 => <<"">>,
@@ -153,7 +153,7 @@ schema("/certs/ns/:namespace/name/:name") ->
             tags => ?TAGS,
             description => ?DESC("ns_file_upload"),
             parameters => [param_path_ns(), param_path_bundle_name()],
-            'requestBody' => ref(file_in),
+            'requestBody' => upload_files_request_body(),
             responses =>
                 #{
                     204 => <<"">>,
@@ -173,20 +173,17 @@ schema("/certs/ns/:namespace/name/:name") ->
         }
     }.
 
-fields(file_in) ->
+fields(files_in) ->
+    Kinds = [
+        ?FILE_KIND_KEY,
+        ?FILE_KIND_CHAIN,
+        ?FILE_KIND_CA,
+        ?FILE_KIND_ACC_KEY,
+        ?FILE_KIND_KEY_PASSWORD
+    ],
     [
-        {file,
-            mk(
-                hoconsc:enum([
-                    ?FILE_KIND_KEY,
-                    ?FILE_KIND_CHAIN,
-                    ?FILE_KIND_CA,
-                    ?FILE_KIND_ACC_KEY,
-                    ?FILE_KIND_KEY_PASSWORD
-                ]),
-                #{}
-            )},
-        {contents, mk(binary(), #{})}
+        {Kind, mk(binary(), #{required => false})}
+     || Kind <- Kinds
     ];
 fields(bundle_out) ->
     [{name, mk(binary(), #{})}];
@@ -218,6 +215,37 @@ param_path_bundle_name() ->
             }
         )}.
 
+upload_files_request_body() ->
+    hoconsc:mk(ref(files_in), #{
+        converter => fun upload_files_request_body_converter/2,
+        validator => fun upload_files_request_body_validator/1
+    }).
+
+upload_files_request_body_converter(#{} = Input, _HoconOpts) ->
+    case maps:to_list(Input) of
+        [{_Type, #{type := _}} | _] = InputList ->
+            %% multipart/form-data
+            lists:foldl(
+                fun({Type, Data0}, Acc) ->
+                    [{_Filename, Contents}] = maps:to_list(maps:remove(type, Data0)),
+                    Acc#{Type => Contents}
+                end,
+                #{},
+                InputList
+            );
+        _ ->
+            Input
+    end;
+upload_files_request_body_converter(Input, _HoconOpts) ->
+    Input.
+
+upload_files_request_body_validator(#{} = Input) when map_size(Input) == 0 ->
+    {error, <<"must include at least one file kind">>};
+upload_files_request_body_validator(#{} = _Input) ->
+    ok;
+upload_files_request_body_validator(_Input) ->
+    {error, <<"invalid input">>}.
+
 not_found(Desc) -> emqx_dashboard_swagger:error_codes([?NOT_FOUND], Desc).
 bad_request(Desc) -> emqx_dashboard_swagger:error_codes([?BAD_REQUEST], Desc).
 internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], Desc).
@@ -232,8 +260,8 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
 '/certs/global/name/:name'(get, #{bindings := #{name := BundleName}} = _Req) ->
     handle_list_files(?global_ns, BundleName);
 '/certs/global/name/:name'(post, #{bindings := #{name := BundleName}} = Req) ->
-    #{body := #{file := Kind, contents := Contents}} = Req,
-    handle_upload_file(?global_ns, BundleName, Kind, Contents);
+    #{body := Files} = Req,
+    handle_upload_files(?global_ns, BundleName, Files);
 '/certs/global/name/:name'(delete, #{bindings := #{name := BundleName}} = _Req) ->
     handle_delete_bundle(?global_ns, BundleName).
 
@@ -245,8 +273,8 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
     handle_list_files(Namespace, BundleName);
 '/certs/ns/:namespace/name/:name'(post, Req) ->
     #{bindings := #{namespace := Namespace, name := BundleName}} = Req,
-    #{body := #{file := Kind, contents := Contents}} = Req,
-    handle_upload_file(Namespace, BundleName, Kind, Contents);
+    #{body := Files} = Req,
+    handle_upload_files(Namespace, BundleName, Files);
 '/certs/ns/:namespace/name/:name'(delete, Req) ->
     #{bindings := #{namespace := Namespace, name := BundleName}} = Req,
     handle_delete_bundle(Namespace, BundleName).
@@ -312,14 +340,14 @@ handle_delete_bundle(Namespace, BundleName) ->
             ?INTERNAL_ERROR(Errors)
     end.
 
-handle_upload_file(Namespace, BundleName, Kind, Contents) ->
+handle_upload_files(Namespace, BundleName, Files) ->
     %% Special case: if an ACME account key exists, we forbid uploading other files as
     %% it's probably an user error, since ACME client will generate these other kinds.
     case does_acc_key_exist(Namespace, BundleName) of
         true ->
             ?BAD_REQUEST(<<"Account key exists; other files will be managed by ACME client.">>);
         false ->
-            case emqx_conf_certs:add_managed_file(Namespace, BundleName, Kind, Contents) of
+            case emqx_conf_certs:add_managed_files(Namespace, BundleName, Files) of
                 ok ->
                     ?NO_CONTENT;
                 {error, Errors} ->

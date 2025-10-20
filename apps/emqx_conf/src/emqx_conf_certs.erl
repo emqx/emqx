@@ -8,12 +8,12 @@
     list_managed_files/2,
     list_bundles/1,
     delete_bundle/2,
-    add_managed_file/4
+    add_managed_files/3
 ]).
 
 %% RPC targets (v1)
 -export([
-    add_managed_file_v1/4,
+    add_managed_files_v1/3,
     delete_managed_file_v1/3,
     delete_bundle_v1/2
 ]).
@@ -131,12 +131,12 @@ delete_bundle(Namespace, BundleName) ->
             {error, Errors}
     end.
 
--spec add_managed_file(maybe_namespace(), bundle_name(), file_kind(), iodata()) ->
+-spec add_managed_files(maybe_namespace(), bundle_name(), #{file_kind() := iodata()}) ->
     ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
-add_managed_file(Namespace, BundleName, Kind, Contents) ->
+add_managed_files(Namespace, BundleName, Files) ->
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_mgmt_api_certs_proto_v1:add_managed_file(
-        Nodes, Namespace, BundleName, Kind, Contents
+    Res = emqx_mgmt_api_certs_proto_v1:add_managed_files(
+        Nodes, Namespace, BundleName, Files
     ),
     NodeRes = lists:zip(Nodes, Res),
     Errors = lists:filtermap(
@@ -161,14 +161,29 @@ add_managed_file(Namespace, BundleName, Kind, Contents) ->
 %% RPC Targets
 %%------------------------------------------------------------------------------
 
--spec add_managed_file_v1(maybe_namespace(), bundle_name(), file_kind(), contents()) ->
-    ok | {error, file:posix()}.
+-spec add_managed_files_v1(maybe_namespace(), bundle_name(), #{file_kind() := contents()}) ->
+    ok | {error, #{file_kind() := file:posix()}}.
 -doc #{since => <<"6.1.0">>}.
-add_managed_file_v1(Namespace, BundleName, Kind, Contents) ->
-    Filename = filename(Namespace, BundleName, Kind),
-    maybe
-        ok ?= filelib:ensure_dir(Filename),
-        file:write_file(Filename, Contents)
+add_managed_files_v1(Namespace, BundleName, Files) ->
+    Errors = maps:fold(
+        fun(Kind, Contents, ErrAcc) ->
+            Filename = filename(Namespace, BundleName, Kind),
+            maybe
+                ok ?= filelib:ensure_dir(Filename),
+                ok ?= file:write_file(Filename, Contents),
+                ErrAcc
+            else
+                Err -> ErrAcc#{Kind => Err}
+            end
+        end,
+        #{},
+        Files
+    ),
+    case map_size(Errors) > 0 of
+        true ->
+            {error, Errors};
+        false ->
+            ok
     end.
 
 -spec delete_managed_file_v1(maybe_namespace(), bundle_name(), file_kind()) ->
@@ -232,5 +247,12 @@ escape_name(Name) ->
 -ifdef(TEST).
 clean_certs_dir() ->
     DataDir = emqx:data_dir(),
-    file:del_dir_r(filename:join([DataDir, certs2])).
+    case file:del_dir_r(filename:join([DataDir, certs2])) of
+        ok ->
+            ok;
+        {error, enoent} ->
+            ok;
+        Error ->
+            Error
+    end.
 -endif.

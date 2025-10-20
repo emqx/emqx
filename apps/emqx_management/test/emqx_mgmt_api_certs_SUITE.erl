@@ -24,6 +24,10 @@
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 -define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
+-define(FILE_KIND_CA_BIN, atom_to_binary(?FILE_KIND_CA)).
+-define(FILE_KIND_CHAIN_BIN, atom_to_binary(?FILE_KIND_CHAIN)).
+-define(FILE_KIND_KEY_BIN, atom_to_binary(?FILE_KIND_KEY)).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -93,8 +97,9 @@ init_per_testcase(_TestCase, TCConfig) ->
     end,
     TCConfig.
 
-end_per_testcase(_TestCase, _TCConfig) ->
-    emqx_conf_certs:clean_certs_dir(),
+end_per_testcase(_TestCase, TCConfig) ->
+    Nodes = get_config(nodes, TCConfig),
+    ?ON_ALL(Nodes, ok = emqx_conf_certs:clean_certs_dir()),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -113,12 +118,14 @@ get_config(Key, TCConfig, Default) ->
     proplists:get_value(Key, TCConfig, Default).
 
 simple_request(Params) ->
-    AuthHeader =
-        case get(?AUTH_HEADER_PD_KEY) of
-            undefined -> emqx_mgmt_api_test_util:auth_header_();
-            Header -> Header
-        end,
+    AuthHeader = get_auth_header(),
     emqx_mgmt_api_test_util:simple_request(Params#{auth_header => AuthHeader}).
+
+get_auth_header() ->
+    case get(?AUTH_HEADER_PD_KEY) of
+        undefined -> emqx_mgmt_api_test_util:auth_header_();
+        Header -> Header
+    end.
 
 put_auth_header(Header) ->
     put(?AUTH_HEADER_PD_KEY, Header).
@@ -174,10 +181,7 @@ delete_bundle_ns(Ns, BundleName) ->
 
 upload_file_global(BundleName, Kind, Contents) ->
     URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
-    Body = #{
-        <<"file">> => Kind,
-        <<"contents">> => Contents
-    },
+    Body = #{Kind => Contents},
     simple_request(#{
         method => post,
         url => URL,
@@ -186,15 +190,36 @@ upload_file_global(BundleName, Kind, Contents) ->
 
 upload_file_ns(Ns, BundleName, Kind, Contents) ->
     URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
-    Body = #{
-        <<"file">> => Kind,
-        <<"contents">> => Contents
-    },
+    Body = #{Kind => Contents},
     simple_request(#{
         method => post,
         url => URL,
         body => Body
     }).
+
+upload_files_multipart_global(BundleName, Files) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
+    Res = emqx_mgmt_api_test_util:upload_request(#{
+        url => URL,
+        files => Files,
+        mime_type => <<"application/octet-stream">>,
+        other_params => [],
+        auth_token => get_auth_header(),
+        method => post
+    }),
+    emqx_mgmt_api_test_util:simplify_decode_result(Res).
+
+upload_files_multipart_ns(Ns, BundleName, Files) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
+    Res = emqx_mgmt_api_test_util:upload_request(#{
+        url => URL,
+        files => Files,
+        mime_type => <<"application/octet-stream">>,
+        other_params => [],
+        auth_token => get_auth_header(),
+        method => post
+    }),
+    emqx_mgmt_api_test_util:simplify_decode_result(Res).
 
 gen_cert(Opts) ->
     {Cert, Key} = emqx_cth_tls:gen_cert(Opts),
@@ -303,6 +328,9 @@ t_crud(TCConfig) when is_list(TCConfig) ->
         cert_pem := Cert1,
         key_pem := Key1
     } = gen_cert(#{key => ec, issuer => CertKeyRoot}),
+
+    %% DELETEME
+    redbug:start(["minirest_handler:do_validate_params"]),
 
     ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
 
@@ -570,4 +598,72 @@ t_escape_namespace_in_dirs(TCConfig) when is_list(TCConfig) ->
     {200, #{<<"ca">> := #{<<"path">> := Path}}} = list_files_ns(NsQuoted, BundleName),
     %% Path segments are quoted to avoid bad characters.
     ?assertEqual(match, re:run(Path, NsQuoted, [{capture, none}]), #{path => Path}),
+    ok.
+
+-doc """
+Smoke tests for multipart, multi-file uploads.
+""".
+t_smoke_multipart() ->
+    [{matrix, true}].
+t_smoke_multipart(matrix) ->
+    [[?local], [?cluster]];
+t_smoke_multipart(TCConfig) when is_list(TCConfig) ->
+    #{
+        cert_key := CertKeyRoot1,
+        cert_pem := CA1
+    } = gen_cert(#{key => ec, issuer => root}),
+    #{
+        cert_pem := Cert1,
+        key_pem := Key1
+    } = gen_cert(#{key => ec, issuer => CertKeyRoot1}),
+
+    Bundle1 = <<"bundle1">>,
+    Files1 = [
+        {?FILE_KIND_CA_BIN, <<"unused_ca_filename.pem">>, CA1},
+        {?FILE_KIND_CHAIN_BIN, <<"unused_chain_filename.pem">>, Cert1},
+        {?FILE_KIND_KEY_BIN, <<"unused_key_filename.pem">>, Key1}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_global(Bundle1, Files1)),
+    assert_same_bundles(?global_ns, TCConfig),
+
+    {200, #{
+        <<"ca">> := #{<<"path">> := PathCAGlobal1},
+        <<"chain">> := #{<<"path">> := PathCertGlobal1},
+        <<"key">> := #{<<"path">> := PathKeyGlobal1}
+    }} = list_files_global(Bundle1),
+    ?assertEqual(md5(CA1), read_md5(PathCAGlobal1)),
+    ?assertEqual(md5(Cert1), read_md5(PathCertGlobal1)),
+    ?assertEqual(md5(Key1), read_md5(PathKeyGlobal1)),
+
+    Ns2 = <<"ns2">>,
+    Bundle2 = <<"bundle2">>,
+    #{
+        cert_key := CertKeyRoot2,
+        cert_pem := CA2
+    } = gen_cert(#{key => ec, issuer => root}),
+    #{
+        cert_pem := Cert2,
+        key_pem := Key2
+    } = gen_cert(#{key => ec, issuer => CertKeyRoot2}),
+    Files2 = [
+        {?FILE_KIND_CA_BIN, <<"unused_ca_filename.pem">>, CA2},
+        {?FILE_KIND_CHAIN_BIN, <<"unused_chain_filename.pem">>, Cert2},
+        {?FILE_KIND_KEY_BIN, <<"unused_key_filename.pem">>, Key2}
+    ],
+    ?assertMatch({204, _}, upload_files_multipart_ns(Ns2, Bundle2, Files2)),
+    assert_same_bundles(Ns2, TCConfig),
+
+    {200, #{
+        <<"ca">> := #{<<"path">> := PathCANs2},
+        <<"chain">> := #{<<"path">> := PathCertNs2},
+        <<"key">> := #{<<"path">> := PathKeyNs2}
+    }} = list_files_ns(Ns2, Bundle2),
+    ?assertEqual(md5(CA2), read_md5(PathCANs2)),
+    ?assertEqual(md5(Cert2), read_md5(PathCertNs2)),
+    ?assertEqual(md5(Key2), read_md5(PathKeyNs2)),
+
+    %% Uploading nothing
+    ?assertMatch({400, _}, upload_files_multipart_global(Bundle2, [])),
+    ?assertMatch({400, _}, upload_files_multipart_ns(Ns2, Bundle2, [])),
+
     ok.
