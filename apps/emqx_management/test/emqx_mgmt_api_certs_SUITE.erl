@@ -493,3 +493,53 @@ t_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({400, _}, upload_file_ns(Ns1, Bundle1, some_unknown_type, Key3)),
 
     ok.
+
+-doc """
+Checks that we restrict the bundle name to a valid format.
+""".
+t_bundle_name_validation() ->
+    [{matrix, true}].
+t_bundle_name_validation(matrix) ->
+    [[?local]];
+t_bundle_name_validation(_TCConfig) ->
+    Ns = <<"some_ns">>,
+    BadBundleNames = [
+        binary:copy(<<"a">>, 255),
+        <<"-">>,
+        <<":">>,
+        <<"*">>,
+        <<"ç"/utf8>>
+    ],
+    #{cert_pem := CA} = gen_cert(#{key => ec, issuer => root}),
+    lists:foreach(
+        fun(BadBundleName0) ->
+            ct:pal("bad bundle name: ~ts", [BadBundleName0]),
+            BadBundleName = uri_string:quote(BadBundleName0),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"kind">> := <<"validation_error">>,
+                        <<"path">> := <<"name">>,
+                        <<"value">> := BadBundleName0
+                    }
+                }},
+                upload_file_global(BadBundleName, ?FILE_KIND_CA, CA),
+                #{bundle_name => BadBundleName}
+            ),
+            ?assertMatch(
+                {400, #{
+                    <<"message">> := #{
+                        <<"kind">> := <<"validation_error">>,
+                        <<"path">> := <<"name">>,
+                        <<"value">> := BadBundleName0
+                    }
+                }},
+                upload_file_ns(Ns, BadBundleName, ?FILE_KIND_CA, CA),
+                #{bundle_name => BadBundleName}
+            ),
+            ok
+        end,
+        BadBundleNames
+    ),
+
+    ok.

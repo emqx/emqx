@@ -10,5 +10,6 @@
 %% ACME account key
 -define(FILE_KIND_ACC_KEY, acc_key).
 -define(FILE_KIND_KEY_PASSWORD, key_password).
+%% ACME account key password is not supported so far.
 
 -endif.

@@ -213,6 +213,7 @@ param_path_bundle_name() ->
                 in => path,
                 required => true,
                 example => <<"bundle1">>,
+                validator => fun emqx_resource:validate_name/1,
                 desc => ?DESC("param_path_bundle_name")
             }
         )}.

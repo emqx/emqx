@@ -998,7 +998,7 @@ bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
 %% @doc Validate if name is valid for bridge.
-%% Throws and JSON-map error if invalid.
+%% Throws a JSON-map error if invalid.
 -spec validate_name(binary()) -> ok.
 validate_name(Name) ->
     _ = validate_name(Name, #{atom_name => false}),
