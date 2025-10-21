@@ -78,7 +78,6 @@ schema("/load_rebalance/status") ->
         'operationId' => '/load_rebalance/status',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get rebalance status">>,
             description => ?DESC("load_rebalance_status"),
             responses => #{
                 200 => local_status_response_schema()
@@ -90,7 +89,6 @@ schema("/load_rebalance/global_status") ->
         'operationId' => '/load_rebalance/global_status',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get global rebalance status">>,
             description => ?DESC("load_rebalance_global_status"),
             responses => #{
                 200 => ref(global_status)
@@ -102,11 +100,10 @@ schema("/load_rebalance/availability_check") ->
         'operationId' => '/load_rebalance/availability_check',
         get => #{
             tags => ?TAGS,
-            summary => <<"Node rebalance availability check">>,
             description => ?DESC("load_rebalance_availability_check"),
             responses => #{
                 200 => response_schema(),
-                503 => error_codes([?NODE_EVACUATING], <<"Node Evacuating">>)
+                503 => error_codes([?NODE_EVACUATING], ?DESC("node_evacuating"))
             },
             security => []
         }
@@ -116,7 +113,6 @@ schema("/load_rebalance/:node/start") ->
         'operationId' => '/load_rebalance/:node/start',
         post => #{
             tags => ?TAGS,
-            summary => <<"Start rebalancing with the node as coordinator">>,
             description => ?DESC("load_rebalance_start"),
             parameters => [param_node()],
             'requestBody' =>
@@ -126,8 +122,8 @@ schema("/load_rebalance/:node/start") ->
                 ),
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                404 => error_codes([?NOT_FOUND], ?DESC("not_found"))
             }
         }
     };
@@ -136,13 +132,12 @@ schema("/load_rebalance/:node/stop") ->
         'operationId' => '/load_rebalance/:node/stop',
         post => #{
             tags => ?TAGS,
-            summary => <<"Stop rebalancing coordinated by the node">>,
             description => ?DESC("load_rebalance_stop"),
             parameters => [param_node()],
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                404 => error_codes([?NOT_FOUND], ?DESC("not_found"))
             }
         }
     };
@@ -151,7 +146,6 @@ schema("/load_rebalance/:node/evacuation/start") ->
         'operationId' => '/load_rebalance/:node/evacuation/start',
         post => #{
             tags => ?TAGS,
-            summary => <<"Start evacuation on a node">>,
             description => ?DESC("load_rebalance_evacuation_start"),
             parameters => [param_node()],
             'requestBody' =>
@@ -161,8 +155,8 @@ schema("/load_rebalance/:node/evacuation/start") ->
                 ),
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                404 => error_codes([?NOT_FOUND], ?DESC("not_found"))
             }
         }
     };
@@ -171,13 +165,12 @@ schema("/load_rebalance/:node/evacuation/stop") ->
         'operationId' => '/load_rebalance/:node/evacuation/stop',
         post => #{
             tags => ?TAGS,
-            summary => <<"Stop evacuation on a node">>,
             description => ?DESC("load_rebalance_evacuation_stop"),
             parameters => [param_node()],
             responses => #{
                 200 => response_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                404 => error_codes([?NOT_FOUND], ?DESC("not_found"))
             }
         }
     }.
