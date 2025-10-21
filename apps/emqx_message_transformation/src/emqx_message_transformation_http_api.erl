@@ -67,7 +67,6 @@ schema("/message_transformations") ->
         'operationId' => '/message_transformations',
         get => #{
             tags => ?TAGS,
-            summary => <<"List transformations">>,
             description => ?DESC("list_transformations"),
             responses =>
                 #{
@@ -82,7 +81,6 @@ schema("/message_transformations") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Append a new transformation">>,
             description => ?DESC("append_transformation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_message_transformation_schema:api_schema(post),
@@ -95,12 +93,11 @@ schema("/message_transformations") ->
                             emqx_message_transformation_schema:api_schema(post),
                             example_return_create()
                         ),
-                    400 => error_schema('ALREADY_EXISTS', "Transformation already exists")
+                    400 => error_schema('ALREADY_EXISTS', ?DESC("transformation_already_exists"))
                 }
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update a transformation">>,
             description => ?DESC("update_transformation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_message_transformation_schema:api_schema(put),
@@ -113,8 +110,8 @@ schema("/message_transformations") ->
                             emqx_message_transformation_schema:api_schema(put),
                             example_return_update()
                         ),
-                    404 => error_schema('NOT_FOUND', "Transformation not found"),
-                    400 => error_schema('BAD_REQUEST', "Bad params")
+                    404 => error_schema('NOT_FOUND', ?DESC("transformation_not_found")),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bad_params"))
                 }
         }
     };
@@ -123,7 +120,6 @@ schema("/message_transformations/reorder") ->
         'operationId' => '/message_transformations/reorder',
         post => #{
             tags => ?TAGS,
-            summary => <<"Reorder all transformations">>,
             description => ?DESC("reorder_transformations"),
             'requestBody' =>
                 emqx_dashboard_swagger:schema_with_examples(
@@ -132,19 +128,19 @@ schema("/message_transformations/reorder") ->
                 ),
             responses =>
                 #{
-                    204 => <<"No Content">>,
+                    204 => ?DESC("no_content"),
                     400 => error_schema(
                         'BAD_REQUEST',
-                        <<"Bad request">>,
+                        ?DESC("bad_request"),
                         [
                             {not_found,
-                                mk(array(binary()), #{desc => "Transformations not found"})},
+                                mk(array(binary()), #{desc => ?DESC("transformations_not_found")})},
                             {not_reordered,
                                 mk(array(binary()), #{
-                                    desc => "Transformations not referenced in input"
+                                    desc => ?DESC("transformations_not_referenced")
                                 })},
                             {duplicated,
-                                mk(array(binary()), #{desc => "Duplicated transformations in input"})}
+                                mk(array(binary()), #{desc => ?DESC("duplicated_transformations")})}
                         ]
                     )
                 }
@@ -155,7 +151,6 @@ schema("/message_transformations/dryrun") ->
         'operationId' => '/message_transformations/dryrun',
         post => #{
             tags => ?TAGS,
-            summary => <<"Test an input against a configuration">>,
             description => ?DESC("dryrun_transformation"),
             'requestBody' =>
                 emqx_dashboard_swagger:schema_with_examples(
@@ -164,8 +159,8 @@ schema("/message_transformations/dryrun") ->
                 ),
             responses =>
                 #{
-                    200 => <<"TODO">>,
-                    400 => error_schema('BAD_REQUEST', <<"Bad request">>)
+                    200 => ?DESC("dryrun_success"),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bad_request"))
                 }
         }
     };
@@ -174,7 +169,6 @@ schema("/message_transformations/transformation/:name") ->
         'operationId' => '/message_transformations/transformation/:name',
         get => #{
             tags => ?TAGS,
-            summary => <<"Lookup a transformation">>,
             description => ?DESC("lookup_transformation"),
             parameters => [param_path_name()],
             responses =>
@@ -186,18 +180,17 @@ schema("/message_transformations/transformation/:name") ->
                             ),
                             example_return_lookup()
                         ),
-                    404 => error_schema('NOT_FOUND', "Transformation not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("transformation_not_found"))
                 }
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete a transformation">>,
             description => ?DESC("delete_transformation"),
             parameters => [param_path_name()],
             responses =>
                 #{
-                    204 => <<"Transformation deleted">>,
-                    404 => error_schema('NOT_FOUND', "Transformation not found")
+                    204 => ?DESC("transformation_deleted"),
+                    404 => error_schema('NOT_FOUND', ?DESC("transformation_not_found"))
                 }
         }
     };
@@ -206,7 +199,6 @@ schema("/message_transformations/transformation/:name/metrics") ->
         'operationId' => '/message_transformations/transformation/:name/metrics',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get transformation metrics">>,
             description => ?DESC("get_transformation_metrics"),
             parameters => [param_path_name()],
             responses =>
@@ -216,7 +208,7 @@ schema("/message_transformations/transformation/:name/metrics") ->
                             ref(get_metrics),
                             example_return_metrics()
                         ),
-                    404 => error_schema('NOT_FOUND', "Transformation not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("transformation_not_found"))
                 }
         }
     };
@@ -225,13 +217,12 @@ schema("/message_transformations/transformation/:name/metrics/reset") ->
         'operationId' => '/message_transformations/transformation/:name/metrics/reset',
         post => #{
             tags => ?TAGS,
-            summary => <<"Reset transformation metrics">>,
             description => ?DESC("reset_transformation_metrics"),
             parameters => [param_path_name()],
             responses =>
                 #{
-                    204 => <<"No content">>,
-                    404 => error_schema('NOT_FOUND', "Transformation not found")
+                    204 => ?DESC("no_content"),
+                    404 => error_schema('NOT_FOUND', ?DESC("transformation_not_found"))
                 }
         }
     };
@@ -240,14 +231,13 @@ schema("/message_transformations/transformation/:name/enable/:enable") ->
         'operationId' => '/message_transformations/transformation/:name/enable/:enable',
         post => #{
             tags => ?TAGS,
-            summary => <<"Enable or disable transformation">>,
             description => ?DESC("enable_disable_transformation"),
             parameters => [param_path_name(), param_path_enable()],
             responses =>
                 #{
-                    204 => <<"No content">>,
-                    404 => error_schema('NOT_FOUND', "Transformation not found"),
-                    400 => error_schema('BAD_REQUEST', "Bad params")
+                    204 => ?DESC("no_content"),
+                    404 => error_schema('NOT_FOUND', ?DESC("transformation_not_found")),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bad_params"))
                 }
         }
     }.
@@ -582,9 +572,7 @@ error_schema(Code, Message) ->
 
 error_schema(Code, Message, ExtraFields) when is_atom(Code) ->
     error_schema([Code], Message, ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message), ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
+error_schema(Codes, Message, ExtraFields) when is_list(Codes) ->
     ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
 
 do_reorder(Order) ->
