@@ -26,9 +26,7 @@
 %% Hookpoints
 %%-----------------------------------------------------------------------------
 
--define(HOOKPOINTS, [
-    'alarm.activated',
-    'alarm.deactivated',
+-define(MQTT_CLIENT_LIFECYCLE_HOOKPOINTS, [
     'channel.limiter_adjustment',
     'client.connect',
     'client.connack',
@@ -41,7 +39,7 @@
     'client.subscribe',
     'client.unsubscribe',
     'client.timeout',
-    'client.monitored_process_down',
+    'client.handle_info',
     'session.created',
     'session.subscribed',
     'session.unsubscribed',
@@ -58,11 +56,17 @@
     'message.acked',
     'delivery.dropped',
     'delivery.completed',
-    'cm.channel.unregistered',
-    'tls_handshake.psk_lookup',
-    'config.zones_updated',
-    'retainer.request_next'
+    'cm.channel.unregistered'
 ]).
+
+-define(MANAGEMENT_HOOKPOINTS, [
+    'alarm.activated',
+    'alarm.deactivated',
+    'tls_handshake.psk_lookup',
+    'config.zones_updated'
+]).
+
+-define(HOOKPOINTS, (?MQTT_CLIENT_LIFECYCLE_HOOKPOINTS ++ ?MANAGEMENT_HOOKPOINTS)).
 
 %% Our template plugin used this hookpoints before its 5.1.0 version,
 %% so we keep them here
@@ -88,7 +92,13 @@
 }.
 -type transformation_context() :: #{name := binary()}.
 -type validation_context() :: #{name := binary()}.
--type retainer_request_next_context() :: #{dispatch_cursor := term()}.
+-type common_chan_context() :: #{
+    %% Essentially `emqx_channel:info/2` with the channel in the function's closure.
+    chan_info_fn := fun((list(atom()) | atom() | tuple()) -> term()),
+    %% Essentially `emqx_session:info/2` with the channel's session in the function's
+    %% closure.
+    session_info_fn := fun((atom()) -> term())
+}.
 
 %%-----------------------------------------------------------------------------
 %% Callbacks
@@ -153,10 +163,17 @@ when
 when
     TopicFilters :: list({emqx_types:topic(), map()}).
 
--callback 'client.timeout'(_TimerReference :: reference(), _Msg :: term(), Replies) ->
+-callback 'client.timeout'(
+    _TimerReference :: reference(), _Msg :: term(), common_chan_context(), Replies
+) ->
     fold_callback_result(Replies)
 when
     Replies :: emqx_channel:replies().
+
+-callback 'client.handle_info'(_Msg :: term(), common_chan_context(), Replies) ->
+    fold_callback_result(Replies)
+when
+    Replies :: #{deliver := list(emqx_types:deliver()), replies := emqx_channel:replies()}.
 
 -callback 'client.monitored_process_down'(
     _MonitorRef :: reference(), _Pid :: pid(), _Reason :: term(), Replies
@@ -209,10 +226,10 @@ when
 -callback 'schema.validation_failed'(emqx_types:message(), validation_context()) ->
     callback_result().
 
--callback 'message.delivered'(emqx_types:clientinfo(), Msg) -> fold_callback_result(Msg) when
+-callback 'message.delivered'(common_chan_context(), Msg) -> fold_callback_result(Msg) when
     Msg :: emqx_types:message().
 
--callback 'message.acked'(emqx_types:clientinfo(), emqx_types:message()) -> callback_result().
+-callback 'message.acked'(common_chan_context(), emqx_types:message()) -> callback_result().
 
 -callback 'delivery.dropped'(emqx_types:clientinfo(), emqx_types:message(), _Reason :: atom()) ->
     callback_result().
@@ -248,9 +265,6 @@ when
 %% NOTE
 %% Executed out of channel process context
 -callback 'config.zones_updated'(_Old :: emqx_config:config(), _New :: emqx_config:config()) ->
-    callback_result().
-
--callback 'retainer.request_next'(retainer_request_next_context()) ->
     callback_result().
 
 %%-----------------------------------------------------------------------------

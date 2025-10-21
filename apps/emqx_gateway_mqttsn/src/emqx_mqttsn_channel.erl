@@ -752,13 +752,13 @@ handle_in(
         ?SN_RC_ACCEPTED ->
             case emqx_mqttsn_session:puback(ClientInfo, MsgId, Session) of
                 {ok, Msg, NSession} ->
-                    ok = after_message_acked(ClientInfo, Msg, Channel),
+                    ok = after_message_acked(Msg, Channel),
                     {Replies, NChannel} = goto_asleep_if_buffered_msgs_sent(
                         Channel#channel{session = NSession}
                     ),
                     {ok, Replies, NChannel};
                 {ok, Msg, Publishes, NSession} ->
-                    ok = after_message_acked(ClientInfo, Msg, Channel),
+                    ok = after_message_acked(Msg, Channel),
                     handle_out(
                         publish,
                         Publishes,
@@ -811,7 +811,7 @@ handle_in(
 ) ->
     case emqx_mqttsn_session:pubrec(ClientInfo, MsgId, Session) of
         {ok, Msg, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Channel),
+            ok = after_message_acked(Msg, Channel),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, MsgId, NChannel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
@@ -1013,12 +1013,13 @@ handle_in(
 handle_frame_error(Reason, Channel) ->
     shutdown(Reason, Channel).
 
-after_message_acked(ClientInfo, Msg, #channel{ctx = Ctx}) ->
+after_message_acked(Msg, #channel{ctx = Ctx} = Channel) ->
     ok = metrics_inc(Ctx, 'messages.acked'),
+    HookContext = mk_common_hook_context(Channel),
     run_hooks_without_metrics(
         Ctx,
         'message.acked',
-        [ClientInfo, emqx_message:set_header(puback_props, #{}, Msg)]
+        [HookContext, emqx_message:set_header(puback_props, #{}, Msg)]
     ).
 
 outgoing_and_update(Pkt) ->
@@ -1672,16 +1673,15 @@ do_deliver(
     {MsgId, Msg},
     Channel = #channel{
         ctx = Ctx,
-        clientinfo =
-            ClientInfo =
-                #{mountpoint := Mountpoint}
+        clientinfo = #{mountpoint := Mountpoint}
     }
 ) ->
     metrics_inc(Ctx, 'messages.delivered'),
+    HookContext = mk_common_hook_context(Channel),
     Msg1 = run_hooks_without_metrics(
         Ctx,
         'message.delivered',
-        [ClientInfo],
+        [HookContext],
         emqx_message:update_expiry(Msg)
     ),
     Msg2 = emqx_mountpoint:unmount(Mountpoint, Msg1),
@@ -2271,3 +2271,10 @@ returncode_name(?SN_RC2_REACHED_MAX_RETRY) -> reached_max_retry_times;
 returncode_name(_) -> accepted.
 
 name_to_returncode(not_authorized) -> ?SN_RC2_NOT_AUTHORIZE.
+
+mk_common_hook_context(Channel) ->
+    Session = Channel#channel.session,
+    #{
+        chan_info_fn => fun(Prop) -> emqx_mqttsn_channel:info(Prop, Channel) end,
+        session_info_fn => fun(Prop) -> emqx_mqttsn_session:info(Prop, Session) end
+    }.

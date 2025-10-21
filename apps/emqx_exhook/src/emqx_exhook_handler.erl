@@ -247,18 +247,22 @@ on_message_dropped(Message, _By, Reason) ->
     },
     emqx_exhook:cast('message.dropped', Req).
 
-on_message_delivered(_ClientInfo, #message{topic = <<"$SYS/", _/binary>>}) ->
+on_message_delivered(_HookContext, #message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
-on_message_delivered(ClientInfo, Message) ->
+on_message_delivered(HookContext, Message) ->
+    ChanInfoFn = maps:get(chan_info_fn, HookContext),
+    ClientInfo = ChanInfoFn(clientinfo),
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         message => message(Message)
     },
     emqx_exhook:cast('message.delivered', Req).
 
-on_message_acked(_ClientInfo, #message{topic = <<"$SYS/", _/binary>>}) ->
+on_message_acked(_HookContext, #message{topic = <<"$SYS/", _/binary>>}) ->
     ok;
-on_message_acked(ClientInfo, Message) ->
+on_message_acked(HookContext, Message) ->
+    ChanInfoFn = maps:get(chan_info_fn, HookContext),
+    ClientInfo = ChanInfoFn(clientinfo),
     Req = #{
         clientinfo => clientinfo(ClientInfo),
         message => message(Message)

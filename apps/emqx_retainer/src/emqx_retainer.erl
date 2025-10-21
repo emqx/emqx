@@ -270,11 +270,6 @@ init([]) ->
     erlang:process_flag(trap_exit, true),
     emqx_conf:add_handler([retainer], ?MODULE),
     ok = emqx_hooks:add('config.zones_updated', {?MODULE, on_config_zones_updated, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add(
-        'retainer.request_next',
-        {emqx_retainer_dispatcher, on_retainer_request_next, []},
-        ?HP_RETAINER
-    ),
     State = new_state(),
     RetainerConfig = emqx:get_config([retainer]),
     {ok,
@@ -321,7 +316,6 @@ handle_info(Info, State) ->
 terminate(_Reason, #{is_started := IsStarted} = State) ->
     emqx_conf:remove_handler([retainer]),
     emqx_hooks:del('config.zones_updated', {?MODULE, on_config_zones_updated}),
-    emqx_hooks:del('retainer.request_next', {emqx_retainer_dispatcher, on_retainer_request_next}),
     IsStarted andalso stop_retainer(State),
     ok.
 
@@ -505,6 +499,26 @@ load_hooks() ->
         'session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_RETAINER
     ),
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER),
+    ok = emqx_hooks:put(
+        'message.delivered',
+        {emqx_retainer_dispatcher, on_message_delivered, []},
+        ?HP_RETAINER
+    ),
+    ok = emqx_hooks:put(
+        'message.acked',
+        {emqx_retainer_dispatcher, on_message_acked, []},
+        ?HP_RETAINER
+    ),
+    ok = emqx_hooks:put(
+        'client.handle_info',
+        {emqx_retainer_dispatcher, on_client_handle_info, []},
+        ?HP_RETAINER
+    ),
+    ok = emqx_hooks:put(
+        'client.timeout',
+        {emqx_retainer_dispatcher, on_client_timeout, []},
+        ?HP_RETAINER
+    ),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
 
@@ -512,5 +526,9 @@ load_hooks() ->
 unload_hooks() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
+    ok = emqx_hooks:del('message.delivered', {emqx_retainer_dispatcher, on_message_delivered}),
+    ok = emqx_hooks:del('message.acked', {emqx_retainer_dispatcher, on_message_acked}),
+    ok = emqx_hooks:del('client.handle_info', {emqx_retainer_dispatcher, on_client_handle_info}),
+    ok = emqx_hooks:del('client.timeout', {emqx_retainer_dispatcher, on_client_timeout}),
     emqx_stats:cancel_update(emqx_retainer_stats),
     ok.

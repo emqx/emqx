@@ -443,7 +443,8 @@ prop_message_delivered() ->
         {ClientInfo, Msg, Meta},
         {clientinfo(), message(), request_meta()},
         begin
-            ok = emqx_hooks:run('message.delivered', [ClientInfo, Msg]),
+            HookContext = #{chan_info_fn => fun(clientinfo) -> ClientInfo end},
+            ok = emqx_hooks:run('message.delivered', [HookContext, Msg]),
             case emqx_topic:match(emqx_message:topic(Msg), <<"$SYS/#">>) of
                 true ->
                     skip;
@@ -466,7 +467,8 @@ prop_message_acked() ->
         {ClientInfo, Msg, Meta},
         {clientinfo(), message(), request_meta()},
         begin
-            ok = emqx_hooks:run('message.acked', [ClientInfo, Msg]),
+            HookContext = #{chan_info_fn => fun(clientinfo) -> ClientInfo end},
+            ok = emqx_hooks:run('message.acked', [HookContext, Msg]),
             case emqx_topic:match(emqx_message:topic(Msg), <<"$SYS/#">>) of
                 true ->
                     skip;

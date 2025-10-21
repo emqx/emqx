@@ -241,9 +241,10 @@ handle_deliver(
     Msgs = lists:map(
         fun({_, _, Msg}) ->
             ok = metrics_inc(Ctx, 'messages.delivered'),
+            HookContext = mk_common_hook_context(Channel),
             Msg1 = emqx_hooks:run_fold(
                 'message.delivered',
-                [ClientInfo],
+                [HookContext],
                 Msg
             ),
             NMsg = emqx_mountpoint:unmount(Mountpoint, Msg1),
@@ -871,3 +872,9 @@ proto_name_to_protocol(<<>>) ->
     exproto;
 proto_name_to_protocol(ProtoName) when is_binary(ProtoName) ->
     binary_to_atom(ProtoName).
+
+mk_common_hook_context(Channel) ->
+    #{
+        chan_info_fn => fun(Prop) -> emqx_exproto_channel:info(Prop, Channel) end,
+        session_info_fn => fun(_Prop) -> undefined end
+    }.

@@ -274,11 +274,13 @@ on_schema_validation_failed(Message, ValidationContext, Conf) ->
     end,
     {ok, Message}.
 
-on_message_delivered(ClientInfo, Message, Conf) ->
+on_message_delivered(HookContext, Message, Conf) ->
     case ignore_sys_message(Message) of
         true ->
             ok;
         false ->
+            ChanInfoFn = maps:get(chan_info_fn, HookContext),
+            ClientInfo = ChanInfoFn(clientinfo),
             apply_event(
                 'message.delivered',
                 fun() -> eventmsg_delivered(ClientInfo, Message) end,
@@ -287,11 +289,13 @@ on_message_delivered(ClientInfo, Message, Conf) ->
     end,
     {ok, Message}.
 
-on_message_acked(ClientInfo, Message, Conf) ->
+on_message_acked(HookContext, Message, Conf) ->
     case ignore_sys_message(Message) of
         true ->
             ok;
         false ->
+            ChanInfoFn = maps:get(chan_info_fn, HookContext),
+            ClientInfo = ChanInfoFn(clientinfo),
             apply_event(
                 'message.acked',
                 fun() -> eventmsg_acked(ClientInfo, Message) end,
