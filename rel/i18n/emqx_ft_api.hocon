@@ -12,6 +12,26 @@ file_transfer_get_config.desc:
 file_transfer_update_config.desc:
 """Replace File Transfer configuration."""
 
+operation_success.desc:
+"""Operation success"""
+operation_success.label:
+"""Operation Success"""
+
+mqtt_client_id.desc:
+"""MQTT Client ID"""
+mqtt_client_id.label:
+"""MQTT Client ID"""
+
+file_id.desc:
+"""File ID"""
+file_id.label:
+"""File ID"""
+
+cursor_to_start_listing.desc:
+"""Cursor to start listing files from"""
+cursor_to_start_listing.label:
+"""Cursor to Start Listing"""
+
 }
 
 emqx_ft_storage_exporter_fs_api {
