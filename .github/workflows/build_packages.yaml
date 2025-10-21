@@ -63,11 +63,11 @@ on:
       elixir_vsn:
         required: false
         type: string
-        default: '1.18.4'
+        default: '1.19.1'
       builder_vsn:
         required: false
         type: string
-        default: '6.0-1'
+        default: '6.0-2'
 
 permissions:
   contents: read

@@ -2,7 +2,7 @@ services:
   erlang:
     hostname: erlang.emqx.net
     container_name: erlang
-    image: ${DOCKER_CT_RUNNER_IMAGE:-ghcr.io/emqx/emqx-builder/6.0-1:1.18.4-28.1-1-ubuntu24.04}
+    image: ${DOCKER_CT_RUNNER_IMAGE:-ghcr.io/emqx/emqx-builder/6.0-2:1.19.1-28.1-1-ubuntu24.04}
     env_file:
       - credentials.env
       - conf.env
