@@ -58,7 +58,6 @@ schema("/schema_registry") ->
         'operationId' => '/schema_registry',
         get => #{
             tags => ?TAGS,
-            summary => <<"List registered schemas">>,
             description => ?DESC("desc_schema_registry_api_list"),
             responses =>
                 #{
@@ -74,7 +73,6 @@ schema("/schema_registry") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Register a new schema">>,
             description => ?DESC("desc_schema_registry_api_post"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_registry_schema:api_schema("post"),
@@ -87,7 +85,7 @@ schema("/schema_registry") ->
                             emqx_schema_registry_schema:api_schema("post"),
                             post_examples()
                         ),
-                    400 => error_schema('ALREADY_EXISTS', "Schema already exists")
+                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
                 }
         }
     };
@@ -97,7 +95,6 @@ schema("/schema_registry_protobuf/bundle") ->
         filter => fun ?MODULE:validate_protobuf_bundle_request/2,
         post => #{
             tags => ?TAGS,
-            summary => <<"Upload a Protobuf bundle for a new schema">>,
             description => ?DESC("protobuf_bundle_create"),
             'requestBody' => protobuf_bundle_request_body(),
             responses =>
@@ -117,7 +114,6 @@ schema("/schema_registry_protobuf/bundle") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Upload a Protobuf bundle for an existing schema">>,
             description => ?DESC("protobuf_bundle_update"),
             'requestBody' => protobuf_bundle_request_body(),
             responses =>
@@ -127,7 +123,7 @@ schema("/schema_registry_protobuf/bundle") ->
                             ?R_REF(emqx_schema_registry_schema, "put_protobuf"),
                             put_examples()
                         ),
-                    404 => error_schema('NOT_FOUND', "Schema not found"),
+                    404 => error_schema('NOT_FOUND', ?DESC("schema_not_found")),
                     400 => emqx_dashboard_swagger:error_codes(['BAD_FORM_DATA'])
                 }
         }
@@ -137,7 +133,6 @@ schema("/schema_registry/:name") ->
         'operationId' => '/schema_registry/:name',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get registered schema">>,
             description => ?DESC("desc_schema_registry_api_get"),
             parameters => [param_path_schema_name()],
             responses =>
@@ -147,12 +142,11 @@ schema("/schema_registry/:name") ->
                             emqx_schema_registry_schema:api_schema("get"),
                             get_examples()
                         ),
-                    404 => error_schema('NOT_FOUND', "Schema not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update a schema">>,
             description => ?DESC("desc_schema_registry_api_put"),
             parameters => [param_path_schema_name()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -166,18 +160,17 @@ schema("/schema_registry/:name") ->
                             emqx_schema_registry_schema:api_schema("put"),
                             post_examples()
                         ),
-                    404 => error_schema('NOT_FOUND', "Schema not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete registered schema">>,
             description => ?DESC("desc_schema_registry_api_delete"),
             parameters => [param_path_schema_name()],
             responses =>
                 #{
-                    204 => <<"Schema deleted">>,
-                    404 => error_schema('NOT_FOUND', "Schema not found")
+                    204 => ?DESC("schema_deleted"),
+                    404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         }
     };
@@ -186,7 +179,6 @@ schema("/schema_registry_external") ->
         'operationId' => '/schema_registry_external',
         get => #{
             tags => ?TAGS,
-            summary => <<"List external registries">>,
             description => ?DESC("external_registry_list"),
             responses =>
                 #{
@@ -204,7 +196,6 @@ schema("/schema_registry_external") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Add a new external registry">>,
             description => ?DESC("external_registry_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 hoconsc:union(fun create_external_registry_union/1),
@@ -217,7 +208,7 @@ schema("/schema_registry_external") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(get)
                         ),
-                    400 => error_schema('ALREADY_EXISTS', "Schema already exists")
+                    400 => error_schema('ALREADY_EXISTS', ?DESC("schema_already_exists"))
                 }
         }
     };
@@ -226,7 +217,6 @@ schema("/schema_registry_external/registry/:name") ->
         'operationId' => '/schema_registry_external/registry/:name',
         get => #{
             tags => ?TAGS,
-            summary => <<"Lookup external registry">>,
             description => ?DESC("external_registry_lookup"),
             parameters => [param_path_external_registry_name()],
             responses =>
@@ -236,12 +226,11 @@ schema("/schema_registry_external/registry/:name") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(put)
                         ),
-                    404 => error_schema('NOT_FOUND', "Schema not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update external registry">>,
             description => ?DESC("external_registry_update"),
             parameters => [param_path_external_registry_name()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -255,15 +244,14 @@ schema("/schema_registry_external/registry/:name") ->
                             emqx_schema_registry_schema:external_registry_type(),
                             create_external_registry_input_examples(put)
                         ),
-                    404 => error_schema('NOT_FOUND', "Schema not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("schema_not_found"))
                 }
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete external registry">>,
             description => ?DESC("external_registry_delete"),
             parameters => [param_path_external_registry_name()],
-            responses => #{204 => <<"Deleted">>}
+            responses => #{204 => ?DESC("deleted")}
         }
     }.
 
@@ -649,9 +637,7 @@ mk(Type, Meta) -> hoconsc:mk(Type, Meta).
 
 error_schema(Code, Message) when is_atom(Code) ->
     error_schema([Code], Message);
-error_schema(Codes, Message) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message));
-error_schema(Codes, Message) when is_list(Codes) andalso is_binary(Message) ->
+error_schema(Codes, ?DESC(_) = Message) when is_list(Codes) ->
     emqx_dashboard_swagger:error_codes(Codes, Message).
 
 external_registry_out(Registry) ->
