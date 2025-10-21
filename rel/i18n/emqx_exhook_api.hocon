@@ -121,4 +121,24 @@ update_server.desc:
 update_server.label:
 """Update the server"""
 
+bad_rpc.desc:
+"""Bad RPC"""
+bad_rpc.label:
+"""Bad RPC"""
+
+already_exists.desc:
+"""Already exists"""
+already_exists.label:
+"""Already Exists"""
+
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+server_not_found.desc:
+"""Server not found"""
+server_not_found.label:
+"""Server Not Found"""
+
 }

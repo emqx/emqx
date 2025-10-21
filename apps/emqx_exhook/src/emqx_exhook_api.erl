@@ -70,8 +70,8 @@ schema(("/exhooks")) ->
             'requestBody' => server_conf_schema(),
             responses => #{
                 200 => mk(ref(detail_server_info)),
-                400 => error_codes([?BAD_REQUEST], <<"Already exists">>),
-                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("already_exists")),
+                500 => error_codes([?BAD_RPC], ?DESC("bad_rpc"))
             }
         }
     };
@@ -84,7 +84,7 @@ schema("/exhooks/:name") ->
             parameters => params_server_name_in_path(),
             responses => #{
                 200 => mk(ref(detail_server_info)),
-                404 => error_codes([?NOT_FOURD], <<"Server not found">>)
+                404 => error_codes([?NOT_FOURD], ?DESC("server_not_found"))
             }
         },
         put => #{
@@ -94,9 +94,9 @@ schema("/exhooks/:name") ->
             'requestBody' => server_conf_schema(),
             responses => #{
                 200 => mk(ref(detail_server_info)),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOURD], <<"Server not found">>),
-                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                404 => error_codes([?NOT_FOURD], ?DESC("server_not_found")),
+                500 => error_codes([?BAD_RPC], ?DESC("bad_rpc"))
             }
         },
         delete => #{
@@ -105,8 +105,8 @@ schema("/exhooks/:name") ->
             parameters => params_server_name_in_path(),
             responses => #{
                 204 => <<>>,
-                404 => error_codes([?NOT_FOURD], <<"Server not found">>),
-                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+                404 => error_codes([?NOT_FOURD], ?DESC("server_not_found")),
+                500 => error_codes([?BAD_RPC], ?DESC("bad_rpc"))
             }
         }
     };
@@ -119,7 +119,7 @@ schema("/exhooks/:name/hooks") ->
             parameters => params_server_name_in_path(),
             responses => #{
                 200 => mk(array(ref(list_hook_info))),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request"))
             }
         }
     };
@@ -136,8 +136,8 @@ schema("/exhooks/:name/move") ->
             ),
             responses => #{
                 204 => <<"No Content">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                500 => error_codes([?BAD_RPC], <<"Bad RPC">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                500 => error_codes([?BAD_RPC], ?DESC("bad_rpc"))
             }
         }
     }.
