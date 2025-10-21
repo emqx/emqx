@@ -88,4 +88,14 @@ desc_type.desc:
 desc_type.label:
 """Action Type"""
 
+http_action_config.desc:
+"""HTTP Action Config."""
+http_action_config.label:
+"""HTTP Action Config"""
+
+webhook_config_method.desc:
+"""Configuration for WebHook using the specified method."""
+webhook_config_method.label:
+"""WebHook Configuration Method"""
+
 }

@@ -87,7 +87,8 @@ schema("/message_queues/queues") ->
                     get_message_queue_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['ALREADY_EXISTS'], ?DESC(message_queue_already_exists)
+                    ['ALREADY_EXISTS', 'MAX_QUEUE_COUNT_REACHED'],
+                    ?DESC(cannot_create_message_queue)
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], ?DESC(service_unavailable)
@@ -278,6 +279,8 @@ put_message_queue_config_example() ->
             ?OK(CreatedMessageQueueRaw);
         {error, queue_exists} ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"Message queue already exists">>);
+        {error, max_queue_count_reached} ->
+            ?BAD_REQUEST('MAX_QUEUE_COUNT_REACHED', <<"Max queue count reached">>);
         {error, Reason} ->
             ?SERVICE_UNAVAILABLE(Reason)
     end.
@@ -320,6 +323,13 @@ put_message_queue_config_example() ->
             ?NO_CONTENT;
         {error, {post_config_update, emqx_mq_config, #{reason := cannot_disable_mq_in_runtime}}} ->
             ?BAD_REQUEST(<<"Cannot disable MQ subsystem via API">>);
+        {error,
+            {post_config_update, emqx_mq_config, #{
+                reason := cannot_enable_both_regular_and_lastvalue_auto_create
+            }}} ->
+            ?BAD_REQUEST(
+                <<"Queues should be configured to be automatically created either as regular or lastvalue">>
+            );
         {error, Reason} ->
             ?BAD_REQUEST(Reason)
     end.

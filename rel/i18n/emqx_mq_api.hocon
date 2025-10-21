@@ -39,8 +39,8 @@ emqx_mq_api {
     message_queues_delete_success {
         desc: "Message queue deleted successfully"
     }
-    message_queue_already_exists {
-        desc: "Message queue already exists"
+    cannot_create_message_queue {
+        desc: "Cannot create message queue"
     }
     message_queue_not_found {
         desc: "Message queue not found"

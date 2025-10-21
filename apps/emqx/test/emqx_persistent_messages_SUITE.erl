@@ -82,7 +82,7 @@ init_per_testcase(TestCase, Config) ->
 common_init_per_testcase(TestCase, Config, Opts0) ->
     Opts = Opts0#{
         work_dir => emqx_cth_suite:work_dir(TestCase, Config),
-        start_emqx_conf => false
+        start_emqx_conf => true
     },
     Result = emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts),
     ok = emqx_persistent_message:wait_readiness(5_000),
@@ -435,6 +435,38 @@ t_replication_options(_Config) ->
             wal_sync_method := datasync
         },
         ra_system:fetch(?PERSISTENT_MESSAGE_DB)
+    ).
+
+%% This testcase verifies dynamic reconfiguration capability of
+%% `emqx_ds_schema' module.
+%%
+%% Dynamic config update should be triggered for the given DB.
+t_runtime_config_update(_Config) ->
+    %% List of config roots with the DBs dependent on them
+    L = [
+        {?DURABLE_TIMERS_DB, ?DURABLE_TIMERS_DB},
+        {?PERSISTENT_MESSAGE_DB, ?PERSISTENT_MESSAGE_DB},
+        {?DURABLE_SESSION_STATE_DB, ?DURABLE_SESSION_STATE_DB},
+        {?MQ_STATE_CONF_ROOT, ?MQ_STATE_DB},
+        {?MQ_MESSAGE_CONF_ROOT, ?MQ_MESSAGE_REGULAR_DB},
+        {?MQ_MESSAGE_CONF_ROOT, ?MQ_MESSAGE_LASTVALUE_DB}
+    ],
+    ?check_trace(
+        #{timetrap => 5_000},
+        lists:foreach(
+            fun({ConfRoot, DB}) ->
+                ?wait_async_action(
+                    emqx_conf:update(
+                        [durable_storage, ConfRoot, transaction, idle_flush_interval],
+                        10,
+                        #{persistent => false}
+                    ),
+                    #{?snk_kind := "ds_db_runtime_config_update", db := DB}
+                )
+            end,
+            L
+        ),
+        []
     ).
 
 %%

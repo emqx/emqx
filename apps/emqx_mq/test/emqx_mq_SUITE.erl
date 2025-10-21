@@ -62,7 +62,8 @@ init_per_testcase(_CaseName, Config) ->
 
 end_per_testcase(_CaseName, _Config) ->
     ok = snabbkaffe:stop(),
-    ok = emqx_mq_test_utils:cleanup_mqs().
+    ok = emqx_mq_test_utils:cleanup_mqs(),
+    ok = emqx_mq_test_utils:reset_config().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -74,7 +75,8 @@ t_publish_and_consume(_Config) ->
     _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% Publish 100 messages to the queue
-    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>, qos => 0}),
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
@@ -90,7 +92,8 @@ t_publish_and_consume(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
 
     %% Publish 100 more messages to the queue
-    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>}),
+    emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>, qos => 0}),
 
     %% Consume the rest messages
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 100, _Timeout1 = 1000),
@@ -1164,6 +1167,41 @@ t_ack_to_message_from_lost_consumer(_Config) ->
         #{?snk_kind := mq_on_delivery_completed_sub_not_found},
         1000
     ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify that the queue may be automatically created when a client subscribes to a non-existent queue
+t_auto_create(_Config) ->
+    %% Enable automatic creation of regular queues
+    emqx:update_config([mq, auto_create], #{<<"regular">> => #{}, <<"lastvalue">> => false}),
+
+    %% Connect a client and subscribe to a non-existent queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"non-existent/#">>),
+
+    %% Verify that the queue was automatically created
+    ?assert(emqx_mq_registry:is_present(<<"non-existent/#">>)),
+
+    %% Publish and verfy some messages
+    emqx_mq_test_utils:populate(10, #{topic_prefix => <<"non-existent/">>}),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
+    ?assertEqual(10, length(Msgs)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify that the queue is not automatically created when automatic creation is disabled
+t_auto_create_disabled(_Config) ->
+    %% Ensure automatic creation of queues is disabled
+    emqx:update_config([mq, auto_create], #{<<"regular">> => false, <<"lastvalue">> => false}),
+
+    %% Connect a client and subscribe to a non-existent queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"non-existent/#">>),
+
+    %% Verify that the queue was not automatically created
+    ?assert(not emqx_mq_registry:is_present(<<"non-existent/#">>)),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).

@@ -60,7 +60,6 @@ schema("/schema_validations") ->
         'operationId' => '/schema_validations',
         get => #{
             tags => ?TAGS,
-            summary => <<"List validations">>,
             description => ?DESC("list_validations"),
             responses =>
                 #{
@@ -75,7 +74,6 @@ schema("/schema_validations") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Append a new validation">>,
             description => ?DESC("append_validation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_validation_schema:api_schema(post),
@@ -88,12 +86,11 @@ schema("/schema_validations") ->
                             emqx_schema_validation_schema:api_schema(post),
                             example_return_create()
                         ),
-                    400 => error_schema('ALREADY_EXISTS', "Validation already exists")
+                    400 => error_schema('ALREADY_EXISTS', ?DESC("validation_already_exists"))
                 }
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update a validation">>,
             description => ?DESC("update_validation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_validation_schema:api_schema(put),
@@ -106,8 +103,8 @@ schema("/schema_validations") ->
                             emqx_schema_validation_schema:api_schema(put),
                             example_return_update()
                         ),
-                    404 => error_schema('NOT_FOUND', "Validation not found"),
-                    400 => error_schema('BAD_REQUEST', "Bad params")
+                    404 => error_schema('NOT_FOUND', ?DESC("validation_not_found")),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bad_params"))
                 }
         }
     };
@@ -116,7 +113,6 @@ schema("/schema_validations/reorder") ->
         'operationId' => '/schema_validations/reorder',
         post => #{
             tags => ?TAGS,
-            summary => <<"Reorder all validations">>,
             description => ?DESC("reorder_validations"),
             'requestBody' =>
                 emqx_dashboard_swagger:schema_with_examples(
@@ -125,16 +121,17 @@ schema("/schema_validations/reorder") ->
                 ),
             responses =>
                 #{
-                    204 => <<"No Content">>,
+                    204 => ?DESC("no_content"),
                     400 => error_schema(
                         'BAD_REQUEST',
-                        <<"Bad request">>,
+                        ?DESC("bad_request"),
                         [
-                            {not_found, mk(array(binary()), #{desc => "Validations not found"})},
+                            {not_found,
+                                mk(array(binary()), #{desc => ?DESC("validations_not_found")})},
                             {not_reordered,
-                                mk(array(binary()), #{desc => "Validations not referenced in input"})},
+                                mk(array(binary()), #{desc => ?DESC("validations_not_referenced")})},
                             {duplicated,
-                                mk(array(binary()), #{desc => "Duplicated validations in input"})}
+                                mk(array(binary()), #{desc => ?DESC("duplicated_validations")})}
                         ]
                     )
                 }
@@ -145,7 +142,6 @@ schema("/schema_validations/validation/:name") ->
         'operationId' => '/schema_validations/validation/:name',
         get => #{
             tags => ?TAGS,
-            summary => <<"Lookup a validation">>,
             description => ?DESC("lookup_validation"),
             parameters => [param_path_name()],
             responses =>
@@ -157,18 +153,17 @@ schema("/schema_validations/validation/:name") ->
                             ),
                             example_return_lookup()
                         ),
-                    404 => error_schema('NOT_FOUND', "Validation not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("validation_not_found"))
                 }
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete a validation">>,
             description => ?DESC("delete_validation"),
             parameters => [param_path_name()],
             responses =>
                 #{
-                    204 => <<"Validation deleted">>,
-                    404 => error_schema('NOT_FOUND', "Validation not found")
+                    204 => ?DESC("validation_deleted"),
+                    404 => error_schema('NOT_FOUND', ?DESC("validation_not_found"))
                 }
         }
     };
@@ -177,7 +172,6 @@ schema("/schema_validations/validation/:name/metrics") ->
         'operationId' => '/schema_validations/validation/:name/metrics',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get validation metrics">>,
             description => ?DESC("get_validation_metrics"),
             parameters => [param_path_name()],
             responses =>
@@ -187,7 +181,7 @@ schema("/schema_validations/validation/:name/metrics") ->
                             ref(get_metrics),
                             example_return_metrics()
                         ),
-                    404 => error_schema('NOT_FOUND', "Validation not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("validation_not_found"))
                 }
         }
     };
@@ -196,13 +190,12 @@ schema("/schema_validations/validation/:name/metrics/reset") ->
         'operationId' => '/schema_validations/validation/:name/metrics/reset',
         post => #{
             tags => ?TAGS,
-            summary => <<"Reset validation metrics">>,
             description => ?DESC("reset_validation_metrics"),
             parameters => [param_path_name()],
             responses =>
                 #{
-                    204 => <<"No content">>,
-                    404 => error_schema('NOT_FOUND', "Validation not found")
+                    204 => ?DESC("no_content"),
+                    404 => error_schema('NOT_FOUND', ?DESC("validation_not_found"))
                 }
         }
     };
@@ -211,14 +204,13 @@ schema("/schema_validations/validation/:name/enable/:enable") ->
         'operationId' => '/schema_validations/validation/:name/enable/:enable',
         post => #{
             tags => ?TAGS,
-            summary => <<"Enable or disable validation">>,
             description => ?DESC("enable_disable_validation"),
             parameters => [param_path_name(), param_path_enable()],
             responses =>
                 #{
-                    204 => <<"No content">>,
-                    404 => error_schema('NOT_FOUND', "Validation not found"),
-                    400 => error_schema('BAD_REQUEST', "Bad params")
+                    204 => ?DESC("no_content"),
+                    404 => error_schema('NOT_FOUND', ?DESC("validation_not_found")),
+                    400 => error_schema('BAD_REQUEST', ?DESC("bad_params"))
                 }
         }
     }.
@@ -510,9 +502,7 @@ error_schema(Code, Message) ->
 
 error_schema(Code, Message, ExtraFields) when is_atom(Code) ->
     error_schema([Code], Message, ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Message) ->
-    error_schema(Codes, list_to_binary(Message), ExtraFields);
-error_schema(Codes, Message, ExtraFields) when is_list(Codes) andalso is_binary(Message) ->
+error_schema(Codes, Message, ExtraFields) when is_list(Codes) ->
     ExtraFields ++ emqx_dashboard_swagger:error_codes(Codes, Message).
 
 do_reorder(Order) ->

@@ -1,99 +1,128 @@
 emqx_connector_api {
 
-desc_api1.desc:
-"""List all created connectors."""
+desc_param_path_operation_cluster.desc:
+"""Operation."""
+desc_param_path_operation_cluster.label:
+"""Operation"""
 
+desc_param_path_operation_on_node.desc:
+"""Operation."""
+desc_param_path_operation_on_node.label:
+"""Operation"""
+
+desc_param_path_node.desc:
+"""Node name."""
+desc_param_path_node.label:
+"""Node Name"""
+
+desc_param_path_id.desc:
+"""Connector ID."""
+desc_param_path_id.label:
+"""Connector ID"""
+
+desc_param_path_enable.desc:
+"""Enable or disable."""
+desc_param_path_enable.label:
+"""Enable/Disable"""
+
+desc_api1.desc:
+"""List connectors."""
 desc_api1.label:
-"""List All Connectors"""
+"""List Connectors"""
 
 desc_api2.desc:
-"""Create a new connector by type and name."""
-
+"""Create connector."""
 desc_api2.label:
 """Create Connector"""
 
 desc_api3.desc:
-"""Get a connector by id."""
-
+"""Get connector."""
 desc_api3.label:
 """Get Connector"""
 
 desc_api4.desc:
-"""Update a connector by id."""
-
+"""Update connector."""
 desc_api4.label:
 """Update Connector"""
 
 desc_api5.desc:
-"""Delete a connector by id."""
-
+"""Delete connector."""
 desc_api5.label:
 """Delete Connector"""
 
-desc_api6.desc:
-"""Reset a connector metrics by id."""
-
-desc_api6.label:
-"""Reset Connector Metrics"""
+desc_enable_connector.desc:
+"""Enable or disable connector."""
+desc_enable_connector.label:
+"""Enable/Disable Connector"""
 
 desc_api7.desc:
-"""Start connector on all nodes in the cluster."""
-
+"""Manually start a connector."""
 desc_api7.label:
-"""Cluster Connector Operate"""
+"""Start Connector"""
 
 desc_api8.desc:
-"""Start connector on a specific node."""
-
+"""Manually start a connector on a given node."""
 desc_api8.label:
-"""Node Connector Operate"""
+"""Start Connector on Node"""
 
 desc_api9.desc:
-"""Test creating a new connector."""
-
+"""Test creating connector."""
 desc_api9.label:
-"""Test Connector Creation"""
+"""Test Connector"""
 
-desc_connector_metrics.desc:
-"""Get connector metrics by id."""
+connector_already_exists.desc:
+"""Connector already exists."""
+connector_already_exists.label:
+"""Connector Already Exists"""
 
-desc_connector_metrics.label:
-"""Get Connector Metrics"""
+connector_not_found.desc:
+"""Connector not found."""
+connector_not_found.label:
+"""Connector Not Found"""
 
-desc_enable_connector.desc:
-"""Enable or Disable connector on all nodes in the cluster."""
+update_connector_failed.desc:
+"""Update connector failed."""
+update_connector_failed.label:
+"""Update Connector Failed"""
 
-desc_enable_connector.label:
-"""Cluster Connector Enable"""
+cannot_delete_connector_with_active_rules.desc:
+"""Cannot delete connector while active rules are defined for this connector."""
+cannot_delete_connector_with_active_rules.label:
+"""Cannot Delete Connector With Active Rules"""
 
-desc_param_path_enable.desc:
-"""Whether to enable this connector."""
+service_unavailable.desc:
+"""Service unavailable."""
+service_unavailable.label:
+"""Service Unavailable"""
 
-desc_param_path_enable.label:
-"""Enable connector"""
+connector_not_found_or_invalid_operation.desc:
+"""Connector not found or invalid operation."""
+connector_not_found_or_invalid_operation.label:
+"""Connector Not Found or Invalid Operation"""
 
-desc_param_path_id.desc:
-"""The connector id. Must be of format {type}:{name}."""
+problem_with_external_service.desc:
+"""Problem with configuration of external service."""
+problem_with_external_service.label:
+"""Problem With External Service"""
 
-desc_param_path_id.label:
-"""Connector ID"""
+not_implemented.desc:
+"""Not Implemented."""
+not_implemented.label:
+"""Not Implemented"""
 
-desc_param_path_node.desc:
-"""The node name, e.g. 'emqx@127.0.0.1'."""
+problem_with_external_service_or_not_enabled.desc:
+"""Problem with configuration of external service or connector not enabled."""
+problem_with_external_service_or_not_enabled.label:
+"""Problem With External Service or Not Enabled"""
 
-desc_param_path_node.label:
-"""The node name"""
+connector_or_node_not_found.desc:
+"""Connector or node not found or invalid operation."""
+connector_or_node_not_found.label:
+"""Connector or Node Not Found"""
 
-desc_param_path_operation_cluster.desc:
-"""Operation can be one of: 'start'."""
-
-desc_param_path_operation_cluster.label:
-"""Cluster Operation"""
-
-desc_param_path_operation_on_node.desc:
-"""Operation can be one of: 'start'."""
-
-desc_param_path_operation_on_node.label:
-"""Node Operation"""
+connector_test_failed.desc:
+"""connector test failed."""
+connector_test_failed.label:
+"""Connector Test Failed"""
 
 }

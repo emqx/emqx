@@ -13,7 +13,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("kernel/include/file.hrl").
--include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_trace.hrl").
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -198,6 +198,31 @@ t_create_with_extra_fields(_Config) ->
         emqx_trace:list()
     ),
     ok.
+
+t_create_bw_compat(_Config) ->
+    ok = emqx_trace:clear(),
+    Name = <<"t_create_bw_compat">>,
+    %% Manually insert pre-6.0 trace:
+    {atomic, ok} = mria:transaction(?COMMON_SHARD, fun() ->
+        TracePre = #?TRACE{
+            name = <<"t_create_bw_compat:pre">>,
+            type = clientid,
+            filter = <<"clientid">>,
+            start_at = 0,
+            end_at = 0
+        },
+        mnesia:write(?TRACE, TracePre, write)
+    end),
+    %% Now create one more:
+    Trace = #{
+        name => Name,
+        filter => {topic, <<"x/y/z">>},
+        clientid => <<"bwcompat">>
+    },
+    ?assertMatch(
+        {ok, _},
+        emqx_trace:create(Trace)
+    ).
 
 t_update_enable(_Config) ->
     Name = <<"test-name">>,

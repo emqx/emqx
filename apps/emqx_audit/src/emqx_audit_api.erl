@@ -146,7 +146,6 @@ schema("/audit") ->
                 ref(emqx_dashboard_swagger, page),
                 ref(emqx_dashboard_swagger, limit)
             ],
-            summary => <<"List audit logs">>,
             responses => #{
                 200 =>
                     emqx_dashboard_swagger:schema_with_example(
@@ -155,7 +154,7 @@ schema("/audit") ->
                     ),
                 400 => emqx_dashboard_swagger:error_codes(
                     ['BAD_REQUEST'],
-                    ?DISABLE_MSG
+                    ?DESC("audit_disabled")
                 )
             }
         }
@@ -172,60 +171,60 @@ fields(audit) ->
             ?HOCON(
                 emqx_utils_calendar:epoch_microsecond(),
                 #{
-                    desc => "The time when the log is created"
+                    desc => ?DESC("audit_created_at")
                 }
             )},
         {node,
             ?HOCON(binary(), #{
-                desc => "The node name to which the log is created"
+                desc => ?DESC("audit_node")
             })},
         {from,
             ?HOCON(?ENUM([dashboard, rest_api, cli, erlang_console]), #{
-                desc => "The source type of the log"
+                desc => ?DESC("audit_from")
             })},
         {source,
             ?HOCON(binary(), #{
-                desc => "The source of the log"
+                desc => ?DESC("audit_source")
             })},
         {source_ip,
             ?HOCON(binary(), #{
-                desc => "The source ip of the log"
+                desc => ?DESC("audit_source_ip")
             })},
         {operation_id,
             ?HOCON(binary(), #{
-                desc => "The operation id of the log"
+                desc => ?DESC("audit_operation_id")
             })},
         {operation_type,
             ?HOCON(binary(), #{
-                desc => "The operation type of the log"
+                desc => ?DESC("audit_operation_type")
             })},
         {operation_result,
             ?HOCON(?ENUM([success, failure]), #{
-                desc => "The operation result of the log"
+                desc => ?DESC("audit_operation_result")
             })},
         {http_status_code,
             ?HOCON(integer(), #{
-                desc => "The http status code of the log"
+                desc => ?DESC("audit_http_status_code")
             })},
         {http_method,
             ?HOCON(?ENUM([post, put, delete]), #{
-                desc => "The http method of the log"
+                desc => ?DESC("audit_http_method")
             })},
         {duration_ms,
             ?HOCON(integer(), #{
-                desc => "The duration of the log"
+                desc => ?DESC("audit_duration_ms")
             })},
         {args,
             ?HOCON(?ARRAY(binary()), #{
-                desc => "The args of the log"
+                desc => ?DESC("audit_args")
             })},
         {failure,
             ?HOCON(?ARRAY(binary()), #{
-                desc => "The failure of the log"
+                desc => ?DESC("audit_failure")
             })},
         {http_request,
             ?HOCON(?REF(http_request), #{
-                desc => "The http request of the log"
+                desc => ?DESC("audit_http_request")
             })}
     ];
 fields(http_request) ->

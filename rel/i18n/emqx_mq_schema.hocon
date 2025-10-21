@@ -12,6 +12,12 @@ emqx_mq_schema {
         label: "Regular Queue Retention Period"
     }
 
+    max_queue_count {
+        desc: """~
+            The maximum number of Message Queues that can be created."""
+        label: "Max Queue Count"
+    }
+
     find_queue_retry_interval {
         desc: """~
             The interval at which subscribers will retry to find a queue if the queue is not found
@@ -112,4 +118,36 @@ emqx_mq_schema {
             Whether to enable the Message Queue."""
         label: "Enable"
     }
+
+    auto_create {
+        desc: """~
+            Settings for automatically creating the Message Queue if it does not exist
+            when subscribing to the queue topic."""
+        label: "Auto Create Settings"
+    }
+
+    auto_create_regular {
+        desc: """~
+            Regular Message Queue settings for automatic creation"""
+        label: "Auto Create Regular Settings"
+    }
+
+    auto_create_lastvalue {
+        desc: """~
+            Last-Value Message Queue settings for automatic creation"""
+        label: "Auto Create Last-Value Settings"
+    }
+
+    auto_create_regular_enable {
+        desc: """~
+            Use Last-Value settings for automatic Message Queue creation"""
+        label: "Use Last-Value Settings"
+    }
+
+    auto_create_lastvalue_enable {
+        desc: """~
+            Use Regular settings for automatic Message Queue creation"""
+        label: "Use Regular Settings"
+    }
+
 }

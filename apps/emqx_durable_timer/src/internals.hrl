@@ -5,8 +5,9 @@
 -define(EMQX_DURABLE_TIMER_HRL, true).
 
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
--define(DB_GLOB, timers).
+-define(DB_GLOB, ?DURABLE_TIMERS_DB).
 -define(regs_tab, emqx_durable_timer_registry).
 
 %% Topics:

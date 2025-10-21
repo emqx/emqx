@@ -1,0 +1,83 @@
+emqx_cluster_link_api {
+
+get_cluster_links_config.desc:
+"""Get cluster links configuration."""
+get_cluster_links_config.label:
+"""Get Cluster Links Configuration"""
+
+create_cluster_link.desc:
+"""Create a cluster link."""
+create_cluster_link.label:
+"""Create Cluster Link"""
+
+get_cluster_link_config.desc:
+"""Get a cluster link configuration."""
+get_cluster_link_config.label:
+"""Get Cluster Link Configuration"""
+
+delete_cluster_link.desc:
+"""Delete a cluster link."""
+delete_cluster_link.label:
+"""Delete Cluster Link"""
+
+update_cluster_link_config.desc:
+"""Update a cluster link configuration."""
+update_cluster_link_config.label:
+"""Update Cluster Link Configuration"""
+
+get_cluster_link_metrics.desc:
+"""Get a cluster link metrics."""
+get_cluster_link_metrics.label:
+"""Get Cluster Link Metrics"""
+
+reset_cluster_link_metrics.desc:
+"""Reset a cluster link's metrics."""
+reset_cluster_link_metrics.label:
+"""Reset Cluster Link Metrics"""
+
+update_config_failed.desc:
+"""Update Config Failed."""
+update_config_failed.label:
+"""Update Config Failed"""
+
+cluster_link_not_found.desc:
+"""Cluster link not found."""
+cluster_link_not_found.label:
+"""Cluster Link Not Found"""
+
+link_deleted.desc:
+"""Link deleted."""
+link_deleted.label:
+"""Link Deleted"""
+
+reset.desc:
+"""Reset."""
+reset.label:
+"""Reset"""
+
+node.desc:
+"""Node name."""
+node.label:
+"""Node"""
+
+status.desc:
+"""Status."""
+status.label:
+"""Status"""
+
+metrics.desc:
+"""Metrics."""
+metrics.label:
+"""Metrics"""
+
+node_metrics.desc:
+"""Node metrics."""
+node_metrics.label:
+"""Node Metrics"""
+
+param_path_name.desc:
+"""Cluster link name."""
+param_path_name.label:
+"""Cluster Link Name"""
+
+}
