@@ -558,9 +558,22 @@ check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->
                     undefined ->
                         [];
                     Fun when is_function(Fun) ->
-                        [{validator, fun(#{<<"root">> := B}) -> Fun(B) end}]
+                        [
+                            {validator, fun
+                                (#{<<"root">> := B}) -> Fun(B);
+                                (#{root := B}) -> Fun(B)
+                            end}
+                        ]
                 end,
-            NewSchema = #{roots => [{root, Type}], validations => Validations, fields => #{}},
+            Converter = hocon_schema:field_schema(Schema, converter),
+            RootOpts = emqx_utils_maps:put_if(
+                #{}, converter, Converter, is_function(Converter, 2)
+            ),
+            NewSchema = #{
+                roots => [{root, hoconsc:mk(Type, RootOpts)}],
+                validations => Validations,
+                fields => #{}
+            },
             Option = #{required => false},
             NewBody =
                 case CheckFun(NewSchema, #{<<"root">> => Body}, Option) of
@@ -596,7 +609,10 @@ check_request_body(#{body := Body}, Spec, _Module, _CheckFun, false) when is_map
 %% tags, description, summary, security, deprecated
 meta_to_spec(Meta, Module, Options) ->
     {Params, Refs1} = parameters(maps:get(parameters, Meta, []), Module, Options),
-    {RequestBody, Refs2} = request_body(maps:get('requestBody', Meta, []), Module, Options),
+    RequestBodyContentTypes = maps:get(request_body_content_types, Meta, [<<"application/json">>]),
+    {RequestBody, Refs2} = request_body(maps:get('requestBody', Meta, []), Module, Options#{
+        request_body_content_types => RequestBodyContentTypes
+    }),
     {Responses, Refs3} = responses(maps:get(responses, Meta, #{}), Module, Options),
     {
         generate_method_desc(to_spec(Meta, Params, RequestBody, Responses), Options, Module),
@@ -1024,10 +1040,13 @@ fix_empty_props(Props) ->
 content(ApiSpec) ->
     content(ApiSpec, undefined).
 
-content(ApiSpec, undefined) ->
-    #{<<"application/json">> => #{<<"schema">> => ApiSpec}};
-content(ApiSpec, Examples) when is_map(Examples) ->
-    #{<<"application/json">> => Examples#{<<"schema">> => ApiSpec}}.
+content(ApiSpec, Examples) ->
+    content(ApiSpec, Examples, _ContentTypes = [<<"application/json">>]).
+
+content(ApiSpec, undefined, ContentTypes) ->
+    maps:from_keys(ContentTypes, #{<<"schema">> => ApiSpec});
+content(ApiSpec, Examples, ContentTypes) when is_map(Examples) ->
+    maps:from_keys(ContentTypes, Examples#{<<"schema">> => ApiSpec}).
 
 to_ref(Mod, StructName, Acc, RefsAcc) ->
     Ref = #{<<"$ref">> => ?TO_COMPONENTS_PARAM(Mod, StructName)},
