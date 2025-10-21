@@ -81,6 +81,7 @@ proper: $(ELIXIR_COMMON_DEPS)
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
 	env PROFILE=$(PROFILE)-test MIX_QUIET=1 $(MIX) deps.get
+	env PROFILE=$(PROFILE)-test $(MIX) deps.compile cth_readable
 	env PROFILE=$(PROFILE)-test $(MIX) compile
 
 .PHONY: $(REL_PROFILES:%=%-compile)
