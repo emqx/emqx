@@ -10,4 +10,29 @@ topic_info_by_name.desc:
 topic_info_by_name.label:
 """Lookup topic info by name"""
 
+topic_name.desc:
+"""Topic Name"""
+topic_name.label:
+"""Topic Name"""
+
+session_id.desc:
+"""Indicate the target durable session to which this topic routes messages."""
+session_id.label:
+"""Session ID"""
+
+target_node.desc:
+"""Indicates the target EMQX node to which this topic routes messages for non-durable sessions."""
+target_node.label:
+"""Node Name"""
+
+node_name.desc:
+"""EMQX node name. e.g. emqx@10.0.0.1"""
+node_name.label:
+"""Node Name"""
+
+topic_not_found.desc:
+"""Topic not found"""
+topic_not_found.label:
+"""Topic Not Found"""
+
 }
