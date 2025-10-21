@@ -91,4 +91,40 @@ emqx_mt_api {
         desc: "Invalid configurations"
         label: "Invalid configurations"
     }
+    namespace_not_found {
+        desc: "Namespace not found."
+        label: "Namespace Not Found"
+    }
+    client_count_desc {
+        desc: "Client count"
+        label: "Client Count"
+    }
+    max_configurations_reached {
+        desc: "Maximum number of configurations reached."
+        label: "Maximum Configurations Reached"
+    }
+    clients_being_kicked {
+        desc: "Clients from this namespace are still being kicked."
+        label: "Clients Being Kicked"
+    }
+    kicking_process_started {
+        desc: "Kicking process started."
+        label: "Kicking Process Started"
+    }
+    kick_process_underway {
+        desc: "Kick process already underway."
+        label: "Kick Process Underway"
+    }
+    invalid_configuration {
+        desc: "Invalid configuration."
+        label: "Invalid Configuration"
+    }
+    invalid_configurations {
+        desc: "Invalid configurations."
+        label: "Invalid Configurations"
+    }
+    side_effects_failed {
+        desc: "Some side-effects failed to execute."
+        label: "Side Effects Failed"
+    }
 }
