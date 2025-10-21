@@ -58,4 +58,84 @@ filter_lte_created_at.desc:
 """Filter logs by creation time, selecting logs created no later than the given timestamp.
 The timestamp can be provided either in rfc3339 string format or as a millisecond epoch timestamp."""
 
+audit_resp.desc:
+"""Audit response."""
+audit_resp.label:
+"""Audit Response"""
+
+audit_created_at.desc:
+"""The time when the log is created."""
+audit_created_at.label:
+"""Created At"""
+
+audit_node.desc:
+"""The node name to which the log is created."""
+audit_node.label:
+"""Node"""
+
+audit_from.desc:
+"""The source type of the log."""
+audit_from.label:
+"""From"""
+
+audit_source.desc:
+"""The source of the log."""
+audit_source.label:
+"""Source"""
+
+audit_source_ip.desc:
+"""The source ip of the log."""
+audit_source_ip.label:
+"""Source IP"""
+
+audit_operation_id.desc:
+"""The operation id of the log."""
+audit_operation_id.label:
+"""Operation ID"""
+
+audit_operation_type.desc:
+"""The operation type of the log."""
+audit_operation_type.label:
+"""Operation Type"""
+
+audit_operation_result.desc:
+"""The operation result of the log."""
+audit_operation_result.label:
+"""Operation Result"""
+
+audit_http_status_code.desc:
+"""The http status code of the log."""
+audit_http_status_code.label:
+"""HTTP Status Code"""
+
+audit_http_method.desc:
+"""The http method of the log."""
+audit_http_method.label:
+"""HTTP Method"""
+
+audit_duration_ms.desc:
+"""The duration of the log."""
+audit_duration_ms.label:
+"""Duration (ms)"""
+
+audit_args.desc:
+"""The args of the log."""
+audit_args.label:
+"""Args"""
+
+audit_failure.desc:
+"""The failure of the log."""
+audit_failure.label:
+"""Failure"""
+
+audit_http_request.desc:
+"""The http request of the log."""
+audit_http_request.label:
+"""HTTP Request"""
+
+audit_disabled.desc:
+"""Audit is disabled."""
+audit_disabled.label:
+"""Audit Disabled"""
+
 }

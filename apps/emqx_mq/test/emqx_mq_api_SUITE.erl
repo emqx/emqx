@@ -48,7 +48,8 @@ init_per_testcase(_CaseName, Config) ->
 
 end_per_testcase(_CaseName, _Config) ->
     ok = snabbkaffe:stop(),
-    ok = emqx_mq_test_utils:cleanup_mqs().
+    ok = emqx_mq_test_utils:cleanup_mqs(),
+    ok = emqx_mq_test_utils:reset_config().
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -183,6 +184,38 @@ t_config(_Config) ->
             <<"find_queue_retry_interval">> := <<"20s">>
         }},
         api_get([message_queues, config])
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([message_queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => false,
+                <<"lastvalue">> => #{}
+            }
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, #{
+            <<"auto_create">> := #{
+                <<"regular">> := false,
+                <<"lastvalue">> := #{
+                    <<"key_expression">> := <<"message.from">>
+                }
+            }
+        }},
+        api_get([message_queues, config])
+    ),
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Queues should be configured to be automatically created either as regular or lastvalue">>
+        }},
+        api_put([message_queues, config], #{
+            <<"auto_create">> => #{
+                <<"regular">> => #{}, <<"lastvalue">> => #{}
+            }
+        })
     ).
 
 %% Verify queue state creation failure is handled gracefully.
@@ -260,3 +293,26 @@ t_defaults(_Config) ->
 
     %% Verify the messages. Default key expression is clientid, so we should receive only one message.
     ?assertEqual(1, length(Msgs)).
+
+%% Verify that the max queue count is respected
+t_max_queue_count(_Config) ->
+    emqx_config:put([mq, max_queue_count], 5),
+    %% Create 5 MQs to fill the limit
+    lists:foreach(
+        fun(I) ->
+            IBin = integer_to_binary(I),
+            ?assertMatch(
+                {ok, 200, _},
+                api_post([message_queues, queues], #{<<"topic_filter">> => <<"t/", IBin/binary>>})
+            )
+        end,
+        lists:seq(1, 5)
+    ),
+    %% Try to create a 6th MQ, expect an error
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"MAX_QUEUE_COUNT_REACHED">>,
+            <<"message">> := <<"Max queue count reached">>
+        }},
+        api_post([message_queues, queues], #{<<"topic_filter">> => <<"t/6">>})
+    ).

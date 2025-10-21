@@ -89,7 +89,7 @@
 %% Type declarations
 %%================================================================================
 
--define(DB, ?DURABLE_SESSION_STATE).
+-define(DB, ?DURABLE_SESSION_STATE_DB).
 
 %% Topic roots:
 -define(top_offline_info, <<"o">>).

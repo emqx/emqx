@@ -6,9 +6,9 @@
 
 -include("emqx_persistent_message.hrl").
 -include("emqx_durable_session_metadata.hrl").
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
 -define(DS_MRIA_SHARD, emqx_ds_session_shard).
--define(DURABLE_SESSION_STATE, sessions).
 
 %%%%% Session sequence numbers:
 

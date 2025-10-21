@@ -1,0 +1,285 @@
+emqx_mgmt_api_plugins {
+
+list_plugins_desc.desc:
+"""Plugins are launched in top-down order. Use POST /plugins/{name}/move to change the boot order."""
+list_plugins_desc.label:
+"""List Plugins"""
+
+install_plugin_desc.desc:
+"""Upload a plugin tarball (plugin-vsn.tar.gz). Follow emqx-plugin-template to develop plugin."""
+install_plugin_desc.label:
+"""Install Plugin"""
+
+get_plugin_desc.desc:
+"""Describe a plugin according to its release.json and README.md."""
+get_plugin_desc.label:
+"""Get Plugin"""
+
+delete_plugin_desc.desc:
+"""Uninstalls a previously uploaded plugin package."""
+delete_plugin_desc.label:
+"""Delete Plugin"""
+
+trigger_action_desc.desc:
+"""Start/stop an installed plugin. Use start to start a plugin, stop to stop a plugin."""
+trigger_action_desc.label:
+"""Trigger Action"""
+
+get_plugin_config_desc.desc:
+"""Get plugin config. Config schema is defined by user's schema.avsc file."""
+get_plugin_config_desc.label:
+"""Get Plugin Config"""
+
+update_plugin_config_desc.desc:
+"""Update plugin config. Config schema defined by user's schema.avsc file."""
+update_plugin_config_desc.label:
+"""Update Plugin Config"""
+
+download_plugin_config_desc.desc:
+"""Download plugin config."""
+download_plugin_config_desc.label:
+"""Download Plugin Config"""
+
+upload_plugin_config_desc.desc:
+"""Upload plugin config."""
+upload_plugin_config_desc.label:
+"""Upload Plugin Config"""
+
+get_plugin_schema_desc.desc:
+"""Get plugin's config AVRO schema."""
+get_plugin_schema_desc.label:
+"""Get Plugin Schema"""
+
+move_plugin_desc.desc:
+"""Setting the boot order of plugins."""
+move_plugin_desc.label:
+"""Move Plugin"""
+
+sync_plugin_desc.desc:
+"""Forces a plugin to be synced to the cluster and removes other versions of the plugin."""
+sync_plugin_desc.label:
+"""Sync Plugin"""
+
+plugin_name.desc:
+"""Name-Vsn: without .tar.gz."""
+plugin_name.label:
+"""Plugin Name"""
+
+plugin_author.desc:
+"""Plugin author."""
+plugin_author.label:
+"""Author"""
+
+plugin_builder.desc:
+"""Plugin builder information."""
+plugin_builder.label:
+"""Builder"""
+
+built_on_otp_release.desc:
+"""Built on OTP release."""
+built_on_otp_release.label:
+"""Built On OTP Release"""
+
+compatibility.desc:
+"""Plugin compatibility information."""
+compatibility.label:
+"""Compatibility"""
+
+git_commit_or_build_date.desc:
+"""Last git commit date by `git log -1 --pretty=format:'%cd' --date=format:'%Y-%m-%d`. If the last commit date is not available, the build date will be presented."""
+git_commit_or_build_date.label:
+"""Git Commit Or Build Date"""
+
+functionality.desc:
+"""Plugin functionality."""
+functionality.label:
+"""Functionality"""
+
+git_ref.desc:
+"""Git reference."""
+git_ref.label:
+"""Git Ref"""
+
+metadata_vsn.desc:
+"""Metadata version."""
+metadata_vsn.label:
+"""Metadata Version"""
+
+rel_vsn.desc:
+"""Plugins release version."""
+rel_vsn.label:
+"""Release Version"""
+
+rel_apps.desc:
+"""Applications in plugin."""
+rel_apps.label:
+"""Release Apps"""
+
+repo.desc:
+"""Plugin repository."""
+repo.label:
+"""Repository"""
+
+description.desc:
+"""Plugin description."""
+description.label:
+"""Description"""
+
+running_status.desc:
+"""Plugin running status."""
+running_status.label:
+"""Running Status"""
+
+readme.desc:
+"""Only return when `GET /plugins/{name}`."""
+readme.label:
+"""README"""
+
+health_status.desc:
+"""Plugin health status."""
+health_status.label:
+"""Health Status"""
+
+status.desc: """~
+Install plugin status at runtime.
+  - running: plugin is running.
+  - stopped: plugin is stopped."""
+status.label:
+"""Status"""
+
+message.desc:
+"""Status message."""
+message.label:
+"""Message"""
+
+action.desc:
+"""Action to perform."""
+action.label:
+"""Action"""
+
+position.desc:
+"""Enable auto-boot at position in the boot list, where Position could be 'front', 'rear', or 'before:other-name-vsn', 'after:other-name-vsn' to specify a relative position."""
+position.label:
+"""Position"""
+
+sync_request.desc:
+"""Sync request."""
+sync_request.label:
+"""Sync Request"""
+
+node.desc:
+"""Node name."""
+node.label:
+"""Node"""
+
+install_success.desc:
+"""Install plugin successfully."""
+install_success.label:
+"""Install Success"""
+
+uninstall_success.desc:
+"""Uninstall successfully."""
+uninstall_success.label:
+"""Uninstall Success"""
+
+trigger_success.desc:
+"""Trigger action successfully."""
+trigger_success.label:
+"""Trigger Success"""
+
+config_updated.desc:
+"""Config updated successfully."""
+config_updated.label:
+"""Config Updated"""
+
+boot_order_changed.desc:
+"""Boot order changed successfully."""
+boot_order_changed.label:
+"""Boot Order Changed"""
+
+sync_success.desc:
+"""Sync plugin successfully."""
+sync_success.label:
+"""Sync Success"""
+
+plugin_not_found.desc:
+"""Plugin Not Found."""
+plugin_not_found.label:
+"""Plugin Not Found"""
+
+bad_parameter.desc:
+"""Bad parameter."""
+bad_parameter.label:
+"""Bad Parameter"""
+
+plugin_config_not_found.desc:
+"""Plugin Config Not Found."""
+plugin_config_not_found.label:
+"""Plugin Config Not Found"""
+
+update_config_failed.desc:
+"""Update plugin config failed."""
+update_config_failed.label:
+"""Update Config Failed"""
+
+internal_error.desc:
+"""Internal Error."""
+internal_error.label:
+"""Internal Error"""
+
+move_failed.desc:
+"""Move failed."""
+move_failed.label:
+"""Move Failed"""
+
+bad_plugin_info.desc:
+"""Bad Plugin Name Vsn."""
+bad_plugin_info.label:
+"""Bad Plugin Info"""
+
+bad_form_data.desc:
+"""Bad form data."""
+bad_form_data.label:
+"""Bad Form Data"""
+
+forbidden.desc:
+"""Forbidden."""
+forbidden.label:
+"""Forbidden"""
+
+unexpected_error.desc:
+"""Unexpected error."""
+unexpected_error.label:
+"""Unexpected Error"""
+
+already_installed.desc:
+"""Already installed."""
+already_installed.label:
+"""Already Installed"""
+
+bad_config.desc:
+"""Bad config."""
+bad_config.label:
+"""Bad Config"""
+
+param_error.desc:
+"""Parameter error."""
+param_error.label:
+"""Parameter Error"""
+
+not_found.desc:
+"""Not found."""
+not_found.label:
+"""Not Found"""
+
+file_not_existed.desc:
+"""File not existed."""
+file_not_existed.label:
+"""File Not Existed"""
+
+bad_position.desc:
+"""Bad position."""
+bad_position.label:
+"""Bad Position"""
+
+}

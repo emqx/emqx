@@ -4,7 +4,7 @@
 -ifndef(EMQX_PERSISTENT_MESSAGE_HRL).
 -define(EMQX_PERSISTENT_MESSAGE_HRL, true).
 
--define(PERSISTENT_MESSAGE_DB, messages).
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 -define(PERSISTENCE_ENABLED, emqx_message_persistence_enabled).
 
 -define(WITH_DURABILITY_ENABLED(DO),

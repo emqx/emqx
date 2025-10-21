@@ -102,6 +102,7 @@ on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = _FullTopic, _SubOpts
         true ->
             case emqx_mq_sub_registry:find(Topic) of
                 undefined ->
+                    ok = maybe_auto_create(Topic),
                     Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
                     ok = emqx_mq_sub_registry:register(Sub);
                 _Sub ->
@@ -273,7 +274,7 @@ ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_REJECTED.
 
 publish_to_queue(MQ, #message{} = Message) ->
-    emqx_mq_message_db:insert(MQ, [Message]).
+    emqx_mq_message_db:insert(MQ, Message).
 
 delivers(SubscriberRef, Messages) ->
     lists:map(
@@ -302,4 +303,23 @@ is_mq_supported() ->
             false;
         IsSupported ->
             IsSupported
+    end.
+
+maybe_auto_create(Topic) ->
+    case emqx_mq_config:auto_create(Topic) of
+        {true, MQ} ->
+            case emqx_mq_registry:is_present(Topic) of
+                true ->
+                    ok;
+                false ->
+                    case emqx_mq_registry:create(MQ) of
+                        {ok, _} ->
+                            ok;
+                        {error, Reason} ->
+                            ?tp(error, mq_auto_create_error, #{mq => MQ, reason => Reason}),
+                            ok
+                    end
+            end;
+        false ->
+            ok
     end.

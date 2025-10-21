@@ -14,6 +14,7 @@ The module contains the registry of Message Queues.
     create_tables/0,
     create/1,
     find/1,
+    is_present/1,
     match/1,
     delete/1,
     update/2,
@@ -66,49 +67,58 @@ create_tables() ->
 Create a new MQ.
 """.
 -spec create(emqx_mq_types:mq()) ->
-    {ok, emqx_mq_types:mq()} | {error, queue_exists} | {error, term()}.
+    {ok, emqx_mq_types:mq()}
+    | {error, queue_exists}
+    | {error, max_queue_count_reached}
+    | {error, term()}.
 create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) when
     (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, MQ0)))
 ->
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),
-    {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
-        case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
-            [] ->
-                ok = mnesia:write(#?MQ_REGISTRY_INDEX_TAB{
-                    key = Key,
-                    id = Id,
-                    is_lastvalue = IsLastValue,
-                    key_expr = maps:get(key_expression, MQ0, undefined)
+    maybe
+        ok ?= validate_max_queue_count(),
+        {atomic, ok} ?=
+            mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
+                case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
+                    [] ->
+                        ok = mnesia:write(#?MQ_REGISTRY_INDEX_TAB{
+                            key = Key,
+                            id = Id,
+                            is_lastvalue = IsLastValue,
+                            key_expr = maps:get(key_expression, MQ0, undefined)
+                        }),
+                        ok;
+                    [_] ->
+                        {error, queue_exists}
+                end
+            end),
+        MQ = MQ0#{id => Id},
+        try emqx_mq_state_storage:create_mq_state(MQ) of
+            {ok, _} ->
+                {ok, MQ};
+            {error, Reason} ->
+                ?tp(error, mq_registry_create_mq_state_error, #{
+                    mq => MQ,
+                    reason => Reason
                 }),
-                ok;
-            [_] ->
-                {error, queue_exists}
+                mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
+                {error, Reason}
+        catch
+            Class:Reason ->
+                ?tp(error, mq_registry_create_mq_state_error, #{
+                    mq => MQ,
+                    class => Class,
+                    reason => Reason
+                }),
+                mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
+                {error, Reason}
         end
-    end),
-    case Result of
-        ok ->
-            MQ = MQ0#{id => Id},
-            try emqx_mq_state_storage:create_mq_state(MQ) of
-                {ok, _} ->
-                    {ok, MQ};
-                {error, Reason} ->
-                    ?tp(error, mq_registry_create_mq_state_error, #{
-                        mq => MQ,
-                        reason => Reason
-                    }),
-                    mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
-                    {error, Reason}
-            catch
-                Class:Reason ->
-                    ?tp(error, mq_registry_create_mq_state_error, #{
-                        mq => MQ,
-                        class => Class,
-                        reason => Reason
-                    }),
-                    mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
-                    {error, Reason}
-            end;
+    else
+        {atomic, {error, _} = Error} ->
+            Error;
+        {aborted, ErrReason} ->
+            {error, ErrReason};
         {error, _} = Error ->
             Error
     end.
@@ -143,6 +153,19 @@ find(TopicFilter) ->
             not_found;
         [#?MQ_REGISTRY_INDEX_TAB{id = Id}] ->
             emqx_mq_state_storage:find_mq(Id)
+    end.
+
+-doc """
+Check if the MQ exists by its topic filter.
+""".
+-spec is_present(emqx_mq_types:mq_topic()) -> boolean().
+is_present(TopicFilter) ->
+    Key = make_key(TopicFilter),
+    case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
+        [] ->
+            false;
+        [#?MQ_REGISTRY_INDEX_TAB{}] ->
+            true
     end.
 
 -doc """
@@ -312,3 +335,14 @@ record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
         is_lastvalue => IsLastValue,
         key_expression => KeyExpr
     }.
+
+queue_count() ->
+    mnesia:table_info(?MQ_REGISTRY_INDEX_TAB, size).
+
+validate_max_queue_count() ->
+    case queue_count() >= emqx_mq_config:max_queue_count() of
+        true ->
+            {error, max_queue_count_reached};
+        false ->
+            ok
+    end.

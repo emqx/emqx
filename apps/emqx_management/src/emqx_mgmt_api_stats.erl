@@ -72,40 +72,30 @@ fields(aggregate) ->
     ];
 fields(aggregated_data) ->
     [
-        stats_schema('channels.count', <<"sessions.count">>),
-        stats_schema('channels.max', <<"session.max">>),
-        stats_schema('connections.count', <<"Number of current connections">>),
-        stats_schema('connections.max', <<"Historical maximum number of connections">>),
-        stats_schema('delayed.count', <<"Number of delayed messages">>),
-        stats_schema('delayed.max', <<"Historical maximum number of delayed messages">>),
-        stats_schema('live_connections.count', <<"Number of current live connections">>),
-        stats_schema('live_connections.max', <<"Historical maximum number of live connections">>),
-        stats_schema('cluster_sessions.count', <<"Number of sessions in the cluster">>),
-        stats_schema(
-            'cluster_sessions.max', <<"Historical maximum number of sessions in the cluster">>
-        ),
-        stats_schema('retained.count', <<"Number of currently retained messages">>),
-        stats_schema('retained.max', <<"Historical maximum number of retained messages">>),
-        stats_schema('sessions.count', <<"Number of current sessions">>),
-        stats_schema('sessions.max', <<"Historical maximum number of sessions">>),
-        stats_schema('suboptions.count', <<"subscriptions.count">>),
-        stats_schema('suboptions.max', <<"subscriptions.max">>),
-        stats_schema('subscribers.count', <<"Number of current subscribers">>),
-        stats_schema('subscribers.max', <<"Historical maximum number of subscribers">>),
-        stats_schema(
-            'subscriptions.count',
-            <<
-                "Number of current subscriptions, including shared subscriptions,"
-                " but not subscriptions from durable sessions"
-            >>
-        ),
-        stats_schema('subscriptions.max', <<"Historical maximum number of subscriptions">>),
-        stats_schema('subscriptions.shared.count', <<"Number of current shared subscriptions">>),
-        stats_schema(
-            'subscriptions.shared.max', <<"Historical maximum number of shared subscriptions">>
-        ),
-        stats_schema('topics.count', <<"Number of current topics">>),
-        stats_schema('topics.max', <<"Historical maximum number of topics">>)
+        stats_schema('channels.count', "channels_count"),
+        stats_schema('channels.max', "channels_max"),
+        stats_schema('connections.count', "connections_count"),
+        stats_schema('connections.max', "connections_max"),
+        stats_schema('delayed.count', "delayed_count"),
+        stats_schema('delayed.max', "delayed_max"),
+        stats_schema('live_connections.count', "live_connections_count"),
+        stats_schema('live_connections.max', "live_connections_max"),
+        stats_schema('cluster_sessions.count', "cluster_sessions_count"),
+        stats_schema('cluster_sessions.max', "cluster_sessions_max"),
+        stats_schema('retained.count', "retained_count"),
+        stats_schema('retained.max', "retained_max"),
+        stats_schema('sessions.count', "sessions_count"),
+        stats_schema('sessions.max', "sessions_max"),
+        stats_schema('suboptions.count', "suboptions_count"),
+        stats_schema('suboptions.max', "suboptions_max"),
+        stats_schema('subscribers.count', "subscribers_count"),
+        stats_schema('subscribers.max', "subscribers_max"),
+        stats_schema('subscriptions.count', "subscriptions_count"),
+        stats_schema('subscriptions.max', "subscriptions_max"),
+        stats_schema('subscriptions.shared.count', "subscriptions_shared_count"),
+        stats_schema('subscriptions.shared.max', "subscriptions_shared_max"),
+        stats_schema('topics.count', "topics_count"),
+        stats_schema('topics.max', "topics_max")
     ];
 fields(per_node_data) ->
     [
@@ -114,14 +104,11 @@ fields(per_node_data) ->
                 desc => ?DESC("node_name"),
                 example => <<"emqx@127.0.0.1">>
             })},
-        stats_schema(
-            'durable_subscriptions.count',
-            <<"Number of current subscriptions from durable sessions in the cluster">>
-        )
+        stats_schema('durable_subscriptions.count', "durable_subscriptions_count")
     ] ++ fields(aggregated_data).
 
-stats_schema(Name, Desc) ->
-    {Name, mk(non_neg_integer(), #{desc => Desc, example => 0})}.
+stats_schema(Name, DescKey) ->
+    {Name, mk(non_neg_integer(), #{desc => ?DESC(DescKey), example => 0})}.
 
 %%%==============================================================================================
 %% api apply

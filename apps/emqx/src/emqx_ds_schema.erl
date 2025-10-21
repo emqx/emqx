@@ -2,11 +2,15 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Schema for EMQX_DS databases.
 -module(emqx_ds_schema).
+-moduledoc """
+Schema for EMQX_DS databases.
+""".
+
+-behaviour(emqx_config_handler).
 
 %% API:
--export([schema/0]).
+-export([add_handler/0]).
 -export([
     db_config_messages/0,
     db_config_sessions/0,
@@ -17,11 +21,14 @@
 ]).
 
 %% Behavior callbacks:
--export([fields/1, desc/1, namespace/0]).
+-export([schema/0, fields/1, desc/1, namespace/0]).
+-export([pre_config_update/3, post_config_update/6]).
 
 -include("emqx_schema.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -39,27 +46,35 @@
 %% API
 %%================================================================================
 
+add_handler() ->
+    A = '?',
+    [
+        ok = emqx_config_handler:add_handler([namespace() | L], ?MODULE)
+     || L <- [[A], [A, A], [A, A, A], [A, A, A, A]]
+    ],
+    ok.
+
 -spec db_config_messages() -> emqx_ds:create_db_opts().
 db_config_messages() ->
-    db_config([durable_storage, messages]).
+    db_config(?PERSISTENT_MESSAGE_DB).
 
 db_config_sessions() ->
-    db_config([durable_storage, sessions]).
+    db_config(?DURABLE_SESSION_STATE_DB).
 
 db_config_timers() ->
-    db_config([durable_storage, timers]).
+    db_config(?DURABLE_TIMERS_DB).
 
 db_config_shared_subs() ->
-    db_config([durable_storage, shared_subs]).
+    db_config(?SHARED_SUBS_DB).
 
 db_config_mq_states() ->
-    db_config([durable_storage, mq_states]).
+    db_config(?MQ_STATE_CONF_ROOT).
 
 db_config_mq_messages() ->
-    db_config([durable_storage, mq_messages]).
+    db_config(?MQ_MESSAGE_CONF_ROOT).
 
 %%================================================================================
-%% Behavior callbacks
+%% HOCON schema callbacks
 %%================================================================================
 
 namespace() ->
@@ -77,21 +92,25 @@ schema() ->
                     mapping => "emqx_ds_builtin_raft.n_sites"
                 }
             )},
-        {messages,
+        {?PERSISTENT_MESSAGE_DB,
             db_schema(
                 [builtin_raft_messages, builtin_local_messages],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(messages),
                 #{}
             )},
-        {sessions,
+        {?DURABLE_SESSION_STATE_DB,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(sessions),
-                #{}
+                #{
+                    <<"transaction">> => #{
+                        <<"idle_flush_interval">> => <<"0ms">>
+                    }
+                }
             )},
-        {timers,
+        {?DURABLE_TIMERS_DB,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
@@ -102,26 +121,25 @@ schema() ->
                 %% this value should be ok.
                 #{
                     <<"transaction">> => #{
-                        <<"idle_flush_interval">> => <<"1ms">>,
-                        <<"flush_interval">> => <<"500ms">>
+                        <<"idle_flush_interval">> => <<"0ms">>
                     }
                 }
             )},
-        {shared_subs,
+        {?SHARED_SUBS_DB,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(shared_subs),
                 #{}
             )},
-        {mq_states,
+        {?MQ_STATE_CONF_ROOT,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(mq_states),
                 #{}
             )},
-        {mq_messages,
+        {?MQ_MESSAGE_CONF_ROOT,
             db_schema(
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
@@ -453,11 +471,41 @@ desc(_) ->
     undefined.
 
 %%================================================================================
+%% emqx_config_handler callbacks
+%%================================================================================
+
+-spec post_config_update(
+    [atom()],
+    emqx_config:update_request(),
+    emqx_config:config(),
+    emqx_config:config(),
+    emqx_config:app_envs(),
+    emqx_config_handler:extra_context()
+) ->
+    ok | {error, _Reason}.
+post_config_update([durable_storage, Config | _], _UpdateReq, _NewConf, _OldConf, _AppEnv, _Extra) ->
+    lists:foreach(
+        fun(DB) ->
+            update_db_config(DB, db_config(Config))
+        end,
+        config_root_to_dbs(Config)
+    );
+post_config_update(_, _, _, _, _, _) ->
+    ok.
+
+-spec pre_config_update(
+    [atom()], emqx_config:update_request(), emqx_config:raw_config()
+) ->
+    ok | {error, term()}.
+pre_config_update(_Root, _UpdateReq, _Conf) ->
+    ok.
+
+%%================================================================================
 %% Internal functions
 %%================================================================================
 
-db_config(SchemaKey) ->
-    translate_backend(emqx_config:get(SchemaKey)).
+db_config(ConfRoot) ->
+    translate_backend(emqx_config:get([namespace(), ConfRoot])).
 
 translate_backend(
     #{
@@ -547,3 +595,28 @@ validate_wildcard_thresholds([_ | _]) ->
 
 translate_lts_wildcard_thresholds(L = [_ | _]) ->
     {simple, list_to_tuple(L)}.
+
+update_db_config(DB, Conf) ->
+    ?tp(debug, "ds_db_runtime_config_update", #{db => DB}),
+    case emqx_ds:update_db_config(DB, Conf) of
+        ok ->
+            ok;
+        {error, recoverable, db_is_closed} ->
+            ok;
+        Err ->
+            ?tp(warning, "ds_db_runtime_config_update_failed", #{db => DB, reason => Err})
+    end.
+
+config_root_to_dbs(DB) when
+    DB =:= ?DURABLE_TIMERS_DB;
+    DB =:= ?PERSISTENT_MESSAGE_DB;
+    DB =:= ?DURABLE_SESSION_STATE_DB;
+    DB =:= ?SHARED_SUBS_DB
+->
+    [DB];
+config_root_to_dbs(?MQ_STATE_CONF_ROOT) ->
+    [?MQ_STATE_DB];
+config_root_to_dbs(?MQ_MESSAGE_CONF_ROOT) ->
+    [?MQ_MESSAGE_LASTVALUE_DB, ?MQ_MESSAGE_REGULAR_DB];
+config_root_to_dbs(_) ->
+    [].

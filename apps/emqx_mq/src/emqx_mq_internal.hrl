@@ -6,6 +6,7 @@
 -define(EMQX_MQ_INTERNAL_HRL, true).
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
 -define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
 %% -define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
@@ -53,9 +54,6 @@
 }).
 
 -define(MQ_KEY_USER_PROPERTY, <<"mq-key">>).
-
--define(MQ_MESSAGE_LASTVALUE_DB, mq_message_lastvalue).
--define(MQ_MESSAGE_REGULAR_DB, mq_message_regular).
 
 -define(MQ_GC_REGULAR, gc_regular).
 -define(MQ_GC_LASTVALUE, gc_lastvalue).
