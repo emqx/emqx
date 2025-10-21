@@ -126,12 +126,12 @@ t_unknown_root_keys(C) when is_list(C) ->
             ok = emqx_config:init_load(
                 emqx_schema, <<"test_1 {}\n test_2 {sub = 100}\n listeners {}">>
             ),
-            ?block_until(#{?snk_kind := unknown_config_keys})
+            ?block_until(#{?snk_kind := "config_roots_not_recognized"})
         end,
         fun(Trace) ->
             ?assertMatch(
-                [#{unknown_config_keys := "test_1,test_2"}],
-                ?of_kind(unknown_config_keys, Trace)
+                [#{config_roots := ["test_1", "test_2"]}],
+                ?of_kind("config_roots_not_recognized", Trace)
             )
         end
     ),

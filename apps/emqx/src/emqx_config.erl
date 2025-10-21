@@ -533,20 +533,20 @@ init_load(SchemaMod, Conf) when is_list(Conf) orelse is_binary(Conf) ->
     ok = save_schema_mod_and_names(SchemaMod),
     HasDeprecatedFile = has_deprecated_file(),
     RawConf0 = load_config_files(HasDeprecatedFile, Conf),
-    warning_deprecated_root_key(RawConf0),
-    RawConf1 =
+    RawConf1 = strip_unknown_roots(RawConf0),
+    RawConf2 =
         case HasDeprecatedFile of
             true ->
-                overlay_v0(SchemaMod, RawConf0);
+                overlay_v0(SchemaMod, RawConf1);
             false ->
-                overlay_v1(SchemaMod, RawConf0)
+                overlay_v1(SchemaMod, RawConf1)
         end,
-    RawConf2 = upgrade_raw_conf(SchemaMod, RawConf1),
-    RawConf3 = fill_defaults_for_all_roots(SchemaMod, RawConf2),
+    RawConf3 = upgrade_raw_conf(SchemaMod, RawConf2),
+    RawConf = fill_defaults_for_all_roots(SchemaMod, RawConf3),
     %% check configs against the schema
-    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf3, #{}),
+    {AppEnvs, CheckedConf} = check_config(SchemaMod, RawConf, #{}),
     save_to_app_env(AppEnvs),
-    ok = save_to_config_map(CheckedConf, RawConf3),
+    ok = save_to_config_map(CheckedConf, RawConf),
     maybe_init_default_zone(),
     load_namespaced_configs(),
     ok.
@@ -1197,20 +1197,15 @@ bin(Bin) when is_binary(Bin) -> Bin;
 bin(Str) when is_list(Str) -> list_to_binary(Str);
 bin(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
-warning_deprecated_root_key(RawConf) ->
+strip_unknown_roots(RawConf) ->
     case maps:keys(RawConf) -- get_root_names() of
         [] ->
-            ok;
-        Keys ->
-            Unknowns = string:join([binary_to_list(K) || K <- Keys], ","),
-            ?tp(unknown_config_keys, #{unknown_config_keys => Unknowns}),
-            ?SLOG(
-                warning,
-                #{
-                    msg => "config_key_not_recognized",
-                    unknown_config_keys => Unknowns
-                }
-            )
+            RawConf;
+        UnknownRoots ->
+            ?tp(warning, "config_roots_not_recognized", #{
+                config_roots => lists:map(fun binary_to_list/1, UnknownRoots)
+            }),
+            maps:without(UnknownRoots, RawConf)
     end.
 
 conf_key(?CONF, RootName) ->
