@@ -131,7 +131,7 @@ schema("/authorization/sources/:type") ->
                             emqx_authz_schema:api_source_type(),
                             #{desc => ?DESC(source)}
                         ),
-                        404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                        404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], ?DESC("not_found"))
                     }
             },
         put =>
@@ -143,7 +143,9 @@ schema("/authorization/sources/:type") ->
                 responses =>
                     #{
                         204 => <<"Authorization source updated successfully">>,
-                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                        400 => emqx_dashboard_swagger:error_codes(
+                            [?BAD_REQUEST], ?DESC("bad_request")
+                        )
                     }
             },
         delete =>
@@ -154,7 +156,9 @@ schema("/authorization/sources/:type") ->
                 responses =>
                     #{
                         204 => <<"Deleted successfully">>,
-                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                        400 => emqx_dashboard_swagger:error_codes(
+                            [?BAD_REQUEST], ?DESC("bad_request")
+                        )
                     }
             }
     };
@@ -173,9 +177,9 @@ schema("/authorization/sources/:type/status") ->
                             status_metrics_example()
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad request">>
+                            [?BAD_REQUEST], ?DESC("bad_request")
                         ),
-                        404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                        404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], ?DESC("not_found"))
                     }
             }
     };
@@ -194,11 +198,11 @@ schema("/authorization/sources/:type/move") ->
                     ),
                 responses =>
                     #{
-                        204 => <<"No Content">>,
+                        204 => <<"OK">>,
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad Request">>
+                            [?BAD_REQUEST], ?DESC("bad_request")
                         ),
-                        404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], <<"Not Found">>)
+                        404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], ?DESC("not_found"))
                     }
             }
     };
@@ -214,7 +218,7 @@ schema("/authorization/sources/order") ->
             ),
             responses => #{
                 204 => <<"Authorization sources order updated">>,
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC("bad_request"))
             }
         }
     }.
