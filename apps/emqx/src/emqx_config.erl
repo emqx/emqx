@@ -844,9 +844,14 @@ check_config_namespaced(SchemaMod, RawConf, AllowedNSRoots, KeyType) ->
             {error, Errors}
     end.
 
+-doc #{equiv => fill_defaults(RawConf, #{})}.
 fill_defaults(RawConf) ->
     fill_defaults(RawConf, #{}).
 
+-doc """
+Fill `RawConf`, a mapping from root to raw config, with defaults defined in the schema
+for known roots. Note that including unknown roots is an error.
+""".
 -spec fill_defaults(raw_config(), hocon_tconf:opts()) -> map().
 fill_defaults(RawConf, Opts) ->
     maps:fold(
