@@ -882,7 +882,7 @@ Throws `{invalid_id, Id}` if the input `Id` has an invalid format.
 
 See [`emqx_resource:parse_channel_id/1`].
 """.
--doc #{equiv => fun emqx_resource:parse_channel_id/1}.
+-doc #{equiv => "emqx_resource:parse_channel_id/1"}.
 -spec parse_id(binary()) ->
     #{
         namespace := ?global_ns | namespace(),

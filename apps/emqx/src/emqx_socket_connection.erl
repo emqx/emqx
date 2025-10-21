@@ -369,12 +369,24 @@ run_loop(
         {ok, Data} ->
             NState = start_idle_timer(State),
             handle_recv({recv_more, Data}, Parent, NState);
-        {select, _SelectInfo} ->
+        {completion, {completion_info, _, _}} ->
+            %% OTP 28: Windows completion port - wait for completion message
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
-        {error, {Reason, _}} ->
-            _ = Reason == closed orelse esockd_socket:fast_close(Socket),
-            exit_on_sock_error(Reason);
+        {select, {{select_info, recv, _}, Data}} ->
+            %% OTP 28: Unix select with partial data
+            NState = start_idle_timer(State),
+            handle_recv({recv_more, Data}, Parent, NState);
+        {select, {select_info, recv, _}} ->
+            %% OTP 28: Unix select - wait for select message
+            NState = start_idle_timer(State),
+            hibernate(Parent, NState);
+        {select_read, {{select_info, recv, _}, Data}} ->
+            %% OTP 28: Unix select_read with complete data
+            NState = start_idle_timer(State),
+            handle_recv({recv_more, Data}, Parent, NState);
+        {error, {_Reason, _}} ->
+            exit_on_sock_error(invalid);
         {error, Reason} ->
             _ = Reason == closed orelse esockd_socket:fast_close(Socket),
             exit_on_sock_error(Reason)
@@ -769,13 +781,18 @@ request_more_data(Socket, More, Acc, State) ->
     case sock_async_recv(Socket, More) of
         {ok, DataMore} ->
             {ok, [Acc, {recv_more, DataMore}], State};
-        {select, {_Info, DataMore}} ->
-            {ok, [Acc, {recv, DataMore}], State};
-        {select, _Info} ->
+        {completion, {completion_info, _, _}} ->
+            %% OTP 28: Windows completion port - wait for completion message
             {ok, Acc, State};
-        {error, {closed, DataMore}} ->
-            NState = socket_closed(State),
-            {ok, [Acc, {recv, DataMore}, {sock_closed, tcp_closed}], NState};
+        {select, {{select_info, recv, _}, DataMore}} ->
+            %% OTP 28: Unix select with partial data
+            {ok, [Acc, {recv, DataMore}], State};
+        {select, {select_info, recv, _}} ->
+            %% OTP 28: Unix select - wait for select message
+            {ok, Acc, State};
+        {select_read, {{select_info, recv, _}, DataMore}} ->
+            %% OTP 28: Unix select_read with complete data
+            {ok, [Acc, {recv, DataMore}], State};
         {error, closed} ->
             NState = socket_closed(State),
             {ok, [Acc, {sock_closed, tcp_closed}], NState};
@@ -790,8 +807,18 @@ handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             handle_data(Data, true, State);
-        {error, {closed, Data}} ->
-            {ok, [{recv, Data}, {sock_closed, tcp_closed}], socket_closed(State)};
+        {completion, {completion_info, _, _}} ->
+            %% OTP 28: Windows completion port - wait for completion message
+            {ok, State};
+        {select, {{select_info, recv, _}, Data}} ->
+            %% OTP 28: Unix select with partial data
+            handle_data(Data, true, State);
+        {select, {select_info, recv, _}} ->
+            %% OTP 28: Unix select - wait for select message
+            {ok, State};
+        {select_read, {{select_info, recv, _}, Data}} ->
+            %% OTP 28: Unix select_read with complete data
+            handle_data(Data, true, State);
         {error, closed} ->
             handle_info({sock_closed, tcp_closed}, socket_closed(State));
         {error, {Reason, Data}} ->
@@ -1121,7 +1148,7 @@ handle_cast(
             ?tp(debug, "custom_socket_options_successfully", #{opts => SockOpts});
         {error, {invalid, {socket_option, SockOpt}}} ->
             ?tp(warning, "unsupported_socket_keepalive", #{option => SockOpt});
-        {error, Reason} when Reason == closed; Reason == einval ->
+        {error, Reason} when Reason == closed; Reason == einval; Reason == invalid ->
             %% socket is already closed, ignore this error
             ?tp(debug, "socket already closed", #{reason => socket_already_closed}),
             ok;

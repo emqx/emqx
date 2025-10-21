@@ -585,7 +585,7 @@ new_tx(DB, Options = #{shard := ShardOpt, generation := Generation}) ->
         end
     ).
 
--spec commit_tx(emqx_ds:db(), tx_context(), emqx_ds:tx_ops()) -> reference().
+-spec commit_tx(emqx_ds:db(), emqx_ds:tx_context(), emqx_ds:tx_ops()) -> reference().
 commit_tx(DB, Ctx = #kv_tx_ctx{shard = Shard}, Ops) ->
     %% NOTE: pid of the leader is stored in the context, this should
     %% work for remote processes too.
