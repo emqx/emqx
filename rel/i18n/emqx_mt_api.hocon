@@ -107,9 +107,9 @@ emqx_mt_api {
         desc: "Clients from this namespace are still being kicked."
         label: "Clients Being Kicked"
     }
-    kicking_process_started {
-        desc: "Kicking process started."
-        label: "Kicking Process Started"
+    kick_process_started {
+        desc: "Kick process started."
+        label: "Kick Process Started"
     }
     kick_process_underway {
         desc: "Kick process already underway."

@@ -229,7 +229,7 @@ schema("/mt/ns/:ns/kick_all_clients") ->
             parameters => [param_path_ns()],
             responses =>
                 #{
-                    202 => ?DESC("kicking_process_started"),
+                    202 => ?DESC("kick_process_started"),
                     409 => error_schema('CONFLICT', ?DESC("kick_process_underway")),
                     404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
