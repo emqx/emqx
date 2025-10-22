@@ -1,7 +1,7 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_conf_certs).
+-module(emqx_managed_certs).
 
 %% API
 -export([
@@ -31,8 +31,8 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--include("emqx_conf_certs.hrl").
--include_lib("emqx/include/emqx_config.hrl").
+-include("emqx_managed_certs.hrl").
+-include("emqx_config.hrl").
 
 -define(path, path).
 
@@ -42,7 +42,7 @@
 -define(FILENAME_ACC_KEY, "acc-key.pem").
 -define(FILENAME_KEY_PASSWORD, "key-password").
 
--define(BPAPI, emqx_conf_certs).
+-define(BPAPI, emqx_managed_certs).
 
 -type maybe_namespace() :: emqx_config:maybe_namespace().
 -type file_kind() ::
@@ -109,7 +109,7 @@ list_bundles(Namespace) ->
     ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
 delete_bundle(Namespace, BundleName) ->
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_conf_certs_proto_v1:delete_bundle(Nodes, Namespace, BundleName),
+    Res = emqx_managed_certs_proto_v1:delete_bundle(Nodes, Namespace, BundleName),
     NodeRes = lists:zip(Nodes, Res),
     Errors = lists:filtermap(
         fun
@@ -135,7 +135,7 @@ delete_bundle(Namespace, BundleName) ->
     ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
 add_managed_files(Namespace, BundleName, Files) ->
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_conf_certs_proto_v1:add_managed_files(
+    Res = emqx_managed_certs_proto_v1:add_managed_files(
         Nodes, Namespace, BundleName, Files
     ),
     NodeRes = lists:zip(Nodes, Res),

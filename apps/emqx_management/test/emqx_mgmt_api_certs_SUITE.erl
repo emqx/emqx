@@ -10,7 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx_conf/include/emqx_conf_certs.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -99,7 +99,7 @@ init_per_testcase(_TestCase, TCConfig) ->
 
 end_per_testcase(_TestCase, TCConfig) ->
     Nodes = get_config(nodes, TCConfig),
-    ?ON_ALL(Nodes, ok = emqx_conf_certs:clean_certs_dir()),
+    ?ON_ALL(Nodes, ok = emqx_managed_certs:clean_certs_dir()),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -245,7 +245,7 @@ str(X) -> emqx_utils_conv:str(X).
 
 assert_same_bundles(Namespace, TCConfig) ->
     Nodes = get_config(nodes, TCConfig),
-    Bundles0 = [FirstBundle0 | _] = ?ON_ALL(Nodes, emqx_conf_certs:list_bundles(Namespace)),
+    Bundles0 = [FirstBundle0 | _] = ?ON_ALL(Nodes, emqx_managed_certs:list_bundles(Namespace)),
     ?assertEqual([FirstBundle0], lists:usort(Bundles0)),
     {ok, Bundles1} = FirstBundle0,
     Bundles2 =
@@ -264,7 +264,7 @@ assert_same_bundles(Namespace, TCConfig) ->
 
 get_file_hashes(Namespace, BundleName) ->
     maybe
-        {ok, Files0} ?= emqx_conf_certs:list_managed_files(Namespace, BundleName),
+        {ok, Files0} ?= emqx_managed_certs:list_managed_files(Namespace, BundleName),
         Files =
             maps:fold(
                 fun(Kind, #{path := Path}, Acc) ->
