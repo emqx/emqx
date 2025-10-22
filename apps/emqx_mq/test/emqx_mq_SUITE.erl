@@ -1064,7 +1064,8 @@ t_offline_session(_Config) ->
 
 %% Verify that the metrics are updated correctly
 t_metrics(_Config) ->
-    #{received_messages := ReceivedMessages0} = emqx_mq_metrics:get_counters(ds),
+    #{received_messages := ReceivedMessages0, inserted_messages := InsertedMessages0} =
+        emqx_mq_metrics:get_counters(ds),
 
     %% Create a queue, publish and consume some messages
     _MQ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
@@ -1072,16 +1073,23 @@ t_metrics(_Config) ->
     CSub = emqx_mq_test_utils:emqtt_connect([]),
     emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
+    ok = emqtt:disconnect(CSub),
     ?assertEqual(10, length(Msgs)),
 
     %% Verify that the metrics are updated correctly
-    #{received_messages := ReceivedMessages1} = emqx_mq_metrics:get_counters(ds),
+    #{received_messages := ReceivedMessages1, inserted_messages := InsertedMessages1} = emqx_mq_metrics:get_counters(
+        ds
+    ),
     ?assertEqual(10, ReceivedMessages1 - ReceivedMessages0),
+    ?assertEqual(10, InsertedMessages1 - InsertedMessages0),
     #{received_messages := #{current := Current}} = emqx_mq_metrics:get_rates(ds),
     ?assert(Current > 0),
 
-    %% Clean up
-    ok = emqtt:disconnect(CSub).
+    %% Verify that other accessors work
+    ?assert(is_integer(emqx_mq_metrics:get_quota_buffer_inbox_size())),
+    emqx_mq_metrics:print_common_hists(),
+    emqx_mq_metrics:print_flush_quota_hist(),
+    emqx_mq_metrics:print_common_hists(regular_limited).
 
 t_update_key_expression(_Config) ->
     %% Create a non-lastvalue Queue
