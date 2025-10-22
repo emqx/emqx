@@ -2033,6 +2033,11 @@ fields("banned") ->
                     require => false
                 }
             )}
+    ];
+fields("managed_certs") ->
+    [
+        {namespace, sc(binary(), #{required => false, desc => ?DESC("managed_certs_ns")})},
+        {bundle_name, sc(binary(), #{required => true, desc => ?DESC("managed_certs_bundle_name")})}
     ].
 
 compile_variform_allow_disabled(disabled, _Opts) ->
@@ -2396,6 +2401,8 @@ desc("banned") ->
     "Banned .";
 desc(durable_shared_subs) ->
     ?DESC(durable_shared_subs);
+desc("managed_certs") ->
+    ?DESC("common_ssl_opts_schema_managed_certs");
 desc(_) ->
     undefined.
 
@@ -2606,6 +2613,14 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         importance => ?IMPORTANCE_HIDDEN,
                         desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                     }
+                )},
+            {"managed_certs",
+                sc(
+                    ref("managed_certs"),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC("common_ssl_opts_schema_managed_certs")
+                    }
                 )}
         ] ++
         [
@@ -2739,6 +2754,14 @@ client_ssl_opts_schema(Defaults) ->
                     #{
                         deprecated => {since, "5.8.1"},
                         importance => ?IMPORTANCE_HIDDEN
+                    }
+                )},
+            {"managed_certs",
+                sc(
+                    ref("managed_certs"),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC("common_ssl_opts_schema_managed_certs")
                     }
                 )}
         ].

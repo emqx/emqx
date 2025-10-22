@@ -9,7 +9,8 @@
     introduced_in/0,
 
     delete_bundle/3,
-    add_managed_files/4
+    add_managed_files/4,
+    delete_managed_file/4
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -34,4 +35,14 @@ add_managed_files(Nodes, Namespace, BundleName, Files) ->
         emqx_managed_certs,
         add_managed_files_v1,
         [Namespace, BundleName, Files]
+    ).
+
+-spec delete_managed_file([node()], maybe_namespace(), bundle_name(), file_kind()) ->
+    emqx_rpc:erpc_multicall(ok | {error, #{file_kind() := file:posix()}}).
+delete_managed_file(Nodes, Namespace, BundleName, Kind) ->
+    erpc:multicall(
+        Nodes,
+        emqx_managed_certs,
+        delete_managed_file_v1,
+        [Namespace, BundleName, Kind]
     ).

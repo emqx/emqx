@@ -222,10 +222,12 @@ upload_files_multipart_ns(Ns, BundleName, Files) ->
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
 
 gen_cert(Opts) ->
-    {Cert, Key} = emqx_cth_tls:gen_cert(Opts),
-    CertPEM = pem_encode(Cert, undefined),
-    Password = maps:get(password, Opts, undefined),
-    KeyPEM = pem_encode(Key, Password),
+    #{
+        cert := Cert,
+        key := Key,
+        cert_pem := CertPEM,
+        key_pem := KeyPEM
+    } = emqx_cth_tls:gen_cert_pem(Opts),
     #{
         cert_key => {Cert, Key},
         cert_pem => CertPEM,
@@ -328,9 +330,6 @@ t_crud(TCConfig) when is_list(TCConfig) ->
         cert_pem := Cert1,
         key_pem := Key1
     } = gen_cert(#{key => ec, issuer => CertKeyRoot}),
-
-    %% DELETEME
-    redbug:start(["minirest_handler:do_validate_params"]),
 
     ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
 
