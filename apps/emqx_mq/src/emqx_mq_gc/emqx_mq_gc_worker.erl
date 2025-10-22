@@ -107,8 +107,7 @@ gc_next_lastvalue_batch(#{stream := Stream0} = State) ->
     end.
 
 gc_lastvalue_queues(MQs) ->
-    NowMS = now_ms(),
-    emqx_mq_message_db:delete_expired_data(MQs, NowMS).
+    emqx_mq_message_db:delete_expired_data(MQs).
 
 lastvalue_mq_stream() ->
     emqx_utils_stream:filter(

@@ -35,7 +35,7 @@ Facade for all operations with the message database.
 
 -export([
     add_regular_db_generation/0,
-    delete_expired_data/2,
+    delete_expired_data/1,
     regular_db_slab_info/0,
     drop_regular_db_slab/1,
     initial_generations/1,
@@ -46,7 +46,7 @@ Facade for all operations with the message database.
 -export([
     delete_all/0,
     dirty_read_all/1,
-    index/2
+    dirty_index/2
 ]).
 
 -define(MQ_MESSAGE_DB_APPEND_RETRY, 3).
@@ -281,8 +281,8 @@ decode_message(Bin) ->
 add_regular_db_generation() ->
     ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB).
 
--spec delete_expired_data([emqx_mq_types:mq()], non_neg_integer()) -> ok.
-delete_expired_data(MQs, NowMS) ->
+-spec delete_expired_data([emqx_mq_types:mq()]) -> ok.
+delete_expired_data(MQs) ->
     Shards = emqx_ds:list_shards(?MQ_MESSAGE_LASTVALUE_DB),
     Refs = lists:filtermap(
         fun(Shard) ->
@@ -292,9 +292,11 @@ delete_expired_data(MQs, NowMS) ->
                 generation => insert_generation(?MQ_MESSAGE_LASTVALUE_DB),
                 sync => false
             },
+            Indices = [dirty_index(MQ, Shard) || MQ <- MQs],
             Res = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
-                    fun(MQ) -> tx_mq_delete_expired_data(MQ, NowMS) end, MQs
+                    fun({MQ, Index}) -> tx_mq_delete_expired_data(MQ, Index) end,
+                    lists:zip(MQs, Indices)
                 )
             end),
             case Res of
@@ -332,19 +334,14 @@ delete_expired_data(MQs, NowMS) ->
         Refs
     ).
 
-tx_mq_delete_expired_data(#{data_retention_period := DataRetentionPeriod} = MQ, NowMS) ->
-    TimeRetentionDeadline = max(NowMS - DataRetentionPeriod, 0),
+tx_mq_delete_expired_data(#{data_retention_period := DataRetentionPeriod} = MQ, Index) ->
+    TimeRetentionDeadline = max(now_ms() - DataRetentionPeriod, 0),
     LimitsDeadline =
-        case emqx_mq_prop:is_limited(MQ) of
-            true ->
-                case tx_read_index(MQ) of
-                    undefined ->
-                        0;
-                    Index ->
-                        emqx_mq_message_quota_index:deadline(Index)
-                end;
-            false ->
-                0
+        case Index of
+            undefined ->
+                0;
+            _ ->
+                emqx_mq_message_quota_index:deadline(Index)
         end,
     DeleteTill = max(TimeRetentionDeadline, LimitsDeadline),
     Topic = mq_message_topic(MQ, '#'),
@@ -368,14 +365,14 @@ drop_regular_db_slab(Slab) ->
 dirty_read_all(MQ) ->
     emqx_ds:dirty_read(db(MQ), mq_message_topic(MQ, '#')).
 
--spec index(emqx_mq_types:mq_handle() | emqx_mq_types:mq(), emqx_ds:shard()) ->
+-spec dirty_index(emqx_mq_types:mq_handle() | emqx_mq_types:mq(), emqx_ds:shard()) ->
     emqx_mq_message_quota_index:t() | {error, term()} | not_found.
-index(MQHandle, Shard) ->
-    index(MQHandle, Shard, emqx_mq_prop:is_limited(MQHandle)).
+dirty_index(MQHandle, Shard) ->
+    dirty_index(MQHandle, Shard, emqx_mq_prop:is_limited(MQHandle)).
 
-index(_MQHandle, _Shard, false = _IsLimited) ->
-    {error, queue_is_not_limited};
-index(MQHandle, Shard, true = _IsLimited) ->
+dirty_index(_MQHandle, _Shard, false = _IsLimited) ->
+    undefined;
+dirty_index(MQHandle, Shard, true = _IsLimited) ->
     DB = db(MQHandle),
     case
         emqx_ds:dirty_read(
@@ -384,7 +381,7 @@ index(MQHandle, Shard, true = _IsLimited) ->
         )
     of
         [] ->
-            not_found;
+            undefined;
         [{_, ?INDEX_TS, IndexBin}] ->
             Opts = emqx_mq_prop:quota_index_opts(MQHandle),
             emqx_mq_message_quota_index:decode(Opts, IndexBin)
@@ -657,3 +654,6 @@ delete_topics(?MQ_MESSAGE_REGULAR_DB, MQHandle) ->
     [mq_message_topic(MQHandle, '#')];
 delete_topics(?MQ_MESSAGE_LASTVALUE_DB, MQHandle) ->
     [mq_index_topic(MQHandle), mq_message_topic(MQHandle, '#')].
+
+now_ms() ->
+    erlang:monotonic_time(millisecond).
