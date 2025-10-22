@@ -54,14 +54,13 @@ schema("/file_transfer/files") ->
         filter => fun ?MODULE:check_ft_enabled/2,
         get => #{
             tags => ?TAGS,
-            summary => <<"List all uploaded files">>,
             description => ?DESC("file_list"),
             parameters => [
                 ref(following),
                 ref(emqx_dashboard_swagger, limit)
             ],
             responses => #{
-                200 => <<"Operation success">>,
+                200 => ?DESC("operation_success"),
                 400 => emqx_dashboard_swagger:error_codes(
                     ['BAD_REQUEST'], <<"Invalid cursor">>
                 ),
@@ -77,14 +76,13 @@ schema("/file_transfer/files/:clientid/:fileid") ->
         filter => fun ?MODULE:check_ft_enabled/2,
         get => #{
             tags => ?TAGS,
-            summary => <<"List files uploaded in a specific transfer">>,
             description => ?DESC("file_list_transfer"),
             parameters => [
                 ref(client_id),
                 ref(file_id)
             ],
             responses => #{
-                200 => <<"Operation success">>,
+                200 => ?DESC("operation_success"),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['FILES_NOT_FOUND'], error_desc('FILES_NOT_FOUND')
                 ),
@@ -99,7 +97,6 @@ schema("/file_transfer") ->
         'operationId' => '/file_transfer',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get current File Transfer configuration">>,
             description => ?DESC("file_transfer_get_config"),
             responses => #{
                 200 => ?SCHEMA_CONFIG
@@ -107,7 +104,6 @@ schema("/file_transfer") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update File Transfer configuration">>,
             description => ?DESC("file_transfer_update_config"),
             'requestBody' => ?SCHEMA_CONFIG,
             responses => #{
@@ -200,7 +196,7 @@ fields(client_id) ->
         {clientid,
             mk(binary(), #{
                 in => path,
-                desc => <<"MQTT Client ID">>,
+                desc => ?DESC("mqtt_client_id"),
                 required => true
             })}
     ];
@@ -209,7 +205,7 @@ fields(file_id) ->
         {fileid,
             mk(binary(), #{
                 in => path,
-                desc => <<"File ID">>,
+                desc => ?DESC("file_id"),
                 required => true
             })}
     ];
@@ -218,7 +214,7 @@ fields(following) ->
         {following,
             mk(binary(), #{
                 in => query,
-                desc => <<"Cursor to start listing files from">>,
+                desc => ?DESC("cursor_to_start_listing"),
                 required => false
             })}
     ].

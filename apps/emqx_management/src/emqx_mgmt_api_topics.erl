@@ -62,13 +62,15 @@ schema("/topics/:topic") ->
     #{
         'operationId' => topic,
         get => #{
-            description => ?DESC(topic_info_by_name),
+            description => ?DESC("topic_info_by_name"),
             tags => ?TAGS,
             parameters => [topic_param(path)],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(topic)), #{}),
                 404 =>
-                    emqx_dashboard_swagger:error_codes(['TOPIC_NOT_FOUND'], <<"Topic not found">>)
+                    emqx_dashboard_swagger:error_codes(
+                        ['TOPIC_NOT_FOUND'], ?DESC("topic_not_found")
+                    )
             }
         }
     }.
@@ -77,17 +79,17 @@ fields(topic) ->
     [
         {topic,
             hoconsc:mk(binary(), #{
-                desc => <<"Topic Name">>,
+                desc => ?DESC("topic_name"),
                 required => true
             })},
         {node,
             hoconsc:mk(binary(), #{
-                desc => <<"Node">>,
+                desc => ?DESC("target_node"),
                 required => true
             })},
         {session,
             hoconsc:mk(binary(), #{
-                desc => <<"Session ID">>,
+                desc => ?DESC(session_id),
                 required => false
             })}
     ].
@@ -226,7 +228,7 @@ topic_param(In) ->
     {
         topic,
         hoconsc:mk(binary(), #{
-            desc => <<"Topic Name">>,
+            desc => ?DESC(topic_name),
             in => In,
             required => (In == path),
             example => <<"">>
@@ -237,7 +239,7 @@ node_param() ->
     {
         node,
         hoconsc:mk(binary(), #{
-            desc => <<"Node Name">>,
+            desc => ?DESC("node_name"),
             in => query,
             required => false,
             example => node()
