@@ -58,7 +58,8 @@
 -export_type([
     deadline/0,
     cursor/0,
-    context/0
+    context/0,
+    index_incarnation/0
 ]).
 
 %% exported for `emqx_telemetry'

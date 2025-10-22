@@ -51,6 +51,11 @@
 -define(POOL, ?DISPATCHER_POOL).
 -define(DELAY_MS, 100).
 -define(MAX_WAITING_FOR_RETRY, 1_000).
+-ifdef(TEST).
+-define(REINDEX_DISPATCH_WAIT, 3_000).
+-else.
+-define(REINDEX_DISPATCH_WAIT, 30_000).
+-endif.
 
 -define(BATCH_QUEUE_PD_KEY, {?MODULE, batch_queue}).
 -define(BATCH_LAST_MSGID_PD_KEY, {?MODULE, batch_last_msgid}).
@@ -64,12 +69,14 @@
 -record(more, {limiter}).
 -record(retry, {
     enqueued_at :: time_ms(),
+    incarnation :: undefined | emqx_retainer:index_incarnation(),
     msgs :: [message()],
     pid :: pid(),
     topic :: topic(),
     cursor :: undefined | cursor()
 }).
 -record(dispatch_cursor, {
+    incarnation :: undefined | emqx_retainer:index_incarnation(),
     topic :: topic(),
     rest :: [message()],
     cursor :: undefined | cursor()
@@ -192,33 +199,28 @@ init([Pool, Id]) ->
         limiter => Limiter,
         %% For retrying dispatches when rate limited
         retry_tref => undefined,
-        %% Monitors readers that use cursors.
-        readers => emqx_pmon:new(),
-        %% Incarnation number to number of current readers using that index.
-        incarnations => gb_trees:empty(),
+        %% For replying callers waiting for dispatch to be complete, for reindex
+        %% consistency.
+        wait_dispatch_complete_tref => undefined,
+        %% Last known incarnation number.  Used with reindex.
+        incarnation => current_index_incarnation(),
         %% Cursors waiting to be retried.
         waiting_for_retry => queue:new(),
         %% Callers waiting for dispatchers older than current incarnation to
         %% complete, keyed on greatest incarnation number they are waiting on to be
         %% empty.  Used by reindex.
-        waiting_for_dispatch => gb_trees:empty()
+        waiting_for_dispatch => []
     },
     {ok, State}.
 
 handle_call(wait_dispatch_complete, From, State0) ->
-    #{
-        incarnations := Incarnations,
-        waiting_for_dispatch := Waiting0
-    } = State0,
-    Incarnation = current_index_incarnation(),
-    case gb_trees:smaller(Incarnation, Incarnations) of
-        none ->
-            {reply, ok, State0};
-        {OlderIncarnation, _Count} ->
-            Waiting = add_caller(Waiting0, OlderIncarnation, From),
-            State = State0#{waiting_for_dispatch := Waiting},
-            {noreply, State}
-    end;
+    #{waiting_for_dispatch := Waiting0} = State0,
+    Waiting = add_caller(Waiting0, From),
+    %% We bump the incarnation only after replying to the callers, so that requests with
+    %% the now old incarnation are still served.
+    State1 = State0#{waiting_for_dispatch := Waiting},
+    State = ensure_wait_dispatch_complete_timer(State1),
+    {noreply, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
@@ -226,22 +228,33 @@ handle_call(Req, _From, State) ->
 handle_cast({dispatch, Pid, Topic}, State) ->
     handle_initial_dispatch(Pid, Topic, State);
 handle_cast({next, Pid, DispatchCursor}, State) ->
-    handle_next(DispatchCursor, Pid, State);
+    #{incarnation := CurrentIncarnation} = State,
+    ReqIncarnation = DispatchCursor#dispatch_cursor.incarnation,
+    IsStateReq = is_integer(ReqIncarnation) andalso CurrentIncarnation > ReqIncarnation,
+    case IsStateReq of
+        true ->
+            %% Just drop stale request.
+            {noreply, State};
+        false ->
+            handle_next(DispatchCursor, Pid, State)
+    end;
 handle_cast(Msg, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Msg}),
     {noreply, State}.
 
-handle_info({'DOWN', _, process, Pid, _} = Info, State0) ->
-    case ensure_reader_unregistered(Pid, State0) of
-        {ok, State} ->
-            {noreply, State};
-        {unknown, State} ->
-            ?SLOG(error, #{msg => "unexpected_info", info => Info}),
-            {noreply, State}
-    end;
 handle_info(retry, State0) ->
     State = State0#{retry_tref := undefined},
     handle_retry(State);
+handle_info(wait_dispatch_complete_done, State0) ->
+    #{waiting_for_dispatch := Waiting} = State0,
+    notify_callers(Waiting),
+    %% We now bump the incarnation.  Any further stale requests will now be dropped.
+    State = State0#{
+        wait_dispatch_complete_tref := undefined,
+        incarnation := current_index_incarnation(),
+        waiting_for_dispatch := []
+    },
+    {noreply, State};
 handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
@@ -275,16 +288,18 @@ handle_initial_dispatch(Pid, Topic, State0) ->
     case emqx_topic:wildcard(Topic) of
         true ->
             {ok, Messages, Cursor} = Mod:match_messages(BackendState, Topic, undefined),
-            State1 = ensure_reader_registered(Pid, Cursor, State0),
+            Incarnation = cursor_index_incarnation(Cursor),
             DispatchCursor = #dispatch_cursor{
+                incarnation = Incarnation,
                 topic = Topic,
                 rest = Messages,
                 cursor = Cursor
             },
-            handle_next(DispatchCursor, Pid, State1);
+            handle_next(DispatchCursor, Pid, State0);
         false ->
             {ok, Messages} = Mod:read_message(BackendState, Topic),
             DispatchCursor = #dispatch_cursor{
+                incarnation = undefined,
                 topic = Topic,
                 rest = Messages,
                 cursor = undefined
@@ -308,7 +323,9 @@ handle_retry(State0) ->
                     ?tp("retainer_retry_request_dropped_due_to_ttl", #{}),
                     handle_retry(State);
                 false ->
+                    Incarnation = cursor_index_incarnation(Retry#retry.cursor),
                     DispatchCursor = #dispatch_cursor{
+                        incarnation = Incarnation,
                         topic = Retry#retry.topic,
                         rest = Retry#retry.msgs,
                         cursor = Retry#retry.cursor
@@ -340,8 +357,8 @@ handle_dispatch_next_chunk(Messages0, Pid, Topic, Cursor0, Limiter0, State0) ->
             State0#{limiter := Limiter1};
         #done{limiter = Limiter1} ->
             ?tp("retainer_deliver_done", #{topic => Topic, cursor => Cursor0}),
-            {_WasKnown, State1} = delete_cursor(Cursor0, Pid, State0),
-            State1#{limiter := Limiter1};
+            ok = delete_cursor(Cursor0),
+            State0#{limiter := Limiter1};
         #delay{msgs = Messages, limiter = Limiter1} ->
             ?tp("retainer_deliver_delay", #{topic => Topic, cursor => Cursor0}),
             #{waiting_for_retry := ToRetry0} = State0,
@@ -386,14 +403,13 @@ match_next(Topic, Cursor) ->
     State = emqx_retainer:backend_state(Context),
     Mod:match_messages(State, Topic, Cursor).
 
-delete_cursor(undefined, Pid, State0) ->
-    ensure_reader_unregistered(Pid, State0);
-delete_cursor(Cursor, Pid, State0) ->
+delete_cursor(undefined) ->
+    ok;
+delete_cursor(Cursor) ->
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     BackendState = emqx_retainer:backend_state(Context),
-    ok = Mod:delete_cursor(BackendState, Cursor),
-    ensure_reader_unregistered(Pid, State0).
+    ok = Mod:delete_cursor(BackendState, Cursor).
 
 current_index_incarnation() ->
     Context = emqx_retainer:context(),
@@ -401,97 +417,19 @@ current_index_incarnation() ->
     State = emqx_retainer:backend_state(Context),
     Mod:current_index_incarnation(State).
 
-ensure_reader_registered(Pid, Cursor, State0) ->
-    #{
-        readers := Readers0,
-        incarnations := Incarnations0
-    } = State0,
-    case emqx_pmon:find(Pid, Readers0) of
-        {ok, _} ->
-            State0;
-        error ->
-            Incarnation = cursor_index_incarnation(Cursor),
-            Readers = emqx_pmon:monitor(Pid, Incarnation, Readers0),
-            Incarnations = inc_incarnation_counter(Incarnations0, Incarnation),
-            State0#{readers := Readers, incarnations := Incarnations}
-    end.
-
-ensure_reader_unregistered(Pid, State0) ->
-    #{
-        readers := Readers0,
-        incarnations := Incarnations0,
-        waiting_for_dispatch := Waiting0
-    } = State0,
-    case emqx_pmon:find(Pid, Readers0) of
-        error ->
-            %% Could happen when deleting an `undefined` cursor (i.e., at-once dispatch).
-            {unknown, State0};
-        {ok, Incarnation} ->
-            Readers = emqx_pmon:erase(Pid, Readers0),
-            {Incarnations, Waiting} =
-                case dec_incarnation_counter(Incarnations0, Incarnation) of
-                    {ok, Incarnations1} ->
-                        %% Not the last one
-                        {Incarnations1, Waiting0};
-                    {last, Incarnations1} ->
-                        Waiting1 = notify_callers(Waiting0, Incarnation),
-                        {Incarnations1, Waiting1}
-                end,
-            State = State0#{
-                readers := Readers,
-                incarnations := Incarnations,
-                waiting_for_dispatch := Waiting
-            },
-            {ok, State}
-    end.
-
+cursor_index_incarnation(undefined) ->
+    undefined;
 cursor_index_incarnation(Cursor) ->
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     BackendState = emqx_retainer:backend_state(Context),
     Mod:cursor_index_incarnation(BackendState, Cursor).
 
-inc_incarnation_counter(Tree, Incarnation) ->
-    case gb_trees:lookup(Incarnation, Tree) of
-        none ->
-            gb_trees:insert(Incarnation, 1, Tree);
-        {value, N} ->
-            gb_trees:update(Incarnation, N + 1, Tree)
-    end.
+add_caller(Callers0, From) ->
+    [From | Callers0].
 
-dec_incarnation_counter(Tree, Incarnation) ->
-    case gb_trees:lookup(Incarnation, Tree) of
-        none ->
-            {ok, Tree};
-        {value, 1} ->
-            {last, gb_trees:delete(Incarnation, Tree)};
-        {value, N} ->
-            {ok, gb_trees:update(Incarnation, N - 1, Tree)}
-    end.
-
-add_caller(Callers0, Incarnation, From) ->
-    case gb_trees:lookup(Incarnation, Callers0) of
-        none ->
-            gb_trees:insert(Incarnation, [From], Callers0);
-        {value, Froms} ->
-            gb_trees:update(Incarnation, [From | Froms], Callers0)
-    end.
-
-notify_callers(Callers0, Incarnation) ->
-    case gb_trees:lookup(Incarnation, Callers0) of
-        none ->
-            Callers0;
-        {value, Waiting} ->
-            Callers1 = gb_trees:delete(Incarnation, Callers0),
-            case gb_trees:smaller(Incarnation, Callers1) of
-                none ->
-                    lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Waiting),
-                    Callers1;
-                {OlderIncarnation, Froms} ->
-                    %% If there are even older readers running, wait for them as well.
-                    gb_trees:update(OlderIncarnation, Froms ++ Waiting, Callers1)
-            end
-    end.
+notify_callers(Callers0) ->
+    lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Callers0).
 
 -spec deliver([emqx_types:message()], pid(), topic(), cursor(), limiter()) ->
     more() | done() | delay().
@@ -540,6 +478,7 @@ deliver_in_batches(Msgs, BatchSize, Pid, Topic, Cursor, Limiter0) ->
 deliver_to_client(Msgs, Pid, Topic, Cursor, RestMsgs) ->
     Delivers = lists:map(fun(Msg) -> {deliver, Topic, Msg} end, Msgs),
     DispatchCursor = #dispatch_cursor{
+        incarnation = cursor_index_incarnation(Cursor),
         topic = Topic,
         cursor = Cursor,
         rest = RestMsgs
@@ -582,6 +521,13 @@ get_limiter() ->
 ensure_delayed_retry(State0, Timeout) ->
     TRef = delay_retry(Timeout),
     State0#{retry_tref := TRef}.
+
+-spec ensure_wait_dispatch_complete_timer(state()) -> state().
+ensure_wait_dispatch_complete_timer(#{wait_dispatch_complete_tref := undefined} = State0) ->
+    TRef = erlang:send_after(?REINDEX_DISPATCH_WAIT, self(), wait_dispatch_complete_done),
+    State0#{wait_dispatch_complete_tref := TRef};
+ensure_wait_dispatch_complete_timer(State) ->
+    State.
 
 delay_retry(Timeout) ->
     erlang:send_after(Timeout, self(), retry).
