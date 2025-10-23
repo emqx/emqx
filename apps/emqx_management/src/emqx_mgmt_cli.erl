@@ -291,7 +291,13 @@ write_client_stats_csv(FilePath, TotalRows, BatchSize, SleepMs) ->
         {ok, FileHandle} ->
             try
                 ok = file:write(FileHandle, CsvHeader),
-                ok = traverse_chain_info(FileHandle, TotalRows, BatchSize, SleepMs),
+                Config = #{
+                    file_handle => FileHandle,
+                    total_rows => TotalRows,
+                    batch_size => BatchSize,
+                    sleep_ms => SleepMs
+                },
+                ok = traverse_chain_info(Config),
                 emqx_ctl:print("Client statistics dumped to ~s~n", [FilePath])
             after
                 file:close(FileHandle)
@@ -301,23 +307,28 @@ write_client_stats_csv(FilePath, TotalRows, BatchSize, SleepMs) ->
     end.
 
 %% @doc Traverse ETS table using ets:first/ets:next with configurable delays
-traverse_chain_info(FileHandle, TotalRows, BatchSize, SleepMs) ->
-    traverse_chain_info(FileHandle, TotalRows, BatchSize, SleepMs, 0, 0, ets:first(?CHAN_INFO_TAB)).
+traverse_chain_info(Config) ->
+    traverse_chain_info(Config, 0, 0, ets:first(?CHAN_INFO_TAB)).
 
-traverse_chain_info(
-    _FileHandle, TotalRows, _BatchSize, _SleepMs, ProcessedCount, _BatchCount, '$end_of_table'
-) ->
+traverse_chain_info(Config, ProcessedCount, _BatchCount, '$end_of_table') ->
+    #{total_rows := TotalRows} = Config,
     % Print final progress
     emqx_ctl:print("Progress: ~w/~w (100%) - Completed~n", [ProcessedCount, TotalRows]),
     ok;
-traverse_chain_info(FileHandle, TotalRows, BatchSize, SleepMs, ProcessedCount, BatchCount, Key) ->
+traverse_chain_info(Config, ProcessedCount, BatchCount, Key) ->
+    #{
+        file_handle := FileHandle,
+        total_rows := TotalRows,
+        batch_size := BatchSize,
+        sleep_ms := SleepMs
+    } = Config,
     % Process current row
+    NextKey = ets:next(?CHAN_INFO_TAB, Key),
     case ets:lookup(?CHAN_INFO_TAB, Key) of
         [{Key, Info, Stats}] ->
             _ = write_client_stats_row({Key, Info, Stats}, FileHandle),
             NewProcessedCount = ProcessedCount + 1,
             NewBatchCount = BatchCount + 1,
-
             % Check if we need to print progress and add delay
             case NewBatchCount >= BatchSize of
                 true ->
@@ -333,38 +344,16 @@ traverse_chain_info(FileHandle, TotalRows, BatchSize, SleepMs, ProcessedCount, B
                     timer:sleep(SleepMs),
 
                     % Continue with next batch
-                    traverse_chain_info(
-                        FileHandle,
-                        TotalRows,
-                        BatchSize,
-                        SleepMs,
-                        NewProcessedCount,
-                        0,
-                        ets:next(?CHAN_INFO_TAB, Key)
-                    );
+                    NextKey = ets:next(?CHAN_INFO_TAB, Key),
+                    traverse_chain_info(Config, NewProcessedCount, 0, NextKey);
                 false ->
                     % Continue processing current batch
-                    traverse_chain_info(
-                        FileHandle,
-                        TotalRows,
-                        BatchSize,
-                        SleepMs,
-                        NewProcessedCount,
-                        NewBatchCount,
-                        ets:next(?CHAN_INFO_TAB, Key)
-                    )
+                    NextKey = ets:next(?CHAN_INFO_TAB, Key),
+                    traverse_chain_info(Config, NewProcessedCount, NewBatchCount, NextKey)
             end;
         [] ->
             % Key not found, skip to next
-            traverse_chain_info(
-                FileHandle,
-                TotalRows,
-                BatchSize,
-                SleepMs,
-                ProcessedCount,
-                BatchCount,
-                ets:next(?CHAN_INFO_TAB, Key)
-            )
+            traverse_chain_info(Config, ProcessedCount, BatchCount, NextKey)
     end.
 
 write_client_stats_row({{ClientId, _Pid}, _Info, Stats}, FileHandle) ->
