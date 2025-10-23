@@ -119,7 +119,8 @@ defmodule EMQXUmbrella.MixProject do
       {:ssl_verify_fun, "1.1.7", override: true},
       common_dep(:bcrypt),
       common_dep(:uuid),
-      {:quickrand, github: "okeuday/quickrand", tag: "v2.0.7.1", override: true},
+      {:quickrand,
+       github: "okeuday/quickrand", tag: "v2.0.7.1", manager: :rebar3, override: true},
       common_dep(:ra),
       {:mimerl, "1.2.0", override: true},
       common_dep(:sasl_auth),
@@ -219,10 +220,11 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
-  def common_dep(:observer_cli), do: {:observer_cli, "1.8.4"}
+  def common_dep(:observer_cli), do: {:observer_cli, "1.8.4", manager: :rebar3}
 
   def common_dep(:jose),
-    do: {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", override: true}
+    do:
+      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", manager: :rebar3, override: true}
 
   def common_dep(:rulesql), do: {:rulesql, github: "emqx/rulesql", tag: "0.2.1"}
 
