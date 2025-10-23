@@ -30,7 +30,10 @@ groups() ->
     [
         {mnesia_without_indices, [sequence], index_related_tests()},
         {mnesia_with_indices, [sequence], index_related_tests()},
-        {mnesia_with_indices_ds, [sequence], [t_dispatch_rate_limit_wildcard]},
+        {mnesia_with_indices_ds, [sequence], [
+            t_dispatch_rate_limit_wildcard,
+            t_channel_inflight_blocked
+        ]},
         {mnesia_reindex, [sequence], [t_reindex]},
         {index_agnostic, [sequence], [t_disable_then_start, t_start_stop_on_setting_change]},
         {disabled, [t_disabled]}

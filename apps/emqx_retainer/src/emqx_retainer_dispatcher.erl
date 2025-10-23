@@ -58,7 +58,7 @@
 -endif.
 
 -define(BATCH_QUEUE_PD_KEY, {?MODULE, batch_queue}).
--define(BATCH_LAST_MSGID_PD_KEY, {?MODULE, batch_last_msgid}).
+-define(TRY_NEXT_NUDGED_PD_KEY, {?MODULE, try_next_nudged}).
 -define(TRY_NEXT_BATCH_TIMER_PD_KEY, {?MODULE, try_next_batch_timer}).
 
 -record(delay, {
@@ -140,11 +140,19 @@ start_link(Pool, Id) ->
 
 on_message_acked(_ClientInfo, Msg) ->
     HookContext = emqx_hooks:context('message.acked'),
-    maybe_nudge_next_retained_batch(Msg, ack, HookContext).
+    try
+        maybe_nudge_next_retained_batch(Msg, HookContext)
+    after
+        clear_nudged_flag()
+    end.
 
 on_message_delivered(_ClientInfo, Msg) ->
     HookContext = emqx_hooks:context('message.delivered'),
-    maybe_nudge_next_retained_batch(Msg, deliver, HookContext).
+    try
+        maybe_nudge_next_retained_batch(Msg, HookContext)
+    after
+        clear_nudged_flag()
+    end.
 
 on_client_handle_info({retained_batch, Topic, Delivers0, DispatchCursor}, HookContext, Acc0) ->
     ChanInfoFn = maps:get(chan_info_fn, HookContext),
@@ -604,7 +612,6 @@ pop_next_retained_batch1(AvailableRoom) ->
                 end,
             {Delivers, RestDelivers} = take_delivers(ToTake, Delivers0),
             push_retained_batch(Topic, RestDelivers, DispatchCursor),
-            push_last_retained_batch_msgid(Delivers),
             {ok, Delivers}
     end.
 
@@ -621,7 +628,6 @@ push_retained_batch(Topic, Delivers, DispatchCursor) ->
 
 clear_retained_batches() ->
     _ = put(?BATCH_QUEUE_PD_KEY, queue:new()),
-    _ = put(?BATCH_LAST_MSGID_PD_KEY, #{}),
     ok.
 
 has_buffered_retained_batch() ->
@@ -669,37 +675,6 @@ has_available_session_inflight_room(HookContext) ->
             {true, InflightMax - InflightCnt}
     end.
 
-push_last_retained_batch_msgid([]) ->
-    %% Impossible?
-    ok;
-push_last_retained_batch_msgid([_ | _] = Delivers) ->
-    {deliver, _Topic, Msg} = lists:last(Delivers),
-    do_push_last_retained_batch_msgid(Msg).
-
-pop_last_retained_batch_msgid(Msg) ->
-    MsgId = Msg#message.id,
-    case get(?BATCH_LAST_MSGID_PD_KEY) of
-        #{MsgId := _} = LastIds0 ->
-            LastIds = maps:remove(MsgId, LastIds0),
-            put(?BATCH_LAST_MSGID_PD_KEY, LastIds),
-            true;
-        _ ->
-            false
-    end.
-
-do_push_last_retained_batch_msgid(Msg) ->
-    MsgId = Msg#message.id,
-    case get(?BATCH_LAST_MSGID_PD_KEY) of
-        undefined ->
-            LastIds = #{MsgId => true},
-            _ = put(?BATCH_LAST_MSGID_PD_KEY, LastIds),
-            ok;
-        #{} = LastIds0 ->
-            LastIds = LastIds0#{MsgId => true},
-            _ = put(?BATCH_LAST_MSGID_PD_KEY, LastIds),
-            ok
-    end.
-
 take_delivers(all, Delivers) ->
     {Delivers, []};
 take_delivers(N, Delivers0) ->
@@ -712,21 +687,32 @@ do_take_delivers(_N, [] = RestDelivers, Acc) ->
 do_take_delivers(N, [Deliver | RestDelivers], Acc) ->
     do_take_delivers(N - 1, RestDelivers, [Deliver | Acc]).
 
-maybe_nudge_next_retained_batch(#message{} = Msg, deliver, _HookContext) ->
-    case pop_last_retained_batch_msgid(Msg) of
+maybe_nudge_next_retained_batch(#message{}, HookContext) ->
+    case has_buffered_retained_batch() of
+        false ->
+            ok;
         true ->
-            ?tp("channel_retained_try_next_batch", #{}),
+            case has_available_session_inflight_room(HookContext) of
+                false ->
+                    ?tp("channel_retained_batch_blocked", #{where => after_ack}),
+                    ok;
+                {true, _} ->
+                    ?tp("channel_retained_try_next_batch", #{}),
+                    ensure_nudged(),
+                    ok
+            end
+    end.
+
+ensure_nudged() ->
+    case get(?TRY_NEXT_NUDGED_PD_KEY) of
+        undefined ->
             _ = self() ! try_next_retained_batch,
+            _ = put(?TRY_NEXT_NUDGED_PD_KEY, true),
             ok;
-        false ->
-            ok
-    end;
-maybe_nudge_next_retained_batch(#message{}, ack, HookContext) ->
-    case has_buffered_retained_batch() andalso has_available_session_inflight_room(HookContext) of
-        false ->
-            ok;
-        {true, _} ->
-            ?tp("channel_retained_try_next_batch", #{}),
-            _ = self() ! try_next_retained_batch,
+        true ->
             ok
     end.
+
+clear_nudged_flag() ->
+    _ = erase(?TRY_NEXT_NUDGED_PD_KEY),
+    ok.
