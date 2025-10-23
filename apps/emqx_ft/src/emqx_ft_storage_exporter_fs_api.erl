@@ -50,17 +50,16 @@ schema("/file_transfer/file") ->
         'operationId' => '/file_transfer/file',
         get => #{
             tags => ?TAGS,
-            summary => <<"Download a particular file">>,
             description => ?DESC("file_get"),
             parameters => [
                 hoconsc:ref(file_node),
                 hoconsc:ref(file_ref)
             ],
             responses => #{
-                200 => <<"Operation success">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Not found">>),
+                200 => ?DESC("operation_success"),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("not_found")),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], <<"Service unavailable">>
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -78,7 +77,7 @@ fields(file_ref) ->
         {fileref,
             hoconsc:mk(binary(), #{
                 in => query,
-                desc => <<"File reference">>,
+                desc => ?DESC("file_reference"),
                 example => <<"file1">>,
                 required => true
             })}
@@ -88,7 +87,7 @@ fields(file_node) ->
         {node,
             hoconsc:mk(binary(), #{
                 in => query,
-                desc => <<"Node under which the file is located">>,
+                desc => ?DESC("node_location"),
                 example => atom_to_list(node()),
                 required => true
             })}

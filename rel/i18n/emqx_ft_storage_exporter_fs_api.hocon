@@ -1,0 +1,33 @@
+emqx_ft_storage_exporter_fs_api {
+
+file_get.desc:
+"""Get a file by its id."""
+file_get.label:
+"""Get File"""
+
+operation_success.desc:
+"""Operation success"""
+operation_success.label:
+"""Operation Success"""
+
+not_found.desc:
+"""Not found"""
+not_found.label:
+"""Not Found"""
+
+service_unavailable.desc:
+"""Service unavailable"""
+service_unavailable.label:
+"""Service Unavailable"""
+
+file_reference.desc:
+"""File reference"""
+file_reference.label:
+"""File Reference"""
+
+node_location.desc:
+"""Node under which the file is located"""
+node_location.label:
+"""Node Location"""
+
+}
