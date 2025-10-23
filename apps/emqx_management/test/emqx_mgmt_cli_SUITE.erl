@@ -452,7 +452,168 @@ t_exclusive(_Config) ->
     emqx_ctl:run_command(["exclusive", "delete", "t/1"]),
     ok.
 
+%% Test default stats command
+t_clients_dump_stats_default(init, Config) ->
+    %% Start a test client
+    Pid = start_link_client(<<"test_client_stats_dump-1">>),
+    [{clients, [Pid]} | Config];
+t_clients_dump_stats_default('end', Config) ->
+    %% Stop the test client
+    Pids = proplists:get_value(clients, Config),
+    lists:foreach(fun stop_client/1, Pids),
+    ok.
+t_clients_dump_stats_default(_Config) ->
+    TestFile = "/tmp/test_dump_stats_default.csv",
+    _ = file:delete(TestFile),
+
+    %% Run the command directly
+    dump_client_stats(TestFile, 1000, 10),
+
+    %% Verify file was created and contains expected content
+    ?assert(filelib:is_file(TestFile)),
+    {ok, Content} = file:read_file(TestFile),
+    Lines = string:tokens(binary_to_list(Content), "\n"),
+    % At least header
+    ?assert(length(Lines) >= 1),
+    ?assert(
+        lists:prefix(
+            "timestamp,clientid,recv_oct,recv_cnt,send_oct,send_cnt,"
+            "subscriptions_cnt,awaiting_rel_cnt,mqueue_len,mqueue_dropped",
+            hd(Lines)
+        )
+    ),
+
+    %% Clean up
+    ok = file:delete(TestFile),
+    ok.
+
+%% Test stats with --batch option
+t_clients_dump_stats_with_batch(init, Config) ->
+    %% Start test clients
+    Pids = lists:map(
+        fun(I) ->
+            ClientId = iolist_to_binary(["test-batch-dump-", integer_to_list(I)]),
+            start_link_client(ClientId)
+        end,
+        lists:seq(1, 100)
+    ),
+    [{clients, Pids} | Config];
+t_clients_dump_stats_with_batch('end', Config) ->
+    %% Stop the test clients
+    Pids = proplists:get_value(clients, Config),
+    lists:foreach(fun stop_client/1, Pids),
+    ok.
+
+t_clients_dump_stats_with_batch(_Config) ->
+    TestFile = "/tmp/test_dump_stats_batch.csv",
+    _ = file:delete(TestFile),
+
+    %% Run the command with custom batch size
+    dump_client_stats(TestFile, 10, 10),
+
+    %% Verify file was created
+    ?assert(filelib:is_file(TestFile)),
+    {ok, Content} = file:read_file(TestFile),
+    ?assert(length(string:tokens(binary_to_list(Content), "\n")) > 1),
+
+    %% Clean up
+    ok = file:delete(TestFile),
+    ok.
+
+%% Test stats with --sleep option
+t_clients_dump_stats_with_sleep(init, Config) ->
+    %% Start a test client
+    Pid = start_link_client(atom_to_binary(?FUNCTION_NAME)),
+    [{clients, [Pid]} | Config];
+t_clients_dump_stats_with_sleep('end', Config) ->
+    %% Stop the test client
+    Pids = proplists:get_value(clients, Config),
+    lists:foreach(fun stop_client/1, Pids),
+    ok.
+t_clients_dump_stats_with_sleep(_Config) ->
+    TestFile = "/tmp/test_dump_stats_sleep.csv",
+    _ = file:delete(TestFile),
+
+    %% Run the command with custom sleep
+    dump_client_stats(TestFile, 1, 25),
+
+    %% Verify file was created
+    ?assert(filelib:is_file(TestFile)),
+    {ok, Content} = file:read_file(TestFile),
+    ?assert(length(string:tokens(binary_to_list(Content), "\n")) >= 1),
+
+    %% Clean up
+    ok = file:delete(TestFile),
+    ok.
+
+%% Test error handling for invalid batch size
+t_clients_dump_stats_invalid_args(init, Config) ->
+    meck:new(emqx_ctl, [passthrough, no_link]),
+    Config;
+t_clients_dump_stats_invalid_args('end', _Config) ->
+    meck:unload(emqx_ctl),
+    ok.
+t_clients_dump_stats_invalid_args(_Config) ->
+    Tester = self(),
+    meck:expect(
+        emqx_ctl,
+        print,
+        fun(Fmt, Msg) ->
+            Tester ! {print, iolist_to_binary(io_lib:format(Fmt, Msg))},
+            meck:passthrough([Fmt, Msg])
+        end
+    ),
+    TestFile = "/tmp/test_dump_stats_invalid.csv",
+    _ = file:delete(TestFile),
+
+    AssertErr = fun() ->
+        receive
+            {print, <<"[error]", _/binary>>} ->
+                ok;
+            Other ->
+                error({unexpected_msg, Other})
+        after 1000 ->
+            error(timeout)
+        end
+    end,
+
+    TestFn = fun(Batch, Sleep) ->
+        ok = dump_client_stats(TestFile, Batch, Sleep),
+        AssertErr()
+    end,
+    TestFn(-1, 0),
+    TestFn(1, -1),
+    TestFn("not number", 1),
+    TestFn(100, "not number"),
+    TestFn(100, "1.1"),
+    emqx_mgmt_cli:clients(["stats", TestFile, "--unknown", "foo"]),
+    AssertErr(),
+    %% Verify file was not created
+    ?assertNot(filelib:is_file(TestFile)),
+    ok.
+
 %%
 
 format(Str, Opts) ->
     io:format("str:~s: Opts:~p", [Str, Opts]).
+
+start_link_client(ClientId) ->
+    {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+stop_client(Pid) ->
+    ok = emqtt:disconnect(Pid).
+
+dump_client_stats(File, Batch, Sleep) ->
+    emqx_mgmt_cli:clients([
+        "stats",
+        File,
+        "--batch",
+        str(Batch),
+        "--sleep",
+        str(Sleep)
+    ]).
+
+str(I) when is_integer(I) -> integer_to_list(I);
+str(L) when is_list(L) -> L.
