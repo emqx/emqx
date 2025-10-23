@@ -851,11 +851,14 @@ process_pubcomp(
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(Msg, PubAckProps, Channel) ->
     ok = emqx_metrics:inc('messages.acked'),
-    HookContext = mk_common_hook_context(Channel),
-    emqx_hooks:run('message.acked', [
-        HookContext,
-        emqx_message:set_header(puback_props, PubAckProps, Msg)
-    ]).
+    run_hook_with_context(
+        'message.acked',
+        [
+            Channel#channel.clientinfo,
+            emqx_message:set_header(puback_props, PubAckProps, Msg)
+        ],
+        Channel
+    ).
 
 %%--------------------------------------------------------------------
 %% Process Subscribe
@@ -1371,15 +1374,15 @@ do_deliver({pubrel, PacketId}, Channel) ->
 do_deliver(
     {PacketId, Msg},
     Channel = #channel{
-        clientinfo = #{mountpoint := MountPoint}
+        clientinfo = ClientInfo = #{mountpoint := MountPoint}
     }
 ) ->
     ok = emqx_metrics:inc('messages.delivered'),
-    HookContext = mk_common_hook_context(Channel),
-    Msg1 = emqx_hooks:run_fold(
+    Msg1 = run_fold_with_context(
         'message.delivered',
-        [HookContext],
-        emqx_message:update_expiry(Msg)
+        [ClientInfo],
+        emqx_message:update_expiry(Msg),
+        Channel
     ),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     Packet = emqx_message:to_packet(PacketId, Msg2),
@@ -1776,8 +1779,7 @@ handle_timeout(
             handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel2)
     end;
 handle_timeout(TRef, Msg, Channel) ->
-    HookContext = mk_common_hook_context(Channel),
-    case emqx_hooks:run_fold('client.timeout', [TRef, Msg, HookContext], []) of
+    case run_fold_with_context('client.timeout', [TRef, Msg], [], Channel) of
         [] ->
             {ok, Channel};
         Msgs ->
@@ -3207,6 +3209,22 @@ run_hooks(Name, Args) ->
 run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name),
     emqx_hooks:run_fold(Name, Args, Acc).
+
+-compile({inline, [run_hook_with_context/3]}).
+run_hook_with_context(Name, Args, Channel) ->
+    HookContext = mk_common_hook_context(Channel),
+    emqx_hooks:stash_context(Name, HookContext),
+    Res = emqx_hooks:run(Name, Args),
+    emqx_hooks:unstash_context(Name),
+    Res.
+
+-compile({inline, [run_fold_with_context/4]}).
+run_fold_with_context(Name, Args, Acc, Channel) ->
+    HookContext = mk_common_hook_context(Channel),
+    emqx_hooks:stash_context(Name, HookContext),
+    Res = emqx_hooks:run_fold(Name, Args, Acc),
+    emqx_hooks:unstash_context(Name),
+    Res.
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 

@@ -26,7 +26,7 @@
     on_message_acked/2,
     on_message_delivered/2,
     on_client_handle_info/3,
-    on_client_timeout/3
+    on_client_timeout/2
 ]).
 
 %% gen_server callbacks
@@ -138,10 +138,12 @@ start_link(Pool, Id) ->
 %%% Hooks
 %%%===================================================================
 
-on_message_acked(HookContext, Msg) ->
+on_message_acked(_ClientInfo, Msg) ->
+    HookContext = emqx_hooks:context('message.acked'),
     maybe_nudge_next_retained_batch(Msg, ack, HookContext).
 
-on_message_delivered(HookContext, Msg) ->
+on_message_delivered(_ClientInfo, Msg) ->
+    HookContext = emqx_hooks:context('message.delivered'),
     maybe_nudge_next_retained_batch(Msg, deliver, HookContext).
 
 on_client_handle_info({retained_batch, Topic, Delivers0, DispatchCursor}, HookContext, Acc0) ->
@@ -179,10 +181,11 @@ on_client_handle_info(try_next_retained_batch, HookContext, Acc0) ->
 on_client_handle_info(_Info, _HookContext, _Acc) ->
     ok.
 
-on_client_timeout(try_next_retained_batch, HookContext, Acc0) ->
+on_client_timeout(try_next_retained_batch, Acc0) ->
+    HookContext = emqx_hooks:context('client.timeout'),
     clear_try_next_retained_batch_timer(),
     handle_try_next_retained_batch(HookContext, timeout, Acc0);
-on_client_timeout(_Timer, _HookContext, _Acc) ->
+on_client_timeout(_Timer, _Acc) ->
     ok.
 
 %%%===================================================================
