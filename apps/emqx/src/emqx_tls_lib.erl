@@ -693,7 +693,14 @@ resolve_managed_certs(undefined, Opts) ->
             {password, fun conf_get_password/2}
         ]
     );
-resolve_managed_certs(ManagedCertOpts, _Opts) ->
+resolve_managed_certs([FirstCertOpts | _] = ManagedCertOpts, Opts) ->
+    DefaultOpts = resolve_managed_certs(FirstCertOpts, Opts),
+    SNIFnOpts = mk_managed_certs_sni_fun(ManagedCertOpts, Opts),
+    %% Note: we currently do not support dynamic certificate selection in conjunction with
+    %% OCSP stapling.  This is checked in the schema.  Therefore, no need to compose the
+    %% two SNI functions.
+    SNIFnOpts ++ DefaultOpts;
+resolve_managed_certs(#{} = ManagedCertOpts, _Opts) ->
     Namespace = conf_get_opt(namespace, ManagedCertOpts, ?global_ns),
     BundleName = conf_get_opt(bundle_name, ManagedCertOpts),
     case emqx_managed_certs:list_managed_files(Namespace, BundleName) of
@@ -727,6 +734,36 @@ resolve_managed_certs(ManagedCertOpts, _Opts) ->
                 bundle => BundleName,
                 reason => emqx_utils:explain_posix(Reason)
             })
+    end.
+
+mk_managed_certs_sni_fun([_ | _] = ManagedCertOpts, Opts) ->
+    PerSNIOpts =
+        lists:foldl(
+            fun(MCOpts, Acc) ->
+                case conf_get_opt(sni, MCOpts) of
+                    undefined ->
+                        Acc;
+                    SNI ->
+                        Acc#{ensure_str(SNI) => resolve_managed_certs(MCOpts, Opts)}
+                end
+            end,
+            #{},
+            ManagedCertOpts
+        ),
+    case map_size(PerSNIOpts) == 0 of
+        true ->
+            [];
+        false ->
+            SNIFn = fun(ServerName) ->
+                case maps:find(ServerName, PerSNIOpts) of
+                    {ok, SNIOpts} ->
+                        SNIOpts;
+                    error ->
+                        %% Fallback to default opts
+                        undefined
+                end
+            end,
+            [{sni_fun, SNIFn}]
     end.
 
 read_contents(Path, Context) ->

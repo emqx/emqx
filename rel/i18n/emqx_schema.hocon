@@ -1996,6 +1996,22 @@ socket_tcp_keepalive.label:
       If this option is used, `cacertfile`, `certfile`, `keyfile` and `password` will be ignored.~"""
   }
 
+  managed_certs_server {
+    label: "Managed certs"
+    desc: """~
+      Reference to one or multiple certificate file bundles managed by EMQX.
+
+      When an array of references is used, then the listener performs dynamic certificate selection based on the SNI asked for by the client.  Each managed cert reference has an optional SNI field that is used to denote the SNI for that reference.  If the SNI asked by the client has no match in the configuration, the first reference in the array is used as the default certificate bundle.
+
+      If this option is used, `cacertfile`, `certfile`, `keyfile` and `password` will be ignored.~"""
+  }
+
+  managed_certs_server_sni {
+    label: "Server Name Indication"
+    desc: """~
+      If this is set, it's used during dynamic certificate selection based on the SNI asked for by the client.~"""
+  }
+
   managed_certs_ns {
     label: "Managed Certs Namespace"
     desc: "The namespace under which the certificate file bundle lives.  Omit this field to target the global namespace."
