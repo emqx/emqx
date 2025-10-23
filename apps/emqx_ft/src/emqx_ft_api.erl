@@ -108,10 +108,7 @@ schema("/file_transfer") ->
             'requestBody' => ?SCHEMA_CONFIG,
             responses => #{
                 200 => ?SCHEMA_CONFIG,
-                400 => emqx_dashboard_swagger:error_codes(
-                    ['UPDATE_FAILED', 'INVALID_CONFIG'],
-                    ?DESC("invalid_config")
-                )
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
     }.
@@ -182,8 +179,6 @@ error_msg(Code, Msg) ->
 
 error_desc('FILES_NOT_FOUND') ->
     <<"Files requested for this transfer could not be found">>;
-error_desc('INVALID_CONFIG') ->
-    <<"Provided configuration is invalid">>;
 error_desc('SERVICE_UNAVAILABLE') ->
     <<"Service unavailable">>.
 
