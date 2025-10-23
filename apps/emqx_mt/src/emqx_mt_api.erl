@@ -83,7 +83,6 @@ schema("/mt/ns_list") ->
         'operationId' => '/mt/ns_list',
         get => #{
             tags => ?TAGS,
-            summary => <<"List Namespaces">>,
             description => ?DESC("ns_list"),
             parameters => [
                 last_ns_in_query(),
@@ -104,7 +103,6 @@ schema("/mt/ns_list_details") ->
         'operationId' => '/mt/ns_list_details',
         get => #{
             tags => ?TAGS,
-            summary => <<"List Namespaces with extra details">>,
             description => ?DESC("ns_list_details"),
             parameters => [
                 last_ns_in_query(),
@@ -125,7 +123,6 @@ schema("/mt/ns/:ns/client_list") ->
         'operationId' => '/mt/ns/:ns/client_list',
         get => #{
             tags => ?TAGS,
-            summary => <<"List Clients in a Namespace">>,
             description => ?DESC("client_list"),
             parameters => [
                 param_path_ns(),
@@ -139,7 +136,7 @@ schema("/mt/ns/:ns/client_list") ->
                             array(binary()),
                             example_client_list()
                         ),
-                    404 => error_schema('NOT_FOUND', "Namespace not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
         }
     };
@@ -148,13 +145,12 @@ schema("/mt/ns/:ns/client_count") ->
         'operationId' => '/mt/ns/:ns/client_count',
         get => #{
             tags => ?TAGS,
-            summary => <<"Count Clients in a Namespace">>,
             description => ?DESC("client_count"),
             parameters => [param_path_ns()],
             responses =>
                 #{
-                    200 => [{count, mk(non_neg_integer(), #{desc => <<"Client count">>})}],
-                    404 => error_schema('NOT_FOUND', "Namespace not found")
+                    200 => [{count, mk(non_neg_integer(), #{desc => ?DESC("client_count_desc")})}],
+                    404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
         }
     };
@@ -163,7 +159,6 @@ schema("/mt/managed_ns_list") ->
         'operationId' => '/mt/managed_ns_list',
         get => #{
             tags => ?TAGS,
-            summary => <<"List managed namespaces">>,
             description => ?DESC("managed_ns_list"),
             parameters => [
                 last_ns_in_query(),
@@ -184,7 +179,6 @@ schema("/mt/managed_ns_list_details") ->
         'operationId' => '/mt/managed_ns_list_details',
         get => #{
             tags => ?TAGS,
-            summary => <<"List managed namespaces with extra details">>,
             description => ?DESC("managed_ns_list_details"),
             parameters => [
                 last_ns_in_query(),
@@ -205,21 +199,19 @@ schema("/mt/ns/:ns") ->
         'operationId' => '/mt/ns/:ns',
         post => #{
             tags => ?TAGS,
-            summary => <<"Create managed namespace">>,
             description => ?DESC("create_managed_ns"),
             parameters => [param_path_ns()],
             responses =>
                 #{
                     204 => <<"">>,
-                    400 => error_schema('BAD_REQUEST', "Maximum number of configurations reached"),
+                    400 => error_schema('BAD_REQUEST', ?DESC("max_configurations_reached")),
                     409 => error_schema(
-                        'CONFLICT', "Clients from this namespace are still being kicked"
+                        'CONFLICT', ?DESC("clients_being_kicked")
                     )
                 }
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete namespace">>,
             description => ?DESC("delete_ns"),
             parameters => [param_path_ns()],
             responses =>
@@ -233,14 +225,13 @@ schema("/mt/ns/:ns/kick_all_clients") ->
         'operationId' => '/mt/ns/:ns/kick_all_clients',
         post => #{
             tags => ?TAGS,
-            summary => <<"Kick all clients in namespace (async)">>,
             description => ?DESC("kick_all_clients"),
             parameters => [param_path_ns()],
             responses =>
                 #{
-                    202 => <<"Kicking process started">>,
-                    409 => error_schema('CONFLICT', "Kick process already underway"),
-                    404 => error_schema('NOT_FOUND', "Namespace not found")
+                    202 => ?DESC("kick_process_started"),
+                    409 => error_schema('CONFLICT', ?DESC("kick_process_underway")),
+                    404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
         }
     };
@@ -249,7 +240,6 @@ schema("/mt/ns/:ns/config") ->
         'operationId' => '/mt/ns/:ns/config',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get managed namespace configuration">>,
             description => ?DESC("get_managed_ns_config"),
             parameters => [param_path_ns()],
             responses =>
@@ -259,12 +249,11 @@ schema("/mt/ns/:ns/config") ->
                             ref(config_out),
                             example_config_out()
                         ),
-                    404 => error_schema('NOT_FOUND', "Namespace not found")
+                    404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update managed namespace configuration">>,
             description => ?DESC("update_managed_ns_config"),
             parameters => [param_path_ns()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -278,8 +267,8 @@ schema("/mt/ns/:ns/config") ->
                             ref(config_out),
                             example_config_out()
                         ),
-                    400 => error_schema('BAD_REQUEST', "Invalid configuration"),
-                    404 => error_schema('NOT_FOUND', "Namespace not found")
+                    400 => error_schema('BAD_REQUEST', ?DESC("invalid_configuration")),
+                    404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
         }
     };
@@ -288,7 +277,6 @@ schema("/mt/bulk_import_configs") ->
         'operationId' => '/mt/bulk_import_configs',
         post => #{
             tags => ?TAGS,
-            summary => <<"Upsert namespace configurations in bulk">>,
             description => ?DESC("bulk_import_configs"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 hoconsc:array(ref(bulk_config_in)),
@@ -297,8 +285,8 @@ schema("/mt/bulk_import_configs") ->
             responses =>
                 #{
                     204 => <<"">>,
-                    400 => error_schema('BAD_REQUEST', "Invalid configurations"),
-                    500 => error_schema('INTERNAL_ERROR', "Some side-effects failed to execute")
+                    400 => error_schema('BAD_REQUEST', ?DESC("invalid_configurations")),
+                    500 => error_schema('INTERNAL_ERROR', ?DESC("side_effects_failed"))
                 }
         }
     };
@@ -307,7 +295,6 @@ schema("/mt/bulk_export_ns_configs") ->
         'operationId' => '/mt/bulk_export_ns_configs',
         post => #{
             tags => ?TAGS,
-            summary => <<"Export multiple namespaced configurations">>,
             description => ?DESC("bulk_export_ns_configs"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(bulk_export_ns_configs_in),
@@ -329,7 +316,6 @@ schema("/mt/bulk_import_ns_configs") ->
         'operationId' => '/mt/bulk_import_ns_configs',
         post => #{
             tags => ?TAGS,
-            summary => <<"Import multiple namespaced configurations">>,
             description => ?DESC("bulk_import_ns_configs"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(bulk_import_ns_configs_in),
@@ -351,7 +337,6 @@ schema("/mt/bulk_delete_ns") ->
         'operationId' => '/mt/bulk_delete_ns',
         delete => #{
             tags => ?TAGS,
-            summary => <<"Bulk delete namespaces">>,
             description => ?DESC("bulk_delete_ns"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(bulk_delete_ns_in),
@@ -360,7 +345,7 @@ schema("/mt/bulk_delete_ns") ->
             responses =>
                 #{
                     204 => <<"">>,
-                    500 => error_schema('INTERNAL_ERROR', "Some side-effects failed to execute")
+                    500 => error_schema('INTERNAL_ERROR', ?DESC("side_effects_failed"))
                 }
         }
     }.
@@ -467,11 +452,7 @@ fields(ns_with_details_out) ->
         {created_at, mk(integer(), #{})}
     ].
 
-error_schema(Code, Message) when is_list(Message) ->
-    BinMsg = unicode:characters_to_binary(Message),
-    emqx_dashboard_swagger:error_codes([Code], BinMsg);
-error_schema(Code, MessageRef) ->
-    %% ?DESC(...)
+error_schema(Code, ?DESC(_) = MessageRef) ->
     emqx_dashboard_swagger:error_codes([Code], MessageRef).
 
 %%-------------------------------------------------------------------------------------------------

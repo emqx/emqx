@@ -10,16 +10,31 @@ nl_at_eof() {
         return
     fi
     case "$file" in
-        *.png|*rebar3)
+        *.png|*.jpg|*.jpeg|*.gif|*.bmp|*.ico|*.svg|*rebar3)
             return
             ;;
         scripts/erlfmt)
             return
             ;;
-        *.jks)
+        *.jks|*.p12|*.pem|*.crt|*.key|*.p7b|*.p7c)
             return
             ;;
-        *.avro)
+        *.avro|*.parquet)
+            return
+            ;;
+        *.tar.gz|*.tar|*.zip|*.gz|*.bz2|*.xz|*.7z)
+            return
+            ;;
+        *.so|*.dll|*.dylib|*.a|*.lib)
+            return
+            ;;
+        *.exe|*.bin|*.app|*.dmg|*.pkg|*.deb|*.rpm)
+            return
+            ;;
+        *.db|*.sqlite|*.sqlite3)
+            return
+            ;;
+        *.woff|*.woff2|*.ttf|*.eot)
             return
             ;;
     esac

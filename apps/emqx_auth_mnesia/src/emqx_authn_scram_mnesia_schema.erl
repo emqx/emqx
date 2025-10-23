@@ -40,17 +40,16 @@ fields(scram) ->
     ] ++ emqx_authn_schema:common_fields().
 
 desc(scram) ->
-    "Settings for Salted Challenge Response Authentication Mechanism\n"
-    "(SCRAM) authentication.";
+    ?DESC("scram");
 desc(_) ->
     undefined.
 
 algorithm(type) -> hoconsc:enum([sha256, sha512]);
-algorithm(desc) -> "Hashing algorithm.";
+algorithm(desc) -> ?DESC("hashing_algorithm");
 algorithm(default) -> sha256;
 algorithm(_) -> undefined.
 
 iteration_count(type) -> non_neg_integer();
-iteration_count(desc) -> "Iteration count.";
+iteration_count(desc) -> ?DESC("iteration_count");
 iteration_count(default) -> 4096;
 iteration_count(_) -> undefined.

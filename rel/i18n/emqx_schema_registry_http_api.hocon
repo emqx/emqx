@@ -60,5 +60,24 @@ external_registry_create.desc:
 external_registry_update.desc:
 """Update external schema registry"""
 
+schema_already_exists.desc:
+"""Schema already exists."""
+schema_already_exists.label:
+"""Schema Already Exists"""
+
+schema_not_found.desc:
+"""Schema not found."""
+schema_not_found.label:
+"""Schema Not Found"""
+
+schema_deleted.desc:
+"""Schema deleted."""
+schema_deleted.label:
+"""Schema Deleted"""
+
+deleted.desc:
+"""Deleted."""
+deleted.label:
+"""Deleted"""
 
 }

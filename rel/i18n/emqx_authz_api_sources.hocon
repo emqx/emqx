@@ -60,4 +60,9 @@ sources.desc:
 sources.label:
 """sources"""
 
+position.desc:
+"""Position of the source in the execution order. Can be 'front' to place at the beginning, 'rear' to place at the end, 'before:source_name' to place before a specific source, or 'after:source_name' to place after a specific source."""
+position.label:
+"""Position"""
 }
+
