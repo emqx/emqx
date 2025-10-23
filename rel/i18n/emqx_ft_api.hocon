@@ -42,6 +42,16 @@ invalid_config.desc:
 invalid_config.label:
 """Invalid Configuration"""
 
+service_unavailable.desc:
+"""Service unavailable"""
+service_unavailable.label:
+"""Service Unavailable"""
+
+files_not_found.desc:
+"""Files requested for this transfer could not be found"""
+files_not_found.label:
+"""Files Not Found"""
+
 }
 
 emqx_ft_storage_exporter_fs_api {

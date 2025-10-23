@@ -65,7 +65,7 @@ schema("/file_transfer/files") ->
                     ['BAD_REQUEST'], ?DESC("invalid_cursor")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -84,10 +84,10 @@ schema("/file_transfer/files/:clientid/:fileid") ->
             responses => #{
                 200 => ?DESC("operation_success"),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['FILES_NOT_FOUND'], error_desc('FILES_NOT_FOUND')
+                    ['FILES_NOT_FOUND'], ?DESC("files_not_found")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
