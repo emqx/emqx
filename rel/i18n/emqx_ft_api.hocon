@@ -32,6 +32,16 @@ cursor_to_start_listing.desc:
 cursor_to_start_listing.label:
 """Cursor to Start Listing"""
 
+invalid_cursor.desc:
+"""Invalid cursor"""
+invalid_cursor.label:
+"""Invalid Cursor"""
+
+invalid_config.desc:
+"""Provided configuration is invalid"""
+invalid_config.label:
+"""Invalid Configuration"""
+
 }
 
 emqx_ft_storage_exporter_fs_api {

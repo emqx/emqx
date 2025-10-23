@@ -62,7 +62,7 @@ schema("/file_transfer/files") ->
             responses => #{
                 200 => ?DESC("operation_success"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Invalid cursor">>
+                    ['BAD_REQUEST'], ?DESC("invalid_cursor")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
                     ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
@@ -110,7 +110,7 @@ schema("/file_transfer") ->
                 200 => ?SCHEMA_CONFIG,
                 400 => emqx_dashboard_swagger:error_codes(
                     ['UPDATE_FAILED', 'INVALID_CONFIG'],
-                    error_desc('INVALID_CONFIG')
+                    ?DESC("invalid_config")
                 )
             }
         }
