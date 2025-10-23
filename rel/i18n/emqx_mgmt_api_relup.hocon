@@ -132,4 +132,39 @@ err_details.desc:
 err_details.label:
 """Error Details"""
 
+package_uploaded_successfully.desc:
+"""The package has been uploaded successfully."""
+package_uploaded_successfully.label:
+"""Package Uploaded Successfully"""
+
+no_relup_package_installed.desc:
+"""No relup package is currently installed."""
+no_relup_package_installed.label:
+"""No Relup Package Installed"""
+
+packages_deleted_successfully.desc:
+"""The packages have been deleted successfully."""
+packages_deleted_successfully.label:
+"""Packages Deleted Successfully"""
+
+upgrade_started_successfully.desc:
+"""The upgrade process has been started successfully."""
+upgrade_started_successfully.label:
+"""Upgrade Started Successfully"""
+
+upgrade_failed_invalid_input.desc:
+"""The upgrade failed due to invalid input or environment configuration."""
+upgrade_failed_invalid_input.label:
+"""Upgrade Failed - Invalid Input"""
+
+upgrade_failed_internal_errors.desc:
+"""The upgrade failed due to internal system errors."""
+upgrade_failed_internal_errors.label:
+"""Upgrade Failed - Internal Errors"""
+
+node_not_found.desc:
+"""The specified node was not found."""
+node_not_found.label:
+"""Node Not Found"""
+
 }
