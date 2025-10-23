@@ -30,11 +30,6 @@ download_trace_log.desc:
 download_trace_log.label:
 """Download trace log by name"""
 
-trace_zip_file.desc:
-"""A trace zip file"""
-trace_zip_file.label:
-"""A trace zip file"""
-
 get_trace_log_detail.desc:
 """get trace log file's metadata, such as size, last update time"""
 get_trace_log_detail.label:
@@ -187,5 +182,24 @@ provided_configuration_invalid.desc:
 """Provided configuration is invalid."""
 provided_configuration_invalid.label:
 """Provided Configuration Invalid"""
+
+payload_encode.desc:
+"""Determine the format of the payload format in the trace file.<br/>
+`text`: Text-based protocol or plain text protocol.
+ It is recommended when payload is JSON encoded.<br/>
+`hex`: Binary hexadecimal encode.
+It is recommended when payload is a custom binary protocol.<br/>
+`hidden`: payload is obfuscated as `******`"""
+payload_encode.label:
+"""Payload Encode"""
+
+payload_limit.desc:
+"""Determine the maximum bytes of the payload will be printed in the trace file.<br/>
+The truncated part will be displayed as '...' in the trace file.<br/>
+It's only effective when `payload_encode` is `hex` or `text`<br/>
+`0`: No limit<br/>
+Default is 1024 bytes"""
+payload_limit.label:
+"""Payload Limit"""
 
 }

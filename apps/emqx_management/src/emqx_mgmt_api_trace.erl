@@ -143,7 +143,6 @@ schema("/trace/:name/download") ->
             responses => #{
                 200 =>
                     #{
-                        description => "A trace zip file",
                         content => #{
                             'application/octet-stream' =>
                                 #{schema => #{type => "string", format => "binary"}}
@@ -294,29 +293,14 @@ fields(trace) ->
             )},
         {payload_encode,
             hoconsc:mk(hoconsc:enum([hex, text, hidden]), #{
-                desc =>
-                    ""
-                    "Determine the format of the payload format in the trace file.<br/>\n"
-                    "`text`: Text-based protocol or plain text protocol.\n"
-                    " It is recommended when payload is JSON encoded.<br/>\n"
-                    "`hex`: Binary hexadecimal encode."
-                    "It is recommended when payload is a custom binary protocol.<br/>\n"
-                    "`hidden`: payload is obfuscated as `******`"
-                    "",
+                desc => ?DESC("payload_encode"),
                 default => text
             })},
         {payload_limit,
             hoconsc:mk(
                 integer(),
                 #{
-                    desc =>
-                        ""
-                        "Determine the maximum bytes of the payload will be printed in the trace file.<br/>\n"
-                        "The truncated part will be displayed as '...' in the trace file.<br/>\n"
-                        "It's only effective when `payload_encode` is `hex` or `text`<br/>\n"
-                        "`0`: No limit<br/>\n"
-                        "Default is 1024 bytes<br/>\n"
-                        "",
+                    desc => ?DESC("payload_limit"),
                     default => 1024
                 }
             )},
