@@ -509,29 +509,32 @@ do_test_ssl_file_replace(Context) ->
     ?assert(filelib:is_regular(IssuerPem2)),
     ok.
 
-ssl_file_deterministic_names_test() ->
-    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun do_test_ssl_file_deterministic_names/1}.
+ssl_file_deterministic_names_test_() ->
+    {setup, setup_ssl_files(#{key_type => ec, password => undefined}), fun cleanup_ssl_files/1,
+        fun do_test_ssl_file_deterministic_names/1}.
 do_test_ssl_file_deterministic_names(Context) ->
-    #{
-        key := Key,
-        cert := Cert
-    } = Context,
-    SSL0 = #{
-        <<"keyfile">> => Key,
-        <<"certfile">> => Cert
-    },
-    Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
-    Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
-    {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0),
-    ?assertEqual(
-        {ok, SSLFiles0},
-        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0)
-    ),
-    ?assertNotEqual(
-        {ok, SSLFiles0},
-        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir1, SSL0)
-    ),
-    _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME])).
+    ?_test(begin
+        #{
+            key := Key,
+            cert := Cert
+        } = Context,
+        SSL0 = #{
+            <<"keyfile">> => Key,
+            <<"certfile">> => Cert
+        },
+        Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
+        Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
+        {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0),
+        ?assertEqual(
+            {ok, SSLFiles0},
+            emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0)
+        ),
+        ?assertNotEqual(
+            {ok, SSLFiles0},
+            emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir1, SSL0)
+        ),
+        _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME]))
+    end).
 
 ssl_file_name_hash_test() ->
     ?assertMatch(
