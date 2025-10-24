@@ -306,7 +306,7 @@ docker_cleanup() {
     [ -f ./.dockerignore.bak ] && mv ./.dockerignore.bak ./.dockerignore >/dev/null || true
 }
 
-## Build the default docker image based on debian 12.
+## Build the default docker image based on debian 13
 make_docker() {
     # shellcheck disable=SC1091
     source ./env.sh
@@ -324,7 +324,7 @@ make_docker() {
     local VSN_MINOR="$(scripts/semver.sh "$PKG_VSN" --minor)"
     # shellcheck disable=SC2155
     local VSN_PATCH="$(scripts/semver.sh "$PKG_VSN" --patch)"
-    local SUFFIX=''
+    local SUFFIX="${DOCKER_IMAGE_SUFFIX:-}"
 
     local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
     local DOCKER_REGISTRIES=( )
