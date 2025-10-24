@@ -218,7 +218,7 @@ schema(Path) ->
             'requestBody' => Schema,
             responses => #{
                 200 => Schema,
-                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED', 'INVALID_CONFIG']),
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED']),
                 403 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
