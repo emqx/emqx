@@ -210,6 +210,7 @@ handle_continue(real_init, State) ->
     %% runtime. If persistence is enabled for any of the zones, we
     %% consider durability feature to be on:
     ?SLOG(notice, #{msg => "Session durability is enabled"}),
+    ok = setup_db_groups(),
     ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, get_db_config()),
     ok = emqx_persistent_session_ds_router:init_tables(),
     ok = emqx_persistent_session_ds:create_tables(),
@@ -232,3 +233,9 @@ handle_call(_, _, State) ->
 
 handle_cast(_, State) ->
     {noreply, State}.
+
+setup_db_groups() ->
+    maps:foreach(
+        fun emqx_ds_schema:setup_db_group/2,
+        emqx_ds_schema:db_group_config()
+    ).
