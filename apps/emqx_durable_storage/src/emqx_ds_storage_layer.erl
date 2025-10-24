@@ -813,9 +813,11 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
     #{db_group := MyGroup} = Options,
-    {ok, #db_group{env = Env, sst_file_mgr = SstFileManager, write_buffer_mgr = WriteBufManager}} = emqx_ds:lookup_db_group(
-        MyGroup
-    ),
+    {ok, #db_group{
+        env = Env,
+        sst_file_mgr = SstFileManager,
+        write_buffer_mgr = WriteBufManager
+    }} = emqx_ds:lookup_db_group(MyGroup),
     Defaults = #{
         cache_size => 8 * ?MB,
         max_open_files => 100,

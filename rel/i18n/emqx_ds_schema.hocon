@@ -86,6 +86,16 @@ emqx_ds_schema {
       Changing this configuration parameter after the database has been already created won't take any effect.~"""
   }
 
+  db_group {
+    label: "Database group"
+    desc:
+      """~
+      Assign the durable storage to a database group with the given name.
+      Certain resources (such as disk usage quota) will be shared among all DBs in the group.
+
+      Backend of the database group should match that of the storage.~"""
+  }
+
 
   // Common options of builtin backends:
 
@@ -277,5 +287,51 @@ emqx_ds_schema {
       The last element of the array corresponds to all remaining levels as well.
 
       The array can't be empty.~"""
+  }
+
+  db_groups_root {
+    label: "Database groups"
+    desc:
+      """~
+      A map of database group configurations.
+
+      Database groups are used to share certain resources between the durable storage databases.
+      For example, `storage_quota` parameter of the DB group sets total disk usage allowance for all DBs assigned to the group."""
+  }
+
+  db_group_record {
+    label: "DB group"
+    desc: "Settings related to groups of DBs using builtin backend."
+  }
+
+  db_group_name {
+    label: "Group name"
+    desc: "Unique identifier of the group"
+  }
+
+  db_group_backend {
+    label: "Group backend"
+    desc: "Backend used by all databases assigned to the group."
+  }
+
+  db_group_storage_quota {
+    label: "Storage quota"
+    desc:
+      """~
+      Total disk space allowance for all DBs assigned to the group.
+
+      When the total size of DBs exceeds the quota,
+      attempts to write new data to the DBs will fail until some disk space is freed.
+
+      Builtin backends treat this value as a soft quota:
+      disk space utilization may increase even as data is deleted from the database,
+      until the database is compacted.
+
+      In case of `builtin_raft` backend the quota check is performed by the leader node."""
+  }
+
+  db_group_write_buffer_size {
+    label: "Write buffer size"
+    desc: "Maximum total RAM allocated for the DB write buffers."
   }
 }
