@@ -1,0 +1,21 @@
+emqx_authn_scram_mnesia_schema {
+
+scram.desc:
+"""Settings for Salted Challenge Response Authentication Mechanism (SCRAM) authentication."""
+
+scram.label:
+"""SCRAM Authentication"""
+
+hashing_algorithm.desc:
+"""Hashing algorithm."""
+
+hashing_algorithm.label:
+"""Hashing Algorithm"""
+
+iteration_count.desc:
+"""Iteration count."""
+
+iteration_count.label:
+"""Iteration Count"""
+
+}

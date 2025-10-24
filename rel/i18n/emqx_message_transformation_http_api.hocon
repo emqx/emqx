@@ -36,4 +36,54 @@ emqx_message_transformation_http_api {
   param_path_enable.desc:
   """Enable or disable transformation"""
 
+  transformation_already_exists.desc:
+  """Transformation already exists."""
+  transformation_already_exists.label:
+  """Transformation Already Exists"""
+
+  bad_params.desc:
+  """Bad params."""
+  bad_params.label:
+  """Bad Params"""
+
+  transformation_not_found.desc:
+  """Transformation not found."""
+  transformation_not_found.label:
+  """Transformation Not Found"""
+
+  bad_request.desc:
+  """Bad request."""
+  bad_request.label:
+  """Bad Request"""
+
+  transformations_not_found.desc:
+  """Transformations not found."""
+  transformations_not_found.label:
+  """Transformations Not Found"""
+
+  transformations_not_referenced.desc:
+  """Transformations not referenced in input."""
+  transformations_not_referenced.label:
+  """Transformations Not Referenced"""
+
+  duplicated_transformations.desc:
+  """Duplicated transformations in input."""
+  duplicated_transformations.label:
+  """Duplicated Transformations"""
+
+  dryrun_success.desc:
+  """Dryrun transformation successful."""
+  dryrun_success.label:
+  """Dryrun Success"""
+
+  transformation_deleted.desc:
+  """Transformation deleted."""
+  transformation_deleted.label:
+  """Transformation Deleted"""
+
+  no_content.desc:
+  """No content."""
+  no_content.label:
+  """No Content"""
+
 }

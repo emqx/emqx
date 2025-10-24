@@ -294,4 +294,19 @@ empty_response.desc:
 empty_response.label:
 """Empty response"""
 
+node_evacuating.desc:
+"""Node Evacuating"""
+node_evacuating.label:
+"""Node Evacuating"""
+
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+not_found.desc:
+"""Not Found"""
+not_found.label:
+"""Not Found"""
+
 }

@@ -63,43 +63,54 @@ if [ -z "${DIFF_CONTENT}" ]; then
   exit 0
 fi
 
-PROMPT="Based on the following git diff, classify the change as a feature ('feat'), a fix ('fix'), or a performance improvement ('perf'). Then, write a VERY COMPACT changelog entry.
+PROMPT_TMPFILE=$(mktemp)
+
+cat > "$PROMPT_TMPFILE" << 'EOF'
+Based on the following git diff, classify the change as a feature ('feat'), a fix ('fix'), or a performance improvement ('perf'). Then, write a VERY COMPACT changelog entry.
 
 Respond ONLY with a valid JSON object containing two keys:
-1. \"prefix\": One of \"feat\", \"fix\", or \"perf\".
-2. \"summary\": The compact, two-sentence changelog summary.
+1. "prefix": One of "feat", "fix", or "perf".
+2. "summary": The compact, two-sentence changelog summary.
 
 Do not include markdown formatting or any text outside of the JSON object.
 
 Diff:
-\`\`\`diff
-${DIFF_CONTENT}
-\`\`\`"
+```diff
+EOF
+
+echo "${DIFF_CONTENT}" >> "$PROMPT_TMPFILE"
+echo '```' >> "$PROMPT_TMPFILE"
+
+PAYLOAD_TMPFILE=$(mktemp)
 
 API_RESPONSE_TEXT=""
 if [ "${API_PROVIDER}" = "openai" ]; then
   echo "Calling OpenAI API..."
-  JSON_PAYLOAD=$(jq -n \
-    --arg prompt_text "$PROMPT" \
-    '{model: "gpt-4o-mini", response_format: {type: "json_object"}, messages: [{role: "user", content: $prompt_text}]}')
+  jq -n \
+    --rawfile prompt_text "$PROMPT_TMPFILE" \
+    '{model: "gpt-4o-mini", response_format: {type: "json_object"}, messages: [{role: "user", content: $prompt_text}]}' \
+    > "$PAYLOAD_TMPFILE"
 
   API_RESPONSE_TEXT=$(curl -s -f -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${API_KEY}" \
-    -d "$JSON_PAYLOAD" \
+    -d @"$PAYLOAD_TMPFILE" \
     "https://api.openai.com/v1/chat/completions" \
     | jq -r '.choices[0].message.content')
 
 elif [ "${API_PROVIDER}" = "gemini" ]; then
   echo "Calling Gemini API..."
-  JSON_PAYLOAD=$(jq -n \
-    --arg prompt_text "$PROMPT" \
-    '{contents: [{parts: [{text: $prompt_text}]}]}')
+  jq -n \
+    --rawfile prompt_text "$PROMPT_TMPFILE" \
+    '{contents: [{parts: [{text: $prompt_text}]}]}' \
+    > "$PAYLOAD_TMPFILE"
 
   API_RESPONSE_TEXT=$(curl -s -f -H 'Content-Type: application/json' \
-    -d "$JSON_PAYLOAD" \
+    -d @"$PAYLOAD_TMPFILE" \
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}" \
     | jq -r '.candidates[0].content.parts[0].text')
 fi
+
+rm -f "$PROMPT_TMPFILE" "$PAYLOAD_TMPFILE"
 
 if [[ -z "${API_RESPONSE_TEXT}" ]] || [[ "${API_RESPONSE_TEXT}" == "null" ]]; then
   echo "Error: Failed to get a valid response from the ${API_PROVIDER} API."
