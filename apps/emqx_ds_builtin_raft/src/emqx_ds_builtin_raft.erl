@@ -373,7 +373,7 @@ drop_db(DB) ->
     end),
     _ = emqx_ds_builtin_raft_proto_v1:drop_db(list_nodes(), DB),
     emqx_ds_builtin_raft_meta:drop_db(DB),
-    emqx_ds:close_db(DB),
+    _ = emqx_ds:close_db(DB),
     emqx_dsch:drop_db_schema(DB).
 
 -spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->

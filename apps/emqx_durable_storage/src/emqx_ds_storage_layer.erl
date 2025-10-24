@@ -234,7 +234,7 @@
 -record(db_group, {
     env :: rocksdb:env_handle(),
     sst_file_mgr :: rocksdb:sst_file_manager(),
-    write_buffer_mgr :: rocksdb:write_buffer_mgr(),
+    write_buffer_mgr :: rocksdb:write_buffer_manager(),
     conf :: map()
 }).
 

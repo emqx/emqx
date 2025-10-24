@@ -277,7 +277,7 @@ drop_db(DB) ->
     end.
 
 -spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->
-    {ok, emqx_ds:db_stats()} | emqx_ds:error(_).
+    {ok, emqx_ds:db_group_stats()} | emqx_ds:error(_).
 db_group_stats(Id, Group) ->
     emqx_ds_storage_layer:db_group_stats(Id, Group).
 
