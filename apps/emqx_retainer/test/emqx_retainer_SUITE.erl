@@ -1125,6 +1125,36 @@ t_channel_inflight_blocked(_) ->
     ),
     ok.
 
+%% Checks that if we are iterating over retained messages and encounter a message that is
+%% much newer than when we started iterating, we don't dispatch it to the client.
+t_newer_message_dispatch(_) ->
+    MessageFromTheFuture = emqx_message:from_map(#{
+        id => emqx_guid:gen(),
+        qos => 1,
+        from => <<"publisher">>,
+        flags => #{},
+        headers => #{retained => true},
+        topic => <<"t/1">>,
+        payload => <<"this is too fresh for us">>,
+        timestamp => now_ms() + 30_000,
+        extra => #{}
+    }),
+    ok = emqx_retainer_publisher:store_retained(MessageFromTheFuture),
+    %% Sanity check
+    ?assertEqual(1, emqx_retainer:retained_count()),
+    {ok, C} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C),
+    %% Check both wildcard and straight topic subscription
+    {ok, _, [_, _]} = emqtt:subscribe(C, [{<<"t/1">>, 1}, {<<"t/+">>, 1}]),
+    %% We wait for one message from each subscription, but expect to receive none.
+    Messages = receive_messages(2),
+    ?assertEqual([], Messages),
+    ok.
+
 t_delete_rate_limit(_) ->
     %% Setup tight publish rates
     update_retainer_config(#{
@@ -1715,3 +1745,6 @@ hit_delivery_rate_limit(Limiter0) ->
         {false, _, _} ->
             ok
     end.
+
+now_ms() ->
+    erlang:system_time(millisecond).

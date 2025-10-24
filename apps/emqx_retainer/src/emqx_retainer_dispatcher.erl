@@ -69,13 +69,14 @@
 -record(more, {limiter}).
 -record(retry, {
     enqueued_at :: time_ms(),
-    incarnation :: undefined | emqx_retainer:index_incarnation(),
+    started_at :: time_ms(),
     msgs :: [message()],
     pid :: pid(),
     topic :: topic(),
     cursor :: undefined | cursor()
 }).
 -record(dispatch_cursor, {
+    started_at :: time_ms(),
     incarnation :: undefined | emqx_retainer:index_incarnation(),
     topic :: topic(),
     rest :: [message()],
@@ -301,6 +302,7 @@ handle_initial_dispatch(Pid, Topic, State0) ->
             {ok, Messages, Cursor} = Mod:match_messages(BackendState, Topic, undefined),
             Incarnation = cursor_index_incarnation(Cursor),
             DispatchCursor = #dispatch_cursor{
+                started_at = system_now_ms(),
                 incarnation = Incarnation,
                 topic = Topic,
                 rest = Messages,
@@ -310,6 +312,7 @@ handle_initial_dispatch(Pid, Topic, State0) ->
         false ->
             {ok, Messages} = Mod:read_message(BackendState, Topic),
             DispatchCursor = #dispatch_cursor{
+                started_at = system_now_ms(),
                 incarnation = undefined,
                 topic = Topic,
                 rest = Messages,
@@ -336,6 +339,7 @@ handle_retry(State0) ->
                 false ->
                     Incarnation = cursor_index_incarnation(Retry#retry.cursor),
                     DispatchCursor = #dispatch_cursor{
+                        started_at = Retry#retry.started_at,
                         incarnation = Incarnation,
                         topic = Retry#retry.topic,
                         rest = Retry#retry.msgs,
@@ -347,6 +351,7 @@ handle_retry(State0) ->
 
 handle_next(DispatchCursor0, Pid, State0) ->
     #dispatch_cursor{
+        started_at = StartedAt,
         topic = Topic,
         rest = RestMsgs,
         cursor = Cursor
@@ -354,15 +359,17 @@ handle_next(DispatchCursor0, Pid, State0) ->
     #{limiter := Limiter0} = State0,
     case RestMsgs of
         [] ->
-            State = handle_dispatch_next_cursor(Pid, Topic, Cursor, Limiter0, State0),
+            State = handle_dispatch_next_cursor(Pid, Topic, Cursor, StartedAt, Limiter0, State0),
             {noreply, State};
         [_ | _] ->
-            State = handle_dispatch_next_chunk(RestMsgs, Pid, Topic, Cursor, Limiter0, State0),
+            State = handle_dispatch_next_chunk(
+                RestMsgs, Pid, Topic, Cursor, StartedAt, Limiter0, State0
+            ),
             {noreply, State}
     end.
 
-handle_dispatch_next_chunk(Messages0, Pid, Topic, Cursor0, Limiter0, State0) ->
-    case deliver(Messages0, Pid, Topic, Cursor0, Limiter0) of
+handle_dispatch_next_chunk(Messages0, Pid, Topic, Cursor0, StartedAt, Limiter0, State0) ->
+    case deliver(Messages0, Pid, Topic, Cursor0, StartedAt, Limiter0) of
         #more{limiter = Limiter1} ->
             ?tp("retainer_deliver_more", #{topic => Topic, cursor => Cursor0}),
             State0#{limiter := Limiter1};
@@ -375,6 +382,7 @@ handle_dispatch_next_chunk(Messages0, Pid, Topic, Cursor0, Limiter0, State0) ->
             #{waiting_for_retry := ToRetry0} = State0,
             Retry = #retry{
                 enqueued_at = now_ms(),
+                started_at = StartedAt,
                 msgs = Messages,
                 pid = Pid,
                 topic = Topic,
@@ -400,11 +408,11 @@ enqueue_retry(Retry, ToRetry0) ->
         end,
     queue:in(Retry, ToRetry1).
 
-handle_dispatch_next_cursor(_Pid, _Topic, undefined = _Cursor, Limiter, State0) ->
+handle_dispatch_next_cursor(_Pid, _Topic, undefined = _Cursor, _StartedAt, Limiter, State0) ->
     State0#{limiter := Limiter};
-handle_dispatch_next_cursor(Pid, Topic, Cursor0, Limiter0, State0) ->
+handle_dispatch_next_cursor(Pid, Topic, Cursor0, StartedAt, Limiter0, State0) ->
     {ok, Msgs, Cursor} = match_next(Topic, Cursor0),
-    handle_dispatch_next_chunk(Msgs, Pid, Topic, Cursor, Limiter0, State0).
+    handle_dispatch_next_chunk(Msgs, Pid, Topic, Cursor, StartedAt, Limiter0, State0).
 
 match_next(_Topic, undefined) ->
     {ok, [], undefined};
@@ -442,9 +450,9 @@ add_caller(Callers0, From) ->
 notify_callers(Callers0) ->
     lists:foreach(fun(From) -> gen_server:reply(From, ok) end, Callers0).
 
--spec deliver([emqx_types:message()], pid(), topic(), cursor(), limiter()) ->
+-spec deliver([emqx_types:message()], pid(), topic(), cursor(), time_ms(), limiter()) ->
     more() | done() | delay().
-deliver(Messages, Pid, Topic, Cursor, Limiter) ->
+deliver(Messages, Pid, Topic, Cursor, StartedAt, Limiter) ->
     case erlang:is_process_alive(Pid) of
         false ->
             ?tp(debug, retainer_dispatcher_no_receiver, #{topic => Topic}),
@@ -454,22 +462,22 @@ deliver(Messages, Pid, Topic, Cursor, Limiter) ->
             %% have different max mailbox sizes...
             %% will have to be part of the dispatch request from the channel itself...
             BatchSize = emqx_conf:get([retainer, flow_control, batch_deliver_number], 0),
-            NMessages = filter_delivery(Messages, Topic),
+            NMessages = filter_delivery(Messages, StartedAt),
             case BatchSize of
                 0 ->
-                    deliver_in_batches(NMessages, all, Pid, Topic, Cursor, Limiter);
+                    deliver_in_batches(NMessages, all, Pid, Topic, Cursor, StartedAt, Limiter);
                 _ ->
-                    deliver_in_batches(NMessages, BatchSize, Pid, Topic, Cursor, Limiter)
+                    deliver_in_batches(NMessages, BatchSize, Pid, Topic, Cursor, StartedAt, Limiter)
             end
     end.
 
-deliver_in_batches([], _BatchSize, _Pid, _Topic, _Cursor, Limiter) ->
+deliver_in_batches([], _BatchSize, _Pid, _Topic, _Cursor, _StartedAt, Limiter) ->
     #done{limiter = Limiter};
-deliver_in_batches(Msgs, BatchSize, Pid, Topic, Cursor, Limiter0) ->
+deliver_in_batches(Msgs, BatchSize, Pid, Topic, Cursor, StartedAt, Limiter0) ->
     {BatchActualSize, Batch, RestMsgs} = take(BatchSize, Msgs),
     case emqx_limiter_client:try_consume(Limiter0, BatchActualSize) of
         {true, Limiter1} ->
-            ok = deliver_to_client(Batch, Pid, Topic, Cursor, RestMsgs),
+            ok = deliver_to_client(Batch, Pid, Topic, Cursor, StartedAt, RestMsgs),
             #more{limiter = Limiter1};
         {false, Limiter1, Reason} ->
             ?tp(retained_dispatch_failed_for_rate_exceeded_limit, #{}),
@@ -486,9 +494,10 @@ deliver_in_batches(Msgs, BatchSize, Pid, Topic, Cursor, Limiter0) ->
             #delay{limiter = Limiter1, msgs = Msgs}
     end.
 
-deliver_to_client(Msgs, Pid, Topic, Cursor, RestMsgs) ->
+deliver_to_client(Msgs, Pid, Topic, Cursor, StartedAt, RestMsgs) ->
     Delivers = lists:map(fun(Msg) -> {deliver, Topic, Msg} end, Msgs),
     DispatchCursor = #dispatch_cursor{
+        started_at = StartedAt,
         incarnation = cursor_index_incarnation(Cursor),
         topic = Topic,
         cursor = Cursor,
@@ -497,8 +506,11 @@ deliver_to_client(Msgs, Pid, Topic, Cursor, RestMsgs) ->
     Pid ! {retained_batch, Topic, Delivers, DispatchCursor},
     ok.
 
-filter_delivery(Messages, _Topic) ->
-    lists:filter(fun check_clientid_banned/1, Messages).
+filter_delivery(Messages0, StartedAt) ->
+    Messages = lists:filter(fun check_clientid_banned/1, Messages0),
+    %% Do not deliver messages that are 5 s or more newer than when we started iterating.
+    Deadline = StartedAt + 5_000,
+    lists:filter(fun(Msg) -> is_published_before_deadline(Msg, Deadline) end, Messages).
 
 check_clientid_banned(Msg) ->
     case emqx_banned:check_clientid(Msg#message.from) of
@@ -511,6 +523,12 @@ check_clientid_banned(Msg) ->
             }),
             false
     end.
+
+is_published_before_deadline(#message{timestamp = Ts}, Deadline) when is_integer(Ts) ->
+    Ts =< Deadline;
+is_published_before_deadline(_Msg, _Deadline) ->
+    %% poisoned message?
+    true.
 
 take(all, List) ->
     {length(List), List, []};
@@ -545,6 +563,9 @@ delay_retry(Timeout) ->
 
 now_ms() ->
     erlang:monotonic_time(millisecond).
+
+system_now_ms() ->
+    erlang:system_time(millisecond).
 
 %%%===================================================================
 %%% Internal functions (channel hook handling; runs inside channel process)
