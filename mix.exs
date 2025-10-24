@@ -224,7 +224,7 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:jose),
     do:
-      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.2", manager: :rebar3, override: true}
+      {:jose, github: "potatosalad/erlang-jose", tag: "1.11.10", manager: :rebar3, override: true}
 
   def common_dep(:rulesql), do: {:rulesql, github: "emqx/rulesql", tag: "0.2.1"}
 
