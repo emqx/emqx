@@ -55,4 +55,9 @@
 %% Sliding average of time spent splitting the beam:
 -define(DS_SUBS_FANOUT_TIME, emqx_ds_subs_fanout_time).
 
+%%%% Group metrics
+-define(DS_TOTAL_SIZE, emqx_ds_total_size).
+-define(DS_WRITE_BUFFER_MEM, emqx_ds_write_buffer_memory_usage).
+-define(DS_TRASH_SIZE, emqx_ds_total_trash_size).
+
 -endif.
