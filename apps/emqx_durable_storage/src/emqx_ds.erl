@@ -10,7 +10,7 @@ Main interface module for `emqx_durable_storage' application.
 It takes care of forwarding calls to the underlying DBMS.
 """.
 
--behavior(gen_server).
+-behaviour(gen_server).
 
 %% Management API:
 -export([

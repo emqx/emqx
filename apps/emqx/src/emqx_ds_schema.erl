@@ -31,6 +31,7 @@ Schema for EMQX_DS databases.
 -export([to_size_limit/1, validate_config/1]).
 
 -include("logger.hrl").
+-include_lib("typerefl/include/types.hrl").
 -include("emqx_schema.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("hocon/include/hocon_types.hrl").
@@ -47,7 +48,10 @@ Schema for EMQX_DS databases.
 
 -define(DEFAULT_BACKEND, builtin_raft).
 
--type backend() ::
+-type backend() :: builtin_raft | builtin_local.
+-reflect_type([backend/0]).
+
+-type db_backend_flavor() ::
     builtin_raft
     | builtin_local
     | builtin_raft_messages
@@ -185,7 +189,8 @@ schema() ->
             sc(
                 hoconsc:map(name, ref(db_group)),
                 #{
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(db_groups_root)
                 }
             )},
         {?PERSISTENT_MESSAGE_DB,
@@ -244,7 +249,7 @@ schema() ->
             )}
     ].
 
--spec db_schema([backend()], _Importance, ?DESC(_), Defaults) ->
+-spec db_schema([db_backend_flavor()], _Importance, ?DESC(_), Defaults) ->
     #{type := _, _ => _}
 when
     Defaults :: map().
@@ -416,15 +421,17 @@ fields(db_group) ->
             sc(
                 atom(),
                 #{
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(db_group_name)
                 }
             )},
         {backend,
             sc(
-                union([builtin_local, builtin_raft]),
+                backend(),
                 #{
                     default => ?DEFAULT_BACKEND,
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(db_group_backend)
                 }
             )},
         {storage_quota,
@@ -432,7 +439,8 @@ fields(db_group) ->
                 size_limit(),
                 #{
                     default => infinity,
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(db_group_storage_quota)
                 }
             )},
         {write_buffer_size,
@@ -440,7 +448,8 @@ fields(db_group) ->
                 size_limit(),
                 #{
                     default => "128 MiB",
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(db_group_write_buffer_size)
                 }
             )}
     ].
@@ -539,7 +548,8 @@ common_builtin_fields(Flavor) ->
             sc(
                 atom(),
                 #{
-                    importance => ?IMPORTANCE_HIDDEN
+                    importance => ?IMPORTANCE_MEDIUM,
+                    desc => ?DESC(db_group)
                 }
             )},
         {rocksdb,
@@ -606,6 +616,8 @@ desc(optimistic_transaction) ->
     ?DESC(optimistic_transaction);
 desc(rocksdb_options) ->
     ?DESC(rocksdb_options);
+desc(db_group) ->
+    ?DESC(db_group_record);
 desc(_) ->
     undefined.
 
