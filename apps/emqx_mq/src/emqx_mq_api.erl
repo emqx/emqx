@@ -302,6 +302,10 @@ put_message_queue_config_example() ->
             ?OK(MQRaw);
         {error, is_lastvalue_not_allowed_to_be_updated} ->
             ?BAD_REQUEST(<<"LastValue flag is not allowed to be updated">>);
+        {error, limit_presence_cannot_be_updated_for_regular_queues} ->
+            ?BAD_REQUEST(
+                <<"Regular queues cannot be updated from limited to unlimited and vice versa">>
+            );
         {error, _} = Error ->
             ?SERVICE_UNAVAILABLE(Error)
     end;

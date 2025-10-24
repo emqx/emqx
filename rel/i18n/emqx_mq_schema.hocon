@@ -113,6 +113,26 @@ emqx_mq_schema {
         label: "Key Expression"
     }
 
+    mq_individual_limits {
+        desc: """~
+            The byte size and count limits for an individual Message Queue."""
+        label: "Message Queue Limits"
+    }
+
+    max_shard_message_count {
+        desc: """~
+            The maximum number of messages in a shard for the Message Queue. The number of shards is configured
+            for all Message Queues in the Durable Storage settings."""
+        label: "Max Shard Message Count"
+    }
+
+    max_shard_message_bytes {
+        desc: """~
+            The maximum number of bytes in a shard for the Message Queue. The number of shards is configured
+            for all Message Queues in the Durable Storage settings."""
+        label: "Max Shard Message Bytes"
+    }
+
     enable {
         desc: """~
             Whether to enable the Message Queue."""

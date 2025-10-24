@@ -16,16 +16,28 @@
 -include("../src/emqx_mq_internal.hrl").
 
 -define(COMMON_DISPATCH_TESTS, [t_redispatch, t_redispatch_delay]).
+-define(COMMON_LIMITED_TESTS, [t_publish_and_consume_regular, t_publish_and_consume_lastvalue]).
+
+-define(MANY, 999_999_999_999).
 
 all() ->
-    All = emqx_common_test_helpers:all(?MODULE) -- ?COMMON_DISPATCH_TESTS,
-    All ++ [{group, random}, {group, least_inflight}, {group, round_robin}].
+    All =
+        emqx_common_test_helpers:all(?MODULE) -- (?COMMON_DISPATCH_TESTS ++ ?COMMON_LIMITED_TESTS),
+    [
+        {group, unlimited},
+        {group, limited},
+        {group, random},
+        {group, least_inflight},
+        {group, round_robin}
+    ] ++ All.
 
 groups() ->
     [
         {random, [], ?COMMON_DISPATCH_TESTS},
         {least_inflight, [], ?COMMON_DISPATCH_TESTS},
-        {round_robin, [], ?COMMON_DISPATCH_TESTS}
+        {round_robin, [], ?COMMON_DISPATCH_TESTS},
+        {limited, [], ?COMMON_LIMITED_TESTS},
+        {unlimited, [], ?COMMON_LIMITED_TESTS}
     ].
 
 init_per_suite(Config) ->
@@ -49,6 +61,13 @@ init_per_group(DispatchStrategy, Config) when
     DispatchStrategy =:= round_robin
 ->
     [{dispatch_strategy, DispatchStrategy} | Config];
+init_per_group(limited, Config) ->
+    [{limits, #{max_shard_message_bytes => ?MANY, max_shard_message_count => ?MANY}} | Config];
+init_per_group(unlimited, Config) ->
+    [
+        {limits, #{max_shard_message_bytes => infinity, max_shard_message_count => infinity}}
+        | Config
+    ];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -70,9 +89,11 @@ end_per_testcase(_CaseName, _Config) ->
 %%--------------------------------------------------------------------
 
 %% Consume some history messages from a non-lastvalue(regular) queue
-t_publish_and_consume(_Config) ->
+t_publish_and_consume_regular(Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    _ = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>, is_lastvalue => false, limits => ?config(limits, Config)
+    }),
 
     %% Publish 100 messages to the queue
     emqx_mq_test_utils:populate(50, #{topic_prefix => <<"t/">>}),
@@ -81,7 +102,7 @@ t_publish_and_consume(_Config) ->
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
     emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
-    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 1000),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 5000),
 
     %% Verify the messages
     ?assertEqual(100, length(Msgs0)),
@@ -105,9 +126,11 @@ t_publish_and_consume(_Config) ->
     ok = emqtt:disconnect(CSub).
 
 %% Consume some history messages from a lastvalue queue
-t_publish_and_consume_lastvalue(_Config) ->
+t_publish_and_consume_lastvalue(Config) ->
     %% Create a lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+    _ = emqx_mq_test_utils:create_mq(#{
+        topic_filter => <<"t/#">>, is_lastvalue => true, limits => ?config(limits, Config)
+    }),
 
     %% Publish 100 messages to the queue
     emqx_mq_test_utils:populate_lastvalue(100, #{
@@ -1011,7 +1034,7 @@ t_offline_session(_Config) ->
     emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
 
     %% All messages should be received by the second client
-    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 1000),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 5000),
     ?assertEqual(10, length(Msgs0)),
     lists:foreach(
         fun(#{client_pid := Pid}) ->
@@ -1031,7 +1054,7 @@ t_offline_session(_Config) ->
     emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
 
     %% Messages should be received by both clients
-    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 5000),
     ?assertEqual(5, length([Pid || #{client_pid := Pid} <- Msgs1, Pid =:= CSub01])),
     ?assertEqual(5, length([Pid || #{client_pid := Pid} <- Msgs1, Pid =:= CSub1])),
 
@@ -1041,7 +1064,8 @@ t_offline_session(_Config) ->
 
 %% Verify that the metrics are updated correctly
 t_metrics(_Config) ->
-    #{received_messages := ReceivedMessages0} = emqx_mq_metrics:get_counters(ds),
+    #{received_messages := ReceivedMessages0, inserted_messages := InsertedMessages0} =
+        emqx_mq_metrics:get_counters(ds),
 
     %% Create a queue, publish and consume some messages
     _MQ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
@@ -1049,16 +1073,23 @@ t_metrics(_Config) ->
     CSub = emqx_mq_test_utils:emqtt_connect([]),
     emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
+    ok = emqtt:disconnect(CSub),
     ?assertEqual(10, length(Msgs)),
 
     %% Verify that the metrics are updated correctly
-    #{received_messages := ReceivedMessages1} = emqx_mq_metrics:get_counters(ds),
+    #{received_messages := ReceivedMessages1, inserted_messages := InsertedMessages1} = emqx_mq_metrics:get_counters(
+        ds
+    ),
     ?assertEqual(10, ReceivedMessages1 - ReceivedMessages0),
+    ?assertEqual(10, InsertedMessages1 - InsertedMessages0),
     #{received_messages := #{current := Current}} = emqx_mq_metrics:get_rates(ds),
     ?assert(Current > 0),
 
-    %% Clean up
-    ok = emqtt:disconnect(CSub).
+    %% Verify that other accessors work
+    ?assert(is_integer(emqx_mq_metrics:get_quota_buffer_inbox_size())),
+    emqx_mq_metrics:print_common_hists(),
+    emqx_mq_metrics:print_flush_quota_hist(),
+    emqx_mq_metrics:print_common_hists(regular_limited).
 
 t_update_key_expression(_Config) ->
     %% Create a non-lastvalue Queue

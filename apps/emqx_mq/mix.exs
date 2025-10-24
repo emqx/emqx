@@ -22,7 +22,10 @@ defmodule EMQXMQ.MixProject do
 
   def asn1_srcs() do
     [
-      %{src: "asn.1/MessageQueue.asn", compile_opts: [:ber, :noobj, outdir: ~c"gen_src"]}
+      %{
+        src: "asn.1/MessageQueue.asn",
+        compile_opts: [:ber, :noobj, :no_ok_wrapper, outdir: ~c"gen_src"]
+      }
     ]
   end
 
@@ -37,6 +40,7 @@ defmodule EMQXMQ.MixProject do
       {:emqx_durable_storage, in_umbrella: true},
       :minirest,
       :gproc,
+      :ecpool,
       :optvar
     ])
   end

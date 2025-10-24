@@ -90,7 +90,8 @@
 -type metric_name() :: atom().
 -type worker_id() :: term().
 
--type hist_bucket_spec() :: [non_neg_integer()].
+-type bucket_upper_bound() :: non_neg_integer().
+-type hist_bucket_spec() :: [bucket_upper_bound()].
 
 -type metric_full_spec() ::
     {counter, metric_name()}
@@ -106,8 +107,9 @@
     | {hist, metric_name()}.
 
 -type hist() :: #{
-    buckets := hist_bucket_spec(),
-    counts := [non_neg_integer()]
+    bucket_counts := [{bucket_upper_bound() | infinity, non_neg_integer()}],
+    count := non_neg_integer(),
+    sum := non_neg_integer()
 }.
 
 -type rate() :: #{
@@ -289,7 +291,7 @@ get_slide(Name, Id, Window) ->
 
 %% Get the incremental counters for each histogram bucket together with the
 %% total count and the sum of observations.
--spec get_hists(handler_name(), metric_id()) -> map().
+-spec get_hists(handler_name(), metric_id()) -> #{metric_name() => hist()}.
 get_hists(Name, Id) ->
     gen_server:call(Name, #get_hists{id = Id}).
 
