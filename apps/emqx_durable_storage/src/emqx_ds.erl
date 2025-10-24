@@ -102,6 +102,7 @@ It takes care of forwarding calls to the underlying DBMS.
     db/0,
     db_group/0,
     db_group_opts/0,
+    db_group_stats/0,
     time/0,
     time_ms/0,
     topic_filter/0,
