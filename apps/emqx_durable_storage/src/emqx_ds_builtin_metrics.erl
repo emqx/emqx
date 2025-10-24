@@ -99,7 +99,7 @@
 ]).
 
 -define(DB_GROUP_METRICS, [
-    {gauge, counter, ?DS_TOTAL_SIZE},
+    {gauge, counter, ?DS_DISK_USAGE},
     {gauge, counter, ?DS_WRITE_BUFFER_MEM},
     {gauge, counter, ?DS_TRASH_SIZE}
 ]).
@@ -280,15 +280,15 @@ collect_group_metrics(Labels0, Acc0) ->
                 {ok, Stats} ->
                     Labels = Labels0 ++ [{group, Group}],
                     #{
-                        total_size := TotalSize,
+                        disk_usage := DiskUsage,
                         write_buffer_manager := WBuf,
                         sst_file_mgr := SSTM
                     } = Stats,
                     WBMem = proplists:get_value(memory_usage, WBuf),
                     TotalTrashSize = proplists:get_value(total_trash_size, SSTM),
                     append_to_key(
-                        ?DS_TOTAL_SIZE,
-                        {Labels, TotalSize},
+                        ?DS_DISK_USAGE,
+                        {Labels, DiskUsage},
                         append_to_key(
                             ?DS_WRITE_BUFFER_MEM,
                             {Labels, WBMem},

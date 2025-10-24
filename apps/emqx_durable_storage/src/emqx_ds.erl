@@ -344,10 +344,7 @@ Options for the `subscribe` API.
         atom() => _
     }.
 
--type db_group_stats() :: #{
-    %% Unit: octets
-    total_size => non_neg_integer()
-}.
+-type db_group_stats() :: map().
 
 -type slab_info() :: #{
     created_at := time_ms(),
