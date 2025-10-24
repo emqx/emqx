@@ -271,7 +271,8 @@ roots(medium) ->
                 ref(durable_storage),
                 #{
                     importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(durable_storage)
+                    desc => ?DESC(durable_storage),
+                    validator => fun emqx_ds_schema:validate_config/1
                 }
             )}
     ];
