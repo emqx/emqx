@@ -327,34 +327,17 @@ make_docker() {
     local SUFFIX="${DOCKER_IMAGE_SUFFIX:-}"
 
     local DOCKER_REGISTRY="${DOCKER_REGISTRY:-docker.io}"
-    local DOCKER_REGISTRIES=( )
-    IFS=',' read -ra DOCKER_REGISTRY_ARR <<< "$DOCKER_REGISTRY"
-    for r in "${DOCKER_REGISTRY_ARR[@]}"; do
-        # append to DOCKER_REGISTRIES
-        DOCKER_REGISTRIES+=("$r")
-    done
-
     local DOCKER_ORG="${DOCKER_ORG:-emqx}"
     local default_base_tag="${DOCKER_ORG}/${PROFILE}"
-
     local EMQX_BASE_IMAGE_TAG="${EMQX_BASE_IMAGE_TAG:-$default_base_tag}"
-    local DOCKER_IMAGE_BASE_TAGS=( "${EMQX_BASE_IMAGE_TAG}" )
-    IFS=',' read -ra DOCKER_IMAGE_BASE_TAGS_ARR <<< "${EMQX_EXTRA_BASE_IMAGE_TAGS:-}"
-    for t in "${DOCKER_IMAGE_BASE_TAGS_ARR[@]}"; do
-        DOCKER_IMAGE_BASE_TAGS+=("$t")
-    done
 
     DOCKER_IMAGE_TAGS=( )
-    for r in "${DOCKER_REGISTRIES[@]}"; do
-      for t in "${DOCKER_IMAGE_BASE_TAGS[@]}"; do
-        DOCKER_IMAGE_TAGS+=( "$r/$t:${PKG_VSN}${SUFFIX}" )
-        if [ "${DOCKER_LATEST:-false}" = true ]; then
-          DOCKER_IMAGE_TAGS+=( "$r/$t:latest${SUFFIX}" )
-          DOCKER_IMAGE_TAGS+=( "$r/$t:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" )
-          DOCKER_IMAGE_TAGS+=( "$r/$t:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" )
-        fi
-      done
-    done
+    DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:${PKG_VSN}${SUFFIX}" )
+    if [ "${DOCKER_LATEST:-false}" = true ]; then
+      DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:latest${SUFFIX}" )
+      DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:${VSN_MAJOR}.${VSN_MINOR}${SUFFIX}" )
+      DOCKER_IMAGE_TAGS+=( "$DOCKER_REGISTRY/$EMQX_BASE_IMAGE_TAG:${VSN_MAJOR}.${VSN_MINOR}.${VSN_PATCH}${SUFFIX}" )
+    fi
 
     local EDITION=Enterprise
     local LICENSE='BSL-1.1'
