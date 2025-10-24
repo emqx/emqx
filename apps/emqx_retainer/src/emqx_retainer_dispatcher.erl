@@ -137,6 +137,53 @@ start_link(Pool, Id) ->
 
 %%%===================================================================
 %%% Hooks
+%%%
+%%% # Interaction between channel and dispatcher process
+%%%
+%%% 1) Client subscribes to topic, which iniates the dispatch with the subscribed topic
+%%%    filter (`session.subscribed` hook).
+
+%%% 2) Dispatcher process then starts iterating over the topic filter.  It then sends
+%%%    chunks of messages along with a dispatch cursor to keep track of progress as a
+%%%    `{retained_batch, Topic, Delivers, DispatchCursor}` message to the channel process.
+%%%
+%%% 3) The channel will trigger the `client.handle_info` hook, which will prompt the
+%%%    processing of the batch.  We check if there is room in the session's inflight
+%%%    window.  If there is, we return from the hook the delivers that fit said window.
+%%%    Any messages from the batch that do not fit the inflight window are stored in the
+%%%    channel's process dictionary (CPD).  If multiple `{retained_batch, _, _, _}`
+%%%    messages are received, they are also stored in the CPD in a FIFO queue.
+%%%
+%%%    * Note [Retainer Try Next Nudge]: If, at this point, there are retained batches
+%%%    still to be delivered but there's no inflight room, the channel is nudged by a
+%%%    timed message (`try_next_retained_batch`) that will make it check again if there's
+%%%    room later.
+%%%
+%%%    * This only happens if the channel state is `connected`.  Otherwise, the batches
+%%%      are dropped.
+%%%
+%%% 4) Eventually, the channel will deliver and/or ack messages, triggering the
+%%%    `message.delivered` and `message.acked` hooks, respectively.  On those hooks, we
+%%%    check the CPD to see if there are batches still waiting to become delivers.  If
+%%%    there are, we simply output those messages that fit the infligth window as in the
+%%%    previous step.  If the batch became empty, then we asynchronously ask the dispatch
+%%%    process for the next batch by sending it a message.  The dispatcher process will
+%%%    then continue iterating the cursor and repeat the process from above.
+%%%
+%%%    * Note [Retainer Try Next Nudge] applies here too.
+%%%
+%%% 5) After enough iterations, the dispatcher process will simply no longer send any
+%%%    messages to the channel, and the channel will drain its batches.
+%%%
+%%% If the dispatcher hits the dispatch rate limit, it'll enqueue the channel's request in
+%%% a FIFO queue and schedule a timer to trigger a retry at a later time.
+%%%
+%%% Iteration requests that started long ago enough (configurable by
+%%% `retainer.dispatch_retry_ttl`) will be silently dropped.
+%%%
+%%% The maximum number of concurrent iteration requests is limited (currently hard-coded
+%%% at 1_000).
+%%%
 %%%===================================================================
 
 on_message_acked(_ClientInfo, Msg) ->
