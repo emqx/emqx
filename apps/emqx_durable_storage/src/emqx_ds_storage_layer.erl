@@ -251,14 +251,21 @@
 
 -spec create_db_group(emqx_ds:db_group(), create_db_group_opts()) -> {ok, db_group()} | {error, _}.
 create_db_group(_GroupId, UserOpts) ->
-    Defaults = #{write_buffer_size => 100 * ?MB},
-    #{write_buffer_size := WriteBufferSize} = maps:merge(Defaults, UserOpts),
     maybe
         {ok, Opts} ?= verify_db_group_config(UserOpts),
         EnvType = maps:get(env_type, Opts, default),
+        %% Create SST file manager:
         {ok, Env} ?= rocksdb:new_env(EnvType),
         {ok, SSTManager} = rocksdb:new_sst_file_manager(Env),
+        %% Create write buffer manager:
+        case maps:get(write_buffer_size, Opts) of
+            infinity ->
+                WriteBufferSize = 0;
+            WriteBufferSize ->
+                ok
+        end,
         {ok, WriteBufferManager} = rocksdb:new_write_buffer_manager(WriteBufferSize),
+        %% Result:
         {ok, #db_group{
             env = Env,
             sst_file_mgr = SSTManager,
@@ -1168,9 +1175,13 @@ decode_generation_schema_v1(Schema = #{}) ->
 verify_db_group_config(UserOpts) ->
     maybe
         true ?= is_map(UserOpts),
-        Defaults = #{soft_quota => infinity},
-        #{soft_quota := SQ} = Merged = maps:merge(Defaults, UserOpts),
-        true ?= SQ =:= infinity orelse (is_integer(SQ) andalso SQ > 0),
+        Defaults = #{
+            storage_quota => infinity,
+            write_buffer_size => 128 * 1024 * 1024
+        },
+        #{storage_quota := SQ, write_buffer_size := WBS} = Merged = maps:merge(Defaults, UserOpts),
+        true ?= is_valid_max_size(SQ),
+        true ?= is_valid_max_size(WBS),
         {ok, Merged}
     else
         _ ->
@@ -1193,6 +1204,13 @@ sstfm_info(SSTFM) ->
         total_size => TotalSize,
         sst_file_mgr => L
     }.
+
+is_valid_max_size(infinity) ->
+    true;
+is_valid_max_size(Val) when is_integer(Val), Val > 0 ->
+    true;
+is_valid_max_size(_) ->
+    false.
 
 %%--------------------------------------------------------------------------------
 

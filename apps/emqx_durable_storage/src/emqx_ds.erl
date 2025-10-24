@@ -284,8 +284,9 @@ Common options for creation of a DS database.
   subscribers.
 
 - **`db_group`** - identifier of a database group created by
-  `setup_db_group/2` call. If this option is omitted, DS will create a
-  new DB group with identifier equal to the DB id and empty config.
+  `setup_db_group/2` call. If this option is omitted or set to atom
+  `undefined`, DS will create a new DB group named after the DB and
+  with empty config.
 
   All databases in the group must use the same backend.
 
@@ -302,7 +303,16 @@ supported.
         _ => _
     }.
 
--type db_group_opts() :: #{backend := backend(), _ => _}.
+-doc """
+- `backend` parameter is mandatory when the group is created.
+  It should match with the backend of all DBs in the group.
+
+- `storage_quota`: a value (in octets) that specifies the maximum
+  total volume of data stored in the DBs. Once the DB group reaches
+  the `storage_quota`, transactions adding more data and dirty
+  appends will be rejected.
+""".
+-type db_group_opts() :: #{backend => backend(), storage_quota => pos_integer(), _ => _}.
 
 -type verify_db_opts_result() ::
     {ok, emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()} | error(_).
@@ -839,7 +849,7 @@ db_group_stats(Group) ->
             {ok, Mod} = emqx_dsch:get_backend_cbm(Backend),
             Mod:db_group_stats(Group, Inner);
         _ ->
-            {error, unrecoverable, no_such_group}
+            {error, unrecoverable, {no_such_group, Group}}
     end.
 
 -doc """
@@ -1845,8 +1855,15 @@ handle_open_db(DB, UserOpts = #{backend := Backend}, S0 = #s{dbs = DBs, groups =
     maybe
         false ?= maps:is_key(DB, DBs),
         {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
-        CreateDbGroup = not maps:is_key(db_group, UserOpts),
-        GlobalDefaults = #{payload_type => ?ds_pt_ttv, db_group => DB},
+        CreateDbGroup =
+            case UserOpts of
+                #{db_group := GroupId} ->
+                    false;
+                #{} ->
+                    GroupId = DB,
+                    true
+            end,
+        GlobalDefaults = #{payload_type => ?ds_pt_ttv, db_group => GroupId},
         Opts = emqx_utils_maps:deep_merge(
             emqx_utils_maps:deep_merge(
                 GlobalDefaults,
@@ -1861,7 +1878,6 @@ handle_open_db(DB, UserOpts = #{backend := Backend}, S0 = #s{dbs = DBs, groups =
                 NewSchema#{backend => Backend}
             ),
         ok ?= emqx_ds_sup:ensure_new_stream_watch(DB),
-        #{db_group := GroupId} = Opts,
         {ok, S} ?=
             case CreateDbGroup of
                 false ->
@@ -1869,7 +1885,7 @@ handle_open_db(DB, UserOpts = #{backend := Backend}, S0 = #s{dbs = DBs, groups =
                         #{GroupId := _} ->
                             {ok, S0};
                         #{} ->
-                            {error, no_such_group}
+                            {error, {no_such_group, GroupId}}
                     end;
                 true ->
                     handle_setup_group(GroupId, #{backend => Backend}, S0)
@@ -1966,7 +1982,7 @@ handle_destroy_group(Id, S0 = #s{groups = G0}) ->
         {ok, S}
     else
         #{} ->
-            {{error, no_such_group}, S0};
+            {{error, {no_such_group, Id}}, S0};
         Err ->
             {Err, S0}
     end.
