@@ -19,6 +19,7 @@ It takes care of forwarding calls to the underlying DBMS.
 
     setup_db_group/2,
     lookup_db_group/1,
+    which_db_groups/0,
 
     open_db/2,
     wait_db/3,
@@ -640,6 +641,24 @@ lookup_db_group(Group) ->
             {ok, Inner};
         X ->
             {error, {no_such_group, X}}
+    end.
+
+-doc """
+Return list of DB group names with the corresponding backends.
+""".
+-spec which_db_groups() -> [{db_group(), backend()}].
+which_db_groups() ->
+    case persistent_term:get(?pterm, undefined) of
+        #s{groups = Groups} ->
+            maps:fold(
+                fun(Id, #db_group{backend = Backend}, Acc) ->
+                    [{Id, Backend} | Acc]
+                end,
+                [],
+                Groups
+            );
+        undefined ->
+            []
     end.
 
 -doc """

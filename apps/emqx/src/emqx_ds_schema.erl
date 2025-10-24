@@ -447,7 +447,7 @@ fields(db_group) ->
             sc(
                 size_limit(),
                 #{
-                    default => "128 MiB",
+                    default => "32 MiB",
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(db_group_write_buffer_size)
                 }
