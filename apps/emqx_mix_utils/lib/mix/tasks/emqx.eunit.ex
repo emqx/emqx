@@ -131,6 +131,7 @@ defmodule Mix.Tasks.Emqx.Eunit do
 
     if to_string(fun) =~ ~r/_test_$/ do
       apply(mod, fun, [])
+      |> List.wrap()
     else
       [Function.capture(mod, fun, 0)]
     end

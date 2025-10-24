@@ -5,12 +5,17 @@
 -module(emqx_tls_lib_tests).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 -export([do_setup_ssl_files/1]).
 
 %% one of the cipher suite from tlsv1.2 and tlsv1.3 each
 -define(TLS_12_CIPHER, "ECDHE-ECDSA-AES256-GCM-SHA384").
 -define(TLS_13_CIPHER, "TLS_AES_256_GCM_SHA384").
+
+-define(ns, <<"some_ns">>).
+-define(bundle, <<"some_bundle">>).
+-define(bundle2, <<"some_bundle2">>).
 
 ensure_tls13_ciphers_added_test() ->
     Ciphers = emqx_tls_lib:integral_ciphers(['tlsv1.3'], [?TLS_12_CIPHER]),
@@ -509,29 +514,32 @@ do_test_ssl_file_replace(Context) ->
     ?assert(filelib:is_regular(IssuerPem2)),
     ok.
 
-ssl_file_deterministic_names_test() ->
-    {setup, setup_ssl_files(), fun cleanup_ssl_files/1, fun do_test_ssl_file_deterministic_names/1}.
+ssl_file_deterministic_names_test_() ->
+    {setup, setup_ssl_files(#{key_type => ec, password => undefined}), fun cleanup_ssl_files/1,
+        fun do_test_ssl_file_deterministic_names/1}.
 do_test_ssl_file_deterministic_names(Context) ->
-    #{
-        key := Key,
-        cert := Cert
-    } = Context,
-    SSL0 = #{
-        <<"keyfile">> => Key,
-        <<"certfile">> => Cert
-    },
-    Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
-    Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
-    {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0),
-    ?assertEqual(
-        {ok, SSLFiles0},
-        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0)
-    ),
-    ?assertNotEqual(
-        {ok, SSLFiles0},
-        emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir1, SSL0)
-    ),
-    _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME])).
+    ?_test(begin
+        #{
+            key := Key,
+            cert := Cert
+        } = Context,
+        SSL0 = #{
+            <<"keyfile">> => Key,
+            <<"certfile">> => Cert
+        },
+        Dir0 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl0"]),
+        Dir1 = filename:join(["/tmp", ?FUNCTION_NAME, "ssl1"]),
+        {ok, SSLFiles0} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0),
+        ?assertEqual(
+            {ok, SSLFiles0},
+            emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir0, SSL0)
+        ),
+        ?assertNotEqual(
+            {ok, SSLFiles0},
+            emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(Dir1, SSL0)
+        ),
+        _ = file:del_dir_r(filename:join(["/tmp", ?FUNCTION_NAME]))
+    end).
 
 ssl_file_name_hash_test() ->
     ?assertMatch(
@@ -641,7 +649,85 @@ to_server_opts_test() ->
         )
     ).
 
+-doc """
+Checks the final transformation made by `to_server_opts` on managed certs options.
+""".
+to_server_opts_managed_certs_test_() ->
+    AssertMatchesFiles = fun(SSLOpts, Ns, Bundle) ->
+        {ok, Files} = emqx_managed_certs:list_managed_files(Ns, Bundle),
+        Get = fun(Kind) ->
+            emqx_utils_conv:str(maps:get(path, maps:get(Kind, Files)))
+        end,
+        lists:foreach(
+            fun
+                ({cacertfile, Path}) ->
+                    ?assertEqual(Get(?FILE_KIND_CA), Path);
+                ({certfile, Path}) ->
+                    ?assertEqual(Get(?FILE_KIND_CHAIN), Path);
+                ({keyfile, Path}) ->
+                    ?assertEqual(Get(?FILE_KIND_KEY), Path);
+                (_) ->
+                    ok
+            end,
+            SSLOpts
+        )
+    end,
+    {setup, setup_managed_certs(#{}), fun(_) -> emqx_managed_certs:clean_certs_dir() end, fun(_) ->
+        [
+            {"multiple managed certs (1)",
+                ?_test(begin
+                    #{} = (setup_managed_certs(#{namespace => ?ns, bundle_name => ?bundle2}))(),
+                    SNI1 = <<"ex1.emqx.io">>,
+                    SNI2 = <<"ex2.emqx.io">>,
+                    RawOpts = #{
+                        <<"managed_certs">> => [
+                            #{
+                                <<"namespace">> => ?ns,
+                                <<"sni">> => SNI1,
+                                <<"bundle_name">> => ?bundle
+                            },
+                            #{
+                                <<"namespace">> => ?ns,
+                                <<"sni">> => SNI2,
+                                <<"bundle_name">> => ?bundle2
+                            }
+                        ]
+                    },
+                    SSLOpts0 = emqx_tls_lib:to_server_opts(tls, RawOpts),
+                    SSLOpts1 = maps:from_list(SSLOpts0),
+                    %% It contains the files from the bundle; when there are more than one
+                    %% managed cert bundle specified, it takes the first one as the
+                    %% default.
+                    ?assertMatch(
+                        #{
+                            cacertfile := "" ++ _,
+                            certfile := "" ++ _,
+                            keyfile := "" ++ _
+                        },
+                        SSLOpts1
+                    ),
+                    AssertMatchesFiles(SSLOpts0, ?ns, ?bundle),
+
+                    %% It contains an SNI fun that resolves to the managed files when given the
+                    %% configured SNI.
+                    ?assertMatch(#{sni_fun := _}, SSLOpts1),
+                    #{sni_fun := SNIFn} = SSLOpts1,
+
+                    ?assertMatch([_, _, _], SNIFn(str(SNI1))),
+                    AssertMatchesFiles(SNIFn(str(SNI1)), ?ns, ?bundle),
+
+                    ?assertMatch([_, _, _], SNIFn(str(SNI2))),
+                    AssertMatchesFiles(SNIFn(str(SNI2)), ?ns, ?bundle2),
+
+                    %% Uses the default config for unknown domains
+                    ?assertMatch(undefined, SNIFn("some.unknown.domain")),
+                    ok
+                end)}
+        ]
+    end}.
+
 bin(X) -> iolist_to_binary(X).
+str(X) -> emqx_utils_conv:str(X).
 
 test_name_hash_cacert() ->
     <<
@@ -798,3 +884,35 @@ mangle(PEM, Pos, Len) ->
         binary:part(DER, Pos + Len, byte_size(DER) - Pos - Len)
     ]),
     public_key:pem_encode([{Type, CorruptDER, CryptoInfo}]).
+
+setup_managed_certs(Opts0) ->
+    fun() ->
+        Namespace = maps:get(namespace, Opts0, ?ns),
+        BundleName = maps:get(bundle_name, Opts0, ?bundle),
+        #{
+            cert := CertRoot,
+            key := KeyRoot,
+            cert_pem := CAPEM
+        } = emqx_cth_tls:gen_cert_pem(#{key => ec, issuer => root}),
+        Opts = maps:with([password], Opts0),
+        #{
+            cert_pem := CertPEM,
+            key_pem := KeyPEM
+        } = emqx_cth_tls:gen_cert_pem(Opts#{key => ec, issuer => {CertRoot, KeyRoot}}),
+        Files0 = #{
+            ?FILE_KIND_CA => CAPEM,
+            ?FILE_KIND_CHAIN => CertPEM,
+            ?FILE_KIND_KEY => KeyPEM
+        },
+        Files =
+            case Opts of
+                #{password := Password} ->
+                    Files0#{?FILE_KIND_KEY_PASSWORD => Password};
+                _ ->
+                    Files0
+            end,
+        %% Note: we call the RPC target directly because the BPAPI app is not started, and
+        %% hence the list of nodes supporting the API is `[]`.
+        ok = emqx_managed_certs:add_managed_files_v1(Namespace, BundleName, Files),
+        #{namespace => Namespace, bundle_name => BundleName}
+    end.

@@ -2033,6 +2033,16 @@ fields("banned") ->
                     require => false
                 }
             )}
+    ];
+fields("managed_certs") ->
+    [
+        {namespace, sc(binary(), #{required => false, desc => ?DESC("managed_certs_ns")})},
+        {bundle_name, sc(binary(), #{required => true, desc => ?DESC("managed_certs_bundle_name")})}
+    ];
+fields("managed_certs_server") ->
+    [
+        {sni, sc(binary(), #{required => false, desc => ?DESC("managed_certs_server_sni")})}
+        | fields("managed_certs")
     ].
 
 compile_variform_allow_disabled(disabled, _Opts) ->
@@ -2396,6 +2406,10 @@ desc("banned") ->
     "Banned .";
 desc(durable_shared_subs) ->
     ?DESC(durable_shared_subs);
+desc("managed_certs") ->
+    ?DESC("common_ssl_opts_schema_managed_certs");
+desc("managed_certs_server") ->
+    ?DESC("managed_certs_server");
 desc(_) ->
     undefined.
 
@@ -2606,6 +2620,17 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         importance => ?IMPORTANCE_HIDDEN,
                         desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
                     }
+                )},
+            {"managed_certs",
+                sc(
+                    hoconsc:union([
+                        ref("managed_certs_server"), hoconsc:array(ref("managed_certs_server"))
+                    ]),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC("common_ssl_opts_schema_managed_certs"),
+                        validator => fun server_managed_certs_validator/1
+                    }
                 )}
         ] ++
         [
@@ -2637,6 +2662,15 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
             ]
         ].
 
+server_managed_certs_validator(undefined) ->
+    ok;
+server_managed_certs_validator(#{} = _SingleCert) ->
+    ok;
+server_managed_certs_validator([]) ->
+    {error, "must define at least one managed cert bundle"};
+server_managed_certs_validator([_ | _]) ->
+    ok.
+
 validate_server_ssl_opts(#{<<"fail_if_no_peer_cert">> := true, <<"verify">> := Verify}) ->
     validate_verify(Verify);
 validate_server_ssl_opts(#{fail_if_no_peer_cert := true, verify := Verify}) ->
@@ -2653,6 +2687,7 @@ mqtt_ssl_listener_ssl_options_validator(Conf) ->
     Checks = [
         fun validate_server_ssl_opts/1,
         fun ocsp_outer_validator/1,
+        fun server_ocsp_and_managed_certs_validator/1,
         fun crl_outer_validator/1
     ],
     case emqx_utils:pipeline(Checks, Conf, not_used) of
@@ -2661,6 +2696,18 @@ mqtt_ssl_listener_ssl_options_validator(Conf) ->
         {error, Reason, _NotUsed} ->
             {error, Reason}
     end.
+
+server_ocsp_and_managed_certs_validator(
+    #{<<"ocsp">> := #{<<"enable_ocsp_stapling">> := true}} = Conf
+) ->
+    case maps:get(<<"managed_certs">>, Conf, undefined) of
+        ManagedCerts when is_list(ManagedCerts) ->
+            {error, "OCSP stapling is not supported when using dynamic certificate selection"};
+        _ ->
+            ok
+    end;
+server_ocsp_and_managed_certs_validator(_Conf) ->
+    ok.
 
 ocsp_outer_validator(#{<<"ocsp">> := #{<<"enable_ocsp_stapling">> := true}} = Conf) ->
     %% outer mqtt listener ssl server config
@@ -2739,6 +2786,14 @@ client_ssl_opts_schema(Defaults) ->
                     #{
                         deprecated => {since, "5.8.1"},
                         importance => ?IMPORTANCE_HIDDEN
+                    }
+                )},
+            {"managed_certs",
+                sc(
+                    ref("managed_certs"),
+                    #{
+                        required => {false, recursively},
+                        desc => ?DESC("common_ssl_opts_schema_managed_certs")
                     }
                 )}
         ].

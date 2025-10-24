@@ -17,7 +17,6 @@
 {emqx_conf,3}.
 {emqx_conf,4}.
 {emqx_conf,5}.
-{emqx_conf_certs,1}.
 {emqx_connector,1}.
 {emqx_connector,2}.
 {emqx_dashboard,1}.
@@ -43,6 +42,7 @@
 {emqx_gateway_http,1}.
 {emqx_license,2}.
 {emqx_license,3}.
+{emqx_managed_certs,1}.
 {emqx_management,1}.
 {emqx_management,2}.
 {emqx_management,3}.

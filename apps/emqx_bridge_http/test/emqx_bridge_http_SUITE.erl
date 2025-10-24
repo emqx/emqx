@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -22,6 +23,9 @@
 -define(CONNECTOR_TYPE_BIN, <<"http">>).
 -define(ACTION_TYPE, http).
 -define(ACTION_TYPE_BIN, <<"http">>).
+
+-define(tcp, tcp).
+-define(tls, tls).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -60,14 +64,29 @@ init_per_testcase(TestCase, TCConfig) ->
     Path = group_path(TCConfig, no_groups),
     ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
     HTTPPath = get_tc_prop(TestCase, http_path, <<"/path">>),
-    ServerSSLOpts = false,
+    {ServerSSLOpts, Scheme} =
+        case is_tls(TCConfig) of
+            ?tcp ->
+                {false, <<"http">>};
+            ?tls ->
+                ServerSSLOpts0 =
+                    [
+                        {verify, verify_none},
+                        {versions, ['tlsv1.2', 'tlsv1.3']},
+                        {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
+                    ] ++ certs(),
+                {ServerSSLOpts0, <<"https">>}
+        end,
     {ok, {HTTPPort, _Pid}} = emqx_bridge_http_connector_test_server:start_link(
         _Port = random, HTTPPath, ServerSSLOpts
     ),
     ok = emqx_bridge_http_connector_test_server:set_handler(success_http_handler(#{})),
     ConnectorName = atom_to_binary(TestCase),
     ConnectorConfig = connector_config(#{
-        <<"url">> => emqx_bridge_v2_testlib:fmt(<<"http://localhost:${p}">>, #{p => HTTPPort})
+        <<"url">> => emqx_bridge_v2_testlib:fmt(<<"${s}://localhost:${p}">>, #{
+            s => Scheme,
+            p => HTTPPort
+        })
     }),
     ActionName = ConnectorName,
     ActionConfig = action_config(#{
@@ -120,6 +139,17 @@ get_tc_prop(TestCase, Key, Default) ->
     else
         _ -> Default
     end.
+
+is_tls(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, [?tls], ?tcp).
+
+certs() ->
+    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    [
+        {keyfile, filename:join([CertsPath, "key.pem"])},
+        {certfile, filename:join([CertsPath, "cert.pem"])},
+        {cacertfile, filename:join([CertsPath, "cacert.pem"])}
+    ].
 
 receive_request_notifications(MessageIDs, _Acc) when map_size(MessageIDs) =:= 0 ->
     ok;
@@ -800,3 +830,59 @@ t_disable_action_counters(TCConfig) ->
 
 t_rule_test_trace(TCConfig) ->
     emqx_bridge_v2_testlib:t_rule_test_trace(TCConfig, #{}).
+
+-doc """
+Smoke test for using managed certs for TLS clients.
+""".
+t_managed_certs() ->
+    [{matrix, true}].
+t_managed_certs(matrix) ->
+    [[?tls]];
+t_managed_certs(TCConfig) when is_list(TCConfig) ->
+    BundleName = <<"bundle1">>,
+    {ok, _} = emqx_bridge_v2_testlib:generate_and_upload_managed_certs(
+        ?global_ns,
+        BundleName,
+        #{}
+    ),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"ssl">> => #{
+            <<"enable">> => true,
+            <<"verify">> => <<"verify_none">>,
+            <<"managed_certs">> => #{<<"bundle_name">> => BundleName}
+        }
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, Topic, <<"hey">>, [{qos, 1}]),
+    ?assertReceive({http, _, _}, 2_000),
+    ok.
+
+-doc """
+Smoke test for using managed certs for TLS clients, when the private key is password protected.
+""".
+t_managed_certs_password() ->
+    [{matrix, true}].
+t_managed_certs_password(matrix) ->
+    [[?tls]];
+t_managed_certs_password(TCConfig) when is_list(TCConfig) ->
+    BundleName = <<"bundle1">>,
+    {ok, _} = emqx_bridge_v2_testlib:generate_and_upload_managed_certs(
+        ?global_ns,
+        BundleName,
+        #{password => <<"$ecr3tP@sç"/utf8>>}
+    ),
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"ssl">> => #{
+            <<"enable">> => true,
+            <<"verify">> => <<"verify_none">>,
+            <<"managed_certs">> => #{<<"bundle_name">> => BundleName}
+        }
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    emqtt:publish(C, Topic, <<"hey">>, [{qos, 1}]),
+    ?assertReceive({http, _, _}, 2_000),
+    ok.

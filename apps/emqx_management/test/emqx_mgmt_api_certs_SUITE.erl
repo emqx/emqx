@@ -10,7 +10,7 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx_conf/include/emqx_conf_certs.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -99,7 +99,7 @@ init_per_testcase(_TestCase, TCConfig) ->
 
 end_per_testcase(_TestCase, TCConfig) ->
     Nodes = get_config(nodes, TCConfig),
-    ?ON_ALL(Nodes, ok = emqx_conf_certs:clean_certs_dir()),
+    ?ON_ALL(Nodes, ok = emqx_managed_certs:clean_certs_dir()),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -222,10 +222,12 @@ upload_files_multipart_ns(Ns, BundleName, Files) ->
     emqx_mgmt_api_test_util:simplify_decode_result(Res).
 
 gen_cert(Opts) ->
-    {Cert, Key} = emqx_cth_tls:gen_cert(Opts),
-    CertPEM = pem_encode(Cert, undefined),
-    Password = maps:get(password, Opts, undefined),
-    KeyPEM = pem_encode(Key, Password),
+    #{
+        cert := Cert,
+        key := Key,
+        cert_pem := CertPEM,
+        key_pem := KeyPEM
+    } = emqx_cth_tls:gen_cert_pem(Opts),
     #{
         cert_key => {Cert, Key},
         cert_pem => CertPEM,
@@ -245,7 +247,7 @@ str(X) -> emqx_utils_conv:str(X).
 
 assert_same_bundles(Namespace, TCConfig) ->
     Nodes = get_config(nodes, TCConfig),
-    Bundles0 = [FirstBundle0 | _] = ?ON_ALL(Nodes, emqx_conf_certs:list_bundles(Namespace)),
+    Bundles0 = [FirstBundle0 | _] = ?ON_ALL(Nodes, emqx_managed_certs:list_bundles(Namespace)),
     ?assertEqual([FirstBundle0], lists:usort(Bundles0)),
     {ok, Bundles1} = FirstBundle0,
     Bundles2 =
@@ -264,7 +266,7 @@ assert_same_bundles(Namespace, TCConfig) ->
 
 get_file_hashes(Namespace, BundleName) ->
     maybe
-        {ok, Files0} ?= emqx_conf_certs:list_managed_files(Namespace, BundleName),
+        {ok, Files0} ?= emqx_managed_certs:list_managed_files(Namespace, BundleName),
         Files =
             maps:fold(
                 fun(Kind, #{path := Path}, Acc) ->
@@ -328,9 +330,6 @@ t_crud(TCConfig) when is_list(TCConfig) ->
         cert_pem := Cert1,
         key_pem := Key1
     } = gen_cert(#{key => ec, issuer => CertKeyRoot}),
-
-    %% DELETEME
-    redbug:start(["minirest_handler:do_validate_params"]),
 
     ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
 
