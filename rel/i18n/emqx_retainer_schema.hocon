@@ -69,4 +69,10 @@ msg_expiry_interval_override.desc:
 allow_never_expire.desc:
 """If true, retained messages set to never expire (i.e., whose `Message-Expiry-Interval = 0`) are not affected by the expiry time override.  This configuration only takes effect when `msg_expiry_interval_override` is set."""
 
+dispatch_retry_ttl.label:
+"Dispatch retry TTL"
+
+dispatch_retry_ttl.desc:
+"""If the dispatch rate limit is reached while iterating over retained topics, then the dispatcher processes retry the dispatching at a later time.  This option controls how old an iteration may get before being dropped in the event of retries."""
+
 }

@@ -871,19 +871,14 @@ t_dispatch_retry_expired(_) ->
         properties => #{'Session-Expiry-Interval' => 5}
     }),
     {ok, _} = emqtt:connect(C1),
-    emqx_common_test_helpers:with_mock(
-        emqx_retainer_dispatcher,
-        retry_ttl,
-        fun() -> 0 end,
-        fun() ->
-            {_, {ok, _}} =
-                ?wait_async_action(
-                    emqtt:subscribe(C1, <<"t/+">>, 1),
-                    #{?snk_kind := "retainer_retry_request_dropped_due_to_ttl"},
-                    5_000
-                )
-        end
-    ),
+    update_retainer_config(#{<<"dispatch_retry_ttl">> => <<"0s">>}),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C1, <<"t/+">>, 1),
+            #{?snk_kind := "retainer_retry_request_dropped_due_to_ttl"},
+            5_000
+        ),
+    update_retainer_config(#{<<"dispatch_retry_ttl">> => <<"10m">>}),
     ReceivedMsgs = receive_messages(NumMsgs),
     %% We receive less than expected because the retries were dropped
     ?assert(NumMsgs > length(ReceivedMsgs), #{received => ReceivedMsgs}),

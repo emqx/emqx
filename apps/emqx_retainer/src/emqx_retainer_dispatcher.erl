@@ -279,8 +279,7 @@ terminate(_Reason, #{pool := Pool, id := Id}) ->
 %%%===================================================================
 
 retry_ttl() ->
-    %% todo: make configurable?
-    timer:minutes(10).
+    emqx_conf:get([retainer, dispatch_retry_ttl], timer:minutes(10)).
 
 max_queue_size() ->
     ?MAX_WAITING_FOR_RETRY.
