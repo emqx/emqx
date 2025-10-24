@@ -23,7 +23,9 @@
     match_messages/3,
     delete_cursor/2,
     clean/1,
-    size/1
+    size/1,
+    current_index_incarnation/1,
+    cursor_index_incarnation/2
 ]).
 
 -behaviour(emqx_retainer_gc).
@@ -239,7 +241,7 @@ clear_expired(_State, Deadline, Limit) ->
                 end
         end,
     S1 = emqx_utils_stream:filter(FilterFn, S0),
-    DirtyWriteIndices = dirty_indices(write),
+    {DirtyWriteIndices, _WIncarnation} = dirty_indices(write),
     S2 = emqx_utils_stream:map(
         fun(RetainedMsg) ->
             delete_message_with_indices(RetainedMsg, DirtyWriteIndices)
@@ -261,10 +263,11 @@ delete_message(_State, Topic) ->
     Tokens = topic_to_tokens(Topic),
     case emqx_topic:wildcard(Topic) of
         false ->
-            ok = delete_message_by_topic(Tokens, dirty_indices(write));
+            {DirtyWriteIndices, _WIncarnation} = dirty_indices(write),
+            ok = delete_message_by_topic(Tokens, DirtyWriteIndices);
         true ->
-            S = search_stream(Tokens, 0),
-            DirtyWriteIndices = dirty_indices(write),
+            {S, _RIncarnation} = search_stream(Tokens, 0),
+            {DirtyWriteIndices, _WIncarnation} = dirty_indices(write),
             emqx_utils_stream:foreach(
                 fun(RetainedMsg) -> delete_message_with_indices(RetainedMsg, DirtyWriteIndices) end,
                 S
@@ -277,17 +280,18 @@ read_message(_State, Topic) ->
 match_messages(State, Topic, undefined) ->
     Tokens = topic_to_tokens(Topic),
     Now = erlang:system_time(millisecond),
-    S = msg_stream(search_stream(Tokens, Now)),
+    {SearchStream, RIncarnation} = search_stream(Tokens, Now),
+    S = msg_stream(SearchStream),
     case batch_read_number() of
         all_remaining ->
             {ok, emqx_utils_stream:consume(S), undefined};
         BatchNum when is_integer(BatchNum) ->
-            match_messages(State, Topic, {S, BatchNum})
+            match_messages(State, Topic, {S, BatchNum, RIncarnation})
     end;
-match_messages(_State, _Topic, {S0, BatchNum}) ->
+match_messages(_State, _Topic, {S0, BatchNum, RIncarnation}) ->
     case emqx_utils_stream:consume(BatchNum, S0) of
         {Rows, S1} ->
-            {ok, Rows, {S1, BatchNum}};
+            {ok, Rows, {S1, BatchNum, RIncarnation}};
         Rows when is_list(Rows) ->
             {ok, Rows, undefined}
     end.
@@ -302,7 +306,8 @@ page_read(_State, Topic, Deadline, Page, Limit) ->
                 msg_stream(all_stream(Deadline));
             _ ->
                 Tokens = topic_to_tokens(Topic),
-                msg_stream(search_stream(Tokens, Deadline))
+                {SearchStream, _RIncarnation} = search_stream(Tokens, Deadline),
+                msg_stream(SearchStream)
         end,
     %% This is very inefficient, but we are limited with inherited API
     S1 = emqx_utils_stream:list(
@@ -327,6 +332,19 @@ clean(_) ->
 
 size(_) ->
     table_size().
+
+current_index_incarnation(_State) ->
+    case ets:lookup(?TAB_INDEX_META, ?META_KEY) of
+        [#retained_index_meta{extra = #{incarnation := Incarnation}}] ->
+            Incarnation;
+        _ ->
+            0
+    end.
+
+cursor_index_incarnation(_State, undefined) ->
+    0;
+cursor_index_incarnation(_State, {_Stream, _BatchNum, Incarnation}) ->
+    Incarnation.
 
 reindex(Force, StatusFun) ->
     Config = emqx:get_config([retainer, backend]),
@@ -373,7 +391,7 @@ do_store_retained_message(Msg, TopicTokens, ExpiryTime) ->
     ok = mria:dirty_write_sync(?TAB_MESSAGE, RetainedMessage).
 
 do_store_retained_indices(TopicTokens, ExpiryTime) ->
-    Indices = dirty_indices(write),
+    {Indices, _WIncarnation} = dirty_indices(write),
     ok = mria:async_dirty(?RETAINER_SHARD, fun() ->
         emqx_retainer_index:foreach_index_key(
             fun(Key) -> do_store_retained_index(Key, ExpiryTime) end,
@@ -396,9 +414,9 @@ msg_stream(SearchStream) ->
     ).
 
 search_stream(Tokens, Now) ->
-    Indices = dirty_indices(read),
+    {Indices, RIncarnation} = dirty_indices(read),
     Index = emqx_retainer_index:select_index(Tokens, Indices),
-    search_stream(Index, Tokens, Now).
+    {search_stream(Index, Tokens, Now), RIncarnation}.
 
 all_stream(Now) ->
     Ms = make_message_match_spec(Now),
@@ -596,13 +614,16 @@ db_indices(Type) ->
 
 indices(IndexRecords, Type) ->
     case IndexRecords of
-        [#retained_index_meta{read_indices = ReadIndices, write_indices = WriteIndices}] ->
+        [#retained_index_meta{read_indices = ReadIndices, write_indices = WriteIndices} = Rec] ->
+            Incarnation = get_incarnation(Rec#retained_index_meta.extra),
             case Type of
-                read -> ReadIndices;
-                write -> WriteIndices
+                read ->
+                    {ReadIndices, Incarnation};
+                write ->
+                    {WriteIndices, Incarnation}
             end;
         [] ->
-            []
+            {[], 0}
     end.
 
 batch_read_number() ->
@@ -625,7 +646,16 @@ reindex(NewIndices, Force, StatusFun) when
 
             %% Wait for all dispatch operations to be completed to avoid
             %% inconsistent results.
-            true = wait_dispatch_complete(?REINDEX_DISPATCH_WAIT),
+            DispatchesCompleted = wait_dispatch_complete(?REINDEX_DISPATCH_WAIT),
+            case DispatchesCompleted of
+                true ->
+                    ok;
+                false ->
+                    ?SLOG(warning, #{
+                        msg => "retainer_dispatches_did_not_complete_in_time_for_reindex",
+                        hint => "one or more clients may see inconsistent retained messages"
+                    })
+            end,
 
             %% All new dispatch operations will see
             %% indices disabled, so we feel free to clear index table.
@@ -646,26 +676,32 @@ reindex(NewIndices, Force, StatusFun) when
             Reason
     end.
 
-try_start_reindex(NewIndices, true) ->
-    %% Note: we don't expect reindexing during upgrade, so this function is internal
-    mria:transaction(
-        ?RETAINER_SHARD,
-        fun() -> start_reindex(NewIndices) end
-    );
-try_start_reindex(NewIndices, false) ->
+get_incarnation(#{incarnation := Incarnation}) ->
+    Incarnation;
+get_incarnation(_) ->
+    0.
+
+%% Note: we don't expect reindexing during upgrade, so this function is internal
+try_start_reindex(NewIndices, Force) ->
     mria:transaction(
         ?RETAINER_SHARD,
         fun() ->
             case mnesia:read(?TAB_INDEX_META, ?META_KEY, write) of
-                [#retained_index_meta{reindexing = false}] ->
-                    start_reindex(NewIndices);
+                [#retained_index_meta{reindexing = false, extra = Extra}] ->
+                    Incarnation = get_incarnation(Extra),
+                    start_reindex(NewIndices, Incarnation + 1);
+                [#retained_index_meta{reindexing = true, extra = Extra}] when Force ->
+                    Incarnation = get_incarnation(Extra),
+                    start_reindex(NewIndices, Incarnation + 1);
+                [] when Force ->
+                    start_reindex(NewIndices, _Incarnation = 0);
                 _ ->
                     {error, already_started}
             end
         end
     ).
 
-start_reindex(NewIndices) ->
+start_reindex(NewIndices, Incarnation) ->
     ?tp(warning, retainer_message_reindexing_started, #{
         hint => <<"during reindexing, subscription performance may degrade">>
     }),
@@ -675,7 +711,8 @@ start_reindex(NewIndices) ->
             key = ?META_KEY,
             read_indices = [],
             write_indices = NewIndices,
-            reindexing = true
+            reindexing = true,
+            extra = #{incarnation => Incarnation}
         },
         write
     ).
@@ -733,7 +770,7 @@ reindex_batch(Stream0, Done, StatusFun) ->
     end.
 
 do_reindex_batch(Stream0, Done) ->
-    Indices = db_indices(write),
+    {Indices, _WIncarnation} = db_indices(write),
     Result = emqx_utils_stream:consume(?REINDEX_BATCH_SIZE, Stream0),
     Topics =
         case Result of
@@ -754,7 +791,7 @@ do_reindex_batch(Stream0, Done) ->
     end.
 
 wait_dispatch_complete(Timeout) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     {Results, []} = emqx_retainer_proto_v2:wait_dispatch_complete(Nodes, Timeout),
     lists:all(
         fun(Result) -> Result =:= ok end,
@@ -774,10 +811,12 @@ wait_indices_updated(Indices, TimeLeft) ->
     end.
 
 active_indices() ->
-    {dirty_indices(read), dirty_indices(write)}.
+    {RIndices, _RIncarnation} = dirty_indices(read),
+    {WIndices, _WIncarnation} = dirty_indices(write),
+    {RIndices, WIndices}.
 
 are_indices_updated(Indices) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     case emqx_retainer_proto_v2:active_mnesia_indices(Nodes) of
         {Results, []} ->
             lists:all(
