@@ -1203,7 +1203,7 @@ sstfm_info(SSTFM) ->
             rocksdb:sst_file_manager_info(SSTFM)
         ),
     #{
-        total_size => TotalSize,
+        disk_usage => TotalSize,
         sst_file_mgr => L
     }.
 
