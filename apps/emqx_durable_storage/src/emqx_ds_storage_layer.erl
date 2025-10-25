@@ -1187,7 +1187,7 @@ verify_db_group_config(UserOpts) ->
         true ?= is_map(UserOpts),
         Defaults = #{
             storage_quota => infinity,
-            write_buffer_size => 32 * 1024 * 1024
+            write_buffer_size => 256 * 1024 * 1024
         },
         #{storage_quota := SQ, write_buffer_size := WBS} = Merged = maps:merge(Defaults, UserOpts),
         true ?= is_valid_max_size(SQ),

@@ -286,6 +286,7 @@ fields(rocksdb_options) ->
                 emqx_schema:bytesize(),
                 #{
                     default => <<"10MB">>,
+                    deprecated => {since, "6.0.1"},
                     desc => ?DESC(rocksdb_write_buffer_size)
                 }
             )},
@@ -447,7 +448,7 @@ fields(db_group) ->
             sc(
                 size_limit(),
                 #{
-                    default => "32 MiB",
+                    default => "256 MiB",
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(db_group_write_buffer_size)
                 }

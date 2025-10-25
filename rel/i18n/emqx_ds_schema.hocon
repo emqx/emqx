@@ -183,11 +183,10 @@ emqx_ds_schema {
     label: "RocksDB Write Buffer Size"
     desc:
       """~
-      Maximum size of the RocksDB memtables.
-
-      Memtable is a buffer where newly written data is kept before it is flushed to disk.
-
-      Each shard of the database has its own memtable.~"""
+      This parameter is deprecated and will be removed in a future release.
+      It has been replaced with `durable_storage.db_groups.write_buffer_size` parameter,
+      which has similar semantics, but is an aggregate for all shards.
+      .~"""
   }
 
   rocksdb_max_open_files {
