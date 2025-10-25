@@ -31,14 +31,14 @@ schema("/opentelemetry") ->
         'operationId' => config,
         get =>
             #{
-                description => "Get opentelmetry configuration",
+                description => ?DESC("get_config"),
                 tags => ?TAGS,
                 responses =>
                     #{200 => otel_config_schema()}
             },
         put =>
             #{
-                description => "Update opentelmetry configuration",
+                description => ?DESC("update_config"),
                 tags => ?TAGS,
                 'requestBody' => otel_config_schema(),
                 responses =>
@@ -46,7 +46,7 @@ schema("/opentelemetry") ->
                         200 => otel_config_schema(),
                         400 =>
                             emqx_dashboard_swagger:error_codes(
-                                [?BAD_REQUEST], <<"Update Config Failed">>
+                                [?BAD_REQUEST], ?DESC("update_config_failed")
                             )
                     }
             }
