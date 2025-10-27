@@ -28,6 +28,12 @@
 ]).
 
 -export([
+    context/1,
+    stash_context/2,
+    unstash_context/1
+]).
+
+-export([
     callback_action/1,
     callback_filter/1,
     callback_priority/1
@@ -72,6 +78,8 @@
 
 -define(PTERM, ?MODULE).
 -define(SERVER, ?MODULE).
+
+-define(HOOK_CTX_PD_KEY(NAME), {?MODULE, ctx, NAME}).
 
 -spec start_link() -> startlink_ret().
 start_link() ->
@@ -210,6 +218,26 @@ lookup(HookPoint) ->
     persistent_term:get({?PTERM, HookPoint}, []).
 
 %%--------------------------------------------------------------------
+%% Context stashing
+%%   We need this here to maintain backwards compatibility while still being able to
+%%   thread more context down to hooks.
+%%--------------------------------------------------------------------
+
+-spec context(hookpoint()) -> undefined | term().
+context(Name) ->
+    get(?HOOK_CTX_PD_KEY(Name)).
+
+-spec stash_context(hookpoint(), term()) -> ok.
+stash_context(Name, Context) ->
+    _ = put(?HOOK_CTX_PD_KEY(Name), Context),
+    ok.
+
+-spec unstash_context(hookpoint()) -> ok.
+unstash_context(Name) ->
+    _ = erase(?HOOK_CTX_PD_KEY(Name)),
+    ok.
+
+%%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
@@ -220,15 +248,15 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->
+    Callbacks = lookup(HookPoint),
+    AlreadyExists = lists:any(
+        fun(#callback{action = {M0, F0, _}}) ->
+            M0 =:= M andalso F0 =:= F
+        end,
+        Callbacks
+    ),
     Reply =
-        case
-            lists:any(
-                fun(#callback{action = {M0, F0, _}}) ->
-                    M0 =:= M andalso F0 =:= F
-                end,
-                Callbacks = lookup(HookPoint)
-            )
-        of
+        case AlreadyExists of
             true -> {error, already_exists};
             false -> insert_hook(HookPoint, add_callback(Callback, Callbacks))
         end,
