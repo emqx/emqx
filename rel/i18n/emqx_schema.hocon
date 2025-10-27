@@ -2009,7 +2009,7 @@ socket_tcp_keepalive.label:
   managed_certs_server_sni {
     label: "Server Name Indication"
     desc: """~
-      If this is set, it's used during dynamic certificate selection based on the SNI asked for by the client.~"""
+      If this is set, it's used during dynamic certificate selection based on the SNI sent from the client.~"""
   }
 
   managed_certs_ns {
