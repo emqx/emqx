@@ -245,6 +245,80 @@ ssl_opts_gc_after_handshake_test_not_rancher_listener_test() ->
     ),
     ok.
 
+-doc """
+Checks that we accept both a single `managed_certs` struct or an array of such structs for
+the `managed_certs` field of a server's `ssl_opts`.
+
+An empty array is not acceptable.
+
+If OCSP Stapling is enabled, we do not allow specifying an array of managed certs (we
+don't compose the SNI functions).
+""".
+server_ssl_opts_managed_certs_validation_test_() ->
+    Sc = emqx_schema:server_ssl_opts_schema(#{}, _IsRanchListener = false),
+    [
+        {"empty array",
+            ?_assertThrow(
+                {_, [
+                    #{
+                        kind := validation_error,
+                        reason := "must define at least one managed cert bundle"
+                    }
+                ]},
+                validate(Sc, #{<<"managed_certs">> => []})
+            )},
+        {"singleton array",
+            ?_assertMatch(
+                #{},
+                validate(Sc, #{<<"managed_certs">> => [#{<<"bundle_name">> => <<"b">>}]})
+            )},
+        {"single bundle (not an array)",
+            ?_assertMatch(
+                #{},
+                validate(Sc, #{<<"managed_certs">> => #{<<"bundle_name">> => <<"b">>}})
+            )}
+    ].
+
+-doc """
+We currently don't support OCSP stapling in conjunction with dynamic certificate
+selection.
+""".
+server_ssl_opts_managed_certs_ocsp_validation_test() ->
+    Sc = #{
+        roots => [mqtt_ssl_listener],
+        fields => #{mqtt_ssl_listener => emqx_schema:fields("mqtt_ssl_listener")}
+    },
+    InvalidListener = #{
+        <<"ssl_options">> => #{
+            <<"managed_certs">> => [#{<<"bundle_name">> => <<"b">>}],
+            <<"ocsp">> => #{
+                <<"enable_ocsp_stapling">> => true,
+                <<"responder_url">> => <<"http://localhost:9877">>,
+                <<"issuer_pem">> => <<"/path/to/issuer.pem">>
+            }
+        }
+    },
+    ValidListener = emqx_utils_maps:deep_put(
+        [<<"ssl_options">>, <<"ocsp">>, <<"enable_ocsp_stapling">>],
+        InvalidListener,
+        false
+    ),
+    Opts = #{atom_key => false, required => false},
+    Check = fun(Conf, Opts0) ->
+        hocon_tconf:check_plain(Sc, #{<<"mqtt_ssl_listener">> => Conf}, Opts0)
+    end,
+    ?assertThrow(
+        {_, [
+            #{
+                kind := validation_error,
+                reason := "OCSP stapling is not supported when using dynamic certificate selection"
+            }
+        ]},
+        Check(InvalidListener, Opts)
+    ),
+    ?assertMatch(#{}, Check(ValidListener, Opts)),
+    ok.
+
 to_ip_port_test_() ->
     Ip = fun emqx_schema:to_ip_port/1,
     [

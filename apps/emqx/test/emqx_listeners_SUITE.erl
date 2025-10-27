@@ -11,8 +11,14 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 -define(SERVER_KEY_PASSWORD, "sErve7r8Key$!").
+
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(MK_NAME(SUFFIX), mk_name(?FUNCTION_NAME, SUFFIX)).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
@@ -32,12 +38,15 @@ init_per_testcase(Case, Config) when
     Case =:= t_restart_listeners_with_hibernate_after_disabled
 ->
     ok = emqx_listeners:stop(),
+    ct:timetrap({seconds, 30}),
     Config;
 init_per_testcase(_, Config) ->
     ok = emqx_listeners:start(),
+    ct:timetrap({seconds, 30}),
     Config.
 
 end_per_testcase(_, _Config) ->
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 t_start_stop_listeners(_) ->
@@ -46,6 +55,7 @@ t_start_stop_listeners(_) ->
     ok = emqx_listeners:stop().
 
 t_wait_for_stop_listeners(_) ->
+    ct:timetrap({seconds, 120}),
     ok = emqx_listeners:start(),
     meck:new([cowboy], [passthrough, no_history, no_link]),
     %% mock stop_listener return ok but listen port is still open
@@ -225,6 +235,282 @@ t_wss_conn(Config) ->
         ok = ssl:close(Socket)
     end).
 
+-doc """
+Smoke test for using managed certificates (global ns) in a WSS listener.
+""".
+t_wss_managed_certs_global(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    BundleName = <<"bundle">>,
+    {ok, _} = generate_and_upload_managed_certs(?global_ns, BundleName, #{}),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"managed_certs">> => #{<<"bundle_name">> => BundleName}
+        }
+    },
+    with_listener(wss, ?FUNCTION_NAME, Conf, fun() ->
+        C = emqtt_connect_wss("127.0.0.1", Port, [{verify, verify_none}]),
+        ok = emqtt:stop(C)
+    end),
+    ok.
+
+-doc """
+Smoke test for using managed certificates (managed ns) in a WSS listener.
+""".
+t_wss_managed_certs_ns(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Namespace = <<"some_ns">>,
+    BundleName = <<"bundle">>,
+    {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{}),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"managed_certs">> => #{
+                <<"namespace">> => Namespace,
+                <<"bundle_name">> => BundleName
+            }
+        }
+    },
+    with_listener(wss, ?FUNCTION_NAME, Conf, fun() ->
+        C = emqtt_connect_wss("127.0.0.1", Port, [{verify, verify_none}]),
+        ok = emqtt:stop(C)
+    end),
+    ok.
+
+-doc """
+Smoke test for using managed certificates (global ns) in a SSL listener.
+""".
+t_ssl_managed_certs_global(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    BundleName = <<"bundle">>,
+    {ok, _} = generate_and_upload_managed_certs(?global_ns, BundleName, #{}),
+    LConf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({{127, 0, 0, 1}, Port}),
+        <<"ssl_options">> => #{<<"managed_certs">> => #{<<"bundle_name">> => BundleName}}
+    },
+    with_listener(ssl, ?FUNCTION_NAME, LConf, fun() ->
+        {ok, SSLSocket} = ssl:connect("127.0.0.1", Port, [{verify, verify_none}]),
+        ssl:close(SSLSocket)
+    end),
+    ok.
+
+-doc """
+Smoke test for using managed certificates (managed ns) in a SSL listener.
+""".
+t_ssl_managed_certs_ns(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Namespace = <<"some_ns">>,
+    BundleName = <<"bundle">>,
+    {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{}),
+    LConf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({{127, 0, 0, 1}, Port}),
+        <<"ssl_options">> => #{
+            <<"managed_certs">> => #{
+                <<"namespace">> => Namespace,
+                <<"bundle_name">> => BundleName
+            }
+        }
+    },
+    with_listener(ssl, ?FUNCTION_NAME, LConf, fun() ->
+        {ok, SSLSocket} = ssl:connect("127.0.0.1", Port, [{verify, verify_none}]),
+        ssl:close(SSLSocket)
+    end),
+    ok.
+
+-doc """
+Smoke test for using managed certificates (global ns) in a SSL listener, using a password
+protected private key file.
+""".
+t_ssl_managed_certs_password(Config) ->
+    PrivDir0 = ?config(priv_dir, Config),
+    PrivDir = filename:join([PrivDir0, ?FUNCTION_NAME]),
+    ok = filelib:ensure_path(PrivDir),
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    BundleName = <<"bundle">>,
+    Password = <<"$ecr3tP@sç"/utf8>>,
+    {ok, #{
+        ca := CAPEM,
+        mk_cert_key_fn := MkCertKeyFn
+    }} =
+        generate_and_upload_managed_certs(?global_ns, BundleName, #{password => Password}),
+    CA = filename:join([PrivDir, "ca.pem"]),
+    ok = file:write_file(CA, CAPEM),
+    #{key_pem := ClientKeyPEM, cert_pem := ClientCertPEM} = MkCertKeyFn(#{}),
+    ClientKey = filename:join(PrivDir, "client.key"),
+    ClientCert = filename:join(PrivDir, "client.pem"),
+    ok = file:write_file(ClientKey, ClientKeyPEM),
+    ok = file:write_file(ClientCert, ClientCertPEM),
+    LConf = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({{127, 0, 0, 1}, Port}),
+        <<"ssl_options">> => #{
+            <<"verify">> => <<"verify_none">>,
+            <<"managed_certs">> => #{<<"bundle_name">> => BundleName}
+        }
+    },
+    with_listener(ssl, ?FUNCTION_NAME, LConf, fun() ->
+        C = emqtt_connect_ssl("127.0.0.1", Port, [
+            {verify, verify_none},
+            {customize_hostname_check, [{match_fun, fun(_, _) -> true end}]},
+            {cacertfile, CA},
+            {certfile, ClientCert},
+            {keyfile, ClientKey}
+        ]),
+        emqtt:stop(C)
+    end),
+    ok.
+
+-doc """
+Checks the behavior of referencing a managed cert bundle that is somehow broken.
+
+- Inexistent.
+- Password file cannot be read.
+
+The problems above should throw an error at runtime when starting the listener.
+
+- Bad directory/file permissions.
+- Incomplete bundle (e.g., missing cert chain).
+
+The problems above just log an error and fail the client connection, but do not prevent
+the listener from starting.
+""".
+t_ssl_managed_certs_broken_reference(_Config) ->
+    Type = ssl,
+    Name = ?MK_NAME("1"),
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Namespace = ?global_ns,
+    BundleName = atom_to_binary(Name),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"managed_certs">> => #{<<"bundle_name">> => BundleName}
+        }
+    },
+    %% Inexistent bundle
+    ?assertMatch(
+        {error, #{
+            error := <<"failed_to_resolve_managed_certs">>,
+            reason := "No such file or directory",
+            dir := _,
+            namespace := _,
+            bundle := _
+        }},
+        emqx:update_config([listeners, Type, Name], {create, Conf})
+    ),
+    %% Password file cannot be read.
+    Password = <<"$ecr3tP@sç"/utf8>>,
+    {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{password => Password}),
+    {ok, #{?FILE_KIND_KEY_PASSWORD := #{path := KeyPasswordPath}}} =
+        emqx_managed_certs:list_managed_files(Namespace, BundleName),
+    %% No read permission
+    ok = file:change_mode(KeyPasswordPath, 8#333),
+    %% Sanity/CI check
+    %% In CI, these tests are currently run by `root`, which can still read the files even
+    %% after the above `chmod`...
+    CheckReadError = fun() ->
+        ?assertMatch(
+            {error, #{
+                error := <<"failed_to_read_managed_file">>,
+                reason := "Permission denied",
+                path := _,
+                namespace := _,
+                bundle := _
+            }},
+            emqx:update_config([listeners, Type, Name], {create, Conf})
+        )
+    end,
+    case file:read_file(KeyPasswordPath) of
+        {error, eacces} ->
+            CheckReadError();
+        {ok, _} ->
+            %% running as root
+            emqx_common_test_helpers:with_mock(
+                file,
+                read_file,
+                fun
+                    (Path) when Path == KeyPasswordPath ->
+                        {error, eacces};
+                    (Path) ->
+                        meck:passthrough([Path])
+                end,
+                #{meck_opts => [no_history, passthrough, unstick]},
+                CheckReadError
+            )
+    end,
+    ok = file:change_mode(KeyPasswordPath, 8#666),
+    ok = file:delete(KeyPasswordPath),
+
+    %% Bad directory/file permissions.
+    {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{}),
+    {ok, #{?FILE_KIND_KEY := #{path := KeyPath}}} =
+        emqx_managed_certs:list_managed_files(Namespace, BundleName),
+    %% No read permission
+    ok = file:change_mode(KeyPath, 8#333),
+    CheckRuntimeReadError = fun() ->
+        ?assertMatch(
+            {ok, _},
+            emqx:update_config([listeners, Type, Name], {create, Conf})
+        ),
+        ?assertError(
+            _,
+            emqtt_connect_ssl({127, 0, 0, 1}, Port, [{verify, verify_none}])
+        )
+    end,
+    %% Sanity check
+    %% In CI, these tests are currently run by `root`, which can still read the files even
+    %% after the above `chmod`...
+    case file:read_file(KeyPath) of
+        {error, eacces} ->
+            CheckRuntimeReadError();
+        {ok, _} ->
+            %% running as root
+            emqx_common_test_helpers:with_mock(
+                file,
+                read_file,
+                fun
+                    (Path) when Path == KeyPath ->
+                        {error, eacces};
+                    (Path) ->
+                        meck:passthrough([Path])
+                end,
+                #{meck_opts => [no_history, passthrough, unstick]},
+                CheckRuntimeReadError
+            )
+    end,
+    {ok, _} = emqx:remove_config([listeners, Type, Name]),
+
+    %% Incomplete bundle (e.g., missing cert chain).
+    {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{}),
+    ok = emqx_managed_certs:delete_managed_file(Namespace, BundleName, ?FILE_KIND_CHAIN),
+    Name2 = ?MK_NAME("2"),
+    Port2 = emqx_common_test_helpers:select_free_port(ssl),
+    Conf2 = Conf#{<<"bind">> := format_bind({{127, 0, 0, 1}, Port2})},
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {ok, _},
+                emqx:update_config([listeners, Type, Name2], {create, Conf2})
+            ),
+            ?assertMatch(
+                {error, _},
+                ssl:connect("127.0.0.1", Port2, [{verify, verify_none}], 1_000)
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind("missing_required_managed_cert_files", Trace)),
+            ok
+        end
+    ),
+
+    snabbkaffe:stop(),
+    {ok, _} = emqx:remove_config([listeners, Type, Name2]),
+    ok = emqx_listeners:stop(),
+
+    ok.
+
 t_quic_conn(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Port = emqx_common_test_helpers:select_free_port(quic),
@@ -270,6 +556,7 @@ t_ssl_password_cert(Config) ->
     end).
 
 t_ssl_update_opts(Config) ->
+    ct:timetrap({seconds, 120}),
     PrivDir = ?config(priv_dir, Config),
     Host = "127.0.0.1",
     Port = emqx_common_test_helpers:select_free_port(ssl),
@@ -946,3 +1233,48 @@ connect_fun(quic) ->
     fun emqtt_connect_quic/3;
 connect_fun(wss) ->
     fun emqtt_connect_wss/3.
+
+generate_cert_pem_bundle(Opts0) ->
+    #{
+        cert := CertRoot,
+        key := KeyRoot,
+        cert_pem := CAPEM,
+        key_pem := CAKeyPEM
+    } = emqx_cth_tls:gen_cert_pem(#{key => ec, issuer => root}),
+    Opts = maps:with([password], Opts0),
+    #{
+        cert_pem := CertPEM,
+        key_pem := KeyPEM
+    } = emqx_cth_tls:gen_cert_pem(Opts#{key => ec, issuer => {CertRoot, KeyRoot}}),
+    #{
+        files => #{
+            ?FILE_KIND_CA => CAPEM,
+            ?FILE_KIND_CHAIN => CertPEM,
+            ?FILE_KIND_KEY => KeyPEM
+        },
+        ca_key_pem => CAKeyPEM,
+        mk_cert_key_fn => fun(Opts1) ->
+            emqx_cth_tls:gen_cert_pem(Opts1#{key => ec, issuer => {CertRoot, KeyRoot}})
+        end
+    }.
+
+generate_and_upload_managed_certs(Namespace, BundleName, Opts) ->
+    #{
+        files := Files0,
+        ca_key_pem := CAKeyPEM,
+        mk_cert_key_fn := MkCertKeyFn
+    } = generate_cert_pem_bundle(Opts),
+    #{?FILE_KIND_CA := CAPEM} = Files0,
+    Files =
+        case Opts of
+            #{password := Password} ->
+                Files0#{?FILE_KIND_KEY_PASSWORD => Password};
+            _ ->
+                Files0
+        end,
+    ok = emqx_managed_certs:add_managed_files(Namespace, BundleName, Files),
+    on_exit(fun() -> ok = emqx_managed_certs:delete_bundle(Namespace, BundleName) end),
+    {ok, #{mk_cert_key_fn => MkCertKeyFn, ca => CAPEM, ca_key => CAKeyPEM}}.
+
+mk_name(FnName, Suffix) ->
+    binary_to_atom(iolist_to_binary([atom_to_binary(FnName), Suffix])).

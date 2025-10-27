@@ -6,7 +6,7 @@
 
 -include_lib("public_key/include/public_key.hrl").
 
--export([gen_cert/1]).
+-export([gen_cert/1, gen_cert_pem/1]).
 -export([write_cert/2]).
 -export([write_cert/3]).
 -export([write_pem/2]).
@@ -63,6 +63,51 @@ gen_cert(Opts) ->
     Cert = public_key:pkix_sign(TBSCert, IssuerKey),
     true = verify_signature(Cert, IssuerKey),
     {encode_cert(Cert), encode_privkey(SubjectPrivateKey)}.
+
+-doc """
+Similar to `gen_cert/1`, but returns a map with key and certificate also encoded as PEMs.
+
+Also, accepts an additional optional `password` parameter that will be used to encode the
+private key PEM output.
+""".
+-spec gen_cert_pem(Opts) ->
+    #{
+        cert := certificate(),
+        key := private_key(),
+        cert_pem := binary(),
+        key_pem := binary()
+    }
+when
+    Opts :: #{
+        key := ec | rsa | PrivKeyIn,
+        issuer := root | {CertificateIn, PrivKeyIn},
+        password => binary() | string(),
+        subject => cert_subject(),
+        validity => cert_validity(),
+        extensions => cert_extensions() | false
+    },
+    CertificateIn :: certificate() | public_key:der_encoded() | #'OTPCertificate'{},
+    PrivKeyIn :: private_key() | _PEM :: binary().
+gen_cert_pem(Opts) ->
+    {Cert, Key} = gen_cert(Opts),
+    CertPEM = pem_encode(Cert, undefined),
+    Password = maps:get(password, Opts, undefined),
+    KeyPEM = pem_encode(Key, Password),
+    #{
+        cert => Cert,
+        key => Key,
+        cert_pem => CertPEM,
+        key_pem => KeyPEM
+    }.
+
+pem_encode(X, undefined = _Password) ->
+    public_key:pem_encode([X]);
+pem_encode(X, Password) when is_binary(Password) ->
+    Y = public_key:pem_entry_decode(X),
+    Type = element(1, X),
+    Salt = crypto:strong_rand_bytes(8),
+    Entry = public_key:pem_entry_encode(Type, Y, {{"DES-EDE3-CBC", Salt}, str(Password)}),
+    public_key:pem_encode([Entry]).
 
 get_privkey(#{key := Algo}) when is_atom(Algo) ->
     gen_privkey(Algo);
@@ -336,3 +381,5 @@ write_pem(Name, Entries = [_ | _]) ->
     file:write_file(Name, public_key:pem_encode(Entries));
 write_pem(Name, Entry) ->
     write_pem(Name, [Entry]).
+
+str(X) -> emqx_utils_conv:str(X).

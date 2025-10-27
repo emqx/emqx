@@ -1112,7 +1112,7 @@ fields_ws_opts_supported_subprotocols.label:
 
 mqtt_shared_subscription_strategy.desc: """~
   Dispatch strategy for shared subscription.
-  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.  
+  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.
   If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
 
   - `random`: Randomly select a subscriber for dispatch;
@@ -1292,7 +1292,7 @@ fields_deflate_opts_strategy.label:
 
 shared_subscription_strategy_enum.desc: """~
   Dispatch strategy for shared subscription.
-  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.  
+  EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.
   If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
 
   - `random`: Randomly select a subscriber for dispatch;
@@ -1987,4 +1987,39 @@ socket_tcp_keepalive.label:
         - `h` for hours
       or combination of whereof: `1h5m0s`~"""
   }
+
+  common_ssl_opts_schema_managed_certs {
+    label: "Managed certs"
+    desc: """~
+      Reference to certificate file bundle managed by EMQX.
+
+      If this option is used, `cacertfile`, `certfile`, `keyfile` and `password` will be ignored.~"""
+  }
+
+  managed_certs_server {
+    label: "Managed certs"
+    desc: """~
+      Reference to one or multiple certificate file bundles managed by EMQX.
+
+      When an array of references is used, then the listener performs dynamic certificate selection based on the SNI asked for by the client.  Each managed cert reference has an optional SNI field that is used to denote the SNI for that reference.  If the SNI asked by the client has no match in the configuration, the first reference in the array is used as the default certificate bundle.
+
+      If this option is used, `cacertfile`, `certfile`, `keyfile` and `password` will be ignored.~"""
+  }
+
+  managed_certs_server_sni {
+    label: "Server Name Indication"
+    desc: """~
+      If this is set, it's used during dynamic certificate selection based on the SNI sent from the client.~"""
+  }
+
+  managed_certs_ns {
+    label: "Managed Certs Namespace"
+    desc: "The namespace under which the certificate file bundle lives.  Omit this field to target the global namespace."
+  }
+
+  managed_certs_bundle_name {
+    label: "Managed Certs Bundle Name"
+    desc: "The name of the managed certificate file bundle."
+  }
+
 }

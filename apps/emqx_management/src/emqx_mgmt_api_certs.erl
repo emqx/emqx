@@ -11,7 +11,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
--include_lib("emqx_conf/include/emqx_conf_certs.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 %% `minirest' and `minirest_trails' API
 -export([
@@ -312,7 +312,7 @@ example_file_list() ->
 %%-------------------------------------------------------------------------------------------------
 
 handle_list_bundles(Namespace) ->
-    case emqx_conf_certs:list_bundles(Namespace) of
+    case emqx_managed_certs:list_bundles(Namespace) of
         {ok, Bundles} ->
             Res = bundles_out(Bundles),
             ?OK(Res);
@@ -323,7 +323,7 @@ handle_list_bundles(Namespace) ->
     end.
 
 handle_list_files(Namespace, BundleName) ->
-    case emqx_conf_certs:list_managed_files(Namespace, BundleName) of
+    case emqx_managed_certs:list_managed_files(Namespace, BundleName) of
         {ok, Files} ->
             ?OK(Files);
         {error, enoent} ->
@@ -333,7 +333,7 @@ handle_list_files(Namespace, BundleName) ->
     end.
 
 handle_delete_bundle(Namespace, BundleName) ->
-    case emqx_conf_certs:delete_bundle(Namespace, BundleName) of
+    case emqx_managed_certs:delete_bundle(Namespace, BundleName) of
         ok ->
             ?NO_CONTENT;
         {error, Errors} ->
@@ -347,7 +347,7 @@ handle_upload_files(Namespace, BundleName, Files) ->
         true ->
             ?BAD_REQUEST(<<"Account key exists; other files will be managed by ACME client.">>);
         false ->
-            case emqx_conf_certs:add_managed_files(Namespace, BundleName, Files) of
+            case emqx_managed_certs:add_managed_files(Namespace, BundleName, Files) of
                 ok ->
                     ?NO_CONTENT;
                 {error, Errors} ->
@@ -356,7 +356,7 @@ handle_upload_files(Namespace, BundleName, Files) ->
     end.
 
 does_acc_key_exist(Namespace, BundleName) ->
-    case emqx_conf_certs:list_managed_files(Namespace, BundleName) of
+    case emqx_managed_certs:list_managed_files(Namespace, BundleName) of
         {ok, #{?FILE_KIND_ACC_KEY := _}} ->
             true;
         _ ->

@@ -4,8 +4,6 @@
 
 -module(emqx_tls_lib).
 
--feature(maybe_expr, enable).
-
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^([a-z][a-z0-9A-Z]*_?)*(_SUITE)?$"}}]).
 
 %% version & cipher suites
@@ -40,6 +38,9 @@
 -type tls_version() :: tlsv1 | 'tlsv1.1' | 'tlsv1.2' | 'tlsv1.3'.
 
 -include("logger.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include("emqx_managed_certs.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -define(IS_TRUE(Val), ((Val =:= true) orelse (Val =:= <<"true">>))).
 -define(IS_FALSE(Val), ((Val =:= false) orelse (Val =:= <<"false">>))).
@@ -598,11 +599,7 @@ to_server_opts(Type, Opts) ->
         | emqx_utils:flattermap(
             fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
             [
-                {keyfile, fun conf_resolve_path_strict/2},
-                {certfile, fun conf_resolve_path_strict/2},
-                {cacertfile, fun conf_resolve_path_strict/2},
                 {cacerts, fun conf_get_opt/2},
-                {password, fun conf_get_password/2},
                 {depth, fun conf_get_opt/2},
                 {dhfile, fun conf_get_opt/2},
                 {verify, fun conf_get_opt/2},
@@ -622,11 +619,12 @@ to_server_opts(Type, Opts) ->
             ]
         )
     ],
+    CertsOpts = resolve_managed_certs(conf_get_opt(managed_certs, Opts), Opts),
     TLSAuthExt = lists:append(
         emqx_tls_lib_auth_ext:opt_partial_chain(Opts),
         emqx_tls_lib_auth_ext:opt_verify_fun(Opts)
     ),
-    ensure_valid_options(TLSServerOpts ++ TLSAuthExt).
+    ensure_valid_options(TLSServerOpts ++ CertsOpts ++ TLSAuthExt).
 
 conf_crl_check(#{enable_crl_check := true}) ->
     %% `{crl_check, true}' doesn't work
@@ -661,7 +659,7 @@ to_client_opts(Type, Opts = #{enable := true}) ->
     Versions = integral_versions(Type, conf_get_opt(versions, Opts)),
     Ciphers = integral_ciphers(Versions, conf_get_opt(ciphers, Opts)),
     Verify = conf_get_opt(verify, Opts, verify_none),
-    TLSClientOpts =
+    TLSClientOpts0 =
         [
             {versions, Versions},
             {ciphers, Ciphers},
@@ -669,10 +667,6 @@ to_client_opts(Type, Opts = #{enable := true}) ->
             | emqx_utils:flattermap(
                 fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
                 [
-                    {keyfile, fun conf_resolve_path_strict/2},
-                    {certfile, fun conf_resolve_path_strict/2},
-                    {cacertfile, fun conf_resolve_path_strict/2},
-                    {password, fun conf_get_password/2},
                     {depth, fun conf_get_opt/2},
                     {verify, fun conf_get_opt/2},
                     {middlebox_comp_mode, fun conf_get_opt/2, #{omit_if => true}},
@@ -683,9 +677,133 @@ to_client_opts(Type, Opts = #{enable := true}) ->
                 ]
             )
         ],
+    CertsOpts = resolve_managed_certs(conf_get_opt(managed_certs, Opts), Opts),
+    TLSClientOpts = CertsOpts ++ TLSClientOpts0,
     ensure_valid_options(TLSClientOpts);
 to_client_opts(_Type, #{}) ->
     [].
+
+resolve_managed_certs(undefined, Opts) ->
+    emqx_utils:flattermap(
+        fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
+        [
+            {keyfile, fun conf_resolve_path_strict/2},
+            {certfile, fun conf_resolve_path_strict/2},
+            {cacertfile, fun conf_resolve_path_strict/2},
+            {password, fun conf_get_password/2}
+        ]
+    );
+resolve_managed_certs([FirstCertOpts | _] = ManagedCertOpts, Opts) ->
+    DefaultOpts = resolve_managed_certs(FirstCertOpts, Opts),
+    SNIFnOpts = mk_managed_certs_sni_fun(ManagedCertOpts, Opts),
+    %% Note: we currently do not support dynamic certificate selection in conjunction with
+    %% OCSP stapling.  This is checked in the schema.  Therefore, no need to compose the
+    %% two SNI functions.
+    SNIFnOpts ++ DefaultOpts;
+resolve_managed_certs(#{} = ManagedCertOpts, _Opts) ->
+    Namespace = conf_get_opt(namespace, ManagedCertOpts, ?global_ns),
+    BundleName = conf_get_opt(bundle_name, ManagedCertOpts),
+    case emqx_managed_certs:list_managed_files(Namespace, BundleName) of
+        {ok, ManagedFiles} ->
+            CertOpts = maps:fold(
+                fun
+                    (?FILE_KIND_CA, #{path := CAPath}, Acc) ->
+                        [{cacertfile, ensure_str(CAPath)} | Acc];
+                    (?FILE_KIND_CHAIN, #{path := ChainPath}, Acc) ->
+                        [{certfile, ensure_str(ChainPath)} | Acc];
+                    (?FILE_KIND_KEY, #{path := KeyPath}, Acc) ->
+                        [{keyfile, ensure_str(KeyPath)} | Acc];
+                    (?FILE_KIND_KEY_PASSWORD, #{path := KeyPasswordPath}, Acc) ->
+                        Context = #{namespace => Namespace, bundle => BundleName},
+                        Password = read_contents(KeyPasswordPath, Context),
+                        [{password, ensure_str(Password)} | Acc];
+                    (_Kind, _Path, Acc) ->
+                        Acc
+                end,
+                [],
+                ManagedFiles
+            ),
+            Context = #{namespace => Namespace, bundle_name => BundleName},
+            verify_required_managed_files_are_present(CertOpts, Context),
+            CertOpts;
+        {error, Reason} ->
+            throw(#{
+                error => <<"failed_to_resolve_managed_certs">>,
+                dir => emqx_managed_certs:dir(Namespace, BundleName),
+                namespace => Namespace,
+                bundle => BundleName,
+                reason => emqx_utils:explain_posix(Reason)
+            })
+    end.
+
+mk_managed_certs_sni_fun([_ | _] = ManagedCertOpts, Opts) ->
+    PerSNIOpts =
+        lists:foldl(
+            fun(MCOpts, Acc) ->
+                case conf_get_opt(sni, MCOpts) of
+                    undefined ->
+                        Acc;
+                    SNI ->
+                        Acc#{ensure_str(SNI) => resolve_managed_certs(MCOpts, Opts)}
+                end
+            end,
+            #{},
+            ManagedCertOpts
+        ),
+    case map_size(PerSNIOpts) == 0 of
+        true ->
+            [];
+        false ->
+            SNIFn = fun(ServerName) ->
+                case maps:find(ServerName, PerSNIOpts) of
+                    {ok, SNIOpts} ->
+                        SNIOpts;
+                    error ->
+                        %% Fallback to default opts
+                        undefined
+                end
+            end,
+            [{sni_fun, SNIFn}]
+    end.
+
+read_contents(Path, Context) ->
+    case file:read_file(Path) of
+        {ok, Contents} ->
+            Contents;
+        {error, Reason} ->
+            throw(Context#{
+                error => <<"failed_to_read_managed_file">>,
+                path => Path,
+                reason => emqx_utils:explain_posix(Reason)
+            })
+    end.
+
+verify_required_managed_files_are_present(Opts, Context) ->
+    Required = [?FILE_KIND_CHAIN, ?FILE_KIND_KEY],
+    Missing =
+        lists:foldl(
+            fun
+                ({cacertfile, _}, Acc) ->
+                    Acc -- [?FILE_KIND_CA];
+                ({certfile, _}, Acc) ->
+                    Acc -- [?FILE_KIND_CHAIN];
+                ({keyfile, _}, Acc) ->
+                    Acc -- [?FILE_KIND_KEY];
+                ({password, _}, Acc) ->
+                    Acc -- [?FILE_KIND_KEY_PASSWORD];
+                (_, Acc) ->
+                    Acc
+            end,
+            Required,
+            Opts
+        ),
+    case Missing of
+        [] ->
+            ok;
+        [_ | _] ->
+            ?tp(error, "missing_required_managed_cert_files", Context#{missing => Missing}),
+            ok
+    end.
 
 customize_hostname_check(verify_none) ->
     undefined;

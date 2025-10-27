@@ -15,6 +15,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -2763,3 +2764,45 @@ cluster_testcases(Module, ClusterKey) ->
         end,
         emqx_common_test_helpers:all(Module)
     ).
+
+generate_cert_pem_bundle(Opts0) ->
+    #{
+        cert := CertRoot,
+        key := KeyRoot,
+        cert_pem := CAPEM,
+        key_pem := CAKeyPEM
+    } = emqx_cth_tls:gen_cert_pem(#{key => ec, issuer => root}),
+    Opts = maps:with([password], Opts0),
+    #{
+        cert_pem := CertPEM,
+        key_pem := KeyPEM
+    } = emqx_cth_tls:gen_cert_pem(Opts#{key => ec, issuer => {CertRoot, KeyRoot}}),
+    #{
+        files => #{
+            ?FILE_KIND_CA => CAPEM,
+            ?FILE_KIND_CHAIN => CertPEM,
+            ?FILE_KIND_KEY => KeyPEM
+        },
+        ca_key_pem => CAKeyPEM,
+        mk_cert_key_fn => fun(Opts1) ->
+            emqx_cth_tls:gen_cert_pem(Opts1#{key => ec, issuer => {CertRoot, KeyRoot}})
+        end
+    }.
+
+generate_and_upload_managed_certs(Namespace, BundleName, Opts) ->
+    #{
+        files := Files0,
+        ca_key_pem := CAKeyPEM,
+        mk_cert_key_fn := MkCertKeyFn
+    } = generate_cert_pem_bundle(Opts),
+    #{?FILE_KIND_CA := CAPEM} = Files0,
+    Files =
+        case Opts of
+            #{password := Password} ->
+                Files0#{?FILE_KIND_KEY_PASSWORD => Password};
+            _ ->
+                Files0
+        end,
+    ok = emqx_managed_certs:add_managed_files(Namespace, BundleName, Files),
+    on_exit(fun emqx_managed_certs:clean_certs_dir/0),
+    {ok, #{mk_cert_key_fn => MkCertKeyFn, ca => CAPEM, ca_key => CAKeyPEM}}.

@@ -1,13 +1,14 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_conf_certs).
+-module(emqx_managed_certs).
 
 %% API
 -export([
     list_managed_files/2,
     list_bundles/1,
     delete_bundle/2,
+    delete_managed_file/3,
     add_managed_files/3
 ]).
 
@@ -17,6 +18,9 @@
     delete_managed_file_v1/3,
     delete_bundle_v1/2
 ]).
+
+%% Internal exports for debugging
+-export([dir/2]).
 
 -ifdef(TEST).
 -export([clean_certs_dir/0]).
@@ -31,8 +35,8 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--include("emqx_conf_certs.hrl").
--include_lib("emqx/include/emqx_config.hrl").
+-include("emqx_managed_certs.hrl").
+-include("emqx_config.hrl").
 
 -define(path, path).
 
@@ -42,7 +46,7 @@
 -define(FILENAME_ACC_KEY, "acc-key.pem").
 -define(FILENAME_KEY_PASSWORD, "key-password").
 
--define(BPAPI, emqx_conf_certs).
+-define(BPAPI, emqx_managed_certs).
 
 -type maybe_namespace() :: emqx_config:maybe_namespace().
 -type file_kind() ::
@@ -109,7 +113,7 @@ list_bundles(Namespace) ->
     ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
 delete_bundle(Namespace, BundleName) ->
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_conf_certs_proto_v1:delete_bundle(Nodes, Namespace, BundleName),
+    Res = emqx_managed_certs_proto_v1:delete_bundle(Nodes, Namespace, BundleName),
     NodeRes = lists:zip(Nodes, Res),
     Errors = lists:filtermap(
         fun
@@ -131,11 +135,37 @@ delete_bundle(Namespace, BundleName) ->
             {error, Errors}
     end.
 
+-spec delete_managed_file(maybe_namespace(), bundle_name(), file_kind()) ->
+    ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
+delete_managed_file(Namespace, BundleName, Kind) ->
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
+    Res = emqx_managed_certs_proto_v1:delete_managed_file(
+        Nodes, Namespace, BundleName, Kind
+    ),
+    NodeRes = lists:zip(Nodes, Res),
+    Errors = lists:filtermap(
+        fun
+            ({_Node, {ok, ok}}) ->
+                false;
+            ({Node, {ok, {error, Reason}}}) ->
+                {true, #{node => Node, kind => file, reason => Reason}};
+            ({Node, {Class, Reason}}) ->
+                {true, #{node => Node, kind => rpc, reason => {Class, Reason}}}
+        end,
+        NodeRes
+    ),
+    case Errors of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, Errors}
+    end.
+
 -spec add_managed_files(maybe_namespace(), bundle_name(), #{file_kind() := iodata()}) ->
     ok | {error, [#{node := node(), kind := file | rpc, reason := term()}]}.
 add_managed_files(Namespace, BundleName, Files) ->
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
-    Res = emqx_conf_certs_proto_v1:add_managed_files(
+    Res = emqx_managed_certs_proto_v1:add_managed_files(
         Nodes, Namespace, BundleName, Files
     ),
     NodeRes = lists:zip(Nodes, Res),
