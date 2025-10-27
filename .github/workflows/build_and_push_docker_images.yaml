@@ -81,7 +81,7 @@ jobs:
           ./scripts/buildx.sh --profile ${{ matrix.profile }} --pkgtype tgz --builder "$EMQX_DOCKER_BUILD_FROM"
           PKG_VSN=$(docker run --rm -v $(pwd):$(pwd) -w $(pwd) -u $(id -u) "$EMQX_DOCKER_BUILD_FROM" ./pkg-vsn.sh "${{ matrix.profile }}")
           echo "PKG_VSN=$PKG_VSN" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: "${{ matrix.profile }}-${{ matrix.arch }}.tar.gz"
           path: "_packages/emqx*/emqx-*.tar.gz"
@@ -116,7 +116,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
 
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           pattern: "${{ matrix.profile }}-*.tar.gz"
           path: _packages
@@ -158,7 +158,7 @@ jobs:
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
           head -n 1 .emqx_docker_image_tags > docker-image-tag
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: "${{ matrix.profile }}-docker-image-tag"
           path: "docker-image-tag"
@@ -196,7 +196,7 @@ jobs:
         run: |
           docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-$PKG_VSN.tar.gz
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: "${{ matrix.profile }}-docker"
           path: "${{ matrix.profile }}-docker-${{ env.PKG_VSN }}.tar.gz"
@@ -237,7 +237,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.ref }}
 
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: "${{ env.PROFILE }}-docker-image-tag"
 
@@ -276,7 +276,7 @@ jobs:
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
           head -n 1 .emqx_docker_image_tags > docker-image-tag
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: "${{ env.PROFILE }}-sf-docker-image-tag"
           path: "docker-image-tag"
@@ -339,7 +339,7 @@ jobs:
       FILENAME: "${{ matrix.profile }}-${{ needs.build.outputs.PKG_VSN }}-docker-${{ matrix.arch }}.tar.gz"
 
     steps:
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: "${{ matrix.profile }}-docker-image-tag"
 
@@ -351,7 +351,7 @@ jobs:
           docker pull "${_EMQX_DOCKER_IMAGE_TAG}"
           docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > "$FILENAME"
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: ${{ matrix.profile }}-docker-image-${{ matrix.arch }}
           path: ${{ env.FILENAME }}
