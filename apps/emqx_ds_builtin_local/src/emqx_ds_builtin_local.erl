@@ -119,6 +119,7 @@
 }.
 
 -type db_runtime_config() :: #{
+    db_group := emqx_ds:db_group(),
     %% Beamformer
     subscriptions := emqx_ds_beamformer:opts(),
     %% Optimistic transaction:

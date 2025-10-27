@@ -151,6 +151,7 @@ This is the entrypoint into the `builtin_raft` backend.
 }.
 
 -type db_runtime_config() :: #{
+    db_group := emqx_ds:db_group(),
     reads => leader_preferred | local_preferred,
     %% TODO: clarify type
     replication_options := #{},

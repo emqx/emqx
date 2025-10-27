@@ -15,7 +15,8 @@
     cancel_timer/2,
     ets_delete/1,
     tf_to_asn1/1,
-    asn1_to_tf/1
+    asn1_to_tf/1,
+    resolve_db_group/1
 ]).
 
 %% internal exports:
@@ -138,6 +139,10 @@ asn1_to_tf(ASN1) ->
         end,
         ASN1
     ).
+
+resolve_db_group(Options = #{db_group := DBGroupName}) ->
+    {ok, DBGroup} = emqx_ds:lookup_db_group(DBGroupName),
+    Options#{db_group := DBGroup}.
 
 %%================================================================================
 %% Internal exports
