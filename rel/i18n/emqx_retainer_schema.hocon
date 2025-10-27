@@ -73,6 +73,6 @@ dispatch_retry_ttl.label:
 "Dispatch retry TTL"
 
 dispatch_retry_ttl.desc:
-"""If the dispatch rate limit is reached while iterating over retained topics, then the dispatcher processes retry the dispatching at a later time.  This option controls how old an iteration may get before being dropped in the event of retries."""
+"""This option specifies the maximum amount of time EMQX will spend delivering retained messages to a single subscription. Once the time limit is reached, the dispatch process is stopped — even if additional retained messages match the subscription."""
 
 }
