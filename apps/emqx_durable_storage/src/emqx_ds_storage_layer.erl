@@ -112,7 +112,7 @@
     }.
 
 -type storage_layer_opts() :: #{
-    db_group := emqx_ds:db_group(),
+    db_group := db_group(),
     rocksdb => rocksdb_options()
 }.
 
@@ -812,12 +812,6 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
 -spec rocksdb_open(dbshard(), options()) ->
     {ok, rocksdb:db_handle(), cf_refs()} | {error, _TODO}.
 rocksdb_open(Shard, Options) ->
-    #{db_group := MyGroup} = Options,
-    {ok, #db_group{
-        env = Env,
-        sst_file_mgr = SstFileManager,
-        write_buffer_mgr = WriteBufManager
-    }} = emqx_ds:lookup_db_group(MyGroup),
     Defaults = #{
         cache_size => 8 * ?MB,
         max_open_files => 100,
@@ -825,10 +819,14 @@ rocksdb_open(Shard, Options) ->
     },
     #{
         cache_size := CacheSize,
-        write_buffer_size := WriteBufferSize,
         max_open_files := MaxOpenFiles,
         misc_options := MiscOptions
     } = maps:merge(Defaults, maps:get(rocksdb, Options, #{})),
+    #db_group{
+        env = Env,
+        sst_file_mgr = SstFileManager,
+        write_buffer_mgr = WriteBufManager
+    } = maps:get(db_group, Options),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
@@ -847,7 +845,6 @@ rocksdb_open(Shard, Options) ->
         %% For example, bitfield-lts backend needs data + trie CFs to be consistent.
         {atomic_flush, true},
         {enable_write_thread_adaptive_yield, false},
-        {db_write_buffer_size, WriteBufferSize},
         {cache_size, CacheSize},
         {max_open_files, MaxOpenFiles}
         | MiscOptions

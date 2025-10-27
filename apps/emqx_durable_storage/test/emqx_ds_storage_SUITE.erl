@@ -11,18 +11,20 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
-opts() ->
+opts(Config) ->
+    Group = proplists:get_value(db_group, Config),
     #{
         storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
         payload_type => ?ds_pt_ttv,
-        rocksdb => #{}
+        rocksdb => #{},
+        db_group => Group
     }.
 
 %%
 
-t_snapshot_take_restore(_Config) ->
+t_snapshot_take_restore(Config) ->
     Shard = {?FUNCTION_NAME, _ShardId = <<"42">>},
-    {ok, Pid} = emqx_ds_storage_layer:start_link(Shard, opts()),
+    {ok, Pid} = emqx_ds_storage_layer:start_link(Shard, opts(Config)),
 
     %% Push some data to the shard.
     Batch1 = [gen_payload(N) || N <- lists:seq(1000, 2000)],
@@ -50,7 +52,7 @@ t_snapshot_take_restore(_Config) ->
     ?assertEqual(ok, transfer_snapshot(SnapReader, SnapWriter)),
 
     %% Verify that the restored shard contains the messages up until the snapshot.
-    {ok, _Pid} = emqx_ds_storage_layer:start_link(Shard, opts()),
+    {ok, _Pid} = emqx_ds_storage_layer:start_link(Shard, opts(Config)),
     snabbkaffe_diff:assert_lists_eq(
         Batch1 ++ Batch2,
         %% Sort by timestamp (2nd element):
@@ -118,8 +120,11 @@ init_per_testcase(TCName, Config) ->
         [{emqx_durable_storage, #{override_env => [{db_data_dir, WorkDir}]}}],
         #{work_dir => WorkDir}
     ),
-    [{apps, Apps} | Config].
+    {ok, Group} = emqx_ds_storage_layer:create_db_group(TCName, #{}),
+    [{apps, Apps}, {db_group, Group} | Config].
 
-end_per_testcase(_TCName, Config) ->
+end_per_testcase(TCName, Config) ->
+    Group = proplists:get_value(db_group, Config),
+    emqx_ds_storage_layer:destroy_db_group(TCName, Group),
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.

@@ -199,7 +199,8 @@ shard_spec(DB, Shard) ->
 shard_storage_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, storage},
-        start => {emqx_ds_storage_layer, start_link, [{DB, Shard}, Opts]},
+        start =>
+            {emqx_ds_storage_layer, start_link, [{DB, Shard}, emqx_ds_lib:resolve_db_group(Opts)]},
         shutdown => 5_000,
         restart => permanent,
         type => worker

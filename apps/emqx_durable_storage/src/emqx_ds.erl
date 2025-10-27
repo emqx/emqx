@@ -638,7 +638,7 @@ lookup_db_group(Group) ->
         #s{groups = #{Group := #db_group{inner = Inner}}} ->
             {ok, Inner};
         X ->
-            {error, {no_such_group, X}}
+            {error, {no_such_group, Group}}
     end.
 
 -doc """
