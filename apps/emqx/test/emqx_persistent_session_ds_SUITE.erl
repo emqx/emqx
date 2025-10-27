@@ -184,7 +184,7 @@ start_connect_client(Opts = #{}) ->
             Pid;
         {error, {server_busy, _ConnAckProps}} ->
             timer:sleep(10),
-            ClientId = proplists:get_value(clientid, Opts),
+            ClientId = maps:get(clientid, Opts),
             ct:pal("~s reconnect after delay", [ClientId]),
             start_connect_client(Opts);
         {error, Reason} ->
