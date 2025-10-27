@@ -117,7 +117,7 @@
     session/0
 ]).
 
--type session_id() :: _TODO.
+-type session_id() :: term().
 
 -type clientinfo() :: emqx_types:clientinfo().
 -type conninfo() ::
