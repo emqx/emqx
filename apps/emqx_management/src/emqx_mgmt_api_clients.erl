@@ -1204,7 +1204,7 @@ ets_select(NQString, Limit, Node, NodeIdx, Cont) ->
         NQString,
         fun ?MODULE:qs2ms/2,
         _Meta = #{page => unused, limit => Limit},
-        _Options = #{}
+        _Options = #{total_counting => disable}
     ),
     QueryState = QueryState0#{continuation => Cont},
     case emqx_mgmt_api:do_query(Node, QueryState) of
