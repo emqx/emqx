@@ -460,7 +460,7 @@ tx_update_index(MQHandle, Updates) ->
         case tx_read_index(MQHandle) of
             undefined ->
                 IndexStartTsUs = lists:min(
-                    lists:map(fun(#{timestamp_us := TsUs}) -> TsUs end, Updates)
+                    lists:map(fun(?QUOTA_INDEX_UPDATE(TsUs, _, _)) -> TsUs end, Updates)
                 ),
                 emqx_mq_message_quota_index:new(
                     emqx_mq_prop:quota_index_opts(MQHandle), IndexStartTsUs
@@ -494,25 +494,19 @@ quota_index_updates(MaybeOldMessage, Message, MessageSize) ->
             [{_, _, OldMessageBin}] ->
                 OldMessage = decode_message(OldMessageBin),
                 [
-                    #{
-                        type => delete,
-                        timestamp_us => message_timestamp_us(OldMessage),
-                        values => #{
-                            bytes => byte_size(OldMessageBin),
-                            count => 1
-                        }
-                    }
+                    ?QUOTA_INDEX_UPDATE(
+                        message_timestamp_us(OldMessage),
+                        -byte_size(OldMessageBin),
+                        -1
+                    )
                 ]
         end,
     %% Add new record to the index
-    NewUpdate = #{
-        type => add,
-        timestamp_us => message_timestamp_us(Message),
-        values => #{
-            bytes => MessageSize,
-            count => 1
-        }
-    },
+    NewUpdate = ?QUOTA_INDEX_UPDATE(
+        message_timestamp_us(Message),
+        MessageSize,
+        1
+    ),
     OldUpdates ++ [NewUpdate].
 
 delete(DB, Topics) ->

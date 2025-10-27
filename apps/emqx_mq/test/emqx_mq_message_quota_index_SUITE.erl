@@ -7,6 +7,7 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include("../src/emqx_mq_internal.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -45,11 +46,7 @@ t_byte_limit_regular(_Config) ->
             IndexAcc =
                 emqx_mq_message_quota_index:apply_update(
                     IndexAcc0,
-                    #{
-                        type => add,
-                        timestamp_us => NowUs,
-                        values => #{bytes => payload_size(2000)}
-                    }
+                    ?QUOTA_INDEX_UPDATE(NowUs, payload_size(2000), 0)
                 ),
             {IndexAcc, St}
         end,
@@ -86,22 +83,16 @@ t_byte_limit_lastvalue(Config) ->
             Key = key(KeyCount),
             DelUpdate =
                 case DBAcc0 of
-                    #{Key := {PrevTsUs, PrevValues}} ->
-                        [#{type => delete, timestamp_us => PrevTsUs, values => PrevValues}];
+                    #{Key := ?QUOTA_INDEX_UPDATE(PrevTsUs, PrevBytes, PrevCount)} ->
+                        [?QUOTA_INDEX_UPDATE(PrevTsUs, -PrevBytes, -PrevCount)];
                     _ ->
                         []
                 end,
-            Values = #{bytes => payload_size(2000)},
-            InsertUpdate = [
-                #{
-                    type => add,
-                    timestamp_us => NowUs,
-                    values => Values
-                }
-            ],
-            DBAcc = DBAcc0#{Key => {NowUs, Values}},
+            InsertUpdate =
+                ?QUOTA_INDEX_UPDATE(NowUs, payload_size(2000), 0),
+            DBAcc = DBAcc0#{Key => InsertUpdate},
             IndexAcc =
-                emqx_mq_message_quota_index:apply_updates(IndexAcc0, DelUpdate ++ InsertUpdate),
+                emqx_mq_message_quota_index:apply_updates(IndexAcc0, DelUpdate ++ [InsertUpdate]),
             {IndexAcc, DBAcc}
         end,
         DB0,
@@ -125,11 +116,12 @@ t_delete_all(_Config) ->
     {Index1, DB} = lists:foldl(
         fun(Key, {IndexAcc0, DBAcc0}) ->
             TsUs = now_us(),
-            Update = #{bytes => payload_size(PayloadSize)},
-            IndexAcc = emqx_mq_message_quota_index:apply_update(IndexAcc0, #{
-                type => add, timestamp_us => TsUs, values => Update
-            }),
-            DBAcc = DBAcc0#{Key => {TsUs, Update}},
+            Update = ?QUOTA_INDEX_UPDATE(TsUs, payload_size(PayloadSize), 0),
+            IndexAcc = emqx_mq_message_quota_index:apply_update(
+                IndexAcc0,
+                Update
+            ),
+            DBAcc = DBAcc0#{Key => Update},
             {IndexAcc, DBAcc}
         end,
         {Index0, #{}},
@@ -139,10 +131,9 @@ t_delete_all(_Config) ->
     ct:pal("Index before delete: ~p", [Info1]),
     ?assert(BytesIndexSize1 >= 10),
     Index2 = maps:fold(
-        fun(_Key, {TsUs, Update}, IndexAcc) ->
-            emqx_mq_message_quota_index:apply_update(IndexAcc, #{
-                type => delete, timestamp_us => TsUs, values => Update
-            })
+        fun(_Key, ?QUOTA_INDEX_UPDATE(TsUs, Bytes, Count), IndexAcc) ->
+            DeleteUpdate = ?QUOTA_INDEX_UPDATE(TsUs, -Bytes, -Count),
+            emqx_mq_message_quota_index:apply_update(IndexAcc, DeleteUpdate)
         end,
         Index1,
         DB

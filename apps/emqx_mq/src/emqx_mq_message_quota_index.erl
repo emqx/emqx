@@ -93,13 +93,9 @@ that may make redundant data in the queue exceed the configured thresholds for s
 
 -type t() :: #index{}.
 -type timestamp_us() :: non_neg_integer().
--type update_type() :: add | delete.
--type update_values() :: #{bytes => non_neg_integer(), count => non_neg_integer()}.
--type update() :: #{
-    type := update_type(),
-    timestamp_us := timestamp_us(),
-    values := update_values()
-}.
+-type byte_update() :: integer().
+-type count_update() :: integer().
+-type update() :: ?QUOTA_INDEX_UPDATE(timestamp_us(), byte_update(), count_update()).
 -type opts() :: #{
     bytes => #{max := pos_integer(), threshold := pos_integer()},
     count => #{max := pos_integer(), threshold := pos_integer()}
@@ -158,34 +154,13 @@ apply_updates(Index, Updates) ->
 Apply an update to the index.
 """.
 -spec apply_update(t(), update()) -> t().
-apply_update(#index{opts = Opts} = Index0, #{type := add, timestamp_us := TsUs, values := Values}) ->
-    Index1 = update_max_ts(Index0, TsUs),
-    {MaxTxsUs, Index} = lists:mapfoldl(
-        fun(Kind, IndexAcc) ->
-            case Values of
-                #{Kind := Value} ->
-                    insert(Kind, IndexAcc, TsUs, Value);
-                _ ->
-                    IndexAcc
-            end
-        end,
-        Index1,
-        %% update indices only for the configured kinds of limits: [bytes|count]
-        maps:keys(Opts)
-    ),
-    %% NOTE
-    %% We may have updated the max timestamp if we avanced indices during the inserts,
-    %% so update the max timestamp again.
-    update_max_ts(Index, lists:max(MaxTxsUs));
-apply_update(#index{opts = Opts} = Index, #{type := delete, timestamp_us := TsUs, values := Values}) ->
+apply_update(
+    #index{opts = Opts} = Index0, ?QUOTA_INDEX_UPDATE(TsUs, _ByteUpdate, _CountUpdate) = Update
+) ->
+    Index = update_max_ts(Index0, TsUs),
     lists:foldl(
         fun(Kind, IndexAcc) ->
-            case Values of
-                #{Kind := Value} ->
-                    delete(Kind, IndexAcc, TsUs, Value);
-                _ ->
-                    IndexAcc
-            end
+            apply_update(Kind, IndexAcc, TsUs, update_vaulue(Kind, Update))
         end,
         Index,
         %% update indices only for the configured kinds of limits: [bytes|count]
@@ -243,15 +218,23 @@ inspect(#index{
 %% Internal functions
 %%--------------------------------------------------------------------
 
-insert(Kind, Index, AddTsUs, AddValue) ->
-    Records0 = index_records(Kind, Index),
-    Threshold = threshold(Kind, Index),
-    MaxTsUs0 = max_ts(Index),
+apply_update(_Kind, Index, _TsUs, 0) ->
+    Index;
+apply_update(Kind, Index, TsUs, Value) when Value > 0 ->
+    insert(Kind, Index, TsUs, Value);
+apply_update(Kind, Index, TsUs, Value) when Value < 0 ->
+    delete(Kind, Index, TsUs, -Value).
+
+insert(Kind, Index0, AddTsUs, AddValue) ->
+    Records0 = index_records(Kind, Index0),
+    Threshold = threshold(Kind, Index0),
+    MaxTsUs0 = max_ts(Index0),
     {MaxTsUs, Records1} = maybe_advance(Records0, MaxTsUs0, AddTsUs, AddValue, Threshold),
     Records2 = insert_record(Records1, AddTsUs, AddValue),
-    Max = max_total(Kind, Index),
+    Max = max_total(Kind, Index0),
     Records = compact_records(Records2, Threshold, Max, 0),
-    {MaxTsUs, set_index_records(Kind, Index, Records)}.
+    Index = set_index_records(Kind, Index0, Records),
+    update_max_ts(Index, MaxTsUs).
 
 delete(Kind, Index, TsUs, Value) ->
     Records0 = index_records(Kind, Index),
@@ -371,6 +354,11 @@ set_index_records(bytes, #index{index = StorageIndex} = Index, Records) ->
 set_index_records(count, #index{index = StorageIndex} = Index, Records) ->
     Index#index{index = StorageIndex#'StorageIndex'{count = Records}}.
 
+update_vaulue(bytes, ?QUOTA_INDEX_UPDATE(_, ByteUpdate, _)) ->
+    ByteUpdate;
+update_vaulue(count, ?QUOTA_INDEX_UPDATE(_, _, CountUpdate)) ->
+    CountUpdate.
+
 format_records(MaxTsUs, [#'StorageIndexRecord'{tsUs = TsUs, value = Value} | _] = Records) ->
     [{TsUs, Value, format_us_diff(TsUs, MaxTsUs)} | format_records_next(Records)];
 format_records(_MaxTsUs, []) ->
@@ -439,15 +427,15 @@ t_consistency(
         0
     ),
     {DB1, Index1} = lists:foldl(
-        fun({Key, TsMs, Update}, {DBAcc, IndexAcc}) ->
-            update_key({DBAcc, IndexAcc}, {Key, TsMs, Update})
+        fun({Key, Update}, {DBAcc, IndexAcc}) ->
+            update_key({DBAcc, IndexAcc}, {Key, Update})
         end,
         {DB0, Index0},
         sort_by_ts(Updates)
     ),
     {_DB, Index} = lists:foldl(
         fun(Key, {DBAcc, IndexAcc}) ->
-            update_key({DBAcc, IndexAcc}, {Key, DurationMs, #{bytes => 0, count => 1}})
+            update_key({DBAcc, IndexAcc}, {Key, ?QUOTA_INDEX_UPDATE(to_us(DurationMs), 0, 1)})
         end,
         {DB1, Index1},
         lists:seq(1, KeyCount)
@@ -465,17 +453,17 @@ t_consistency(
     0 =:= BytesTotal andalso
         KeyCount =:= CountTotal.
 
-update_key({DB, Index}, {Key, TsMs, Update}) ->
+update_key({DB, Index}, {Key, Update}) ->
     DelUpdate =
         case DB of
-            #{Key := {PrevTsMs, PrevUpdate}} ->
-                [#{type => delete, timestamp_us => to_us(PrevTsMs), values => PrevUpdate}];
+            #{Key := ?QUOTA_INDEX_UPDATE(PrevTsUs, PrevBytes, PrevCount)} ->
+                [?QUOTA_INDEX_UPDATE(PrevTsUs, -PrevBytes, -PrevCount)];
             _ ->
                 []
         end,
-    InsertUpdate = [#{type => add, timestamp_us => to_us(TsMs), values => Update}],
+    InsertUpdate = [Update],
     {
-        DB#{Key => {TsMs, Update}},
+        DB#{Key => Update},
         apply_updates(Index, DelUpdate ++ InsertUpdate)
     }.
 
@@ -516,7 +504,7 @@ p_update(DurationMs, KeyCount) ->
     ?LET(
         {Ms, Key, RecordSize},
         {p_ms(DurationMs), p_key(KeyCount), p_record_size()},
-        {Key, Ms, #{count => 1, bytes => RecordSize}}
+        {Key, ?QUOTA_INDEX_UPDATE(to_us(Ms), RecordSize, 1)}
     ).
 
 p_ms(DurationMs) ->
@@ -539,7 +527,9 @@ to_us(Ms) ->
 
 sort_by_ts(Updates) ->
     lists:sort(
-        fun({_, Ts1, _}, {_, Ts2, _}) -> Ts1 < Ts2 end,
+        fun({_, ?QUOTA_INDEX_UPDATE(Ts1, _, _)}, {_, ?QUOTA_INDEX_UPDATE(Ts2, _, _)}) ->
+            Ts1 < Ts2
+        end,
         Updates
     ).
 
