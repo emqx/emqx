@@ -108,7 +108,7 @@ setup_db_group(Group, Config) ->
     end.
 
 db_group_config() ->
-    Raw = emqx_config:get([durable_storage, db_groups]),
+    Raw = emqx_config:get([durable_storage, db_groups], #{}),
     maps:map(
         fun(_Key, Conf) ->
             translate_db_group(Conf)
