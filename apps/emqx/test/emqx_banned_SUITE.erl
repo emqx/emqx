@@ -257,28 +257,52 @@ t_session_taken(_) ->
 t_full_bootstrap_file(_) ->
     emqx_banned:clear(),
     ?assertEqual(ok, emqx_banned:init_from_csv(mk_bootstrap_file(<<"full.csv">>))),
-    FullDatas = lists:sort([
-        {banned, {username, <<"u1">>}, <<"boot">>, <<"reason 2">>, 1635170027, 1761400427},
-        {banned, {clientid, <<"c1">>}, <<"boot">>, <<"reason 1">>, 1635170027, 1761400427}
-    ]),
-    ?assertMatch(FullDatas, lists:sort(get_banned_list())),
+    Records = [
+        #{
+            reason => <<"reason 1">>,
+            at => to_local("2021-10-25T21:53:47+08:00"),
+            until => to_local("2125-10-25T21:53:47+08:00"),
+            as => clientid,
+            who => <<"c1">>,
+            by => <<"boot">>
+        },
+        #{
+            reason => <<"reason 2">>,
+            at => to_local("2021-10-25T21:53:47+08:00"),
+            until => to_local("2125-10-25T21:53:47+08:00"),
+            as => username,
+            who => <<"u1">>,
+            by => <<"boot">>
+        }
+    ],
+    ?assertEqual(Records, get_banned_list()),
 
     ?assertEqual(ok, emqx_banned:init_from_csv(mk_bootstrap_file(<<"full2.csv">>))),
-    ?assertMatch(FullDatas, lists:sort(get_banned_list())),
+    ?assertEqual(Records, get_banned_list()),
     ok.
 
 t_optional_bootstrap_file(_) ->
     emqx_banned:clear(),
     ?assertEqual(ok, emqx_banned:init_from_csv(mk_bootstrap_file(<<"optional.csv">>))),
-    Keys = lists:sort([{username, <<"u1">>}, {clientid, <<"c1">>}]),
-    ?assertMatch(Keys, lists:sort([element(2, Data) || Data <- get_banned_list()])),
+    ?assertMatch(
+        [
+            #{as := clientid, who := <<"c1">>},
+            #{as := username, who := <<"u1">>}
+        ],
+        get_banned_list()
+    ),
     ok.
 
 t_omitted_bootstrap_file(_) ->
     emqx_banned:clear(),
     ?assertEqual(ok, emqx_banned:init_from_csv(mk_bootstrap_file(<<"omitted.csv">>))),
-    Keys = lists:sort([{username, <<"u1">>}, {clientid, <<"c1">>}]),
-    ?assertMatch(Keys, lists:sort([element(2, Data) || Data <- get_banned_list()])),
+    ?assertMatch(
+        [
+            #{as := clientid, who := <<"c1">>},
+            #{as := username, who := <<"u1">>}
+        ],
+        get_banned_list()
+    ),
     ok.
 
 t_error_bootstrap_file(_) ->
@@ -289,8 +313,9 @@ t_error_bootstrap_file(_) ->
     ?assertEqual(
         ok, emqx_banned:init_from_csv(mk_bootstrap_file(<<"error.csv">>))
     ),
-    Keys = [{clientid, <<"c1">>}],
-    ?assertMatch(Keys, [element(2, Data) || Data <- get_banned_list()]),
+    ?assertMatch(
+        [#{as := clientid, who := <<"c1">>}], get_banned_list()
+    ),
     ok.
 
 t_until_expiry(_) ->
@@ -326,12 +351,18 @@ mk_bootstrap_file(File) ->
     Dir = code:lib_dir(emqx, test),
     filename:join([Dir, <<"data/banned">>, File]).
 
+to_local(DateTimeBin) ->
+    {ok, EpochSecond} = emqx_utils_calendar:to_epoch_second(DateTimeBin),
+    emqx_utils_calendar:epoch_to_rfc3339(EpochSecond, second).
+
 get_banned_list() ->
     Tabs = emqx_banned:tables(),
-    lists:foldl(
+    Records0 = lists:foldl(
         fun(Tab, Acc) ->
             Acc ++ ets:tab2list(Tab)
         end,
         [],
         Tabs
-    ).
+    ),
+    Records = [emqx_banned:format(Record) || Record <- Records0],
+    lists:sort(Records).
