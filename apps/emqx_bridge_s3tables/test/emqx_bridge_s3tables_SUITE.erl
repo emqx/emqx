@@ -353,8 +353,9 @@ ensure_table_created(Client, Namespace, Table, Schema, Opts) ->
         {error, {http_error, 409, _, _, _}} ->
             ct:pal("table ~p.~p already exists", [Namespace, Table]),
             ok;
-        {error, {http_error, 500, _, _, _}} ->
+        {error, {http_error, 500, _, Body, _}} ->
             %% See Note [Flaky iceberg-rest-fixtures]
+            ct:pal("500 error while creating table:\n  ~s", [Body]),
             throw(fixture_dead);
         {error, Reason} ->
             error(Reason)
@@ -451,6 +452,52 @@ array_schema1() ->
                 }
             }
         ]
+    }.
+
+timestamps_schema1() ->
+    #{
+        <<"type">> => <<"struct">>,
+        <<"fields">> =>
+            [
+                #{
+                    <<"id">> => 1,
+                    <<"name">> => <<"timestamp">>,
+                    <<"required">> => false,
+                    <<"type">> => <<"timestamp">>
+                },
+                #{
+                    <<"id">> => 2,
+                    <<"name">> => <<"timestamptz">>,
+                    <<"required">> => false,
+                    <<"type">> => <<"timestamptz">>
+                },
+                %% Invalid type for timestamp_ns: timestamp_ns is not supported until v3
+                %% #{
+                %%     <<"id">> => 3,
+                %%     <<"name">> => <<"timestamp_ns">>,
+                %%     <<"required">> => false,
+                %%     <<"type">> => <<"timestamp_ns">>
+                %% },
+                %% Invalid type for timestamptz_ns: timestamptz_ns is not supported until v3
+                %% #{
+                %%     <<"id">> => 4,
+                %%     <<"name">> => <<"timestamptz_ns">>,
+                %%     <<"required">> => false,
+                %%     <<"type">> => <<"timestamptz_ns">>
+                %% },
+                #{
+                    <<"id">> => 5,
+                    <<"name">> => <<"date">>,
+                    <<"required">> => false,
+                    <<"type">> => <<"date">>
+                },
+                #{
+                    <<"id">> => 6,
+                    <<"name">> => <<"time">>,
+                    <<"required">> => false,
+                    <<"type">> => <<"time">>
+                }
+            ]
     }.
 
 simple_schema1_partition_spec1() ->
@@ -758,6 +805,12 @@ restart_server() ->
 
 health_check(TCConfig) ->
     emqx_bridge_v2_testlib:health_check_channel(TCConfig).
+
+start_client() ->
+    {ok, C} = emqtt:start_link(),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -2030,6 +2083,85 @@ t_imdsv2_credentials(TCConfig0) when is_list(TCConfig0) ->
             )
         end
     ),
+    ok.
+
+-doc """
+Verifies that we can encode timestamp types in Parquet.
+""".
+t_smoke_parquet_timestamps() ->
+    [{matrix, true}].
+t_smoke_parquet_timestamps(init, TCConfig) ->
+    [{schema, timestamps_schema1()} | TCConfig];
+t_smoke_parquet_timestamps('end', _TCConfig) ->
+    ok.
+t_smoke_parquet_timestamps(matrix) ->
+    [[parquet]];
+t_smoke_parquet_timestamps(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+
+    #{topic := Topic} = emqx_bridge_v2_testlib:simple_create_rule_api(
+        #{
+            sql => <<
+                "SELECT"
+                "  payload.timestamp as timestamp, "
+                "  payload.timestamptz as timestamptz, "
+                %% "  payload.timestamp_ns as timestamp_ns, "
+                %% "  payload.timestamptz_ns as timestamptz_ns, "
+                "  payload.date as date, "
+                "  payload.time as time "
+                " FROM \"${t}\" "
+            >>
+        },
+        TCConfig
+    ),
+
+    %% erlang:system_time(microsecond)
+    Timestamp = 1761589607830867,
+
+    %% erlang:system_time(nanosecond)
+    %% TimestampNs = 1761589618519406301,
+
+    %% ns since beginning of day
+    %% {_D, {_H, _M, S}} = calendar:universal_time(),
+    %% Time = S * 1_000_000,
+    %% or `(-> (java.time.LocalTime/now) (.toNanoOfDay) (/ 1000) bigint str)`
+    Time = 67120756402,
+
+    %% Days since 1970-01-01
+    Date = 17,
+
+    Payload = emqx_utils_json:encode(#{
+        <<"timestamp">> => Timestamp,
+        <<"timestamptz">> => Timestamp,
+        %% <<"timestamp_ns">> => TimestampNs
+        %% <<"timestamptz_ns">> => TimestampNs
+        <<"date">> => Date,
+        <<"time">> => Time
+    }),
+    Payloads = [Payload],
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            parallel_publish(Topic, Payloads),
+            #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when
+                T /= empty
+        ),
+
+    Ns = get_config(namespace, TCConfig),
+    Table = get_config(table, TCConfig),
+    ?retry(200, 20, begin
+        ?assertMatch(
+            [
+                #{
+                    <<"date">> := <<"1970-01-18">>,
+                    <<"time">> := <<"18:38:40.756402">>,
+                    <<"timestamp">> := <<"2025-10-27T18:26:47.830867">>,
+                    <<"timestamptz">> := <<"2025-10-27T18:26:47.830867Z">>
+                }
+            ],
+            scan_table(Ns, Table)
+        )
+    end),
     ok.
 
 %% More test ideas:
