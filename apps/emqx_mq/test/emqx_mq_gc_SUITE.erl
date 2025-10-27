@@ -121,7 +121,7 @@ t_limited_regular(_Config) ->
     emqx_mq_test_utils:populate(200, #{
         topic_prefix => <<"tc/">>, payload_prefix => <<"payload-">>, different_clients => true
     }),
-    ok = emqx_mq_message_quota_buffer:flush(),
+    ct:sleep(1100),
     ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 1000),
 
     %% Check that only the last 100 + threshold messages are available
@@ -184,7 +184,7 @@ t_limited_lastvalue(_Config) ->
     emqx_mq_test_utils:populate_lastvalue(80, #{topic_prefix => <<"tc/1/">>}),
     %% Publish 3rd portion of 80 messages to the queue
     emqx_mq_test_utils:populate_lastvalue(80, #{topic_prefix => <<"tc/3/">>}),
-    ok = emqx_mq_message_quota_buffer:flush(),
+    ct:sleep(1100),
 
     %% Run GC
     ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 1000),

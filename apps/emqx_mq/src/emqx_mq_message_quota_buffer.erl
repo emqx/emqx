@@ -237,4 +237,4 @@ buffer_max_size() ->
     emqx:get_config([mq, quota, buffer_max_size]).
 
 buffer_flush_interval() ->
-    emqx:get_config([mq, quota, buffer_flush_interval]).
+    round(emqx:get_config([mq, quota, buffer_flush_interval]) * (0.9 + 0.2 * rand:uniform())).
