@@ -74,6 +74,11 @@ fields(mq) ->
                 importance => ?IMPORTANCE_HIDDEN
             })}
     ];
+%% NOTE
+%% We do not want to expose the quota settings to the users for now.
+%% We benchmarked the default values and believe that they are reasonable for the most users.
+%% Exposing these settings should be done with guidance from the documentation
+%% and after we gain more use cases for the quota feature.
 fields(quota) ->
     [
         {threshold_percentage,

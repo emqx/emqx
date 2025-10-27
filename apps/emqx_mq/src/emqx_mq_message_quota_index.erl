@@ -52,7 +52,7 @@ Because of the insertion logic, we always know exactly from which bucket to dele
 
 After each operation, we "compact" the index.
 * We squash consecutive buckets that are in common smaller than the threshold.
-* We remove tail buckets that are responsible for data that exceeds the limits.
+* We remove tail(the oldest) buckets that are responsible for the older data that exceeds the limits.
 
 ### Possible issues
 

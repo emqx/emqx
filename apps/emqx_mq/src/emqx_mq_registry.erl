@@ -108,12 +108,11 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue, limits := Lim
                 mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
                 {error, Reason}
         catch
-            Class:Reason:StackTrace ->
+            Class:Reason ->
                 ?tp(error, mq_registry_create_mq_state_error, #{
                     mq => MQ,
                     class => Class,
-                    reason => Reason,
-                    stacktrace => StackTrace
+                    reason => Reason
                 }),
                 mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
                 {error, Reason}
@@ -209,7 +208,8 @@ delete_all() ->
 
 -doc """
 Update the MQ by its topic filter.
-`is_lastvalue` and is not allowed to be updated.
+* `is_lastvalue` flag cannot be updated.
+* limited regular queues cannot be updated to unlimited regular queues and vice versa.
 """.
 -spec update(emqx_mq_types:mq_topic(), map()) ->
     {ok, emqx_mq_types:mq()}
