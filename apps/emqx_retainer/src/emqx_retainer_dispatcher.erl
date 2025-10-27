@@ -443,16 +443,22 @@ handle_dispatch_next_chunk(Messages0, Pid, Topic, Cursor0, StartedAt, Limiter0, 
     end.
 
 enqueue_retry(Retry, ToRetry0) ->
-    ToRetry1 =
+    ToRetry2 =
         case queue:len(ToRetry0) >= ?MODULE:max_queue_size() of
             true ->
-                %% log?
                 ?tp("retainer_retry_request_dropped_due_to_overflow", #{}),
-                queue:drop(ToRetry0);
+                {{value, Dropped}, ToRetry1} = queue:out(ToRetry0),
+                #retry{pid = Pid} = Dropped,
+                Report = #{
+                    msg => "retainer_retry_request_dropped_due_to_overflow",
+                    topic => Dropped#retry.topic
+                },
+                Pid ! {log, warning, Report},
+                ToRetry1;
             false ->
                 ToRetry0
         end,
-    queue:in(Retry, ToRetry1).
+    queue:in(Retry, ToRetry2).
 
 handle_dispatch_next_cursor(_Pid, _Topic, undefined = _Cursor, _StartedAt, Limiter, State0) ->
     State0#{limiter := Limiter};

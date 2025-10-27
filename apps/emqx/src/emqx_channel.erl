@@ -1645,6 +1645,11 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
+handle_info({log, warning, Report}, Channel) ->
+    %% Message from hook so we may log it in the process context, which has clientid and
+    %% other metadata.
+    ?SLOG(warning, Report),
+    {ok, Channel};
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
     Channel1 = Channel0#channel{session = Session},
