@@ -70,7 +70,24 @@ on_message_publish(#message{topic = Topic} = Message) ->
     Queues = emqx_mq_registry:match(Topic),
     ok = lists:foreach(
         fun(Queue) ->
-            publish_to_queue(Queue, Message)
+            {Time, Result} = timer:tc(fun() -> publish_to_queue(Queue, Message) end),
+            case Result of
+                ok ->
+                    emqx_mq_metrics:inc(ds, inserted_messages),
+                    ?tp_mq_client(mq_on_message_publish_to_queue, #{
+                        topic_filter => emqx_mq_prop:topic_filter(Queue),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        result => ok
+                    });
+                {error, Reason} ->
+                    ?tp(error, mq_on_message_publish_queue_error, #{
+                        topic_filter => emqx_mq_prop:topic_filter(Queue),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        reason => Reason
+                    })
+            end
         end,
         Queues
     ),

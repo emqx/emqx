@@ -71,7 +71,7 @@ Create a new MQ.
     | {error, queue_exists}
     | {error, max_queue_count_reached}
     | {error, term()}.
-create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) when
+create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue, limits := Limits} = MQ0) when
     (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, MQ0)))
 ->
     Key = make_key(TopicFilter),
@@ -86,7 +86,10 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = MQ0) when
                             key = Key,
                             id = Id,
                             is_lastvalue = IsLastValue,
-                            key_expr = maps:get(key_expression, MQ0, undefined)
+                            key_expr = maps:get(key_expression, MQ0, undefined),
+                            extra = #{
+                                limits => Limits
+                            }
                         }),
                         ok;
                     [_] ->
@@ -205,7 +208,8 @@ delete_all() ->
 
 -doc """
 Update the MQ by its topic filter.
-`is_lastvalue` is not allowed to be updated.
+* `is_lastvalue` flag cannot be updated.
+* limited regular queues cannot be updated to unlimited regular queues and vice versa.
 """.
 -spec update(emqx_mq_types:mq_topic(), map()) ->
     {ok, emqx_mq_types:mq()}
@@ -218,19 +222,25 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
     case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
         [] ->
             not_found;
-        [#?MQ_REGISTRY_INDEX_TAB{id = Id, key_expr = KeyExpr, is_lastvalue = OldIsLastValue}] ->
+        [#?MQ_REGISTRY_INDEX_TAB{} = Rec] ->
+            #{id := Id} = MQHandle = record_to_mq_handle(Rec),
+            IsLastvalueOld = emqx_mq_prop:is_lastvalue(MQHandle),
+            IsLastvalueNew = emqx_mq_prop:is_lastvalue(UpdateFields),
+            IsLimitedOld = emqx_mq_prop:is_limited(MQHandle),
+            IsLimitedNew = emqx_mq_prop:is_limited(UpdateFields),
+            NeedUpdateIndex = need_update_index(MQHandle, UpdateFields),
             case UpdateFields of
-                #{key_expression := NewKeyExpr, is_lastvalue := OldIsLastValue} when
-                    NewKeyExpr =/= KeyExpr andalso OldIsLastValue
-                ->
-                    case update_key_expr(Key, Id, NewKeyExpr) of
+                _ when IsLastvalueOld =/= IsLastvalueNew ->
+                    {error, is_lastvalue_not_allowed_to_be_updated};
+                _ when (not IsLastvalueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
+                    {error, limit_presence_cannot_be_updated_for_regular_queues};
+                _ when NeedUpdateIndex ->
+                    case update_index(Key, Id, UpdateFields) of
                         ok ->
                             emqx_mq_state_storage:update_mq_state(Id, UpdateFields);
                         not_found ->
                             not_found
                     end;
-                #{is_lastvalue := NewIsLastValue} when NewIsLastValue =/= OldIsLastValue ->
-                    {error, is_lastvalue_not_allowed_to_be_updated};
                 _ ->
                     emqx_mq_state_storage:update_mq_state(Id, UpdateFields)
             end
@@ -267,6 +277,18 @@ list(Cursor, Limit) when Limit >= 1 ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+need_update_index(
+    #{is_lastvalue := true, key_expression := OldKeyExpr} = _MQHandle,
+    #{key_expression := NewKeyExpr} = _UpdateFields
+) when NewKeyExpr =/= OldKeyExpr ->
+    true;
+need_update_index(#{limits := OldLimits} = _MQHandle, #{limits := NewLimits} = _UpdateFields) when
+    OldLimits =/= NewLimits
+->
+    true;
+need_update_index(_, _) ->
+    false.
 
 mq_record_stream() ->
     mq_record_stream(undefined).
@@ -314,26 +336,31 @@ mq_record_stream_to_queues(Stream) ->
 make_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
 
-update_key_expr(Key, Id, NewKeyExpr) ->
+update_index(Key, Id, UpdateFields) ->
     {atomic, Result} = mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
         case mnesia:read(?MQ_REGISTRY_INDEX_TAB, Key, write) of
             [] ->
                 not_found;
-            [#?MQ_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
-                mnesia:write(Rec#?MQ_REGISTRY_INDEX_TAB{key_expr = NewKeyExpr}),
+            [#?MQ_REGISTRY_INDEX_TAB{id = Id, extra = Extra} = Rec] ->
+                NewKeyExpr = maps:get(key_expression, UpdateFields, undefined),
+                NewLimits = maps:get(limits, UpdateFields, ?DEFAULT_MQ_LIMITS),
+                mnesia:write(Rec#?MQ_REGISTRY_INDEX_TAB{
+                    key_expr = NewKeyExpr, extra = Extra#{limits => NewLimits}
+                }),
                 ok
         end
     end),
     Result.
 
 record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
-    key = Key, id = Id, key_expr = KeyExpr, is_lastvalue = IsLastValue
+    key = Key, id = Id, key_expr = KeyExpr, is_lastvalue = IsLastValue, extra = Extra
 }) ->
     #{
         id => Id,
         topic_filter => emqx_topic_index:get_topic(Key),
         is_lastvalue => IsLastValue,
-        key_expression => KeyExpr
+        key_expression => KeyExpr,
+        limits => maps:get(limits, Extra, ?DEFAULT_MQ_LIMITS)
     }.
 
 queue_count() ->
