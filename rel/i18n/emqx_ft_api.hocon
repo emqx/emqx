@@ -28,9 +28,24 @@ file_id.label:
 """File ID"""
 
 cursor_to_start_listing.desc:
-"""Cursor to start listing files from"""
+"""Cursor to start listing files from."""
 cursor_to_start_listing.label:
 """Cursor to Start Listing"""
+
+invalid_cursor.desc:
+"""Invalid cursor"""
+invalid_cursor.label:
+"""Invalid Cursor"""
+
+service_unavailable.desc:
+"""Service unavailable"""
+service_unavailable.label:
+"""Service Unavailable"""
+
+files_not_found.desc:
+"""Files requested for this transfer could not be found."""
+files_not_found.label:
+"""Files Not Found"""
 
 }
 

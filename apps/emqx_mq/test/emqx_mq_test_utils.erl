@@ -115,7 +115,11 @@ fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ0) ->
         stream_max_buffer_size => 10,
         stream_max_unacked => 5,
         consumer_persistence_interval => 1000,
-        data_retention_period => 3600_000
+        data_retention_period => 3600_000,
+        limits => #{
+            max_shard_message_count => infinity,
+            max_shard_message_bytes => infinity
+        }
     },
     LastVelueDefault = #{
         key_expression =>
@@ -133,30 +137,48 @@ fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ0) ->
 
 populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
-    C = emqx_mq_test_utils:emqtt_connect([]),
-    lists:foreach(
-        fun(I) ->
+    NeedDifferentClients = maps:get(different_clients, Opts, false),
+    C0 = emqx_mq_test_utils:emqtt_connect([]),
+    C = lists:foldl(
+        fun(I, Conn0) ->
             IBin = integer_to_binary(I),
             Topic = <<TopicPrefix/binary, IBin/binary>>,
             Payload = <<PayloadPrefix/binary, IBin/binary>>,
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, pub_opts(Opts, #{}))
+            emqx_mq_test_utils:emqtt_pub_mq(Conn0, Topic, Payload, pub_opts(Opts, #{})),
+            case NeedDifferentClients of
+                true ->
+                    emqtt:disconnect(Conn0),
+                    emqx_mq_test_utils:emqtt_connect([]);
+                false ->
+                    Conn0
+            end
         end,
+        C0,
         lists:seq(0, N - 1)
     ),
     ok = emqtt:disconnect(C).
 
 populate_lastvalue(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
+    NeedDifferentClients = maps:get(different_clients, Opts, false),
     NKeys = maps:get(n_keys, Opts, N),
-    C = emqx_mq_test_utils:emqtt_connect([]),
-    lists:foreach(
-        fun(I) ->
+    C0 = emqx_mq_test_utils:emqtt_connect([]),
+    C = lists:foldl(
+        fun(I, Conn0) ->
             IBin = integer_to_binary(I),
             Topic = <<TopicPrefix/binary, IBin/binary>>,
             Payload = <<PayloadPrefix/binary, IBin/binary>>,
             Key = <<"k-", (integer_to_binary(I rem NKeys))/binary>>,
-            emqx_mq_test_utils:emqtt_pub_mq(C, Topic, Payload, pub_opts(Opts, #{key => Key}))
+            emqx_mq_test_utils:emqtt_pub_mq(Conn0, Topic, Payload, pub_opts(Opts, #{key => Key})),
+            case NeedDifferentClients of
+                true ->
+                    emqtt:disconnect(Conn0),
+                    emqx_mq_test_utils:emqtt_connect([]);
+                false ->
+                    Conn0
+            end
         end,
+        C0,
         lists:seq(0, N - 1)
     ),
     ok = emqtt:disconnect(C).

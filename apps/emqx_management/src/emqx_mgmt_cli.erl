@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/emqx_router.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_channel.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -define(DATA_BACKUP_OPTS, #{print_fun => fun emqx_ctl:print/2}).
@@ -36,17 +37,20 @@
     olp/1,
     data/1,
     ds/1,
-    cluster_info/0,
     exclusive/1
+]).
+
+-export([
+    cluster_info/0
 ]).
 
 -spec load() -> ok.
 load() ->
-    Cmds = [Fun || {Fun, _} <- ?MODULE:module_info(exports), is_cmd(Fun)],
+    Cmds = [Fun || {Fun, 1} <- ?MODULE:module_info(exports), is_cmd(Fun)],
     lists:foreach(fun(Cmd) -> emqx_ctl:register_command(Cmd, {?MODULE, Cmd}, []) end, Cmds).
 
 is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, module_info, cluster_info]).
+    not lists:member(Fun, [init, load, module_info]).
 
 %%--------------------------------------------------------------------
 %% @doc Node status
@@ -225,6 +229,16 @@ clients(["list"]) ->
         0 -> emqx_ctl:print("No clients.~n");
         _ -> dump(?CHAN_TAB, client)
     end;
+clients(["stats", FilePath | Args]) ->
+    maybe
+        {ok, Opts} ?= parse_dump_stats_args(Args),
+        BatchSize = maps:get(batch_size, Opts, 1000),
+        SleepMs = maps:get(sleep_ms, Opts, 10),
+        dump_client_stats(FilePath, BatchSize, SleepMs)
+    else
+        {error, Msg} ->
+            emqx_ctl:print("[error] ~s~n", [Msg])
+    end;
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 clients(["kick", ClientId]) ->
@@ -233,9 +247,154 @@ clients(["kick", ClientId]) ->
 clients(_) ->
     emqx_ctl:usage([
         {"clients list", "List all clients"},
+        {"clients stats <File> [--batch <Size>] [--sleep <Ms>]\n",
+            "Dump statistic data for all clients in csv format to the given file.\n"
+            "--batch controls processing speed (default: 1000),\n"
+            "--sleep controls delay between batches (default: 10ms).\n"},
         {"clients show <ClientId>", "Show a client"},
         {"clients kick <ClientId>", "Kick out a client"}
     ]).
+
+%%--------------------------------------------------------------------
+%% @private Dump client statistics to CSV file
+
+dump_client_stats(FilePath, BatchSize, SleepMs) ->
+    try
+        case ets:info(?CHAN_INFO_TAB, size) of
+            0 ->
+                emqx_ctl:print("No clients found.~n");
+            TotalRows ->
+                emqx_ctl:print(
+                    "Found ~w clients. Starting dump with batch size ~w, sleep ~wms...~n", [
+                        TotalRows, BatchSize, SleepMs
+                    ]
+                ),
+                write_client_stats_csv(FilePath, TotalRows, BatchSize, SleepMs)
+        end
+    catch
+        Error:Reason:Stack ->
+            emqx_ctl:print("[error] Failed to dump client stats: ~p:~p~n", [Error, Reason]),
+            ?SLOG(error, #{
+                msg => "dump_client_stats_failed",
+                error => Error,
+                reason => Reason,
+                stacktrace => Stack
+            })
+    end.
+
+write_client_stats_csv(FilePath, TotalRows, BatchSize, SleepMs) ->
+    CsvHeader =
+        "timestamp,clientid,recv_oct,recv_cnt,send_oct,send_cnt,"
+        "subscriptions_cnt,awaiting_rel_cnt,mqueue_len,mqueue_dropped\n",
+
+    case file:open(FilePath, [write, raw]) of
+        {ok, FileHandle} ->
+            try
+                ok = file:write(FileHandle, CsvHeader),
+                Config = #{
+                    file_handle => FileHandle,
+                    total_rows => TotalRows,
+                    batch_size => BatchSize,
+                    sleep_ms => SleepMs
+                },
+                ok = traverse_chain_info(Config),
+                emqx_ctl:print("Client statistics dumped to ~s~n", [FilePath])
+            after
+                file:close(FileHandle)
+            end;
+        {error, Reason} ->
+            emqx_ctl:print("[error] Failed to open file ~s: ~p~n", [FilePath, Reason])
+    end.
+
+%% @doc Traverse ETS table using ets:first/ets:next with configurable delays
+traverse_chain_info(Config) ->
+    traverse_chain_info(Config, 0, 0, ets:first(?CHAN_INFO_TAB)).
+
+traverse_chain_info(Config, ProcessedCount, _BatchCount, '$end_of_table') ->
+    #{total_rows := TotalRows} = Config,
+    % Print final progress
+    emqx_ctl:print("Progress: ~w/~w (100%) - Completed~n", [ProcessedCount, TotalRows]),
+    ok;
+traverse_chain_info(Config, ProcessedCount, BatchCount, Key) ->
+    #{
+        file_handle := FileHandle,
+        total_rows := TotalRows,
+        batch_size := BatchSize,
+        sleep_ms := SleepMs
+    } = Config,
+    % Process current row
+    NextKey = ets:next(?CHAN_INFO_TAB, Key),
+    case ets:lookup(?CHAN_INFO_TAB, Key) of
+        [{Key, Info, Stats}] ->
+            _ = write_client_stats_row({Key, Info, Stats}, FileHandle),
+            NewProcessedCount = ProcessedCount + 1,
+            NewBatchCount = BatchCount + 1,
+            % Check if we need to print progress and add delay
+            case NewBatchCount >= BatchSize of
+                true ->
+                    % Print progress
+                    ProgressPercent = (NewProcessedCount * 100) div TotalRows,
+                    emqx_ctl:print("Progress: ~w/~w (~w%)~n", [
+                        NewProcessedCount, TotalRows, ProgressPercent
+                    ]),
+
+                    % Add delay to reduce CPU load
+
+                    % Configurable delay between batches
+                    timer:sleep(SleepMs),
+
+                    % Continue with next batch
+                    NextKey = ets:next(?CHAN_INFO_TAB, Key),
+                    traverse_chain_info(Config, NewProcessedCount, 0, NextKey);
+                false ->
+                    % Continue processing current batch
+                    NextKey = ets:next(?CHAN_INFO_TAB, Key),
+                    traverse_chain_info(Config, NewProcessedCount, NewBatchCount, NextKey)
+            end;
+        [] ->
+            % Key not found, skip to next
+            traverse_chain_info(Config, ProcessedCount, BatchCount, NextKey)
+    end.
+
+write_client_stats_row({{ClientId, _Pid}, _Info, Stats}, FileHandle) ->
+    Timestamp = erlang:system_time(millisecond),
+
+    % Extract stats from the Stats list
+    StatsMap = maps:from_list(Stats),
+    RecvOct = maps:get(recv_oct, StatsMap, 0),
+    RecvCnt = maps:get(recv_cnt, StatsMap, 0),
+    SendOct = maps:get(send_oct, StatsMap, 0),
+    SendCnt = maps:get(send_cnt, StatsMap, 0),
+
+    % Extract session info from Stats (these are available in the stats)
+    SubscriptionsCnt = maps:get(subscriptions_cnt, StatsMap, 0),
+    AwaitingRelCnt = maps:get(awaiting_rel_cnt, StatsMap, 0),
+    MqueueLen = maps:get(mqueue_len, StatsMap, 0),
+    MqueueDropped = maps:get(mqueue_dropped, StatsMap, 0),
+
+    % Escape the clientid for CSV
+    EscapedClientId = emqx_utils_csv:escape_field(ClientId),
+
+    % Format CSV row
+    CsvRow = io_lib:format("~w,~ts,~w,~w,~w,~w,~w,~w,~w,~w\n", [
+        Timestamp,
+        EscapedClientId,
+        % recv_oct
+        RecvOct,
+        % recv_cnt
+        RecvCnt,
+        % send_oct
+        SendOct,
+        % send_cnt
+        SendCnt,
+        SubscriptionsCnt,
+        AwaitingRelCnt,
+        MqueueLen,
+        MqueueDropped
+    ]),
+
+    _ = file:write(FileHandle, CsvRow),
+    FileHandle.
 
 if_client(ClientId, Fun) ->
     case ets:lookup(?CHAN_TAB, (bin(ClientId))) of
@@ -972,6 +1131,47 @@ collect_data_export_args(["--dir", OutDir | Rest], Acc) ->
     collect_data_export_args(Rest, Acc#{<<"out_dir">> => OutDir});
 collect_data_export_args(Args, _Acc) ->
     {error, io_lib:format("unknown arguments: ~p", [Args])}.
+
+%%--------------------------------------------------------------------
+%% @doc Parse dump stats arguments
+
+parse_dump_stats_args(Args) ->
+    maybe
+        {ok, Collected} ?= collect_dump_stats_args(Args, #{}),
+        ok ?= validate_dump_stats_args(Collected),
+        {ok, Collected}
+    end.
+
+collect_dump_stats_args([], Acc) ->
+    {ok, Acc};
+collect_dump_stats_args(["--batch", BatchSizeStr | Rest], Acc) ->
+    case string:to_integer(BatchSizeStr) of
+        {BatchSize, []} when BatchSize > 0 ->
+            collect_dump_stats_args(Rest, Acc#{batch_size => BatchSize});
+        _ ->
+            {error,
+                io_lib:format("Invalid batch size: ~s. Must be a positive integer.", [BatchSizeStr])}
+    end;
+collect_dump_stats_args(["--sleep", SleepStr | Rest], Acc) ->
+    case string:to_integer(SleepStr) of
+        {SleepMs, []} when SleepMs >= 0 ->
+            collect_dump_stats_args(Rest, Acc#{sleep_ms => SleepMs});
+        _ ->
+            {error,
+                io_lib:format("Invalid sleep value: ~s. Must be a non-negative integer.", [SleepStr])}
+    end;
+collect_dump_stats_args(Args, _Acc) ->
+    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+
+validate_dump_stats_args(Opts) ->
+    BatchSize = maps:get(batch_size, Opts, 1000),
+    SleepMs = maps:get(sleep_ms, Opts, 10),
+    case BatchSize > 0 andalso SleepMs >= 0 of
+        true ->
+            ok;
+        false ->
+            {error, "Invalid parameters"}
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc Durable storage

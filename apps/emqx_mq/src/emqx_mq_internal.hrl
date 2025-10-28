@@ -58,4 +58,16 @@
 -define(MQ_GC_REGULAR, gc_regular).
 -define(MQ_GC_LASTVALUE, gc_lastvalue).
 
+-define(DEFAULT_MQ_LIMITS,
+    (#{
+        max_shard_message_count => infinity,
+        max_shard_message_bytes => infinity
+    })
+).
+
+-define(INDEX_TS, 1).
+-define(QUOTA_INDEX_UPDATE(TIMESTAMP_US, BYTE_UPDATE, COUNT_UPDATE),
+    {TIMESTAMP_US, BYTE_UPDATE, COUNT_UPDATE}
+).
+
 -endif.

@@ -70,7 +70,24 @@ on_message_publish(#message{topic = Topic} = Message) ->
     Queues = emqx_mq_registry:match(Topic),
     ok = lists:foreach(
         fun(Queue) ->
-            publish_to_queue(Queue, Message)
+            {Time, Result} = timer:tc(fun() -> publish_to_queue(Queue, Message) end),
+            case Result of
+                ok ->
+                    emqx_mq_metrics:inc(ds, inserted_messages),
+                    ?tp_mq_client(mq_on_message_publish_to_queue, #{
+                        topic_filter => emqx_mq_prop:topic_filter(Queue),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        result => ok
+                    });
+                {error, Reason} ->
+                    ?tp(error, mq_on_message_publish_queue_error, #{
+                        topic_filter => emqx_mq_prop:topic_filter(Queue),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        reason => Reason
+                    })
+            end
         end,
         Queues
     ),
@@ -163,7 +180,9 @@ on_message_nack(_Msg, true) ->
     ok.
 
 on_client_handle_info(
-    _ClientInfo, #info_mq_inspect{receiver = Receiver, topic_filter = TopicFilter}, Acc
+    #info_mq_inspect{receiver = Receiver, topic_filter = TopicFilter},
+    _HookContext,
+    Acc
 ) ->
     ?tp_mq_client(mq_on_client_handle_info_inspect, #{topic_filter => TopicFilter}),
     Info =
@@ -176,11 +195,13 @@ on_client_handle_info(
     erlang:send(Receiver, {Receiver, Info}),
     {ok, Acc};
 on_client_handle_info(
-    ClientInfo,
     #info_to_mq_sub{subscriber_ref = SubscriberRef, info = InfoMsg},
+    HookContext,
     #{deliver := Delivers} = Acc
 ) ->
     ?tp_mq_client(mq_on_client_handle_info_to_mq_sub, #{info => InfoMsg}),
+    ChanInfoFn = maps:get(chan_info_fn, HookContext),
+    ClientInfo = ChanInfoFn(clientinfo),
     case with_sub(SubscriberRef, handle_info, [InfoMsg]) of
         not_found ->
             ok;
@@ -192,7 +213,7 @@ on_client_handle_info(
         {error, recreate} ->
             ok = recreate_sub(SubscriberRef, ClientInfo)
     end;
-on_client_handle_info(_ClientInfo, _Message, Acc) ->
+on_client_handle_info(_Message, _HookContext, Acc) ->
     ?tp_mq_client(mq_on_client_handle_info_unknown, #{message => _Message}),
     {ok, Acc}.
 

@@ -14,10 +14,13 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 all() ->
     [
         {group, mnesia_without_indices},
         {group, mnesia_with_indices},
+        {group, mnesia_with_indices_ds},
         {group, mnesia_reindex},
         {group, index_agnostic},
         {group, disabled}
@@ -27,6 +30,10 @@ groups() ->
     [
         {mnesia_without_indices, [sequence], index_related_tests()},
         {mnesia_with_indices, [sequence], index_related_tests()},
+        {mnesia_with_indices_ds, [sequence], [
+            t_dispatch_rate_limit_wildcard,
+            t_channel_inflight_blocked
+        ]},
         {mnesia_reindex, [sequence], [t_reindex]},
         {index_agnostic, [sequence], [t_disable_then_start, t_start_stop_on_setting_change]},
         {disabled, [t_disabled]}
@@ -72,6 +79,8 @@ init_per_group(mnesia_without_indices = Group, Config) ->
     start_apps(Group, [{index, false} | Config]);
 init_per_group(mnesia_reindex = Group, Config) ->
     start_apps(Group, Config);
+init_per_group(mnesia_with_indices_ds = Group, Config) ->
+    start_apps(Group, [{ds, true} | Config]);
 init_per_group(Group, Config) ->
     start_apps(Group, Config).
 
@@ -97,29 +106,44 @@ init_per_testcase(_TestCase, Config) ->
 
 end_per_testcase(t_disabled, _Config) ->
     snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok;
 end_per_testcase(_TestCase, _Config) ->
     snabbkaffe:stop(),
     reset_rates_to_default(),
+    restart_retainer_limiter(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 emqx_retainer_app_spec() ->
     {emqx_retainer, ?BASE_CONF}.
 
-emqx_conf_app_spec(disabled) ->
+emqx_conf_app_spec(disabled, _Config) ->
     {emqx_conf, ?DISABLED_CONF};
-emqx_conf_app_spec(_) ->
+emqx_conf_app_spec(mnesia_with_indices_ds, #{ds := true}) ->
+    {emqx_conf, #{config => #{<<"durable_sessions">> => #{<<"enable">> => true}}}};
+emqx_conf_app_spec(_Group, _Config) ->
     emqx_conf.
 
 start_apps(Group, Config) ->
+    ConfigMap = maps:from_list(Config),
+    IsDS = maps:get(ds, ConfigMap, false),
+    EMQX =
+        case IsDS of
+            true ->
+                {emqx, #{config => #{<<"durable_sessions">> => #{<<"enable">> => true}}}};
+            false ->
+                emqx
+        end,
     Apps = emqx_cth_suite:start(
         [
-            emqx,
-            emqx_conf_app_spec(Group),
+            EMQX,
+            emqx_conf_app_spec(Group, ConfigMap),
             emqx_retainer_app_spec()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
+    IsDS andalso (ok = emqx_persistent_message:wait_readiness(15_000)),
     [{suite_apps, Apps} | Config].
 
 stop_apps(Config) ->
@@ -267,7 +291,7 @@ t_wildcard_subscription(Config) ->
     emqtt:publish(C1, <<"/x/y/z">>, <<"">>, [{qos, 0}, {retain, true}]),
     ok = emqtt:disconnect(C1).
 
-'t_wildcard_no_$_prefix'(_Config) ->
+t_wildcard_no_dollar_sign_prefix(_Config) ->
     {ok, C0} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C0),
     emqtt:publish(
@@ -661,6 +685,475 @@ t_publish_rate_limit(_) ->
     ok = emqtt:disconnect(C1),
     ok.
 
+%% Checks that, even if we hit the dispatch rate limit while subscribing to a non-wildcard
+%% topic.
+t_dispatch_rate_limit_non_wildcard(_) ->
+    %% Setup tight dispatch rates
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1/2s">>,
+        %% First, with batches, even though it'll deliver a single one, for code path
+        %% coverage.
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 2}
+    }),
+
+    %% Prepare a retained message
+    QoS = 1,
+    Payload = <<"a">>,
+    Topic = <<"t/", Payload/binary>>,
+    Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+    emqx:publish(Msg),
+    %% Sanity check
+    ?assertEqual(1, emqx_retainer:retained_count()),
+
+    %% Now consume the global retainer limit to make client hit the limit
+    hit_delivery_rate_limit(),
+
+    %% Start and subscribe: should immediately hit limit, but eventually receive the
+    %% retained message.
+    {ok, C1} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C1),
+    snabbkaffe:start_trace(),
+
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C1, Topic, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs1 = receive_messages(1, 5_000),
+    ?assertMatch([_], Msgs1),
+    ok = emqtt:stop(C1),
+
+    %% Same test, now without delivery batches, for coverage.
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1/2s">>,
+        %% Now, without batches
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
+    }),
+
+    {ok, C2} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C2),
+    hit_delivery_rate_limit(),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C2, Topic, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs2 = receive_messages(1, 5_000),
+    ?assertMatch([_], Msgs2),
+    ok = emqtt:stop(C2),
+
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
+    }),
+
+    ok.
+
+%% Checks that, even if we hit the dispatch rate limit while subscribing to a wildcard
+%% topic.
+t_dispatch_rate_limit_wildcard(_) ->
+    %% Setup tight dispatch rates
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"10/1s">>,
+        %% First, with batches
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 3,
+            <<"batch_deliver_number">> => 2
+        }
+    }),
+
+    %% Prepare a bunch of retained messages to hit dispatch limit.
+    NumMsgs = 20,
+    Payloads = lists:map(
+        fun(N) ->
+            QoS = 1,
+            Payload = integer_to_binary(N),
+            Topic = <<"t/", Payload/binary>>,
+            Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+            emqx:publish(Msg),
+            Payload
+        end,
+        lists:seq(1, NumMsgs)
+    ),
+    %% Sanity check
+    ?assertEqual(NumMsgs, emqx_retainer:retained_count()),
+
+    snabbkaffe:start_trace(),
+
+    %% Now we connect and subscribe; should hit delivery rate limit, and yet eventually
+    %% consume all messages.
+    {ok, C1} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C1),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C1, <<"t/+">>, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs1 = receive_messages(NumMsgs),
+    ?assertEqual(NumMsgs, length(Msgs1), #{received => Msgs1}),
+    ok = emqtt:stop(C1),
+
+    %% Same test, now without delivery batches.
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"10/1s">>,
+        %% Now, without batches
+        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
+    }),
+
+    {ok, C2} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C2),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C2, <<"t/+">>, 1),
+            #{?snk_kind := retained_dispatch_failed_for_rate_exceeded_limit},
+            5_000
+        ),
+    Msgs2 = receive_messages(NumMsgs),
+    ?assertEqual(
+        lists:sort(Payloads),
+        lists:sort(lists:map(fun(#{payload := P}) -> P end, Msgs2)),
+        #{received => Msgs2}
+    ),
+    ok = emqtt:stop(C2),
+
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 0,
+            <<"batch_deliver_number">> => 0
+        }
+    }),
+    emqx_retainer:clean(),
+
+    ok.
+
+%% Verifies that we drop retry attempts after a certain TTL.
+t_dispatch_retry_expired(_) ->
+    %% Setup tight dispatch rates
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"10/1s">>,
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 3,
+            <<"batch_deliver_number">> => 2
+        }
+    }),
+
+    %% Prepare a bunch of retained messages to hit dispatch limit.
+    NumMsgs = 20,
+    lists:foreach(
+        fun(N) ->
+            QoS = 1,
+            Payload = integer_to_binary(N),
+            Topic = <<"t/", Payload/binary>>,
+            Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+            emqx:publish(Msg),
+            Payload
+        end,
+        lists:seq(1, NumMsgs)
+    ),
+    %% Sanity check
+    ?assertEqual(NumMsgs, emqx_retainer:retained_count()),
+
+    snabbkaffe:start_trace(),
+
+    %% Now we connect and subscribe; should hit delivery rate limit, attempt a retry and
+    %% then get dropped due to TTL.
+    {ok, C1} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C1),
+    update_retainer_config(#{<<"dispatch_retry_ttl">> => <<"0s">>}),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            emqtt:subscribe(C1, <<"t/+">>, 1),
+            #{?snk_kind := "retainer_retry_request_dropped_due_to_ttl"},
+            5_000
+        ),
+    update_retainer_config(#{<<"dispatch_retry_ttl">> => <<"10m">>}),
+    ReceivedMsgs = receive_messages(NumMsgs),
+    %% We receive less than expected because the retries were dropped
+    ?assert(NumMsgs > length(ReceivedMsgs), #{received => ReceivedMsgs}),
+    ok = emqtt:stop(C1),
+    ok.
+
+%% Verifies that we drop retry attempts if the queue of concurrent requests overflows.
+t_dispatch_retry_overflow(_) ->
+    %% Setup tight dispatch rates
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1/1s">>,
+        %% So we have lots of back-and-forth between channel and dispatcher.
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 1,
+            <<"batch_deliver_number">> => 1
+        }
+    }),
+    %% Prepare a bunch of retained messages to hit dispatch limit.
+    NumMsgs = 20,
+    lists:foreach(
+        fun(N) ->
+            QoS = 1,
+            Payload = integer_to_binary(N),
+            Topic = <<"t/", Payload/binary>>,
+            Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+            emqx:publish(Msg),
+            Payload
+        end,
+        lists:seq(1, NumMsgs)
+    ),
+    %% Sanity check
+    ?assertEqual(NumMsgs, emqx_retainer:retained_count()),
+
+    snabbkaffe:start_trace(),
+
+    %% Now we connect and subscribe with concurrent clients; should hit delivery rate
+    %% limit, and the some of the clients will have their requests dropped due to queue
+    %% overflow.
+    %% Since currently the number of dispatchers is the number of schedulers, we need more
+    %% than that to ensure the same dispatcher gets allocated to two or more clients.
+    NumClients = emqx_vm:schedulers() * 2,
+    ConnectAndSubscribe = fun(_) ->
+        {ok, C} = emqtt:start_link(#{
+            clean_start => true,
+            proto_ver => v5,
+            properties => #{'Session-Expiry-Interval' => 5}
+        }),
+        {ok, _} = emqtt:connect(C),
+        emqtt:subscribe(C, <<"t/+">>, 1),
+        C
+    end,
+    Cs = emqx_common_test_helpers:with_mock(
+        emqx_retainer_dispatcher,
+        max_queue_size,
+        fun() -> 1 end,
+        fun() ->
+            {Cs0, {ok, _}} =
+                ?wait_async_action(
+                    emqx_utils:pmap(ConnectAndSubscribe, lists:seq(1, NumClients)),
+                    #{?snk_kind := "retainer_retry_request_dropped_due_to_overflow"},
+                    5_000
+                ),
+            Cs0
+        end
+    ),
+    ReceivedMsgs = receive_messages(NumMsgs * NumClients),
+    %% We receive less than expected because the retries were dropped
+    ?assert(NumMsgs * NumClients > length(ReceivedMsgs), #{received => ReceivedMsgs}),
+    lists:foreach(fun(C) -> catch emqtt:stop(C) end, Cs),
+    ok.
+
+%% Verifies that all mesages are delivered when a client subscribes to multiple wildcard
+%% topics simultaneously.
+t_dispatch_multiple_subscriptions_same_client(_) ->
+    %% Setup tight dispatch rates
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        %% So we have lots of back-and-forth between channel and dispatcher.
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 1,
+            <<"batch_deliver_number">> => 1
+        }
+    }),
+    %% Prepare a bunch of retained messages
+    NumMsgsPerLevel = 10,
+    Topics = lists:map(
+        fun({I, J}) ->
+            QoS = 1,
+            IBin = integer_to_binary(I),
+            JBin = integer_to_binary(J),
+            Topic = emqx_topic:join([<<"t">>, IBin, JBin]),
+            Payload = Topic,
+            Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+            emqx:publish(Msg),
+            Payload
+        end,
+        [{I, J} || I <- lists:seq(1, NumMsgsPerLevel), J <- lists:seq(1, NumMsgsPerLevel)]
+    ),
+    %% Sanity check
+    NumAllMsgs = NumMsgsPerLevel * NumMsgsPerLevel,
+    ?assertEqual(NumAllMsgs, emqx_retainer:retained_count()),
+
+    %% The same client will subscribe simultaneously to multiple retained topics.  Should
+    %% receive them all.
+    {ok, C1} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    SubTopics = [
+        {<<"t/1/+">>, 1},
+        {<<"t/1/1">>, 1},
+        {<<"t/+/+">>, 1},
+        {<<"t/+/#">>, 1},
+        {<<"t/#">>, 1}
+    ],
+    {ok, _} = emqtt:connect(C1),
+    ?check_trace(
+        begin
+            {ok, _, _} = emqtt:subscribe(C1, SubTopics),
+            ExpectedNumMsgs = NumMsgsPerLevel + 1 + NumAllMsgs * 3,
+            ReceivedMsgs0 = receive_messages(ExpectedNumMsgs, 5_000),
+            ExpectedMsgs0 = [
+                Topic
+             || {TopicFilter, _} <- SubTopics,
+                Topic <- Topics,
+                emqx_topic:match(Topic, TopicFilter)
+            ],
+            ExpectedMsgs = lists:sort(ExpectedMsgs0),
+            ReceivedMsgs = lists:sort(lists:map(fun(#{payload := P}) -> P end, ReceivedMsgs0)),
+            Missing = ExpectedMsgs -- ReceivedMsgs,
+            Unexpected = ReceivedMsgs -- ExpectedMsgs,
+            ?assertEqual(
+                #{missing => [], unexpected => []}, #{
+                    missing => Missing,
+                    unexpected => Unexpected
+                }
+            ),
+            ok
+        end,
+        []
+    ),
+    ok = emqtt:stop(C1),
+
+    ok.
+
+%% Checks that the channel can resume iterating retained messages after the processing
+%% gets blocked due to the inflight window being full.
+t_channel_inflight_blocked(_) ->
+    update_retainer_config(#{
+        %% So we have lots of back-and-forth between channel and dispatcher.
+        <<"flow_control">> => #{
+            <<"batch_read_number">> => 1,
+            <<"batch_deliver_number">> => 1
+        }
+    }),
+    %% Ensure a small-ish inflight window for the test.
+    MaxInflight = emqx:get_config([mqtt, max_inflight]),
+    on_exit(fun() -> {ok, _} = emqx:update_config([mqtt, max_inflight], MaxInflight) end),
+    NewMaxInflight = 32,
+    {ok, _} = emqx:update_config([mqtt, max_inflight], NewMaxInflight),
+    %% Prepare a bunch of retained messages
+    NumMsgsPerLevel = 10,
+    Payloads = lists:map(
+        fun({I, J}) ->
+            QoS = 1,
+            IBin = integer_to_binary(I),
+            JBin = integer_to_binary(J),
+            Topic = emqx_topic:join([<<"t">>, IBin, JBin]),
+            Payload = Topic,
+            Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+            emqx:publish(Msg),
+            Payload
+        end,
+        [{I, J} || I <- lists:seq(1, NumMsgsPerLevel), J <- lists:seq(1, NumMsgsPerLevel)]
+    ),
+    %% Sanity check
+    NumAllMsgs = NumMsgsPerLevel * NumMsgsPerLevel,
+    ?assertEqual(NumAllMsgs, emqx_retainer:retained_count()),
+
+    {ok, C} = emqtt:start_link(#{
+        clean_start => true,
+        %% Client will not puback automatically to ensure inflight window gets filled.
+        auto_ack => never,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C),
+    ok = snabbkaffe:start_trace(),
+    ?check_trace(
+        begin
+            ?assertMatch(
+                {_, {ok, _}},
+                ?wait_async_action(
+                    emqtt:subscribe(C, <<"t/#">>, 1),
+                    #{?snk_kind := "channel_retained_batch_blocked"},
+                    5_000
+                )
+            ),
+            ReceivedMsgs1 = receive_messages(NewMaxInflight),
+            ?assertEqual(NewMaxInflight, length(ReceivedMsgs1), #{received => ReceivedMsgs1}),
+            %% Now, let's ack them to make more room.
+            AckAll = fun(Msgs) ->
+                lists:foreach(fun(#{packet_id := PI}) -> emqtt:puback(C, PI) end, Msgs)
+            end,
+            AckAll(ReceivedMsgs1),
+
+            %% Should eventually receive everything
+            ReceiveAndAck = fun Recur(Acc) ->
+                case receive_messages(NewMaxInflight) of
+                    [] ->
+                        Acc;
+                    [_ | _] = Received ->
+                        AckAll(Received),
+                        Recur(Received ++ Acc)
+                end
+            end,
+            RestReceived = ReceiveAndAck([]),
+
+            ExpectedMsgs = lists:sort(Payloads),
+            ReceivedMsgs = lists:sort(
+                lists:map(
+                    fun(#{payload := P}) -> P end,
+                    ReceivedMsgs1 ++ RestReceived
+                )
+            ),
+            Missing = ExpectedMsgs -- ReceivedMsgs,
+            Unexpected = ReceivedMsgs -- ExpectedMsgs,
+            ?assertEqual(
+                #{missing => [], unexpected => []}, #{
+                    missing => Missing,
+                    unexpected => Unexpected
+                }
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Checks that if we are iterating over retained messages and encounter a message that is
+%% much newer than when we started iterating, we don't dispatch it to the client.
+t_newer_message_dispatch(_) ->
+    MessageFromTheFuture = emqx_message:from_map(#{
+        id => emqx_guid:gen(),
+        qos => 1,
+        from => <<"publisher">>,
+        flags => #{},
+        headers => #{retained => true},
+        topic => <<"t/1">>,
+        payload => <<"this is too fresh for us">>,
+        timestamp => now_ms() + 30_000,
+        extra => #{}
+    }),
+    ok = emqx_retainer_publisher:store_retained(MessageFromTheFuture),
+    %% Sanity check
+    ?assertEqual(1, emqx_retainer:retained_count()),
+    {ok, C} = emqtt:start_link(#{
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 5}
+    }),
+    {ok, _} = emqtt:connect(C),
+    %% Check both wildcard and straight topic subscription
+    {ok, _, [_, _]} = emqtt:subscribe(C, [{<<"t/1">>, 1}, {<<"t/+">>, 1}]),
+    %% We wait for one message from each subscription, but expect to receive none.
+    Messages = receive_messages(2),
+    ?assertEqual([], Messages),
+    ok.
+
 t_delete_rate_limit(_) ->
     %% Setup tight publish rates
     update_retainer_config(#{
@@ -799,7 +1292,13 @@ t_only_for_coverage(_) ->
     ok.
 
 t_reindex(_) ->
-    remove_delivery_rate(),
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"100/1s">>,
+        <<"flow_control">> => #{
+            <<"batch_deliver_number">> => 2,
+            <<"batch_read_number">> => 2
+        }
+    }),
     {ok, C} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C),
 
@@ -874,7 +1373,13 @@ t_reindex(_) ->
             )
         end
     ),
-    reset_delivery_rate_to_default(),
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        <<"flow_control">> => #{
+            <<"batch_deliver_number">> => 0,
+            <<"batch_read_number">> => 0
+        }
+    }),
     ok.
 
 t_get_basic_usage_info(_Config) ->
@@ -1101,21 +1606,21 @@ test_retain_while_reindexing(C, Deadline) ->
     end.
 
 receive_messages(Count) ->
+    receive_messages(Count, _Timeout = 2_000).
+
+receive_messages(Count, Timeout) ->
     lists:reverse(
-        receive_messages(Count, [])
+        do_receive_messages(Count, [], Timeout)
     ).
 
-receive_messages(0, Msgs) ->
+do_receive_messages(0, Msgs, _Timeout) ->
     Msgs;
-receive_messages(Count, Msgs) ->
+do_receive_messages(Count, Msgs, Timeout) ->
     receive
         {publish, Msg} ->
             ct:log("Msg: ~p ~n", [Msg]),
-            receive_messages(Count - 1, [Msg | Msgs]);
-        Other ->
-            ct:print("Other Msg: ~p~n", [Other]),
-            receive_messages(Count, Msgs)
-    after 2000 ->
+            do_receive_messages(Count - 1, [Msg | Msgs], Timeout)
+    after Timeout ->
         Msgs
     end.
 
@@ -1226,3 +1731,19 @@ restart_retainer_limiter() ->
 update_retainer_config(Conf) ->
     {ok, _} = emqx_retainer:update_config(Conf),
     ok = restart_retainer_limiter().
+
+hit_delivery_rate_limit() ->
+    LimiterId = {?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME},
+    Limiter = emqx_limiter:connect(LimiterId),
+    hit_delivery_rate_limit(Limiter).
+
+hit_delivery_rate_limit(Limiter0) ->
+    case emqx_limiter_client:try_consume(Limiter0, 1) of
+        {true, Limiter} ->
+            hit_delivery_rate_limit(Limiter);
+        {false, _, _} ->
+            ok
+    end.
+
+now_ms() ->
+    erlang:system_time(millisecond).

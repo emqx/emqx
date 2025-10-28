@@ -1158,7 +1158,7 @@ do_local_ets_select_v1(#{} = Params, Acc) ->
         fun ?MODULE:qs2ms/2,
         %% Note: we set limit to 1 here so we may avoid overshooting desired batch size.
         _Meta = #{page => unused, limit => 1},
-        _Options = #{}
+        _Options = #{total_counting => disable}
     ),
     QueryState = QueryState0#{continuation => Cont},
     case emqx_mgmt_api:do_query(node(), QueryState) of

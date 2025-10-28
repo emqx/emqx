@@ -65,6 +65,49 @@ fields(mq) ->
                     <<"regular">> => false,
                     <<"lastvalue">> => #{}
                 }
+            })},
+        {quota,
+            mk(ref(quota), #{
+                required => true,
+                desc => ?DESC(quota),
+                default => #{},
+                importance => ?IMPORTANCE_HIDDEN
+            })}
+    ];
+%% NOTE
+%% We do not want to expose the quota settings to the users for now.
+%% We benchmarked the default values and believe that they are reasonable for the most users.
+%% Exposing these settings should be done with guidance from the documentation
+%% and after we gain more use cases for the quota feature.
+fields(quota) ->
+    [
+        {threshold_percentage,
+            mk(range(1, 100), #{
+                required => true,
+                desc => ?DESC(threshold_percentage),
+                default => 10,
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {buffer_max_size,
+            mk(pos_integer(), #{
+                required => true,
+                desc => ?DESC(buffer_max_size),
+                default => 100,
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {buffer_flush_interval,
+            mk(emqx_schema:duration_ms(), #{
+                required => true,
+                desc => ?DESC(buffer_flush_interval),
+                default => 1000,
+                importance => ?IMPORTANCE_HIDDEN
+            })},
+        {buffer_pool_size,
+            mk(pos_integer(), #{
+                required => true,
+                desc => ?DESC(buffer_pool_size),
+                default => 16,
+                importance => ?IMPORTANCE_HIDDEN
             })}
     ];
 fields(auto_create) ->
@@ -104,6 +147,18 @@ fields(auto_create_regular) ->
 fields(auto_create_lastvalue) ->
     LastvalueMQFields = message_queue_fields(true) ++ message_queue_lastvalue_fields(),
     without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
+%% MQ structs
+fields(mq_individual_limits) ->
+    [
+        {max_shard_message_count,
+            mk(hoconsc:union([infinity, pos_integer()]), #{
+                desc => ?DESC(max_shard_message_count), required => true, default => <<"infinity">>
+            })},
+        {max_shard_message_bytes,
+            mk(hoconsc:union([infinity, emqx_schema:bytesize()]), #{
+                desc => ?DESC(max_shard_message_bytes), required => true, default => <<"infinity">>
+            })}
+    ];
 %%
 %% Lastvalue structs
 %%
@@ -146,6 +201,8 @@ desc(auto_create_regular) ->
     ?DESC(auto_create_regular);
 desc(auto_create_lastvalue) ->
     ?DESC(auto_create_lastvalue);
+desc(mq_individual_limits) ->
+    ?DESC(mq_individual_limits);
 desc(_) ->
     undefined.
 
@@ -185,6 +242,15 @@ message_queue_fields(IsLastvalue) ->
                 desc => ?DESC(dispatch_strategy),
                 required => false,
                 default => random
+            })},
+        {limits,
+            mk(ref(mq_individual_limits), #{
+                desc => ?DESC(mq_individual_limits),
+                required => true,
+                default => #{
+                    <<"max_shard_message_count">> => infinity,
+                    <<"max_shard_message_bytes">> => infinity
+                }
             })},
         {consumer_max_inactive,
             mk(emqx_schema:duration_ms(), #{

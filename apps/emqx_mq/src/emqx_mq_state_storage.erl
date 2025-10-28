@@ -335,13 +335,12 @@ pmap_encode_val(?pn_shard_progress, _Key, #{
                     stream = StreamBin,
                     bufferProgress = #'StreamBufferProgress'{
                         it = ItBin,
-                        lastMessageId = to_optional_integer(LastMessageId),
+                        lastMessageId = to_asn1_optional_integer(LastMessageId),
                         unacked = maps:keys(emqx_utils_maps:merge(Unacked))
                     }
                 }}
         },
-    {ok, Bin} = 'MessageQueue':encode('ShardProgress', Rec),
-    Bin;
+    'MessageQueue':encode('ShardProgress', Rec);
 pmap_encode_val(?pn_shard_progress, _Key, #{
     status := finished,
     generation := Generation
@@ -349,8 +348,7 @@ pmap_encode_val(?pn_shard_progress, _Key, #{
     Rec = #'ShardProgress'{
         progress = {finished, #'FinishedShardProgress'{generation = Generation}}
     },
-    {ok, Bin} = 'MessageQueue':encode('ShardProgress', Rec),
-    Bin;
+    'MessageQueue':encode('ShardProgress', Rec);
 pmap_encode_val(
     ?pn_mq,
     ?mq_key,
@@ -367,11 +365,12 @@ pmap_encode_val(
         stream_max_buffer_size := StreamMaxBufferSize,
         stream_max_unacked := StreamMaxUnacked,
         consumer_persistence_interval := ConsumerPersistenceInterval,
-        data_retention_period := DataRetentionPeriod
+        data_retention_period := DataRetentionPeriod,
+        limits := Limits
     } = MQ
 ) ->
     KeyExpression = maps:get(key_expression, MQ, undefined),
-    {ok, Bin} = 'MessageQueue':encode('MQ', #'MQ'{
+    'MessageQueue':encode('MQ', #'MQ'{
         id = Id,
         topicFilter = TopicFilter,
         isLastvalue = IsLastvalue,
@@ -385,13 +384,13 @@ pmap_encode_val(
         streamMaxUnacked = StreamMaxUnacked,
         consumerPersistenceInterval = ConsumerPersistenceInterval,
         dataRetentionPeriod = DataRetentionPeriod,
-        keyExpression = key_expression_to_asn1(KeyExpression)
-    }),
-    Bin.
+        keyExpression = key_expression_to_asn1(KeyExpression),
+        limits = limits_to_asn1(Limits)
+    }).
 
 pmap_decode_val(?pn_shard_progress, _Key, ValBin) ->
     case 'MessageQueue':decode('ShardProgress', ValBin) of
-        {ok, #'ShardProgress'{
+        #'ShardProgress'{
             progress =
                 {active, #'ActiveShardProgress'{
                     generation = Generation,
@@ -402,7 +401,7 @@ pmap_decode_val(?pn_shard_progress, _Key, ValBin) ->
                         unacked = Unacked
                     }
                 }}
-        }} ->
+        } ->
             {ok, Stream} = emqx_ds:binary_to_stream(?DB, StreamBin),
             {ok, It} = emqx_ds:binary_to_iterator(?DB, ItBin),
             #{
@@ -411,17 +410,17 @@ pmap_decode_val(?pn_shard_progress, _Key, ValBin) ->
                 stream => Stream,
                 buffer_progress => #{
                     it => It,
-                    last_message_id => from_optional_integer(LastMessageIdASN1),
+                    last_message_id => from_asn1_optional_integer(LastMessageIdASN1),
                     unacked => [maps:from_keys(Unacked, true)]
                 }
             };
-        {ok, #'ShardProgress'{
+        #'ShardProgress'{
             progress = {finished, #'FinishedShardProgress'{generation = Generation}}
-        }} ->
+        } ->
             #{status => finished, generation => Generation}
     end;
 pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
-    {ok, #'MQ'{
+    #'MQ'{
         id = Id,
         topicFilter = TopicFilter,
         isLastvalue = IsLastvalue,
@@ -435,8 +434,9 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         streamMaxUnacked = StreamMaxUnacked,
         consumerPersistenceInterval = ConsumerPersistenceInterval,
         dataRetentionPeriod = DataRetentionPeriod,
-        keyExpression = KeyExpression
-    }} = 'MessageQueue':decode('MQ', ValBin),
+        keyExpression = KeyExpression,
+        limits = Limits
+    } = 'MessageQueue':decode('MQ', ValBin),
     MQ = #{
         id => Id,
         topic_filter => TopicFilter,
@@ -450,7 +450,8 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         stream_max_buffer_size => StreamMaxBufferSize,
         stream_max_unacked => StreamMaxUnacked,
         consumer_persistence_interval => ConsumerPersistenceInterval,
-        data_retention_period => DataRetentionPeriod
+        data_retention_period => DataRetentionPeriod,
+        limits => limits_from_asn1(Limits)
     },
     key_expression_from_asn1(MQ, KeyExpression).
 
@@ -550,14 +551,14 @@ mq_state_id(#{id := Id}) ->
 mq_state_id(Id) when is_binary(Id) ->
     <<"m-", Id/binary>>.
 
-to_optional_integer(undefined) ->
+to_asn1_optional_integer(undefined) ->
     asn1_NOVALUE;
-to_optional_integer(Integer) ->
+to_asn1_optional_integer(Integer) when is_integer(Integer) ->
     Integer.
 
-from_optional_integer(asn1_NOVALUE) ->
+from_asn1_optional_integer(asn1_NOVALUE) ->
     undefined;
-from_optional_integer(Integer) ->
+from_asn1_optional_integer(Integer) when is_integer(Integer) ->
     Integer.
 
 key_expression_from_asn1(MQ, asn1_NOVALUE) ->
@@ -570,3 +571,36 @@ key_expression_to_asn1(undefined) ->
     asn1_NOVALUE;
 key_expression_to_asn1(KeyExpression) ->
     emqx_variform:decompile(KeyExpression).
+
+limit_from_asn1_optional_integer(asn1_NOVALUE) ->
+    infinity;
+limit_from_asn1_optional_integer(Integer) when is_integer(Integer) ->
+    Integer.
+
+limit_to_asn1_optional_integer(infinity) ->
+    asn1_NOVALUE;
+limit_to_asn1_optional_integer(Integer) when is_integer(Integer) ->
+    Integer.
+
+limits_from_asn1(asn1_NOVALUE) ->
+    #{
+        max_shard_message_count => infinity,
+        max_shard_message_bytes => infinity
+    };
+limits_from_asn1(#'Limits'{
+    maxShardMessageCount = MaxShardMessageCount,
+    maxShardMessageBytes = MaxShardMessageBytes
+}) ->
+    #{
+        max_shard_message_count => limit_from_asn1_optional_integer(MaxShardMessageCount),
+        max_shard_message_bytes => limit_from_asn1_optional_integer(MaxShardMessageBytes)
+    }.
+
+limits_to_asn1(#{
+    max_shard_message_count := MaxShardMessageCount,
+    max_shard_message_bytes := MaxShardMessageBytes
+}) ->
+    #'Limits'{
+        maxShardMessageCount = limit_to_asn1_optional_integer(MaxShardMessageCount),
+        maxShardMessageBytes = limit_to_asn1_optional_integer(MaxShardMessageBytes)
+    }.

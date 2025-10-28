@@ -86,7 +86,7 @@ schema("/relup/package/upload") ->
                 }
             },
             responses => #{
-                204 => <<"Package is uploaded successfully">>,
+                204 => ?DESC("package_uploaded_successfully"),
                 400 => emqx_dashboard_swagger:error_codes(
                     ['UNEXPECTED_ERROR', 'ALREADY_INSTALLED', 'BAD_PLUGIN_INFO']
                 )
@@ -103,7 +103,7 @@ schema("/relup/package") ->
                 200 => hoconsc:ref(package),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'],
-                    <<"No relup package is installed">>
+                    ?DESC("no_relup_package_installed")
                 )
             }
         },
@@ -111,7 +111,7 @@ schema("/relup/package") ->
             description => ?DESC("delete_package"),
             tags => ?TAGS,
             responses => #{
-                204 => <<"Packages are deleted successfully">>
+                204 => ?DESC("packages_deleted_successfully")
             }
         }
     };
@@ -145,13 +145,13 @@ schema("/relup/upgrade") ->
             description => ?DESC("upgrade_all"),
             tags => ?TAGS,
             responses => #{
-                204 => <<"Upgrade is started successfully">>,
+                204 => ?DESC("upgrade_started_successfully"),
                 400 => emqx_dashboard_swagger:error_codes(
                     ['UNEXPECTED_ERROR'],
-                    <<"Upgrade failed because of invalid input or environment">>
+                    ?DESC("upgrade_failed_invalid_input")
                 ),
                 500 => emqx_dashboard_swagger:error_codes(
-                    ['INTERNAL_ERROR'], <<"Upgrade failed because of internal errors">>
+                    ['INTERNAL_ERROR'], ?DESC("upgrade_failed_internal_errors")
                 )
             }
         }
@@ -164,17 +164,17 @@ schema("/relup/upgrade/:node") ->
             tags => ?TAGS,
             parameters => [hoconsc:ref(node_name)],
             responses => #{
-                204 => <<"Upgrade is started successfully">>,
+                204 => ?DESC("upgrade_started_successfully"),
                 400 => emqx_dashboard_swagger:error_codes(
                     ['UNEXPECTED_ERROR'],
-                    <<"Upgrade failed because of invalid input or environment">>
+                    ?DESC("upgrade_failed_invalid_input")
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
                     ['NOT_FOUND'],
-                    <<"Node not found">>
+                    ?DESC("node_not_found")
                 ),
                 500 => emqx_dashboard_swagger:error_codes(
-                    ['INTERNAL_ERROR'], <<"Upgrade failed because of internal errors">>
+                    ['INTERNAL_ERROR'], ?DESC("upgrade_failed_internal_errors")
                 )
             }
         }

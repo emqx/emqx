@@ -62,10 +62,10 @@ schema("/file_transfer/files") ->
             responses => #{
                 200 => ?DESC("operation_success"),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Invalid cursor">>
+                    ['BAD_REQUEST'], ?DESC("invalid_cursor")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -84,10 +84,10 @@ schema("/file_transfer/files/:clientid/:fileid") ->
             responses => #{
                 200 => ?DESC("operation_success"),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['FILES_NOT_FOUND'], error_desc('FILES_NOT_FOUND')
+                    ['FILES_NOT_FOUND'], ?DESC("files_not_found")
                 ),
                 503 => emqx_dashboard_swagger:error_codes(
-                    ['SERVICE_UNAVAILABLE'], error_desc('SERVICE_UNAVAILABLE')
+                    ['SERVICE_UNAVAILABLE'], ?DESC("service_unavailable")
                 )
             }
         }
@@ -108,10 +108,7 @@ schema("/file_transfer") ->
             'requestBody' => ?SCHEMA_CONFIG,
             responses => #{
                 200 => ?SCHEMA_CONFIG,
-                400 => emqx_dashboard_swagger:error_codes(
-                    ['UPDATE_FAILED', 'INVALID_CONFIG'],
-                    error_desc('INVALID_CONFIG')
-                )
+                400 => emqx_dashboard_swagger:error_codes(['UPDATE_FAILED'])
             }
         }
     }.
@@ -182,8 +179,6 @@ error_msg(Code, Msg) ->
 
 error_desc('FILES_NOT_FOUND') ->
     <<"Files requested for this transfer could not be found">>;
-error_desc('INVALID_CONFIG') ->
-    <<"Provided configuration is invalid">>;
 error_desc('SERVICE_UNAVAILABLE') ->
     <<"Service unavailable">>.
 
