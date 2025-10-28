@@ -152,6 +152,7 @@ backend can reject flush request.
 %% Timeouts
 %%   Flush pending transactions to the storage:
 -define(timeout_flush, timeout_flush).
+-define(timeout_quota_check, timeout_quota_check).
 
 -record(gen_data, {
     dirty_w :: emqx_ds_tx_conflict_trie:t(),
@@ -188,7 +189,9 @@ backend can reject flush request.
     gens = #{} :: generations(),
     %% `true' = writes are allowed, `false' = writes are not allowed
     is_within_quota :: boolean() | undefined,
-    is_quota_checked = false :: boolean()
+    %% This timer activates while `is_within_quota' = `false'. This
+    %% timer is used to periodacally re-check the quota:
+    quota_check_timer :: reference() | undefined
 }).
 -type d() :: #d{}.
 
@@ -440,6 +443,9 @@ loop(D0) ->
             loop(do_update_config(D0));
         ?timeout_flush ->
             loop(flush(D0));
+        ?timeout_quota_check ->
+            D = D0#d{quota_check_timer = undefined},
+            loop(check_soft_quota(D));
         {'EXIT', _From, Reason} ->
             case Reason of
                 normal -> loop(D0);
@@ -846,7 +852,7 @@ update_dirty_w(Serial, Ops, Dirty) ->
 
 -spec do_flush(d()) -> d().
 do_flush(D = #d{n_items = 0}) ->
-    D#d{is_quota_checked = false};
+    D;
 do_flush(D0 = #d{n_items = NItems}) ->
     %% Note: we take n_items before cooking_dirty_append to avoid
     %% off-by-one error when it adds a batch.
@@ -883,8 +889,7 @@ do_flush(D0 = #d{n_items = NItems}) ->
                 entered_pending_at = undefined,
                 committed_serial = Serial,
                 gens = Gens,
-                n_items = 0,
-                is_quota_checked = false
+                n_items = 0
             };
         _ ->
             emqx_ds_builtin_metrics:inc_buffer_batches_failed(Metrics),
@@ -1172,25 +1177,33 @@ version() ->
     {ok, Version} = application:get_key(emqx_durable_storage, vsn),
     Version.
 
-check_soft_quota(D = #d{cbm = CBM, db = DB, is_within_quota = OldState, is_quota_checked = false}) ->
+check_soft_quota(
+    D = #d{cbm = CBM, db = DB, is_within_quota = OldState, quota_check_timer = undefined}
+) ->
     maybe
         #{runtime := RT} ?= emqx_dsch:get_db_runtime(DB),
         #{db_group := GroupName} ?= RT,
         {ok, Group} ?= emqx_ds:lookup_db_group(GroupName),
         NewState = CBM:otx_check_soft_quota(Group),
+        %% Handle alarms and events:
         case NewState of
             OldState ->
                 ok;
             false ->
+                ?tp(emqx_ds_storage_quota, #{db => DB, exceeded => true}),
                 emqx_alarm:safe_activate(
                     quota_alarm(DB),
                     #{},
                     <<"Storage quota has been exceeded for database ", (atom_to_binary(DB))/binary>>
                 );
             true ->
+                ?tp(emqx_ds_storage_quota, #{db => DB, exceeded => false}),
                 emqx_alarm:safe_deactivate(quota_alarm(DB))
         end,
-        D#d{is_within_quota = NewState, is_quota_checked = true}
+        D#d{
+            is_within_quota = NewState,
+            quota_check_timer = maybe_start_quota_check_timer(NewState)
+        }
     else
         Other ->
             ?tp(warning, "invalid_soft_quota_result", #{cbm => CBM, db => DB, result => Other}),
@@ -1201,6 +1214,12 @@ check_soft_quota(D) ->
 
 quota_alarm(DB) ->
     <<"db_storage_quota_exceeded:", (atom_to_binary(DB))/binary>>.
+
+maybe_start_quota_check_timer(true) ->
+    undefined;
+maybe_start_quota_check_timer(false) ->
+    Interval = 1000,
+    erlang:send_after(Interval, self(), ?timeout_quota_check).
 
 %%================================================================================
 %% Tests
