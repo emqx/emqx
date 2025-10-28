@@ -310,6 +310,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
 
+  def common_dep(:greptimedb),
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
+
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
 
