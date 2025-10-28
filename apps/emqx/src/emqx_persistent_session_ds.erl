@@ -733,7 +733,7 @@ handle_info(
                     };
                 ignore ->
                     %% No, unknown message:
-                    ?tp(warning, ?sessds_unknown_message, #{message => Info}),
+                    ?tp(debug, ?sessds_unknown_message, #{message => Info}),
                     Session
             end
     end.
