@@ -10,6 +10,7 @@
     start_link/0,
     start_post_starter/1,
     start_consumer_sup/0,
+    start_metrics/0,
     start_gc_scheduler/0,
     start_gc_sup/0,
     start_consumer/2,
@@ -35,12 +36,10 @@ start_post_starter(MFA) ->
     supervisor:start_child(?ROOT_SUP, post_start_child_spec(MFA)).
 
 start_gc_scheduler() ->
-    case supervisor:start_child(?ROOT_SUP, emqx_mq_gc:child_spec()) of
-        {ok, _Pid} ->
-            ok;
-        {error, {already_started, _Pid}} ->
-            ok
-    end.
+    ensure_child(?ROOT_SUP, emqx_mq_gc:child_spec()).
+
+start_metrics() ->
+    ensure_child(?ROOT_SUP, emqx_mq_metrics:child_spec()).
 
 start_consumer(Id, Args) ->
     case supervisor:start_child(?CONSUMER_SUP, emqx_mq_consumer:child_spec(Id, Args)) of
@@ -55,14 +54,7 @@ start_consumer(Id, Args) ->
     end.
 
 start_gc() ->
-    case supervisor:start_child(?GC_SUP, emqx_mq_gc_worker:child_spec()) of
-        {ok, _Pid} ->
-            ok;
-        {error, {already_started, _Pid}} ->
-            ok;
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    ensure_child(?GC_SUP, emqx_mq_gc_worker:child_spec()).
 
 %% Internals
 
@@ -123,3 +115,13 @@ post_start_child_spec(MFA) ->
         type => worker,
         shutdown => brutal_kill
     }.
+
+ensure_child(SupRef, ChildSpec) ->
+    case supervisor:start_child(SupRef, ChildSpec) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.

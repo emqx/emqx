@@ -86,7 +86,7 @@ terminate(_Reason, _State) ->
 %%--------------------------------------------------------------------
 
 %%
-%% LastValue Queues GC
+%% Non Append-Only Queue GC
 %%
 
 start_gc_lastvalue_queues() ->
@@ -107,22 +107,18 @@ gc_next_lastvalue_batch(#{stream := Stream0} = State) ->
     end.
 
 gc_lastvalue_queues(MQs) ->
-    NowMS = now_ms(),
-    emqx_mq_message_db:delete_lastvalue_data(MQs, NowMS).
+    emqx_mq_message_db:delete_expired_data(MQs).
 
 lastvalue_mq_stream() ->
     emqx_utils_stream:filter(
-        fun
-            (#{is_lastvalue := true}) ->
-                true;
-            (_) ->
-                false
+        fun(MQ) ->
+            not emqx_mq_prop:is_append_only(MQ)
         end,
         emqx_mq_registry:list()
     ).
 
 %%
-%% Regular Queues GC
+%% Append-Only Queue GC
 %%
 
 gc_regular_queues() ->

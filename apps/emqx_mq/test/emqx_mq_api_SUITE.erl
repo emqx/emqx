@@ -68,26 +68,53 @@ t_crud(_Config) ->
     ?assertMatch(
         {ok, 200, _},
         api_post([message_queues, queues], #{
-            <<"topic_filter">> => <<"t/1">>, <<"ping_interval">> => 9999
+            <<"topic_filter">> => <<"t/1/1">>, <<"ping_interval">> => 9999
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/1/2">>,
+            <<"ping_interval">> => 9999,
+            <<"limits">> => #{
+                <<"max_shard_message_count">> => 1000,
+                <<"max_shard_message_bytes">> => <<"100MB">>
+            }
         })
     ),
     ?retry(
         5,
         20,
-        ?assertMatch(
+        begin
             {ok, 200, #{
-                <<"data">> := [
+                <<"data">> := Data,
+                <<"meta">> := #{<<"hasnext">> := false}
+            }} =
+                api_get([message_queues, queues]),
+            ?assertMatch(
+                [
                     #{
-                        <<"topic_filter">> := <<"t/1">>,
+                        <<"topic_filter">> := <<"t/1/1">>,
                         <<"ping_interval">> := 9999,
                         %% Lastvalue flag is true by default
-                        <<"is_lastvalue">> := true
+                        <<"is_lastvalue">> := true,
+                        <<"limits">> := #{
+                            <<"max_shard_message_count">> := <<"infinity">>,
+                            <<"max_shard_message_bytes">> := <<"infinity">>
+                        }
+                    },
+                    #{
+                        <<"topic_filter">> := <<"t/1/2">>,
+                        <<"ping_interval">> := 9999,
+                        <<"limits">> := #{
+                            <<"max_shard_message_count">> := 1000,
+                            <<"max_shard_message_bytes">> := 104857600
+                        }
                     }
                 ],
-                <<"meta">> := #{<<"hasnext">> := false}
-            }},
-            api_get([message_queues, queues])
-        )
+                sort_by(fun(#{<<"topic_filter">> := TopicFilter}) -> TopicFilter end, Data)
+            )
+        end
     ),
     ?assertMatch(
         {ok, 404, _},
@@ -97,28 +124,27 @@ t_crud(_Config) ->
         5,
         20,
         ?assertMatch(
-            {ok, 200, #{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}},
-            api_put([message_queues, queues, urlencode(<<"t/1">>)], #{<<"ping_interval">> => 10000})
+            {ok, 200, #{<<"topic_filter">> := <<"t/1/1">>, <<"ping_interval">> := 10000}},
+            api_put([message_queues, queues, urlencode(<<"t/1/1">>)], #{
+                <<"ping_interval">> => 10000
+            })
         )
     ),
     ?assertMatch(
-        {ok, 200, #{
-            <<"data">> := [#{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}],
-            <<"meta">> := #{<<"hasnext">> := false}
-        }},
-        api_get([message_queues, queues])
-    ),
-    ?assertMatch(
-        {ok, 200, #{<<"topic_filter">> := <<"t/1">>, <<"ping_interval">> := 10000}},
-        api_get([message_queues, queues, urlencode(<<"t/1">>)])
+        {ok, 200, #{<<"topic_filter">> := <<"t/1/1">>, <<"ping_interval">> := 10000}},
+        api_get([message_queues, queues, urlencode(<<"t/1/1">>)])
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_queues, queues, urlencode(<<"t/1">>)])
+        api_delete([message_queues, queues, urlencode(<<"t/1/1">>)])
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_delete([message_queues, queues, urlencode(<<"t/1/2">>)])
     ),
     ?assertMatch(
         {ok, 404, _},
-        api_delete([message_queues, queues, urlencode(<<"t/1">>)])
+        api_delete([message_queues, queues, urlencode(<<"t/1/1">>)])
     ),
     ?retry(
         5,
@@ -272,6 +298,87 @@ t_lastvalue_vs_regular(_Config) ->
         api_put([message_queues, queues, urlencode(<<"t/2">>)], #{<<"is_lastvalue">> => false})
     ).
 
+%% Verify that regular queue cannot be converted from limited to unlimited and vice versa.
+t_limited_vs_unlimited(_Config) ->
+    %% Cannot create a regular queue
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/1">>, <<"is_lastvalue">> => false
+        })
+    ),
+
+    %% Cannot update an unlimited regular queue to limited
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Regular queues cannot be updated from limited to unlimited and vice versa">>
+        }},
+        api_put([message_queues, queues, urlencode(<<"t/1">>)], #{
+            <<"is_lastvalue">> => false,
+            <<"limits">> => #{
+                <<"max_shard_message_count">> => 1000,
+                <<"max_shard_message_bytes">> => <<"100MB">>
+            }
+        })
+    ),
+
+    %% Create a limited regular queue
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/2">>,
+            <<"is_lastvalue">> => false,
+            <<"limits">> => #{
+                <<"max_shard_message_count">> => 1000,
+                <<"max_shard_message_bytes">> => <<"100MB">>
+            }
+        })
+    ),
+
+    %% Cannot update a limited regular queue to unlimited
+    ?assertMatch(
+        {ok, 400, #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> :=
+                <<"Regular queues cannot be updated from limited to unlimited and vice versa">>
+        }},
+        api_put([message_queues, queues, urlencode(<<"t/2">>)], #{<<"is_lastvalue">> => false})
+    ),
+
+    %% Create an unlimited lastvalue queue
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_queues, queues], #{
+            <<"topic_filter">> => <<"t/3">>, <<"is_lastvalue">> => true
+        })
+    ),
+
+    %% Successfully update an unlimited lastvalue queue to limited
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_queues, queues, urlencode(<<"t/3">>)], #{
+            <<"is_lastvalue">> => true,
+            <<"limits">> => #{
+                <<"max_shard_message_count">> => 1000,
+                <<"max_shard_message_bytes">> => <<"100MB">>
+            }
+        })
+    ),
+
+    %% Successfully remove limits back from a limited lastvalue queue
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_queues, queues, urlencode(<<"t/3">>)], #{
+            <<"is_lastvalue">> => true,
+            <<"limits">> => #{
+                <<"max_shard_message_count">> => <<"infinity">>,
+                <<"max_shard_message_bytes">> => <<"infinity">>
+            }
+        })
+    ).
+
 %% Verify that default values are good enough for lastvalue queues
 t_defaults(_Config) ->
     ?assertMatch(
@@ -316,3 +423,10 @@ t_max_queue_count(_Config) ->
         }},
         api_post([message_queues, queues], #{<<"topic_filter">> => <<"t/6">>})
     ).
+
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
+
+sort_by(Fun, List) ->
+    lists:sort(fun(A, B) -> Fun(A) < Fun(B) end, List).
