@@ -280,6 +280,24 @@ mk_container(#{type := csv, column_order := OrderOpt}) ->
 mk_container(#{type := json_lines}) ->
     Opts = #{},
     {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)};
+mk_container(#{type := parquet} = ContainerOpts) ->
+    #{avro_schema := AvroScBin} = ContainerOpts,
+    WriterOpts0 = maps:with(
+        [
+            write_old_list_structure,
+            enable_dictionary,
+            data_page_header_version,
+            max_row_group_bytes
+        ],
+        ContainerOpts
+    ),
+    DefaultCompression = maps:get(default_compression, ContainerOpts, snappy),
+    CompressionOpts = #{},
+    WriterOpts = WriterOpts0#{default_compression => {DefaultCompression, CompressionOpts}},
+    AvroSc = emqx_utils_json:decode(AvroScBin),
+    ParquetSchema = parquer_schema_avro:from_avro(AvroSc),
+    Opts = #{schema => ParquetSchema, writer_opts => WriterOpts},
+    {emqx_connector_aggreg_parquet, emqx_connector_aggreg_parquet:new(Opts)};
 mk_container(#{type := noop}) ->
     Opts = #{},
     {emqx_connector_aggreg_noop, emqx_connector_aggreg_noop:new(Opts)};
