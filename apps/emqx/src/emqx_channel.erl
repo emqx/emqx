@@ -770,10 +770,10 @@ process_puback(
 ) ->
     case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, Msg, [], NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(Msg, Properties, Channel),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(Msg, Properties, Channel),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
@@ -799,7 +799,7 @@ process_pubrec(
 ) ->
     case emqx_session:pubrec(ClientInfo, PacketId, Session) of
         {ok, Msg, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(Msg, Properties, Channel),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PROTOCOL_ERROR} ->
@@ -862,12 +862,16 @@ process_pubcomp(
     end.
 
 -compile({inline, [after_message_acked/3]}).
-after_message_acked(ClientInfo, Msg, PubAckProps) ->
+after_message_acked(Msg, PubAckProps, Channel) ->
     ok = emqx_metrics:inc('messages.acked'),
-    emqx_hooks:run('message.acked', [
-        ClientInfo,
-        emqx_message:set_header(puback_props, PubAckProps, Msg)
-    ]).
+    run_hook_with_context(
+        'message.acked',
+        [
+            Channel#channel.clientinfo,
+            emqx_message:set_header(puback_props, PubAckProps, Msg)
+        ],
+        Channel
+    ).
 
 %%--------------------------------------------------------------------
 %% Process Subscribe
@@ -1402,16 +1406,15 @@ do_deliver({pubrel, PacketId}, Channel) ->
 do_deliver(
     {PacketId, Msg},
     Channel = #channel{
-        clientinfo =
-            ClientInfo =
-                #{mountpoint := MountPoint}
+        clientinfo = ClientInfo = #{mountpoint := MountPoint}
     }
 ) ->
     ok = emqx_metrics:inc('messages.delivered'),
-    Msg1 = emqx_hooks:run_fold(
+    Msg1 = run_fold_with_context(
         'message.delivered',
         [ClientInfo],
-        emqx_message:update_expiry(Msg)
+        emqx_message:update_expiry(Msg),
+        Channel
     ),
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     Packet = emqx_message:to_packet(PacketId, Msg2),
@@ -1674,11 +1677,17 @@ handle_info({disconnect, ReasonCode, ReasonName, Props}, Channel) ->
     handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel);
 handle_info({puback, PacketId, PubRes, RC}, Channel) ->
     do_finish_publish(PacketId, PubRes, RC, Channel);
+handle_info({log, warning, Report}, Channel) ->
+    %% Message from hook so we may log it in the process context, which has clientid and
+    %% other metadata.
+    ?SLOG(warning, Report),
+    {ok, Channel};
 handle_info(Info, Channel0 = #channel{session = Session0, clientinfo = ClientInfo}) ->
     Session = emqx_session:handle_info(Info, Session0, ClientInfo),
     Channel1 = Channel0#channel{session = Session},
     Acc0 = #{deliver => [], replies => []},
-    Acc = emqx_hooks:run_fold('client.handle_info', [ClientInfo, Info], Acc0),
+    HookContext = mk_common_hook_context(Channel1),
+    Acc = emqx_hooks:run_fold('client.handle_info', [Info, HookContext], Acc0),
     Delivers = maps:get(deliver, Acc, []),
     Replies = maps:get(replies, Acc, []),
     {AllReplies, Channel} =
@@ -1807,7 +1816,7 @@ handle_timeout(
             handle_out(disconnect, ?RC_NOT_AUTHORIZED, Channel2)
     end;
 handle_timeout(TRef, Msg, Channel) ->
-    case emqx_hooks:run_fold('client.timeout', [TRef, Msg], []) of
+    case run_fold_with_context('client.timeout', [TRef, Msg], [], Channel) of
         [] ->
             {ok, Channel};
         Msgs ->
@@ -3273,6 +3282,22 @@ run_hooks(Name, Args, Acc) ->
     ok = emqx_metrics:inc(Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
+-compile({inline, [run_hook_with_context/3]}).
+run_hook_with_context(Name, Args, Channel) ->
+    HookContext = mk_common_hook_context(Channel),
+    emqx_hooks:stash_context(Name, HookContext),
+    Res = emqx_hooks:run(Name, Args),
+    emqx_hooks:unstash_context(Name),
+    Res.
+
+-compile({inline, [run_fold_with_context/4]}).
+run_fold_with_context(Name, Args, Acc, Channel) ->
+    HookContext = mk_common_hook_context(Channel),
+    emqx_hooks:stash_context(Name, HookContext),
+    Res = emqx_hooks:run_fold(Name, Args, Acc),
+    emqx_hooks:unstash_context(Name),
+    Res.
+
 -compile({inline, [find_alias/3, save_alias/4]}).
 
 find_alias(_, _, undefined) -> error;
@@ -3409,6 +3434,13 @@ sub_authz_attrs(AuthzResult) ->
 disconnect_attrs(Reason, Channel) ->
     emqx_external_trace:disconnect_attrs(Reason, Channel).
 -endif.
+
+mk_common_hook_context(Channel) ->
+    Session = Channel#channel.session,
+    #{
+        chan_info_fn => fun(Prop) -> emqx_channel:info(Prop, Channel) end,
+        session_info_fn => fun(Prop) -> emqx_session:info(Prop, Session) end
+    }.
 
 %%--------------------------------------------------------------------
 %% For CT tests
