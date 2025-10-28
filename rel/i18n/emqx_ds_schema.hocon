@@ -327,7 +327,8 @@ emqx_ds_schema {
       disk space utilization may increase even as data is deleted from the database,
       until the database is compacted.
 
-      In case of `builtin_raft` backend the quota check is performed by the leader node."""
+      In case of `builtin_raft` backend the quota check is performed by the leader node.
+      Only shards that have local replicas are counted towards the quota."""
   }
 
   db_group_write_buffer_size {
