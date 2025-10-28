@@ -8,6 +8,7 @@
 -include("emqx_mgmt.hrl").
 
 -elvis([{elvis_style, dont_repeat_yourself, #{min_complexity => 100}}]).
+-elvis([{elvis_style, no_catch_expressions, disable}]).
 
 -define(LONG_QUERY_TIMEOUT, 50000).
 
@@ -507,6 +508,8 @@ apply_total_query(QueryState = #{table := Tab}) ->
             Fun(Tab)
     end.
 
+counting_total_fun(#{qs := {[], []}, options := #{total_counting := disable}}) ->
+    false;
 counting_total_fun(_QueryState = #{qs := {[], []}, options := #{fast_total_counting := true}}) ->
     fun(Tab) -> ets:info(Tab, size) end;
 counting_total_fun(_QueryState = #{match_spec := Ms, fuzzy_fun := undefined}) ->

@@ -683,8 +683,9 @@ t_smoke_test_2(_Config) ->
     ),
     %% Reconnect with an username.
     emqtt:stop(C1),
+    ClientId2 = <<ClientId/binary, "2">>,
     Username = <<"myusername">>,
-    C2 = connect(ClientId, _IsPersistent = false, #{start_props => #{username => Username}}),
+    C2 = connect(ClientId2, _IsPersistent = false, #{start_props => #{username => Username}}),
     {ok, _, [_]} = emqtt:subscribe(C2, <<"t/#">>, [{qos, 2}]),
     ok = publish(C2, <<"t/1">>, #{}, _QoS = 0, #{
         props => #{
@@ -695,7 +696,7 @@ t_smoke_test_2(_Config) ->
     {publish, #{payload := Payload1}} = ?assertReceiveReturn({publish, _}, 1_000),
     ?assertMatch(
         #{
-            <<"clientid">> := ClientId,
+            <<"clientid">> := ClientId2,
             <<"id">> := <<_/binary>>,
             <<"node">> := NodeBin,
             <<"peername">> := <<"127.0.0.1:", _/binary>>,
