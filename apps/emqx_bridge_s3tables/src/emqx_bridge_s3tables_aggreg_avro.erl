@@ -4,9 +4,9 @@
 -module(emqx_bridge_s3tables_aggreg_avro).
 
 -moduledoc """
-Avro OCF container implementation for `emqx_connector_aggregator` (almost).
+Avro OCF container implementation for `emqx_connector_aggreg_container` (almost).
 
-Does not quite match the API of `emqx_connector_aggregator`, though, because we need to
+Does not quite match the API of `emqx_connector_aggreg_container`, though, because we need to
 keep track of extra metadata for each fill.
 """.
 
