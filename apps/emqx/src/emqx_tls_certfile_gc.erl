@@ -333,10 +333,8 @@ fold_subconf(FoldFun, AccIn, Stack, SubConfig) ->
     end.
 
 fold_confval(FoldFun, AccIn, Stack, ConfVal) ->
-    case FoldFun(Stack, ConfVal, AccIn) of
-        {_, Acc} ->
-            Acc
-    end.
+    {_, Acc} = FoldFun(Stack, ConfVal, AccIn),
+    Acc.
 
 %%
 
