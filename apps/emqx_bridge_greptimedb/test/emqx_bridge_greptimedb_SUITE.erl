@@ -143,35 +143,10 @@ end_per_testcase(_TestCase, TCConfig) ->
 %%------------------------------------------------------------------------------
 
 connector_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my connector">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"server">> => <<"toxiproxy:4001">>,
-        <<"dbname">> => <<"public">>,
-        <<"username">> => <<"greptime_user">>,
-        <<"password">> => <<"greptime_pwd">>,
-        <<"ttl">> => <<"3 years">>,
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_connector_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_schema_testlib:greptimedb_connector_config(Overrides).
 
 action_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my action">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"parameters">> => #{
-            <<"precision">> => <<"ns">>,
-            <<"write_syntax">> => example_write_syntax()
-        },
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_action_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_schema_testlib:greptimedb_action_config(Overrides).
 
 example_write_syntax() ->
     %% N.B.: this single space character is relevant
@@ -340,9 +315,7 @@ json_encode(X) ->
 %%------------------------------------------------------------------------------
 
 t_start_stop(TCConfig) when is_list(TCConfig) ->
-    %% `greptimedb_worker' leaks atoms...  pids become atoms 🫠
-    Opts = #{skip_atom_leak_check => true},
-    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped, Opts).
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped).
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig).

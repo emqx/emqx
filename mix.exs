@@ -312,6 +312,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:parquer),
     do: {:parquer, github: "emqx/parquer", tag: "0.1.5", manager: :rebar3}
 
+  def common_dep(:greptimedb),
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
+
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
 

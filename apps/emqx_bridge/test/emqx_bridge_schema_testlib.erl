@@ -92,3 +92,44 @@ mqtt_source_config(Overrides) ->
         },
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(source, <<"mqtt">>, <<"x">>, InnerConfigMap).
+
+greptimedb_connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"server">> => <<"toxiproxy:4001">>,
+        <<"dbname">> => <<"public">>,
+        <<"username">> => <<"greptime_user">>,
+        <<"password">> => <<"greptime_pwd">>,
+        <<"ttl">> => <<"3 years">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(<<"greptimedb">>, <<"x">>, InnerConfigMap).
+
+greptimedb_action_config(Overrides) ->
+    %% N.B.: this single space character is relevant
+    %% the measurement name should not be the topic
+    %% from greptimedb:
+    %% error => {error,{case_clause,{error,{<<"3">>,<<"Invalid%20table%20name:%20test/greptimedb">
+    WriteSyntax =
+        <<"mqtt,clientid=${clientid}", " ", "payload=${payload},",
+            "${clientid}_int_value=${payload.int_key}i,",
+            "uint_value=${payload.uint_key}u,"
+            "float_value=${payload.float_key},", "undef_value=${payload.undef},",
+            "${undef_key}=\"hard-coded-value\",", "bool=${payload.bool}">>,
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> => #{
+            <<"precision">> => <<"ns">>,
+            <<"write_syntax">> => WriteSyntax
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, <<"greptimedb">>, <<"x">>, InnerConfigMap).
