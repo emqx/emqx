@@ -383,7 +383,7 @@ metric_meta(<<"emqx_ds_raft_rasrv_state_changes">>) -> ?meta(3);
 metric_meta(<<"emqx_ds_raft_rasrv_replication_msgs">>) -> ?meta(3);
 metric_meta(<<"emqx_ds_raft_rasrv_index", _Tail/binary>>) -> ?meta(3);
 metric_meta(<<"emqx_ds_raft_rasrv", _Tail/binary>>) -> ?meta(2);
-metric_meta(<<"emqx_ds", _Tail/binary>>) -> ?meta(2);
+metric_meta(<<"emqx_ds", _Tail/binary>>) -> #{};
 %% normal emqx metrics
 metric_meta(<<"emqx_", _Tail/binary>>) -> ?meta(0, 0, 1);
 metric_meta(_) -> #{}.
