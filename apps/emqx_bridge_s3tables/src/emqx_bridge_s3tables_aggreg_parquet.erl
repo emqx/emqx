@@ -48,7 +48,8 @@ new(#{schema := Schema, writer_opts := WriterOpts}) ->
     #parquet{writer = Writer}.
 
 -spec fill([emqx_connector_aggregator:record()], container()) -> {iodata(), map(), container()}.
-fill(Records, #parquet{writer = Writer0} = Container0) ->
+fill(Records0, #parquet{writer = Writer0} = Container0) ->
+    Records = lists:map(fun emqx_utils_maps:binary_key_map/1, Records0),
     NumRecords = length(Records),
     {IOData, Writer1} = parquer_writer:write_many(Writer0, Records),
     WriteMetadata = #{?num_records => NumRecords},
