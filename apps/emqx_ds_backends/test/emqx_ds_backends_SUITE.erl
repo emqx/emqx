@@ -2356,9 +2356,10 @@ t_30_quotas(Config) ->
             emqx_ds_storage_layer:flush(DB),
             ct:pal("DB group stats: ~p", [emqx_ds:db_group_stats(Group)]),
             %% 2. Set quota to a very low value. This should cause all writes to fail:
-            ?assertMatch(
-                ok, emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => 1})
-            ),
+            %%
+            %% NOTE: currently OTX process checks quota during flush,
+            %% so we don't wait for alarms/events immediately:
+            emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => 1}),
             ?assertMatch(
                 ?err_unrec(storage_quota_exceeded),
                 WTrans()
@@ -2372,16 +2373,13 @@ t_30_quotas(Config) ->
                 {atomic, _, _},
                 DTrans()
             ),
-            %% Note: the above transaction is successful and causes
-            %% flush. Let's make sure recovery occurs even without
-            %% flush:
-            %% ?assertMatch(
-            %%     ?err_unrec(storage_quota_exceeded),
-            %%     Append()
-            %% ),
             %% 3. Recover the situation by increasing the quota:
             ?assertMatch(
-                ok, emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => infinity})
+                {ok, _},
+                ?wait_async_action(
+                    emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => infinity}),
+                    #{?snk_kind := emqx_ds_storage_quota, exceeded := false}
+                )
             ),
             %% Writes should be allowed again:
             ?assertMatch(
