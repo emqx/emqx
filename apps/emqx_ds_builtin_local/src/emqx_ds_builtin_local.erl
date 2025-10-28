@@ -99,19 +99,18 @@
 %% Type declarations
 %%================================================================================
 
--type db_opts() ::
-    #{
-        backend := builtin_local,
-        db_group := emqx_ds:db_group(),
-        payload_type := emqx_ds_payload_transform:type(),
-        n_shards := pos_integer(),
-        storage := emqx_ds_storage_layer:prototype(),
-        %% Beamformer config:
-        subscriptions => emqx_ds_beamformer:opts(),
-        %% Optimistic transaction:
-        transactions => emqx_ds_optimistic_tx:runtime_config(),
-        rocksdb => emqx_ds_storage_layer:rocksdb_options()
-    }.
+-type db_opts() :: #{
+    backend := builtin_local,
+    db_group := emqx_ds:db_group(),
+    payload_type := emqx_ds_payload_transform:type(),
+    n_shards := pos_integer(),
+    storage := emqx_ds_storage_layer:prototype(),
+    %% Beamformer config:
+    subscriptions => emqx_ds_beamformer:opts(),
+    %% Optimistic transaction:
+    transactions => emqx_ds_optimistic_tx:runtime_config(),
+    rocksdb => emqx_ds_storage_layer:rocksdb_options()
+}.
 
 -type db_schema() :: #{
     backend := builtin_local,
