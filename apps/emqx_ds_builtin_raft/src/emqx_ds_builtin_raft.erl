@@ -78,7 +78,8 @@ This is the entrypoint into the `builtin_raft` backend.
     otx_commit_tx_batch/5,
     otx_add_generation/3,
     otx_lookup_ttv/4,
-    otx_get_runtime_config/1
+    otx_get_runtime_config/1,
+    otx_check_soft_quota/1
 ]).
 
 %% RPC targets:
@@ -774,6 +775,9 @@ otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
 otx_get_runtime_config(DB) ->
     #{runtime := #{transactions := Conf}} = emqx_dsch:get_db_runtime(DB),
     Conf.
+
+otx_check_soft_quota(DBGroup) ->
+    emqx_ds_storage_layer:check_soft_quota(DBGroup).
 
 register_global_otx_leader(DB, Shard) ->
     ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
