@@ -637,7 +637,7 @@ lookup_db_group(Group) ->
     case persistent_term:get(?pterm, undefined) of
         #s{groups = #{Group := #db_group{inner = Inner}}} ->
             {ok, Inner};
-        X ->
+        _ ->
             {error, {no_such_group, Group}}
     end.
 

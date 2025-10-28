@@ -491,7 +491,7 @@ t_sub_mqtt_worker_down_notify(Config) ->
                 error(timeout_waiting_for_down)
             end
         after
-            meck:unload()
+            meck:unload(emqx_ds_beamformer)
         end,
         []
     ).
@@ -2297,6 +2297,105 @@ t_29_tx_latest_generation_race_condition(Config) ->
         []
     ).
 
+%% This testcase verifies that transactions that contain write
+%% operations and dirty appends are rejected when the DB reaches the
+%% storage quota. Then it verifies that the system recovers once the
+%% quota is increased.
+t_30_quotas(Config) ->
+    DB = ?FUNCTION_NAME,
+    %% This testcase uses the default implicit group created by DS:
+    Group = DB,
+    Opts = #{backend := Backend} = opts(Config),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            TxOpts = #{
+                db => DB,
+                shard => emqx_ds:shard_of(DB, <<>>),
+                generation => 1,
+                retry => 5,
+                retry_interval => 100
+            },
+            WTrans = fun() ->
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[], ?ds_tx_ts_monotonic, <<"hello">>})
+                    end
+                )
+            end,
+            DTrans = fun() ->
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        emqx_ds:tx_del_topic([])
+                    end
+                )
+            end,
+            Append = fun(N) ->
+                Ref = emqx_ds:dirty_append(TxOpts#{reply => true}, [
+                    {[], ?ds_tx_ts_monotonic, <<"hello">>}
+                 || _ <- lists:seq(1, N)
+                ]),
+                receive
+                    ?ds_tx_commit_reply(Ref, Reply) ->
+                        emqx_ds:dirty_append_outcome(Ref, Reply)
+                end
+            end,
+            %% 1. Start normally and write a sufficient volume of data to the DB to create some usage:
+            ?assertMatch(
+                {atomic, _, _},
+                WTrans()
+            ),
+            ?assertMatch(
+                {ok, _},
+                Append(1_000)
+            ),
+            %% TODO: this not entirely backend-agnostic:
+            emqx_ds_storage_layer:flush(DB),
+            ct:pal("DB group stats: ~p", [emqx_ds:db_group_stats(Group)]),
+            %% 2. Set quota to a very low value. This should cause all writes to fail:
+            ?assertMatch(
+                ok, emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => 1})
+            ),
+            ?assertMatch(
+                ?err_unrec(storage_quota_exceeded),
+                WTrans()
+            ),
+            ?assertMatch(
+                ?err_unrec(storage_quota_exceeded),
+                Append(1)
+            ),
+            %% However, transactions that don't contain writes should succeed:
+            ?assertMatch(
+                {atomic, _, _},
+                DTrans()
+            ),
+            %% Note: the above transaction is successful and causes
+            %% flush. Let's make sure recovery occurs even without
+            %% flush:
+            %% ?assertMatch(
+            %%     ?err_unrec(storage_quota_exceeded),
+            %%     Append()
+            %% ),
+            %% 3. Recover the situation by increasing the quota:
+            ?assertMatch(
+                ok, emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => infinity})
+            ),
+            %% Writes should be allowed again:
+            ?assertMatch(
+                {ok, _},
+                Append(1)
+            ),
+            ?assertMatch(
+                {atomic, _, _},
+                WTrans()
+            )
+        end,
+        []
+    ).
+
 %% This testcase veriries functionality of `emqx_ds:multi_iterator_next' function.
 %%
 %% Properties checked:
@@ -2503,9 +2602,13 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_suite(Config) ->
+    ok = meck:new(emqx_alarm, [no_history, no_link]),
+    ok = meck:expect(emqx_alarm, safe_activate, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_alarm, safe_deactivate, fun(_) -> ok end),
     Config.
 
 end_per_suite(_Config) ->
+    meck:unload(emqx_alarm),
     ok.
 
 suite() ->

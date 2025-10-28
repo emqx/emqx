@@ -10,6 +10,7 @@
     create_db_group/2,
     update_db_group/3,
     destroy_db_group/2,
+    check_soft_quota/1,
 
     %% Lifecycle
     start_link/2,
@@ -288,6 +289,16 @@ destroy_db_group(_GroupId, #db_group{env = Env, sst_file_mgr = SSTManager, write
     ok = rocksdb:release_sst_file_manager(SSTManager),
     ok = rocksdb:destroy_env(Env),
     ok.
+
+-spec check_soft_quota(db_group()) -> boolean().
+check_soft_quota(#db_group{conf = #{storage_quota := infinity}}) ->
+    true;
+check_soft_quota(#db_group{sst_file_mgr = SSTFM, conf = #{storage_quota := Quota}}) when
+    is_integer(Quota)
+->
+    Usage = rocksdb:sst_file_manager_info(SSTFM, total_size),
+    true = is_integer(Usage),
+    Usage < Quota.
 
 %% Note: we specify gen_server requests as records to make use of Dialyzer:
 -record(call_add_generation, {since :: emqx_ds:time()}).

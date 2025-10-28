@@ -141,8 +141,9 @@ backend can reject flush request.
 -callback otx_get_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 
 %% Executed by the leader prior to flush. `true': ok, leader can write
-%% more data, `false': quota exceeded.
--callback otx_check_quota(emqx_ds:db(), emqx_ds:shard()) -> boolean().
+%% more data, `false': quota exceeded. Input parameter is the
+%% `db_group' of the DB.
+-callback otx_check_soft_quota(_DBGroup) -> boolean().
 
 -type ctx() :: #kv_tx_ctx{}.
 -type process_ref() :: pid() | atom() | {atom(), node()}.
@@ -184,7 +185,10 @@ backend can reject flush request.
     timestamp :: emqx_ds:time() | undefined,
     committed_serial :: non_neg_integer() | undefined,
     pending_dirty = [] :: [dirty_append()],
-    gens = #{} :: generations()
+    gens = #{} :: generations(),
+    %% `true' = writes are allowed, `false' = writes are not allowed
+    is_within_quota :: boolean() | undefined,
+    is_quota_checked = false :: boolean()
 }).
 -type d() :: #d{}.
 
@@ -203,8 +207,6 @@ backend can reject flush request.
 -type dirty_append() :: #cast_dirty_append{}.
 
 -record(call_add_generation, {}).
-
--optional_callbacks([otx_check_quota/2]).
 
 %%================================================================================
 %% API functions
@@ -394,11 +396,13 @@ init(Parent, DB, Shard, CBM) ->
         %% Issue a dummy transaction to trigger metadata update:
         ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
-        loop(D#d{
-            serial = Serial,
-            timestamp = Timestamp,
-            committed_serial = Serial
-        })
+        loop(
+            check_soft_quota(D#d{
+                serial = Serial,
+                timestamp = Timestamp,
+                committed_serial = Serial
+            })
+        )
     else
         Err ->
             terminate({init_failed, Err}, D)
@@ -419,14 +423,14 @@ loop(D0) ->
         end,
     receive
         {'$gen_cast', Tx = #ds_tx{}} ->
-            case handle_tx(D0, Tx) of
+            case handle_tx(check_soft_quota(D0), Tx) of
                 {ok, _PresumedCommitSerial, D} ->
                     loop(finalize_add_pending(D));
                 aborted ->
                     loop(D0)
             end;
         {'$gen_cast', #cast_dirty_append{} = Tx} ->
-            D = handle_dirty_append(Tx, D0),
+            D = handle_dirty_append(Tx, check_soft_quota(D0)),
             loop(finalize_add_pending(D));
         {'$gen_call', From, #call_add_generation{}} ->
             {Reply, D} = handle_add_generation(D0),
@@ -497,6 +501,12 @@ flush(D0) ->
     maybe_rotate(do_update_config(do_flush(D0))).
 
 -spec handle_dirty_append(dirty_append(), d()) -> d().
+handle_dirty_append(
+    #cast_dirty_append{reply_to = From, ref = Ref, reserved = Reserved},
+    D = #d{is_within_quota = false}
+) ->
+    reply_error(From, Ref, Reserved, unrecoverable, storage_quota_exceeded),
+    D;
 handle_dirty_append(
     DirtyAppend, D = #d{pending_dirty = Buff, n_items = NItems}
 ) ->
@@ -672,7 +682,8 @@ handle_tx(
         shard = Shard,
         cbm = CBM,
         serial = Serial,
-        committed_serial = SafeToReadSerial
+        committed_serial = SafeToReadSerial,
+        is_within_quota = WithinQuota
     },
     Tx
 ) ->
@@ -697,7 +708,7 @@ handle_tx(
                 }
             ),
             try_schedule_transaction(
-                DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, Tx, GenData
+                DBShard, Gen, CBM, SafeToReadSerial, PresumedCommitSerial, WithinQuota, Tx, GenData
             )
         end
     ).
@@ -716,6 +727,7 @@ commit, and conflict tracking is updated.
     module(),
     serial(),
     serial(),
+    boolean(),
     tx(),
     gen_data()
 ) ->
@@ -726,6 +738,7 @@ try_schedule_transaction(
     CBM,
     SafeToReadSerial,
     PresumedCommitSerial,
+    WithinQuota,
     Tx,
     GS = #gen_data{dirty_w = DirtyW0, dirty_d = DirtyD0, buffer = Buff, pending_replies = Pending}
 ) ->
@@ -741,6 +754,7 @@ try_schedule_transaction(
     maybe
         ok ?= check_tx_leader(TxLeader),
         ok ?= check_latest_generation(CBM, DBShard, Ctx),
+        ok ?= check_quota(WithinQuota, Ops),
         ok ?= check_conflicts(DirtyW0, DirtyD0, TxStartSerial, SafeToReadSerial, Ops),
         ok ?= verify_preconditions(DBShard, CBM, Gen, Ops),
         {ok, CookedTx} ?= prepare_tx(CBM, DBShard, Gen, serial_bin(PresumedCommitSerial), Ops, #{}),
@@ -790,6 +804,16 @@ check_latest_generation(CBM, {DB, Shard}, #kv_tx_ctx{latest_generation = true, g
             ?err_rec({not_the_latest_generation, Gen, Latest})
     end.
 
+check_quota(true, _) ->
+    ok;
+check_quota(false, Ops) ->
+    case maps:get(?ds_tx_write, Ops, []) of
+        [] ->
+            ok;
+        _ ->
+            ?err_unrec(storage_quota_exceeded)
+    end.
+
 -spec update_dirty_d(serial(), emqx_ds:tx_ops(), emqx_ds_tx_conflict_trie:t()) ->
     emqx_ds_tx_conflict_trie:t().
 update_dirty_d(Serial, Ops, Dirty) ->
@@ -822,7 +846,7 @@ update_dirty_w(Serial, Ops, Dirty) ->
 
 -spec do_flush(d()) -> d().
 do_flush(D = #d{n_items = 0}) ->
-    D;
+    D#d{is_quota_checked = false};
 do_flush(D0 = #d{n_items = NItems}) ->
     %% Note: we take n_items before cooking_dirty_append to avoid
     %% off-by-one error when it adds a batch.
@@ -859,7 +883,8 @@ do_flush(D0 = #d{n_items = NItems}) ->
                 entered_pending_at = undefined,
                 committed_serial = Serial,
                 gens = Gens,
-                n_items = 0
+                n_items = 0,
+                is_quota_checked = false
             };
         _ ->
             emqx_ds_builtin_metrics:inc_buffer_batches_failed(Metrics),
@@ -1146,6 +1171,36 @@ call(Server, Request, Timeout) ->
 version() ->
     {ok, Version} = application:get_key(emqx_durable_storage, vsn),
     Version.
+
+check_soft_quota(D = #d{cbm = CBM, db = DB, is_within_quota = OldState, is_quota_checked = false}) ->
+    maybe
+        #{runtime := RT} ?= emqx_dsch:get_db_runtime(DB),
+        #{db_group := GroupName} ?= RT,
+        {ok, Group} ?= emqx_ds:lookup_db_group(GroupName),
+        NewState = CBM:otx_check_soft_quota(Group),
+        case NewState of
+            OldState ->
+                ok;
+            false ->
+                emqx_alarm:safe_activate(
+                    quota_alarm(DB),
+                    #{},
+                    <<"Storage quota has been exceeded for database ", (atom_to_binary(DB))/binary>>
+                );
+            true ->
+                emqx_alarm:safe_deactivate(quota_alarm(DB))
+        end,
+        D#d{is_within_quota = NewState, is_quota_checked = true}
+    else
+        Other ->
+            ?tp(warning, "invalid_soft_quota_result", #{cbm => CBM, db => DB, result => Other}),
+            D
+    end;
+check_soft_quota(D) ->
+    D.
+
+quota_alarm(DB) ->
+    <<"db_storage_quota_exceeded:", (atom_to_binary(DB))/binary>>.
 
 %%================================================================================
 %% Tests

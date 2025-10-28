@@ -130,7 +130,7 @@ validate_config(Conf) ->
                 %% and whether presence of the group is required:
                 case emqx_utils_maps:deep_find([DB, <<"db_group">>], Conf) of
                     {not_found, _, _} ->
-                        %% DB group is not specified. Group will be create explicitly:
+                        %% DB group is not specified. Group will be created explicitly:
                         Group = DB,
                         Required = false;
                     {ok, GroupAtom} ->

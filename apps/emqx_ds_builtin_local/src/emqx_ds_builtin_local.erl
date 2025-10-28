@@ -75,7 +75,8 @@
     otx_commit_tx_batch/5,
     otx_add_generation/3,
     otx_lookup_ttv/4,
-    otx_get_runtime_config/1
+    otx_get_runtime_config/1,
+    otx_check_soft_quota/1
 ]).
 
 %% Internal exports:
@@ -101,6 +102,7 @@
 -type db_opts() ::
     #{
         backend := builtin_local,
+        db_group := emqx_ds:db_group(),
         payload_type := emqx_ds_payload_transform:type(),
         n_shards := pos_integer(),
         storage := emqx_ds_storage_layer:prototype(),
@@ -492,6 +494,9 @@ otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
 otx_get_runtime_config(DB) ->
     #{runtime := #{transactions := Conf}} = emqx_dsch:get_db_runtime(DB),
     Conf.
+
+otx_check_soft_quota(DBGroup) ->
+    emqx_ds_storage_layer:check_soft_quota(DBGroup).
 
 %% Metadata API:
 -spec stream_to_binary(emqx_ds:db(), stream()) -> {ok, binary()} | {error, _}.
