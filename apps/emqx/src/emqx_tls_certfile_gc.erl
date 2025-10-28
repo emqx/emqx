@@ -20,6 +20,7 @@
 -include_lib("kernel/include/file.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% API
 -export([
@@ -241,8 +242,10 @@ is_managed_file(AbsPath, #file_info{type = Type, mode = Mode}) ->
 -spec find_config_references(Root :: binary()) ->
     [fileref() | {basename(), {error, _}}].
 find_config_references(Root) ->
-    Config = emqx_config:get_raw([Root]),
-    fold_config(
+    GlobalConfig = emqx_config:get_raw([Root]),
+    NsConfigs0 = emqx_config:get_raw_root_from_all_namespaces(Root),
+    NsConfigs = NsConfigs0#{?global_ns => GlobalConfig},
+    fold_namespace_configs(
         fun(Stack, Value, Acc) ->
             case is_file_reference(Stack) andalso is_binary(Value) of
                 true ->
@@ -253,7 +256,16 @@ find_config_references(Root) ->
             end
         end,
         [],
-        Config
+        NsConfigs
+    ).
+
+fold_namespace_configs(Fn, Acc0, NsConfigs) ->
+    maps:fold(
+        fun(_Namespace, RawConfig, Acc1) ->
+            fold_config(Fn, Acc1, RawConfig)
+        end,
+        Acc0,
+        NsConfigs
     ).
 
 is_file_reference(Stack) ->
