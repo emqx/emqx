@@ -26,7 +26,7 @@ jobs:
         shell: bash
     env:
       EMQX_NAME: ${{ matrix.profile }}
-      REPOSITORY: "emqx/${{ matrix.profile }}"
+      REPOSITORY: "ghcr.io/emqx/emqx"
 
     strategy:
       fail-fast: false
