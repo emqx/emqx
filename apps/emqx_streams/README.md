@@ -1,3 +1,3 @@
-# MQTT Durable Streams
+# MQTT Streams
 
-The application provides EMQX Durable Message Streams feature.
+The application provides EMQX Message Streams feature.

@@ -4,6 +4,8 @@
 
 -module(emqx_streams_config).
 
+-include("emqx_streams_internal.hrl").
+
 -export([is_enabled/0]).
 
 -export([
@@ -11,23 +13,21 @@
     post_config_update/5
 ]).
 
--define(CONFIG_ROOT, durable_streams).
-
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
 
 -spec is_enabled() -> boolean().
 is_enabled() ->
-    emqx:get_config([?CONFIG_ROOT, enable]).
+    emqx:get_config([?SCHEMA_ROOT, enable]).
 
 %%------------------------------------------------------------------------------
 %% Config hooks
 %%------------------------------------------------------------------------------
 
-pre_config_update([?CONFIG_ROOT], NewConf, _OldConf) ->
+pre_config_update([?SCHEMA_ROOT], NewConf, _OldConf) ->
     {ok, NewConf}.
 
-post_config_update([?CONFIG_ROOT], _Request, _NewConf, _OldConf, _AppEnvs) ->
+post_config_update([?SCHEMA_ROOT], _Request, _NewConf, _OldConf, _AppEnvs) ->
     % ok ?= maybe_enable(NewConf, OldConf)
     ok.

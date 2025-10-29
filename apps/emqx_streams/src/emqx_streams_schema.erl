@@ -4,6 +4,8 @@
 
 -module(emqx_streams_schema).
 
+-include("emqx_streams_internal.hrl").
+
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -15,15 +17,15 @@
 %%------------------------------------------------------------------------------
 
 namespace() ->
-    durable_streams.
+    ?SCHEMA_ROOT.
 
 roots() ->
-    [durable_streams].
+    [?SCHEMA_ROOT].
 
 tags() ->
     [<<"Durable Streams">>].
 
-fields(durable_streams) ->
+fields(?SCHEMA_ROOT) ->
     [
         {enable,
             mk(boolean(), #{
@@ -32,8 +34,8 @@ fields(durable_streams) ->
             })}
     ].
 
-desc(durable_streams) ->
-    ?DESC(durable_streams).
+desc(?SCHEMA_ROOT) ->
+    ?DESC(streams).
 
 %%
 
