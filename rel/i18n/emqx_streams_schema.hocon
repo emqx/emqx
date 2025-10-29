@@ -1,0 +1,6 @@
+emqx_streams_schema {
+
+enable.desc:
+"""Enable Message Streams feature."""
+
+}
