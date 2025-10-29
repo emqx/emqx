@@ -520,7 +520,7 @@ apply_total_query(QueryState = #{table := Tab}) ->
             Fun(Tab)
     end.
 
-counting_total_fun(#{qs := {[], []}, options := #{total_counting := disable}}) ->
+counting_total_fun(#{options := #{total_counting := disable}} = _QueryState) ->
     false;
 counting_total_fun(_QueryState = #{qs := {[], []}, options := #{fast_total_counting := true}}) ->
     fun(Tab) -> ets:info(Tab, size) end;
