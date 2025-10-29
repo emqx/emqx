@@ -1299,10 +1299,11 @@ log_expired_message_count(_Data = #{id := Id, index := Index, counters := Counte
         false ->
             ok;
         true ->
-            ?SLOG(
-                info,
+            ?SLOG_THROTTLE(
+                warning,
+                Id,
                 #{
-                    msg => "buffer_worker_dropped_expired_messages",
+                    msg => buffer_worker_dropped_expired_messages,
                     resource_id => Id,
                     worker_index => Index,
                     expired_count => ExpiredCount
