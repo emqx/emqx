@@ -25,6 +25,11 @@ all() ->
         {group, persistence_enabled}
     ].
 
+flaky_tests() ->
+    #{
+        t_takeover_clean_session_with_delayed_willmsg => 3
+    }.
+
 groups() ->
     MQTTGroups = [{group, G} || G <- [mqttv3, mqttv5]],
     [
