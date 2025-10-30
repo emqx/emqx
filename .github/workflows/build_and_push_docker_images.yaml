@@ -90,7 +90,7 @@ jobs:
           if-no-files-found: error
 
   docker:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
     needs:
       - build
     defaults:
@@ -107,6 +107,9 @@ jobs:
       matrix:
         profile:
           - "${{ inputs.profile }}"
+        arch:
+          - amd64
+          - arm64
 
     env:
       PROFILE: ${{ matrix.profile }}
@@ -114,6 +117,7 @@ jobs:
       DOCKER_LATEST: ${{ inputs.latest }}
       PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
       EMQX_SOURCE_TYPE: tgz
+      ARCH: ${{ matrix.arch }}
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -122,24 +126,14 @@ jobs:
 
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          pattern: "${{ matrix.profile }}-*.tar.gz"
-          path: _packages
-          merge-multiple: true
+          name: "${{ matrix.profile }}-${{ matrix.arch }}.tar.gz"
+          path: _packages/${{ matrix.profile }}
 
       - name: Move artifacts to root directory
-        env:
-          PROFILE: ${{ inputs.profile }}
         run: |
-          ls -lR _packages/$PROFILE
-          mv _packages/$PROFILE/*.tar.gz ./
+          ls -lR _packages/${{ matrix.profile }}
+          mv _packages/${{ matrix.profile }}/${{ matrix.profile }}/*.tar.gz ./
 
-      - name: Enable containerd image store on Docker Engine
-        run: |
-          echo "$(sudo cat /etc/docker/daemon.json | jq '. += {"features": {"containerd-snapshotter": true}}')" > daemon.json
-          sudo mv daemon.json /etc/docker/daemon.json
-          sudo systemctl restart docker
-
-      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Login to hub.docker.com
@@ -149,22 +143,11 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Login to ghcr.io
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push docker image to ghcr.io
+      - name: Build docker image
         env:
-          DOCKER_PUSH: true
+          DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
-          DOCKER_PLATFORMS: linux/amd64,linux/arm64
-          DOCKER_LOAD: false
-          DOCKER_REGISTRY: ghcr.io
-          DOCKER_ORG: ${{ github.repository_owner }}
-          EMQX_BASE_IMAGE_TAG: ${{ github.repository_owner }}/emqx
+          DOCKER_LOAD: true
         run: |
           ./build ${PROFILE} docker
           echo "Built tags:"
@@ -172,17 +155,6 @@ jobs:
           cat .emqx_docker_image_tags
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
-          head -n 1 .emqx_docker_image_tags > docker-image-tag
-
-      - name: Pull image from ghcr.io for local testing
-        run: |
-          docker pull $_EMQX_DOCKER_IMAGE_TAG
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: "${{ matrix.profile }}-docker-image-tag"
-          path: "docker-image-tag"
-          retention-days: 7
 
       - name: Verify that size of docker image is less than 140 MB
         run: |
@@ -212,45 +184,18 @@ jobs:
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
 
-      - name: export docker image
+      - name: Export docker image
         run: |
-          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-$PKG_VSN.tar.gz
+          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-$PKG_VSN-${{ matrix.arch }}.tar.gz
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: "${{ matrix.profile }}-docker"
-          path: "${{ matrix.profile }}-docker-${{ env.PKG_VSN }}.tar.gz"
+          name: "${{ matrix.profile }}-docker-${{ matrix.arch }}"
+          path: "${{ matrix.profile }}-docker-${{ env.PKG_VSN }}-${{ matrix.arch }}.tar.gz"
           retention-days: 7
 
-      - name: Promote image from ghcr.io to docker.io
-        if: inputs.publish
-        env:
-          DOCKER_ORG: "${{ github.repository_owner }}"
-        run: |
-          # Read source tag from ghcr.io
-          SOURCE_TAG=$(head -n 1 .emqx_docker_image_tags)
-          echo "Source image: $SOURCE_TAG"
-
-          # Convert ghcr.io tags to docker.io tags
-          # Also add corresponding tags for emqx-enterprise profile
-          DOCKER_IO_TAGS=""
-          while IFS= read -r tag; do
-            # Replace ghcr.io with docker.io and /emqx with /${PROFILE}
-            docker_io_tag=$(echo "$tag" | sed "s|ghcr.io/$DOCKER_ORG/emqx|docker.io/$DOCKER_ORG/${PROFILE}|g")
-            DOCKER_IO_TAGS="$DOCKER_IO_TAGS --tag $docker_io_tag"
-            echo "Target tag: $docker_io_tag"
-
-            # Also add emqx/emqx tag for extra base image tags
-            extra_tag=$(echo "$tag" | sed "s|ghcr.io/$DOCKER_ORG/emqx|docker.io/$DOCKER_ORG/emqx|g")
-            DOCKER_IO_TAGS="$DOCKER_IO_TAGS --tag $extra_tag"
-            echo "Target tag: $extra_tag"
-          done < .emqx_docker_image_tags
-
-          # Copy multiarch image from ghcr.io to docker.io with all tags
-          docker buildx imagetools create $DOCKER_IO_TAGS "$SOURCE_TAG"
-
   docker-sfodbc:
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
     if: inputs.profile == 'emqx-enterprise'
     needs:
       - build
@@ -266,13 +211,16 @@ jobs:
 
     strategy:
       fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
 
     env:
       PROFILE: ${{ inputs.profile }}
       DOCKER_LATEST: false
       PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
-      EMQX_DOCKERFILE: 'deploy/docker/Dockerfile.sfodbc'
-      DOCKER_IMAGE_SUFFIX: '-sf'
+      ARCH: ${{ matrix.arch }}
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -281,61 +229,34 @@ jobs:
 
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: "${{ env.PROFILE }}-docker-image-tag"
+          name: "${{ env.PROFILE }}-docker-${{ matrix.arch }}"
 
-      - name: Enable containerd image store on Docker Engine
+      - name: Load base docker image
         run: |
-          echo "$(sudo cat /etc/docker/daemon.json | jq '. += {"features": {"containerd-snapshotter": true}}')" > daemon.json
-          sudo mv daemon.json /etc/docker/daemon.json
-          sudo systemctl restart docker
+          # Load the base image
+          BASE_TAG=$(docker load < $PROFILE-docker-$PKG_VSN-${{ matrix.arch }}.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
+          echo "Loaded base image: $BASE_TAG"
+          echo "BASE_TAG=$BASE_TAG" >> $GITHUB_ENV
 
-      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
-      - name: Login to hub.docker.com
-        if: inputs.publish
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
-        with:
-          username: ${{ secrets.DOCKER_HUB_USER }}
-          password: ${{ secrets.DOCKER_HUB_TOKEN }}
-
-      - name: Login to ghcr.io
-        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push multiarch docker image to ghcr.io
+      - name: Build snowflake docker image
         env:
-          DOCKER_PUSH: true
+          DOCKER_PUSH: false
           DOCKER_BUILD_NOCACHE: true
-          DOCKER_PLATFORMS: linux/amd64,linux/arm64
-          DOCKER_LOAD: false
-          DOCKER_REGISTRY: ghcr.io
-          DOCKER_ORG: ${{ github.repository_owner }}
-          EMQX_BASE_IMAGE_TAG: ${{ github.repository_owner }}/emqx
+          DOCKER_LOAD: true
+          EMQX_DOCKERFILE: 'deploy/docker/Dockerfile.sfodbc'
+          DOCKER_IMAGE_SUFFIX: '-sf'
         run: |
-          # Use the ghcr.io image from the regular docker job as base
-          export BUILD_FROM=$(cat docker-image-tag)
-          echo "BUILD_FROM=$BUILD_FROM" >> $GITHUB_ENV
+          # Use the base image loaded from artifact
+          export BUILD_FROM=$BASE_TAG
+          echo "Building from: $BUILD_FROM"
           ./build ${PROFILE} docker
           echo "Built tags:"
           echo "==========="
           cat .emqx_docker_image_tags
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
-          head -n 1 .emqx_docker_image_tags > docker-image-tag
-
-      - name: Pull image from ghcr.io for local testing
-        run: |
-          docker pull $_EMQX_DOCKER_IMAGE_TAG
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: "${{ env.PROFILE }}-sf-docker-image-tag"
-          path: "docker-image-tag"
-          retention-days: 7
 
       - name: smoke test
         timeout-minutes: 1
@@ -360,27 +281,162 @@ jobs:
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
 
-      - name: Promote snowflake image from ghcr.io to docker.io
-        if: inputs.publish
-        env:
-          DOCKER_ORG: "${{ github.repository_owner }}"
+      - name: Export snowflake docker image
         run: |
-          # Read source tag from ghcr.io
-          SOURCE_TAG=$(head -n 1 .emqx_docker_image_tags)
-          echo "Source image: $SOURCE_TAG"
+          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > $PROFILE-docker-sf-$PKG_VSN-${{ matrix.arch }}.tar.gz
 
-          # Convert ghcr.io tags to docker.io tags
-          # Also add corresponding tags for emqx-enterprise profile
-          DOCKER_IO_TAGS=""
-          while IFS= read -r tag; do
-            # Replace ghcr.io with docker.io and /emqx with /${PROFILE}
-            docker_io_tag=$(echo "$tag" | sed "s|ghcr.io/$DOCKER_ORG/emqx|docker.io/$DOCKER_ORG/${PROFILE}|g")
-            DOCKER_IO_TAGS="$DOCKER_IO_TAGS --tag $docker_io_tag"
-            echo "Target tag: $docker_io_tag"
-          done < .emqx_docker_image_tags
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: "${{ env.PROFILE }}-sf-docker-${{ matrix.arch }}"
+          path: "${{ env.PROFILE }}-docker-sf-${{ env.PKG_VSN }}-${{ matrix.arch }}.tar.gz"
+          retention-days: 7
 
-          # Copy multiarch image from ghcr.io to docker.io with all tags
-          docker buildx imagetools create $DOCKER_IO_TAGS "$SOURCE_TAG"
+  publish-docker:
+    runs-on: ubuntu-22.04
+    if: inputs.publish
+    needs:
+      - build
+      - docker
+    defaults:
+      run:
+        shell: bash
+
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+    env:
+      PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
+      PROFILE: ${{ inputs.profile }}
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          driver-opts: network=host
+
+      - name: Login to hub.docker.com
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Download docker images
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: "${{ env.PROFILE }}-docker-*"
+          path: images/
+          merge-multiple: true
+
+      - name: Load, push and create multiarch manifest
+        run: |
+          # Load both arch images
+          AMD64_IMAGE=$(docker load < images/$PROFILE-docker-$PKG_VSN-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
+          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-$PKG_VSN-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
+
+          echo "Loaded AMD64 image: $AMD64_IMAGE"
+          echo "Loaded ARM64 image: $ARM64_IMAGE"
+
+          # Extract version from image tag
+          VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
+
+          # Push to local registry with arch-specific tags
+          LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
+          docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
+          docker push "${LOCAL_BASE}:${VERSION}-amd64"
+
+          docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
+          docker push "${LOCAL_BASE}:${VERSION}-arm64"
+
+          # Create multiarch manifests and push to docker.io
+          DOCKER_IO_PROFILE_TAG="docker.io/${{ github.repository_owner }}/${PROFILE}:$VERSION"
+          DOCKER_IO_EMQX_TAG="docker.io/emqx/emqx:$VERSION"
+
+          echo "Creating multiarch manifest for docker.io:"
+          echo "  - $DOCKER_IO_PROFILE_TAG"
+          echo "  - $DOCKER_IO_EMQX_TAG"
+          docker buildx imagetools create \
+            --tag "$DOCKER_IO_PROFILE_TAG" \
+            --tag "$DOCKER_IO_EMQX_TAG" \
+            "${LOCAL_BASE}:${VERSION}-amd64" \
+            "${LOCAL_BASE}:${VERSION}-arm64"
+
+  publish-docker-sfodbc:
+    runs-on: ubuntu-22.04
+    if: inputs.publish && inputs.profile == 'emqx-enterprise'
+    needs:
+      - build
+      - docker-sfodbc
+    defaults:
+      run:
+        shell: bash
+
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+
+    env:
+      PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
+      PROFILE: ${{ inputs.profile }}
+
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.inputs.ref }}
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          driver-opts: network=host
+
+      - name: Login to hub.docker.com
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          username: ${{ secrets.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Download docker images
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: "${{ env.PROFILE }}-sf-docker-*"
+          path: images/
+          merge-multiple: true
+
+      - name: Load, push and create multiarch manifest
+        run: |
+          # Load both arch images
+          AMD64_IMAGE=$(docker load < images/$PROFILE-docker-sf-$PKG_VSN-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
+          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-sf-$PKG_VSN-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
+
+          echo "Loaded AMD64 image: $AMD64_IMAGE"
+          echo "Loaded ARM64 image: $ARM64_IMAGE"
+
+          # Extract version from image tag (includes -sf suffix)
+          VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
+
+          # Push to local registry with arch-specific tags
+          LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
+          docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
+          docker push "${LOCAL_BASE}:${VERSION}-amd64"
+
+          docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
+          docker push "${LOCAL_BASE}:${VERSION}-arm64"
+
+          # Create multiarch manifest and push to docker.io (only profile-specific tag for snowflake)
+          DOCKER_IO_PROFILE_TAG="docker.io/${{ github.repository_owner }}/${PROFILE}:$VERSION"
+
+          echo "Creating multiarch manifest for docker.io:"
+          echo "  - $DOCKER_IO_PROFILE_TAG"
+          docker buildx imagetools create \
+            --tag "$DOCKER_IO_PROFILE_TAG" \
+            "${LOCAL_BASE}:${VERSION}-amd64" \
+            "${LOCAL_BASE}:${VERSION}-arm64"
 
   upload:
     runs-on: ubuntu-22.04
@@ -405,20 +461,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: "${{ matrix.profile }}-docker-image-tag"
-
-      - name: export docker image to .tar.gz
-        run: |
-          set -xeuo pipefail
-
-          export _EMQX_DOCKER_IMAGE_TAG=$(cat docker-image-tag)
-          docker pull "${_EMQX_DOCKER_IMAGE_TAG}"
-          docker save "${_EMQX_DOCKER_IMAGE_TAG}" | gzip > "$FILENAME"
-
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ matrix.profile }}-docker-image-${{ matrix.arch }}
-          path: ${{ env.FILENAME }}
+          name: "${{ matrix.profile }}-docker-${{ matrix.arch }}"
 
       - uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 # v5.0.0
         with:
