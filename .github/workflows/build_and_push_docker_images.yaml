@@ -33,8 +33,8 @@ on:
         required: false
       AWS_CLOUDFRONT_ID:
         required: false
-      GH_TOKEN_PACKAGES_RW:
-        required: true
+      AUTH_APP_PRIVATE_KEY:
+        required: false
   workflow_dispatch:
     inputs:
       ref:
@@ -151,12 +151,20 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b # v2.1.1
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Login to ghcr.io
         uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GH_TOKEN_PACKAGES_RW }}
+          password: ${{ steps.app-token.outputs.token }}
 
       - name: Build and push docker image to ghcr.io
         env:
