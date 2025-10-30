@@ -98,7 +98,11 @@ kv_pair_value.label:
 
 service_account_json.desc:
 """JSON containing the GCP Service Account credentials to be used with PubSub.
-When a GCP Service Account is created (as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), you have the option of downloading the credentials in JSON form.  That's the file needed."""
+When a GCP Service Account is created (as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), you have the option of downloading the credentials in JSON form.
+
+You can provide the credentials in two ways:
+1. Inline: Paste the entire JSON content directly
+2. File reference: Use `file://path/to/service_account.json` to reference a file containing the credentials"""
 
 service_account_json.label:
 """GCP Service Account Credentials"""

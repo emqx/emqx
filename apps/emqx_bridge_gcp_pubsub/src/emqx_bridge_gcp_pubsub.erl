@@ -82,13 +82,11 @@ fields(connector_config) ->
                 }
             )},
         {service_account_json,
-            sc(
-                binary(),
+            emqx_schema_secret:mk(
                 #{
                     required => true,
                     validator => fun ?MODULE:service_account_json_validator/1,
                     converter => fun ?MODULE:service_account_json_converter/2,
-                    sensitive => true,
                     desc => ?DESC("service_account_json")
                 }
             )}
@@ -249,52 +247,104 @@ type_field_consumer() ->
 name_field() ->
     {name, mk(binary(), #{required => true, desc => ?DESC("desc_name")})}.
 
--spec service_account_json_validator(binary()) ->
+-spec service_account_json_validator(term()) ->
     ok
     | {error, {wrong_type, term()}}
-    | {error, {missing_keys, [binary()]}}.
-service_account_json_validator(Val) ->
+    | {error, {missing_keys, [binary()]}}
+    | {error, term()}.
+service_account_json_validator(Val) when is_function(Val, 0) ->
+    %% This is a wrapped secret (e.g., file reference)
+    %% We can't validate the content at schema validation time
+    %% The actual validation will happen when the secret is unwrapped
+    ok;
+service_account_json_validator(Val) when is_binary(Val) ->
+    %% Check if it's a file reference
+    case Val of
+        <<"file://", _/binary>> ->
+            %% File reference - validation will happen at runtime
+            ok;
+        _ ->
+            %% Inline JSON - validate now
+            validate_service_account_json_content(Val)
+    end;
+service_account_json_validator(Val) when is_map(Val) ->
+    %% Already decoded JSON map
+    validate_service_account_json_map(Val);
+service_account_json_validator(_Val) ->
+    {error, "invalid type for service_account_json"}.
+
+validate_service_account_json_content(Val) ->
     case emqx_utils_json:safe_decode(Val) of
         {ok, Map} ->
-            ExpectedKeys = [
-                <<"type">>,
-                <<"project_id">>,
-                <<"private_key_id">>,
-                <<"private_key">>,
-                <<"client_email">>
-            ],
-            MissingKeys = lists:sort([
-                K
-             || K <- ExpectedKeys,
-                not maps:is_key(K, Map)
-            ]),
-            Type = maps:get(<<"type">>, Map, null),
-            case {MissingKeys, Type} of
-                {[], <<"service_account">>} ->
-                    ok;
-                {[], Type} ->
-                    {error, #{wrong_type => Type}};
-                {_, _} ->
-                    {error, #{missing_keys => MissingKeys}}
-            end;
+            validate_service_account_json_map(Map);
         {error, _} ->
             {error, "not a json"}
     end.
 
-service_account_json_converter(Val, #{make_serializable := true}) ->
-    case is_map(Val) of
-        true -> emqx_utils_json:encode(Val);
-        false -> Val
-    end;
-service_account_json_converter(Map, _Opts) when is_map(Map) ->
-    emqx_utils_json:encode(Map);
-service_account_json_converter(Val, _Opts) ->
-    case emqx_utils_json:safe_decode(Val) of
-        {ok, Str} when is_binary(Str) ->
-            emqx_utils_json:decode(Str);
-        _ ->
-            Val
+validate_service_account_json_map(Map) ->
+    ExpectedKeys = [
+        <<"type">>,
+        <<"project_id">>,
+        <<"private_key_id">>,
+        <<"private_key">>,
+        <<"client_email">>
+    ],
+    MissingKeys = lists:sort([
+        K
+     || K <- ExpectedKeys,
+        not maps:is_key(K, Map)
+    ]),
+    Type = maps:get(<<"type">>, Map, null),
+    case {MissingKeys, Type} of
+        {[], <<"service_account">>} ->
+            ok;
+        {[], Type} ->
+            {error, #{wrong_type => Type}};
+        {_, _} ->
+            {error, #{missing_keys => MissingKeys}}
     end.
+
+service_account_json_converter(Val, #{make_serializable := true}) ->
+    %% When serializing, we need to get the source representation
+    case Val of
+        Fun when is_function(Fun, 0) ->
+            %% This is a wrapped secret - get its source representation
+            emqx_schema_secret:source(Fun);
+        Map when is_map(Map) ->
+            emqx_utils_json:encode(Map);
+        Bin when is_binary(Bin) ->
+            Bin
+    end;
+service_account_json_converter(Val, _Opts) when is_function(Val, 0) ->
+    %% This is already a wrapped secret from emqx_schema_secret
+    Val;
+service_account_json_converter(Map, Opts) when is_map(Map) ->
+    %% Convert map to JSON string then wrap it
+    JsonBin = emqx_utils_json:encode(Map),
+    emqx_schema_secret:convert_secret(JsonBin, Opts);
+service_account_json_converter(Val, Opts) when is_binary(Val) ->
+    %% This could be either a file reference or inline JSON
+    %% Let emqx_schema_secret handle it
+    case Val of
+        <<"file://", _/binary>> ->
+            %% File reference - let emqx_schema_secret wrap it
+            emqx_schema_secret:convert_secret(Val, Opts);
+        _ ->
+            %% Inline JSON - validate it's proper JSON first
+            case emqx_utils_json:safe_decode(Val) of
+                {ok, Decoded} when is_map(Decoded) ->
+                    %% Valid JSON - wrap it
+                    emqx_schema_secret:convert_secret(Val, Opts);
+                {ok, Str} when is_binary(Str) ->
+                    %% Double-encoded JSON string
+                    emqx_schema_secret:convert_secret(emqx_utils_json:decode(Str), Opts);
+                {error, _} ->
+                    %% Not valid JSON - return as is for error handling
+                    Val
+            end
+    end;
+service_account_json_converter(Val, _Opts) ->
+    Val.
 
 deep_update(Path, Fun, Map) ->
     case emqx_utils_maps:deep_get(Path, Map, #{}) of
