@@ -115,12 +115,6 @@ jobs:
       PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
       EMQX_SOURCE_TYPE: tgz
 
-    services:
-      registry:
-        image: registry
-        ports:
-          - 5000:5000
-
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -168,7 +162,7 @@ jobs:
           DOCKER_BUILD_NOCACHE: true
           DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: false
-          DOCKER_REGISTRY: ${{ inputs.publish && 'ghcr.io' || 'registry:5000' }}
+          DOCKER_REGISTRY: ${{ inputs.publish && 'ghcr.io' || '127.0.0.1:5000' }}
           IS_PUBLISH: ${{ inputs.publish }}
           DOCKER_USE_HOST_NET: ${{ ! inputs.publish }}
           DOCKER_ORG: ${{ github.repository_owner }}
@@ -178,9 +172,7 @@ jobs:
             docker buildx create --driver-opt network=host --use
           fi
           if [ "$IS_PUBLISH" != true ]; then
-            REGISTRY_IP=$(dig +short registry)
-            DOCKER_REGISTRY="$REGISTRY_IP:5000"
-            export DOCKER_REGISTRY
+            docker run -d -p 5000:5000 registry:3
           fi
           ./build ${PROFILE} docker
           echo "Built tags:"
@@ -290,12 +282,6 @@ jobs:
       EMQX_DOCKERFILE: 'deploy/docker/Dockerfile.sfodbc'
       DOCKER_IMAGE_SUFFIX: '-sf'
 
-    services:
-      registry:
-        image: registry
-        ports:
-          - 5000:5000
-
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
@@ -334,7 +320,7 @@ jobs:
           DOCKER_BUILD_NOCACHE: true
           DOCKER_PLATFORMS: linux/amd64,linux/arm64
           DOCKER_LOAD: false
-          DOCKER_REGISTRY: ${{ inputs.publish && 'ghcr.io' || 'registry:5000' }}
+          DOCKER_REGISTRY: ${{ inputs.publish && 'ghcr.io' || '127.0.0.1:5000' }}
           IS_PUBLISH: ${{ inputs.publish }}
           DOCKER_USE_HOST_NET: ${{ ! inputs.publish }}
           DOCKER_ORG: ${{ github.repository_owner }}
@@ -344,9 +330,7 @@ jobs:
             docker buildx create --driver-opt network=host --use
           fi
           if [ "$IS_PUBLISH" != true ]; then
-            REGISTRY_IP=$(dig +short registry)
-            DOCKER_REGISTRY="$REGISTRY_IP:5000"
-            export DOCKER_REGISTRY
+            docker run -d -p 5000:5000 registry:3
           fi
           # Use the ghcr.io image from the regular docker job as base
           export BUILD_FROM=$(cat docker-image-tag)
