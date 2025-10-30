@@ -174,7 +174,15 @@ jobs:
     with:
       profile: emqx-enterprise
       publish: false
-    secrets: inherit
+    secrets:
+      DOCKER_HUB_USER: ${{ secrets.DOCKER_HUB_USER }}
+      DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      AWS_CLOUDFRONT_ID: ${{ secrets.AWS_CLOUDFRONT_ID }}
+      GH_TOKEN_PACKAGES_RW: ${{ secrets.GH_TOKEN_PACKAGES_RW }}
 
   spellcheck:
     needs:
