@@ -50,8 +50,13 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: read
+# permissions:
+#   contents: read
+#   packages: write
+#   attestations: write
+#   id-token: write
+## fixme: temporary workaround for what seems to be a GHA bug
+permissions: write-all
 
 jobs:
   build:
@@ -97,10 +102,6 @@ jobs:
       run:
         shell: bash
 
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
 
     strategy:
       fail-fast: false
@@ -258,11 +259,6 @@ jobs:
     defaults:
       run:
         shell: bash
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
 
     strategy:
       fail-fast: false

@@ -80,7 +80,7 @@ jobs:
         run: scripts/shelltest/run_tests.sh
       - name: Check workflow files
         env:
-          ACTIONLINT_VSN: 1.6.25
+          ACTIONLINT_VSN: 1.7.3
         run: |
           wget -q https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VSN}/actionlint_${ACTIONLINT_VSN}_linux_$(dpkg --print-architecture).tar.gz -O actionlint.tar.gz
           tar zxf actionlint.tar.gz actionlint
@@ -166,10 +166,13 @@ jobs:
     needs:
       - init
       - sanity-checks
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
+    # permissions:
+    #   contents: read
+    #   packages: write
+    #   attestations: write
+    #   id-token: write
+    ## fixme: temporary workaround for what seems to be a GHA bug
+    permissions: write-all
     uses: ./.github/workflows/build_and_push_docker_images.yaml
     with:
       profile: emqx-enterprise
