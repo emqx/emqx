@@ -33,6 +33,8 @@ on:
         required: false
       AWS_CLOUDFRONT_ID:
         required: false
+      GH_TOKEN_PACKAGES_RW:
+        required: true
   workflow_dispatch:
     inputs:
       ref:
@@ -154,7 +156,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GH_TOKEN_PACKAGES_RW }}
 
       - name: Build and push docker image to ghcr.io
         env:
