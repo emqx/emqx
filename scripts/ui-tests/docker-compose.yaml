@@ -1,16 +1,16 @@
 services:
   emqx:
     image: ${_EMQX_DOCKER_IMAGE_TAG:-emqx/emqx:latest}
+    hostname: emqx
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
-      EMQX_LOG__CONSOLE__LEVEL: debug
 
   selenium:
     shm_size: '2gb'
-    image: ghcr.io/emqx/selenium-chrome:1.0.2
-    platform: linux/amd64
+    image: selenium/standalone-chromium:141.0
     volumes:
       - ./:/app
     depends_on:
-      - emqx
-    command: python3 -m pytest --dashboard-host emqx --dashboard-port 18083
+      emqx:
+        condition: service_started
+    command: "bash -c 'pip install selenium==4.28.0 pytest==8.3.5 requests==2.32.3 && cd app && pytest'"
