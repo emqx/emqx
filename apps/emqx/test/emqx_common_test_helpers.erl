@@ -1522,15 +1522,14 @@ start_apps_ds(Config, ExtraApps, Opts) ->
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
     WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
     StartEMQXConf = maps:get(start_emqx_conf, Opts, true),
+    DSConfig = durable_sessions_config(DurableSessionsOpts),
     Apps = emqx_cth_suite:start(
         lists:flatten(
             [
                 [emqx_conf || StartEMQXConf],
                 {emqx, #{
                     config => emqx_utils_maps:deep_merge(EMQXOpts, #{
-                        <<"durable_sessions">> => durable_sessions_config(
-                            DurableSessionsOpts
-                        ),
+                        <<"durable_sessions">> => DSConfig,
                         <<"durable_storage">> => DurableStorageOpts
                     })
                 }}
@@ -1539,7 +1538,10 @@ start_apps_ds(Config, ExtraApps, Opts) ->
         ),
         #{work_dir => WorkDir}
     ),
-    emqx_persistent_message:wait_readiness(5_000),
+    maybe
+        true ?= maps:get(<<"enable">>, DSConfig),
+        ok = emqx_persistent_message:wait_readiness(15_000)
+    end,
     [{apps, Apps} | Config].
 
 stop_apps_ds(Config) ->

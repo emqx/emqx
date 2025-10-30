@@ -72,7 +72,15 @@ t_no_orphans(Config) ->
     ?assertEqual(
         #{},
         orphans()
-    ).
+    ),
+    %% Files used in namespaced resource configs should not be considered orphans.
+    Namespace = <<"some_ns">>,
+    NsCertDir = filename:join([Namespace, "connectors", "type", "name"]),
+    {ok, SSLNs} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(NsCertDir, SSL0),
+    ok = emqx_config:add_allowed_namespaced_config_root(<<?MODULE_STRING>>),
+    {ok, _} = put_config_ns([<<"servers">>, <<"x">>, <<"ssl">>], SSLNs, Namespace),
+    ?assertEqual(#{}, orphans()),
+    ok.
 
 t_collect_orphans(_Config) ->
     % 0. Set up a client and two servers (each with the same set of certfiles).
@@ -152,6 +160,57 @@ t_collect_orphans(_Config) ->
         #{},
         orphans()
     ).
+
+%% Similar to `t_collect_orphans`, but involving only namespaced configurations.
+t_collect_namespaced_orphans(_Config) ->
+    %% 0. Set up a client using certs
+    SSL0 = #{
+        <<"keyfile">> => key(),
+        <<"certfile">> => cert(),
+        <<"cacertfile">> => cert()
+    },
+    ok = load_config(#{}),
+    Namespace = <<"some_ns">>,
+    NsCertDir = filename:join([Namespace, "connectors", "type", "name"]),
+    {ok, SSLNs} = emqx_tls_lib:ensure_ssl_files_in_mutable_certs_dir(NsCertDir, SSL0),
+    ok = emqx_config:add_allowed_namespaced_config_root(<<?MODULE_STRING>>),
+    {ok, _} = put_config_ns(
+        [<<"clients">>],
+        [#{<<"transport">> => #{<<"ssl">> => SSLNs}}],
+        Namespace
+    ),
+    %% Initially, no orphans, as the configuration is being used.
+    Orphans0 = orphans(),
+    ?assertEqual(#{}, Orphans0),
+    %% 1. Now we disable the SSL server.  It should become orphaned.
+    {ok, _} = put_config_ns(
+        [<<"clients">>],
+        [#{<<"transport">> => #{<<"ssl">> => #{<<"enable">> => false}}}],
+        Namespace
+    ),
+    Orphans1 = orphans(),
+    ?assertEqual(3, map_size(Orphans1), #{orphans => Orphans1}),
+    %% All orphans are newly observed, nothing to collect
+    ?assertEqual(
+        [],
+        collect(convicts(Orphans1, Orphans0))
+    ),
+    %% Same orphans are "observed", should be collected
+    ?assertMatch(
+        [
+            {collect, _DirClient0, ok},
+            {collect, _DirClient1, ok},
+            {collect, _DirClient2, ok},
+            {collect, _DirClient3, ok},
+            {collect, _CACert, ok},
+            {collect, _Cert, ok},
+            {collect, _Key, ok}
+        ],
+        collect(convicts(Orphans1, Orphans1))
+    ),
+    %% No orphans left.
+    ?assertEqual(#{}, orphans()),
+    ok.
 
 t_gc_runs_periodically(_Config) ->
     ok = supervisor:terminate_child(emqx_tls_lib_sup, emqx_tls_certfile_gc),
@@ -382,6 +441,9 @@ load_config(Config) ->
 
 put_config(Path, SubConfig) ->
     emqx_config:put_raw([<<?MODULE_STRING>> | Path], SubConfig).
+
+put_config_ns(Path, SubConfig, Namespace) when is_binary(Namespace) ->
+    emqx:update_config([<<?MODULE_STRING>> | Path], SubConfig, #{namespace => Namespace}).
 
 cert() ->
     <<

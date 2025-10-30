@@ -97,6 +97,11 @@ jobs:
       run:
         shell: bash
 
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
     strategy:
       fail-fast: false
       matrix:
@@ -109,7 +114,6 @@ jobs:
       DOCKER_LATEST: ${{ inputs.latest }}
       PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
       EMQX_SOURCE_TYPE: tgz
-      EMQX_EXTRA_BASE_IMAGE_TAGS: emqx/emqx
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -145,10 +149,22 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Build docker image
+      - name: Login to ghcr.io
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push docker image to ghcr.io
         env:
-          DOCKER_PUSH: false
+          DOCKER_PUSH: true
           DOCKER_BUILD_NOCACHE: true
+          DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          DOCKER_LOAD: false
+          DOCKER_REGISTRY: ghcr.io
+          DOCKER_ORG: ${{ github.repository_owner }}
+          EMQX_BASE_IMAGE_TAG: ${{ github.repository_owner }}/emqx
         run: |
           ./build ${PROFILE} docker
           echo "Built tags:"
@@ -158,15 +174,19 @@ jobs:
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
           head -n 1 .emqx_docker_image_tags > docker-image-tag
 
+      - name: Pull image from ghcr.io for local testing
+        run: |
+          docker pull $_EMQX_DOCKER_IMAGE_TAG
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: "${{ matrix.profile }}-docker-image-tag"
           path: "docker-image-tag"
           retention-days: 7
 
-      - name: Verify that size of docker image is less than 300 MB
+      - name: Verify that size of docker image is less than 140 MB
         run: |
-          docker image inspect $_EMQX_DOCKER_IMAGE_TAG --format='{{.Size}}' | xargs -I {} test {} -lt 300000000
+          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c | xargs -I {} test {} -lt 140000000
 
       - name: smoke test
         timeout-minutes: 5
@@ -202,19 +222,36 @@ jobs:
           path: "${{ matrix.profile }}-docker-${{ env.PKG_VSN }}.tar.gz"
           retention-days: 7
 
-      - name: Publish docker image
-        if: inputs.publish || github.repository_owner != 'emqx'
+      - name: Promote image from ghcr.io to docker.io
+        if: inputs.publish
         env:
-          DOCKER_PUSH: true
-          DOCKER_BUILD_NOCACHE: false
-          DOCKER_PLATFORMS: linux/amd64,linux/arm64
-          DOCKER_LOAD: false
+          DOCKER_ORG: "${{ github.repository_owner }}"
         run: |
-          ./build ${PROFILE} docker
+          # Read source tag from ghcr.io
+          SOURCE_TAG=$(head -n 1 .emqx_docker_image_tags)
+          echo "Source image: $SOURCE_TAG"
+
+          # Convert ghcr.io tags to docker.io tags
+          # Also add corresponding tags for emqx-enterprise profile
+          DOCKER_IO_TAGS=""
+          while IFS= read -r tag; do
+            # Replace ghcr.io with docker.io and /emqx with /${PROFILE}
+            docker_io_tag=$(echo "$tag" | sed "s|ghcr.io/$DOCKER_ORG/emqx|docker.io/$DOCKER_ORG/${PROFILE}|g")
+            DOCKER_IO_TAGS="$DOCKER_IO_TAGS --tag $docker_io_tag"
+            echo "Target tag: $docker_io_tag"
+
+            # Also add emqx/emqx tag for extra base image tags
+            extra_tag=$(echo "$tag" | sed "s|ghcr.io/$DOCKER_ORG/emqx|docker.io/$DOCKER_ORG/emqx|g")
+            DOCKER_IO_TAGS="$DOCKER_IO_TAGS --tag $extra_tag"
+            echo "Target tag: $extra_tag"
+          done < .emqx_docker_image_tags
+
+          # Copy multiarch image from ghcr.io to docker.io with all tags
+          docker buildx imagetools create $DOCKER_IO_TAGS "$SOURCE_TAG"
 
   docker-sfodbc:
     runs-on: ubuntu-22.04
-    if: inputs.publish && inputs.profile == 'emqx-enterprise'
+    if: inputs.profile == 'emqx-enterprise'
     needs:
       - build
       - docker
@@ -222,15 +259,20 @@ jobs:
       run:
         shell: bash
 
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
     strategy:
       fail-fast: false
 
     env:
       PROFILE: ${{ inputs.profile }}
-      DOCKER_REGISTRY: 'docker.io'
-      DOCKER_ORG: ${{ github.repository_owner }}
       DOCKER_LATEST: false
       PKG_VSN: ${{ needs.build.outputs.PKG_VSN }}
+      EMQX_DOCKERFILE: 'deploy/docker/Dockerfile.sfodbc'
+      DOCKER_IMAGE_SUFFIX: '-sf'
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -251,23 +293,32 @@ jobs:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Login to hub.docker.com
+        if: inputs.publish
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           username: ${{ secrets.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_TOKEN }}
 
-      - name: Build docker image
+      - name: Login to ghcr.io
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multiarch docker image to ghcr.io
         env:
-          DOCKER_PUSH: false
+          DOCKER_PUSH: true
           DOCKER_BUILD_NOCACHE: true
-          EMQX_DOCKERFILE: "deploy/docker/Dockerfile.sfodbc"
+          DOCKER_PLATFORMS: linux/amd64,linux/arm64
+          DOCKER_LOAD: false
+          DOCKER_REGISTRY: ghcr.io
+          DOCKER_ORG: ${{ github.repository_owner }}
+          EMQX_BASE_IMAGE_TAG: ${{ github.repository_owner }}/emqx
         run: |
+          # Use the ghcr.io image from the regular docker job as base
           export BUILD_FROM=$(cat docker-image-tag)
-          # strip registry from tag in docker-image-tag file
-          export BUILD_FROM=${BUILD_FROM#*/}
-          export EMQX_IMAGE_TAG="${BUILD_FROM}-sf"
           echo "BUILD_FROM=$BUILD_FROM" >> $GITHUB_ENV
-          echo "EMQX_IMAGE_TAG=$EMQX_IMAGE_TAG" >> $GITHUB_ENV
           ./build ${PROFILE} docker
           echo "Built tags:"
           echo "==========="
@@ -275,6 +326,10 @@ jobs:
           echo "==========="
           echo "_EMQX_DOCKER_IMAGE_TAG=$(head -n 1 .emqx_docker_image_tags)" >> $GITHUB_ENV
           head -n 1 .emqx_docker_image_tags > docker-image-tag
+
+      - name: Pull image from ghcr.io for local testing
+        run: |
+          docker pull $_EMQX_DOCKER_IMAGE_TAG
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -305,18 +360,27 @@ jobs:
           docker exec -t -u root $CID node_dump
           docker rm -f $CID
 
-      - name: Publish docker image
-        if: inputs.publish || github.repository_owner != 'emqx'
+      - name: Promote snowflake image from ghcr.io to docker.io
+        if: inputs.publish
         env:
-          DOCKER_PUSH: true
-          DOCKER_BUILD_NOCACHE: false
-          DOCKER_PLATFORMS: linux/amd64,linux/arm64
-          DOCKER_LOAD: false
-          EMQX_DOCKERFILE: "deploy/docker/Dockerfile.sfodbc"
-          BUILD_FROM: "${{ env.BUILD_FROM }}"
-          EMQX_IMAGE_TAG: "${{ env.EMQX_IMAGE_TAG }}"
+          DOCKER_ORG: "${{ github.repository_owner }}"
         run: |
-          ./build ${PROFILE} docker
+          # Read source tag from ghcr.io
+          SOURCE_TAG=$(head -n 1 .emqx_docker_image_tags)
+          echo "Source image: $SOURCE_TAG"
+
+          # Convert ghcr.io tags to docker.io tags
+          # Also add corresponding tags for emqx-enterprise profile
+          DOCKER_IO_TAGS=""
+          while IFS= read -r tag; do
+            # Replace ghcr.io with docker.io and /emqx with /${PROFILE}
+            docker_io_tag=$(echo "$tag" | sed "s|ghcr.io/$DOCKER_ORG/emqx|docker.io/$DOCKER_ORG/${PROFILE}|g")
+            DOCKER_IO_TAGS="$DOCKER_IO_TAGS --tag $docker_io_tag"
+            echo "Target tag: $docker_io_tag"
+          done < .emqx_docker_image_tags
+
+          # Copy multiarch image from ghcr.io to docker.io with all tags
+          docker buildx imagetools create $DOCKER_IO_TAGS "$SOURCE_TAG"
 
   upload:
     runs-on: ubuntu-22.04
