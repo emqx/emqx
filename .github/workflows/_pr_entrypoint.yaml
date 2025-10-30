@@ -29,10 +29,20 @@ jobs:
       OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
+      GITHUB_APP_TOKEN: ${{ steps.env.outputs.GITHUB_APP_TOKEN }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ github.event.inputs.ref }}
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@a8d616148505b5069dccd32f177bb87d7f39123b # v2.1.1
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            ${{ github.repository }}
       - name: Set up environment
         id: env
         run: |
@@ -41,6 +51,7 @@ jobs:
           echo "OTP_VSN=$OTP_VSN" | tee -a "$GITHUB_OUTPUT"
           echo "ELIXIR_VSN=$ELIXIR_VSN" | tee -a "$GITHUB_OUTPUT"
           echo "BUILDER=$EMQX_BUILDER" | tee -a "$GITHUB_OUTPUT"
+          echo "GITHUB_APP_TOKEN=${{ steps.app-token.outputs.token }}" >> "$GITHUB_OUTPUT"
 
   sanity-checks:
     runs-on: ubuntu-22.04
@@ -174,6 +185,7 @@ jobs:
     with:
       profile: emqx-enterprise
       publish: false
+      GITHUB_APP_TOKEN: ${{ needs.init.outputs.GITHUB_APP_TOKEN }}
     secrets: inherit
 
   spellcheck:
