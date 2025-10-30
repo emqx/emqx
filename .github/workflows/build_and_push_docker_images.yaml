@@ -349,21 +349,17 @@ jobs:
 
       - name: Load, push and create multiarch manifest
         run: |
-          # Load both arch images
+          # Load AMD64 image and retag to prevent overwriting
           AMD64_IMAGE=$(docker load < images/$PROFILE-docker-$PKG_VSN-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-$PKG_VSN-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-
           echo "Loaded AMD64 image: $AMD64_IMAGE"
-          echo "Loaded ARM64 image: $ARM64_IMAGE"
-
-          # Extract version from image tag
           VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
-
-          # Push to local registry with arch-specific tags
           LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
           docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
           docker push "${LOCAL_BASE}:${VERSION}-amd64"
 
+          # Load ARM64 image and retag
+          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-$PKG_VSN-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
+          echo "Loaded ARM64 image: $ARM64_IMAGE"
           docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
           docker push "${LOCAL_BASE}:${VERSION}-arm64"
 
@@ -424,21 +420,17 @@ jobs:
 
       - name: Load, push and create multiarch manifest
         run: |
-          # Load both arch images
+          # Load AMD64 image and retag to prevent overwriting
           AMD64_IMAGE=$(docker load < images/$PROFILE-docker-sf-$PKG_VSN-amd64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-sf-$PKG_VSN-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
-
           echo "Loaded AMD64 image: $AMD64_IMAGE"
-          echo "Loaded ARM64 image: $ARM64_IMAGE"
-
-          # Extract version from image tag (includes -sf suffix)
           VERSION=$(echo "$AMD64_IMAGE" | sed 's/.*://')
-
-          # Push to local registry with arch-specific tags
           LOCAL_BASE="localhost:5000/${{ github.repository_owner }}/${PROFILE}"
           docker tag "$AMD64_IMAGE" "${LOCAL_BASE}:${VERSION}-amd64"
           docker push "${LOCAL_BASE}:${VERSION}-amd64"
 
+          # Load ARM64 image and retag
+          ARM64_IMAGE=$(docker load < images/$PROFILE-docker-sf-$PKG_VSN-arm64.tar.gz | grep "Loaded image:" | sed 's/Loaded image: //')
+          echo "Loaded ARM64 image: $ARM64_IMAGE"
           docker tag "$ARM64_IMAGE" "${LOCAL_BASE}:${VERSION}-arm64"
           docker push "${LOCAL_BASE}:${VERSION}-arm64"
 
