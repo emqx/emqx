@@ -111,12 +111,17 @@ fields(container_parquet) ->
                     desc => ?DESC("container_parquet")
                 }
             )},
-        {avro_schema,
+        {schema,
             mk(
-                binary(),
+                emqx_schema:mkunion(
+                    type,
+                    #{
+                        <<"avro_inline">> => ref(parquet_schema_avro_inline),
+                        <<"avro_ref">> => ref(parquet_schema_avro_ref)
+                    }
+                ),
                 #{
                     required => true,
-                    validator => fun parquet_avro_schema_validator/1,
                     desc => ?DESC("parquet_avro_schema")
                 }
             )},
@@ -138,6 +143,16 @@ fields(container_parquet) ->
                 emqx_schema:bytesize(),
                 #{default => <<"128MB">>, desc => ?DESC("container_parquet_max_row_group_bytes")}
             )}
+    ];
+fields(parquet_schema_avro_inline) ->
+    [
+        {type, mk(avro_inline, #{required => true})},
+        {def, mk(binary(), #{required => true, validator => fun parquet_avro_schema_validator/1})}
+    ];
+fields(parquet_schema_avro_ref) ->
+    [
+        {type, mk(avro_ref, #{required => true})},
+        {name, mk(binary(), #{required => true})}
     ].
 
 desc(Name) when

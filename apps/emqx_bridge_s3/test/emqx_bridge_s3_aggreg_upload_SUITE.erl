@@ -96,7 +96,7 @@ init_per_testcase(TestCase, Config) ->
         case aggregation_container_type(Config) of
             ?csv -> aggregation_container_config_csv(#{});
             ?json_lines -> aggregation_container_config_json_lines(#{});
-            ?parquet -> aggregation_container_config_parquet(#{})
+            ?parquet -> aggregation_container_config_parquet_inline(#{})
         end,
     ActionConfig = action_config(#{
         <<"connector">> => Name,
@@ -198,14 +198,8 @@ aggregation_container_config_csv(Overrides) ->
 aggregation_container_config_json_lines(Overrides) ->
     emqx_utils_maps:deep_merge(#{<<"type">> => <<"json_lines">>}, Overrides).
 
-aggregation_container_config_parquet(Overrides) ->
-    emqx_utils_maps:deep_merge(
-        #{
-            <<"type">> => <<"parquet">>,
-            <<"avro_schema">> => emqx_utils_json:encode(sample_avro_schema1())
-        },
-        Overrides
-    ).
+aggregation_container_config_parquet_inline(Overrides) ->
+    emqx_connector_aggregator_test_helpers:aggregation_container_config_parquet_inline(Overrides).
 
 sample_avro_schema1() ->
     #{
@@ -529,12 +523,7 @@ t_aggreg_upload_parquet(TCConfig) ->
                 <<"time_interval">> => <<"1s">>,
                 <<"max_records">> => 5
             },
-            <<"container">> => #{
-                <<"type">> => <<"parquet">>,
-                <<"avro_schema">> => emqx_utils_json:encode(sample_avro_schema1()),
-                <<"default_compression">> => <<"snappy">>,
-                <<"max_row_group_bytes">> => <<"128MB">>
-            }
+            <<"container">> => aggregation_container_config_parquet_inline(#{})
         },
         %% To ensure message order below
         <<"resource_opts">> => #{<<"worker_pool_size">> => 1}

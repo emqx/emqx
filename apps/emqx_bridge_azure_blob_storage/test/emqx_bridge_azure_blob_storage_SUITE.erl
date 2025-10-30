@@ -112,7 +112,7 @@ init_per_testcase(TestCase, Config0) ->
         case aggregation_container_type(Config0) of
             ?csv -> aggregation_container_config_csv(#{});
             ?json_lines -> aggregation_container_config_json_lines(#{});
-            ?parquet -> aggregation_container_config_parquet(#{})
+            ?parquet -> aggregation_container_config_parquet_inline(#{})
         end,
     ActionConfig =
         case aggregation_mode(Config0) of
@@ -290,14 +290,8 @@ aggregation_container_config_csv(Overrides) ->
 aggregation_container_config_json_lines(Overrides) ->
     emqx_utils_maps:deep_merge(#{<<"type">> => <<"json_lines">>}, Overrides).
 
-aggregation_container_config_parquet(Overrides) ->
-    emqx_utils_maps:deep_merge(
-        #{
-            <<"type">> => <<"parquet">>,
-            <<"avro_schema">> => emqx_utils_json:encode(sample_avro_schema1())
-        },
-        Overrides
-    ).
+aggregation_container_config_parquet_inline(Overrides) ->
+    emqx_connector_aggregator_test_helpers:aggregation_container_config_parquet_inline(Overrides).
 
 aggreg_id(BridgeName) ->
     {?ACTION_TYPE_BIN, BridgeName}.
@@ -369,44 +363,6 @@ simple_create_rule_api(TCConfig) ->
 
 simple_create_rule_api(SQLOrOpts, TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(SQLOrOpts, TCConfig).
-
-sample_avro_schema1() ->
-    #{
-        <<"name">> => <<"root">>,
-        <<"type">> => <<"record">>,
-        <<"fields">> =>
-            [
-                #{
-                    <<"field-id">> => 1,
-                    <<"name">> => <<"clientid">>,
-                    <<"type">> => <<"string">>
-                },
-                #{
-                    <<"field-id">> => 2,
-                    <<"name">> => <<"qos">>,
-                    <<"type">> => <<"int">>
-                },
-                #{
-                    <<"field-id">> => 3,
-                    <<"name">> => <<"payload">>,
-                    <<"default">> => null,
-                    <<"type">> => [<<"null">>, <<"string">>]
-                },
-                #{
-                    <<"field-id">> => 4,
-                    <<"name">> => <<"publish_received_at">>,
-                    <<"default">> => null,
-                    <<"type">> => [
-                        <<"null">>,
-                        #{
-                            <<"type">> => <<"long">>,
-                            <<"adjust-to-utc">> => false,
-                            <<"logicalType">> => <<"timestamp-micros">>
-                        }
-                    ]
-                }
-            ]
-    }.
 
 read_parquet(Raw) ->
     Method = post,
@@ -987,12 +943,7 @@ t_aggreg_upload_parquet(TCConfig) ->
     {201, _} = create_action_api(TCConfig, #{
         <<"parameters">> => #{
             <<"aggregation">> => #{
-                <<"container">> => #{
-                    <<"type">> => <<"parquet">>,
-                    <<"avro_schema">> => emqx_utils_json:encode(sample_avro_schema1()),
-                    <<"default_compression">> => <<"snappy">>,
-                    <<"max_row_group_bytes">> => <<"128MB">>
-                }
+                <<"container">> => aggregation_container_config_parquet_inline(#{})
             }
         }
     }),
@@ -1006,7 +957,7 @@ t_aggreg_upload_parquet(TCConfig) ->
         ?wait_async_action(
             publish_messages(Messages),
             #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when T /= empty,
-            5_000
+            15_000
         ),
     %% Check the uploaded objects.
     [#cloud_blob{name = BlobName, properties = UploadProps}] = list_blobs(TCConfig),
