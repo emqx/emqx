@@ -27,8 +27,8 @@ container_json_lines.desc:
     """Use [Parquet](https://parquet.apache.org/docs/) for encoding data files."""
   }
 
-  parquet_avro_schema {
-    label: """Schema (Avro)"""
+  parquet_schema {
+    label: """Parquet Schema (Avro)"""
     desc:
     """The schema to be used for the Parquet files, in Avro format."""
   }
@@ -43,6 +43,42 @@ container_json_lines.desc:
     label: """Parquet Default Compression"""
     desc:
     """The default algorithm to use for compressing data pages in Parquet row groups."""
+  }
+
+  parquet_schema_avro_inline {
+    label: """Inline"""
+    desc:
+    """Avro schema defined inline."""
+  }
+
+  parquet_schema_avro_ref {
+    label: """Schema Registry Reference"""
+    desc:
+    """Avro schema that lives in Schema Registry."""
+  }
+
+  parquet_schema_avro_inline_type {
+    label: """Type"""
+    desc:
+    """Avro schema defined inline."""
+  }
+
+  parquet_schema_avro_ref_type {
+    label: """Type"""
+    desc:
+    """Avro schema that lives in Schema Registry."""
+  }
+
+  parquet_schema_avro_inline_def {
+    label: """Schema definition"""
+    desc:
+    """Avro schema definition in JSON format."""
+  }
+
+  parquet_schema_avro_ref_name {
+    label: """Schema name"""
+    desc:
+    """Avro schema name that lives in Schema Registry."""
   }
 
 }

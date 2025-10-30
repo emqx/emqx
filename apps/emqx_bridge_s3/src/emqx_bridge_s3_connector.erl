@@ -141,8 +141,10 @@ on_get_status(_InstId, #{client_config := Config}) ->
 -spec on_add_channel(_InstanceId :: resource_id(), state(), channel_id(), channel_config()) ->
     {ok, state()} | {error, _Reason}.
 on_add_channel(_InstId, State = #{channels := Channels}, ChannelId, Config) ->
-    ChannelState = start_channel(State, Config),
-    {ok, State#{channels => Channels#{ChannelId => ChannelState}}}.
+    maybe
+        {ok, ChannelState} ?= start_channel(State, Config),
+        {ok, State#{channels => Channels#{ChannelId => ChannelState}}}
+    end.
 
 -spec on_remove_channel(_InstanceId :: resource_id(), state(), channel_id()) ->
     {ok, state()}.
@@ -174,13 +176,14 @@ start_channel(_State, #{
         content := Content
     }
 }) ->
-    #{
+    ChannelState = #{
         mode => Mode,
         bucket => emqx_template:parse(Bucket),
         key => emqx_template:parse(Key),
         content => emqx_template:parse(Content),
         upload_options => upload_options(Parameters)
-    };
+    },
+    {ok, ChannelState};
 start_channel(State, #{
     bridge_type := Type = ?BRIDGE_TYPE_UPLOAD,
     bridge_name := Name,
@@ -190,7 +193,7 @@ start_channel(State, #{
             time_interval := TimeInterval,
             max_records := MaxRecords
         },
-        container := Container,
+        container := ContainerOpts,
         bucket := Bucket,
         key := Key
     }
@@ -205,28 +208,32 @@ start_channel(State, #{
     DeliveryOpts = #{
         bucket => Bucket,
         key => Template,
-        container => Container,
+        container => ContainerOpts,
         upload_options => emqx_bridge_s3_upload:mk_upload_options(Parameters),
         callback_module => ?MODULE,
         client_config => maps:get(client_config, State),
         uploader_config => maps:with([min_part_size, max_part_size], Parameters)
     },
-    _ = ?AGGREG_SUP:delete_child(AggregId),
-    {ok, SupPid} = ?AGGREG_SUP:start_child(#{
-        id => AggregId,
-        start =>
-            {emqx_connector_aggreg_upload_sup, start_link, [AggregId, AggregOpts, DeliveryOpts]},
-        type => supervisor,
-        restart => permanent
-    }),
-    #{
-        mode => Mode,
-        name => Name,
-        aggreg_id => AggregId,
-        bucket => Bucket,
-        supervisor => SupPid,
-        on_stop => fun() -> ?AGGREG_SUP:delete_child(AggregId) end
-    }.
+    maybe
+        ok ?= emqx_connector_aggreg_delivery:validate_container_opts(ContainerOpts),
+        _ = ?AGGREG_SUP:delete_child(AggregId),
+        {ok, SupPid} = ?AGGREG_SUP:start_child(#{
+            id => AggregId,
+            start =>
+                {emqx_connector_aggreg_upload_sup, start_link, [AggregId, AggregOpts, DeliveryOpts]},
+            type => supervisor,
+            restart => permanent
+        }),
+        ChannelState = #{
+            mode => Mode,
+            name => Name,
+            aggreg_id => AggregId,
+            bucket => Bucket,
+            supervisor => SupPid,
+            on_stop => fun() -> ?AGGREG_SUP:delete_child(AggregId) end
+        },
+        {ok, ChannelState}
+    end.
 
 upload_options(Parameters) ->
     #{acl => maps:get(acl, Parameters, undefined)}.

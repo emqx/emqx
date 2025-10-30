@@ -96,7 +96,7 @@ init_per_testcase(TestCase, Config) ->
         case aggregation_container_type(Config) of
             ?csv -> aggregation_container_config_csv(#{});
             ?json_lines -> aggregation_container_config_json_lines(#{});
-            ?parquet -> aggregation_container_config_parquet(#{})
+            ?parquet -> aggregation_container_config_parquet_inline(#{})
         end,
     ActionConfig = action_config(#{
         <<"connector">> => Name,
@@ -198,11 +198,17 @@ aggregation_container_config_csv(Overrides) ->
 aggregation_container_config_json_lines(Overrides) ->
     emqx_utils_maps:deep_merge(#{<<"type">> => <<"json_lines">>}, Overrides).
 
-aggregation_container_config_parquet(Overrides) ->
+aggregation_container_config_parquet_inline(Overrides) ->
+    emqx_connector_aggregator_test_helpers:aggregation_container_config_parquet_inline(Overrides).
+
+aggregation_container_config_parquet_ref(Overrides) ->
     emqx_utils_maps:deep_merge(
         #{
             <<"type">> => <<"parquet">>,
-            <<"avro_schema">> => emqx_utils_json:encode(sample_avro_schema1())
+            <<"schema">> => #{
+                <<"type">> => <<"avro_ref">>,
+                <<"name">> => <<"please override">>
+            }
         },
         Overrides
     ).
@@ -529,12 +535,7 @@ t_aggreg_upload_parquet(TCConfig) ->
                 <<"time_interval">> => <<"1s">>,
                 <<"max_records">> => 5
             },
-            <<"container">> => #{
-                <<"type">> => <<"parquet">>,
-                <<"avro_schema">> => emqx_utils_json:encode(sample_avro_schema1()),
-                <<"default_compression">> => <<"snappy">>,
-                <<"max_row_group_bytes">> => <<"128MB">>
-            }
+            <<"container">> => aggregation_container_config_parquet_inline(#{})
         },
         %% To ensure message order below
         <<"resource_opts">> => #{<<"worker_pool_size">> => 1}
@@ -589,6 +590,32 @@ t_aggreg_upload_parquet(TCConfig) ->
             }
         ],
         read_parquet(Content)
+    ),
+    ok.
+
+%% Checks that we validate schema registry references when adding the action.
+t_aggreg_upload_parquet_bad_reference() ->
+    [{matrix, true}].
+t_aggreg_upload_parquet_bad_reference(matrix) ->
+    [[?parquet]];
+t_aggreg_upload_parquet_bad_reference(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Old) ->
+        emqx_utils_maps:deep_remove([<<"parameters">>, <<"container">>], Old)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    %% Doesn't exist
+    SerdeName = <<"my_avro_sc">>,
+    ?assertMatch(
+        {201, #{<<"status">> := <<"disconnected">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"container">> => aggregation_container_config_parquet_ref(#{
+                    <<"schema">> => #{
+                        <<"name">> => SerdeName
+                    }
+                })
+            }
+        })
     ),
     ok.
 
