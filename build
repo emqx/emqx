@@ -390,6 +390,9 @@ make_docker() {
     if [ "${DOCKER_LOAD:-true}" = true ]; then
         DOCKER_BUILDX_ARGS+=(--load)
     fi
+    if [ "${DOCKER_USE_HOST_NET:-false}" = true ]; then
+        DOCKER_BUILDX_ARGS+=(--network=host)
+    fi
     if [ -d "${REBAR_GIT_CACHE_DIR:-}" ]; then
         cache_tar="$(pwd)/rebar-git-cache.tar"
         if [ ! -f "${cache_tar}" ]; then
