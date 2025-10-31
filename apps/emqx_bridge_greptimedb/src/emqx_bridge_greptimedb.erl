@@ -60,13 +60,11 @@ connector_examples(Method) ->
         }
     ].
 
-bridge_v1_values(_Method) ->
+connector_values(_Method) ->
     #{
         type => greptimedb,
         name => <<"demo">>,
         enable => true,
-        write_syntax => write_syntax_value(),
-        precision => ms,
         resource_opts => #{
             batch_size => 100,
             batch_time => <<"20ms">>
@@ -78,9 +76,6 @@ bridge_v1_values(_Method) ->
         server => <<"127.0.0.1:4001">>,
         ssl => #{enable => false}
     }.
-
-connector_values(Method) ->
-    maps:without([write_syntax, precision], bridge_v1_values(Method)).
 
 write_syntax_value() ->
     <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
@@ -114,8 +109,9 @@ fields(action_parameters) ->
     ];
 %% Connectors
 fields("config_connector") ->
-    emqx_connector_schema:common_fields() ++
-        emqx_bridge_greptimedb_connector:fields("connector") ++
+    emqx_connector_schema:common_fields() ++ fields(connector_config);
+fields(connector_config) ->
+    emqx_bridge_greptimedb_connector:fields("connector") ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
@@ -124,10 +120,7 @@ fields(Field) when
     Field == "put_connector";
     Field == "post_connector"
 ->
-    Fields =
-        emqx_bridge_greptimedb_connector:fields("connector") ++
-            emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts),
-    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, Fields);
+    emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, fields(connector_config));
 %$ Bridge v2
 fields(Field) when
     Field == "get_bridge_v2";
