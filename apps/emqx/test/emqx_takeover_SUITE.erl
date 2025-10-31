@@ -19,6 +19,9 @@
 %%--------------------------------------------------------------------
 %% Initial funcs
 
+suite() ->
+    [{ct_hooks, [emqx_cth_ct_hook_flaky]}].
+
 all() ->
     [
         {group, persistence_disabled},
