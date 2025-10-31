@@ -536,6 +536,63 @@ t_quic_conn(Config) ->
         ok = quicer:close_connection(Conn)
     end).
 
+-doc """
+Smoke test for using managed certificates (global ns) in a QUIC listener.
+""".
+t_quic_managed_certs_global(_TCConfig) ->
+    Port = emqx_common_test_helpers:select_free_port(quic),
+    BundleName = <<"bundle">>,
+    {ok, _} = generate_and_upload_managed_certs(?global_ns, BundleName, #{}),
+    {ok, #{
+        ?FILE_KIND_CA := #{path := CAPath0},
+        ?FILE_KIND_CHAIN := #{path := ChainPath0},
+        ?FILE_KIND_KEY := #{path := KeyPath0}
+    }} = emqx_managed_certs:list_managed_files(?global_ns, BundleName),
+    CAPath = str(CAPath0),
+    ChainPath = str(ChainPath0),
+    KeyPath = str(KeyPath0),
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"managed_certs">> => #{<<"bundle_name">> => BundleName}
+        }
+    },
+    ?check_trace(
+        with_listener(quic, ?FUNCTION_NAME, Conf, fun() ->
+            {ok, Conn} = quicer:connect(
+                {127, 0, 0, 1},
+                Port,
+                [
+                    {verify, verify_none},
+                    {alpn, ["mqtt"]}
+                ],
+                1000
+            ),
+            ok = quicer:close_connection(Conn)
+        end),
+        fun(Trace) ->
+            ?assertMatch(
+                [
+                    #{
+                        listen_opts := #{
+                            cacertfile := CAPath,
+                            certfile := ChainPath,
+                            keyfile := KeyPath
+                        }
+                    }
+                ],
+                ?of_kind("quic_listener_opts", Trace),
+                #{
+                    cacertfile => CAPath,
+                    certfile => ChainPath,
+                    keyfile => KeyPath
+                }
+            ),
+            ok
+        end
+    ),
+    ok.
+
 t_ssl_password_cert(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Port = emqx_common_test_helpers:select_free_port(ssl),
@@ -1278,3 +1335,5 @@ generate_and_upload_managed_certs(Namespace, BundleName, Opts) ->
 
 mk_name(FnName, Suffix) ->
     binary_to_atom(iolist_to_binary([atom_to_binary(FnName), Suffix])).
+
+str(X) -> emqx_utils_conv:str(X).

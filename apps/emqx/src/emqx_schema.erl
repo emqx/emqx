@@ -3807,6 +3807,7 @@ quic_lowlevel_settings_uint(Low, High, Desc) ->
 -spec is_quic_ssl_opts(string()) -> boolean().
 is_quic_ssl_opts(Name) ->
     lists:member(Name, [
+        "managed_certs",
         "cacertfile",
         "certfile",
         "keyfile",

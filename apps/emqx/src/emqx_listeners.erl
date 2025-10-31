@@ -251,7 +251,7 @@ start_listener(Type, Name, #{bind := Bind, enable := true} = Conf) ->
             ),
             ok;
         {ok, _} ->
-            ?tp(listener_started, #{type => Type, bind => Bind}),
+            ?tp(listener_started, #{type => Type, bind => Bind, conf => Conf}),
             console_print(
                 "Listener ~ts on ~ts started.~n",
                 [ListenerId, format_bind(Bind)]
@@ -1139,6 +1139,7 @@ to_quicer_listener_opts(Name, Opts) ->
         active => 1,
         hibernate_after => HibernateAfterMs
     },
+    ?tp("quic_listener_opts", #{listen_opts => ListenOpts}),
     {ListenOpts, ConnectionOpts, StreamOpts}.
 
 -spec quic_listener_conf_rollback(
