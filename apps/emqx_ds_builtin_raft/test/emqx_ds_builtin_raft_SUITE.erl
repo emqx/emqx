@@ -250,121 +250,119 @@ t_rebalance(Config) ->
         ?FUNCTION_NAME, NClients, NMsgs
     ),
     Nodes = [N1, N2 | _] = ?config(nodes, Config),
-    ?check_trace(
-        #{timetrap => 60_000},
-        begin
-            Sites = [S1, S2 | _] = [ds_repl_meta(N, this_site) || N <- Nodes],
-            %% 1. Initialize DB on the first node.
-            Opts = opts(Config, #{
-                n_shards => 16, n_sites => 1, replication_factor => 3, payload_type => ?ds_pt_mqtt
-            }),
-            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+    ct:timetrap(60_000),
+    Sites = [S1, S2 | _] = [ds_repl_meta(N, this_site) || N <- Nodes],
+    %% 1. Initialize DB on the first node.
+    Opts = opts(Config, #{
+        n_shards => 16, n_sites => 1, replication_factor => 3, payload_type => ?ds_pt_mqtt
+    }),
+    ok = snabbkaffe:start_trace(),
+    emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+    ok = snabbkaffe:stop(),
 
-            %% 1.1 Kick all sites except S1 from the replica set as
-            %% the initial condition:
-            ?assertMatch(
-                {ok, [_]},
-                ?ON(N1, emqx_ds_builtin_raft_meta:assign_db_sites(?DB, [S1]))
-            ),
-            ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
-            ?retry(500, 10, ?assertMatch(Shards when length(Shards) == 16, shards_online(N1, ?DB))),
+    %% 1.1 Kick all sites except S1 from the replica set as
+    %% the initial condition:
+    ?assertMatch(
+        {ok, [_]},
+        ?ON(N1, emqx_ds_builtin_raft_meta:assign_db_sites(?DB, [S1]))
+    ),
+    ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+    ?retry(500, 10, ?assertMatch(Shards when length(Shards) == 16, shards_online(N1, ?DB))),
 
-            ct:pal("Sites: ~p~n", [Sites]),
+    ct:pal("Sites: ~p~n", [Sites]),
 
-            Sequence = [
-                %% Join the second site to the DB replication sites:
-                {N1, join_db_site, S2},
-                %% Should be a no-op:
-                {N2, join_db_site, S2},
-                %% Now join the rest of the sites:
-                {N2, assign_db_sites, Sites}
-            ],
-            Stream1 = emqx_utils_stream:interleave(
-                [
-                    {20, Stream0},
-                    emqx_utils_stream:const(add_generation)
-                ],
-                false
-            ),
-            Stream = emqx_utils_stream:interleave(
-                [
-                    {50, Stream1},
-                    emqx_utils_stream:list(Sequence)
-                ],
-                true
-            ),
+    Sequence = [
+        %% Join the second site to the DB replication sites:
+        {N1, join_db_site, S2},
+        %% Should be a no-op:
+        {N2, join_db_site, S2},
+        %% Now join the rest of the sites:
+        {N2, assign_db_sites, Sites}
+    ],
+    Stream1 = emqx_utils_stream:interleave(
+        [
+            {20, Stream0},
+            emqx_utils_stream:const(add_generation)
+        ],
+        false
+    ),
+    Stream = emqx_utils_stream:interleave(
+        [
+            {50, Stream1},
+            emqx_utils_stream:list(Sequence)
+        ],
+        true
+    ),
 
-            %% 1.2 Verify that all nodes have the same view of metadata storage:
-            [
-                ?defer_assert(
-                    ?assertEqual(
-                        [S1],
-                        ?ON(Node, emqx_ds_builtin_raft_meta:db_sites(?DB)),
-                        #{
-                            msg => "Initially, only S1 should be responsible for all shards",
-                            node => Node
-                        }
-                    )
-                )
-             || Node <- Nodes
-            ],
-
-            %% 2. Start filling the storage:
-            emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
-            timer:sleep(5000),
-            emqx_ds_raft_test_helpers:verify_stream_effects(
-                ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
-            ),
-            [
-                ?defer_assert(
-                    ?assertEqual(
-                        16 * 3 div length(Nodes),
-                        n_shards_online(Node, ?DB),
-                        "Each node is now responsible for 3/4 of the shards"
-                    )
-                )
-             || Node <- Nodes
-            ],
-
-            %% Verify that the set of shard servers matches the target allocation.
-            Allocation = [ds_repl_meta(N, my_shards, [?DB]) || N <- Nodes],
-            ShardServers = [
-                {
-                    {Shard, N},
-                    emqx_ds_raft_test_helpers:shard_readiness(N, ?DB, Shard, Site)
+    %% 1.2 Verify that all nodes have the same view of metadata storage:
+    [
+        ?defer_assert(
+            ?assertEqual(
+                [S1],
+                ?ON(Node, emqx_ds_builtin_raft_meta:db_sites(?DB)),
+                #{
+                    msg => "Initially, only S1 should be responsible for all shards",
+                    node => Node
                 }
-             || {N, Site, Shards} <- lists:zip3(Nodes, Sites, Allocation),
-                Shard <- Shards
-            ],
-            ?assert(
-                lists:all(fun({_Server, Status}) -> Status == ready end, ShardServers),
-                ShardServers
-            ),
-
-            %% Scale down the cluster by removing the first node.
-            ?assertMatch({ok, _}, ds_repl_meta(N1, leave_db_site, [?DB, S1])),
-            ct:pal("Transitions (~p -> ~p): ~p~n", [
-                Sites,
-                tl(Sites),
-                ?ON(N2, emqx_ds_raft_test_helpers:db_transitions(?DB))
-            ]),
-            ?ON(N2, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
-
-            %% Verify that at the end each node is now responsible for each shard.
-            ?defer_assert(
-                ?assertEqual(
-                    [0, 16, 16, 16],
-                    [n_shards_online(N, ?DB) || N <- Nodes]
-                )
-            ),
-
-            %% Verify that the messages are once again preserved after the rebalance:
-            emqx_ds_raft_test_helpers:verify_stream_effects(
-                ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
             )
-        end,
-        []
-    ).
+        )
+     || Node <- Nodes
+    ],
+
+    %% 2. Start filling the storage:
+    emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
+    timer:sleep(5000),
+    emqx_ds_raft_test_helpers:verify_stream_effects(
+        ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
+    ),
+    [
+        ?defer_assert(
+            ?assertEqual(
+                16 * 3 div length(Nodes),
+                n_shards_online(Node, ?DB),
+                "Each node is now responsible for 3/4 of the shards"
+            )
+        )
+     || Node <- Nodes
+    ],
+
+    %% Verify that the set of shard servers matches the target allocation.
+    Allocation = [ds_repl_meta(N, my_shards, [?DB]) || N <- Nodes],
+    ShardServers = [
+        {
+            {Shard, N},
+            emqx_ds_raft_test_helpers:shard_readiness(N, ?DB, Shard, Site)
+        }
+     || {N, Site, Shards} <- lists:zip3(Nodes, Sites, Allocation),
+        Shard <- Shards
+    ],
+    ?assert(
+        lists:all(fun({_Server, Status}) -> Status == ready end, ShardServers),
+        ShardServers
+    ),
+
+    %% Scale down the cluster by removing the first node.
+    ?assertMatch({ok, _}, ds_repl_meta(N1, leave_db_site, [?DB, S1])),
+    ct:pal("Transitions (~p -> ~p): ~p~n", [
+        Sites,
+        tl(Sites),
+        ?ON(N2, emqx_ds_raft_test_helpers:db_transitions(?DB))
+    ]),
+    ?ON(N2, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+
+    %% Verify that at the end each node is now responsible for each shard.
+    ?defer_assert(
+        ?assertEqual(
+            [0, 16, 16, 16],
+            [n_shards_online(N, ?DB) || N <- Nodes]
+        )
+    ),
+
+    %% Verify that the messages are once again preserved after the rebalance:
+    emqx_ds_raft_test_helpers:verify_stream_effects(
+        ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
+    ),
+    ok.
 
 t_join_leave_errors(init, Config) ->
     Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
