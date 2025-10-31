@@ -354,11 +354,17 @@ refs(#{<<"type">> := <<"json">>}) ->
     [ref(json)];
 refs(#{<<"type">> := <<"external_http">>}) ->
     [ref(external_http)];
-refs(_) ->
+refs(X) ->
     Expected = lists:join(" | ", [atom_to_list(T) || T <- supported_serde_types()]),
+    Got =
+        case X of
+            #{<<"type">> := T} -> T;
+            _ -> X
+        end,
     throw(#{
         field_name => type,
-        expected => iolist_to_binary(Expected)
+        expected => iolist_to_binary(Expected),
+        got => Got
     }).
 
 refs_api(Method) ->

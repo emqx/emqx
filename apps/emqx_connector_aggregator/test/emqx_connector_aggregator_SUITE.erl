@@ -6,6 +6,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-behaviour(emqx_connector_aggreg_delivery).
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -57,6 +59,12 @@ process_write(State) ->
 
 process_complete(_State) ->
     {ok, done}.
+
+process_terminate(_State) ->
+    ok.
+
+process_format_status(State) ->
+    State.
 
 %%------------------------------------------------------------------------------
 %% Helper fns

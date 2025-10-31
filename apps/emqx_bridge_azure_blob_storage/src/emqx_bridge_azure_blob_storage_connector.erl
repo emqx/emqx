@@ -200,9 +200,15 @@ on_get_status(_ConnResId, #{driver_state := DriverState}) ->
 ) ->
     {ok, connector_state()}.
 on_add_channel(_ConnResId, ConnState0, ActionResId, ActionConfig) ->
-    ActionState = install_action(ActionConfig, ConnState0),
-    ConnState = emqx_utils_maps:deep_put([installed_actions, ActionResId], ConnState0, ActionState),
-    {ok, ConnState}.
+    maybe
+        {ok, ActionState} ?= install_action(ActionConfig, ConnState0),
+        ConnState = emqx_utils_maps:deep_put(
+            [installed_actions, ActionResId],
+            ConnState0,
+            ActionState
+        ),
+        {ok, ConnState}
+    end.
 
 -spec on_remove_channel(
     connector_resource_id(),
@@ -478,7 +484,7 @@ mk_fs_safe_string(String) ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
--spec install_action(action_config(), connector_state()) -> action_state().
+-spec install_action(action_config(), connector_state()) -> {ok, action_state()} | {error, term()}.
 install_action(#{parameters := #{mode := direct}} = ActionConfig, _ConnState) ->
     #{
         parameters := #{
@@ -492,13 +498,14 @@ install_action(#{parameters := #{mode := direct}} = ActionConfig, _ConnState) ->
     ContainerTemplate = emqx_template:parse(ContainerTemplateStr),
     BlobTemplate = emqx_template:parse(BlobTemplateStr),
     ContentTemplate = emqx_template:parse(ContentTemplateStr),
-    #{
+    ActionState = #{
         mode => Mode,
         container => ContainerTemplate,
         blob => BlobTemplate,
         content => ContentTemplate,
         max_block_size => MaxBlockSize
-    };
+    },
+    {ok, ActionState};
 install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState) ->
     #{driver_state := DriverState} = ConnState,
     #{
@@ -539,22 +546,26 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState)
         container => ContainerOpts,
         upload_options => TransferOpts
     },
-    _ = ?AGGREG_SUP:delete_child(AggregId),
-    {ok, SupPid} = ?AGGREG_SUP:start_child(#{
-        id => AggregId,
-        start =>
-            {emqx_connector_aggreg_upload_sup, start_link, [AggregId, AggregOpts, DeliveryOpts]},
-        type => supervisor,
-        restart => permanent
-    }),
-    #{
-        mode => Mode,
-        name => Name,
-        container => ContainerName,
-        aggreg_id => AggregId,
-        supervisor => SupPid,
-        on_stop => {?AGGREG_SUP, delete_child, [AggregId]}
-    }.
+    maybe
+        ok ?= emqx_connector_aggreg_delivery:validate_container_opts(ContainerOpts),
+        _ = ?AGGREG_SUP:delete_child(AggregId),
+        {ok, SupPid} = ?AGGREG_SUP:start_child(#{
+            id => AggregId,
+            start =>
+                {emqx_connector_aggreg_upload_sup, start_link, [AggregId, AggregOpts, DeliveryOpts]},
+            type => supervisor,
+            restart => permanent
+        }),
+        ActionState = #{
+            mode => Mode,
+            name => Name,
+            container => ContainerName,
+            aggreg_id => AggregId,
+            supervisor => SupPid,
+            on_stop => {?AGGREG_SUP, delete_child, [AggregId]}
+        },
+        {ok, ActionState}
+    end.
 
 -spec stop_action(action_config()) -> ok | {error, any()}.
 stop_action(#{on_stop := {M, F, A}}) ->

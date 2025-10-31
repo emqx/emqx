@@ -26,7 +26,8 @@ defmodule EMQXConnectorAggregator.MixProject do
       test_deps() ++
         [
           {:emqx, in_umbrella: true},
-          :gproc
+          :gproc,
+          :parquer
         ]
     )
   end

@@ -1,0 +1,15 @@
+services:
+  query:
+    image: ghcr.io/emqx/spark-query:1.0.8
+    container_name: query
+    networks:
+      emqx_bridge:
+    expose:
+      - 8090
+      - 7890
+    # ports:
+    #   - 7890:7890
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=sa-east-1

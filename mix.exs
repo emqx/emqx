@@ -310,6 +310,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
 
+  def common_dep(:parquer),
+    do: {:parquer, github: "emqx/parquer", tag: "0.1.5", manager: :rebar3}
+
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
 
