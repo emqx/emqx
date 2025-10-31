@@ -347,7 +347,11 @@ on_get_status(_InstId, #{pool_name := PoolName} = ConnState) ->
         check_fn => fun ?MODULE:do_get_status/1,
         timeout => HCTimeout
     },
-    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
+    ?tp_span(
+        "oracle_on_get_status",
+        #{},
+        emqx_resource_pool:common_health_check_workers(PoolName, Opts)
+    ).
 
 do_get_status(Conn) ->
     Res = do_sql_query(Conn, "select 1 from dual"),
