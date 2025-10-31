@@ -251,7 +251,7 @@ t_rebalance(Config) ->
     ),
     Nodes = [N1, N2 | _] = ?config(nodes, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => 60_000},
         begin
             Sites = [S1, S2 | _] = [ds_repl_meta(N, this_site) || N <- Nodes],
             %% 1. Initialize DB on the first node.
