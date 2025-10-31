@@ -19,7 +19,6 @@
 %%================================================================================
 
 -define(TOP, ?MODULE).
--define(TAB, ?MODULE).
 
 -define(WATCH_SUP, emqx_ds_new_streams_watch_sup).
 
@@ -48,7 +47,6 @@ ensure_new_stream_watch(DB) ->
 %%================================================================================
 
 init(top) ->
-    _ = ets:new(?TAB, [public, set, named_table]),
     Children = [
         #{
             id => pending_tasks,
@@ -60,6 +58,13 @@ init(top) ->
         #{
             id => schema,
             start => {emqx_dsch, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 5_000
+        },
+        #{
+            id => db_manager,
+            start => {emqx_ds, start_link, []},
             type => worker,
             restart => permanent,
             shutdown => 5_000

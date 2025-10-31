@@ -17,6 +17,10 @@ This is the entrypoint into the `builtin_raft` backend.
     update_db_config/3,
     close_db/1,
     drop_db/1,
+    db_group_stats/2,
+    create_db_group/2,
+    update_db_group/3,
+    destroy_db_group/2,
 
     shard_of/2,
     list_shards/1,
@@ -74,7 +78,8 @@ This is the entrypoint into the `builtin_raft` backend.
     otx_commit_tx_batch/5,
     otx_add_generation/3,
     otx_lookup_ttv/4,
-    otx_get_runtime_config/1
+    otx_get_runtime_config/1,
+    otx_check_soft_quota/1
 ]).
 
 %% RPC targets:
@@ -147,6 +152,7 @@ This is the entrypoint into the `builtin_raft` backend.
 }.
 
 -type db_runtime_config() :: #{
+    db_group := emqx_ds:db_group(),
     reads => leader_preferred | local_preferred,
     %% TODO: clarify type
     replication_options := #{},
@@ -369,7 +375,30 @@ drop_db(DB) ->
     end),
     _ = emqx_ds_builtin_raft_proto_v1:drop_db(list_nodes(), DB),
     emqx_ds_builtin_raft_meta:drop_db(DB),
+    _ = emqx_ds:close_db(DB),
     emqx_dsch:drop_db_schema(DB).
+
+-spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->
+    {ok, emqx_ds:db_group_stats()} | emqx_ds:error(_).
+db_group_stats(Id, Group) ->
+    %% Note: here we don't aggregate anything for cluster. This is intentional.
+    emqx_ds_storage_layer:db_group_stats(Id, Group).
+
+-spec create_db_group(emqx_ds:db_group(), emqx_ds:db_group_opts()) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+create_db_group(Group, Opts) ->
+    emqx_ds_storage_layer:create_db_group(Group, Opts).
+
+-spec update_db_group(
+    emqx_ds:db_group(), emqx_ds:db_group_opts(), emqx_ds_storage_layer:db_group()
+) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+update_db_group(Id, Opts, Grp) ->
+    emqx_ds_storage_layer:update_db_group(Id, Opts, Grp).
+
+-spec destroy_db_group(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) -> ok | {error, _}.
+destroy_db_group(Id, Group) ->
+    emqx_ds_storage_layer:destroy_db_group(Id, Group).
 
 -spec list_shards(emqx_ds:db()) -> [emqx_ds:shard()].
 list_shards(DB) ->
@@ -747,6 +776,9 @@ otx_get_runtime_config(DB) ->
     #{runtime := #{transactions := Conf}} = emqx_dsch:get_db_runtime(DB),
     Conf.
 
+otx_check_soft_quota(DBGroup) ->
+    emqx_ds_storage_layer:check_soft_quota(DBGroup).
+
 register_global_otx_leader(DB, Shard) ->
     ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
     RegName = ?otx_global_regname(ClusterId, DB, Shard),
@@ -891,6 +923,7 @@ verify_db_opts(Opts) ->
     maybe
         #{
             backend := builtin_raft,
+            db_group := DBGroup,
             payload_type := PType,
             n_shards := NShards,
             n_sites := NSites,
@@ -923,6 +956,7 @@ verify_db_opts(Opts) ->
             storage => Storage
         },
         RTOpts = #{
+            db_group => DBGroup,
             reads => Reads,
             replication_options => ReplOpts,
             subscriptions => Subs,
