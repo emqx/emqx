@@ -15,12 +15,16 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+dashboard_host = os.getenv("DASHBOARD_HOST", "emqx")
+dashboard_port = os.getenv("DASHBOARD_PORT", "18083")
+
 @pytest.fixture
 def driver():
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
-    _driver = webdriver.Chrome(options=options)
+    service = webdriver.ChromeService(executable_path="/usr/bin/chromedriver")
+    _driver = webdriver.Chrome(options=options, service=service)
     yield _driver
     _driver.quit()
 
@@ -37,7 +41,7 @@ def is_port_open(host, port, timeout=1):
         s.close()
 
 @pytest.fixture(autouse=True)
-def dashboard_url(dashboard_host, dashboard_port):
+def dashboard_url():
     max_wait = 30
     for i in range(max_wait):
         if is_port_open(dashboard_host, int(dashboard_port)):
