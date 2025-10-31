@@ -511,10 +511,14 @@ t_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({204, _}, delete_bundle_global(Bundle1)),
 
     %% Upload account key before others.  The other files should be rejected, since they
-    %% will be controlled by the ACME client.
+    %% will be controlled by the ACME client.  We still allow updating CA and the account
+    %% key itself, though.
     ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_ACC_KEY, Key3)),
+    ?assertMatch({400, _}, upload_file_global(Bundle1, ?FILE_KIND_KEY, Key4)),
     ?assertMatch({400, _}, upload_file_global(Bundle1, ?FILE_KIND_CHAIN, Cert3)),
-    ?assertMatch({400, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA4)),
+    %% Update allowed
+    ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_ACC_KEY, Key3)),
+    ?assertMatch({204, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA4)),
 
     %% Uploading an unknown kind
     ?assertMatch({400, _}, upload_file_global(Bundle1, some_unknown_type, Key3)),
