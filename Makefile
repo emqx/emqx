@@ -52,7 +52,7 @@ $(REBAR): .prepare ensure-rebar3
 
 .PHONY: ensure-hex
 ensure-hex:
-	@mix local.hex 2.2.1 --if-missing --force
+	@mix local.hex --if-missing --force
 
 .PHONY: ensure-mix-rebar3
 ensure-mix-rebar3: $(REBAR)
@@ -81,6 +81,7 @@ proper: $(ELIXIR_COMMON_DEPS)
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
 	env PROFILE=$(PROFILE)-test MIX_QUIET=1 $(MIX) deps.get
+	env PROFILE=$(PROFILE)-test $(MIX) deps.compile cth_readable
 	env PROFILE=$(PROFILE)-test $(MIX) compile
 
 .PHONY: $(REL_PROFILES:%=%-compile)
