@@ -1115,6 +1115,7 @@ flaky_tests() ->
     }.
 
 init_per_testcase(TCName, Config0) ->
+    ct:print(asciiart:visible($%, "~s", [TCName])),
     Config1 = [{work_dir, emqx_cth_suite:work_dir(TCName, Config0)} | Config0],
     emqx_common_test_helpers:init_per_testcase(?MODULE, TCName, Config1).
 
