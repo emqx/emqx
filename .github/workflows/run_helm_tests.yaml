@@ -26,7 +26,6 @@ jobs:
         shell: bash
     env:
       EMQX_NAME: ${{ matrix.profile }}
-      REPOSITORY: "ghcr.io/emqx/emqx"
 
     strategy:
       fail-fast: false
@@ -46,12 +45,13 @@ jobs:
         path: source
     - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
       with:
-        name: "${{ env.EMQX_NAME }}-docker"
+        name: "${{ env.EMQX_NAME }}-docker-amd64"
         path: /tmp
     - run: minikube start
     - run: |
         EMQX_IMAGE=$(docker load < /tmp/${EMQX_NAME}-docker-*.tar.gz | sed 's/Loaded image: //g')
         echo "EMQX_TAG=${EMQX_IMAGE##*:}" >> $GITHUB_ENV
+        echo "REPOSITORY=${EMQX_IMAGE%%:*}" >> $GITHUB_ENV
         if stderr=$(minikube image load "${EMQX_IMAGE}" 2>&1 >/dev/null) && test -n "$stderr"; then
           echo "${stderr}";
           exit 1;

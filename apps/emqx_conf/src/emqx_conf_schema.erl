@@ -66,9 +66,12 @@
 %% 1 million default ports counter
 -define(DEFAULT_MAX_PORTS, 1024 * 1024).
 
+%% Don't forget to update `emqx_log_throttler:new_throttler/1` when adding a message that
+%% is throttled on a per-resource basis.
 -define(LOG_THROTTLING_MSGS, [
     authentication_failure,
     authorization_permission_denied,
+    buffer_worker_dropped_expired_messages,
     cannot_publish_to_topic_due_to_not_authorized,
     cannot_publish_to_topic_due_to_quota_exceeded,
     connection_rejected_due_to_license_limit_reached,
