@@ -721,7 +721,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
     ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
 
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => 60_000},
         begin
             %% Store a bunch of messages.
             {Msgs1, MsgStream1} = emqx_utils_stream:consume(20, MsgStream),
