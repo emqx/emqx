@@ -466,77 +466,75 @@ t_rebalance_chaotic_converges(Config) ->
         ?FUNCTION_NAME, NClients, NMsgs
     ),
 
-    ?check_trace(
-        #{timetrap => 60_000},
-        begin
-            Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
-            ct:pal("Sites: ~p~n", [Sites]),
+    ct:timetrap(60_000),
+    Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
+    ct:pal("Sites: ~p~n", [Sites]),
 
-            %% Initialize DB on first two nodes.
-            Opts = opts(Config, #{
-                n_shards => 16, n_sites => 2, replication_factor => 3, payload_type => ?ds_pt_mqtt
-            }),
+    %% Initialize DB on first two nodes.
+    Opts = opts(Config, #{
+        n_shards => 16, n_sites => 2, replication_factor => 3, payload_type => ?ds_pt_mqtt
+    }),
 
-            %% Open DB:
-            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+    %% Open DB:
+    snabbkaffe:start_trace(),
+    emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+    snabbkaffe:stop(),
 
-            %% Kick N3 from the replica set as the initial condition:
-            ?assertMatch(
-                {ok, [_, _]},
-                ?ON(N1, emqx_ds_builtin_raft_meta:assign_db_sites(?DB, [S1, S2]))
-            ),
-            ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+    %% Kick N3 from the replica set as the initial condition:
+    ?assertMatch(
+        {ok, [_, _]},
+        ?ON(N1, emqx_ds_builtin_raft_meta:assign_db_sites(?DB, [S1, S2]))
+    ),
+    ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
 
-            Sequence = [
-                {N1, join_db_site, S3},
-                {N2, leave_db_site, S2},
-                {N3, leave_db_site, S1},
-                {N1, join_db_site, S2},
-                {N2, join_db_site, S1},
-                {N3, leave_db_site, S3},
-                {N1, leave_db_site, S1},
-                {N2, join_db_site, S3}
-            ],
+    Sequence = [
+        {N1, join_db_site, S3},
+        {N2, leave_db_site, S2},
+        {N3, leave_db_site, S1},
+        {N1, join_db_site, S2},
+        {N2, join_db_site, S1},
+        {N3, leave_db_site, S3},
+        {N1, leave_db_site, S1},
+        {N2, join_db_site, S3}
+    ],
 
-            %% Interleaved list of events:
-            Stream = emqx_utils_stream:interleave(
-                [
-                    {50, Stream0},
-                    emqx_utils_stream:list(Sequence)
-                ],
-                true
-            ),
+    %% Interleaved list of events:
+    Stream = emqx_utils_stream:interleave(
+        [
+            {50, Stream0},
+            emqx_utils_stream:list(Sequence)
+        ],
+        true
+    ),
 
-            ?retry(500, 10, ?assertEqual([16, 16], [n_shards_online(N, ?DB) || N <- [N1, N2]])),
-            ?assertEqual(
-                lists:sort([S1, S2]),
-                ds_repl_meta(N1, db_sites, [?DB]),
-                "Initially, the DB is assigned to [S1, S2]"
-            ),
+    ?retry(500, 10, ?assertEqual([16, 16], [n_shards_online(N, ?DB) || N <- [N1, N2]])),
+    ?assertEqual(
+        lists:sort([S1, S2]),
+        ds_repl_meta(N1, db_sites, [?DB]),
+        "Initially, the DB is assigned to [S1, S2]"
+    ),
 
-            emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
+    emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
 
-            %% Wait for the last transition to complete.
-            ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+    %% Wait for the last transition to complete.
+    ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
 
-            ?defer_assert(
-                ?assertEqual(
-                    lists:sort([S2, S3]),
-                    ds_repl_meta(N1, db_sites, [?DB])
-                )
-            ),
+    ?defer_assert(
+        ?assertEqual(
+            lists:sort([S2, S3]),
+            ds_repl_meta(N1, db_sites, [?DB])
+        )
+    ),
 
-            %% Wait until the LTS timestamp is updated:
-            timer:sleep(5000),
-            emqx_ds_raft_test_helpers:assert_db_stable(Nodes, ?DB),
+    %% Wait until the LTS timestamp is updated:
+    timer:sleep(5000),
+    emqx_ds_raft_test_helpers:assert_db_stable(Nodes, ?DB),
 
-            %% Check that all messages are still there.
-            emqx_ds_raft_test_helpers:verify_stream_effects(
-                ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
-            )
-        end,
-        []
-    ).
+    %% Check that all messages are still there.
+    emqx_ds_raft_test_helpers:verify_stream_effects(
+        ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
+    ),
+    ok.
 
 t_rebalance_offline_restarts(init, Config) ->
     Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
