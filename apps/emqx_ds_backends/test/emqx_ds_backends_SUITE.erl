@@ -2394,6 +2394,65 @@ t_30_quotas(Config) ->
         []
     ).
 
+t_db_group_crud(Config) ->
+    %% This testcase uses the default implicit group created by DS:
+    DB = ?FUNCTION_NAME,
+    Group = test_db_group,
+    Opts = #{backend := Backend} = opts(Config),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            %% 1. Try to create a group without backend. This should
+            %% not be allowed:
+            ?assertMatch(
+                {error, badarg},
+                emqx_ds:setup_db_group(Group, #{})
+            ),
+            %% 2. Try to create a group with invalid backend. This
+            %% should not be allowed:
+            ?assertMatch(
+                {error, {no_such_backend, _}},
+                emqx_ds:setup_db_group(Group, #{backend => bad})
+            ),
+            %% 3. Create a group with `builtin_local' backend:
+            ?assertMatch(
+                ok,
+                emqx_ds:setup_db_group(Group, #{backend => builtin_local})
+            ),
+            %% 4. Change it to the `Backend'. This operation should be
+            %% allowed, as long as no DBs are attached to the group:
+            ?assertMatch(
+                ok,
+                emqx_ds:setup_db_group(Group, #{backend => Backend})
+            ),
+            %% 5. Try to attach a DB to a group that doesn't exist:
+            ?assertMatch(
+                {error, {no_such_group, _}},
+                emqx_ds_open_db(DB, Opts#{db_group => bad})
+            ),
+            %% 6. Try to attach a DB with a wrong backend to the
+            %% group:
+            Backend =/= builtin_local andalso
+                ?assertMatch(
+                    {error, {backend_mismatch, _, _}},
+                    emqx_ds_open_db(DB, Opts#{backend => builtin_local, db_group => Group})
+                ),
+            %% 7. Attach a DB:
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts#{backend => Backend, db_group => Group})
+            ),
+            %% 8. Now switching the group backend should become
+            %% impossible:
+            Backend =/= builtin_local andalso
+                ?assertMatch(
+                    {error, {backend_mismatch, _, _}},
+                    emqx_ds:setup_db_group(Group, #{backend => builtin_local})
+                )
+        end,
+        []
+    ).
+
 %% This testcase veriries functionality of `emqx_ds:multi_iterator_next' function.
 %%
 %% Properties checked:

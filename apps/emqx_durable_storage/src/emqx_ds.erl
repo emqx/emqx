@@ -1899,8 +1899,10 @@ handle_open_db(DB, UserOpts = #{backend := Backend}, S0 = #s{dbs = DBs, groups =
             case CreateDbGroup of
                 false ->
                     case Groups of
-                        #{GroupId := _} ->
+                        #{GroupId := #db_group{backend = Backend}} ->
                             {ok, S0};
+                        #{GroupId := #db_group{backend = OtherBackend}} ->
+                            {error, {backend_mismatch, Backend, OtherBackend}};
                         #{} ->
                             {error, {no_such_group, GroupId}}
                     end;
@@ -1913,6 +1915,8 @@ handle_open_db(DB, UserOpts = #{backend := Backend}, S0 = #s{dbs = DBs, groups =
             {ok, S0};
         Err = {error, _} ->
             {Err, S0};
+        {error, unrecoverable, Err} ->
+            {{error, Err}, S0};
         Other ->
             {{error, {unexpected_callback_return, Other}}, S0}
     end;
@@ -1964,14 +1968,14 @@ handle_setup_group(Id, Opts = #{backend := Backend}, S0 = #s{groups = G0}) ->
                 Err ->
                     {Err, S0}
             end;
-        #{id := #db_group{backend = Old}} ->
+        #{Id := #db_group{backend = Old}} ->
             %% Group already exists with a different backend. Check if
             %% it's empty and then re-create it with the new one:
             case handle_destroy_group(Id, S0) of
                 {ok, S} ->
                     handle_setup_group(Id, Opts, S);
                 _ ->
-                    {{error, {backend_mismatch, Old}}, S0}
+                    {{error, {backend_mismatch, Old, Backend}}, S0}
             end;
         #{} ->
             %% The group is entirely new
