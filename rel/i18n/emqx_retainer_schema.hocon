@@ -1,7 +1,26 @@
 emqx_retainer_schema {
 
+retainer.desc:
+"""Configuration related to handling `PUBLISH` packets with a `retain` flag set to 1."""
+
+mnesia_config.desc:
+"""Configuration of the internal database storing retained messages."""
+
+flow_control.desc:
+"""Retainer batching and rate limiting."""
+
 backend.desc:
 """Settings for the database storing the retained messages."""
+
+backends.desc:
+"""External backends for storing retained messages."""
+
+index_specs.desc:
+"""Retainer index specifications: list of arrays of positive ascending integers.
+Each array specifies an index. Numbers in an index specification are 1-based
+word positions in topics. Words from specified positions will be used for indexing.<br/>
+For example, it is good to have <code>[2, 4]</code> index to optimize
+<code>+/X/+/Y/...</code> topic wildcard subscriptions."""
 
 batch_deliver_limiter.desc:
 """The rate limiter name for retained messages' delivery.
@@ -17,9 +36,6 @@ batch_read_number.desc:
 
 enable.desc:
 """Enable retainer feature"""
-
-flow_control.desc:
-"""Flow control."""
 
 max_payload_size.desc:
 """The maximum size of retained messages allowed to be stored. EMQX will refuse to store retained messages larger than this size and output an Error log with the keyword 'retain_failed_for_payload_size_exceeded_limit'.
