@@ -186,4 +186,49 @@ param_clientid.desc:
 param_clientid.label:
 """Client ID"""
 
+authenticator_updated.desc:
+"""Authenticator updated"""
+authenticator_updated.label:
+"""Authenticator Updated"""
+
+authenticator_deleted.desc:
+"""Authenticator deleted"""
+authenticator_deleted.label:
+"""Authenticator Deleted"""
+
+authenticator_moved.desc:
+"""Authenticator moved"""
+authenticator_moved.label:
+"""Authenticator Moved"""
+
+user_deleted.desc:
+"""User deleted"""
+user_deleted.label:
+"""User Deleted"""
+
+authenticators_order_updated.desc:
+"""Authenticators order updated"""
+authenticators_order_updated.label:
+"""Authenticators Order Updated"""
+
+authentication_settings_updated.desc:
+"""Authentication settings updated"""
+authentication_settings_updated.label:
+"""Authentication Settings Updated"""
+
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+internal_service_error.desc:
+"""Internal Service Error"""
+internal_service_error.label:
+"""Internal Service Error"""
+
+no_content.desc:
+"""No Content"""
+no_content.label:
+"""No Content"""
+
 }
