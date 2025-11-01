@@ -69,4 +69,19 @@ update_gateway.desc:
 """Update the gateway basic configurations and running status.<br/>
 Note: The Authentication and Listener configurations should be updated by other special APIs."""
 
+bad_request.desc:
+"""Bad request"""
+bad_request.label:
+"""Bad Request"""
+
+not_found.desc:
+"""Not Found"""
+not_found.label:
+"""Not Found"""
+
+gateway_configuration_updated.desc:
+"""Gateway configuration updated"""
+gateway_configuration_updated.label:
+"""Gateway Configuration Updated"""
+
 }
