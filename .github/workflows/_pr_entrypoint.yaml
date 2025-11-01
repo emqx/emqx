@@ -166,10 +166,6 @@ jobs:
     needs:
       - init
       - sanity-checks
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
     uses: ./.github/workflows/build_and_push_docker_images.yaml
     with:
       profile: emqx-enterprise

@@ -60,11 +60,6 @@ jobs:
       run:
         shell: bash
 
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-
     strategy:
       fail-fast: false
       matrix:
@@ -146,11 +141,6 @@ jobs:
     defaults:
       run:
         shell: bash
-
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
 
     services:
       registry:
