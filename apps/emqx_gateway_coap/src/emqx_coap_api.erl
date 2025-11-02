@@ -42,14 +42,13 @@ schema(?PREFIX ++ "/request") ->
         post => #{
             tags => ?TAGS,
             desc => ?DESC(send_coap_request),
-            summary => <<"Send a Request to a Client">>,
             parameters => request_parameters(),
             requestBody => request_body(),
             responses => #{
                 200 => coap_message(),
-                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Client not found error">>),
+                404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found")),
                 504 => error_codes(
-                    ['CLIENT_NOT_RESPONSE'], <<"Waiting for client response timeout">>
+                    ['CLIENT_NOT_RESPONSE'], ?DESC("client_not_response_timeout")
                 )
             }
         }
