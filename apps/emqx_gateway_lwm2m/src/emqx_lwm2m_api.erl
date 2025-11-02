@@ -125,14 +125,14 @@ fields(resource) ->
         {name, mk(binary(), #{desc => ?DESC(name), example => "lwm2m-test"})}
     ].
 
-lookup(get, #{bindings := Bindings, query_string := QS}) ->
+lookup(get, #{bindings := Bindings, query_string := Qs}) ->
     ClientId = maps:get(clientid, Bindings),
     case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
         [Channel | _] ->
             #{
                 <<"path">> := Path,
                 <<"action">> := Action
-            } = QS,
+            } = Qs,
             {ok, Result} = emqx_lwm2m_channel:lookup_cmd(Channel, Path, Action),
             lookup_return(Result, ClientId, Action, Path);
         _ ->
