@@ -383,7 +383,7 @@ inc_metrics(IncFun, Name) when is_function(IncFun) ->
     {env, [Prefix | _]} = erlang:fun_info(IncFun, env),
     inc_metrics(Prefix, Name);
 inc_metrics(Prefix, Name) when is_list(Prefix) ->
-    emqx_metrics:inc(list_to_atom(Prefix ++ atom_to_list(Name))).
+    emqx_metrics:inc_global(list_to_atom(Prefix ++ atom_to_list(Name))).
 
 -compile({inline, [match_topic_filter/2]}).
 match_topic_filter(_, []) ->

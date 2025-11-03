@@ -650,11 +650,11 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
+            ok = emqx_metrics:inc_global('packets.publish.quota_exceeded'),
             case QoS of
                 ?QOS_0 ->
-                    ok = emqx_metrics:inc('messages.dropped'),
-                    ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
+                    ok = emqx_metrics:inc_global('messages.dropped'),
+                    ok = emqx_metrics:inc_global('messages.dropped.quota_exceeded'),
                     {ok, NChannel};
                 ?QOS_1 ->
                     handle_out(puback, {PacketId, Rc}, NChannel);
@@ -738,10 +738,10 @@ do_publish(
             NChannel1 = ensure_timer(expire_awaiting_rel, NChannel0),
             handle_out(pubrec, {PacketId, RC}, NChannel1);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ok = emqx_metrics:inc('packets.publish.inuse'),
+            ok = emqx_metrics:inc_global('packets.publish.inuse'),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ok = emqx_metrics:inc('messages.dropped.receive_maximum'),
+            ok = emqx_metrics:inc_global('messages.dropped.receive_maximum'),
             handle_out(disconnect, RC, Channel)
     end.
 
@@ -779,11 +779,11 @@ process_puback(
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.puback.inuse'),
+            ok = emqx_metrics:inc_global('packets.puback.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.puback.missed'),
+            ok = emqx_metrics:inc_global('packets.puback.missed'),
             {ok, Channel}
     end.
 
@@ -806,11 +806,11 @@ process_pubrec(
             handle_out(disconnect, RC, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrec.inuse'),
+            ok = emqx_metrics:inc_global('packets.pubrec.inuse'),
             handle_out(pubrel, {PacketId, RC}, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrec.missed'),
+            ok = emqx_metrics:inc_global('packets.pubrec.missed'),
             handle_out(pubrel, {PacketId, RC}, Channel)
     end.
 
@@ -831,7 +831,7 @@ process_pubrel(
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubrel_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrel.missed'),
+            ok = emqx_metrics:inc_global('packets.pubrel.missed'),
             handle_out(pubcomp, {PacketId, RC}, Channel)
     end.
 
@@ -853,17 +853,17 @@ process_pubcomp(
         {error, ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ok = emqx_metrics:inc('packets.pubcomp.inuse'),
+            ok = emqx_metrics:inc_global('packets.pubcomp.inuse'),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubcomp.missed'),
+            ok = emqx_metrics:inc_global('packets.pubcomp.missed'),
             {ok, Channel}
     end.
 
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(Msg, PubAckProps, Channel) ->
-    ok = emqx_metrics:inc('messages.acked'),
+    ok = emqx_metrics:inc_global('messages.acked'),
     run_hook_with_context(
         'message.acked',
         [
@@ -1409,7 +1409,7 @@ do_deliver(
         clientinfo = ClientInfo = #{mountpoint := MountPoint}
     }
 ) ->
-    ok = emqx_metrics:inc('messages.delivered'),
+    ok = emqx_metrics:inc_global('messages.delivered'),
     Msg1 = run_fold_with_context(
         'message.delivered',
         [ClientInfo],
@@ -3276,11 +3276,11 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 
 -compile({inline, [run_hooks/2, run_hooks/3]}).
 run_hooks(Name, Args) ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run(Name, Args).
 
 run_hooks(Name, Args, Acc) ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
 -compile({inline, [run_hook_with_context/3]}).

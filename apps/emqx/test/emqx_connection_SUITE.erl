@@ -31,8 +31,8 @@ init_per_suite(Config) ->
     ok = meck:new(emqx_pd, [passthrough, no_history, no_link]),
     %% Meck Metrics
     ok = meck:new(emqx_metrics, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_metrics, inc, fun(_) -> ok end),
-    ok = meck:expect(emqx_metrics, inc, fun(_, _) -> ok end),
+    ok = meck:expect(emqx_metrics, inc_global, fun(_) -> ok end),
+    ok = meck:expect(emqx_metrics, inc_global, fun(_, _) -> ok end),
     ok = meck:expect(emqx_metrics, inc_recv, fun(_) -> ok end),
     ok = meck:expect(emqx_metrics, inc_sent, fun(_) -> ok end),
     %% Meck Hooks

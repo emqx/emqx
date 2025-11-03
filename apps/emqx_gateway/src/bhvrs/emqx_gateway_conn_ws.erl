@@ -704,7 +704,7 @@ inc_recv_stats(Cnt, Oct) ->
     inc_counter(incoming_bytes, Oct),
     inc_counter(recv_cnt, Cnt),
     inc_counter(recv_oct, Oct),
-    emqx_metrics:inc('bytes.received', Oct).
+    emqx_metrics:inc_global('bytes.received', Oct).
 
 inc_incoming_stats(Ctx, FrameMod, Packet) ->
     _ = emqx_pd:inc_counter(recv_pkt, 1),
@@ -739,7 +739,7 @@ inc_sent_stats(Cnt, Oct) ->
     inc_counter(outgoing_bytes, Oct),
     inc_counter(send_cnt, Cnt),
     inc_counter(send_oct, Oct),
-    emqx_metrics:inc('bytes.sent', Oct).
+    emqx_metrics:inc_global('bytes.sent', Oct).
 
 inc_counter(Name, Value) ->
     _ = emqx_pd:inc_counter(Name, Value),

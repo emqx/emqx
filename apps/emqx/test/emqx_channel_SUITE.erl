@@ -299,7 +299,7 @@ t_handle_in_qos2_publish_with_error_return(_) ->
     Channel = channel(#{conn_state => connected, session => Session}),
     %% waiting limiter server
     timer:sleep(200),
-    M1 = emqx_metrics:val('messages.dropped.receive_maximum'),
+    M1 = emqx_metrics:val_global('messages.dropped.receive_maximum'),
     Publish1 = ?PUBLISH_PACKET(?QOS_2, <<"topic">>, 1, <<"payload">>),
     {ok, ?PUBREC_PACKET(1, ?RC_PACKET_IDENTIFIER_IN_USE), Channel} =
         emqx_channel:handle_in(Publish1, Channel),
@@ -314,7 +314,7 @@ t_handle_in_qos2_publish_with_error_return(_) ->
         ],
         Channel1} =
         emqx_channel:handle_in(Publish3, Channel1),
-    ?assertEqual(M1 + 1, emqx_metrics:val('messages.dropped.receive_maximum')).
+    ?assertEqual(M1 + 1, emqx_metrics:val_global('messages.dropped.receive_maximum')).
 
 t_handle_in_puback_ok(_) ->
     Msg = emqx_message:make(<<"t">>, <<"payload">>),
@@ -555,18 +555,18 @@ t_quota_qos0(_) ->
     Pub = ?PUBLISH_PACKET(?QOS_0, <<"topic">>, undefined, <<"payload">>),
 
     Metric = 'messages.dropped.quota_exceeded',
-    M1 = emqx_metrics:val(Metric),
+    M1 = emqx_metrics:val_global(Metric),
     ParentMetric = 'messages.dropped',
-    M2 = emqx_metrics:val(ParentMetric),
+    M2 = emqx_metrics:val_global(ParentMetric),
     {ok, Chann1} = emqx_channel:handle_in(Pub, Chann),
     {ok, Chann2} = emqx_channel:handle_in(Pub, Chann1),
-    ?assertEqual(M1 + 1, emqx_metrics:val(Metric)),
-    ?assertEqual(M2 + 1, emqx_metrics:val(ParentMetric)),
+    ?assertEqual(M1 + 1, emqx_metrics:val_global(Metric)),
+    ?assertEqual(M2 + 1, emqx_metrics:val_global(ParentMetric)),
     timer:sleep(1200),
     {ok, _} = emqx_channel:handle_in(Pub, Chann2),
     %% No longer exceeds quota
-    ?assertEqual(M1 + 1, emqx_metrics:val(Metric)),
-    ?assertEqual(M2 + 1, emqx_metrics:val(ParentMetric)),
+    ?assertEqual(M1 + 1, emqx_metrics:val_global(Metric)),
+    ?assertEqual(M2 + 1, emqx_metrics:val_global(ParentMetric)),
     ok.
 
 t_quota_qos1(_) ->

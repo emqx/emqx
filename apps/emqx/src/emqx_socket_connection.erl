@@ -744,7 +744,7 @@ handle_data(
     }
 ) ->
     Oct = iolist_size(Data),
-    emqx_metrics:inc('bytes.received', Oct),
+    emqx_metrics:inc_global('bytes.received', Oct),
     ?LOG(debug, #{
         msg => "raw_bin_received",
         size => Oct,
@@ -955,8 +955,8 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
                 reason => "frame_is_too_large",
                 packet => emqx_packet:format(Packet, hidden)
             }),
-            emqx_metrics:inc('delivery.dropped.too_large'),
-            emqx_metrics:inc('delivery.dropped'),
+            emqx_metrics:inc_global('delivery.dropped.too_large'),
+            emqx_metrics:inc_global('delivery.dropped'),
             inc_dropped_stats(),
             <<>>;
         Data ->
@@ -1069,7 +1069,7 @@ sent(
     State = #state{gc_tracker = {ActiveN, In = {PktsIn, BytesIn}, {PktsOut, BytesOut}}}
 ) ->
     %% TODO: Not actually "sent", as is `emqx_metrics:inc_sent/1`.
-    emqx_metrics:inc('bytes.sent', Oct),
+    emqx_metrics:inc_global('bytes.sent', Oct),
     NPktsOut = PktsOut + Num,
     NBytesOut = BytesOut + Oct,
     if

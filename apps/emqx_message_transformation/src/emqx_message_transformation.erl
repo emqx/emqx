@@ -292,13 +292,13 @@ map_result(Rendered, _Key) ->
 run_transformations(Transformations, Message = #message{headers = Headers}) ->
     case do_run_transformations(Transformations, Message) of
         #message{} = FinalMessage ->
-            emqx_metrics:inc('messages.transformation_succeeded'),
+            emqx_metrics:inc_global('messages.transformation_succeeded'),
             {ok, FinalMessage};
         drop ->
-            emqx_metrics:inc('messages.transformation_failed'),
+            emqx_metrics:inc_global('messages.transformation_failed'),
             {stop, Message#message{headers = Headers#{allow_publish => false}}};
         disconnect ->
-            emqx_metrics:inc('messages.transformation_failed'),
+            emqx_metrics:inc_global('messages.transformation_failed'),
             {stop, Message#message{
                 headers = Headers#{
                     allow_publish => false,

@@ -437,7 +437,7 @@ authorize_deny(
     Topic,
     _DefaultResult
 ) ->
-    emqx_metrics:inc(?METRIC_DENY),
+    emqx_metrics:inc_global(?METRIC_DENY),
     ?SLOG(warning, #{
         msg => "authorization_not_initialized",
         username => Username,
@@ -467,7 +467,7 @@ authorize(#{username := Username} = Client, PubSub, Topic, _DefaultResult, Sourc
                 topic => Topic,
                 action => emqx_access_control:format_action(PubSub)
             }),
-            emqx_metrics:inc(?METRIC_SUPERUSER),
+            emqx_metrics:inc_global(?METRIC_SUPERUSER),
             {stop, #{result => allow, from => superuser}};
         false ->
             authorize_non_superuser(Client, PubSub, Topic, SourceStates)
@@ -477,15 +477,15 @@ authorize_non_superuser(Client, PubSub, Topic, SourceStates) ->
     case do_authorize(Client, PubSub, Topic, source_states_with_defaults(SourceStates)) of
         {{matched, allow}, MatchedType} ->
             emqx_metrics_worker:inc(authz_metrics, MatchedType, allow),
-            emqx_metrics:inc(?METRIC_ALLOW),
+            emqx_metrics:inc_global(?METRIC_ALLOW),
             {stop, #{result => allow, from => source_for_logging(MatchedType, Client)}};
         {{matched, deny}, MatchedType} ->
             emqx_metrics_worker:inc(authz_metrics, MatchedType, deny),
-            emqx_metrics:inc(?METRIC_DENY),
+            emqx_metrics:inc_global(?METRIC_DENY),
             {stop, #{result => deny, from => source_for_logging(MatchedType, Client)}};
         nomatch ->
             ?tp(authz_non_superuser, #{result => nomatch}),
-            emqx_metrics:inc(?METRIC_NOMATCH),
+            emqx_metrics:inc_global(?METRIC_NOMATCH),
             %% return ignore here because there might be other hook callbacks
             ignore
     end.

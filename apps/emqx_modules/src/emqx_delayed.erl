@@ -363,13 +363,13 @@ handle_call({store, DelayedMsg = #delayed_message{key = Key}}, _From, State) ->
     case get_conf(max_delayed_messages) of
         0 ->
             ok = mria:dirty_write(?TAB, DelayedMsg),
-            emqx_metrics:inc('messages.delayed'),
+            emqx_metrics:inc_global('messages.delayed'),
             {reply, ok, ensure_publish_timer(Key, State)};
         Max when Size >= Max ->
             {reply, {error, max_delayed_messages_full}, State};
         Max when Size < Max ->
             ok = mria:dirty_write(?TAB, DelayedMsg),
-            emqx_metrics:inc('messages.delayed'),
+            emqx_metrics:inc_global('messages.delayed'),
             {reply, ok, ensure_publish_timer(Key, State)}
     end;
 handle_call({do_load_or_unload, Bool}, _From, State0) ->

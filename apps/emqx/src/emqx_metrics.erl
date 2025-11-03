@@ -21,17 +21,20 @@
     new/1,
     new/2,
     ensure/1,
-    ensure/2,
-    all/0
+    ensure/2
 ]).
 
+%% RPC targets (`emqx_proto_v{1..2}`).
+-export([all/0]).
+
 -export([
-    val/1,
-    inc/1,
-    inc/2,
-    dec/1,
-    dec/2,
-    set/2
+    all_global/0,
+    val_global/1,
+    inc_global/1,
+    inc_global/2,
+    dec_global/1,
+    dec_global/2,
+    set_global/2
 ]).
 
 %% Inc received/sent metrics
@@ -58,7 +61,7 @@
 
 -export_type([metric_idx/0, metric_name/0]).
 
--compile({inline, [inc/1, inc/2, dec/1, dec/2]}).
+-compile({inline, [inc_global/1, inc_global/2, dec_global/1, dec_global/2]}).
 -compile({inline, [inc_recv/1, inc_sent/1]}).
 
 -opaque metric_idx() :: 1..1024.
@@ -124,9 +127,13 @@ create(Type, Name) ->
         {error, Reason} -> error(Reason)
     end.
 
-%% @doc Get all metrics
--spec all() -> [{metric_name(), non_neg_integer()}].
+%% RPC target (`emqx_proto_v{1..2}`).
 all() ->
+    all_global().
+
+%% @doc Get all metrics
+-spec all_global() -> [{metric_name(), non_neg_integer()}].
+all_global() ->
     CRef = persistent_term:get(?MODULE),
     [
         {Name, counters:get(CRef, Idx)}
@@ -134,8 +141,8 @@ all() ->
     ].
 
 %% @doc Get metric value
--spec val(metric_name()) -> non_neg_integer().
-val(Name) ->
+-spec val_global(metric_name()) -> non_neg_integer().
+val_global(Name) ->
     try
         case ets:lookup(?TAB, Name) of
             [#metric{idx = Idx}] ->
@@ -151,28 +158,28 @@ val(Name) ->
     end.
 
 %% @doc Increase counter
--spec inc(metric_name()) -> ok.
-inc(Name) ->
-    inc(Name, 1).
+-spec inc_global(metric_name()) -> ok.
+inc_global(Name) ->
+    inc_global(Name, 1).
 
 %% @doc Increase metric value
--spec inc(metric_name(), pos_integer()) -> ok.
-inc(Name, Value) ->
+-spec inc_global(metric_name(), pos_integer()) -> ok.
+inc_global(Name, Value) ->
     update_counter(Name, Value).
 
 %% @doc Decrease metric value
--spec dec(metric_name()) -> ok.
-dec(Name) ->
-    dec(Name, 1).
+-spec dec_global(metric_name()) -> ok.
+dec_global(Name) ->
+    dec_global(Name, 1).
 
 %% @doc Decrease metric value
--spec dec(metric_name(), pos_integer()) -> ok.
-dec(Name, Value) ->
+-spec dec_global(metric_name(), pos_integer()) -> ok.
+dec_global(Name, Value) ->
     update_counter(Name, -Value).
 
 %% @doc Set metric value
--spec set(metric_name(), integer()) -> ok.
-set(Name, Value) ->
+-spec set_global(metric_name(), integer()) -> ok.
+set_global(Name, Value) ->
     CRef = persistent_term:get(?MODULE),
     Idx = ets:lookup_element(?TAB, Name, 4),
     counters:put(CRef, Idx, Value).
@@ -193,47 +200,47 @@ update_counter(Name, Value) ->
 -spec inc_msg(emqx_types:message()) -> ok.
 inc_msg(Msg) ->
     case Msg#message.qos of
-        0 -> inc('messages.qos0.received');
-        1 -> inc('messages.qos1.received');
-        2 -> inc('messages.qos2.received')
+        0 -> inc_global('messages.qos0.received');
+        1 -> inc_global('messages.qos1.received');
+        2 -> inc_global('messages.qos2.received')
     end,
-    inc('messages.received').
+    inc_global('messages.received').
 
 %% @doc Inc packets received.
 -spec inc_recv(emqx_types:packet()) -> ok.
 inc_recv(Packet) ->
-    inc('packets.received'),
+    inc_global('packets.received'),
     do_inc_recv(Packet).
 
 do_inc_recv(?PACKET(?CONNECT)) ->
-    inc('packets.connect.received');
+    inc_global('packets.connect.received');
 do_inc_recv(?PUBLISH_PACKET(QoS)) ->
-    inc('messages.received'),
+    inc_global('messages.received'),
     case QoS of
-        ?QOS_0 -> inc('messages.qos0.received');
-        ?QOS_1 -> inc('messages.qos1.received');
-        ?QOS_2 -> inc('messages.qos2.received');
+        ?QOS_0 -> inc_global('messages.qos0.received');
+        ?QOS_1 -> inc_global('messages.qos1.received');
+        ?QOS_2 -> inc_global('messages.qos2.received');
         _other -> ok
     end,
-    inc('packets.publish.received');
+    inc_global('packets.publish.received');
 do_inc_recv(?PACKET(?PUBACK)) ->
-    inc('packets.puback.received');
+    inc_global('packets.puback.received');
 do_inc_recv(?PACKET(?PUBREC)) ->
-    inc('packets.pubrec.received');
+    inc_global('packets.pubrec.received');
 do_inc_recv(?PACKET(?PUBREL)) ->
-    inc('packets.pubrel.received');
+    inc_global('packets.pubrel.received');
 do_inc_recv(?PACKET(?PUBCOMP)) ->
-    inc('packets.pubcomp.received');
+    inc_global('packets.pubcomp.received');
 do_inc_recv(?PACKET(?SUBSCRIBE)) ->
-    inc('packets.subscribe.received');
+    inc_global('packets.subscribe.received');
 do_inc_recv(?PACKET(?UNSUBSCRIBE)) ->
-    inc('packets.unsubscribe.received');
+    inc_global('packets.unsubscribe.received');
 do_inc_recv(?PACKET(?PINGREQ)) ->
-    inc('packets.pingreq.received');
+    inc_global('packets.pingreq.received');
 do_inc_recv(?PACKET(?DISCONNECT)) ->
-    inc('packets.disconnect.received');
+    inc_global('packets.disconnect.received');
 do_inc_recv(?PACKET(?AUTH)) ->
-    inc('packets.auth.received');
+    inc_global('packets.auth.received');
 do_inc_recv(_Packet) ->
     ok.
 
@@ -242,52 +249,53 @@ do_inc_recv(_Packet) ->
 inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _)) ->
     ok;
 inc_sent(Packet) ->
-    inc('packets.sent'),
+    inc_global('packets.sent'),
     do_inc_sent(Packet).
 
 do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent)) ->
-    (ReasonCode == ?RC_SUCCESS) orelse inc('packets.connack.error'),
+    (ReasonCode == ?RC_SUCCESS) orelse inc_global('packets.connack.error'),
     ((ReasonCode == ?RC_NOT_AUTHORIZED) orelse
         (ReasonCode == ?CONNACK_AUTH)) andalso
-        inc('packets.connack.auth_error'),
+        inc_global('packets.connack.auth_error'),
     ((ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD) orelse
         (ReasonCode == ?CONNACK_CREDENTIALS)) andalso
-        inc('packets.connack.auth_error'),
-    inc('packets.connack.sent');
+        inc_global('packets.connack.auth_error'),
+    inc_global('packets.connack.sent');
 do_inc_sent(?PUBLISH_PACKET(QoS)) ->
-    inc('messages.sent'),
+    inc_global('messages.sent'),
     case QoS of
-        ?QOS_0 -> inc('messages.qos0.sent');
-        ?QOS_1 -> inc('messages.qos1.sent');
-        ?QOS_2 -> inc('messages.qos2.sent');
+        ?QOS_0 -> inc_global('messages.qos0.sent');
+        ?QOS_1 -> inc_global('messages.qos1.sent');
+        ?QOS_2 -> inc_global('messages.qos2.sent');
         _other -> ok
     end,
-    inc('packets.publish.sent');
+    inc_global('packets.publish.sent');
 do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode)) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc('packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc('packets.publish.auth_error'),
-    inc('packets.puback.sent');
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc_global('packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc_global('packets.publish.auth_error'),
+    inc_global('packets.puback.sent');
 do_inc_sent(?PUBREC_PACKET(_PacketId, ReasonCode)) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc('packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc('packets.publish.auth_error'),
-    inc('packets.pubrec.sent');
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc_global('packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc_global('packets.publish.auth_error'),
+    inc_global('packets.pubrec.sent');
 do_inc_sent(?PACKET(?PUBREL)) ->
-    inc('packets.pubrel.sent');
+    inc_global('packets.pubrel.sent');
 do_inc_sent(?PACKET(?PUBCOMP)) ->
-    inc('packets.pubcomp.sent');
+    inc_global('packets.pubcomp.sent');
 do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes)) ->
     lists:any(fun(Code) -> Code >= ?RC_UNSPECIFIED_ERROR end, ReasonCodes) andalso
-        inc('packets.subscribe.error'),
-    lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) andalso inc('packets.subscribe.auth_error'),
-    inc('packets.suback.sent');
+        inc_global('packets.subscribe.error'),
+    lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) andalso
+        inc_global('packets.subscribe.auth_error'),
+    inc_global('packets.suback.sent');
 do_inc_sent(?PACKET(?UNSUBACK)) ->
-    inc('packets.unsuback.sent');
+    inc_global('packets.unsuback.sent');
 do_inc_sent(?PACKET(?PINGRESP)) ->
-    inc('packets.pingresp.sent');
+    inc_global('packets.pingresp.sent');
 do_inc_sent(?PACKET(?DISCONNECT)) ->
-    inc('packets.disconnect.sent');
+    inc_global('packets.disconnect.sent');
 do_inc_sent(?PACKET(?AUTH)) ->
-    inc('packets.auth.sent');
+    inc_global('packets.auth.sent');
 do_inc_sent(_Packet) ->
     ok.
 

@@ -1065,11 +1065,11 @@ Simulates the following scenario:
 t_restart_node_with_freshly_inserted_data(TCConfig) when is_list(TCConfig) ->
     %% 1) Assert we have a positive last value.
     Metric = 'messages.dropped',
-    emqx_metrics:inc(Metric, 10),
+    emqx_metrics:inc_global(Metric, 10),
     ok = emqx_dashboard_monitor:test_only_sample_now(),
     %% 2,3,4) Zero the metric and restart the process to simulate node restart.
     %% Supervisor will restart it.
-    emqx_metrics:set(Metric, 0),
+    emqx_metrics:set_global(Metric, 0),
     MRef = monitor(process, emqx_dashboard_monitor),
     exit(whereis(emqx_dashboard_monitor), die),
     receive

@@ -737,8 +737,8 @@ serialize_packet_and_inc_stats(Packet, Serialize) ->
                 reason => "frame_too_large",
                 packet => Packet
             }),
-            ok = emqx_metrics:inc('delivery.dropped.too_large'),
-            ok = emqx_metrics:inc('delivery.dropped'),
+            ok = emqx_metrics:inc_global('delivery.dropped.too_large'),
+            ok = emqx_metrics:inc_global('delivery.dropped'),
             ok = inc_outgoing_stats({error, message_too_large}),
             <<>>;
         Data ->
@@ -771,7 +771,7 @@ framelist_bytesize({binary, Data}, Oct) ->
 inc_recv_stats(Cnt, Oct) ->
     _ = emqx_pd:inc_counter(recv_cnt, Cnt),
     _ = emqx_pd:inc_counter(recv_oct, Oct),
-    emqx_metrics:inc('bytes.received', Oct).
+    emqx_metrics:inc_global('bytes.received', Oct).
 
 inc_incoming_stats(Packet = ?PACKET(Type)) ->
     _ = emqx_pd:inc_counter(recv_pkt, 1),
@@ -803,7 +803,7 @@ inc_outgoing_stats(Packet = ?PACKET(Type)) ->
 inc_sent_stats(Cnt, Oct) ->
     _ = emqx_pd:inc_counter(send_cnt, Cnt),
     _ = emqx_pd:inc_counter(send_oct, Oct),
-    emqx_metrics:inc('bytes.sent', Oct).
+    emqx_metrics:inc_global('bytes.sent', Oct).
 
 inc_qos_stats(Type, Packet) ->
     case inc_qos_stats_key(Type, emqx_packet:qos(Packet)) of

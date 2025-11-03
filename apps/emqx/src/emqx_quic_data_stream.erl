@@ -196,7 +196,7 @@ do_handle_appl_msg(
 ->
     case handle_outgoing(Packets, S) of
         {ok, Size} ->
-            ok = emqx_metrics:inc('bytes.sent', Size),
+            ok = emqx_metrics:inc_global('bytes.sent', Size),
             {{continue, handle_appl_msg}, S};
         {error, E1, E2} ->
             {stop, {E1, E2}, S};
@@ -290,8 +290,8 @@ serialize_packet(Packet, Serialize) ->
                 reason => "frame_is_too_large",
                 packet => emqx_packet:format(Packet, hidden)
             }),
-            ok = emqx_metrics:inc('delivery.dropped.too_large'),
-            ok = emqx_metrics:inc('delivery.dropped'),
+            ok = emqx_metrics:inc_global('delivery.dropped.too_large'),
+            ok = emqx_metrics:inc_global('delivery.dropped'),
             ok = inc_outgoing_stats({error, message_too_large}),
             <<>>;
         Data ->

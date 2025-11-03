@@ -872,11 +872,11 @@ dntopic(ClientId, Mountpoint) ->
 
 -compile({inline, [run_hooks/3]}).
 run_hooks(Name, Args) ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run(Name, Args).
 
 run_hooks(Name, Args, Acc) ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
 -compile({inline, [reply/2, shutdown/2, shutdown/3]}).

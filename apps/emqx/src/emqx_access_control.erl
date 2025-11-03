@@ -295,7 +295,7 @@ format_retain_flag(false) ->
     "R0".
 
 run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.authorize' ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     {Time, Value} = timer:tc(
         fun() -> emqx_hooks:run_fold(Name, Args, Acc) end
     ),
@@ -314,22 +314,22 @@ run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.a
 
 -compile({inline, [inc_authz_metrics/1]}).
 inc_authz_metrics(allow) ->
-    emqx_metrics:inc('authorization.allow');
+    emqx_metrics:inc_global('authorization.allow');
 inc_authz_metrics(deny) ->
-    emqx_metrics:inc('authorization.deny');
+    emqx_metrics:inc_global('authorization.deny');
 inc_authz_metrics(cache_hit) ->
-    emqx_metrics:inc('authorization.cache_hit');
+    emqx_metrics:inc_global('authorization.cache_hit');
 inc_authz_metrics(cache_miss) ->
-    emqx_metrics:inc('authorization.cache_miss').
+    emqx_metrics:inc_global('authorization.cache_miss').
 
 inc_authn_metrics(error) ->
-    emqx_metrics:inc('authentication.failure');
+    emqx_metrics:inc_global('authentication.failure');
 inc_authn_metrics(ok) ->
-    emqx_metrics:inc('authentication.success');
+    emqx_metrics:inc_global('authentication.success');
 inc_authn_metrics(anonymous) ->
-    emqx_metrics:inc('client.auth.anonymous'),
-    emqx_metrics:inc('authentication.success.anonymous'),
-    emqx_metrics:inc('authentication.success').
+    emqx_metrics:inc_global('client.auth.anonymous'),
+    emqx_metrics:inc_global('authentication.success.anonymous'),
+    emqx_metrics:inc_global('authentication.success').
 
 on_authentication_complete_no_hooks(#{enable_authn := false} = Credential, Extra) ->
     on_authentication_complete_success(Credential, Extra, anonymous),

@@ -735,7 +735,7 @@ emqx_metric_data(MetricNameTypeKeyL, Mode) ->
     emqx_metric_data(MetricNameTypeKeyL, Mode, _Acc = #{}).
 
 emqx_metric_data(MetricNameTypeKeyL, Mode, Acc) ->
-    Metrics = emqx_metrics:all(),
+    Metrics = emqx_metrics:all_global(),
     lists:foldl(
         fun
             ({_Name, _Type, undefined}, AccIn) ->

@@ -78,7 +78,7 @@ broker(["stats"]) ->
 broker(["metrics"]) ->
     [
         emqx_ctl:print("~-30s: ~w~n", [Metric, Val])
-     || {Metric, Val} <- lists:sort(emqx_metrics:all())
+     || {Metric, Val} <- lists:sort(emqx_metrics:all_global())
     ];
 broker(_) ->
     emqx_ctl:usage([

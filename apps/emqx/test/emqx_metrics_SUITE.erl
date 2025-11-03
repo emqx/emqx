@@ -17,17 +17,17 @@ t_new(_) ->
         fun() ->
             ok = emqx_metrics:new('metrics.test'),
             ok = emqx_metrics:new('metrics.test'),
-            0 = emqx_metrics:val('metrics.test'),
-            ok = emqx_metrics:inc('metrics.test'),
-            1 = emqx_metrics:val('metrics.test'),
+            0 = emqx_metrics:val_global('metrics.test'),
+            ok = emqx_metrics:inc_global('metrics.test'),
+            1 = emqx_metrics:val_global('metrics.test'),
             ok = emqx_metrics:new(counter, 'metrics.test.cnt'),
-            0 = emqx_metrics:val('metrics.test.cnt'),
-            ok = emqx_metrics:inc('metrics.test.cnt'),
-            1 = emqx_metrics:val('metrics.test.cnt'),
+            0 = emqx_metrics:val_global('metrics.test.cnt'),
+            ok = emqx_metrics:inc_global('metrics.test.cnt'),
+            1 = emqx_metrics:val_global('metrics.test.cnt'),
             ok = emqx_metrics:new(gauge, 'metrics.test.total'),
-            0 = emqx_metrics:val('metrics.test.total'),
-            ok = emqx_metrics:inc('metrics.test.total'),
-            1 = emqx_metrics:val('metrics.test.total')
+            0 = emqx_metrics:val_global('metrics.test.total'),
+            ok = emqx_metrics:inc_global('metrics.test.total'),
+            1 = emqx_metrics:val_global('metrics.test.total')
         end
     ).
 
@@ -36,24 +36,24 @@ t_ensure(_) ->
         fun() ->
             ok = emqx_metrics:ensure('metrics.test'),
             ok = emqx_metrics:ensure('metrics.test'),
-            0 = emqx_metrics:val('metrics.test'),
-            ok = emqx_metrics:inc('metrics.test'),
-            1 = emqx_metrics:val('metrics.test'),
+            0 = emqx_metrics:val_global('metrics.test'),
+            ok = emqx_metrics:inc_global('metrics.test'),
+            1 = emqx_metrics:val_global('metrics.test'),
             ok = emqx_metrics:ensure(counter, 'metrics.test.cnt'),
-            0 = emqx_metrics:val('metrics.test.cnt'),
-            ok = emqx_metrics:inc('metrics.test.cnt'),
-            1 = emqx_metrics:val('metrics.test.cnt'),
+            0 = emqx_metrics:val_global('metrics.test.cnt'),
+            ok = emqx_metrics:inc_global('metrics.test.cnt'),
+            1 = emqx_metrics:val_global('metrics.test.cnt'),
             ok = emqx_metrics:ensure(gauge, 'metrics.test.total'),
-            0 = emqx_metrics:val('metrics.test.total'),
-            ok = emqx_metrics:inc('metrics.test.total'),
-            1 = emqx_metrics:val('metrics.test.total')
+            0 = emqx_metrics:val_global('metrics.test.total'),
+            ok = emqx_metrics:inc_global('metrics.test.total'),
+            1 = emqx_metrics:val_global('metrics.test.total')
         end
     ).
 
 t_all(_) ->
     with_metrics_server(
         fun() ->
-            Metrics = emqx_metrics:all(),
+            Metrics = emqx_metrics:all_global(),
             ?assert(length(Metrics) > 50)
         end
     ).
@@ -61,11 +61,11 @@ t_all(_) ->
 t_inc_dec(_) ->
     with_metrics_server(
         fun() ->
-            ?assertEqual(0, emqx_metrics:val('bytes.received')),
-            ok = emqx_metrics:inc('bytes.received'),
-            ok = emqx_metrics:inc('bytes.received', 2),
-            ok = emqx_metrics:inc('bytes.received', 2),
-            ?assertEqual(5, emqx_metrics:val('bytes.received'))
+            ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
+            ok = emqx_metrics:inc_global('bytes.received'),
+            ok = emqx_metrics:inc_global('bytes.received', 2),
+            ok = emqx_metrics:inc_global('bytes.received', 2),
+            ?assertEqual(5, emqx_metrics:val_global('bytes.received'))
         end
     ).
 
@@ -87,22 +87,22 @@ t_inc_recv(_) ->
             ok = emqx_metrics:inc_recv(?PACKET(?DISCONNECT)),
             ok = emqx_metrics:inc_recv(?PACKET(?AUTH)),
             ok = emqx_metrics:inc_recv(?PACKET(?RESERVED)),
-            ?assertEqual(15, emqx_metrics:val('packets.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.connect.received')),
-            ?assertEqual(4, emqx_metrics:val('messages.received')),
-            ?assertEqual(1, emqx_metrics:val('messages.qos0.received')),
-            ?assertEqual(1, emqx_metrics:val('messages.qos1.received')),
-            ?assertEqual(1, emqx_metrics:val('messages.qos2.received')),
-            ?assertEqual(4, emqx_metrics:val('packets.publish.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.puback.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.pubrec.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.pubrel.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.pubcomp.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.subscribe.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.unsubscribe.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.pingreq.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.disconnect.received')),
-            ?assertEqual(1, emqx_metrics:val('packets.auth.received'))
+            ?assertEqual(15, emqx_metrics:val_global('packets.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.connect.received')),
+            ?assertEqual(4, emqx_metrics:val_global('messages.received')),
+            ?assertEqual(1, emqx_metrics:val_global('messages.qos0.received')),
+            ?assertEqual(1, emqx_metrics:val_global('messages.qos1.received')),
+            ?assertEqual(1, emqx_metrics:val_global('messages.qos2.received')),
+            ?assertEqual(4, emqx_metrics:val_global('packets.publish.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.puback.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pubrec.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pubrel.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pubcomp.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.subscribe.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.unsubscribe.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pingreq.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.disconnect.received')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.auth.received'))
         end
     ).
 
@@ -133,22 +133,22 @@ t_inc_sent(_) ->
             ok = emqx_metrics:inc_sent(?PACKET(?PINGRESP)),
             ok = emqx_metrics:inc_sent(?PACKET(?DISCONNECT)),
             ok = emqx_metrics:inc_sent(?PACKET(?AUTH)),
-            ?assertEqual(15, emqx_metrics:val('packets.sent')),
-            ?assertEqual(3, emqx_metrics:val('packets.connack.sent')),
-            ?assertEqual(3, emqx_metrics:val('messages.sent')),
-            ?assertEqual(1, emqx_metrics:val('messages.qos0.sent')),
-            ?assertEqual(1, emqx_metrics:val('messages.qos1.sent')),
-            ?assertEqual(1, emqx_metrics:val('messages.qos2.sent')),
-            ?assertEqual(3, emqx_metrics:val('packets.publish.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.puback.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.pubrec.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.pubrel.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.pubcomp.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.suback.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.unsuback.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.pingresp.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.disconnect.sent')),
-            ?assertEqual(1, emqx_metrics:val('packets.auth.sent'))
+            ?assertEqual(15, emqx_metrics:val_global('packets.sent')),
+            ?assertEqual(3, emqx_metrics:val_global('packets.connack.sent')),
+            ?assertEqual(3, emqx_metrics:val_global('messages.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('messages.qos0.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('messages.qos1.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('messages.qos2.sent')),
+            ?assertEqual(3, emqx_metrics:val_global('packets.publish.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.puback.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pubrec.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pubrel.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pubcomp.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.suback.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.unsuback.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.pingresp.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.disconnect.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.auth.sent'))
         end
     ).
 
@@ -160,21 +160,21 @@ t_inc_sent_auth_error(_) ->
             %% Subscribe
             ok = emqx_metrics:inc_sent(?SUBACK_PACKET(0, [?RC_NOT_AUTHORIZED])),
             ok = emqx_metrics:inc_sent(?SUBACK_PACKET(0, [?RC_UNSPECIFIED_ERROR])),
-            ?assertEqual(1, emqx_metrics:val('packets.subscribe.auth_error')),
-            ?assertEqual(2, emqx_metrics:val('packets.subscribe.error')),
-            ?assertEqual(2, emqx_metrics:val('packets.suback.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.subscribe.auth_error')),
+            ?assertEqual(2, emqx_metrics:val_global('packets.subscribe.error')),
+            ?assertEqual(2, emqx_metrics:val_global('packets.suback.sent')),
             %% Publish - puback
             ok = emqx_metrics:inc_sent(?PUBACK_PACKET(0, ?RC_UNSPECIFIED_ERROR)),
             ok = emqx_metrics:inc_sent(?PUBACK_PACKET(0, ?RC_NOT_AUTHORIZED)),
-            ?assertEqual(1, emqx_metrics:val('packets.publish.auth_error')),
-            ?assertEqual(2, emqx_metrics:val('packets.publish.error')),
-            ?assertEqual(2, emqx_metrics:val('packets.puback.sent')),
+            ?assertEqual(1, emqx_metrics:val_global('packets.publish.auth_error')),
+            ?assertEqual(2, emqx_metrics:val_global('packets.publish.error')),
+            ?assertEqual(2, emqx_metrics:val_global('packets.puback.sent')),
             %% Publish - pubrec
             ok = emqx_metrics:inc_sent(?PUBREC_PACKET(0, ?RC_UNSPECIFIED_ERROR)),
             ok = emqx_metrics:inc_sent(?PUBREC_PACKET(0, ?RC_NOT_AUTHORIZED)),
-            ?assertEqual(2, emqx_metrics:val('packets.publish.auth_error')),
-            ?assertEqual(4, emqx_metrics:val('packets.publish.error')),
-            ?assertEqual(2, emqx_metrics:val('packets.pubrec.sent'))
+            ?assertEqual(2, emqx_metrics:val_global('packets.publish.auth_error')),
+            ?assertEqual(4, emqx_metrics:val_global('packets.publish.error')),
+            ?assertEqual(2, emqx_metrics:val_global('packets.pubrec.sent'))
         end
     ).
 

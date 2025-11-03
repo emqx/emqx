@@ -29,12 +29,12 @@ handle_event(ClientInfo, {expired, Msg}) ->
     ok = inc_delivery_expired_cnt(1);
 handle_event(ClientInfo, {dropped, Msg, no_local}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, no_local]),
-    ok = emqx_metrics:inc('delivery.dropped'),
-    ok = emqx_metrics:inc('delivery.dropped.no_local');
+    ok = emqx_metrics:inc_global('delivery.dropped'),
+    ok = emqx_metrics:inc_global('delivery.dropped.no_local');
 handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, qos0_msg]),
-    ok = emqx_metrics:inc('delivery.dropped'),
-    ok = emqx_metrics:inc('delivery.dropped.qos0_msg'),
+    ok = emqx_metrics:inc_global('delivery.dropped'),
+    ok = emqx_metrics:inc_global('delivery.dropped.qos0_msg'),
     ok = inc_pd('send_msg.dropped', 1),
     ?SLOG_THROTTLE(
         warning,
@@ -46,8 +46,8 @@ handle_event(ClientInfo, {dropped, Msg, #{reason := qos0_msg, logctx := Ctx}}) -
     );
 handle_event(ClientInfo, {dropped, Msg, #{reason := queue_full, logctx := Ctx}}) ->
     ok = emqx_hooks:run('delivery.dropped', [ClientInfo, Msg, queue_full]),
-    ok = emqx_metrics:inc('delivery.dropped'),
-    ok = emqx_metrics:inc('delivery.dropped.queue_full'),
+    ok = emqx_metrics:inc_global('delivery.dropped'),
+    ok = emqx_metrics:inc_global('delivery.dropped.queue_full'),
     ok = inc_pd('send_msg.dropped', 1),
     ok = inc_pd('send_msg.dropped.queue_full', 1),
     ?SLOG_THROTTLE(
@@ -66,14 +66,14 @@ handle_event(_ClientInfo, {expired_rel, ExpiredCnt}) ->
 inc_delivery_expired_cnt(N) ->
     ok = inc_pd('send_msg.dropped', N),
     ok = inc_pd('send_msg.dropped.expired', N),
-    ok = emqx_metrics:inc('delivery.dropped', N),
-    emqx_metrics:inc('delivery.dropped.expired', N).
+    ok = emqx_metrics:inc_global('delivery.dropped', N),
+    emqx_metrics:inc_global('delivery.dropped.expired', N).
 
 inc_await_pubrel_timeout(N) ->
     ok = inc_pd('recv_msg.dropped', N),
     ok = inc_pd('recv_msg.dropped.await_pubrel_timeout', N),
-    ok = emqx_metrics:inc('messages.dropped', N),
-    emqx_metrics:inc('messages.dropped.await_pubrel_timeout', N).
+    ok = emqx_metrics:inc_global('messages.dropped', N),
+    emqx_metrics:inc_global('messages.dropped.await_pubrel_timeout', N).
 
 inc_pd(Key, Inc) ->
     _ = emqx_pd:inc_counter(Key, Inc),

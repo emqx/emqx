@@ -542,10 +542,10 @@ handle_msg({'$gen_cast', Req}, State) ->
     {ok, NewState};
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
-    emqx_metrics:inc('bytes.received', Oct),
+    emqx_metrics:inc_global('bytes.received', Oct),
     on_bytes_in(Oct, Data, State);
 handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
-    ok = emqx_metrics:inc('bytes.received', Len),
+    ok = emqx_metrics:inc_global('bytes.received', Len),
     on_bytes_in(Len, Data, State);
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
@@ -946,8 +946,8 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
                 reason => "frame_is_too_large",
                 packet => emqx_packet:format(Packet, hidden)
             }),
-            emqx_metrics:inc('delivery.dropped.too_large'),
-            emqx_metrics:inc('delivery.dropped'),
+            emqx_metrics:inc_global('delivery.dropped.too_large'),
+            emqx_metrics:inc_global('delivery.dropped'),
             inc_dropped_stats(),
             <<>>;
         Data ->
@@ -978,7 +978,7 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
 -spec send(non_neg_integer(), non_neg_integer(), iodata(), state()) ->
     {ok, state()} | {ok, {sock_error, _}, state()}.
 send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
-    emqx_metrics:inc('bytes.sent', Oct),
+    emqx_metrics:inc_global('bytes.sent', Oct),
     case Transport:send(Socket, IoData) of
         ok ->
             %% NOTE: for Transport=emqx_quic_stream, it's actually an
