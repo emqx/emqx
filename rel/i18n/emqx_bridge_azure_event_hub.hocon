@@ -366,4 +366,9 @@ producer_health_check_topic.desc:
 producer_health_check_topic.label:
 """Connector health check topic"""
 
+allow_auto_topic_creation.desc:
+"""Set to true to allow automatic topic creation with metadata fetch request."""
+allow_auto_topic_creation.label:
+"""Allow Auto Topic Creation"""
+
 }
