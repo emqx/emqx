@@ -347,4 +347,17 @@ emqx_ds_schema {
     label: "Write Buffer Size"
     desc: "Maximum total RAM allocated for the DB write buffers."
   }
+
+  db_group_rocksdb_threads {
+    label: "Size of RocksDB Thread Pool"
+    desc:
+      """~
+      Number of RocksDB background threads per durable storage group.
+
+      RocksDB uses two thread pools: high and low priority.
+      The former is used for dumping memtables to disk,
+      and the latter is used for compaction.
+
+      By default, size of both pools is set to the number of dirty IO Schedulers.~"""
+  }
 }

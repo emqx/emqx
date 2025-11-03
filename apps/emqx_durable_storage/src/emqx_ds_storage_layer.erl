@@ -241,7 +241,11 @@
 
 -type create_db_group_opts() :: #{
     backend := _,
-    env_type => default | memenv
+    env_type => default | memenv,
+    storage_quota => infinity | pos_integer(),
+    write_buffer_size => pos_integer(),
+    rocksdb_nthreads_low => pos_integer(),
+    rocksdb_nthreads_high => pos_integer()
 }.
 
 -opaque db_group() :: #db_group{}.
@@ -267,12 +271,13 @@ create_db_group(_GroupId, UserOpts) ->
         end,
         {ok, WriteBufferManager} = rocksdb:new_write_buffer_manager(WriteBufferSize),
         %% Result:
-        {ok, #db_group{
-            env = Env,
-            sst_file_mgr = SSTManager,
-            write_buffer_mgr = WriteBufferManager,
-            conf = Opts
-        }}
+        {ok,
+            update_rocksdb_group_runtime(#db_group{
+                env = Env,
+                sst_file_mgr = SSTManager,
+                write_buffer_mgr = WriteBufferManager,
+                conf = Opts
+            })}
     end.
 
 -spec update_db_group(emqx_ds:db_group(), create_db_group_opts(), db_group()) ->
@@ -280,8 +285,15 @@ create_db_group(_GroupId, UserOpts) ->
 update_db_group(_Id, UserOpts, Grp = #db_group{}) ->
     maybe
         {ok, Opts} ?= verify_db_group_config(UserOpts),
-        {ok, Grp#db_group{conf = Opts}}
+        {ok, update_rocksdb_group_runtime(Grp#db_group{conf = Opts})}
     end.
+
+-spec update_rocksdb_group_runtime(db_group()) -> db_group().
+update_rocksdb_group_runtime(#db_group{env = Env, conf = Conf} = Grp) ->
+    #{rocksdb_nthreads_high := BTHP, rocksdb_nthreads_low := BTLP} = Conf,
+    ok = rocksdb:set_env_background_threads(Env, BTHP, priority_high),
+    ok = rocksdb:set_env_background_threads(Env, BTLP, priority_low),
+    Grp.
 
 -spec destroy_db_group(emqx_ds:db_group(), db_group()) -> ok | {error, _}.
 destroy_db_group(_GroupId, #db_group{env = Env, sst_file_mgr = SSTManager, write_buffer_mgr = WBM}) ->
@@ -1185,15 +1197,27 @@ decode_generation_schema_v1(Schema = #{}) ->
 verify_db_group_config(UserOpts) ->
     maybe
         true ?= is_map(UserOpts),
+        NDIOS = erlang:system_info(dirty_io_schedulers),
         Defaults = #{
             storage_quota => infinity,
-            write_buffer_size => 256 * 1024 * 1024
+            write_buffer_size => 256 * 1024 * 1024,
+            rocksdb_nthreads_high => NDIOS,
+            rocksdb_nthreads_low => NDIOS
         },
-        #{storage_quota := SQ, write_buffer_size := WBS} = Merged = maps:merge(Defaults, UserOpts),
-        true ?= is_valid_max_size(SQ),
-        true ?= is_valid_max_size(WBS),
+        #{
+            storage_quota := SQ,
+            write_buffer_size := WBS,
+            rocksdb_nthreads_high := BTHP,
+            rocksdb_nthreads_low := BTLP
+        } = Merged = maps:merge(Defaults, UserOpts),
+        true ?= is_valid_max_size(storage_quota, SQ),
+        true ?= is_valid_max_size(write_buffer_size, WBS),
+        true ?= is_valid_n_threads(rocksdb_nthreads_high, BTHP),
+        true ?= is_valid_n_threads(rocksdb_nthreads_low, BTLP),
         {ok, Merged}
     else
+        {error, _} = Err ->
+            Err;
         _ ->
             {error, badarg}
     end.
@@ -1215,12 +1239,17 @@ sstfm_info(SSTFM) ->
         sst_file_mgr => L
     }.
 
-is_valid_max_size(infinity) ->
+is_valid_max_size(_, infinity) ->
     true;
-is_valid_max_size(Val) when is_integer(Val), Val > 0 ->
+is_valid_max_size(_, Val) when is_integer(Val), Val > 0 ->
     true;
-is_valid_max_size(_) ->
-    false.
+is_valid_max_size(Key, Val) ->
+    {error, {badarg, Key, Val}}.
+
+is_valid_n_threads(_, N) when is_integer(N), N > 1 ->
+    true;
+is_valid_n_threads(Key, N) ->
+    {error, {badarg, Key, N}}.
 
 %%--------------------------------------------------------------------------------
 

@@ -452,6 +452,22 @@ fields(db_group) ->
                     importance => ?IMPORTANCE_MEDIUM,
                     desc => ?DESC(db_group_write_buffer_size)
                 }
+            )},
+        {rocksdb_nthreads_high,
+            sc(
+                pos_integer(),
+                #{
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(db_group_rocksdb_threads)
+                }
+            )},
+        {rocksdb_nthreads_low,
+            sc(
+                pos_integer(),
+                #{
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(db_group_rocksdb_threads)
+                }
             )}
     ].
 
