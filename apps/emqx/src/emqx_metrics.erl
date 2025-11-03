@@ -10,6 +10,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_config.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
@@ -37,6 +38,18 @@
     set_global/2
 ]).
 
+-export([register_namespace/1, unregister_namespace/1]).
+
+-export([
+    all/1,
+    val/2,
+    inc/2,
+    inc/3,
+    dec/2,
+    dec/3,
+    set/3
+]).
+
 %% Inc received/sent metrics
 -export([
     inc_msg/1,
@@ -62,23 +75,36 @@
 -export_type([metric_idx/0, metric_name/0]).
 
 -compile({inline, [inc_global/1, inc_global/2, dec_global/1, dec_global/2]}).
+-compile({inline, [inc/2, inc/3, dec/2, dec/3]}).
 -compile({inline, [inc_recv/1, inc_sent/1]}).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
 
 -opaque metric_idx() :: 1..1024.
 
 -type metric_name() :: atom() | string() | binary().
+
+-type maybe_namespace() :: emqx_config:maybe_namespace().
 
 -define(MAX_SIZE, 1024).
 -define(RESERVED_IDX, 512).
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
-is_olp_metric(Name) ->
-    lists:keymember(Name, 2, olp_metrics()).
+-define(PT_KEY(NS), {?MODULE, cref, NS}).
 
 -record(state, {next_idx = 1}).
-
 -record(metric, {name, type, idx}).
+
+%% Calls/casts/infos
+-record(register_namespace, {namespace :: binary()}).
+-record(unregister_namespace, {namespace :: binary()}).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 %% @doc Start the metrics server.
 -spec start_link() -> startlink_ret().
@@ -98,6 +124,9 @@ stop() ->
 %%--------------------------------------------------------------------
 %% Metrics API
 %%--------------------------------------------------------------------
+
+is_olp_metric(Name) ->
+    lists:keymember(Name, 2, olp_metrics()).
 
 -spec new(metric_name()) -> ok.
 new(Name) ->
@@ -134,7 +163,11 @@ all() ->
 %% @doc Get all metrics
 -spec all_global() -> [{metric_name(), non_neg_integer()}].
 all_global() ->
-    CRef = persistent_term:get(?MODULE),
+    all(?global_ns).
+
+-spec all(maybe_namespace()) -> [{metric_name(), non_neg_integer()}].
+all(Namespace) ->
+    CRef = get_counters_ref(Namespace),
     [
         {Name, counters:get(CRef, Idx)}
      || #metric{name = Name, idx = Idx} <- ets:tab2list(?TAB)
@@ -143,17 +176,22 @@ all_global() ->
 %% @doc Get metric value
 -spec val_global(metric_name()) -> non_neg_integer().
 val_global(Name) ->
+    val(?global_ns, Name).
+
+-spec val(maybe_namespace(), metric_name()) -> non_neg_integer().
+val(Namespace, Name) ->
     try
         case ets:lookup(?TAB, Name) of
             [#metric{idx = Idx}] ->
-                CRef = persistent_term:get(?MODULE),
+                CRef = get_counters_ref(Namespace),
                 counters:get(CRef, Idx);
             [] ->
                 0
         end
-        %% application will restart when join cluster, then ets not exist.
     catch
         error:badarg ->
+            %% When application is restarting to join a new cluster, ETS table might be
+            %% temporarily absent.
             0
     end.
 
@@ -165,7 +203,15 @@ inc_global(Name) ->
 %% @doc Increase metric value
 -spec inc_global(metric_name(), pos_integer()) -> ok.
 inc_global(Name, Value) ->
-    update_counter(Name, Value).
+    update_counter(?global_ns, Name, Value).
+
+-spec inc(maybe_namespace(), metric_name()) -> ok.
+inc(Namespace, Name) ->
+    inc(Namespace, Name, 1).
+
+-spec inc(maybe_namespace(), metric_name(), pos_integer()) -> ok.
+inc(Namespace, Name, Value) ->
+    update_counter(Namespace, Name, Value).
 
 %% @doc Decrease metric value
 -spec dec_global(metric_name()) -> ok.
@@ -175,23 +221,41 @@ dec_global(Name) ->
 %% @doc Decrease metric value
 -spec dec_global(metric_name(), pos_integer()) -> ok.
 dec_global(Name, Value) ->
-    update_counter(Name, -Value).
+    update_counter(?global_ns, Name, -Value).
+
+-spec dec(maybe_namespace(), metric_name()) -> ok.
+dec(Namespace, Name) ->
+    dec(Namespace, Name, 1).
+
+-spec dec(maybe_namespace(), metric_name(), pos_integer()) -> ok.
+dec(Namespace, Name, Value) ->
+    update_counter(Namespace, Name, -Value).
 
 %% @doc Set metric value
 -spec set_global(metric_name(), integer()) -> ok.
 set_global(Name, Value) ->
-    CRef = persistent_term:get(?MODULE),
+    set(?global_ns, Name, Value).
+
+-spec set(maybe_namespace(), metric_name(), integer()) -> ok.
+set(Namespace, Name, Value) ->
+    CRef = get_counters_ref(Namespace),
     Idx = ets:lookup_element(?TAB, Name, 4),
     counters:put(CRef, Idx, Value).
 
-update_counter(Name, Value) ->
-    CRef = persistent_term:get(?MODULE),
+update_counter(Namespace, Name, Value) ->
+    CRef = get_counters_ref(Namespace),
     CIdx =
         case reserved_idx(Name) of
             Idx when is_integer(Idx) -> Idx;
             undefined -> ets:lookup_element(?TAB, Name, 4)
         end,
     counters:add(CRef, CIdx, Value).
+
+register_namespace(Namespace) when is_binary(Namespace) ->
+    gen_server:call(?MODULE, #register_namespace{namespace = Namespace}, infinity).
+
+unregister_namespace(Namespace) when is_binary(Namespace) ->
+    gen_server:call(?MODULE, #unregister_namespace{namespace = Namespace}, infinity).
 
 %%--------------------------------------------------------------------
 %% Inc received/sent metrics
@@ -306,20 +370,11 @@ do_inc_sent(_Packet) ->
 init([]) ->
     % Create counters array
     CRef = counters:new(?MAX_SIZE, [write_concurrency]),
-    ok = persistent_term:put(?MODULE, CRef),
+    ok = persistent_term:put(?PT_KEY(?global_ns), CRef),
     % Create index mapping table
     ok = emqx_utils_ets:new(?TAB, [{keypos, 2}, {read_concurrency, true}]),
     Metrics = all_metrics(),
-    % Store reserved indices
-    ok = lists:foreach(
-        fun({Type, Name, _Desc}) ->
-            Idx = reserved_idx(Name),
-            Metric = #metric{name = Name, type = Type, idx = Idx},
-            true = ets:insert(?TAB, Metric),
-            ok = counters:put(CRef, Idx, 0)
-        end,
-        Metrics
-    ),
+    initialize_counters(CRef, Metrics),
     {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) ->
@@ -346,6 +401,21 @@ handle_call({set_type_to_counter, Keys}, _From, State) ->
         end,
         Keys
     ),
+    {reply, ok, State};
+handle_call(#register_namespace{namespace = Namespace}, _From, State) ->
+    case persistent_term:get(?PT_KEY(Namespace), undefined) of
+        undefined ->
+            CRef = counters:new(?MAX_SIZE, [write_concurrency]),
+            ok = persistent_term:put(?PT_KEY(Namespace), CRef),
+            Metrics = all_metrics(),
+            initialize_counters(CRef, Metrics),
+            ok;
+        _CRef ->
+            ok
+    end,
+    {reply, ok, State};
+handle_call(#unregister_namespace{namespace = Namespace}, _From, State) ->
+    _ = persistent_term:erase(?PT_KEY(Namespace)),
     {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
@@ -638,3 +708,20 @@ olp_metrics() ->
         {counter, 'overload_protection.gc', ?DESC("overload_protection_gc")},
         {counter, 'overload_protection.new_conn', ?DESC("overload_protection_new_conn")}
     ].
+
+%% Store reserved indices
+initialize_counters(CRef, Metrics) ->
+    lists:foreach(
+        fun({Type, Name, _Desc}) ->
+            Idx = reserved_idx(Name),
+            Metric = #metric{name = Name, type = Type, idx = Idx},
+            true = ets:insert(?TAB, Metric),
+            ok = counters:put(CRef, Idx, 0)
+        end,
+        Metrics
+    ).
+
+get_counters_ref(?global_ns) ->
+    persistent_term:get(?PT_KEY(?global_ns));
+get_counters_ref(Namespace) when is_binary(Namespace) ->
+    persistent_term:get(?PT_KEY(Namespace)).

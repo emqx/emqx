@@ -169,6 +169,15 @@ apply_jq(Transformation, NssToConfigs) ->
         NssToConfigs
     ).
 
+restart_node(Node, NodeSpec) ->
+    %% N.B. For some reason, even using `shutdown => 5_000`, mnesia does not seem to
+    %% correctly sync/flush data to disk when restarting the peer node.  We call
+    %% `mnesia:sync_log` here to force it to sync data so that it's correctly loaded when
+    %% the peer restarts.  Without this, the table is empty after the restart...
+    ?ON(Node, ok = mnesia:sync_log()),
+    [Node] = emqx_cth_cluster:restart([NodeSpec]),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -288,7 +297,7 @@ t_initialize_limiter_groups({'end', Config}) ->
     ok;
 t_initialize_limiter_groups(Config) when is_list(Config) ->
     [N] = ?config(cluster, Config),
-    NodeSpecs = ?config(node_specs, Config),
+    [NodeSpec] = ?config(node_specs, Config),
     %% Setup namespace with limiters
     Params1 = emqx_mt_api_SUITE:tenant_limiter_params(),
     Params2 = emqx_mt_api_SUITE:client_limiter_params(),
@@ -299,12 +308,7 @@ t_initialize_limiter_groups(Config) when is_list(Config) ->
         {ok, _} = emqx_mt_config:update_managed_ns_config(Ns, Params)
     end),
     %% Restart node
-    %% N.B. For some reason, even using `shutdown => 5_000`, mnesia does not seem to
-    %% correctly sync/flush data to disk when restarting the peer node.  We call
-    %% `mnesia:sync_log` here to force it to sync data so that it's correctly loaded when
-    %% the peer restarts.  Without this, the table is empty after the restart...
-    ?ON(N, ok = mnesia:sync_log()),
-    [N] = emqx_cth_cluster:restart(NodeSpecs),
+    ok = restart_node(N, NodeSpec),
     %% Client should connect fine
     ?check_trace(
         begin
@@ -648,4 +652,49 @@ t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
         [],
         [A || A = #{name := ?ALARM} <- Alarms2]
     ),
+    ok.
+
+-doc """
+Verifies that we initialize metrics when creating a new managed namespace and when loading
+existing namespaces while restarting a node.
+""".
+t_namespaced_metrics({init, Config}) ->
+    ClusterSpec = [
+        {ns_metrics1, #{apps => app_specs()}},
+        {ns_metrics2, #{apps => app_specs()}}
+    ],
+    ClusterOpts = #{
+        work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+        shutdown => 5_000
+    },
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
+    Cluster = emqx_cth_cluster:start(NodeSpecs),
+    [{cluster, Cluster}, {node_specs, NodeSpecs} | Config];
+t_namespaced_metrics({'end', Config}) ->
+    Cluster = ?config(cluster, Config),
+    ok = emqx_cth_cluster:stop(Cluster),
+    ok;
+t_namespaced_metrics(Config) when is_list(Config) ->
+    [N1, N2] = ?config(cluster, Config),
+    [_, NSpec2] = ?config(node_specs, Config),
+    Ns = atom_to_binary(?FUNCTION_NAME),
+    %% Before namespace exists, we don't manipulate its metrics.
+    ?assertError({exception, badarg, _}, ?ON(N1, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?assertError({exception, badarg, _}, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?ON(N1, ok = emqx_mt_config:create_managed_ns(Ns)),
+    %% Can manipulate namespace metrics on both nodes now.
+    ?assertEqual(ok, ?ON(N1, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?assertEqual(1, ?ON(N1, emqx_metrics:val(Ns, 'messages.received'))),
+    ?assertEqual(ok, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received', 2))),
+    ?assertEqual(2, ?ON(N2, emqx_metrics:val(Ns, 'messages.received'))),
+    %% Restart node; should re-register namespace metrics.
+    ok = restart_node(N2, NSpec2),
+    ?assertEqual(ok, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received', 3))),
+    ?assertEqual(3, ?ON(N2, emqx_metrics:val(Ns, 'messages.received'))),
+    %% Delete the managed namespace; should drop namespace metrics.
+    ?ON(N1, ok = emqx_mt_config:delete_managed_ns(Ns)),
+    %% Wait for cleanup
+    ?retry(250, 10, ?assertNot(?ON(N2, emqx_mt_state:is_tombstoned(Ns)))),
+    ?assertError({exception, badarg, _}, ?ON(N1, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?assertError({exception, badarg, _}, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received'))),
     ok.

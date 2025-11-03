@@ -38,7 +38,8 @@
 %% Internal exports for `mt' application
 -export([
     get_tenant_limiter_config/1,
-    get_client_limiter_config/1
+    get_client_limiter_config/1,
+    delete_managed_ns_side_effects/1
 ]).
 
 %% Internal APIs for tests
@@ -165,9 +166,25 @@ bulk_import_configs(Entries) ->
     handle_bulk_import_configs(Entries).
 
 -spec create_managed_ns(emqx_mt:tns()) ->
-    ok | {error, {aborted, _}} | {error, table_is_full}.
+    ok | {error, Error}
+when
+    Error ::
+        {aborted, _}
+        | table_is_full
+        | already_exists
+        | namespace_being_deleted
+        | [map()].
 create_managed_ns(Ns) ->
-    emqx_mt_state:create_managed_ns(Ns).
+    maybe
+        ok ?= emqx_mt_state:create_managed_ns(Ns),
+        SideEffects = create_managed_ns_side_effects(Ns),
+        case execute_side_effects(SideEffects) of
+            [] = _NoErrors ->
+                ok;
+            Errors ->
+                {error, Errors}
+        end
+    end.
 
 -spec delete_managed_ns(emqx_mt:tns()) ->
     ok | {error, {aborted, _}}.
@@ -260,7 +277,9 @@ load() ->
         emqx_mt_state:fold_managed_nss(
             fun(#{ns := Ns, configs := Configs}, Acc) ->
                 Diffs = #{added => Configs, changed => #{}},
-                SideEffects = compute_config_update_side_effects(Diffs, Ns),
+                SideEffects0 = compute_config_update_side_effects(Diffs, Ns),
+                SideEffects1 = create_managed_ns_side_effects(Ns),
+                SideEffects = SideEffects1 ++ SideEffects0,
                 {ok, Errors} = execute_side_effects_v1(SideEffects),
                 case Errors of
                     [] ->
@@ -346,6 +365,14 @@ on_backup_table_imported(_Tab, _Opts) ->
 tmp_set_default_max_sessions(Max) ->
     emqx_config:put([multi_tenancy, default_max_sessions], Max).
 
+delete_managed_ns_side_effects(Namespace) ->
+    [
+        #{
+            ?op => {fun emqx_metrics:unregister_namespace/1, [Namespace]},
+            ?path => []
+        }
+    ].
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
@@ -388,6 +415,14 @@ compute_config_update_side_effects(Diffs, Ns) ->
         [],
         Changes
     ).
+
+create_managed_ns_side_effects(Ns) ->
+    [
+        #{
+            ?op => {fun emqx_metrics:register_namespace/1, [Ns]},
+            ?path => []
+        }
+    ].
 
 -spec limiter_update_side_effects(emqx_mt:tns(), {?new, limiter_config()}) -> [side_effect()].
 limiter_update_side_effects(Ns, {?new, Config}) ->
