@@ -178,18 +178,6 @@ t_inc_sent_auth_error(_) ->
         end
     ).
 
-t_trans(_) ->
-    with_metrics_server(
-        fun() ->
-            ok = emqx_metrics:trans(inc, 'bytes.received'),
-            ok = emqx_metrics:trans(inc, 'bytes.received', 2),
-            ?assertEqual(0, emqx_metrics:val('bytes.received')),
-            ok = emqx_metrics:commit(),
-            ?assertEqual(3, emqx_metrics:val('bytes.received')),
-            ok = emqx_metrics:commit()
-        end
-    ).
-
 with_metrics_server(Fun) ->
     try
         supervisor:terminate_child(emqx_kernel_sup, emqx_metrics)

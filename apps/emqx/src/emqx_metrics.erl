@@ -34,12 +34,6 @@
     set/2
 ]).
 
--export([
-    trans/2,
-    trans/3,
-    commit/0
-]).
-
 %% Inc received/sent metrics
 -export([
     inc_msg/1,
@@ -61,9 +55,6 @@
 -export([all_metrics/0]).
 
 -export([is_olp_metric/1]).
-
-%% BACKW: v4.3.0
--export([upgrade_retained_delayed_counter_type/0]).
 
 -export_type([metric_idx/0, metric_name/0]).
 
@@ -100,11 +91,6 @@ stop() ->
             %% pid is killed after timeout
             ok
     end.
-
-%% BACKW: v4.3.0
-upgrade_retained_delayed_counter_type() ->
-    Ks = ['messages.delayed'],
-    gen_server:call(?SERVER, {set_type_to_counter, Ks}, infinity).
 
 %%--------------------------------------------------------------------
 %% Metrics API
@@ -190,42 +176,6 @@ set(Name, Value) ->
     CRef = persistent_term:get(?MODULE),
     Idx = ets:lookup_element(?TAB, Name, 4),
     counters:put(CRef, Idx, Value).
-
--spec trans(inc | dec, metric_name()) -> ok.
-trans(Op, Name) when Op =:= inc; Op =:= dec ->
-    trans(Op, Name, 1).
-
--spec trans(inc | dec, metric_name(), pos_integer()) -> ok.
-trans(inc, Name, Value) ->
-    cache(Name, Value);
-trans(dec, Name, Value) ->
-    cache(Name, -Value).
-
--spec cache(metric_name(), integer()) -> ok.
-cache(Name, Value) ->
-    put(
-        '$metrics',
-        case get('$metrics') of
-            undefined ->
-                #{Name => Value};
-            Metrics ->
-                maps:update_with(Name, fun(Cnt) -> Cnt + Value end, Value, Metrics)
-        end
-    ),
-    ok.
-
--spec commit() -> ok.
-commit() ->
-    case get('$metrics') of
-        undefined ->
-            ok;
-        Metrics ->
-            _ = erase('$metrics'),
-            lists:foreach(fun update_counter/1, maps:to_list(Metrics))
-    end.
-
-update_counter({Name, Value}) ->
-    update_counter(Name, Value).
 
 update_counter(Name, Value) ->
     CRef = persistent_term:get(?MODULE),
