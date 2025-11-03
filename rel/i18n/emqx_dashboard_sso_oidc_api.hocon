@@ -3,4 +3,14 @@ emqx_dashboard_sso_oidc_api {
 code_callback.desc:
 """The callback path for the OIDC authorization server."""
 
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+backend_not_found.desc:
+"""Backend not found"""
+backend_not_found.label:
+"""Backend Not Found"""
+
 }
