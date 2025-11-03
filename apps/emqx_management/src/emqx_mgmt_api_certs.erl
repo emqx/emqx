@@ -341,11 +341,16 @@ handle_delete_bundle(Namespace, BundleName) ->
     end.
 
 handle_upload_files(Namespace, BundleName, Files) ->
-    %% Special case: if an ACME account key exists, we forbid uploading other files as
-    %% it's probably an user error, since ACME client will generate these other kinds.
-    case does_acc_key_exist(Namespace, BundleName) of
+    %% Special case: if an ACME account key exists, we forbid uploading key and chain
+    %% files as it's probably an user error, since ACME client will generate these other
+    %% kinds.  Updating CA and the account key itself is fine.
+    IsUpdatingChainOrKey =
+        is_map_key(?FILE_KIND_CHAIN, Files) orelse
+            is_map_key(?FILE_KIND_KEY, Files),
+    DoesAccKeyExist = does_acc_key_exist(Namespace, BundleName),
+    case DoesAccKeyExist andalso IsUpdatingChainOrKey of
         true ->
-            ?BAD_REQUEST(<<"Account key exists; other files will be managed by ACME client.">>);
+            ?BAD_REQUEST(<<"Account key exists; chain and key will be managed by ACME client.">>);
         false ->
             case emqx_managed_certs:add_managed_files(Namespace, BundleName, Files) of
                 ok ->
