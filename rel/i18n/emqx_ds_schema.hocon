@@ -327,7 +327,20 @@ emqx_ds_schema {
       until the database is compacted.
 
       In case of `builtin_raft` backend the quota check is performed by the leader node.
-      Only shards that have local replicas are counted towards the quota."""
+      Only shards that have local replicas are counted towards the quota.
+
+      `db_storage_quota_exceeded:<DB>` alarm is raised when the quota is exceeded.
+
+      The consequences of exceeding the quota depend on the DB:
+      - `messages`: durable sessions cannot receive new messages.
+        Mitigations:
+        + Reduce `durable_sessions.message_retention_period` configuration parameter.
+        + Use `mqtt.subscription_max_qos_rules` to set subscription QoS for certain topics to 0.
+          Message delivery to QoS 0 subscriptions does not use disk space.
+      - `sessions`: durable sessions are disconnected from the broker.
+        Mitigations:
+        + Kick offline sessions.
+        + Limit the maximum number of sessions.~"""
   }
 
   db_group_write_buffer_size {
