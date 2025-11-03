@@ -236,7 +236,15 @@ roots() ->
     ].
 
 fields("connector") ->
-    [server_field(), ttl_field()] ++
+    [
+        server_field(),
+        ttl_field(),
+        {ts_column,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("connector_ts_column")
+            })}
+    ] ++
         credentials_fields() ++
         emqx_connector_schema_lib:ssl_fields();
 %% ============ begin: schema for old bridge configs ============
@@ -392,15 +400,23 @@ client_config(
             _ -> #{}
         end,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?GREPTIMEDB_HOST_OPTIONS),
-    [
-        {endpoints, [{http, str(Host), Port}]},
-        {pool_size, erlang:system_info(schedulers)},
-        {pool, InstId},
-        {pool_type, random},
-        {auto_reconnect, ?AUTO_RECONNECT_S},
-        {grpc_hints, Hints},
-        {grpc_opts, grpc_opts()}
-    ] ++ protocol_config(Config).
+    TsColumn =
+        case maps:get(ts_column, Config, undefined) of
+            undefined ->
+                [];
+            TsColumn0 ->
+                [{ts_column, TsColumn0}]
+        end,
+    TsColumn ++
+        [
+            {endpoints, [{http, str(Host), Port}]},
+            {pool_size, erlang:system_info(schedulers)},
+            {pool, InstId},
+            {pool_type, random},
+            {auto_reconnect, ?AUTO_RECONNECT_S},
+            {grpc_hints, Hints},
+            {grpc_opts, grpc_opts()}
+        ] ++ protocol_config(Config).
 
 protocol_config(
     #{

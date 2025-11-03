@@ -223,7 +223,7 @@ start_ehttpc_pool(EHttpcPoolName) ->
     ok.
 
 clear_table(TCConfig) ->
-    query_by_sql(<<"truncate table mqtt">>, TCConfig).
+    query_by_sql(<<"drop table mqtt">>, TCConfig).
 
 query_by_clientid(ClientId, TCConfig) ->
     SQL = <<"select * from \"mqtt\" where clientid='", ClientId/binary, "'">>,
@@ -475,6 +475,26 @@ t_const_timestamp(TCConfig) ->
         ),
         ok
     end),
+    ok.
+
+%% Smoke test for using `ts_column`.
+t_ts_column(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{
+        <<"ts_column">> => <<"event_time">>
+    }),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    C = start_client(#{clientid => ClientId}),
+    emqtt:publish(C, Topic, <<"hey">>),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"event_time">> := _},
+            query_by_clientid(ClientId, TCConfig)
+        )
+    ),
     ok.
 
 t_boolean_variants(TCConfig) ->
