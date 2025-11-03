@@ -236,7 +236,19 @@ roots() ->
     ].
 
 fields("connector") ->
-    [server_field()] ++
+    [
+        server_field(),
+        {ttl,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("ttl")
+            })},
+        {ts_column,
+            mk(binary(), #{
+                required => false,
+                desc => ?DESC("connector_ts_column")
+            })}
+    ] ++
         credentials_fields() ++
         emqx_connector_schema_lib:ssl_fields();
 %% ============ begin: schema for old bridge configs ============
@@ -379,14 +391,22 @@ client_config(
     }
 ) ->
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?GREPTIMEDB_HOST_OPTIONS),
-    [
-        {endpoints, [{http, str(Host), Port}]},
-        {pool_size, erlang:system_info(schedulers)},
-        {pool, InstId},
-        {pool_type, random},
-        {auto_reconnect, ?AUTO_RECONNECT_S},
-        {grpc_opts, grpc_opts()}
-    ] ++ protocol_config(Config).
+    TsColumn =
+        case maps:get(ts_column, Config, undefined) of
+            undefined ->
+                [];
+            TsColumn0 ->
+                [{ts_column, TsColumn0}]
+        end,
+    TsColumn ++
+        [
+            {endpoints, [{http, str(Host), Port}]},
+            {pool_size, erlang:system_info(schedulers)},
+            {pool, InstId},
+            {pool_type, random},
+            {auto_reconnect, ?AUTO_RECONNECT_S},
+            {grpc_opts, grpc_opts()}
+        ] ++ protocol_config(Config).
 
 protocol_config(
     #{
@@ -541,8 +561,18 @@ to_kv_config(KVfields) ->
 
 to_maps_config(K, V, Res) ->
     NK = emqx_placeholder:preproc_tmpl(bin(K)),
-    NV = emqx_placeholder:preproc_tmpl(bin(V)),
+    NV = preproc_quoted(V),
     Res#{NK => NV}.
+
+preproc_quoted({quoted, V}) ->
+    {quoted, emqx_placeholder:preproc_tmpl(bin(V))};
+preproc_quoted(V) ->
+    emqx_placeholder:preproc_tmpl(bin(V)).
+
+proc_quoted({quoted, V}, Data, TransOpts) ->
+    {quoted, emqx_placeholder:proc_tmpl(V, Data, TransOpts)};
+proc_quoted(V, Data, TransOpts) ->
+    emqx_placeholder:proc_tmpl(V, Data, TransOpts).
 
 %% -------------------------------------------------------------------------------------------------
 %% Tags & Fields Data Trans
@@ -676,7 +706,7 @@ maps_config_to_data(K, V, {Data, Res}) ->
     KTransOptions = #{return => rawlist, var_trans => fun key_filter/1},
     VTransOptions = #{return => rawlist, var_trans => fun data_filter/1},
     NK0 = emqx_placeholder:proc_tmpl(K, Data, KTransOptions),
-    NV = emqx_placeholder:proc_tmpl(V, Data, VTransOptions),
+    NV = proc_quoted(V, Data, VTransOptions),
     case {NK0, NV} of
         {[undefined], _} ->
             {Data, Res};
@@ -726,7 +756,7 @@ value_type(Val0) ->
             _Error ->
                 throw({unrecoverable_error, {non_utf8_string_value, Val0}})
         end,
-    #{values => #{string_values => Val}, datatype => 'STRING'}.
+    greptimedb_values:string_value(Val).
 
 key_filter(undefined) -> undefined;
 key_filter(Value) -> emqx_utils_conv:bin(Value).
