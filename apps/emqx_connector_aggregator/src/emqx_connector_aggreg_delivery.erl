@@ -14,6 +14,7 @@
 -include("emqx_connector_aggregator.hrl").
 
 -export([start_link/3]).
+-export([validate_container_opts/1]).
 
 %% `gen_server' API
 -export([
@@ -106,6 +107,15 @@ start_link(Id, Buffer, Opts) ->
     InitOpts = #{id => Id, buffer => Buffer, opts => Opts},
     gen_server:start_link(?MODULE, InitOpts, []).
 
+-spec validate_container_opts(map()) -> ok | {error, term()}.
+validate_container_opts(ContainerOpts) ->
+    case mk_container(ContainerOpts) of
+        {ok, _} ->
+            ok;
+        {error, {container_opts_error, Details}} ->
+            {error, Details}
+    end.
+
 %%------------------------------------------------------------------------------
 %% `gen_server' API
 %%------------------------------------------------------------------------------
@@ -125,6 +135,7 @@ init(InitOpts) ->
             State = #{?id => Id, ?delivery => Delivery},
             {ok, State};
         {error, Reason} ->
+            ?tp("connector_aggreg_delivery_init_failure", #{id => Id, reason => Reason}),
             {error, {failed_to_initialize, Reason}}
     end.
 
@@ -253,10 +264,11 @@ init_delivery(
     maybe
         {ok, Transfer, ContainerOpts} ?=
             Mod:init_transfer_state_and_container_opts(Buffer, Opts),
+        {ok, Container} ?= mk_container(ContainerOpts),
         Delivery = #delivery{
             id = Id,
             callback_module = Mod,
-            container = mk_container(ContainerOpts),
+            container = Container,
             reader = Reader,
             transfer = Transfer,
             empty = true
@@ -273,15 +285,66 @@ open_buffer(#buffer{filename = Filename}) ->
             error(#{reason => buffer_open_failed, file => Filename, posix => Reason})
     end.
 
-mk_container(#{type := csv, column_order := OrderOpt}) ->
+mk_container(ContainerOpts) ->
+    try
+        {ok, do_mk_container(ContainerOpts)}
+    catch
+        throw:Details ->
+            {error, {container_opts_error, Details}}
+    end.
+
+do_mk_container(#{type := csv, column_order := OrderOpt}) ->
     %% TODO: Deduplicate?
     ColumnOrder = lists:map(fun emqx_utils_conv:bin/1, OrderOpt),
     {emqx_connector_aggreg_csv, emqx_connector_aggreg_csv:new(#{column_order => ColumnOrder})};
-mk_container(#{type := json_lines}) ->
+do_mk_container(#{type := json_lines}) ->
     Opts = #{},
     {emqx_connector_aggreg_json_lines, emqx_connector_aggreg_json_lines:new(Opts)};
-mk_container(#{type := noop}) ->
+do_mk_container(#{type := parquet} = ContainerOpts) ->
+    #{schema := Schema} = ContainerOpts,
+    AvroScBin = get_parquet_avro_schema(Schema),
+    WriterOpts0 = maps:with(
+        [
+            write_old_list_structure,
+            enable_dictionary,
+            data_page_header_version,
+            max_row_group_bytes
+        ],
+        ContainerOpts
+    ),
+    DefaultCompression = maps:get(default_compression, ContainerOpts, snappy),
+    CompressionOpts = #{},
+    WriterOpts = WriterOpts0#{default_compression => {DefaultCompression, CompressionOpts}},
+    AvroSc = emqx_utils_json:decode(AvroScBin),
+    ScOpts = maps:with([write_old_list_structure], ContainerOpts),
+    ParquetSchema = parquer_schema_avro:from_avro(AvroSc, ScOpts),
+    Opts = #{schema => ParquetSchema, writer_opts => WriterOpts},
+    {emqx_connector_aggreg_parquet, emqx_connector_aggreg_parquet:new(Opts)};
+do_mk_container(#{type := noop}) ->
     Opts = #{},
     {emqx_connector_aggreg_noop, emqx_connector_aggreg_noop:new(Opts)};
-mk_container(#{type := custom, module := Mod, opts := Opts}) ->
+do_mk_container(#{type := custom, module := Mod, opts := Opts}) ->
     {Mod, Mod:new(Opts)}.
+
+get_parquet_avro_schema(#{type := avro_inline, def := AvroScBin}) ->
+    AvroScBin;
+get_parquet_avro_schema(#{type := avro_ref, name := SerdeName}) ->
+    %% fixme: calling an almost terminal application (`emqx_schema_registry`) from a more
+    %% or less intial one (`emqx_connector_aggregator`)...
+    %% how to avoid this?
+    case emqx_schema_registry:get_schema(SerdeName) of
+        {error, not_found} ->
+            throw(#{
+                reason => parquet_schema_not_found,
+                schema_name => SerdeName
+            });
+        {ok, #{type := avro, source := AvroScBin}} ->
+            AvroScBin;
+        {ok, #{type := WrongType}} ->
+            throw(#{
+                reason => parquet_schema_wrong_type,
+                expected_type => avro,
+                schema_name => SerdeName,
+                schema_type => WrongType
+            })
+    end.

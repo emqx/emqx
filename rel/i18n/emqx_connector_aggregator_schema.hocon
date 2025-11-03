@@ -21,4 +21,64 @@ container_json_lines.label:
 container_json_lines.desc:
   """Records (events) will be aggregated and uploaded as a [JSON Lines](https://jsonlines.org/) file."""
 
+  container_parquet {
+    label: """Parquet Data File"""
+    desc:
+    """Use [Parquet](https://parquet.apache.org/docs/) for encoding data files."""
+  }
+
+  parquet_schema {
+    label: """Parquet Schema (Avro)"""
+    desc:
+    """The schema to be used for the Parquet files, in Avro format."""
+  }
+
+  container_parquet_max_row_group_bytes {
+    label: """Parquet Max Row Group Bytes"""
+    desc:
+    """The size above which row groups are flushed.  The actual triggering of row group flushes uses estimates of the buffered data sizes, since the actual output may differ in size from the raw input data size."""
+  }
+
+  parquet_default_compression {
+    label: """Parquet Default Compression"""
+    desc:
+    """The default algorithm to use for compressing data pages in Parquet row groups."""
+  }
+
+  parquet_schema_avro_inline {
+    label: """Inline"""
+    desc:
+    """Avro schema defined inline."""
+  }
+
+  parquet_schema_avro_ref {
+    label: """Schema Registry Reference"""
+    desc:
+    """Avro schema that lives in Schema Registry."""
+  }
+
+  parquet_schema_avro_inline_type {
+    label: """Type"""
+    desc:
+    """Avro schema defined inline."""
+  }
+
+  parquet_schema_avro_ref_type {
+    label: """Type"""
+    desc:
+    """Avro schema that lives in Schema Registry."""
+  }
+
+  parquet_schema_avro_inline_def {
+    label: """Schema definition"""
+    desc:
+    """Avro schema definition in JSON format."""
+  }
+
+  parquet_schema_avro_ref_name {
+    label: """Schema name"""
+    desc:
+    """Avro schema name that lives in Schema Registry."""
+  }
+
 }

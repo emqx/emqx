@@ -13,6 +13,11 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
+%%------------------------------------------------------------------------------
+%% Type defs
+%%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 -import(emqx_utils_conv, [bin/1]).
 
 %% See `emqx_bridge_s3.hrl`.
@@ -20,6 +25,8 @@
 -define(CONNECTOR_TYPE, <<"s3">>).
 
 -define(PROXY_NAME, "minio_tcp").
+
+-define(PARQUET_QUERY_ENDPOINT, <<"http://query:8090">>).
 
 -define(CONF_TIME_INTERVAL, 4000).
 -define(CONF_MAX_RECORDS, 100).
@@ -35,10 +42,19 @@
 
 -define(LIMIT_TOLERANCE, 1.1).
 
-%% CT Setup
+-define(csv, csv).
+-define(json_lines, json_lines).
+-define(parquet, parquet).
+
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     % Setup toxiproxy
@@ -69,8 +85,6 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
-%% Testcases
-
 init_per_testcase(TestCase, Config) ->
     ct:timetrap(timer:seconds(15)),
     ok = snabbkaffe:start_trace(),
@@ -78,22 +92,40 @@ init_per_testcase(TestCase, Config) ->
     Name = iolist_to_binary(io_lib:format("~s-~p", [TestCase, TS])),
     Bucket = unicode:characters_to_list(string:replace(Name, "_", "-", all)),
     ConnectorConfig = connector_config(Name, Config),
-    ActionConfig = action_config(Name, Name, Bucket),
+    AggregContainerCfg =
+        case aggregation_container_type(Config) of
+            ?csv -> aggregation_container_config_csv(#{});
+            ?json_lines -> aggregation_container_config_json_lines(#{});
+            ?parquet -> aggregation_container_config_parquet_inline(#{})
+        end,
+    ActionConfig = action_config(#{
+        <<"connector">> => Name,
+        <<"parameters">> => #{
+            <<"bucket">> => unicode:characters_to_binary(Bucket),
+            <<"container">> => AggregContainerCfg
+        }
+    }),
     ok = emqx_bridge_s3_test_helpers:create_bucket(Bucket),
     [
         {connector_type, ?CONNECTOR_TYPE},
         {connector_name, Name},
         {connector_config, ConnectorConfig},
-        {bridge_type, ?BRIDGE_TYPE},
-        {bridge_name, Name},
-        {bridge_config, ActionConfig},
+        {bridge_kind, action},
+        {action_type, ?BRIDGE_TYPE},
+        {action_name, Name},
+        {action_config, ActionConfig},
         {s3_bucket, Bucket}
         | Config
     ].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
+
+%%------------------------------------------------------------------------------
+%% Helper fns
+%%------------------------------------------------------------------------------
 
 connector_config(Name, _Config) ->
     BaseConf = emqx_s3_test_helpers:base_raw_config(tcp),
@@ -118,36 +150,201 @@ connector_config(Name, _Config) ->
         }
     ).
 
-action_config(Name, ConnectorId, Bucket) ->
-    emqx_bridge_s3_test_helpers:parse_and_check_config(
-        <<"actions">>, ?BRIDGE_TYPE, Name, #{
-            <<"enable">> => true,
-            <<"connector">> => ConnectorId,
-            <<"parameters">> => #{
-                <<"mode">> => <<"aggregated">>,
-                <<"bucket">> => unicode:characters_to_binary(Bucket),
-                <<"key">> => <<"${action}/${node}/${datetime.rfc3339}">>,
-                <<"acl">> => <<"public_read">>,
-                <<"headers">> => #{
-                    <<"X-AMZ-Meta-Version">> => <<"42">>
-                },
-                <<"aggregation">> => #{
-                    <<"time_interval">> => <<"4s">>,
-                    <<"max_records">> => ?CONF_MAX_RECORDS
-                },
-                <<"container">> => #{
-                    <<"type">> => <<"csv">>,
-                    <<"column_order">> => ?CONF_COLUMN_ORDER
-                }
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"connector">> => <<"please override">>,
+        <<"parameters">> => #{
+            <<"mode">> => <<"aggregated">>,
+            <<"bucket">> => <<"please override">>,
+            <<"key">> => <<"${action}/${node}/${datetime.rfc3339}">>,
+            <<"acl">> => <<"public_read">>,
+            <<"headers">> => #{
+                <<"X-AMZ-Meta-Version">> => <<"42">>
             },
-            <<"resource_opts">> => #{
-                <<"health_check_interval">> => <<"1s">>,
-                <<"max_buffer_bytes">> => <<"64MB">>,
-                <<"query_mode">> => <<"async">>,
-                <<"worker_pool_size">> => 4
-            }
+            <<"aggregation">> => #{
+                <<"time_interval">> => <<"4s">>,
+                <<"max_records">> => ?CONF_MAX_RECORDS
+            },
+            <<"container">> => <<"please override">>
+        },
+        <<"resource_opts">> => #{
+            <<"health_check_interval">> => <<"1s">>,
+            <<"max_buffer_bytes">> => <<"64MB">>,
+            <<"query_mode">> => <<"async">>,
+            <<"worker_pool_size">> => 4
         }
+    },
+    Config = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_s3_test_helpers:parse_and_check_config(
+        <<"actions">>, ?BRIDGE_TYPE, <<"x">>, Config
     ).
+
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+aggregation_container_type(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, [?csv, ?json_lines, ?parquet], ?csv).
+
+aggregation_container_config_csv(Overrides) ->
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"type">> => <<"csv">>,
+            <<"column_order">> => ?CONF_COLUMN_ORDER
+        },
+        Overrides
+    ).
+
+aggregation_container_config_json_lines(Overrides) ->
+    emqx_utils_maps:deep_merge(#{<<"type">> => <<"json_lines">>}, Overrides).
+
+aggregation_container_config_parquet_inline(Overrides) ->
+    emqx_connector_aggregator_test_helpers:aggregation_container_config_parquet_inline(Overrides).
+
+aggregation_container_config_parquet_ref(Overrides) ->
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"type">> => <<"parquet">>,
+            <<"schema">> => #{
+                <<"type">> => <<"avro_ref">>,
+                <<"name">> => <<"please override">>
+            }
+        },
+        Overrides
+    ).
+
+sample_avro_schema1() ->
+    #{
+        <<"name">> => <<"root">>,
+        <<"type">> => <<"record">>,
+        <<"fields">> =>
+            [
+                #{
+                    <<"field-id">> => 1,
+                    <<"name">> => <<"clientid">>,
+                    <<"type">> => <<"string">>
+                },
+                #{
+                    <<"field-id">> => 2,
+                    <<"name">> => <<"qos">>,
+                    <<"type">> => <<"int">>
+                },
+                #{
+                    <<"field-id">> => 3,
+                    <<"name">> => <<"payload">>,
+                    <<"default">> => null,
+                    <<"type">> => [<<"null">>, <<"string">>]
+                },
+                #{
+                    <<"field-id">> => 4,
+                    <<"name">> => <<"publish_received_at">>,
+                    <<"default">> => null,
+                    <<"type">> => [
+                        <<"null">>,
+                        #{
+                            <<"type">> => <<"long">>,
+                            <<"adjust-to-utc">> => false,
+                            <<"logicalType">> => <<"timestamp-micros">>
+                        }
+                    ]
+                }
+            ]
+    }.
+
+run_message_sender(BridgeName, N) ->
+    ClientID = integer_to_binary(N),
+    Topic = <<"a/b/c/", ClientID/binary>>,
+    run_message_sender(BridgeName, N, ClientID, Topic, N, 0).
+
+run_message_sender(BridgeName, N, ClientID, Topic, Delay, NSent) ->
+    Payload = integer_to_binary(N * 1_000_000 + NSent),
+    Message = emqx_bridge_s3_test_helpers:mk_message_event(ClientID, Topic, Payload),
+    _ = send_message(BridgeName, Message),
+    receive
+        {stop, From} ->
+            From ! {sent, self(), NSent + 1}
+    after Delay ->
+        run_message_sender(BridgeName, N, ClientID, Topic, Delay, NSent + 1)
+    end.
+
+receive_sender_reports([Sender | Rest]) ->
+    receive
+        {sent, Sender, NSent} -> NSent + receive_sender_reports(Rest)
+    end;
+receive_sender_reports([]) ->
+    0.
+
+%%
+
+mk_message({ClientId, Topic, Payload}) ->
+    emqx_message:make(bin(ClientId), bin(Topic), Payload).
+
+mk_message_event({ClientID, Topic, Payload}) ->
+    emqx_bridge_s3_test_helpers:mk_message_event(ClientID, Topic, Payload).
+
+send_messages(BridgeName, MessageEvents) ->
+    lists:foreach(
+        fun(M) -> send_message(BridgeName, M) end,
+        MessageEvents
+    ).
+
+send_messages_delayed(BridgeName, MessageEvents, Delay) ->
+    lists:foreach(
+        fun(M) ->
+            send_message(BridgeName, M),
+            timer:sleep(Delay)
+        end,
+        MessageEvents
+    ).
+
+%% todo: messages should be sent via rules in tests...
+send_message(BridgeName, Message) ->
+    ?assertEqual(
+        ok, emqx_bridge_v2:send_message(?global_ns, ?BRIDGE_TYPE, BridgeName, Message, #{})
+    ).
+
+fetch_parse_csv(Bucket, Key) ->
+    #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
+    {ok, CSV} = erl_csv:decode(Content),
+    CSV.
+
+aggreg_id(BridgeName) ->
+    {?BRIDGE_TYPE, BridgeName}.
+
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
+create_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
+    ).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+unique_payload() ->
+    integer_to_binary(erlang:unique_integer()).
+
+read_parquet(Raw) ->
+    Method = post,
+    URI = iolist_to_binary(lists:join("/", [?PARQUET_QUERY_ENDPOINT, "read-parquet"])),
+    {ok, {{_, 200, _}, _, Body}} =
+        httpc:request(Method, {URI, [], "application/octet-stream", Raw}, [], [
+            {body_format, binary}
+        ]),
+    emqx_utils_json:decode(Body).
+
+%%------------------------------------------------------------------------------
+%% Test cases
+%%------------------------------------------------------------------------------
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, s3_bridge_stopped).
@@ -224,7 +421,7 @@ t_update_invalid_config(Config) ->
 
 t_aggreg_upload(Config) ->
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     BridgeNameString = unicode:characters_to_list(BridgeName),
     NodeString = atom_to_list(node()),
@@ -264,11 +461,11 @@ t_aggreg_upload(Config) ->
 %% Smoke test for using JSON Lines container type.
 t_aggreg_upload_json_lines(Config0) ->
     Bucket = ?config(s3_bucket, Config0),
-    BridgeName = ?config(bridge_name, Config0),
+    BridgeName = ?config(action_name, Config0),
     AggregId = aggreg_id(BridgeName),
     BridgeNameString = unicode:characters_to_list(BridgeName),
     NodeString = atom_to_list(node()),
-    Config = emqx_bridge_v2_testlib:proplist_update(Config0, bridge_config, fun(Old) ->
+    Config = emqx_bridge_v2_testlib:proplist_update(Config0, action_config, fun(Old) ->
         Cfg = emqx_utils_maps:deep_put(
             [<<"parameters">>, <<"container">>, <<"type">>],
             Old,
@@ -323,9 +520,108 @@ t_aggreg_upload_json_lines(Config0) ->
         emqx_connector_aggreg_json_lines_test_utils:decode(Content)
     ).
 
+%% Smoke test for using Parquet container type.
+t_aggreg_upload_parquet() ->
+    [{matrix, true}].
+t_aggreg_upload_parquet(matrix) ->
+    [[?parquet]];
+t_aggreg_upload_parquet(TCConfig) ->
+    Bucket = get_config(s3_bucket, TCConfig),
+    %% Create a bridge with the sample configuration.
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"aggregation">> => #{
+                <<"time_interval">> => <<"1s">>,
+                <<"max_records">> => 5
+            },
+            <<"container">> => aggregation_container_config_parquet_inline(#{})
+        },
+        %% To ensure message order below
+        <<"resource_opts">> => #{<<"worker_pool_size">> => 1}
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientIds = [<<"C1">>, <<"C2">>, <<"C3">>],
+    Payloads = lists:map(fun(_) -> unique_payload() end, ClientIds),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            lists:foreach(
+                fun({ClientId, Payload}) ->
+                    C = start_client(#{clientid => ClientId}),
+                    emqtt:publish(C, Topic, Payload)
+                end,
+                lists:zip(ClientIds, Payloads)
+            ),
+            #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when T /= empty,
+            5_000
+        ),
+    %% Check the uploaded objects.
+    _Uploads = [#{key := Key}] = emqx_bridge_s3_test_helpers:list_objects(Bucket),
+    ?assertMatch(
+        [_BridgeNameString, _NodeString, _Datetime, _Seq = "0"],
+        string:split(Key, "/", all)
+    ),
+    Upload = #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
+    ?assertMatch(
+        #{content_type := "application/octet-stream", "x-amz-meta-version" := "42"},
+        Upload
+    ),
+    %% Verify that column order is respected.
+    [P1, P2, P3] = Payloads,
+    ?assertMatch(
+        [
+            #{
+                <<"clientid">> := <<"C1">>,
+                <<"payload">> := P1,
+                <<"publish_received_at">> := _,
+                <<"qos">> := 0
+            },
+            #{
+                <<"clientid">> := <<"C2">>,
+                <<"payload">> := P2,
+                <<"publish_received_at">> := _,
+                <<"qos">> := 0
+            },
+            #{
+                <<"clientid">> := <<"C3">>,
+                <<"payload">> := P3,
+                <<"publish_received_at">> := _,
+                <<"qos">> := 0
+            }
+        ],
+        read_parquet(Content)
+    ),
+    ok.
+
+%% Checks that we validate schema registry references when adding the action.
+t_aggreg_upload_parquet_bad_reference() ->
+    [{matrix, true}].
+t_aggreg_upload_parquet_bad_reference(matrix) ->
+    [[?parquet]];
+t_aggreg_upload_parquet_bad_reference(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Old) ->
+        emqx_utils_maps:deep_remove([<<"parameters">>, <<"container">>], Old)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    %% Doesn't exist
+    SerdeName = <<"my_avro_sc">>,
+    ?assertMatch(
+        {201, #{<<"status">> := <<"disconnected">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"container">> => aggregation_container_config_parquet_ref(#{
+                    <<"schema">> => #{
+                        <<"name">> => SerdeName
+                    }
+                })
+            }
+        })
+    ),
+    ok.
+
 t_aggreg_upload_rule(Config) ->
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     ClientID = emqx_utils_conv:bin(?FUNCTION_NAME),
     %% Create a bridge with the sample configuration and a simple SQL rule.
@@ -379,7 +675,7 @@ t_aggreg_upload_restart(Config) ->
     %% This test verifies that the bridge will reuse existing aggregation buffer
     %% after a restart.
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
@@ -420,7 +716,7 @@ t_aggreg_upload_restart(Config) ->
 %% and does so while preserving uncompromised data.
 t_aggreg_upload_restart_corrupted(Config) ->
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     BatchSize = ?CONF_MAX_RECORDS div 2,
     Opts = #{
         aggreg_id => aggreg_id(BridgeName),
@@ -475,7 +771,7 @@ t_aggreg_pending_upload_restart(Config) ->
     %% This test verifies that the bridge will finish uploading a buffer file after
     %% a restart.
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
@@ -512,7 +808,7 @@ t_aggreg_next_rotate(Config) ->
     %% This is essentially a stress test that tries to verify that buffer rotation
     %% and windowing work correctly under high rate, high concurrency conditions.
     Bucket = ?config(s3_bucket, Config),
-    BridgeName = ?config(bridge_name, Config),
+    BridgeName = ?config(action_name, Config),
     AggregId = aggreg_id(BridgeName),
     NSenders = 4,
     %% Create a bridge with the sample configuration.
@@ -551,63 +847,3 @@ t_aggreg_next_rotate(Config) ->
         NSent,
         lists:sum([NR || {_, NR} <- NRecords])
     ).
-
-run_message_sender(BridgeName, N) ->
-    ClientID = integer_to_binary(N),
-    Topic = <<"a/b/c/", ClientID/binary>>,
-    run_message_sender(BridgeName, N, ClientID, Topic, N, 0).
-
-run_message_sender(BridgeName, N, ClientID, Topic, Delay, NSent) ->
-    Payload = integer_to_binary(N * 1_000_000 + NSent),
-    Message = emqx_bridge_s3_test_helpers:mk_message_event(ClientID, Topic, Payload),
-    _ = send_message(BridgeName, Message),
-    receive
-        {stop, From} ->
-            From ! {sent, self(), NSent + 1}
-    after Delay ->
-        run_message_sender(BridgeName, N, ClientID, Topic, Delay, NSent + 1)
-    end.
-
-receive_sender_reports([Sender | Rest]) ->
-    receive
-        {sent, Sender, NSent} -> NSent + receive_sender_reports(Rest)
-    end;
-receive_sender_reports([]) ->
-    0.
-
-%%
-
-mk_message({ClientId, Topic, Payload}) ->
-    emqx_message:make(bin(ClientId), bin(Topic), Payload).
-
-mk_message_event({ClientID, Topic, Payload}) ->
-    emqx_bridge_s3_test_helpers:mk_message_event(ClientID, Topic, Payload).
-
-send_messages(BridgeName, MessageEvents) ->
-    lists:foreach(
-        fun(M) -> send_message(BridgeName, M) end,
-        MessageEvents
-    ).
-
-send_messages_delayed(BridgeName, MessageEvents, Delay) ->
-    lists:foreach(
-        fun(M) ->
-            send_message(BridgeName, M),
-            timer:sleep(Delay)
-        end,
-        MessageEvents
-    ).
-
-%% todo: messages should be sent via rules in tests...
-send_message(BridgeName, Message) ->
-    ?assertEqual(
-        ok, emqx_bridge_v2:send_message(?global_ns, ?BRIDGE_TYPE, BridgeName, Message, #{})
-    ).
-
-fetch_parse_csv(Bucket, Key) ->
-    #{content := Content} = emqx_bridge_s3_test_helpers:get_object(Bucket, Key),
-    {ok, CSV} = erl_csv:decode(Content),
-    CSV.
-
-aggreg_id(BridgeName) ->
-    {?BRIDGE_TYPE, BridgeName}.

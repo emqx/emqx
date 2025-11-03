@@ -17,6 +17,10 @@
 -include("../src/emqx_bridge_azure_blob_storage.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 
+%%------------------------------------------------------------------------------
+%% Type defs
+%%------------------------------------------------------------------------------
+
 -define(ACCOUNT_NAME_BIN, <<"devstoreaccount1">>).
 -define(ACCOUNT_KEY_BIN, <<
     "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsu"
@@ -34,12 +38,24 @@
     | T
 ]).
 
+-define(PARQUET_QUERY_ENDPOINT, <<"http://query:8090">>).
+
+-define(aggregated, aggregated).
+-define(direct, direct).
+
+-define(csv, csv).
+-define(json_lines, json_lines).
+-define(parquet, parquet).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     Endpoint = os:getenv("AZURITE_ENDPOINT", "http://toxiproxy:10000/"),
@@ -92,24 +108,32 @@ init_per_testcase(TestCase, Config0) ->
     Name = <<(atom_to_binary(TestCase))/binary, UniqueNum/binary>>,
     ConnectorConfig = connector_config(Name, Endpoint),
     ContainerName = container_name(Name),
-    %% TODO: switch based on test
-    ActionConfig0 =
-        case lists:member(TestCase, direct_action_cases()) of
-            true ->
+    AggregContainerCfg =
+        case aggregation_container_type(Config0) of
+            ?csv -> aggregation_container_config_csv(#{});
+            ?json_lines -> aggregation_container_config_json_lines(#{});
+            ?parquet -> aggregation_container_config_parquet_inline(#{})
+        end,
+    ActionConfig =
+        case aggregation_mode(Config0) of
+            ?direct ->
                 direct_action_config(#{
                     connector => Name,
                     parameters => #{container => ContainerName}
                 });
-            false ->
+            ?aggregated ->
                 aggreg_action_config(#{
                     connector => Name,
-                    parameters => #{container => ContainerName}
+                    parameters => #{
+                        container => ContainerName,
+                        aggregation => #{container => AggregContainerCfg}
+                    }
                 })
         end,
-    ActionConfig = emqx_bridge_v2_testlib:parse_and_check(?ACTION_TYPE_BIN, Name, ActionConfig0),
     Client = new_control_driver(Endpoint),
     ct:pal("container name: ~s", [ContainerName]),
     ok = ensure_new_container(ContainerName, Client),
+    ok = snabbkaffe:start_trace(),
     Config = [
         {bridge_kind, action},
         {action_type, ?ACTION_TYPE_BIN},
@@ -133,16 +157,15 @@ end_per_testcase(_Testcase, Config) ->
     ok = snabbkaffe:stop(),
     ok.
 
-direct_action_cases() ->
-    [
-        t_sync_query,
-        t_sync_query_down,
-        t_max_block_size_direct_transfer
-    ].
-
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+aggregation_mode(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, [?aggregated, ?direct], ?aggregated).
+
+aggregation_container_type(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, [?csv, ?json_lines, ?parquet], ?csv).
 
 new_control_driver(Endpoint) ->
     {ok, Client} = erlazure:new(#{
@@ -217,7 +240,8 @@ direct_action_config(Overrides0) ->
                 <<"worker_pool_size">> => <<"1">>
             }
         },
-    emqx_utils_maps:deep_merge(CommonConfig, Overrides).
+    Config = emqx_utils_maps:deep_merge(CommonConfig, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(?ACTION_TYPE_BIN, <<"x">>, Config).
 
 aggreg_action_config(Overrides0) ->
     Overrides = emqx_utils_maps:binary_key_map(Overrides0),
@@ -229,10 +253,7 @@ aggreg_action_config(Overrides0) ->
                 #{
                     <<"mode">> => <<"aggregated">>,
                     <<"aggregation">> => #{
-                        <<"container">> => #{
-                            <<"type">> => <<"csv">>,
-                            <<"column_order">> => ?CONF_COLUMN_ORDER
-                        },
+                        <<"container">> => <<"please override">>,
                         <<"time_interval">> => <<"4s">>,
                         <<"max_records">> => ?CONF_MAX_RECORDS
                     },
@@ -254,7 +275,35 @@ aggreg_action_config(Overrides0) ->
                 <<"worker_pool_size">> => <<"1">>
             }
         },
-    emqx_utils_maps:deep_merge(CommonConfig, Overrides).
+    Config = emqx_utils_maps:deep_merge(CommonConfig, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(?ACTION_TYPE_BIN, <<"x">>, Config).
+
+aggregation_container_config_csv(Overrides) ->
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"type">> => <<"csv">>,
+            <<"column_order">> => ?CONF_COLUMN_ORDER
+        },
+        Overrides
+    ).
+
+aggregation_container_config_json_lines(Overrides) ->
+    emqx_utils_maps:deep_merge(#{<<"type">> => <<"json_lines">>}, Overrides).
+
+aggregation_container_config_parquet_inline(Overrides) ->
+    emqx_connector_aggregator_test_helpers:aggregation_container_config_parquet_inline(Overrides).
+
+aggregation_container_config_parquet_ref(Overrides) ->
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"type">> => <<"parquet">>,
+            <<"schema">> => #{
+                <<"type">> => <<"avro_ref">>,
+                <<"name">> => <<"please override">>
+            }
+        },
+        Overrides
+    ).
 
 aggreg_id(BridgeName) ->
     {?ACTION_TYPE_BIN, BridgeName}.
@@ -311,8 +360,33 @@ list_committed_blocks(Config) ->
         Blobs
     ).
 
+create_connector_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, Overrides)
+    ).
+
+create_action_api(Config, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
+    ).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+simple_create_rule_api(SQLOrOpts, TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQLOrOpts, TCConfig).
+
+read_parquet(Raw) ->
+    Method = post,
+    URI = iolist_to_binary(lists:join("/", [?PARQUET_QUERY_ENDPOINT, "read-parquet"])),
+    {ok, {{_, 200, _}, _, Body}} =
+        httpc:request(Method, {URI, [], "application/octet-stream", Raw}, [], [
+            {body_format, binary}
+        ]),
+    emqx_utils_json:decode(Body).
+
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_start_stop(Config) ->
@@ -328,6 +402,10 @@ t_on_get_status(Config) ->
     ok.
 
 %% Testing non-aggregated / direct action
+t_sync_query() ->
+    [{matrix, true}].
+t_sync_query(matrix) ->
+    [[?direct]];
 t_sync_query(Config) ->
     ContainerName = ?config(container_name, Config),
     Topic = <<"t/a">>,
@@ -360,6 +438,10 @@ t_sync_query(Config) ->
     ok.
 
 %% Testing non-aggregated / direct action
+t_sync_query_down() ->
+    [{matrix, true}].
+t_sync_query_down(matrix) ->
+    [[?direct]];
 t_sync_query_down(Config) ->
     ContainerName = ?config(container_name, Config),
     Payload0 = #{
@@ -754,6 +836,10 @@ t_aggreg_pending_upload_restart(Config) ->
     ok.
 
 %% Checks that we return an unrecoverable error if the payload exceeds `max_block_size'.
+t_max_block_size_direct_transfer() ->
+    [{matrix, true}].
+t_max_block_size_direct_transfer(matrix) ->
+    [[?direct]];
 t_max_block_size_direct_transfer(Config) ->
     {ok, _Bridge} = emqx_bridge_v2_testlib:create_bridge_api(
         Config,
@@ -834,7 +920,7 @@ t_bad_account_name(Config) ->
     ok.
 
 t_deobfuscate_connector(Config) ->
-    emqx_bridge_v2_testlib:?FUNCTION_NAME(Config).
+    emqx_bridge_v2_testlib:t_deobfuscate_connector(Config).
 
 %% Checks that we verify at runtime that the provided account key is a valid base64 string.
 t_create_connector_with_obfuscated_key(Config0) ->
@@ -856,5 +942,93 @@ t_create_connector_with_obfuscated_key(Config0) ->
             ok
         end,
         []
+    ),
+    ok.
+
+%% Smoke test for using Parquet container type.
+t_aggreg_upload_parquet() ->
+    [{matrix, true}].
+t_aggreg_upload_parquet(matrix) ->
+    [[?aggregated, ?parquet]];
+t_aggreg_upload_parquet(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"aggregation">> => #{
+                <<"container">> => aggregation_container_config_parquet_inline(#{})
+            }
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    Messages = lists:map(fun mk_message/1, [
+        {<<"C1">>, Topic, P1 = <<"{\"hello\":\"world\"}">>},
+        {<<"C2">>, Topic, P2 = <<"baz">>},
+        {<<"C3">>, Topic, P3 = <<"">>}
+    ]),
+    {ok, {ok, _}} =
+        ?wait_async_action(
+            publish_messages(Messages),
+            #{?snk_kind := connector_aggreg_delivery_completed, transfer := T} when T /= empty,
+            15_000
+        ),
+    %% Check the uploaded objects.
+    [#cloud_blob{name = BlobName, properties = UploadProps}] = list_blobs(TCConfig),
+    ?assertMatch(#{content_type := "application/octet-stream"}, maps:from_list(UploadProps)),
+    ?assertMatch(
+        [_ActionNameString, _NodeString, _Datetime, _Seq = "0"],
+        string:split(BlobName, "/", all)
+    ),
+    ContentRaw = get_blob(BlobName, TCConfig),
+    Content = read_parquet(ContentRaw),
+    ?assertMatch(
+        [
+            #{
+                <<"clientid">> := <<"C1">>,
+                <<"payload">> := P1,
+                <<"publish_received_at">> := _,
+                <<"qos">> := 0
+            },
+            #{
+                <<"clientid">> := <<"C2">>,
+                <<"payload">> := P2,
+                <<"publish_received_at">> := _,
+                <<"qos">> := 0
+            },
+            #{
+                <<"clientid">> := <<"C3">>,
+                <<"payload">> := P3,
+                <<"publish_received_at">> := _,
+                <<"qos">> := 0
+            }
+        ],
+        Content
+    ),
+    ok.
+
+%% Checks that we validate schema registry references when adding the action.
+t_aggreg_upload_parquet_bad_reference() ->
+    [{matrix, true}].
+t_aggreg_upload_parquet_bad_reference(matrix) ->
+    [[?aggregated, ?parquet]];
+t_aggreg_upload_parquet_bad_reference(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Old) ->
+        emqx_utils_maps:deep_remove([<<"parameters">>, <<"aggregation">>, <<"container">>], Old)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    %% Doesn't exist
+    SerdeName = <<"my_avro_sc">>,
+    ?assertMatch(
+        {201, #{<<"status">> := <<"disconnected">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"aggregation">> => #{
+                    <<"container">> => aggregation_container_config_parquet_ref(#{
+                        <<"schema">> => #{
+                            <<"name">> => SerdeName
+                        }
+                    })
+                }
+            }
+        })
     ),
     ok.

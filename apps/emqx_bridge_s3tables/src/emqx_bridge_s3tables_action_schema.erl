@@ -132,7 +132,7 @@ fields(container_parquet) ->
         {default_compression,
             mk(
                 hoconsc:enum([none, zstd, snappy]),
-                #{default => zstd, importance => ?IMPORTANCE_HIDDEN}
+                #{default => snappy, importance => ?IMPORTANCE_HIDDEN}
             )},
         {data_page_header_version,
             mk(
