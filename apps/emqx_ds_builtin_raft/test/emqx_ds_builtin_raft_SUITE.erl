@@ -1092,7 +1092,7 @@ sort_canonical_forms(Msgs) ->
 
 %%
 
-suite() -> [{timetrap, {seconds, 120}}].
+suite() -> [{timetrap, {seconds, 120}}, {ct_hooks, [emqx_cth_ct_hook_flaky]}].
 
 all() ->
     Broken = [
