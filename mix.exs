@@ -434,7 +434,7 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:snappyer),
       common_dep(:crc32cer),
       {:opentsdb, github: "emqx/opentsdb-client-erl", tag: "v0.5.1", override: true},
-      {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.0.1", override: true},
+      {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1", override: true},
       {:amqp_client, "4.0.3", override: true}
     ]
   end

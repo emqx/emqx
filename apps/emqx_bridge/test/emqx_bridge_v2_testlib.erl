@@ -728,6 +728,88 @@ create_rule_api(Opts) ->
     ct:pal("create rule results:\n  ~p", [Res]),
     Res.
 
+create_rule_api2(Params) ->
+    create_rule_api2(Params, _Opts = #{}).
+
+create_rule_api2(Params, Opts) ->
+    AuthHeader = emqx_utils_maps:get_lazy(
+        auth_header,
+        Opts,
+        fun auth_header/0
+    ),
+    URL = emqx_mgmt_api_test_util:api_path(["rules"]),
+    simple_request(#{
+        method => post,
+        url => URL,
+        body => Params,
+        auth_header => AuthHeader
+    }).
+
+simple_create_rule_api(TCConfig) ->
+    simple_create_rule_api(auto, TCConfig).
+
+simple_create_rule_api(SQLOrOpts, TCConfig) ->
+    Opts =
+        case is_map(SQLOrOpts) of
+            true -> SQLOrOpts;
+            false when is_binary(SQLOrOpts) -> #{sql => SQLOrOpts};
+            false when SQLOrOpts == auto -> #{sql => SQLOrOpts}
+        end,
+    case get_common_values(TCConfig) of
+        #{kind := action, rule_action_id := ActionId} ->
+            do_action_simple_create_rule_api(ActionId, Opts, TCConfig);
+        #{kind := source, source_hookpoint := Hookpoint} ->
+            do_source_simple_create_rule_api(Hookpoint, Opts, TCConfig)
+    end.
+
+do_action_simple_create_rule_api(ActionId, Opts, _TCConfig) ->
+    SQL =
+        case maps:get(sql, Opts) of
+            auto -> <<"select * from \"${t}\" ">>;
+            SQL0 when is_binary(SQL0) -> SQL0
+        end,
+    UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
+    RuleTopic = <<"t/", UniqueNum/binary>>,
+    {201, #{<<"id">> := RuleId}} = create_rule_api2(
+        #{
+            <<"sql">> => fmt(SQL, #{t => RuleTopic}),
+            <<"actions">> => [ActionId],
+            <<"description">> => <<"bridge_v2 test rule">>
+        }
+    ),
+    #{topic => RuleTopic, id => RuleId}.
+
+do_source_simple_create_rule_api(Hookpoint, Opts, _TCConfig) ->
+    SQL =
+        case maps:get(sql, Opts) of
+            auto -> <<"select * from \"${t}\" ">>;
+            SQL0 when is_binary(SQL0) -> SQL0
+        end,
+    RepublishOverrides = maps:get(republish_overrides, Opts, #{}),
+    RepublishParams = #{
+        <<"function">> => <<"republish">>,
+        <<"args">> =>
+            maps:merge(
+                #{
+                    <<"topic">> => <<"republish/topic">>,
+                    <<"payload">> => <<"${.}">>,
+                    <<"qos">> => 2,
+                    <<"retain">> => false,
+                    <<"user_properties">> => <<"${.pub_props.'User-Property'}">>
+                },
+                RepublishOverrides
+            )
+    },
+    #{<<"args">> := #{<<"topic">> := RepublishTopic}} = RepublishParams,
+    {201, #{<<"id">> := RuleId}} = create_rule_api2(
+        #{
+            <<"sql">> => fmt(SQL, #{t => Hookpoint}),
+            <<"actions">> => [RepublishParams],
+            <<"description">> => <<"bridge_v2 test rule">>
+        }
+    ),
+    #{topic => RepublishTopic, id => RuleId}.
+
 get_rule_metrics(RuleId) ->
     emqx_metrics_worker:get_metrics(rule_metrics, RuleId).
 
@@ -863,22 +945,32 @@ get_common_values(Config) ->
     Kind = proplists:get_value(bridge_kind, Config, action),
     case Kind of
         action ->
+            Type = get_ct_config_with_fallback(Config, [action_type, bridge_type]),
+            Name = get_ct_config_with_fallback(Config, [action_name, bridge_name]),
             #{
+                %% resource_namespace => proplists:get_value(resource_namespace, Config, ?global_ns),
                 conf_root_key => actions,
                 kind => Kind,
-                type => get_ct_config_with_fallback(Config, [action_type, bridge_type]),
-                name => get_ct_config_with_fallback(Config, [action_name, bridge_name]),
+                rule_action_id => emqx_bridge_resource:bridge_id(Type, Name),
+                type => Type,
+                name => Name,
                 connector_type => get_value(connector_type, Config),
                 connector_name => get_value(connector_name, Config)
             };
         source ->
+            Type = get_value(source_type, Config),
+            Name = get_value(source_name, Config),
+            BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
             #{
+                %% resource_namespace => proplists:get_value(resource_namespace, Config, ?global_ns),
                 conf_root_key => sources,
                 kind => Kind,
-                type => get_value(source_type, Config),
-                name => get_value(source_name, Config),
+                type => Type,
+                name => Name,
                 connector_type => get_value(connector_type, Config),
-                connector_name => get_value(connector_name, Config)
+                connector_name => get_value(connector_name, Config),
+                bridge_hookpoint => emqx_bridge_resource:bridge_hookpoint(BridgeId),
+                source_hookpoint => emqx_bridge_v2:source_hookpoint(BridgeId)
             }
     end.
 
@@ -1944,6 +2036,13 @@ auth_header() ->
         _ ->
             emqx_mgmt_api_test_util:auth_header_()
     end.
+
+simple_request(Params) ->
+    emqx_mgmt_api_test_util:simple_request(Params).
+
+fmt(FmtStr, Context) ->
+    Template = emqx_template:parse(FmtStr),
+    iolist_to_binary(emqx_template:render_strict(Template, Context)).
 
 bin(X) -> emqx_utils_conv:bin(X).
 

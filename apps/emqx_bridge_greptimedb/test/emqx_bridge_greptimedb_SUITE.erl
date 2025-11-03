@@ -12,6 +12,17 @@
 -include_lib("emqx/include/logger.hrl").
 
 %%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
+
+-define(CONNECTOR_TYPE, greptimedb).
+-define(CONNECTOR_TYPE_BIN, <<"greptimedb">>).
+-define(ACTION_TYPE, greptimedb).
+-define(ACTION_TYPE_BIN, <<"greptimedb">>).
+
+%%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
@@ -170,6 +181,7 @@ init_per_testcase(_Testcase, Config) ->
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
     delete_all_rules(),
     delete_all_bridges(),
+    clear_table(Config),
     Config.
 
 end_per_testcase(_Testcase, Config) ->
@@ -177,6 +189,7 @@ end_per_testcase(_Testcase, Config) ->
     ProxyPort = ?config(proxy_port, Config),
     ok = snabbkaffe:stop(),
     emqx_common_test_helpers:reset_proxy(ProxyHost, ProxyPort),
+    clear_table(Config),
     delete_all_rules(),
     delete_all_bridges(),
     ok.
@@ -188,6 +201,17 @@ end_per_testcase(_Testcase, Config) ->
 example_write_syntax() ->
     %% N.B.: this single space character is relevant
     <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
+        "${clientid}_int_value=${payload.int_key}i,",
+        "uint_value=${payload.uint_key}u,"
+        "float_value=${payload.float_key},", "undef_value=${payload.undef},",
+        "${undef_key}=\"hard-coded-value\",", "bool=${payload.bool}">>.
+
+example_write_syntax2() ->
+    %% N.B.: this single space character is relevant
+    %% the measurement name should not be the topic
+    %% from greptimedb:
+    %% error => {error,{case_clause,{error,{<<"3">>,<<"Invalid%20table%20name:%20test/greptimedb">
+    <<"mqtt,clientid=${clientid}", " ", "payload=${payload},",
         "${clientid}_int_value=${payload.int_key}i,",
         "uint_value=${payload.uint_key}u,"
         "float_value=${payload.float_key},", "undef_value=${payload.undef},",
@@ -231,6 +255,37 @@ greptimedb_config(grpcv1 = Type, GreptimedbHost, GreptimedbPort, Config) ->
             ]
         ),
     {Name, ConfigString, parse_and_check(ConfigString, Type, Name)}.
+
+connector_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"server">> => <<"toxiproxy:4001">>,
+        <<"dbname">> => <<"public">>,
+        <<"username">> => <<"greptime_user">>,
+        <<"password">> => <<"greptime_pwd">>,
+        <<"ttl">> => <<"3 years">>,
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+
+action_config(Overrides) ->
+    Defaults = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my action">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"parameters">> => #{
+            <<"precision">> => <<"ns">>,
+            <<"write_syntax">> => example_write_syntax2()
+        },
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_action_resource_opts()
+    },
+    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
+    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
 
 parse_and_check(ConfigString, Type, Name) ->
     {ok, RawConf} = hocon:binary(ConfigString, #{format => map}),
@@ -301,7 +356,24 @@ send_message(Config, Payload) ->
     Resp = emqx_bridge:send_message(BridgeId, Payload),
     Resp.
 
+clear_table(TCConfig) ->
+    query_by_sql(<<"drop table mqtt">>, TCConfig).
+
+query_by_clientid(ClientId, Config) ->
+    SQL = emqx_bridge_v2_testlib:fmt(
+        <<"select * from \"mqtt\" where clientid='${c}'">>,
+        #{c => ClientId}
+    ),
+    query_by_sql(SQL, Config).
+
 query_by_clientid(Topic, ClientId, Config) ->
+    SQL = emqx_bridge_v2_testlib:fmt(
+        <<"select * from \"${t}\" where clientid='${c}'">>,
+        #{t => Topic, c => ClientId}
+    ),
+    query_by_sql(SQL, Config).
+
+query_by_sql(SQL, Config) ->
     GreptimedbHost = ?config(greptimedb_host, Config),
     GreptimedbPort = ?config(greptimedb_http_port, Config),
     EHttpcPoolName = ?config(ehttpc_pool_name, Config),
@@ -323,7 +395,7 @@ query_by_clientid(Topic, ClientId, Config) ->
         {"Authorization", "Basic Z3JlcHRpbWVfdXNlcjpncmVwdGltZV9wd2Q="},
         {"Content-Type", "application/x-www-form-urlencoded"}
     ],
-    Body = <<"sql=select * from \"", Topic/binary, "\" where clientid='", ClientId/binary, "'">>,
+    Body = <<"sql=", SQL/binary>>,
     {ok, StatusCode, _Headers, RawBody0} =
         ehttpc:request(
             EHttpcPoolName,
@@ -404,6 +476,35 @@ resource_id(Config) ->
     Type = greptimedb_type_bin(?config(greptimedb_type, Config)),
     Name = ?config(greptimedb_name, Config),
     emqx_bridge_resource:resource_id(Type, Name).
+
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
+    ).
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
+    ).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client() ->
+    start_client(_Opts = #{}).
+
+start_client(Opts0) ->
+    Opts = maps:merge(#{proto_ver => v5}, Opts0),
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+unique_payload() ->
+    integer_to_binary(erlang:unique_integer()).
+
+json_encode(X) ->
+    emqx_utils_json:encode(X).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -686,6 +787,43 @@ t_const_timestamp(Config) ->
     assert_persisted_data(ClientId, Expected, PersistedData),
     TimeReturned = maps:get(<<"greptime_timestamp">>, PersistedData),
     ?assertEqual(Const, TimeReturned).
+
+%% Smoke test for using `ts_column`.
+%% This test should be adapted when porting to 6.0, since this a new feature forced to
+%% being added to 5.x....  In 6.0, the test case setup should already contain correctly
+%% formed options.
+t_ts_column(TCConfig) ->
+    Name = atom_to_binary(?FUNCTION_NAME),
+    Config = [
+        {bridge_kind, action},
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, Name},
+        {connector_config,
+            connector_config(#{
+                <<"ts_column">> => <<"event_time">>
+            })},
+        {action_type, ?ACTION_TYPE},
+        {action_name, Name},
+        {action_config,
+            action_config(#{
+                <<"connector">> => Name
+            })}
+    ],
+    {201, _} = create_connector_api(Config, #{}),
+    {201, _} = create_action_api(Config, #{}),
+    #{topic := Topic} = simple_create_rule_api(Config),
+    ClientId = Name,
+    C = start_client(#{clientid => ClientId}),
+    emqtt:publish(C, Topic, <<"hey">>),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"event_time">> := _},
+            query_by_clientid(ClientId, TCConfig)
+        )
+    ),
+    ok.
 
 t_boolean_variants(Config) ->
     QueryMode = ?config(query_mode, Config),

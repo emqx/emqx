@@ -18,6 +18,12 @@ password.desc:
 password.label:
 """Password"""
 
+ttl.desc:
+"""The time-to-live setting for automatically created tables in GreptimeDB."""
+
+ttl.label:
+"""Table Data TTL"""
+
 precision.desc:
 """GreptimeDB time precision."""
 
@@ -43,5 +49,10 @@ username.desc:
 
 username.label:
 """Username"""
+
+connector_ts_column.label:
+"""Custom Timestamp Column Name"""
+connector_ts_column.desc:
+"""If defined, specifies a custom timestamp column name that will appear when querying."""
 
 }
