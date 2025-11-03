@@ -462,6 +462,7 @@ run_streaming_action(Batch, ActionResId, _ActionState) ->
         handover
     ).
 
+-dialyzer({nowarn_function, get_streaming_hostname/2}).
 get_streaming_hostname(SetupPoolId, SetupPoolState) ->
     #{
         jwt_config := JWTConfig,
