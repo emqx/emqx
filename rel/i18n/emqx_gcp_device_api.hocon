@@ -92,4 +92,24 @@ imported_counter.desc:
 imported_counter_errors.desc:
 """Number of GCP devices not imported due to some error"""
 
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+gcp_device_deleted.desc:
+"""GCP device deleted"""
+gcp_device_deleted.label:
+"""GCP Device Deleted"""
+
+gcp_device_all_info.desc:
+"""Complete information about a GCP device including creation time"""
+gcp_device_all_info.label:
+"""GCP Device All Info"""
+
+gcp_device_info.desc:
+"""Information about a GCP device"""
+gcp_device_info.label:
+"""GCP Device Info"""
+
 }
