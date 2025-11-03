@@ -52,8 +52,8 @@ schema("/authentication/:id/import_users") ->
             'requestBody' => request_body_schema(),
             responses => #{
                 200 => import_result_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                404 => error_codes([?NOT_FOUND], ?DESC("not_found"))
             }
         }
     };
@@ -72,8 +72,8 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
             'requestBody' => request_body_schema(),
             responses => #{
                 200 => import_result_schema(),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
-                404 => error_codes([?NOT_FOUND], <<"Not Found">>)
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request")),
+                404 => error_codes([?NOT_FOUND], ?DESC("not_found"))
             }
         }
     }.
@@ -101,17 +101,16 @@ request_body_schema() ->
             }
         },
     #{
-        content => Content1,
-        description => <<"Import body">>
+        content => Content1
     }.
 
 import_result_schema() ->
     [
-        {total, hoconsc:mk(integer(), #{description => ?DESC(import_result_total)})},
-        {success, hoconsc:mk(integer(), #{description => ?DESC(import_result_success)})},
-        {override, hoconsc:mk(integer(), #{description => ?DESC(import_result_override)})},
-        {skipped, hoconsc:mk(integer(), #{description => ?DESC(import_result_skipped)})},
-        {failed, hoconsc:mk(integer(), #{description => ?DESC(import_result_failed)})}
+        {total, hoconsc:mk(integer(), #{description => ?DESC("import_result_total")})},
+        {success, hoconsc:mk(integer(), #{description => ?DESC("import_result_success")})},
+        {override, hoconsc:mk(integer(), #{description => ?DESC("import_result_override")})},
+        {skipped, hoconsc:mk(integer(), #{description => ?DESC("import_result_skipped")})},
+        {failed, hoconsc:mk(integer(), #{description => ?DESC("import_result_failed")})}
     ].
 
 authenticator_import_users(
@@ -194,10 +193,7 @@ param_password_type() ->
                 in => query,
                 enum => [<<"plain">>, <<"hash">>],
                 required => true,
-                desc => <<
-                    "The import file template type, enum with `plain`,"
-                    "`hash`"
-                >>,
+                desc => ?DESC("password_type"),
                 example => <<"hash">>
             }
         )}.

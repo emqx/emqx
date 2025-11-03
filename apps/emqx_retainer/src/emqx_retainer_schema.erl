@@ -221,11 +221,11 @@ fields(external_backends) ->
     emqx_schema_hooks:list_injection_point('retainer.external_backends').
 
 desc("retainer") ->
-    "Configuration related to handling `PUBLISH` packets with a `retain` flag set to 1.";
+    ?DESC(retainer);
 desc(mnesia_config) ->
-    "Configuration of the internal database storing retained messages.";
+    ?DESC(mnesia_config);
 desc(flow_control) ->
-    "Retainer batching and rate limiting.";
+    ?DESC(flow_control);
 desc(_) ->
     undefined.
 
@@ -239,11 +239,7 @@ backend_config() ->
 retainer_indices(type) ->
     list(list(integer()));
 retainer_indices(desc) ->
-    "Retainer index specifications: list of arrays of positive ascending integers. "
-    "Each array specifies an index. Numbers in an index specification are 1-based "
-    "word positions in topics. Words from specified positions will be used for indexing.<br/>"
-    "For example, it is good to have <code>[2, 4]</code> index to optimize "
-    "<code>+/X/+/Y/...</code> topic wildcard subscriptions.";
+    ?DESC(index_specs);
 retainer_indices(example) ->
     [[2, 4], [1, 3]];
 retainer_indices(default) ->

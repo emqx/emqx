@@ -5,4 +5,19 @@ emqx_metrics.desc:
 emqx_metrics.label:
 """EMQX metrics"""
 
+aggregate_parameter.desc:
+"""Whether to aggregate all nodes Metrics. Default value is 'true'."""
+aggregate_parameter.label:
+"""Aggregate Parameter"""
+
+node_parameter.desc:
+"""Specify which specific node to fetch data from. If not provided, return values for all nodes. This parameter only works when 'aggregate' is 'false'."""
+node_parameter.label:
+"""Node Parameter"""
+
+node_name.desc:
+"""Node name"""
+node_name.label:
+"""Node Name"""
+
 }

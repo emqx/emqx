@@ -24,4 +24,14 @@ timeout.desc:
 token.desc:
 """Message token, can be empty"""
 
+client_not_found.desc:
+"""Client not found error"""
+client_not_found.label:
+"""Client Not Found"""
+
+client_not_response_timeout.desc:
+"""Waiting for client response timeout"""
+client_not_response_timeout.label:
+"""Client Not Response Timeout"""
+
 }

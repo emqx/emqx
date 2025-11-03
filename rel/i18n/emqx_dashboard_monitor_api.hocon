@@ -198,4 +198,19 @@ license_quota: {
     label: "License Quota"
 }
 
+bad_rpc: {
+    desc: "Bad RPC"
+    label: "Bad RPC"
+}
+
+metrics_deleted: {
+    desc: "Metrics deleted"
+    label: "Metrics Deleted"
+}
+
+node_not_found: {
+    desc: "Node not found"
+    label: "Node Not Found"
+}
+
 }

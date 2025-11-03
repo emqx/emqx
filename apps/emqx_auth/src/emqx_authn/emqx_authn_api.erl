@@ -210,7 +210,7 @@ schema("/authentication/:id") ->
                 authenticator_examples()
             ),
             responses => #{
-                204 => <<"Authenticator updated">>,
+                204 => ?DESC("authenticator_updated"),
                 400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND)),
                 409 => error_codes([?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS))
@@ -221,7 +221,7 @@ schema("/authentication/:id") ->
             description => ?DESC(authentication_id_delete),
             parameters => [param_auth_id()],
             responses => #{
-                204 => <<"Authenticator deleted">>
+                204 => ?DESC("authenticator_deleted")
             }
         }
     };
@@ -302,7 +302,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
                 authenticator_examples()
             ),
             responses => #{
-                204 => <<"Authenticator updated">>,
+                204 => ?DESC("authenticator_updated"),
                 400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND)),
                 409 => error_codes([?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS))
@@ -314,7 +314,7 @@ schema("/listeners/:listener_id/authentication/:id") ->
             description => ?DESC(listeners_listener_id_authentication_id_delete),
             parameters => [param_listener_id(), param_auth_id()],
             responses => #{
-                204 => <<"Authenticator deleted">>,
+                204 => ?DESC("authenticator_deleted"),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
@@ -345,7 +345,7 @@ schema("/authentication/:id/position/:position") ->
             description => ?DESC(authentication_id_position_put),
             parameters => [param_auth_id(), param_position()],
             responses => #{
-                204 => <<"Authenticator moved">>,
+                204 => ?DESC("authenticator_moved"),
                 400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
@@ -360,7 +360,7 @@ schema("/listeners/:listener_id/authentication/:id/position/:position") ->
             description => ?DESC(listeners_listener_id_authentication_id_position_put),
             parameters => [param_listener_id(), param_auth_id(), param_position()],
             responses => #{
-                204 => <<"Authenticator moved">>,
+                204 => ?DESC("authenticator_moved"),
                 400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST)),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
@@ -498,7 +498,7 @@ schema("/authentication/:id/users/:user_id") ->
             description => ?DESC(authentication_id_users_user_id_delete),
             parameters => [param_auth_id(), param_user_id()],
             responses => #{
-                204 => <<"User deleted">>,
+                204 => ?DESC("user_deleted"),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
@@ -543,7 +543,7 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_delete),
             parameters => [param_listener_id(), param_auth_id(), param_user_id()],
             responses => #{
-                204 => <<"User deleted">>,
+                204 => ?DESC("user_deleted"),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
             }
         }
@@ -559,7 +559,7 @@ schema("/authentication/order") ->
                 #{}
             ),
             responses => #{
-                204 => <<"Authenticators order updated">>,
+                204 => ?DESC("authenticators_order_updated"),
                 400 => error_codes([?BAD_REQUEST], ?DESC(?BAD_REQUEST))
             }
         }
@@ -585,8 +585,8 @@ schema("/authentication/settings") ->
                 authn_settings_example()
             ),
             responses => #{
-                204 => <<"Authentication settings updated">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                204 => ?DESC("authentication_settings_updated"),
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request"))
             }
         }
     };
@@ -601,7 +601,7 @@ schema("/authentication/node_cache/status") ->
                     ref(emqx_auth_cache_schema, status),
                     authn_cache_status_example()
                 ),
-                500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+                500 => error_codes([?INTERNAL_ERROR], ?DESC("internal_service_error"))
             }
         }
     };
@@ -613,8 +613,8 @@ schema("/authentication/node_cache/reset") ->
                 description => ?DESC(authentication_node_cache_reset_post),
                 responses =>
                     #{
-                        204 => <<"No Content">>,
-                        500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+                        204 => ?DESC("no_content"),
+                        500 => error_codes([?INTERNAL_ERROR], ?DESC("internal_service_error"))
                     }
             }
     }.
