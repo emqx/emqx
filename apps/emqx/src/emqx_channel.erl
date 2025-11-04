@@ -2150,6 +2150,7 @@ fix_mountpoint(_PipelineOutput, #channel{clientinfo = ClientInfo0} = Channel0) -
 %% Set log metadata
 
 set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInfo}) ->
+    proc_lib:set_label(ClientId),
     Username = maps:get(username, ClientInfo, undefined),
     Tns0 = get_tenant_namespace(ClientInfo),
     %% No need to add Tns to log metadata if it's aready a prefix is client ID
