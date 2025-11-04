@@ -622,7 +622,12 @@ kafka_connector_config_fields() ->
                 required => false,
                 desc => ?DESC(producer_health_check_topic)
             })},
-        {ssl, mk(ref(ssl_client_opts), #{})}
+        {ssl, mk(ref(ssl_client_opts), #{})},
+        {allow_auto_topic_creation,
+            mk(boolean(), #{
+                default => false,
+                desc => ?DESC(allow_auto_topic_creation)
+            })}
     ] ++ emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
 
 producer_opts(ActionOrBridgeV1) ->

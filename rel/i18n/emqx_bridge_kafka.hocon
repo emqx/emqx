@@ -7,7 +7,7 @@ connect_timeout.label:
 """Connect Timeout"""
 
 min_metadata_refresh_interval.desc:
-"""Minimum time interval the client has to wait before refreshing Kafka broker and topic metadata. Setting too small value may add extra load on Kafka."""
+"""Minimum time interval the client has to wait before refreshing Kafka broker and topic metadata. Setting too small a value may add extra load on Kafka."""
 
 min_metadata_refresh_interval.label:
 """Min Metadata Refresh Interval"""
@@ -66,7 +66,7 @@ producer_kafka_opts.label:
 """Kafka Producer"""
 
 kafka_topic.desc:
-"""Kafka topic name.  Supports templates (e.g.: `t-${payload.t}`)."""
+"""Kafka topic name. Supports templates (e.g.: `t-${payload.t}`)."""
 
 kafka_topic.label:
 """Kafka Topic Name"""
@@ -98,9 +98,9 @@ kafka_message_timestamp.label:
 buffer_mode.desc:
 """Message buffer mode.
 
-<code>memory</code>: Buffer all messages in memory. The messages will be lost in case of EMQX node restart
+<code>memory</code>: Buffer all messages in memory. The messages will be lost in case of EMQX node restart.
 <code>disk</code>: Buffer all messages on disk. The messages on disk are able to survive EMQX node restart.
-<code>hybrid</code>: Buffer message in memory first, when up to certain limit (see <code>segment_bytes</code> config for more information), then start offloading messages to disk, Like <code>memory</code> mode, the messages will be lost in case of EMQX node restart."""
+<code>hybrid</code>: Buffer message in memory first, when up to certain limit (see <code>segment_bytes</code> config for more information), then start offloading messages to disk. Like <code>memory</code> mode, the messages will be lost in case of EMQX node restart."""
 
 buffer_mode.label:
 """Buffer Mode"""
@@ -113,8 +113,8 @@ consumer_mqtt_qos.label:
 
 consumer_key_encoding_mode.desc:
 """Defines how the key from the Kafka message is encoded before being forwarded via MQTT.
-<code>none</code> Uses the key from the Kafka message unchanged.  Note: in this case, the key must be a valid UTF-8 string.
-<code>base64</code> Uses base-64 encoding on the received key."""
+<code>none</code>: Uses the key from the Kafka message unchanged. Note: in this case, the key must be a valid UTF-8 string.
+<code>base64</code>: Uses base-64 encoding on the received key."""
 
 consumer_key_encoding_mode.label:
 """Key Encoding Mode"""
@@ -129,7 +129,7 @@ consumer_mqtt_opts.desc:
 """Local MQTT message publish."""
 
 consumer_mqtt_opts.label:
-"""MQTT publish"""
+"""MQTT Publish"""
 
 auth_kerberos_principal.desc:
 """SASL GSSAPI authentication Kerberos principal. For example <code>kafka/node1.example.com@EXAMPLE.COM</code>, NOTE: The realm in use has to be configured in /etc/krb5.conf in EMQX nodes."""
@@ -191,32 +191,32 @@ required_acks.label:
 """Required Acks"""
 
 kafka_headers.desc:
-"""Provide a placeholder for message headers<br/>
+"""Provide a placeholder for message headers.<br/>
 e.g. <code>${pub_props}</code><br/>
 Note that the value of the placeholder must be either an object:
 <code>{"foo": "bar"}</code>
 or an array of key-value pairs:
-<code>[{"key": "foo", "value": "bar"}]</code>"""
+<code>[{"key": "foo", "value": "bar"}]</code>."""
 
 kafka_headers.label:
 """Message Headers"""
 
 producer_kafka_ext_headers.desc:
-"""Provide more key-value pairs for message headers<br/>
+"""Provide more key-value pairs for message headers.<br/>
 The key-value pairs here will be combined with the
-value of <code>kafka_headers</code> field before sending producing."""
+value of <code>kafka_headers</code> field before producing."""
 
 producer_kafka_ext_headers.label:
 """Extra Headers"""
 
 producer_kafka_ext_header_key.desc:
-"""Key of the header. Placeholders in format of ${var} are supported."""
+"""Key of the header. Placeholders in the format of ${var} are supported."""
 
 producer_kafka_ext_header_key.label:
 """Extra Headers Key"""
 
 producer_kafka_ext_header_value.desc:
-"""Value of the header. Placeholders in format of ${var} are supported."""
+"""Value of the header. Placeholders in the format of ${var} are supported."""
 
 producer_kafka_ext_header_value.label:
 """Extra Headers Value"""
@@ -228,7 +228,7 @@ kafka_header_value_encode_mode.desc:
  - `json`: Encode header values as JSON string"""
 
 kafka_header_value_encode_mode.label:
-"""Headers value encode mode"""
+"""Headers Value Encode Mode"""
 
 metadata_request_timeout.desc:
 """Maximum wait time when fetching topic metadata."""
@@ -251,7 +251,7 @@ socket_nodelay.label:
 authentication.desc: """~
 Authentication configs.
 - <code>none</code>: No authentication.
-- <code>msk_iam</code>: Use [MSK IAM authentication](https://docs.aws.amazon.com/msk/latest/developerguide/security-iam.html).  Note: This only works when EMQX is running on an EC2 instance.
+- <code>msk_iam</code>: Use [MSK IAM authentication](https://docs.aws.amazon.com/msk/latest/developerguide/security-iam.html). Note: This only works when EMQX is running on an EC2 instance.
 - <code>basic auth</code>: Simple username and password authentication.
 - <code>kerberos</code>: Use Kerberos GSSAPI authentication.~"""
 
@@ -259,7 +259,7 @@ authentication.label:
 """Authentication"""
 
 buffer_memory_overload_protection.desc:
-"""Applicable when buffer mode is set to <code>memory</code>
+"""Applicable when buffer mode is set to <code>memory</code>.
 EMQX will drop old buffered messages under high memory pressure. The high memory threshold is defined in config <code>sysmon.os.sysmem_high_watermark</code>. NOTE: This config only works on Linux."""
 
 buffer_memory_overload_protection.label:
@@ -278,7 +278,7 @@ config_enable.label:
 """Enable or Disable"""
 
 consumer_mqtt_payload.desc:
-"""The template for transforming the incoming Kafka message.  By default, it will use JSON format to serialize inputs from the Kafka message.  Such fields are:
+"""The template for transforming the incoming Kafka message. By default, it will use JSON format to serialize inputs from the Kafka message. Such fields are:
 <code>headers</code>: an object containing string key-value pairs.
 <code>key</code>: Kafka message key (uses the chosen key encoding).
 <code>offset</code>: offset for the message.
@@ -384,7 +384,7 @@ consumer_kafka_opts.label:
 partitions_limit.desc:
 """Limit the number of partitions to produce data for the given topic.
 The special value `all_partitions` is to utilize all partitions for the topic.
-Setting this to a value which is greater than the total number of partitions in has no effect."""
+Setting this to a value which is greater than the total number of partitions has no effect."""
 
 partitions_limit.label:
 """Max Partitions"""
@@ -406,7 +406,7 @@ auth_kerberos_keytab_file.desc:
 """SASL GSSAPI authentication Kerberos keytab file path. NOTE: This file has to be placed in EMQX nodes, and the EMQX service runner user requires read permission."""
 
 auth_kerberos_keytab_file.label:
-"""Kerberos keytab file"""
+"""Kerberos Keytab File"""
 
 compression.desc:
 """Specify the method of compression."""
@@ -415,10 +415,10 @@ compression.label:
 """Compression"""
 
 query_mode.desc:
-"""Query mode. Optional 'sync/async', default 'async'."""
+"""Query mode. Optional 'sync' or 'async', default is 'async'."""
 
 query_mode.label:
-"""Query mode"""
+"""Query Mode"""
 
 sync_query_timeout.desc:
 """This parameter defines the timeout limit for synchronous queries. It applies only when the query mode is configured to 'sync'."""
@@ -427,7 +427,7 @@ sync_query_timeout.label:
 """Synchronous Query Timeout"""
 
 kafka_producer_action.desc:
-"""Producer Action"""
+"""Producer Action."""
 
 kafka_producer_action.label:
 """Producer Action"""
@@ -451,4 +451,8 @@ producer_health_check_topic.desc:
 producer_health_check_topic.label:
 """Connector health check topic"""
 
+allow_auto_topic_creation.desc:
+"""Set to true to allow automatic Kafka topic creation with metadata fetch request."""
+allow_auto_topic_creation.label:
+"""Allow Auto Topic Creation"""
 }
