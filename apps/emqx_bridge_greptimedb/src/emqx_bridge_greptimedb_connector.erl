@@ -390,6 +390,11 @@ client_config(
         server := Server
     }
 ) ->
+    Hints =
+        case maps:find(ttl, Config) of
+            {ok, TimeToLive} -> #{<<"ttl">> => TimeToLive};
+            _ -> #{}
+        end,
     #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, ?GREPTIMEDB_HOST_OPTIONS),
     TsColumn =
         case maps:get(ts_column, Config, undefined) of
@@ -405,6 +410,7 @@ client_config(
             {pool, InstId},
             {pool_type, random},
             {auto_reconnect, ?AUTO_RECONNECT_S},
+            {grpc_hints, Hints},
             {grpc_opts, grpc_opts()}
         ] ++ protocol_config(Config).
 
