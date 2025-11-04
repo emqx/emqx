@@ -249,6 +249,9 @@ for dep in ${CT_DEPS}; do
         ldap)
             FILES+=( '.ci/docker-compose-file/docker-compose-ldap.yaml' )
             ;;
+        dex)
+            FILES+=( '.ci/docker-compose-file/docker-compose-dex-oidc.yaml' )
+            ;;
         otel)
             FILES+=( '.ci/docker-compose-file/docker-compose-otel.yaml' )
             ;;
