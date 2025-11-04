@@ -82,6 +82,8 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %%    Such minimal SUBCRIBE packet essentially means Consumer speaks current, 1.0
 %%    version of the protocol. Similarly, if Broker recognize and speaks this
 %%    version, it replies with a minimal `SUBACK(SUCCESS)` packet.
+%%    Protocol discovery is currently not defined in this protocol, may be later
+%%    added for example as a separate flow through subscription to `$sdisp/hello`.
 %%
 %% 2) Each time broker has a shard to dispatch to this consumer, a message is sent.
 %%      Message Topic: `$sdisp/consume/<group>/lease/<shard>/<last-offset>/<stream>`
