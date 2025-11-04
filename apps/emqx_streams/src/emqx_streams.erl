@@ -107,6 +107,10 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %%    Message Topic: `$sdisp/release/<group>/<shard>/<new-offset>/<stream>`
 %%      Message QoS: 1
 %%    Similarly, only `PUBACK(SUCCESS)` means specified shard is unallocated.
+%%    It's almost identical to a _progress_ message in purpose: progress reporting.
+%%    Broker should handle such messages idempotently. However, Broker may treat an
+%%    attempt to release already released shard _and_ advance its offset as a logic
+%%    error.
 %%    Only when Broker receives _release_ message, shard is considered unallocated.
 %%    Obviously, a misbehaving consumer may hold onto shards indefinitely. In this
 %%    case one option Broker has is to forcefully shut down consumer's connection.
@@ -122,8 +126,10 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %% stream / shard, offset going backwards, shard allocation conflicts. Broker should
 %% handle _progress_ messages idempontently.
 %%
-%% Progress messages may in theory also serve as heartbeats, it's unclear however
-%% how useful it is when there's MQTT Keep-Alive mechanism.
+%% Progress messages also serve as heartbeats: consumers are expected to
+%% periodically report progress when no new stream messages are received and
+%% processed; those that fail to do so are considered dead, and their shard are
+%% released. This protocol requirement may be relaxed in the near future.
 
 on_shard_disp_subscription(ClientInfo, Topic) ->
     ok.
