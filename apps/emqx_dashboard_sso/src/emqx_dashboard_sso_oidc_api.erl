@@ -28,6 +28,8 @@
 
 -export([code_callback/2, make_callback_url/1]).
 
+-define(BPAPI, emqx_dashboard_sso_oidc).
+
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(BAD_USERNAME_OR_PWD, 'BAD_USERNAME_OR_PWD').
 -define(BACKEND_NOT_FOUND, 'BACKEND_NOT_FOUND').
@@ -123,9 +125,9 @@ ensure_sso_state(QS) ->
     end.
 
 ensure_oidc_state(#{<<"state">> := State} = QS, Cfg) ->
-    case emqx_dashboard_sso_oidc_session:lookup(State) of
+    case lookup_all_nodes(State) of
         {ok, Data} ->
-            emqx_dashboard_sso_oidc_session:delete(State),
+            delete_all_nodes(State),
             retrieve_token(QS, Cfg, Data);
         _ ->
             {error, session_not_exists}
@@ -220,3 +222,21 @@ login_redirect_target(#{config := #{dashboard_addr := Addr}}, Username, Role, To
     LoginMeta = emqx_dashboard_sso_api:login_meta(Username, Role, Token, oidc),
     MetaBin = base64:encode(emqx_utils_json:encode(LoginMeta)),
     <<Addr/binary, "/?login_meta=", MetaBin/binary>>.
+
+lookup_all_nodes(State) ->
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
+    Timeout = 15_000,
+    Res0 = emqx_dashboard_sso_oidc_proto_v1:lookup(Nodes, State, Timeout),
+    Res = [Data || {ok, {ok, Data}} <- Res0],
+    case Res of
+        [Data] ->
+            {ok, Data};
+        [] ->
+            undefined
+    end.
+
+delete_all_nodes(State) ->
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 1),
+    Timeout = 15_000,
+    _ = emqx_dashboard_sso_oidc_proto_v1:delete(Nodes, State, Timeout),
+    ok.

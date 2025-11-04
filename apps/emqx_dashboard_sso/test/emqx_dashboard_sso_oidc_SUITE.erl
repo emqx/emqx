@@ -17,6 +17,7 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 -define(AUTH_HEADER_FN_PD_KEY, {?MODULE, auth_header_fn}).
 
@@ -248,13 +249,39 @@ oidc_provider_params() ->
 
 %% Smoke test for performing OIDC login with a single-node cluster.
 t_smoke_single_node(TCConfig) ->
-    [N] = mk_cluster(?FUNCTION_NAME, #{n => 1}, TCConfig),
-    AuthHeader = ?ON(N, emqx_mgmt_api_test_util:auth_header_()),
-    set_auth_header_getter(fun() -> AuthHeader end),
+    Opts = #{n => 1, repeat => 2},
+    do_smoke_tests(?FUNCTION_NAME, Opts, TCConfig).
 
+%% Smoke test for performing OIDC login with a three-node cluster.
+t_smoke_three_nodes(TCConfig) ->
+    Opts = #{n => 3, repeat => 5},
+    do_smoke_tests(?FUNCTION_NAME, Opts, TCConfig).
+
+do_smoke_tests(TestCase, Opts, TCConfig) ->
+    #{n := NumNodes} = Opts,
+    Repeat = maps:get(repeat, Opts, 1),
+    case mk_cluster(TestCase, #{n => NumNodes}, TCConfig) of
+        [Node] ->
+            LoginNode = Node,
+            FinalReqNode = Node;
+        [Node, LoginNode] ->
+            FinalReqNode = Node;
+        [Node, LoginNode, FinalReqNode] ->
+            ok
+    end,
+    AuthHeader = ?ON(Node, emqx_mgmt_api_test_util:auth_header_()),
+    set_auth_header_getter(fun() -> AuthHeader end),
+    lists:foreach(
+        fun(_) ->
+            do_smoke_tests1(Node, LoginNode, FinalReqNode, TCConfig)
+        end,
+        lists:seq(1, Repeat)
+    ).
+
+do_smoke_tests1(Node, LoginNode, FinalReqNode, _TCConfig) ->
     %% Create the provider
     ProviderParams = oidc_provider_params(),
-    ?assertMatch({200, _}, create_backend(N, ProviderParams, #{})),
+    ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
     ?assertMatch(
         {200, [
             #{
@@ -262,11 +289,11 @@ t_smoke_single_node(TCConfig) ->
                 <<"running">> := true
             }
         ]},
-        get_ssos(N, #{})
+        get_ssos(Node, #{})
     ),
 
     %% Login
-    {302, Headers1, Resp1} = login_sso(N, #{}),
+    {302, Headers1, Resp1} = login_sso(Node, #{}),
     ct:pal("returned headers1:\n  ~p\nbody:\n  ~p\n", [Headers1, Resp1]),
     {"location", OIDCURL1} = lists:keyfind("location", 1, Headers1),
 
@@ -285,8 +312,15 @@ t_smoke_single_node(TCConfig) ->
     ct:pal("returned headers4:\n  ~p\nbody:\n  ~p\n", [Headers4, Resp4]),
     {"location", LoginURL1} = lists:keyfind("location", 1, Headers4),
 
+    %% Ensure callback falls onto login node
+    CallbackURI = uri_string:parse(LoginURL1),
+    LoginNodePort = get_http_dashboard_port(LoginNode),
+    LoginURL1B = uri_string:recompose(CallbackURI#{
+        host := "127.0.0.1",
+        port := LoginNodePort
+    }),
     {302, Headers5, Resp5} = ?retry(100, 10, begin
-        Res5 = simple_login_get(LoginURL1),
+        Res5 = simple_login_get(LoginURL1B),
         ct:pal("callback response:\n  ~p", [Res5]),
         {302, _, _} = Res5
     end),
@@ -300,6 +334,14 @@ t_smoke_single_node(TCConfig) ->
 
     %% Finally, can now perform actions in the API
     FinalAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token1)},
-    ?assertMatch({200, _}, get_nodes(N, #{auth_header => FinalAuthHeader})),
+    ?assertMatch({200, _}, get_nodes(FinalReqNode, #{auth_header => FinalAuthHeader})),
+
+    %% State must be deleted afterwards, so that it's not reusable, and does not leak
+    %% resources.
+    ?assertMatch({401, _, _}, simple_login_get(LoginURL1B)),
+    ?assertEqual(
+        lists:duplicate(3, {ok, []}),
+        ?ON_ALL([Node, LoginNode, FinalReqNode], emqx_dashboard_sso_oidc_session:all())
+    ),
 
     ok.
