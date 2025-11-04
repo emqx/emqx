@@ -41,13 +41,13 @@ on_message_publish(_Message) ->
     ok.
 
 on_session_subscribed(ClientInfo, Topic = <<"$sdisp/", _/binary>>, _SubOpts) ->
-    ?tp_debug(streams_on_on_session_subscribed, #{topic => Topic, subopts => _SubOpts}),
+    ?tp_debug(streams_on_session_subscribed, #{topic => Topic, subopts => _SubOpts}),
     on_shard_disp_subscription(ClientInfo, Topic);
 on_session_subscribed(_ClientInfo, _Topic, _SubOpts) ->
     ok.
 
 on_session_unsubscribed(ClientInfo, Topic = <<"$sdisp/", _/binary>>, _SubOpts) ->
-    ?tp_debug(streams_on_on_session_unsubscribed, #{topic => Topic, subopts => _SubOpts}),
+    ?tp_debug(streams_on_session_unsubscribed, #{topic => Topic, subopts => _SubOpts}),
     on_shard_disp_unsubscription(ClientInfo, Topic);
 on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
     ok.
@@ -67,27 +67,31 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %%
 %% Stream consumers are protocol participants. Shard dispatch protocol is separate
 %% from stream consumption. Participants are expected to cooperate, there's no
-%% measures against subversion.
+%% measures against subversion. Each consumer must specify which Group it is
+%% part of.
 %%
 %% Shard dispatch is facilitated through MQTT subscriptions and messaging to special
 %% topics rooted at `$sdisp/`.
 %%
-%% 1) Stream consumer announces itself through subscription to special topic.
-%%    Topic: `$sdisp/consumer/<stream>/#`.
+%% 1) Stream consumer announces itself by subscribing to a special topic.
+%%    Topic: `$sdisp/consume/<group>/<stream>`.
 %%     Opts: QoS=0/1
 %%    Broker registers stream consumer by its ClientID. If Broker already knows
 %%    this consumer (even if there are shards already allocated to it), Broker
 %%    always assumes that the consumer starts anew.
 %%    Such minimal SUBCRIBE packet essentially means Consumer speaks current, 1.0
-%%    version of the protocol.
+%%    version of the protocol. Similarly, if Broker recognize and speaks this
+%%    version, it replies with a minimal `SUBACK(SUCCESS)` packet.
 %%
 %% 2) Each time broker has a shard to dispatch to this consumer, a message is sent.
-%%      Message Topic: `$sdisp/consumer/<stream>/lease/<shard>/<last-offset>`
+%%      Message Topic: `$sdisp/consume/<group>/lease/<shard>/<last-offset>/<stream>`
 %%    Message Payload: <none>
 %%    This message represents _proposal_, shard distribution does not change yet.
+%%    Note that message topic does not match the subcription "topic filter",
+%%    middlewares might need to be aware of this.
 %%
 %% 3) Stream consumer accepts the proposal by publishing a message.
-%%    Message Topic: `$sdisp/progress/<stream>/<shard>/<offset>`
+%%    Message Topic: `$sdisp/progress/<group>/<shard>/<offset>/<stream>`
 %%      Message QoS: 1
 %%    Broker allocates specified shard to this consumer. Consumer should expect to
 %%    receive `PUBACK(SUCCESS)`, before that shard should still be considered
@@ -96,11 +100,11 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %%    proposal first, it's up to Broker to allow that.
 %%
 %% 4) Broker may attempt to redistribute shards, in this case a message is sent.
-%%      Message Topic: `$sdisp/consumer/<stream>/release/<shard>`
+%%      Message Topic: `$sdisp/consumer/<group>/release/<shard>/<stream>`
 %%    Message Payload: <none>
 %%
 %% 5) Stream consumer respects such request by publishing another message.
-%%    Message Topic: `$sdisp/release/<stream>/<shard>/<offset>`
+%%    Message Topic: `$sdisp/release/<group>/<shard>/<new-offset>/<stream>`
 %%      Message QoS: 1
 %%    Similarly, only `PUBACK(SUCCESS)` means specified shard is unallocated.
 %%    Only when Broker receives _release_ message, shard is considered unallocated.
@@ -109,7 +113,7 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %%
 %% *) Moreover, Consumers must publish same _progress_ messages each time another
 %%    batch of messages in the stream shard was processed.
-%%    Message Topic: `$sdisp/progress/<stream>/<shard>/<new-offset>`
+%%    Message Topic: `$sdisp/progress/<group>/<shard>/<new-offset>/<stream>`
 %%      Message QoS: 1
 %%    Once again, `PUBACK(SUCCESS)` means progress is saved. `PUBACK(ERROR)`s are
 %%    possible and should be handled accordingly.
