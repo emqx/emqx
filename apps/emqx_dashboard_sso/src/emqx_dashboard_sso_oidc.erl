@@ -131,7 +131,12 @@ fields(oidc) ->
                 ?HOCON(?UNION([none, ?R_REF(client_file_jwks)]), #{
                     desc => ?DESC(client_jwks),
                     default => none
-                })}
+                })},
+            {ssl, #{
+                type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
+                required => false,
+                desc => ?DESC(emqx_connector_schema_lib, "ssl")
+            }}
         ];
 fields(client_file_jwks) ->
     [
