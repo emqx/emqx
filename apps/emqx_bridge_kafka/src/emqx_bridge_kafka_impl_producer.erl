@@ -92,7 +92,8 @@ on_start(InstId, Config) ->
         request_timeout => C(metadata_request_timeout),
         extra_sock_opts => C(socket_opts),
         sasl => C(authentication),
-        ssl => C(ssl)
+        ssl => C(ssl),
+        allow_auto_topic_creation => C(allow_auto_topic_creation)
     },
     ClientId = InstId,
     emqx_resource:allocate_resource(InstId, ?MODULE, ?kafka_client_id, ClientId),
