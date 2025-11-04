@@ -25,6 +25,9 @@
 
 -export([new/1, delete/1, lookup/1, random_bin/0, random_bin/1]).
 
+%% test/debug only
+-export([all/0]).
+
 -define(TAB, ?MODULE).
 
 -record(?TAB, {
@@ -110,6 +113,13 @@ random_bin() ->
 
 random_bin(Len) ->
     emqx_utils_conv:bin(emqx_utils:gen_id(Len)).
+
+%% test/debug only
+all() ->
+    [
+        #{state => State, created_at => CreatedAt, data => Data}
+     || #?TAB{state = State, created_at = CreatedAt, data = Data} <- ets:tab2list(?TAB)
+    ].
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
