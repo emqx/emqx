@@ -70,7 +70,7 @@ t_case01_register(_Config) ->
         Map
     ),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     ok.
 
 t_case02_register_ack(_Config) ->
@@ -164,7 +164,7 @@ t_case04_MC_LOCATION_REPORT(_Config) ->
         Map
     ),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     ok.
 
 t_case05_MC_BULK_LOCATION_REPORT(_Config) ->
@@ -436,7 +436,7 @@ t_case05_MC_BULK_LOCATION_REPORT(_Config) ->
         Map
     ),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     ok.
 
 t_case10_segmented_packet(_Config) ->
@@ -483,7 +483,7 @@ t_case10_segmented_packet(_Config) ->
         Map
     ),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     ok.
 
 t_case11_prefix_register(_Config) ->
@@ -529,7 +529,7 @@ t_case11_prefix_register(_Config) ->
         Map
     ),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     ok.
 
 t_case12_0x7e_in_message(_Config) ->
@@ -577,7 +577,7 @@ t_case12_0x7e_in_message(_Config) ->
         Map
     ),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     ok.
 
 t_case13_partial_0x7d_in_message(_Config) ->
@@ -630,7 +630,7 @@ t_case13_partial_0x7d_in_message(_Config) ->
         Map
     ),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     ok.
 
 t_case14_custome_location_data(_) ->
@@ -642,7 +642,7 @@ t_case14_custome_location_data(_) ->
     Parser = emqx_jt808_frame:initial_parse_state(#{}),
     {ok, Packet, Rest, State} = emqx_jt808_frame:parse(Bin, Parser),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     _ = emqx_utils_json:encode(Packet).
 
 t_case14_reserved_location_data(_) ->
@@ -653,7 +653,7 @@ t_case14_reserved_location_data(_) ->
     Parser = emqx_jt808_frame:initial_parse_state(#{}),
     {ok, Packet, Rest, State} = emqx_jt808_frame:parse(Bin, Parser),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     _ = emqx_utils_json:encode(Packet).
 
 t_case15_custome_client_query_ack(_) ->
@@ -683,25 +683,26 @@ t_case15_custome_client_query_ack(_) ->
     Parser = emqx_jt808_frame:initial_parse_state(#{}),
     {ok, Packet, Rest, State} = emqx_jt808_frame:parse(Bin, Parser),
     ?assertEqual(<<>>, Rest),
-    ?assertEqual(#{data => <<>>, phase => searching_head_hex7e}, State),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     _ = emqx_utils_json:encode(Packet).
 
 t_throw_error_if_parse_failed(_) ->
-    Bin =
-        <<126, 2, 5, 0, 128, 1, 137, 96, 146, 0, 51, 3, 64, 72, 66, 77, 54, 48, 49, 67, 86, 77, 48,
-            53, 54, 51, 52, 50, 48, 50, 52, 45, 48, 56, 45, 49, 54, 253, 255, 2, 0, 255, 127, 0,
-            128, 80, 17, 1, 54, 69, 67, 56, 48, 48, 77, 58, 32, 49, 44, 34, 51, 50, 51, 65, 56, 54,
-            56, 48, 49, 57, 48, 55, 51, 55, 48, 51, 50, 50, 54, 52, 54, 48, 48, 56, 56, 53, 53, 52,
-            49, 48, 48, 52, 57, 56, 56, 57, 56, 54, 48, 56, 49, 53, 50, 54, 50, 51, 56, 48, 49, 49,
-            48, 52, 57, 56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0,
-            0, 0, 0, 207, 126>>,
-    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    Bin = unknown_message_packet(),
+    Parser = emqx_jt808_frame:initial_parse_state(#{parse_unknown_message => false}),
     try emqx_jt808_frame:parse(Bin, Parser) of
         _ -> ?assert(false)
     catch
         error:invalid_message ->
             ok
     end.
+
+t_enable_parse_unknown_message(_) ->
+    Bin = unknown_message_packet(),
+    Parser = emqx_jt808_frame:initial_parse_state(#{parse_unknown_message => true}),
+    {ok, Packet, Rest, State} = emqx_jt808_frame:parse(Bin, Parser),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    _ = emqx_utils_json:encode(Packet).
 
 encode(Header, Body) ->
     S1 = <<Header/binary, Body/binary>>,
@@ -733,3 +734,11 @@ do_escape(<<C, Rest/binary>>, Acc) ->
 
 binary_to_hex_string(Data) ->
     lists:flatten([io_lib:format("~2.16.0B ", [X]) || <<X:8>> <= Data]).
+
+unknown_message_packet() ->
+    <<126, 2, 5, 0, 128, 1, 137, 96, 146, 0, 51, 3, 64, 72, 66, 77, 54, 48, 49, 67, 86, 77, 48, 53,
+        54, 51, 52, 50, 48, 50, 52, 45, 48, 56, 45, 49, 54, 253, 255, 2, 0, 255, 127, 0, 128, 80,
+        17, 1, 54, 69, 67, 56, 48, 48, 77, 58, 32, 49, 44, 34, 51, 50, 51, 65, 56, 54, 56, 48, 49,
+        57, 48, 55, 51, 55, 48, 51, 50, 50, 54, 52, 54, 48, 48, 56, 56, 53, 53, 52, 49, 48, 48, 52,
+        57, 56, 56, 57, 56, 54, 48, 56, 49, 53, 50, 54, 50, 51, 56, 48, 49, 49, 48, 52, 57, 56, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 207, 126>>.
