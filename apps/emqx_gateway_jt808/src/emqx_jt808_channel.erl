@@ -349,16 +349,27 @@ do_handle_in(
     end;
 do_handle_in(?MSG(?MC_DEREGISTER), Channel) ->
     {shutdown, normal, Channel};
-do_handle_in(Frame = #{}, Channel = #channel{up_topic = Topic, inflight = Inflight}) ->
-    {MsgId, MsgSn} = msgidsn(Frame),
-    _ = do_publish(Topic, Frame),
-    case is_general_response_needed(MsgId) of
-        % these frames device passive request
-        true ->
-            handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
-        % these frames are response to server's request
+do_handle_in(
+    Frame = #{},
+    Channel = #channel{up_topic = Topic, inflight = Inflight}
+) ->
+    IsUnknownMessage = emqx_utils_maps:deep_get([<<"body">>, <<"unknown_id">>], Frame, false),
+    case IsUnknownMessage of
+        %% Normal message, handle it
         false ->
-            {ok, Channel#channel{inflight = ack_msg(MsgId, seq(Frame), Inflight)}}
+            _ = do_publish(Topic, Frame),
+            {MsgId, MsgSn} = msgidsn(Frame),
+            case is_general_response_needed(MsgId) of
+                % these frames device passive request
+                true ->
+                    handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
+                % these frames are response to server's request
+                false ->
+                    {ok, Channel#channel{inflight = ack_msg(MsgId, seq(Frame), Inflight)}}
+            end;
+        true ->
+            _ = do_publish(Topic, Frame),
+            {ok, Channel}
     end;
 do_handle_in(Frame, Channel) ->
     ?SLOG(error, #{msg => "ignore_unknown_frame", frame => Frame}),
