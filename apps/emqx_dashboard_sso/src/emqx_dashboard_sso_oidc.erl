@@ -53,18 +53,11 @@ fields(oidc) ->
         [
             {issuer,
                 ?HOCON(
-                    binary(),
+                    emqx_schema:url(),
                     #{
                         desc => ?DESC(issuer),
                         required => true,
-                        example => <<"https://issuer.com">>,
-                        validator => emqx_schema:servers_validator(
-                            #{
-                                supported_schemes => ["https", "http"],
-                                default_port => 443
-                            },
-                            _Required = true
-                        )
+                        example => <<"https://issuer.com">>
                     }
                 )},
             {clientid,
@@ -138,7 +131,12 @@ fields(oidc) ->
                 ?HOCON(?UNION([none, ?R_REF(client_file_jwks)]), #{
                     desc => ?DESC(client_jwks),
                     default => none
-                })}
+                })},
+            {ssl, #{
+                type => hoconsc:ref(emqx_schema, "ssl_client_opts"),
+                required => false,
+                desc => ?DESC(emqx_connector_schema_lib, "ssl")
+            }}
         ];
 fields(client_file_jwks) ->
     [
