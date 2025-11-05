@@ -78,7 +78,7 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue, limits := Lim
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),
     maybe
-        ok ?= validate_max_queue_count(),
+        ok ?= validate_max_stream_count(),
         {atomic, ok} ?=
             mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
                 case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
@@ -340,11 +340,11 @@ record_to_stream_handle(#?STREAMS_REGISTRY_INDEX_TAB{
         limits => Limits
     }.
 
-queue_count() ->
+stream_count() ->
     mnesia:table_info(?STREAMS_REGISTRY_INDEX_TAB, size).
 
-validate_max_queue_count() ->
-    case queue_count() >= emqx_streams_config:max_queue_count() of
+validate_max_stream_count() ->
+    case stream_count() >= emqx_streams_config:max_stream_count() of
         true ->
             {error, max_queue_count_reached};
         false ->

@@ -31,7 +31,7 @@ to wait for a certain number of replicas.
 -export([start_link_post_start/0]).
 -export([post_start/0]).
 
--define(OPTVAR_READY, emqx_mq_sup_ready).
+-define(OPTVAR_READY, emqx_streams_sup_ready).
 
 %% Behaviour callbacks
 

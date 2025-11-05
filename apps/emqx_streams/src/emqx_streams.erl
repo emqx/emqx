@@ -35,10 +35,35 @@ unregister_hooks() ->
 %%
 
 on_message_publish(#message{topic = _Topic = <<"$sdisp/", _/binary>>} = Message) ->
-    ?tp_debug(streams_on_message_publish, #{topic => _Topic}),
+    ?tp_debug(streams_on_message_publish_discovery, #{topic => _Topic}),
     on_shard_disp_message(Message);
-on_message_publish(_Message) ->
-    ok.
+on_message_publish(#message{topic = Topic} = Message) ->
+    ?tp_debug(streams_on_message_publish_stream, #{topic => Topic}),
+    StreamHandles = emqx_streams_registry:match(Topic),
+    ok = lists:foreach(
+        fun(StreamHandle) ->
+            {Time, Result} = timer:tc(fun() -> publish_to_stream(StreamHandle, Message) end),
+            case Result of
+                ok ->
+                    % emqx_mq_metrics:inc(ds, inserted_messages),
+                    ?tp_debug(streams_on_message_publish_to_queue, #{
+                        topic_filter => emqx_streams_prop:topic_filter(StreamHandle),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        result => ok
+                    });
+                {error, Reason} ->
+                    ?tp(error, streams_on_message_publish_queue_error, #{
+                        topic_filter => emqx_streams_prop:topic_filter(StreamHandle),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        reason => Reason
+                    })
+            end
+        end,
+        StreamHandles
+    ),
+    {ok, Message}.
 
 on_session_subscribed(ClientInfo, Topic = <<"$sdisp/", _/binary>>, _SubOpts) ->
     ?tp_debug(streams_on_session_subscribed, #{topic => Topic, subopts => _SubOpts}),
@@ -141,3 +166,6 @@ on_shard_disp_unsubscription(ClientInfo, Topic) ->
 
 on_shard_disp_message(Message) ->
     ok.
+
+publish_to_stream(StreamHandle, #message{} = Message) ->
+    emqx_streams_message_db:insert(StreamHandle, Message).
