@@ -59,9 +59,9 @@ schema("/opentelemetry/whitelist/:type") ->
             'requestBody' => swagger_with_example(),
             responses =>
                 #{
-                    204 => <<"Created">>,
+                    204 => ?DESC("created"),
                     500 => emqx_dashboard_swagger:error_codes(
-                        [?INTERNAL_ERROR], <<"Internal Service Error">>
+                        [?INTERNAL_ERROR], ?DESC("internal_service_error")
                     )
                 }
         },
@@ -72,9 +72,9 @@ schema("/opentelemetry/whitelist/:type") ->
                 parameters => [ref(white_list_type)],
                 responses =>
                     #{
-                        204 => <<"Deleted">>,
+                        204 => ?DESC("deleted"),
                         500 => emqx_dashboard_swagger:error_codes(
-                            [?INTERNAL_ERROR], <<"Internal Service Error">>
+                            [?INTERNAL_ERROR], ?DESC("internal_service_error")
                         )
                     }
             }

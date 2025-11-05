@@ -30,4 +30,19 @@ white_list_type.desc:
 white_list_type.label:
 """White list type"""
 
+created.desc:
+"""Created"""
+created.label:
+"""Created"""
+
+deleted.desc:
+"""Deleted"""
+deleted.label:
+"""Deleted"""
+
+internal_service_error.desc:
+"""Internal Service Error"""
+internal_service_error.label:
+"""Internal Service Error"""
+
 }
