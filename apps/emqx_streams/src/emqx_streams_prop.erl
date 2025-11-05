@@ -5,7 +5,7 @@
 -module(emqx_streams_prop).
 
 -moduledoc """
-The module contains accessor functions for the MQs/MQ handles.
+The module contains accessor functions for the Streams/Stream handles.
 """.
 
 -export([
@@ -14,7 +14,9 @@ The module contains accessor functions for the MQs/MQ handles.
     is_lastvalue/1,
     is_append_only/1,
     topic_filter/1,
-    quota_index_opts/1
+    quota_index_opts/1,
+    max_unacked/1,
+    data_retention_period/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -36,12 +38,12 @@ is_lastvalue(#{is_lastvalue := IsLastvalue} = _Stream) ->
 
 -spec topic_filter(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
     emqx_types:topic().
-topic_filter(#{topic_filter := TopicFilter} = _MQ) ->
+topic_filter(#{topic_filter := TopicFilter} = _Stream) ->
     TopicFilter.
 
 -spec id(emqx_streams_types:stream_handle() | emqx_streams_types:stream()) ->
-    emqx_streams_types:streamid().
-id(#{id := ID} = _StreamHandle) ->
+    emqx_streams_types:stream_id().
+id(#{id := ID} = _Stream) ->
     ID.
 
 -spec is_append_only(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) -> boolean().
@@ -49,7 +51,7 @@ is_append_only(Stream) ->
     (not is_limited(Stream)) andalso (not is_lastvalue(Stream)).
 
 -spec quota_index_opts(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
-    %% move quota out of mq's
+    %% move quota out of streams's
     %% emqx_mq_message_quota_index:opts().
     term().
 quota_index_opts(Stream) ->
@@ -57,6 +59,20 @@ quota_index_opts(Stream) ->
         limit_to_index_opt(bytes, Stream) ++
             limit_to_index_opt(count, Stream)
     ).
+
+-spec max_unacked(emqx_streams_types:stream()) ->
+    non_neg_integer().
+max_unacked(_Stream) ->
+    %% TODO: Implement max unacked
+    100.
+
+-spec data_retention_period(emqx_streams_types:stream()) ->
+    non_neg_integer().
+data_retention_period(_Stream) ->
+    %% TODO: Implement data retention period
+
+    %% 7 days
+    7 * 24 * 60 * 60 * 1000.
 
 %%--------------------------------------------------------------------
 %% Internal functions
