@@ -53,23 +53,26 @@ issuer_validation_test_() ->
                 #{},
                 parse_and_check(oidc_config(#{<<"issuer">> => <<"https://string.com:999">>}))
             )},
+        {"ok issuer url with port",
+            ?_assertMatch(
+                #{},
+                parse_and_check(
+                    oidc_config(#{
+                        <<"issuer">> =>
+                            <<"https://xxx:8443/webman/sso/.well-known/openid-configuration">>
+                    })
+                )
+            )},
         {"no scheme",
-            ?_assertThrow(
-                {_, [
-                    #{
-                        reason := "missing_scheme",
-                        value := <<"string">>,
-                        path := "dashboard.sso.oidc.issuer",
-                        kind := validation_error
-                    }
-                ]},
+            ?_assertMatch(
+                #{<<"issuer">> := <<"http://string/">>},
                 parse_and_check(oidc_config(#{<<"issuer">> => <<"string">>}))
             )},
         {"bad scheme",
             ?_assertThrow(
                 {_, [
                     #{
-                        reason := "unsupported_scheme",
+                        reason := {unsupported_scheme, <<"pulsar+ssl">>},
                         value := _,
                         path := "dashboard.sso.oidc.issuer",
                         kind := validation_error

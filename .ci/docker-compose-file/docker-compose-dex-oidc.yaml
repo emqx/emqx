@@ -1,0 +1,49 @@
+## NOTE
+## In order to test locally with this container on a local browser for manual testing, one
+## needs to:
+##  - add `127.0.0.1 authn-server` to `/etc/hosts`
+##  - add `127.0.0.1 erlang` to `/etc/hosts` (if running emqx in the test container)
+##  - uncomment port 5556 below
+
+## Click "Login with Example" to just login.
+## Click "Login with Email" and use the credentials in `./dex/config.dev.yaml` (password: `password`)
+
+services:
+  dex:
+    image: ghcr.io/dexidp/dex:latest-alpine@sha256:aa55c144448979ff65131290ea9dcc3652e3ff4ac3848ba0051a61c123708da7
+    # N.B.: this must match the subject common name used in the server certificate.
+    container_name: authn-server
+    volumes:
+      - ./dex/config.dev.yaml:/opt/config.dev.yaml:ro
+      - ./certs/server.crt:/etc/dex/cert.pem:ro
+      - ./certs/server.key:/etc/dex/key.pem:ro
+    command: dex serve /opt/config.dev.yaml
+    # ports:
+    #   - 5556:5556
+    expose:
+      - 5555
+      - 5556
+      - 5557
+      - 5558
+    restart: always
+    networks:
+      - emqx_bridge
+
+  emqx_lb:
+    container_name: emqx_lb
+    image: public.ecr.aws/docker/library/haproxy:2.4
+    volumes:
+      - ./dex/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+      - ../../apps/emqx/etc/certs/cert.pem:/usr/local/etc/haproxy/certs/cert.pem
+      - ../../apps/emqx/etc/certs/key.pem:/usr/local/etc/haproxy/certs/key.pem
+      - ../../apps/emqx/etc/certs/cacert.pem:/usr/local/etc/haproxy/certs/cacert.pem
+    networks:
+      - emqx_bridge
+    working_dir: /usr/local/etc/haproxy
+    command:
+      - bash
+      - -c
+      - |
+        set -x
+        cat /usr/local/etc/haproxy/certs/cert.pem /usr/local/etc/haproxy/certs/key.pem > /var/lib/haproxy/emqx.pem
+        haproxy -f /usr/local/etc/haproxy/haproxy.cfg

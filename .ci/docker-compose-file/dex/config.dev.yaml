@@ -1,0 +1,47 @@
+## This uses `authn-server` because it must match the `Subject.commonName` in the server
+## certificate being used in `tlsCert` below.
+issuer: https://authn-server:5556/dex
+# issuer: http://127.0.0.1:5556/dex
+
+logger:
+  level: debug
+
+storage:
+  type: sqlite3
+  config:
+    file: /tmp/dex.db
+
+web:
+  https: 0.0.0.0:5556
+  tlsCert: /etc/dex/cert.pem
+  tlsKey: /etc/dex/key.pem
+
+telemetry:
+  http: 0.0.0.0:5558
+
+grpc:
+  addr: 0.0.0.0:5557
+
+staticClients:
+  - id: example-app
+    redirectURIs:
+      # hostname must match the container name of the load balancer
+      - 'http://emqx_lb:18083/api/v5/sso/oidc/callback'
+      # hostname must match the container name of the test container and the port bound in
+      # the host
+      - 'http://erlang:28083/api/v5/sso/oidc/callback'
+    name: 'emqx'
+    secret: ZXhhbXBsZS1hcHAtc2VjcmV0
+
+connectors:
+  - type: mockCallback
+    id: mock
+    name: Example
+
+enablePasswordDB: true
+
+staticPasswords:
+  - email: "admin@example.com"
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: "admin"
+    userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"
