@@ -35,4 +35,24 @@ param_clientid.desc:
 param_clientid.label:
 """Client ID"""
 
+no_content.desc:
+"""No Content"""
+no_content.label:
+"""No Content"""
+
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+authentication_cache_updated.desc:
+"""Authentication cache updated"""
+authentication_cache_updated.label:
+"""Authentication Cache Updated"""
+
+internal_service_error.desc:
+"""Internal Service Error"""
+internal_service_error.label:
+"""Internal Service Error"""
+
 }

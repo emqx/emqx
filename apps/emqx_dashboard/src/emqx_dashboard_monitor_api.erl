@@ -48,14 +48,14 @@ schema("/monitor") ->
             parameters => [parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
-                400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
+                400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], ?DESC("bad_rpc"))
             }
         },
         delete => #{
             tags => [<<"Metrics">>],
             description => ?DESC(clear_monitor),
             responses => #{
-                204 => <<"Metrics deleted">>
+                204 => ?DESC("metrics_deleted")
             }
         }
     };
@@ -68,7 +68,7 @@ schema("/monitor/nodes/:node") ->
             parameters => [parameter_node(), parameter_latest()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:array(hoconsc:ref(sampler)), #{}),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("node_not_found"))
             }
         }
     };
@@ -92,7 +92,7 @@ schema("/monitor_current/nodes/:node") ->
             parameters => [parameter_node()],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current_node), #{}),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Node not found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC("node_not_found"))
             }
         }
     }.

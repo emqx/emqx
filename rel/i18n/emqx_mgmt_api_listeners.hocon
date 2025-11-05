@@ -114,4 +114,18 @@ listener_status {
     label: "Listener Status"
 }
 
+listener_deleted {
+    desc: "Listener deleted"
+    label: "Listener Deleted"
+}
+
+updated {
+    desc: "Updated"
+    label: "Updated"
+}
+
+listener_not_found {
+    desc: "Listener not found."
+    label: "Listener Not Found"
+}
 }

@@ -1,0 +1,18 @@
+emqx_otel_api {
+
+get_config.desc:
+"""Get opentelmetry configuration"""
+get_config.label:
+"""Get OpenTelemetry Configuration"""
+
+update_config.desc:
+"""Update opentelmetry configuration"""
+update_config.label:
+"""Update OpenTelemetry Configuration"""
+
+update_config_failed.desc:
+"""Update Config Failed"""
+update_config_failed.label:
+"""Update Config Failed"""
+
+}

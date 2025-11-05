@@ -24,4 +24,14 @@ read_resource.desc:
 write_resource.desc:
 """Send a write command to a resource"""
 
+client_not_found.desc:
+"""Client not found"""
+client_not_found.label:
+"""Client Not Found"""
+
+no_content.desc:
+"""No Content"""
+no_content.label:
+"""No Content"""
+
 }
