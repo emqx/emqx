@@ -51,12 +51,12 @@ schema("/error_codes/:code") ->
         'operationId' => error_code,
         get => #{
             security => [],
-            description => ?DESC("error_codes"),
+            description => ?DESC("get_error_code"),
             tags => [<<"Error Codes">>],
             parameters => [
                 {code,
                     hoconsc:mk(hoconsc:enum(emqx_dashboard_error_code:all()), #{
-                        desc => ?DESC("error_codes"),
+                        desc => ?DESC("error_code_name"),
                         in => path,
                         example => hd(emqx_dashboard_error_code:all())
                     })}
@@ -69,8 +69,8 @@ schema("/error_codes/:code") ->
 
 fields(error_code) ->
     [
-        {code, hoconsc:mk(string(), #{desc => <<"Code Name">>})},
-        {description, hoconsc:mk(string(), #{desc => <<"Description">>})}
+        {code, hoconsc:mk(string(), #{desc => ?DESC("error_code_name")})},
+        {description, hoconsc:mk(string(), #{desc => ?DESC("error_code_description")})}
     ].
 
 error_codes(_, _) ->
