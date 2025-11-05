@@ -11,4 +11,11 @@
 
 -define(SCHEMA_ROOT, streams).
 
+-define(DEFAULT_STREAM_LIMITS,
+    (#{
+        max_shard_message_count => infinity,
+        max_shard_message_bytes => infinity
+    })
+).
+
 -endif.
