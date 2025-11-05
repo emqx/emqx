@@ -6,7 +6,7 @@
 
 -include("emqx_streams_internal.hrl").
 
--export([is_enabled/0]).
+-export([is_enabled/0, max_stream_count/0]).
 
 -export([
     pre_config_update/3,
@@ -20,6 +20,10 @@
 -spec is_enabled() -> boolean().
 is_enabled() ->
     emqx:get_config([?SCHEMA_ROOT, enable]).
+
+-spec max_stream_count() -> pos_integer().
+max_stream_count() ->
+    emqx:get_config([?SCHEMA_ROOT, max_stream_count]).
 
 %%------------------------------------------------------------------------------
 %% Config hooks
