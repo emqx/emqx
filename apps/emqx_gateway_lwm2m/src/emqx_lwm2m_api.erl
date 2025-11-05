@@ -38,7 +38,6 @@ schema(?PATH("/lookup")) ->
         get => #{
             tags => ?TAGS,
             desc => ?DESC(lookup_resource),
-            summary => <<"List Client's Resources">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -53,7 +52,7 @@ schema(?PATH("/lookup")) ->
                     {'codeMsg', mk(binary(), #{example => "reply_not_received"})},
                     {content, mk(hoconsc:array(ref(resource)), #{})}
                 ],
-                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Client not found">>)
+                404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found"))
             }
         }
     };
@@ -63,7 +62,6 @@ schema(?PATH("/observe")) ->
         post => #{
             tags => ?TAGS,
             desc => ?DESC(observe_resource),
-            summary => <<"Observe a Resource">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -71,8 +69,8 @@ schema(?PATH("/observe")) ->
             ],
             'requestBody' => [],
             responses => #{
-                204 => <<"No Content">>,
-                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
+                204 => ?DESC("no_content"),
+                404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found"))
             }
         }
     };
@@ -82,14 +80,13 @@ schema(?PATH("/read")) ->
         post => #{
             tags => ?TAGS,
             desc => ?DESC(read_resource),
-            summary => <<"Read Value from a Resource Path">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})}
             ],
             responses => #{
-                204 => <<"No Content">>,
-                404 => error_codes(['CLIENT_NOT_FOUND'], <<"clientid not found">>)
+                204 => ?DESC("no_content"),
+                404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found"))
             }
         }
     };
@@ -99,7 +96,6 @@ schema(?PATH("/write")) ->
         post => #{
             tags => ?TAGS,
             desc => ?DESC(write_resource),
-            summary => <<"Write a Value to Resource Path">>,
             parameters => [
                 {clientid, mk(binary(), #{in => path, example => "urn:oma:lwm2m:oma:2"})},
                 {path, mk(binary(), #{in => query, required => true, example => "/3/0/7"})},
@@ -111,8 +107,8 @@ schema(?PATH("/write")) ->
                 {value, mk(binary(), #{in => query, required => true, example => 123})}
             ],
             responses => #{
-                204 => <<"No Content">>,
-                404 => error_codes(['CLIENT_NOT_FOUND'], <<"Clientid not found">>)
+                204 => ?DESC("no_content"),
+                404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found"))
             }
         }
     }.
@@ -129,14 +125,14 @@ fields(resource) ->
         {name, mk(binary(), #{desc => ?DESC(name), example => "lwm2m-test"})}
     ].
 
-lookup(get, #{bindings := Bindings, query_string := QS}) ->
+lookup(get, #{bindings := Bindings, query_string := Qs}) ->
     ClientId = maps:get(clientid, Bindings),
     case emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId) of
         [Channel | _] ->
             #{
                 <<"path">> := Path,
                 <<"action">> := Action
-            } = QS,
+            } = Qs,
             {ok, Result} = emqx_lwm2m_channel:lookup_cmd(Channel, Path, Action),
             lookup_return(Result, ClientId, Action, Path);
         _ ->

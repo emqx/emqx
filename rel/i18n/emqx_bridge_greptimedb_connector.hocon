@@ -50,4 +50,9 @@ username.desc:
 username.label:
 """Username"""
 
+connector_ts_column.label:
+"""Custom Timestamp Column Name"""
+connector_ts_column.desc:
+"""If defined, specifies a custom timestamp column name that will appear when querying."""
+
 }

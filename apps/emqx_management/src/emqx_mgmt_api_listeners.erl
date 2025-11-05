@@ -35,8 +35,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 
--define(LISTENER_NOT_FOUND, <<"Listener id not found">>).
--define(LISTENER_ID_INCONSISTENT, <<"Path and body's listener id not match">>).
+-define(LISTENER_NOT_FOUND, <<"Listener not found">>).
 
 namespace() -> "listeners".
 
@@ -114,7 +113,7 @@ schema("/listeners/:id") ->
             parameters => [?R_REF(listener_id)],
             responses => #{
                 200 => listener_schema(#{bind => true}),
-                404 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'], ?LISTENER_NOT_FOUND)
+                404 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'], ?DESC("listener_not_found"))
             }
         },
         put => #{
@@ -125,7 +124,7 @@ schema("/listeners/:id") ->
             responses => #{
                 200 => listener_schema(#{bind => true}),
                 400 => error_codes(['BAD_REQUEST']),
-                404 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'], ?LISTENER_NOT_FOUND)
+                404 => error_codes(['BAD_LISTENER_ID', 'BAD_REQUEST'], ?DESC("listener_not_found"))
             }
         },
         post => #{
@@ -144,7 +143,7 @@ schema("/listeners/:id") ->
             description => ?DESC(delete_on_all_nodes),
             parameters => [?R_REF(listener_id)],
             responses => #{
-                204 => <<"Listener deleted">>,
+                204 => ?DESC("listener_deleted"),
                 404 => error_codes(['BAD_LISTENER_ID'])
             }
         }
@@ -159,7 +158,7 @@ schema("/listeners/:id/start") ->
                 ?R_REF(listener_id)
             ],
             responses => #{
-                200 => <<"Updated">>,
+                200 => ?DESC("updated"),
                 400 => error_codes(['BAD_REQUEST', 'BAD_LISTENER_ID'])
             }
         }
@@ -174,7 +173,7 @@ schema("/listeners/:id/stop") ->
                 ?R_REF(listener_id)
             ],
             responses => #{
-                200 => <<"Updated">>,
+                200 => ?DESC("updated"),
                 400 => error_codes(['BAD_REQUEST', 'BAD_LISTENER_ID'])
             }
         }
@@ -189,7 +188,7 @@ schema("/listeners/:id/restart") ->
                 ?R_REF(listener_id)
             ],
             responses => #{
-                200 => <<"Updated">>,
+                200 => ?DESC("updated"),
                 400 => error_codes(['BAD_REQUEST', 'BAD_LISTENER_ID'])
             }
         }
@@ -420,8 +419,11 @@ crud_listeners_by_id(put, #{bindings := #{id := Id}, body := Body0}) ->
             end;
         {error, Reason} ->
             {400, #{code => 'BAD_REQUEST', message => err_msg(Reason)}};
-        _ ->
-            {400, #{code => 'BAD_LISTENER_ID', message => ?LISTENER_ID_INCONSISTENT}}
+        {_Id, _Type, _Name, _Conf} ->
+            {400, #{
+                code => 'BAD_LISTENER_ID',
+                message => <<"Listener ID in request body does not match ID in parameters">>
+            }}
     end;
 crud_listeners_by_id(post, #{body := Body}) ->
     create_listener(id, Body);

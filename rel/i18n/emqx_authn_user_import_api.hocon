@@ -15,6 +15,11 @@ import_result_total.desc:
 import_result_total.label:
 """Total"""
 
+import_result_success.desc:
+"""Total number of users successfully imported with new records."""
+import_result_success.label:
+"""Success"""
+
 import_result_succ.desc:
 """Total number of users successfully imported with new records."""
 import_result_succ.label:
@@ -34,5 +39,20 @@ import_result_failed.desc:
 """Total number of users whose import failed."""
 import_result_failed.label:
 """Failed"""
+
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+not_found.desc:
+"""Not Found"""
+not_found.label:
+"""Not Found"""
+
+password_type.desc:
+"""The import file template type, enum with `plain`, `hash`"""
+password_type.label:
+"""Password Type"""
 
 }

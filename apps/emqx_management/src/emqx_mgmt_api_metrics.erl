@@ -132,10 +132,7 @@ schema("/metrics") ->
                                 #{
                                     in => query,
                                     required => false,
-                                    desc => <<
-                                        "Whether to aggregate all nodes Metrics. "
-                                        "Default value is 'true'."
-                                    >>
+                                    desc => ?DESC("aggregate_parameter")
                                 }
                             )},
                         {node,
@@ -144,11 +141,7 @@ schema("/metrics") ->
                                 #{
                                     in => query,
                                     required => false,
-                                    desc => <<
-                                        "Specify which specific node to fetch data from. "
-                                        "If not provided, return values for all nodes. "
-                                        "This parameter only works when 'aggregate' is 'false'."
-                                    >>
+                                    desc => ?DESC("node_parameter")
                                 }
                             )}
                     ],
@@ -172,7 +165,7 @@ roots() ->
 fields(aggregated_metrics) ->
     properties();
 fields(node_metrics) ->
-    [{node, mk(binary(), #{desc => <<"Node name">>})}] ++ properties().
+    [{node, mk(binary(), #{desc => ?DESC("node_name")})}] ++ properties().
 
 properties() ->
     Metrics = emqx_metrics:all_metrics(),

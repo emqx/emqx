@@ -150,7 +150,6 @@ schema("/gateways") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_gateway),
-                summary => <<"List all gateways">>,
                 parameters => params_gateway_status_in_qs(),
                 responses =>
                     #{
@@ -159,7 +158,7 @@ schema("/gateways") ->
                             examples_gateway_overview()
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
-                            [?BAD_REQUEST], <<"Bad request">>
+                            [?BAD_REQUEST], ?DESC("bad_request")
                         )
                     }
             }
@@ -171,13 +170,12 @@ schema("/gateways/:name") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_gateway),
-                summary => <<"Get gateway">>,
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     #{
                         200 => schema_gateways_conf(),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND, ?RESOURCE_NOT_FOUND], <<"Not Found">>
+                            [?NOT_FOUND, ?RESOURCE_NOT_FOUND], ?DESC("not_found")
                         )
                     }
             },
@@ -185,12 +183,10 @@ schema("/gateways/:name") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(update_gateway),
-                % [FIXME] add proper desc
-                summary => <<"Load or update the gateway confs">>,
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => schema_load_or_update_gateways_conf(),
                 responses =>
-                    ?STANDARD_RESP(#{204 => <<"Gateway configuration updated">>})
+                    ?STANDARD_RESP(#{204 => ?DESC("gateway_configuration_updated")})
             }
     };
 schema("/gateways/:name/enable/:enable") ->
@@ -200,13 +196,12 @@ schema("/gateways/:name/enable/:enable") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(update_gateway),
-                summary => <<"Enable or disable gateway">>,
                 parameters => params_gateway_name_in_path() ++ params_gateway_enable_in_path(),
                 responses =>
                     #{
-                        204 => <<"Gateway configuration updated">>,
+                        204 => ?DESC("gateway_configuration_updated"),
                         404 => emqx_dashboard_swagger:error_codes(
-                            [?NOT_FOUND, ?RESOURCE_NOT_FOUND], <<"Not Found">>
+                            [?NOT_FOUND, ?RESOURCE_NOT_FOUND], ?DESC("not_found")
                         )
                     }
             }

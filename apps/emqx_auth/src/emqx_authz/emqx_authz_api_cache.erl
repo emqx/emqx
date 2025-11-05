@@ -56,8 +56,10 @@ schema("/authorization/cache") ->
                 description => ?DESC(authorization_cache_delete),
                 responses =>
                     #{
-                        204 => <<"No Content">>,
-                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                        204 => ?DESC("no_content"),
+                        400 => emqx_dashboard_swagger:error_codes(
+                            [?BAD_REQUEST], ?DESC("bad_request")
+                        )
                     }
             }
     };
@@ -80,8 +82,8 @@ schema("/authorization/node_cache") ->
                 authz_node_cache_example()
             ),
             responses => #{
-                204 => <<"Authentication cache updated">>,
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                204 => ?DESC("authentication_cache_updated"),
+                400 => error_codes([?BAD_REQUEST], ?DESC("bad_request"))
             }
         }
     };
@@ -95,7 +97,7 @@ schema("/authorization/node_cache/status") ->
                     ref(emqx_auth_cache_schema, status),
                     authz_node_cache_status_example()
                 ),
-                500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+                500 => error_codes([?INTERNAL_ERROR], ?DESC("internal_service_error"))
             }
         }
     };
@@ -107,8 +109,8 @@ schema("/authorization/node_cache/reset") ->
                 description => ?DESC(authorization_node_cache_reset_post),
                 responses =>
                     #{
-                        204 => <<"No Content">>,
-                        500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
+                        204 => ?DESC("no_content"),
+                        500 => error_codes([?INTERNAL_ERROR], ?DESC("internal_service_error"))
                     }
             }
     }.
