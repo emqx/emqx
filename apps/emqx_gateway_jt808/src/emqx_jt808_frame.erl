@@ -94,7 +94,8 @@ escape_head_hex7e(Rest, State = #{data := _Acc, phase := escaping_hex7d}) ->
     %% continue parsing to escape 0x7d
     escape_frame(Rest, State).
 
-escape_frame(Rest, State = #{data := Acc, opts := Opts}) ->
+escape_frame(Rest, State = #{data := Acc}) ->
+    Opts = maps:get(opts, State, #{}),
     case do_escape_frame(Rest, Acc) of
         {ok, Msg, NRest} ->
             {ok, parse_message(Msg, Opts), NRest, State#{
