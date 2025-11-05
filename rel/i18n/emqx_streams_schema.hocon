@@ -3,4 +3,7 @@ emqx_streams_schema {
 enable.desc:
 """Enable Message Streams feature."""
 
+max_stream_count.desc:
+"""Maximum number of streams that can be created."""
+
 }

@@ -29,7 +29,11 @@ register_hooks() ->
     ok = emqx_hooks:add('message.puback', {?MODULE, on_message_puback, []}, ?HP_HIGHEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
+    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    ok = emqx_extsub_handler_registry:register(emqx_streams_extsub_handler, #{
+        handle_generic_messages => true,
+        multi_topic => true
+    }).
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
@@ -37,6 +41,7 @@ unregister_hooks() ->
     emqx_hooks:del('message.puback', {?MODULE, on_message_puback}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
+    emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
 %%
@@ -46,8 +51,33 @@ on_message_publish(#message{topic = <<"$sdisp/", _/binary>>} = Message) ->
     St = shard_dispatch_state(),
     Ret = emqx_streams_shard_dispatch:on_publish(Message, St),
     shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
-on_message_publish(_Message) ->
-    ok.
+on_message_publish(#message{topic = Topic} = Message) ->
+    ?tp_debug(streams_on_message_publish_stream, #{topic => Topic}),
+    StreamHandles = emqx_streams_registry:match(Topic),
+    ok = lists:foreach(
+        fun(StreamHandle) ->
+            {Time, Result} = timer:tc(fun() -> publish_to_stream(StreamHandle, Message) end),
+            case Result of
+                ok ->
+                    % emqx_mq_metrics:inc(ds, inserted_messages),
+                    ?tp_debug(streams_on_message_publish_to_queue, #{
+                        topic_filter => emqx_streams_prop:topic_filter(StreamHandle),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        result => ok
+                    });
+                {error, Reason} ->
+                    ?tp(error, streams_on_message_publish_queue_error, #{
+                        topic_filter => emqx_streams_prop:topic_filter(StreamHandle),
+                        message_topic => emqx_message:topic(Message),
+                        time_us => Time,
+                        reason => Reason
+                    })
+            end
+        end,
+        StreamHandles
+    ),
+    {ok, Message}.
 
 on_message_puback(PacketId, #message{topic = <<"$sdisp/", _/binary>>} = Message, _Res, _RC) ->
     ?tp_debug("streams_on_message_puback", #{topic => Message#message.topic}),
@@ -190,3 +220,6 @@ shard_dispatch_state() ->
 
 shard_dispatch_update_state(St) ->
     erlang:put(?pd_sdisp_state, St).
+
+publish_to_stream(StreamHandle, #message{} = Message) ->
+    emqx_streams_message_db:insert(StreamHandle, Message).
