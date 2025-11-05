@@ -9,6 +9,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
+-include("emqx_config.hrl").
 
 -ifdef(TEST).
 -compile(export_all).
@@ -67,6 +68,9 @@
     zone :: atom(),
     %% Listener Type and Name
     listener :: {Type :: atom(), Name :: atom()},
+
+    %% Tenant Namespace
+    namespace = ?global_ns :: emqx_config:maybe_namespace(),
 
     %% Extra field for future hot-upgrade support
     extra = []
@@ -443,6 +447,9 @@ handle_event({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     State;
+%% TODO: handle `{event, {zone_changed, NewZone}}`
+handle_event({event, {set_namespace, Namespace}}, State0 = #state{}) ->
+    State0#state{namespace = Namespace};
 handle_event({event, _Other}, State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientId is yet unknown (i.e. connect packet is not received yet)
@@ -558,7 +565,7 @@ on_frame_in(Data, State) ->
     }),
     State2 = ensure_stats_timer(State),
     {Packets, State3} = parse_incoming(Data, [], State2),
-    inc_recv_stats(length(Packets), byte_size(Data)),
+    inc_recv_stats(length(Packets), byte_size(Data), State3),
     handle_incoming(Packets, State3).
 
 parse_incoming(<<>>, Packets, State) ->
@@ -616,7 +623,8 @@ do_handle_incoming(Packets, State) ->
 
 handle_incoming_packets([Packet = #mqtt_packet{} | Packets], ResAcc) ->
     ?TRACE("WS-MQTT", "mqtt_packet_received", #{packet => Packet}),
-    ok = inc_incoming_stats(Packet),
+    {_FrameAcc, State} = ResAcc,
+    ok = inc_incoming_stats(Packet, State),
     handle_incoming_packets(Packets, with_channel(handle_in, [Packet], ResAcc));
 handle_incoming_packets([FrameError], ResAcc) ->
     %% NOTE: If there was a frame parsing error, it always goes last in the list.
@@ -702,13 +710,13 @@ do_handle_outgoing(Packets, State) ->
         true -> Cnt = length(Packets);
         _ -> Cnt = 1
     end,
-    ok = inc_sent_stats(Cnt, framelist_bytesize(Frames, 0)),
+    ok = inc_sent_stats(Cnt, framelist_bytesize(Frames, 0), State),
     _ = trigger_gc_outgoing(),
     Frames.
 
-serialize_and_inc_stats(Packets, #state{serialize = Serialize, mqtt_piggyback = Piggyback}) ->
+serialize_and_inc_stats(Packets, #state{serialize = Serialize, mqtt_piggyback = Piggyback} = State) ->
     try
-        serialize_and_inc_stats(Packets, Serialize, Piggyback)
+        serialize_and_inc_stats(Packets, Serialize, Piggyback, State)
     catch
         %% Maybe Never happen.
         throw:{?FRAME_SERIALIZE_ERROR, Reason} ->
@@ -722,14 +730,14 @@ serialize_and_inc_stats(Packets, #state{serialize = Serialize, mqtt_piggyback = 
             erlang:error(?FRAME_SERIALIZE_ERROR)
     end.
 
-serialize_and_inc_stats(Packet, Serialize, _) when is_tuple(Packet) ->
-    {binary, serialize_packet_and_inc_stats(Packet, Serialize)};
-serialize_and_inc_stats(Packets, Serialize, single) ->
-    {binary, [serialize_packet_and_inc_stats(P, Serialize) || P <- Packets]};
-serialize_and_inc_stats(Packets, Serialize, multiple) ->
-    [{binary, serialize_packet_and_inc_stats(P, Serialize)} || P <- Packets].
+serialize_and_inc_stats(Packet, Serialize, _, State) when is_tuple(Packet) ->
+    {binary, serialize_packet_and_inc_stats(Packet, Serialize, State)};
+serialize_and_inc_stats(Packets, Serialize, single, State) ->
+    {binary, [serialize_packet_and_inc_stats(P, Serialize, State) || P <- Packets]};
+serialize_and_inc_stats(Packets, Serialize, multiple, State) ->
+    [{binary, serialize_packet_and_inc_stats(P, Serialize, State)} || P <- Packets].
 
-serialize_packet_and_inc_stats(Packet, Serialize) ->
+serialize_packet_and_inc_stats(Packet, Serialize, State) ->
     case emqx_frame:serialize_pkt(Packet, Serialize) of
         <<>> ->
             ?LOG(warning, #{
@@ -739,11 +747,11 @@ serialize_packet_and_inc_stats(Packet, Serialize) ->
             }),
             ok = emqx_metrics:inc_global('delivery.dropped.too_large'),
             ok = emqx_metrics:inc_global('delivery.dropped'),
-            ok = inc_outgoing_stats({error, message_too_large}),
+            ok = inc_outgoing_stats({error, message_too_large}, State),
             <<>>;
         Data ->
             ?TRACE("WS-MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            ok = inc_outgoing_stats(Packet),
+            ok = inc_outgoing_stats(Packet, State),
             Data
     end.
 
@@ -760,20 +768,20 @@ framelist_bytesize({binary, Data}, Oct) ->
 
 -compile(
     {inline, [
-        inc_recv_stats/2,
-        inc_incoming_stats/1,
-        inc_outgoing_stats/1,
-        inc_sent_stats/2,
+        inc_recv_stats/3,
+        inc_incoming_stats/2,
+        inc_outgoing_stats/2,
+        inc_sent_stats/3,
         inc_qos_stats/2
     ]}
 ).
 
-inc_recv_stats(Cnt, Oct) ->
+inc_recv_stats(Cnt, Oct, State) ->
     _ = emqx_pd:inc_counter(recv_cnt, Cnt),
     _ = emqx_pd:inc_counter(recv_oct, Oct),
-    emqx_metrics:inc_global('bytes.received', Oct).
+    inc_metrics('bytes.received', State, Oct).
 
-inc_incoming_stats(Packet = ?PACKET(Type)) ->
+inc_incoming_stats(Packet = ?PACKET(Type), State) ->
     _ = emqx_pd:inc_counter(recv_pkt, 1),
     _ =
         case Type of
@@ -783,12 +791,12 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
             _ ->
                 ok
         end,
-    emqx_metrics:inc_recv(Packet).
+    emqx_metrics:inc_recv(Packet, State#state.namespace).
 
-inc_outgoing_stats({error, message_too_large}) ->
+inc_outgoing_stats({error, message_too_large}, _State) ->
     _ = emqx_pd:inc_counter('send_msg.dropped', 1),
     _ = emqx_pd:inc_counter('send_msg.dropped.too_large', 1);
-inc_outgoing_stats(Packet = ?PACKET(Type)) ->
+inc_outgoing_stats(Packet = ?PACKET(Type), State) ->
     _ = emqx_pd:inc_counter(send_pkt, 1),
     _ =
         case Type of
@@ -798,12 +806,12 @@ inc_outgoing_stats(Packet = ?PACKET(Type)) ->
             _ ->
                 ok
         end,
-    emqx_metrics:inc_sent(Packet).
+    emqx_metrics:inc_sent(Packet, State#state.namespace).
 
-inc_sent_stats(Cnt, Oct) ->
+inc_sent_stats(Cnt, Oct, State) ->
     _ = emqx_pd:inc_counter(send_cnt, Cnt),
     _ = emqx_pd:inc_counter(send_oct, Oct),
-    emqx_metrics:inc_global('bytes.sent', Oct).
+    inc_metrics('bytes.sent', State, Oct).
 
 inc_qos_stats(Type, Packet) ->
     case inc_qos_stats_key(Type, emqx_packet:qos(Packet)) of
@@ -886,6 +894,20 @@ get_peer(Req, #{listener := {Type, Listener}}) ->
         {Addr, list_to_integer(ClientPort)}
     catch
         _:_ -> {Addr, PeerPort}
+    end.
+
+%%--------------------------------------------------------------------
+%% Metrics
+%%--------------------------------------------------------------------
+
+inc_metrics(Name, State, Val) ->
+    case State#state.namespace of
+        ?global_ns ->
+            emqx_metrics:inc(?global_ns, Name, Val);
+        Namespace ->
+            emqx_metrics:inc(?global_ns, Name, Val),
+            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
+            ok
     end.
 
 %%--------------------------------------------------------------------

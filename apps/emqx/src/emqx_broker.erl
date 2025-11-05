@@ -250,7 +250,7 @@ publish(#message{} = Msg) ->
 -spec publish(emqx_types:message(), publish_opts()) -> emqx_types:publish_result().
 publish(#message{} = Msg, Opts) ->
     _ = emqx_trace:publish(Msg),
-    emqx_message:is_sys(Msg) orelse emqx_metrics:inc_global('messages.publish'),
+    emqx_message:is_sys(Msg) orelse inc_metrics('messages.publish', Msg),
     case maps:get(bypass_hook, Opts, false) of
         true ->
             do_publish(Msg);
@@ -855,3 +855,20 @@ lookup_value(Tab, Key) ->
 
 lookup_value(Tab, Key, Def) ->
     ets:lookup_element(Tab, Key, 2, Def).
+
+get_namespace(#message{headers = #{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Namespace}}}) when
+    is_binary(Namespace)
+->
+    Namespace;
+get_namespace(_Msg) ->
+    undefined.
+
+inc_metrics(Name, Msg) ->
+    emqx_metrics:inc_global(Name),
+    case get_namespace(Msg) of
+        Namespace when is_binary(Namespace) ->
+            _ = emqx_metrics:inc_safe(Namespace, Name),
+            ok;
+        _ ->
+            ok
+    end.

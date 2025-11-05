@@ -131,7 +131,13 @@ t_chan_caps(_) ->
 
 t_handle_in_connect_packet_success(_) ->
     IdleChannel = channel(#{conn_state => idle}),
-    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+    {continue,
+        [
+            {event, {set_namespace, _}},
+            {event, connected},
+            {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}
+        ],
+        Channel} =
         emqx_channel:handle_in(?CONNECT_PACKET(connpkt()), IdleChannel),
     ClientInfo = emqx_channel:info(clientinfo, Channel),
     ?assertMatch(
@@ -170,20 +176,36 @@ t_handle_in_extended_reauthentication(_) ->
             properties = Properties
         },
         PacketIn0 = ?CONNECT_PACKET(ConnPkt1),
-        {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel1} =
+        {continue,
+            [
+                {event, {set_namespace, _}},
+                {event, connected},
+                {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}
+            ],
+            Channel1} =
             emqx_channel:handle_in(PacketIn0, Channel0),
         %% Then, client triggers reauthentication.  Channel state becomes
         %% reauthenticating.  The authentication backend returns `{continue, _}`.
         ok = emqx_utils_agent:set(Agent, {stop, {continue, #{}}}),
         PacketIn1 = ?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties),
-        {ok, ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION), Channel2} =
+        {ok,
+            [
+                {event, {set_namespace, _}},
+                {outgoing, ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION)}
+            ],
+            Channel2} =
             emqx_channel:handle_in(PacketIn1, Channel1),
         ?assertEqual(reauthenticating, emqx_channel:info(conn_state, Channel2)),
         %% Now, the client continues the auth process.  It should not takeover the session
         %% from itself.
         ok = emqx_utils_agent:set(Agent, {stop, ok}),
         PacketIn2 = ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties),
-        {ok, ?AUTH_PACKET(?RC_SUCCESS), _Channel3} =
+        {ok,
+            [
+                {event, {set_namespace, _}},
+                {outgoing, ?AUTH_PACKET(?RC_SUCCESS)}
+            ],
+            _Channel3} =
             emqx_channel:handle_in(PacketIn2, Channel2),
         ok
     after
@@ -227,7 +249,13 @@ t_handle_in_continue_auth(_) ->
     ConnInfo = emqx_channel:info(conninfo, Channel2),
     Channel3 = emqx_channel:set_field(conninfo, ConnInfo#{conn_props => Properties}, Channel2),
 
-    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _} =
+    {continue,
+        [
+            {event, {set_namespace, _}},
+            {event, connected},
+            {connack, ?CONNACK_PACKET(?RC_SUCCESS)}
+        ],
+        _} =
         emqx_channel:handle_in(
             ?AUTH_PACKET(?RC_CONTINUE_AUTHENTICATION, Properties), Channel3
         ).
@@ -262,7 +290,12 @@ t_handle_in_re_auth(_) ->
     ConnInfo = emqx_channel:info(conninfo, Channel1),
     Channel2 = emqx_channel:set_field(conninfo, ConnInfo#{conn_props => Properties}, Channel1),
 
-    {ok, ?AUTH_PACKET(?RC_SUCCESS), _} =
+    {ok,
+        [
+            {event, {set_namespace, _}},
+            {outgoing, ?AUTH_PACKET(?RC_SUCCESS)}
+        ],
+        _} =
         emqx_channel:handle_in(
             ?AUTH_PACKET(?RC_RE_AUTHENTICATE, Properties), Channel2
         ).
@@ -365,7 +398,7 @@ t_override_client_receive_maximum(_) ->
     emqx_config:put_zone_conf(default, [mqtt, max_inflight], 0),
     C1 = channel(#{conn_state => idle}),
     ClientCapacity = 2,
-    {_Continue, [{event, connected}, _ConnAck], C2} =
+    {_Continue, [{event, {set_namespace, _}}, {event, connected}, _ConnAck], C2} =
         emqx_channel:handle_in(
             ?CONNECT_PACKET(connpkt(#{'Receive-Maximum' => ClientCapacity})),
             C1
@@ -519,7 +552,13 @@ t_handle_in_expected_packet(_) ->
 
 t_process_connect(_) ->
     mock_cm_open_session(),
-    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS)}], _Chan} =
+    {continue,
+        [
+            {event, {set_namespace, _}},
+            {event, connected},
+            {connack, ?CONNACK_PACKET(?RC_SUCCESS)}
+        ],
+        _Chan} =
         emqx_channel:post_process_connect(#{}, channel(#{conn_state => idle})).
 
 t_process_publish_qos0(_) ->
@@ -677,7 +716,13 @@ t_handle_out_publish_1(_) ->
         emqx_channel:handle_out(publish, [{1, Msg}], channel()).
 
 t_handle_out_connack_success(_) ->
-    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}], Channel} =
+    {continue,
+        [
+            {event, {set_namespace, _}},
+            {event, connected},
+            {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, _)}
+        ],
+        Channel} =
         emqx_channel:handle_out(connack, {?RC_SUCCESS, 0, #{}}, channel()),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
@@ -687,6 +732,7 @@ t_handle_out_connack_response_information(_) ->
     IdleChannel = channel(#{conn_state => idle}),
     {continue,
         [
+            {event, {set_namespace, _}},
             {event, connected},
             {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}
         ],
@@ -699,7 +745,13 @@ t_handle_out_connack_not_response_information(_) ->
     mock_cm_open_session(),
     emqx_config:put_zone_conf(default, [mqtt, response_information], test),
     IdleChannel = channel(#{conn_state => idle}),
-    {continue, [{event, connected}, {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}], _} =
+    {continue,
+        [
+            {event, {set_namespace, _}},
+            {event, connected},
+            {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, AckProps)}
+        ],
+        _} =
         emqx_channel:handle_in(
             ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 0})),
             IdleChannel

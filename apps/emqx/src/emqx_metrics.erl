@@ -50,11 +50,13 @@
     set/3
 ]).
 
+-export([inc_safe/2, inc_safe/3]).
+
 %% Inc received/sent metrics
 -export([
     inc_msg/1,
-    inc_recv/1,
-    inc_sent/1
+    inc_recv/2,
+    inc_sent/2
 ]).
 
 %% gen_server callbacks
@@ -76,7 +78,7 @@
 
 -compile({inline, [inc_global/1, inc_global/2, dec_global/1, dec_global/2]}).
 -compile({inline, [inc/2, inc/3, dec/2, dec/3]}).
--compile({inline, [inc_recv/1, inc_sent/1]}).
+-compile({inline, [inc_recv/2, inc_sent/2]}).
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -213,6 +215,19 @@ inc(Namespace, Name) ->
 inc(Namespace, Name, Value) ->
     update_counter(Namespace, Name, Value).
 
+-spec inc_safe(maybe_namespace(), metric_name()) -> ok | {error, not_found}.
+inc_safe(Namespace, Name) ->
+    inc_safe(Namespace, Name, 1).
+
+-spec inc_safe(maybe_namespace(), metric_name(), pos_integer()) -> ok | {error, not_found}.
+inc_safe(Namespace, Name, Value) ->
+    try
+        inc(Namespace, Name, Value)
+    catch
+        error:badarg ->
+            {error, not_found}
+    end.
+
 %% @doc Decrease metric value
 -spec dec_global(metric_name()) -> ok.
 dec_global(Name) ->
@@ -271,96 +286,124 @@ inc_msg(Msg) ->
     inc_global('messages.received').
 
 %% @doc Inc packets received.
--spec inc_recv(emqx_types:packet()) -> ok.
-inc_recv(Packet) ->
-    inc_global('packets.received'),
-    do_inc_recv(Packet).
+-spec inc_recv(emqx_types:packet(), emqx_config:maybe_namespace()) -> ok.
+inc_recv(Packet, Namespace) ->
+    inc(?global_ns, 'packets.received'),
+    do_inc_recv(Packet, ?global_ns),
+    try
+        case is_binary(Namespace) of
+            true ->
+                inc(Namespace, 'packets.received'),
+                do_inc_recv(Packet, Namespace);
+            false ->
+                ok
+        end
+    catch
+        error:badarg ->
+            %% Not an explicitly managed namespace or race condition while creating or
+            %% deleting namespace.
+            ok
+    end.
 
-do_inc_recv(?PACKET(?CONNECT)) ->
-    inc_global('packets.connect.received');
-do_inc_recv(?PUBLISH_PACKET(QoS)) ->
-    inc_global('messages.received'),
+do_inc_recv(?PACKET(?CONNECT), Namespace) ->
+    inc(Namespace, 'packets.connect.received');
+do_inc_recv(?PUBLISH_PACKET(QoS), Namespace) ->
+    inc(Namespace, 'messages.received'),
     case QoS of
-        ?QOS_0 -> inc_global('messages.qos0.received');
-        ?QOS_1 -> inc_global('messages.qos1.received');
-        ?QOS_2 -> inc_global('messages.qos2.received');
+        ?QOS_0 -> inc(Namespace, 'messages.qos0.received');
+        ?QOS_1 -> inc(Namespace, 'messages.qos1.received');
+        ?QOS_2 -> inc(Namespace, 'messages.qos2.received');
         _other -> ok
     end,
-    inc_global('packets.publish.received');
-do_inc_recv(?PACKET(?PUBACK)) ->
-    inc_global('packets.puback.received');
-do_inc_recv(?PACKET(?PUBREC)) ->
-    inc_global('packets.pubrec.received');
-do_inc_recv(?PACKET(?PUBREL)) ->
-    inc_global('packets.pubrel.received');
-do_inc_recv(?PACKET(?PUBCOMP)) ->
-    inc_global('packets.pubcomp.received');
-do_inc_recv(?PACKET(?SUBSCRIBE)) ->
-    inc_global('packets.subscribe.received');
-do_inc_recv(?PACKET(?UNSUBSCRIBE)) ->
-    inc_global('packets.unsubscribe.received');
-do_inc_recv(?PACKET(?PINGREQ)) ->
-    inc_global('packets.pingreq.received');
-do_inc_recv(?PACKET(?DISCONNECT)) ->
-    inc_global('packets.disconnect.received');
-do_inc_recv(?PACKET(?AUTH)) ->
-    inc_global('packets.auth.received');
-do_inc_recv(_Packet) ->
+    inc(Namespace, 'packets.publish.received');
+do_inc_recv(?PACKET(?PUBACK), Namespace) ->
+    inc(Namespace, 'packets.puback.received');
+do_inc_recv(?PACKET(?PUBREC), Namespace) ->
+    inc(Namespace, 'packets.pubrec.received');
+do_inc_recv(?PACKET(?PUBREL), Namespace) ->
+    inc(Namespace, 'packets.pubrel.received');
+do_inc_recv(?PACKET(?PUBCOMP), Namespace) ->
+    inc(Namespace, 'packets.pubcomp.received');
+do_inc_recv(?PACKET(?SUBSCRIBE), Namespace) ->
+    inc(Namespace, 'packets.subscribe.received');
+do_inc_recv(?PACKET(?UNSUBSCRIBE), Namespace) ->
+    inc(Namespace, 'packets.unsubscribe.received');
+do_inc_recv(?PACKET(?PINGREQ), Namespace) ->
+    inc(Namespace, 'packets.pingreq.received');
+do_inc_recv(?PACKET(?DISCONNECT), Namespace) ->
+    inc(Namespace, 'packets.disconnect.received');
+do_inc_recv(?PACKET(?AUTH), Namespace) ->
+    inc(Namespace, 'packets.auth.received');
+do_inc_recv(_Packet, _Namespace) ->
     ok.
 
 %% @doc Inc packets sent. Will not count $SYS PUBLISH.
--spec inc_sent(emqx_types:packet()) -> ok.
-inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _)) ->
+-spec inc_sent(emqx_types:packet(), emqx_config:maybe_namespace()) -> ok.
+inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _), _Namespace) ->
     ok;
-inc_sent(Packet) ->
-    inc_global('packets.sent'),
-    do_inc_sent(Packet).
+inc_sent(Packet, Namespace) ->
+    inc(?global_ns, 'packets.sent'),
+    do_inc_sent(Packet, ?global_ns),
+    try
+        case is_binary(Namespace) of
+            true ->
+                inc(Namespace, 'packets.sent'),
+                do_inc_sent(Packet, Namespace);
+            false ->
+                ok
+        end
+    catch
+        error:badarg ->
+            %% Not an explicitly managed namespace or race condition while creating or
+            %% deleting namespace.
+            ok
+    end.
 
-do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent)) ->
-    (ReasonCode == ?RC_SUCCESS) orelse inc_global('packets.connack.error'),
+do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent), Namespace) ->
+    (ReasonCode == ?RC_SUCCESS) orelse inc(Namespace, 'packets.connack.error'),
     ((ReasonCode == ?RC_NOT_AUTHORIZED) orelse
         (ReasonCode == ?CONNACK_AUTH)) andalso
-        inc_global('packets.connack.auth_error'),
+        inc(Namespace, 'packets.connack.auth_error'),
     ((ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD) orelse
         (ReasonCode == ?CONNACK_CREDENTIALS)) andalso
-        inc_global('packets.connack.auth_error'),
-    inc_global('packets.connack.sent');
-do_inc_sent(?PUBLISH_PACKET(QoS)) ->
-    inc_global('messages.sent'),
+        inc(Namespace, 'packets.connack.auth_error'),
+    inc(Namespace, 'packets.connack.sent');
+do_inc_sent(?PUBLISH_PACKET(QoS), Namespace) ->
+    inc(Namespace, 'messages.sent'),
     case QoS of
-        ?QOS_0 -> inc_global('messages.qos0.sent');
-        ?QOS_1 -> inc_global('messages.qos1.sent');
-        ?QOS_2 -> inc_global('messages.qos2.sent');
+        ?QOS_0 -> inc(Namespace, 'messages.qos0.sent');
+        ?QOS_1 -> inc(Namespace, 'messages.qos1.sent');
+        ?QOS_2 -> inc(Namespace, 'messages.qos2.sent');
         _other -> ok
     end,
-    inc_global('packets.publish.sent');
-do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode)) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc_global('packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc_global('packets.publish.auth_error'),
-    inc_global('packets.puback.sent');
-do_inc_sent(?PUBREC_PACKET(_PacketId, ReasonCode)) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc_global('packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc_global('packets.publish.auth_error'),
-    inc_global('packets.pubrec.sent');
-do_inc_sent(?PACKET(?PUBREL)) ->
-    inc_global('packets.pubrel.sent');
-do_inc_sent(?PACKET(?PUBCOMP)) ->
-    inc_global('packets.pubcomp.sent');
-do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes)) ->
+    inc(Namespace, 'packets.publish.sent');
+do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode), Namespace) ->
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc(Namespace, 'packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc(Namespace, 'packets.publish.auth_error'),
+    inc(Namespace, 'packets.puback.sent');
+do_inc_sent(?PUBREC_PACKET(_PacketId, ReasonCode), Namespace) ->
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc(Namespace, 'packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc(Namespace, 'packets.publish.auth_error'),
+    inc(Namespace, 'packets.pubrec.sent');
+do_inc_sent(?PACKET(?PUBREL), Namespace) ->
+    inc(Namespace, 'packets.pubrel.sent');
+do_inc_sent(?PACKET(?PUBCOMP), Namespace) ->
+    inc(Namespace, 'packets.pubcomp.sent');
+do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes), Namespace) ->
     lists:any(fun(Code) -> Code >= ?RC_UNSPECIFIED_ERROR end, ReasonCodes) andalso
-        inc_global('packets.subscribe.error'),
+        inc(Namespace, 'packets.subscribe.error'),
     lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) andalso
-        inc_global('packets.subscribe.auth_error'),
-    inc_global('packets.suback.sent');
-do_inc_sent(?PACKET(?UNSUBACK)) ->
-    inc_global('packets.unsuback.sent');
-do_inc_sent(?PACKET(?PINGRESP)) ->
-    inc_global('packets.pingresp.sent');
-do_inc_sent(?PACKET(?DISCONNECT)) ->
-    inc_global('packets.disconnect.sent');
-do_inc_sent(?PACKET(?AUTH)) ->
-    inc_global('packets.auth.sent');
-do_inc_sent(_Packet) ->
+        inc(Namespace, 'packets.subscribe.auth_error'),
+    inc(Namespace, 'packets.suback.sent');
+do_inc_sent(?PACKET(?UNSUBACK), Namespace) ->
+    inc(Namespace, 'packets.unsuback.sent');
+do_inc_sent(?PACKET(?PINGRESP), Namespace) ->
+    inc(Namespace, 'packets.pingresp.sent');
+do_inc_sent(?PACKET(?DISCONNECT), Namespace) ->
+    inc(Namespace, 'packets.disconnect.sent');
+do_inc_sent(?PACKET(?AUTH), Namespace) ->
+    inc(Namespace, 'packets.auth.sent');
+do_inc_sent(_Packet, _Namespace) ->
     ok.
 
 %%--------------------------------------------------------------------

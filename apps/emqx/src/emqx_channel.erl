@@ -13,6 +13,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
+-include("emqx_config.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -217,7 +218,9 @@ info(timers, #channel{timers = Timers}) ->
 info(session_state, #channel{session = Session}) ->
     Session;
 info(impl, #channel{session = Session}) ->
-    emqx_session:info(impl, Session).
+    emqx_session:info(impl, Session);
+info(namespace, #channel{clientinfo = ClientInfo}) ->
+    get_tenant_namespace(ClientInfo).
 
 inspect(#channel{} = Channel) ->
     lists:foldl(
@@ -1376,8 +1379,9 @@ handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) -
 handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, ?REPLY_CLOSE(ReasonName), Channel};
 handle_out(auth, {ReasonCode, Properties}, Channel0) ->
-    Replies0 = ?AUTH_PACKET(ReasonCode, Properties),
-    {Replies, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    Replies0 = {outgoing, ?AUTH_PACKET(ReasonCode, Properties)},
+    {Replies1, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    Replies = add_set_namespace_event(Replies1, Channel),
     {ok, Replies, Channel};
 handle_out(Type, Data, Channel) ->
     ?SLOG(error, #{msg => "unexpected_outgoing", type => Type, data => Data}),
@@ -1390,7 +1394,8 @@ handle_out(Type, Data, Channel) ->
 return_connack(?CONNACK_PACKET(_RC, _SessPresent) = AckPacket, Channel0) ->
     ?EXT_TRACE_ADD_ATTRS(#{'client.connack.reason_code' => _RC}),
     Replies0 = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
-    {Replies, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    {Replies1, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    Replies = add_set_namespace_event(Replies1, Channel),
     {continue, Replies, Channel}.
 
 maybe_add_zone_changed_event(Replies, #channel{clientinfo = ClientInfo0} = Channel0) ->
@@ -1398,10 +1403,23 @@ maybe_add_zone_changed_event(Replies, #channel{clientinfo = ClientInfo0} = Chann
         #{old_zone := _, zone := NewZone} ->
             ClientInfo = maps:remove(old_zone, ClientInfo0),
             Channel = Channel0#channel{clientinfo = ClientInfo},
-            {[?REPLY_EVENT({zone_changed, NewZone}) | Replies], Channel};
+            {[?REPLY_EVENT({zone_changed, NewZone}) | wrap_list(Replies)], Channel};
         _ ->
             {Replies, Channel0}
     end.
+
+add_set_namespace_event(Replies, #channel{clientinfo = ClientInfo}) ->
+    case get_tenant_namespace(ClientInfo) of
+        undefined ->
+            [?REPLY_EVENT({set_namespace, ?global_ns}) | wrap_list(Replies)];
+        Namespace ->
+            [?REPLY_EVENT({set_namespace, Namespace}) | wrap_list(Replies)]
+    end.
+
+wrap_list(Xs) when is_list(Xs) ->
+    Xs;
+wrap_list(X) ->
+    [X].
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client

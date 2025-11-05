@@ -159,7 +159,7 @@ dgram_recv(_Conn, _Bin, _Flag, S) ->
     {ok, S}.
 
 %% @doc callback for handling orphan data streams
-%%      depends on the connecion state and control stream state.
+%%      depends on the connection state and control stream state.
 -spec new_stream(quicer:stream_handle(), quicer:new_stream_props(), cb_state()) -> cb_ret().
 new_stream(
     Stream,
