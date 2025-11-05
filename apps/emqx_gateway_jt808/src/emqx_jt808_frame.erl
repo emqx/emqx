@@ -34,7 +34,8 @@
 
 -type parser_state() :: #{
     data => binary(),
-    phase => phase()
+    phase => phase(),
+    opts => map()
 }.
 
 -export_type([frame/0]).
@@ -44,8 +45,8 @@
 %%--------------------------------------------------------------------
 
 -spec initial_parse_state(map()) -> parser_state().
-initial_parse_state(_) ->
-    #{data => <<>>, phase => searching_head_hex7e}.
+initial_parse_state(Opts) ->
+    #{data => <<>>, phase => searching_head_hex7e, opts => Opts}.
 
 -spec serialize_opts() -> emqx_gateway_frame:serialize_options().
 serialize_opts() ->
@@ -93,10 +94,12 @@ escape_head_hex7e(Rest, State = #{data := _Acc, phase := escaping_hex7d}) ->
     %% continue parsing to escape 0x7d
     escape_frame(Rest, State).
 
-escape_frame(Rest, State = #{data := Acc}) ->
+escape_frame(Rest, State = #{data := Acc, opts := Opts}) ->
     case do_escape_frame(Rest, Acc) of
         {ok, Msg, NRest} ->
-            {ok, parse_message(Msg), NRest, State#{data => <<>>, phase => searching_head_hex7e}};
+            {ok, parse_message(Msg, Opts), NRest, State#{
+                data => <<>>, phase => searching_head_hex7e
+            }};
         {more_data_follow, NRest} ->
             {more, #{data => NRest, phase => escaping_hex7d}}
     end.
@@ -124,10 +127,28 @@ do_escape_frame(<<Byte:8, Rest/binary>>, Acc) ->
 do_escape_frame(<<>>, Acc) ->
     {more_data_follow, Acc}.
 
-parse_message(Binary) ->
+parse_message(Binary, Opts) ->
     case parse_message_header(Binary) of
         {ok, Header = #{<<"msg_id">> := MsgId}, RestBinary} ->
-            #{<<"header">> => Header, <<"body">> => parse_message_body(MsgId, RestBinary)};
+            Body =
+                try
+                    parse_message_body(MsgId, RestBinary)
+                catch
+                    error:unknown_message_id ->
+                        case maps:get(parse_unknown_message, Opts, true) of
+                            true ->
+                                #{
+                                    <<"unknown_id">> => true,
+                                    <<"data">> => base64:encode(RestBinary)
+                                };
+                            false ->
+                                ?SLOG(error, #{
+                                    msg => "unknown_message_id", id => MsgId, msg_body => RestBinary
+                                }),
+                                error(invalid_message)
+                        end
+                end,
+            #{<<"header">> => Header, <<"body">> => Body};
         invalid_message ->
             error(invalid_message)
     end.
@@ -294,9 +315,8 @@ parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>) ->
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
 parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>) ->
     #{<<"e">> => E, <<"n">> => base64:encode(N)};
-parse_message_body(UnknownId, Binary) ->
-    ?SLOG(error, #{msg => "unknow_message_id", id => UnknownId, msg_body => Binary}),
-    error(invalid_message).
+parse_message_body(_, _) ->
+    error(unknown_message_id).
 
 parse_client_params(<<Count:?BYTE, Rest/binary>>) ->
     {Count, parse_client_params2(Count, Rest, [])}.
