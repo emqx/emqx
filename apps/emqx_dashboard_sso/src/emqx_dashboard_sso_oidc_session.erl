@@ -25,6 +25,9 @@
 
 -export([new/1, delete/1, lookup/1, random_bin/0, random_bin/1]).
 
+%% test/debug only
+-export([all/0]).
+
 -define(TAB, ?MODULE).
 
 -record(?TAB, {
@@ -44,7 +47,8 @@
 start_link(Cfg) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Cfg, []).
 
-start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0}) ->
+start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0} = Config) ->
+    RequestOpts = mk_request_opts(Config),
     case
         emqx_dashboard_sso_oidc_sup:start_child(
             oidcc_provider_configuration_worker,
@@ -54,7 +58,10 @@ start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0}) ->
                     name => {local, Name},
                     backoff_min => ?BACKOFF_MIN,
                     backoff_max => ?BACKOFF_MAX,
-                    backoff_type => random
+                    backoff_type => random,
+                    provider_configuration_opts => #{
+                        request_opts => RequestOpts
+                    }
                 }
             ]
         )
@@ -106,6 +113,13 @@ random_bin() ->
 
 random_bin(Len) ->
     emqx_utils_conv:bin(emqx_utils:gen_id(Len)).
+
+%% test/debug only
+all() ->
+    [
+        #{state => State, created_at => CreatedAt, data => Data}
+     || #?TAB{state = State, created_at = CreatedAt, data = Data} <- ets:tab2list(?TAB)
+    ].
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -167,3 +181,13 @@ new_state() ->
 
 tick_session_expiry(#{session_expiry := SessionExpiry}) ->
     erlang:send_after(SessionExpiry, self(), tick_session_expiry).
+
+mk_request_opts(#{ssl := SSLOpts0} = _Config) ->
+    case emqx_tls_lib:to_client_opts(SSLOpts0) of
+        [] ->
+            #{};
+        SSLOpts ->
+            #{ssl => SSLOpts}
+    end;
+mk_request_opts(_Config) ->
+    #{}.

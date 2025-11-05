@@ -28,6 +28,7 @@
     deep_put/3,
     deep_remove/2,
     diff_maps/2,
+    get_lazy/3,
     if_only_to_toggle_enable/2,
     indent/3,
     jsonable_map/1,
@@ -351,3 +352,10 @@ unindent(Key, Map) ->
         maps:remove(Key, Map),
         maps:get(Key, Map, #{})
     ).
+
+-spec get_lazy(term(), map(), fun(() -> term())) -> term().
+get_lazy(Key, Map, DefFn) ->
+    case maps:find(Key, Map) of
+        {ok, Val} -> Val;
+        error -> DefFn()
+    end.
