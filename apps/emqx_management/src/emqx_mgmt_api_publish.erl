@@ -41,7 +41,6 @@ schema("/publish") ->
     #{
         'operationId' => publish,
         post => #{
-            summary => <<"Publish a message">>,
             description => ?DESC(publish_api),
             tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, publish_message)),
@@ -190,7 +189,7 @@ fields(bad_request) ->
     [
         {code,
             hoconsc:mk(string(), #{
-                desc => <<"BAD_REQUEST">>,
+                desc => ?DESC("bad_request_code"),
                 example => ?RC_TOPIC_NAME_INVALID
             })},
         {message,
