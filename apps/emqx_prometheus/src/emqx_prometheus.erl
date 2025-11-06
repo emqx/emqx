@@ -26,6 +26,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_instr.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds_metrics.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 %% APIs
 -export([start_link/1, info/0]).
@@ -212,6 +213,12 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, emqx_packet_metric_meta(), ?MG(emqx_packet_data, RawData)),
     ok = add_collect_family(Callback, message_metric_meta(), ?MG(emqx_message_data, RawData)),
+
+    ok = add_collect_family(
+        Callback, emqx_packet_metric_ns_meta(), ?MG(emqx_packet_data_ns, RawData)
+    ),
+    ok = add_collect_family(Callback, message_metric_ns_meta(), ?MG(emqx_message_data_ns, RawData)),
+
     ok = add_collect_family(Callback, delivery_metric_meta(), ?MG(emqx_delivery_data, RawData)),
     ok = add_collect_family(Callback, client_metric_meta(), ?MG(emqx_client_data, RawData)),
     ok = add_collect_family(Callback, session_metric_meta(), ?MG(emqx_session_data, RawData)),
@@ -332,6 +339,8 @@ fetch_from_local_node(Mode) ->
         %% Metrics
         emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta(), Mode),
         emqx_message_data => emqx_metric_data(message_metric_meta(), Mode),
+        emqx_packet_data_ns => emqx_metric_data_ns(emqx_packet_metric_ns_meta(), Mode),
+        emqx_message_data_ns => emqx_metric_data_ns(message_metric_ns_meta(), Mode),
         emqx_delivery_data => emqx_metric_data(delivery_metric_meta(), Mode),
         emqx_client_data => client_metric_data(Mode),
         emqx_session_data => emqx_metric_data(session_metric_meta(), Mode),
@@ -358,6 +367,8 @@ aggre_or_zip_init_acc() ->
         cluster_data => meta_to_init_from(cluster_metric_meta()),
         emqx_packet_data => meta_to_init_from(emqx_packet_metric_meta()),
         emqx_message_data => meta_to_init_from(message_metric_meta()),
+        emqx_packet_data_ns => meta_to_init_from(emqx_packet_metric_ns_meta()),
+        emqx_message_data_ns => meta_to_init_from(message_metric_ns_meta()),
         emqx_delivery_data => meta_to_init_from(delivery_metric_meta()),
         emqx_client_data => meta_to_init_from(client_metric_meta()),
         emqx_session_data => meta_to_init_from(session_metric_meta()),
@@ -747,6 +758,32 @@ emqx_metric_data(MetricNameTypeKeyL, Mode, Acc) ->
         MetricNameTypeKeyL
     ).
 
+emqx_metric_data_ns(MetricSpecs, Mode) ->
+    NsToMetrics = emqx_metrics:all_ns(),
+    lists:foldl(
+        fun
+            ({_Name, _Type, undefined}, AccIn) ->
+                AccIn;
+            ({Name, _Type, MetricKAtom}, AccIn) ->
+                AccIn#{Name => emqx_metric_data_ns1(MetricKAtom, NsToMetrics, Mode)}
+        end,
+        #{},
+        MetricSpecs
+    ).
+
+emqx_metric_data_ns1(MetricKAtom, NsToMetrics, Mode) ->
+    maps:fold(
+        fun
+            (?global_ns, _Metrics, Acc) ->
+                Acc;
+            (Namespace, Metrics, Acc) ->
+                Labels = [{namespace, Namespace}],
+                [{with_node_label(Mode, Labels), ?C(MetricKAtom, Metrics)} | Acc]
+        end,
+        [],
+        NsToMetrics
+    ).
+
 client_metric_data(Mode) ->
     Acc = listener_shutdown_counts(Mode),
     emqx_metric_data(client_metric_meta(), Mode, Acc).
@@ -860,6 +897,9 @@ emqx_packet_metric_meta() ->
         {emqx_packets_auth_sent, counter, 'packets.auth.sent'}
     ].
 
+emqx_packet_metric_ns_meta() ->
+    emqx_packet_metric_meta().
+
 %%==========
 %% Messages
 message_metric_meta() ->
@@ -884,6 +924,9 @@ message_metric_meta() ->
         {emqx_messages_delivered, counter, 'messages.delivered'},
         {emqx_messages_acked, counter, 'messages.acked'}
     ].
+
+message_metric_ns_meta() ->
+    message_metric_meta().
 
 %%==========
 %% Delivery

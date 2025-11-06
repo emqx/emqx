@@ -14,6 +14,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_mt.hrl").
+-include_lib("../../emqx_prometheus/include/emqx_prometheus.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -38,6 +39,7 @@
 ).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 -define(ALARM, <<"invalid_namespaced_configs">>).
 
@@ -411,6 +413,108 @@ assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, Client
     ?assert(0 < emqx_metrics:val_global('bytes.sent')),
     ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
     ok.
+
+mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
+    AppSpecs = [
+        {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
+        emqx_mt,
+        emqx_prometheus,
+        emqx_management
+    ],
+    MkDashApp = fun(N) ->
+        Port = 18083 + N - 1,
+        PortStr = integer_to_list(Port),
+        [
+            emqx_mgmt_api_test_util:emqx_dashboard(
+                "dashboard.listeners.http.bind = " ++ PortStr
+            )
+        ]
+    end,
+    NodeSpecs0 = lists:map(
+        fun(N) ->
+            Name = mk_node_name(TestCase, N),
+            {Name, #{apps => AppSpecs ++ MkDashApp(N)}}
+        end,
+        lists:seq(1, NumNodes)
+    ),
+    Nodes = emqx_cth_cluster:start(
+        NodeSpecs0,
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    ),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
+    Nodes.
+
+mk_node_name(TestCase, N) ->
+    Name0 = iolist_to_binary([atom_to_binary(TestCase), "_", integer_to_binary(N)]),
+    binary_to_atom(Name0).
+
+get_prometheus_stats(Format, Mode) ->
+    Headers =
+        case Format of
+            json -> [{"accept", "application/json"}];
+            prometheus -> []
+        end,
+    QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
+    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
+    {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => URL,
+        query_params => QueryString,
+        extra_headers => Headers,
+        auth_header => {"no", "auth"}
+    }),
+    case Format of
+        json ->
+            {Status, Response};
+        prometheus ->
+            {Status, parse_prometheus(Response)}
+    end.
+
+parse_prometheus(RawData) ->
+    lists:foldl(
+        fun
+            (<<"#", _/binary>>, Acc) ->
+                Acc;
+            (Line, Acc) ->
+                {Name, Labels, Value} = parse_prometheus_line(Line),
+                maps:update_with(
+                    Name,
+                    fun(Old) -> Old#{Labels => Value} end,
+                    #{Labels => Value},
+                    Acc
+                )
+        end,
+        #{},
+        binary:split(iolist_to_binary(RawData), <<"\n">>, [global, trim_all])
+    ).
+
+parse_prometheus_line(Line) ->
+    RE = <<"(?<name>[a-z0-9A-Z_]+)(\\{(?<labels>[^)]*)\\})? *(?<value>[0-9]+(\\.[0-9]+)?)">>,
+    {match, [Name, Labels0, Value0]} = re:run(
+        Line, RE, [{capture, [<<"name">>, <<"labels">>, <<"value">>], binary}]
+    ),
+    Labels = parse_prometheus_labels(Labels0),
+    Value =
+        try
+            binary_to_float(Value0)
+        catch
+            error:badarg ->
+                binary_to_integer(Value0)
+        end,
+    {Name, Labels, Value}.
+
+parse_prometheus_labels(<<"">>) ->
+    #{};
+parse_prometheus_labels(Labels) ->
+    lists:foldl(
+        fun(Label, Acc) ->
+            [K, V0] = binary:split(Label, <<"=">>),
+            V = binary:replace(V0, <<"\"">>, <<"">>, [global]),
+            Acc#{K => V}
+        end,
+        #{},
+        binary:split(Labels, <<",">>, [global])
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1027,4 +1131,71 @@ t_namespaced_metrics_channel_implicit_quic(TCConfig) when is_list(TCConfig) ->
         emqtt:publish_via(Client, PubVia, Topic, #{}, <<"hey1">>, [{qos, 1}])
     end,
     assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
+    ok.
+
+t_namespaced_metrics_prometheus({init, TCConfig}) ->
+    Nodes = mk_cluster(?FUNCTION_NAME, #{n => 1}, TCConfig),
+    ?ON_ALL(Nodes, begin
+        meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+        meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
+    end),
+    [{nodes, Nodes} | TCConfig];
+t_namespaced_metrics_prometheus({'end', _TCConfig}) ->
+    ok;
+t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
+    [N | _] = ?config(nodes, TCConfig),
+    Namespace = <<"explicit_ns">>,
+    ok = ?ON(N, emqx_mt_config:create_managed_ns(Namespace)),
+
+    %% Generate some traffic for namespaced metrics
+    Port = emqx_mt_api_SUITE:get_mqtt_tcp_port(N),
+    ClientId = ?NEW_CLIENTID(),
+    Opts0 = #{clientid => ClientId, username => Namespace, port => Port},
+    Opts1 = connect_opts_of(TCConfig),
+    Opts = maps:merge(Opts1, Opts0),
+    C1 = connect(Opts),
+    Topic = <<"t">>,
+    {ok, _, _} = emqtt:subscribe(C1, Topic, [{qos, 1}]),
+    emqtt:publish(C1, Topic, <<"hey!">>, [{qos, 1}]),
+    ?assertReceive({publish, _}),
+
+    %% Check prometheus
+    GlobalLabel0 = #{<<"node">> => atom_to_binary(N)},
+    NsLabel0 = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace},
+    {200, Metrics0} = get_prometheus_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED),
+    SampleMetrics = [
+        <<"emqx_messages_received">>,
+        <<"emqx_messages_sent">>,
+        <<"emqx_packets_received">>,
+        <<"emqx_packets_sent">>
+    ],
+    ?assertMatch(
+        #{
+            <<"emqx_messages_received">> := #{GlobalLabel0 := 1, NsLabel0 := 1},
+            <<"emqx_messages_sent">> := #{GlobalLabel0 := 1, NsLabel0 := 1},
+            <<"emqx_packets_received">> := #{GlobalLabel0 := N1, NsLabel0 := N2},
+            <<"emqx_packets_sent">> := #{GlobalLabel0 := N3, NsLabel0 := N4}
+        } when N1 > 0 andalso N2 > 0 andalso N3 > 0 andalso N4 > 0,
+        Metrics0,
+        #{sample => maps:with(SampleMetrics, Metrics0)}
+    ),
+
+    GlobalLabel1 = #{},
+    NsLabel1 = #{<<"namespace">> => Namespace},
+    {200, Metrics1} = get_prometheus_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
+    ?assertMatch(
+        #{
+            <<"emqx_messages_received">> := #{GlobalLabel1 := 1, NsLabel1 := 1},
+            <<"emqx_messages_sent">> := #{GlobalLabel1 := 1, NsLabel1 := 1},
+            <<"emqx_packets_received">> := #{GlobalLabel1 := N1, NsLabel1 := N2},
+            <<"emqx_packets_sent">> := #{GlobalLabel1 := N3, NsLabel1 := N4}
+        } when N1 > 0 andalso N2 > 0 andalso N3 > 0 andalso N4 > 0,
+        Metrics1,
+        #{sample => maps:with(SampleMetrics, Metrics1)}
+    ),
+
+    %% checking only that json response doesn't crash
+    ?assertMatch({200, _}, get_prometheus_stats(json, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED)),
+    ?assertMatch({200, _}, get_prometheus_stats(json, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)),
+
     ok.

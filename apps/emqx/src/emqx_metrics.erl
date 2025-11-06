@@ -39,6 +39,7 @@
 ]).
 
 -export([register_namespace/1, unregister_namespace/1]).
+-export([all_ns/0]).
 
 -export([
     all/1,
@@ -174,6 +175,24 @@ all(Namespace) ->
         {Name, counters:get(CRef, Idx)}
      || #metric{name = Name, idx = Idx} <- ets:tab2list(?TAB)
     ].
+
+-spec all_ns() -> #{maybe_namespace() => [{metric_name(), non_neg_integer()}]}.
+all_ns() ->
+    RegisteredMetrics = ets:tab2list(?TAB),
+    lists:foldl(
+        fun
+            ({?PT_KEY(Namespace), CRef}, Acc) ->
+                Metrics = [
+                    {Name, counters:get(CRef, Idx)}
+                 || #metric{name = Name, idx = Idx} <- RegisteredMetrics
+                ],
+                Acc#{Namespace => Metrics};
+            (_, Acc) ->
+                Acc
+        end,
+        #{},
+        persistent_term:get()
+    ).
 
 %% @doc Get metric value
 -spec val_global(metric_name()) -> non_neg_integer().
