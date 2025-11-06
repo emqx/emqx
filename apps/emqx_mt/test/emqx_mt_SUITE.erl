@@ -338,6 +338,80 @@ do_delete_all_namespaces(LastNs) ->
             do_delete_all_namespaces(NewLastNs)
     end.
 
+assert_namespaced_metrics_channel_explicit(Namespace, ClientId, TCConfig, ClientSubPubFn) ->
+    %% Fresh namespace with no metrics.
+    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
+    ?assertEqual(0, emqx_metrics:val_global('packets.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.received')),
+
+    %% Connect the client and trigger some activity.
+    Opts0 = #{clientid => ClientId, username => Namespace},
+    Opts1 = connect_opts_of(TCConfig),
+    Opts = maps:merge(Opts1, Opts0),
+    C1 = connect(Opts),
+    %% Sanity check
+    assert_client_connection_consistent(C1, TCConfig),
+    Topic = <<"t">>,
+    ClientSubPubFn(C1, Topic),
+    ?assertReceive({publish, _}),
+    %% Both global and namespaced metrics should be bumped.
+    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.received')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.sent')),
+    ?assert(0 < emqx_metrics:val_global('packets.sent')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'packets.sent')),
+    ?assert(0 < emqx_metrics:val_global('packets.received')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'packets.received')),
+    ok.
+
+assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, ClientSubPubFn) ->
+    %% Fresh namespace with no metrics.
+    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
+
+    %% Connect the client and trigger some activity.
+    Opts0 = #{clientid => ClientId, username => Namespace},
+    Opts1 = connect_opts_of(TCConfig),
+    Opts = maps:merge(Opts1, Opts0),
+    C1 = connect(Opts),
+    %% Sanity check
+    assert_client_connection_consistent(C1, TCConfig),
+    Topic = <<"t">>,
+    ClientSubPubFn(C1, Topic),
+    ?assertReceive({publish, _}),
+    %% Only global metrics should be bumped.
+    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -874,45 +948,11 @@ t_namespaced_metrics_channel_explicit({'end', TCConfig}) ->
 t_namespaced_metrics_channel_explicit(TCConfig) when is_list(TCConfig) ->
     Namespace = ?config(explicit_ns, TCConfig),
     ClientId = ?NEW_CLIENTID(),
-    %% Fresh namespace with no metrics.
-    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
-    ?assertEqual(0, emqx_metrics:val_global('packets.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.received')),
-
-    %% Connect the client and trigger some activity.
-    Opts0 = #{clientid => ClientId, username => Namespace},
-    Opts1 = connect_opts_of(TCConfig),
-    Opts = maps:merge(Opts1, Opts0),
-    C1 = connect(Opts),
-    %% Sanity check
-    assert_client_connection_consistent(C1, TCConfig),
-    Topic = <<"t">>,
-    {ok, _, _} = emqtt:subscribe(C1, Topic, [{qos, 1}]),
-    emqtt:publish(C1, Topic, <<"hey1">>, [{qos, 1}]),
-    ?assertReceive({publish, _}),
-    %% Both global and namespaced metrics should be bumped.
-    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.received')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.sent')),
-    ?assert(0 < emqx_metrics:val_global('packets.sent')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'packets.sent')),
-    ?assert(0 < emqx_metrics:val_global('packets.received')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'packets.received')),
-
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe(Client, Topic, [{qos, 1}]),
+        emqtt:publish(Client, Topic, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_explicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
     ok.
 
 -doc """
@@ -930,39 +970,11 @@ t_namespaced_metrics_channel_implicit({'end', TCConfig}) ->
 t_namespaced_metrics_channel_implicit(TCConfig) when is_list(TCConfig) ->
     Namespace = ?NEW_USERNAME(),
     ClientId = ?NEW_CLIENTID(),
-    %% Fresh namespace with no metrics.
-    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
-
-    %% Connect the client and trigger some activity.
-    Opts0 = #{clientid => ClientId, username => Namespace},
-    Opts1 = connect_opts_of(TCConfig),
-    Opts = maps:merge(Opts1, Opts0),
-    C1 = connect(Opts),
-    %% Sanity check
-    assert_client_connection_consistent(C1, TCConfig),
-    Topic = <<"t">>,
-    {ok, _, _} = emqtt:subscribe(C1, Topic, [{qos, 1}]),
-    emqtt:publish(C1, Topic, <<"hey1">>, [{qos, 1}]),
-    ?assertReceive({publish, _}),
-    %% Only global metrics should be bumped.
-    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
-
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe(Client, Topic, [{qos, 1}]),
+        emqtt:publish(Client, Topic, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
     ok.
 
 -doc """
@@ -981,48 +993,14 @@ t_namespaced_metrics_channel_explicit_quic(TCConfig) when is_list(TCConfig) ->
     ct:timetrap({seconds, 6}),
     Namespace = ?config(explicit_ns, TCConfig),
     ClientId = ?NEW_CLIENTID(),
-    %% Fresh namespace with no metrics.
-    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
-    ?assertEqual(0, emqx_metrics:val_global('packets.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.received')),
-
-    %% Connect the client and trigger some activity.
-    Opts0 = #{clientid => ClientId, username => Namespace},
-    Opts1 = connect_opts_of(TCConfig),
-    Opts = maps:merge(Opts1, Opts0),
-    C1 = connect(Opts),
-    %% Sanity check
-    assert_client_connection_consistent(C1, TCConfig),
-    Topic = <<"t">>,
-    {ok, _, _} = emqtt:subscribe_via(C1, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, 1}]}
-    ]),
-    {ok, PubVia} = emqtt:start_data_stream(C1, []),
-    emqtt:publish_via(C1, PubVia, Topic, #{}, <<"hey1">>, [{qos, 1}]),
-    ?assertReceive({publish, _}),
-    %% Both global and namespaced metrics should be bumped.
-    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.received')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.sent')),
-    ?assert(0 < emqx_metrics:val_global('packets.sent')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'packets.sent')),
-    ?assert(0 < emqx_metrics:val_global('packets.received')),
-    ?assert(0 < emqx_metrics:val(Namespace, 'packets.received')),
-
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe_via(Client, {new_data_stream, []}, #{}, [
+            {Topic, [{qos, 1}]}
+        ]),
+        {ok, PubVia} = emqtt:start_data_stream(Client, []),
+        emqtt:publish_via(Client, PubVia, Topic, #{}, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_explicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
     ok.
 
 -doc """
@@ -1041,46 +1019,12 @@ t_namespaced_metrics_channel_implicit_quic(TCConfig) when is_list(TCConfig) ->
     ct:timetrap({seconds, 6}),
     Namespace = ?NEW_USERNAME(),
     ClientId = ?NEW_CLIENTID(),
-    %% Fresh namespace with no metrics.
-    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
-    ?assertEqual(0, emqx_metrics:val_global('packets.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.received')),
-
-    %% Connect the client and trigger some activity.
-    Opts0 = #{clientid => ClientId, username => Namespace},
-    Opts1 = connect_opts_of(TCConfig),
-    Opts = maps:merge(Opts1, Opts0),
-    C1 = connect(Opts),
-    %% Sanity check
-    assert_client_connection_consistent(C1, TCConfig),
-    Topic = <<"t">>,
-    {ok, _, _} = emqtt:subscribe_via(C1, {new_data_stream, []}, #{}, [
-        {Topic, [{qos, 1}]}
-    ]),
-    {ok, PubVia} = emqtt:start_data_stream(C1, []),
-    emqtt:publish_via(C1, PubVia, Topic, #{}, <<"hey1">>, [{qos, 1}]),
-    ?assertReceive({publish, _}),
-    %% Only global metrics should be bumped.
-    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
-    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
-    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
-    ?assert(0 < emqx_metrics:val_global('packets.sent')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
-    ?assert(0 < emqx_metrics:val_global('packets.received')),
-    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.received')),
-
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe_via(Client, {new_data_stream, []}, #{}, [
+            {Topic, [{qos, 1}]}
+        ]),
+        {ok, PubVia} = emqtt:start_data_stream(Client, []),
+        emqtt:publish_via(Client, PubVia, Topic, #{}, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
     ok.
