@@ -26,7 +26,7 @@
     on_message_acked/2,
     on_message_delivered/2,
     on_client_handle_info/3,
-    on_client_timeout/2
+    on_client_timeout/3
 ]).
 
 %% gen_server callbacks
@@ -237,11 +237,11 @@ on_client_handle_info(try_next_retained_batch, HookContext, Acc0) ->
 on_client_handle_info(_Info, _HookContext, _Acc) ->
     ok.
 
-on_client_timeout(try_next_retained_batch, Acc0) ->
+on_client_timeout(_TRef, try_next_retained_batch, Acc0) ->
     HookContext = emqx_hooks:context('client.timeout'),
     clear_try_next_retained_batch_timer(),
     handle_try_next_retained_batch(HookContext, timeout, Acc0);
-on_client_timeout(_Timer, _Acc) ->
+on_client_timeout(_TRef, _Msg, _Acc) ->
     ok.
 
 %%%===================================================================
