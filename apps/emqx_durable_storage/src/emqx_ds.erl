@@ -672,7 +672,7 @@ EMQX application.
 """.
 -spec open_db(db(), create_db_opts()) -> ok | {error, _}.
 open_db(DB, Opts) ->
-    gen_server:call(?SERVER, #call_open_db{id = DB, opts = Opts}).
+    gen_server:call(?SERVER, #call_open_db{id = DB, opts = Opts}, infinity).
 
 -doc """
 Block the process until `DB` is initialized.
