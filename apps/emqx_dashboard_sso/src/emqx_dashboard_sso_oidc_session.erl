@@ -45,6 +45,8 @@
 start_link(Cfg) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, Cfg, []).
 
+start(_Name, #{enable := false} = _Config) ->
+    ok;
 start(Name, #{issuer := Issuer, session_expiry := SessionExpiry0} = Config) ->
     RequestOpts = mk_request_opts(Config),
     case
