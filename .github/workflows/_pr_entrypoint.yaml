@@ -172,6 +172,7 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
       before_ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
       after_ref: ${{ github.sha }}
+      event_ref: ${{ github.event.inputs.ref }}
 
   run_test_cases:
     needs:
