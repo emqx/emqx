@@ -891,8 +891,15 @@ process_subscribe(SubPkt = ?SUBSCRIBE_PACKET(PacketId, _Properties, _TopicFilter
     ),
     case Pipe of
         {ok, NPkt = ?SUBSCRIBE_PACKET(_PacketId, TFChecked), Channel} ->
+            %% Run hooks and extract topic filters from the returned packet
+            ?SUBSCRIBE_PACKET(_, _, ModifiedTopicFilters) = run_sub_hooks(NPkt, Channel),
+            %% Extract only the topic filters (without reason codes) for subscription
+            TopicFiltersForSub = [
+                TopicFilter
+             || {TopicFilter, ?RC_SUCCESS} <- ModifiedTopicFilters
+            ],
             {TFSubedWithNRC, NChannel} = post_process_subscribe(
-                run_sub_hooks(NPkt, Channel), Channel
+                TopicFiltersForSub, Channel
             ),
             ReasonCodes = gen_reason_codes(TFChecked, TFSubedWithNRC),
             handle_out(suback, {PacketId, ReasonCodes}, NChannel);
@@ -2752,14 +2759,33 @@ do_check_sub_caps(ClientInfo, [TopicFilter = {{_Topic, _SubOpts}, _OtherRC} | Mo
 %% Run Subscribe Hooks
 
 run_sub_hooks(
-    ?SUBSCRIBE_PACKET(_PacketId, Properties, TopicFilters0),
+    ?SUBSCRIBE_PACKET(PacketId, Properties, TopicFilters0),
     _Channel = #channel{clientinfo = ClientInfo}
 ) ->
     TopicFilters = [
         TopicFilter
      || {TopicFilter, ?RC_SUCCESS} <- TopicFilters0
     ],
-    _NTopicFilters = run_hooks('client.subscribe', [ClientInfo, Properties], TopicFilters).
+    NTopicFilters = run_hooks('client.subscribe', [ClientInfo, Properties], TopicFilters),
+    %% Replace successful subscriptions with hook-modified ones, keep failures as-is
+    MergedTopicFilters = merge_modified_topic_filters(TopicFilters0, TopicFilters, NTopicFilters),
+    ?SUBSCRIBE_PACKET(PacketId, Properties, MergedTopicFilters).
+
+%% @private
+%% Merge hook-modified topic filters back with the original list
+%% Replaces all successful subscriptions with hook results, preserves failures
+merge_modified_topic_filters(TopicFilters0, _OriginalSuccessful, NTopicFilters) when
+    is_list(NTopicFilters)
+->
+    %% Hooks can completely change topics and options
+    %% We replace all successful subscriptions with the hook results
+    %% and append any non-SUCCESS results from the original list
+    Failures = [TF || TF = {_, RC} <- TopicFilters0, RC =/= ?RC_SUCCESS],
+    Successes = [{TF, ?RC_SUCCESS} || TF <- NTopicFilters],
+    Successes ++ Failures;
+merge_modified_topic_filters(TopicFilters0, _OriginalSuccessful, _NTopicFilters) ->
+    %% If hook didn't return a list (e.g., ignored), use original
+    TopicFilters0.
 
 %%--------------------------------------------------------------------
 %% Enrich SubOpts

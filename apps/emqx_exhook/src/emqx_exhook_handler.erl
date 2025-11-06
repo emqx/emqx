@@ -156,7 +156,18 @@ on_client_subscribe(ClientInfo, Props, TopicFilters) ->
         props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
-    emqx_exhook:cast('client.subscribe', Req).
+    case
+        emqx_exhook:call_fold(
+            'client.subscribe',
+            Req,
+            fun merge_responsed_topicfilters/2
+        )
+    of
+        {StopOrOk, #{topic_filters := NTopicFilters}} ->
+            {StopOrOk, parse_topicfilters(NTopicFilters)};
+        ignore ->
+            ignore
+    end.
 
 on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
     {UserProps, SystemProps} = format_props(Props),
@@ -166,7 +177,18 @@ on_client_unsubscribe(ClientInfo, Props, TopicFilters) ->
         props => SystemProps,
         topic_filters => topicfilters(TopicFilters)
     },
-    emqx_exhook:cast('client.unsubscribe', Req).
+    case
+        emqx_exhook:call_fold(
+            'client.unsubscribe',
+            Req,
+            fun merge_responsed_topicfilters/2
+        )
+    of
+        {StopOrOk, #{topic_filters := NTopicFilters}} ->
+            {StopOrOk, parse_topicfilters(NTopicFilters)};
+        ignore ->
+            ignore
+    end.
 
 %%--------------------------------------------------------------------
 %% Session
@@ -431,7 +453,21 @@ topicfilters(Tfs) when is_list(Tfs) ->
      || {Topic, SubOpts} <- Tfs
     ].
 
+parse_topicfilters(Tfs) when is_list(Tfs) ->
+    [
+        {maps:get(name, Tf), parse_subopts(maps:get(subopts, Tf, #{}))}
+     || Tf <- Tfs
+    ].
+
 subopts(SubOpts) ->
+    #{
+        qos => maps:get(qos, SubOpts, 0),
+        rh => maps:get(rh, SubOpts, 0),
+        rap => maps:get(rap, SubOpts, 0),
+        nl => maps:get(nl, SubOpts, 0)
+    }.
+
+parse_subopts(SubOpts) when is_map(SubOpts) ->
     #{
         qos => maps:get(qos, SubOpts, 0),
         rh => maps:get(rh, SubOpts, 0),
@@ -476,6 +512,16 @@ merge_responsed_message(_Req, #{type := 'IGNORE'}) ->
 merge_responsed_message(Req, #{type := Type, value := {message, NMessage}}) ->
     {ret(Type), Req#{message => NMessage}};
 merge_responsed_message(_Req, Resp) ->
+    ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
+    ignore.
+
+merge_responsed_topicfilters(_Req, #{type := 'IGNORE'}) ->
+    ignore;
+merge_responsed_topicfilters(Req, #{
+    type := Type, value := {topic_filters, #{filters := NTopicFilters}}
+}) ->
+    {ret(Type), Req#{topic_filters => NTopicFilters}};
+merge_responsed_topicfilters(_Req, Resp) ->
     ?SLOG(warning, #{msg => "unknown_responsed_value", resp => Resp}),
     ignore.
 
