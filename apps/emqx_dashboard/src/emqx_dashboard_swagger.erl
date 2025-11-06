@@ -703,7 +703,7 @@ trans_description(Spec, Hocon, Options) ->
             ?DESC(_, _) = Struct ->
                 get_i18n(<<"desc">>, Struct, undefined, Options);
             Text ->
-                error({missing_i18n_ref, Text})
+                missing_i18n_ref(Text)
         end,
     case Desc =:= undefined of
         true ->
@@ -712,6 +712,15 @@ trans_description(Spec, Hocon, Options) ->
             Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
+
+-ifdef(TEST).
+missing_i18n_ref(Text) ->
+    to_bin(Text).
+-else.
+-dialyzer({nowarn_function, missing_i18n_ref/1}).
+missing_i18n_ref(Text) ->
+    error({missing_i18n_ref, Text}).
+-endif.
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),
