@@ -45,6 +45,26 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
+start_apps(TestCase, TCConfig) ->
+    AppSpecs = [
+        emqx_conf,
+        emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard(),
+        {emqx_dashboard_sso, #{
+            after_start => fun() ->
+                #{started := Started} = emqx_dashboard:listeners_status(),
+                ok = emqx_dashboard_dispatch:regenerate_dispatch(Started),
+                ok
+            end
+        }}
+    ],
+    Apps = emqx_cth_suite:start(
+        AppSpecs,
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    ),
+    on_exit(fun() -> ok = emqx_cth_suite:stop(Apps) end),
+    ok.
+
 mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
     AppSpecs = [
         emqx_conf,
@@ -126,12 +146,21 @@ get_ssos(Node, Opts) ->
         auth_header => auth_header_lazy(Opts)
     }).
 
+%% Create or update, actually...
 create_backend(Node, Params, Opts) ->
     URL = url(Node, ["sso", "oidc"]),
     simple_request(#{
         method => put,
         url => URL,
         body => Params,
+        auth_header => auth_header_lazy(Opts)
+    }).
+
+delete_backend(Node, Opts) ->
+    URL = url(Node, ["sso", "oidc"]),
+    simple_request(#{
+        method => delete,
+        url => URL,
         auth_header => auth_header_lazy(Opts)
     }).
 
@@ -343,5 +372,33 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, _TCConfig) ->
         lists:duplicate(3, {ok, []}),
         ?ON_ALL([Node, LoginNode, FinalReqNode], emqx_dashboard_sso_oidc_session:all())
     ),
+
+    ok.
+
+%% Checks that we actually stop workers when disabling oidc.
+t_stop_cleanup(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    %% Initially, there should be no worker process under the supervisor.
+    ?assertEqual([], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+
+    %% Create enabled; should start workers.
+    ProviderParams = oidc_provider_params(),
+    ?assertMatch({200, _}, create_backend(N, ProviderParams, #{})),
+
+    ?assertMatch([_ | _], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+
+    %% Update to disabled; should stop workers.
+    ?assertMatch({200, _}, create_backend(N, ProviderParams#{<<"enable">> => false}, #{})),
+    ?assertEqual([], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+
+    %% Re-enable.
+    ?assertMatch({200, _}, create_backend(N, ProviderParams, #{})),
+    ?assertMatch([_ | _], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+
+    %% Delete; should stop workers.
+    ?assertMatch({204, _}, delete_backend(N, #{})),
+    ?assertEqual([], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
 
     ok.

@@ -91,7 +91,7 @@
     handle_resource_metrics_failed,
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
-    retained_dispatch_failed_for_rate_exceeded_limit,
+    retained_dispatch_failed_due_to_quota_exceeded,
     retained_delete_failed_for_rate_exceeded_limit,
     socket_receive_paused_by_rate_limit,
     %% ==== message transformation/validation ====
