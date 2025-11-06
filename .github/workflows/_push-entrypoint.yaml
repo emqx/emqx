@@ -145,7 +145,11 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
           ENABLE_COVER_COMPILE: 1
+          IS_RELEASE: ${{ needs.prepare.outputs.release }}
         run: |
+          if [ "$IS_RELEASE" != true ]; then
+            make ensure-rebar3 test-compile
+          fi
           make $PROFILE
           echo "export PROFILE=${PROFILE}" | tee -a env.sh
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
@@ -179,7 +183,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh --repo ${{ github.repository }} workflow run performance_test.yaml -f version=${GITHUB_REF_NAME##[v|e]} 
+          gh --repo ${{ github.repository }} workflow run performance_test.yaml -f version=${GITHUB_REF_NAME##[v|e]}
   update_emqx_i18n:
     if: needs.prepare.outputs.release == 'true'
     needs:
@@ -212,6 +216,7 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
       before_ref: ${{ github.event.before }}
       after_ref: ${{ github.sha }}
+      event_ref: ${{ github.event.inputs.ref }}
 
   run_test_cases:
     if: needs.prepare.outputs.release != 'true'
