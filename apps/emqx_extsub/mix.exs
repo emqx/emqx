@@ -7,7 +7,7 @@ defmodule EMQXExtSub.MixProject do
       app: :emqx_extsub,
       version: "6.0.1",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",

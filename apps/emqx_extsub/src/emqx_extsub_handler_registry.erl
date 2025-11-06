@@ -19,7 +19,7 @@ Primarily, allows to access the handlers both by the handler unique reference or
     update/3,
     all/1,
     topic_filter/2,
-    subscriber_ref/2
+    handler_ref/2
 ]).
 
 -record(extsub, {
@@ -28,8 +28,8 @@ Primarily, allows to access the handlers both by the handler unique reference or
 }).
 
 -record(registry, {
-    handler_by_subref :: #{emqx_extsub_types:subscriber_ref() => #extsub{}},
-    subref_by_topic :: #{emqx_extsub_types:topic_filter() => emqx_extsub_types:subscriber_ref()}
+    by_ref :: #{emqx_extsub_types:handler_ref() => #extsub{}},
+    ref_by_topic :: #{emqx_extsub_types:topic_filter() => emqx_extsub_types:handler_ref()}
 }).
 
 -type t() :: #registry{}.
@@ -42,18 +42,18 @@ Primarily, allows to access the handlers both by the handler unique reference or
 
 -spec new() -> t().
 new() ->
-    #registry{handler_by_subref = #{}, subref_by_topic = #{}}.
+    #registry{by_ref = #{}, ref_by_topic = #{}}.
 
 -spec register(
     t(),
     emqx_extsub_types:topic_filter(),
-    emqx_extsub_types:subscriber_ref(),
+    emqx_extsub_types:handler_ref(),
     emqx_extsub_handler:t()
 ) -> t().
 register(
-    #registry{handler_by_subref = BySubRef, subref_by_topic = ByTopic} = Registry,
+    #registry{by_ref = ByRef, ref_by_topic = ByTopic} = Registry,
     TopicFilter,
-    SubscriberRef,
+    HandlerRef,
     Handler
 ) ->
     case ByTopic of
@@ -61,90 +61,90 @@ register(
             error({extsub_registry_topic_conflict, TopicFilter});
         _ ->
             Registry#registry{
-                handler_by_subref = BySubRef#{
-                    SubscriberRef => #extsub{
+                by_ref = ByRef#{
+                    HandlerRef => #extsub{
                         topic_filter = TopicFilter,
                         handler = Handler
                     }
                 },
-                subref_by_topic = ByTopic#{TopicFilter => SubscriberRef}
+                ref_by_topic = ByTopic#{TopicFilter => HandlerRef}
             }
     end.
 
--spec delete(t(), emqx_extsub_types:subscriber_ref() | emqx_types:topic()) -> t().
+-spec delete(t(), emqx_extsub_types:handler_ref() | emqx_types:topic()) -> t().
 delete(
-    #registry{handler_by_subref = BySubRef, subref_by_topic = ByTopic} = Registry, SubscriberRef
+    #registry{by_ref = ByRef, ref_by_topic = ByTopic} = Registry, HandlerRef
 ) when
-    is_reference(SubscriberRef)
+    is_reference(HandlerRef)
 ->
-    case BySubRef of
-        #{SubscriberRef := #extsub{topic_filter = TopicFilter}} ->
+    case ByRef of
+        #{HandlerRef := #extsub{topic_filter = TopicFilter}} ->
             Registry#registry{
-                handler_by_subref = maps:remove(SubscriberRef, BySubRef),
-                subref_by_topic = maps:remove(TopicFilter, ByTopic)
+                by_ref = maps:remove(HandlerRef, ByRef),
+                ref_by_topic = maps:remove(TopicFilter, ByTopic)
             };
         _ ->
             Registry
     end;
-delete(#registry{subref_by_topic = ByTopic} = Registry, TopicFilter) when is_binary(TopicFilter) ->
+delete(#registry{ref_by_topic = ByTopic} = Registry, TopicFilter) when is_binary(TopicFilter) ->
     case ByTopic of
-        #{TopicFilter := SubscriberRef} ->
-            delete(Registry, SubscriberRef);
+        #{TopicFilter := HandlerRef} ->
+            delete(Registry, HandlerRef);
         _ ->
             Registry
     end.
 
--spec find(t(), emqx_extsub_types:subscriber_ref() | emqx_extsub_types:topic_filter()) ->
+-spec find(t(), emqx_extsub_types:handler_ref() | emqx_extsub_types:topic_filter()) ->
     emqx_extsub_handler:t() | undefined.
-find(#registry{handler_by_subref = BySubRef}, SubscriberRef) when is_reference(SubscriberRef) ->
-    case BySubRef of
-        #{SubscriberRef := #extsub{handler = Handler}} ->
+find(#registry{by_ref = ByRef}, HandlerRef) when is_reference(HandlerRef) ->
+    case ByRef of
+        #{HandlerRef := #extsub{handler = Handler}} ->
             Handler;
         _ ->
             undefined
     end;
-find(#registry{subref_by_topic = ByTopic} = Registry, TopicFilter) when is_binary(TopicFilter) ->
+find(#registry{ref_by_topic = ByTopic} = Registry, TopicFilter) when is_binary(TopicFilter) ->
     case ByTopic of
-        #{TopicFilter := SubscriberRef} ->
-            find(Registry, SubscriberRef);
+        #{TopicFilter := HandlerRef} ->
+            find(Registry, HandlerRef);
         _ ->
             undefined
     end.
 
--spec update(t(), emqx_extsub_types:subscriber_ref(), emqx_extsub_handler:t()) -> t().
-update(#registry{handler_by_subref = BySubRef} = Registry, SubscriberRef, Handler) ->
-    case BySubRef of
-        #{SubscriberRef := #extsub{topic_filter = TopicFilter}} ->
+-spec update(t(), emqx_extsub_types:handler_ref(), emqx_extsub_handler:t()) -> t().
+update(#registry{by_ref = ByRef} = Registry, HandlerRef, Handler) ->
+    case ByRef of
+        #{HandlerRef := #extsub{topic_filter = TopicFilter}} ->
             Registry#registry{
-                handler_by_subref = BySubRef#{
-                    SubscriberRef => #extsub{
+                by_ref = ByRef#{
+                    HandlerRef => #extsub{
                         topic_filter = TopicFilter,
                         handler = Handler
                     }
                 }
             };
         _ ->
-            error({extsub_registry_subscriber_not_found, SubscriberRef})
+            error({extsub_registry_handler_not_found, HandlerRef})
     end.
 
--spec topic_filter(t(), emqx_extsub_types:subscriber_ref()) ->
+-spec topic_filter(t(), emqx_extsub_types:handler_ref()) ->
     emqx_extsub_types:topic_filter() | undefined.
-topic_filter(#registry{handler_by_subref = BySubRef}, SubscriberRef) when
-    is_reference(SubscriberRef)
+topic_filter(#registry{by_ref = ByRef}, HandlerRef) when
+    is_reference(HandlerRef)
 ->
-    case BySubRef of
-        #{SubscriberRef := #extsub{topic_filter = TopicFilter}} ->
+    case ByRef of
+        #{HandlerRef := #extsub{topic_filter = TopicFilter}} ->
             TopicFilter;
         _ ->
             undefined
     end.
 
--spec subscriber_ref(t(), emqx_extsub_types:topic_filter()) ->
-    emqx_extsub_types:subscriber_ref() | undefined.
-subscriber_ref(#registry{subref_by_topic = ByTopic}, TopicFilter) when is_binary(TopicFilter) ->
+-spec handler_ref(t(), emqx_extsub_types:topic_filter()) ->
+    emqx_extsub_types:handler_ref() | undefined.
+handler_ref(#registry{ref_by_topic = ByTopic}, TopicFilter) when is_binary(TopicFilter) ->
     case ByTopic of
-        #{TopicFilter := SubscriberRef} ->
-            SubscriberRef;
+        #{TopicFilter := HandlerRef} ->
+            HandlerRef;
         _ ->
             undefined
     end.
@@ -152,15 +152,15 @@ subscriber_ref(#registry{subref_by_topic = ByTopic}, TopicFilter) when is_binary
 -spec all(t()) ->
     [
         {
-            emqx_extsub_types:subscriber_ref(),
+            emqx_extsub_types:handler_ref(),
             emqx_extsub_types:topic_filter(),
             emqx_extsub_handler:t()
         }
     ].
-all(#registry{handler_by_subref = BySubRef}) ->
+all(#registry{by_ref = ByRef}) ->
     [
-        {SubscriberRef, TopicFilter, Handler}
-     || {SubscriberRef, #extsub{topic_filter = TopicFilter, handler = Handler}} <- maps:to_list(
-            BySubRef
+        {HandlerRef, TopicFilter, Handler}
+     || {HandlerRef, #extsub{topic_filter = TopicFilter, handler = Handler}} <- maps:to_list(
+            ByRef
         )
     ].

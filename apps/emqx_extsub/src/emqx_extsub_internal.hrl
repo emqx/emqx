@@ -10,7 +10,7 @@
 -define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
 
 -record(info_to_extsub, {
-    subscriber_ref :: emqx_extsub_types:subscriber_ref(),
+    handler_ref :: emqx_extsub_types:handler_ref(),
     info :: term()
 }).
 
@@ -21,6 +21,6 @@
 -define(EXTSUB_DELIVER_RETRY_INTERVAL, 100).
 -define(EXTSUB_MAX_UNACKED, 10).
 
--define(MIN_SUB_DELIVERING, 100).
+-define(EXTSUB_BUFFER_SIZE, 100).
 
 -endif.

@@ -12,7 +12,7 @@
 -export([
     handle_init/3,
     handle_terminate/2,
-    handle_ack/5,
+    handle_delivered/4,
     handle_info/3
 ]).
 
@@ -60,10 +60,9 @@ handle_terminate(_TerminateType, _State) ->
     ?tp(debug, handle_terminate, #{state => _State}),
     ok.
 
-handle_ack(
+handle_delivered(
     #{send := SendFn} = State,
     #{desired_message_count := DesiredCount} = _AckCtx,
-    _MessageId,
     _Message,
     _Ack
 ) ->
@@ -93,12 +92,12 @@ push_messages(#{buffer := Buffer0} = State, DesiredCount) ->
         0 ->
             {ok, State};
         _ ->
-            {MessageEntries, Buffer} = buffer_out(Buffer0, DesiredCount),
-            case MessageEntries of
+            {Messages, Buffer} = buffer_out(Buffer0, DesiredCount),
+            case Messages of
                 [] ->
                     {ok, State#{buffer => Buffer}};
                 _ ->
-                    {ok, State#{buffer => Buffer}, MessageEntries}
+                    {ok, State#{buffer => Buffer}, Messages}
             end
     end.
 
@@ -116,21 +115,20 @@ make_messages(#{batch_size := BatchSize} = State, #fake_msg{n = BatchN}) ->
 
 make_message(#{topic_filter := TopicFilter} = _State, BatchN, I, _BatchSize) ->
     Body = iolist_to_binary(io_lib:format("fake msg batch_n=~p, n in batch=~p", [BatchN, I])),
-    Msg = emqx_message:make(<<"from">>, ?QOS_1, TopicFilter, Body),
-    {{BatchN, I}, Msg}.
+    emqx_message:make(<<"from">>, ?QOS_1, TopicFilter, Body).
 
 %% Toy buffer functions
 
 buffer_new() ->
     queue:new().
 
-buffer_in(Q, MessageEntries) ->
+buffer_in(Q, Messages) ->
     lists:foldl(
-        fun({MessageId, Msg}, QAcc) ->
-            queue:in({MessageId, Msg}, QAcc)
+        fun(Msg, QAcc) ->
+            queue:in(Msg, QAcc)
         end,
         Q,
-        MessageEntries
+        Messages
     ).
 
 buffer_out(Q, N) ->

@@ -8,15 +8,17 @@
 
 -export([
     init/0,
-    register/1,
+    register/2,
     unregister/1
 ]).
 
 -export([
     handle_init/3,
     handle_terminate/2,
-    handle_ack/4,
-    handle_info/3
+    handle_delivered/4,
+    handle_info/3,
+    get_options/2,
+    get_options/3
 ]).
 
 -type state() :: term().
@@ -27,7 +29,8 @@
 -type init_ctx() :: #{
     clientinfo := emqx_types:clientinfo(),
     send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
-    send := fun((term()) -> ok)
+    send := fun((term()) -> ok),
+    can_receive_acks := boolean()
 }.
 
 -type info_ctx() :: #{
@@ -39,35 +42,46 @@
     qos := emqx_types:qos()
 }.
 
+-type init_ctx_int() :: #{
+    clientinfo := emqx_types:clientinfo(),
+    can_receive_acks := boolean()
+}.
+
 -record(handler, {
     st :: state(),
     cbm :: module(),
     ctx :: init_ctx(),
-    subscriber_ref :: emqx_extsub_types:subscriber_ref()
+    handler_ref :: emqx_extsub_types:handler_ref(),
+    options :: emqx_extsub_types:handler_options()
 }).
 
 -type t() :: #handler{}.
 
--export_type([t/0, init_type/0, terminate_type/0]).
+-export_type([
+    t/0,
+    init_type/0,
+    terminate_type/0,
+    init_ctx/0,
+    info_ctx/0,
+    ack_ctx/0
+]).
 
 -define(TAB, ?MODULE).
--define(EXTSUB_INTERNAL_MESSAGE_ID, extsub_int_msg_id).
 
 %% ExtSub Handler behaviour
 
 -callback handle_init(init_type(), init_ctx(), emqx_extsub_types:topic_filter()) ->
     {ok, state()} | ignore.
 -callback handle_terminate(terminate_type(), state()) -> ok.
--callback handle_ack(
+-callback handle_delivered(
     state(),
     ack_ctx(),
-    emqx_extsub_types:message_id(),
     emqx_types:message(),
     emqx_extsub_types:ack()
 ) -> state().
 -callback handle_info(state(), info_ctx(), term()) ->
     {ok, state()}
-    | {ok, state(), [{emqx_extsub_types:message_id(), emqx_types:message()}]}
+    | {ok, state(), [emqx_types:message()]}
     | recreate.
 
 %%--------------------------------------------------------------------
@@ -80,9 +94,9 @@
 init() ->
     emqx_utils_ets:new(?TAB, [set, public, named_table, {read_concurrency, true}]).
 
--spec register(module()) -> ok.
-register(CBM) ->
-    case ets:insert_new(?TAB, {CBM, true}) of
+-spec register(module(), emqx_extsub_types:handler_options()) -> ok.
+register(CBM, Options) ->
+    case ets:insert_new(?TAB, {CBM, Options}) of
         true -> ok;
         false -> error({extsub_handler_already_registered, CBM})
     end.
@@ -92,26 +106,37 @@ unregister(CBM) ->
     _ = ets:delete(?TAB, CBM),
     ok.
 
+%% Handler options
+
+-spec get_options(atom(), t()) -> term().
+get_options(Name, Handler) ->
+    get_options(Name, Handler, undefined).
+
+-spec get_options(atom(), t(), term()) -> term().
+get_options(Name, #handler{options = Options} = _Handler, Default) ->
+    maps:get(Name, Options, Default).
+
 %% Working with ExtSub Handler implementations
 
--spec handle_init(init_type(), emqx_types:clientinfo(), emqx_extsub_types:topic_filter()) ->
-    {ok, emqx_extsub_types:subscriber_ref(), t()} | ignore.
-handle_init(InitType, ClientInfo, TopicFilter) ->
-    SubscriberRef = make_ref(),
-    Ctx = create_ctx(SubscriberRef, ClientInfo),
+-spec handle_init(init_type(), init_ctx_int(), emqx_extsub_types:topic_filter()) ->
+    {ok, emqx_extsub_types:handler_ref(), t()} | ignore.
+handle_init(InitType, Ctx0, TopicFilter) ->
+    Ref = make_ref(),
+    Ctx = create_ctx(Ref, Ctx0),
     try handle_init(InitType, Ctx, TopicFilter, cbms()) of
         ignore ->
             ignore;
-        {CBM, State} ->
-            {ok, SubscriberRef, #handler{
+        {CBM, Options, State} ->
+            {ok, Ref, #handler{
                 cbm = CBM,
                 st = State,
                 ctx = Ctx,
-                subscriber_ref = SubscriberRef
+                handler_ref = Ref,
+                options = Options
             }}
     catch
         Class:Reason:StackTrace ->
-            ?tp(error, handle_subscribe_error, #{
+            ?tp(error, extsub_handle_init_error, #{
                 class => Class,
                 reason => Reason,
                 topic_filter => TopicFilter,
@@ -125,10 +150,9 @@ handle_terminate(TerminateType, #handler{cbm = CBM, st = State}) ->
     _ = CBM:handle_terminate(TerminateType, State),
     ok.
 
--spec handle_ack(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) -> t().
-handle_ack(#handler{cbm = CBM, st = State} = Handler, AckCtx, Msg, Ack) ->
-    MessageId = emqx_message:get_header(?EXTSUB_INTERNAL_MESSAGE_ID, Msg),
-    Handler#handler{st = CBM:handle_ack(State, AckCtx, MessageId, Msg, Ack)}.
+-spec handle_delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) -> t().
+handle_delivered(#handler{cbm = CBM, st = State} = Handler, AckCtx, Msg, Ack) ->
+    Handler#handler{st = CBM:handle_delivered(State, AckCtx, Msg, Ack)}.
 
 -spec handle_info(t(), info_ctx(), term()) ->
     {ok, t()} | {ok, t(), [emqx_types:message()]} | recreate.
@@ -139,8 +163,8 @@ handle_info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
     case Result of
         {ok, State} ->
             {ok, Handler#handler{st = State}};
-        {ok, State, MessagesWithInternalIds} ->
-            {ok, Handler#handler{st = State}, to_messages(MessagesWithInternalIds)};
+        {ok, State, Messages} ->
+            {ok, Handler#handler{st = State}, Messages};
         recreate ->
             recreate
     end.
@@ -151,42 +175,32 @@ handle_info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
 
 handle_init(_InitType, _Ctx, _TopicFilter, []) ->
     ignore;
-handle_init(InitType, Ctx, TopicFilter, [CBM | CBMs]) ->
+handle_init(InitType, Ctx, TopicFilter, [{CBM, Options} | CBMs]) ->
     case CBM:handle_init(InitType, Ctx, TopicFilter) of
         {ok, State} ->
-            {CBM, State};
+            {CBM, Options, State};
         ignore ->
             handle_init(InitType, Ctx, TopicFilter, CBMs)
     end.
 
-create_ctx(SubscriberRef, ClientInfo) ->
+create_ctx(Ref, Ctx) ->
     Pid = self(),
     SendAfter = fun(Interval, Info) ->
         _ = erlang:send_after(Interval, Pid, #info_to_extsub{
-            subscriber_ref = SubscriberRef, info = Info
+            handler_ref = Ref, info = Info
         }),
         ok
     end,
     Send = fun(Info) ->
         _ = erlang:send(Pid, #info_to_extsub{
-            subscriber_ref = SubscriberRef, info = Info
+            handler_ref = Ref, info = Info
         }),
         ok
     end,
-    #{
-        clientinfo => ClientInfo,
+    Ctx#{
         send_after => SendAfter,
         send => Send
     }.
 
 cbms() ->
-    {CBMs, _} = lists:unzip(ets:tab2list(?TAB)),
-    CBMs.
-
-to_messages(MessagesWithIds) ->
-    lists:map(
-        fun({MessageId, Message}) ->
-            emqx_message:set_header(?EXTSUB_INTERNAL_MESSAGE_ID, MessageId, Message)
-        end,
-        MessagesWithIds
-    ).
+    ets:tab2list(?TAB).
