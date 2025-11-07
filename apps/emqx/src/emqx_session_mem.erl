@@ -594,9 +594,11 @@ handle_timeout(ClientInfo, expire_awaiting_rel, Session) ->
 %% Geneic messages
 %%--------------------------------------------------------------------
 
-%% Mem session doesn't handle any messages
 -spec handle_info(term(), session(), clientinfo()) -> session().
-handle_info(_Msg, Session, _ClientInfo) ->
+handle_info({'DOWN', _Ref, _Kind, _Pid, _Reason}, Session, _ClientInfo) ->
+    Session;
+handle_info(Msg, Session, _ClientInfo) ->
+    ?SLOG(warning, #{msg => emqx_session_mem_unknown_message, message => Msg}),
     Session.
 
 %%--------------------------------------------------------------------

@@ -60,8 +60,7 @@
     {emqx_ds, 3},
     {emqx_node_rebalance_purge, 1},
     {emqx_ds_shared_sub, 1},
-    {emqx_ds_shared_sub, 2},
-    {emqx_retainer, 1}
+    {emqx_ds_shared_sub, 2}
 ]).
 %% List of known RPC backend modules:
 -define(RPC_MODULES, "gen_rpc, erpc, rpc, emqx_rpc").
