@@ -1239,11 +1239,11 @@ inc_qos_stats(Type, Packet) ->
     end.
 
 inc_metrics(Name, State, Val) ->
+    emqx_metrics:inc(?global_ns, Name, Val),
     case State#state.namespace of
         ?global_ns ->
-            emqx_metrics:inc(?global_ns, Name, Val);
+            ok;
         Namespace ->
-            emqx_metrics:inc(?global_ns, Name, Val),
             _ = emqx_metrics:inc_safe(Namespace, Name, Val),
             ok
     end.
