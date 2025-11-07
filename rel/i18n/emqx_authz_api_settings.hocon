@@ -6,4 +6,9 @@ authorization_settings_get.desc:
 authorization_settings_put.desc:
 """Update authorization settings"""
 
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
 }

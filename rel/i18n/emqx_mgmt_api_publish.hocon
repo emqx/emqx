@@ -79,4 +79,9 @@ retain.desc:
 topic_name.desc:
 """Topic Name"""
 
+bad_request_code.desc:
+"""BAD_REQUEST"""
+bad_request_code.label:
+"""Bad Request Code"""
+
 }

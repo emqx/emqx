@@ -101,7 +101,7 @@ schema("/gcp_devices") ->
                     200 => hoconsc:ref(import_result),
                     400 => emqx_dashboard_swagger:error_codes(
                         ['BAD_REQUEST'],
-                        <<"Bad Request">>
+                        ?DESC("bad_request")
                     )
                 }
         }
@@ -144,7 +144,7 @@ schema("/gcp_devices/:deviceid") ->
                         ),
                         400 => emqx_dashboard_swagger:error_codes(
                             ['BAD_REQUEST'],
-                            <<"Bad Request">>
+                            ?DESC("bad_request")
                         )
                     }
             },
@@ -153,7 +153,7 @@ schema("/gcp_devices/:deviceid") ->
             tags => ?TAGS,
             parameters => [deviceid(#{in => path})],
             responses => #{
-                204 => <<"GCP device deleted">>
+                204 => ?DESC("gcp_device_deleted")
             }
         }
     }.

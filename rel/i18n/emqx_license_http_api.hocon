@@ -18,4 +18,14 @@ desc_license_setting_api.desc:
 desc_license_setting_api.label:
 """Update license setting"""
 
+bad_license_key.desc:
+"""Bad license key"""
+bad_license_key.label:
+"""Bad License Key"""
+
+bad_setting_value.desc:
+"""Bad setting value"""
+bad_setting_value.label:
+"""Bad Setting Value"""
+
 }
