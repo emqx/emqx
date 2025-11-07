@@ -704,7 +704,7 @@ handle_info(
             }
     end;
 handle_info(Msg, Session, _ClientInfo) ->
-    ?tp(debug, ?sessds_unknown_message, #{message => Msg}),
+    ?tp(warning, ?sessds_unknown_message, #{message => Msg}),
     Session.
 
 %%--------------------------------------------------------------------
