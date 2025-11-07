@@ -448,19 +448,24 @@ mk_node_name(TestCase, N) ->
     Name0 = iolist_to_binary([atom_to_binary(TestCase), "_", integer_to_binary(N)]),
     binary_to_atom(Name0).
 
-get_prometheus_stats(Format, Mode) ->
+get_prometheus_ns_stats(Namespace, Mode, Format) ->
     Headers =
         case Format of
             json -> [{"accept", "application/json"}];
             prometheus -> []
         end,
-    QueryString = uri_string:compose_query([{"mode", atom_to_binary(Mode)}]),
-    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "stats"]),
+    QueryString = uri_string:compose_query(
+        lists:flatten([
+            {"mode", atom_to_binary(Mode)},
+            [{"ns", Namespace} || Namespace /= all]
+        ])
+    ),
+    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "ns", "stats"]),
     {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
         method => get,
         url => URL,
-        query_params => QueryString,
         extra_headers => Headers,
+        query_params => QueryString,
         auth_header => {"no", "auth"}
     }),
     case Format of
@@ -1134,7 +1139,7 @@ t_namespaced_metrics_channel_implicit_quic(TCConfig) when is_list(TCConfig) ->
     ok.
 
 t_namespaced_metrics_prometheus({init, TCConfig}) ->
-    Nodes = mk_cluster(?FUNCTION_NAME, #{n => 1}, TCConfig),
+    Nodes = mk_cluster(?FUNCTION_NAME, #{n => 2}, TCConfig),
     ?ON_ALL(Nodes, begin
         meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
         meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
@@ -1146,6 +1151,8 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
     [N | _] = ?config(nodes, TCConfig),
     Namespace = <<"explicit_ns">>,
     ok = ?ON(N, emqx_mt_config:create_managed_ns(Namespace)),
+    Namespace2 = <<"other_explicit_ns">>,
+    ok = ?ON(N, emqx_mt_config:create_managed_ns(Namespace2)),
 
     %% Generate some traffic for namespaced metrics
     Port = emqx_mt_api_SUITE:get_mqtt_tcp_port(N),
@@ -1160,9 +1167,11 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
     ?assertReceive({publish, _}),
 
     %% Check prometheus
-    GlobalLabel0 = #{<<"node">> => atom_to_binary(N)},
-    NsLabel0 = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace},
-    {200, Metrics0} = get_prometheus_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED),
+    NsLabel0A = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace},
+    NsLabel0B = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace2},
+    {200, Metrics0} = get_prometheus_ns_stats(
+        all, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus
+    ),
     SampleMetrics = [
         <<"emqx_messages_received">>,
         <<"emqx_messages_sent">>,
@@ -1171,31 +1180,86 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
     ],
     ?assertMatch(
         #{
-            <<"emqx_messages_received">> := #{GlobalLabel0 := 1, NsLabel0 := 1},
-            <<"emqx_messages_sent">> := #{GlobalLabel0 := 1, NsLabel0 := 1},
-            <<"emqx_packets_received">> := #{GlobalLabel0 := N1, NsLabel0 := N2},
-            <<"emqx_packets_sent">> := #{GlobalLabel0 := N3, NsLabel0 := N4}
-        } when N1 > 0 andalso N2 > 0 andalso N3 > 0 andalso N4 > 0,
+            <<"emqx_messages_received">> := #{NsLabel0A := 1, NsLabel0B := 0},
+            <<"emqx_messages_sent">> := #{NsLabel0A := 1, NsLabel0B := 0},
+            <<"emqx_packets_received">> := #{NsLabel0A := N1, NsLabel0B := 0},
+            <<"emqx_packets_sent">> := #{NsLabel0A := N2, NsLabel0B := 0}
+        } when N1 > 0 andalso N2 > 0,
         Metrics0,
         #{sample => maps:with(SampleMetrics, Metrics0)}
     ),
-
-    GlobalLabel1 = #{},
-    NsLabel1 = #{<<"namespace">> => Namespace},
-    {200, Metrics1} = get_prometheus_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
+    %% Filtering a single namespace
+    {200, Metrics1} =
+        get_prometheus_ns_stats(Namespace, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus),
     ?assertMatch(
         #{
-            <<"emqx_messages_received">> := #{GlobalLabel1 := 1, NsLabel1 := 1},
-            <<"emqx_messages_sent">> := #{GlobalLabel1 := 1, NsLabel1 := 1},
-            <<"emqx_packets_received">> := #{GlobalLabel1 := N1, NsLabel1 := N2},
-            <<"emqx_packets_sent">> := #{GlobalLabel1 := N3, NsLabel1 := N4}
-        } when N1 > 0 andalso N2 > 0 andalso N3 > 0 andalso N4 > 0,
+            <<"emqx_messages_received">> := #{NsLabel0A := 1} = M,
+            <<"emqx_messages_sent">> := #{NsLabel0A := 1},
+            <<"emqx_packets_received">> := #{NsLabel0A := N1},
+            <<"emqx_packets_sent">> := #{NsLabel0A := N2}
+        } when N1 > 0 andalso N2 > 0 andalso not is_map_key(NsLabel0B, M),
         Metrics1,
         #{sample => maps:with(SampleMetrics, Metrics1)}
     ),
 
-    %% checking only that json response doesn't crash
-    ?assertMatch({200, _}, get_prometheus_stats(json, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED)),
-    ?assertMatch({200, _}, get_prometheus_stats(json, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED)),
+    NsLabel1A = #{<<"namespace">> => Namespace},
+    NsLabel1B = #{<<"namespace">> => Namespace2},
+    {200, Metrics2} = get_prometheus_ns_stats(
+        all, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED, prometheus
+    ),
+    GetIn = fun(Ks, M) -> emqx_utils_maps:deep_get(Ks, M) end,
+    ?assertMatch(
+        #{
+            <<"emqx_messages_received">> := #{NsLabel1A := 1, NsLabel1B := 0},
+            <<"emqx_messages_sent">> := #{NsLabel1A := 1, NsLabel1B := 0},
+            <<"emqx_packets_received">> := #{NsLabel1A := N1, NsLabel1B := 0},
+            <<"emqx_packets_sent">> := #{NsLabel1A := N2, NsLabel1B := 0}
+        } when N1 > 0 andalso N2 > 0,
+        Metrics2,
+        #{sample => maps:with(SampleMetrics, Metrics2)}
+    ),
+
+    %% Unknown namespace
+    lists:foreach(
+        fun(Mode) ->
+            ?assertMatch(
+                {200, _},
+                get_prometheus_ns_stats(<<"unknown_ns">>, Mode, prometheus)
+            )
+        end,
+        ?PROM_DATA_MODES
+    ),
+
+    %% Quick checking that all combinations do not crash (i.e., return 200 and not 500)
+    lists:foreach(
+        fun({Ns, Mode}) ->
+            ?assertMatch(
+                {200, _},
+                get_prometheus_ns_stats(Ns, Mode, prometheus),
+                #{ns => Ns, mode => Mode}
+            )
+        end,
+        [
+            {Ns, Mode}
+         || Ns <- [all, Namespace, Namespace2],
+            Mode <- ?PROM_DATA_MODES
+        ]
+    ),
+
+    %% We don't support json
+    lists:foreach(
+        fun({Ns, Mode}) ->
+            ?assertMatch(
+                {400, _},
+                get_prometheus_ns_stats(Ns, Mode, json),
+                #{ns => Ns, mode => Mode}
+            )
+        end,
+        [
+            {Ns, Mode}
+         || Ns <- [all, Namespace, Namespace2],
+            Mode <- ?PROM_DATA_MODES
+        ]
+    ),
 
     ok.

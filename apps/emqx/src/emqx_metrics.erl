@@ -170,11 +170,16 @@ all_global() ->
 
 -spec all(maybe_namespace()) -> [{metric_name(), non_neg_integer()}].
 all(Namespace) ->
-    CRef = get_counters_ref(Namespace),
-    [
-        {Name, counters:get(CRef, Idx)}
-     || #metric{name = Name, idx = Idx} <- ets:tab2list(?TAB)
-    ].
+    try
+        CRef = get_counters_ref(Namespace),
+        [
+            {Name, counters:get(CRef, Idx)}
+         || #metric{name = Name, idx = Idx} <- ets:tab2list(?TAB)
+        ]
+    catch
+        error:badarg ->
+            []
+    end.
 
 -spec all_ns() -> #{maybe_namespace() => [{metric_name(), non_neg_integer()}]}.
 all_ns() ->

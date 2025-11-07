@@ -123,12 +123,12 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    emqx_prometheus_SUITE:maybe_meck_license(),
+    emqx_prometheus_SUITE:mock_license(),
     emqx_prometheus_SUITE:start_mock_pushgateway(9091),
     Config.
 
 end_per_suite(_Config) ->
-    emqx_prometheus_SUITE:maybe_unmeck_license(),
+    emqx_prometheus_SUITE:unmock_license(),
     emqx_prometheus_SUITE:stop_mock_pushgateway().
 
 init_per_group(general = GroupName, Config) ->

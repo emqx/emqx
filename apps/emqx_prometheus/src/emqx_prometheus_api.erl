@@ -35,6 +35,7 @@
 -export([
     setting/2,
     stats/2,
+    ns_stats/2,
     auth/2,
     data_integration/2,
     schema_validation/2,
@@ -53,23 +54,13 @@ api_spec() ->
 paths() ->
     [
         "/prometheus",
+        "/prometheus/ns/stats",
         "/prometheus/auth",
         "/prometheus/stats",
-        "/prometheus/data_integration"
-    ] ++ paths_ee().
-
--if(?EMQX_RELEASE_EDITION == ee).
-paths_ee() ->
-    [
+        "/prometheus/data_integration",
         "/prometheus/schema_validation",
         "/prometheus/message_transformation"
     ].
-%% ELSE if(?EMQX_RELEASE_EDITION == ee).
--else.
-paths_ee() ->
-    [].
-%% END if(?EMQX_RELEASE_EDITION == ee).
--endif.
 
 schema("/prometheus") ->
     #{
@@ -88,6 +79,19 @@ schema("/prometheus") ->
                 'requestBody' => prometheus_setting_request(),
                 responses =>
                     #{200 => prometheus_setting_response()}
+            }
+    };
+schema("/prometheus/ns/stats") ->
+    #{
+        'operationId' => ns_stats,
+        get =>
+            #{
+                description => ?DESC("ns_stats"),
+                tags => ?TAGS,
+                parameters => [ref(mode), ref(ns)],
+                security => security(),
+                responses =>
+                    #{200 => prometheus_data_schema()}
             }
     };
 schema("/prometheus/auth") ->
@@ -162,7 +166,6 @@ security() ->
         false -> []
     end.
 
-%% erlfmt-ignore
 fields(mode) ->
     [
         {mode,
@@ -174,6 +177,19 @@ fields(mode) ->
                     in => query,
                     required => false,
                     example => node
+                }
+            )}
+    ];
+fields(ns) ->
+    [
+        {ns,
+            mk(
+                binary(),
+                #{
+                    required => false,
+                    desc => ?DESC("qp_namespace"),
+                    in => query,
+                    example => <<"some_ns">>
                 }
             )}
     ].
@@ -206,6 +222,14 @@ setting(put, #{body := Body}) ->
 stats(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus, collect_opts(Headers, Qs)).
 
+ns_stats(get, #{headers := Headers, query_string := Qs}) ->
+    case response_type(Headers) of
+        <<"json">> ->
+            {400, <<"only prometheus format is supported">>};
+        <<"prometheus">> ->
+            collect_ns_stats(collect_opts_ns(Qs))
+    end.
+
 auth(get, #{headers := Headers, query_string := Qs}) ->
     collect(emqx_prometheus_auth, collect_opts(Headers, Qs)).
 
@@ -223,12 +247,7 @@ message_transformation(get, #{headers := Headers, query_string := Qs}) ->
 %%--------------------------------------------------------------------
 
 collect(Module, #{type := Type, mode := Mode}) ->
-    %% `Mode` is used to control the format of the returned data
-    %% It will used in callback `Module:collect_mf/1` to fetch data from node or cluster
-    %% And use this mode parameter to determine the formatting method of the returned information.
-    %% Since the arity of the callback function has been fixed.
-    %% so it is placed in the process dictionary of the current process.
-    ?PUT_PROM_DATA_MODE(Mode),
+    put_prom_data_mode(Mode),
     Data =
         case erlang:function_exported(Module, collect, 1) of
             true ->
@@ -242,13 +261,29 @@ collect(Module, #{type := Type, mode := Mode}) ->
         end,
     gen_response(Type, Data).
 
+collect_ns_stats(#{mode := Mode, namespace := Namespace}) ->
+    Type = <<"prometheus">>,
+    Data = emqx_prometheus:collect_ns(Namespace, Mode),
+    gen_response(Type, Data).
+
 collect_opts(Headers, Qs) ->
     #{type => response_type(Headers), mode => mode(Qs)}.
+
+collect_opts_ns(Qs) ->
+    #{namespace => namespace(Qs), mode => mode(Qs)}.
 
 response_type(#{<<"accept">> := <<"application/json">>}) ->
     <<"json">>;
 response_type(_) ->
     <<"prometheus">>.
+
+put_prom_data_mode(Mode) ->
+    %% `Mode` is used to control the format of the returned data
+    %% It will used in callback `Module:collect_mf/1` to fetch data from node or cluster
+    %% And use this mode parameter to determine the formatting method of the returned information.
+    %% Since the arity of the callback function has been fixed.
+    %% so it is placed in the process dictionary of the current process.
+    ?PUT_PROM_DATA_MODE(Mode).
 
 mode(#{<<"mode">> := Mode}) ->
     case lists:member(Mode, ?PROM_DATA_MODES) of
@@ -257,6 +292,11 @@ mode(#{<<"mode">> := Mode}) ->
     end;
 mode(_) ->
     ?PROM_DATA_MODE__NODE.
+
+namespace(#{<<"ns">> := Namespace}) ->
+    Namespace;
+namespace(_) ->
+    all.
 
 gen_response(<<"json">>, Data) ->
     {200, Data};

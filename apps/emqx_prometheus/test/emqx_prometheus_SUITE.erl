@@ -74,14 +74,11 @@ common_tests() ->
 
 init_per_group(new_config, Config) ->
     Apps = emqx_cth_suite:start(
-        lists:flatten([
+        [
             %% coverage olp metrics
             {emqx_conf, "overload_protection.enable = true"},
             emqx,
-            [
-                {emqx_license, "license.key = default"}
-             || emqx_release:edition() == ee
-            ],
+            {emqx_license, "license.key = default"},
             emqx_conf,
             emqx_connector,
             emqx_bridge_http,
@@ -90,19 +87,16 @@ init_per_group(new_config, Config) ->
             emqx_auth,
             {emqx_prometheus, #{config => config(default)}},
             emqx_management
-        ]),
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config];
 init_per_group(legacy_config, Config) ->
     Apps = emqx_cth_suite:start(
-        lists:flatten([
+        [
             {emqx_conf, "overload_protection.enable = true"},
             emqx,
-            [
-                {emqx_license, "license.key = default"}
-             || emqx_release:edition() == ee
-            ],
+            {emqx_license, "license.key = default"},
             emqx_conf,
             emqx_connector,
             emqx_bridge_http,
@@ -111,7 +105,7 @@ init_per_group(legacy_config, Config) ->
             emqx_auth,
             {emqx_prometheus, #{config => config(legacy)}},
             emqx_management
-        ]),
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{suite_apps, Apps} | Config].
@@ -148,20 +142,12 @@ conf_default() ->
 legacy_conf_default() ->
     ?LEGACY_CONF_DEFAULT.
 
-maybe_meck_license() ->
-    case emqx_release:edition() of
-        ce ->
-            ok;
-        ee ->
-            meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
-            meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
-    end.
+mock_license() ->
+    meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+    meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end).
 
-maybe_unmeck_license() ->
-    case emqx_release:edition() of
-        ce -> ok;
-        ee -> meck:unload(emqx_license_checker)
-    end.
+unmock_license() ->
+    meck:unload(emqx_license_checker).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -282,6 +268,7 @@ assert_push_gateway_data(Data) ->
         ],
         Data
     ).
+
 assert_push_gateway_data([], _Data) ->
     true;
 assert_push_gateway_data([Keyword | Keywords], Data) ->

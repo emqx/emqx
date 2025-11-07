@@ -35,17 +35,14 @@ legacy_config_test_cases() ->
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
-        lists:flatten([
+        [
             emqx,
             emqx_conf,
             emqx_management,
             {emqx_prometheus, #{start => false}},
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"},
-            [
-                {emqx_license, "license.key = default"}
-             || emqx_release:edition() == ee
-            ]
-        ]),
+            {emqx_license, "license.key = default"}
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     {ok, _} = emqx_common_test_http:create_default_app(),
@@ -464,7 +461,7 @@ t_listener_shutdown_count(_Config) ->
         ],
         OnlyDisconnectStats(JSONClientStatsUnagg)
     ),
-    AssertExpectedLines = fun(ExpectedLines, Output) ->
+    AssertExpectedLines = fun(L, ExpectedLines, Output) ->
         lists:foreach(
             fun(ExpectedLine) ->
                 ?assertEqual(
@@ -472,7 +469,8 @@ t_listener_shutdown_count(_Config) ->
                     re:run(Output, ExpectedLine, [global, {capture, none}]),
                     #{
                         expected => ExpectedLine,
-                        output => string:split(Output, <<"\n">>, all)
+                        output => string:split(Output, <<"\n">>, all),
+                        line => L
                     }
                 )
             end,
@@ -497,9 +495,9 @@ t_listener_shutdown_count(_Config) ->
             {"tcp_closed", 1}
         ]
     ],
-    AssertExpectedLines(ExpectedLines1, PromClientStatsNode),
+    AssertExpectedLines(?LINE, ExpectedLines1, PromClientStatsNode),
     PromClientStatsAgg = get_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED),
-    AssertExpectedLines(ExpectedLines1, PromClientStatsAgg),
+    AssertExpectedLines(?LINE, ExpectedLines1, PromClientStatsAgg),
     PromClientStatsUnagg = get_stats(prometheus, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED),
     ExpectedLines2 = [
         iolist_to_binary(
@@ -516,7 +514,7 @@ t_listener_shutdown_count(_Config) ->
             {"tcp_closed", 1}
         ]
     ],
-    AssertExpectedLines(ExpectedLines2, PromClientStatsUnagg),
+    AssertExpectedLines(?LINE, ExpectedLines2, PromClientStatsUnagg),
     ok.
 
 t_latency_metrics(_) ->

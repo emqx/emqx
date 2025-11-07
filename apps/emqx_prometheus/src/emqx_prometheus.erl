@@ -12,7 +12,6 @@
 
 -behaviour(emqx_prometheus_cluster).
 -export([
-    fetch_from_local_node/1,
     fetch_cluster_consistented_data/0,
     aggre_or_zip_init_acc/0,
     logic_sum_metrics/0
@@ -49,12 +48,20 @@
     collect_metrics/2
 ]).
 
--export([collect/1]).
+-export([collect/1, collect_ns/2]).
 
 -export([
     %% For bpapi, deprecated_since 5.0.10, remove this when 5.1.x
     do_start/0,
     do_stop/0
+]).
+
+%% RPC targets
+-export([
+    %% Proto v{1..2}
+    fetch_from_local_node/1,
+    %% Proto v{3..}
+    fetch_namespaced_metrics_v1/2
 ]).
 
 -ifdef(TEST).
@@ -197,6 +204,8 @@ join_url(Url, JobName0) ->
     lists:concat([Url, "/metrics/job/", unicode:characters_to_list(JobName1)]).
 
 deregister_cleanup(?PROMETHEUS_DEFAULT_REGISTRY) ->
+    ok;
+deregister_cleanup(?PROMETHEUS_NS_STATS_REGISTRY) ->
     ok.
 
 collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
@@ -213,12 +222,6 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, emqx_packet_metric_meta(), ?MG(emqx_packet_data, RawData)),
     ok = add_collect_family(Callback, message_metric_meta(), ?MG(emqx_message_data, RawData)),
-
-    ok = add_collect_family(
-        Callback, emqx_packet_metric_ns_meta(), ?MG(emqx_packet_data_ns, RawData)
-    ),
-    ok = add_collect_family(Callback, message_metric_ns_meta(), ?MG(emqx_message_data_ns, RawData)),
-
     ok = add_collect_family(Callback, delivery_metric_meta(), ?MG(emqx_delivery_data, RawData)),
     ok = add_collect_family(Callback, client_metric_meta(), ?MG(emqx_client_data, RawData)),
     ok = add_collect_family(Callback, session_metric_meta(), ?MG(emqx_session_data, RawData)),
@@ -233,6 +236,15 @@ collect_mf(?PROMETHEUS_DEFAULT_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, mria_metric_meta(), ?MG(mria_data, RawData)),
     ok = maybe_add_ds_collect_family(Callback, RawData),
     ok = maybe_license_add_collect_family(Callback, RawData),
+    ok;
+collect_mf(?PROMETHEUS_NS_STATS_REGISTRY, Callback) ->
+    RawData = emqx_prometheus_cluster:raw_data_ns(
+        ?MODULE, get_namespace_pd(), ?GET_PROM_DATA_MODE()
+    ),
+
+    ok = add_collect_family(Callback, packet_metric_ns_meta(), ?MG(packet_data_ns, RawData)),
+    ok = add_collect_family(Callback, message_metric_ns_meta(), ?MG(message_data_ns, RawData)),
+
     ok;
 collect_mf(_Registry, _Callback) ->
     ok.
@@ -308,6 +320,16 @@ collect(<<"json">>) ->
 collect(<<"prometheus">>) ->
     prometheus_text_format:format(?PROMETHEUS_DEFAULT_REGISTRY).
 
+collect_ns(Namespace, Mode) ->
+    try
+        ?PUT_PROM_DATA_MODE(Mode),
+        put_namespace_pd(Namespace),
+        prometheus_text_format:format(?PROMETHEUS_NS_STATS_REGISTRY)
+    after
+        _ = erase(?PROM_DATA_MODE_KEY__),
+        _ = erase_namespace_pd()
+    end.
+
 collect_metrics(Name, Metrics) ->
     emqx_collect(Name, Metrics).
 
@@ -331,6 +353,7 @@ prefix_collect_helpful_family(Callback, Prefix, MetricsTypeAndHelp, Metrics) ->
     ).
 
 %% behaviour
+%% RPC target (`emqx_prometheus_proto_v{1..2}`)
 fetch_from_local_node(Mode) ->
     {node(), (maybe_collect_ds_data(Mode))#{
         stats_data => stats_data(Mode),
@@ -339,8 +362,6 @@ fetch_from_local_node(Mode) ->
         %% Metrics
         emqx_packet_data => emqx_metric_data(emqx_packet_metric_meta(), Mode),
         emqx_message_data => emqx_metric_data(message_metric_meta(), Mode),
-        emqx_packet_data_ns => emqx_metric_data_ns(emqx_packet_metric_ns_meta(), Mode),
-        emqx_message_data_ns => emqx_metric_data_ns(message_metric_ns_meta(), Mode),
         emqx_delivery_data => emqx_metric_data(delivery_metric_meta(), Mode),
         emqx_client_data => client_metric_data(Mode),
         emqx_session_data => emqx_metric_data(session_metric_meta(), Mode),
@@ -367,8 +388,6 @@ aggre_or_zip_init_acc() ->
         cluster_data => meta_to_init_from(cluster_metric_meta()),
         emqx_packet_data => meta_to_init_from(emqx_packet_metric_meta()),
         emqx_message_data => meta_to_init_from(message_metric_meta()),
-        emqx_packet_data_ns => meta_to_init_from(emqx_packet_metric_ns_meta()),
-        emqx_message_data_ns => meta_to_init_from(message_metric_ns_meta()),
         emqx_delivery_data => meta_to_init_from(delivery_metric_meta()),
         emqx_client_data => meta_to_init_from(client_metric_meta()),
         emqx_session_data => meta_to_init_from(session_metric_meta()),
@@ -382,6 +401,25 @@ aggre_or_zip_init_acc() ->
 
 logic_sum_metrics() ->
     [].
+
+put_namespace_pd(Namespace) when is_binary(Namespace) orelse Namespace == all ->
+    _ = put({?MODULE, ns}, Namespace),
+    ok.
+
+erase_namespace_pd() ->
+    _ = erase({?MODULE, ns}),
+    ok.
+
+get_namespace_pd() ->
+    get({?MODULE, ns}).
+
+%% RPC target (`emqx_prometheus_proto_v3`)
+-spec fetch_namespaced_metrics_v1(all | emqx_config:namespace(), _Mode) -> {node(), map()}.
+fetch_namespaced_metrics_v1(Namespace, Mode) ->
+    {node(), #{
+        packet_data_ns => metric_data_ns(Namespace, packet_metric_ns_meta(), Mode),
+        message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(), Mode)
+    }}.
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -758,27 +796,31 @@ emqx_metric_data(MetricNameTypeKeyL, Mode, Acc) ->
         MetricNameTypeKeyL
     ).
 
-emqx_metric_data_ns(MetricSpecs, Mode) ->
-    NsToMetrics = emqx_metrics:all_ns(),
+metric_data_ns(all, MetricSpecs, Mode) ->
+    NsToMetrics0 = emqx_metrics:all_ns(),
+    NsToMetrics = maps:remove(?global_ns, NsToMetrics0),
+    do_metric_data_ns(NsToMetrics, MetricSpecs, Mode);
+metric_data_ns(Namespace, MetricSpecs, Mode) when is_binary(Namespace) ->
+    NsToMetrics = #{Namespace => emqx_metrics:all(Namespace)},
+    do_metric_data_ns(NsToMetrics, MetricSpecs, Mode).
+
+do_metric_data_ns(NsToMetrics, MetricSpecs, Mode) ->
     lists:foldl(
         fun
             ({_Name, _Type, undefined}, AccIn) ->
                 AccIn;
             ({Name, _Type, MetricKAtom}, AccIn) ->
-                AccIn#{Name => emqx_metric_data_ns1(MetricKAtom, NsToMetrics, Mode)}
+                AccIn#{Name => metric_data_ns1(MetricKAtom, NsToMetrics, Mode)}
         end,
         #{},
         MetricSpecs
     ).
 
-emqx_metric_data_ns1(MetricKAtom, NsToMetrics, Mode) ->
+metric_data_ns1(MetricKAtom, NsToMetrics, Mode) ->
     maps:fold(
-        fun
-            (?global_ns, _Metrics, Acc) ->
-                Acc;
-            (Namespace, Metrics, Acc) ->
-                Labels = [{namespace, Namespace}],
-                [{with_node_label(Mode, Labels), ?C(MetricKAtom, Metrics)} | Acc]
+        fun(Namespace, Metrics, Acc) ->
+            Labels = [{namespace, Namespace}],
+            [{with_node_label(Mode, Labels), ?C(MetricKAtom, Metrics)} | Acc]
         end,
         [],
         NsToMetrics
@@ -897,7 +939,7 @@ emqx_packet_metric_meta() ->
         {emqx_packets_auth_sent, counter, 'packets.auth.sent'}
     ].
 
-emqx_packet_metric_ns_meta() ->
+packet_metric_ns_meta() ->
     emqx_packet_metric_meta().
 
 %%==========

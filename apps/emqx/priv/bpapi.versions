@@ -81,6 +81,7 @@
 {emqx_plugins,3}.
 {emqx_prometheus,1}.
 {emqx_prometheus,2}.
+{emqx_prometheus,3}.
 {emqx_resource,1}.
 {emqx_resource,2}.
 {emqx_retainer,2}.
