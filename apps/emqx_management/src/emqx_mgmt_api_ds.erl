@@ -124,14 +124,14 @@ schema("/ds/sites/:site/forget") ->
         'operationId' => forget_site,
         put =>
             #{
-                description => <<"Forget site">>,
+                description => ?DESC("forget_site"),
                 parameters => [param_site_id()],
                 tags => ?TAGS,
                 responses =>
                     #{
-                        204 => <<"Site forgotten">>,
+                        204 => ?DESC("site_forgotten"),
                         400 => bad_request(),
-                        404 => not_found(<<"Site">>)
+                        404 => not_found(?DESC("site_not_found"))
                     }
             }
     };
@@ -208,7 +208,7 @@ schema("/ds/storages/:ds/replicas/:site") ->
                 parameters => Parameters,
                 responses =>
                     #{
-                        202 => <<"OK">>,
+                        202 => ?DESC("ok"),
                         400 => bad_request(),
                         404 => not_found(?DESC("storage_not_found"))
                     }
@@ -220,7 +220,7 @@ schema("/ds/storages/:ds/replicas/:site") ->
                 parameters => Parameters,
                 responses =>
                     #{
-                        202 => <<"OK">>,
+                        202 => ?DESC("ok"),
                         400 => bad_request(),
                         404 => not_found(?DESC("storage_not_found"))
                     }

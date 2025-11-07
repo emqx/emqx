@@ -50,14 +50,11 @@ schema("/schemas/:name") ->
             parameters => [
                 {name, hoconsc:mk(hoconsc:enum(Schemas), #{in => path})}
             ],
-            desc => <<
-                "Get the schema JSON of the specified name. "
-                "NOTE: only intended for EMQX Dashboard."
-            >>,
+            desc => ?DESC(get_schema),
             tags => ?TAGS,
             security => [],
             responses => #{
-                200 => hoconsc:mk(binary(), #{desc => <<"The JSON schema of the specified name.">>})
+                200 => hoconsc:mk(binary(), #{desc => ?DESC("schema_json_response")})
             }
         }
     }.

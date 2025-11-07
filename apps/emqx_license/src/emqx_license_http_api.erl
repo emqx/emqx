@@ -43,7 +43,6 @@ schema("/license") ->
         'operationId' => '/license',
         get => #{
             tags => ?LICENSE_TAGS,
-            summary => <<"Get license info">>,
             description => ?DESC("desc_license_info_api"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
@@ -58,7 +57,6 @@ schema("/license") ->
         },
         post => #{
             tags => ?LICENSE_TAGS,
-            summary => <<"Update license key">>,
             description => ?DESC("desc_license_key_api"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 hoconsc:ref(?MODULE, key_license),
@@ -80,7 +78,7 @@ schema("/license") ->
                         }
                     }
                 ),
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad license key">>)
+                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC("bad_license_key"))
             }
         }
     };
@@ -89,7 +87,6 @@ schema("/license/setting") ->
         'operationId' => '/license/setting',
         get => #{
             tags => ?LICENSE_TAGS,
-            summary => <<"Get license setting">>,
             description => ?DESC("desc_license_setting_api"),
             responses => #{
                 200 => setting()
@@ -97,12 +94,13 @@ schema("/license/setting") ->
         },
         put => #{
             tags => ?LICENSE_TAGS,
-            summary => <<"Update license setting">>,
             description => ?DESC("desc_license_setting_api"),
             'requestBody' => setting(),
             responses => #{
                 200 => setting(),
-                400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad setting value">>)
+                400 => emqx_dashboard_swagger:error_codes(
+                    [?BAD_REQUEST], ?DESC("bad_setting_value")
+                )
             }
         }
     }.

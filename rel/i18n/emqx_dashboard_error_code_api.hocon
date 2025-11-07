@@ -5,4 +5,19 @@ error_codes.desc:
 error_codes.label:
 """API Error Codes"""
 
+get_error_code.desc:
+"""Get error code details."""
+get_error_code.label:
+"""Get Error Code"""
+
+error_code_name.desc:
+"""Code Name"""
+error_code_name.label:
+"""Error Code Name"""
+
+error_code_description.desc:
+"""Description"""
+error_code_description.label:
+"""Error Code Description"""
+
 }

@@ -105,4 +105,19 @@ cluster_description.desc:
 cluster_description.label:
 """Cluster description"""
 
+bad_request.desc:
+"""Invalid request"""
+bad_request.label:
+"""Bad Request"""
+
+ok.desc:
+"""ok"""
+ok.label:
+"""OK"""
+
+deleted_successfully.desc:
+"""Delete successfully"""
+deleted_successfully.label:
+"""Deleted Successfully"""
+
 }

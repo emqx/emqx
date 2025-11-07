@@ -1,0 +1,14 @@
+emqx_dashboard_schema_api {
+
+get_schema.desc:
+"""Get the schema JSON of the specified name.
+NOTE: only intended for EMQX Dashboard."""
+get_schema.label:
+"""Get Schema"""
+
+schema_json_response.desc:
+"""The JSON schema of the specified name."""
+schema_json_response.label:
+"""Schema JSON Response"""
+
+}

@@ -91,4 +91,24 @@ emqx_mgmt_api_ds {
         label = "Bad Request"
         desc = "The request was invalid or malformed."
     }
+    forget_site {
+        label = "Forget Site"
+        desc = "Forget site"
+    }
+    site_forgotten {
+        label = "Site Forgotten"
+        desc = "Site forgotten"
+    }
+    ok {
+        label = "OK"
+        desc = "OK"
+    }
+    site_id {
+        label = "Site ID"
+        desc = "The identifier of the site."
+    }
+    status_of_replica {
+        label = "Replica Status"
+        desc = "The status of the replica."
+    }
 }
