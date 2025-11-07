@@ -85,10 +85,4 @@ msg_expiry_interval_override.desc:
 allow_never_expire.desc:
 """If true, retained messages set to never expire (i.e., whose `Message-Expiry-Interval = 0`) are not affected by the expiry time override.  This configuration only takes effect when `msg_expiry_interval_override` is set."""
 
-dispatch_retry_ttl.label:
-"Dispatch retry TTL"
-
-dispatch_retry_ttl.desc:
-"""This option specifies the maximum amount of time EMQX will spend delivering retained messages to a single subscription. Once the time limit is reached, the dispatch process is stopped — even if additional retained messages match the subscription."""
-
 }
