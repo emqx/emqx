@@ -85,11 +85,9 @@ EMQX delivers a powerful set of capabilities for modern connected systems:
 
 ### Try EMQX Cloud
 
-The simplest way to set up EMQX is to create a managed deployment with EMQX Cloud. You can [try EMQX Cloud for free](https://www.emqx.com/en/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud-intl.emqx.com/console/deployments/0?oper=new).
+The simplest way to set up EMQX is to create a managed deployment with EMQX Cloud. You can [try EMQX Cloud for free](https://accounts.emqx.com/signup?utm_source=github.com&utm_medium=referral&utm_campaign=emqx-readme-to-cloud&continue=https://cloud-intl.emqx.com/console/deployments/new).
 
-- [EMQX Serverless](https://www.emqx.com/en/cloud/serverless-mqtt)
-- [EMQX Dedicated](https://www.emqx.com/en/cloud/dedicated)
-- [EMQX BYOC](https://www.emqx.com/en/cloud/byoc)
+For comprehensive guidance, see the [EMQX Cloud Documentation](https://docs.emqx.com/en/cloud/latest/quick_start/introduction.html).
 
 ### Run a single node using Docker
 
