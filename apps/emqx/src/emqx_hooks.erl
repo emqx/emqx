@@ -220,15 +220,15 @@ init([]) ->
     {ok, #{}}.
 
 handle_call({add, HookPoint, Callback = #callback{action = {M, F, _}}}, _From, State) ->
+    Callbacks = lookup(HookPoint),
+    Existing = lists:any(
+        fun(#callback{action = {M0, F0, _}}) ->
+            M0 =:= M andalso F0 =:= F
+        end,
+        Callbacks
+    ),
     Reply =
-        case
-            lists:any(
-                fun(#callback{action = {M0, F0, _}}) ->
-                    M0 =:= M andalso F0 =:= F
-                end,
-                Callbacks = lookup(HookPoint)
-            )
-        of
+        case Existing of
             true -> {error, already_exists};
             false -> insert_hook(HookPoint, add_callback(Callback, Callbacks))
         end,
