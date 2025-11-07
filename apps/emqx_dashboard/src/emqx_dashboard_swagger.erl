@@ -714,9 +714,12 @@ trans_description(Spec, Hocon, Options) ->
     end.
 
 -ifdef(TEST).
+%% Do not raise error in tests because there are schema defined in tests.
 missing_i18n_ref(Text) ->
     to_bin(Text).
 -else.
+%% Fail in production, if any translation is missing, the node will not boot
+%% so smoke tests will fail
 -dialyzer({nowarn_function, missing_i18n_ref/1}).
 missing_i18n_ref(Text) ->
     error({missing_i18n_ref, Text}).
