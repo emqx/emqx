@@ -109,10 +109,10 @@ schema("/authorization/sources") ->
                 ),
                 responses =>
                     #{
-                        204 => <<"Authorization source created successfully">>,
+                        204 => ?DESC("authorization_source_created"),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST],
-                            <<"Bad Request">>
+                            ?DESC("bad_request")
                         )
                     }
             }
@@ -142,7 +142,7 @@ schema("/authorization/sources/:type") ->
                 'requestBody' => mk(emqx_authz_schema:api_source_type()),
                 responses =>
                     #{
-                        204 => <<"Authorization source updated successfully">>,
+                        204 => ?DESC("authorization_source_updated"),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request")
                         )
@@ -155,7 +155,7 @@ schema("/authorization/sources/:type") ->
                 parameters => parameters_field(),
                 responses =>
                     #{
-                        204 => <<"Deleted successfully">>,
+                        204 => ?DESC("deleted_successfully"),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request")
                         )
@@ -198,7 +198,7 @@ schema("/authorization/sources/:type/move") ->
                     ),
                 responses =>
                     #{
-                        204 => <<"OK">>,
+                        204 => ?DESC("ok"),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request")
                         ),
@@ -217,7 +217,7 @@ schema("/authorization/sources/order") ->
                 #{}
             ),
             responses => #{
-                204 => <<"Authorization sources order updated">>,
+                204 => ?DESC("authorization_sources_order_updated"),
                 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC("bad_request"))
             }
         }

@@ -103,13 +103,13 @@ code_callback(get, #{query_string := QS}) ->
 %% internal
 %%--------------------------------------------------------------------
 response_schema(400) ->
-    emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>);
+    emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC("bad_request"));
 response_schema(401) ->
     emqx_dashboard_swagger:error_codes(
         [?BAD_USERNAME_OR_PWD], ?DESC(emqx_dashboard_api, login_failed401)
     );
 response_schema(404) ->
-    emqx_dashboard_swagger:error_codes([?BACKEND_NOT_FOUND], <<"Backend not found">>).
+    emqx_dashboard_swagger:error_codes([?BACKEND_NOT_FOUND], ?DESC("backend_not_found")).
 
 reason_to_message(Bin) when is_binary(Bin) ->
     Bin;

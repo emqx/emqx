@@ -170,21 +170,7 @@ fields(mode) ->
                 hoconsc:enum(?PROM_DATA_MODES),
                 #{
                     default => node,
-                    desc => <<"
-Metrics format mode.
-
-`node`:
-Return metrics from local node. And it is the default behaviour if `mode` not specified.
-
-`all_nodes_aggregated`:
-Return metrics for all nodes.
-And if possible, calculate the arithmetic sum or logical sum of the indicators of all nodes.
-
-`all_nodes_unaggregated`:
-Return metrics from all nodes, and the metrics are not aggregated.
-The node name will be included in the returned results to
-indicate that certain metrics were returned on a certain node.
-">>,
+                    desc => ?DESC(mode_parameter),
                     in => query,
                     required => false,
                     example => node
@@ -340,8 +326,6 @@ recommend_setting_example() ->
 
 prometheus_data_schema() ->
     #{
-        description =>
-            <<"Get Prometheus Data.">>,
         content =>
             [
                 {'text/plain', #{schema => #{type => string}}},

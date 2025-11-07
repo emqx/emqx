@@ -46,7 +46,9 @@ schema("/authorization/settings") ->
                 responses =>
                     #{
                         200 => ref_authz_schema(),
-                        400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                        400 => emqx_dashboard_swagger:error_codes(
+                            [?BAD_REQUEST], ?DESC("bad_request")
+                        )
                     }
             }
     }.

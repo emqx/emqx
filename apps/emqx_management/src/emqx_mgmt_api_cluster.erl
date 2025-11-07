@@ -54,7 +54,7 @@ schema("/cluster") ->
             'requestBody' => hoconsc:ref(?MODULE, cluster_info_request),
             responses => #{
                 200 => fields(cluster_info_response),
-                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'], <<"Invalid request">>)
+                400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'], ?DESC("bad_request"))
             }
         }
     };
@@ -92,7 +92,7 @@ schema("/cluster/:node/invite") ->
             parameters => [hoconsc:ref(node)],
             'requestBody' => hoconsc:ref(timeout),
             responses => #{
-                200 => <<"ok">>,
+                200 => ?DESC("ok"),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
         }
@@ -105,7 +105,7 @@ schema("/cluster/:node/invite_async") ->
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
             responses => #{
-                200 => <<"ok">>,
+                200 => ?DESC("ok"),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
         }
@@ -118,7 +118,7 @@ schema("/cluster/:node/force_leave") ->
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
             responses => #{
-                204 => <<"Delete successfully">>,
+                204 => ?DESC("deleted_successfully"),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         }

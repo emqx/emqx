@@ -64,5 +64,41 @@ position.desc:
 """Position of the source in the execution order. Can be 'front' to place at the beginning, 'rear' to place at the end, 'before:source_name' to place before a specific source, or 'after:source_name' to place after a specific source."""
 position.label:
 """Position"""
+
+authorization_source_created.desc:
+"""Authorization source created successfully"""
+authorization_source_created.label:
+"""Authorization Source Created"""
+
+authorization_source_updated.desc:
+"""Authorization source updated successfully"""
+authorization_source_updated.label:
+"""Authorization Source Updated"""
+
+deleted_successfully.desc:
+"""Deleted successfully"""
+deleted_successfully.label:
+"""Deleted Successfully"""
+
+ok.desc:
+"""OK"""
+ok.label:
+"""OK"""
+
+authorization_sources_order_updated.desc:
+"""Authorization sources order updated"""
+authorization_sources_order_updated.label:
+"""Authorization Sources Order Updated"""
+
+bad_request.desc:
+"""Bad Request"""
+bad_request.label:
+"""Bad Request"""
+
+not_found.desc:
+"""Not Found"""
+not_found.label:
+"""Not Found"""
+
 }
 
