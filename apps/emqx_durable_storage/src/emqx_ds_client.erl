@@ -234,7 +234,14 @@ from `get_iterator` or `on_new_iterator` callbacks (and thus creates a subscript
 """.
 -callback on_subscription_down(sub_id(), emqx_ds:slab(), emqx_ds:stream(), HostState) -> HostState.
 
--optional_callbacks([on_subscription_down/4]).
+-doc """
+Query the host about the list of previously seen streams.
+This callback is called once when a new subscription is created.
+It is needed to call `on_unrecoverable_error` for all streams that got deleted while the host was offline.
+""".
+-callback list_known_streams(sub_id(), _HostState) -> [{emqx_ds:slab(), emqx_ds:stream()}].
+
+-optional_callbacks([on_subscription_down/4, list_known_streams/2]).
 
 %%================================================================================
 %% API functions
@@ -633,12 +640,35 @@ unsubscribe_(
 
 -spec renew_streams_(t(), sub_id(), sub(), _HostState) -> t().
 renew_streams_(
+    CS0 = #cs{cbm = CBM, subs = Subs},
+    SubId,
+    Sub0 = #sub{is_new = true},
+    HostState
+) ->
+    %% This is a new subscription.
+    Sub = Sub0#sub{is_new = false},
+    CS1 = CS0#cs{subs = Subs#{SubId := Sub}},
+    %% Query the existing streams from the host. This is needed to
+    %% handle unrecoverable errors that could happen to known the
+    %% streams.
+    L = list_known_streams(CBM, SubId, HostState),
+    PerShard = maps:groups_from_list(fun({{Shard, _}, _}) -> Shard end, L),
+    CS = maps:fold(
+        fun(Shard, Streams, Acc) ->
+            seed_cache(Acc, SubId, HostState, Shard, Streams)
+        end,
+        CS1,
+        PerShard
+    ),
+    renew_streams_(CS, SubId, Sub, HostState);
+renew_streams_(
     CS = #cs{cbm = CBM},
     SubId,
     #sub{
         db = DB,
         topic = Topic,
-        start_time = StartTime
+        start_time = StartTime,
+        is_new = false
     },
     HostState
 ) ->
@@ -895,6 +925,19 @@ update_streams(CS0, SubId, Shard, Streams, HostState0) ->
         end
     ).
 
+seed_cache(CS0, SubId, HostState, Shard, Streams) ->
+    {CS, _} = with_stream_cache(
+        SubId,
+        Shard,
+        CS0,
+        HostState,
+        fun(Cache0) ->
+            {CS, Cache} = do_update_streams(CS0, HostState, SubId, Shard, Cache0, Streams),
+            {Cache, CS, HostState}
+        end
+    ),
+    CS.
+
 -spec do_update_streams(t(), _HostState, sub_id(), emqx_ds:shard(), stream_cache(), [
     {emqx_ds:slab(), emqx_ds:stream()}
 ]) ->
@@ -917,7 +960,6 @@ add_stream_to_cache(
     Generation,
     _Stream
 ) when Generation < Current ->
-    %% Should not happen:
     {
         CS,
         Cache
@@ -1220,6 +1262,16 @@ do_execute(EffectHandler, ResultHandler, [Effect | Effects], CS0, Acc0) ->
 %%------------------------------------------------------------------------------
 %% Callback module wrappers:
 %%------------------------------------------------------------------------------
+
+-spec list_known_streams(module(), sub_id(), _HostState) ->
+    [{emqx_ds:slab(), emqx_ds:stream()}].
+list_known_streams(CBM, SubId, HostState) ->
+    case erlang:function_exported(CBM, list_known_streams, 2) of
+        true ->
+            CBM:list_known_streams(SubId, HostState);
+        false ->
+            []
+    end.
 
 -spec get_current_generation(module(), sub_id(), emqx_ds:shard(), _HostState) ->
     emqx_ds:generation().
