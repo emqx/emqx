@@ -80,7 +80,6 @@ jobs:
         profile:
           - ${{ inputs.profile }}
         os:
-          - macos-13
           - macos-14
           - macos-15
         otp:
@@ -115,7 +114,6 @@ jobs:
         profile:
           - ${{ inputs.profile }}
         os:
-          - macos-13
           - macos-14
           - macos-15
         otp:
