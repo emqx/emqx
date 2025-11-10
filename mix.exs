@@ -373,7 +373,7 @@ defmodule EMQXUmbrella.MixProject do
         {:bbmustache, "1.10.0"},
         {:cth_readable, "1.5.1"},
         common_dep(:proper),
-        {:meck, "0.9.2"}
+        {:meck, "1.1.0"}
       ]
     else
       []
