@@ -526,8 +526,8 @@ stop_client(ClientID) ->
 
 do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
     case brod:get_partitions_count(ClientID, KafkaTopic) of
-        {ok, NPartitions} ->
-            case do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) of
+        {ok, _NPartitions} ->
+            case do_get_topic_status(ClientID, KafkaTopic, SubscriberId) of
                 ?status_connected ->
                     do_get_status(ClientID, RestTopics, SubscriberId);
                 {Status, Message} when Status =/= ?status_connected ->
@@ -562,47 +562,46 @@ do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
 do_get_status(_ClientID, _KafkaTopics = [], _SubscriberId) ->
     ?status_connected.
 
--spec do_get_topic_status(brod:client_id(), binary(), subscriber_id(), pos_integer()) ->
+-spec do_get_topic_status(brod:client_id(), binary(), subscriber_id()) ->
     ?status_connected | {?status_disconnected | ?status_connecting, _Msg :: binary()}.
-do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) ->
-    Results =
-        lists:map(
-            fun(N) ->
-                {N, brod_client:get_leader_connection(ClientID, KafkaTopic, N)}
-            end,
-            lists:seq(0, NPartitions - 1)
-        ),
-    WorkersAlive = are_subscriber_workers_alive(SubscriberId),
-    case check_leader_connection_results(Results) of
-        ok when WorkersAlive ->
-            ?status_connected;
-        {error, no_leaders} ->
-            {?status_disconnected, <<"No leaders available (no partitions?)">>};
-        {error, {N, Reason}} ->
-            Msg = iolist_to_binary(
-                io_lib:format(
-                    "Leader for partition ~b unavailable; reason: ~0p",
-                    [N, emqx_utils:redact(Reason)]
-                )
+do_get_topic_status(ClientID, KafkaTopic, SubscriberId) ->
+    case get_consumer_workers(SubscriberId) of
+        {AliveWorkers, []} ->
+            DisconnectedLeaders =
+                lists:filtermap(
+                    fun({{_Topic, Partition}, _WorkerPid}) ->
+                        case brod_client:get_leader_connection(ClientID, KafkaTopic, Partition) of
+                            {ok, _Conn} ->
+                                false;
+                            {error, Reason} ->
+                                {true, {Partition, Reason}}
+                        end
+                    end,
+                    AliveWorkers
+                ),
+            case DisconnectedLeaders of
+                [] ->
+                    ?status_connected;
+                [{P, R} | _] ->
+                    Msg = io_lib:format(
+                        "client=~s; topic=~s; partition=~p; disconnected=~0p; total=~p",
+                        [ClientID, KafkaTopic, P, R, length(DisconnectedLeaders)]
+                    ),
+                    {?status_disconnected, iolist_to_binary(Msg)}
+            end;
+        {_AliveWorkers, DeadWorkers} ->
+            Msg = io_lib:format(
+                "client=~s; topic=~s; reason=~0p",
+                [ClientID, KafkaTopic, DeadWorkers]
             ),
-            {?status_disconnected, Msg};
-        ok when not WorkersAlive ->
-            {?status_connecting, <<"Subscription workers restarting">>}
+            {?status_connecting, iolist_to_binary(Msg)};
+        false ->
+            {?status_connecting, <<"Subscriber workers restarting">>}
     end.
 
-check_leader_connection_results(Results) ->
-    emqx_utils:foldl_while(
-        fun
-            ({_N, {ok, _}}, _Acc) ->
-                {cont, ok};
-            ({N, {error, Reason}}, _Acc) ->
-                {halt, {error, {N, Reason}}}
-        end,
-        {error, no_leaders},
-        Results
-    ).
-
-are_subscriber_workers_alive(SubscriberId) ->
+%% Returns 'false' if failed to get workers.
+%% Returns {AliveWorkers, DeadWorkers} otherwise.
+get_consumer_workers(SubscriberId) ->
     try
         Children = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
         case lists:keyfind(SubscriberId, 1, Children) of
@@ -612,10 +611,10 @@ are_subscriber_workers_alive(SubscriberId) ->
                 false;
             {_, Pid, _, _} when is_pid(Pid) ->
                 Workers = brod_group_subscriber_v2:get_workers(Pid),
-                %% we can't enforce the number of partitions on a single
-                %% node, as the group might be spread across an emqx
-                %% cluster.
-                lists:all(fun is_process_alive/1, maps:values(Workers))
+                WorkersList = lists:keysort(1, maps:to_list(Workers)),
+                lists:partition(
+                    fun({_Partition, WorkerPid}) -> is_process_alive(WorkerPid) end, WorkersList
+                )
         end
     catch
         exit:{noproc, _} ->
