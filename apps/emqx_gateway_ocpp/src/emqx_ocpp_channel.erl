@@ -55,7 +55,7 @@
     session :: option(map()),
     %% ClientInfo override specs
     clientinfo_override :: map(),
-    %% Keepalive
+    %% KeepAlive
     keepalive :: option(emqx_ocpp_keepalive:keepalive()),
     %% Stores all unsent messages.
     mqueue :: queue:queue(),
@@ -167,8 +167,8 @@ info(session, #channel{conninfo = ConnInfo}) ->
     };
 info(conn_state, #channel{conn_state = ConnState}) ->
     ConnState;
-info(keepalive, #channel{keepalive = Keepalive}) ->
-    emqx_utils:maybe_apply(fun emqx_ocpp_keepalive:info/1, Keepalive);
+info(keepalive, #channel{keepalive = KeepAlive}) ->
+    emqx_utils:maybe_apply(fun emqx_ocpp_keepalive:info/1, KeepAlive);
 info(ctx, #channel{ctx = Ctx}) ->
     Ctx;
 info(timers, #channel{timers = Timers}) ->
@@ -637,11 +637,11 @@ handle_timeout(
 handle_timeout(
     _TRef,
     {keepalive, StatVal},
-    Channel = #channel{keepalive = Keepalive}
+    Channel = #channel{keepalive = KeepAlive}
 ) ->
-    case emqx_ocpp_keepalive:check(StatVal, Keepalive) of
-        {ok, NKeepalive} ->
-            NChannel = Channel#channel{keepalive = NKeepalive},
+    case emqx_ocpp_keepalive:check(StatVal, KeepAlive) of
+        {ok, NKeepAlive} ->
+            NChannel = Channel#channel{keepalive = NKeepAlive},
             {ok, reset_timer(alive_timer, NChannel)};
         {error, timeout} ->
             handle_out(disconnect, keepalive_timeout, Channel)
@@ -811,7 +811,7 @@ ensure_disconnected(
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
 %%--------------------------------------------------------------------
-%% Ensure Keepalive
+%% Ensure KeepAlive
 
 ensure_keepalive(Channel = #channel{conninfo = ConnInfo}) ->
     ensure_keepalive_timer(maps:get(keepalive, ConnInfo), Channel).
@@ -819,11 +819,11 @@ ensure_keepalive(Channel = #channel{conninfo = ConnInfo}) ->
 ensure_keepalive_timer(0, Channel) ->
     Channel;
 ensure_keepalive_timer(Interval, Channel) ->
-    Keepalive = emqx_ocpp_keepalive:init(
+    KeepAlive = emqx_ocpp_keepalive:init(
         timer:seconds(Interval),
         heartbeat_checking_times_backoff()
     ),
-    ensure_timer(alive_timer, Channel#channel{keepalive = Keepalive}).
+    ensure_timer(alive_timer, Channel#channel{keepalive = KeepAlive}).
 
 reset_keepalive(Interval, Channel = #channel{conninfo = ConnInfo, timers = Timers}) ->
     case maps:get(alive_timer, Timers, undefined) of
@@ -872,11 +872,11 @@ dntopic(ClientId, Mountpoint) ->
 
 -compile({inline, [run_hooks/3]}).
 run_hooks(Name, Args) ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run(Name, Args).
 
 run_hooks(Name, Args, Acc) ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run_fold(Name, Args, Acc).
 
 -compile({inline, [reply/2, shutdown/2, shutdown/3]}).

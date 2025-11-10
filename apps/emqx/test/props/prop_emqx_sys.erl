@@ -100,7 +100,7 @@ do_mock(emqx_stats) ->
 do_mock(mria) ->
     meck:expect(mria, running_nodes, fun() -> [node()] end);
 do_mock(emqx_metrics) ->
-    meck:expect(emqx_metrics, all, fun() -> [{hello, 3}] end);
+    meck:expect(emqx_metrics, all_global, fun() -> [{hello, 3}] end);
 do_mock(emqx_hooks) ->
     meck:expect(emqx_hooks, put, fun(_HookPoint, _MFA, _) -> ok end),
     meck:expect(emqx_hooks, del, fun(_HookPoint, _MF) -> ok end);

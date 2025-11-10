@@ -94,8 +94,10 @@ post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
     ok.
 
 update_prometheus(AppEnvs) ->
-    PrevCollectors = all_collectors(),
-    CurCollectors = proplists:get_value(collectors, proplists:get_value(prometheus, AppEnvs)),
+    PrevCollectors = lists:usort(all_collectors()),
+    CurCollectors = lists:usort(
+        proplists:get_value(collectors, proplists:get_value(prometheus, AppEnvs))
+    ),
     lists:foreach(
         fun prometheus_registry:deregister_collector/1,
         PrevCollectors -- CurCollectors

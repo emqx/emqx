@@ -129,14 +129,14 @@ t_metrics_quota_exceeded(_Config) ->
         _Inteval = 100,
         _Attempts = 10,
         ?assert(
-            emqx_metrics:val('packets.publish.quota_exceeded') > 0
+            emqx_metrics:val_global('packets.publish.quota_exceeded') > 0
         )
     ),
     ?retry(
         _Inteval = 100,
         _Attempts = 10,
         ?assert(
-            emqx_metrics:val('messages.dropped.quota_exceeded') > 0
+            emqx_metrics:val_global('messages.dropped.quota_exceeded') > 0
         )
     ).
 

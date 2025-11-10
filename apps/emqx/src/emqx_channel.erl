@@ -13,6 +13,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
+-include("emqx_config.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -217,7 +218,9 @@ info(timers, #channel{timers = Timers}) ->
 info(session_state, #channel{session = Session}) ->
     Session;
 info(impl, #channel{session = Session}) ->
-    emqx_session:info(impl, Session).
+    emqx_session:info(impl, Session);
+info(namespace, #channel{clientinfo = ClientInfo}) ->
+    get_tenant_namespace(ClientInfo).
 
 inspect(#channel{} = Channel) ->
     lists:foldl(
@@ -507,7 +510,12 @@ handle_in(
 handle_in(?PACKET(?PINGREQ), Channel = #channel{keepalive = KeepAlive}) ->
     {ok, NKeepAlive} = emqx_keepalive:check(KeepAlive),
     NChannel = Channel#channel{keepalive = NKeepAlive},
-    _ = run_hooks('client.ping', [NChannel#channel.clientinfo, NChannel#channel.conninfo], ok),
+    _ = run_hooks(
+        'client.ping',
+        [NChannel#channel.clientinfo, NChannel#channel.conninfo],
+        ok,
+        NChannel
+    ),
     {ok, ?PACKET(?PINGRESP), reset_timer(keepalive, NChannel)};
 handle_in(
     ?PACKET(?DISCONNECT, _PktVar) = Packet,
@@ -650,11 +658,11 @@ process_publish(Packet = ?PUBLISH_PACKET(QoS, Topic, PacketId), Channel) ->
                     handle_out(disconnect, Rc, NChannel)
             end;
         {error, Rc = ?RC_QUOTA_EXCEEDED, NChannel} ->
-            ok = emqx_metrics:inc('packets.publish.quota_exceeded'),
+            ok = inc_metrics('packets.publish.quota_exceeded', NChannel),
             case QoS of
                 ?QOS_0 ->
-                    ok = emqx_metrics:inc('messages.dropped'),
-                    ok = emqx_metrics:inc('messages.dropped.quota_exceeded'),
+                    ok = inc_metrics('messages.dropped', NChannel),
+                    ok = inc_metrics('messages.dropped.quota_exceeded', NChannel),
                     {ok, NChannel};
                 ?QOS_1 ->
                     handle_out(puback, {PacketId, Rc}, NChannel);
@@ -738,10 +746,10 @@ do_publish(
             NChannel1 = ensure_timer(expire_awaiting_rel, NChannel0),
             handle_out(pubrec, {PacketId, RC}, NChannel1);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ok = emqx_metrics:inc('packets.publish.inuse'),
+            ok = inc_metrics('packets.publish.inuse', Channel),
             handle_out(pubrec, {PacketId, RC}, Channel);
         {error, RC = ?RC_RECEIVE_MAXIMUM_EXCEEDED} ->
-            ok = emqx_metrics:inc('messages.dropped.receive_maximum'),
+            ok = inc_metrics('messages.dropped.receive_maximum', Channel),
             handle_out(disconnect, RC, Channel)
     end.
 
@@ -779,11 +787,11 @@ process_puback(
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "puback_packetId_inuse", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.puback.inuse'),
+            ok = inc_metrics('packets.puback.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "puback_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.puback.missed'),
+            ok = inc_metrics('packets.puback.missed', Channel),
             {ok, Channel}
     end.
 
@@ -806,11 +814,11 @@ process_pubrec(
             handle_out(disconnect, RC, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_IN_USE} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_inuse", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrec.inuse'),
+            ok = inc_metrics('packets.pubrec.inuse', Channel),
             handle_out(pubrel, {PacketId, RC}, Channel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubrec_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrec.missed'),
+            ok = inc_metrics('packets.pubrec.missed', Channel),
             handle_out(pubrel, {PacketId, RC}, Channel)
     end.
 
@@ -831,7 +839,7 @@ process_pubrel(
             handle_out(pubcomp, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubrel_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubrel.missed'),
+            ok = inc_metrics('packets.pubrel.missed', Channel),
             handle_out(pubcomp, {PacketId, RC}, Channel)
     end.
 
@@ -853,17 +861,17 @@ process_pubcomp(
         {error, ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
         {error, ?RC_PACKET_IDENTIFIER_IN_USE} ->
-            ok = emqx_metrics:inc('packets.pubcomp.inuse'),
+            ok = inc_metrics('packets.pubcomp.inuse', Channel),
             {ok, Channel};
         {error, ?RC_PACKET_IDENTIFIER_NOT_FOUND} ->
             ?SLOG(warning, #{msg => "pubcomp_packetId_not_found", packetId => PacketId}),
-            ok = emqx_metrics:inc('packets.pubcomp.missed'),
+            ok = inc_metrics('packets.pubcomp.missed', Channel),
             {ok, Channel}
     end.
 
 -compile({inline, [after_message_acked/3]}).
 after_message_acked(Msg, PubAckProps, Channel) ->
-    ok = emqx_metrics:inc('messages.acked'),
+    ok = inc_metrics('messages.acked', Channel),
     run_hook_with_context(
         'message.acked',
         [
@@ -982,7 +990,8 @@ process_unsubscribe(
             TopicFilters1 = run_hooks(
                 'client.unsubscribe',
                 [ClientInfo, Properties],
-                parse_raw_topic_filters(TopicFilters)
+                parse_raw_topic_filters(TopicFilters),
+                Channel
             ),
             {ReasonCodes, NChannel} = post_process_unsubscribe(TopicFilters1, Properties, Channel),
             handle_out(unsuback, {PacketId, ReasonCodes}, NChannel);
@@ -1283,7 +1292,8 @@ handle_out(connack, {?RC_SUCCESS, SP, Props}, Channel = #channel{conninfo = Conn
     NAckProps = run_hooks(
         'client.connack',
         [ConnInfo, emqx_reason_codes:name(?RC_SUCCESS)],
-        AckProps
+        AckProps,
+        Channel
     ),
     return_connack(
         ?CONNACK_PACKET(?RC_SUCCESS, SP, NAckProps),
@@ -1301,7 +1311,7 @@ handle_out(connack, {ReasonCode, ReasonString}, Channel = #channel{conninfo = Co
             false ->
                 emqx_mqtt_props:set('Reason-String', ReasonString, AckProps0)
         end,
-    AckProps = run_hooks('client.connack', [ConnInfo, Reason], AckProps1),
+    AckProps = run_hooks('client.connack', [ConnInfo, Reason], AckProps1, Channel),
     AckPacket = ?CONNACK_PACKET(
         case maps:get(proto_ver, ConnInfo) of
             ?MQTT_PROTO_V5 -> ReasonCode;
@@ -1369,8 +1379,9 @@ handle_out(disconnect, {ReasonCode, ReasonName, Props}, Channel = ?IS_MQTT_V5) -
 handle_out(disconnect, {_ReasonCode, ReasonName, _Props}, Channel) ->
     {ok, ?REPLY_CLOSE(ReasonName), Channel};
 handle_out(auth, {ReasonCode, Properties}, Channel0) ->
-    Replies0 = ?AUTH_PACKET(ReasonCode, Properties),
-    {Replies, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    Replies0 = {outgoing, ?AUTH_PACKET(ReasonCode, Properties)},
+    {Replies1, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    Replies = add_set_namespace_event(Replies1, Channel),
     {ok, Replies, Channel};
 handle_out(Type, Data, Channel) ->
     ?SLOG(error, #{msg => "unexpected_outgoing", type => Type, data => Data}),
@@ -1383,7 +1394,8 @@ handle_out(Type, Data, Channel) ->
 return_connack(?CONNACK_PACKET(_RC, _SessPresent) = AckPacket, Channel0) ->
     ?EXT_TRACE_ADD_ATTRS(#{'client.connack.reason_code' => _RC}),
     Replies0 = [?REPLY_EVENT(connected), ?REPLY_CONNACK(AckPacket)],
-    {Replies, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    {Replies1, Channel} = maybe_add_zone_changed_event(Replies0, Channel0),
+    Replies = add_set_namespace_event(Replies1, Channel),
     {continue, Replies, Channel}.
 
 maybe_add_zone_changed_event(Replies, #channel{clientinfo = ClientInfo0} = Channel0) ->
@@ -1391,10 +1403,23 @@ maybe_add_zone_changed_event(Replies, #channel{clientinfo = ClientInfo0} = Chann
         #{old_zone := _, zone := NewZone} ->
             ClientInfo = maps:remove(old_zone, ClientInfo0),
             Channel = Channel0#channel{clientinfo = ClientInfo},
-            {[?REPLY_EVENT({zone_changed, NewZone}) | Replies], Channel};
+            {[?REPLY_EVENT({zone_changed, NewZone}) | wrap_list(Replies)], Channel};
         _ ->
             {Replies, Channel0}
     end.
+
+add_set_namespace_event(Replies, #channel{clientinfo = ClientInfo}) ->
+    case get_tenant_namespace(ClientInfo) of
+        undefined ->
+            [?REPLY_EVENT({set_namespace, ?global_ns}) | wrap_list(Replies)];
+        Namespace ->
+            [?REPLY_EVENT({set_namespace, Namespace}) | wrap_list(Replies)]
+    end.
+
+wrap_list(Xs) when is_list(Xs) ->
+    Xs;
+wrap_list(X) ->
+    [X].
 
 %%--------------------------------------------------------------------
 %% Deliver publish: broker -> client
@@ -1409,7 +1434,7 @@ do_deliver(
         clientinfo = ClientInfo = #{mountpoint := MountPoint}
     }
 ) ->
-    ok = emqx_metrics:inc('messages.delivered'),
+    ok = inc_metrics('messages.delivered', Channel),
     Msg1 = run_fold_with_context(
         'message.delivered',
         [ClientInfo],
@@ -1961,7 +1986,7 @@ receive_maximum(Zone, ConnProps) ->
 
 run_conn_hooks(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
     ConnProps = emqx_packet:info(properties, ConnPkt),
-    case run_hooks('client.connect', [ConnInfo], ConnProps) of
+    case run_hooks('client.connect', [ConnInfo], ConnProps, Channel) of
         Error = {error, _Reason} -> Error;
         NConnProps -> {ok, emqx_packet:set_props(NConnProps, ConnPkt), Channel}
     end.
@@ -2753,13 +2778,13 @@ do_check_sub_caps(ClientInfo, [TopicFilter = {{_Topic, _SubOpts}, _OtherRC} | Mo
 
 run_sub_hooks(
     ?SUBSCRIBE_PACKET(_PacketId, Properties, TopicFilters0),
-    _Channel = #channel{clientinfo = ClientInfo}
+    Channel = #channel{clientinfo = ClientInfo}
 ) ->
     TopicFilters = [
         TopicFilter
      || {TopicFilter, ?RC_SUCCESS} <- TopicFilters0
     ],
-    _NTopicFilters = run_hooks('client.subscribe', [ClientInfo, Properties], TopicFilters).
+    _NTopicFilters = run_hooks('client.subscribe', [ClientInfo, Properties], TopicFilters, Channel).
 
 %%--------------------------------------------------------------------
 %% Enrich SubOpts
@@ -2905,7 +2930,7 @@ ensure_connected(
     }
 ) ->
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
-    ok = run_hooks('client.connected', [ClientInfo, NConnInfo]),
+    ok = run_hooks('client.connected', [ClientInfo, NConnInfo], Channel),
     schedule_connection_auth_expire(Channel#channel{
         conninfo = trim_conninfo(NConnInfo),
         conn_state = connected
@@ -3046,7 +3071,7 @@ ensure_disconnected(
 ) ->
     ok = emqx_authz_cache:empty_authz_cache(),
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
-    ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
+    ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo], Channel),
     ChanPid = self(),
     emqx_cm:mark_channel_disconnected(ChanPid),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
@@ -3274,13 +3299,13 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile({inline, [run_hooks/2, run_hooks/3]}).
-run_hooks(Name, Args) ->
-    ok = emqx_metrics:inc(Name),
+-compile({inline, [run_hooks/3, run_hooks/4]}).
+run_hooks(Name, Args, Channel) ->
+    ok = inc_metrics(Name, Channel),
     emqx_hooks:run(Name, Args).
 
-run_hooks(Name, Args, Acc) ->
-    ok = emqx_metrics:inc(Name),
+run_hooks(Name, Args, Acc, Channel) ->
+    ok = inc_metrics(Name, Channel),
     emqx_hooks:run_fold(Name, Args, Acc).
 
 -compile({inline, [run_hook_with_context/3]}).
@@ -3442,6 +3467,9 @@ mk_common_hook_context(Channel) ->
         chan_info_fn => fun(Prop) -> emqx_channel:info(Prop, Channel) end,
         session_info_fn => fun(Prop) -> emqx_session:info(Prop, Session) end
     }.
+
+inc_metrics(Name, _Channel) ->
+    emqx_metrics:inc_global(Name).
 
 %%--------------------------------------------------------------------
 %% For CT tests

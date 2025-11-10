@@ -17,6 +17,7 @@
 -include_lib("quicer/include/quicer.hrl").
 -include("emqx_mqtt.hrl").
 -include("logger.hrl").
+-include("emqx_config.hrl").
 
 %% Connection Callbacks
 -export([
@@ -87,7 +88,13 @@ post_handoff(_Stream, {undefined = _PS, undefined = _Serialize, undefined = _Cha
 post_handoff(Stream, {PS, Serialize, Channel}, S) ->
     ?tp(debug, ?FUNCTION_NAME, #{channel => Channel, serialize => Serialize}),
     _ = quicer:setopt(Stream, active, 10),
-    {ok, S#{channel := Channel, serialize := Serialize, parse_state := PS}}.
+    Namespace = emqx_maybe:define(emqx_channel:info(namespace, Channel), ?global_ns),
+    {ok, S#{
+        channel := Channel,
+        serialize := Serialize,
+        parse_state := PS,
+        namespace := Namespace
+    }}.
 
 -spec peer_receive_aborted(stream_handle(), error_code(), cb_state()) -> cb_ret().
 peer_receive_aborted(Stream, ErrorCode, #{is_unidir := _} = S) ->
@@ -133,6 +140,7 @@ handle_stream_data(
     %% assert get stream data only after channel is created
     Channel =/= undefined
 ->
+    inc_metrics('bytes.received', State, iolist_size(Bin)),
     {MQTTPackets, NewPS} = parse_incoming(list_to_binary(lists:reverse([Bin | QueuedData])), PS),
     NewTQ = lists:foldl(
         fun(Item, Acc) ->
@@ -196,7 +204,7 @@ do_handle_appl_msg(
 ->
     case handle_outgoing(Packets, S) of
         {ok, Size} ->
-            ok = emqx_metrics:inc('bytes.sent', Size),
+            ok = inc_metrics('bytes.sent', S, Size),
             {{continue, handle_appl_msg}, S};
         {error, E1, E2} ->
             {stop, {E1, E2}, S};
@@ -212,7 +220,7 @@ do_handle_appl_msg(
 ) when
     Channel =/= undefined
 ->
-    ok = inc_incoming_stats(Packet),
+    ok = inc_incoming_stats(Packet, S),
     _ = emqx_quic_connection:step_cnt(SharedCntsRef, control_packet, 1),
     with_channel(handle_in, [Packet], S);
 do_handle_appl_msg({incoming, {frame_error, _} = FE}, #{channel := Channel} = S) when
@@ -272,17 +280,17 @@ with_channel(Fun, Args, #{channel := Channel, task_queue := Q} = S) when
 
 handle_outgoing(#mqtt_packet{} = P, S) ->
     handle_outgoing([P], S);
-handle_outgoing(Packets, #{serialize := Serialize, stream := Stream, is_unidir := false}) when
+handle_outgoing(Packets, #{serialize := Serialize, stream := Stream, is_unidir := false} = S) when
     is_list(Packets)
 ->
-    OutBin = [serialize_packet(P, Serialize) || P <- filter_disallowed_out(Packets)],
+    OutBin = [serialize_packet(P, Serialize, S) || P <- filter_disallowed_out(Packets)],
     %% Send data async but still want send feedback via {quic, send_complete, ...}
     Res = quicer:async_send(Stream, OutBin, ?QUICER_SEND_FLAG_SYNC),
     ?TRACE("MQTT", "mqtt_packet_sent", #{packets => Packets}),
-    [ok = inc_outgoing_stats(P) || P <- Packets],
+    [ok = inc_outgoing_stats(P, S) || P <- Packets],
     Res.
 
-serialize_packet(Packet, Serialize) ->
+serialize_packet(Packet, Serialize, State) ->
     try emqx_frame:serialize_pkt(Packet, Serialize) of
         <<>> ->
             ?SLOG(warning, #{
@@ -290,9 +298,9 @@ serialize_packet(Packet, Serialize) ->
                 reason => "frame_is_too_large",
                 packet => emqx_packet:format(Packet, hidden)
             }),
-            ok = emqx_metrics:inc('delivery.dropped.too_large'),
-            ok = emqx_metrics:inc('delivery.dropped'),
-            ok = inc_outgoing_stats({error, message_too_large}),
+            ok = emqx_metrics:inc_global('delivery.dropped.too_large'),
+            ok = emqx_metrics:inc_global('delivery.dropped'),
+            ok = inc_outgoing_stats({error, message_too_large}, State),
             <<>>;
         Data ->
             Data
@@ -348,7 +356,9 @@ init_state(Stream, Connection, OpenFlags, ConnSharedState, PS) ->
         %% Current working queue
         task_queue => queue:new(),
         %% Connection Shared State
-        conn_shared_state => ConnSharedState
+        conn_shared_state => ConnSharedState,
+        %% Tenant Namespace
+        namespace => ?global_ns
     }.
 
 -spec do_handle_call(term(), cb_state()) -> cb_ret().
@@ -405,8 +415,8 @@ do_parse_incoming(Data, Packets, ParseState) ->
     end.
 
 %% followings are copied from emqx_connection
--compile({inline, [inc_incoming_stats/1]}).
-inc_incoming_stats(Packet = ?PACKET(Type)) ->
+-compile({inline, [inc_incoming_stats/2]}).
+inc_incoming_stats(Packet = ?PACKET(Type), State) ->
     inc_counter(recv_pkt, 1),
     case Type =:= ?PUBLISH of
         true ->
@@ -416,13 +426,14 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
         false ->
             ok
     end,
-    emqx_metrics:inc_recv(Packet).
+    Namespace = maps:get(namespace, State),
+    emqx_metrics:inc_recv(Packet, Namespace).
 
--compile({inline, [inc_outgoing_stats/1]}).
-inc_outgoing_stats({error, message_too_large}) ->
+-compile({inline, [inc_outgoing_stats/2]}).
+inc_outgoing_stats({error, message_too_large}, _State) ->
     inc_counter('send_msg.dropped', 1),
     inc_counter('send_msg.dropped.too_large', 1);
-inc_outgoing_stats(Packet = ?PACKET(Type)) ->
+inc_outgoing_stats(Packet = ?PACKET(Type), State) ->
     inc_counter(send_pkt, 1),
     case Type of
         ?PUBLISH ->
@@ -432,7 +443,8 @@ inc_outgoing_stats(Packet = ?PACKET(Type)) ->
         _ ->
             ok
     end,
-    emqx_metrics:inc_sent(Packet).
+    Namespace = maps:get(namespace, State),
+    emqx_metrics:inc_sent(Packet, Namespace).
 
 inc_counter(Key, Inc) ->
     _ = emqx_pd:inc_counter(Key, Inc),
@@ -454,6 +466,16 @@ inc_qos_stats_key(recv_msg, ?QOS_1) -> 'recv_msg.qos1';
 inc_qos_stats_key(recv_msg, ?QOS_2) -> 'recv_msg.qos2';
 %% for bad qos
 inc_qos_stats_key(_, _) -> undefined.
+
+inc_metrics(Name, State, Val) ->
+    case State of
+        #{namespace := Namespace} when is_binary(Namespace) ->
+            emqx_metrics:inc(?global_ns, Name, Val),
+            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
+            ok;
+        _ ->
+            emqx_metrics:inc(?global_ns, Name, Val)
+    end.
 
 filter_disallowed_out(Packets) ->
     lists:filter(fun is_datastream_out_pkt/1, Packets).

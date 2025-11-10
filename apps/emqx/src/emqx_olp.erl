@@ -51,10 +51,10 @@ backoff(Zone) ->
                 false ->
                     false;
                 ok ->
-                    emqx_metrics:inc('overload_protection.delay.ok'),
+                    emqx_metrics:inc_global('overload_protection.delay.ok'),
                     ok;
                 timeout ->
-                    emqx_metrics:inc('overload_protection.delay.timeout'),
+                    emqx_metrics:inc_global('overload_protection.delay.timeout'),
                     timeout
             end;
         _ ->
@@ -110,7 +110,7 @@ do_check(Zone, Key, CntName) ->
         true ->
             case emqx_config:get_zone_conf(Zone, [?overload_protection]) of
                 #{enable := true, Key := true} ->
-                    emqx_metrics:inc(CntName),
+                    emqx_metrics:inc_global(CntName),
                     true;
                 _ ->
                     false

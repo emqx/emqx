@@ -122,13 +122,13 @@ on_message_publish(Message = #message{topic = Topic, headers = Headers}) ->
         Validations ->
             case run_validations(Validations, Message) of
                 ok ->
-                    emqx_metrics:inc('messages.validation_succeeded'),
+                    emqx_metrics:inc_global('messages.validation_succeeded'),
                     {ok, Message};
                 drop ->
-                    emqx_metrics:inc('messages.validation_failed'),
+                    emqx_metrics:inc_global('messages.validation_failed'),
                     {stop, Message#message{headers = Headers#{allow_publish => false}}};
                 disconnect ->
-                    emqx_metrics:inc('messages.validation_failed'),
+                    emqx_metrics:inc_global('messages.validation_failed'),
                     {stop, Message#message{
                         headers = Headers#{
                             allow_publish => false,

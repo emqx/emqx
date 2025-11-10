@@ -503,8 +503,8 @@ t_mqtt_runtime_insights(_) ->
         MQTTRTInsights1
     ),
     %% add some fake stats
-    emqx_metrics:set('messages.sent', 10_000_000_000),
-    emqx_metrics:set('messages.received', 20_000_000_000),
+    emqx_metrics:set_global('messages.sent', 10_000_000_000),
+    emqx_metrics:set_global('messages.received', 20_000_000_000),
     emqx_stats:setstat('topics.count', 30_000),
     {MQTTRTInsights2, _State2} = emqx_telemetry:mqtt_runtime_insights(State1),
     assert_approximate(MQTTRTInsights2, messages_sent_rate, "16.53"),

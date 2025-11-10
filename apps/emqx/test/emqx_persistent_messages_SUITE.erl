@@ -396,14 +396,14 @@ t_metrics_not_dropped(_Config) ->
     emqx_hooks:add(Hookpoint, {?MODULE, on_message_dropped, [self()]}, 1_000),
     on_exit(fun() -> emqx_hooks:del(Hookpoint, {?MODULE, on_message_dropped}) end),
 
-    DroppedBefore = emqx_metrics:val('messages.dropped'),
-    DroppedNoSubBefore = emqx_metrics:val('messages.dropped.no_subscribers'),
+    DroppedBefore = emqx_metrics:val_global('messages.dropped'),
+    DroppedNoSubBefore = emqx_metrics:val_global('messages.dropped.no_subscribers'),
 
     {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, <<"t/+">>, ?QOS_1),
     emqtt:publish(Pub, <<"t/ps">>, <<"payload">>, ?QOS_1),
     ?assertMatch([_], receive_messages(1)),
-    DroppedAfter = emqx_metrics:val('messages.dropped'),
-    DroppedNoSubAfter = emqx_metrics:val('messages.dropped.no_subscribers'),
+    DroppedAfter = emqx_metrics:val_global('messages.dropped'),
+    DroppedNoSubAfter = emqx_metrics:val_global('messages.dropped.no_subscribers'),
 
     ?assertEqual(DroppedBefore, DroppedAfter),
     ?assertEqual(DroppedNoSubBefore, DroppedNoSubAfter),

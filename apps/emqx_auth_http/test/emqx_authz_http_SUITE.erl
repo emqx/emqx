@@ -877,7 +877,7 @@ get_metrics() ->
     Metrics = emqx_metrics_worker:get_metrics(authz_metrics, http),
     lists:foldl(
         fun(Name, Acc) ->
-            Acc#{Name => emqx_metrics:val(Name)}
+            Acc#{Name => emqx_metrics:val_global(Name)}
         end,
         Metrics,
         [

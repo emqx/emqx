@@ -103,7 +103,7 @@ create_metric_views() ->
     create_gauge(Meter, VmGauge, fun ?MODULE:get_vm_gauge/1),
     ClusterGauge = [{'node.running', 0}, {'node.stopped', 0}],
     create_gauge(Meter, ClusterGauge, fun ?MODULE:get_cluster_gauge/1),
-    Metrics0 = filter_olp_metrics(emqx_metrics:all()),
+    Metrics0 = filter_olp_metrics(emqx_metrics:all_global()),
     Metrics = lists:map(fun({K, V}) -> {to_metric_name(K), V, unit(K)} end, Metrics0),
     create_counter(Meter, Metrics, fun ?MODULE:get_metric_counter/1),
     ok.
@@ -195,7 +195,7 @@ get_cluster_gauge('node.stopped') ->
     [{length(emqx:cluster_nodes(stopped)), #{}}].
 
 get_metric_counter(Name) ->
-    [{emqx_metrics:val(Name), #{}}].
+    [{emqx_metrics:val_global(Name), #{}}].
 
 create_gauge(Meter, Names, CallBack) ->
     lists:foreach(

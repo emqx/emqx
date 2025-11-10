@@ -23,6 +23,7 @@
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
 -include("emqx_instr.hrl").
+-include("emqx_config.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -115,6 +116,9 @@
 
     %% QUIC conn shared state
     quic_conn_ss :: option(map()),
+
+    %% Tenant Namespace
+    namespace = ?global_ns :: emqx_config:maybe_namespace(),
 
     %% Extra field for future hot-upgrade support
     extra = []
@@ -357,6 +361,7 @@ init_state(
         listener = {Type, Listener},
         %% for quic streams to inherit
         quic_conn_ss = maps:get(conn_shared_state, Opts, undefined),
+        namespace = ?global_ns,
         extra = []
     },
     init_zone_specific_state(Zone, Opts, State0).
@@ -542,10 +547,10 @@ handle_msg({'$gen_cast', Req}, State) ->
     {ok, NewState};
 handle_msg({Inet, _Sock, Data}, State) when Inet == tcp; Inet == ssl ->
     Oct = iolist_size(Data),
-    emqx_metrics:inc('bytes.received', Oct),
+    inc_metrics('bytes.received', State, Oct),
     on_bytes_in(Oct, Data, State);
 handle_msg({quic, Data, _Stream, #{len := Len}}, State) when is_binary(Data) ->
-    ok = emqx_metrics:inc('bytes.received', Len),
+    ok = inc_metrics('bytes.received', State, Len),
     on_bytes_in(Len, Data, State);
 handle_msg({incoming, Packet}, State) ->
     ?TRACE("MQTT", "mqtt_packet_received", #{packet => Packet}),
@@ -603,6 +608,9 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     {ok, State};
 handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
     State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    {ok, State};
+handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
+    State = State0#state{namespace = Namespace},
     {ok, State};
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
@@ -854,7 +862,7 @@ handle_incoming(Packet = ?PACKET(Type), #state{quic_conn_ss = QSS} = State) ->
             control_packet,
             1
         ),
-    inc_incoming_stats(Packet),
+    inc_incoming_stats(Packet, State),
     case Type of
         ?CONNECT ->
             %% CONNECT packet is fully received, time to cancel idle timer.
@@ -938,7 +946,7 @@ do_handle_outgoing_loop(MaxBufSize, Rest, State0, N, BufOctets, Buf) ->
             Err
     end.
 
-serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
+serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
     try emqx_frame:serialize_pkt(Packet, Serialize) of
         <<>> ->
             ?LOG(warning, #{
@@ -946,13 +954,13 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
                 reason => "frame_is_too_large",
                 packet => emqx_packet:format(Packet, hidden)
             }),
-            emqx_metrics:inc('delivery.dropped.too_large'),
-            emqx_metrics:inc('delivery.dropped'),
+            emqx_metrics:inc_global('delivery.dropped.too_large'),
+            emqx_metrics:inc_global('delivery.dropped'),
             inc_dropped_stats(),
             <<>>;
         Data ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            emqx_metrics:inc_sent(Packet),
+            emqx_metrics:inc_sent(Packet, State#state.namespace),
             inc_outgoing_stats(Packet),
             Data
     catch
@@ -978,7 +986,7 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
 -spec send(non_neg_integer(), non_neg_integer(), iodata(), state()) ->
     {ok, state()} | {ok, {sock_error, _}, state()}.
 send(Num, Oct, IoData, #state{transport = Transport, socket = Socket} = State) ->
-    emqx_metrics:inc('bytes.sent', Oct),
+    inc_metrics('bytes.sent', State, Oct),
     case Transport:send(Socket, IoData) of
         ok ->
             %% NOTE: for Transport=emqx_quic_stream, it's actually an
@@ -1143,8 +1151,8 @@ close_socket(State = #state{transport = Transport, socket = Socket}) ->
 %%--------------------------------------------------------------------
 %% Inc incoming/outgoing stats
 
--compile({inline, [inc_incoming_stats/1]}).
-inc_incoming_stats(Packet = ?PACKET(Type)) ->
+-compile({inline, [inc_incoming_stats/2]}).
+inc_incoming_stats(Packet = ?PACKET(Type), State) ->
     inc_counter(recv_pkt, 1),
     case Type of
         ?PUBLISH ->
@@ -1153,7 +1161,7 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
         _ ->
             ok
     end,
-    emqx_metrics:inc_recv(Packet).
+    emqx_metrics:inc_recv(Packet, State#state.namespace).
 
 -compile({inline, [inc_dropped_stats/0]}).
 inc_dropped_stats() ->
@@ -1182,6 +1190,16 @@ inc_qos_stats(Type, Packet) ->
         ?QOS_2 when Type =:= recv_msg -> inc_counter('recv_msg.qos2', 1);
         %% for bad qos
         _ -> ok
+    end.
+
+inc_metrics(Name, State, Val) ->
+    case State#state.namespace of
+        ?global_ns ->
+            emqx_metrics:inc(?global_ns, Name, Val);
+        Namespace ->
+            emqx_metrics:inc(?global_ns, Name, Val),
+            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
+            ok
     end.
 
 %%--------------------------------------------------------------------

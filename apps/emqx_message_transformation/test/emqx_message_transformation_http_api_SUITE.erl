@@ -77,9 +77,9 @@ clear_all_transformations() ->
 reset_all_global_metrics() ->
     lists:foreach(
         fun({Name, _}) ->
-            emqx_metrics:set(Name, 0)
+            emqx_metrics:set_global(Name, 0)
         end,
-        emqx_metrics:all()
+        emqx_metrics:all_global()
     ).
 
 maybe_json_decode(X) ->

@@ -162,6 +162,7 @@ do_clean_up(Namespace) ->
         end,
         OtherRootKeys
     ),
+    ok = unregister_namespace_metrics(Namespace),
     ok = emqx_hooks:run('namespace.delete', [Namespace]),
     AnyFailed = get(?cleanup_failed),
     maybe
@@ -193,6 +194,25 @@ do_clean_up(Namespace, RootKey) ->
             put(?cleanup_failed, true),
             ok
     end.
+
+unregister_namespace_metrics(Namespace) ->
+    SideEffects = emqx_mt_config:delete_managed_ns_side_effects(Namespace),
+    case execute_side_effects(SideEffects) of
+        [] = _NoErrors ->
+            ok;
+        Errors ->
+            ?tp(error, "mt_failed_to_execute_deletion_side_effects", #{
+                namespace => Namespace,
+                errors => Errors
+            }),
+            put(?cleanup_failed, true),
+            ok
+    end.
+
+execute_side_effects(SideEffects) ->
+    %% Foreced to wrap errors in `{ok, _}' by cluster RPC...
+    {ok, Errors} = emqx_mt_config_proto_v1:execute_side_effects(SideEffects),
+    Errors.
 
 ensure_check_timer(#{?check_timer := TRef0} = State0) ->
     emqx_utils:cancel_timer(TRef0),

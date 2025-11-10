@@ -1009,5 +1009,5 @@ action_attrs(Action) ->
 
 inc_rule_matched_metrics(RuleResId) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleResId, 'matched'),
-    ok = emqx_metrics:inc('rules.matched'),
+    ok = emqx_metrics:inc_global('rules.matched'),
     ok.

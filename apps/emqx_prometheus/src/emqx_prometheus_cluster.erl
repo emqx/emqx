@@ -9,6 +9,7 @@
 
 -export([
     raw_data/2,
+    raw_data_ns/3,
 
     collect_json_data/2,
 
@@ -26,6 +27,8 @@
 -callback aggre_or_zip_init_acc() -> map().
 
 -callback logic_sum_metrics() -> list().
+
+-define(BPAPI, emqx_prometheus).
 
 -define(MG(K, MAP), maps:get(K, MAP)).
 
@@ -48,8 +51,43 @@ raw_data(Module, ?PROM_DATA_MODE__NODE = Mode) ->
     Cluster = Module:fetch_cluster_consistented_data(),
     maps:merge(LocalNodeMetrics, Cluster).
 
+raw_data_ns(Module, undefined = _Namespace, undefined = _Mode) ->
+    %% This happens when using push gateway
+    Namespace = all,
+    Mode = ?PROM_DATA_MODE__NODE,
+    raw_data_ns(Module, Namespace, Mode);
+raw_data_ns(Module, Namespace, ?PROM_DATA_MODE__NODE = Mode) ->
+    {_Node, LocalNodeMetrics} = Module:fetch_namespaced_metrics_v1(Namespace, Mode),
+    LocalNodeMetrics;
+raw_data_ns(Module, Namespace, Mode) ->
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 3),
+    RPCResults0 = emqx_prometheus_proto_v2:raw_prom_data(
+        Nodes, Module, fetch_namespaced_metrics_v1, [Namespace, Mode]
+    ),
+    {InitAcc, RPCResults} = initial_acc(RPCResults0, Module),
+    case Mode of
+        ?PROM_DATA_MODE__ALL_NODES_AGGREGATED ->
+            do_aggre_cluster(
+                Module:logic_sum_metrics(),
+                RPCResults,
+                InitAcc
+            );
+        ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED ->
+            zip_cluster(
+                RPCResults,
+                InitAcc
+            )
+    end.
+
+initial_acc([], Module) ->
+    {Module:aggre_or_zip_init_acc(), []};
+initial_acc([{ok, {_Node, Res}} | Rest], _Module) ->
+    {Res, Rest};
+initial_acc([_ | Rest], Module) ->
+    initial_acc(Rest, Module).
+
 fetch_data_from_all_nodes(Module, Mode) ->
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     _ResL = emqx_prometheus_proto_v2:raw_prom_data(
         Nodes, Module, fetch_from_local_node, [Mode]
     ).

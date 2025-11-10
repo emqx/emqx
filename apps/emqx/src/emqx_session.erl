@@ -250,7 +250,7 @@ create(ClientInfo, ConnInfo, MaybeWillMsg) ->
 create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     % FIXME error conditions
     Session = Mod:create(ClientInfo, ConnInfo, MaybeWillMsg, Conf),
-    ok = emqx_metrics:inc('session.created'),
+    ok = emqx_metrics:inc_global('session.created'),
     ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
     Session.
 
@@ -264,7 +264,7 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     %% `Mods` in order, starting from the last one.
     case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
         {_IsPresent = true, Session, _} = Present ->
-            ok = emqx_metrics:inc('session.resumed'),
+            ok = emqx_metrics:inc_global('session.resumed'),
             ok = emqx_hooks:run('session.resumed', [ClientInfo, info(Session)]),
             Present;
         false ->
@@ -697,7 +697,7 @@ on_dropped_qos2_msg(PacketId, Msg, RC) ->
         },
         #{topic => Msg#message.topic}
     ),
-    ok = emqx_metrics:inc('messages.dropped'),
+    ok = emqx_metrics:inc_global('messages.dropped'),
     ok = emqx_hooks:run('message.dropped', [Msg, #{node => node()}, emqx_reason_codes:name(RC)]),
     ok.
 
@@ -752,7 +752,7 @@ choose_impl_candidates(#{zone := Zone}, #{expiry_interval := EI}) ->
 
 -compile({inline, [run_hook/2]}).
 run_hook(Name, Args) ->
-    ok = emqx_metrics:inc(Name),
+    ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run(Name, Args).
 
 %%--------------------------------------------------------------------

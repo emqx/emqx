@@ -16,6 +16,7 @@
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
 -include("emqx_instr.hrl").
+-include("emqx_config.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -ifdef(TEST).
@@ -101,6 +102,9 @@
     zone :: atom(),
     %% Listener Type and Name
     listener :: {Type :: atom(), Name :: atom()},
+
+    %% Tenant Namespace
+    namespace = ?global_ns :: emqx_config:maybe_namespace(),
 
     %% Extra field for future hot-upgrade support
     extra = []
@@ -597,6 +601,10 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
+%% TODO: handle `{event, {zone_changed, NewZone}}`
+handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
+    State = State0#state{namespace = Namespace},
+    {ok, State};
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
     case emqx_channel:info(clientid, Channel) of
         %% ClientId is yet unknown (i.e. connect packet is not received yet)
@@ -744,7 +752,7 @@ handle_data(
     }
 ) ->
     Oct = iolist_size(Data),
-    emqx_metrics:inc('bytes.received', Oct),
+    inc_metrics('bytes.received', State0, Oct),
     ?LOG(debug, #{
         msg => "raw_bin_received",
         size => Oct,
@@ -863,7 +871,7 @@ describe_parser_state(ParseState) ->
 %% Handle incoming packet
 
 handle_incoming(Packet = ?PACKET(Type), State) ->
-    inc_incoming_stats(Packet),
+    inc_incoming_stats(Packet, State),
     case Type of
         ?CONNECT ->
             %% CONNECT packet is fully received, time to cancel idle timer.
@@ -947,7 +955,7 @@ do_handle_outgoing_loop(MaxBufSize, Rest, State0, N, _BufOctets, Buf) ->
             Err
     end.
 
-serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
+serialize_and_inc_stats(#state{serialize = Serialize} = State, Packet) ->
     try emqx_frame:serialize_pkt(Packet, Serialize) of
         <<>> ->
             ?LOG(warning, #{
@@ -955,13 +963,13 @@ serialize_and_inc_stats(#state{serialize = Serialize}, Packet) ->
                 reason => "frame_is_too_large",
                 packet => emqx_packet:format(Packet, hidden)
             }),
-            emqx_metrics:inc('delivery.dropped.too_large'),
-            emqx_metrics:inc('delivery.dropped'),
+            emqx_metrics:inc_global('delivery.dropped.too_large'),
+            emqx_metrics:inc_global('delivery.dropped'),
             inc_dropped_stats(),
             <<>>;
         Data ->
             ?TRACE("MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            emqx_metrics:inc_sent(Packet),
+            emqx_metrics:inc_sent(Packet, State#state.namespace),
             inc_outgoing_stats(Packet),
             Data
     catch
@@ -1069,7 +1077,7 @@ sent(
     State = #state{gc_tracker = {ActiveN, In = {PktsIn, BytesIn}, {PktsOut, BytesOut}}}
 ) ->
     %% TODO: Not actually "sent", as is `emqx_metrics:inc_sent/1`.
-    emqx_metrics:inc('bytes.sent', Oct),
+    inc_metrics('bytes.sent', State, Oct),
     NPktsOut = PktsOut + Num,
     NBytesOut = BytesOut + Oct,
     if
@@ -1189,8 +1197,8 @@ socket_closed(State) ->
 %%--------------------------------------------------------------------
 %% Inc incoming/outgoing stats
 
--compile({inline, [inc_incoming_stats/1]}).
-inc_incoming_stats(Packet = ?PACKET(Type)) ->
+-compile({inline, [inc_incoming_stats/2]}).
+inc_incoming_stats(Packet = ?PACKET(Type), State) ->
     inc_counter(recv_pkt, 1),
     case Type of
         ?PUBLISH ->
@@ -1199,7 +1207,7 @@ inc_incoming_stats(Packet = ?PACKET(Type)) ->
         _ ->
             ok
     end,
-    emqx_metrics:inc_recv(Packet).
+    emqx_metrics:inc_recv(Packet, State#state.namespace).
 
 -compile({inline, [inc_dropped_stats/0]}).
 inc_dropped_stats() ->
@@ -1228,6 +1236,16 @@ inc_qos_stats(Type, Packet) ->
         ?QOS_2 when Type =:= recv_msg -> inc_counter('recv_msg.qos2', 1);
         %% for bad qos
         _ -> ok
+    end.
+
+inc_metrics(Name, State, Val) ->
+    emqx_metrics:inc(?global_ns, Name, Val),
+    case State#state.namespace of
+        ?global_ns ->
+            ok;
+        Namespace ->
+            _ = emqx_metrics:inc_safe(Namespace, Name, Val),
+            ok
     end.
 
 %%--------------------------------------------------------------------

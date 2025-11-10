@@ -15,6 +15,11 @@ get_prom_data.desc:
 get_prom_data.label:
 """Prometheus Metrics"""
 
+ns_stats.desc:
+"""Get Prometheus Namespaced Metrics"""
+ns_stats.label:
+"""Namespaced Prometheus Metrics"""
+
 get_prom_auth_data.desc:
 """Get Prometheus Metrics for AuthN, AuthZ and Banned"""
 get_prom_auth_data.label:

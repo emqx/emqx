@@ -299,10 +299,10 @@ num_cluster_sessions() ->
     emqx_stats:getstat('cluster_sessions.count').
 
 messages_sent() ->
-    emqx_metrics:val('messages.sent').
+    emqx_metrics:val_global('messages.sent').
 
 messages_received() ->
-    emqx_metrics:val('messages.received').
+    emqx_metrics:val_global('messages.received').
 
 topic_count() ->
     emqx_stats:getstat('topics.count').

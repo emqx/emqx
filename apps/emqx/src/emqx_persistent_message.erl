@@ -137,7 +137,7 @@ Shard is decided by client ID of the *first* message.
 store_batch([#message{from = From} | _] = Msgs, Opts) ->
     Shard = emqx_ds:shard_of(?PERSISTENT_MESSAGE_DB, From),
     {Count, TTVs} = count_and_convert(Msgs),
-    emqx_metrics:inc('messages.persisted', Count),
+    emqx_metrics:inc_global('messages.persisted', Count),
     Sync = maps:get(sync, Opts, true),
     MaybeRef = emqx_ds:dirty_append(
         #{

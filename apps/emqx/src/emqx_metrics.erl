@@ -10,6 +10,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include("emqx_config.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([
@@ -21,30 +22,42 @@
     new/1,
     new/2,
     ensure/1,
-    ensure/2,
-    all/0
+    ensure/2
 ]).
 
+%% RPC targets (`emqx_proto_v{1..2}`).
+-export([all/0]).
+
 -export([
-    val/1,
-    inc/1,
+    all_global/0,
+    val_global/1,
+    inc_global/1,
+    inc_global/2,
+    dec_global/1,
+    dec_global/2,
+    set_global/2
+]).
+
+-export([register_namespace/1, unregister_namespace/1]).
+-export([all_ns/0]).
+
+-export([
+    all/1,
+    val/2,
     inc/2,
-    dec/1,
+    inc/3,
     dec/2,
-    set/2
+    dec/3,
+    set/3
 ]).
 
--export([
-    trans/2,
-    trans/3,
-    commit/0
-]).
+-export([inc_safe/2, inc_safe/3]).
 
 %% Inc received/sent metrics
 -export([
     inc_msg/1,
-    inc_recv/1,
-    inc_sent/1
+    inc_recv/2,
+    inc_sent/2
 ]).
 
 %% gen_server callbacks
@@ -62,29 +75,39 @@
 
 -export([is_olp_metric/1]).
 
-%% BACKW: v4.3.0
--export([upgrade_retained_delayed_counter_type/0]).
-
 -export_type([metric_idx/0, metric_name/0]).
 
--compile({inline, [inc/1, inc/2, dec/1, dec/2]}).
--compile({inline, [inc_recv/1, inc_sent/1]}).
+-compile({inline, [inc_global/1, inc_global/2, dec_global/1, dec_global/2]}).
+-compile({inline, [inc/2, inc/3, dec/2, dec/3]}).
+-compile({inline, [inc_recv/2, inc_sent/2]}).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
 
 -opaque metric_idx() :: 1..1024.
 
 -type metric_name() :: atom() | string() | binary().
+
+-type maybe_namespace() :: emqx_config:maybe_namespace().
 
 -define(MAX_SIZE, 1024).
 -define(RESERVED_IDX, 512).
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
-is_olp_metric(Name) ->
-    lists:keymember(Name, 2, olp_metrics()).
+-define(PT_KEY(NS), {?MODULE, cref, NS}).
 
 -record(state, {next_idx = 1}).
-
 -record(metric, {name, type, idx}).
+
+%% Calls/casts/infos
+-record(register_namespace, {namespace :: binary()}).
+-record(unregister_namespace, {namespace :: binary()}).
+
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 %% @doc Start the metrics server.
 -spec start_link() -> startlink_ret().
@@ -101,14 +124,12 @@ stop() ->
             ok
     end.
 
-%% BACKW: v4.3.0
-upgrade_retained_delayed_counter_type() ->
-    Ks = ['messages.delayed'],
-    gen_server:call(?SERVER, {set_type_to_counter, Ks}, infinity).
-
 %%--------------------------------------------------------------------
 %% Metrics API
 %%--------------------------------------------------------------------
+
+is_olp_metric(Name) ->
+    lists:keymember(Name, 2, olp_metrics()).
 
 -spec new(metric_name()) -> ok.
 new(Name) ->
@@ -138,103 +159,142 @@ create(Type, Name) ->
         {error, Reason} -> error(Reason)
     end.
 
-%% @doc Get all metrics
--spec all() -> [{metric_name(), non_neg_integer()}].
+%% RPC target (`emqx_proto_v{1..2}`).
 all() ->
-    CRef = persistent_term:get(?MODULE),
-    [
-        {Name, counters:get(CRef, Idx)}
-     || #metric{name = Name, idx = Idx} <- ets:tab2list(?TAB)
-    ].
+    all_global().
+
+%% @doc Get all metrics
+-spec all_global() -> [{metric_name(), non_neg_integer()}].
+all_global() ->
+    all(?global_ns).
+
+-spec all(maybe_namespace()) -> [{metric_name(), non_neg_integer()}].
+all(Namespace) ->
+    try
+        CRef = get_counters_ref(Namespace),
+        [
+            {Name, counters:get(CRef, Idx)}
+         || #metric{name = Name, idx = Idx} <- ets:tab2list(?TAB)
+        ]
+    catch
+        error:badarg ->
+            []
+    end.
+
+-spec all_ns() -> #{maybe_namespace() => [{metric_name(), non_neg_integer()}]}.
+all_ns() ->
+    RegisteredMetrics = ets:tab2list(?TAB),
+    lists:foldl(
+        fun
+            ({?PT_KEY(Namespace), CRef}, Acc) ->
+                Metrics = [
+                    {Name, counters:get(CRef, Idx)}
+                 || #metric{name = Name, idx = Idx} <- RegisteredMetrics
+                ],
+                Acc#{Namespace => Metrics};
+            (_, Acc) ->
+                Acc
+        end,
+        #{},
+        persistent_term:get()
+    ).
 
 %% @doc Get metric value
--spec val(metric_name()) -> non_neg_integer().
-val(Name) ->
+-spec val_global(metric_name()) -> non_neg_integer().
+val_global(Name) ->
+    val(?global_ns, Name).
+
+-spec val(maybe_namespace(), metric_name()) -> non_neg_integer().
+val(Namespace, Name) ->
     try
         case ets:lookup(?TAB, Name) of
             [#metric{idx = Idx}] ->
-                CRef = persistent_term:get(?MODULE),
+                CRef = get_counters_ref(Namespace),
                 counters:get(CRef, Idx);
             [] ->
                 0
         end
-        %% application will restart when join cluster, then ets not exist.
     catch
         error:badarg ->
+            %% When application is restarting to join a new cluster, ETS table might be
+            %% temporarily absent.
             0
     end.
 
 %% @doc Increase counter
--spec inc(metric_name()) -> ok.
-inc(Name) ->
-    inc(Name, 1).
+-spec inc_global(metric_name()) -> ok.
+inc_global(Name) ->
+    inc_global(Name, 1).
 
 %% @doc Increase metric value
--spec inc(metric_name(), pos_integer()) -> ok.
-inc(Name, Value) ->
-    update_counter(Name, Value).
+-spec inc_global(metric_name(), pos_integer()) -> ok.
+inc_global(Name, Value) ->
+    update_counter(?global_ns, Name, Value).
+
+-spec inc(maybe_namespace(), metric_name()) -> ok.
+inc(Namespace, Name) ->
+    inc(Namespace, Name, 1).
+
+-spec inc(maybe_namespace(), metric_name(), pos_integer()) -> ok.
+inc(Namespace, Name, Value) ->
+    update_counter(Namespace, Name, Value).
+
+-spec inc_safe(maybe_namespace(), metric_name()) -> ok | {error, not_found}.
+inc_safe(Namespace, Name) ->
+    inc_safe(Namespace, Name, 1).
+
+-spec inc_safe(maybe_namespace(), metric_name(), pos_integer()) -> ok | {error, not_found}.
+inc_safe(Namespace, Name, Value) ->
+    try
+        inc(Namespace, Name, Value)
+    catch
+        error:badarg ->
+            {error, not_found}
+    end.
 
 %% @doc Decrease metric value
--spec dec(metric_name()) -> ok.
-dec(Name) ->
-    dec(Name, 1).
+-spec dec_global(metric_name()) -> ok.
+dec_global(Name) ->
+    dec_global(Name, 1).
 
 %% @doc Decrease metric value
--spec dec(metric_name(), pos_integer()) -> ok.
-dec(Name, Value) ->
-    update_counter(Name, -Value).
+-spec dec_global(metric_name(), pos_integer()) -> ok.
+dec_global(Name, Value) ->
+    update_counter(?global_ns, Name, -Value).
+
+-spec dec(maybe_namespace(), metric_name()) -> ok.
+dec(Namespace, Name) ->
+    dec(Namespace, Name, 1).
+
+-spec dec(maybe_namespace(), metric_name(), pos_integer()) -> ok.
+dec(Namespace, Name, Value) ->
+    update_counter(Namespace, Name, -Value).
 
 %% @doc Set metric value
--spec set(metric_name(), integer()) -> ok.
-set(Name, Value) ->
-    CRef = persistent_term:get(?MODULE),
+-spec set_global(metric_name(), integer()) -> ok.
+set_global(Name, Value) ->
+    set(?global_ns, Name, Value).
+
+-spec set(maybe_namespace(), metric_name(), integer()) -> ok.
+set(Namespace, Name, Value) ->
+    CRef = get_counters_ref(Namespace),
     Idx = ets:lookup_element(?TAB, Name, 4),
     counters:put(CRef, Idx, Value).
 
--spec trans(inc | dec, metric_name()) -> ok.
-trans(Op, Name) when Op =:= inc; Op =:= dec ->
-    trans(Op, Name, 1).
-
--spec trans(inc | dec, metric_name(), pos_integer()) -> ok.
-trans(inc, Name, Value) ->
-    cache(Name, Value);
-trans(dec, Name, Value) ->
-    cache(Name, -Value).
-
--spec cache(metric_name(), integer()) -> ok.
-cache(Name, Value) ->
-    put(
-        '$metrics',
-        case get('$metrics') of
-            undefined ->
-                #{Name => Value};
-            Metrics ->
-                maps:update_with(Name, fun(Cnt) -> Cnt + Value end, Value, Metrics)
-        end
-    ),
-    ok.
-
--spec commit() -> ok.
-commit() ->
-    case get('$metrics') of
-        undefined ->
-            ok;
-        Metrics ->
-            _ = erase('$metrics'),
-            lists:foreach(fun update_counter/1, maps:to_list(Metrics))
-    end.
-
-update_counter({Name, Value}) ->
-    update_counter(Name, Value).
-
-update_counter(Name, Value) ->
-    CRef = persistent_term:get(?MODULE),
+update_counter(Namespace, Name, Value) ->
+    CRef = get_counters_ref(Namespace),
     CIdx =
         case reserved_idx(Name) of
             Idx when is_integer(Idx) -> Idx;
             undefined -> ets:lookup_element(?TAB, Name, 4)
         end,
     counters:add(CRef, CIdx, Value).
+
+register_namespace(Namespace) when is_binary(Namespace) ->
+    gen_server:call(?MODULE, #register_namespace{namespace = Namespace}, infinity).
+
+unregister_namespace(Namespace) when is_binary(Namespace) ->
+    gen_server:call(?MODULE, #unregister_namespace{namespace = Namespace}, infinity).
 
 %%--------------------------------------------------------------------
 %% Inc received/sent metrics
@@ -243,102 +303,131 @@ update_counter(Name, Value) ->
 -spec inc_msg(emqx_types:message()) -> ok.
 inc_msg(Msg) ->
     case Msg#message.qos of
-        0 -> inc('messages.qos0.received');
-        1 -> inc('messages.qos1.received');
-        2 -> inc('messages.qos2.received')
+        0 -> inc_global('messages.qos0.received');
+        1 -> inc_global('messages.qos1.received');
+        2 -> inc_global('messages.qos2.received')
     end,
-    inc('messages.received').
+    inc_global('messages.received').
 
 %% @doc Inc packets received.
--spec inc_recv(emqx_types:packet()) -> ok.
-inc_recv(Packet) ->
-    inc('packets.received'),
-    do_inc_recv(Packet).
+-spec inc_recv(emqx_types:packet(), emqx_config:maybe_namespace()) -> ok.
+inc_recv(Packet, Namespace) ->
+    inc(?global_ns, 'packets.received'),
+    do_inc_recv(Packet, ?global_ns),
+    try
+        case is_binary(Namespace) of
+            true ->
+                inc(Namespace, 'packets.received'),
+                do_inc_recv(Packet, Namespace);
+            false ->
+                ok
+        end
+    catch
+        error:badarg ->
+            %% Not an explicitly managed namespace or race condition while creating or
+            %% deleting namespace.
+            ok
+    end.
 
-do_inc_recv(?PACKET(?CONNECT)) ->
-    inc('packets.connect.received');
-do_inc_recv(?PUBLISH_PACKET(QoS)) ->
-    inc('messages.received'),
+do_inc_recv(?PACKET(?CONNECT), Namespace) ->
+    inc(Namespace, 'packets.connect.received');
+do_inc_recv(?PUBLISH_PACKET(QoS), Namespace) ->
+    inc(Namespace, 'messages.received'),
     case QoS of
-        ?QOS_0 -> inc('messages.qos0.received');
-        ?QOS_1 -> inc('messages.qos1.received');
-        ?QOS_2 -> inc('messages.qos2.received');
+        ?QOS_0 -> inc(Namespace, 'messages.qos0.received');
+        ?QOS_1 -> inc(Namespace, 'messages.qos1.received');
+        ?QOS_2 -> inc(Namespace, 'messages.qos2.received');
         _other -> ok
     end,
-    inc('packets.publish.received');
-do_inc_recv(?PACKET(?PUBACK)) ->
-    inc('packets.puback.received');
-do_inc_recv(?PACKET(?PUBREC)) ->
-    inc('packets.pubrec.received');
-do_inc_recv(?PACKET(?PUBREL)) ->
-    inc('packets.pubrel.received');
-do_inc_recv(?PACKET(?PUBCOMP)) ->
-    inc('packets.pubcomp.received');
-do_inc_recv(?PACKET(?SUBSCRIBE)) ->
-    inc('packets.subscribe.received');
-do_inc_recv(?PACKET(?UNSUBSCRIBE)) ->
-    inc('packets.unsubscribe.received');
-do_inc_recv(?PACKET(?PINGREQ)) ->
-    inc('packets.pingreq.received');
-do_inc_recv(?PACKET(?DISCONNECT)) ->
-    inc('packets.disconnect.received');
-do_inc_recv(?PACKET(?AUTH)) ->
-    inc('packets.auth.received');
-do_inc_recv(_Packet) ->
+    inc(Namespace, 'packets.publish.received');
+do_inc_recv(?PACKET(?PUBACK), Namespace) ->
+    inc(Namespace, 'packets.puback.received');
+do_inc_recv(?PACKET(?PUBREC), Namespace) ->
+    inc(Namespace, 'packets.pubrec.received');
+do_inc_recv(?PACKET(?PUBREL), Namespace) ->
+    inc(Namespace, 'packets.pubrel.received');
+do_inc_recv(?PACKET(?PUBCOMP), Namespace) ->
+    inc(Namespace, 'packets.pubcomp.received');
+do_inc_recv(?PACKET(?SUBSCRIBE), Namespace) ->
+    inc(Namespace, 'packets.subscribe.received');
+do_inc_recv(?PACKET(?UNSUBSCRIBE), Namespace) ->
+    inc(Namespace, 'packets.unsubscribe.received');
+do_inc_recv(?PACKET(?PINGREQ), Namespace) ->
+    inc(Namespace, 'packets.pingreq.received');
+do_inc_recv(?PACKET(?DISCONNECT), Namespace) ->
+    inc(Namespace, 'packets.disconnect.received');
+do_inc_recv(?PACKET(?AUTH), Namespace) ->
+    inc(Namespace, 'packets.auth.received');
+do_inc_recv(_Packet, _Namespace) ->
     ok.
 
 %% @doc Inc packets sent. Will not count $SYS PUBLISH.
--spec inc_sent(emqx_types:packet()) -> ok.
-inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _)) ->
+-spec inc_sent(emqx_types:packet(), emqx_config:maybe_namespace()) -> ok.
+inc_sent(?PUBLISH_PACKET(_QoS, <<"$SYS/", _/binary>>, _, _), _Namespace) ->
     ok;
-inc_sent(Packet) ->
-    inc('packets.sent'),
-    do_inc_sent(Packet).
+inc_sent(Packet, Namespace) ->
+    inc(?global_ns, 'packets.sent'),
+    do_inc_sent(Packet, ?global_ns),
+    try
+        case is_binary(Namespace) of
+            true ->
+                inc(Namespace, 'packets.sent'),
+                do_inc_sent(Packet, Namespace);
+            false ->
+                ok
+        end
+    catch
+        error:badarg ->
+            %% Not an explicitly managed namespace or race condition while creating or
+            %% deleting namespace.
+            ok
+    end.
 
-do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent)) ->
-    (ReasonCode == ?RC_SUCCESS) orelse inc('packets.connack.error'),
+do_inc_sent(?CONNACK_PACKET(ReasonCode, _SessPresent), Namespace) ->
+    (ReasonCode == ?RC_SUCCESS) orelse inc(Namespace, 'packets.connack.error'),
     ((ReasonCode == ?RC_NOT_AUTHORIZED) orelse
         (ReasonCode == ?CONNACK_AUTH)) andalso
-        inc('packets.connack.auth_error'),
+        inc(Namespace, 'packets.connack.auth_error'),
     ((ReasonCode == ?RC_BAD_USER_NAME_OR_PASSWORD) orelse
         (ReasonCode == ?CONNACK_CREDENTIALS)) andalso
-        inc('packets.connack.auth_error'),
-    inc('packets.connack.sent');
-do_inc_sent(?PUBLISH_PACKET(QoS)) ->
-    inc('messages.sent'),
+        inc(Namespace, 'packets.connack.auth_error'),
+    inc(Namespace, 'packets.connack.sent');
+do_inc_sent(?PUBLISH_PACKET(QoS), Namespace) ->
+    inc(Namespace, 'messages.sent'),
     case QoS of
-        ?QOS_0 -> inc('messages.qos0.sent');
-        ?QOS_1 -> inc('messages.qos1.sent');
-        ?QOS_2 -> inc('messages.qos2.sent');
+        ?QOS_0 -> inc(Namespace, 'messages.qos0.sent');
+        ?QOS_1 -> inc(Namespace, 'messages.qos1.sent');
+        ?QOS_2 -> inc(Namespace, 'messages.qos2.sent');
         _other -> ok
     end,
-    inc('packets.publish.sent');
-do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode)) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc('packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc('packets.publish.auth_error'),
-    inc('packets.puback.sent');
-do_inc_sent(?PUBREC_PACKET(_PacketId, ReasonCode)) ->
-    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc('packets.publish.error'),
-    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc('packets.publish.auth_error'),
-    inc('packets.pubrec.sent');
-do_inc_sent(?PACKET(?PUBREL)) ->
-    inc('packets.pubrel.sent');
-do_inc_sent(?PACKET(?PUBCOMP)) ->
-    inc('packets.pubcomp.sent');
-do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes)) ->
+    inc(Namespace, 'packets.publish.sent');
+do_inc_sent(?PUBACK_PACKET(_PacketId, ReasonCode), Namespace) ->
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc(Namespace, 'packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc(Namespace, 'packets.publish.auth_error'),
+    inc(Namespace, 'packets.puback.sent');
+do_inc_sent(?PUBREC_PACKET(_PacketId, ReasonCode), Namespace) ->
+    (ReasonCode >= ?RC_UNSPECIFIED_ERROR) andalso inc(Namespace, 'packets.publish.error'),
+    (ReasonCode == ?RC_NOT_AUTHORIZED) andalso inc(Namespace, 'packets.publish.auth_error'),
+    inc(Namespace, 'packets.pubrec.sent');
+do_inc_sent(?PACKET(?PUBREL), Namespace) ->
+    inc(Namespace, 'packets.pubrel.sent');
+do_inc_sent(?PACKET(?PUBCOMP), Namespace) ->
+    inc(Namespace, 'packets.pubcomp.sent');
+do_inc_sent(?SUBACK_PACKET(_PacketId, ReasonCodes), Namespace) ->
     lists:any(fun(Code) -> Code >= ?RC_UNSPECIFIED_ERROR end, ReasonCodes) andalso
-        inc('packets.subscribe.error'),
-    lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) andalso inc('packets.subscribe.auth_error'),
-    inc('packets.suback.sent');
-do_inc_sent(?PACKET(?UNSUBACK)) ->
-    inc('packets.unsuback.sent');
-do_inc_sent(?PACKET(?PINGRESP)) ->
-    inc('packets.pingresp.sent');
-do_inc_sent(?PACKET(?DISCONNECT)) ->
-    inc('packets.disconnect.sent');
-do_inc_sent(?PACKET(?AUTH)) ->
-    inc('packets.auth.sent');
-do_inc_sent(_Packet) ->
+        inc(Namespace, 'packets.subscribe.error'),
+    lists:member(?RC_NOT_AUTHORIZED, ReasonCodes) andalso
+        inc(Namespace, 'packets.subscribe.auth_error'),
+    inc(Namespace, 'packets.suback.sent');
+do_inc_sent(?PACKET(?UNSUBACK), Namespace) ->
+    inc(Namespace, 'packets.unsuback.sent');
+do_inc_sent(?PACKET(?PINGRESP), Namespace) ->
+    inc(Namespace, 'packets.pingresp.sent');
+do_inc_sent(?PACKET(?DISCONNECT), Namespace) ->
+    inc(Namespace, 'packets.disconnect.sent');
+do_inc_sent(?PACKET(?AUTH), Namespace) ->
+    inc(Namespace, 'packets.auth.sent');
+do_inc_sent(_Packet, _Namespace) ->
     ok.
 
 %%--------------------------------------------------------------------
@@ -348,20 +437,11 @@ do_inc_sent(_Packet) ->
 init([]) ->
     % Create counters array
     CRef = counters:new(?MAX_SIZE, [write_concurrency]),
-    ok = persistent_term:put(?MODULE, CRef),
+    ok = persistent_term:put(?PT_KEY(?global_ns), CRef),
     % Create index mapping table
     ok = emqx_utils_ets:new(?TAB, [{keypos, 2}, {read_concurrency, true}]),
     Metrics = all_metrics(),
-    % Store reserved indices
-    ok = lists:foreach(
-        fun({Type, Name, _Desc}) ->
-            Idx = reserved_idx(Name),
-            Metric = #metric{name = Name, type = Type, idx = Idx},
-            true = ets:insert(?TAB, Metric),
-            ok = counters:put(CRef, Idx, 0)
-        end,
-        Metrics
-    ),
+    initialize_counters(CRef, Metrics),
     {ok, #state{next_idx = ?RESERVED_IDX + 1}, hibernate}.
 
 handle_call({create, Type, Name}, _From, State = #state{next_idx = ?MAX_SIZE}) ->
@@ -388,6 +468,21 @@ handle_call({set_type_to_counter, Keys}, _From, State) ->
         end,
         Keys
     ),
+    {reply, ok, State};
+handle_call(#register_namespace{namespace = Namespace}, _From, State) ->
+    case persistent_term:get(?PT_KEY(Namespace), undefined) of
+        undefined ->
+            CRef = counters:new(?MAX_SIZE, [write_concurrency]),
+            ok = persistent_term:put(?PT_KEY(Namespace), CRef),
+            Metrics = all_metrics(),
+            initialize_counters(CRef, Metrics),
+            ok;
+        _CRef ->
+            ok
+    end,
+    {reply, ok, State};
+handle_call(#unregister_namespace{namespace = Namespace}, _From, State) ->
+    _ = persistent_term:erase(?PT_KEY(Namespace)),
     {reply, ok, State};
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", req => Req}),
@@ -680,3 +775,20 @@ olp_metrics() ->
         {counter, 'overload_protection.gc', ?DESC("overload_protection_gc")},
         {counter, 'overload_protection.new_conn', ?DESC("overload_protection_new_conn")}
     ].
+
+%% Store reserved indices
+initialize_counters(CRef, Metrics) ->
+    lists:foreach(
+        fun({Type, Name, _Desc}) ->
+            Idx = reserved_idx(Name),
+            Metric = #metric{name = Name, type = Type, idx = Idx},
+            true = ets:insert(?TAB, Metric),
+            ok = counters:put(CRef, Idx, 0)
+        end,
+        Metrics
+    ).
+
+get_counters_ref(?global_ns) ->
+    persistent_term:get(?PT_KEY(?global_ns));
+get_counters_ref(Namespace) when is_binary(Namespace) ->
+    persistent_term:get(?PT_KEY(Namespace)).

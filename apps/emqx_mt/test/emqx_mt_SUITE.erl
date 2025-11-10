@@ -10,8 +10,11 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include("emqx_mt.hrl").
+-include_lib("../../emqx_prometheus/include/emqx_prometheus.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -36,15 +39,24 @@
 ).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 -define(ALARM, <<"invalid_namespaced_configs">>).
+
+-define(tcp, tcp).
+-define(ws, ws).
+-define(quic, quic).
+-define(socket, socket).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(app_specs(), #{work_dir => emqx_cth_suite:work_dir(Config)}),
@@ -92,7 +104,8 @@ connect(Opts0) ->
     {ok, Pid} = emqtt:start_link(Opts),
     monitor(process, Pid),
     unlink(Pid),
-    case emqtt:connect(Pid) of
+    ConnectFn = maps:get(connect_fn, Opts, fun emqtt:connect/1),
+    case ConnectFn(Pid) of
         {ok, _} ->
             Pid;
         {error, _Reason} = E ->
@@ -167,6 +180,345 @@ apply_jq(Transformation, NssToConfigs) ->
             #{} = emqx_utils_json:decode(CfgOutBin)
         end,
         NssToConfigs
+    ).
+
+restart_node(Node, NodeSpec) ->
+    %% N.B. For some reason, even using `shutdown => 5_000`, mnesia does not seem to
+    %% correctly sync/flush data to disk when restarting the peer node.  We call
+    %% `mnesia:sync_log` here to force it to sync data so that it's correctly loaded when
+    %% the peer restarts.  Without this, the table is empty after the restart...
+    ?ON(Node, ok = mnesia:sync_log()),
+    [Node] = emqx_cth_cluster:restart([NodeSpec]),
+    ok.
+
+connection_type_of(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(TCConfig, [?tcp, ?ws, ?quic, ?socket], ?tcp).
+
+%% Assumes local node is the SUT.
+connect_opts_of(TCConfig) ->
+    case connection_type_of(TCConfig) of
+        ?tcp ->
+            #{connect_fn => fun emqtt:connect/1};
+        ?ws ->
+            {_, Port} = emqx:get_config([listeners, ws, default, bind]),
+            #{
+                connect_fn => fun emqtt:ws_connect/1,
+                hosts => [{"127.0.0.1", Port}],
+                ws_transport_options => [
+                    {protocols, [http]},
+                    {transport, tcp}
+                ]
+            };
+        ?quic ->
+            {listener, {LType, LName}} = lists:keyfind(listener, 1, TCConfig),
+            {_, Port} = emqx:get_config([listeners, LType, LName, bind]),
+            #{
+                connect_fn => fun emqtt:quic_connect/1,
+                hosts => [{"127.0.0.1", Port}],
+                ssl => true,
+                ssl_opts => [{verify, verify_none}, {alpn, ["mqtt"]}]
+            };
+        ?socket ->
+            {listener, {LType, LName}} = lists:keyfind(listener, 1, TCConfig),
+            {_, Port} = emqx:get_config([listeners, LType, LName, bind]),
+            #{
+                connect_fn => fun emqtt:connect/1,
+                port => Port
+            }
+    end.
+
+assert_client_connection_consistent(ClientPid, TCConfig) ->
+    ExpectedMod =
+        case connection_type_of(TCConfig) of
+            ?tcp -> emqx_connection;
+            ?ws -> emqx_ws_connection;
+            ?quic -> emqx_connection;
+            ?socket -> emqx_socket_connection
+        end,
+    ?assertEqual(ExpectedMod, emqx_cth_broker:connection_info(connmod, ClientPid)),
+    case connection_type_of(TCConfig) of
+        ?quic ->
+            ?assertEqual(quic, emqx_cth_broker:connection_info(socktype, ClientPid));
+        _ ->
+            ok
+    end,
+    ok.
+
+reset_global_metrics() ->
+    lists:foreach(
+        fun({Name, _Val}) ->
+            emqx_metrics:set_global(Name, 0)
+        end,
+        emqx_metrics:all_global()
+    ).
+
+generate_tls_certs(TCConfig) ->
+    PrivDir = ?config(priv_dir, TCConfig),
+    CertDir = filename:join(PrivDir, "tls"),
+    ok = filelib:ensure_path(CertDir),
+    CertKeyRoot = emqx_cth_tls:gen_cert(#{key => ec, issuer => root}),
+    CertKeyServer = emqx_cth_tls:gen_cert(#{
+        key => ec,
+        issuer => CertKeyRoot,
+        extensions => #{subject_alt_name => [{ip, {127, 0, 0, 1}}]}
+    }),
+    {CertfileCA, _} = emqx_cth_tls:write_cert(CertDir, CertKeyRoot),
+    {Certfile, Keyfile} = emqx_cth_tls:write_cert(CertDir, CertKeyServer),
+    #{
+        <<"cacertfile">> => CertfileCA,
+        <<"certfile">> => Certfile,
+        <<"keyfile">> => Keyfile
+    }.
+
+setup_namespaced_metrics_channel_scenario(TCConfig) ->
+    %% Explicit namespace
+    Namespace = <<"explicit_ns">>,
+    ok = emqx_mt_config:create_managed_ns(Namespace),
+    Listener =
+        case connection_type_of(TCConfig) of
+            ?socket ->
+                %% Socket listener
+                SocketLName = socket,
+                SocketLPort = emqx_common_test_helpers:select_free_port(tcp),
+                SocektLConfig = #{
+                    <<"bind">> => iolist_to_binary(
+                        emqx_listeners:format_bind({"127.0.0.1", SocketLPort})
+                    ),
+                    <<"tcp_backend">> => <<"socket">>
+                },
+                {ok, _} = emqx:update_config(
+                    [listeners, tcp, SocketLName], {create, SocektLConfig}
+                ),
+                {tcp, SocketLName};
+            ?quic ->
+                %% Quic listener
+                QuicLName = quic,
+                QuicLPort = emqx_common_test_helpers:select_free_port(quic),
+                QuicSSLOpts = generate_tls_certs(TCConfig),
+                QuicLConfig = #{
+                    <<"bind">> => iolist_to_binary(
+                        emqx_listeners:format_bind({"127.0.0.1", QuicLPort})
+                    ),
+                    <<"ssl_options">> => QuicSSLOpts
+                },
+                {ok, _} = emqx:update_config([listeners, quic, QuicLName], {create, QuicLConfig}),
+                {quic, QuicLName};
+            _ ->
+                undefined
+        end,
+    reset_global_metrics(),
+    [
+        {explicit_ns, Namespace},
+        {listener, Listener}
+        | TCConfig
+    ].
+
+teardown_namespaced_metrics_channel_scenario(TCConfig) ->
+    maybe
+        {LType, LName} ?= ?config(listener, TCConfig),
+        ok = emqx_listeners:stop_listener(emqx_listeners:listener_id(LType, LName)),
+        {ok, _} = emqx:remove_config([listeners, LType, LName])
+    end,
+    Namespace = ?config(explicit_ns, TCConfig),
+    ok = emqx_mt_config:delete_managed_ns(Namespace),
+    %% Wait for cleanup
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Namespace))),
+    reset_global_metrics(),
+    delete_all_namespaces(),
+    ok.
+
+delete_all_namespaces() ->
+    do_delete_all_namespaces(?MIN_NS).
+
+do_delete_all_namespaces(LastNs) ->
+    case emqx_mt:list_ns(LastNs, 100) of
+        [] ->
+            ok;
+        Nss ->
+            lists:foreach(fun emqx_mt_config:delete_managed_ns/1, Nss),
+            NewLastNs = lists:last(Nss),
+            do_delete_all_namespaces(NewLastNs)
+    end.
+
+assert_namespaced_metrics_channel_explicit(Namespace, ClientId, TCConfig, ClientSubPubFn) ->
+    %% Fresh namespace with no metrics.
+    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
+    ?assertEqual(0, emqx_metrics:val_global('packets.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.received')),
+
+    %% Connect the client and trigger some activity.
+    Opts0 = #{clientid => ClientId, username => Namespace},
+    Opts1 = connect_opts_of(TCConfig),
+    Opts = maps:merge(Opts1, Opts0),
+    C1 = connect(Opts),
+    %% Sanity check
+    assert_client_connection_consistent(C1, TCConfig),
+    Topic = <<"t">>,
+    ClientSubPubFn(C1, Topic),
+    ?assertReceive({publish, _}),
+    %% Both global and namespaced metrics should be bumped.
+    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(1, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.received')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'bytes.sent')),
+    ?assert(0 < emqx_metrics:val_global('packets.sent')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'packets.sent')),
+    ?assert(0 < emqx_metrics:val_global('packets.received')),
+    ?assert(0 < emqx_metrics:val(Namespace, 'packets.received')),
+    ok.
+
+assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, ClientSubPubFn) ->
+    %% Fresh namespace with no metrics.
+    ?assertEqual(0, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(0, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assertEqual(0, emqx_metrics:val_global('bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val_global('packets.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'packets.sent')),
+
+    %% Connect the client and trigger some activity.
+    Opts0 = #{clientid => ClientId, username => Namespace},
+    Opts1 = connect_opts_of(TCConfig),
+    Opts = maps:merge(Opts1, Opts0),
+    C1 = connect(Opts),
+    %% Sanity check
+    assert_client_connection_consistent(C1, TCConfig),
+    Topic = <<"t">>,
+    ClientSubPubFn(C1, Topic),
+    ?assertReceive({publish, _}),
+    %% Only global metrics should be bumped.
+    ?assertEqual(1, emqx_metrics:val_global('messages.publish')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.publish')),
+    ?assertEqual(1, emqx_metrics:val_global('messages.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'messages.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.received')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.received')),
+    ?assert(0 < emqx_metrics:val_global('bytes.sent')),
+    ?assertEqual(0, emqx_metrics:val(Namespace, 'bytes.sent')),
+    ok.
+
+mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
+    AppSpecs = [
+        {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
+        emqx_mt,
+        emqx_prometheus,
+        emqx_management
+    ],
+    MkDashApp = fun(N) ->
+        Port = 18083 + N - 1,
+        PortStr = integer_to_list(Port),
+        [
+            emqx_mgmt_api_test_util:emqx_dashboard(
+                "dashboard.listeners.http.bind = " ++ PortStr
+            )
+        ]
+    end,
+    NodeSpecs0 = lists:map(
+        fun(N) ->
+            Name = mk_node_name(TestCase, N),
+            {Name, #{apps => AppSpecs ++ MkDashApp(N)}}
+        end,
+        lists:seq(1, NumNodes)
+    ),
+    Nodes = emqx_cth_cluster:start(
+        NodeSpecs0,
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
+    ),
+    on_exit(fun() -> ok = emqx_cth_cluster:stop(Nodes) end),
+    Nodes.
+
+mk_node_name(TestCase, N) ->
+    Name0 = iolist_to_binary([atom_to_binary(TestCase), "_", integer_to_binary(N)]),
+    binary_to_atom(Name0).
+
+get_prometheus_ns_stats(Namespace, Mode, Format) ->
+    Headers =
+        case Format of
+            json -> [{"accept", "application/json"}];
+            prometheus -> []
+        end,
+    QueryString = uri_string:compose_query(
+        lists:flatten([
+            {"mode", atom_to_binary(Mode)},
+            [{"ns", Namespace} || Namespace /= all]
+        ])
+    ),
+    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "namespaced_stats"]),
+    {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => URL,
+        extra_headers => Headers,
+        query_params => QueryString,
+        auth_header => {"no", "auth"}
+    }),
+    case Format of
+        json ->
+            {Status, Response};
+        prometheus ->
+            {Status, parse_prometheus(Response)}
+    end.
+
+parse_prometheus(RawData) ->
+    lists:foldl(
+        fun
+            (<<"#", _/binary>>, Acc) ->
+                Acc;
+            (Line, Acc) ->
+                {Name, Labels, Value} = parse_prometheus_line(Line),
+                maps:update_with(
+                    Name,
+                    fun(Old) -> Old#{Labels => Value} end,
+                    #{Labels => Value},
+                    Acc
+                )
+        end,
+        #{},
+        binary:split(iolist_to_binary(RawData), <<"\n">>, [global, trim_all])
+    ).
+
+parse_prometheus_line(Line) ->
+    RE = <<"(?<name>[a-z0-9A-Z_]+)(\\{(?<labels>[^)]*)\\})? *(?<value>[0-9]+(\\.[0-9]+)?)">>,
+    {match, [Name, Labels0, Value0]} = re:run(
+        Line, RE, [{capture, [<<"name">>, <<"labels">>, <<"value">>], binary}]
+    ),
+    Labels = parse_prometheus_labels(Labels0),
+    Value =
+        try
+            binary_to_float(Value0)
+        catch
+            error:badarg ->
+                binary_to_integer(Value0)
+        end,
+    {Name, Labels, Value}.
+
+parse_prometheus_labels(<<"">>) ->
+    #{};
+parse_prometheus_labels(Labels) ->
+    lists:foldl(
+        fun(Label, Acc) ->
+            [K, V0] = binary:split(Label, <<"=">>),
+            V = binary:replace(V0, <<"\"">>, <<"">>, [global]),
+            Acc#{K => V}
+        end,
+        #{},
+        binary:split(Labels, <<",">>, [global])
     ).
 
 %%------------------------------------------------------------------------------
@@ -288,7 +640,7 @@ t_initialize_limiter_groups({'end', Config}) ->
     ok;
 t_initialize_limiter_groups(Config) when is_list(Config) ->
     [N] = ?config(cluster, Config),
-    NodeSpecs = ?config(node_specs, Config),
+    [NodeSpec] = ?config(node_specs, Config),
     %% Setup namespace with limiters
     Params1 = emqx_mt_api_SUITE:tenant_limiter_params(),
     Params2 = emqx_mt_api_SUITE:client_limiter_params(),
@@ -299,12 +651,7 @@ t_initialize_limiter_groups(Config) when is_list(Config) ->
         {ok, _} = emqx_mt_config:update_managed_ns_config(Ns, Params)
     end),
     %% Restart node
-    %% N.B. For some reason, even using `shutdown => 5_000`, mnesia does not seem to
-    %% correctly sync/flush data to disk when restarting the peer node.  We call
-    %% `mnesia:sync_log` here to force it to sync data so that it's correctly loaded when
-    %% the peer restarts.  Without this, the table is empty after the restart...
-    ?ON(N, ok = mnesia:sync_log()),
-    [N] = emqx_cth_cluster:restart(NodeSpecs),
+    ok = restart_node(N, NodeSpec),
     %% Client should connect fine
     ?check_trace(
         begin
@@ -648,4 +995,270 @@ t_namespaced_bad_config_bulk_fix(TCConfig) when is_list(TCConfig) ->
         [],
         [A || A = #{name := ?ALARM} <- Alarms2]
     ),
+    ok.
+
+-doc """
+Verifies that we initialize metrics when creating a new managed namespace and when loading
+existing namespaces while restarting a node.
+""".
+t_namespaced_metrics({init, Config}) ->
+    ClusterSpec = [
+        {ns_metrics1, #{apps => app_specs()}},
+        {ns_metrics2, #{apps => app_specs()}}
+    ],
+    ClusterOpts = #{
+        work_dir => emqx_cth_suite:work_dir(?FUNCTION_NAME, Config),
+        shutdown => 5_000
+    },
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
+    Cluster = emqx_cth_cluster:start(NodeSpecs),
+    [{cluster, Cluster}, {node_specs, NodeSpecs} | Config];
+t_namespaced_metrics({'end', Config}) ->
+    Cluster = ?config(cluster, Config),
+    ok = emqx_cth_cluster:stop(Cluster),
+    ok;
+t_namespaced_metrics(Config) when is_list(Config) ->
+    [N1, N2] = ?config(cluster, Config),
+    [_, NSpec2] = ?config(node_specs, Config),
+    Ns = atom_to_binary(?FUNCTION_NAME),
+    %% Before namespace exists, we don't manipulate its metrics.
+    ?assertError({exception, badarg, _}, ?ON(N1, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?assertError({exception, badarg, _}, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?ON(N1, ok = emqx_mt_config:create_managed_ns(Ns)),
+    %% Can manipulate namespace metrics on both nodes now.
+    ?assertEqual(ok, ?ON(N1, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?assertEqual(1, ?ON(N1, emqx_metrics:val(Ns, 'messages.received'))),
+    ?assertEqual(ok, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received', 2))),
+    ?assertEqual(2, ?ON(N2, emqx_metrics:val(Ns, 'messages.received'))),
+    %% Restart node; should re-register namespace metrics.
+    ok = restart_node(N2, NSpec2),
+    ?assertEqual(ok, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received', 3))),
+    ?assertEqual(3, ?ON(N2, emqx_metrics:val(Ns, 'messages.received'))),
+    %% Delete the managed namespace; should drop namespace metrics.
+    ?ON(N1, ok = emqx_mt_config:delete_managed_ns(Ns)),
+    %% Wait for cleanup
+    ?retry(250, 10, ?assertNot(?ON(N2, emqx_mt_state:is_tombstoned(Ns)))),
+    ?assertError({exception, badarg, _}, ?ON(N1, emqx_metrics:inc(Ns, 'messages.received'))),
+    ?assertError({exception, badarg, _}, ?ON(N2, emqx_metrics:inc(Ns, 'messages.received'))),
+    ok.
+
+-doc """
+Verifies that we bump **both** global and namespaced metrics for a channel that belongs to
+an **explicit** namespace.
+""".
+t_namespaced_metrics_channel_explicit() ->
+    [{matrix, true}].
+t_namespaced_metrics_channel_explicit(matrix) ->
+    [[?tcp], [?quic], [?ws], [?socket]];
+t_namespaced_metrics_channel_explicit({init, TCConfig}) ->
+    setup_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_explicit({'end', TCConfig}) ->
+    teardown_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_explicit(TCConfig) when is_list(TCConfig) ->
+    Namespace = ?config(explicit_ns, TCConfig),
+    ClientId = ?NEW_CLIENTID(),
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe(Client, Topic, [{qos, 1}]),
+        emqtt:publish(Client, Topic, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_explicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
+    ok.
+
+-doc """
+Verifies that we bump **only** global metrics for a channel that belongs to
+an **implicit** namespace.
+""".
+t_namespaced_metrics_channel_implicit() ->
+    [{matrix, true}].
+t_namespaced_metrics_channel_implicit(matrix) ->
+    [[?tcp], [?quic], [?ws], [?socket]];
+t_namespaced_metrics_channel_implicit({init, TCConfig}) ->
+    setup_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_implicit({'end', TCConfig}) ->
+    teardown_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_implicit(TCConfig) when is_list(TCConfig) ->
+    Namespace = ?NEW_USERNAME(),
+    ClientId = ?NEW_CLIENTID(),
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe(Client, Topic, [{qos, 1}]),
+        emqtt:publish(Client, Topic, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
+    ok.
+
+-doc """
+Same as `t_namespaced_metrics_channel_explicit`, but using quic multi streams.  A separate
+case due to the different APIs used.
+""".
+t_namespaced_metrics_channel_explicit_quic() ->
+    [{matrix, true}].
+t_namespaced_metrics_channel_explicit_quic(matrix) ->
+    [[?quic]];
+t_namespaced_metrics_channel_explicit_quic({init, TCConfig}) ->
+    setup_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_explicit_quic({'end', TCConfig}) ->
+    teardown_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_explicit_quic(TCConfig) when is_list(TCConfig) ->
+    ct:timetrap({seconds, 6}),
+    Namespace = ?config(explicit_ns, TCConfig),
+    ClientId = ?NEW_CLIENTID(),
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe_via(Client, {new_data_stream, []}, #{}, [
+            {Topic, [{qos, 1}]}
+        ]),
+        {ok, PubVia} = emqtt:start_data_stream(Client, []),
+        emqtt:publish_via(Client, PubVia, Topic, #{}, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_explicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
+    ok.
+
+-doc """
+Same as `t_namespaced_metrics_channel_implicit`, but using quic multi streams.  A separate
+case due to the different APIs used.
+""".
+t_namespaced_metrics_channel_implicit_quic() ->
+    [{matrix, true}].
+t_namespaced_metrics_channel_implicit_quic(matrix) ->
+    [[?quic]];
+t_namespaced_metrics_channel_implicit_quic({init, TCConfig}) ->
+    setup_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_implicit_quic({'end', TCConfig}) ->
+    teardown_namespaced_metrics_channel_scenario(TCConfig);
+t_namespaced_metrics_channel_implicit_quic(TCConfig) when is_list(TCConfig) ->
+    ct:timetrap({seconds, 6}),
+    Namespace = ?NEW_USERNAME(),
+    ClientId = ?NEW_CLIENTID(),
+    ClientSubPubFn = fun(Client, Topic) ->
+        {ok, _, _} = emqtt:subscribe_via(Client, {new_data_stream, []}, #{}, [
+            {Topic, [{qos, 1}]}
+        ]),
+        {ok, PubVia} = emqtt:start_data_stream(Client, []),
+        emqtt:publish_via(Client, PubVia, Topic, #{}, <<"hey1">>, [{qos, 1}])
+    end,
+    assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, ClientSubPubFn),
+    ok.
+
+t_namespaced_metrics_prometheus({init, TCConfig}) ->
+    Nodes = mk_cluster(?FUNCTION_NAME, #{n => 2}, TCConfig),
+    ?ON_ALL(Nodes, begin
+        meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+        meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
+    end),
+    [{nodes, Nodes} | TCConfig];
+t_namespaced_metrics_prometheus({'end', _TCConfig}) ->
+    ok;
+t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
+    [N | _] = ?config(nodes, TCConfig),
+    Namespace = <<"explicit_ns">>,
+    ok = ?ON(N, emqx_mt_config:create_managed_ns(Namespace)),
+    Namespace2 = <<"other_explicit_ns">>,
+    ok = ?ON(N, emqx_mt_config:create_managed_ns(Namespace2)),
+
+    %% Generate some traffic for namespaced metrics
+    Port = emqx_mt_api_SUITE:get_mqtt_tcp_port(N),
+    ClientId = ?NEW_CLIENTID(),
+    Opts0 = #{clientid => ClientId, username => Namespace, port => Port},
+    Opts1 = connect_opts_of(TCConfig),
+    Opts = maps:merge(Opts1, Opts0),
+    C1 = connect(Opts),
+    Topic = <<"t">>,
+    {ok, _, _} = emqtt:subscribe(C1, Topic, [{qos, 1}]),
+    emqtt:publish(C1, Topic, <<"hey!">>, [{qos, 1}]),
+    ?assertReceive({publish, _}),
+
+    %% Check prometheus
+    NsLabel0A = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace},
+    NsLabel0B = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace2},
+    {200, Metrics0} = get_prometheus_ns_stats(
+        all, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus
+    ),
+    SampleMetrics = [
+        <<"emqx_messages_received">>,
+        <<"emqx_messages_sent">>,
+        <<"emqx_packets_received">>,
+        <<"emqx_packets_sent">>
+    ],
+    ?assertMatch(
+        #{
+            <<"emqx_messages_received">> := #{NsLabel0A := 1, NsLabel0B := 0},
+            <<"emqx_messages_sent">> := #{NsLabel0A := 1, NsLabel0B := 0},
+            <<"emqx_packets_received">> := #{NsLabel0A := N1, NsLabel0B := 0},
+            <<"emqx_packets_sent">> := #{NsLabel0A := N2, NsLabel0B := 0}
+        } when N1 > 0 andalso N2 > 0,
+        Metrics0,
+        #{sample => maps:with(SampleMetrics, Metrics0)}
+    ),
+    %% Filtering a single namespace
+    {200, Metrics1} =
+        get_prometheus_ns_stats(Namespace, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus),
+    ?assertMatch(
+        #{
+            <<"emqx_messages_received">> := #{NsLabel0A := 1} = M,
+            <<"emqx_messages_sent">> := #{NsLabel0A := 1},
+            <<"emqx_packets_received">> := #{NsLabel0A := N1},
+            <<"emqx_packets_sent">> := #{NsLabel0A := N2}
+        } when N1 > 0 andalso N2 > 0 andalso not is_map_key(NsLabel0B, M),
+        Metrics1,
+        #{sample => maps:with(SampleMetrics, Metrics1)}
+    ),
+
+    NsLabel1A = #{<<"namespace">> => Namespace},
+    NsLabel1B = #{<<"namespace">> => Namespace2},
+    {200, Metrics2} = get_prometheus_ns_stats(
+        all, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED, prometheus
+    ),
+    ?assertMatch(
+        #{
+            <<"emqx_messages_received">> := #{NsLabel1A := 1, NsLabel1B := 0},
+            <<"emqx_messages_sent">> := #{NsLabel1A := 1, NsLabel1B := 0},
+            <<"emqx_packets_received">> := #{NsLabel1A := N1, NsLabel1B := 0},
+            <<"emqx_packets_sent">> := #{NsLabel1A := N2, NsLabel1B := 0}
+        } when N1 > 0 andalso N2 > 0,
+        Metrics2,
+        #{sample => maps:with(SampleMetrics, Metrics2)}
+    ),
+
+    %% Unknown namespace
+    lists:foreach(
+        fun(Mode) ->
+            ?assertMatch(
+                {200, _},
+                get_prometheus_ns_stats(<<"unknown_ns">>, Mode, prometheus)
+            )
+        end,
+        ?PROM_DATA_MODES
+    ),
+
+    %% Quick checking that all combinations do not crash (i.e., return 200 and not 500)
+    lists:foreach(
+        fun({Ns, Mode}) ->
+            ?assertMatch(
+                {200, _},
+                get_prometheus_ns_stats(Ns, Mode, prometheus),
+                #{ns => Ns, mode => Mode}
+            )
+        end,
+        [
+            {Ns, Mode}
+         || Ns <- [all, Namespace, Namespace2],
+            Mode <- ?PROM_DATA_MODES
+        ]
+    ),
+
+    %% We don't support json
+    lists:foreach(
+        fun({Ns, Mode}) ->
+            ?assertMatch(
+                {400, _},
+                get_prometheus_ns_stats(Ns, Mode, json),
+                #{ns => Ns, mode => Mode}
+            )
+        end,
+        [
+            {Ns, Mode}
+         || Ns <- [all, Namespace, Namespace2],
+            Mode <- ?PROM_DATA_MODES
+        ]
+    ),
+
     ok.

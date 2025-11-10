@@ -850,29 +850,29 @@ stats(shared_subscriptions) ->
 stats(retained_msg_count) ->
     emqx_stats:getstat('retained.count');
 stats(received) ->
-    emqx_metrics:val('messages.received');
+    emqx_metrics:val_global('messages.received');
 stats(received_bytes) ->
-    emqx_metrics:val('bytes.received');
+    emqx_metrics:val_global('bytes.received');
 stats(sent) ->
-    emqx_metrics:val('messages.sent');
+    emqx_metrics:val_global('messages.sent');
 stats(sent_bytes) ->
-    emqx_metrics:val('bytes.sent');
+    emqx_metrics:val_global('bytes.sent');
 stats(validation_succeeded) ->
-    emqx_metrics:val('messages.validation_succeeded');
+    emqx_metrics:val_global('messages.validation_succeeded');
 stats(validation_failed) ->
-    emqx_metrics:val('messages.validation_failed');
+    emqx_metrics:val_global('messages.validation_failed');
 stats(transformation_succeeded) ->
-    emqx_metrics:val('messages.transformation_succeeded');
+    emqx_metrics:val_global('messages.transformation_succeeded');
 stats(transformation_failed) ->
-    emqx_metrics:val('messages.transformation_failed');
+    emqx_metrics:val_global('messages.transformation_failed');
 stats(dropped) ->
-    emqx_metrics:val('messages.dropped');
+    emqx_metrics:val_global('messages.dropped');
 stats(persisted) ->
-    emqx_metrics:val('messages.persisted');
+    emqx_metrics:val_global('messages.persisted');
 stats(rules_matched) ->
-    emqx_metrics:val('rules.matched');
+    emqx_metrics:val_global('rules.matched');
 stats(actions_executed) ->
-    emqx_metrics:val('actions.executed').
+    emqx_metrics:val_global('actions.executed').
 
 %% -------------------------------------------------------------------------------------------------
 %% Retained && License Quota

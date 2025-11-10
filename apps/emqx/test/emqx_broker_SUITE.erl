@@ -257,9 +257,9 @@ t_nosub_pub({init, Config}) ->
 t_nosub_pub({'end', _Config}) ->
     ok;
 t_nosub_pub(Config) when is_list(Config) ->
-    ?assertEqual(0, emqx_metrics:val('messages.dropped')),
+    ?assertEqual(0, emqx_metrics:val_global('messages.dropped')),
     emqx_broker:publish(emqx_message:make(ct, <<"topic">>, <<"hello">>)),
-    ?assertEqual(1, emqx_metrics:val('messages.dropped')).
+    ?assertEqual(1, emqx_metrics:val_global('messages.dropped')).
 
 t_shared_subscribe({init, Config}) ->
     emqx_broker:subscribe(
@@ -703,14 +703,14 @@ t_connack_auth_error({'end', _Config}) ->
     ok;
 t_connack_auth_error(Config) when is_list(Config) ->
     %% MQTT 3.1
-    ?assertEqual(0, emqx_metrics:val('packets.connack.auth_error')),
+    ?assertEqual(0, emqx_metrics:val_global('packets.connack.auth_error')),
     {ok, C0} = emqtt:start_link([{proto_ver, v4}]),
     ?assertEqual({error, {malformed_username_or_password, undefined}}, emqtt:connect(C0)),
-    ?assertEqual(1, emqx_metrics:val('packets.connack.auth_error')),
+    ?assertEqual(1, emqx_metrics:val_global('packets.connack.auth_error')),
     %% MQTT 5.0
     {ok, C1} = emqtt:start_link([{proto_ver, v5}]),
     ?assertEqual({error, {bad_username_or_password, #{}}}, emqtt:connect(C1)),
-    ?assertEqual(2, emqx_metrics:val('packets.connack.auth_error')),
+    ?assertEqual(2, emqx_metrics:val_global('packets.connack.auth_error')),
     ok.
 
 authenticate_deny(_Credentials, _Default) ->
