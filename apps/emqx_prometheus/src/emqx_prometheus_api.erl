@@ -54,7 +54,7 @@ api_spec() ->
 paths() ->
     [
         "/prometheus",
-        "/prometheus/ns/stats",
+        "/prometheus/namespaced_stats",
         "/prometheus/auth",
         "/prometheus/stats",
         "/prometheus/data_integration",
@@ -81,7 +81,7 @@ schema("/prometheus") ->
                     #{200 => prometheus_setting_response()}
             }
     };
-schema("/prometheus/ns/stats") ->
+schema("/prometheus/namespaced_stats") ->
     #{
         'operationId' => ns_stats,
         get =>

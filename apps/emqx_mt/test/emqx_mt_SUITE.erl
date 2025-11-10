@@ -460,7 +460,7 @@ get_prometheus_ns_stats(Namespace, Mode, Format) ->
             [{"ns", Namespace} || Namespace /= all]
         ])
     ),
-    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "ns", "stats"]),
+    URL = emqx_mgmt_api_test_util:api_path(["prometheus", "namespaced_stats"]),
     {Status, Response} = emqx_mgmt_api_test_util:simple_request(#{
         method => get,
         url => URL,
@@ -1207,7 +1207,6 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
     {200, Metrics2} = get_prometheus_ns_stats(
         all, ?PROM_DATA_MODE__ALL_NODES_AGGREGATED, prometheus
     ),
-    GetIn = fun(Ks, M) -> emqx_utils_maps:deep_get(Ks, M) end,
     ?assertMatch(
         #{
             <<"emqx_messages_received">> := #{NsLabel1A := 1, NsLabel1B := 0},
