@@ -519,7 +519,8 @@ zone_global_defaults() ->
                 use_username_as_clientid => false,
                 wildcard_subscription => true,
                 client_attrs_init => [],
-                clientid_override => disabled
+                clientid_override => disabled,
+                mount_prefix_for_authz => false
             },
         overload_protection =>
             #{

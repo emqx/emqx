@@ -10,8 +10,10 @@
 -include("emqx_authz.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
@@ -19,9 +21,6 @@
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
-
-groups() ->
-    [].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -176,6 +175,17 @@ end_per_testcase(_TestCase, _Config) ->
         >>
     )
 ).
+
+on_check_authz_complete(ClientInfo, Action, Topic, Result, From, TestPid) ->
+    Ctx = #{
+        clientinfo => ClientInfo,
+        action => Action,
+        topic => Topic,
+        result => Result,
+        from => From
+    },
+    TestPid ! {authz, Ctx},
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -663,7 +673,7 @@ t_publish_last_will_testament_banned_client_connecting(_Config) ->
 
     ok.
 
-t_sikpped_as_superuser(_Config) ->
+t_skipped_as_superuser(_Config) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         username => <<"username">>,
@@ -735,5 +745,71 @@ t_sikpped_as_superuser(_Config) ->
 
     ok = snabbkaffe:stop().
 
-stop_apps(Apps) ->
-    lists:foreach(fun application:stop/1, Apps).
+-doc """
+Verifies that, when we set `mqtt.mount_prefix_for_authz = true`, then authorization
+backends evaluate the original topics prefixed by `mountpoint`.
+""".
+t_mount_prefix_for_authz(_TCConfig) ->
+    Mountpoint = <<"mountpoint/">>,
+    ClientInfo = #{
+        clientid => <<"clientid">>,
+        username => <<"username">>,
+        peerhost => {127, 0, 0, 1},
+        zone => default,
+        listener => 'tcp:default',
+        mountpoint => Mountpoint,
+        is_superuser => false
+    },
+    on_exit(fun() ->
+        {ok, _} = emqx:update_config([mqtt, mount_prefix_for_authz], false),
+        {ok, _} = emqx:remove_config([listeners, tcp, default, mountpoint]),
+        emqx_hooks:del('client.check_authz_complete', {?MODULE, on_check_authz_complete})
+    end),
+    {ok, _} = emqx:update_config([mqtt, mount_prefix_for_authz], true),
+    {ok, _} = emqx:update_config([listeners, tcp, default, mountpoint], Mountpoint),
+    emqx_hooks:add(
+        'client.check_authz_complete',
+        {?MODULE, on_check_authz_complete, [self()]},
+        ?HP_LOWEST
+    ),
+    {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_MYSQL]),
+    {ok, C} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C),
+    Topic1 = <<"t/1">>,
+    MountedTopic1 = emqx_mountpoint:mount(Mountpoint, Topic1),
+    Topic2 = <<"t/2">>,
+    MountedTopic2 = emqx_mountpoint:mount(Mountpoint, Topic2),
+    Topic3 = <<"t/3">>,
+    MountedTopic3 = emqx_mountpoint:mount(Mountpoint, Topic3),
+    ?check_trace(
+        begin
+            emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_2), Topic1),
+            ?assertReceive({authz, #{topic := MountedTopic1}}),
+            %% Check that real client works
+            _ = emqtt:subscribe(C, Topic2, [{qos, 1}]),
+            ?assertReceive({authz, #{topic := MountedTopic2}}),
+            _ = emqtt:publish(C, <<"t/3">>, <<"hey">>, [{qos, 1}]),
+            ?assertReceive({authz, #{topic := MountedTopic3}}),
+            %% Disable config
+            {ok, _} = emqx:update_config([mqtt, mount_prefix_for_authz], false),
+            _ = emqtt:publish(C, <<"t/3">>, <<"hey">>, [{qos, 1}]),
+            ?assertReceive({authz, #{topic := Topic3}}),
+            emqtt:stop(C),
+            ok
+        end,
+        fun(Trace) ->
+            %% Backend receives the mounted topic
+            ?assertMatch(
+                [
+                    #{action := #{action_type := subscribe}, topic := MountedTopic1},
+                    #{action := #{action_type := subscribe}, topic := MountedTopic2},
+                    #{action := #{action_type := publish}, topic := MountedTopic3},
+                    #{action := #{action_type := publish}, topic := Topic3}
+                ],
+                ?of_kind(fake_source_authz, Trace)
+            ),
+            ok
+        end
+    ),
+    snabbkaffe:stop(),
+    ok.

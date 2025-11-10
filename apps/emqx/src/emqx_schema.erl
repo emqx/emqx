@@ -4158,6 +4158,14 @@ mqtt_general() ->
                     desc => ?DESC("clientid_override"),
                     converter => fun compile_variform_allow_disabled/2
                 }
+            )},
+        {"mount_prefix_for_authz",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC(mqtt_mount_prefix_for_authz)
+                }
             )}
     ].
 %% All session's importance should be lower than general part to organize document.

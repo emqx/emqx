@@ -1908,6 +1908,12 @@ clientid_override {
     You can read more about variform expressions in EMQX docs."""
 }
 
+mqtt_mount_prefix_for_authz {
+  label: "Mount Prefix for Authorization"
+  desc: """~
+    When enabled, the target topics and topic filters are prefixed by the listener's configured mountpoint before being checked by authorization backends.~"""
+}
+
 banned_bootstrap_file.desc:
 """The bootstrap file is a CSV file used to batch loading banned data when initializing a single node or cluster, in other words, the import operation is performed only if there is no data in the database.
 
