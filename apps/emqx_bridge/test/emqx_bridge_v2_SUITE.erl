@@ -1673,7 +1673,6 @@ t_fallback_actions_republish_filtered_sql(_TCConfig) ->
                 {error, {unrecoverable_error, fallback_time}}
             end),
 
-            ActionTypeBin = atom_to_binary(bridge_type()),
             PrimaryActionName = <<"primary">>,
 
             RepublishTopic = <<"republish/fallback">>,
