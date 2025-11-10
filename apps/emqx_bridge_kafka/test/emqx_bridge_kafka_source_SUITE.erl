@@ -783,6 +783,21 @@ get_groups() ->
         all_bootstrap_hosts()
     ).
 
+with_group_subscriber_spy(Opts, Fn) ->
+    #{timeout := Timeout} = Opts,
+    setup_group_subscriber_spy(self()),
+    try
+        Res = Fn(),
+        receive
+            {kafka_assignment, _, _} ->
+                Res
+        after Timeout ->
+            ct:fail("timed out waiting for kafka assignment")
+        end
+    after
+        kill_group_subscriber_spy()
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -1678,13 +1693,19 @@ t_repeated_topics(TCConfig) ->
 %% Verifies that we return an error containing information to debug connection issues when
 %% one of the partition leaders is unreachable.
 t_pretty_api_dry_run_reason(TCConfig) ->
-    ProxyName = "kafka_2_plain",
     ?check_trace(
         begin
-            {201, _} = create_connector_api(TCConfig, #{}),
-            {201, _} = create_source_api(TCConfig, #{}),
-            emqx_common_test_helpers:with_failure(
-                down, ProxyName, ?PROXY_HOST, ?PROXY_PORT, fun() ->
+            {ok, {{_, 201, _}, _, _}} =
+                with_group_subscriber_spy(#{timeout => 15_000}, fun() ->
+                    emqx_bridge_v2_testlib:create_bridge_api(TCConfig)
+                end),
+            emqx_common_test_helpers:with_mock(
+                brod_client,
+                get_leader_connection,
+                fun(_KafkaClientId, _KafkaTopic, _Partition) ->
+                    {error, "error-injection"}
+                end,
+                fun() ->
                     Res = probe_source_api(
                         TCConfig,
                         #{<<"parameters">> => #{<<"topic">> => <<"test-topic-three-partitions">>}}
@@ -1695,7 +1716,10 @@ t_pretty_api_dry_run_reason(TCConfig) ->
                         match ==
                             re:run(
                                 Msg,
-                                <<"Leader for partition . unavailable; reason: ">>,
+                                <<
+                                    "Partition leader unavailable; "
+                                    "client=.+; topic=.+; partition=.+; disconnected=.+; total=.+"
+                                >>,
                                 [{capture, none}]
                             ),
                     %% In CI, if this tests runs soon enough, Kafka may not be stable yet, and
