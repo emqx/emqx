@@ -564,7 +564,7 @@ t_pretty_api_dry_run_reason(Config) ->
                     match ==
                         re:run(
                             Msg,
-                            <<"Leader for partition . unavailable; reason: ">>,
+                            <<"client=.+; topic=.+; partition=.+; disconnected=.+; total=.+">>,
                             [{capture, none}]
                         ),
                 %% In CI, if this tests runs soon enough, Kafka may not be stable yet, and
