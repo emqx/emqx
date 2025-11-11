@@ -14,11 +14,15 @@
 
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
+%%------------------------------------------------------------------------------
+%% CT boilerplate
+%%------------------------------------------------------------------------------
+
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
 
 groups() ->
-    [].
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -45,7 +49,138 @@ end_per_suite(_Config) ->
     ok.
 
 %%------------------------------------------------------------------------------
-%% Testcases
+%% Helper fns
+%%------------------------------------------------------------------------------
+
+-define(REPLACEMENTS, #{
+    ":clientid" => <<"client1">>,
+    ":username" => <<"user1">>
+}).
+
+run_examples(Examples) ->
+    %% assume all ok
+    run_examples(
+        fun
+            ({ok, Code, _}) when
+                Code >= 200,
+                Code =< 299
+            ->
+                true;
+            (_Res) ->
+                ct:pal("check failed: ~p", [_Res]),
+                false
+        end,
+        Examples
+    ).
+
+run_examples(Examples, Fixtures) when is_function(Fixtures) ->
+    Fixtures(),
+    run_examples(Examples);
+run_examples(Check, Examples) when is_function(Check) ->
+    lists:foreach(
+        fun({Path, Op, Body} = _Req) ->
+            ct:pal("req: ~p", [_Req]),
+            ?assert(
+                Check(
+                    request(Op, uri(Path), Body)
+                )
+            )
+        end,
+        Examples
+    );
+run_examples(Code, Examples) when is_number(Code) ->
+    run_examples(
+        fun
+            ({ok, ResCode, _}) when Code =:= ResCode -> true;
+            (_Res) ->
+                ct:pal("check failed: ~p", [_Res]),
+                false
+        end,
+        Examples
+    ).
+
+run_examples(CodeOrCheck, Examples, Fixtures) when is_function(Fixtures) ->
+    Fixtures(),
+    run_examples(CodeOrCheck, Examples).
+
+make_examples(ApiMod) ->
+    make_examples(ApiMod, ?REPLACEMENTS).
+
+-spec make_examples(Mod :: atom()) -> [{Path :: list(), [{Op :: atom(), Body :: term()}]}].
+make_examples(ApiMod, Replacements) ->
+    Paths = ApiMod:paths(),
+    lists:flatten(
+        lists:map(
+            fun(Path) ->
+                Schema = ApiMod:schema(Path),
+                lists:map(
+                    fun({Op, OpSchema}) ->
+                        Body =
+                            case maps:get('requestBody', OpSchema, undefined) of
+                                undefined ->
+                                    [];
+                                HoconWithExamples ->
+                                    maps:get(
+                                        value,
+                                        hd(
+                                            maps:values(
+                                                maps:get(
+                                                    <<"examples">>,
+                                                    maps:get(examples, HoconWithExamples)
+                                                )
+                                            )
+                                        )
+                                    )
+                            end,
+                        {replace_parts(to_parts(Path), Replacements), Op, Body}
+                    end,
+                    lists:sort(
+                        fun op_sort/2, maps:to_list(maps:with([get, put, post, delete], Schema))
+                    )
+                )
+            end,
+            Paths
+        )
+    ).
+
+op_sort({post, _}, {_, _}) ->
+    true;
+op_sort({put, _}, {_, _}) ->
+    true;
+op_sort({get, _}, {delete, _}) ->
+    true;
+op_sort(_, _) ->
+    false.
+
+to_parts(Path) ->
+    string:tokens(Path, "/").
+
+replace_parts(Parts, Replacements) ->
+    lists:map(
+        fun(Part) ->
+            %% that's the fun part
+            case maps:is_key(Part, Replacements) of
+                true ->
+                    maps:get(Part, Replacements);
+                false ->
+                    Part
+            end
+        end,
+        Parts
+    ).
+
+dup_rules_example(#{username := _, rules := Rules}) ->
+    #{username => user2, rules => Rules ++ Rules};
+dup_rules_example(#{clientid := _, rules := Rules}) ->
+    #{clientid => client2, rules => Rules ++ Rules};
+dup_rules_example(#{rules := Rules}) ->
+    #{rules => Rules ++ Rules}.
+
+dup_rules_example2(#{rules := Rules} = Example) ->
+    Example#{rules := Rules ++ Rules}.
+
+%%------------------------------------------------------------------------------
+%% Test cases
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
@@ -406,131 +541,3 @@ t_api(_) ->
     run_examples(404, Examples, Fixtures2),
 
     ok.
-
-%% test helpers
--define(REPLACEMENTS, #{
-    ":clientid" => <<"client1">>,
-    ":username" => <<"user1">>
-}).
-
-run_examples(Examples) ->
-    %% assume all ok
-    run_examples(
-        fun
-            ({ok, Code, _}) when
-                Code >= 200,
-                Code =< 299
-            ->
-                true;
-            (_Res) ->
-                ct:pal("check failed: ~p", [_Res]),
-                false
-        end,
-        Examples
-    ).
-
-run_examples(Examples, Fixtures) when is_function(Fixtures) ->
-    Fixtures(),
-    run_examples(Examples);
-run_examples(Check, Examples) when is_function(Check) ->
-    lists:foreach(
-        fun({Path, Op, Body} = _Req) ->
-            ct:pal("req: ~p", [_Req]),
-            ?assert(
-                Check(
-                    request(Op, uri(Path), Body)
-                )
-            )
-        end,
-        Examples
-    );
-run_examples(Code, Examples) when is_number(Code) ->
-    run_examples(
-        fun
-            ({ok, ResCode, _}) when Code =:= ResCode -> true;
-            (_Res) ->
-                ct:pal("check failed: ~p", [_Res]),
-                false
-        end,
-        Examples
-    ).
-
-run_examples(CodeOrCheck, Examples, Fixtures) when is_function(Fixtures) ->
-    Fixtures(),
-    run_examples(CodeOrCheck, Examples).
-
-make_examples(ApiMod) ->
-    make_examples(ApiMod, ?REPLACEMENTS).
-
--spec make_examples(Mod :: atom()) -> [{Path :: list(), [{Op :: atom(), Body :: term()}]}].
-make_examples(ApiMod, Replacements) ->
-    Paths = ApiMod:paths(),
-    lists:flatten(
-        lists:map(
-            fun(Path) ->
-                Schema = ApiMod:schema(Path),
-                lists:map(
-                    fun({Op, OpSchema}) ->
-                        Body =
-                            case maps:get('requestBody', OpSchema, undefined) of
-                                undefined ->
-                                    [];
-                                HoconWithExamples ->
-                                    maps:get(
-                                        value,
-                                        hd(
-                                            maps:values(
-                                                maps:get(
-                                                    <<"examples">>,
-                                                    maps:get(examples, HoconWithExamples)
-                                                )
-                                            )
-                                        )
-                                    )
-                            end,
-                        {replace_parts(to_parts(Path), Replacements), Op, Body}
-                    end,
-                    lists:sort(
-                        fun op_sort/2, maps:to_list(maps:with([get, put, post, delete], Schema))
-                    )
-                )
-            end,
-            Paths
-        )
-    ).
-
-op_sort({post, _}, {_, _}) ->
-    true;
-op_sort({put, _}, {_, _}) ->
-    true;
-op_sort({get, _}, {delete, _}) ->
-    true;
-op_sort(_, _) ->
-    false.
-
-to_parts(Path) ->
-    string:tokens(Path, "/").
-
-replace_parts(Parts, Replacements) ->
-    lists:map(
-        fun(Part) ->
-            %% that's the fun part
-            case maps:is_key(Part, Replacements) of
-                true ->
-                    maps:get(Part, Replacements);
-                false ->
-                    Part
-            end
-        end,
-        Parts
-    ).
-
-dup_rules_example(#{username := _, rules := Rules}) ->
-    #{username => user2, rules => Rules ++ Rules};
-dup_rules_example(#{clientid := _, rules := Rules}) ->
-    #{clientid => client2, rules => Rules ++ Rules};
-dup_rules_example(#{rules := Rules}) ->
-    #{rules => Rules ++ Rules}.
-
-dup_rules_example2(#{rules := Rules} = Example) ->
-    Example#{rules := Rules ++ Rules}.
