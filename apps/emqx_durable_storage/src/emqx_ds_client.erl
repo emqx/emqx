@@ -192,7 +192,11 @@ Query the host about the stream replay position.
 
 ## Return values:
 - `undefined`: There is no recorded replay position for the stream.
-  The client should create a new iterator.
+  The client should create a new iterator with the default parameters.
+
+- `{undefined, #{start_time => Time}}`: There is no recorded replay
+  position for the stream. The client should create a new iterator
+  with certain parameters overrided.
 
 - `{subscribe, Iterator}`: Host has record of the previous replay position.
   The client should create a new subscription with the iterator.
@@ -202,7 +206,8 @@ Query the host about the stream replay position.
 -callback get_iterator(sub_id(), emqx_ds:slab(), emqx_ds:stream(), _HostState) ->
     {ok, emqx_ds:iterator() | end_of_stream}
     | {subscribe, emqx_ds:iterator()}
-    | undefined.
+    | undefined
+    | {undefined, #{start_time => emqx_ds:time()}}.
 
 -doc """
 Notify the host about creation of a new iterator.
@@ -1006,12 +1011,13 @@ add_stream_to_cache(
                     %% This is a known replayed stream.
                     Cache = Cache0#stream_cache{replayed = Replayed#{Stream => true}},
                     {CS0, Cache};
-                undefined ->
+                {undefined, Params} ->
                     %% This stream is new to the host. Schedule
                     %% creation of the iterator:
-                    #sub{db = DB, topic = Topic, start_time = StartTime} = maps:get(
+                    #sub{db = DB, topic = Topic, start_time = DefaultStartTime} = maps:get(
                         SubId, CS0#cs.subs
                     ),
+                    StartTime = maps:get(start_time, Params, DefaultStartTime),
                     CS = plan(
                         #eff_make_iterator{
                             sub_id = SubId,
@@ -1280,9 +1286,14 @@ get_current_generation(CBM, SubId, Shard, HostState) ->
 
 -spec get_iterator(module(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), _HostState) ->
     {ok | subscribe, emqx_ds:iterator() | end_of_stream}
-    | undefined.
+    | {undefined, #{start_timer => emqx_ds:time()}}.
 get_iterator(CBM, SubId, Slab, Stream, HostState) ->
-    CBM:get_iterator(SubId, Slab, Stream, HostState).
+    case CBM:get_iterator(SubId, Slab, Stream, HostState) of
+        undefined ->
+            {undefined, #{}};
+        Other ->
+            Other
+    end.
 
 -spec on_new_iterator(
     module(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), HostState
