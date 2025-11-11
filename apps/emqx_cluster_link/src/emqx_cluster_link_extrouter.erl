@@ -22,7 +22,6 @@
     actor_apply_operation/2,
     actor_apply_operation/3,
     actor_gc/1,
-    is_present_incarnation/1,
     list_actors/1
 ]).
 
@@ -174,22 +173,16 @@ count(ClusterName) ->
 
 -type env() :: #{timestamp => _Milliseconds}.
 
--spec actor_init(cluster(), actor(), incarnation(), env()) -> {ok, state()}.
+-spec actor_init(cluster(), actor(), incarnation(), env()) -> {_Created :: boolean(), state()}.
 actor_init(Cluster, Actor, Incarnation, Env = #{timestamp := Now}) ->
     case transaction(fun ?MODULE:mnesia_actor_init/4, [Cluster, Actor, Incarnation, Now]) of
-        {ok, State} ->
-            {ok, State};
+        {Created, State} when is_boolean(Created) ->
+            {Created, State};
         {reincarnate, Rec} ->
             %% TODO: Do this asynchronously.
             ok = clean_incarnation(Rec),
             actor_init(Cluster, Actor, Incarnation, Env)
     end.
-
--spec is_present_incarnation(state()) -> boolean().
-is_present_incarnation(#state{extra = #{is_present_incarnation := IsNew}}) ->
-    IsNew;
-is_present_incarnation(_State) ->
-    false.
 
 -spec list_actors(cluster()) -> [#{actor := actor(), incarnation := incarnation()}].
 list_actors(Cluster) ->
@@ -211,7 +204,7 @@ mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
     case mnesia:read(?EXTROUTE_ACTOR_TAB, ActorID, write) of
         [#actor{incarnation = Incarnation, lane = Lane} = Rec] ->
             ok = mnesia:write(?EXTROUTE_ACTOR_TAB, Rec#actor{until = bump_actor_ttl(TS)}, write),
-            {ok, State#state{lane = Lane, extra = #{is_present_incarnation => true}}};
+            {false, State#state{lane = Lane}};
         [] ->
             Lane = mnesia_assign_lane(Cluster),
             Rec = #actor{
@@ -221,7 +214,7 @@ mnesia_actor_init(Cluster, Actor, Incarnation, TS) ->
                 until = bump_actor_ttl(TS)
             },
             ok = mnesia:write(?EXTROUTE_ACTOR_TAB, Rec, write),
-            {ok, State#state{lane = Lane, extra = #{is_present_incarnation => false}}};
+            {true, State#state{lane = Lane}};
         [#actor{incarnation = Outdated} = Rec] when Incarnation > Outdated ->
             {reincarnate, Rec};
         [#actor{incarnation = Newer}] ->
