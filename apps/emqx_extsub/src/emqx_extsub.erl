@@ -107,7 +107,7 @@ on_delivered(Msg, ReasonCode) ->
             Buffer = emqx_extsub_buffer:set_delivered(Buffer0, HandlerRef, SeqId),
             St = St0#st{buffer = Buffer},
             AckCtx = ack_ctx(St, Handler0, HandlerRef, OriginalQos),
-            Handler = emqx_extsub_handler:handle_delivered(Handler0, AckCtx, Msg, ReasonCode),
+            Handler = emqx_extsub_handler:delivered(Handler0, AckCtx, Msg, ReasonCode),
             %% Update the unacked window
             Unacked = maps:remove(SeqId, Unacked0),
             ?tp_debug(extsub_on_delivered_remove_unacked, #{
@@ -146,42 +146,44 @@ on_message_nack(_Msg, true) ->
     ok.
 
 on_session_subscribed(ClientInfo, TopicFilter, _SubOpts) ->
-    on_init(subscribe, ClientInfo, TopicFilter).
+    ?tp_debug(extsub_on_session_subscribed, #{topic_filter => TopicFilter}),
+    on_subscribed(subscribe, ClientInfo, [TopicFilter]).
 
 on_session_created(_ClientInfo, SessionInfo) ->
     ?tp_debug(extsub_on_session_created, #{session_info => SessionInfo}),
     ok = set_can_receive_acks(SessionInfo).
 
 on_session_resumed(ClientInfo, #{subscriptions := Subs} = SessionInfo) ->
+    ?tp_debug(extsub_on_session_resumed, #{client_info => ClientInfo, subscriptions => Subs}),
     ok = set_can_receive_acks(SessionInfo),
-    ok = maps:foreach(
-        fun(TopicFilter, _SubOpts) ->
-            on_init(resume, ClientInfo, TopicFilter)
-        end,
-        Subs
-    ).
+    on_subscribed(resume, ClientInfo, maps:keys(Subs)).
 
-on_init(InitType, ClientInfo, TopicFilter) ->
-    with_st(fun(St) ->
-        {ok, add_handler(St, InitType, ClientInfo, TopicFilter)}
+on_subscribed(SubscribeType, ClientInfo, TopicFilters) ->
+    SubscribeCtx = subscribe_ctx(ClientInfo),
+    with_st(fun(#st{registry = HandlerRegistry} = St) ->
+        {ok, St#st{
+            registry = emqx_extsub_handler_registry:subscribe(
+                HandlerRegistry, SubscribeType, SubscribeCtx, TopicFilters
+            )
+        }}
     end).
 
-on_session_unsubscribed(ClientInfo, TopicFilter, _SubOpts) ->
-    on_terminate(unsubscribe, ClientInfo, TopicFilter).
+on_session_unsubscribed(_ClientInfo, TopicFilter, _SubOpts) ->
+    ?tp_debug(extsub_on_session_unsubscribed, #{topic_filter => TopicFilter}),
+    on_unsubscribed(unsubscribe, [TopicFilter]).
 
-on_terminate(TerminateType, _ClientInfo, TopicFilter) ->
-    with_st(fun(St0) ->
-        {ok, St} = remove_handler(St0, TerminateType, TopicFilter),
-        {ok, St}
+on_session_disconnected(_ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
+    ?tp_debug(extsub_on_session_disconnected, #{subscriptions => Subs}),
+    on_unsubscribed(disconnect, maps:keys(Subs)).
+
+on_unsubscribed(UnsubscribeType, TopicFilters) ->
+    with_st(fun(#st{registry = HandlerRegistry} = St) ->
+        {ok, St#st{
+            registry = emqx_extsub_handler_registry:unsubscribe(
+                HandlerRegistry, UnsubscribeType, TopicFilters
+            )
+        }}
     end).
-
-on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
-    ok = maps:foreach(
-        fun(TopicFilter, _SubOpts) ->
-            on_terminate(disconnect, ClientInfo, TopicFilter)
-        end,
-        Subs
-    ).
 
 on_client_handle_info(
     #info_to_extsub{handler_ref = HandlerRef, info = InfoMsg},
@@ -192,7 +194,7 @@ on_client_handle_info(
         HandlerRef,
         fun(#st{buffer = Buffer0} = St, Handler0) ->
             case
-                emqx_extsub_handler:handle_info(
+                emqx_extsub_handler:info(
                     Handler0, info_ctx(St, Handler0, HandlerRef), InfoMsg
                 )
             of
@@ -242,52 +244,13 @@ on_client_handle_info(_Info, _HookContext, Acc) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-add_handler(
-    #st{registry = HandlerRegistry0} = St,
-    InitType,
-    ClientInfo,
-    TopicFilter
-) ->
-    case emqx_extsub_handler:handle_init(InitType, init_ctx(ClientInfo), TopicFilter) of
-        ignore ->
-            St;
-        {ok, HandlerRef, Handler} ->
-            HandlerRegistry = emqx_extsub_handler_registry:register(
-                HandlerRegistry0, TopicFilter, HandlerRef, Handler
-            ),
-
-            St#st{registry = HandlerRegistry}
-    end.
-
-remove_handler(#st{registry = HandlerRegistry} = St, TerminateType, TopicFilter) when
-    is_binary(TopicFilter)
-->
-    case emqx_extsub_handler_registry:handler_ref(HandlerRegistry, TopicFilter) of
-        undefined ->
-            {ok, St};
-        HandlerRef ->
-            remove_handler(St, TerminateType, HandlerRef)
-    end;
-remove_handler(#st{registry = HandlerRegistry0} = St, TerminateType, HandlerRef) ->
-    case emqx_extsub_handler_registry:find(HandlerRegistry0, HandlerRef) of
-        undefined ->
-            {ok, St};
-        Handler ->
-            ok = emqx_extsub_handler:handle_terminate(TerminateType, Handler),
-            HandlerRegistry = emqx_extsub_handler_registry:delete(
-                HandlerRegistry0, HandlerRef
-            ),
-            {ok, St#st{registry = HandlerRegistry}}
-    end.
-
-recreate_handler(#st{registry = HandlerRegistry0} = St0, ClientInfo, OldHandlerRef) ->
-    case emqx_extsub_handler_registry:topic_filter(HandlerRegistry0, OldHandlerRef) of
-        undefined ->
-            St0;
-        TopicFilter ->
-            {ok, St1} = remove_handler(St0, disconnect, OldHandlerRef),
-            add_handler(St1, resume, ClientInfo, TopicFilter)
-    end.
+recreate_handler(#st{registry = HandlerRegistry} = St, ClientInfo, OldHandlerRef) ->
+    SubscribeCtx = subscribe_ctx(ClientInfo),
+    St#st{
+        registry = emqx_extsub_handler_registry:recreate(
+            HandlerRegistry, SubscribeCtx, OldHandlerRef
+        )
+    }.
 
 try_deliver(SessionInfoFn) ->
     with_st(fun(#st{buffer = Buffer0, unacked = Unacked0} = St0) ->
@@ -403,7 +366,7 @@ deliver_count(SessionInfoFn, UnackedCnt) ->
         _ -> max(?EXTSUB_MAX_UNACKED - UnackedCnt, InflightMax - InflightCnt)
     end.
 
-init_ctx(ClientInfo) ->
+subscribe_ctx(ClientInfo) ->
     #{
         clientinfo => ClientInfo,
         can_receive_acks => can_receive_acks()
@@ -419,7 +382,7 @@ ack_ctx(State, Handler, HandlerRef, OriginalQos) ->
     }.
 
 desired_message_count(#st{buffer = Buffer}, Handler, HandlerRef) ->
-    BufferSize = emqx_extsub_handler:get_options(buffer_size, Handler, ?EXTSUB_BUFFER_SIZE),
+    BufferSize = emqx_extsub_handler:get_option(buffer_size, Handler, ?EXTSUB_BUFFER_SIZE),
     DeliveringCnt = emqx_extsub_buffer:delivering_count(Buffer, HandlerRef),
     ?tp_debug(extsub_desired_message_count, #{
         configured_buffer_size => BufferSize, delivering_cnt => DeliveringCnt
