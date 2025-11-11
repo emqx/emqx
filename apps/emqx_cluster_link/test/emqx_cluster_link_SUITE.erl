@@ -409,7 +409,7 @@ t_restart_connection_on_actor_init_timeout(Config) ->
                         emqx_conf:update([authorization, no_match], allow, #{override_to => cluster})
                     )
                 end,
-                #{?snk_kind := clink_route_bootstrap_complete}
+                #{?snk_kind := "cluster_link_bootstrap_complete"}
             ),
 
             ok
@@ -518,7 +518,7 @@ t_graceful_retry_on_actor_error(Config) ->
                     )
                 end,
                 #{
-                    ?snk_kind := clink_route_bootstrap_complete,
+                    ?snk_kind := "cluster_link_bootstrap_complete",
                     ?snk_meta := #{node := SN}
                 }
             )

@@ -564,8 +564,8 @@ run_bootstrap(Bootstrap, St) ->
     case emqx_cluster_link_router_bootstrap:next_batch(Bootstrap) of
         done ->
             ?tp(
-                debug,
-                clink_route_bootstrap_complete,
+                info,
+                "cluster_link_bootstrap_complete",
                 #{actor => {St#st.actor, St#st.incarnation}, cluster => St#st.target}
             ),
             process_bootstrapped(St);
@@ -582,9 +582,14 @@ run_bootstrap(Bootstrap, St) ->
     end.
 
 process_bootstrapped(
-    St = #st{target = TargetCluster, actor = Actor}
+    St = #st{target = TargetCluster, actor = Actor, incarnation = Incarnation}
 ) ->
     ok = activate_syncer(TargetCluster, Actor),
+    ?tp(info, "cluster_link_routerepl_online", #{
+        target_cluster => TargetCluster,
+        actor => Actor,
+        incarnation => Incarnation
+    }),
     St#st{bootstrapped = true}.
 
 process_bootstrap_batch(Batch, #st{client = ClientPid, actor = Actor, incarnation = Incarnation}) ->

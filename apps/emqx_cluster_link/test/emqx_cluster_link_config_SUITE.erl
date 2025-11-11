@@ -121,7 +121,7 @@ t_config_update(Config) ->
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% Num nodes = num actors (durable storage is disabled)
         length(ClusterA) + length(ClusterB),
         30_000
@@ -130,7 +130,7 @@ t_config_update(Config) ->
     ?assertMatch({ok, _}, update(NodeB1, [LinkConfB], Config)),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef)
     ),
 
@@ -153,7 +153,7 @@ t_config_update(Config) ->
     ?assertNotReceive({publish, _Message = #{}}),
 
     {ok, SubRef1} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         length(ClusterA),
         30_000
     ),
@@ -163,7 +163,7 @@ t_config_update(Config) ->
     ?assertMatch({ok, _}, update(NodeA1, [LinkConfA1], Config)),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef1)
     ),
 
@@ -377,7 +377,7 @@ t_config_update_ds(Config) ->
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% 2 cores = 4 actors (durable storage enabled) + 2 replicants = 2 more actors
         6,
         30_000
@@ -393,7 +393,7 @@ t_config_update_ds(Config) ->
     ),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef)
     ),
 
@@ -415,7 +415,7 @@ t_config_update_ds(Config) ->
     %% no more messages expected
     ?assertNotReceive({publish, _Message = #{}}),
     {ok, SubRef1} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% 2 nodes (1 replicant) in cluster a (3 actors including ds)
         3,
         30_000
@@ -427,7 +427,7 @@ t_config_update_ds(Config) ->
     ?assertMatch({ok, _}, erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA1]])),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef1)
     ),
 
@@ -532,7 +532,7 @@ t_misconfigured_links(Config) ->
     {{ok, _}, {ok, _}} = ?wait_async_action(
         erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
-            ?snk_kind := clink_route_bootstrap_complete,
+            ?snk_kind := "cluster_link_bootstrap_complete",
             ?snk_meta := #{node := NodeA1}
         },
         10_000
