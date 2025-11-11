@@ -448,7 +448,8 @@ handle_event(Event, Payload, _St) ->
     ?tp(warning, "cluster_link_routerepl_unexpected_event", #{
         event => Event,
         payload => Payload
-    }).
+    }),
+    keep_state_and_data.
 
 terminate(_Reason, _St) ->
     ok.
