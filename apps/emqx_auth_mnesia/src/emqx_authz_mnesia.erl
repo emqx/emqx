@@ -35,7 +35,7 @@
 
 -type rules() :: [rule() | legacy_rule()].
 
--record(emqx_acl, {
+-record(?ACL_TABLE, {
     who :: ?ACL_TABLE_ALL | {?ACL_TABLE_USERNAME, binary()} | {?ACL_TABLE_CLIENTID, binary()},
     rules :: rules()
 }).
@@ -163,7 +163,7 @@ delete_rules(all) ->
 -spec list_username_rules() -> ets:match_spec().
 list_username_rules() ->
     ets:fun2ms(
-        fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}) ->
+        fun(#?ACL_TABLE{who = {?ACL_TABLE_USERNAME, Username}, rules = Rules}) ->
             [{username, Username}, {rules, Rules}]
         end
     ).
@@ -171,7 +171,7 @@ list_username_rules() ->
 -spec list_clientid_rules() -> ets:match_spec().
 list_clientid_rules() ->
     ets:fun2ms(
-        fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}) ->
+        fun(#?ACL_TABLE{who = {?ACL_TABLE_CLIENTID, Clientid}, rules = Rules}) ->
             [{clientid, Clientid}, {rules, Rules}]
         end
     ).
@@ -187,12 +187,12 @@ record_count() ->
 read_rules(Key) ->
     case mnesia:dirty_read(?ACL_TABLE, Key) of
         [] -> [];
-        [#emqx_acl{rules = Rules}] when is_list(Rules) -> Rules;
+        [#?ACL_TABLE{rules = Rules}] when is_list(Rules) -> Rules;
         Other -> error({invalid_rules, Key, Other})
     end.
 
 do_store_rules(Who, Rules) ->
-    Record = #emqx_acl{who = Who, rules = Rules},
+    Record = #?ACL_TABLE{who = Who, rules = Rules},
     mria:dirty_write(Record).
 
 normalize_rules(Rules) ->
@@ -209,7 +209,7 @@ normalize_rule(RuleRaw) ->
 
 do_get_rules(Key) ->
     case mnesia:dirty_read(?ACL_TABLE, Key) of
-        [#emqx_acl{rules = Rules}] -> {ok, Rules};
+        [#?ACL_TABLE{rules = Rules}] -> {ok, Rules};
         [] -> not_found
     end.
 
