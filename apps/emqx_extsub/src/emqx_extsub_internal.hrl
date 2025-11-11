@@ -7,7 +7,8 @@
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
+% -define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
+-define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
 
 -record(info_to_extsub, {
     handler_ref :: emqx_extsub_types:handler_ref(),

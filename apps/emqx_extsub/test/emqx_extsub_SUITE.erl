@@ -55,11 +55,17 @@ end_per_group(_, Config) ->
 
 init_per_testcase(_CaseName, Config) ->
     ok = snabbkaffe:start_trace(),
-    ok = emqx_extsub_handler:register(emqx_extsub_test_handler, #{buffer_size => ?BUFFER_SIZE}),
+    ok = emqx_extsub_handler_registry:register(emqx_extsub_test_st_handler, #{
+        buffer_size => ?BUFFER_SIZE, multi_topic => false
+    }),
+    ok = emqx_extsub_handler_registry:register(emqx_extsub_test_mt_handler, #{
+        buffer_size => ?BUFFER_SIZE, multi_topic => true
+    }),
     Config.
 
 end_per_testcase(_CaseName, _Config) ->
-    ok = emqx_extsub_handler:unregister(emqx_extsub_test_handler),
+    ok = emqx_extsub_handler_registry:unregister(emqx_extsub_test_st_handler),
+    ok = emqx_extsub_handler_registry:unregister(emqx_extsub_test_mt_handler),
     ok = snabbkaffe:stop().
 
 %%--------------------------------------------------------------------
@@ -89,24 +95,34 @@ test_smoke(_Config, NBatches, BatchSize, IntervalMs) ->
     NBatchesBin = integer_to_binary(NBatches),
     BatchSizeBin = integer_to_binary(BatchSize),
     IntervalMsBin = integer_to_binary(IntervalMs),
-    TopicFilter =
-        <<"extsub_test/", NBatchesBin/binary, "/", BatchSizeBin/binary, "/", IntervalMsBin/binary>>,
+    TopicTail = <<NBatchesBin/binary, "/", BatchSizeBin/binary, "/", IntervalMsBin/binary>>,
+    TopicFilters = [
+        <<"extsub_st_test/a/", TopicTail/binary>>,
+        <<"extsub_st_test/a/", TopicTail/binary>>,
+        <<"extsub_st_test/b/", TopicTail/binary>>,
+        <<"extsub_mt_test/a/", TopicTail/binary>>,
+        <<"extsub_mt_test/a/", TopicTail/binary>>,
+        <<"extsub_mt_test/b/", TopicTail/binary>>
+    ],
     ?tp(warning, test_smoke, #{
         n_batches => NBatches,
         batch_size => BatchSize,
         interval_ms => IntervalMs,
-        topic_filter => TopicFilter
+        topic_filter => TopicFilters
     }),
     CSub = emqx_extsub_test_utils:emqtt_connect([
-        {clientid, <<"csub-", TopicFilter/binary>>},
+        {clientid, <<"csub-", TopicTail/binary>>},
         {properties, #{'Session-Expiry-Interval' => 10000}},
         {clean_start, false}
     ]),
-    ok = emqx_extsub_test_utils:emqtt_subscribe(CSub, TopicFilter),
-    {ok, Msgs} = emqx_extsub_test_utils:emqtt_drain(NBatches * BatchSize, 5000),
-    ok = emqtt:disconnect(CSub),
-    ?assertEqual(
-        NBatches * BatchSize,
-        length(Msgs),
-        #{n_batches => NBatches, batch_size => BatchSize, interval_ms => IntervalMs}
-    ).
+    ok = lists:foreach(
+        fun(TopicFilter) ->
+            ok = emqx_extsub_test_utils:emqtt_subscribe(CSub, TopicFilter)
+        end,
+        TopicFilters
+    ),
+    ExpectedMessages = NBatches * BatchSize * length(lists:usort(TopicFilters)),
+    {ok, Msgs} = emqx_extsub_test_utils:emqtt_drain(0, 5000),
+    ?tp(warning, test_smoke_drain, #{msgs => Msgs}),
+    ?assertEqual(ExpectedMessages, length(Msgs)),
+    ok = emqtt:disconnect(CSub).

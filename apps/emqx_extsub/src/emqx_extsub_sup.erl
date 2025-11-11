@@ -20,7 +20,7 @@ start_link() ->
 %% Internals
 
 init(?ROOT_SUP) ->
-    ok = emqx_extsub_handler:init(),
+    ok = emqx_extsub_handler_registry:init(),
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,
