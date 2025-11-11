@@ -9,10 +9,18 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+%%------------------------------------------------------------------------------
+%% Defs
+%%------------------------------------------------------------------------------
+
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
+
+-define(global, global).
+-define(ns, ns).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -35,22 +43,106 @@ init_per_suite(Config) ->
             emqx_auth,
             emqx_auth_mnesia,
             emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
-        #{
-            work_dir => filename:join(?config(priv_dir, Config), ?MODULE)
-        }
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    _ = emqx_common_test_http:create_default_app(),
     [{suite_apps, Apps} | Config].
 end_per_suite(_Config) ->
     ok = emqx_cth_suite:stop(?config(suite_apps, _Config)),
-    _ = emqx_common_test_http:delete_default_app(),
+    ok.
+
+init_per_group(?global, TCConfig) ->
+    AuthHeader = create_superuser(),
+    [
+        {auth_header, AuthHeader},
+        {namespace, ?global_ns}
+        | TCConfig
+    ];
+init_per_group(?ns, TCConfig) ->
+    GlobalAuthHeader = create_superuser(),
+    Namespace = <<"ns1">>,
+    Username = <<"ns_admin">>,
+    Password = <<"superSecureP@ss">>,
+    AdminRole = <<"ns:", Namespace/binary, "::administrator">>,
+    {200, _} = create_user_api(
+        #{
+            <<"username">> => Username,
+            <<"password">> => Password,
+            <<"role">> => AdminRole,
+            <<"description">> => <<"namespaced person">>
+        },
+        GlobalAuthHeader
+    ),
+    {200, #{<<"token">> := Token}} = login(#{
+        <<"username">> => Username,
+        <<"password">> => Password
+    }),
+    AuthHeader = bearer_auth_header(Token),
+    [
+        {auth_header, AuthHeader},
+        {namespace, Namespace}
+        | TCConfig
+    ];
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
+
+end_per_group(_Group, _TCConfig) ->
+    ok.
+
+init_per_testcase(_TestCase, TCConfig) ->
+    AuthHeader = ?config(auth_header, TCConfig),
+    put_auth_header(AuthHeader),
+    TCConfig.
+
+end_per_testcase(_TestCase, _TCConfig) ->
     ok.
 
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+put_auth_header(Header) ->
+    _ = put({?MODULE, authn}, Header),
+    ok.
+
+get_auth_header() ->
+    get({?MODULE, authn}).
+
+bearer_auth_header(Token) ->
+    {"Authorization", iolist_to_binary(["Bearer ", Token])}.
+
+create_superuser() ->
+    emqx_common_test_http:create_default_app(),
+    Username = <<"superuser">>,
+    Password = <<"secretP@ss1">>,
+    AdminRole = <<"administrator">>,
+    case emqx_dashboard_admin:add_user(Username, Password, AdminRole, <<"desc">>) of
+        {ok, _} ->
+            ok;
+        {error, <<"username_already_exists">>} ->
+            ok
+    end,
+    {200, #{<<"token">> := Token}} = login(#{<<"username">> => Username, <<"password">> => Password}),
+    {"Authorization", iolist_to_binary(["Bearer ", Token])}.
+
+login(Params) ->
+    URL = emqx_mgmt_api_test_util:api_path(["login"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => [{"no", "auth"}],
+        method => post,
+        url => URL,
+        body => Params
+    }).
+
+create_user_api(Params, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["users"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => post,
+        url => URL,
+        body => Params
+    }).
 
 -define(REPLACEMENTS, #{
     ":clientid" => <<"client1">>,
@@ -180,14 +272,20 @@ dup_rules_example2(#{rules := Rules} = Example) ->
     Example#{rules := Rules ++ Rules}.
 
 create_username_rules(Params) ->
+    create_username_rules(Params, _QueryParams = #{}).
+
+create_username_rules(Params, QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => post,
         url => uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-        body => Params
+        body => Params,
+        query_params => QueryParams
     }).
 
 get_username_rules(QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => get,
         url => uri(["authorization", "sources", "built_in_database", "rules", "users"]),
         query_params => QueryParams
@@ -195,6 +293,7 @@ get_username_rules(QueryParams) ->
 
 get_one_username_rules(Username, QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => get,
         url => uri(["authorization", "sources", "built_in_database", "rules", "users", Username]),
         query_params => QueryParams
@@ -202,26 +301,38 @@ get_one_username_rules(Username, QueryParams) ->
 
 delete_one_username_rules(Username) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => delete,
         url => uri(["authorization", "sources", "built_in_database", "rules", "users", Username])
     }).
 
 update_one_username(Username, Params) ->
+    update_one_username(Username, Params, _QueryParams = #{}).
+
+update_one_username(Username, Params, QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => put,
         url => uri(["authorization", "sources", "built_in_database", "rules", "users", Username]),
-        body => Params
+        body => Params,
+        query_params => QueryParams
     }).
 
 create_clientid_rules(Params) ->
+    create_clientid_rules(Params, _QueryParams = #{}).
+
+create_clientid_rules(Params, QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => post,
         url => uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
-        body => Params
+        body => Params,
+        query_params => QueryParams
     }).
 
 get_clientid_rules(QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => get,
         url => uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
         query_params => QueryParams
@@ -229,33 +340,46 @@ get_clientid_rules(QueryParams) ->
 
 get_one_clientid_rules(ClientId, QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => get,
         url => uri(["authorization", "sources", "built_in_database", "rules", "clients", ClientId]),
         query_params => QueryParams
     }).
 
 update_one_clientid(ClientId, Params) ->
+    update_one_clientid(ClientId, Params, _QueryParams = #{}).
+
+update_one_clientid(ClientId, Params, QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => put,
         url => uri(["authorization", "sources", "built_in_database", "rules", "clients", ClientId]),
-        body => Params
+        body => Params,
+        query_params => QueryParams
     }).
 
 delete_one_clientid_rules(ClientId) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => delete,
         url => uri(["authorization", "sources", "built_in_database", "rules", "clients", ClientId])
     }).
 
 create_all_rules(Params) ->
+    create_all_rules(Params, _QueryParams = #{}).
+
+create_all_rules(Params, QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => post,
         url => uri(["authorization", "sources", "built_in_database", "rules", "all"]),
+        query_params => QueryParams,
         body => Params
     }).
 
 get_all_rules(QueryParams) ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => get,
         url => uri(["authorization", "sources", "built_in_database", "rules", "all"]),
         query_params => QueryParams
@@ -263,28 +387,33 @@ get_all_rules(QueryParams) ->
 
 delete_all_rules() ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => delete,
         url => uri(["authorization", "sources", "built_in_database", "rules", "all"])
     }).
 
 delete_username_rules() ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => delete,
         url => uri(["authorization", "sources", "built_in_database", "rules", "users"])
     }).
 
 delete_clientid_rules() ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => delete,
         url => uri(["authorization", "sources", "built_in_database", "rules", "clients"])
     }).
 
 delete_root_rules() ->
     emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => get_auth_header(),
         method => delete,
         url => uri(["authorization", "sources", "built_in_database", "rules"])
     }).
 
+%% N.B.: Does not use namespaced user
 update_config(Params) ->
     emqx_mgmt_api_test_util:simple_request(#{
         method => put,
@@ -292,6 +421,15 @@ update_config(Params) ->
         body => Params
     }).
 
+%% N.B.: Does not use namespaced user
+create_source(Params) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => uri(["authorization", "sources"]),
+        body => Params
+    }).
+
+%% N.B.: Does not use namespaced user
 delete_authz() ->
     emqx_mgmt_api_test_util:simple_request(#{
         method => delete,
@@ -302,7 +440,11 @@ delete_authz() ->
 %% Test cases
 %%------------------------------------------------------------------------------
 
-t_api(_) ->
+t_api() ->
+    [{matrix, true}].
+t_api(matrix) ->
+    [[?global], [?ns]];
+t_api(TCConfig) when is_list(TCConfig) ->
     {204, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
 
     %% check length limit
@@ -419,14 +561,70 @@ t_api(_) ->
     #{<<"data">> := Data2} = Request10,
     ?assertEqual(5, length(Data2)),
 
+    %% Namespaced admin can only touch records from its namespace
+    OtherNamespace = <<"another_ns">>,
+    NsQueryParams = #{<<"ns">> => OtherNamespace},
+    maybe
+        true ?= ?config(namespace, TCConfig) /= ?global_ns,
+        ?assertMatch({403, _}, get_username_rules(NsQueryParams)),
+        ?assertMatch({403, _}, get_clientid_rules(NsQueryParams)),
+        ?assertMatch({403, _}, create_username_rules([?USERNAME_RULES_EXAMPLE], NsQueryParams)),
+        ?assertMatch({403, _}, create_clientid_rules([?CLIENTID_RULES_EXAMPLE], NsQueryParams)),
+        ?assertMatch({403, _}, create_all_rules(?ALL_RULES_EXAMPLE, NsQueryParams)),
+        ?assertMatch(
+            {403, _},
+            update_one_username(
+                Username1,
+                maps:merge(?USERNAME_RULES_EXAMPLE, #{rules => []}),
+                NsQueryParams
+            )
+        ),
+        ?assertMatch(
+            {403, _},
+            update_one_clientid(
+                ClientId1,
+                maps:merge(?CLIENTID_RULES_EXAMPLE, #{rules => []}),
+                NsQueryParams
+            )
+        ),
+        ok
+    end,
+
+    %% Global admin can touch records from other namespaces
+    maybe
+        true ?= ?config(namespace, TCConfig) == ?global_ns,
+        ?assertMatch({200, _}, get_username_rules(NsQueryParams)),
+        ?assertMatch({200, _}, get_clientid_rules(NsQueryParams)),
+        ?assertMatch({204, _}, create_username_rules([?USERNAME_RULES_EXAMPLE], NsQueryParams)),
+        ?assertMatch({204, _}, create_clientid_rules([?CLIENTID_RULES_EXAMPLE], NsQueryParams)),
+        ?assertMatch({204, _}, create_all_rules(?ALL_RULES_EXAMPLE, NsQueryParams)),
+        ?assertMatch(
+            {204, _},
+            update_one_username(
+                Username1,
+                maps:merge(?USERNAME_RULES_EXAMPLE, #{rules => []}),
+                NsQueryParams
+            )
+        ),
+        ?assertMatch(
+            {204, _},
+            update_one_clientid(
+                ClientId1,
+                maps:merge(?CLIENTID_RULES_EXAMPLE, #{rules => []}),
+                NsQueryParams
+            )
+        ),
+        ok
+    end,
+
     {400, #{<<"message">> := Msg1}} = delete_root_rules(),
     ?assertMatch({match, _}, re:run(Msg1, "must\sbe\sdisabled\sbefore")),
     {204, _} = update_config(#{<<"enable">> => true, <<"type">> => <<"built_in_database">>}),
     %% test idempotence
-    ?assertEqual(0, emqx_authz_mnesia:record_count()),
     {204, _} = update_config(#{<<"enable">> => true, <<"type">> => <<"built_in_database">>}),
     {204, _} = update_config(#{<<"enable">> => false, <<"type">> => <<"built_in_database">>}),
     {204, _} = delete_root_rules(),
+    ?assertEqual(0, emqx_authz_mnesia:record_count(?global_ns)),
 
     Examples = make_examples(emqx_authz_api_mnesia),
     ?assertEqual(
@@ -447,5 +645,11 @@ t_api(_) ->
     end,
 
     run_examples(404, Examples, Fixtures2),
+
+    {204, _} = create_source(#{
+        <<"enable">> => true,
+        <<"type">> => <<"built_in_database">>,
+        <<"max_rules">> => 7
+    }),
 
     ok.
