@@ -5,7 +5,7 @@ defmodule EMQXMessageTransformation.MixProject do
   def project do
     [
       app: :emqx_message_transformation,
-      version: "6.0.1",
+      version: "6.0.2",
       build_path: "../../_build",
       erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
