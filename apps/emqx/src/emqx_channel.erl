@@ -778,10 +778,10 @@ process_puback(
 ) ->
     case emqx_session:puback(ClientInfo, PacketId, ReasonCode, Session) of
         {ok, Msg, [], NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(Channel, Msg, Properties),
             {ok, Channel#channel{session = NSession}};
         {ok, Msg, Publishes, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(Channel, Msg, Properties),
             handle_out(publish, Publishes, Channel#channel{session = NSession});
         {error, ?RC_PROTOCOL_ERROR} ->
             handle_out(disconnect, ?RC_PROTOCOL_ERROR, Channel);
@@ -807,7 +807,7 @@ process_pubrec(
 ) ->
     case emqx_session:pubrec(ClientInfo, PacketId, Session) of
         {ok, Msg, NSession} ->
-            ok = after_message_acked(ClientInfo, Msg, Properties),
+            ok = after_message_acked(Channel, Msg, Properties),
             NChannel = Channel#channel{session = NSession},
             handle_out(pubrel, {PacketId, ?RC_SUCCESS}, NChannel);
         {error, RC = ?RC_PROTOCOL_ERROR} ->
@@ -870,10 +870,10 @@ process_pubcomp(
     end.
 
 -compile({inline, [after_message_acked/3]}).
-after_message_acked(ClientInfo, Msg, PubAckProps) ->
+after_message_acked(Channel, Msg, PubAckProps) ->
     ok = inc_metrics('messages.acked', Channel),
     emqx_hooks:run('message.acked', [
-        ClientInfo,
+        Channel#channel.conninfo,
         emqx_message:set_header(puback_props, PubAckProps, Msg)
     ]).
 
