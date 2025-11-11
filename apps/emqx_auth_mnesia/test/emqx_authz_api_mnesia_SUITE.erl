@@ -179,39 +179,138 @@ dup_rules_example(#{rules := Rules}) ->
 dup_rules_example2(#{rules := Rules} = Example) ->
     Example#{rules := Rules ++ Rules}.
 
+create_username_rules(Params) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "users"]),
+        body => Params
+    }).
+
+get_username_rules(QueryParams) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "users"]),
+        query_params => QueryParams
+    }).
+
+get_one_username_rules(Username, QueryParams) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "users", Username]),
+        query_params => QueryParams
+    }).
+
+delete_one_username_rules(Username) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "users", Username])
+    }).
+
+update_one_username(Username, Params) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => put,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "users", Username]),
+        body => Params
+    }).
+
+create_clientid_rules(Params) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
+        body => Params
+    }).
+
+get_clientid_rules(QueryParams) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
+        query_params => QueryParams
+    }).
+
+get_one_clientid_rules(ClientId, QueryParams) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "clients", ClientId]),
+        query_params => QueryParams
+    }).
+
+update_one_clientid(ClientId, Params) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => put,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "clients", ClientId]),
+        body => Params
+    }).
+
+delete_one_clientid_rules(ClientId) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "clients", ClientId])
+    }).
+
+create_all_rules(Params) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => post,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "all"]),
+        body => Params
+    }).
+
+get_all_rules(QueryParams) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => get,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "all"]),
+        query_params => QueryParams
+    }).
+
+delete_all_rules() ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "all"])
+    }).
+
+delete_username_rules() ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "users"])
+    }).
+
+delete_clientid_rules() ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => uri(["authorization", "sources", "built_in_database", "rules", "clients"])
+    }).
+
+delete_root_rules() ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => uri(["authorization", "sources", "built_in_database", "rules"])
+    }).
+
+update_config(Params) ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => put,
+        url => uri(["authorization", "sources", "built_in_database"]),
+        body => Params
+    }).
+
+delete_authz() ->
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => uri(["authorization", "sources", "built_in_database"])
+    }).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
 
 t_api(_) ->
-    {ok, 204, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-            [?USERNAME_RULES_EXAMPLE]
-        ),
+    {204, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
 
     %% check length limit
-    {ok, 400, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-            [dup_rules_example(?USERNAME_RULES_EXAMPLE)]
-        ),
+    {400, _} = create_username_rules([dup_rules_example(?USERNAME_RULES_EXAMPLE)]),
 
-    {ok, 409, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-            [?USERNAME_RULES_EXAMPLE]
-        ),
+    {409, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
 
-    {ok, 200, Request1} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-            []
-        ),
+    {200, Request1} = get_username_rules(#{}),
     #{
         <<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := Rules1}],
         <<"meta">> := #{
@@ -220,21 +319,14 @@ t_api(_) ->
             <<"page">> := 1,
             <<"hasnext">> := false
         }
-    } = emqx_utils_json:decode(Request1),
+    } = Request1,
     ?assertEqual(?USERNAME_RULES_EXAMPLE_COUNT, length(Rules1)),
 
-    {ok, 200, Request1_1} =
-        request(
-            get,
-            uri([
-                "authorization",
-                "sources",
-                "built_in_database",
-                "rules",
-                "users?page=1&limit=20&like_username=noexist"
-            ]),
-            []
-        ),
+    {200, Request1_1} = get_username_rules(#{
+        <<"page">> => <<"1">>,
+        <<"limit">> => <<"20">>,
+        <<"like_username">> => <<"noexist">>
+    }),
     ?assertEqual(
         #{
             <<"data">> => [],
@@ -244,261 +336,97 @@ t_api(_) ->
                 <<"hasnext">> => false
             }
         },
-        emqx_utils_json:decode(Request1_1)
+        Request1_1
     ),
 
-    {ok, 200, Request2} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            []
-        ),
-    #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = emqx_utils_json:decode(Request2),
+    Username1 = <<"user1">>,
+    {200, Request2} = get_one_username_rules(Username1, #{}),
+    #{<<"username">> := <<"user1">>, <<"rules">> := Rules1} = Request2,
 
-    {ok, 204, _} =
-        request(
-            put,
-            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            maps:merge(?USERNAME_RULES_EXAMPLE, #{rules => []})
-        ),
+    {204, _} = update_one_username(Username1, maps:merge(?USERNAME_RULES_EXAMPLE, #{rules => []})),
 
     %% check length limit
 
-    {ok, 400, _} =
-        request(
-            put,
-            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            dup_rules_example2(?USERNAME_RULES_EXAMPLE)
-        ),
+    {400, _} = update_one_username(Username1, dup_rules_example2(?USERNAME_RULES_EXAMPLE)),
 
-    {ok, 200, Request3} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            []
-        ),
-    #{<<"username">> := <<"user1">>, <<"rules">> := Rules2} = emqx_utils_json:decode(Request3),
+    {200, Request3} = get_one_username_rules(Username1, #{}),
+    #{<<"username">> := <<"user1">>, <<"rules">> := Rules2} = Request3,
     ?assertEqual(0, length(Rules2)),
 
-    {ok, 204, _} =
-        request(
-            delete,
-            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            []
-        ),
-    {ok, 404, _} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            []
-        ),
-    {ok, 404, _} =
-        request(
-            delete,
-            uri(["authorization", "sources", "built_in_database", "rules", "users", "user1"]),
-            []
-        ),
+    {204, _} = delete_one_username_rules(Username1),
+    {404, _} = get_one_username_rules(Username1, #{}),
+    {404, _} = delete_one_username_rules(Username1),
 
     % ensure that db contain a mix of records
-    {ok, 204, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-            [?USERNAME_RULES_EXAMPLE]
-        ),
+    {204, _} = create_username_rules([?USERNAME_RULES_EXAMPLE]),
+    {204, _} = create_clientid_rules([?CLIENTID_RULES_EXAMPLE]),
 
-    {ok, 204, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
-            [?CLIENTID_RULES_EXAMPLE]
-        ),
+    {400, _} = create_clientid_rules([dup_rules_example(?CLIENTID_RULES_EXAMPLE)]),
 
-    {ok, 400, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
-            [dup_rules_example(?CLIENTID_RULES_EXAMPLE)]
-        ),
+    {409, _} = create_clientid_rules([?CLIENTID_RULES_EXAMPLE]),
 
-    {ok, 409, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
-            [?CLIENTID_RULES_EXAMPLE]
-        ),
-
-    {ok, 200, Request4} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
-            []
-        ),
-    {ok, 200, Request5} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            []
-        ),
+    {200, Request4} = get_clientid_rules(#{}),
+    ClientId1 = <<"client1">>,
+    {200, Request5} = get_one_clientid_rules(ClientId1, #{}),
     #{
         <<"data">> := [#{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3}],
         <<"meta">> := #{<<"count">> := 1, <<"limit">> := 100, <<"page">> := 1}
-    } =
-        emqx_utils_json:decode(Request4),
-    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3} = emqx_utils_json:decode(Request5),
+    } = Request4,
+    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules3} = Request5,
     ?assertEqual(?CLIENTID_RULES_EXAMPLE_COUNT, length(Rules3)),
 
-    {ok, 204, _} =
-        request(
-            put,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            maps:merge(?CLIENTID_RULES_EXAMPLE, #{rules => []})
-        ),
+    {204, _} = update_one_clientid(ClientId1, maps:merge(?CLIENTID_RULES_EXAMPLE, #{rules => []})),
 
-    {ok, 400, _} =
-        request(
-            put,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            dup_rules_example2(
-                ?CLIENTID_RULES_EXAMPLE
-            )
-        ),
+    {400, _} = update_one_clientid(ClientId1, dup_rules_example2(?CLIENTID_RULES_EXAMPLE)),
 
-    {ok, 200, Request6} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            []
-        ),
-    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules4} = emqx_utils_json:decode(Request6),
+    {200, Request6} = get_one_clientid_rules(ClientId1, #{}),
+    #{<<"clientid">> := <<"client1">>, <<"rules">> := Rules4} = Request6,
     ?assertEqual(0, length(Rules4)),
 
-    {ok, 204, _} =
-        request(
-            delete,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            []
-        ),
-    {ok, 404, _} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            []
-        ),
-    {ok, 404, _} =
-        request(
-            delete,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients", "client1"]),
-            []
-        ),
+    {204, _} = delete_one_clientid_rules(ClientId1),
+    {404, _} = get_one_clientid_rules(ClientId1, #{}),
+    {404, _} = delete_one_clientid_rules(ClientId1),
 
-    {ok, 204, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
-            ?ALL_RULES_EXAMPLE
-        ),
+    {204, _} = create_all_rules(?ALL_RULES_EXAMPLE),
 
-    {ok, 400, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
-            dup_rules_example(?ALL_RULES_EXAMPLE)
-        ),
+    {400, _} = create_all_rules(dup_rules_example(?ALL_RULES_EXAMPLE)),
 
-    {ok, 200, Request7} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
-            []
-        ),
-    #{<<"rules">> := Rules5} = emqx_utils_json:decode(Request7),
+    {200, Request7} = get_all_rules(#{}),
+    #{<<"rules">> := Rules5} = Request7,
     ?assertEqual(?ALL_RULES_EXAMPLE_COUNT, length(Rules5)),
 
-    {ok, 204, _} =
-        request(
-            delete,
-            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
-            []
-        ),
-    {ok, 200, Request8} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "all"]),
-            []
-        ),
-    #{<<"rules">> := Rules6} = emqx_utils_json:decode(Request8),
+    {204, _} = delete_all_rules(),
+    {200, Request8} = get_all_rules(#{}),
+    #{<<"rules">> := Rules6} = Request8,
     ?assertEqual(0, length(Rules6)),
 
-    {ok, 204, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-            [
-                #{username => erlang:integer_to_binary(N), rules => []}
-             || N <- lists:seq(1, 20)
-            ]
-        ),
-    {ok, 200, Request9} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "users?page=2&limit=5"]),
-            []
-        ),
-    #{<<"data">> := Data1} = emqx_utils_json:decode(Request9),
+    {204, _} = create_username_rules([
+        #{username => erlang:integer_to_binary(N), rules => []}
+     || N <- lists:seq(1, 20)
+    ]),
+    {200, Request9} = get_username_rules(#{
+        <<"page">> => <<"2">>,
+        <<"limit">> => <<"5">>
+    }),
+    #{<<"data">> := Data1} = Request9,
     ?assertEqual(5, length(Data1)),
 
-    {ok, 204, _} =
-        request(
-            post,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
-            [
-                #{clientid => erlang:integer_to_binary(N), rules => []}
-             || N <- lists:seq(1, 20)
-            ]
-        ),
-    {ok, 200, Request10} =
-        request(
-            get,
-            uri(["authorization", "sources", "built_in_database", "rules", "clients?limit=5"]),
-            []
-        ),
-    #{<<"data">> := Data2} = emqx_utils_json:decode(Request10),
+    {204, _} = create_clientid_rules([
+        #{clientid => erlang:integer_to_binary(N), rules => []}
+     || N <- lists:seq(1, 20)
+    ]),
+    {200, Request10} = get_clientid_rules(#{<<"limit">> => <<"5">>}),
+    #{<<"data">> := Data2} = Request10,
     ?assertEqual(5, length(Data2)),
 
-    {ok, 400, Msg1} =
-        request(
-            delete,
-            uri(["authorization", "sources", "built_in_database", "rules"]),
-            []
-        ),
+    {400, #{<<"message">> := Msg1}} = delete_root_rules(),
     ?assertMatch({match, _}, re:run(Msg1, "must\sbe\sdisabled\sbefore")),
-    {ok, 204, _} =
-        request(
-            put,
-            uri(["authorization", "sources", "built_in_database"]),
-            #{<<"enable">> => true, <<"type">> => <<"built_in_database">>}
-        ),
+    {204, _} = update_config(#{<<"enable">> => true, <<"type">> => <<"built_in_database">>}),
     %% test idempotence
-    {ok, 204, _} =
-        request(
-            put,
-            uri(["authorization", "sources", "built_in_database"]),
-            #{<<"enable">> => true, <<"type">> => <<"built_in_database">>}
-        ),
-    {ok, 204, _} =
-        request(
-            put,
-            uri(["authorization", "sources", "built_in_database"]),
-            #{<<"enable">> => false, <<"type">> => <<"built_in_database">>}
-        ),
-    {ok, 204, _} =
-        request(
-            delete,
-            uri(["authorization", "sources", "built_in_database", "rules"]),
-            []
-        ),
     ?assertEqual(0, emqx_authz_mnesia:record_count()),
+    {204, _} = update_config(#{<<"enable">> => true, <<"type">> => <<"built_in_database">>}),
+    {204, _} = update_config(#{<<"enable">> => false, <<"type">> => <<"built_in_database">>}),
+    {204, _} = delete_root_rules(),
 
     Examples = make_examples(emqx_authz_api_mnesia),
     ?assertEqual(
@@ -507,35 +435,15 @@ t_api(_) ->
     ),
 
     Fixtures1 = fun() ->
-        {ok, _, _} =
-            request(
-                delete,
-                uri(["authorization", "sources", "built_in_database", "rules", "all"]),
-                []
-            ),
-        {ok, _, _} =
-            request(
-                delete,
-                uri(["authorization", "sources", "built_in_database", "rules", "users"]),
-                []
-            ),
-        {ok, _, _} =
-            request(
-                delete,
-                uri(["authorization", "sources", "built_in_database", "rules", "clients"]),
-                []
-            )
+        _ = delete_all_rules(),
+        _ = delete_username_rules(),
+        _ = delete_clientid_rules()
     end,
     run_examples(Examples, Fixtures1),
 
     Fixtures2 = fun() ->
         %% disable/remove built_in_database
-        {ok, 204, _} =
-            request(
-                delete,
-                uri(["authorization", "sources", "built_in_database"]),
-                []
-            )
+        {204, _} = delete_authz()
     end,
 
     run_examples(404, Examples, Fixtures2),
