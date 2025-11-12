@@ -83,9 +83,18 @@ fields("config_connector") ->
 fields(auth_username_password) ->
     Fields = override(
         emqx_bridge_kafka:fields(auth_username_password),
-        auth_overrides()
+        auth_plain_overrides()
     ),
     override_documentations(Fields);
+fields(auth_oauth_client_credentials) ->
+    Fields0 = override(
+        emqx_bridge_kafka:fields(auth_oauth_client_credentials),
+        auth_oauth_client_credentials_overrides()
+    ),
+    Fields1 = override_documentations(Fields0),
+    [ {logical_cluster, mk(binary(), #{required => true})}
+    , {identity_pool_id, mk(binary(), #{required => false})}
+    ] ++ Fields1;
 fields(ssl_client_opts) ->
     Fields = override(
         emqx_bridge_kafka:ssl_client_opts_fields(),
@@ -139,6 +148,7 @@ desc(Name) ->
 struct_names() ->
     [
         auth_username_password,
+        auth_oauth_client_credentials,
         kafka_message,
         producer_kafka_opts,
         actions,
@@ -303,10 +313,14 @@ connector_overrides() ->
     #{
         authentication =>
             mk(
-                ref(auth_username_password),
+                hoconsc:union([
+                  ref(auth_username_password),
+                  ref(auth_oauth_client_credentials)
+                ]),
                 #{
                     default => #{},
                     required => true,
+                    converter => fun authentication_converter/2,
                     desc => ?DESC("authentication")
                 }
             ),
@@ -357,7 +371,8 @@ bridge_v2_overrides() ->
             }
         )
     }.
-auth_overrides() ->
+
+auth_plain_overrides() ->
     #{
         mechanism =>
             mk(plain, #{
@@ -369,11 +384,14 @@ auth_overrides() ->
         password => emqx_connector_schema_lib:password_field(#{required => true})
     }.
 
+auth_oauth_client_credentials_overrides() ->
+    #{}.
+
 %% Kafka has SSL disabled by default
 %% Confluent must use SSL
 ssl_overrides() ->
     #{
-        "enable" => mk(true, #{default => true, importance => ?IMPORTANCE_HIDDEN}),
+        "enable" => mk(boolean(), #{default => true, importance => ?IMPORTANCE_HIDDEN}),
         "verify" => mk(verify_none, #{default => verify_none, importance => ?IMPORTANCE_HIDDEN})
     }.
 
@@ -411,3 +429,17 @@ override(Fields, Overrides) ->
 
 host_opts() ->
     #{default_port => 9092}.
+
+authentication_converter(undefined, _HoconOpts) ->
+    undefined;
+authentication_converter(Auth, #{make_serializable := true} = _HoconOpts) ->
+    Auth;
+authentication_converter(#{<<"mechanism">> := <<"oauth">>} = Auth0, _HoconOpts) ->
+    Extensions0 = maps:with([<<"logical_cluster">>, <<"identity_pool_id">>], Auth0),
+    Extensions1 = emqx_utils_maps:rename(<<"logical_cluster">>, <<"logicalCluster">>, Extensions0),
+    Extensions2 = emqx_utils_maps:rename(<<"identity_pool_id">>, <<"identityPoolId">>, Extensions1),
+    Extensions3 = maps:get(<<"extensions">>, Auth0, #{}),
+    Extensions = maps:merge(Extensions3, Extensions2),
+    Auth0#{<<"extensions">> => Extensions};
+authentication_converter(Auth, _HoconOpts) ->
+    Auth.

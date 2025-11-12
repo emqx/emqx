@@ -298,7 +298,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:murmerl3, github: "emqx/murmerl3", tag: "0.1.0-emqx.1", override: true}
 
   def common_dep(:brod_oauth),
-    do: {:brod_oauth, "0.1.1"}
+    do: {:brod_oauth, github: "emqx/brod_oauth", tag: "0.1.1.1"}
 
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}

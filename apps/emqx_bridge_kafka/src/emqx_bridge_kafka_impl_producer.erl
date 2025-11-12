@@ -9,6 +9,7 @@
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% callbacks of behaviour emqx_resource
 -export([
@@ -35,8 +36,6 @@
 -ifdef(TEST).
 -export([replayq_dir/2]).
 -endif.
-
--include_lib("emqx/include/logger.hrl").
 
 %% Allocatable resources
 -define(kafka_telemetry_id, kafka_telemetry_id).
