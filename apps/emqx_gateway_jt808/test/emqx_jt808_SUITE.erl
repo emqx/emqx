@@ -2837,6 +2837,12 @@ test_invalid_config(CreateOrUpdate, AnonymousAllowed) ->
 t_ignore_unsupported_frames_default(_Config) ->
     %% default value is true
     ?assertEqual(true, emqx_config:get([gateway, jt808, proto, ignore_unsupported_frames])),
+    %% set parse_unknown_message to false
+    RawConfig = emqx_config:get_raw([gateway, jt808]),
+    RawConfig1 = emqx_utils_maps:deep_put(
+        [<<"frame">>, <<"parse_unknown_message">>], RawConfig, false
+    ),
+    {ok, _} = emqx_gateway_conf:update_gateway(jt808, RawConfig1),
 
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
@@ -2870,6 +2876,9 @@ t_ignore_unsupported_frames_default(_Config) ->
     S2 = gen_packet(Header2, GenAckPacket),
     ?assertEqual(S2, Packet),
 
+    %% restore config
+    {ok, _} = emqx_gateway_conf:update_gateway(jt808, RawConfig),
+
     ok = gen_tcp:close(Socket).
 
 t_ignore_unsupported_frames_set_to_false(_Config) ->
@@ -2877,7 +2886,10 @@ t_ignore_unsupported_frames_set_to_false(_Config) ->
     RawConfig1 = emqx_utils_maps:deep_put(
         [<<"proto">>, <<"ignore_unsupported_frames">>], RawConfig, false
     ),
-    {ok, _} = emqx_gateway_conf:update_gateway(jt808, RawConfig1),
+    RawConfig2 = emqx_utils_maps:deep_put(
+        [<<"frame">>, <<"parse_unknown_message">>], RawConfig1, false
+    ),
+    {ok, _} = emqx_gateway_conf:update_gateway(jt808, RawConfig2),
 
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
@@ -2892,8 +2904,53 @@ t_ignore_unsupported_frames_set_to_false(_Config) ->
 
     %% restore config
     {ok, _} = emqx_gateway_conf:update_gateway(jt808, RawConfig),
-
     ok.
+
+t_forward_unknown_message_default(_Config) ->
+    %% default value is true
+    ?assertEqual(true, emqx_config:get([gateway, jt808, frame, parse_unknown_message])),
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    %% send unsupported frame
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+    ok = gen_tcp:send(Socket, unsupported_frame_packet()),
+
+    %% block until receive MQTT publish message
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    ?assertEqual(
+        true,
+        emqx_utils_maps:deep_get(
+            [<<"body">>, <<"unknown_id">>],
+            emqx_utils_json:decode(Payload)
+        )
+    ),
+
+    %% send heartbeat
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MC_HEARTBEAT,
+    MsgSn = 78,
+    Size = 0,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S1 = gen_packet(Header, <<>>),
+
+    ok = gen_tcp:send(Socket, S1),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket),
+    MsgId2 = ?MS_GENERAL_RESPONSE,
+    MsgSn2 = 2,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet(Header2, GenAckPacket),
+    ?assertEqual(S2, Packet),
+
+    ok = gen_tcp:close(Socket).
 
 create_or_update(create, InvalidConfig) ->
     emqx_gateway_conf:load_gateway(jt808, InvalidConfig);
