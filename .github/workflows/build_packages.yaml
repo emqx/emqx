@@ -101,74 +101,11 @@ jobs:
       with:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
-    - name: Apply patch
+    - name: Apply patch from gist
       run: |
-        cat <<'EOF' | git apply
-        diff --git a/Makefile b/Makefile
-        index 03946e1d..d664efad 100644
-        --- a/Makefile
-        +++ b/Makefile
-        @@ -52,16 +52,17 @@ $(REBAR): .prepare ensure-rebar3
+        GIST_PATCH_URL="https://gist.githubusercontent.com/id/28bab4ffb630c7f25371b5514673a163/raw/9a0a87fb3f49830fb0af6167e0bea465c1d81cfb/el7.patch"
+        curl -sSL "$GIST_PATCH_URL" | git apply
 
-         .PHONY: ensure-hex
-         ensure-hex:
-        -       @mix local.hex 2.2.1 --if-missing --force
-        +       @mix archive.install github hexpm/hex branch latest --force
-
-         .PHONY: ensure-mix-rebar3
-         ensure-mix-rebar3: $(REBAR)
-        -       @mix local.rebar rebar3 $(CURDIR)/rebar3 --if-missing --force
-        +       mkdir -p /root/.mix/elixir/1-18
-        +       cp /usr/local/bin/rebar3 /root/.mix/elixir/1-18/
-
-         .PHONY: ensure-mix-rebar
-         ensure-mix-rebar: $(REBAR)
-        -       @mix local.rebar --if-missing --force
-        -
-        +       mkdir -p /root/.mix/elixir/1-18
-        +       cp /usr/local/bin/rebar3 /root/.mix/elixir/1-18/
-
-         .PHONY: elixir-common-deps
-         elixir-common-deps: $(ELIXIR_COMMON_DEPS)
-        diff --git a/build b/build
-        index 0fcfb820..67991070 100755
-        --- a/build
-        +++ b/build
-        @@ -64,12 +64,6 @@ export PKG_VSN
-
-         SYSTEM="$(./scripts/get-distro.sh)"
-
-        -if [[ $SYSTEM == "el7" ]];
-        -then
-        -    log_red "WARNING: CentOS 7 is deprecated, please use CentOS 8/9 or Rocky Linux 8/9 instead."
-        -    exit 1
-        -fi
-        -
-         ARCH="$(uname -m)"
-         case "$ARCH" in
-             x86_64)
-        diff --git a/scripts/buildx.sh b/scripts/buildx.sh
-        index eeb94d0b..88ad01a6 100755
-        --- a/scripts/buildx.sh
-        +++ b/scripts/buildx.sh
-        @@ -133,7 +133,7 @@ HOST_SYSTEM="$(./scripts/get-distro.sh)"
-         BUILDER_SYSTEM="${BUILDER_SYSTEM:-$(echo "$EMQX_BUILDER" | awk -F'-' '{print $NF}')}"
-
-         if [[ "${PKGTYPE}" != 'rel' && "${PKGTYPE}" != 'relup' ]]; then
-        -  CMD_RUN="make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
-        +  CMD_RUN="mkdir -p /root/.config/rebar3 && echo '{hex, [{ssl_options, [{middlebox_comp_mode, false}]}]}.' > /root/.config/rebar3/rebar.config && make ${MAKE_TARGET} && ./scripts/pkg-tests.sh ${MAKE_TARGET}"
-         else
-           CMD_RUN="make ${MAKE_TARGET}"
-         fi
-        @@ -163,6 +163,7 @@ elif docker info; then
-                 --platform="linux/$ARCH" \
-                 --env ACLOCAL_PATH="/usr/share/aclocal:/usr/local/share/aclocal" \
-                 --env EMQX_FLAVOR="$EMQX_FLAVOR" \
-        +        --env BUILD_WITHOUT_QUIC=1 \
-                 "$EMQX_BUILDER" \
-                 bash -euc "git config --global --add safe.directory /emqx && $CMD_RUN"
-         else
-        'EOF'
     - name: build tgz
       env:
         PROFILE: ${{ matrix.profile }}
