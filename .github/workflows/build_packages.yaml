@@ -59,7 +59,7 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '27.3.4.2-4'
+        default: '27.3.4.2-5'
       elixir_vsn:
         required: false
         type: string
@@ -67,82 +67,12 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.6-3'
+        default: '6.0-3'
 
 permissions:
   contents: read
 
 jobs:
-  mac:
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - ${{ inputs.profile }}
-        os:
-          - macos-14
-          - macos-15
-        otp:
-          - ${{ inputs.otp_vsn }}
-        elixir:
-          - ${{ inputs.elixir_vsn }}
-    runs-on: ${{ matrix.os }}
-    steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      with:
-        ref: ${{ github.event.inputs.ref }}
-        fetch-depth: 0
-    - uses: ./.github/actions/package-macos
-      with:
-        profile: ${{ matrix.profile }}
-        otp: ${{ matrix.otp }}
-        elixir: ${{ matrix.elixir }}
-        os: ${{ matrix.os }}
-        apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
-        apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
-        apple_developer_id_bundle: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE }}
-        apple_developer_id_bundle_password: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-      if: success()
-      with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
-        path: _packages/${{ matrix.profile }}/
-        retention-days: 7
-
-  test-mac:
-    needs: mac
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - ${{ inputs.profile }}
-        os:
-          - macos-14
-          - macos-15
-        otp:
-          - ${{ inputs.otp_vsn }}
-
-    runs-on: ${{ matrix.os }}
-    steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      with:
-        ref: ${{ github.event.inputs.ref }}
-    - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
-      with:
-        name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.otp }}
-    - name: Test macOS package
-      run: |
-        pkg_name=$(find . -mindepth 1 -maxdepth 1 -iname \*.zip)
-        mkdir emqx
-        unzip -d emqx $pkg_name > /dev/null
-        ./emqx/bin/emqx start || cat emqx/log/erlang.log.1
-        ./scripts/test/emqx-smoke-test.sh 127.0.0.1 18083
-        ./emqx/bin/emqx ping
-        ./emqx/bin/emqx help
-        ./emqx/bin/emqx ctl status
-        ./emqx/bin/emqx eval 'emqx_conf:check_dynamic_desc()'
-        ./emqx/bin/emqx stop || cat emqx/log/erlang.log.1
-
   linux:
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     strategy:
@@ -151,14 +81,7 @@ jobs:
         profile:
           - ${{ inputs.profile }}
         os:
-          - ubuntu24.04
-          - ubuntu22.04
-          - debian13
-          - debian12
-          - debian11
-          - el9
-          - el8
-          - amzn2023
+          - el7
         arch:
           - amd64
           - arm64
@@ -208,121 +131,4 @@ jobs:
       with:
         name: ${{ matrix.profile }}-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.builder }}-${{ matrix.otp }}-${{ matrix.elixir }}
         path: _packages/${{ matrix.profile }}/
-        retention-days: 7
-
-  snap:
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - ${{ inputs.profile }}
-        arch:
-          - amd64
-          - arm64
-
-    defaults:
-      run:
-        shell: bash
-
-    env:
-      PROFILE: ${{ matrix.profile }}
-      ARCH: ${{ matrix.arch }}
-
-    steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      with:
-        ref: ${{ github.event.inputs.ref }}
-        fetch-depth: 0
-
-    - name: Build tar.gz
-      env:
-        BUILDER: "ghcr.io/emqx/emqx-builder/${{ inputs.builder_vsn }}:${{ inputs.elixir_vsn }}-${{ inputs.otp_vsn }}-ubuntu22.04"
-        BUILDER_SYSTEM: force_docker
-        SNAP_BASE: core22
-      run: |
-        ./scripts/buildx.sh \
-          --profile $PROFILE \
-          --arch $ARCH \
-          --builder $BUILDER \
-          --pkgtype tgz
-
-        export EMQX_VERSION="$(./pkg-vsn.sh $PROFILE)"
-        export PACKAGE_SOURCE="_packages/${PROFILE}/${PROFILE}-${EMQX_VERSION}-ubuntu22.04-$ARCH.tar.gz"
-        # ensure package version length is capped at 32 characters (enforced by snap)
-        export EMQX_VERSION="${EMQX_VERSION:0:32}"
-        echo "EMQX_VERSION=$EMQX_VERSION" >> $GITHUB_ENV
-        echo "PACKAGE_SOURCE=$PACKAGE_SOURCE" >> $GITHUB_ENV
-        envsubst '${PROFILE},${EMQX_VERSION},${PACKAGE_SOURCE},${SNAP_BASE}' < deploy/snap/snapcraft.yaml > ./snapcraft.yaml
-        cat snapcraft.yaml
-
-    - name: Build snap
-      id: snapcraft
-      uses: snapcore/action-build@3bdaa03e1ba6bf59a65f84a751d943d549a54e79 # v1.3.0
-
-    - name: Show logs if failed
-      if: failure()
-      run: |
-        cat ~/.local/state/snapcraft/log/*.log
-
-    - name: Test snap
-      if: success()
-      run: |
-        sudo snap install "${{ steps.snapcraft.outputs.snap }}" --dangerous --devmode
-        # kill any process potentially running on emqx ports
-        for port in 1883 8883 8083 8084 18083; do
-          sudo fuser -k $port/tcp || true
-        done
-        sudo snap start "${PROFILE}"
-        for i in {1..30}; do
-          echo .
-          sudo snap logs "${PROFILE}" | grep -Eq "EMQX Enterprise ${EMQX_VERSION}.* is running now!" && break
-          sleep 1
-        done
-        if [ $i -eq 30 ]; then
-          sudo snap logs -n=all "${PROFILE}"
-          exit 1
-        fi
-        sudo snap remove "${PROFILE}"
-
-    - name: Upload Snap as an artifact
-      if: success()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-      with:
-        name: "${{ matrix.profile }}-${{ matrix.arch }}-snap"
-        path: "${{ steps.snapcraft.outputs.snap }}"
-
-  publish_artifacts:
-    runs-on: ubuntu-latest
-    needs:
-      - mac
-      - test-mac
-      - linux
-      - snap
-    if: inputs.publish
-    strategy:
-      fail-fast: false
-      matrix:
-        profile:
-          - ${{ inputs.profile }}
-    steps:
-    - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
-      with:
-        pattern: "${{ matrix.profile }}-*"
-        path: packages/${{ matrix.profile }}
-        merge-multiple: true
-    - uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 # v5.0.0
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
-    - name: upload to aws s3
-      env:
-        PROFILE: ${{ matrix.profile }}
-        REF_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.ref || github.ref_name }}
-        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-        AWS_CLOUDFRONT_ID: ${{ secrets.AWS_CLOUDFRONT_ID }}
-      run: |
-        set -eu
-        aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/emqx-ee/$REF_NAME
-        aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/emqx-ee/$REF_NAME/*"
+        retention-days: 90
