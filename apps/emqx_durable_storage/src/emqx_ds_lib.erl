@@ -9,13 +9,14 @@
 %% API:
 -export([
     with_worker/3,
-    autoclean/3,
+    autoclean/4,
     terminate/3,
     send_after/3,
     cancel_timer/2,
     ets_delete/1,
     tf_to_asn1/1,
-    asn1_to_tf/1
+    asn1_to_tf/1,
+    resolve_db_group/1
 ]).
 
 %% internal exports:
@@ -58,12 +59,12 @@ with_worker(Mod, Function, Args) ->
 Return supervisor child specification that allows to tie shard
 readiness optvar to a supervisor.
 """.
--spec autoclean(timeout(), Setup, Teardown) -> supervisor:child_spec() when
+-spec autoclean(atom(), timeout(), Setup, Teardown) -> supervisor:child_spec() when
     Setup :: fun(() -> _),
     Teardown :: fun(() -> _).
-autoclean(CleanupTimeout, Setup, Teardown) ->
+autoclean(Id, CleanupTimeout, Setup, Teardown) ->
     #{
-        id => shard_up_marker,
+        id => Id,
         start => {proc_lib, start_link, [?MODULE, autoclean_entrypoint, [self(), Setup, Teardown]]},
         shutdown => CleanupTimeout,
         type => worker,
@@ -138,6 +139,10 @@ asn1_to_tf(ASN1) ->
         end,
         ASN1
     ).
+
+resolve_db_group(Options = #{db_group := DBGroupName}) ->
+    {ok, DBGroup} = emqx_ds:lookup_db_group(DBGroupName),
+    Options#{db_group := DBGroup}.
 
 %%================================================================================
 %% Internal exports

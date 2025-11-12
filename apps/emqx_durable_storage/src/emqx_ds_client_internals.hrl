@@ -9,7 +9,8 @@
     db :: emqx_ds:db(),
     topic :: emqx_ds:topic_filter(),
     start_time :: emqx_ds:time(),
-    ds_sub_opts :: emqx_ds:sub_opts()
+    ds_sub_opts :: emqx_ds:sub_opts(),
+    is_new = true :: boolean()
 }).
 
 %% Atomic indexes:

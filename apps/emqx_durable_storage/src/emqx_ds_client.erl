@@ -192,7 +192,11 @@ Query the host about the stream replay position.
 
 ## Return values:
 - `undefined`: There is no recorded replay position for the stream.
-  The client should create a new iterator.
+  The client should create a new iterator with the default parameters.
+
+- `{undefined, #{start_time => Time}}`: There is no recorded replay
+  position for the stream. The client should create a new iterator
+  with certain parameters overrided.
 
 - `{subscribe, Iterator}`: Host has record of the previous replay position.
   The client should create a new subscription with the iterator.
@@ -202,7 +206,8 @@ Query the host about the stream replay position.
 -callback get_iterator(sub_id(), emqx_ds:slab(), emqx_ds:stream(), _HostState) ->
     {ok, emqx_ds:iterator() | end_of_stream}
     | {subscribe, emqx_ds:iterator()}
-    | undefined.
+    | undefined
+    | {undefined, #{start_time => emqx_ds:time()}}.
 
 -doc """
 Notify the host about creation of a new iterator.
@@ -234,7 +239,14 @@ from `get_iterator` or `on_new_iterator` callbacks (and thus creates a subscript
 """.
 -callback on_subscription_down(sub_id(), emqx_ds:slab(), emqx_ds:stream(), HostState) -> HostState.
 
--optional_callbacks([on_subscription_down/4]).
+-doc """
+Query the host about the list of previously seen streams.
+This callback is called once when a new subscription is created.
+It is needed to call `on_unrecoverable_error` for all streams that got deleted while the host was offline.
+""".
+-callback list_known_streams(sub_id(), _HostState) -> [{emqx_ds:slab(), emqx_ds:stream()}].
+
+-optional_callbacks([on_subscription_down/4, list_known_streams/2]).
 
 %%================================================================================
 %% API functions
@@ -633,12 +645,35 @@ unsubscribe_(
 
 -spec renew_streams_(t(), sub_id(), sub(), _HostState) -> t().
 renew_streams_(
+    CS0 = #cs{cbm = CBM, subs = Subs},
+    SubId,
+    Sub0 = #sub{is_new = true},
+    HostState
+) ->
+    %% This is a new subscription.
+    Sub = Sub0#sub{is_new = false},
+    CS1 = CS0#cs{subs = Subs#{SubId := Sub}},
+    %% Query the existing streams from the host. This is needed to
+    %% handle unrecoverable errors that could happen to known the
+    %% streams.
+    L = list_known_streams(CBM, SubId, HostState),
+    PerShard = maps:groups_from_list(fun({{Shard, _}, _}) -> Shard end, L),
+    CS = maps:fold(
+        fun(Shard, Streams, Acc) ->
+            seed_cache(Acc, SubId, HostState, Shard, Streams)
+        end,
+        CS1,
+        PerShard
+    ),
+    renew_streams_(CS, SubId, Sub, HostState);
+renew_streams_(
     CS = #cs{cbm = CBM},
     SubId,
     #sub{
         db = DB,
         topic = Topic,
-        start_time = StartTime
+        start_time = StartTime,
+        is_new = false
     },
     HostState
 ) ->
@@ -895,6 +930,19 @@ update_streams(CS0, SubId, Shard, Streams, HostState0) ->
         end
     ).
 
+seed_cache(CS0, SubId, HostState, Shard, Streams) ->
+    {CS, _} = with_stream_cache(
+        SubId,
+        Shard,
+        CS0,
+        HostState,
+        fun(Cache0) ->
+            {CS, Cache} = do_update_streams(CS0, HostState, SubId, Shard, Cache0, Streams),
+            {Cache, CS, HostState}
+        end
+    ),
+    CS.
+
 -spec do_update_streams(t(), _HostState, sub_id(), emqx_ds:shard(), stream_cache(), [
     {emqx_ds:slab(), emqx_ds:stream()}
 ]) ->
@@ -917,7 +965,6 @@ add_stream_to_cache(
     Generation,
     _Stream
 ) when Generation < Current ->
-    %% Should not happen:
     {
         CS,
         Cache
@@ -964,12 +1011,13 @@ add_stream_to_cache(
                     %% This is a known replayed stream.
                     Cache = Cache0#stream_cache{replayed = Replayed#{Stream => true}},
                     {CS0, Cache};
-                undefined ->
+                {undefined, Params} ->
                     %% This stream is new to the host. Schedule
                     %% creation of the iterator:
-                    #sub{db = DB, topic = Topic, start_time = StartTime} = maps:get(
+                    #sub{db = DB, topic = Topic, start_time = DefaultStartTime} = maps:get(
                         SubId, CS0#cs.subs
                     ),
+                    StartTime = maps:get(start_time, Params, DefaultStartTime),
                     CS = plan(
                         #eff_make_iterator{
                             sub_id = SubId,
@@ -1221,6 +1269,16 @@ do_execute(EffectHandler, ResultHandler, [Effect | Effects], CS0, Acc0) ->
 %% Callback module wrappers:
 %%------------------------------------------------------------------------------
 
+-spec list_known_streams(module(), sub_id(), _HostState) ->
+    [{emqx_ds:slab(), emqx_ds:stream()}].
+list_known_streams(CBM, SubId, HostState) ->
+    case erlang:function_exported(CBM, list_known_streams, 2) of
+        true ->
+            CBM:list_known_streams(SubId, HostState);
+        false ->
+            []
+    end.
+
 -spec get_current_generation(module(), sub_id(), emqx_ds:shard(), _HostState) ->
     emqx_ds:generation().
 get_current_generation(CBM, SubId, Shard, HostState) ->
@@ -1228,9 +1286,14 @@ get_current_generation(CBM, SubId, Shard, HostState) ->
 
 -spec get_iterator(module(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), _HostState) ->
     {ok | subscribe, emqx_ds:iterator() | end_of_stream}
-    | undefined.
+    | {undefined, #{start_timer => emqx_ds:time()}}.
 get_iterator(CBM, SubId, Slab, Stream, HostState) ->
-    CBM:get_iterator(SubId, Slab, Stream, HostState).
+    case CBM:get_iterator(SubId, Slab, Stream, HostState) of
+        undefined ->
+            {undefined, #{}};
+        Other ->
+            Other
+    end.
 
 -spec on_new_iterator(
     module(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), HostState

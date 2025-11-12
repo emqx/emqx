@@ -7,6 +7,11 @@
 
 %% Replication layer API:
 -export([
+    create_db_group/2,
+    update_db_group/3,
+    destroy_db_group/2,
+    check_soft_quota/1,
+
     %% Lifecycle
     start_link/2,
     drop_shard/1,
@@ -54,7 +59,8 @@
     generations_since/2,
     get_gvars/1,
     ls_shards/1,
-    get_stats/1
+    get_stats/1,
+    db_group_stats/2
 ]).
 
 -export_type([
@@ -71,7 +77,8 @@
     options/0,
     prototype/0,
     cooked_batch/0,
-    event_dispatch_f/0
+    event_dispatch_f/0,
+    db_group/0
 ]).
 
 -include("emqx_ds.hrl").
@@ -106,6 +113,7 @@
     }.
 
 -type storage_layer_opts() :: #{
+    db_group := db_group(),
     rocksdb => rocksdb_options()
 }.
 
@@ -222,11 +230,87 @@
 
 -define(GLOBAL(K), <<"G/", K/binary>>).
 
--type options() :: map().
+-type options() :: #{db_group := emqx_ds:db_group(), _ => _}.
+
+-record(db_group, {
+    env :: rocksdb:env_handle(),
+    sst_file_mgr :: rocksdb:sst_file_manager(),
+    write_buffer_mgr :: rocksdb:write_buffer_manager(),
+    conf :: map()
+}).
+
+-type create_db_group_opts() :: #{
+    backend := _,
+    env_type => default | memenv,
+    storage_quota => infinity | pos_integer(),
+    write_buffer_size => pos_integer(),
+    rocksdb_nthreads_low => pos_integer(),
+    rocksdb_nthreads_high => pos_integer()
+}.
+
+-opaque db_group() :: #db_group{}.
 
 %%================================================================================
 %% API for the replication layer
 %%================================================================================
+
+-spec create_db_group(emqx_ds:db_group(), create_db_group_opts()) -> {ok, db_group()} | {error, _}.
+create_db_group(_GroupId, UserOpts) ->
+    maybe
+        {ok, Opts} ?= verify_db_group_config(UserOpts),
+        EnvType = maps:get(env_type, Opts, default),
+        %% Create SST file manager:
+        {ok, Env} ?= rocksdb:new_env(EnvType),
+        {ok, SSTManager} = rocksdb:new_sst_file_manager(Env),
+        %% Create write buffer manager:
+        case maps:get(write_buffer_size, Opts) of
+            infinity ->
+                WriteBufferSize = 0;
+            WriteBufferSize ->
+                ok
+        end,
+        {ok, WriteBufferManager} = rocksdb:new_write_buffer_manager(WriteBufferSize),
+        %% Result:
+        {ok,
+            update_rocksdb_group_runtime(#db_group{
+                env = Env,
+                sst_file_mgr = SSTManager,
+                write_buffer_mgr = WriteBufferManager,
+                conf = Opts
+            })}
+    end.
+
+-spec update_db_group(emqx_ds:db_group(), create_db_group_opts(), db_group()) ->
+    {ok, db_group()} | {error, _}.
+update_db_group(_Id, UserOpts, Grp = #db_group{}) ->
+    maybe
+        {ok, Opts} ?= verify_db_group_config(UserOpts),
+        {ok, update_rocksdb_group_runtime(Grp#db_group{conf = Opts})}
+    end.
+
+-spec update_rocksdb_group_runtime(db_group()) -> db_group().
+update_rocksdb_group_runtime(#db_group{env = Env, conf = Conf} = Grp) ->
+    #{rocksdb_nthreads_high := BTHP, rocksdb_nthreads_low := BTLP} = Conf,
+    ok = rocksdb:set_env_background_threads(Env, BTHP, priority_high),
+    ok = rocksdb:set_env_background_threads(Env, BTLP, priority_low),
+    Grp.
+
+-spec destroy_db_group(emqx_ds:db_group(), db_group()) -> ok | {error, _}.
+destroy_db_group(_GroupId, #db_group{env = Env, sst_file_mgr = SSTManager, write_buffer_mgr = WBM}) ->
+    ok = rocksdb:release_write_buffer_manager(WBM),
+    ok = rocksdb:release_sst_file_manager(SSTManager),
+    ok = rocksdb:destroy_env(Env),
+    ok.
+
+-spec check_soft_quota(db_group()) -> boolean().
+check_soft_quota(#db_group{conf = #{storage_quota := infinity}}) ->
+    true;
+check_soft_quota(#db_group{sst_file_mgr = SSTFM, conf = #{storage_quota := Quota}}) when
+    is_integer(Quota)
+->
+    Usage = rocksdb:sst_file_manager_info(SSTFM, total_size),
+    true = is_integer(Usage),
+    Usage < Quota.
 
 %% Note: we specify gen_server requests as records to make use of Dialyzer:
 -record(call_add_generation, {since :: emqx_ds:time()}).
@@ -364,7 +448,7 @@ ls_shards(DB) ->
 
 -spec start_link(dbshard(), storage_layer_opts()) ->
     {ok, pid()}.
-start_link(Shard = {_, _}, Options) ->
+start_link(Shard = {_, _}, Options = #{db_group := _}) ->
     gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
 
 -record(s, {
@@ -753,19 +837,26 @@ commit_metadata(#s{shard_id = ShardId, schema = Schema, shard = Runtime, db = DB
 rocksdb_open(Shard, Options) ->
     Defaults = #{
         cache_size => 8 * ?MB,
-        write_buffer_size => 10 * ?MB,
         max_open_files => 100,
         misc_options => []
     },
     #{
         cache_size := CacheSize,
-        write_buffer_size := WriteBufferSize,
         max_open_files := MaxOpenFiles,
         misc_options := MiscOptions
     } = maps:merge(Defaults, maps:get(rocksdb, Options, #{})),
+    #db_group{
+        env = Env,
+        sst_file_mgr = SstFileManager,
+        write_buffer_mgr = WriteBufManager
+    } = maps:get(db_group, Options),
     DBOptions = [
         {create_if_missing, true},
         {create_missing_column_families, true},
+        %% Group settings:
+        {env, Env},
+        {sst_file_manager, SstFileManager},
+        {write_buffer_manager, WriteBufManager},
         %% Info log file management:
         %%    Maximal log files:
         {keep_log_file_num, 10},
@@ -777,7 +868,6 @@ rocksdb_open(Shard, Options) ->
         %% For example, bitfield-lts backend needs data + trie CFs to be consistent.
         {atomic_flush, true},
         {enable_write_thread_adaptive_yield, false},
-        {db_write_buffer_size, WriteBufferSize},
         {cache_size, CacheSize},
         {max_open_files, MaxOpenFiles}
         | MiscOptions
@@ -1036,6 +1126,12 @@ get_stats(DB) ->
         ]
     ).
 
+-spec db_group_stats(emqx_ds:db_group(), db_group()) -> {ok, emqx_ds:db_group_stats()}.
+db_group_stats(_GroupId, #db_group{sst_file_mgr = SSTFM, write_buffer_mgr = WBM}) ->
+    Stats1 = sstfm_info(SSTFM),
+    Stats = Stats1#{write_buffer_manager => rocksdb:write_buffer_manager_info(WBM)},
+    {ok, Stats}.
+
 -spec put_schema_runtime(dbshard(), shard()) -> ok.
 put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
     persistent_term:put(?PERSISTENT_TERM(Shard), RuntimeSchema),
@@ -1097,6 +1193,63 @@ decode_generation_schema_v1(SchemaV1 = #{cf_refs := CFRefs}) ->
     Schema#{cf_names => cf_names(CFRefs)};
 decode_generation_schema_v1(Schema = #{}) ->
     Schema.
+
+verify_db_group_config(UserOpts) ->
+    maybe
+        true ?= is_map(UserOpts),
+        NDIOS = erlang:system_info(dirty_io_schedulers),
+        Defaults = #{
+            storage_quota => infinity,
+            write_buffer_size => 256 * 1024 * 1024,
+            rocksdb_nthreads_high => NDIOS,
+            rocksdb_nthreads_low => NDIOS
+        },
+        #{
+            storage_quota := SQ,
+            write_buffer_size := WBS,
+            rocksdb_nthreads_high := BTHP,
+            rocksdb_nthreads_low := BTLP
+        } = Merged = maps:merge(Defaults, UserOpts),
+        true ?= is_valid_max_size(storage_quota, SQ),
+        true ?= is_valid_max_size(write_buffer_size, WBS),
+        true ?= is_valid_n_threads(rocksdb_nthreads_high, BTHP),
+        true ?= is_valid_n_threads(rocksdb_nthreads_low, BTLP),
+        {ok, Merged}
+    else
+        {error, _} = Err ->
+            Err;
+        _ ->
+            {error, badarg}
+    end.
+
+sstfm_info(SSTFM) ->
+    {TotalSize, L} =
+        lists:foldl(
+            fun
+                ({total_size, TS}, {_, Acc}) ->
+                    {TS, Acc};
+                ({Key, Val}, {TS, Acc}) ->
+                    {TS, [{Key, Val} | Acc]}
+            end,
+            {undefined, []},
+            rocksdb:sst_file_manager_info(SSTFM)
+        ),
+    #{
+        disk_usage => TotalSize,
+        sst_file_mgr => L
+    }.
+
+is_valid_max_size(_, infinity) ->
+    true;
+is_valid_max_size(_, Val) when is_integer(Val), Val > 0 ->
+    true;
+is_valid_max_size(Key, Val) ->
+    {error, {badarg, Key, Val}}.
+
+is_valid_n_threads(_, N) when is_integer(N), N > 1 ->
+    true;
+is_valid_n_threads(Key, N) ->
+    {error, {badarg, Key, N}}.
 
 %%--------------------------------------------------------------------------------
 
