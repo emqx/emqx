@@ -8,7 +8,8 @@
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
--define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
+% -define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
+-define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
 
 -define(SCHEMA_ROOT, streams).
 

@@ -191,14 +191,17 @@ cth_config(emqx_streams, ConfigOverrides) ->
     };
 cth_config(emqx, ConfigOverrides) ->
     DefaultConfig = #{
-        <<"streams_messages">> => #{
-            <<"transaction">> => #{
-                <<"flush_interval">> => 100,
-                <<"idle_flush_interval">> => 20,
-                <<"conflict_window">> => 5000
-            },
-            <<"subscriptions">> => #{
-                <<"batch_size">> => 1
+        <<"durable_storage">> => #{
+            <<"streams_messages">> => #{
+                <<"n_shards">> => 2,
+                <<"transaction">> => #{
+                    <<"flush_interval">> => 100,
+                    <<"idle_flush_interval">> => 20,
+                    <<"conflict_window">> => 5000
+                },
+                <<"subscriptions">> => #{
+                    <<"batch_size">> => 1
+                }
             }
         }
     },
