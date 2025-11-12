@@ -103,7 +103,7 @@ jobs:
         fetch-depth: 0
     - name: Apply patch from gist
       run: |
-        GIST_PATCH_URL="https://gist.githubusercontent.com/id/28bab4ffb630c7f25371b5514673a163/raw/9a0a87fb3f49830fb0af6167e0bea465c1d81cfb/el7.patch"
+        GIST_PATCH_URL="https://gist.githubusercontent.com/id/28bab4ffb630c7f25371b5514673a163/raw/8ebe76838702eac46c39a14a97f83dd8baf38326/el7.patch"
         curl -sSL "$GIST_PATCH_URL" | git apply
 
     - name: build tgz
