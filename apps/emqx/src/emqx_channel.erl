@@ -873,7 +873,7 @@ process_pubcomp(
 after_message_acked(Channel, Msg, PubAckProps) ->
     ok = inc_metrics('messages.acked', Channel),
     emqx_hooks:run('message.acked', [
-        Channel#channel.conninfo,
+        Channel#channel.clientinfo,
         emqx_message:set_header(puback_props, PubAckProps, Msg)
     ]).
 
