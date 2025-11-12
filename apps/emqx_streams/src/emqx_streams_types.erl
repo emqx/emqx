@@ -18,6 +18,8 @@ The module contains basic types for the Streams application.
     max_shard_message_bytes := infinity | pos_integer()
 }.
 
+-type partition() :: emqx_ds:shard().
+-type offset() :: {emqx_ds:generation(), emqx_ds:time()} | earliest | latest.
 -type stream() :: stream_handle().
 
 %% Minimal data necessary to write data into the MQ.
@@ -34,5 +36,7 @@ The module contains basic types for the Streams application.
     stream_id/0,
     stream_handle/0,
     stream/0,
-    limits/0
+    limits/0,
+    partition/0,
+    offset/0
 ]).

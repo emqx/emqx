@@ -29,7 +29,11 @@ register_hooks() ->
     ok = emqx_hooks:add('message.puback', {?MODULE, on_message_puback, []}, ?HP_HIGHEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
+    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    ok = emqx_extsub_handler_registry:register(emqx_streams_extsub_handler, #{
+        handle_generic_messages => true,
+        multi_topic => true
+    }).
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
@@ -37,6 +41,7 @@ unregister_hooks() ->
     emqx_hooks:del('message.puback', {?MODULE, on_message_puback}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
+    emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
 %%
