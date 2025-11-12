@@ -1954,7 +1954,6 @@ handle_close_db(DB, S0 = #s{dbs = DBs0}) ->
 
 -spec handle_setup_group(db_group(), db_group_opts(), s()) -> {ok | {error, _}, s()}.
 handle_setup_group(Id, Opts = #{backend := Backend}, S0 = #s{groups = G0}) ->
-    #{backend := Backend} = Opts,
     case G0 of
         #{Id := Grp0 = #db_group{backend = Backend, inner = Inner0}} ->
             %% Group already exists and backend matches. Modify settings:

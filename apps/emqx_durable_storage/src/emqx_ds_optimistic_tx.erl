@@ -1178,16 +1178,16 @@ version() ->
     Version.
 
 check_soft_quota(
-    D = #d{cbm = CBM, db = DB, is_within_quota = OldState, quota_check_timer = undefined}
+    D = #d{cbm = CBM, db = DB, is_within_quota = OldQuotaState, quota_check_timer = undefined}
 ) ->
     maybe
         #{runtime := RT} ?= emqx_dsch:get_db_runtime(DB),
         #{db_group := GroupName} ?= RT,
         {ok, Group} ?= emqx_ds:lookup_db_group(GroupName),
-        NewState = CBM:otx_check_soft_quota(Group),
+        NewQuotaState = CBM:otx_check_soft_quota(Group),
         %% Handle alarms and events:
-        case NewState of
-            OldState ->
+        case NewQuotaState of
+            OldQuotaState ->
                 ok;
             false ->
                 ?tp(emqx_ds_storage_quota, #{db => DB, exceeded => true}),
@@ -1201,8 +1201,8 @@ check_soft_quota(
                 emqx_alarm:safe_deactivate(quota_alarm(DB))
         end,
         D#d{
-            is_within_quota = NewState,
-            quota_check_timer = maybe_start_quota_check_timer(NewState)
+            is_within_quota = NewQuotaState,
+            quota_check_timer = maybe_start_quota_check_timer(NewQuotaState)
         }
     else
         Other ->
