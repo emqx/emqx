@@ -23,7 +23,8 @@ Primarily, allows to access the handlers both by the handler unique reference or
     unsubscribe/3,
     find/2,
     update/3,
-    recreate/3
+    recreate/3,
+    generic_message_handlers/1
 ]).
 
 -record(extsub, {
@@ -133,6 +134,7 @@ update(#registry{by_ref = ByRef} = Registry, HandlerRef, Handler) ->
             error({extsub_registry_handler_not_found, HandlerRef})
     end.
 
+-spec recreate(t(), emqx_extsub_handler:info_ctx(), emqx_extsub_types:handler_ref()) -> t().
 recreate(
     #registry{by_ref = ByRef0, by_topic_cbm = ByTopicCBM0} = Registry0, SubscribeCtx, HandlerRef
 ) ->
@@ -153,6 +155,21 @@ recreate(
         end,
         Registry,
         TopicFilters
+    ).
+
+-spec generic_message_handlers(t()) -> [emqx_extsub_types:handler_ref()].
+generic_message_handlers(#registry{by_ref = ByRef}) ->
+    %% TODO
+    %% May precache the result
+    maps:fold(
+        fun(HandlerRef, #extsub{handler = Handler}, Acc) ->
+            case emqx_extsub_handler:get_option(handle_generic_messages, Handler, false) of
+                true -> [HandlerRef | Acc];
+                false -> Acc
+            end
+        end,
+        [],
+        ByRef
     ).
 
 %%--------------------------------------------------------------------
