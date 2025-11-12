@@ -24,13 +24,18 @@ register_hooks() ->
     %% FIXME: prios
     ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_HIGHEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST).
+    ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
+    ok = emqx_extsub_handler_registry:register(emqx_streams_extsub_handler, #{
+        handle_generic_messages => true,
+        multi_topic => true
+    }).
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
-    emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}).
+    emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
+    emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler).
 
 %%
 
@@ -158,13 +163,13 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %% processed; those that fail to do so are considered dead, and their shard are
 %% released. This protocol requirement may be relaxed in the near future.
 
-on_shard_disp_subscription(ClientInfo, Topic) ->
+on_shard_disp_subscription(_ClientInfo, _Topic) ->
     ok.
 
-on_shard_disp_unsubscription(ClientInfo, Topic) ->
+on_shard_disp_unsubscription(_ClientInfo, _Topic) ->
     ok.
 
-on_shard_disp_message(Message) ->
+on_shard_disp_message(_Message) ->
     ok.
 
 publish_to_stream(StreamHandle, #message{} = Message) ->
