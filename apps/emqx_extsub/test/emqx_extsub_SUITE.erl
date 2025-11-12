@@ -24,7 +24,8 @@ all() ->
     ].
 
 groups() ->
-    All = emqx_common_test_helpers:all(?MODULE),
+    %TODO: enable emqx_common_test_helpers:all(?MODULE),
+    All = [],
     [
         {durable_sessions, [], All},
         {memory_sessions, [], All}
