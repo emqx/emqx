@@ -42,6 +42,12 @@ EMQX delivers a powerful set of capabilities for modern connected systems:
   - **Cloud Services**: [AWS Kinesis](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-kinesis.html), [GCP Pub/Sub](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-gcp-pubsub.html), [Azure Event](https://docs.emqx.com/en/emqx/latest/data-integration/data-bridge-azure-event-hub.html), [Confluent Cloud](https://docs.emqx.com/en/emqx/latest/data-integration/confluent-sink.html),  and more.
 - [Webhook](https://docs.emqx.com/en/emqx/latest/data-integration/webhook.html) support for easy integration with custom services.
 
+### [Message Queue](https://docs.emqx.com/en/emqx/latest/message-queue/message-queue-concept.html)
+
+- Reliable message queuing for asynchronous and decoupled communication.
+- Extends MQTT with durable message storage, configurable queue lifecycle, TTL, and size limits, ensuring messages are preserved until consumption.
+- Supports load-balanced consumption and optional last-value semantics, allowing queues to retain only the most recent message for each topic when needed.
+
 ### [Flow Designer](https://docs.emqx.com/en/emqx/latest/flow-designer/introduction.html)
 
 - Drag‑and‑drop canvas to orchestrate real‑time data pipelines with zero code, using nodes for rules, integrations, and AI tasks.
