@@ -25,7 +25,9 @@ Facade for all operations with the message database.
     suback/3,
     create_client/1,
     subscribe/4,
-    drop/1
+    drop/1,
+    partitions/1,
+    find_generation/3
 ]).
 
 -export([
@@ -267,6 +269,27 @@ subscribe(Stream, DSClient0, SubId, State0) ->
     {ok, DSClient, State} = emqx_ds_client:subscribe(DSClient0, SubOpts, State0),
     {ok, DSClient, State}.
 
+-spec find_generation(emqx_streams_types:stream(), emqx_ds:shard(), emqx_ds:time()) ->
+    emqx_ds:generation().
+find_generation(Stream, Shard, TimestampUs) ->
+    case emqx_ds:list_slabs(db(Stream), #{shard => Shard}) of
+        {SlabInfo, []} ->
+            TimestampMs = us_to_ms(TimestampUs),
+            {ok, do_find_generation(TimestampMs, lists:sort(maps:to_list(SlabInfo)))};
+        {_, Errors} ->
+            {error, {cannot_list_slabs, Errors}}
+    end.
+
+do_find_generation(_TimestampMs, [{{_Shard, Generation} = _Slab, _SlabInfo}]) ->
+    Generation;
+do_find_generation(TimestampMs, [{{_Shard, Generation} = _Slab, SlabInfo} | Rest]) ->
+    case SlabInfo of
+        #{until := Until} when TimestampMs =< Until orelse Until =:= undefined ->
+            Generation;
+        _ ->
+            do_find_generation(TimestampMs, Rest)
+    end.
+
 -spec suback(
     emqx_streams_types:stream() | emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()
 ) -> ok.
@@ -374,6 +397,11 @@ drop_regular_db_slab(Slab) ->
     [emqx_ds:ttv()].
 dirty_read_all(Stream) ->
     emqx_ds:dirty_read(db(Stream), stream_message_topic(Stream, '#')).
+
+-spec partitions(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
+    [emqx_streams_types:partition()].
+partitions(Stream) ->
+    emqx_ds:list_shards(db(Stream)).
 
 -spec dirty_index(
     emqx_streams_types:stream() | emqx_streams_types:stream_handle(), emqx_ds:shard()

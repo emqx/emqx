@@ -47,9 +47,59 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_smoke(_Config) ->
+% t_smoke(_Config) ->
+%     Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+%     ok = emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+%     AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
+%     ?assertEqual(10, length(AllMessages)),
+%     ok.
+
+t_read_earliest(_Config) ->
+    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
+    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/t/#">>),
+
+    {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout1 = 500),
+
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+    {ok, _Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 500),
+
+    ok = emqtt:disconnect(CSub).
+
+t_read_latest(_Config) ->
+    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/latest/t/#">>),
+    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/latest/t/#">>),
+
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 0, _Timeout1 = 500),
+    ?assertEqual(0, length(Msgs0)),
+
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+    {ok, _Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 500).
+
+t_read_offset(_Config) ->
     Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
-    ok = emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+
     AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
-    ?assertEqual(10, length(AllMessages)),
-    ok.
+    ?assertEqual(50, length(AllMessages)),
+    {_, Offset, _} = lists:last(AllMessages),
+
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    OffsetBin = integer_to_binary(Offset),
+    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/", OffsetBin/binary, "/t/#">>),
+    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/", OffsetBin/binary, "/t/#">>),
+
+    {ok, _} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout0 = 1000),
+
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+
+    {ok, _} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 1000).
