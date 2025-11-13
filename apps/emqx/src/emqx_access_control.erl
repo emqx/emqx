@@ -225,9 +225,9 @@ check_authorization_cache(ClientInfo, Action, Topic) ->
     end.
 
 do_authorize(ClientInfo, Action, Topic0) ->
-    MountPrefix = emqx:get_config([mqtt, mount_prefix_for_authz], false),
+    IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
     NoMatch = emqx:get_config([authorization, no_match], deny),
-    Topic = maybe_mount_prefix(MountPrefix, ClientInfo, Topic0),
+    Topic = maybe_mount_prefix(IncludeMountpoint, ClientInfo, Topic0),
     Default = #{result => NoMatch, from => default},
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
@@ -251,13 +251,15 @@ do_authorize(ClientInfo, Action, Topic0) ->
             deny
     end.
 
-maybe_mount_prefix(false = _MountPrefix, _ClientInfo, Topic0) ->
+maybe_mount_prefix(false = _IncludeMountpoint, _ClientInfo, Topic0) ->
     Topic0;
-maybe_mount_prefix(true = _MountPrefix, #{mountpoint := Mountpoint} = _ClientInfo, Topic0) when
+maybe_mount_prefix(
+    true = _IncludeMountpoint, #{mountpoint := Mountpoint} = _ClientInfo, Topic0
+) when
     is_binary(Mountpoint)
 ->
     emqx_mountpoint:mount(Mountpoint, Topic0);
-maybe_mount_prefix(true = _MountPrefix, _ClientInfo, Topic0) ->
+maybe_mount_prefix(true = _IncludeMountpoint, _ClientInfo, Topic0) ->
     Topic0.
 
 log_result(Topic, Action, From, Result) ->

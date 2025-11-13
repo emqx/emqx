@@ -2907,6 +2907,14 @@ authz_fields() ->
             sc(
                 ref(?MODULE, "authz_cache"),
                 #{}
+            )},
+        {"include_mountpoint",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC("authz_include_mountpoint")
+                }
             )}
     ].
 
@@ -4157,14 +4165,6 @@ mqtt_general() ->
                     default => disabled,
                     desc => ?DESC("clientid_override"),
                     converter => fun compile_variform_allow_disabled/2
-                }
-            )},
-        {"mount_prefix_for_authz",
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(mqtt_mount_prefix_for_authz)
                 }
             )}
     ].

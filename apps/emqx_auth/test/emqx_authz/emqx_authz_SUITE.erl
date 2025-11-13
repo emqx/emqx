@@ -746,7 +746,7 @@ t_skipped_as_superuser(_Config) ->
     ok = snabbkaffe:stop().
 
 -doc """
-Verifies that, when we set `mqtt.mount_prefix_for_authz = true`, then authorization
+Verifies that, when we set `authorization.include_mountpoint = true`, then authorization
 backends evaluate the original topics prefixed by `mountpoint`.
 """.
 t_mount_prefix_for_authz(_TCConfig) ->
@@ -761,11 +761,11 @@ t_mount_prefix_for_authz(_TCConfig) ->
         is_superuser => false
     },
     on_exit(fun() ->
-        {ok, _} = emqx:update_config([mqtt, mount_prefix_for_authz], false),
+        {ok, _} = emqx:update_config([authorization, include_mountpoint], false),
         {ok, _} = emqx:remove_config([listeners, tcp, default, mountpoint]),
         emqx_hooks:del('client.check_authz_complete', {?MODULE, on_check_authz_complete})
     end),
-    {ok, _} = emqx:update_config([mqtt, mount_prefix_for_authz], true),
+    {ok, _} = emqx:update_config([authorization, include_mountpoint], true),
     {ok, _} = emqx:update_config([listeners, tcp, default, mountpoint], Mountpoint),
     emqx_hooks:add(
         'client.check_authz_complete',
@@ -791,7 +791,7 @@ t_mount_prefix_for_authz(_TCConfig) ->
             _ = emqtt:publish(C, <<"t/3">>, <<"hey">>, [{qos, 1}]),
             ?assertReceive({authz, #{topic := MountedTopic3}}),
             %% Disable config
-            {ok, _} = emqx:update_config([mqtt, mount_prefix_for_authz], false),
+            {ok, _} = emqx:update_config([authorization, include_mountpoint], false),
             _ = emqtt:publish(C, <<"t/3">>, <<"hey">>, [{qos, 1}]),
             ?assertReceive({authz, #{topic := Topic3}}),
             emqtt:stop(C),
