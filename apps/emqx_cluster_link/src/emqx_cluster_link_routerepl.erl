@@ -370,7 +370,12 @@ enter_bootstrapped(St = #st{actor = Actor}) ->
     ok = activate_syncer(target_cluster(St), Actor),
     enter_online(St#st{bootstrapped = true}).
 
-enter_online(St) ->
+enter_online(St = #st{actor = Actor, incarnation = Incarnation}) ->
+    ?tp(info, "cluster_link_routerepl_online", #{
+        target_cluster => target_cluster(St),
+        actor => Actor,
+        incarnation => Incarnation
+    }),
     {next_state, online, schedule_heartbeat(St)}.
 
 online(info, {timeout, _TRef, heartbeat}, St = #st{}) ->
@@ -448,7 +453,8 @@ handle_event(Event, Payload, _St) ->
     ?tp(warning, "cluster_link_routerepl_unexpected_event", #{
         event => Event,
         payload => Payload
-    }).
+    }),
+    keep_state_and_data.
 
 terminate(_Reason, _St) ->
     ok.
@@ -478,7 +484,7 @@ bootstrap(Bootstrap, HeartbeatTs, St = #st{actor = Actor, incarnation = Incarnat
     TargetCluster = target_cluster(St),
     case emqx_cluster_link_router_bootstrap:next_batch(Bootstrap) of
         done ->
-            ?tp(debug, "cluster_link_bootstrap_complete", #{
+            ?tp(info, "cluster_link_bootstrap_complete", #{
                 target_cluster => TargetCluster,
                 actor => Actor,
                 incarnation => Incarnation

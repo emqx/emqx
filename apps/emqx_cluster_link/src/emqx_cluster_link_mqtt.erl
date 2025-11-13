@@ -11,13 +11,12 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
--behaviour(emqx_resource).
 -behaviour(ecpool_worker).
 
 %% ecpool
 -export([connect/1]).
 
-%% callbacks of behaviour emqx_resource
+-behaviour(emqx_resource).
 -export([
     callback_mode/0,
     resource_type/0,
@@ -32,16 +31,18 @@
     resource_id/1,
     ensure_msg_fwd_resource/1,
     remove_msg_fwd_resource/1,
-    decode_route_op/1,
     decode_forwarded_msg/1,
     decode_resp/1
 ]).
 
+%% Route replication protocol
 -export([
     publish_actor_init_sync/6,
-    actor_init_ack_resp_msg/3,
+    mk_actor_init_ack/3,
+    mk_actor_init_ack_error/3,
     publish_route_sync/4,
     publish_heartbeat/3,
+    decode_route_op/1,
     encode_field/2
 ]).
 
@@ -53,6 +54,7 @@
     get_all_resources_cluster/0,
     get_resource_cluster/1
 ]).
+
 %% BpAPI / RPC Targets
 -export([
     get_resource_local_v1/1,
@@ -68,9 +70,6 @@
 -define(RES_GROUP, <<"emqx_cluster_link">>).
 
 -define(PROTO_VER, 1).
-
--define(DECODE(Payload), erlang:binary_to_term(Payload, [safe])).
--define(ENCODE(Payload), erlang:term_to_binary(Payload)).
 
 -define(F_OPERATION, '$op').
 -define(OP_ROUTE, <<"route">>).
@@ -194,7 +193,7 @@ on_query(_ResourceId, FwdMsg, #{pool_name := PoolName, topic := LinkTopic} = _St
     PubResult = ecpool:pick_and_do(
         {PoolName, Topic},
         fun(ConnPid) ->
-            emqtt:publish(ConnPid, LinkTopic, ?ENCODE(FwdMsg), QoS)
+            emqtt:publish(ConnPid, LinkTopic, encode_payload(FwdMsg), QoS)
         end,
         no_handover
     ),
@@ -215,7 +214,7 @@ on_query_async(
         {PoolName, Topic},
         fun(ConnPid) ->
             %% #delivery{} record has no valuable data for a remote link...
-            Payload = ?ENCODE(FwdMsg),
+            Payload = encode_payload(FwdMsg),
             %% TODO: check override QOS requirements (if any)
             PubResult = emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback),
             ?tp_ignore_side_effects_in_prod(clink_message_forwarded, #{
@@ -342,8 +341,6 @@ connect(Options) ->
 %% Protocol
 %%--------------------------------------------------------------------
 
-%%% New leader-less Syncer/Actor implementation
-
 publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incarnation) ->
     Topic = ?ROUTE_TOPIC(emqx_cluster_link_config:cluster()),
     Payload = #{
@@ -357,38 +354,7 @@ publish_actor_init_sync(ClientPid, ReqId, RespTopic, TargetCluster, Actor, Incar
         'Response-Topic' => RespTopic,
         'Correlation-Data' => ReqId
     },
-    emqtt:publish(ClientPid, Topic, Properties, ?ENCODE(Payload), [{qos, ?QOS_1}]).
-
-actor_init_ack_resp_msg(Actor, InitRes, MsgIn) ->
-    Payload = #{
-        ?F_OPERATION => ?OP_ACTOR_INIT_ACK,
-        ?F_PROTO_VER => ?PROTO_VER,
-        ?F_ACTOR => Actor
-    },
-    Payload1 = with_res_and_bootstrap(Payload, InitRes),
-    #{
-        'Response-Topic' := RespTopic,
-        'Correlation-Data' := ReqId
-    } = emqx_message:get_header(properties, MsgIn),
-    emqx_message:make(
-        undefined,
-        ?QOS_1,
-        RespTopic,
-        ?ENCODE(Payload1),
-        #{},
-        #{properties => #{'Correlation-Data' => ReqId}}
-    ).
-
-with_res_and_bootstrap(Payload, {ok, ActorState}) ->
-    Payload#{
-        ?F_RESULT => ok,
-        ?F_NEED_BOOTSTRAP => not emqx_cluster_link_extrouter:is_present_incarnation(ActorState)
-    };
-with_res_and_bootstrap(Payload, Error) ->
-    Payload#{
-        ?F_RESULT => Error,
-        ?F_NEED_BOOTSTRAP => false
-    }.
+    emqtt:publish(ClientPid, Topic, Properties, encode_payload(Payload), [{qos, ?QOS_1}]).
 
 publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
     Topic = ?ROUTE_TOPIC(emqx_cluster_link_config:cluster()),
@@ -398,7 +364,7 @@ publish_route_sync(ClientPid, Actor, Incarnation, Updates) ->
         ?F_INCARNATION => Incarnation,
         ?F_ROUTES => Updates
     },
-    emqtt:publish(ClientPid, Topic, ?ENCODE(Payload), ?QOS_1).
+    emqtt:publish(ClientPid, Topic, encode_payload(Payload), ?QOS_1).
 
 publish_heartbeat(ClientPid, Actor, Incarnation) ->
     Topic = ?ROUTE_TOPIC(emqx_cluster_link_config:cluster()),
@@ -407,13 +373,48 @@ publish_heartbeat(ClientPid, Actor, Incarnation) ->
         ?F_ACTOR => Actor,
         ?F_INCARNATION => Incarnation
     },
-    emqtt:publish_async(ClientPid, Topic, ?ENCODE(Payload), ?QOS_0, {fun(_) -> ok end, []}).
+    emqtt:publish_async(ClientPid, Topic, encode_payload(Payload), ?QOS_0, {fun(_) -> ok end, []}).
+
+-spec mk_actor_init_ack(_Actor :: binary(), boolean(), _ReplyTo :: emqx_types:message()) ->
+    emqx_types:message().
+mk_actor_init_ack(Actor, NeedBootstrap, MsgIn) ->
+    Payload = #{
+        ?F_OPERATION => ?OP_ACTOR_INIT_ACK,
+        ?F_PROTO_VER => ?PROTO_VER,
+        ?F_ACTOR => Actor,
+        ?F_RESULT => ok,
+        ?F_NEED_BOOTSTRAP => NeedBootstrap
+    },
+    mk_response(?QOS_1, Payload, MsgIn).
+
+-spec mk_actor_init_ack_error(_Actor :: binary(), {error, _}, _ReplyTo :: emqx_types:message()) ->
+    emqx_types:message().
+mk_actor_init_ack_error(Actor, Error, MsgIn) ->
+    Payload = #{
+        ?F_OPERATION => ?OP_ACTOR_INIT_ACK,
+        ?F_PROTO_VER => ?PROTO_VER,
+        ?F_ACTOR => Actor,
+        ?F_RESULT => Error,
+        ?F_NEED_BOOTSTRAP => undefined
+    },
+    mk_response(?QOS_1, Payload, MsgIn).
+
+mk_response(QoS, Payload, MsgIn) ->
+    #{
+        'Response-Topic' := RespTopic,
+        'Correlation-Data' := ReqId
+    } = emqx_message:get_header(properties, MsgIn),
+    emqx_message:make(
+        undefined,
+        QoS,
+        RespTopic,
+        encode_payload(Payload),
+        #{},
+        #{properties => #{'Correlation-Data' => ReqId}}
+    ).
 
 decode_route_op(Payload) ->
-    decode_route_op1(?DECODE(Payload)).
-
-decode_resp(Payload) ->
-    decode_resp1(?DECODE(Payload)).
+    decode_route_op1(decode_payload(Payload)).
 
 decode_route_op1(#{
     ?F_OPERATION := ?OP_ACTOR_INIT,
@@ -444,6 +445,9 @@ decode_route_op1(#{
 decode_route_op1(Payload) ->
     {error, {unknown_payload, Payload}}.
 
+decode_resp(Payload) ->
+    decode_resp1(decode_payload(Payload)).
+
 decode_resp1(#{
     ?F_OPERATION := ?OP_ACTOR_INIT_ACK,
     ?F_ACTOR := Actor,
@@ -456,7 +460,7 @@ decode_resp1(#{
     }}.
 
 decode_forwarded_msg(Payload) ->
-    case ?DECODE(Payload) of
+    case decode_payload(Payload) of
         #message{} = Msg ->
             Msg;
         _ ->
@@ -476,6 +480,12 @@ decode_field(route, {?ROUTE_DELETE, Topic, ID}) ->
     {delete, {Topic, ID}};
 decode_field(route, Route = {_Topic, _ID}) ->
     {add, Route}.
+
+encode_payload(Payload) ->
+    erlang:term_to_binary(Payload).
+
+decode_payload(Payload) ->
+    erlang:binary_to_term(Payload, [safe]).
 
 %%--------------------------------------------------------------------
 %% emqx_external_broker
