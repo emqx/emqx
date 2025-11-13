@@ -19,6 +19,7 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     fetch_progress_updates/1,
     handle_ds_info/2,
     handle_ack/2,
+    destroy/1,
     inspect/1
 ]).
 
@@ -184,6 +185,10 @@ inspect(#cs{state = #{shards := Shards, streams := Streams}}) ->
         streams => Streams
     }.
 
+-spec destroy(t()) -> t().
+destroy(#cs{state = State, ds_client = DSC} = CS) ->
+    CS#cs{state = emqx_ds_client:destroy(DSC, State)}.
+
 %%--------------------------------------------------------------------
 %% emqx_ds_client callbacks
 %%--------------------------------------------------------------------
@@ -235,8 +240,8 @@ get_iterator(?SUB_ID, {Shard, Generation}, _Stream, #{shards := Shards}) ->
             #{Shard := #{status := active, generation := Generation, stream_buffer := SB}} ->
                 case emqx_mq_consumer_stream_buffer:iterator(SB) of
                     end_of_stream ->
-                        %% Buffer finished reading the stream but has unacked messages.
-                        %% We will complete the stream when all messages are acked.
+                        %% Actually cannot happen. Active status implies that the buffer
+                        %% has unacked messages, so its (starting) iterator cannot be end_of_stream.
                         {ok, end_of_stream};
                     It ->
                         {subscribe, It}

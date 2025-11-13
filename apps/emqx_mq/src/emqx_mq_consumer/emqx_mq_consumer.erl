@@ -325,8 +325,18 @@ persist_consumer_data(
             Error
     end.
 
-handle_shutdown(#state{mq = #{topic_filter := _MQTopicFilter} = _MQ} = State) ->
+handle_shutdown(
+    #state{
+        mq = #{topic_filter := _MQTopicFilter} = _MQ,
+        streams = Streams0,
+        consumer_state = ConsumerState0
+    } = State0
+) ->
     ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter}),
+    Streams = emqx_mq_consumer_streams:destroy(Streams0),
+    {ProgressUpdates, Streams} = emqx_mq_consumer_streams:fetch_progress_updates(Streams),
+    ConsumerState = put_progress_updates(ConsumerState0, ProgressUpdates),
+    State = State0#state{streams = Streams, consumer_state = ConsumerState},
     case persist_consumer_data(_ClaimLeadership = false, State) of
         {ok, _State} ->
             ok;
