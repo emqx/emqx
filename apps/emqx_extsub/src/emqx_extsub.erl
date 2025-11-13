@@ -219,7 +219,7 @@ on_client_handle_info(
             HandlerRegistry
         ),
         {St1, NeedTryDeliver} = lists:foldl(
-            fun(HandlerRef, {StAcc0, NeedTryDeliverAcc} = StAcc) ->
+            fun(HandlerRef, {StAcc0, NeedTryDeliverAcc}) ->
                 case do_handle_info(StAcc0, HookContext, HandlerRef, {generic, Info}) of
                     {ok, StAcc} ->
                         {StAcc, NeedTryDeliverAcc};

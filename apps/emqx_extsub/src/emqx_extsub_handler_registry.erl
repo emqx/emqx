@@ -43,6 +43,11 @@ Primarily, allows to access the handlers both by the handler unique reference or
 
 -type t() :: #registry{}.
 
+-type subscribe_init_ctx() :: #{
+    clientinfo := emqx_types:clientinfo(),
+    can_receive_acks := boolean()
+}.
+
 -export_type([t/0]).
 
 -define(TAB, ?MODULE).
@@ -78,7 +83,7 @@ new() ->
 -spec subscribe(
     t(),
     emqx_extsub_handler:subscribe_type(),
-    emqx_extsub_handler:subscribe_ctx(),
+    subscribe_init_ctx(),
     [emqx_extsub_types:topic_filter()]
 ) -> t().
 subscribe(Registry, SubscribeType, SubscribeCtx, TopicFilters) ->
@@ -134,7 +139,7 @@ update(#registry{by_ref = ByRef} = Registry, HandlerRef, Handler) ->
             error({extsub_registry_handler_not_found, HandlerRef})
     end.
 
--spec recreate(t(), emqx_extsub_handler:info_ctx(), emqx_extsub_types:handler_ref()) -> t().
+-spec recreate(t(), subscribe_init_ctx(), emqx_extsub_types:handler_ref()) -> t().
 recreate(
     #registry{by_ref = ByRef0, by_topic_cbm = ByTopicCBM0} = Registry0, SubscribeCtx, HandlerRef
 ) ->
