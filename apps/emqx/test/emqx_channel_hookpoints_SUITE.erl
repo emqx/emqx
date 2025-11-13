@@ -84,12 +84,10 @@ on_session_subscribed(#{clientid := _ClientId}, <<"$test/", Topic/binary>>, _Sub
 on_session_subscribed(_ClientInfo, _Topic, _SubOpts) ->
     ok.
 
-on_client_handle_info({test_message, Topic}, HookContext, #{deliver := Delivers} = Acc) ->
-    ChanInfoFn = maps:get(chan_info_fn, HookContext),
-    ClientId = ChanInfoFn(clientid),
+on_client_handle_info(#{clientid := ClientId}, {test_message, Topic}, #{deliver := Delivers} = Acc) ->
     Msg = emqx_message:make(ClientId, Topic, <<"test message">>),
     Deliver = {deliver, Topic, Msg},
     _ = erlang:send_after(1000, self(), {test_message, Topic}),
     {ok, Acc#{deliver => [Deliver | Delivers]}};
-on_client_handle_info(_Info, _HookContext, Acc) ->
+on_client_handle_info(_ClientInfo, _Info, Acc) ->
     {ok, Acc}.

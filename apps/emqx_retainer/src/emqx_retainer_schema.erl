@@ -130,16 +130,6 @@ fields("retainer") ->
                     example => <<"1000/s">>
                 }
             )},
-        {dispatch_retry_ttl,
-            ?HOCON(
-                %% Used for timestamp comparison, not receive block timers
-                emqx_schema:duration_ms(),
-                #{
-                    required => false,
-                    default => <<"10m">>,
-                    desc => ?DESC("dispatch_retry_ttl")
-                }
-            )},
         {backend, backend_config()},
         {external_backends,
             ?HOCON(

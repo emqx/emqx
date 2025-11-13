@@ -5,7 +5,7 @@ defmodule EMQXConf.MixProject do
   def project do
     [
       app: :emqx_conf,
-      version: "6.0.1",
+      version: "6.0.2",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.erlc_options(),
