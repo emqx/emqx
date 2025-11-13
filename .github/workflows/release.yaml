@@ -103,8 +103,6 @@ jobs:
           push "ubuntu/jammy" "packages/$PROFILE-$VERSION-ubuntu22.04-arm64.deb"
           push "ubuntu/noble" "packages/$PROFILE-$VERSION-ubuntu24.04-amd64.deb"
           push "ubuntu/noble" "packages/$PROFILE-$VERSION-ubuntu24.04-arm64.deb"
-          push "el/7" "packages/$PROFILE-$VERSION-el7-amd64.rpm"
-          push "el/7" "packages/$PROFILE-$VERSION-el7-arm64.rpm"
           push "el/8" "packages/$PROFILE-$VERSION-el8-amd64.rpm"
           push "el/8" "packages/$PROFILE-$VERSION-el8-arm64.rpm"
           push "el/9" "packages/$PROFILE-$VERSION-el9-amd64.rpm"

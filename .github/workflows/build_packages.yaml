@@ -155,7 +155,6 @@ jobs:
           - debian11
           - el9
           - el8
-          - el7
           - amzn2
           - amzn2023
         arch:
@@ -187,11 +186,6 @@ jobs:
       with:
         ref: ${{ github.event.inputs.ref }}
         fetch-depth: 0
-    - name: Apply patch from gist
-      if: matrix.os == 'el7'
-      run: |
-        GIST_PATCH_URL="https://gist.githubusercontent.com/id/e3568df90a80619cfcbf344f47f1d67b/raw/744397d64bbf196014ec63af28d78c5cb1e0bed8/el7.patch"
-        curl -sSL "$GIST_PATCH_URL" | git apply
     - name: build tgz
       env:
         PROFILE: ${{ matrix.profile }}
