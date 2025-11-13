@@ -263,6 +263,13 @@ create_connector_api(Config, Overrides) ->
 create_action_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:create_action_api2(Config, Overrides).
 
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
 get_action_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_action_api2(TCConfig).
 
@@ -440,12 +447,15 @@ t_missing_table(TCConfig) ->
                 _Sleep = 1_000,
                 _Attempts = 20,
                 ?assertMatch(
-                    {200, #{
-                        <<"status">> := Status,
-                        <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
-                    }} when
+                    {
+                        {200, #{<<"status">> := <<"connected">>}},
+                        {200, #{
+                            <<"status">> := Status,
+                            <<"status_reason">> := <<"{unhealthy_target,", _/binary>>
+                        }}
+                    } when
                         Status == <<"connecting">> orelse Status == <<"disconnected">>,
-                    get_action_api(TCConfig)
+                    {get_connector_api(TCConfig), get_action_api(TCConfig)}
                 )
             ),
             ok
