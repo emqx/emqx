@@ -12,6 +12,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(BASE_CLINK_MQTT_PORT, 1883).
 -define(BASE_CLUSTER_NODE_PORT, 10000).
 
@@ -119,7 +121,7 @@ t_config_update(Config) ->
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% Num nodes = num actors (durable storage is disabled)
         length(ClusterA) + length(ClusterB),
         30_000
@@ -128,7 +130,7 @@ t_config_update(Config) ->
     ?assertMatch({ok, _}, update(NodeB1, [LinkConfB], Config)),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef)
     ),
 
@@ -151,7 +153,7 @@ t_config_update(Config) ->
     ?assertNotReceive({publish, _Message = #{}}),
 
     {ok, SubRef1} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         length(ClusterA),
         30_000
     ),
@@ -161,7 +163,7 @@ t_config_update(Config) ->
     ?assertMatch({ok, _}, update(NodeA1, [LinkConfA1], Config)),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef1)
     ),
 
@@ -375,7 +377,7 @@ t_config_update_ds(Config) ->
     },
 
     {ok, SubRef} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% 2 cores = 4 actors (durable storage enabled) + 2 replicants = 2 more actors
         6,
         30_000
@@ -391,7 +393,7 @@ t_config_update_ds(Config) ->
     ),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef)
     ),
 
@@ -413,7 +415,7 @@ t_config_update_ds(Config) ->
     %% no more messages expected
     ?assertNotReceive({publish, _Message = #{}}),
     {ok, SubRef1} = snabbkaffe:subscribe(
-        ?match_event(#{?snk_kind := clink_route_bootstrap_complete}),
+        ?match_event(#{?snk_kind := "cluster_link_bootstrap_complete"}),
         %% 2 nodes (1 replicant) in cluster a (3 actors including ds)
         3,
         30_000
@@ -425,7 +427,7 @@ t_config_update_ds(Config) ->
     ?assertMatch({ok, _}, erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA1]])),
 
     ?assertMatch(
-        {ok, [#{?snk_kind := clink_route_bootstrap_complete} | _]},
+        {ok, [#{?snk_kind := "cluster_link_bootstrap_complete"} | _]},
         snabbkaffe:receive_events(SubRef1)
     ),
 
@@ -475,6 +477,7 @@ t_misconfigured_links('init', Config) ->
     ];
 t_misconfigured_links('end', Config) ->
     ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_cluster:stop(?config(cluster_a, Config)),
     ok = emqx_cth_cluster:stop(?config(cluster_b, Config)).
 
@@ -488,6 +491,8 @@ t_misconfigured_links(Config) ->
 
     ClientA = start_client("t_config_a", NodeA1),
     ClientB = start_client("t_config_b", NodeB1),
+    on_exit(fun() -> catch emqtt:stop(ClientA) end),
+    on_exit(fun() -> catch emqtt:stop(ClientB) end),
 
     {ok, _, _} = emqtt:subscribe(ClientA, <<"t/test/1/+">>, qos1),
     {ok, _, _} = emqtt:subscribe(ClientB, <<"t/test-topic">>, qos1),
@@ -527,7 +532,7 @@ t_misconfigured_links(Config) ->
     {{ok, _}, {ok, _}} = ?wait_async_action(
         erpc:call(NodeA1, emqx_cluster_link_config, update, [[LinkConfA#{<<"name">> => NameB}]]),
         #{
-            ?snk_kind := clink_route_bootstrap_complete,
+            ?snk_kind := "cluster_link_bootstrap_complete",
             ?snk_meta := #{node := NodeA1}
         },
         10_000
@@ -594,10 +599,7 @@ t_misconfigured_links(Config) ->
     ?assertMatch(
         #{error := <<"unknown_cluster">>},
         erpc:call(NodeA1, emqx_cluster_link_router_syncer, status, [NameB])
-    ),
-
-    ok = emqtt:stop(ClientA),
-    ok = emqtt:stop(ClientB).
+    ).
 
 start_client(ClientId, Node) ->
     start_client(ClientId, Node, true).
