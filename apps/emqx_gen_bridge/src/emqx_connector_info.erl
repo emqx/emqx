@@ -65,6 +65,7 @@
 hard_coded_connector_info_modules_ee() ->
     [
         emqx_bridge_alloydb_connector_info,
+        emqx_bridge_aws_timestream_connector_info,
         emqx_bridge_azure_blob_storage_connector_info,
         emqx_bridge_azure_event_hub_connector_info,
         emqx_bridge_bigquery_connector_info,

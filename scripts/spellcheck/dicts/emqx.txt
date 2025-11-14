@@ -300,6 +300,7 @@ TDengine
 templated
 ticktime
 timeseries
+Timestream
 tlog
 tls
 TLS

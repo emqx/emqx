@@ -119,7 +119,9 @@ roots() -> [].
 
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
-        emqx_bridge_influxdb_connector:fields("connector") ++
+        fields(connector_config);
+fields(connector_config) ->
+    emqx_bridge_influxdb_connector:fields("connector") ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts);
 fields(action) ->
     {influxdb,

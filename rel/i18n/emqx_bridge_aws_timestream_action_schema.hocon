@@ -1,0 +1,14 @@
+emqx_bridge_aws_timestream_action_schema {
+  aws_timestream {
+    label: """Upload to AWS Timestream for InfluxDB"""
+    desc:
+    """Action that takes incoming events and appends them to AWS Timestream."""
+  }
+
+  action_parameters {
+    label: """AWS Timestream action parameters"""
+    desc:
+    """Set of parameters for the action."""
+  }
+
+}
