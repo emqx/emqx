@@ -10,10 +10,16 @@ Main interface module for `emqx_durable_storage' application.
 It takes care of forwarding calls to the underlying DBMS.
 """.
 
+-behaviour(gen_server).
+
 %% Management API:
 -export([
     set_shard_ready/3,
     set_db_ready/2,
+
+    setup_db_group/2,
+    lookup_db_group/1,
+    which_db_groups/0,
 
     open_db/2,
     wait_db/3,
@@ -27,7 +33,9 @@ It takes care of forwarding calls to the underlying DBMS.
     list_slabs/1,
     list_slabs/2,
     drop_slab/2,
-    drop_db/1
+    drop_db/1,
+
+    db_group_stats/1
 ]).
 
 %% Message storage API:
@@ -83,12 +91,18 @@ It takes care of forwarding calls to the underlying DBMS.
     multi_iterator_next/4
 ]).
 
+%% gen_server:
+-export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+
 -export_type([
     backend/0,
     create_db_opts/0,
     verify_db_opts_result/0,
     db_opts/0,
     db/0,
+    db_group/0,
+    db_group_opts/0,
+    db_group_stats/0,
     time/0,
     time_ms/0,
     topic_filter/0,
@@ -151,6 +165,15 @@ It takes care of forwarding calls to the underlying DBMS.
 
 -doc "Identifier of the DB.".
 -type db() :: atom().
+
+-doc """
+Identifier of the database group.
+
+DB groups are used primarily for resource management. They allow to
+set various quotas and rate limits shared between all DBs belonging to
+the group.
+""".
+-type db_group() :: atom().
 
 -doc "Parsed topic.".
 -type topic() :: list(binary()).
@@ -262,6 +285,13 @@ Common options for creation of a DS database.
   This option is meant to optimize fan-out of MQTT messages to
   subscribers.
 
+- **`db_group`** - identifier of a database group created by
+  `setup_db_group/2` call. If this option is omitted or set to atom
+  `undefined`, DS will create a new DB group named after the DB and
+  with empty config.
+
+  All databases in the group must use the same backend.
+
 Note: all backends MUST handle all options listed here; even if it
 means throwing an exception that says that certain option is not
 supported.
@@ -270,9 +300,21 @@ supported.
     #{
         backend := backend(),
         payload_type => emqx_ds_payload_transform:type(),
+        db_group => db_group(),
         %% Backend-specific options:
         _ => _
     }.
+
+-doc """
+- `backend` parameter is mandatory when the group is created.
+  It should match with the backend of all DBs in the group.
+
+- `storage_quota`: a value (in octets) that specifies the maximum
+  total volume of data stored in the DBs. Once the DB group reaches
+  the `storage_quota`, transactions adding more data and dirty
+  appends will be rejected.
+""".
+-type db_group_opts() :: #{backend => backend(), storage_quota => pos_integer(), _ => _}.
 
 -type verify_db_opts_result() ::
     {ok, emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()} | error(_).
@@ -302,6 +344,8 @@ Options for the `subscribe` API.
         stuck := boolean(),
         atom() => _
     }.
+
+-type db_group_stats() :: map().
 
 -type slab_info() :: #{
     created_at := time_ms(),
@@ -430,11 +474,69 @@ Options for the `subscribe` API.
 -record(emqx_ds_db_ready_optvar, {db :: db()}).
 -record(emqx_ds_shard_ready_optvar, {db :: db(), shard :: shard()}).
 
+%% gen_server:
+-define(SERVER, ?MODULE).
+-define(pterm, emqx_ds_db_info_pterm).
+
+-record(call_setup_group, {
+    id :: db_group(),
+    opts :: db_group_opts()
+}).
+
+-record(call_open_db, {
+    id :: db(),
+    opts :: create_db_opts()
+}).
+
+-record(call_close_db, {
+    id :: db()
+}).
+
+-record(db, {
+    group :: db_group()
+}).
+
+-record(db_group, {
+    backend :: emqx_ds:backend(),
+    inner :: term()
+}).
+
+-type grp() :: #db_group{}.
+
+-record(s, {
+    groups = #{} :: #{emqx_ds:db_group() => grp()},
+    dbs = #{} :: #{emqx_ds:db() => emqx_ds:db_group()}
+}).
+-type s() :: #s{}.
+
 %%================================================================================
 %% Behavior callbacks
 %%================================================================================
 
 -callback default_db_opts() -> map().
+
+-doc """
+Create a new database group with the specified configuration.
+DB groups are transient: backends must not treat them as part of the schema.
+It is possible to change the group next time the DB is opened.
+
+DS makes sure that lifetime of the group covers the lifetimes of all
+DBs attached to it.
+
+Note: DS attaches DB to the group automatically in `open_db` call, but
+to detach it is the responsibility of the backend.
+""".
+-callback create_db_group(db_group(), db_group_opts()) -> {ok, _Group} | {error, _}.
+
+-doc """
+Update an existing database group.
+""".
+-callback update_db_group(db_group(), db_group_opts(), Group) -> {ok, Group} | {error, _}.
+
+-doc """
+Note: backend is responsible for destroying all groups that it owns during the shutdown.
+""".
+-callback destroy_db_group(db_group(), _Group) -> ok | {error, _}.
 
 -callback verify_db_opts(emqx_ds:db(), create_db_opts()) -> verify_db_opts_result().
 
@@ -462,6 +564,8 @@ must not assume the default values.
 -callback drop_slab(db(), slab()) -> ok | {error, _}.
 
 -callback drop_db(db()) -> ok | {error, _}.
+
+-callback db_group_stats(db_group(), _Group) -> {ok, db_group_stats()} | error(_).
 
 -callback list_shards(db()) -> [shard()].
 
@@ -509,6 +613,53 @@ must not assume the default values.
 %%================================================================================
 
 -doc """
+This is a multi-purpose function that creates or mutates configuation
+of a DB group.
+
+If the group is absent, it creates a new group with the given config.
+
+If the group is present, and the `backend` is the same,
+then the configuration of the group is updated.
+
+If the group is present, there aren't any DBs attached to it, and
+`setup_db_group` is called with a different `backend` parameter, the
+old group is deleted and the new one is created.
+""".
+-spec setup_db_group(db_group(), db_group_opts()) -> ok | {error, _}.
+setup_db_group(Id, Opts) ->
+    gen_server:call(?SERVER, #call_setup_group{id = Id, opts = Opts}, infinity).
+
+-doc """
+Backend API: get backend-specific data of the DB group.
+""".
+-spec lookup_db_group(db_group()) -> {ok, _Group} | {error, _}.
+lookup_db_group(Group) ->
+    case persistent_term:get(?pterm, undefined) of
+        #s{groups = #{Group := #db_group{inner = Inner}}} ->
+            {ok, Inner};
+        _ ->
+            {error, {no_such_group, Group}}
+    end.
+
+-doc """
+Return list of DB group names with the corresponding backends.
+""".
+-spec which_db_groups() -> [{db_group(), backend()}].
+which_db_groups() ->
+    case persistent_term:get(?pterm, undefined) of
+        #s{groups = Groups} ->
+            maps:fold(
+                fun(Id, #db_group{backend = Backend}, Acc) ->
+                    [{Id, Backend} | Acc]
+                end,
+                [],
+                Groups
+            );
+        undefined ->
+            []
+    end.
+
+-doc """
 Create a new DS database or open an existing one.
 
 Different DBs are completely independent from each other. They can
@@ -520,23 +671,8 @@ This separation of functionality simplifies startup procedure of the
 EMQX application.
 """.
 -spec open_db(db(), create_db_opts()) -> ok | {error, _}.
-open_db(DB, UserOpts = #{backend := Backend}) ->
-    maybe
-        {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
-        GlobalDefaults = #{payload_type => ?ds_pt_ttv},
-        Opts = emqx_utils_maps:deep_merge(
-            emqx_utils_maps:deep_merge(GlobalDefaults, Mod:default_db_opts()),
-            UserOpts
-        ),
-        {ok, NewSchema, RuntimeConf} ?= Mod:verify_db_opts(DB, Opts),
-        {ok, IsNew, Schema} ?=
-            emqx_dsch:ensure_db_schema(
-                DB,
-                NewSchema#{backend => Backend}
-            ),
-        ok ?= Mod:open_db(DB, IsNew, Schema, RuntimeConf),
-        emqx_ds_sup:ensure_new_stream_watch(DB)
-    end.
+open_db(DB, Opts) ->
+    gen_server:call(?SERVER, #call_open_db{id = DB, opts = Opts}, infinity).
 
 -doc """
 Block the process until `DB` is initialized.
@@ -591,14 +727,7 @@ Gracefully close a DB.
 """.
 -spec close_db(db()) -> ok | error(_).
 close_db(DB) ->
-    ?with_dsch(
-        DB,
-        #{cbm := Mod},
-        maybe
-            ok ?= Mod:close_db(DB),
-            emqx_dsch:close_db(DB)
-        end
-    ).
+    gen_server:call(?SERVER, #call_close_db{id = DB}, infinity).
 
 -doc """
 List open DBs and their backends.
@@ -725,6 +854,19 @@ drop_db(DB) ->
             {error, no_such_db};
         {error, _} = Err ->
             Err
+    end.
+
+-doc """
+Get various information about the DB.
+""".
+-spec db_group_stats(db_group()) -> {ok, db_group_stats()} | error(_).
+db_group_stats(Group) ->
+    case persistent_term:get(?pterm, undefined) of
+        #s{groups = #{Group := #db_group{backend = Backend, inner = Inner}}} ->
+            {ok, Mod} = emqx_dsch:get_backend_cbm(Backend),
+            Mod:db_group_stats(Group, Inner);
+        _ ->
+            {error, unrecoverable, {no_such_group, Group}}
     end.
 
 -doc """
@@ -1686,6 +1828,186 @@ topic_words(Bin) ->
     ).
 
 %%================================================================================
+%% gen_server
+%%================================================================================
+
+-spec start_link() -> {ok, pid()}.
+start_link() ->
+    gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+
+init(_) ->
+    process_flag(trap_exit, true),
+    S = #s{},
+    persistent_term:put(?pterm, S),
+    {ok, S}.
+
+handle_call(#call_setup_group{id = Id, opts = Opts}, _From, S0) ->
+    {Result, S} = handle_setup_group(Id, Opts, S0),
+    update_cache(S),
+    {reply, Result, S};
+handle_call(#call_open_db{id = DB, opts = Opts}, _From, S0) ->
+    {Result, S} = handle_open_db(DB, Opts, S0),
+    %% Note: cache is updated by the above function
+    {reply, Result, S};
+handle_call(#call_close_db{id = DB}, _From, S0) ->
+    {Result, S} = handle_close_db(DB, S0),
+    update_cache(S),
+    {reply, Result, S};
+handle_call(_Call, _From, S) ->
+    {reply, {error, unknown_call}, S}.
+
+handle_cast(_Cast, S) ->
+    {noreply, S}.
+
+handle_info({'EXIT', _, shutdown}, S) ->
+    {stop, shutdown, S};
+handle_info(_Info, S) ->
+    {noreply, S}.
+
+terminate(_Reason, #s{}) ->
+    ok.
+
+-spec handle_open_db(db(), create_db_opts(), s()) -> {ok | {error, _}, s()}.
+handle_open_db(DB, UserOpts = #{backend := Backend}, S0 = #s{dbs = DBs, groups = Groups}) ->
+    maybe
+        false ?= maps:is_key(DB, DBs),
+        {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
+        CreateDbGroup =
+            case UserOpts of
+                #{db_group := GroupId} ->
+                    false;
+                #{} ->
+                    GroupId = DB,
+                    true
+            end,
+        GlobalDefaults = #{payload_type => ?ds_pt_ttv, db_group => GroupId},
+        Opts = emqx_utils_maps:deep_merge(
+            emqx_utils_maps:deep_merge(
+                GlobalDefaults,
+                safe_call(Mod, default_db_opts, [])
+            ),
+            UserOpts
+        ),
+        {ok, NewSchema, RuntimeConf} ?= safe_call(Mod, verify_db_opts, [DB, Opts]),
+        {ok, IsNew, Schema} ?=
+            emqx_dsch:ensure_db_schema(
+                DB,
+                NewSchema#{backend => Backend}
+            ),
+        ok ?= emqx_ds_sup:ensure_new_stream_watch(DB),
+        {ok, S} ?=
+            case CreateDbGroup of
+                false ->
+                    case Groups of
+                        #{GroupId := #db_group{backend = Backend}} ->
+                            {ok, S0};
+                        #{GroupId := #db_group{backend = OtherBackend}} ->
+                            {error, {backend_mismatch, Backend, OtherBackend}};
+                        #{} ->
+                            {error, {no_such_group, GroupId}}
+                    end;
+                true ->
+                    handle_setup_group(GroupId, #{backend => Backend}, S0)
+            end,
+        handle_open_db1(DB, Mod, GroupId, IsNew, Schema, RuntimeConf, S)
+    else
+        true ->
+            {ok, S0};
+        Err = {error, _} ->
+            {Err, S0};
+        {error, unrecoverable, Err} ->
+            {{error, Err}, S0};
+        Other ->
+            {{error, {unexpected_callback_return, Other}}, S0}
+    end;
+handle_open_db(_, _, S) ->
+    {{error, badarg}, S}.
+
+handle_open_db1(DB, Mod, Group, IsNew, Schema, RuntimeConf, S0 = #s{dbs = DBs0}) ->
+    maybe
+        ok ?= emqx_dsch:open_db(DB, RuntimeConf),
+        DBs = DBs0#{DB => #db{group = Group}},
+        S = S0#s{dbs = DBs},
+        update_cache(S),
+        ok ?= safe_call(Mod, open_db, [DB, IsNew, Schema, RuntimeConf]),
+        {ok, S}
+    else
+        Err ->
+            {Err, S0}
+    end.
+
+handle_close_db(DB, S0 = #s{dbs = DBs0}) ->
+    case DBs0 of
+        #{DB := _} ->
+            _ = ?with_dsch(
+                DB,
+                #{cbm := Mod},
+                safe_call(Mod, close_db, [DB])
+            ),
+            emqx_dsch:close_db(DB),
+            DBs = maps:remove(DB, DBs0),
+            S = S0#s{dbs = DBs},
+            {ok, S};
+        #{} ->
+            {{error, database_is_not_open}, S0}
+    end.
+
+-spec handle_setup_group(db_group(), db_group_opts(), s()) -> {ok | {error, _}, s()}.
+handle_setup_group(Id, Opts = #{backend := Backend}, S0 = #s{groups = G0}) ->
+    case G0 of
+        #{Id := Grp0 = #db_group{backend = Backend, inner = Inner0}} ->
+            %% Group already exists and backend matches. Modify settings:
+            maybe
+                {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
+                {ok, Inner} ?= safe_call(Mod, update_db_group, [Id, Opts, Inner0]),
+                Grp = Grp0#db_group{inner = Inner},
+                S = S0#s{groups = G0#{Id => Grp}},
+                {ok, S}
+            else
+                Err ->
+                    {Err, S0}
+            end;
+        #{Id := #db_group{backend = Old}} ->
+            %% Group already exists with a different backend. Check if
+            %% it's empty and then re-create it with the new one:
+            case handle_destroy_group(Id, S0) of
+                {ok, S} ->
+                    handle_setup_group(Id, Opts, S);
+                _ ->
+                    {{error, {backend_mismatch, Old, Backend}}, S0}
+            end;
+        #{} ->
+            %% The group is entirely new
+            maybe
+                {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
+                {ok, Inner} ?= safe_call(Mod, create_db_group, [Id, Opts]),
+                Grp = #db_group{backend = Backend, inner = Inner},
+                S = S0#s{groups = G0#{Id => Grp}},
+                {ok, S}
+            else
+                Err ->
+                    {Err, S0}
+            end
+    end;
+handle_setup_group(_, _, S) ->
+    {{error, badarg}, S}.
+
+handle_destroy_group(Id, S0 = #s{groups = G0}) ->
+    maybe
+        #{Id := #db_group{backend = Backend, inner = Inner}} ?= G0,
+        true ?= db_group_is_empty(Id, S0),
+        {ok, Mod} ?= emqx_dsch:get_backend_cbm(Backend),
+        ok ?= safe_call(Mod, destroy_db_group, [Id, Inner]),
+        S = S0#s{groups = maps:remove(Id, G0)},
+        {ok, S}
+    else
+        #{} ->
+            {{error, {no_such_group, Id}}, S0};
+        Err ->
+            {Err, S0}
+    end.
+
+%%================================================================================
 %% Internal functions
 %%================================================================================
 
@@ -1939,3 +2261,37 @@ do_multi_iter_make_it(#{db := DB, start_time := StartTime}, TopicFilter, {ok, St
         stream = Stream,
         iterator = It
     }.
+
+db_group_is_empty(Group, S) ->
+    case dbs_of_group(Group, S) of
+        [] ->
+            true;
+        [_ | _] ->
+            {error, group_is_not_empty}
+    end.
+
+dbs_of_group(Group, #s{dbs = DBs}) ->
+    maps:fold(
+        fun(DB, #db{group = G}, Acc) ->
+            case G of
+                Group -> [DB | Acc];
+                _ -> Acc
+            end
+        end,
+        [],
+        DBs
+    ).
+
+update_cache(S) ->
+    persistent_term:put(?pterm, S).
+
+safe_call(Mod, Fun, Args) ->
+    try
+        apply(Mod, Fun, Args)
+    catch
+        EC:Err:Stack ->
+            ?tp(error, "ds_backend_error", #{
+                EC => Err, stack => Stack, call => {Mod, Fun, Args}
+            }),
+            {error, internal_error}
+    end.

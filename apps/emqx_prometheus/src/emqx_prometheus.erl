@@ -646,7 +646,11 @@ emqx_collect(K = ?DS_SUBS_PROCESS_COMMANDS_TIME, D) -> gauge_metrics(?MG(K, D, [
 emqx_collect(K = ?DS_SUBS_BEAMS_SENT_TOTAL, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SUBS_REQUEST_SHARING, D) -> gauge_metrics(?MG(K, D, []));
 emqx_collect(K = ?DS_SUBS_FULFILL_TIME, D) -> counter_metrics(?MG(K, D, []));
-emqx_collect(K = ?DS_SUBS_SCAN_TIME, D) -> counter_metrics(?MG(K, D, [])).
+emqx_collect(K = ?DS_SUBS_SCAN_TIME, D) -> counter_metrics(?MG(K, D, []));
+%% DS DB group metrics:
+emqx_collect(K = ?DS_DISK_USAGE, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_WRITE_BUFFER_MEM, D) -> counter_metrics(?MG(K, D, []));
+emqx_collect(K = ?DS_TRASH_SIZE, D) -> counter_metrics(?MG(K, D, [])).
 
 %%--------------------------------------------------------------------
 %% Indicators

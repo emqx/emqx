@@ -491,7 +491,7 @@ t_sub_mqtt_worker_down_notify(Config) ->
                 error(timeout_waiting_for_down)
             end
         after
-            meck:unload()
+            meck:unload(emqx_ds_beamformer)
         end,
         []
     ).
@@ -2297,6 +2297,162 @@ t_29_tx_latest_generation_race_condition(Config) ->
         []
     ).
 
+%% This testcase verifies that transactions that contain write
+%% operations and dirty appends are rejected when the DB reaches the
+%% storage quota. Then it verifies that the system recovers once the
+%% quota is increased.
+t_30_quotas(Config) ->
+    DB = ?FUNCTION_NAME,
+    %% This testcase uses the default implicit group created by DS:
+    Group = DB,
+    Opts = #{backend := Backend} = opts(Config),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            ?assertMatch(ok, emqx_ds_open_db(DB, Opts)),
+            TxOpts = #{
+                db => DB,
+                shard => emqx_ds:shard_of(DB, <<>>),
+                generation => 1,
+                retry => 5,
+                retry_interval => 100
+            },
+            WTrans = fun() ->
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        emqx_ds:tx_write({[], ?ds_tx_ts_monotonic, <<"hello">>})
+                    end
+                )
+            end,
+            DTrans = fun() ->
+                emqx_ds:trans(
+                    TxOpts,
+                    fun() ->
+                        emqx_ds:tx_del_topic([])
+                    end
+                )
+            end,
+            Append = fun(N) ->
+                Ref = emqx_ds:dirty_append(TxOpts#{reply => true}, [
+                    {[], ?ds_tx_ts_monotonic, <<"hello">>}
+                 || _ <- lists:seq(1, N)
+                ]),
+                receive
+                    ?ds_tx_commit_reply(Ref, Reply) ->
+                        emqx_ds:dirty_append_outcome(Ref, Reply)
+                end
+            end,
+            %% 1. Start normally and write a sufficient volume of data to the DB to create some usage:
+            ?assertMatch(
+                {atomic, _, _},
+                WTrans()
+            ),
+            ?assertMatch(
+                {ok, _},
+                Append(1_000)
+            ),
+            %% TODO: this not entirely backend-agnostic:
+            emqx_ds_storage_layer:flush(DB),
+            ct:pal("DB group stats: ~p", [emqx_ds:db_group_stats(Group)]),
+            %% 2. Set quota to a very low value. This should cause all writes to fail:
+            %%
+            %% NOTE: currently OTX process checks quota during flush,
+            %% so we don't wait for alarms/events immediately:
+            emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => 1}),
+            ?assertMatch(
+                ?err_unrec(storage_quota_exceeded),
+                WTrans()
+            ),
+            ?assertMatch(
+                ?err_unrec(storage_quota_exceeded),
+                Append(1)
+            ),
+            %% However, transactions that don't contain writes should succeed:
+            ?assertMatch(
+                {atomic, _, _},
+                DTrans()
+            ),
+            %% 3. Recover the situation by increasing the quota:
+            ?assertMatch(
+                {ok, _},
+                ?wait_async_action(
+                    emqx_ds:setup_db_group(Group, #{backend => Backend, storage_quota => infinity}),
+                    #{?snk_kind := emqx_ds_storage_quota, exceeded := false}
+                )
+            ),
+            %% Writes should be allowed again:
+            ?assertMatch(
+                {ok, _},
+                Append(1)
+            ),
+            ?assertMatch(
+                {atomic, _, _},
+                WTrans()
+            )
+        end,
+        []
+    ).
+
+t_db_group_crud(Config) ->
+    %% This testcase uses the default implicit group created by DS:
+    DB = ?FUNCTION_NAME,
+    Group = test_db_group,
+    Opts = #{backend := Backend} = opts(Config),
+    ?check_trace(
+        #{timetrap => 15_000},
+        begin
+            %% 1. Try to create a group without backend. This should
+            %% not be allowed:
+            ?assertMatch(
+                {error, badarg},
+                emqx_ds:setup_db_group(Group, #{})
+            ),
+            %% 2. Try to create a group with invalid backend. This
+            %% should not be allowed:
+            ?assertMatch(
+                {error, {no_such_backend, _}},
+                emqx_ds:setup_db_group(Group, #{backend => bad})
+            ),
+            %% 3. Create a group with `builtin_local' backend:
+            ?assertMatch(
+                ok,
+                emqx_ds:setup_db_group(Group, #{backend => builtin_local})
+            ),
+            %% 4. Change it to the `Backend'. This operation should be
+            %% allowed, as long as no DBs are attached to the group:
+            ?assertMatch(
+                ok,
+                emqx_ds:setup_db_group(Group, #{backend => Backend})
+            ),
+            %% 5. Try to attach a DB to a group that doesn't exist:
+            ?assertMatch(
+                {error, {no_such_group, _}},
+                emqx_ds_open_db(DB, Opts#{db_group => bad})
+            ),
+            %% 6. Try to attach a DB with a wrong backend to the
+            %% group:
+            Backend =/= builtin_local andalso
+                ?assertMatch(
+                    {error, {backend_mismatch, _, _}},
+                    emqx_ds_open_db(DB, Opts#{backend => builtin_local, db_group => Group})
+                ),
+            %% 7. Attach a DB:
+            ?assertMatch(
+                ok,
+                emqx_ds_open_db(DB, Opts#{backend => Backend, db_group => Group})
+            ),
+            %% 8. Now switching the group backend should become
+            %% impossible:
+            Backend =/= builtin_local andalso
+                ?assertMatch(
+                    {error, {backend_mismatch, _, _}},
+                    emqx_ds:setup_db_group(Group, #{backend => builtin_local})
+                )
+        end,
+        []
+    ).
+
 %% This testcase veriries functionality of `emqx_ds:multi_iterator_next' function.
 %%
 %% Properties checked:
@@ -2503,9 +2659,13 @@ end_per_group(_Group, Config) ->
     Config.
 
 init_per_suite(Config) ->
+    ok = meck:new(emqx_alarm, [no_history, no_link]),
+    ok = meck:expect(emqx_alarm, safe_activate, fun(_, _, _) -> ok end),
+    ok = meck:expect(emqx_alarm, safe_deactivate, fun(_) -> ok end),
     Config.
 
 end_per_suite(_Config) ->
+    meck:unload(emqx_alarm),
     ok.
 
 suite() ->

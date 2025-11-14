@@ -297,6 +297,18 @@ readable("secret()") ->
             desc => ?DESC(secret)
         }
     };
+readable("backend()") ->
+    #{
+        swagger => #{type => string, example => "builtin_raft"},
+        dashboard => #{type => string},
+        docgen => #{type => "String", example => "builtin_raft"}
+    };
+readable("size_limit()") ->
+    #{
+        swagger => #{type => string, example => "1.5 GiB"},
+        dashboard => #{type => string},
+        docgen => #{type => "String", example => "1.5 GiB"}
+    };
 readable(TypeStr0) ->
     case string:split(TypeStr0, ":") of
         [ModuleStr, TypeStr] ->

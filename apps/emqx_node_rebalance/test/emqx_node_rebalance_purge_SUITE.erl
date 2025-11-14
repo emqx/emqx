@@ -95,10 +95,11 @@ init_per_testcase(TestCase, Config) ->
     ok = snabbkaffe:start_trace(),
     [{cluster_nodes, ClusterNodes} | Config].
 
-end_per_testcase(_TestCase, Config) ->
+end_per_testcase(TestCase, Config) ->
     Nodes = ?config(cluster_nodes, Config),
     ok = snabbkaffe:stop(),
     erpc:multicall(Nodes, meck, unload, []),
+    emqx_cth_suite:clean_work_dir(emqx_cth_suite:work_dir(TestCase, Config)),
     ok = emqx_cth_cluster:stop(Nodes),
     ok.
 

@@ -46,9 +46,24 @@ filter_effects_test() ->
     generations = #{} :: #{{emqx_ds_client:sub_id(), emqx_ds:shard()} => emqx_ds:generation()},
     %% Saved replay positions:
     iterators = #{} :: #{
-        {emqx_ds_client:sub_id(), emqx_ds:stream()} => emqx_ds:iteraator() | end_of_stream
+        {emqx_ds_client:sub_id(), emqx_ds:stream()} => emqx_ds:iterator() | end_of_stream
     }
 }).
+
+list_known_streams(SubId, HS = #test_host_state{iterators = Its}) ->
+    maps:fold(
+        fun({SID, Stream}, _, Acc) ->
+            case SID of
+                SubId ->
+                    #fake_stream{shard = Shard, gen = Gen} = Stream,
+                    [{{Shard, Gen}, Stream} | Acc];
+                _ ->
+                    Acc
+            end
+        end,
+        [],
+        Its
+    ).
 
 get_current_generation(SubId, Shard, #test_host_state{generations = Gens}) ->
     maps:get({SubId, Shard}, Gens, 0).
