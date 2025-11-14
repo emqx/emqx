@@ -292,6 +292,16 @@ Common options for creation of a DS database.
 
   All databases in the group must use the same backend.
 
+- **`backup_priority`** - an integer that affects the order of taking backup.
+  The higher the number, the earlier the DB backup is taken in relation to other DBs.
+  This parameter can be used in the situations
+  where data in one DB is logically dependent on data in another.
+  For example, `sessions` refer to data on `messages`,
+  so `backup_priority` of `sessions` should be higher than `messages`.
+
+  The default value is 0.
+  Backups with the same priority are taken in an unspecified order.
+
 Note: all backends MUST handle all options listed here; even if it
 means throwing an exception that says that certain option is not
 supported.
@@ -301,6 +311,7 @@ supported.
         backend := backend(),
         payload_type => emqx_ds_payload_transform:type(),
         db_group => db_group(),
+        backup_priority => integer(),
         %% Backend-specific options:
         _ => _
     }.
@@ -1880,7 +1891,7 @@ handle_open_db(DB, UserOpts = #{backend := Backend}, S0 = #s{dbs = DBs, groups =
                     GroupId = DB,
                     true
             end,
-        GlobalDefaults = #{payload_type => ?ds_pt_ttv, db_group => GroupId},
+        GlobalDefaults = #{payload_type => ?ds_pt_ttv, db_group => GroupId, backup_priority => 0},
         Opts = emqx_utils_maps:deep_merge(
             emqx_utils_maps:deep_merge(
                 GlobalDefaults,
