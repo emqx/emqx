@@ -98,6 +98,12 @@
     {gauge, slide, ?DS_SUBS_SCAN_TIME}
 ]).
 
+-define(DB_GROUP_METRICS, [
+    {gauge, counter, ?DS_DISK_USAGE},
+    {gauge, counter, ?DS_WRITE_BUFFER_MEM},
+    {gauge, counter, ?DS_TRASH_SIZE}
+]).
+
 -type shard_metrics_id() :: binary().
 
 -define(CATCH(BODY),
@@ -252,12 +258,53 @@ collect_shard_counter({DB, _}, Key, Inc) ->
 prometheus_meta() ->
     lists:map(
         fun({Type, _, A}) -> {A, Type, A} end,
-        ?DB_METRICS ++ ?BUFFER_METRICS ++ ?BEAMFORMER_METRICS
+        ?DB_METRICS ++ ?BUFFER_METRICS ++ ?BEAMFORMER_METRICS ++ ?DB_GROUP_METRICS
     ).
 
 prometheus_collect(Labels0) ->
-    collect_beamformer_metrics(
-        Labels0, collect_otx_metrics(Labels0, collect_db_metrics(Labels0))
+    collect_group_metrics(
+        Labels0,
+        collect_beamformer_metrics(
+            Labels0,
+            collect_otx_metrics(
+                Labels0,
+                collect_db_metrics(Labels0)
+            )
+        )
+    ).
+
+collect_group_metrics(Labels0, Acc0) ->
+    lists:foldl(
+        fun({Group, _Backend}, Acc) ->
+            case emqx_ds:db_group_stats(Group) of
+                {ok, Stats} ->
+                    Labels = Labels0 ++ [{group, Group}],
+                    #{
+                        disk_usage := DiskUsage,
+                        write_buffer_manager := WBuf,
+                        sst_file_mgr := SSTM
+                    } = Stats,
+                    WBMem = proplists:get_value(memory_usage, WBuf),
+                    TotalTrashSize = proplists:get_value(total_trash_size, SSTM),
+                    append_to_key(
+                        ?DS_DISK_USAGE,
+                        {Labels, DiskUsage},
+                        append_to_key(
+                            ?DS_WRITE_BUFFER_MEM,
+                            {Labels, WBMem},
+                            append_to_key(
+                                ?DS_TRASH_SIZE,
+                                {Labels, TotalTrashSize},
+                                Acc
+                            )
+                        )
+                    );
+                _ ->
+                    Acc
+            end
+        end,
+        Acc0,
+        emqx_ds:which_db_groups()
     ).
 
 collect_db_metrics(Labels0) ->

@@ -173,11 +173,6 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
     Children = [
-        emqx_ds_lib:autoclean(
-          20_000,
-          fun() -> ok = emqx_dsch:open_db(DB, RTConf) end,
-          fun() -> ok = emqx_dsch:close_db(DB) end
-         ),
         sup_spec(#?shards_sup{db = DB}, []),
         shard_allocator_spec(DB),
         db_lifecycle_spec(DB)
@@ -223,7 +218,7 @@ init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
     Setup = fun() -> ok end,
     Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader) end,
     Children = [
-                emqx_ds_lib:autoclean(5_000, Setup, Teardown),
+                emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
                 shard_optimistic_tx_spec(DB, Shard)
                ],
     {ok, {SupFlags, Children}}.
@@ -301,7 +296,8 @@ shard_leader_spec(DB, Shard) ->
 shard_storage_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, storage},
-        start => {emqx_ds_storage_layer, start_link, [{DB, Shard}, Opts]},
+        start =>
+            {emqx_ds_storage_layer, start_link, [{DB, Shard}, emqx_ds_lib:resolve_db_group(Opts)]},
         shutdown => 5_000,
         restart => permanent,
         type => worker
