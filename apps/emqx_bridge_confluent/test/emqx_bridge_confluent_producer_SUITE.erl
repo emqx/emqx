@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
 -define(ACTION_TYPE, confluent_producer).
@@ -46,14 +47,12 @@ init_per_suite(Config) ->
                     emqx_bridge_confluent,
                     emqx_bridge,
                     emqx_rule_engine,
-                    {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+                    emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
                 #{work_dir => ?config(priv_dir, Config)}
             ),
-            {ok, Api} = emqx_common_test_http:create_default_app(),
             [
                 {tc_apps, Apps},
-                {api, Api},
                 {proxy_name, ProxyName},
                 {proxy_host, ProxyHost},
                 {proxy_port, ProxyPort},
@@ -165,10 +164,10 @@ connector_config(KafkaHost, KafkaPort) ->
 
 parse_and_check_connector_config(InnerConfigMap) ->
     emqx_bridge_v2_testlib:parse_and_check_connector(
-      ?CONNECTOR_TYPE_BIN,
-      <<"x">>,
-      InnerConfigMap
-     ).
+        ?CONNECTOR_TYPE_BIN,
+        <<"x">>,
+        InnerConfigMap
+    ).
 
 bridge_config(Name, ConnectorId, KafkaTopic) ->
     InnerConfigMap0 =
@@ -376,10 +375,34 @@ t_oauth_client_credentials_authn(TCConfig0) ->
         Cfg2 = emqx_utils_maps:deep_put(
             [<<"authentication">>, <<"logical_cluster">>], Cfg1, <<"confluent-logical-cluster">>
         ),
-        emqx_utils_maps:deep_put(
+        Cfg3 = emqx_utils_maps:deep_put(
             [<<"authentication">>, <<"identity_pool_id">>], Cfg2, <<"confluent-identity-pool-id">>
+        ),
+        emqx_utils_maps:deep_put(
+            [<<"ssl">>, <<"enable">>], Cfg3, false
         )
     end),
-    emqx_bridge_kafka_action_SUITE:t_oauth_client_credentials_authn(TCConfig),
-    ct:fail(todo),
+    TS = trace:session_create(?MODULE, self(), []),
+    try
+        %% ensure module is loaded...
+        _ = brod_oauth:module_info(module),
+        1 = trace:function(TS, {brod_oauth, auth, '_'}, _MatchSpec = true, _FlagList0 = []),
+        trace:process(TS, new, _How = true, _FlagList1 = [call]),
+        emqx_bridge_kafka_action_SUITE:t_oauth_client_credentials_authn(TCConfig),
+        {trace, _, call, {brod_oauth, auth, AuthArgs}} =
+            ?assertReceive({trace, _KProPid, call, {brod_oauth, auth, _}}),
+        %% confluent-specific fields must override any extensions
+        ?assertMatch(
+            #{
+                extensions := #{
+                    <<"logicalCluster">> := <<"confluent-logical-cluster">>,
+                    <<"identityPoolId">> := <<"confluent-identity-pool-id">>
+                }
+            },
+            lists:last(AuthArgs)
+        ),
+        ok
+    after
+        trace:session_destroy(TS)
+    end,
     ok.

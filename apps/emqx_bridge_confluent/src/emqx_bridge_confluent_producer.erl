@@ -92,8 +92,15 @@ fields(auth_oauth_client_credentials) ->
         auth_oauth_client_credentials_overrides()
     ),
     Fields1 = override_documentations(Fields0),
-    [ {logical_cluster, mk(binary(), #{required => true})}
-    , {identity_pool_id, mk(binary(), #{required => false})}
+    [
+        {logical_cluster,
+            mk(binary(), #{
+                required => true, desc => ?DESC("oauth_client_credentials_logical_cluster")
+            })},
+        {identity_pool_id,
+            mk(binary(), #{
+                required => false, desc => ?DESC("oauth_client_credentials_identity_pool_id")
+            })}
     ] ++ Fields1;
 fields(ssl_client_opts) ->
     Fields = override(
@@ -314,8 +321,8 @@ connector_overrides() ->
         authentication =>
             mk(
                 hoconsc:union([
-                  ref(auth_username_password),
-                  ref(auth_oauth_client_credentials)
+                    ref(auth_username_password),
+                    ref(auth_oauth_client_credentials)
                 ]),
                 #{
                     default => #{},
