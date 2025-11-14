@@ -5,7 +5,7 @@ defmodule EMQXBridgeDatalayers.MixProject do
   def project do
     [
       app: :emqx_bridge_datalayers,
-      version: "6.0.2",
+      version: "6.0.1",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       erlc_options: UMP.strict_erlc_options(),
