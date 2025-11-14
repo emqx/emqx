@@ -773,28 +773,38 @@ t_mount_prefix_for_authz(_TCConfig) ->
         ?HP_LOWEST
     ),
     {ok, _} = emqx_authz:update(?CMD_REPLACE, [?SOURCE_MYSQL]),
-    {ok, C} = emqtt:start_link(),
-    {ok, _} = emqtt:connect(C),
+    Username = <<"imauser">>,
+    {ok, C1} = emqtt:start_link(),
+    {ok, _} = emqtt:connect(C1),
     Topic1 = <<"t/1">>,
     MountedTopic1 = emqx_mountpoint:mount(Mountpoint, Topic1),
     Topic2 = <<"t/2">>,
     MountedTopic2 = emqx_mountpoint:mount(Mountpoint, Topic2),
     Topic3 = <<"t/3">>,
     MountedTopic3 = emqx_mountpoint:mount(Mountpoint, Topic3),
+    Topic4 = <<"t/4">>,
+    MountedTopic4 = <<Username/binary, "/", Topic4/binary>>,
     ?check_trace(
         begin
             emqx_access_control:authorize(ClientInfo, ?AUTHZ_SUBSCRIBE(?QOS_2), Topic1),
             ?assertReceive({authz, #{topic := MountedTopic1}}),
             %% Check that real client works
-            _ = emqtt:subscribe(C, Topic2, [{qos, 1}]),
+            _ = emqtt:subscribe(C1, Topic2, [{qos, 1}]),
             ?assertReceive({authz, #{topic := MountedTopic2}}),
-            _ = emqtt:publish(C, <<"t/3">>, <<"hey">>, [{qos, 1}]),
+            _ = emqtt:publish(C1, Topic3, <<"hey">>, [{qos, 1}]),
             ?assertReceive({authz, #{topic := MountedTopic3}}),
+            %% Check that templating works
+            {ok, _} = emqx:update_config([listeners, tcp, default, mountpoint], <<"${username}/">>),
+            {ok, C2} = emqtt:start_link(#{username => Username}),
+            {ok, _} = emqtt:connect(C2),
+            _ = emqtt:publish(C2, Topic4, <<"hey">>, [{qos, 1}]),
+            ?assertReceive({authz, #{topic := MountedTopic4}}),
+            emqtt:stop(C2),
             %% Disable config
             {ok, _} = emqx:update_config([authorization, include_mountpoint], false),
-            _ = emqtt:publish(C, <<"t/3">>, <<"hey">>, [{qos, 1}]),
+            _ = emqtt:publish(C1, <<"t/3">>, <<"hey">>, [{qos, 1}]),
             ?assertReceive({authz, #{topic := Topic3}}),
-            emqtt:stop(C),
+            emqtt:stop(C1),
             ok
         end,
         fun(Trace) ->
@@ -804,6 +814,7 @@ t_mount_prefix_for_authz(_TCConfig) ->
                     #{action := #{action_type := subscribe}, topic := MountedTopic1},
                     #{action := #{action_type := subscribe}, topic := MountedTopic2},
                     #{action := #{action_type := publish}, topic := MountedTopic3},
+                    #{action := #{action_type := publish}, topic := MountedTopic4},
                     #{action := #{action_type := publish}, topic := Topic3}
                 ],
                 ?of_kind(fake_source_authz, Trace)
