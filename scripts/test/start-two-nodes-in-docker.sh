@@ -247,6 +247,8 @@ wait_for_haproxy() {
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for haproxy"
+            echo "haproxy logs:"
+            docker logs haproxy
             exit 1
         fi
         echo -n '.'
