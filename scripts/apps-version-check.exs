@@ -203,6 +203,10 @@ defmodule AppsVersionCheck do
         auto_fix? && fix_vsn(src_file, current_app_version, desired_version)
         false
 
+      old_app_version == current_app_version && not has_changes? ->
+        log("IGNORE: #{src_file}: no code changes in app")
+        true
+
       not old_follows_convention? ->
         log("IGNORE: #{src_file}: old app version did not follow the convention #{convention}")
         true
@@ -231,6 +235,8 @@ defmodule AppsVersionCheck do
     context =
       latest_release!()
       |> Map.put(:auto_fix, !!opts[:auto_fix])
+
+    log("Context: #{inspect(context, pretty: true)}")
 
     apps =
       "apps"
