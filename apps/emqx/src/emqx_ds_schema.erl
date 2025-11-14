@@ -208,6 +208,9 @@ schema() ->
                 #{
                     <<"transaction">> => #{
                         <<"idle_flush_interval">> => <<"0ms">>
+                    },
+                    <<"subscriptions">> => #{
+                        <<"n_workers_per_shard">> => 0
                     }
                 }
             )},
@@ -223,6 +226,9 @@ schema() ->
                 #{
                     <<"transaction">> => #{
                         <<"idle_flush_interval">> => <<"0ms">>
+                    },
+                    <<"subscriptions">> => #{
+                        <<"n_workers_per_shard">> => 0
                     }
                 }
             )},
@@ -231,7 +237,11 @@ schema() ->
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(shared_subs),
-                #{}
+                #{
+                    <<"subscriptions">> => #{
+                        <<"n_workers_per_shard">> => 0
+                    }
+                }
             )},
         {?MQ_STATE_CONF_ROOT,
             db_schema(
@@ -399,7 +409,7 @@ fields(subscriptions) ->
             )},
         {n_workers_per_shard,
             sc(
-                pos_integer(),
+                non_neg_integer(),
                 #{
                     default => 10,
                     importance => ?IMPORTANCE_HIDDEN
