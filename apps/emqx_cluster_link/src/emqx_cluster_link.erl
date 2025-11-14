@@ -208,13 +208,16 @@ handle_route_op_msg(
 
 actor_init(
     ClusterName,
-    #{actor := Actor, incarnation := Incr},
+    Actor,
     #{
         target_cluster := TargetCluster,
         proto_ver := _
     }
 ) ->
+    MyClusterName = emqx_cluster_link_config:cluster(),
     case emqx_cluster_link_config:link(ClusterName) of
+        #{enable := true} when MyClusterName =:= TargetCluster ->
+            _Created = actor_init(ClusterName, Actor);
         undefined ->
             ?SLOG(error, #{
                 msg => "init_link_request_from_unknown_cluster",
@@ -224,36 +227,36 @@ actor_init(
             %% which will use safe binary_to_term decoding
             %% TODO: add error details?
             {error, <<"unknown_cluster">>};
-        #{enable := true} = _LinkConf ->
-            MyClusterName = emqx_cluster_link_config:cluster(),
-            case MyClusterName of
-                TargetCluster ->
-                    Env = #{timestamp => erlang:system_time(millisecond)},
-                    {ok, ActorSt} = emqx_cluster_link_extrouter:actor_init(
-                        ClusterName, Actor, Incr, Env
-                    ),
-                    undefined = set_actor_state(ClusterName, Actor, ActorSt),
-                    ok;
-                _ ->
-                    %% The remote cluster uses a different name to refer to this cluster
-                    ?SLOG(error, #{
-                        msg => "misconfigured_cluster_link_name",
-                        %% How this cluster names itself
-                        local_name => MyClusterName,
-                        %% How the remote cluster names this local cluster
-                        remote_name => TargetCluster,
-                        %% How the remote cluster names itself
-                        received_from => ClusterName
-                    }),
-                    {error, <<"bad_remote_cluster_link_name">>}
-            end;
+        #{enable := true} ->
+            %% The remote cluster uses a different name to refer to this cluster
+            ?SLOG(error, #{
+                msg => "misconfigured_cluster_link_name",
+                %% How this cluster names itself
+                local_name => MyClusterName,
+                %% How the remote cluster names this local cluster
+                remote_name => TargetCluster,
+                %% How the remote cluster names itself
+                received_from => ClusterName
+            }),
+            {error, <<"bad_remote_cluster_link_name">>};
         #{enable := false} ->
             {error, <<"cluster_link_disabled">>}
     end.
 
-actor_init_ack(#{actor := Actor}, Res, MsgIn) ->
-    RespMsg = emqx_cluster_link_mqtt:actor_init_ack_resp_msg(Actor, Res, MsgIn),
-    emqx_broker:publish(RespMsg).
+actor_init(ClusterName, #{actor := Actor, incarnation := Incr}) ->
+    Env = #{timestamp => erlang:system_time(millisecond)},
+    {Created, ActorSt} = emqx_cluster_link_extrouter:actor_init(ClusterName, Actor, Incr, Env),
+    undefined = set_actor_state(ClusterName, Actor, ActorSt),
+    Created.
+
+actor_init_ack(#{actor := Actor}, IsNew, MsgIn) when is_boolean(IsNew) ->
+    emqx_broker:publish(
+        emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, _NeedBootstrap = IsNew, MsgIn)
+    );
+actor_init_ack(#{actor := Actor}, {error, _} = Error, MsgIn) ->
+    emqx_broker:publish(
+        emqx_cluster_link_mqtt:mk_actor_init_ack_error(Actor, Error, MsgIn)
+    ).
 
 update_routes(ClusterName, Actor, RouteOps) ->
     ActorSt = get_actor_state(ClusterName, Actor),

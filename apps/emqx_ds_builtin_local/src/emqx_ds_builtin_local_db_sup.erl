@@ -118,16 +118,11 @@ get_shard_workers(DB) ->
 %% behaviour callbacks
 %%================================================================================
 
-init({#?db_sup{db = DB}, {_Create, _Schema, RTConf}}) ->
+init({#?db_sup{db = DB}, {_Create, _Schema, _RTConf}}) ->
     %% Spec for the top-level supervisor for the database:
     logger:notice("Starting DS DB ~p", [DB]),
     emqx_ds_builtin_metrics:init_for_db(DB),
     Children = [
-        emqx_ds_lib:autoclean(
-            20_000,
-            fun() -> ok = emqx_dsch:open_db(DB, RTConf) end,
-            fun() -> ok = emqx_dsch:close_db(DB) end
-        ),
         sup_spec(#?shards_sup{db = DB}, undefined),
         meta_spec(DB)
     ],
@@ -160,7 +155,7 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         shard_storage_spec(DB, Shard, Opts),
         otx_leader_spec(DB, Shard),
         shard_beamformers_spec(DB, Shard),
-        emqx_ds_lib:autoclean(5_000, Setup, Teardown)
+        emqx_ds_lib:autoclean(autoclean, 5_000, Setup, Teardown)
     ],
     {ok, {SupFlags, Children}}.
 
@@ -204,7 +199,8 @@ shard_spec(DB, Shard) ->
 shard_storage_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, storage},
-        start => {emqx_ds_storage_layer, start_link, [{DB, Shard}, Opts]},
+        start =>
+            {emqx_ds_storage_layer, start_link, [{DB, Shard}, emqx_ds_lib:resolve_db_group(Opts)]},
         shutdown => 5_000,
         restart => permanent,
         type => worker
