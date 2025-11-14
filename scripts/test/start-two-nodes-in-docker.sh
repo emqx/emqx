@@ -207,6 +207,7 @@ EOF
 HAPROXY_IMAGE='ghcr.io/haproxytech/haproxy-docker-alpine:2.4.27'
 
 haproxy_cid=$(docker run -d --name haproxy \
+                     --ulimit nofile=300000:300000 \
                      --net "$NET" \
                      -v "$(pwd)/tmp/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg" \
                      -v "$(pwd)/apps/emqx/etc/certs:/usr/local/etc/haproxy/certs" \
@@ -247,6 +248,8 @@ wait_for_haproxy() {
         wait_sec=$(( wait_sec + 1 ))
         if [ $wait_sec -gt "$wait_limit" ]; then
             echo "timeout wait for haproxy"
+            echo "haproxy logs:"
+            docker logs haproxy
             exit 1
         fi
         echo -n '.'
