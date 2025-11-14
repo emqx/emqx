@@ -893,7 +893,6 @@ do_flush(D0 = #d{n_items = NItems}) ->
             emqx_ds_builtin_metrics:inc_buffer_batches(Metrics),
             emqx_ds_builtin_metrics:inc_buffer_messages(Metrics, NItems),
             emqx_ds_builtin_metrics:observe_buffer_latency(Metrics, Latency),
-            erlang:garbage_collect(),
             D#d{
                 entered_pending_at = undefined,
                 committed_serial = Serial,
