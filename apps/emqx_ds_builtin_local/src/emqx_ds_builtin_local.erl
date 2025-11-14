@@ -14,6 +14,10 @@
     update_db_config/3,
     close_db/1,
     drop_db/1,
+    db_group_stats/2,
+    create_db_group/2,
+    update_db_group/3,
+    destroy_db_group/2,
 
     shard_of/2,
     list_shards/1,
@@ -71,7 +75,8 @@
     otx_commit_tx_batch/5,
     otx_add_generation/3,
     otx_lookup_ttv/4,
-    otx_get_runtime_config/1
+    otx_get_runtime_config/1,
+    otx_check_soft_quota/1
 ]).
 
 %% Internal exports:
@@ -94,18 +99,18 @@
 %% Type declarations
 %%================================================================================
 
--type db_opts() ::
-    #{
-        backend := builtin_local,
-        payload_type := emqx_ds_payload_transform:type(),
-        n_shards := pos_integer(),
-        storage := emqx_ds_storage_layer:prototype(),
-        %% Beamformer config:
-        subscriptions => emqx_ds_beamformer:opts(),
-        %% Optimistic transaction:
-        transactions => emqx_ds_optimistic_tx:runtime_config(),
-        rocksdb => emqx_ds_storage_layer:rocksdb_options()
-    }.
+-type db_opts() :: #{
+    backend := builtin_local,
+    db_group := emqx_ds:db_group(),
+    payload_type := emqx_ds_payload_transform:type(),
+    n_shards := pos_integer(),
+    storage := emqx_ds_storage_layer:prototype(),
+    %% Beamformer config:
+    subscriptions => emqx_ds_beamformer:opts(),
+    %% Optimistic transaction:
+    transactions => emqx_ds_optimistic_tx:runtime_config(),
+    rocksdb => emqx_ds_storage_layer:rocksdb_options()
+}.
 
 -type db_schema() :: #{
     backend := builtin_local,
@@ -115,6 +120,7 @@
 }.
 
 -type db_runtime_config() :: #{
+    db_group := emqx_ds:db_group(),
     %% Beamformer
     subscriptions := emqx_ds_beamformer:opts(),
     %% Optimistic transaction:
@@ -190,6 +196,22 @@ open_db(DB, Create, Schema, RuntimeConf) ->
 close_db(DB) ->
     emqx_ds_builtin_local_sup:stop_db(DB).
 
+-spec create_db_group(emqx_ds:db_group(), emqx_ds:db_group_opts()) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+create_db_group(Id, Opts) ->
+    emqx_ds_storage_layer:create_db_group(Id, Opts).
+
+-spec update_db_group(
+    emqx_ds:db_group(), emqx_ds:db_group_opts(), emqx_ds_storage_layer:db_group()
+) ->
+    {ok, emqx_ds_storage_layer:db_group()} | {error, _}.
+update_db_group(Id, Opts, Grp) ->
+    emqx_ds_storage_layer:update_db_group(Id, Opts, Grp).
+
+-spec destroy_db_group(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) -> ok | {error, _}.
+destroy_db_group(Id, Group) ->
+    emqx_ds_storage_layer:destroy_db_group(Id, Group).
+
 -spec add_generation(emqx_ds:db()) -> ok | {error, _}.
 add_generation(DB) ->
     Shards = emqx_ds_builtin_local_meta:shards(DB),
@@ -246,7 +268,7 @@ drop_slab(DB, {Shard, GenId}) ->
 -spec drop_db(emqx_ds:db()) -> ok | {error, _}.
 drop_db(DB) ->
     maybe
-        ok ?= close_db(DB),
+        ok ?= emqx_ds:close_db(DB),
         lists:foreach(
             fun(Shard) ->
                 emqx_ds_storage_layer:drop_shard({DB, Shard})
@@ -255,6 +277,11 @@ drop_db(DB) ->
         ),
         emqx_dsch:drop_db_schema(DB)
     end.
+
+-spec db_group_stats(emqx_ds:db_group(), emqx_ds_storage_layer:db_group()) ->
+    {ok, emqx_ds:db_group_stats()} | emqx_ds:error(_).
+db_group_stats(Id, Group) ->
+    emqx_ds_storage_layer:db_group_stats(Id, Group).
 
 -spec dirty_append(emqx_ds:dirty_append_opts(), emqx_ds:dirty_append_data()) ->
     reference() | noreply.
@@ -467,6 +494,9 @@ otx_get_runtime_config(DB) ->
     #{runtime := #{transactions := Conf}} = emqx_dsch:get_db_runtime(DB),
     Conf.
 
+otx_check_soft_quota(DBGroup) ->
+    emqx_ds_storage_layer:check_soft_quota(DBGroup).
+
 %% Metadata API:
 -spec stream_to_binary(emqx_ds:db(), stream()) -> {ok, binary()} | {error, _}.
 stream_to_binary(_DB, Stream = #'Stream'{}) ->
@@ -562,6 +592,7 @@ verify_db_opts(Opts) ->
     maybe
         #{
             backend := builtin_local,
+            db_group := DBGroup,
             payload_type := PType,
             n_shards := NShards,
             storage := Storage,
@@ -580,6 +611,7 @@ verify_db_opts(Opts) ->
             storage => Storage
         },
         RTOpts = #{
+            db_group => DBGroup,
             subscriptions => Subs,
             transactions => Trans,
             rocksdb => RocksDB

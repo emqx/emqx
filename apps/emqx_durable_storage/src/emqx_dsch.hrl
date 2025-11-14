@@ -15,13 +15,17 @@
 -define(dsch_pt_backends, emqx_dsch_backend_cbms).
 -define(dsch_pt_db_runtime(DB), {emqx_dsch_db_runtime, DB}).
 
--define(with_dsch(DB, VAR, BODY),
+-define(with_dsch(DB, VAR, BODY, ERR),
     case persistent_term:get(?dsch_pt_db_runtime(DB), undefined) of
         undefined ->
-            ?err_rec({database_is_not_open, DB});
+            ERR;
         VAR ->
             BODY
     end
+).
+
+-define(with_dsch(DB, VAR, BODY),
+    ?with_dsch(DB, VAR, BODY, ?err_rec({database_is_not_open, DB}))
 ).
 
 %% Tracepoints:

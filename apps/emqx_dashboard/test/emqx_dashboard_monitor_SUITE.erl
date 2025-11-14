@@ -78,7 +78,8 @@ init_per_group(persistent_sessions, Config) ->
     ],
     DurableSessionsOpts = #{
         <<"enable">> => true,
-        <<"subscription_count_refresh_interval">> => <<"500ms">>
+        <<"subscription_count_refresh_interval">> => <<"500ms">>,
+        <<"checkpoint_interval">> => <<"1s">>
     },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
     emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
