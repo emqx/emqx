@@ -2,7 +2,7 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_extsub_test_handler).
+-module(emqx_extsub_test_st_handler).
 
 -behaviour(emqx_extsub_handler).
 
@@ -10,8 +10,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    handle_init/3,
-    handle_terminate/2,
+    handle_subscribe/4,
+    handle_unsubscribe/3,
+    handle_terminate/1,
     handle_delivered/4,
     handle_info/3
 ]).
@@ -21,13 +22,20 @@
 }).
 -record(push_messages, {}).
 
-handle_init(
-    _InitType,
-    #{send_after := SendAfterFn, send := SendFn} = _Ctx,
-    <<"extsub_test/", Rest/binary>> = TopicFilter
+handle_subscribe(
+    _SubscribeType,
+    #{send_after := SendAfterFn, send := SendFn} = _SubscribeCtx,
+    undefined,
+    <<"extsub_st_test/", Rest/binary>> = TopicFilter
 ) ->
+    ?tp(debug, handle_subscribe, #{
+        subscribe_type => _SubscribeType,
+        subscribe_ctx => _SubscribeCtx,
+        state => undefined,
+        topic_filter => TopicFilter
+    }),
     try
-        [BatchCountBin, BatchSizeBin, IntervalMsBin] = binary:split(Rest, <<"/">>, [global]),
+        [_Tag, BatchCountBin, BatchSizeBin, IntervalMsBin] = binary:split(Rest, <<"/">>, [global]),
         BatchCount = binary_to_integer(BatchCountBin),
         BatchSize = binary_to_integer(BatchSizeBin),
         IntervalMs = binary_to_integer(IntervalMsBin),
@@ -52,11 +60,15 @@ handle_init(
             }),
             ignore
     end;
-handle_init(_InitType, _Ctx, TopicFilter) ->
+handle_subscribe(_SubscribeType, _SubscribeCtx, undefined, TopicFilter) ->
     ?tp(debug, handle_init_ignore, #{topic_filter => TopicFilter}),
     ignore.
 
-handle_terminate(_TerminateType, _State) ->
+handle_unsubscribe(_UnsubscribeType, State, _TopicFilter) ->
+    ?tp(debug, handle_terminate, #{state => State, topic_filter => _TopicFilter}),
+    State.
+
+handle_terminate(_State) ->
     ?tp(debug, handle_terminate, #{state => _State}),
     ok.
 

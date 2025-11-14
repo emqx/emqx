@@ -8,9 +8,6 @@
 Buffer of message_buffer received from the ExtSub handlers
 """.
 
-%% TODO
-%% Use internal message ids
-
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
@@ -23,7 +20,8 @@ Buffer of message_buffer received from the ExtSub handlers
     add_back/4,
     size/1,
     delivering_count/2,
-    set_delivered/3
+    set_delivered/3,
+    drop_handler/2
 ]).
 
 -type seq_id() :: non_neg_integer().
@@ -101,6 +99,11 @@ set_delivered(#buffer{delivering = Delivering0} = Buffer, HandlerRef, _SeqId) ->
 -spec delivering_count(t(), emqx_extsub_types:handler_ref()) -> non_neg_integer().
 delivering_count(#buffer{delivering = Delivering}, HandlerRef) ->
     maps:get(HandlerRef, Delivering, 0).
+
+-spec drop_handler(t(), emqx_extsub_types:handler_ref()) -> t().
+drop_handler(#buffer{delivering = Delivering0} = Buffer, HandlerRef) ->
+    Delivering = maps:remove(HandlerRef, Delivering0),
+    Buffer#buffer{delivering = Delivering}.
 
 -spec size(t()) -> non_neg_integer().
 size(#buffer{message_buffer = MessageBuffer}) ->

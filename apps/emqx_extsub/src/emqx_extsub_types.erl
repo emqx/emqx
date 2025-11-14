@@ -18,6 +18,8 @@ The module contains basic types for the External Subscription application.
 
 -type handler_options() :: #{
     buffer_size => pos_integer(),
+    handle_generic_messages => boolean(),
+    multi_topic => boolean(),
     _ => _
 }.
 
