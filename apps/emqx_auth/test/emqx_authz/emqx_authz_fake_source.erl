@@ -15,6 +15,8 @@
     authorize/4
 ]).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 %%--------------------------------------------------------------------
 %% emqx_authz callbacks
 %%--------------------------------------------------------------------
@@ -31,4 +33,10 @@ update(_State, Source) ->
 destroy(_Source) -> ok.
 
 authorize(_Client, _PubSub, _Topic, _Source) ->
+    ?tp(fake_source_authz, #{
+        clientinfo => _Client,
+        action => _PubSub,
+        topic => _Topic,
+        src => _Source
+    }),
     nomatch.
