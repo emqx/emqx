@@ -144,7 +144,9 @@ authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
             inc_authz_metrics(deny),
             deny
     end;
-authorize(ClientInfo, Action, Topic) ->
+authorize(ClientInfo, Action, Topic0) ->
+    IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    Topic = maybe_mount_prefix(IncludeMountpoint, ClientInfo, Topic0),
     Result =
         case emqx_authz_cache:is_enabled(Topic) of
             true -> check_authorization_cache(ClientInfo, Action, Topic);
@@ -224,10 +226,8 @@ check_authorization_cache(ClientInfo, Action, Topic) ->
             AuthzResult
     end.
 
-do_authorize(ClientInfo, Action, Topic0) ->
-    IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+do_authorize(ClientInfo, Action, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], deny),
-    Topic = maybe_mount_prefix(IncludeMountpoint, ClientInfo, Topic0),
     Default = #{result => NoMatch, from => default},
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
         AuthzResult = #{result := Result} when Result == allow; Result == deny ->
