@@ -455,4 +455,45 @@ allow_auto_topic_creation.desc:
 """Set to true to allow automatic Kafka topic creation with metadata fetch request."""
 allow_auto_topic_creation.label:
 """Allow Auto Topic Creation"""
+
+  auth_oauth_client_credentials {
+    label: "OAuth (client credentials) Auth"
+    desc: "OAuth based authentication (client credentials flow)."
+  }
+
+  oauth_client_credentials_mechanism {
+    label: "SASL authentication mechanism"
+    desc: "SASL authentication mechanism"
+  }
+
+  oauth_client_credentials_grant_type {
+    label: "OAuth grant type"
+    desc: "OAuth grant type"
+  }
+
+  oauth_client_credentials_endpoint_uri {
+    label: "OAuth Token Endpoint URI"
+    desc: "The URI for the OAuth token endpoint that will generate the access token."
+  }
+
+  oauth_client_credentials_client_id {
+    label: "OAuth Client ID"
+    desc: "Client ID used to request a token from the OAuth server."
+  }
+
+  oauth_client_credentials_client_secret {
+    label: "OAuth Client Secret"
+    desc: "Client secret used to request a token from the OAuth server."
+  }
+
+  oauth_client_credentials_scope {
+    label: "OAuth Request Scope"
+    desc: "If necessary, specify the `scope` to be provided when requesting the OAuth access token."
+  }
+
+  oauth_client_credentials_extensions {
+    label: "SASL Extensions"
+    desc: "If necessary, specify the extensions to be passed down to the SASL handshake."
+  }
+
 }

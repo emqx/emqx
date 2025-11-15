@@ -7,6 +7,7 @@ services:
     hostname: zookeeper
     networks:
       emqx_bridge:
+
   ssl_cert_gen:
     # see https://github.com/emqx/docker-images
     image:  ghcr.io/emqx/certgen:latest
@@ -14,6 +15,7 @@ services:
     user: "${DOCKER_USER:-root}"
     volumes:
       - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
+
   kafka_1: &kafka
     image: wurstmeister/kafka:2.13-2.8.1
     # ports:
@@ -72,6 +74,61 @@ services:
       - ./kafka/kafka-entrypoint.sh:/bin/kafka-entrypoint.sh
       - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
       - ./kerberos/krb5.conf:/etc/krb5.conf
+
+  # N.B.: separate from cluster above
+  zookeeper2:
+    image: public.ecr.aws/docker/library/zookeeper:3.6
+    # ports:
+    #   - "2181:2181"
+    container_name: zookeeper2
+    hostname: zookeeper2
+    networks:
+      emqx_bridge:
+
+  kafka_3:
+    image: wurstmeister/kafka:2.13-2.8.1
+    # ports:
+    #   - "9192-9195:9192-9195"
+    container_name: kafka-3.emqx.net
+    hostname: kafka-3.emqx.net
+    depends_on:
+      kdc:
+        condition: service_started
+      zookeeper:
+        condition: service_started
+      ssl_cert_gen:
+        condition: service_completed_successfully
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper2:2181
+      KAFKA_LISTENERS: SASL_PLAINTEXT://:9092
+      KAFKA_ADVERTISED_LISTENERS: SASL_PLAINTEXT://kafka-3.emqx.net:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_PLAINTEXT:SASL_PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_PLAINTEXT
+      KAFKA_SASL_ENABLED_MECHANISMS: OAUTHBEARER
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: OAUTHBEARER
+      KAFKA_OPTS: >
+        -Djava.security.auth.login.config=/etc/kafka/jaas.conf
+        -Dlistener.name.sasl_plaintext.oauthbearer.sasl.login.callback.handler.class=org.apache.kafka.common.security.oauthbearer.OAuthBearerTokenCallback
+        -Dlistener.name.sasl_plaintext.oauthbearer.sasl.server.callback.handler.class=org.apache.kafka.common.security.oauthbearer.OAuthBearerValidatorCallback
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "true"
+      KAFKA_CREATE_TOPICS_NG: test-topic-one-partition:1:1,test-topic-two-partitions:2:1,test-topic-three-partitions:3:1,
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer
+      KAFKA_SSL_TRUSTSTORE_LOCATION: /var/lib/secret/kafka.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_PASSWORD: password
+      KAFKA_SSL_KEYSTORE_LOCATION: /var/lib/secret/kafka.keystore.jks
+      KAFKA_SSL_KEYSTORE_PASSWORD: password
+      KAFKA_SSL_KEY_PASSWORD: password
+    networks:
+      emqx_bridge:
+    volumes:
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret-ro:ro
+      - ./kafka/jaas3.conf:/etc/kafka/jaas.conf
+      - ./kafka/kafka-entrypoint3.sh:/bin/kafka-entrypoint3.sh
+      - ./kerberos/krb5.conf:/etc/kdc/krb5.conf
+      - ./kerberos/krb5.conf:/etc/krb5.conf
+    command: kafka-entrypoint3.sh
 
   kafka_setup_acls:
     image: wurstmeister/kafka:2.13-2.8.1

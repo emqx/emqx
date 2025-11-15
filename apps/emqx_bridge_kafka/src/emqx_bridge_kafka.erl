@@ -265,6 +265,37 @@ fields(auth_username_password) ->
                 desc => ?DESC(auth_sasl_password)
             })}
     ];
+fields(auth_oauth_client_credentials) ->
+    [
+        {mechanism,
+            mk(oauth, #{required => true, desc => ?DESC("oauth_client_credentials_mechanism")})},
+        {grant_type,
+            mk(client_credentials, #{
+                default => client_credentials,
+                required => true,
+                desc => ?DESC("oauth_client_credentials_grant_type")
+            })},
+        {endpoint_uri,
+            mk(binary(), #{required => true, desc => ?DESC("oauth_client_credentials_endpoint_uri")})},
+        {client_id,
+            mk(binary(), #{required => true, desc => ?DESC("oauth_client_credentials_client_id")})},
+        {client_secret,
+            emqx_schema_secret:mk(#{
+                required => true, desc => ?DESC("oauth_client_credentials_client_secret")
+            })},
+        {scope,
+            mk(binary(), #{required => false, desc => ?DESC("oauth_client_credentials_scope")})},
+        {extensions,
+            mk(map(), #{default => #{}, desc => ?DESC("oauth_client_credentials_extensions")})},
+        {timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"5s">>, importance => ?IMPORTANCE_HIDDEN
+            })},
+        {connect_timeout,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"5s">>, importance => ?IMPORTANCE_HIDDEN
+            })}
+    ];
 fields(auth_gssapi_kerberos) ->
     [
         {kerberos_principal,
@@ -609,6 +640,7 @@ kafka_connector_config_fields() ->
                 hoconsc:union([
                     none,
                     msk_iam,
+                    ref(auth_oauth_client_credentials),
                     ref(auth_username_password),
                     ref(auth_gssapi_kerberos)
                 ]),

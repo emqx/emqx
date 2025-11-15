@@ -33,6 +33,7 @@ defmodule EMQXBridgeConfluent.MixProject do
       :kafka_protocol,
       :brod_gssapi,
       :brod,
+      :brod_oauth,
       :snappyer,
       :telemetry,
       {:emqx_connector, in_umbrella: true, runtime: false},
