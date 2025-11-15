@@ -39,6 +39,7 @@
 -define(TRACE_API(METHOD, FN), ?API(emqx_mgmt_api_trace, METHOD, FN)).
 -define(PUBLISH_API(METHOD, FN), ?API(emqx_mgmt_api_publish, METHOD, FN)).
 -define(DATA_BACKUP_API(METHOD, FN), ?API(emqx_mgmt_api_data_backup, METHOD, FN)).
+-define(AUTHZ_MNESIA_API(METHOD, FN), ?API(emqx_authz_api_mnesia, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -188,6 +189,13 @@ do_check_rbac(
     is_binary(Namespace)
 ->
     %% Configuration backup export/import.
+    true;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?AUTHZ_MNESIA_API(_, _)
+) when
+    is_binary(Namespace)
+->
+    %% Built-in / mnesia authz.
     true;
 do_check_rbac(_, _, _) ->
     false.

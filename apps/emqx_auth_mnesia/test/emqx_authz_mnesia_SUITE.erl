@@ -8,6 +8,7 @@
 -compile(export_all).
 
 -include_lib("emqx_auth/include/emqx_authz.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
 -include_lib("eunit/include/eunit.hrl").
@@ -15,9 +16,6 @@
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
-
-groups() ->
-    [].
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
@@ -41,7 +39,7 @@ init_per_testcase(_TestCase, Config) ->
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_authz_mnesia:purge_rules().
+    ok = emqx_authz_mnesia:purge_rules(?global_ns).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -281,23 +279,55 @@ t_authz(_Config) ->
         },
         {ClientInfo#{listener => 'ws:default'}, ?AUTHZ_PUBLISH, <<"t">>}
     ),
+    Namespace1 = <<"ns1">>,
+    %% ns mismatch (global and specific)
+    test_authz(
+        deny,
+        Namespace1,
+        {all, #{
+            <<"permission">> => <<"allow">>, <<"action">> => <<"subscribe">>, <<"topic">> => <<"t">>
+        }},
+        {ClientInfo, ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
+    %% ns matches
+    test_authz(
+        allow,
+        Namespace1,
+        {all, #{
+            <<"permission">> => <<"allow">>, <<"action">> => <<"subscribe">>, <<"topic">> => <<"t">>
+        }},
+        {with_ns(Namespace1, ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
+    %% ns mismatch (different specific namespaces)
+    Namespace2 = <<"ns2">>,
+    test_authz(
+        deny,
+        Namespace1,
+        {all, #{
+            <<"permission">> => <<"allow">>, <<"action">> => <<"subscribe">>, <<"topic">> => <<"t">>
+        }},
+        {with_ns(Namespace2, ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
     ok.
 
 test_authz(Expected, {Who, Rule}, {ClientInfo, Action, Topic}) ->
-    ct:pal("Test authz~nwho:~p~nrule:~p~nattempt:~p~nexpected ~p", [
-        Who, Rule, {ClientInfo, Action, Topic}, Expected
+    test_authz(Expected, ?global_ns, {Who, Rule}, {ClientInfo, Action, Topic}).
+
+test_authz(Expected, Namespace, {Who, Rule}, {ClientInfo, Action, Topic}) ->
+    ct:pal("Test authz~nns: ~p~nwho: ~p~nrule: ~p~nattempt: ~p~nexpected: ~p", [
+        Namespace, Who, Rule, {ClientInfo, Action, Topic}, Expected
     ]),
     try
-        ok = emqx_authz_mnesia:store_rules(Who, [Rule]),
+        ok = store_rules(Namespace, Who, [Rule]),
         ?assertEqual(Expected, emqx_access_control:authorize(ClientInfo, Action, Topic))
     after
-        ok = emqx_authz_mnesia:purge_rules()
+        ok = emqx_authz_mnesia:purge_rules(Namespace)
     end.
 
 t_normalize_rules(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
-    ok = emqx_authz_mnesia:store_rules(
+    ok = store_rules(
         {username, <<"username">>},
         [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>}]
     ),
@@ -310,7 +340,7 @@ t_normalize_rules(_Config) ->
     ?assertException(
         error,
         #{reason := invalid_rule},
-        emqx_authz_mnesia:store_rules(
+        store_rules(
             {username, <<"username">>},
             [[<<"allow">>, <<"publish">>, <<"t">>]]
         )
@@ -319,7 +349,7 @@ t_normalize_rules(_Config) ->
     ?assertException(
         error,
         #{reason := invalid_action},
-        emqx_authz_mnesia:store_rules(
+        store_rules(
             {username, <<"username">>},
             [
                 #{
@@ -334,7 +364,7 @@ t_normalize_rules(_Config) ->
     ?assertException(
         error,
         #{reason := invalid_permission},
-        emqx_authz_mnesia:store_rules(
+        store_rules(
             {username, <<"username">>},
             [
                 #{
@@ -350,6 +380,7 @@ t_legacy_rules(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
     ok = emqx_authz_mnesia:do_store_rules(
+        ?global_ns,
         %% {?ACL_TABLE_USERNAME, <<"username">>}
         {1, <<"username">>},
         [
@@ -366,7 +397,7 @@ t_legacy_rules(_Config) ->
 t_destroy(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
-    ok = emqx_authz_mnesia:store_rules(
+    ok = store_rules(
         {username, <<"username">>},
         [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>}]
     ),
@@ -395,7 +426,7 @@ t_destroy(_Config) ->
 t_conf_cli_load(_Config) ->
     ClientInfo = emqx_authz_test_lib:base_client_info(),
 
-    ok = emqx_authz_mnesia:store_rules(
+    ok = store_rules(
         {username, <<"username">>},
         [#{<<"permission">> => <<"allow">>, <<"action">> => <<"publish">>, <<"topic">> => <<"t">>}]
     ),
@@ -428,3 +459,17 @@ raw_mnesia_authz_config() ->
 
 setup_config() ->
     emqx_authz_test_lib:setup_config(raw_mnesia_authz_config(), #{}).
+
+store_rules(Who, Rules) ->
+    emqx_authz_mnesia:store_rules(?global_ns, Who, Rules).
+
+store_rules(Namespace, Who, Rules) ->
+    emqx_authz_mnesia:store_rules(Namespace, Who, Rules).
+
+with_ns(Namespace, ClientInfo) ->
+    maps:update_with(
+        client_attrs,
+        fun(Attrs) -> Attrs#{?CLIENT_ATTR_NAME_TNS => Namespace} end,
+        #{?CLIENT_ATTR_NAME_TNS => Namespace},
+        ClientInfo
+    ).

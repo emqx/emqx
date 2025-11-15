@@ -9,6 +9,7 @@
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
@@ -656,6 +657,7 @@ setup_t_export_cloud_subset_scenario() ->
         }
     ),
     ok = emqx_authz_mnesia:store_rules(
+        ?global_ns,
         {username, <<"user2">>},
         [
             #{
@@ -667,6 +669,23 @@ setup_t_export_cloud_subset_scenario() ->
                 <<"permission">> => <<"allow">>,
                 <<"action">> => <<"subscribe">>,
                 <<"topic">> => <<"t/+">>
+            }
+        ]
+    ),
+    Ns = <<"some_ns">>,
+    ok = emqx_authz_mnesia:store_rules(
+        Ns,
+        {username, <<"user3">>},
+        [
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"publish">>,
+                <<"topic">> => <<"u">>
+            },
+            #{
+                <<"permission">> => <<"allow">>,
+                <<"action">> => <<"subscribe">>,
+                <<"topic">> => <<"u/+">>
             }
         ]
     ),
