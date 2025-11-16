@@ -2908,6 +2908,14 @@ authz_fields() ->
             sc(
                 ref(?MODULE, "authz_cache"),
                 #{}
+            )},
+        {"include_mountpoint",
+            sc(
+                boolean(),
+                #{
+                    default => false,
+                    desc => ?DESC("authz_include_mountpoint")
+                }
             )}
     ].
 
