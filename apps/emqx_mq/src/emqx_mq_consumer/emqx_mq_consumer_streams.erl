@@ -28,7 +28,8 @@ The module holds a stream_buffers for all streams of a single Message Queue.
     get_iterator/4,
     on_new_iterator/5,
     on_unrecoverable_error/5,
-    on_subscription_down/4
+    on_subscription_down/4,
+    list_known_streams/2
 ]).
 
 %%--------------------------------------------------------------------
@@ -321,6 +322,13 @@ on_subscription_down(
         _ ->
             State
     end.
+
+list_known_streams(?SUB_ID, #{shards := ShardStates}) ->
+    [
+        {{Shard, Generation}, Stream}
+     || {Shard, #{status := active, generation := Generation, stream := Stream}} <-
+            maps:to_list(ShardStates)
+    ].
 
 %%--------------------------------------------------------------------
 %% Internal functions
