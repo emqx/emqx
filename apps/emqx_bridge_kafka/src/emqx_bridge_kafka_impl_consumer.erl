@@ -275,7 +275,7 @@ on_get_channels(ConnectorResId) ->
 ) ->
     ?status_connected | {?status_disconnected | ?status_connecting, _Msg :: binary()}.
 on_get_channel_status(
-    _ConnectorResId,
+    ConnResId,
     SourceResId,
     ConnectorState = #{installed_sources := InstalledSources}
 ) when is_map_key(SourceResId, InstalledSources) ->
@@ -284,7 +284,7 @@ on_get_channel_status(
         kafka_topics := KafkaTopics,
         subscriber_id := SubscriberId
     } = maps:get(SourceResId, InstalledSources),
-    do_get_status(ClientID, KafkaTopics, SubscriberId);
+    do_get_status(ConnResId, ClientID, KafkaTopics, SubscriberId);
 on_get_channel_status(_ConnectorResId, _SourceResId, _ConnectorState) ->
     ?status_disconnected.
 
@@ -438,24 +438,32 @@ start_consumer(Config, ConnectorResId, SourceResId, ClientID, ConnState) ->
     ?tp(kafka_consumer_about_to_start_subscriber, #{}),
     ok = allocate_subscriber_id(ConnectorResId, SourceResId, SubscriberId),
     ?tp(kafka_consumer_subscriber_allocated, #{}),
-    case emqx_bridge_kafka_consumer_sup:start_child(SubscriberId, GroupSubscriberConfig) of
-        {ok, _ConsumerPid} ->
-            ?tp(
-                kafka_consumer_subscriber_started,
-                #{resource_id => SourceResId, subscriber_id => SubscriberId}
-            ),
-            {ok, #{
-                subscriber_id => SubscriberId,
-                kafka_client_id => ClientID,
-                kafka_topics => KafkaTopics
-            }};
-        {error, Reason} ->
-            ?SLOG(error, #{
-                msg => "failed_to_start_kafka_consumer",
-                resource_id => SourceResId,
-                reason => emqx_utils:redact(Reason)
-            }),
-            {error, Reason}
+    SourceState = #{
+        subscriber_id => SubscriberId,
+        kafka_client_id => ClientID,
+        kafka_topics => KafkaTopics
+    },
+    case emqx_resource:is_dry_run(ConnectorResId) of
+        true ->
+            %% We avoid creating workers during dry runs because supposedly it's costly to
+            %% start workers for many partitions when starting even for dry runs / probes.
+            {ok, SourceState};
+        false ->
+            case emqx_bridge_kafka_consumer_sup:start_child(SubscriberId, GroupSubscriberConfig) of
+                {ok, _ConsumerPid} ->
+                    ?tp(
+                        kafka_consumer_subscriber_started,
+                        #{resource_id => SourceResId, subscriber_id => SubscriberId}
+                    ),
+                    {ok, SourceState};
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "failed_to_start_kafka_consumer",
+                        resource_id => SourceResId,
+                        reason => emqx_utils:redact(Reason)
+                    }),
+                    {error, Reason}
+            end
     end.
 
 %% Currently, brod treats a consumer process to a specific topic as a singleton (per
@@ -524,12 +532,12 @@ stop_client(ClientID) ->
     ),
     ok.
 
-do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
+do_get_status(ConnResId, ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
     case brod:get_partitions_count(ClientID, KafkaTopic) of
-        {ok, NPartitions} ->
-            case do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) of
+        {ok, _NPartitions} ->
+            case do_get_topic_status(ConnResId, ClientID, KafkaTopic, SubscriberId) of
                 ?status_connected ->
-                    do_get_status(ClientID, RestTopics, SubscriberId);
+                    do_get_status(ConnResId, ClientID, RestTopics, SubscriberId);
                 {Status, Message} when Status =/= ?status_connected ->
                     {Status, Message}
             end;
@@ -559,50 +567,80 @@ do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
         {error, Reason} ->
             {?status_disconnected, Reason}
     end;
-do_get_status(_ClientID, _KafkaTopics = [], _SubscriberId) ->
+do_get_status(_ConnResId, _ClientID, _KafkaTopics = [], _SubscriberId) ->
     ?status_connected.
 
--spec do_get_topic_status(brod:client_id(), binary(), subscriber_id(), pos_integer()) ->
+-spec do_get_topic_status(connector_resource_id(), brod:client_id(), binary(), subscriber_id()) ->
     ?status_connected | {?status_disconnected | ?status_connecting, _Msg :: binary()}.
-do_get_topic_status(ClientID, KafkaTopic, SubscriberId, NPartitions) ->
-    Results =
-        lists:map(
-            fun(N) ->
-                {N, brod_client:get_leader_connection(ClientID, KafkaTopic, N)}
-            end,
-            lists:seq(0, NPartitions - 1)
-        ),
-    WorkersAlive = are_subscriber_workers_alive(SubscriberId),
-    case check_leader_connection_results(Results) of
-        ok when WorkersAlive ->
-            ?status_connected;
-        {error, no_leaders} ->
-            {?status_disconnected, <<"No leaders available (no partitions?)">>};
-        {error, {N, Reason}} ->
-            Msg = iolist_to_binary(
-                io_lib:format(
-                    "Leader for partition ~b unavailable; reason: ~0p",
-                    [N, emqx_utils:redact(Reason)]
-                )
+do_get_topic_status(ConnResId, ClientID, KafkaTopic, SubscriberId) ->
+    IsDryRun = emqx_resource:is_dry_run(ConnResId),
+    case get_consumer_workers(KafkaTopic, SubscriberId) of
+        {_AliveWorkers = [], []} ->
+            %% Didn't have enough time to receive partition assignments?
+            case brod_client:get_partitions_count(ClientID, KafkaTopic) of
+                {ok, NumPartitions} ->
+                    Partitions = lists:seq(0, NumPartitions - 1),
+                    do_check_leader_connections(ClientID, KafkaTopic, Partitions);
+                {error, Reason} ->
+                    Msg = io_lib:format(
+                        "Failed to get partition count for ~s: ~p; client: ~p",
+                        [KafkaTopic, Reason, ClientID]
+                    ),
+                    {?status_disconnected, iolist_to_binary(Msg)}
+            end;
+        {AliveWorkers, []} ->
+            {Partitions, _WorkerPids} = lists:unzip(AliveWorkers),
+            do_check_leader_connections(ClientID, KafkaTopic, Partitions);
+        {_AliveWorkers, DeadWorkers} ->
+            DeadPartitions = lists:map(fun({P, _Pid}) -> P end, DeadWorkers),
+            Msg = io_lib:format(
+                "Partition workers down; client=~s; topic=~s; partitions=~0p",
+                [ClientID, KafkaTopic, DeadPartitions]
             ),
-            {?status_disconnected, Msg};
-        ok when not WorkersAlive ->
-            {?status_connecting, <<"Subscription workers restarting">>}
+            {?status_connecting, iolist_to_binary(Msg)};
+        false when IsDryRun ->
+            %% We don't start workers for dry runs / probes.
+            case brod_client:get_partitions_count(ClientID, KafkaTopic) of
+                {ok, NumPartitions} ->
+                    Partitions = lists:seq(0, NumPartitions - 1),
+                    do_check_leader_connections(ClientID, KafkaTopic, Partitions);
+                {error, Reason} ->
+                    Msg = io_lib:format(
+                        "Failed to get partition count for ~s: ~p; client: ~p",
+                        [KafkaTopic, Reason, ClientID]
+                    ),
+                    {?status_disconnected, iolist_to_binary(Msg)}
+            end;
+        false ->
+            {?status_connecting, <<"Subscriber workers restarting">>}
     end.
 
-check_leader_connection_results(Results) ->
-    emqx_utils:foldl_while(
-        fun
-            ({_N, {ok, _}}, _Acc) ->
-                {cont, ok};
-            ({N, {error, Reason}}, _Acc) ->
-                {halt, {error, {N, Reason}}}
+do_check_leader_connections(ClientID, KafkaTopic, Partitions) ->
+    DisconnectedLeaders = lists:filtermap(
+        fun(Partition) ->
+            case brod_client:get_leader_connection(ClientID, KafkaTopic, Partition) of
+                {ok, _Conn} ->
+                    false;
+                {error, Reason} ->
+                    {true, {Partition, Reason}}
+            end
         end,
-        {error, no_leaders},
-        Results
-    ).
+        Partitions
+    ),
+    case DisconnectedLeaders of
+        [] ->
+            ?status_connected;
+        [{P, R} | _] ->
+            Msg = io_lib:format(
+                "Partition leader unavailable; client=~s; topic=~s; partition=~p; disconnected=~0p; total=~p",
+                [ClientID, KafkaTopic, P, R, length(DisconnectedLeaders)]
+            ),
+            {?status_disconnected, iolist_to_binary(Msg)}
+    end.
 
-are_subscriber_workers_alive(SubscriberId) ->
+%% Returns 'false' if failed to get workers.
+%% Returns {AliveWorkers, DeadWorkers} otherwise.
+get_consumer_workers(KafkaTopic, SubscriberId) ->
     try
         Children = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
         case lists:keyfind(SubscriberId, 1, Children) of
@@ -611,11 +649,23 @@ are_subscriber_workers_alive(SubscriberId) ->
             {_, undefined, _, _} ->
                 false;
             {_, Pid, _, _} when is_pid(Pid) ->
-                Workers = brod_group_subscriber_v2:get_workers(Pid),
-                %% we can't enforce the number of partitions on a single
-                %% node, as the group might be spread across an emqx
-                %% cluster.
-                lists:all(fun is_process_alive/1, maps:values(Workers))
+                Workers0 = brod_group_subscriber_v2:get_workers(Pid),
+                Workers = maps:fold(
+                    fun({Topic, Partition}, WokerPid, Acc) ->
+                        case Topic =:= KafkaTopic of
+                            true ->
+                                [{Partition, WokerPid} | Acc];
+                            false ->
+                                Acc
+                        end
+                    end,
+                    [],
+                    Workers0
+                ),
+                lists:partition(
+                    fun({_Partition, WorkerPid}) -> is_process_alive(WorkerPid) end,
+                    lists:keysort(1, Workers)
+                )
         end
     catch
         exit:{noproc, _} ->
