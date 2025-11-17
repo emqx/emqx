@@ -11,6 +11,7 @@
 
     create_tables/0,
     get_or_refresh/2,
+    get_or_refresh/3,
     unregister/1,
     clear_cache/0,
     clear_cache/1
@@ -39,7 +40,7 @@
 -define(TOKEN_ROW(KEY, DEADLINE, TOKEN), {KEY, DEADLINE, TOKEN}).
 
 %% Calls/casts/infos
--record(register_refresh, {client_id, refresh_fn}).
+-record(register_refresh, {client_id, refresh_fn, opts}).
 -record(unregister, {client_id}).
 -record(refresh, {client_id}).
 
@@ -55,11 +56,14 @@ create_tables() ->
     ok.
 
 get_or_refresh(ClientId, RefreshFn) ->
+    get_or_refresh(ClientId, RefreshFn, _Opts = #{}).
+
+get_or_refresh(ClientId, RefreshFn, Opts) ->
     case get_cached(ClientId) of
         {ok, Response} ->
             Response;
         error ->
-            call(#register_refresh{client_id = ClientId, refresh_fn = RefreshFn})
+            call(#register_refresh{client_id = ClientId, refresh_fn = RefreshFn, opts = Opts})
     end.
 
 unregister(ClientId) ->
@@ -89,8 +93,10 @@ init(_Opts) ->
 terminate(_Reason, _State) ->
     ok.
 
-handle_call(#register_refresh{client_id = ClientId, refresh_fn = RefreshFn}, _From, State0) ->
-    {Reply, State} = handle_register_refresh(ClientId, RefreshFn, State0),
+handle_call(
+    #register_refresh{client_id = ClientId, refresh_fn = RefreshFn, opts = Opts}, _From, State0
+) ->
+    {Reply, State} = handle_register_refresh(ClientId, RefreshFn, Opts, State0),
     {reply, Reply, State};
 handle_call(#unregister{client_id = ClientId}, _From, State0) ->
     State = handle_unregister(ClientId, State0),
@@ -127,33 +133,34 @@ get_cached(ClientId) ->
             error
     end.
 
-handle_register_refresh(ClientId, RefreshFn, State0) ->
+handle_register_refresh(ClientId, RefreshFn, Opts, State0) ->
     %% Might've been just stored by a previous call.
     case get_cached(ClientId) of
         {ok, Response} ->
             %% Store provided refresh fn, as it could be an updated version.
             State = maps:update_with(
                 ?registered,
-                fun(R) -> R#{ClientId => RefreshFn} end,
+                fun(R) -> R#{ClientId => {RefreshFn, Opts}} end,
                 State0
             ),
             {Response, State};
         error ->
-            do_handle_register_refresh(ClientId, RefreshFn, State0)
+            do_handle_register_refresh(ClientId, RefreshFn, Opts, State0)
     end.
 
-do_handle_register_refresh(ClientId, RefreshFn, State0) ->
+do_handle_register_refresh(ClientId, RefreshFn, Opts, State0) ->
     case do_fetch_token(ClientId, RefreshFn) of
         {ok, ExpiryMS, Token} ->
             State1 = store_token_and_schedule_refresh(ExpiryMS, ClientId, Token, State0),
             State = maps:update_with(
                 ?registered,
-                fun(R) -> R#{ClientId => RefreshFn} end,
+                fun(R) -> R#{ClientId => {RefreshFn, Opts}} end,
                 State1
             ),
             {{ok, Token}, State};
         {error, Reason} ->
-            Deadline = now_ms() + timer:seconds(1),
+            CacheFailuresFor = maps:get(cache_failures_for, Opts, timer:seconds(1)),
+            Deadline = now_ms() + CacheFailuresFor,
             _ = ets:insert(?TOKEN_RESP_TAB, ?TOKEN_ROW(?KEY(ClientId), Deadline, {error, Reason})),
             {{error, Reason}, State0}
     end.
@@ -169,7 +176,7 @@ do_fetch_token(ClientId, RefreshFn) ->
                 reason => Reason,
                 stacktrace => Stacktrace
             }),
-            {error, Reason}
+            {error, {Kind, Reason}}
     end.
 
 handle_unregister(ClientId, State0) ->
@@ -184,7 +191,7 @@ handle_refresh(ClientId, #{?registered := Registered} = State0) when
     ?tp(error, "kafka_token_refresh_unknown_clientid", #{clientid => ClientId}),
     State0;
 handle_refresh(ClientId, #{?registered := Registered} = State0) ->
-    RefreshFn = maps:get(ClientId, Registered),
+    {RefreshFn, Opts} = maps:get(ClientId, Registered),
     ?tp(info, "kafka_token_refreshing", #{client_id => ClientId}),
     case do_fetch_token(ClientId, RefreshFn) of
         {ok, ExpiryMS, Token} ->
@@ -192,7 +199,7 @@ handle_refresh(ClientId, #{?registered := Registered} = State0) ->
             store_token_and_schedule_refresh(ExpiryMS, ClientId, Token, State0);
         {error, Reason} ->
             ?tp(warning, "kafka_token_refresh_failed", #{client_id => ClientId, reason => Reason}),
-            RetryTime = timer:seconds(5),
+            RetryTime = maps:get(retry_interval, Opts, timer:seconds(5)),
             ensure_refresh_timer(ClientId, RetryTime, State0)
     end.
 
