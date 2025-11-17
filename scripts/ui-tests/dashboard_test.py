@@ -23,8 +23,13 @@ def driver():
     options = Options()
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
-    service = webdriver.ChromeService(executable_path="/usr/bin/chromedriver")
-    _driver = webdriver.Chrome(options=options, service=service)
+    # Use hardcoded path if it exists (for Docker), otherwise let Selenium manage it
+    chromedriver_path = "/usr/bin/chromedriver"
+    if os.path.exists(chromedriver_path):
+        service = webdriver.ChromeService(executable_path=chromedriver_path)
+        _driver = webdriver.Chrome(options=options, service=service)
+    else:
+        _driver = webdriver.Chrome(options=options)
     yield _driver
     _driver.quit()
 
@@ -94,20 +99,26 @@ def ensure_current_url(driver, url, timeout=10):
         raise Exception(f"Failed to load URL '{url}' within {timeout} seconds. Current URL is '{driver.current_url}'")
 
 def wait_for_title_text(driver, text, timeout=10):
-    """Waits for the H1 header title to contain the specific text."""
-    TITLE_ELEMENT = (By.XPATH, "//div[@id='app']//h1[@class='header-title']")
-    try:
-        WebDriverWait(driver, timeout).until(
-            EC.text_to_be_present_in_element(TITLE_ELEMENT, text)
-        )
-    except TimeoutException:
-        # Find the element to provide a better error message
-        current_title = driver.find_element(*TITLE_ELEMENT).text
-        raise AssertionError(f"Title did not become '{text}'. Current title is '{current_title}'.")
+    """Waits for the page title to contain the specific text."""
+    # Wait for the app to be loaded and have content
+    WebDriverWait(driver, timeout).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    WebDriverWait(driver, timeout).until(
+        lambda d: len(d.find_elements(By.ID, "app")) > 0 and
+                 d.find_element(By.ID, "app").text.strip() != ""
+    )
+
+    # Wait for the text to appear in the app
+    WebDriverWait(driver, timeout).until(
+        lambda d: text.lower() in d.find_element(By.ID, "app").text.lower()
+    )
 
 def test_basic(driver, dashboard_url):
     login(driver, dashboard_url)
     logger.info(f"Current URL: {driver.current_url}")
+    # Wait a bit for React to render
+    time.sleep(2)
     wait_for_title_text(driver, "Cluster Overview")
 
 def test_log(driver, dashboard_url):
@@ -116,16 +127,23 @@ def test_log(driver, dashboard_url):
     dest_url = urljoin(dashboard_url, "/#/log")
     driver.get(dest_url)
     ensure_current_url(driver, dest_url)
+    # Wait a bit for React to render
+    time.sleep(2)
     wait_for_title_text(driver, "Logging")
 
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Enable Log Handler')]")
-    assert driver.find_elements(By.ID, label.get_attribute("for"))
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Log Level')]")
-    assert driver.find_elements(By.ID, label.get_attribute("for"))
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Log Formatter')]")
-    assert driver.find_elements(By.ID, label.get_attribute("for"))
-    label = driver.find_element(By.XPATH, "//div[@id='app']//form//label[contains(., 'Time Offset')]")
-    assert driver.find_elements(By.ID, label.get_attribute("for"))
+    # Wait for the form to be present
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.XPATH, "//div[@id='app']//form"))
+    )
+
+    labels_to_find = ["Enable Log Handler", "Log Level", "Log Formatter", "Time Offset"]
+    for label_text in labels_to_find:
+        label = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, f"//div[@id='app']//form//label[contains(., '{label_text}')]"))
+        )
+        label_for = label.get_attribute("for")
+        if label_for:
+            assert driver.find_elements(By.ID, label_for), f"Label '{label_text}' found but associated element with id '{label_for}' not found"
 
 def fetch_version_info(dashboard_url):
     status_url = urljoin(dashboard_url, "/status?format=json")

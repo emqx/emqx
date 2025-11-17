@@ -271,7 +271,8 @@ roots(medium) ->
                 ref(durable_storage),
                 #{
                     importance => ?IMPORTANCE_MEDIUM,
-                    desc => ?DESC(durable_storage)
+                    desc => ?DESC(durable_storage),
+                    validator => fun emqx_ds_schema:validate_config/1
                 }
             )}
     ];
@@ -1883,7 +1884,7 @@ fields("durable_sessions") ->
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"5s">>,
+                    default => <<"15s">>,
                     desc => ?DESC(session_ds_checkpoint_interval),
                     importance => ?IMPORTANCE_MEDIUM
                 }
@@ -1960,7 +1961,7 @@ fields(durable_shared_subs) ->
             sc(
                 timeout_duration(),
                 #{
-                    default => <<"5s">>,
+                    default => <<"15s">>,
                     desc => ?DESC(ds_shared_sub_checkpoint_interval)
                 }
             )},

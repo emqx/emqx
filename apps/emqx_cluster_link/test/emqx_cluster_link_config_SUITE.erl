@@ -12,6 +12,8 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(BASE_CLINK_MQTT_PORT, 1883).
 -define(BASE_CLUSTER_NODE_PORT, 10000).
 
@@ -476,6 +478,7 @@ t_misconfigured_links('init', Config) ->
     ];
 t_misconfigured_links('end', Config) ->
     ok = snabbkaffe:stop(),
+    ok = emqx_common_test_helpers:call_janitor(),
     ok = emqx_cth_cluster:stop(?config(cluster_a, Config)),
     ok = emqx_cth_cluster:stop(?config(cluster_b, Config)).
 
@@ -489,6 +492,8 @@ t_misconfigured_links(Config) ->
 
     ClientA = start_client("t_config_a", NodeA1),
     ClientB = start_client("t_config_b", NodeB1),
+    on_exit(fun() -> catch emqtt:stop(ClientA) end),
+    on_exit(fun() -> catch emqtt:stop(ClientB) end),
 
     {ok, _, _} = emqtt:subscribe(ClientA, <<"t/test/1/+">>, qos1),
     {ok, _, _} = emqtt:subscribe(ClientB, <<"t/test-topic">>, qos1),
@@ -573,10 +578,7 @@ t_misconfigured_links(Config) ->
             ?snk_meta := #{node := NodeA1}
         },
         10_000
-    ),
-
-    ok = emqtt:stop(ClientA),
-    ok = emqtt:stop(ClientB).
+    ).
 
 start_client(ClientId, Node) ->
     start_client(ClientId, Node, true).

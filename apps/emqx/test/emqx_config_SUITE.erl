@@ -535,7 +535,7 @@ zone_global_defaults() ->
                 enable => false,
                 batch_size => 100,
                 force_persistence => false,
-                checkpoint_interval => 5000,
+                checkpoint_interval => 15000,
                 commit_timeout => 5000,
                 commit_retries => 10,
                 commit_retry_interval => 1000,
@@ -546,7 +546,7 @@ zone_global_defaults() ->
                     #{
                         heartbeat_interval => 5000,
                         leader_timeout => 5000,
-                        checkpoint_interval => 5000,
+                        checkpoint_interval => 15000,
                         realloc_interval => 100,
                         revocation_timeout => 10000,
                         max_idle_time => 30000

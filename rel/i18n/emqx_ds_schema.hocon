@@ -2,28 +2,28 @@ emqx_ds_schema {
   // Databases:
 
   messages {
-    label: "MQTT message storage"
+    label: "MQTT Message Storage"
     desc:
       """~
       Configuration of the durable storage for MQTT messages.~"""
   }
 
   sessions {
-    label: "MQTT session storage"
+    label: "MQTT Session Storage"
     desc:
       """~
       Configuration of the durable storage containing state and metadata of the durable sessions.~"""
   }
 
   timers {
-     label: "Durable timers storage"
+     label: "Durable Timers Storage"
      desc:
        """~
        Configuration of the durable storage containing timers.~"""
   }
 
   shared_subs {
-     label: "Durable shared subscriptions"
+     label: "Durable Shared Subscriptions"
      desc:
        """~
        Configuration of the durable storage containing metadata and topic replay progress by shared subscriptions.~"""
@@ -77,7 +77,7 @@ emqx_ds_schema {
   // Common options
 
   builtin_n_shards {
-    label: "Number of shards"
+    label: "Number of Shards"
     desc:
       """~
       The durable storage partitions data into shards.
@@ -86,11 +86,21 @@ emqx_ds_schema {
       Changing this configuration parameter after the database has been already created won't take any effect.~"""
   }
 
+  db_group {
+    label: "Database Group"
+    desc:
+      """~
+      Assign the durable storage to a database group with the given name.
+      Certain resources (such as disk usage quota) will be shared among all members of the group.
+
+      Backend of the database group should match that of the storage.~"""
+  }
+
 
   // Common options of builtin backends:
 
   builtin_data_dir {
-    label: "Database location"
+    label: "Database Location"
     desc:
       """~
       Root directory for the data related to built-in storage backends.
@@ -108,12 +118,12 @@ emqx_ds_schema {
   }
 
   builtin_optimistic_transaction {
-    label: "Transaction settings"
+    label: "Transaction Settings"
     desc: "Transaction settings."
   }
 
   otx_flush_interval {
-    label: "Transaction flush interval"
+    label: "Transaction Flush Interval"
     desc:
       """~
       Specifies the maximum time operations may linger in the buffer before they are committed to the storage.
@@ -121,14 +131,14 @@ emqx_ds_schema {
   }
 
   otx_idle_flush_interval {
-    label: "Idle transaction flush interval"
+    label: "Idle Transaction Flush Interval"
     desc:
       """~
       If shard doesn't receive new transactions within this period, the buffer is flushed early.~"""
   }
 
   otx_max_pending {
-    label: "Maximum pending operations"
+    label: "Maximum Pending Operations"
     desc:
       """~
       Specifies the maximum number of operations that can be held in the buffer.
@@ -136,7 +146,7 @@ emqx_ds_schema {
   }
 
   otx_conflict_window {
-    label: "Conflict tracking window"
+    label: "Conflict Tracking Window"
     desc:
       """~
       Built-in durable storage backends track recent updates over a period of time known as the conflict tracking window.
@@ -152,14 +162,14 @@ emqx_ds_schema {
   // RocksDB tuning:
 
   rocksdb_options {
-    label: "RocksDB options"
+    label: "RocksDB Options"
     desc:
       """~
       Options concerning behavior of RocksDB databases used by the built-in durable storage backends.~"""
   }
 
   rocksdb_cache_size {
-    label: "RocksDB cache size"
+    label: "RocksDB Cache Size"
     desc:
       """~
       Size of the RocksDB block cache.
@@ -170,18 +180,17 @@ emqx_ds_schema {
   }
 
   rocksdb_write_buffer_size {
-    label: "RocksDB write buffer size"
+    label: "RocksDB Write Buffer Size"
     desc:
       """~
-      Maximum size of the RocksDB memtables.
-
-      Memtable is a buffer where newly written data is kept before it is flushed to disk.
-
-      Each shard of the database has its own memtable.~"""
+      This parameter is deprecated and will be removed in a future release.
+      It has been replaced with `durable_storage.db_groups.write_buffer_size` parameter,
+      which has similar semantics, but is an aggregate for all shards.
+      .~"""
   }
 
   rocksdb_max_open_files {
-    label: "Maximum open files"
+    label: "Maximum Open Files"
     desc:
       """~
       Maximum number of open file descriptors per shard.~"""
@@ -190,7 +199,7 @@ emqx_ds_schema {
   // Raft-specific settings
 
   builtin_raft_replication_factor {
-    label: "Replication factor"
+    label: "Replication Factor"
     desc:
       """~
       Number of identical replicas each shard should have.
@@ -202,7 +211,7 @@ emqx_ds_schema {
 
 
   builtin_raft_n_sites {
-    label: "Initial number of sites"
+    label: "Initial Number of Sites"
     desc:
       """~
       Number of storage sites that need to share responsibility over the set of storage shards.
@@ -213,14 +222,14 @@ emqx_ds_schema {
   }
 
   builtin_raft_max_retries {
-    label: "Maximum retries"
+    label: "Maximum Retries"
     desc:
       """~
       Maximum number of retry attempts when encountering a recoverable intermittent failure.~"""
   }
 
   builtin_raft_retry_interval {
-    label: "Retry interval"
+    label: "Retry Interval"
     desc:
       """~
       Sleep time between retry attempts.~"""
@@ -229,7 +238,7 @@ emqx_ds_schema {
   // Storage layouts:
 
   builtin_layout {
-    label: "Storage layout"
+    label: "Storage Layout"
     desc:
       """~
       Storage layout is a method of arranging messages from various topics and clients on disc.
@@ -238,14 +247,14 @@ emqx_ds_schema {
   }
 
   layout_builtin_wildcard_optimized_type {
-    label: "Layout type"
+    label: "Layout Type"
     desc:
       """~
       Wildcard-optimized layout type.~"""
   }
 
   layout_builtin_wildcard_optimized {
-    label: "Wildcard-optimized storage layout"
+    label: "Wildcard-optimized Storage Layout"
     desc:
       """~
       _Wildcard-optimized_ layout is designed to maximize the throughput of wildcard subscriptions covering large numbers of topics.
@@ -257,7 +266,7 @@ emqx_ds_schema {
   }
 
   lts_wildcard_thresholds {
-    label: "Wildcard thresholds"
+    label: "Wildcard Thresholds"
     desc:
       """~
       Array of wildcard thresholds for different topic levels.
@@ -277,5 +286,78 @@ emqx_ds_schema {
       The last element of the array corresponds to all remaining levels as well.
 
       The array can't be empty.~"""
+  }
+
+  db_groups_root {
+    label: "Database Groups"
+    desc:
+      """~
+      A map of database group configurations.
+
+      Database groups are used to share certain resources between the durable storage databases.
+      For example, `storage_quota` parameter sets total disk usage allowance for all durable storages assigned to the group."""
+  }
+
+  db_group_record {
+    label: "Database Group"
+    desc: "Settings related to groups of durable storages using built-in backend."
+  }
+
+  db_group_name {
+    label: "Group Name"
+    desc: "Unique identifier of the group"
+  }
+
+  db_group_backend {
+    label: "Group Backend"
+    desc: "Backend used by all databases assigned to the group."
+  }
+
+  db_group_storage_quota {
+    label: "Storage Quota"
+    desc:
+      """~
+      Total disk space allowance for all durable storages assigned to the group.
+
+      When the total size of durable storages exceeds the quota,
+      attempts to write new data will fail until some disk space is freed.
+
+      Built-in backends treat this value as a soft quota:
+      disk space utilization may increase even as data is deleted from the database,
+      until the database is compacted.
+
+      In case of `builtin_raft` backend the quota check is performed by the leader node.
+      Only shards that have local replicas are counted towards the quota.
+
+      `db_storage_quota_exceeded:<DB>` alarm is raised when the quota is exceeded.
+
+      The consequences of exceeding the quota depend on the DB:
+      - `messages`: durable sessions cannot receive new messages.
+        Mitigations:
+        + Reduce `durable_sessions.message_retention_period` configuration parameter.
+        + Use `mqtt.subscription_max_qos_rules` to set subscription QoS for certain topics to 0.
+          Message delivery to QoS 0 subscriptions does not use disk space.
+      - `sessions`: durable sessions are disconnected from the broker.
+        Mitigations:
+        + Kick offline sessions.
+        + Limit the maximum number of sessions.~"""
+  }
+
+  db_group_write_buffer_size {
+    label: "Write Buffer Size"
+    desc: "Maximum total RAM allocated for the DB write buffers."
+  }
+
+  db_group_rocksdb_threads {
+    label: "Size of RocksDB Thread Pool"
+    desc:
+      """~
+      Number of RocksDB background threads per durable storage group.
+
+      RocksDB uses two thread pools: high and low priority.
+      The former is used for dumping memtables to disk,
+      and the latter is used for compaction.
+
+      By default, size of both pools is set to the number of dirty IO Schedulers.~"""
   }
 }

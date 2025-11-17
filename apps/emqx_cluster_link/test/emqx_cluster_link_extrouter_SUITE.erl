@@ -49,9 +49,10 @@ t_consistent_routing_view(_Config) ->
     Actor1 = {?FUNCTION_NAME, 1},
     Actor2 = {?FUNCTION_NAME, 2},
     Actor3 = {?FUNCTION_NAME, 3},
-    {ok, AS10} = actor_init(Actor1, 1),
-    {ok, AS20} = actor_init(Actor2, 1),
-    {ok, AS30} = actor_init(Actor3, 1),
+    {true, AS10} = actor_init(Actor1, 1),
+    {true, AS20} = actor_init(Actor2, 1),
+    {true, _AS3} = actor_init(Actor3, 1),
+    {false, AS30} = actor_init(Actor3, 1),
     %% Add few routes originating from different actors.
     %% Also test that route operations are idempotent.
     AS11 = apply_operation({add, {<<"t/client/#">>, id}}, AS10),
@@ -83,8 +84,8 @@ t_consistent_routing_view(_Config) ->
 t_actor_reincarnation(_Config) ->
     Actor1 = {?FUNCTION_NAME, 1},
     Actor2 = {?FUNCTION_NAME, 2},
-    {ok, AS10} = actor_init(Actor1, 1),
-    {ok, AS20} = actor_init(Actor2, 1),
+    {true, AS10} = actor_init(Actor1, 1),
+    {true, AS20} = actor_init(Actor2, 1),
     AS11 = apply_operation({add, {<<"topic/#">>, id}}, AS10),
     AS12 = apply_operation({add, {<<"topic/42/+">>, id}}, AS11),
     AS21 = apply_operation({add, {<<"topic/#">>, id}}, AS20),
@@ -92,7 +93,7 @@ t_actor_reincarnation(_Config) ->
         [<<"topic/#">>, <<"topic/42/+">>],
         topics_sorted()
     ),
-    {ok, _AS3} = actor_init(Actor1, 2),
+    {true, _AS3} = actor_init(Actor1, 2),
     ?assertError(
         _IncarnationMismatch,
         apply_operation({add, {<<"toolate/#">>, id}}, AS12)
@@ -101,7 +102,7 @@ t_actor_reincarnation(_Config) ->
         [<<"topic/#">>],
         topics_sorted()
     ),
-    {ok, _AS4} = actor_init(Actor2, 2),
+    {true, _AS4} = actor_init(Actor2, 2),
     ?assertError(
         _IncarnationMismatch,
         apply_operation({add, {<<"toolate/#">>, id}}, AS21)
@@ -114,8 +115,8 @@ t_actor_reincarnation(_Config) ->
 t_actor_gc(_Config) ->
     Actor1 = {?FUNCTION_NAME, 1},
     Actor2 = {?FUNCTION_NAME, 2},
-    {ok, AS10} = actor_init(Actor1, 1),
-    {ok, AS20} = actor_init(Actor2, 1),
+    {true, AS10} = actor_init(Actor1, 1),
+    {true, AS20} = actor_init(Actor2, 1),
     AS11 = apply_operation({add, {<<"topic/#">>, id}}, AS10),
     AS12 = apply_operation({add, {<<"topic/42/+">>, id}}, AS11),
     AS21 = apply_operation({add, {<<"global/#">>, id}}, AS20),
@@ -270,7 +271,7 @@ run_remote_actor({Node, Run}) ->
     erlang:spawn_monitor(Node, ?MODULE, run_actor, [Run]).
 
 run_actor({Actor, Seq}) ->
-    {ok, AS0} = actor_init(Actor, 0),
+    {true, AS0} = actor_init(Actor, 0),
     lists:foldl(
         fun
             ({TS, {add, _} = Op}, AS) ->
@@ -286,7 +287,7 @@ run_actor({Actor, Seq}) ->
                 ok = timer:sleep(MS),
                 AS;
             ({TS, reincarnate}, _AS) ->
-                {ok, AS} = actor_init(Actor, TS, TS),
+                {true, AS} = actor_init(Actor, TS, TS),
                 AS
         end,
         AS0,
