@@ -52,7 +52,7 @@ start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, _Opts = #{}, []).
 
 create_tables() ->
-    _ = emqx_utils_ets:new(?TOKEN_RESP_TAB, [public]),
+    _ = emqx_utils_ets:new(?TOKEN_RESP_TAB, [ordered_set, public]),
     ok.
 
 get_or_refresh(ClientId, RefreshFn) ->
