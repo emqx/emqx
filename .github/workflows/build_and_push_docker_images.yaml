@@ -55,7 +55,7 @@ permissions:
 
 jobs:
   docker:
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'aws-ubuntu-22.04-amd64' }}
+    runs-on: ${{ format('aws-ubuntu22.04-{0}', matrix.arch) }}
     defaults:
       run:
         shell: bash
