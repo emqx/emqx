@@ -144,7 +144,9 @@ authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
             inc_authz_metrics(deny),
             deny
     end;
-authorize(ClientInfo, Action, Topic) ->
+authorize(ClientInfo, Action, Topic0) ->
+    IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
+    Topic = maybe_mount_prefix(IncludeMountpoint, ClientInfo, Topic0),
     Result =
         case emqx_authz_cache:is_enabled(Topic) of
             true -> check_authorization_cache(ClientInfo, Action, Topic);
@@ -248,6 +250,17 @@ do_authorize(ClientInfo, Action, Topic) ->
             ),
             deny
     end.
+
+maybe_mount_prefix(false = _IncludeMountpoint, _ClientInfo, Topic0) ->
+    Topic0;
+maybe_mount_prefix(
+    true = _IncludeMountpoint, #{mountpoint := Mountpoint} = _ClientInfo, Topic0
+) when
+    is_binary(Mountpoint)
+->
+    emqx_mountpoint:mount(Mountpoint, Topic0);
+maybe_mount_prefix(true = _IncludeMountpoint, _ClientInfo, Topic0) ->
+    Topic0.
 
 log_result(Topic, Action, From, Result) ->
     LogMeta = fun() ->

@@ -58,7 +58,8 @@ t_api(_) ->
             <<"max_size">> => 32,
             <<"ttl">> => <<"60s">>,
             <<"excludes">> => [<<"nocache/#">>]
-        }
+        },
+        <<"include_mountpoint">> => false
     },
     Settings1Get = Settings1Put,
 
@@ -78,7 +79,8 @@ t_api(_) ->
         },
 
     Settings2Get = Settings2Put#{
-        <<"cache">> := Cache#{<<"excludes">> => []}
+        <<"cache">> := Cache#{<<"excludes">> => []},
+        <<"include_mountpoint">> => false
     },
 
     {ok, 200, Result2} = request(put, uri(["authorization", "settings"]), Settings2Put),

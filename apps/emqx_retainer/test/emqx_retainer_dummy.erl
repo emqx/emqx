@@ -22,9 +22,7 @@
     delete_cursor/2,
     clear_expired/3,
     clean/1,
-    size/1,
-    current_index_incarnation/1,
-    cursor_index_incarnation/2
+    size/1
 ]).
 
 -behaviour(emqx_schema_hooks).
@@ -62,10 +60,6 @@ clear_expired(_Context, _Deadline, _Limit) -> {true, 0}.
 clean(_Context) -> ok.
 
 size(_Context) -> 0.
-
-current_index_incarnation(_Context) -> 0.
-
-cursor_index_incarnation(_Context, _Cursor) -> 0.
 
 external_backend_fields() ->
     [
