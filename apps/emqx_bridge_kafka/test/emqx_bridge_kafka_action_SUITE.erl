@@ -2021,6 +2021,7 @@ t_oauth_client_credentials_authn(TCConfig0) ->
         )
     end),
     on_exit(fun emqx_utils_http_test_server:stop/0),
+    on_exit(fun emqx_bridge_kafka_token_cache:clear_cache/0),
     {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/oauth/token", false),
     NowS = erlang:system_time(second),
     JWT = generate_unsigned_jwt(#{

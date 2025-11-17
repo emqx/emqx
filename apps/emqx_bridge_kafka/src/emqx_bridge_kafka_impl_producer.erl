@@ -41,6 +41,7 @@
 -define(kafka_telemetry_id, kafka_telemetry_id).
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_producers, kafka_producers).
+
 -define(PROBE_TOPIC_NAME, <<"emqx-connector-connectivity-probe">>).
 
 resource_type() -> kafka_producer.
@@ -275,6 +276,13 @@ deallocate_client(ClientId) ->
         fun() -> wolff:stop_and_delete_supervised_client(ClientId) end,
         #{
             msg => "failed_to_delete_kafka_client",
+            client_id => ClientId
+        }
+    ),
+    _ = with_log_at_error(
+        fun() -> emqx_bridge_kafka_token_cache:unregister(ClientId) end,
+        #{
+            msg => "failed_to_unregister_token_cache",
             client_id => ClientId
         }
     ),

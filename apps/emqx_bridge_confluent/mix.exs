@@ -38,6 +38,7 @@ defmodule EMQXBridgeConfluent.MixProject do
       :telemetry,
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
+      {:emqx_bridge_kafka, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false}
     ])
   end
