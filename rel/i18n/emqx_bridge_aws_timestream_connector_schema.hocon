@@ -1,0 +1,8 @@
+emqx_bridge_aws_timestream_connector_schema {
+  config_connector {
+    label: """AWS Timestream Connector Configuration"""
+    desc:
+    """Configuration for a connector to AWS Timestream for InfluxDB."""
+  }
+
+}
