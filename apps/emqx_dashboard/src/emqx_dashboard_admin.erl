@@ -232,6 +232,7 @@ get_extra(Username) ->
     end.
 
 %% Before 5.3, extra is never used and initialized to [].
+-dialyzer({no_match, upgrade_extra/1}).
 upgrade_extra([]) -> #{};
 upgrade_extra(Map) when is_map(Map) -> Map.
 
