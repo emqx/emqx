@@ -281,6 +281,21 @@ get_groups() ->
         all_bootstrap_hosts()
     ).
 
+with_group_subscriber_spy(Opts, Fn) ->
+    #{timeout := Timeout} = Opts,
+    emqx_bridge_kafka_impl_consumer_SUITE:setup_group_subscriber_spy(self()),
+    try
+        Res = Fn(),
+        receive
+            {kafka_assignment, _, _} ->
+                Res
+        after Timeout ->
+            ct:fail("timed out waiting for kafka assignment")
+        end
+    after
+        emqx_bridge_kafka_impl_consumer_SUITE:kill_group_subscriber_spy()
+    end.
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -550,38 +565,48 @@ t_repeated_topics(Config) ->
 %% Verifies that we return an error containing information to debug connection issues when
 %% one of the partition leaders is unreachable.
 t_pretty_api_dry_run_reason(Config) ->
-    ProxyHost = ?config(proxy_host, Config),
-    ProxyPort = ?config(proxy_port, Config),
-    ProxyName = "kafka_2_plain",
+    emqx_logger:set_level(info),
     ?check_trace(
         begin
             {ok, {{_, 201, _}, _, _}} =
-                emqx_bridge_v2_testlib:create_bridge_api(Config),
-            emqx_common_test_helpers:with_failure(down, ProxyName, ProxyHost, ProxyPort, fun() ->
-                Res = probe_source_api(
-                    Config,
-                    #{<<"parameters">> => #{<<"topic">> => <<"test-topic-three-partitions">>}}
-                ),
-                ?assertMatch({400, _}, Res),
-                {400, #{<<"message">> := Msg}} = Res,
-                LeaderUnavailable =
-                    match ==
-                        re:run(
-                            Msg,
-                            <<"Leader for partition . unavailable; reason: ">>,
-                            [{capture, none}]
-                        ),
-                %% In CI, if this tests runs soon enough, Kafka may not be stable yet, and
-                %% this failure might occur.
-                CoordinatorFailure =
-                    match ==
-                        re:run(
-                            Msg,
-                            <<"shutdown,coordinator_failure">>,
-                            [{capture, none}]
-                        ),
-                ?assert(LeaderUnavailable or CoordinatorFailure, #{message => Msg})
-            end),
+                with_group_subscriber_spy(#{timeout => 15_000}, fun() ->
+                    emqx_bridge_v2_testlib:create_bridge_api(Config)
+                end),
+            emqx_common_test_helpers:with_mock(
+                brod_client,
+                get_leader_connection,
+                fun(_KafkaClientId, _KafkaTopic, _Partition) ->
+                    {error, "error-injection"}
+                end,
+                fun() ->
+                    Res = probe_source_api(
+                        Config,
+                        #{<<"parameters">> => #{<<"topic">> => <<"test-topic-three-partitions">>}}
+                    ),
+                    ?assertMatch({400, _}, Res),
+                    {400, #{<<"message">> := Msg}} = Res,
+                    LeaderUnavailable =
+                        match ==
+                            re:run(
+                                Msg,
+                                <<
+                                    "Partition leader unavailable; "
+                                    "client=.+; topic=.+; partition=.+; disconnected=.+; total=.+"
+                                >>,
+                                [{capture, none}]
+                            ),
+                    %% In CI, if this tests runs soon enough, Kafka may not be stable yet, and
+                    %% this failure might occur.
+                    CoordinatorFailure =
+                        match ==
+                            re:run(
+                                Msg,
+                                <<"shutdown,coordinator_failure">>,
+                                [{capture, none}]
+                            ),
+                    ?assert(LeaderUnavailable or CoordinatorFailure, #{message => Msg})
+                end
+            ),
             %% Wait for recovery; avoids affecting other test cases due to Kafka restabilizing...
             ?retry(
                 1_000,
