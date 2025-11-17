@@ -6,6 +6,9 @@
 %% API
 -export([mk_token_callback/1]).
 
+%% Internal exports (only for mocking/tests)
+-export([do_request/1]).
+
 -include_lib("jose/include/jose_jwt.hrl").
 -include_lib("emqx/include/logger.hrl").
 
@@ -34,15 +37,12 @@ mk_token_callback(#{grant_type := client_credentials} = Opts) ->
         Body = uri_string:compose_query(Params),
         Timeout = maps:get(timeout, Opts, 30_000),
         ConnectTimeout = maps:get(connect_timeout, Opts, 15_000),
-        Resp = httpc:request(
-            post,
-            {str(URI), _Headers = [], "application/x-www-form-urlencoded", Body},
-            [
-                {timeout, Timeout},
-                {connect_timeout, ConnectTimeout}
-            ],
-            [{body_format, binary}]
-        ),
+        Resp = ?MODULE:do_request(#{
+            uri => URI,
+            body => Body,
+            timeout => Timeout,
+            connect_timeout => ConnectTimeout
+        }),
         case Resp of
             {ok, {{_, 200, _}, _, RespBody}} ->
                 case emqx_utils_json:safe_decode(RespBody) of
@@ -60,11 +60,6 @@ mk_token_callback(#{grant_type := client_credentials} = Opts) ->
             {ok, {{_, Status, _}, Headers, BadResp}} ->
                 Details = #{status => Status, headers => Headers, body => BadResp},
                 {error, {bad_token_response, Details}};
-            {ok, {{_, Status, _}, BadResp}} ->
-                Details = #{status => Status, headers => [], body => BadResp},
-                {error, {bad_token_response, Details}};
-            {ok, BadResp} ->
-                {error, {bad_token_response, BadResp}};
             {error, Reason} ->
                 {error, {failed_to_fetch_token, Reason}}
         end
@@ -77,6 +72,32 @@ mk_token_callback(#{grant_type := client_credentials} = Opts) ->
                 {error, Reason}
         end
     end.
+
+%%------------------------------------------------------------------------------
+%% Internal exports
+%%------------------------------------------------------------------------------
+
+%% Only exposed for mocking/tests
+do_request(Params) ->
+    #{
+        uri := URI,
+        timeout := Timeout,
+        connect_timeout := ConnectTimeout,
+        body := Body
+    } = Params,
+    httpc:request(
+        post,
+        {str(URI), _Headers = [], "application/x-www-form-urlencoded", Body},
+        [
+            {timeout, Timeout},
+            {connect_timeout, ConnectTimeout}
+        ],
+        [{body_format, binary}]
+    ).
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
 
 str(X) -> emqx_utils_conv:str(X).
 
