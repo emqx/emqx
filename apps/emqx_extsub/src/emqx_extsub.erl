@@ -186,13 +186,15 @@ on_unsubscribed(UnsubscribeType, TopicFilters) ->
     end).
 
 on_client_handle_info(
+    _ClientInfo,
     #info_to_extsub{handler_ref = HandlerRef, info = InfoMsg},
-    #{session_info_fn := SessionInfoFn} = HookContext,
     #{deliver := Delivers} = Acc
 ) ->
     %% Message to a specific handler
     with_st(
         fun(St0) ->
+            HookContext = emqx_hooks:context('client.handle_info'),
+            #{session_info_fn := SessionInfoFn} = HookContext,
             case do_handle_info(St0, HookContext, HandlerRef, InfoMsg) of
                 {ok, St1} ->
                     {ok, St1};
@@ -204,17 +206,20 @@ on_client_handle_info(
         {ok, Acc}
     );
 on_client_handle_info(
+    _ClientInfo,
     #info_extsub_try_deliver{},
-    #{session_info_fn := SessionInfoFn} = _HookContext,
     #{deliver := Delivers} = Acc
 ) ->
     ?tp_debug(extsub_on_client_handle_info_try_deliver, #{}),
+    #{session_info_fn := SessionInfoFn} = emqx_hooks:context('client.handle_info'),
     {ok, Acc#{deliver => try_deliver(SessionInfoFn) ++ Delivers}};
 on_client_handle_info(
-    Info, #{session_info_fn := SessionInfoFn} = HookContext, #{deliver := Delivers} = Acc0
+    _ClientInfo, Info, #{deliver := Delivers} = Acc0
 ) ->
     %% Generic info
     with_st(fun(#st{registry = HandlerRegistry} = St0) ->
+        HookContext = emqx_hooks:context('client.handle_info'),
+        #{session_info_fn := SessionInfoFn} = HookContext,
         GenericMessageHandlers = emqx_extsub_handler_registry:generic_message_handlers(
             HandlerRegistry
         ),
