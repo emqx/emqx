@@ -105,7 +105,7 @@ do_apply_rule(
         },
         debug
     ),
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'matched'),
+    ok = inc_rule_matched_metrics(RuleId),
     clear_rule_payload(),
     try
         do_apply_rule2(Rule, Columns, Envs)
@@ -1003,6 +1003,11 @@ metrics_inc_no_result(RuleId) ->
 metrics_inc_exception(RuleId) ->
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.exception'),
     ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed').
+
+inc_rule_matched_metrics(RuleResId) ->
+    ok = emqx_metrics_worker:inc(rule_metrics, RuleResId, 'matched'),
+    ok = emqx_metrics:inc('rules.matched'),
+    ok.
 
 -if(?EMQX_RELEASE_EDITION == ee).
 
