@@ -2,7 +2,7 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_mq_message_quota_index).
+-module(emqx_mq_quota_index).
 
 -moduledoc """
 This module provides a space-efficient data structure for tracking message queue resource usage
@@ -68,8 +68,8 @@ that may make redundant data in the queue exceed the configured thresholds for s
 %% ASN1-generated struct field names are in camelCase.
 -elvis([{elvis_style, atom_naming_convention, #{regex => "^[a-z]\\w*$"}}]).
 
--include_lib("../gen_src/MessageQueue.hrl").
--include("emqx_mq_internal.hrl").
+-include_lib("../../gen_src/MessageQueue.hrl").
+-include("emqx_mq_quota.hrl").
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
