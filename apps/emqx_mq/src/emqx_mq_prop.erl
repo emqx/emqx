@@ -46,7 +46,7 @@ is_append_only(MQ) ->
     (not is_limited(MQ)) andalso (not is_lastvalue(MQ)).
 
 -spec quota_index_opts(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
-    emqx_mq_message_quota_index:opts().
+    emqx_mq_quota_index:opts().
 quota_index_opts(#{
     limits := #{
         max_shard_message_count := MaxShardMessageCount,

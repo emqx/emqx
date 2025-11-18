@@ -25,6 +25,8 @@ to wait for a certain number of replicas.
 
 -behaviour(application).
 
+-include("emqx_mq_internal.hrl").
+
 -export([start/2, stop/1, do_start/0]).
 -export([is_ready/0, wait_readiness/1]).
 
@@ -52,7 +54,7 @@ stop(_State) ->
     ok = emqx_conf:remove_handler([mq]),
     ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_mq:unregister_hooks(),
-    ok = emqx_mq_message_quota_buffer:stop(),
+    ok = emqx_mq_quota_buffer:stop(?MQ_QUOTA_BUFFER),
     ok = emqx_mq_message_db:close(),
     ok = emqx_mq_state_storage:close_db(),
     ok.
@@ -90,6 +92,12 @@ post_start() ->
 
 complete_start() ->
     ok = emqx_mq_sup:start_metrics(),
-    ok = emqx_mq_message_quota_buffer:start(),
+    ok = emqx_mq_quota_buffer:start(?MQ_QUOTA_BUFFER, quota_buffer_options()),
     ok = emqx_mq_sup:start_gc_scheduler(),
     ok = emqx_mq:register_hooks().
+
+quota_buffer_options() ->
+    #{
+        cbm => emqx_mq_message_db,
+        pool_size => emqx:get_config([mq, quota, buffer_pool_size], ?DEFAULT_QUOTA_BUFFER_POOL_SIZE)
+    }.

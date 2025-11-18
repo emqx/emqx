@@ -2,12 +2,13 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_mq_message_quota_index_SUITE).
+-module(emqx_mq_quota_index_SUITE).
 
 -compile(nowarn_export_all).
 -compile(export_all).
 
 -include("../src/emqx_mq_internal.hrl").
+-include_lib("../src/emqx_mq_quota/emqx_mq_quota.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -35,7 +36,7 @@ end_per_group(_Group, _Config) ->
 %% The Threshold is 10% of the max, i.e 25000 bytes
 %% In the end of test, we should have < 250000 * 1.1 = 275000 bytes.
 t_byte_limit_regular(_Config) ->
-    Index0 = emqx_mq_message_quota_index:new(
+    Index0 = emqx_mq_quota_index:new(
         #{bytes => #{max => 250000, threshold => 25000}}, now_us()
     ),
     NowTime = now_us(),
@@ -44,7 +45,7 @@ t_byte_limit_regular(_Config) ->
         Index0,
         fun(IndexAcc0, NowUs, St) ->
             IndexAcc =
-                emqx_mq_message_quota_index:apply_update(
+                emqx_mq_quota_index:apply_update(
                     IndexAcc0,
                     ?QUOTA_INDEX_UPDATE(NowUs, payload_size(2000), 0)
                 ),
@@ -53,7 +54,7 @@ t_byte_limit_regular(_Config) ->
         undefined,
         EndTime
     ),
-    Info = emqx_mq_message_quota_index:inspect(Index),
+    Info = emqx_mq_quota_index:inspect(Index),
     ct:pal("Index: ~p", [Info]),
     #{bytes := #{total := BytesTotal, size := BytesIndexSize}} = Info,
     ?assert(BytesTotal < 250000 * 1.2),
@@ -71,7 +72,7 @@ t_byte_limit_regular(_Config) ->
 %% In the end of test, we should have < 250000 * 1.1 = 275000 bytes.
 t_byte_limit_lastvalue(Config) ->
     KeyCount = ?config(key_count, Config),
-    Index0 = emqx_mq_message_quota_index:new(
+    Index0 = emqx_mq_quota_index:new(
         #{bytes => #{max => 250000, threshold => 25000}}, now_us()
     ),
     NowTime = now_us(),
@@ -92,13 +93,13 @@ t_byte_limit_lastvalue(Config) ->
                 ?QUOTA_INDEX_UPDATE(NowUs, payload_size(2000), 0),
             DBAcc = DBAcc0#{Key => InsertUpdate},
             IndexAcc =
-                emqx_mq_message_quota_index:apply_updates(IndexAcc0, DelUpdate ++ [InsertUpdate]),
+                emqx_mq_quota_index:apply_updates(IndexAcc0, DelUpdate ++ [InsertUpdate]),
             {IndexAcc, DBAcc}
         end,
         DB0,
         EndTime
     ),
-    Info = emqx_mq_message_quota_index:inspect(Index),
+    Info = emqx_mq_quota_index:inspect(Index),
     ct:pal("Index: ~p", [Info]),
     #{bytes := #{total := BytesTotal, size := BytesIndexSize}} = Info,
     ?assert(BytesTotal < 250000 * 1.2),
@@ -109,7 +110,7 @@ t_byte_limit_lastvalue(Config) ->
 t_delete_all(_Config) ->
     KeyCount = 10000,
     PayloadSize = 200,
-    Index0 = emqx_mq_message_quota_index:new(
+    Index0 = emqx_mq_quota_index:new(
         #{bytes => #{max => 250000, threshold => 25000}}, now_us()
     ),
     %% Fill the index with messages
@@ -117,7 +118,7 @@ t_delete_all(_Config) ->
         fun(Key, {IndexAcc0, DBAcc0}) ->
             TsUs = now_us(),
             Update = ?QUOTA_INDEX_UPDATE(TsUs, payload_size(PayloadSize), 0),
-            IndexAcc = emqx_mq_message_quota_index:apply_update(
+            IndexAcc = emqx_mq_quota_index:apply_update(
                 IndexAcc0,
                 Update
             ),
@@ -127,13 +128,13 @@ t_delete_all(_Config) ->
         {Index0, #{}},
         lists:seq(1, KeyCount)
     ),
-    Info1 = #{bytes := #{size := BytesIndexSize1}} = emqx_mq_message_quota_index:inspect(Index1),
+    Info1 = #{bytes := #{size := BytesIndexSize1}} = emqx_mq_quota_index:inspect(Index1),
     ct:pal("Index before delete: ~p", [Info1]),
     ?assert(BytesIndexSize1 >= 10),
     Index2 = maps:fold(
         fun(_Key, ?QUOTA_INDEX_UPDATE(TsUs, Bytes, Count), IndexAcc) ->
             DeleteUpdate = ?QUOTA_INDEX_UPDATE(TsUs, -Bytes, -Count),
-            emqx_mq_message_quota_index:apply_update(IndexAcc, DeleteUpdate)
+            emqx_mq_quota_index:apply_update(IndexAcc, DeleteUpdate)
         end,
         Index1,
         DB
@@ -144,7 +145,7 @@ t_delete_all(_Config) ->
                 size := BytesIndexSize2,
                 total := BytesTotal2
             }
-        } = emqx_mq_message_quota_index:inspect(Index2),
+        } = emqx_mq_quota_index:inspect(Index2),
     ct:pal("Index after delete: ~p", [Info2]),
     ?assertEqual(0, BytesTotal2),
     ?assertEqual(2, BytesIndexSize2),
