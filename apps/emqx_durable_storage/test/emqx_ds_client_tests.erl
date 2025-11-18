@@ -46,11 +46,12 @@ filter_effects_test() ->
     generations = #{} :: #{{emqx_ds_client:sub_id(), emqx_ds:shard()} => emqx_ds:generation()},
     %% Saved replay positions:
     iterators = #{} :: #{
-        {emqx_ds_client:sub_id(), emqx_ds:stream()} => emqx_ds:iterator() | end_of_stream
-    }
+        {emqx_ds_client:sub_id(), emqx_ds:stream()} => emqx_ds:iterator()
+    },
+    completed_replay = [] :: [{emqx_ds_client:sub_id(), emqx_ds:stream()}]
 }).
 
-list_known_streams(SubId, HS = #test_host_state{iterators = Its}) ->
+list_known_streams(SubId, #test_host_state{iterators = Its}) ->
     maps:fold(
         fun({SID, Stream}, _, Acc) ->
             case SID of
@@ -99,9 +100,34 @@ host_set_iter(SubId, Stream, It, HS = #test_host_state{iterators = Its}) ->
         iterators = Its#{{SubId, Stream} => It}
     }.
 
-on_unrecoverable_error(SubId, _Slab, Stream, Reason, HS = #test_host_state{}) ->
+host_move_to_complete(
+    SubId, Stream, HS = #test_host_state{iterators = Its0, completed_replay = Complete}
+) ->
+    case maps:take({SubId, Stream}, Its0) of
+        {_, Its} ->
+            HS#test_host_state{
+                iterators = Its,
+                completed_replay = [{SubId, Stream} | Complete]
+            };
+        error ->
+            HS
+    end.
+
+host_is_complete(SubId, Stream, #test_host_state{completed_replay = Completed}) ->
+    lists:member({SubId, Stream}, Completed).
+
+host_is_active(SubId, Stream, #test_host_state{iterators = Its}) ->
+    maps:is_key({SubId, Stream}, Its).
+
+on_unrecoverable_error(
+    SubId,
+    _Slab,
+    Stream,
+    Reason,
+    HS = #test_host_state{iterators = Its, completed_replay = Completed}
+) ->
     ?tp(test_host_unrecoverable, #{subid => SubId, stream => Stream, reason => Reason}),
-    HS.
+    host_move_to_complete(SubId, Stream, HS).
 
 on_subscription_down(SubId, _Slab, Stream, HS) ->
     ?tp(test_host_sub_down, #{subid => SubId, stream => Stream}),
@@ -531,7 +557,6 @@ prop_host_seen_all_streams(#model_state{
             %% 3. There should not be any record of streams for the
             %% future generations in the host state.
             #cs{subs = Subs} = CS,
-            #test_host_state{iterators = HostIters} = HS,
             %% Run check for each subscription:
             maps:foreach(
                 fun(SubId, _Sub) ->
@@ -544,16 +569,21 @@ prop_host_seen_all_streams(#model_state{
                     ),
                     lists:foreach(
                         fun(Stream = #fake_stream{shard = Shard, gen = Gen}) ->
+                            StreamStatus = {
+                                host_is_complete(SubId, Stream, HS),
+                                host_is_active(SubId, Stream, HS)
+                            },
                             case maps:get(Shard, CurrentGens) of
                                 Current when Gen > Current ->
-                                    ?assertNot(
-                                        maps:is_key({SubId, Stream}, HostIters),
+                                    ?assertMatch(
+                                        {false, false},
+                                        StreamStatus,
                                         "Stream from a future generation, iterator should not exist"
                                     );
                                 Current when Gen =:= Current ->
                                     ?assertMatch(
-                                        #{{SubId, Stream} := _},
-                                        HostIters,
+                                        {Completed, Active} when Completed xor Active,
+                                        StreamStatus,
                                         #{
                                             msg =>
                                                 "Current generation, there should be an iterator or `end_of_stream'",
@@ -564,10 +594,9 @@ prop_host_seen_all_streams(#model_state{
                                         }
                                     );
                                 Current when Gen < Current ->
-                                    %% Note: test host doesn't clean up replayed streams.
                                     ?assertMatch(
-                                        #{{SubId, Stream} := end_of_stream},
-                                        HostIters,
+                                        {true, false},
+                                        StreamStatus,
                                         #{
                                             msg =>
                                                 "Past generation, stream should be fully replayed",
@@ -650,6 +679,7 @@ prop_active_subscriptions(#model_state{runtime = {CS, _HS}}) ->
 prop_host_has_iterators_for_all_model_streams(
     MS = #model_state{err_rec = Errors, runtime = {_CS, HS}, streams = ModelStreams, subs = Subs}
 ) ->
+    #test_host_state{iterators = HostIterators, completed_replay = Completed} = HS,
     IsSystemHealthy = maps:size(Errors) =:= 0,
     IsSystemHealthy andalso
         maps:foreach(
@@ -663,8 +693,8 @@ prop_host_has_iterators_for_all_model_streams(
                                 Acc
                         end
                     end,
-                    [],
-                    HS#test_host_state.iterators
+                    [Stream || {SID, Stream} <- Completed, SID =:= SubId],
+                    HostIterators
                 ),
                 Comment = #{
                     sub_id => SubId,
@@ -777,7 +807,7 @@ dispatch_messages({CS0, HS0}) ->
                 {data, SubId, Stream, _Handle, Reply} ->
                     case Reply of
                         #ds_sub_reply{ref = Ref, payload = {ok, end_of_stream}} ->
-                            HS1 = host_set_iter(SubId, Stream, end_of_stream, HS0),
+                            HS1 = host_move_to_complete(SubId, Stream, HS0),
                             dispatch_messages(emqx_ds_client:complete_stream(CS0, Ref, HS1));
                         #ds_sub_reply{} ->
                             dispatch_messages({CS0, HS0})
