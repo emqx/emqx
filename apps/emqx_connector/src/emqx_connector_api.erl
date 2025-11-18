@@ -179,6 +179,9 @@ param_path_enable() ->
 ns_qs_param() ->
     {ns, mk(binary(), #{in => query, required => false})}.
 
+only_global_qs_param() ->
+    {only_global, mk(boolean(), #{in => query, required => false, default => false})}.
+
 connector_info_array_example(Method) ->
     lists:map(fun(#{value := Config}) -> Config end, maps:values(connector_info_examples(Method))).
 
@@ -192,7 +195,7 @@ schema("/connectors") ->
         get => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api1"),
-            parameters => [ns_qs_param()],
+            parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_connector_schema:get_response()),
@@ -355,10 +358,16 @@ schema("/connectors_probe") ->
             Conf = filter_out_request_body(Conf0),
             create_connector(Namespace, ConnectorType, ConnectorName, Conf)
     end;
-'/connectors'(get, Req) ->
-    Namespace = get_namespace(Req),
-    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
-    NodeReplies = emqx_connector_proto_v2:list(Nodes, Namespace),
+'/connectors'(get, #{query_string := QS} = Req) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, QS, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 3),
+    Timeout = 15_000,
+    NodeReplies = emqx_connector_proto_v3:list(Nodes, Namespace, Timeout),
     case is_ok(NodeReplies) of
         {ok, NodeConnectors} ->
             AllConnectors = [
@@ -478,7 +487,7 @@ lookup_from_all_nodes(Namespace, ConnectorType, ConnectorName, SuccCode) ->
 lookup_from_local_node(ConnectorType, ConnectorName) ->
     v2_lookup(?global_ns, ConnectorType, ConnectorName).
 
-%% RPC Target
+%% RPC Target (v2)
 v2_lookup(Namespace, ConnectorType, ConnectorName) ->
     case emqx_connector:lookup(Namespace, ConnectorType, ConnectorName) of
         {ok, Res} -> {ok, format_resource(Namespace, Res, node())};
@@ -627,21 +636,26 @@ enable_func(false) -> disable.
 
 zip_connectors([ConnectorsFirstNode | _] = ConnectorsAllNodes) ->
     lists:foldl(
-        fun(#{type := Type, name := Name}, Acc) ->
-            Connectors = pick_connectors_by_id(Type, Name, ConnectorsAllNodes),
+        fun(#{namespace := Namespace, type := Type, name := Name}, Acc) ->
+            Connectors = pick_connectors_by_id(Namespace, Type, Name, ConnectorsAllNodes),
             [format_connector_info(Connectors) | Acc]
         end,
         [],
         ConnectorsFirstNode
     ).
 
-pick_connectors_by_id(Type, Name, ConnectorsAllNodes) ->
+pick_connectors_by_id(Namespace, Type, Name, ConnectorsAllNodes) ->
     lists:foldl(
         fun(ConnectorsOneNode, Acc) ->
             case
                 [
                     Connector
-                 || Connector = #{type := Type0, name := Name0} <- ConnectorsOneNode,
+                 || Connector = #{
+                        namespace := Namespace0,
+                        type := Type0,
+                        name := Name0
+                    } <- ConnectorsOneNode,
+                    Namespace0 == Namespace,
                     Type0 == Type,
                     Name0 == Name
                 ]
@@ -652,6 +666,7 @@ pick_connectors_by_id(Type, Name, ConnectorsAllNodes) ->
                     ?SLOG(warning, #{
                         msg => "connector_inconsistent_in_cluster",
                         reason => not_found,
+                        namespace => Namespace,
                         type => Type,
                         name => Name,
                         connector => emqx_connector_resource:connector_id(Type, Name)
@@ -694,8 +709,9 @@ aggregate_status(AllStatus) ->
     end.
 
 format_resource(
-    Namespace,
+    _ReqNamespace,
     #{
+        namespace := Namespace,
         type := Type,
         name := ConnectorName,
         raw_config := RawConf0,

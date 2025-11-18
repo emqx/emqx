@@ -467,6 +467,15 @@ qp_of(Opts) ->
             []
     end.
 
+list_qp_of(Opts) ->
+    QP0 = qp_of(Opts),
+    case maps:find(only_global, Opts) of
+        {ok, OnlyGlobal} when is_boolean(OnlyGlobal) ->
+            [{<<"only_global">>, atom_to_binary(OnlyGlobal)} | QP0];
+        _ ->
+            QP0
+    end.
+
 get_resource(Namespace, Type, Name, TCConfig) ->
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
     ?ON(Node, begin
@@ -479,7 +488,7 @@ list(TCConfig) ->
 
 list(TCConfig, Opts) ->
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
-    QueryParams = qp_of(Opts),
+    QueryParams = list_qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
@@ -1452,6 +1461,26 @@ t_namespaced_crud(TCConfig) ->
         create(ConnectorType, ConnectorName1, ConnectorConfigNS2, TCConfigNS2)
     ),
 
+    %% Global admin sees all namespaces by default
+    {200, ListAll0} = list(TCConfig),
+    ?assertMatch(
+        [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            },
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := NS1
+            },
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := NS2
+            }
+        ],
+        lists:sort(ListAll0)
+    ),
+
     ?assertMatch(
         {200, [
             #{
@@ -1459,7 +1488,7 @@ t_namespaced_crud(TCConfig) ->
                 <<"description">> := <<"global">>
             }
         ]},
-        list(TCConfig)
+        list(TCConfig, #{only_global => true})
     ),
     ?assertMatch(
         {200, [
@@ -1554,7 +1583,10 @@ t_namespaced_crud(TCConfig) ->
         )
     ),
 
-    ?assertMatch({200, [#{<<"description">> := <<"updated global">>}]}, list(TCConfig)),
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"updated global">>}]},
+        list(TCConfig, #{only_global => true})
+    ),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns1">>}]}, list(TCConfigNS1)),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns2">>}]}, list(TCConfigNS2)),
 
@@ -1608,7 +1640,7 @@ t_namespaced_crud(TCConfig) ->
         {201, #{<<"description">> := <<"another ns1">>}},
         create(ConnectorType, ConnectorName2, ConnectorConfigNS1B, TCConfigNS1)
     ),
-    ?assertMatch({200, [_]}, list(TCConfig)),
+    ?assertMatch({200, [_]}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
     ?assertMatch(
@@ -1752,7 +1784,7 @@ t_namespaced_crud(TCConfig) ->
 
     %% Delete
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfig)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
     ?assertMatch(
@@ -1769,12 +1801,12 @@ t_namespaced_crud(TCConfig) ->
     ),
 
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfigNS1)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
 
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfigNS2)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfigNS2)),
     ?assertMatch(
@@ -1791,7 +1823,7 @@ t_namespaced_crud(TCConfig) ->
     ),
 
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName2, TCConfigNS1)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, []}, list(TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfigNS2)),
 
