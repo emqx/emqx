@@ -25,6 +25,25 @@
 %% API
 %%------------------------------------------------------------------------------
 
+-doc """
+
+## Snippets
+
+    cert_path(FileName) ->
+        Dir = code:lib_dir(emqx_auth),
+        filename:join([Dir, <<"test/data/certs">>, FileName]).
+
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/", false).
+
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/", [
+        {keyfile, cert_path("server.key")},
+        {certfile, cert_path("server.crt")},
+        {cacertfile, cert_path("ca.crt")},
+        {verify, verify_none},
+        {versions, ['tlsv1.2', 'tlsv1.3']},
+        {ciphers, ["ECDHE-RSA-AES256-GCM-SHA384", "TLS_CHACHA20_POLY1305_SHA256"]}
+    ]).
+""".
 start_link(Port, Path) ->
     start_link(Port, Path, false).
 

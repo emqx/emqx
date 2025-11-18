@@ -295,7 +295,10 @@ resolve_kafka_offset(TCConfig, Opts) ->
             get_config(action_config, TCConfig),
         Topic
     end),
-    resolve_kafka_offset(kafka_hosts_direct(), Topic, _Partition = 0).
+    Endpoints = maps:get(endpoints, Opts, kafka_hosts_direct()),
+    ConnCfg = maps:get(conn_cfg, Opts, #{}),
+    Partition = maps:get(partition, Opts, 0),
+    brod:resolve_offset(Endpoints, Topic, Partition, latest, ConnCfg).
 
 resolve_kafka_offset(TCConfig) when is_list(TCConfig) ->
     resolve_kafka_offset(TCConfig, _Opts = #{}).
@@ -303,14 +306,33 @@ resolve_kafka_offset(TCConfig) when is_list(TCConfig) ->
 resolve_kafka_offset(Hosts, Topic, Partition) ->
     brod:resolve_offset(Hosts, Topic, Partition, latest).
 
+%% Currently, don't know how to setup oauth and plain in the same broker...
+sasl_oauth_conn_cfg() ->
+    #{
+        sasl =>
+            {callback, brod_oauth, #{
+                token_callback => fun(_) ->
+                    NowS = erlang:system_time(second),
+                    JWT = generate_unsigned_jwt(#{
+                        <<"exp">> => NowS + 2,
+                        <<"iat">> => NowS,
+                        %% Used by kafka test container
+                        <<"sub">> => <<"admin">>
+                    }),
+                    {ok, #{token => JWT}}
+                end
+            }}
+    }.
+
 get_kafka_messages(Opts, TCConfig) ->
     #{<<"parameters">> := #{<<"topic">> := Topic}} =
         get_config(action_config, TCConfig),
     #{offset := Offset} = Opts,
     Partition = maps:get(partition, Opts, 0),
-    Hosts = kafka_hosts_direct(),
+    Hosts = maps:get(endpoints, Opts, kafka_hosts_direct()),
+    ConnCfg = maps:get(conn_cfg, Opts, #{}),
     maybe
-        {ok, {NewOffset, Msgs0}} ?= brod:fetch(Hosts, Topic, Partition, Offset),
+        {ok, {NewOffset, Msgs0}} ?= brod:fetch({Hosts, ConnCfg}, Topic, Partition, Offset),
         Msgs = lists:map(fun kpro_message_to_map/1, Msgs0),
         {ok, {NewOffset, Msgs}}
     end.
@@ -482,6 +504,79 @@ conn_matrix() ->
 
 inspect(X) ->
     iolist_to_binary(io_lib:format("~p", [X])).
+
+generate_unsigned_jwt(Payload) ->
+    %% unused
+    JWK = jose_jwk:from_oct(<<"some_secret">>),
+    Header = #{<<"alg">> => <<"none">>},
+    UnsecuredBefore = jose_jwa:unsecured_signing(),
+    try
+        jose_jwa:unsecured_signing(true),
+        Signed = jose_jwt:sign(JWK, Header, Payload),
+        {_, JWT} = jose_jws:compact(Signed),
+        JWT
+    after
+        jose_jwa:unsecured_signing(UnsecuredBefore)
+    end.
+
+setup_oauth_scenario(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Cfg) ->
+        emqx_utils_maps:deep_put(
+            [<<"parameters">>, <<"topic">>], Cfg, <<"test-topic-one-partition">>
+        )
+    end),
+    on_exit(fun emqx_utils_http_test_server:stop/0),
+    on_exit(fun emqx_bridge_kafka_token_cache:clear_cache/0),
+    {ok, {Port, _}} = emqx_utils_http_test_server:start_link(random, "/oauth/token", false),
+    NowS = erlang:system_time(second),
+    JWT = generate_unsigned_jwt(#{
+        <<"exp">> => NowS + 2,
+        <<"iat">> => NowS,
+        %% Used by kafka test container
+        <<"sub">> => <<"admin">>
+    }),
+    Body = emqx_utils_json:encode(#{
+        <<"access_token">> => JWT,
+        <<"expires_in">> => 2
+    }),
+    SetHandlerFn = fun(StatusCode, Body0) when is_binary(Body0) ->
+        emqx_utils_http_test_server:set_handler(fun(Req, State) ->
+            Rep = cowboy_req:reply(
+                StatusCode,
+                #{<<"content-type">> => <<"application/json">>},
+                Body0,
+                Req
+            ),
+            {ok, Rep, State}
+        end)
+    end,
+    SetHandlerFn(200, Body),
+    URI = emqx_bridge_v2_testlib:fmt(<<"http://127.0.0.1:${p}/oauth/token">>, #{p => Port}),
+    CreateConnectorFn = fun() ->
+        create_connector_api(TCConfig, #{
+            <<"bootstrap_hosts">> => <<"kafka-3.emqx.net:9092">>,
+            <<"authentication">> => #{
+                <<"mechanism">> => <<"oauth">>,
+                <<"grant_type">> => <<"client_credentials">>,
+                <<"client_id">> => <<"oauth_client_id">>,
+                <<"client_secret">> => <<"oauth_client_secret">>,
+                <<"endpoint_uri">> => URI,
+                <<"extensions">> => #{
+                    <<"logicalCluster">> => <<"myClusterId">>,
+                    <<"identityPoolId">> => <<"myIdentityPoolId">>
+                },
+                <<"scope">> => <<"oauth_server_specific_scope">>
+            }
+        })
+    end,
+    #{
+        tc_config => TCConfig,
+        set_handler_fn => SetHandlerFn,
+        create_connector_fn => CreateConnectorFn,
+        port => Port,
+        uri => URI,
+        jwt => JWT
+    }.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1973,4 +2068,119 @@ t_msk_iam_authn(TCConfig) ->
             )
         end
     ),
+    ok.
+
+-doc """
+Exercises OAuth authentication using client credentials flow (happy path).
+""".
+t_oauth_client_credentials_authn(TCConfig0) ->
+    #{
+        tc_config := TCConfig,
+        create_connector_fn := CreateConnectorFn
+    } = setup_oauth_scenario(TCConfig0),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, create_action_api(TCConfig, #{})),
+    #{topic := RuleTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Endpoints = [{"kafka-3.emqx.net", 9092}],
+    ConnCfg = sasl_oauth_conn_cfg(),
+    {ok, Offset} = resolve_kafka_offset(TCConfig, #{
+        endpoints => Endpoints,
+        conn_cfg => ConnCfg
+    }),
+    emqtt:publish(C, RuleTopic, <<"hey">>, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {ok, {_, [_]}},
+            get_kafka_messages(
+                #{
+                    offset => Offset,
+                    endpoints => Endpoints,
+                    conn_cfg => ConnCfg
+                },
+                TCConfig
+            )
+        )
+    ),
+    ok.
+
+-doc """
+Exercises OAuth authentication using client credentials flow (request errors).
+""".
+t_oauth_client_credentials_authn_errors(TCConfig0) ->
+    #{
+        tc_config := _TCConfig,
+        set_handler_fn := SetHandlerFn,
+        create_connector_fn := CreateConnectorFn,
+        jwt := JWT
+    } = setup_oauth_scenario(TCConfig0),
+    ?check_trace(
+        begin
+            ct:pal("response without `access_token`"),
+            SetHandlerFn(200, emqx_utils_json:encode(#{token => JWT})),
+            ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+            emqx_bridge_kafka_token_cache:clear_cache(),
+
+            ct:pal("not a json response"),
+            SetHandlerFn(200, <<"huh?!">>),
+            ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+            emqx_bridge_kafka_token_cache:clear_cache(),
+
+            ct:pal("non-200 response"),
+            SetHandlerFn(301, <<"Redirecting...">>),
+            ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn()),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+            emqx_bridge_kafka_token_cache:clear_cache(),
+
+            ct:pal("http request error"),
+            emqx_common_test_helpers:with_mock(
+                emqx_bridge_kafka_oauth_authn,
+                do_request,
+                fun(_Params) -> {error, timeout} end,
+                fun() ->
+                    ?assertMatch({201, #{<<"status">> := <<"disconnected">>}}, CreateConnectorFn())
+                end
+            ),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+            emqx_bridge_kafka_token_cache:clear_cache(),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+-doc """
+Exercises OAuth authentication using client credentials flow (happy path), focusing on
+resolving the remaining token time, for code coverage.
+""".
+t_oauth_client_credentials_authn_expiry_time(TCConfig0) ->
+    #{
+        set_handler_fn := SetHandlerFn,
+        create_connector_fn := CreateConnectorFn,
+        jwt := JWT
+    } = setup_oauth_scenario(TCConfig0),
+    ct:pal("response without `expires_in` (but jwt contains `exp`)"),
+    SetHandlerFn(200, emqx_utils_json:encode(#{access_token => JWT})),
+    ?assertMatch({201, #{<<"status">> := <<"connected">>}}, CreateConnectorFn()),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_bridge_kafka_token_cache:clear_cache(),
+
+    ct:pal("token without `exp`"),
+    JWTNoExp = generate_unsigned_jwt(#{<<"sub">> => <<"admin">>}),
+    SetHandlerFn(200, emqx_utils_json:encode(#{access_token => JWTNoExp})),
+    ?assertMatch({201, #{<<"status">> := _}}, CreateConnectorFn()),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_bridge_kafka_token_cache:clear_cache(),
+
+    ct:pal("token that is not a jwt"),
+    SetHandlerFn(200, emqx_utils_json:encode(#{access_token => <<"notajwt">>})),
+    ?assertMatch({201, #{<<"status">> := _}}, CreateConnectorFn()),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_bridge_kafka_token_cache:clear_cache(),
+
     ok.
