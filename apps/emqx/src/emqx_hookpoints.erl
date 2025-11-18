@@ -68,7 +68,8 @@
     'tls_handshake.psk_lookup',
     'config.zones_updated',
     'api_actor.pre_create',
-    'namespace.delete'
+    'namespace.delete',
+    'namespace.resource_pre_create'
 ]).
 
 -define(HOOKPOINTS, (?MQTT_CLIENT_LIFECYCLE_HOOKPOINTS ++ ?MANAGEMENT_HOOKPOINTS)).
@@ -279,6 +280,15 @@ when
 %% Executed out of channel process context
 %% Implementations must be idempotent.
 -callback 'namespace.delete'(emqx_config:namespace()) -> callback_result().
+
+%% NOTE
+%% Executed out of channel process context
+%% Called before create a namespaced resource (e.g.: mnesia authz rules) as a way for
+%% initial applications to check if a namespace exists, since that information lives in
+%% the terminal `emqx_mt` application.
+%% Should return `true` if managed namespace exists, `false` otherwise.
+-callback 'namespace.resource_pre_create'(#{namespace => emqx_config:namespace()}) ->
+    fold_callback_result(#{exists := boolean()}).
 
 %%-----------------------------------------------------------------------------
 %% API

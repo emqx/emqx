@@ -10,7 +10,8 @@
     unregister_hooks/0,
     on_session_created/2,
     on_authenticate/2,
-    on_api_actor_will_be_created/2
+    on_api_actor_will_be_created/2,
+    on_namespace_resource_pre_create/2
 ]).
 
 -include_lib("emqx/include/emqx.hrl").
@@ -30,6 +31,11 @@ register_hooks() ->
     ok = emqx_hooks:add('client.authenticate', ?AUTHN_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('channel.limiter_adjustment', ?LIMITER_HOOK, ?HP_HIGHEST),
     ok = emqx_hooks:add('api_actor.pre_create', ?USER_CREATION_HOOK, ?HP_HIGHEST),
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, on_namespace_resource_pre_create, []},
+        ?HP_HIGHEST
+    ),
     ok.
 
 unregister_hooks() ->
@@ -37,6 +43,9 @@ unregister_hooks() ->
     ok = emqx_hooks:del('client.authenticate', ?AUTHN_HOOK),
     ok = emqx_hooks:del('channel.limiter_adjustment', ?LIMITER_HOOK),
     ok = emqx_hooks:del('api_actor.pre_create', ?USER_CREATION_HOOK),
+    ok = emqx_hooks:del(
+        'namespace.resource_pre_create', {?MODULE, on_namespace_resource_pre_create}
+    ),
     ok.
 
 on_session_created(
@@ -113,4 +122,14 @@ on_api_actor_will_be_created(#{?namespace := Namespace}, Ok) ->
             Ok;
         false ->
             {stop, {error, #{reason => unknown_namespace, namespace => Namespace}}}
+    end.
+
+on_namespace_resource_pre_create(#{?namespace := ?global_ns}, ResCtx) ->
+    {stop, ResCtx#{exists := true}};
+on_namespace_resource_pre_create(#{?namespace := Namespace}, ResCtx) when is_binary(Namespace) ->
+    case emqx_mt_config:is_known_managed_ns(Namespace) of
+        true ->
+            {stop, ResCtx#{exists := true}};
+        false ->
+            {stop, ResCtx#{exists := false}}
     end.

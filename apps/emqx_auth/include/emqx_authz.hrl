@@ -9,6 +9,8 @@
 
 %% authz_mnesia
 -define(ACL_TABLE, emqx_acl).
+%% For namespaced entries
+-define(ACL_NS_TABLE, emqx_acl_ns).
 
 %% authz_cmd
 -define(CMD_REPLACE, replace).

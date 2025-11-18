@@ -66,8 +66,14 @@ init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
-            {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
+            {emqx_conf,
+                "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]\n"
+                "authorization.cache { enable = false }\n"
+                "authorization.no_match = deny\n"
+                "authorization.sources = [{type = built_in_database, max_rules = 7}]"},
             {emqx_mt, "multi_tenancy.default_max_sessions = 10"},
+            emqx_auth,
+            emqx_auth_mnesia,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -1352,6 +1358,125 @@ t_namespaced_user_api_checks(_TCConfig) ->
             },
             GlobalAdminHeader
         )
+    ),
+
+    ok.
+
+-doc """
+Smoke tests for using namespaced authorization.
+
+- Namespaced clients check their namespaced rules instead of global ones.
+""".
+t_namespaced_authz(_TCConfig) ->
+    GlobalAdminHeader = emqx_dashboard_admin_SUITE:create_superuser(),
+    emqx_authz_api_mnesia_SUITE:put_auth_header(GlobalAdminHeader),
+    Namespace1 = <<"ns01">>,
+    {204, _} = create_managed_ns(Namespace1),
+
+    TopicPub0 = <<"t/pub/0">>,
+    TopicSub0 = <<"t/sub/0">>,
+    TopicPub1 = <<"t/pub/1">>,
+    TopicSub1 = <<"t/sub/1">>,
+    TopicPub2 = <<"t/pub/2">>,
+    TopicSub2 = <<"t/sub/2">>,
+    {204, _} = emqx_authz_api_mnesia_SUITE:create_all_rules(
+        #{
+            <<"rules">> => [
+                #{
+                    topic => TopicPub1,
+                    permission => <<"allow">>,
+                    action => <<"publish">>
+                },
+                #{
+                    topic => TopicSub1,
+                    permission => <<"allow">>,
+                    action => <<"subscribe">>
+                }
+            ]
+        },
+        #{<<"ns">> => Namespace1}
+    ),
+    Namespace2 = <<"another_ns">>,
+    %% Must first create managed namespace
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Managed namespace not found">>}},
+        emqx_authz_api_mnesia_SUITE:create_all_rules(
+            #{
+                <<"rules">> => [
+                    #{
+                        topic => TopicPub2,
+                        permission => <<"allow">>,
+                        action => <<"publish">>
+                    },
+                    #{
+                        topic => TopicSub2,
+                        permission => <<"allow">>,
+                        action => <<"subscribe">>
+                    }
+                ]
+            },
+            #{<<"ns">> => Namespace2}
+        )
+    ),
+    {204, _} = create_managed_ns(Namespace2),
+    {204, _} = emqx_authz_api_mnesia_SUITE:create_all_rules(
+        #{
+            <<"rules">> => [
+                #{
+                    topic => TopicPub2,
+                    permission => <<"allow">>,
+                    action => <<"publish">>
+                },
+                #{
+                    topic => TopicSub2,
+                    permission => <<"allow">>,
+                    action => <<"subscribe">>
+                }
+            ]
+        },
+        #{<<"ns">> => Namespace2}
+    ),
+    %% global
+    {204, _} = emqx_authz_api_mnesia_SUITE:create_all_rules(
+        #{
+            <<"rules">> => [
+                #{
+                    topic => TopicPub0,
+                    permission => <<"allow">>,
+                    action => <<"publish">>
+                },
+                #{
+                    topic => TopicSub0,
+                    permission => <<"allow">>,
+                    action => <<"subscribe">>
+                }
+            ]
+        }
+    ),
+    ClientId1 = <<"ns_c1">>,
+    C1 = connect(ClientId1, Namespace1),
+
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C1, TopicPub1, [{qos, 1}])),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_NOT_AUTHORIZED}},
+        emqtt:publish(C1, TopicSub1, <<"hi">>, [{qos, 1}])
+    ),
+    %% Different ns
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C1, TopicSub2, [{qos, 1}])),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_NOT_AUTHORIZED}},
+        emqtt:publish(C1, TopicPub2, <<"hi">>, [{qos, 1}])
+    ),
+    ?assertMatch({ok, _, [?RC_NOT_AUTHORIZED]}, emqtt:subscribe(C1, TopicSub0, [{qos, 1}])),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_NOT_AUTHORIZED}},
+        emqtt:publish(C1, TopicPub0, <<"hi">>, [{qos, 1}])
+    ),
+
+    ?assertMatch({ok, _, [?RC_GRANTED_QOS_1]}, emqtt:subscribe(C1, TopicSub1, [{qos, 1}])),
+    ?assertMatch(
+        {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}},
+        emqtt:publish(C1, TopicPub1, <<"hi">>, [{qos, 1}])
     ),
 
     ok.
