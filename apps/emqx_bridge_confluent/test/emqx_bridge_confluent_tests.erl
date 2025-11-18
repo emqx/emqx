@@ -142,20 +142,34 @@ confluent_producer_connector_test_() ->
                 check_connector(BaseConf)
             )},
         {"ssl disabled",
-            ?_assertThrow(
-                ?connector_validation_error("Expected: true" ++ _, <<"false">>),
+            ?_assertMatch(
+                ?ok_connector_config(
+                    #{
+                        <<"ssl">> := #{<<"enable">> := false}
+                    }
+                ),
                 check_connector(Override(#{<<"ssl">> => #{<<"enable">> => <<"false">>}}))
             )},
         {"bad authn mechanism: scram sha256",
             ?_assertThrow(
-                ?connector_validation_error("Expected: plain" ++ _, <<"scram_sha_256">>),
+                {_, [
+                    #{
+                        kind := validation_error,
+                        reason := matched_no_union_member
+                    }
+                ]},
                 check_connector(
                     Override(#{<<"authentication">> => #{<<"mechanism">> => <<"scram_sha_256">>}})
                 )
             )},
         {"bad authn mechanism: scram sha512",
             ?_assertThrow(
-                ?connector_validation_error("Expected: plain" ++ _, <<"scram_sha_512">>),
+                {_, [
+                    #{
+                        kind := validation_error,
+                        reason := matched_no_union_member
+                    }
+                ]},
                 check_connector(
                     Override(#{<<"authentication">> => #{<<"mechanism">> => <<"scram_sha_512">>}})
                 )

@@ -8,13 +8,12 @@
 
 -include("emqx_auth_mnesia.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
-
--define(QUERY_USERNAME_FUN, fun ?MODULE:query_username/2).
--define(QUERY_CLIENTID_FUN, fun ?MODULE:query_clientid/2).
 
 -define(ACL_USERNAME_QSCHEMA, [{<<"like_username">>, binary}]).
 -define(ACL_CLIENTID_QSCHEMA, [{<<"like_clientid">>, binary}]).
@@ -39,18 +38,12 @@
 
 %% query funs
 -export([
-    query_username/2,
-    query_clientid/2,
     run_fuzzy_filter/2,
     format_result/1
 ]).
 
 %% minirest filter callback
--export([is_configured_authz_source/2]).
-
--define(BAD_REQUEST, 'BAD_REQUEST').
--define(NOT_FOUND, 'NOT_FOUND').
--define(ALREADY_EXISTS, 'ALREADY_EXISTS').
+-export([filter/2]).
 
 -define(TYPE_REF, ref).
 -define(TYPE_ARRAY, array).
@@ -80,7 +73,7 @@ paths() ->
 schema("/authorization/sources/built_in_database/rules/users") ->
     #{
         'operationId' => users,
-        filter => fun ?MODULE:is_configured_authz_source/2,
+        filter => fun ?MODULE:filter/2,
         get =>
             #{
                 tags => [<<"authorization">>],
@@ -94,13 +87,17 @@ schema("/authorization/sources/built_in_database/rules/users") ->
                                 in => query,
                                 required => false,
                                 desc => ?DESC(fuzzy_username)
-                            })}
+                            })},
+                        ns_qs_param()
                     ],
                 responses =>
                     #{
                         200 => swagger_with_example(
                             {username_response_data, ?TYPE_REF},
                             {username, ?PAGE_QUERY_EXAMPLE}
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         )
                     }
             },
@@ -108,6 +105,7 @@ schema("/authorization/sources/built_in_database/rules/users") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(users_username_post),
+                parameters => [ns_qs_param()],
                 'requestBody' => swagger_with_example(
                     {rules_for_username, ?TYPE_ARRAY},
                     {username, ?POST_ARRAY_EXAMPLE}
@@ -118,6 +116,9 @@ schema("/authorization/sources/built_in_database/rules/users") ->
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_username")
                         ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
+                        ),
                         409 => emqx_dashboard_swagger:error_codes(
                             [?ALREADY_EXISTS], ?DESC(?ALREADY_EXISTS)
                         )
@@ -127,7 +128,7 @@ schema("/authorization/sources/built_in_database/rules/users") ->
 schema("/authorization/sources/built_in_database/rules/clients") ->
     #{
         'operationId' => clients,
-        filter => fun ?MODULE:is_configured_authz_source/2,
+        filter => fun ?MODULE:filter/2,
         get =>
             #{
                 tags => [<<"authorization">>],
@@ -144,13 +145,17 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
                                     required => false,
                                     desc => ?DESC(fuzzy_clientid)
                                 }
-                            )}
+                            )},
+                        ns_qs_param()
                     ],
                 responses =>
                     #{
                         200 => swagger_with_example(
                             {clientid_response_data, ?TYPE_REF},
                             {clientid, ?PAGE_QUERY_EXAMPLE}
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         )
                     }
             },
@@ -158,6 +163,7 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(users_clientid_post),
+                parameters => [ns_qs_param()],
                 'requestBody' => swagger_with_example(
                     {rules_for_clientid, ?TYPE_ARRAY},
                     {clientid, ?POST_ARRAY_EXAMPLE}
@@ -165,6 +171,9 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
                 responses =>
                     #{
                         204 => <<"Created">>,
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
+                        ),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_clientid")
                         )
@@ -174,17 +183,20 @@ schema("/authorization/sources/built_in_database/rules/clients") ->
 schema("/authorization/sources/built_in_database/rules/users/:username") ->
     #{
         'operationId' => user,
-        filter => fun ?MODULE:is_configured_authz_source/2,
+        filter => fun ?MODULE:filter/2,
         get =>
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_username_get),
-                parameters => [ref(username)],
+                parameters => [ref(username), ns_qs_param()],
                 responses =>
                     #{
                         200 => swagger_with_example(
                             {rules_for_username, ?TYPE_REF},
                             {username, ?PUT_MAP_EXAMPLE}
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
                             [?NOT_FOUND], ?DESC(?NOT_FOUND)
@@ -195,7 +207,7 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_username_put),
-                parameters => [ref(username)],
+                parameters => [ref(username), ns_qs_param()],
                 'requestBody' => swagger_with_example(
                     {rules_for_username, ?TYPE_REF},
                     {username, ?PUT_MAP_EXAMPLE}
@@ -203,6 +215,9 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
                 responses =>
                     #{
                         204 => <<"Updated">>,
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
+                        ),
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_username")
                         )
@@ -212,12 +227,15 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_username_delete),
-                parameters => [ref(username)],
+                parameters => [ref(username), ns_qs_param()],
                 responses =>
                     #{
                         204 => <<"Deleted">>,
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_username")
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
                             [?NOT_FOUND], ?DESC(?NOT_FOUND)
@@ -228,17 +246,20 @@ schema("/authorization/sources/built_in_database/rules/users/:username") ->
 schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
     #{
         'operationId' => client,
-        filter => fun ?MODULE:is_configured_authz_source/2,
+        filter => fun ?MODULE:filter/2,
         get =>
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_clientid_get),
-                parameters => [ref(clientid)],
+                parameters => [ref(clientid), ns_qs_param()],
                 responses =>
                     #{
                         200 => swagger_with_example(
                             {rules_for_clientid, ?TYPE_REF},
                             {clientid, ?PUT_MAP_EXAMPLE}
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
                             [?NOT_FOUND], ?DESC(?NOT_FOUND)
@@ -249,7 +270,7 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_clientid_put),
-                parameters => [ref(clientid)],
+                parameters => [ref(clientid), ns_qs_param()],
                 'requestBody' => swagger_with_example(
                     {rules_for_clientid, ?TYPE_REF},
                     {clientid, ?PUT_MAP_EXAMPLE}
@@ -259,6 +280,9 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
                         204 => <<"Updated">>,
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_clientid")
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         )
                     }
             },
@@ -266,12 +290,15 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_clientid_delete),
-                parameters => [ref(clientid)],
+                parameters => [ref(clientid), ns_qs_param()],
                 responses =>
                     #{
                         204 => <<"Deleted">>,
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request_clientid")
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         ),
                         404 => emqx_dashboard_swagger:error_codes(
                             [?NOT_FOUND], ?DESC(?NOT_FOUND)
@@ -282,18 +309,25 @@ schema("/authorization/sources/built_in_database/rules/clients/:clientid") ->
 schema("/authorization/sources/built_in_database/rules/all") ->
     #{
         'operationId' => all,
-        filter => fun ?MODULE:is_configured_authz_source/2,
+        filter => fun ?MODULE:filter/2,
         get =>
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(rules_all_get),
+                parameters => [ns_qs_param()],
                 responses =>
-                    #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
+                    #{
+                        200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
+                        )
+                    }
             },
         post =>
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(rules_all_post),
+                parameters => [ns_qs_param()],
                 'requestBody' =>
                     swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
                 responses =>
@@ -301,6 +335,9 @@ schema("/authorization/sources/built_in_database/rules/all") ->
                         204 => <<"Updated">>,
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request")
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         )
                     }
             },
@@ -308,25 +345,33 @@ schema("/authorization/sources/built_in_database/rules/all") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(rules_all_delete),
+                parameters => [ns_qs_param()],
                 responses =>
                     #{
-                        204 => <<"Deleted">>
+                        204 => <<"Deleted">>,
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
+                        )
                     }
             }
     };
 schema("/authorization/sources/built_in_database/rules") ->
     #{
         'operationId' => rules,
-        filter => fun ?MODULE:is_configured_authz_source/2,
+        filter => fun ?MODULE:filter/2,
         delete =>
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(rules_delete),
+                parameters => [ns_qs_param()],
                 responses =>
                     #{
                         204 => <<"Deleted">>,
                         400 => emqx_dashboard_swagger:error_codes(
                             [?BAD_REQUEST], ?DESC("bad_request")
+                        ),
+                        403 => emqx_dashboard_swagger:error_codes(
+                            [?FORBIDDEN], ?DESC("forbidden")
                         )
                     }
             }
@@ -479,6 +524,9 @@ fields(clientid_response_data) ->
 fields(rules) ->
     [{rules, mk(array(ref(rule_item)))}].
 
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
+
 %%--------------------------------------------------------------------
 %% HTTP API
 %%--------------------------------------------------------------------
@@ -491,233 +539,81 @@ is_configured_authz_source(Params, _Meta) ->
         end
     ).
 
-users(get, #{query_string := QueryString}) ->
-    case
-        emqx_mgmt_api:node_query(
-            node(),
-            ?ACL_TABLE,
-            QueryString,
-            ?ACL_USERNAME_QSCHEMA,
-            ?QUERY_USERNAME_FUN,
-            fun ?MODULE:format_result/1
-        )
-    of
-        {error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
-        {error, Node, Error} ->
-            Message = list_to_binary(
-                io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
-            ),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Result ->
-            {200, Result}
-    end;
-users(post, #{body := Body}) when is_list(Body) ->
-    case ensure_rules_is_valid(<<"username">>, username, Body) of
-        ok ->
-            lists:foreach(
-                fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({username, Username}, Rules)
-                end,
-                Body
-            ),
-            {204};
-        {error, {Username, too_many_rules}} ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message =>
-                    binfmt(
-                        <<"The rules length of User '~ts' exceeds the maximum limit.">>,
-                        [Username]
-                    )
-            }};
-        {error, {already_exists, Exists}} ->
-            {409, #{
-                code => <<"ALREADY_EXISTS">>,
-                message => binfmt("User '~ts' already exist", [Exists])
-            }}
-    end.
+users(get, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_get_rules(Namespace, username, Req);
+users(post, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_create_rules(Namespace, username, Req).
 
-clients(get, #{query_string := QueryString}) ->
-    case
-        emqx_mgmt_api:node_query(
-            node(),
-            ?ACL_TABLE,
-            QueryString,
-            ?ACL_CLIENTID_QSCHEMA,
-            ?QUERY_CLIENTID_FUN,
-            fun ?MODULE:format_result/1
-        )
-    of
-        {error, page_limit_invalid} ->
-            {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
-        {error, Node, Error} ->
-            Message = list_to_binary(
-                io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
-            ),
-            {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Result ->
-            {200, Result}
-    end;
-clients(post, #{body := Body}) when is_list(Body) ->
-    case ensure_rules_is_valid(<<"clientid">>, clientid, Body) of
-        ok ->
-            lists:foreach(
-                fun(#{<<"clientid">> := ClientId, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({clientid, ClientId}, Rules)
-                end,
-                Body
-            ),
-            {204};
-        {error, {ClientId, too_many_rules}} ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message =>
-                    binfmt(
-                        <<"The rules length of Client '~ts' exceeds the maximum limit.">>,
-                        [ClientId]
-                    )
-            }};
-        {error, {already_exists, Exists}} ->
-            {409, #{
-                code => <<"ALREADY_EXISTS">>,
-                message => binfmt("Client '~ts' already exist", [Exists])
-            }}
-    end.
+clients(get, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_get_rules(Namespace, clientid, Req);
+clients(post, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_create_rules(Namespace, clientid, Req).
 
-user(get, #{bindings := #{username := Username}}) ->
-    case emqx_authz_mnesia:get_rules({username, Username}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        {ok, Rules} ->
-            {200, #{
-                username => Username,
-                rules => format_rules(Rules)
-            }}
-    end;
-user(put, #{
-    bindings := #{username := Username},
-    body := #{<<"username">> := Username, <<"rules">> := Rules}
-}) ->
-    case ensure_rules_len(Rules) of
-        ok ->
-            emqx_authz_mnesia:store_rules({username, Username}, Rules),
-            {204};
-        {error, too_many_rules} ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message =>
-                    binfmt(
-                        <<"The rules length exceeds the maximum limit.">>,
-                        []
-                    )
-            }}
-    end;
-user(delete, #{bindings := #{username := Username}}) ->
-    case emqx_authz_mnesia:get_rules({username, Username}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Username Not Found">>}};
-        {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({username, Username}),
-            {204}
-    end.
+user(get, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_get_user(Namespace, Req);
+user(put, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_update_user(Namespace, Req);
+user(delete, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_delete_rules(Namespace, Req).
 
-client(get, #{bindings := #{clientid := ClientId}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientId}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
-        {ok, Rules} ->
-            {200, #{
-                clientid => ClientId,
-                rules => format_rules(Rules)
-            }}
-    end;
-client(put, #{
-    bindings := #{clientid := ClientId},
-    body := #{<<"clientid">> := ClientId, <<"rules">> := Rules}
-}) ->
-    case ensure_rules_len(Rules) of
-        ok ->
-            emqx_authz_mnesia:store_rules({clientid, ClientId}, Rules),
-            {204};
-        {error, too_many_rules} ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message =>
-                    binfmt(
-                        <<"The rules length exceeds the maximum limit.">>,
-                        []
-                    )
-            }}
-    end;
-client(delete, #{bindings := #{clientid := ClientId}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientId}) of
-        not_found ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
-        {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({clientid, ClientId}),
-            {204}
-    end.
+client(get, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_get_user(Namespace, Req);
+client(put, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_update_user(Namespace, Req);
+client(delete, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_delete_rules(Namespace, Req).
 
-all(get, _) ->
-    case emqx_authz_mnesia:get_rules(all) of
-        not_found ->
-            {200, #{rules => []}};
-        {ok, Rules} ->
-            {200, #{
-                rules => format_rules(Rules)
-            }}
-    end;
-all(post, #{body := #{<<"rules">> := Rules}}) ->
-    case ensure_rules_len(Rules) of
-        ok ->
-            emqx_authz_mnesia:store_rules(all, Rules),
-            {204};
-        _ ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message =>
-                    <<"The length of rules exceeds the maximum limit.">>
-            }}
-    end;
-all(delete, _) ->
-    emqx_authz_mnesia:store_rules(all, []),
-    {204}.
+all(get, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_get_rules(Namespace, Req);
+all(post, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    handle_create_rules(Namespace, all, Req);
+all(delete, Req) ->
+    #{resolved_ns := Namespace} = Req,
+    emqx_authz_mnesia:store_rules(Namespace, all, []),
+    ?NO_CONTENT.
 
-rules(delete, _) ->
+rules(delete, Req) ->
+    #{resolved_ns := Namespace} = Req,
     case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
         [#{<<"enable">> := false}] ->
-            ok = emqx_authz_mnesia:purge_rules(),
-            {204};
+            ok = emqx_authz_mnesia:purge_rules(Namespace),
+            ?NO_CONTENT;
         [#{<<"enable">> := true}] ->
-            {400, #{
-                code => <<"BAD_REQUEST">>,
-                message =>
-                    <<"'built_in_database' type source must be disabled before purge.">>
-            }};
+            ?BAD_REQUEST(<<"'built_in_database' type source must be disabled before purge.">>);
         [] ->
-            {404, #{
-                code => <<"BAD_REQUEST">>,
-                message => <<"'built_in_database' type source is not found.">>
-            }}
+            ?NOT_FOUND(<<"'built_in_database' type source is not found.">>)
     end.
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
 
--spec query_username(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
-query_username(_Tab, {_QString, FuzzyQString}) ->
-    #{
-        match_spec => emqx_authz_mnesia:list_username_rules(),
-        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
-    }.
+mk_query_username_fn(Namespace) ->
+    fun(_Tab, {_QString, FuzzyQString}) ->
+        #{
+            match_spec => emqx_authz_mnesia:list_username_rules(Namespace),
+            fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+        }
+    end.
 
--spec query_clientid(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
-query_clientid(_Tab, {_QString, FuzzyQString}) ->
-    #{
-        match_spec => emqx_authz_mnesia:list_clientid_rules(),
-        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
-    }.
+mk_query_clientid_fn(Namespace) ->
+    fun(_Tab, {_QString, FuzzyQString}) ->
+        #{
+            match_spec => emqx_authz_mnesia:list_clientid_rules(Namespace),
+            fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+        }
+    end.
 
 %% Fuzzy username funcs
 fuzzy_filter_fun([]) ->
@@ -755,6 +651,185 @@ format_result([{clientid, ClientId}, {rules, Rules}]) ->
 
 format_rules(Rules) ->
     [emqx_authz_rule_raw:format_rule(Rule) || Rule <- Rules].
+
+%%--------------------------------------------------------------------
+%% Handlers
+%%--------------------------------------------------------------------
+
+handle_get_rules(Namespace, _Req) ->
+    case emqx_authz_mnesia:get_rules(Namespace, all) of
+        not_found ->
+            {200, #{rules => []}};
+        {ok, Rules} ->
+            {200, #{
+                rules => format_rules(Rules)
+            }}
+    end.
+
+handle_get_rules(Namespace, username, #{query_string := QueryString} = _Req) ->
+    Table = table(Namespace),
+    case
+        emqx_mgmt_api:node_query(
+            node(),
+            Table,
+            QueryString,
+            ?ACL_USERNAME_QSCHEMA,
+            mk_query_username_fn(Namespace),
+            fun ?MODULE:format_result/1
+        )
+    of
+        {error, page_limit_invalid} ->
+            ?BAD_REQUEST(<<"INVALID_PARAMETER">>, <<"page_limit_invalid">>);
+        {error, Node, Error} ->
+            Message = list_to_binary(
+                io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
+            ),
+            ?INTERNAL_ERROR(<<"NODE_DOWN">>, Message);
+        Result ->
+            ?OK(Result)
+    end;
+handle_get_rules(Namespace, clientid, #{query_string := QueryString} = _Req) ->
+    Table = table(Namespace),
+    case
+        emqx_mgmt_api:node_query(
+            node(),
+            Table,
+            QueryString,
+            ?ACL_CLIENTID_QSCHEMA,
+            mk_query_clientid_fn(Namespace),
+            fun ?MODULE:format_result/1
+        )
+    of
+        {error, page_limit_invalid} ->
+            ?BAD_REQUEST(<<"INVALID_PARAMETER">>, <<"page_limit_invalid">>);
+        {error, Node, Error} ->
+            Message = list_to_binary(
+                io_lib:format("bad rpc call ~p, Reason ~p", [Node, Error])
+            ),
+            ?INTERNAL_ERROR(<<"NODE_DOWN">>, Message);
+        Result ->
+            ?OK(Result)
+    end.
+
+handle_create_rules(Namespace, username, #{body := Body}) when is_list(Body) ->
+    case ensure_rules_is_valid(Namespace, <<"username">>, username, Body) of
+        ok ->
+            lists:foreach(
+                fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
+                    emqx_authz_mnesia:store_rules(Namespace, {username, Username}, Rules)
+                end,
+                Body
+            ),
+            ?NO_CONTENT;
+        {error, {Username, too_many_rules}} ->
+            ?BAD_REQUEST(
+                binfmt(
+                    <<"The rules length of User '~ts' exceeds the maximum limit.">>,
+                    [Username]
+                )
+            );
+        {error, {already_exists, Exists}} ->
+            ?CONFLICT(<<"ALREADY_EXISTS">>, binfmt("User '~ts' already exist", [Exists]))
+    end;
+handle_create_rules(Namespace, clientid, #{body := Body}) when is_list(Body) ->
+    case ensure_rules_is_valid(Namespace, <<"clientid">>, clientid, Body) of
+        ok ->
+            lists:foreach(
+                fun(#{<<"clientid">> := ClientId, <<"rules">> := Rules}) ->
+                    emqx_authz_mnesia:store_rules(Namespace, {clientid, ClientId}, Rules)
+                end,
+                Body
+            ),
+            ?NO_CONTENT;
+        {error, {ClientId, too_many_rules}} ->
+            ?BAD_REQUEST(
+                binfmt(
+                    <<"The rules length of Client '~ts' exceeds the maximum limit.">>,
+                    [ClientId]
+                )
+            );
+        {error, {already_exists, Exists}} ->
+            ?CONFLICT(<<"ALREADY_EXISTS">>, binfmt("Client '~ts' already exist", [Exists]))
+    end;
+handle_create_rules(Namespace, all, #{body := #{<<"rules">> := Rules}}) ->
+    case ensure_rules_len(Rules) of
+        ok ->
+            emqx_authz_mnesia:store_rules(Namespace, all, Rules),
+            ?NO_CONTENT;
+        _ ->
+            ?BAD_REQUEST(<<"The length of rules exceeds the maximum limit.">>)
+    end.
+
+handle_get_user(Namespace, #{bindings := #{username := Username}} = _Req) ->
+    case emqx_authz_mnesia:get_rules(Namespace, {username, Username}) of
+        not_found ->
+            ?NOT_FOUND(<<"Not Found">>);
+        {ok, Rules} ->
+            ?OK(#{
+                username => Username,
+                rules => format_rules(Rules)
+            })
+    end;
+handle_get_user(Namespace, #{bindings := #{clientid := ClientId}}) ->
+    case emqx_authz_mnesia:get_rules(Namespace, {clientid, ClientId}) of
+        not_found ->
+            ?NOT_FOUND(<<"Not Found">>);
+        {ok, Rules} ->
+            ?OK(#{
+                clientid => ClientId,
+                rules => format_rules(Rules)
+            })
+    end.
+
+handle_update_user(Namespace, #{
+    bindings := #{username := Username},
+    body := #{<<"username">> := Username, <<"rules">> := Rules}
+}) ->
+    case ensure_rules_len(Rules) of
+        ok ->
+            emqx_authz_mnesia:store_rules(Namespace, {username, Username}, Rules),
+            ?NO_CONTENT;
+        {error, too_many_rules} ->
+            ?BAD_REQUEST(
+                binfmt(
+                    <<"The rules length exceeds the maximum limit.">>,
+                    []
+                )
+            )
+    end;
+handle_update_user(Namespace, #{
+    bindings := #{clientid := ClientId},
+    body := #{<<"clientid">> := ClientId, <<"rules">> := Rules}
+}) ->
+    case ensure_rules_len(Rules) of
+        ok ->
+            emqx_authz_mnesia:store_rules(Namespace, {clientid, ClientId}, Rules),
+            ?NO_CONTENT;
+        {error, too_many_rules} ->
+            ?BAD_REQUEST(
+                binfmt(
+                    <<"The rules length exceeds the maximum limit.">>,
+                    []
+                )
+            )
+    end.
+
+handle_delete_rules(Namespace, #{bindings := #{username := Username}}) ->
+    case emqx_authz_mnesia:get_rules(Namespace, {username, Username}) of
+        not_found ->
+            ?NOT_FOUND(<<"Username Not Found">>);
+        {ok, _Rules} ->
+            emqx_authz_mnesia:delete_rules(Namespace, {username, Username}),
+            ?NO_CONTENT
+    end;
+handle_delete_rules(Namespace, #{bindings := #{clientid := ClientId}}) ->
+    case emqx_authz_mnesia:get_rules(Namespace, {clientid, ClientId}) of
+        not_found ->
+            ?NOT_FOUND(<<"ClientID Not Found">>);
+        {ok, _Rules} ->
+            emqx_authz_mnesia:delete_rules(Namespace, {clientid, ClientId}),
+            ?NO_CONTENT
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -811,29 +886,69 @@ ensure_rules_len(Rules, MaxLen) ->
             {error, too_many_rules}
     end.
 
-ensure_rules_is_valid(Key, Type, Cfgs) ->
+ensure_rules_is_valid(Namespace, Key, Type, Cfgs) ->
     MaxLen = emqx_authz_api_sources:with_source(
         ?AUTHZ_TYPE_BIN,
         fun(#{<<"max_rules">> := MaxLen}) ->
             MaxLen
         end
     ),
-    ensure_rules_is_valid(Key, Type, MaxLen, Cfgs).
+    ensure_rules_is_valid(Namespace, Key, Type, MaxLen, Cfgs).
 
-ensure_rules_is_valid(Key, Type, MaxLen, [Cfg | Cfgs]) ->
+ensure_rules_is_valid(Namespace, Key, Type, MaxLen, [Cfg | Cfgs]) ->
     #{Key := Id, <<"rules">> := Rules} = Cfg,
-    case emqx_authz_mnesia:get_rules({Type, Id}) of
+    case emqx_authz_mnesia:get_rules(Namespace, {Type, Id}) of
         not_found ->
             case ensure_rules_len(Rules, MaxLen) of
                 ok ->
-                    ensure_rules_is_valid(Key, Type, MaxLen, Cfgs);
+                    ensure_rules_is_valid(Namespace, Key, Type, MaxLen, Cfgs);
                 {error, Reason} ->
                     {error, {Id, Reason}}
             end;
         _ ->
             {error, {already_exists, Id}}
     end;
-ensure_rules_is_valid(_Key, _Type, _MaxLen, []) ->
+ensure_rules_is_valid(_Namespace, _Key, _Type, _MaxLen, []) ->
     ok.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+
+resolve_namespace(Req, _Meta) ->
+    case get_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+get_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
+table(?global_ns) -> ?ACL_TABLE;
+table(_Namespace) -> ?ACL_NS_TABLE.
+
+filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= is_configured_authz_source(Req0, Meta),
+        {ok, Req2} ?= resolve_namespace(Req1, Meta),
+        validate_managed_namespace(Req2, Meta)
+    end.
