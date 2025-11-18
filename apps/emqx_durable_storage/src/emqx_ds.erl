@@ -159,6 +159,10 @@ It takes care of forwarding calls to the underlying DBMS.
 -include("../gen_src/DSBuiltinMetadata.hrl").
 -include("emqx_dsch.hrl").
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 %%================================================================================
 %% type declarations
 %%================================================================================
@@ -392,7 +396,8 @@ Options for the `subscribe` API.
     retries => non_neg_integer(),
     timeout => timeout(),
     sync => boolean(),
-    retry_interval => non_neg_integer()
+    retry_interval => non_neg_integer(),
+    max_mql => pos_integer() | infinity
 }.
 
 -type transaction_result(Ret) ::
@@ -1281,6 +1286,16 @@ The following is guaranteed, though:
 
   Default: 1s.
 
+- **`max_mql`**: For performance reasons sync transactions may run in
+  a temporary worker process. This parameter specifies maximum message
+  queue length of the calling process that allows running transaction
+  function locally. If such behavior is always necessary, this
+  parameter can be set to `infinity`.
+
+  This parameter is irrelevant for async transactions.
+
+  Default: 100
+
 #### Return values
 
 - When transaction doesn't have any side effects (writes, deletes or
@@ -1334,13 +1349,19 @@ trans(UserOpts = #{db := DB, shard := _, generation := _}, Fun) ->
         timeout => 5_000,
         sync => true,
         retries => 0,
-        retry_interval => 1_000
+        retry_interval => 1_000,
+        max_mql => 100
     },
     Opts = maps:merge(Defaults, UserOpts),
     case tx_ctx() of
         undefined ->
             #{retries := Retries} = Opts,
-            trans_maybe_retry(DB, Fun, Opts, Retries);
+            maybe_middleman(
+                Opts,
+                fun() ->
+                    trans_maybe_retry(DB, Fun, Opts, Retries)
+                end
+            );
         _ ->
             ?err_unrec(nested_transaction)
     end.
@@ -2018,7 +2039,7 @@ handle_destroy_group(Id, S0 = #s{groups = G0}) ->
     non_neg_integer()
 ) ->
     transaction_result(Ret).
-trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval}, Retries) ->
+trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval, sync := Sync}, Retries) ->
     case trans_inner(DB, Fun, Opts) of
         ?err_rec(Reason) when Retries > 0 ->
             ?tp(
@@ -2078,6 +2099,7 @@ trans_inner(DB, Fun, Opts) ->
                     _ ->
                         Ref = commit_tx(DB, Ctx, Tx),
                         tx_maybe_save_side_effects(Ref),
+                        %% Note: no ref-trick optimization
                         trans_maybe_wait_outcome(DB, Ref, Ret, Opts)
                 end;
             Err ->
@@ -2295,3 +2317,78 @@ safe_call(Mod, Fun, Args) ->
             }),
             {error, internal_error}
     end.
+
+%% Sync transactions don't support ref-trick optimization. So running
+%% them in a process that has long message queue would be inefficient.
+%% This function spawns a helper process if needed.
+-spec maybe_middleman(transaction_opts(), fun(() -> A)) -> A.
+maybe_middleman(#{sync := true, max_mql := MaxMQL}, Fun) when is_integer(MaxMQL) ->
+    case process_info(self(), message_queue_len) of
+        {message_queue_len, MQL} when MQL >= MaxMQL ->
+            with_middleman(Fun);
+        _ ->
+            Fun()
+    end;
+maybe_middleman(_, Fun) ->
+    Fun().
+
+%% This function is designed to make use of ref-trick optimization for
+%% selective receives:
+with_middleman(Fun) ->
+    ReplyTo = alias([reply]),
+    {Pid, MRef} = spawn_opt(
+        fun() ->
+            Result =
+                try
+                    {ReplyTo, ok, Fun()}
+                catch
+                    EC:Err:Stack ->
+                        {ReplyTo, EC, Err, Stack}
+                end,
+            ReplyTo ! Result
+        end,
+        [monitor, {min_heap_size, 10_000}]
+    ),
+    receive
+        {ReplyTo, ok, Result} ->
+            demonitor(MRef, [flush]),
+            Result;
+        {ReplyTo, EC, Err, Stack} ->
+            demonitor(MRef, [flush]),
+            erlang:raise(EC, Err, Stack);
+        {'DOWN', MRef, process, _, Reason} ->
+            %% This is not expected:
+            error({middleman_died, Pid, Reason})
+    end.
+
+-ifdef(TEST).
+
+middleman_test() ->
+    %% Successful execution:
+    ?assertEqual(
+        42,
+        with_middleman(fun() -> 42 end)
+    ),
+    ?assertEqual(
+        {error, err},
+        with_middleman(fun() -> {error, err} end)
+    ),
+    %% Test various types of errors:
+    ?assertThrow(
+        42,
+        with_middleman(fun() -> throw(42) end)
+    ),
+    ?assertError(
+        42,
+        with_middleman(fun() -> error(42) end)
+    ),
+    ?assertExit(
+        42,
+        with_middleman(fun() -> exit(42) end)
+    ),
+    ?assertError(
+        {middleman_died, P, killed} when is_pid(P),
+        with_middleman(fun() -> exit(self(), kill) end)
+    ).
+
+-endif.

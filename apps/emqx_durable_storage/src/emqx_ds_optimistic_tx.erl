@@ -454,6 +454,15 @@ loop(D0) ->
         {system, From, SysReq} ->
             Debug = [],
             sys:handle_system_msg(SysReq, From, D0#d.parent, ?MODULE, Debug, D0);
+        {'$gen_call', From, Other} ->
+            ?tp(warning, emqx_ds_optimistic_tx_unknown_call, #{
+                call => Other,
+                db => DB,
+                shard => Shard,
+                from => From
+            }),
+            gen:reply(From, ?err_unrec({unknown_call, Other})),
+            loop(D0);
         Other ->
             ?tp(warning, emqx_ds_optimistic_tx_unknown_event, #{
                 event => Other,
@@ -884,7 +893,6 @@ do_flush(D0 = #d{n_items = NItems}) ->
             emqx_ds_builtin_metrics:inc_buffer_batches(Metrics),
             emqx_ds_builtin_metrics:inc_buffer_messages(Metrics, NItems),
             emqx_ds_builtin_metrics:observe_buffer_latency(Metrics, Latency),
-            erlang:garbage_collect(),
             D#d{
                 entered_pending_at = undefined,
                 committed_serial = Serial,

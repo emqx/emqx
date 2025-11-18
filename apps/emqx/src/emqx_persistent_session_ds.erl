@@ -1084,7 +1084,7 @@ session_drop(SessionId, Reason) ->
         {ok, S0} ->
             ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
             ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
-            ok = emqx_persistent_session_ds_state:delete(SessionId),
+            ok = emqx_persistent_session_ds_state:delete(S0),
             emqx_persistent_session_ds_gc_timer:delete(SessionId);
         undefined ->
             ok
