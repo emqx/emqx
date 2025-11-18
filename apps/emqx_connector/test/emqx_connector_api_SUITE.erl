@@ -1367,32 +1367,74 @@ t_namespaced_crud(TCConfig) ->
 
     %% Creating connector with same name globally and in each NS should work.
     ?assertMatch(
-        {201, #{<<"description">> := <<"global">>}},
+        {201, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"global">>
+        }},
         create(ConnectorType, ConnectorName1, ConnectorConfigGlobal1, TCConfig)
     ),
     ?assertMatch(
-        {201, #{<<"description">> := NS1}},
+        {201, #{
+            <<"namespace">> := NS1,
+            <<"description">> := NS1
+        }},
         create(ConnectorType, ConnectorName1, ConnectorConfigNS1, TCConfigNS1)
     ),
     ?assertMatch(
-        {201, #{<<"description">> := NS2}},
+        {201, #{
+            <<"namespace">> := NS2,
+            <<"description">> := NS2
+        }},
         create(ConnectorType, ConnectorName1, ConnectorConfigNS2, TCConfigNS2)
     ),
 
-    ?assertMatch({200, [#{<<"description">> := <<"global">>}]}, list(TCConfig)),
-    ?assertMatch({200, [#{<<"description">> := NS1}]}, list(TCConfigNS1)),
-    ?assertMatch({200, [#{<<"description">> := NS2}]}, list(TCConfigNS2)),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            }
+        ]},
+        list(TCConfig)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := NS1
+            }
+        ]},
+        list(TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := NS2
+            }
+        ]},
+        list(TCConfigNS2)
+    ),
 
     ?assertMatch(
-        {200, #{<<"description">> := <<"global">>}},
+        {200, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"global">>
+        }},
         get(ConnectorType, ConnectorName1, TCConfig)
     ),
     ?assertMatch(
-        {200, #{<<"description">> := NS1}},
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := NS1
+        }},
         get(ConnectorType, ConnectorName1, TCConfigNS1)
     ),
     ?assertMatch(
-        {200, #{<<"description">> := NS2}},
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := NS2
+        }},
         get(ConnectorType, ConnectorName1, TCConfigNS2)
     ),
 
@@ -1412,7 +1454,10 @@ t_namespaced_crud(TCConfig) ->
 
     %% Updating each one should be independent
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated global">>}},
+        {200, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"updated global">>
+        }},
         update(
             ConnectorType,
             ConnectorName1,
@@ -1421,7 +1466,10 @@ t_namespaced_crud(TCConfig) ->
         )
     ),
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated ns1">>}},
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := <<"updated ns1">>
+        }},
         update(
             ConnectorType,
             ConnectorName1,
@@ -1430,7 +1478,10 @@ t_namespaced_crud(TCConfig) ->
         )
     ),
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated ns2">>}},
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := <<"updated ns2">>
+        }},
         update(
             ConnectorType,
             ConnectorName1,

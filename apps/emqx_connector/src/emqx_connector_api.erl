@@ -691,6 +691,7 @@ format_resource(
     redact(
         maps:merge(
             RawConf#{
+                namespace => namespace_out(Namespace),
                 type => Type,
                 name => maps:get(<<"name">>, RawConf, ConnectorName),
                 node => Node
@@ -914,3 +915,8 @@ deobfuscate_mqtt_connector_for_node(NewInfo0, OldInfo) ->
         NewIds0
     ),
     maps:put(<<"ids">>, NewIds, NewInfo0).
+
+namespace_out(?global_ns) ->
+    null;
+namespace_out(Namespace) when is_binary(Namespace) ->
+    Namespace.
