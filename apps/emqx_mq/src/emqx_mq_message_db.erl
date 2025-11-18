@@ -140,14 +140,12 @@ insert(#{is_lastvalue := true} = MQHandle, IsLimited, Message) ->
                 {atomic, _Serial, MaybeOldMessage} ->
                     emqx_mq_metrics:observe_hist_mq(MQHandle, insert_latency_ms, us_to_ms(Time)),
                     IsLimited andalso
-                        begin
-                            QuotaIndexUpdates = quota_index_updates(
-                                MaybeOldMessage, Message, byte_size(MessageBin)
-                            ),
-                            ok = emqx_mq_message_quota_buffer:add(
-                                Gen, Shard, MQHandle, QuotaIndexUpdates
-                            )
-                        end,
+                        update_quota(
+                            MQHandle,
+                            {Shard, Gen},
+                            old_message_quota_info(MaybeOldMessage),
+                            #{message => Message, message_size => byte_size(MessageBin)}
+                        ),
                     ok;
                 {error, IsRecoverable, Reason} ->
                     emqx_mq_metrics:inc_mq(MQHandle, insert_errors),
@@ -181,9 +179,12 @@ insert(#{is_lastvalue := false} = MQHandle, true = _IsLimited, Message) ->
     case Result of
         {atomic, _Serial, ok} ->
             emqx_mq_metrics:observe_hist_mq(MQHandle, insert_latency_ms, us_to_ms(Time)),
-            QuotaIndexUpdates = quota_index_updates([], Message, byte_size(MessageBin)),
-            ok = emqx_mq_message_quota_buffer:add(Gen, Shard, MQHandle, QuotaIndexUpdates),
-            ok;
+            ok = update_quota(
+                MQHandle,
+                {Shard, Gen},
+                undefined,
+                #{message => Message, message_size => byte_size(MessageBin)}
+            );
         {error, IsRecoverable, Reason} ->
             emqx_mq_metrics:inc_mq(MQHandle, insert_errors),
             {error, {IsRecoverable, Reason}}
@@ -388,47 +389,6 @@ dirty_index(MQHandle, Shard, true = _IsLimited) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Internal API
-%%--------------------------------------------------------------------
-
--spec flush_quota_index(
-    emqx_ds:shard(),
-    emqx_ds:generation(),
-    list(#{
-        mq_handle => emqx_mq_types:mq_handle(),
-        updates => list({
-            emqx_mq_message_quota_index:timestamp_us(), emqx_mq_message_quota_index:update()
-        })
-    })
-) -> ok.
-flush_quota_index(Shard, Generation, UpdatesByMQ) ->
-    TxOpts = #{
-        db => ?MQ_MESSAGE_LASTVALUE_DB,
-        shard => Shard,
-        generation => Generation,
-        sync => true,
-        retries => ?MQ_MESSAGE_DB_INDEX_APPEND_RETRY,
-        retry_interval => retry_interval(?MQ_MESSAGE_LASTVALUE_DB)
-    },
-    TxFun = fun() ->
-        lists:foreach(
-            fun({MQHandle, Updates}) ->
-                tx_update_index(MQHandle, Updates)
-            end,
-            UpdatesByMQ
-        )
-    end,
-    {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
-    case Result of
-        {atomic, _Serial, ok} ->
-            emqx_mq_metrics:observe_hist(flush_quota_index, flush_latency_ms, us_to_ms(Time)),
-            ok;
-        {error, IsRecoverable, Reason} ->
-            emqx_mq_metrics:inc(flush_quota_index, flush_errors),
-            {error, {IsRecoverable, Reason}}
-    end.
-
-%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
@@ -452,62 +412,6 @@ need_reply(Message) ->
         ?QOS_0 -> false;
         _ -> true
     end.
-
-tx_update_index(_MQHandle, []) ->
-    ok;
-tx_update_index(MQHandle, Updates) ->
-    Index0 =
-        case tx_read_index(MQHandle) of
-            undefined ->
-                IndexStartTsUs = lists:min(
-                    lists:map(fun(?QUOTA_INDEX_UPDATE(TsUs, _, _)) -> TsUs end, Updates)
-                ),
-                emqx_mq_message_quota_index:new(
-                    emqx_mq_prop:quota_index_opts(MQHandle), IndexStartTsUs
-                );
-            Index ->
-                Index
-        end,
-    Index1 = emqx_mq_message_quota_index:apply_updates(Index0, Updates),
-    tx_write_index(MQHandle, Index1).
-
-tx_read_index(MQHandle) ->
-    Opts = emqx_mq_prop:quota_index_opts(MQHandle),
-    case emqx_ds:tx_read(mq_index_topic(MQHandle)) of
-        [] ->
-            undefined;
-        [{_, ?INDEX_TS, IndexBin}] ->
-            emqx_mq_message_quota_index:decode(Opts, IndexBin)
-    end.
-
-tx_write_index(MQHandle, Index) ->
-    emqx_ds:tx_write({
-        mq_index_topic(MQHandle), ?INDEX_TS, emqx_mq_message_quota_index:encode(Index)
-    }).
-
-quota_index_updates(MaybeOldMessage, Message, MessageSize) ->
-    %% Old record to delete from the index
-    OldUpdates =
-        case MaybeOldMessage of
-            [] ->
-                [];
-            [{_, _, OldMessageBin}] ->
-                OldMessage = decode_message(OldMessageBin),
-                [
-                    ?QUOTA_INDEX_UPDATE(
-                        message_timestamp_us(OldMessage),
-                        -byte_size(OldMessageBin),
-                        -1
-                    )
-                ]
-        end,
-    %% Add new record to the index
-    NewUpdate = ?QUOTA_INDEX_UPDATE(
-        message_timestamp_us(Message),
-        MessageSize,
-        1
-    ),
-    OldUpdates ++ [NewUpdate].
 
 delete(DB, Topics) ->
     {_Time, Errors} = timer:tc(fun() ->
@@ -615,7 +519,7 @@ insert_generation(?MQ_MESSAGE_LASTVALUE_DB) ->
     1.
 
 retry_interval(?MQ_MESSAGE_LASTVALUE_DB) ->
-    emqx:get_config([mq, message_db, transaction, flush_interval], 100) * 2.
+    emqx:get_config([durable_storage, mq_messages, transaction, flush_interval], 100) * 2.
 
 message_to_map(Message) ->
     convert([user_property, peername, peerhost], emqx_message:to_map(Message)).
@@ -637,10 +541,6 @@ convert(_, Map) ->
 ntoa(Addr) ->
     list_to_binary(emqx_utils:ntoa(Addr)).
 
-message_timestamp_us(Message) ->
-    Ms = emqx_message:timestamp(Message),
-    erlang:convert_time_unit(Ms, millisecond, microsecond).
-
 us_to_ms(Us) ->
     erlang:convert_time_unit(Us, microsecond, millisecond).
 
@@ -651,3 +551,19 @@ delete_topics(?MQ_MESSAGE_LASTVALUE_DB, MQHandle) ->
 
 now_ms() ->
     erlang:monotonic_time(millisecond).
+
+old_message_quota_info([]) ->
+    undefined;
+old_message_quota_info([{_, _, OldMessageBin}]) ->
+    OldMessage = decode_message(OldMessageBin),
+    #{message => OldMessage, message_size => byte_size(OldMessageBin)}.
+
+update_quota(MQHandle, Slab, OldMessageInfo, NewMessageInfo) ->
+    emqx_mq_quota:add(
+        ?MQ_QUOTA_BUFFER,
+        Slab,
+        mq_index_topic(MQHandle),
+        emqx_mq_prop:quota_index_opts(MQHandle),
+        OldMessageInfo,
+        NewMessageInfo
+    ).
