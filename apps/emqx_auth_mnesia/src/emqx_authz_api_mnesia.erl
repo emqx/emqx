@@ -930,11 +930,25 @@ get_namespace(#{query_string := QueryString} = Req) ->
             {ok, QSNamespace}
     end.
 
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
 table(?global_ns) -> ?ACL_TABLE;
 table(_Namespace) -> ?ACL_NS_TABLE.
 
 filter(Req0, Meta) ->
     maybe
         {ok, Req1} ?= is_configured_authz_source(Req0, Meta),
-        resolve_namespace(Req1, Meta)
+        {ok, Req2} ?= resolve_namespace(Req1, Meta),
+        validate_managed_namespace(Req2, Meta)
     end.

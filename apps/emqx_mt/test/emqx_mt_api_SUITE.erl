@@ -1397,6 +1397,28 @@ t_namespaced_authz(_TCConfig) ->
         #{<<"ns">> => Namespace1}
     ),
     Namespace2 = <<"another_ns">>,
+    %% Must first create managed namespace
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Managed namespace not found">>}},
+        emqx_authz_api_mnesia_SUITE:create_all_rules(
+            #{
+                <<"rules">> => [
+                    #{
+                        topic => TopicPub2,
+                        permission => <<"allow">>,
+                        action => <<"publish">>
+                    },
+                    #{
+                        topic => TopicSub2,
+                        permission => <<"allow">>,
+                        action => <<"subscribe">>
+                    }
+                ]
+            },
+            #{<<"ns">> => Namespace2}
+        )
+    ),
+    {204, _} = create_managed_ns(Namespace2),
     {204, _} = emqx_authz_api_mnesia_SUITE:create_all_rules(
         #{
             <<"rules">> => [

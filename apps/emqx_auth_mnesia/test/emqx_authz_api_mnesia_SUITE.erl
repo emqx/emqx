@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -46,6 +47,11 @@ init_per_suite(Config) ->
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, on_namespace_resource_pre_create, []},
+        ?HP_HIGHEST
     ),
     [{suite_apps, Apps} | Config].
 end_per_suite(_Config) ->
@@ -101,6 +107,9 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
 
 put_auth_header(Header) ->
     _ = put({?MODULE, authn}, Header),
