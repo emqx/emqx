@@ -624,7 +624,7 @@ t_api(TCConfig) when is_list(TCConfig) ->
     {204, _} = update_config(#{<<"enable">> => true, <<"type">> => <<"built_in_database">>}),
     {204, _} = update_config(#{<<"enable">> => false, <<"type">> => <<"built_in_database">>}),
     {204, _} = delete_root_rules(),
-    ?assertEqual(0, emqx_authz_mnesia:record_count(?global_ns)),
+    ?assertEqual(0, emqx_authz_mnesia:record_count(?config(namespace, TCConfig))),
 
     Examples = make_examples(emqx_authz_api_mnesia),
     ?assertEqual(

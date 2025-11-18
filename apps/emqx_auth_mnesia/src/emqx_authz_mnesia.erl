@@ -50,9 +50,11 @@
 -type maybe_namespace() :: emqx_config:maybe_namespace().
 
 -record(?ACL_NS_TABLE, {
-    who :: ?WHO_NS(emqx_config:namespace(), table_who()),
-    rules :: rules(),
-    extra = #{} :: map()
+    %% ?WHO_NS(emqx_config:namespace(), table_who())
+    who,
+    %% rules()
+    rules,
+    extra = #{}
 }).
 
 -behaviour(emqx_authz_source).
@@ -202,13 +204,22 @@ list_username_rules(?global_ns) ->
         end
     );
 list_username_rules(Namespace) when is_binary(Namespace) ->
-    ets:fun2ms(
-        fun(#?ACL_NS_TABLE{who = ?WHO_NS(Ns, {?ACL_TABLE_USERNAME, Username}), rules = Rules}) when
-            Ns == Namespace
-        ->
-            [{username, Username}, {rules, Rules}]
-        end
-    ).
+    %% ets:fun2ms(
+    %%     fun(#?ACL_NS_TABLE{who = ?WHO_NS(Namespace, {?ACL_TABLE_USERNAME, Username}), rules = Rules}) ->
+    %%         [{username, Username}, {rules, Rules}]
+    %%     end
+    %% ).
+    %% Manually constructing match spec to ensure key is at least partially bound to avoid
+    %% full scan.
+    [
+        {
+            #?ACL_NS_TABLE{
+                who = ?WHO_NS(Namespace, {?ACL_TABLE_USERNAME, '$1'}), rules = '$2', _ = '_'
+            },
+            [],
+            [[{{username, '$1'}}, {{rules, '$2'}}]]
+        }
+    ].
 
 -spec list_clientid_rules(maybe_namespace()) -> ets:match_spec().
 list_clientid_rules(?global_ns) ->
@@ -218,23 +229,43 @@ list_clientid_rules(?global_ns) ->
         end
     );
 list_clientid_rules(Namespace) when is_binary(Namespace) ->
-    ets:fun2ms(
-        fun(#?ACL_NS_TABLE{who = ?WHO_NS(Ns, {?ACL_TABLE_CLIENTID, Clientid}), rules = Rules}) when
-            Ns == Namespace
-        ->
-            [{clientid, Clientid}, {rules, Rules}]
-        end
-    ).
+    %% ets:fun2ms(
+    %%     fun(#?ACL_NS_TABLE{who = ?WHO_NS(Ns, {?ACL_TABLE_CLIENTID, Clientid}), rules = Rules}) when
+    %%         Ns == Namespace
+    %%     ->
+    %%         [{clientid, Clientid}, {rules, Rules}]
+    %%     end
+    %% ).
+    %% Manually constructing match spec to ensure key is at least partially bound to avoid
+    %% full scan.
+    [
+        {
+            #?ACL_NS_TABLE{
+                who = ?WHO_NS(Namespace, {?ACL_TABLE_CLIENTID, '$1'}), rules = '$2', _ = '_'
+            },
+            [],
+            [[{{clientid, '$1'}}, {{rules, '$2'}}]]
+        }
+    ].
 
 -spec record_count(maybe_namespace()) -> non_neg_integer().
 record_count(?global_ns) ->
     mnesia:table_info(?ACL_TABLE, size);
 record_count(Namespace) when is_binary(Namespace) ->
-    MS = ets:fun2ms(
-        fun(#?ACL_NS_TABLE{who = ?WHO_NS(Ns, _)}) when Ns == Namespace ->
-            true
-        end
-    ),
+    %% MS = ets:fun2ms(
+    %%     fun(#?ACL_NS_TABLE{who = ?WHO_NS(Ns, _)}) when Ns == Namespace ->
+    %%         true
+    %%     end
+    %% ),
+    %% Manually constructing match spec to ensure key is at least partially bound to avoid
+    %% full scan.
+    MS = [
+        {
+            #?ACL_NS_TABLE{who = ?WHO_NS(Namespace, '_'), _ = '_'},
+            [],
+            [true]
+        }
+    ],
     ets:select_count(?ACL_NS_TABLE, MS).
 
 %%--------------------------------------------------------------------
