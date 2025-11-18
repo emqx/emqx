@@ -5,7 +5,7 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 
-BASE_BRANCHES=( 'release-60' 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
+BASE_BRANCHES=( 'release-61' 'release-60' 'release-510' 'release-59' 'release-58' 'release-57' 'release-56' 'release-55' 'master' )
 
 usage() {
     cat <<EOF
@@ -25,6 +25,7 @@ options:
     * release-59:  []                   # no upstream for 5.9
     * release-510: []                   # no upstream for 5.10
     * release-60:  []                   # no upstream for 6.0
+    * release-61:  []                   # no upstream for 6.1
     * master: [release-5x, release-6x]  # sync release-5x and release-6x to master
 
   -b|--base:
@@ -172,8 +173,11 @@ upstream_branches() {
         release-60)
             remote_ref "$base"
             ;;
+        release-61)
+            remote_ref "$base"
+            ;;
         master)
-            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59' 'release-510' 'release-60'
+            remote_refs "$base" 'release-55' 'release-56' 'release-57' 'release-58' 'release-59' 'release-510' 'release-60' 'release-61'
             ;;
     esac
 }

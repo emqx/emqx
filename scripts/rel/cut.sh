@@ -26,6 +26,7 @@ options:
                      release-59
                      release-510
                      release-60
+                     release-61
                      NOTE: this option should be used when --dryrun.
 
   --dryrun:          Do not actually create the git tag.
