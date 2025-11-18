@@ -43,7 +43,7 @@
 -define(SERVICE_UNAVAILABLE, 'SERVICE_UNAVAILABLE').
 -define(SOURCE_ERROR, 'SOURCE_ERROR').
 -define(UPDATE_FAILED, 'UPDATE_FAILED').
--define(REST_FAILED, 'REST_FAILED').
+-define(RESET_FAILED, 'RESET_FAILED').
 -define(CLIENT_NOT_RESPONSE, 'CLIENT_NOT_RESPONSE').
 
 %% All codes
@@ -76,7 +76,7 @@
     {'SERVICE_UNAVAILABLE', <<"Service unavailable">>},
     {'SOURCE_ERROR', <<"Source error">>},
     {'UPDATE_FAILED', <<"Update failed">>},
-    {'REST_FAILED', <<"Reset source or config failed">>},
+    {'RESET_FAILED', <<"Reset source or config failed">>},
     {'CLIENT_NOT_RESPONSE', <<"Client not responding">>},
     {'UNSUPPORTED_MEDIA_TYPE', <<"Unsupported media type">>}
 ]).
