@@ -1809,34 +1809,88 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     }),
 
     ?assertMatch(
-        {201, #{<<"id">> := IdGlobal, <<"description">> := <<"global">>}},
+        {201, #{
+            <<"namespace">> := null,
+            <<"id">> := IdGlobal,
+            <<"description">> := <<"global">>
+        }},
         create(ConfigGlobal, TCConfigGlobal)
     ),
     ?assertMatch(
-        {201, #{<<"id">> := IdNS1, <<"description">> := <<"ns1">>}},
+        {201, #{
+            <<"namespace">> := NS1,
+            <<"id">> := IdNS1,
+            <<"description">> := <<"ns1">>
+        }},
         create(ConfigNS1, TCConfigNS1)
     ),
     ?assertMatch(
-        {201, #{<<"id">> := IdNS2, <<"description">> := <<"ns2">>}},
+        {201, #{
+            <<"namespace">> := NS2,
+            <<"id">> := IdNS2,
+            <<"description">> := <<"ns2">>
+        }},
         create(ConfigNS2, TCConfigNS2)
     ),
 
     ?assertMatch(
-        {200, #{<<"data">> := [#{<<"id">> := IdGlobal, <<"description">> := <<"global">>}]}},
+        {200, #{
+            <<"data">> := [
+                #{
+                    <<"namespace">> := null,
+                    <<"id">> := IdGlobal,
+                    <<"description">> := <<"global">>
+                }
+            ]
+        }},
         list(TCConfigGlobal)
     ),
     ?assertMatch(
-        {200, #{<<"data">> := [#{<<"id">> := IdNS1, <<"description">> := <<"ns1">>}]}},
+        {200, #{
+            <<"data">> := [
+                #{
+                    <<"namespace">> := NS1,
+                    <<"id">> := IdNS1,
+                    <<"description">> := <<"ns1">>
+                }
+            ]
+        }},
         list(TCConfigNS1)
     ),
     ?assertMatch(
-        {200, #{<<"data">> := [#{<<"id">> := IdNS2, <<"description">> := <<"ns2">>}]}},
+        {200, #{
+            <<"data">> := [
+                #{
+                    <<"namespace">> := NS2,
+                    <<"id">> := IdNS2,
+                    <<"description">> := <<"ns2">>
+                }
+            ]
+        }},
         list(TCConfigNS2)
     ),
 
-    ?assertMatch({200, #{<<"description">> := <<"global">>}}, get(IdGlobal, TCConfigGlobal)),
-    ?assertMatch({200, #{<<"description">> := <<"ns1">>}}, get(IdNS1, TCConfigNS1)),
-    ?assertMatch({200, #{<<"description">> := <<"ns2">>}}, get(IdNS2, TCConfigNS2)),
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"global">>
+        }},
+        get(IdGlobal, TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := <<"ns1">>
+        }},
+        get(IdNS1, TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := <<"ns2">>
+        }},
+        get(IdNS2, TCConfigNS2)
+    ),
 
     ?assertMatch({404, _}, get(IdGlobal, TCConfigNS1)),
     ?assertMatch({404, _}, get(IdGlobal, TCConfigNS2)),
@@ -1845,15 +1899,27 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
 
     %% Update
     ?assertMatch(
-        {200, #{<<"id">> := IdGlobal, <<"description">> := <<"updated global">>}},
+        {200, #{
+            <<"namespace">> := null,
+            <<"id">> := IdGlobal,
+            <<"description">> := <<"updated global">>
+        }},
         update(IdGlobal, ConfigGlobal#{<<"description">> => <<"updated global">>}, TCConfigGlobal)
     ),
     ?assertMatch(
-        {200, #{<<"id">> := IdNS1, <<"description">> := <<"updated ns1">>}},
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"id">> := IdNS1,
+            <<"description">> := <<"updated ns1">>
+        }},
         update(IdNS1, ConfigNS1#{<<"description">> => <<"updated ns1">>}, TCConfigNS1)
     ),
     ?assertMatch(
-        {200, #{<<"id">> := IdNS2, <<"description">> := <<"updated ns2">>}},
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"id">> := IdNS2,
+            <<"description">> := <<"updated ns2">>
+        }},
         update(IdNS2, ConfigNS2#{<<"description">> => <<"updated ns2">>}, TCConfigNS2)
     ),
 

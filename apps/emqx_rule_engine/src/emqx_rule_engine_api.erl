@@ -607,10 +607,11 @@ mk_format_fn(Namespace) ->
         ?MODULE:format_rule_info_resp(Row, #{action_summary_index => SummaryIndex})
     end.
 
-format_rule_info_resp({?KEY(_Namespace, Id), Rule}, Context) ->
-    format_rule_info_resp(Rule#{id => Id}, Context);
+format_rule_info_resp({?KEY(Namespace, Id), Rule}, Context) ->
+    format_rule_info_resp(Rule#{namespace => Namespace, id => Id}, Context);
 format_rule_info_resp(
     #{
+        namespace := Namespace,
         id := Id,
         name := Name,
         created_at := CreatedAt,
@@ -624,6 +625,7 @@ format_rule_info_resp(
     Context
 ) ->
     #{
+        namespace => namespace_out(Namespace),
         id => Id,
         name => Name,
         from => Topics,
@@ -948,3 +950,8 @@ get_config(Namespace, KeyPath, Default) when is_binary(Namespace) ->
     emqx:get_namespaced_config(Namespace, KeyPath, Default);
 get_config(?global_ns, KeyPath, Default) ->
     emqx:get_config(KeyPath, Default).
+
+namespace_out(?global_ns) ->
+    null;
+namespace_out(Namespace) when is_binary(Namespace) ->
+    Namespace.
