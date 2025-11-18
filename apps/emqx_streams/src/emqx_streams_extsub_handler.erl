@@ -102,18 +102,17 @@ handle_subscribe(
     <<"$s/", Rest0/binary>> = FullTopicFilter
 ) ->
     maybe
-        [Partition, Rest1] ?= binary:split(Rest0, <<"/">>),
-        [OffsetBin, TopicFilter] ?= binary:split(Rest1, <<"/">>),
-        {ok, Stream} = emqx_streams_registry:find(TopicFilter),
-        true ?= lists:member(Partition, emqx_streams_message_db:partitions(Stream)),
+        {ok, Partition, Rest1} ?= split_topic_filter(Rest0),
+        {ok, OffsetBin, TopicFilter} ?= split_topic_filter(Rest1),
+        {ok, Stream} ?= find_stream(TopicFilter),
+        {ok, Shard} ?= validate_partition(Stream, Partition),
         {ok, Offset} ?= parse_offset(OffsetBin),
-        false ?= topic_present(Handler0, FullTopicFilter),
+        ok ?= validate_new_topic_filter(Handler0, FullTopicFilter),
         #h{
             state = #state{topic_filters = TopicFilters, subs = Subs} = State0,
             ds_client = DSClient0
         } = Handler = init_handler(Handler0, SubscribeCtx),
         SubId = make_ref(),
-        Shard = Partition,
         StartTimeUs = start_time_us(Offset),
         {ok, Generation} ?= emqx_streams_message_db:find_generation(Stream, Shard, StartTimeUs),
         StreamState = #stream_state{
@@ -138,8 +137,8 @@ handle_subscribe(
         {ok, DSClient, State} = emqx_streams_message_db:subscribe(Stream, DSClient0, SubId, State1),
         {ok, Handler#h{state = State, ds_client = DSClient}}
     else
-        Error ->
-            ?tp(error, streams_handler_subscribe_error, #{
+        {error, Error} ->
+            ?tp(error, streams_extsub_handler_subscribe_error, #{
                 error => Error, topic_filter => FullTopicFilter
             }),
             ignore
@@ -152,7 +151,6 @@ handle_unsubscribe(
     #h{state = #state{topic_filters = TopicFilters0} = State0, ds_client = DSClient0} = Handler,
     FullTopicFilter
 ) ->
-    % -spec unsubscribe(t(), sub_id(), HostState) -> {ok, t(), HostState} | {error, not_found}.
     case TopicFilters0 of
         #{FullTopicFilter := SubId} ->
             {ok, DSClient, #state{topic_filters = TopicFilters, subs = Subs} = State1} = emqx_ds_client:unsubscribe(
@@ -424,10 +422,13 @@ init_handler(undefined, #{send_after := SendAfterFn, send := SendFn} = _Ctx) ->
 init_handler(#h{} = Handler, _Ctx) ->
     Handler.
 
-topic_present(undefined, _TopicFilter) ->
-    false;
-topic_present(#h{state = #state{topic_filters = TopicFilters}}, FullTopicFilter) ->
-    maps:is_key(FullTopicFilter, TopicFilters).
+validate_new_topic_filter(undefined, _TopicFilter) ->
+    ok;
+validate_new_topic_filter(#h{state = #state{topic_filters = TopicFilters}}, FullTopicFilter) ->
+    case maps:is_key(FullTopicFilter, TopicFilters) of
+        true -> {error, {topic_filter_already_present, FullTopicFilter}};
+        false -> ok
+    end.
 
 update_stream_state(#h{state = State} = HState, SubId, StreamState) ->
     HState#h{state = update_stream_state(State, SubId, StreamState)};
@@ -440,3 +441,21 @@ start_time_us(latest) ->
     erlang:system_time(microsecond);
 start_time_us(Timestamp) when is_integer(Timestamp) ->
     Timestamp.
+
+split_topic_filter(TopicFilter) ->
+    case binary:split(TopicFilter, <<"/">>) of
+        [First, Rest] -> {ok, First, Rest};
+        _ -> {error, invalid_topic_filter}
+    end.
+
+find_stream(TopicFilter) ->
+    case emqx_streams_registry:find(TopicFilter) of
+        {ok, Stream} -> {ok, Stream};
+        not_found -> {error, {stream_not_found, TopicFilter}}
+    end.
+
+validate_partition(Stream, Partition) ->
+    case lists:member(Partition, emqx_streams_message_db:partitions(Stream)) of
+        true -> {ok, Partition};
+        false -> {error, {invalid_partition, Partition}}
+    end.
