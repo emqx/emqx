@@ -14,6 +14,7 @@
 -include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_resource/include/emqx_resource_runtime.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -193,7 +194,15 @@ app_specs_without_dashboard() ->
         emqx_management,
         emqx_connector,
         emqx_bridge_mqtt,
-        emqx_bridge,
+        {emqx_bridge, #{
+            after_start => fun() ->
+                ok = emqx_hooks:add(
+                    'namespace.resource_pre_create',
+                    {?MODULE, on_namespace_resource_pre_create, []},
+                    ?HP_HIGHEST
+                )
+            end
+        }},
         emqx_rule_engine
     ].
 
@@ -315,6 +324,9 @@ skip_connector_creation_test_cases() ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
 
 get_tcp_mqtt_port(Node) ->
     {_Host, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
@@ -822,20 +834,37 @@ conf_root_key_of(TCConfig) ->
             atom_to_binary(ConfRootKey)
     end.
 
+qp_of(Opts) ->
+    case maps:find(ns, Opts) of
+        {ok, Ns} when is_binary(Ns) ->
+            [{<<"ns">>, Ns}];
+        _ ->
+            []
+    end.
+
 list(TCConfig) ->
+    list(TCConfig, _Opts = #{}).
+
+list(TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig)]),
         emqx_bridge_v2_testlib:simple_request(#{
             method => get,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 summary(TCConfig) ->
+    summary(TCConfig, _Opts = #{}).
+
+summary(TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         URL =
@@ -846,12 +875,17 @@ summary(TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => get,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 create(Type, Name, Config, TCConfig) ->
+    create(Type, Name, Config, TCConfig, _Opts = #{}).
+
+create(Type, Name, Config, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig)]),
@@ -862,12 +896,17 @@ create(Type, Name, Config, TCConfig) ->
                 <<"type">> => Type,
                 <<"name">> => Name
             },
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 get(Type, Name, TCConfig) ->
+    get(Type, Name, TCConfig, _Opts = #{}).
+
+get(Type, Name, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         Id = emqx_bridge_resource:bridge_id(Type, Name),
@@ -875,7 +914,8 @@ get(Type, Name, TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => get,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
@@ -910,7 +950,11 @@ get_runtime(Namespace, Type, Name, TCConfig) ->
     end).
 
 update(Type, Name, Config, TCConfig) ->
+    update(Type, Name, Config, TCConfig, _Opts = #{}).
+
+update(Type, Name, Config, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         Id = emqx_bridge_resource:bridge_id(Type, Name),
@@ -919,18 +963,26 @@ update(Type, Name, Config, TCConfig) ->
             method => put,
             url => URL,
             body => Config,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 enable(Type, Name, TCConfig) ->
-    do_enable_or_disable(Type, Name, "true", TCConfig).
+    enable(Type, Name, TCConfig, _Opts = #{}).
+
+enable(Type, Name, TCConfig, Opts) ->
+    do_enable_or_disable(Type, Name, "true", TCConfig, Opts).
 
 disable(Type, Name, TCConfig) ->
-    do_enable_or_disable(Type, Name, "false", TCConfig).
+    disable(Type, Name, TCConfig, _Opts = #{}).
 
-do_enable_or_disable(Type, Name, Enable, TCConfig) ->
+disable(Type, Name, TCConfig, Opts) ->
+    do_enable_or_disable(Type, Name, "false", TCConfig, Opts).
+
+do_enable_or_disable(Type, Name, Enable, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         Id = emqx_bridge_resource:bridge_id(Type, Name),
         AuthHeader = auth_header(TCConfig),
@@ -938,12 +990,17 @@ do_enable_or_disable(Type, Name, Enable, TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => put,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 start(Type, Name, TCConfig) ->
+    start(Type, Name, TCConfig, _Opts = #{}).
+
+start(Type, Name, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         Id = emqx_bridge_resource:bridge_id(Type, Name),
         AuthHeader = auth_header(TCConfig),
@@ -951,13 +1008,18 @@ start(Type, Name, TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => post,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 start_on_node(Type, Name, TCConfig) ->
+    start_on_node(Type, Name, TCConfig, _Opts = #{}).
+
+start_on_node(Type, Name, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
     NodeBin = atom_to_binary(Node),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         Id = emqx_bridge_resource:bridge_id(Type, Name),
         AuthHeader = auth_header(TCConfig),
@@ -967,12 +1029,17 @@ start_on_node(Type, Name, TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => post,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 delete(Type, Name, TCConfig) ->
+    delete(Type, Name, TCConfig, _Opts = #{}).
+
+delete(Type, Name, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         Id = emqx_bridge_resource:bridge_id(Type, Name),
@@ -980,7 +1047,8 @@ delete(Type, Name, TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => delete,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
@@ -1001,7 +1069,11 @@ send_message(Namespace, Type, Name, Message, QueryOpts, TCConfig) ->
     ).
 
 probe(Type, Name, Config, TCConfig) ->
+    probe(Type, Name, Config, TCConfig, _Opts = #{}).
+
+probe(Type, Name, Config, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         URL =
@@ -1013,12 +1085,17 @@ probe(Type, Name, Config, TCConfig) ->
             method => post,
             url => URL,
             body => Config#{<<"type">> => Type, <<"name">> => Name},
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 get_metrics(Type, Name, TCConfig) ->
+    get_metrics(Type, Name, TCConfig, _Opts = #{}).
+
+get_metrics(Type, Name, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         Id = emqx_bridge_resource:bridge_id(Type, Name),
@@ -1026,12 +1103,17 @@ get_metrics(Type, Name, TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => get,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 reset_metrics(Type, Name, TCConfig) ->
+    reset_metrics(Type, Name, TCConfig, _Opts = #{}).
+
+reset_metrics(Type, Name, TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         Id = emqx_bridge_resource:bridge_id(Type, Name),
@@ -1039,7 +1121,8 @@ reset_metrics(Type, Name, TCConfig) ->
         emqx_bridge_v2_testlib:simple_request(#{
             method => put,
             url => URL,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
@@ -2857,6 +2940,47 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         {200, #{<<"metrics">> := #{<<"matched">> := InitialMatchedCount}}},
         get_metrics(Type, Name1, TCConfigNS2)
     ),
+
+    ct:pal("Cross namespace requests"),
+
+    ct:pal("Namespaced admin is confined to its own namespace."),
+    ?assertMatch({403, _}, list(TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, summary(TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, get(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, get_metrics(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, create(Type, Name1, ConfigNS1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, update(Type, Name1, ConfigNS1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, delete(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, start(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, start_on_node(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, disable(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, enable(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, probe(Type, Name1, ConfigNS1, TCConfigNS1, #{ns => NS2})),
+    ?assertMatch({403, _}, reset_metrics(Type, Name1, TCConfigNS1, #{ns => NS2})),
+    ct:pal("Specifying its own namespace is fine."),
+    ?assertMatch({200, _}, list(TCConfigNS1, #{ns => NS1})),
+
+    ct:pal("Global admin can read and mutate any namespace."),
+    ?assertMatch({200, [_]}, list(TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({200, [_, _]}, list(TCConfigGlobal, #{ns => NS1})),
+    ?assertMatch({200, [_]}, summary(TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({200, _}, get(Type, Name1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({200, _}, get_metrics(Type, Name1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch(
+        {201, #{<<"namespace">> := NS2}},
+        create(Type, Name2, ConfigNS1B, TCConfigGlobal, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {200, #{<<"namespace">> := NS2}},
+        update(Type, Name2, ConfigNS1B, TCConfigGlobal, #{ns => NS2})
+    ),
+    ?assertMatch({204, _}, start(Type, Name1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({204, _}, start_on_node(Type, Name1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({204, _}, disable(Type, Name1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({204, _}, enable(Type, Name1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({204, _}, probe(Type, Name1, ConfigNS1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({204, _}, reset_metrics(Type, Name1, TCConfigGlobal, #{ns => NS2})),
+    ?assertMatch({204, _}, delete(Type, Name2, TCConfigGlobal, #{ns => NS2})),
 
     %% Delete
 

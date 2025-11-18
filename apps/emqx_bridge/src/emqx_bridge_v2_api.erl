@@ -58,6 +58,9 @@
     '/source_types'/2
 ]).
 
+%% minirest filter callback
+-export([filter/2]).
+
 -export([
     status_fields/0
 ]).
@@ -221,6 +224,9 @@ param_qs_delete_cascade() ->
             }
         )}.
 
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
+
 param_path_operation_cluster() ->
     {operation,
         mk(
@@ -275,10 +281,12 @@ param_path_enable() ->
 schema("/actions") ->
     #{
         'operationId' => '/actions',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
             summary => <<"List Actions">>,
             description => ?DESC("desc_api1"),
+            parameters => [ns_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_bridge_v2_schema:actions_get_response()),
@@ -290,6 +298,7 @@ schema("/actions") ->
             tags => [<<"actions">>],
             summary => <<"Create Action">>,
             description => ?DESC("desc_api2"),
+            parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
@@ -303,11 +312,12 @@ schema("/actions") ->
 schema("/actions/:id") ->
     #{
         'operationId' => '/actions/:id',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
             summary => <<"Get Action">>,
             description => ?DESC("desc_api3"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => actions_get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', ?DESC("action_not_found"))
@@ -317,7 +327,7 @@ schema("/actions/:id") ->
             tags => [<<"actions">>],
             summary => <<"Update Action">>,
             description => ?DESC("desc_api4"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_put_request(),
                 bridge_info_examples(put, ?ROOT_KEY_ACTIONS)
@@ -333,7 +343,7 @@ schema("/actions/:id") ->
             tags => [<<"actions">>],
             summary => <<"Delete Action">>,
             description => ?DESC("desc_api5"),
-            parameters => [param_path_id(), param_qs_delete_cascade()],
+            parameters => [param_path_id(), param_qs_delete_cascade(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
                 400 => error_schema(
@@ -349,11 +359,12 @@ schema("/actions/:id") ->
 schema("/actions/:id/metrics") ->
     #{
         'operationId' => '/actions/:id/metrics',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
             summary => <<"Get Action Metrics">>,
             description => ?DESC("desc_bridge_metrics"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => metrics_fields(),
                 404 => error_schema('NOT_FOUND', ?DESC("action_not_found"))
@@ -363,11 +374,12 @@ schema("/actions/:id/metrics") ->
 schema("/actions/:id/metrics/reset") ->
     #{
         'operationId' => '/actions/:id/metrics/reset',
+        filter => fun ?MODULE:filter/2,
         put => #{
             tags => [<<"actions">>],
             summary => <<"Reset Action Metrics">>,
             description => ?DESC("desc_api6"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
                 404 => error_schema('NOT_FOUND', ?DESC("action_not_found"))
@@ -377,12 +389,13 @@ schema("/actions/:id/metrics/reset") ->
 schema("/actions/:id/enable/:enable") ->
     #{
         'operationId' => '/actions/:id/enable/:enable',
+        filter => fun ?MODULE:filter/2,
         put =>
             #{
                 tags => [<<"actions">>],
                 summary => <<"Enable or Disable Action">>,
                 desc => ?DESC("desc_enable_bridge"),
-                parameters => [param_path_id(), param_path_enable()],
+                parameters => [param_path_id(), param_path_enable(), ns_qs_param()],
                 responses =>
                     #{
                         204 => ?DESC("OK"),
@@ -394,13 +407,15 @@ schema("/actions/:id/enable/:enable") ->
 schema("/actions/:id/:operation") ->
     #{
         'operationId' => '/actions/:id/:operation',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"actions">>],
             summary => <<"Manually Start an Action">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
-                param_path_operation_cluster()
+                param_path_operation_cluster(),
+                ns_qs_param()
             ],
             responses => #{
                 204 => ?DESC("OK"),
@@ -416,6 +431,7 @@ schema("/actions/:id/:operation") ->
 schema("/nodes/:node/actions/:id/:operation") ->
     #{
         'operationId' => '/nodes/:node/actions/:id/:operation',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"actions">>],
             summary => <<"Manually Start an Action on a Given Node">>,
@@ -423,7 +439,8 @@ schema("/nodes/:node/actions/:id/:operation") ->
             parameters => [
                 param_path_node(),
                 param_path_id(),
-                param_path_operation_on_node()
+                param_path_operation_on_node(),
+                ns_qs_param()
             ],
             responses => #{
                 204 => ?DESC("OK"),
@@ -437,10 +454,12 @@ schema("/nodes/:node/actions/:id/:operation") ->
 schema("/actions_probe") ->
     #{
         'operationId' => '/actions_probe',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"actions">>],
             desc => ?DESC("desc_api9"),
             summary => <<"Test Creating Action">>,
+            parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
@@ -454,10 +473,12 @@ schema("/actions_probe") ->
 schema("/actions_summary") ->
     #{
         'operationId' => '/actions_summary',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
             summary => <<"Summarize Actions">>,
             description => ?DESC("actions_summary"),
+            parameters => [ns_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(hoconsc:ref(?MODULE, response_summary)),
@@ -493,12 +514,13 @@ schema("/action_types") ->
 schema("/sources") ->
     #{
         'operationId' => '/sources',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
             summary => <<"List Sources">>,
             description => ?DESC("desc_api1"),
+            parameters => [ns_qs_param()],
             responses => #{
-                %% FIXME: examples
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_bridge_v2_schema:sources_get_response()),
                     bridge_info_array_example(get, ?ROOT_KEY_SOURCES)
@@ -509,7 +531,7 @@ schema("/sources") ->
             tags => [<<"sources">>],
             summary => <<"Create Source">>,
             description => ?DESC("desc_api2"),
-            %% FIXME: examples
+            parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_SOURCES)
@@ -523,11 +545,12 @@ schema("/sources") ->
 schema("/sources/:id") ->
     #{
         'operationId' => '/sources/:id',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
             summary => <<"Get Source">>,
             description => ?DESC("desc_api3"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => sources_get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', ?DESC("source_not_found"))
@@ -537,7 +560,7 @@ schema("/sources/:id") ->
             tags => [<<"sources">>],
             summary => <<"Update Source">>,
             description => ?DESC("desc_api4"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_put_request(),
                 bridge_info_examples(put, ?ROOT_KEY_SOURCES)
@@ -553,7 +576,7 @@ schema("/sources/:id") ->
             tags => [<<"sources">>],
             summary => <<"Delete Source">>,
             description => ?DESC("desc_api5"),
-            parameters => [param_path_id(), param_qs_delete_cascade()],
+            parameters => [param_path_id(), param_qs_delete_cascade(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
                 400 => error_schema(
@@ -569,11 +592,12 @@ schema("/sources/:id") ->
 schema("/sources/:id/metrics") ->
     #{
         'operationId' => '/sources/:id/metrics',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
             summary => <<"Get Source Metrics">>,
             description => ?DESC("desc_bridge_metrics"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => metrics_fields(),
                 404 => error_schema('NOT_FOUND', ?DESC("source_not_found"))
@@ -583,11 +607,12 @@ schema("/sources/:id/metrics") ->
 schema("/sources/:id/metrics/reset") ->
     #{
         'operationId' => '/sources/:id/metrics/reset',
+        filter => fun ?MODULE:filter/2,
         put => #{
             tags => [<<"sources">>],
             summary => <<"Reset Source Metrics">>,
             description => ?DESC("desc_api6"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
                 404 => error_schema('NOT_FOUND', ?DESC("source_not_found"))
@@ -597,12 +622,13 @@ schema("/sources/:id/metrics/reset") ->
 schema("/sources/:id/enable/:enable") ->
     #{
         'operationId' => '/sources/:id/enable/:enable',
+        filter => fun ?MODULE:filter/2,
         put =>
             #{
                 tags => [<<"sources">>],
                 summary => <<"Enable or Disable Source">>,
                 desc => ?DESC("desc_enable_bridge"),
-                parameters => [param_path_id(), param_path_enable()],
+                parameters => [param_path_id(), param_path_enable(), ns_qs_param()],
                 responses =>
                     #{
                         204 => ?DESC("OK"),
@@ -614,13 +640,15 @@ schema("/sources/:id/enable/:enable") ->
 schema("/sources/:id/:operation") ->
     #{
         'operationId' => '/sources/:id/:operation',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"sources">>],
             summary => <<"Manually Start a Source">>,
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
-                param_path_operation_cluster()
+                param_path_operation_cluster(),
+                ns_qs_param()
             ],
             responses => #{
                 204 => ?DESC("OK"),
@@ -634,6 +662,7 @@ schema("/sources/:id/:operation") ->
 schema("/nodes/:node/sources/:id/:operation") ->
     #{
         'operationId' => '/nodes/:node/sources/:id/:operation',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"sources">>],
             summary => <<"Manually Start a Source on a Given Node">>,
@@ -641,7 +670,8 @@ schema("/nodes/:node/sources/:id/:operation") ->
             parameters => [
                 param_path_node(),
                 param_path_id(),
-                param_path_operation_on_node()
+                param_path_operation_on_node(),
+                ns_qs_param()
             ],
             responses => #{
                 204 => ?DESC("OK"),
@@ -655,10 +685,12 @@ schema("/nodes/:node/sources/:id/:operation") ->
 schema("/sources_probe") ->
     #{
         'operationId' => '/sources_probe',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"sources">>],
             desc => ?DESC("desc_api9"),
             summary => <<"Test Creating Source">>,
+            parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_SOURCES)
@@ -672,10 +704,12 @@ schema("/sources_probe") ->
 schema("/sources_summary") ->
     #{
         'operationId' => '/sources_summary',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
             summary => <<"Summarize Sources">>,
             description => ?DESC("sources_summary"),
+            parameters => [ns_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(hoconsc:ref(?MODULE, response_summary)),
@@ -839,36 +873,36 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 %% Actions
 %%================================================================================
 '/actions'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_create(Namespace, ?ROOT_KEY_ACTIONS, BridgeType, BridgeName, Conf0);
 '/actions'(get, Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_list(Namespace, ?ROOT_KEY_ACTIONS).
 
 '/actions/:id'(get, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id, lookup_from_all_nodes(Namespace, ?ROOT_KEY_ACTIONS, BridgeType, BridgeName, 200)
     );
 '/actions/:id'(put, #{bindings := #{id := Id}, body := Conf0} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_update(Namespace, ?ROOT_KEY_ACTIONS, Id, Conf0);
 '/actions/:id'(delete, #{bindings := #{id := Id}, query_string := Qs} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_delete(Namespace, ?ROOT_KEY_ACTIONS, Id, Qs).
 
 '/actions/:id/metrics'(get, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id, get_metrics_from_all_nodes(Namespace, ?ROOT_KEY_ACTIONS, BridgeType, BridgeName)
     ).
 
 '/actions/:id/metrics/reset'(put, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_reset_metrics(Namespace, ?ROOT_KEY_ACTIONS, Id).
 
 '/actions/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_disable_enable(Namespace, ?ROOT_KEY_ACTIONS, Id, Enable).
 
 '/actions/:id/:operation'(
@@ -878,7 +912,7 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
             #{id := Id, operation := Op}
     } = Req
 ) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_operation(Namespace, ?ROOT_KEY_ACTIONS, Id, Op).
 
 '/nodes/:node/actions/:id/:operation'(
@@ -888,15 +922,15 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
             #{id := Id, operation := Op, node := Node}
     } = Req
 ) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_node_operation(Namespace, ?ROOT_KEY_ACTIONS, Node, Id, Op).
 
 '/actions_probe'(post, Request) ->
-    Namespace = emqx_dashboard:get_namespace(Request),
+    Namespace = get_namespace(Request),
     handle_probe(Namespace, ?ROOT_KEY_ACTIONS, Request).
 
 '/actions_summary'(get, Request) ->
-    Namespace = emqx_dashboard:get_namespace(Request),
+    Namespace = get_namespace(Request),
     handle_summary(Namespace, ?ROOT_KEY_ACTIONS).
 
 '/action_types'(get, _Request) ->
@@ -905,36 +939,36 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 %% Sources
 %%================================================================================
 '/sources'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_create(Namespace, ?ROOT_KEY_SOURCES, BridgeType, BridgeName, Conf0);
 '/sources'(get, Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_list(Namespace, ?ROOT_KEY_SOURCES).
 
 '/sources/:id'(get, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id, lookup_from_all_nodes(Namespace, ?ROOT_KEY_SOURCES, BridgeType, BridgeName, 200)
     );
 '/sources/:id'(put, #{bindings := #{id := Id}, body := Conf0} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_update(Namespace, ?ROOT_KEY_SOURCES, Id, Conf0);
 '/sources/:id'(delete, #{bindings := #{id := Id}, query_string := Qs} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_delete(Namespace, ?ROOT_KEY_SOURCES, Id, Qs).
 
 '/sources/:id/metrics'(get, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id, get_metrics_from_all_nodes(Namespace, ?ROOT_KEY_SOURCES, BridgeType, BridgeName)
     ).
 
 '/sources/:id/metrics/reset'(put, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_reset_metrics(Namespace, ?ROOT_KEY_SOURCES, Id).
 
 '/sources/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_disable_enable(Namespace, ?ROOT_KEY_SOURCES, Id, Enable).
 
 '/sources/:id/:operation'(
@@ -944,7 +978,7 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
             #{id := Id, operation := Op}
     } = Req
 ) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_operation(Namespace, ?ROOT_KEY_SOURCES, Id, Op).
 
 '/nodes/:node/sources/:id/:operation'(
@@ -954,15 +988,15 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
             #{id := Id, operation := Op, node := Node}
     } = Req
 ) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     handle_node_operation(Namespace, ?ROOT_KEY_SOURCES, Node, Id, Op).
 
 '/sources_probe'(post, Request) ->
-    Namespace = emqx_dashboard:get_namespace(Request),
+    Namespace = get_namespace(Request),
     handle_probe(Namespace, ?ROOT_KEY_SOURCES, Request).
 
 '/sources_summary'(get, Request) ->
-    Namespace = emqx_dashboard:get_namespace(Request),
+    Namespace = get_namespace(Request),
     handle_summary(Namespace, ?ROOT_KEY_SOURCES).
 
 '/source_types'(get, _Request) ->
@@ -1813,3 +1847,42 @@ namespace_out(?global_ns) ->
     null;
 namespace_out(Namespace) when is_binary(Namespace) ->
     Namespace.
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
+filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        validate_managed_namespace(Req1, Meta)
+    end.
