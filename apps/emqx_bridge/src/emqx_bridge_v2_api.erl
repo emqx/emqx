@@ -1411,6 +1411,7 @@ format_bridge_info(Namespace, ConfRootKey, Type, Name, [FirstBridge | _] = Bridg
             sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Namespace, Id)
         end,
     Res1 = Res0#{
+        namespace => namespace_out(Namespace),
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus,
         rules => lists:sort(Rules)
@@ -1807,3 +1808,8 @@ get_raw_config(?global_ns, KeyPath, Default) ->
     emqx:get_raw_config(KeyPath, Default).
 
 ref(Module, StructName) -> hoconsc:ref(Module, StructName).
+
+namespace_out(?global_ns) ->
+    null;
+namespace_out(Namespace) when is_binary(Namespace) ->
+    Namespace.

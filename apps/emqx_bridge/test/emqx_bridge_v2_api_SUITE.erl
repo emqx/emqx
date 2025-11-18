@@ -1084,6 +1084,7 @@ t_bridges_lifecycle(Config) ->
     ),
     ?assertMatch(
         {ok, 201, #{
+            <<"namespace">> := null,
             <<"type">> := Type,
             <<"name">> := BridgeName,
             <<"enable">> := true,
@@ -2454,15 +2455,24 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         <<"description">> => <<"ns2">>,
         <<"server">> => Server
     }),
-    {201, #{<<"status">> := <<"connected">>}} =
+    {201, #{
+        <<"namespace">> := null,
+        <<"status">> := <<"connected">>
+    }} =
         emqx_connector_api_SUITE:create(
             ConnectorType, ConnectorName, ConnectorConfigGlobal, TCConfigGlobal
         ),
-    {201, #{<<"status">> := <<"connected">>}} =
+    {201, #{
+        <<"namespace">> := NS1,
+        <<"status">> := <<"connected">>
+    }} =
         emqx_connector_api_SUITE:create(
             ConnectorType, ConnectorName, ConnectorConfigNS1, TCConfigNS1
         ),
-    {201, #{<<"status">> := <<"connected">>}} =
+    {201, #{
+        <<"namespace">> := NS2,
+        <<"status">> := <<"connected">>
+    }} =
         emqx_connector_api_SUITE:create(
             ConnectorType, ConnectorName, ConnectorConfigNS2, TCConfigNS2
         ),
@@ -2493,36 +2503,105 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     }),
 
     ?assertMatch(
-        {201, #{<<"description">> := <<"global">>, <<"status">> := <<"connected">>}},
+        {201, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"global">>,
+            <<"status">> := <<"connected">>
+        }},
         create(Type, Name1, ConfigGlobal, TCConfigGlobal)
     ),
     ?assertMatch(
-        {201, #{<<"description">> := <<"ns1">>, <<"status">> := <<"connected">>}},
+        {201, #{
+            <<"namespace">> := NS1,
+            <<"description">> := <<"ns1">>,
+            <<"status">> := <<"connected">>
+        }},
         create(Type, Name1, ConfigNS1, TCConfigNS1)
     ),
     ?assertMatch(
-        {201, #{<<"description">> := <<"ns2">>, <<"status">> := <<"connected">>}},
+        {201, #{
+            <<"namespace">> := NS2,
+            <<"description">> := <<"ns2">>,
+            <<"status">> := <<"connected">>
+        }},
         create(Type, Name1, ConfigNS2, TCConfigNS2)
     ),
 
-    ?assertMatch({200, [#{<<"description">> := <<"global">>}]}, list(TCConfigGlobal)),
-    ?assertMatch({200, [#{<<"description">> := <<"ns1">>}]}, list(TCConfigNS1)),
-    ?assertMatch({200, [#{<<"description">> := <<"ns2">>}]}, list(TCConfigNS2)),
-
-    ?assertMatch({200, [#{<<"description">> := <<"global">>}]}, summary(TCConfigGlobal)),
-    ?assertMatch({200, [#{<<"description">> := <<"ns1">>}]}, summary(TCConfigNS1)),
-    ?assertMatch({200, [#{<<"description">> := <<"ns2">>}]}, summary(TCConfigNS2)),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            }
+        ]},
+        list(TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := <<"ns1">>
+            }
+        ]},
+        list(TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := <<"ns2">>
+            }
+        ]},
+        list(TCConfigNS2)
+    ),
 
     ?assertMatch(
-        {200, #{<<"description">> := <<"global">>}},
+        {200, [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            }
+        ]},
+        summary(TCConfigGlobal)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := <<"ns1">>
+            }
+        ]},
+        summary(TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := <<"ns2">>
+            }
+        ]},
+        summary(TCConfigNS2)
+    ),
+
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"global">>
+        }},
         get(Type, Name1, TCConfigGlobal)
     ),
     ?assertMatch(
-        {200, #{<<"description">> := NS1}},
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := NS1
+        }},
         get(Type, Name1, TCConfigNS1)
     ),
     ?assertMatch(
-        {200, #{<<"description">> := NS2}},
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := NS2
+        }},
         get(Type, Name1, TCConfigNS2)
     ),
 
@@ -2551,7 +2630,10 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
 
     %% Updating each one should be independent
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated global">>}},
+        {200, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"updated global">>
+        }},
         update(
             Type,
             Name1,
@@ -2566,7 +2648,10 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         )
     ),
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated ns1">>}},
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := <<"updated ns1">>
+        }},
         update(
             Type,
             Name1,
@@ -2581,7 +2666,10 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         )
     ),
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated ns2">>}},
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := <<"updated ns2">>
+        }},
         update(
             Type,
             Name1,
