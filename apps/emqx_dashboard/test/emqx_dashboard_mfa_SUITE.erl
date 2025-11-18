@@ -72,6 +72,27 @@ init_users() ->
     {ok, _} = emqx_dashboard_admin:add_user(
         <<"viewer2">>, <<"viewer2pass">>, ?ROLE_VIEWER, "viewer"
     ),
+    {ok, _} = emqx_dashboard_admin:add_user(
+        <<"viewer3">>, <<"viewer3pass">>, ?ROLE_VIEWER, "viewer"
+    ),
+    {atomic, ok} = mria:sync_transaction(?DASHBOARD_SHARD, fun() ->
+        [User] = mnesia:wread({?ADMIN, <<"viewer3">>}),
+        OldFormat = User#?ADMIN{extra = []},
+        mnesia:write(OldFormat)
+    end),
+    ok.
+
+%% login when there is MFA state initialized
+%% expect to fail with a TOTP secret prompt
+t_upgrade_old_record({init, Config}) ->
+    ok = mock_totp(),
+    Config;
+t_upgrade_old_record({'end', _Config}) ->
+    ok = unmock_totp();
+t_upgrade_old_record(_Config) ->
+    ?assertMatch([#?ADMIN{extra = []}], ets:lookup(?ADMIN, <<"viewer3">>)),
+    ?assertMatch({ok, 204, _}, enable_mfa(<<"viewer3">>)),
+    ?assertMatch([#?ADMIN{extra = #{mfa_state := _}}], ets:lookup(?ADMIN, <<"viewer3">>)),
     ok.
 
 %% login when there is no MFA state
