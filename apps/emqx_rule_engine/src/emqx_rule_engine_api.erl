@@ -33,6 +33,9 @@
     '/rules/:id/metrics/reset'/2
 ]).
 
+%% minirest filter callback
+-export([filter/2]).
+
 %% query callback
 -export([run_fuzzy_match/2, format_rule_info_resp/2]).
 
@@ -188,10 +191,12 @@ rule_metrics_schema() ->
 schema("/rules") ->
     #{
         'operationId' => '/rules',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api1"),
             parameters => [
+                ns_qs_param(),
                 {enable,
                     mk(boolean(), #{desc => ?DESC("api1_enable"), in => query, required => false})},
                 {from, mk(binary(), #{desc => ?DESC("api1_from"), in => query, required => false})},
@@ -224,6 +229,7 @@ schema("/rules") ->
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api2"),
+            parameters => [ns_qs_param()],
             'requestBody' => rule_creation_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
@@ -245,10 +251,11 @@ schema("/rule_events") ->
 schema("/rules/:id") ->
     #{
         'operationId' => '/rules/:id',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api4"),
-            parameters => param_path_id(),
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
                 200 => rule_info_schema()
@@ -257,7 +264,7 @@ schema("/rules/:id") ->
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api5"),
-            parameters => param_path_id(),
+            parameters => [param_path_id(), ns_qs_param()],
             'requestBody' => rule_creation_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
@@ -268,7 +275,7 @@ schema("/rules/:id") ->
         delete => #{
             tags => [<<"rules">>],
             description => ?DESC("api6"),
-            parameters => param_path_id(),
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
                 204 => ?DESC("delete_rule_successfully")
@@ -278,10 +285,11 @@ schema("/rules/:id") ->
 schema("/rules/:id/test") ->
     #{
         'operationId' => '/rules/:id/test',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api11"),
-            parameters => param_path_id(),
+            parameters => [param_path_id(), ns_qs_param()],
             'requestBody' => rule_apply_test_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
@@ -294,10 +302,11 @@ schema("/rules/:id/test") ->
 schema("/rules/:id/metrics") ->
     #{
         'operationId' => '/rules/:id/metrics',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api4_1"),
-            parameters => param_path_id(),
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
                 200 => rule_metrics_schema()
@@ -307,10 +316,11 @@ schema("/rules/:id/metrics") ->
 schema("/rules/:id/metrics/reset") ->
     #{
         'operationId' => '/rules/:id/metrics/reset',
+        filter => fun ?MODULE:filter/2,
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api7"),
-            parameters => param_path_id(),
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 404 => error_schema('NOT_FOUND', ?DESC("rule_not_found")),
                 204 => ?DESC("reset_success")
@@ -320,9 +330,11 @@ schema("/rules/:id/metrics/reset") ->
 schema("/rule_test") ->
     #{
         'operationId' => '/rule_test',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"rules">>],
             description => ?DESC("api8"),
+            parameters => [ns_qs_param()],
             'requestBody' => rule_test_schema(),
             responses => #{
                 400 => error_schema('BAD_REQUEST', ?DESC("invalid_parameters")),
@@ -334,9 +346,11 @@ schema("/rule_test") ->
 schema("/rule_engine") ->
     #{
         'operationId' => '/rule_engine',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"rules">>],
             description => ?DESC("api9"),
+            parameters => [ns_qs_param()],
             responses => #{
                 200 => rule_engine_schema()
             }
@@ -344,6 +358,7 @@ schema("/rule_engine") ->
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api10"),
+            parameters => [ns_qs_param()],
             'requestBody' => rule_engine_schema(),
             responses => #{
                 200 => rule_engine_schema(),
@@ -353,7 +368,10 @@ schema("/rule_engine") ->
     }.
 
 param_path_id() ->
-    [{id, mk(binary(), #{in => path, example => <<"my_rule_id">>})}].
+    {id, mk(binary(), #{in => path, example => <<"my_rule_id">>})}.
+
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
 
 %%------------------------------------------------------------------------------
 %% Rules API
@@ -363,7 +381,7 @@ param_path_id() ->
     {200, emqx_rule_events:event_info()}.
 
 '/rules'(get, #{query_string := QueryString} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case
         emqx_mgmt_api:node_query(
             node(),
@@ -383,7 +401,7 @@ param_path_id() ->
             {200, Result}
     end;
 '/rules'(post, #{body := Params0} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case maps:get(<<"id">>, Params0, list_to_binary(emqx_utils:gen_id(8))) of
         <<>> ->
             {400, #{code => 'BAD_REQUEST', message => <<"empty rule id is not allowed">>}};
@@ -437,7 +455,7 @@ param_path_id() ->
     ).
 
 '/rules/:id/test'(post, #{body := Params, bindings := #{id := RuleId}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?CHECK_PARAMS(
         Params,
         rule_apply_test,
@@ -456,7 +474,7 @@ param_path_id() ->
     ).
 
 '/rules/:id'(get, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case emqx_rule_engine:get_rule(Namespace, Id) of
         {ok, Rule} ->
             FormatFn = mk_format_fn(Namespace),
@@ -465,7 +483,7 @@ param_path_id() ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 '/rules/:id'(put, #{bindings := #{id := Id}, body := Params0} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     Params1 = filter_out_request_body(Params0),
     Params2 = ensure_last_modified_at(Params1),
     case emqx_rule_engine_config:get_raw_rule(Namespace, Id) of
@@ -497,7 +515,7 @@ param_path_id() ->
             {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end;
 '/rules/:id'(delete, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case emqx_rule_engine:get_rule(Namespace, Id) of
         {ok, _Rule} ->
             UpdateRes = emqx_rule_engine_config:delete_rule(
@@ -525,7 +543,7 @@ param_path_id() ->
     end.
 
 '/rules/:id/metrics'(get, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case emqx_rule_engine:get_rule(Namespace, Id) of
         {ok, Rule} ->
             RuleResId = emqx_rule_engine:rule_resource_id(Rule),
@@ -542,7 +560,7 @@ param_path_id() ->
     end.
 
 '/rules/:id/metrics/reset'(put, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case emqx_rule_engine:get_rule(Namespace, Id) of
         {ok, Rule} ->
             RuleResId = emqx_rule_engine:rule_resource_id(Rule),
@@ -553,10 +571,10 @@ param_path_id() ->
     end.
 
 '/rule_engine'(get, Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     {200, format_rule_engine_resp(get_config(Namespace, [rule_engine], #{}))};
 '/rule_engine'(put, #{body := Params} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case rule_engine_update(Namespace, Params) of
         {ok, Config} ->
             {200, format_rule_engine_resp(Config)};
@@ -955,3 +973,42 @@ namespace_out(?global_ns) ->
     null;
 namespace_out(Namespace) when is_binary(Namespace) ->
     Namespace.
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
+filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        validate_managed_namespace(Req1, Meta)
+    end.
