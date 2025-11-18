@@ -65,9 +65,6 @@
     })
 ).
 
--define(INDEX_TS, 1).
--define(QUOTA_INDEX_UPDATE(TIMESTAMP_US, BYTE_UPDATE, COUNT_UPDATE),
-    {TIMESTAMP_US, BYTE_UPDATE, COUNT_UPDATE}
-).
+-define(MQ_QUOTA_BUFFER, mq_message_quota_buffer).
 
 -endif.

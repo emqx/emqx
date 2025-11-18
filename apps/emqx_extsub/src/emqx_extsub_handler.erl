@@ -7,26 +7,24 @@
 -include("emqx_extsub_internal.hrl").
 
 -export([
-    init/0,
-    register/2,
-    unregister/1
-]).
-
--export([
-    handle_init/3,
-    handle_terminate/2,
-    handle_delivered/4,
-    handle_info/3,
-    get_options/2,
-    get_options/3
+    subscribe/4,
+    subscribe_new/5,
+    unsubscribe/3,
+    terminate/1,
+    delivered/4,
+    info/3,
+    get_options/1,
+    get_option/2,
+    get_option/3,
+    get_module/1
 ]).
 
 -type state() :: term().
 
--type init_type() :: subscribe | resume.
--type terminate_type() :: unsubscribe | disconnect.
+-type subscribe_type() :: subscribe | resume.
+-type unsubscribe_type() :: unsubscribe | disconnect.
 
--type init_ctx() :: #{
+-type subscribe_ctx() :: #{
     clientinfo := emqx_types:clientinfo(),
     send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
     send := fun((term()) -> ok),
@@ -42,16 +40,9 @@
     qos := emqx_types:qos()
 }.
 
--type init_ctx_int() :: #{
-    clientinfo := emqx_types:clientinfo(),
-    can_receive_acks := boolean()
-}.
-
 -record(handler, {
     st :: state(),
     cbm :: module(),
-    ctx :: init_ctx(),
-    handler_ref :: emqx_extsub_types:handler_ref(),
     options :: emqx_extsub_types:handler_options()
 }).
 
@@ -59,20 +50,23 @@
 
 -export_type([
     t/0,
-    init_type/0,
-    terminate_type/0,
-    init_ctx/0,
+    subscribe_type/0,
+    unsubscribe_type/0,
+    subscribe_ctx/0,
     info_ctx/0,
-    ack_ctx/0
+    ack_ctx/0,
+    state/0
 ]).
 
--define(TAB, ?MODULE).
+%% Handler callbacks
 
-%% ExtSub Handler behaviour
-
--callback handle_init(init_type(), init_ctx(), emqx_extsub_types:topic_filter()) ->
+-callback handle_subscribe(
+    subscribe_type(), subscribe_ctx(), state() | undefined, emqx_extsub_types:topic_filter()
+) ->
     {ok, state()} | ignore.
--callback handle_terminate(terminate_type(), state()) -> ok.
+-callback handle_unsubscribe(unsubscribe_type(), state(), emqx_extsub_types:topic_filter()) ->
+    state().
+-callback handle_terminate(state()) -> ok.
 -callback handle_delivered(
     state(),
     ack_ctx(),
@@ -84,54 +78,51 @@
     | {ok, state(), [emqx_types:message()]}
     | recreate.
 
+-optional_callbacks([
+    handle_unsubscribe/3,
+    handle_terminate/1
+]).
+
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
 
-%% Register and unregister the ExtSub Handlers
-
--spec init() -> ok.
-init() ->
-    emqx_utils_ets:new(?TAB, [set, public, named_table, {read_concurrency, true}]).
-
--spec register(module(), emqx_extsub_types:handler_options()) -> ok.
-register(CBM, Options) ->
-    case ets:insert_new(?TAB, {CBM, Options}) of
-        true -> ok;
-        false -> error({extsub_handler_already_registered, CBM})
-    end.
-
--spec unregister(module()) -> ok.
-unregister(CBM) ->
-    _ = ets:delete(?TAB, CBM),
-    ok.
-
 %% Handler options
 
--spec get_options(atom(), t()) -> term().
-get_options(Name, Handler) ->
-    get_options(Name, Handler, undefined).
+-spec get_options(t()) -> emqx_extsub_types:handler_options().
+get_options(#handler{options = Options}) ->
+    Options.
 
--spec get_options(atom(), t(), term()) -> term().
-get_options(Name, #handler{options = Options} = _Handler, Default) ->
+-spec get_option(atom(), t()) -> term().
+get_option(Name, Handler) ->
+    get_option(Name, Handler, undefined).
+
+-spec get_option(atom(), t(), term()) -> term().
+get_option(Name, #handler{options = Options} = _Handler, Default) ->
     maps:get(Name, Options, Default).
+
+-spec get_module(t()) -> module().
+get_module(#handler{cbm = CBM}) ->
+    CBM.
 
 %% Working with ExtSub Handler implementations
 
--spec handle_init(init_type(), init_ctx_int(), emqx_extsub_types:topic_filter()) ->
-    {ok, emqx_extsub_types:handler_ref(), t()} | ignore.
-handle_init(InitType, Ctx0, TopicFilter) ->
-    Ref = make_ref(),
-    Ctx = create_ctx(Ref, Ctx0),
-    try handle_init(InitType, Ctx, TopicFilter, cbms()) of
+-spec subscribe_new(
+    subscribe_type(),
+    module(),
+    emqx_extsub_types:handler_options(),
+    subscribe_ctx(),
+    emqx_extsub_types:topic_filter()
+) ->
+    {ok, t()} | ignore.
+subscribe_new(SubscribeType, CBM, Options, InitCtx, TopicFilter) ->
+    try CBM:handle_subscribe(SubscribeType, InitCtx, undefined, TopicFilter) of
         ignore ->
             ignore;
-        {CBM, Options, State} ->
-            {ok, Ref, #handler{
+        {ok, State} ->
+            {ok, #handler{
                 cbm = CBM,
                 st = State,
-                ctx = Ctx,
-                handler_ref = Ref,
                 options = Options
             }}
     catch
@@ -145,18 +136,43 @@ handle_init(InitType, Ctx0, TopicFilter) ->
             ignore
     end.
 
--spec handle_terminate(terminate_type(), t()) -> ok.
-handle_terminate(TerminateType, #handler{cbm = CBM, st = State}) ->
-    _ = CBM:handle_terminate(TerminateType, State),
-    ok.
+-spec subscribe(subscribe_type(), subscribe_ctx(), t(), emqx_extsub_types:topic_filter()) ->
+    {ok, t()} | ignore.
+subscribe(SubscribeType, SubscribeCtx, #handler{cbm = CBM, st = State0} = Handler, TopicFilter) ->
+    case CBM:handle_subscribe(SubscribeType, SubscribeCtx, State0, TopicFilter) of
+        ignore ->
+            ignore;
+        {ok, State} ->
+            {ok, Handler#handler{st = State}}
+    end.
 
--spec handle_delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) -> t().
-handle_delivered(#handler{cbm = CBM, st = State} = Handler, AckCtx, Msg, Ack) ->
+-spec unsubscribe(unsubscribe_type(), t(), emqx_extsub_types:topic_filter()) -> t().
+unsubscribe(UnsubscribeType, #handler{cbm = CBM, st = State0} = Handler, TopicFilter) ->
+    case erlang:function_exported(CBM, handle_unsubscribe, 3) of
+        true ->
+            State = CBM:handle_unsubscribe(UnsubscribeType, State0, TopicFilter),
+            Handler#handler{st = State};
+        false ->
+            Handler
+    end.
+
+-spec terminate(t()) -> ok.
+terminate(#handler{cbm = CBM, st = State}) ->
+    case erlang:function_exported(CBM, handle_terminate, 1) of
+        true ->
+            _ = CBM:handle_terminate(State),
+            ok;
+        false ->
+            ok
+    end.
+
+-spec delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) -> t().
+delivered(#handler{cbm = CBM, st = State} = Handler, AckCtx, Msg, Ack) ->
     Handler#handler{st = CBM:handle_delivered(State, AckCtx, Msg, Ack)}.
 
--spec handle_info(t(), info_ctx(), term()) ->
+-spec info(t(), info_ctx(), term()) ->
     {ok, t()} | {ok, t(), [emqx_types:message()]} | recreate.
-handle_info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
+info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
     {TimeUs, Result} = timer:tc(CBM, handle_info, [State0, InfoCtx, Info]),
     TimeMs = erlang:convert_time_unit(TimeUs, microsecond, millisecond),
     emqx_extsub_metrics:observe_hist(handle_info_latency_ms, TimeMs),
@@ -168,39 +184,3 @@ handle_info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
         recreate ->
             recreate
     end.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-handle_init(_InitType, _Ctx, _TopicFilter, []) ->
-    ignore;
-handle_init(InitType, Ctx, TopicFilter, [{CBM, Options} | CBMs]) ->
-    case CBM:handle_init(InitType, Ctx, TopicFilter) of
-        {ok, State} ->
-            {CBM, Options, State};
-        ignore ->
-            handle_init(InitType, Ctx, TopicFilter, CBMs)
-    end.
-
-create_ctx(Ref, Ctx) ->
-    Pid = self(),
-    SendAfter = fun(Interval, Info) ->
-        _ = erlang:send_after(Interval, Pid, #info_to_extsub{
-            handler_ref = Ref, info = Info
-        }),
-        ok
-    end,
-    Send = fun(Info) ->
-        _ = erlang:send(Pid, #info_to_extsub{
-            handler_ref = Ref, info = Info
-        }),
-        ok
-    end,
-    Ctx#{
-        send_after => SendAfter,
-        send => Send
-    }.
-
-cbms() ->
-    ets:tab2list(?TAB).

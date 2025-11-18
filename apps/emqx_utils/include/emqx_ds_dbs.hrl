@@ -25,4 +25,8 @@
 -define(MQ_MESSAGE_REGULAR_DB, mq_message_regular).
 -define(MQ_MESSAGE_CONF_ROOT, mq_messages).
 
+-define(STREAMS_MESSAGE_LASTVALUE_DB, streams_message_lastvalue).
+-define(STREAMS_MESSAGE_REGULAR_DB, streams_message_regular).
+-define(STREAMS_MESSAGE_CONF_ROOT, streams_messages).
+
 -endif.
