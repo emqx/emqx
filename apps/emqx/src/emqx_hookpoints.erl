@@ -178,7 +178,7 @@ when
 when
     Replies :: emqx_channel:replies().
 
--callback 'client.handle_info'(_Msg :: term(), common_chan_context(), Replies) ->
+-callback 'client.handle_info'(emqx_types:clientinfo(), _Msg :: term(), Replies) ->
     fold_callback_result(Replies)
 when
     Replies :: #{deliver := list(emqx_types:deliver()), replies := emqx_channel:replies()}.

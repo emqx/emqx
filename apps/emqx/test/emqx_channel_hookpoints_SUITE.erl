@@ -92,5 +92,5 @@ on_client_handle_info(_ClientInfo, {test_message, Topic}, #{deliver := Delivers}
     Deliver = {deliver, Topic, Msg},
     _ = erlang:send_after(1000, self(), {test_message, Topic}),
     {ok, Acc#{deliver => [Deliver | Delivers]}};
-on_client_handle_info(_Info, _HookContext, Acc) ->
+on_client_handle_info(_ClientInfo, _Info, Acc) ->
     {ok, Acc}.

@@ -200,7 +200,7 @@ on_client_handle_info(
                     {ok, St1};
                 {try_deliver, St1} ->
                     {St, NewDelivers} = try_deliver(SessionInfoFn, St1),
-                    {ok, St, {ok, Acc#{deliver => NewDelivers ++ Delivers}}}
+                    {ok, St, {ok, Acc#{deliver := NewDelivers ++ Delivers}}}
             end
         end,
         {ok, Acc}
@@ -212,7 +212,7 @@ on_client_handle_info(
 ) ->
     ?tp_debug(extsub_on_client_handle_info_try_deliver, #{}),
     #{session_info_fn := SessionInfoFn} = emqx_hooks:context('client.handle_info'),
-    {ok, Acc#{deliver => try_deliver(SessionInfoFn) ++ Delivers}};
+    {ok, Acc#{deliver := try_deliver(SessionInfoFn) ++ Delivers}};
 on_client_handle_info(
     _ClientInfo, Info, #{deliver := Delivers} = Acc0
 ) ->

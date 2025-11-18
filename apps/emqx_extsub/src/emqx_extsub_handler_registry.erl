@@ -60,7 +60,7 @@ Primarily, allows to access the handlers both by the handler unique reference or
 
 -spec init() -> ok.
 init() ->
-    emqx_utils_ets:new(?TAB, [set, public, named_table, {read_concurrency, true}]).
+    emqx_utils_ets:new(?TAB, [ordered_set, public, named_table, {read_concurrency, true}]).
 
 -spec register(module(), emqx_extsub_types:handler_options()) -> ok.
 register(CBM, Options) ->
