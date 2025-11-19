@@ -197,6 +197,7 @@ schema("/rules") ->
             description => ?DESC("api1"),
             parameters => [
                 ns_qs_param(),
+                only_global_qs_param(),
                 {enable,
                     mk(boolean(), #{desc => ?DESC("api1_enable"), in => query, required => false})},
                 {from, mk(binary(), #{desc => ?DESC("api1_from"), in => query, required => false})},
@@ -373,6 +374,9 @@ param_path_id() ->
 ns_qs_param() ->
     {ns, mk(binary(), #{in => query, required => false})}.
 
+only_global_qs_param() ->
+    {only_global, mk(boolean(), #{in => query, required => false, default => false})}.
+
 %%------------------------------------------------------------------------------
 %% Rules API
 %%------------------------------------------------------------------------------
@@ -381,7 +385,12 @@ ns_qs_param() ->
     {200, emqx_rule_events:event_info()}.
 
 '/rules'(get, #{query_string := QueryString} = Req) ->
-    Namespace = get_namespace(Req),
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, QueryString, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
     case
         emqx_mgmt_api:node_query(
             node(),
@@ -892,7 +901,12 @@ wrap(X) -> [X].
 
 generate_match_spec(Namespace, Qs) ->
     {MatchHead, Conds} = generate_match_spec(Qs, 2, {#{}, []}),
-    [{{?KEY(Namespace, '_'), MatchHead}, Conds, ['$_']}].
+    NsSpec =
+        case Namespace of
+            all -> '_';
+            _ -> Namespace
+        end,
+    [{{?KEY(NsSpec, '_'), MatchHead}, Conds, ['$_']}].
 
 generate_match_spec([], _, {MatchHead, Conds}) ->
     {MatchHead, lists:reverse(Conds)};

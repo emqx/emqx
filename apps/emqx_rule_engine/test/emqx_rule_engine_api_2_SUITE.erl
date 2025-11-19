@@ -321,12 +321,21 @@ qp_of(Opts) ->
             []
     end.
 
+list_qp_of(Opts) ->
+    QP0 = qp_of(Opts),
+    case maps:find(only_global, Opts) of
+        {ok, OnlyGlobal} when is_boolean(OnlyGlobal) ->
+            [{<<"only_global">>, atom_to_binary(OnlyGlobal)} | QP0];
+        _ ->
+            QP0
+    end.
+
 list(TCConfig) ->
     list(TCConfig, _Opts = #{}).
 
 list(TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
-    QueryParams = qp_of(Opts),
+    QueryParams = list_qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
@@ -1906,6 +1915,29 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         create(ConfigNS2, TCConfigNS2)
     ),
 
+    %% Global admin sees all namespaces by default
+    {200, #{<<"data">> := ListAll0}} = list(TCConfigGlobal),
+    ?assertMatch(
+        [
+            #{
+                <<"namespace">> := null,
+                <<"id">> := IdGlobal,
+                <<"description">> := <<"global">>
+            },
+            #{
+                <<"namespace">> := NS1,
+                <<"id">> := IdNS1,
+                <<"description">> := NS1
+            },
+            #{
+                <<"namespace">> := NS2,
+                <<"id">> := IdNS2,
+                <<"description">> := NS2
+            }
+        ],
+        lists:sort(ListAll0)
+    ),
+
     ?assertMatch(
         {200, #{
             <<"data">> := [
@@ -1916,7 +1948,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
                 }
             ]
         }},
-        list(TCConfigGlobal)
+        list(TCConfigGlobal, #{only_global => true})
     ),
     ?assertMatch(
         {200, #{
@@ -1998,7 +2030,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
 
     ?assertMatch(
         {200, #{<<"data">> := [#{<<"id">> := IdGlobal, <<"description">> := <<"updated global">>}]}},
-        list(TCConfigGlobal)
+        list(TCConfigGlobal, #{only_global => true})
     ),
     ?assertMatch(
         {200, #{<<"data">> := [#{<<"id">> := IdNS1, <<"description">> := <<"updated ns1">>}]}},
@@ -2306,7 +2338,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     %% Delete
     ?assertMatch({204, _}, delete(IdNS2, TCConfigNS2)),
 
-    ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigGlobal)),
+    ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigGlobal, #{only_global => true})),
     ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigNS1)),
     ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS2)),
 
@@ -2330,7 +2362,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
 
     ?assertMatch({204, _}, delete(IdGlobal, TCConfigGlobal)),
 
-    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigGlobal)),
+    ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigGlobal, #{only_global => true})),
     ?assertMatch({200, #{<<"data">> := [_]}}, list(TCConfigNS1)),
     ?assertMatch({200, #{<<"data">> := []}}, list(TCConfigNS2)),
 
