@@ -6,6 +6,8 @@
 
 -behaviour(application).
 
+-include("emqx_streams_internal.hrl").
+
 -export([start/2, stop/1, do_start/0]).
 -export([is_ready/0, wait_readiness/1]).
 
@@ -65,4 +67,15 @@ post_start() ->
     optvar:set(?OPTVAR_READY, true).
 
 complete_start() ->
+    ok = emqx_streams_sup:start_metrics(),
+    ok = emqx_mq_quota_buffer:start(?STREAMS_QUOTA_BUFFER, quota_buffer_options()),
     ok = emqx_streams:register_hooks().
+
+quota_buffer_options() ->
+    #{
+        cbm => emqx_mq_message_db,
+        %% TODO
+        pool_size => emqx:get_config(
+            [streams, quota, buffer_pool_size], ?DEFAULT_QUOTA_BUFFER_POOL_SIZE
+        )
+    }.
