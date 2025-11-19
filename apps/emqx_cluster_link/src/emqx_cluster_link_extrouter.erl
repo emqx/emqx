@@ -368,22 +368,29 @@ clean_incarnation(Rec = #actor{id = {Cluster, Actor}}) ->
             Result
     end.
 
-mnesia_clean_incarnation(#actor{id = Actor, incarnation = Incarnation, lane = Lane}) ->
-    case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of
+mnesia_clean_incarnation(#actor{id = ID = {Cluster, _Actor}, incarnation = Incarnation, lane = Lane}) ->
+    case mnesia:read(?EXTROUTE_ACTOR_TAB, ID, write) of
         [#actor{incarnation = Incarnation}] ->
-            _ = clean_lane(Lane),
-            mnesia:delete(?EXTROUTE_ACTOR_TAB, Actor, write);
+            _ = clean_lane(Cluster, Lane),
+            mnesia:delete(?EXTROUTE_ACTOR_TAB, ID, write);
         _Renewed ->
             stale
     end.
 
-clean_lane(Lane) ->
-    ets:foldl(
+clean_lane(Cluster, Lane) ->
+    emqx_utils_stream:fold(
         fun(#extroute{entry = Entry, mcounter = MCounter}, _) ->
             apply_operation(Entry, MCounter, delete, Lane)
         end,
         0,
-        ?EXTROUTE_TAB
+        %% Stream of routes belonging to `Cluster`:
+        emqx_utils_stream:ets(fun
+            (undefined) ->
+                Entry = emqx_trie_search:make_pat('_', ?ROUTE_ID(Cluster, '_')),
+                ets:match_object(?EXTROUTE_TAB, #extroute{entry = Entry, _ = '_'}, 50);
+            (Cont) ->
+                ets:match_object(Cont)
+        end)
     ).
 
 assert_current_incarnation(ActorID, Incarnation) ->
