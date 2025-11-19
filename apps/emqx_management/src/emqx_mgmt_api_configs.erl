@@ -173,8 +173,8 @@ schema("/configs_reset/:rootname") ->
             ],
             responses => #{
                 200 => ?DESC("reset_config_success"),
-                400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'REST_FAILED']),
-                403 => emqx_dashboard_swagger:error_codes(['REST_FAILED'])
+                400 => emqx_dashboard_swagger:error_codes(['NO_DEFAULT_VALUE', 'RESET_FAILED']),
+                403 => emqx_dashboard_swagger:error_codes(['RESET_FAILED'])
             }
         }
     };
@@ -300,7 +300,7 @@ config_reset(post, _Params, Req) ->
         {error, no_default_value} ->
             {400, #{code => 'NO_DEFAULT_VALUE', message => ?DESC("no_default_value")}};
         {error, Reason} ->
-            {400, #{code => 'REST_FAILED', message => ?ERR_MSG(Reason)}}
+            {400, #{code => 'RESET_FAILED', message => ?ERR_MSG(Reason)}}
     end.
 
 configs(get, #{query_string := QueryStr, headers := Headers}, _Req) ->
