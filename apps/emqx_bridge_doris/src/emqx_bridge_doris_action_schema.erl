@@ -63,16 +63,24 @@ fields(?ACTION_TYPE) ->
                 required => true,
                 desc => ?DESC("parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
-    emqx_bridge_mysql:fields(action_parameters).
+    emqx_bridge_mysql:fields(action_parameters);
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]).
 
 desc(Name) when
     Name =:= ?ACTION_TYPE;
     Name =:= action_parameters
 ->
     ?DESC(Name);
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(_Name) ->
     undefined.
 
@@ -144,3 +152,4 @@ action_example(put) ->
 %%------------------------------------------------------------------------------
 
 mk(Type, Meta) -> hoconsc:mk(Type, Meta).
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).
