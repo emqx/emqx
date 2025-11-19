@@ -121,7 +121,8 @@ fields(dynamo_action) ->
                 required => true,
                 desc => ?DESC("action_parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
     Parameters =
@@ -167,6 +168,11 @@ fields("config_connector") ->
             undefined_vars_as_null
         ]
     );
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields("config") ->
@@ -225,12 +231,16 @@ desc(dynamo_action) ->
     ?DESC("dynamo_action");
 desc(action_parameters) ->
     ?DESC("action_parameters");
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->
     undefined.
 
 %% -------------------------------------------------------------------------------------------------
+
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).
 
 type_field() ->
     {type, mk(enum([dynamo]), #{required => true, desc => ?DESC("desc_type")})}.
