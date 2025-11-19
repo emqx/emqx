@@ -24,6 +24,7 @@ init_per_suite(Config) ->
             [
                 emqx_durable_storage,
                 {emqx, emqx_streams_test_utils:cth_config(emqx)},
+                {emqx_mq, emqx_streams_test_utils:cth_config(emqx_mq)},
                 {emqx_streams, emqx_streams_test_utils:cth_config(emqx_streams)}
             ],
             #{work_dir => emqx_cth_suite:work_dir(Config)}

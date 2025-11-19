@@ -6,7 +6,8 @@
 
 -export([
     start_link/0,
-    start_post_starter/1
+    start_post_starter/1,
+    start_metrics/0
 ]).
 
 -behaviour(supervisor).
@@ -21,6 +22,9 @@ start_link() ->
 
 start_post_starter(MFA) ->
     supervisor:start_child(?ROOT_SUP, post_start_child_spec(MFA)).
+
+start_metrics() ->
+    ensure_child(?ROOT_SUP, emqx_streams_metrics:child_spec()).
 
 %%
 
@@ -41,3 +45,13 @@ post_start_child_spec(MFA) ->
         type => worker,
         shutdown => brutal_kill
     }.
+
+ensure_child(SupRef, ChildSpec) ->
+    case supervisor:start_child(SupRef, ChildSpec) of
+        {ok, _Pid} ->
+            ok;
+        {error, {already_started, _Pid}} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
+    end.
