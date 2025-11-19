@@ -189,6 +189,10 @@ cth_config(emqx_streams, ConfigOverrides) ->
         config => Config,
         after_start => fun() -> ok = emqx_streams_app:wait_readiness(15_000) end
     };
+cth_config(emqx_mq, ConfigOverrides) ->
+    DefaultConfig = #{<<"mq">> => default_mq_config()},
+    Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
+    #{config => Config};
 cth_config(emqx, ConfigOverrides) ->
     DefaultConfig = #{
         <<"durable_storage">> => #{
@@ -222,4 +226,9 @@ default_streams_config() ->
     #{
         <<"max_stream_count">> => 1000,
         <<"enable">> => true
+    }.
+
+default_mq_config() ->
+    #{
+        <<"enable">> => false
     }.
