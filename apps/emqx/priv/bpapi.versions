@@ -5,6 +5,7 @@
 {emqx_authn,1}.
 {emqx_authz,1}.
 {emqx_bridge,8}.
+{emqx_bridge,9}.
 {emqx_bridge_kinesis,1}.
 {emqx_broker,1}.
 {emqx_cluster,1}.

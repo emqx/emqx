@@ -842,12 +842,21 @@ qp_of(Opts) ->
             []
     end.
 
+list_qp_of(Opts) ->
+    QP0 = qp_of(Opts),
+    case maps:find(only_global, Opts) of
+        {ok, OnlyGlobal} when is_boolean(OnlyGlobal) ->
+            [{<<"only_global">>, atom_to_binary(OnlyGlobal)} | QP0];
+        _ ->
+            QP0
+    end.
+
 list(TCConfig) ->
     list(TCConfig, _Opts = #{}).
 
 list(TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
-    QueryParams = qp_of(Opts),
+    QueryParams = list_qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         URL = emqx_mgmt_api_test_util:api_path([conf_root_key_of(TCConfig)]),
@@ -864,7 +873,7 @@ summary(TCConfig) ->
 
 summary(TCConfig, Opts) ->
     Node = get_value(node, TCConfig),
-    QueryParams = qp_of(Opts),
+    QueryParams = list_qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         URL =
@@ -2468,11 +2477,6 @@ t_fallback_actions_returned_info(Config) ->
     ?assertMatch(
         {200, [
             #{
-                <<"name">> := ReferencingName,
-                <<"tags">> := _,
-                <<"referenced_as_fallback_action_by">> := []
-            },
-            #{
                 <<"name">> := ReferencedName,
                 <<"tags">> := _,
                 <<"referenced_as_fallback_action_by">> := [
@@ -2481,6 +2485,11 @@ t_fallback_actions_returned_info(Config) ->
                         <<"name">> := ReferencingName
                     }
                 ]
+            },
+            #{
+                <<"name">> := ReferencingName,
+                <<"tags">> := _,
+                <<"referenced_as_fallback_action_by">> := []
             }
         ]},
         Summarize()
@@ -2610,6 +2619,26 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         create(Type, Name1, ConfigNS2, TCConfigNS2)
     ),
 
+    %% Global admin sees all namespaces by default
+    {200, ListAll0} = list(TCConfig),
+    ?assertMatch(
+        [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            },
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := NS1
+            },
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := NS2
+            }
+        ],
+        lists:sort(ListAll0)
+    ),
+
     ?assertMatch(
         {200, [
             #{
@@ -2617,7 +2646,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
                 <<"description">> := <<"global">>
             }
         ]},
-        list(TCConfigGlobal)
+        list(TCConfigGlobal, #{only_global => true})
     ),
     ?assertMatch(
         {200, [
@@ -2638,6 +2667,26 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         list(TCConfigNS2)
     ),
 
+    %% Global admin sees all namespaces by default
+    {200, SummaryAll0} = summary(TCConfig),
+    ?assertMatch(
+        [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            },
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := NS1
+            },
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := NS2
+            }
+        ],
+        lists:sort(SummaryAll0)
+    ),
+
     ?assertMatch(
         {200, [
             #{
@@ -2645,7 +2694,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
                 <<"description">> := <<"global">>
             }
         ]},
-        summary(TCConfigGlobal)
+        summary(TCConfigGlobal, #{only_global => true})
     ),
     ?assertMatch(
         {200, [
@@ -2767,11 +2816,17 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         )
     ),
 
-    ?assertMatch({200, [#{<<"description">> := <<"updated global">>}]}, list(TCConfigGlobal)),
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"updated global">>}]},
+        list(TCConfigGlobal, #{only_global => true})
+    ),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns1">>}]}, list(TCConfigNS1)),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns2">>}]}, list(TCConfigNS2)),
 
-    ?assertMatch({200, [#{<<"description">> := <<"updated global">>}]}, summary(TCConfigGlobal)),
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"updated global">>}]},
+        summary(TCConfigGlobal, #{only_global => true})
+    ),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns1">>}]}, summary(TCConfigNS1)),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns2">>}]}, summary(TCConfigNS2)),
 
@@ -2837,10 +2892,10 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
         {201, #{<<"description">> := <<"another ns1">>}},
         create(Type, Name2, ConfigNS1B, TCConfigNS1)
     ),
-    ?assertMatch({200, [_]}, list(TCConfigGlobal)),
+    ?assertMatch({200, [_]}, list(TCConfigGlobal, #{only_global => true})),
     ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
-    ?assertMatch({200, [_]}, summary(TCConfigGlobal)),
+    ?assertMatch({200, [_]}, summary(TCConfigGlobal, #{only_global => true})),
     ?assertMatch(
         {200, [#{<<"status">> := <<"connected">>}, #{<<"status">> := <<"connected">>}]},
         summary(TCConfigNS1)
@@ -3001,7 +3056,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     ChanIdNS2 = get_channel_id(NS2, Type, Name1, TCConfigNS2),
 
     ?assertMatch({204, _}, delete(Type, Name1, TCConfigGlobal)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfigGlobal, #{only_global => true})),
     ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
     %% Note: we retry because removal of channel from cache is async
@@ -3017,12 +3072,12 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     ?assertMatch({ok, _}, get_runtime(ChanIdNS2, TCConfigNS1)),
 
     ?assertMatch({204, _}, delete(Type, Name1, TCConfigNS1)),
-    ?assertMatch({200, []}, list(TCConfigGlobal)),
+    ?assertMatch({200, []}, list(TCConfigGlobal, #{only_global => true})),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
 
     ?assertMatch({204, _}, delete(Type, Name1, TCConfigNS2)),
-    ?assertMatch({200, []}, list(TCConfigGlobal)),
+    ?assertMatch({200, []}, list(TCConfigGlobal, #{only_global => true})),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfigNS2)),
     ?assertMatch(
@@ -3048,7 +3103,7 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     ),
 
     ?assertMatch({204, _}, delete(Type, Name2, TCConfigNS1)),
-    ?assertMatch({200, []}, list(TCConfigGlobal)),
+    ?assertMatch({200, []}, list(TCConfigGlobal, #{only_global => true})),
     ?assertMatch({200, []}, list(TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfigNS2)),
 

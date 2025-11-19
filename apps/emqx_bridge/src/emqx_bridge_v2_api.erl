@@ -227,6 +227,9 @@ param_qs_delete_cascade() ->
 ns_qs_param() ->
     {ns, mk(binary(), #{in => query, required => false})}.
 
+only_global_qs_param() ->
+    {only_global, mk(boolean(), #{in => query, required => false, default => false})}.
+
 param_path_operation_cluster() ->
     {operation,
         mk(
@@ -286,7 +289,7 @@ schema("/actions") ->
             tags => [<<"actions">>],
             summary => <<"List Actions">>,
             description => ?DESC("desc_api1"),
-            parameters => [ns_qs_param()],
+            parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_bridge_v2_schema:actions_get_response()),
@@ -478,7 +481,7 @@ schema("/actions_summary") ->
             tags => [<<"actions">>],
             summary => <<"Summarize Actions">>,
             description => ?DESC("actions_summary"),
-            parameters => [ns_qs_param()],
+            parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(hoconsc:ref(?MODULE, response_summary)),
@@ -519,7 +522,7 @@ schema("/sources") ->
             tags => [<<"sources">>],
             summary => <<"List Sources">>,
             description => ?DESC("desc_api1"),
-            parameters => [ns_qs_param()],
+            parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_bridge_v2_schema:sources_get_response()),
@@ -709,7 +712,7 @@ schema("/sources_summary") ->
             tags => [<<"sources">>],
             summary => <<"Summarize Sources">>,
             description => ?DESC("sources_summary"),
-            parameters => [ns_qs_param()],
+            parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(hoconsc:ref(?MODULE, response_summary)),
@@ -875,8 +878,13 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 '/actions'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0} = Req) ->
     Namespace = get_namespace(Req),
     handle_create(Namespace, ?ROOT_KEY_ACTIONS, BridgeType, BridgeName, Conf0);
-'/actions'(get, Req) ->
-    Namespace = get_namespace(Req),
+'/actions'(get, #{query_string := QS} = Req) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, QS, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
     handle_list(Namespace, ?ROOT_KEY_ACTIONS).
 
 '/actions/:id'(get, #{bindings := #{id := Id}} = Req) ->
@@ -929,8 +937,13 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
     Namespace = get_namespace(Request),
     handle_probe(Namespace, ?ROOT_KEY_ACTIONS, Request).
 
-'/actions_summary'(get, Request) ->
-    Namespace = get_namespace(Request),
+'/actions_summary'(get, #{query_string := QS} = Request) ->
+    Namespace0 = get_namespace(Request),
+    Namespace =
+        case maps:get(<<"only_global">>, QS, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
     handle_summary(Namespace, ?ROOT_KEY_ACTIONS).
 
 '/action_types'(get, _Request) ->
@@ -941,8 +954,13 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 '/sources'(post, #{body := #{<<"type">> := BridgeType, <<"name">> := BridgeName} = Conf0} = Req) ->
     Namespace = get_namespace(Req),
     handle_create(Namespace, ?ROOT_KEY_SOURCES, BridgeType, BridgeName, Conf0);
-'/sources'(get, Req) ->
-    Namespace = get_namespace(Req),
+'/sources'(get, #{query_string := QS} = Req) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, QS, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
     handle_list(Namespace, ?ROOT_KEY_SOURCES).
 
 '/sources/:id'(get, #{bindings := #{id := Id}} = Req) ->
@@ -995,8 +1013,13 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
     Namespace = get_namespace(Request),
     handle_probe(Namespace, ?ROOT_KEY_SOURCES, Request).
 
-'/sources_summary'(get, Request) ->
-    Namespace = get_namespace(Request),
+'/sources_summary'(get, #{query_string := QS} = Request) ->
+    Namespace0 = get_namespace(Request),
+    Namespace =
+        case maps:get(<<"only_global">>, QS, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
     handle_summary(Namespace, ?ROOT_KEY_SOURCES).
 
 '/source_types'(get, _Request) ->
@@ -1007,15 +1030,17 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 %%------------------------------------------------------------------------------
 
 handle_list(Namespace, ConfRootKey) ->
-    Nodes = nodes_supporting_bpapi_version(8),
-    NodeReplies = emqx_bridge_proto_v8:list(Nodes, Namespace, ConfRootKey),
+    Nodes = nodes_supporting_bpapi_version(9),
+    Timeout = 15_000,
+    NodeReplies = emqx_bridge_proto_v9:list(Nodes, Namespace, ConfRootKey, Timeout),
     case is_ok(NodeReplies) of
         {ok, NodeBridges} ->
             AllBridges = [
                 [format_resource(ConfRootKey, Data, Node) || Data <- Bridges]
              || {Node, Bridges} <- lists:zip(Nodes, NodeBridges)
             ],
-            ?OK(zip_bridges(Namespace, ConfRootKey, AllBridges));
+            ZippedBridges = zip_bridges(ConfRootKey, AllBridges),
+            ?OK(lists:map(fun bridge_info_out/1, ZippedBridges));
         {error, Reason} ->
             ?INTERNAL_ERROR(Reason)
     end.
@@ -1029,12 +1054,14 @@ handle_summary(Namespace, ConfRootKey) ->
     end.
 
 do_handle_summary(Namespace, ConfRootKey) ->
-    Nodes = nodes_supporting_bpapi_version(8),
-    NodeReplies = emqx_bridge_proto_v8:summary(Nodes, Namespace, ConfRootKey),
+    Nodes = nodes_supporting_bpapi_version(9),
+    Timeout = 15_000,
+    NodeReplies = emqx_bridge_proto_v9:summary(Nodes, Namespace, ConfRootKey, Timeout),
     maybe
         {ok, AllBridges} ?= is_ok(NodeReplies),
-        ZippedBridges = zip_bridges(Namespace, ConfRootKey, AllBridges),
-        {ok, add_fallback_actions_references(Namespace, ConfRootKey, ZippedBridges)}
+        ZippedBridges0 = zip_bridges(ConfRootKey, AllBridges),
+        ZippedBridges = add_fallback_actions_references(ConfRootKey, ZippedBridges0),
+        {ok, lists:map(fun bridge_info_out/1, ZippedBridges)}
     end.
 
 handle_create(Namespace, ConfRootKey, Type, Name, Conf0) ->
@@ -1240,7 +1267,8 @@ lookup_from_all_nodes(Namespace, ConfRootKey, BridgeType, BridgeName, SuccCode) 
     of
         {ok, [{ok, _} | _] = Results0} ->
             Results = [R || {ok, R} <- Results0],
-            {SuccCode, format_bridge_info(Namespace, ConfRootKey, BridgeType, BridgeName, Results)};
+            Info = format_bridge_info(Namespace, ConfRootKey, BridgeType, BridgeName, Results),
+            {SuccCode, bridge_info_out(Info)};
         {ok, [{error, not_found} | _]} ->
             ?BRIDGE_NOT_FOUND(BridgeType, BridgeName);
         {error, Reason} ->
@@ -1368,51 +1396,63 @@ maybe_unwrap(RpcMulticallResult) ->
     emqx_rpc:unwrap_erpc(RpcMulticallResult).
 
 %% Note: this must be called on the local node handling the request, not during RPCs.
-zip_bridges(Namespace, ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
-    %% TODO: make this a `lists:map`...
-    lists:foldl(
-        fun(#{type := Type, name := Name}, Acc) ->
-            Bridges = pick_bridges_by_id(Type, Name, BridgesAllNodes),
-            [format_bridge_info(Namespace, ConfRootKey, Type, Name, Bridges) | Acc]
+zip_bridges(ConfRootKey, [BridgesFirstNode | _] = BridgesAllNodes) ->
+    lists:map(
+        fun(#{namespace := Namespace, type := Type, name := Name}) ->
+            Bridges = pick_bridges_by_id(Namespace, Type, Name, BridgesAllNodes),
+            format_bridge_info(Namespace, ConfRootKey, Type, Name, Bridges)
         end,
-        [],
         BridgesFirstNode
     ).
 
 %% This works on the output of `zip_bridges`.
-add_fallback_actions_references(Namespace, ?ROOT_KEY_ACTIONS = ConfRootKey, ZippedBridges) ->
-    Conf = get_config(Namespace, [ConfRootKey], #{}),
-    case Conf of
-        #{?COMPUTED := #{fallback_actions_index := Index}} ->
-            lists:map(
-                fun(#{type := ReferencedType, name := ReferencedName} = Info) ->
-                    Referencing0 = maps:get(
-                        {bin(ReferencedType), bin(ReferencedName)},
-                        Index,
-                        []
-                    ),
-                    Referencing = lists:map(fun(R) -> maps:with([type, name], R) end, Referencing0),
-                    Info#{referenced_as_fallback_action_by => Referencing}
-                end,
-                ZippedBridges
-            );
-        #{} ->
-            %% Namespaced config not initialized properly?
-            lists:map(
-                fun(Info) -> Info#{referenced_as_fallback_action_by => []} end,
-                ZippedBridges
-            )
-    end;
-add_fallback_actions_references(_Namespace, ?ROOT_KEY_SOURCES, ZippedBridges) ->
+add_fallback_actions_references(?ROOT_KEY_ACTIONS, ZippedBridges) ->
+    do_add_fallback_actions_refereneces(ZippedBridges, [], #{});
+add_fallback_actions_references(?ROOT_KEY_SOURCES, ZippedBridges) ->
     ZippedBridges.
 
-pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
+%% N.B.: Only actions have fallbacks; sources do not.
+do_add_fallback_actions_refereneces([] = _ZippedBridges, Acc, _RootConfigs) ->
+    lists:reverse(Acc);
+do_add_fallback_actions_refereneces([Info0 | Rest], Acc, RootConfigs0) ->
+    #{
+        namespace := Namespace,
+        type := ReferencedType,
+        name := ReferencedName
+    } = Info0,
+    case RootConfigs0 of
+        #{Namespace := #{?COMPUTED := #{fallback_actions_index := Index}}} ->
+            Referencing0 = maps:get(
+                {bin(ReferencedType), bin(ReferencedName)},
+                Index,
+                []
+            ),
+            Referencing = lists:map(fun(R) -> maps:with([type, name], R) end, Referencing0),
+            Info = Info0#{referenced_as_fallback_action_by => Referencing},
+            do_add_fallback_actions_refereneces(Rest, [Info | Acc], RootConfigs0);
+        #{Namespace := #{}} ->
+            %% Namespaced config not initialized properly?
+            Info = Info0#{referenced_as_fallback_action_by => []},
+            do_add_fallback_actions_refereneces(Rest, [Info | Acc], RootConfigs0);
+        #{} ->
+            %% Need to get root config
+            RootConfig = get_config(Namespace, [?ROOT_KEY_ACTIONS], #{}),
+            RootConfigs = RootConfigs0#{Namespace => RootConfig},
+            do_add_fallback_actions_refereneces([Info0 | Rest], Acc, RootConfigs)
+    end.
+
+pick_bridges_by_id(Namespace, Type, Name, BridgesAllNodes) ->
     lists:foldl(
         fun(BridgesOneNode, Acc) ->
             case
                 [
                     Bridge
-                 || Bridge = #{type := Type0, name := Name0} <- BridgesOneNode,
+                 || Bridge = #{
+                        namespace := Namespace0,
+                        type := Type0,
+                        name := Name0
+                    } <- BridgesOneNode,
+                    Namespace0 == Namespace,
                     Type0 == Type,
                     Name0 == Name
                 ]
@@ -1423,6 +1463,7 @@ pick_bridges_by_id(Type, Name, BridgesAllNodes) ->
                     ?SLOG(warning, #{
                         msg => "bridge_inconsistent_in_cluster",
                         reason => not_found,
+                        namespace => Namespace,
                         type => Type,
                         name => Name,
                         bridge => emqx_bridge_resource:bridge_id(Type, Name)
@@ -1445,13 +1486,17 @@ format_bridge_info(Namespace, ConfRootKey, Type, Name, [FirstBridge | _] = Bridg
             sources -> emqx_rule_engine:get_rule_ids_by_bridge_source(Namespace, Id)
         end,
     Res1 = Res0#{
-        namespace => namespace_out(Namespace),
+        namespace => Namespace,
         status => aggregate_status(NodeStatus),
         node_status => NodeStatus,
         rules => lists:sort(Rules)
     },
-    Res2 = enrich_fallback_actions_info(Namespace, Res1),
-    redact(Res2).
+    enrich_fallback_actions_info(Namespace, Res1).
+
+%% Acts on the output of `format_bridge_info`.
+bridge_info_out(Info0) ->
+    Info1 = emqx_utils_maps:update_if_present(namespace, fun namespace_out/1, Info0),
+    redact(Info1).
 
 node_status(Bridges) ->
     [maps:with([node, status, status_reason], B) || B <- Bridges].
@@ -1505,10 +1550,11 @@ summary_from_local_node_v7(ConfRootKey) ->
     summary_v8(?global_ns, ConfRootKey).
 
 %% RPC Target
-summary_v8(Namespace, ConfRootKey) ->
+summary_v8(ReqNamespace, ConfRootKey) ->
     lists:map(
         fun(BridgeInfo) ->
             #{
+                namespace := Namespace,
                 type := Type,
                 name := Name,
                 status := Status,
@@ -1523,6 +1569,7 @@ summary_v8(Namespace, ConfRootKey) ->
             maps:merge(
                 #{
                     node => node(),
+                    namespace => Namespace,
                     type => Type,
                     name => Name,
                     description => Description,
@@ -1534,7 +1581,7 @@ summary_v8(Namespace, ConfRootKey) ->
                 format_bridge_status_and_error(#{status => Status, error => Error})
             )
         end,
-        emqx_bridge_v2:list(Namespace, ConfRootKey)
+        emqx_bridge_v2:list(ReqNamespace, ConfRootKey)
     ).
 
 wait_for_ready(Namespace, ConfRootKey, Type, Name) ->
@@ -1570,6 +1617,7 @@ wait_for_ready_v8(Namespace, ConfRootKey, Type, Name) ->
 format_resource(
     ConfRootKey,
     #{
+        namespace := Namespace,
         type := Type,
         name := Name,
         status := Status,
@@ -1583,6 +1631,7 @@ format_resource(
     redact(
         maps:merge(
             RawConf#{
+                namespace => Namespace,
                 type => Type,
                 name => maps:get(<<"name">>, RawConf, Name),
                 node => Node,
