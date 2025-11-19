@@ -52,7 +52,7 @@ is_append_only(Stream) ->
 
 -spec quota_index_opts(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
     %% move quota out of streams's
-    %% emqx_mq_message_quota_index:opts().
+    %% emqx_mq_quota_index:opts().
     term().
 quota_index_opts(Stream) ->
     maps:from_list(
