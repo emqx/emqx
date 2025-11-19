@@ -30,7 +30,8 @@ all() ->
 
 flaky_tests() ->
     #{
-        t_takeover_clean_session_with_delayed_willmsg => 3
+        t_takeover_clean_session_with_delayed_willmsg => 3,
+        t_takeover_willmsg_clean_session => 3
     }.
 
 groups() ->
