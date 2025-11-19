@@ -186,7 +186,7 @@ actor_init(Cluster, Actor, Incarnation, Env = #{timestamp := Now}) ->
 
 -spec list_actors(cluster()) -> [#{actor := actor(), incarnation := incarnation()}].
 list_actors(Cluster) ->
-    Pat = make_actor_rec_pat([{#actor.id, {Cluster, '$1'}}, {#actor.incarnation, '$2'}]),
+    Pat = mk_actor_rec_pat([{#actor.id, {Cluster, '$1'}}, {#actor.incarnation, '$2'}]),
     Matches = ets:match(emqx_external_router_actor, Pat),
     [#{actor => Actor, incarnation => Incr} || [Actor, Incr] <- Matches].
 
@@ -308,7 +308,7 @@ apply_operation(Entry, MCounter, OpName, Lane) ->
 
 -spec actor_gc(env()) -> _NumCleaned :: non_neg_integer().
 actor_gc(#{timestamp := Now}) ->
-    Pat = make_actor_rec_pat([{#actor.until, '$1'}]),
+    Pat = mk_actor_rec_pat([{#actor.until, '$1'}]),
     MS = [{Pat, [{'<', '$1', Now}], ['$_']}],
     Dead = mnesia:dirty_select(?EXTROUTE_ACTOR_TAB, MS),
     try_clean_incarnation(Dead).
@@ -334,12 +334,12 @@ mnesia_assign_lane(Cluster) ->
     Lane.
 
 select_cluster_lanes(Cluster) ->
-    Pat = make_actor_rec_pat([{#actor.id, {Cluster, '_'}}, {#actor.lane, '$1'}]),
+    Pat = mk_actor_rec_pat([{#actor.id, {Cluster, '_'}}, {#actor.lane, '$1'}]),
     MS = [{Pat, [], ['$1']}],
     mnesia:select(?EXTROUTE_ACTOR_TAB, MS, write).
 
 %% Make Dialyzer happy
-make_actor_rec_pat(PosValues) ->
+mk_actor_rec_pat(PosValues) ->
     erlang:make_tuple(
         record_info(size, actor),
         '_',
@@ -367,22 +367,38 @@ clean_incarnation(Rec = #actor{id = {Cluster, Actor}}) ->
             Result
     end.
 
-mnesia_clean_incarnation(#actor{id = Actor, incarnation = Incarnation, lane = Lane}) ->
-    case mnesia:read(?EXTROUTE_ACTOR_TAB, Actor, write) of
+mnesia_clean_incarnation(#actor{id = ID = {Cluster, _Actor}, incarnation = Incarnation, lane = Lane}) ->
+    case mnesia:read(?EXTROUTE_ACTOR_TAB, ID, write) of
         [#actor{incarnation = Incarnation}] ->
-            _ = clean_lane(Lane),
-            mnesia:delete(?EXTROUTE_ACTOR_TAB, Actor, write);
+            _ = clean_lane(Cluster, Lane),
+            mnesia:delete(?EXTROUTE_ACTOR_TAB, ID, write);
         _Renewed ->
             stale
     end.
 
-clean_lane(Lane) ->
-    ets:foldl(
+clean_lane(Cluster, Lane) ->
+    emqx_utils_stream:fold(
         fun(#extroute{entry = Entry, mcounter = MCounter}, _) ->
             apply_operation(Entry, MCounter, delete, Lane)
         end,
         0,
-        ?EXTROUTE_TAB
+        %% Stream of routes belonging to `Cluster`:
+        emqx_utils_stream:ets(fun
+            (undefined) ->
+                Field = #extroute.entry,
+                Entry = emqx_trie_search:make_pat('_', ?ROUTE_ID(Cluster, '_')),
+                ets:match_object(?EXTROUTE_TAB, mk_extroute_rec_pat([{Field, Entry}]), 50);
+            (Cont) ->
+                ets:match_object(Cont)
+        end)
+    ).
+
+%% Make Dialyzer happy
+mk_extroute_rec_pat(PosValues) ->
+    erlang:make_tuple(
+        record_info(size, extroute),
+        '_',
+        [{1, extroute} | PosValues]
     ).
 
 assert_current_incarnation(ActorID, Incarnation) ->
