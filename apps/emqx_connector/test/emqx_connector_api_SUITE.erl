@@ -15,6 +15,7 @@
 -include_lib("snabbkaffe/include/test_macros.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -118,7 +119,15 @@
     }},
     emqx_conf,
     emqx_auth,
-    emqx_connector,
+    {emqx_connector, #{
+        after_start => fun() ->
+            ok = emqx_hooks:add(
+                'namespace.resource_pre_create',
+                {?MODULE, on_namespace_resource_pre_create, []},
+                ?HP_HIGHEST
+            )
+        end
+    }},
     emqx_bridge_http,
     emqx_bridge,
     emqx_rule_engine,
@@ -215,6 +224,9 @@ end_per_testcase(TestCase, Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
 
 init_api(Config) ->
     Node = ?config(node, Config),
@@ -447,6 +459,23 @@ ensure_namespaced_api_key(Namespace, Opts0, TCConfig) ->
     Opts = Opts0#{namespace => Namespace},
     ?ON(Node, emqx_bridge_v2_testlib:ensure_namespaced_api_key(Opts)).
 
+qp_of(Opts) ->
+    case maps:find(ns, Opts) of
+        {ok, Ns} when is_binary(Ns) ->
+            [{<<"ns">>, Ns}];
+        _ ->
+            []
+    end.
+
+list_qp_of(Opts) ->
+    QP0 = qp_of(Opts),
+    case maps:find(only_global, Opts) of
+        {ok, OnlyGlobal} when is_boolean(OnlyGlobal) ->
+            [{<<"only_global">>, atom_to_binary(OnlyGlobal)} | QP0];
+        _ ->
+            QP0
+    end.
+
 get_resource(Namespace, Type, Name, TCConfig) ->
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
     ?ON(Node, begin
@@ -455,30 +484,44 @@ get_resource(Namespace, Type, Name, TCConfig) ->
     end).
 
 list(TCConfig) ->
+    list(TCConfig, _Opts = #{}).
+
+list(TCConfig, Opts) ->
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    QueryParams = list_qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
             method => get,
             url => emqx_mgmt_api_test_util:api_path(["connectors"]),
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 get(Type, Name, TCConfig) ->
+    get(Type, Name, TCConfig, _Opts = #{}).
+
+get(Type, Name, TCConfig, Opts) ->
     ConnectorId = emqx_connector_resource:connector_id(Type, Name),
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
             method => get,
             url => emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 create(Type, Name, Config, TCConfig) ->
+    create(Type, Name, Config, TCConfig, _Opts = #{}).
+
+create(Type, Name, Config, TCConfig, Opts) ->
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
@@ -488,51 +531,71 @@ create(Type, Name, Config, TCConfig) ->
                 <<"type">> => Type,
                 <<"name">> => Name
             },
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 update(Type, Name, Config, TCConfig) ->
+    update(Type, Name, Config, TCConfig, _Opts = #{}).
+
+update(Type, Name, Config, TCConfig, Opts) ->
     ConnectorId = emqx_connector_resource:connector_id(Type, Name),
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
             method => put,
             url => emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
             body => Config,
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 delete(Type, Name, TCConfig) ->
+    delete(Type, Name, TCConfig, _Opts = #{}).
+
+delete(Type, Name, TCConfig, Opts) ->
     ConnectorId = emqx_connector_resource:connector_id(Type, Name),
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
             method => delete,
             url => emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId]),
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 start(Type, Name, TCConfig) ->
+    start(Type, Name, TCConfig, _Opts = #{}).
+
+start(Type, Name, TCConfig, Opts) ->
     ConnectorId = emqx_connector_resource:connector_id(Type, Name),
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
             method => post,
             url => emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId, "start"]),
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 start_on_node(Type, Name, TCConfig) ->
+    start_on_node(Type, Name, TCConfig, _Opts = #{}).
+
+start_on_node(Type, Name, TCConfig, Opts) ->
     ConnectorId = emqx_connector_resource:connector_id(Type, Name),
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
     NodeBin = atom_to_binary(Node),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
@@ -540,25 +603,34 @@ start_on_node(Type, Name, TCConfig) ->
             url => emqx_mgmt_api_test_util:api_path(
                 ["nodes", NodeBin, "connectors", ConnectorId, "start"]
             ),
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
 enable(Type, Name, TCConfig) ->
-    do_enable_or_disable(Type, Name, "true", TCConfig).
+    enable(Type, Name, TCConfig, _Opts = #{}).
+
+enable(Type, Name, TCConfig, Opts) ->
+    do_enable_or_disable(Type, Name, "true", TCConfig, Opts).
 
 disable(Type, Name, TCConfig) ->
-    do_enable_or_disable(Type, Name, "false", TCConfig).
+    disable(Type, Name, TCConfig, _Opts = #{}).
 
-do_enable_or_disable(Type, Name, Enable, TCConfig) ->
+disable(Type, Name, TCConfig, Opts) ->
+    do_enable_or_disable(Type, Name, "false", TCConfig, Opts).
+
+do_enable_or_disable(Type, Name, Enable, TCConfig, Opts) ->
     ConnectorId = emqx_connector_resource:connector_id(Type, Name),
     Node = emqx_bridge_v2_testlib:get_value(node, TCConfig),
+    QueryParams = qp_of(Opts),
     ?ON(Node, begin
         AuthHeader = auth_header(TCConfig),
         emqx_bridge_v2_testlib:simple_request(#{
             method => put,
             url => emqx_mgmt_api_test_util:api_path(["connectors", ConnectorId, "enable", Enable]),
-            auth_header => AuthHeader
+            auth_header => AuthHeader,
+            query_params => QueryParams
         })
     end).
 
@@ -1338,6 +1410,7 @@ t_create_with_failed_root_validation(Config) ->
 Smoke tests for CRUD operations on namespaced connectors.
 
   - Namespaced users should only see and be able to mutate resources in their namespaces.
+  - Global admin should be able to see and mutate resources in any namespace (including `global`).
 
 """.
 t_namespaced_crud(TCConfig) ->
@@ -1367,32 +1440,94 @@ t_namespaced_crud(TCConfig) ->
 
     %% Creating connector with same name globally and in each NS should work.
     ?assertMatch(
-        {201, #{<<"description">> := <<"global">>}},
+        {201, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"global">>
+        }},
         create(ConnectorType, ConnectorName1, ConnectorConfigGlobal1, TCConfig)
     ),
     ?assertMatch(
-        {201, #{<<"description">> := NS1}},
+        {201, #{
+            <<"namespace">> := NS1,
+            <<"description">> := NS1
+        }},
         create(ConnectorType, ConnectorName1, ConnectorConfigNS1, TCConfigNS1)
     ),
     ?assertMatch(
-        {201, #{<<"description">> := NS2}},
+        {201, #{
+            <<"namespace">> := NS2,
+            <<"description">> := NS2
+        }},
         create(ConnectorType, ConnectorName1, ConnectorConfigNS2, TCConfigNS2)
     ),
 
-    ?assertMatch({200, [#{<<"description">> := <<"global">>}]}, list(TCConfig)),
-    ?assertMatch({200, [#{<<"description">> := NS1}]}, list(TCConfigNS1)),
-    ?assertMatch({200, [#{<<"description">> := NS2}]}, list(TCConfigNS2)),
+    %% Global admin sees all namespaces by default
+    {200, ListAll0} = list(TCConfig),
+    ?assertMatch(
+        [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            },
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := NS1
+            },
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := NS2
+            }
+        ],
+        lists:sort(ListAll0)
+    ),
 
     ?assertMatch(
-        {200, #{<<"description">> := <<"global">>}},
+        {200, [
+            #{
+                <<"namespace">> := null,
+                <<"description">> := <<"global">>
+            }
+        ]},
+        list(TCConfig, #{only_global => true})
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS1,
+                <<"description">> := NS1
+            }
+        ]},
+        list(TCConfigNS1)
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := NS2
+            }
+        ]},
+        list(TCConfigNS2)
+    ),
+
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"global">>
+        }},
         get(ConnectorType, ConnectorName1, TCConfig)
     ),
     ?assertMatch(
-        {200, #{<<"description">> := NS1}},
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := NS1
+        }},
         get(ConnectorType, ConnectorName1, TCConfigNS1)
     ),
     ?assertMatch(
-        {200, #{<<"description">> := NS2}},
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := NS2
+        }},
         get(ConnectorType, ConnectorName1, TCConfigNS2)
     ),
 
@@ -1412,7 +1547,10 @@ t_namespaced_crud(TCConfig) ->
 
     %% Updating each one should be independent
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated global">>}},
+        {200, #{
+            <<"namespace">> := null,
+            <<"description">> := <<"updated global">>
+        }},
         update(
             ConnectorType,
             ConnectorName1,
@@ -1421,7 +1559,10 @@ t_namespaced_crud(TCConfig) ->
         )
     ),
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated ns1">>}},
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := <<"updated ns1">>
+        }},
         update(
             ConnectorType,
             ConnectorName1,
@@ -1430,7 +1571,10 @@ t_namespaced_crud(TCConfig) ->
         )
     ),
     ?assertMatch(
-        {200, #{<<"description">> := <<"updated ns2">>}},
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := <<"updated ns2">>
+        }},
         update(
             ConnectorType,
             ConnectorName1,
@@ -1439,7 +1583,10 @@ t_namespaced_crud(TCConfig) ->
         )
     ),
 
-    ?assertMatch({200, [#{<<"description">> := <<"updated global">>}]}, list(TCConfig)),
+    ?assertMatch(
+        {200, [#{<<"description">> := <<"updated global">>}]},
+        list(TCConfig, #{only_global => true})
+    ),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns1">>}]}, list(TCConfigNS1)),
     ?assertMatch({200, [#{<<"description">> := <<"updated ns2">>}]}, list(TCConfigNS2)),
 
@@ -1493,7 +1640,7 @@ t_namespaced_crud(TCConfig) ->
         {201, #{<<"description">> := <<"another ns1">>}},
         create(ConnectorType, ConnectorName2, ConnectorConfigNS1B, TCConfigNS1)
     ),
-    ?assertMatch({200, [_]}, list(TCConfig)),
+    ?assertMatch({200, [_]}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
     ?assertMatch(
@@ -1531,9 +1678,113 @@ t_namespaced_crud(TCConfig) ->
         enable(ConnectorType, ConnectorName1, TCConfigViewerNS1)
     ),
 
+    ct:pal("Cross namespace requests"),
+
+    ct:pal("Namespaced admin is confined to its own namespace."),
+    ?assertMatch({403, _}, list(TCConfigNS1, #{ns => NS2})),
+    ?assertMatch(
+        {403, _},
+        get(ConnectorType, ConnectorName1, TCConfigNS1, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {403, _},
+        create(ConnectorType, ConnectorName1, ConnectorConfigNS1, TCConfigNS1, #{
+            ns => NS2
+        })
+    ),
+    ?assertMatch(
+        {403, _},
+        update(ConnectorType, ConnectorName1, ConnectorConfigNS1, TCConfigNS1, #{
+            ns => NS2
+        })
+    ),
+    ?assertMatch(
+        {403, _},
+        delete(ConnectorType, ConnectorName1, TCConfigNS1, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {403, _},
+        start(ConnectorType, ConnectorName1, TCConfigNS1, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {403, _},
+        disable(ConnectorType, ConnectorName1, TCConfigNS1, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {403, _},
+        enable(ConnectorType, ConnectorName1, TCConfigNS1, #{ns => NS2})
+    ),
+    ct:pal("Specifying its own namespace is fine."),
+    ?assertMatch({200, _}, list(TCConfigNS1, #{ns => NS1})),
+
+    ct:pal("Global admin can read and mutate any namespace."),
+    ?assertMatch(
+        {200, [#{<<"namespace">> := NS1}, #{<<"namespace">> := NS1}]},
+        list(TCConfig, #{ns => NS1})
+    ),
+    ?assertMatch(
+        {200, [
+            #{
+                <<"namespace">> := NS2,
+                <<"description">> := <<"updated ns2">>
+            }
+        ]},
+        list(TCConfig, #{ns => NS2})
+    ),
+
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := NS1,
+            <<"description">> := <<"updated ns1">>
+        }},
+        get(ConnectorType, ConnectorName1, TCConfig, #{ns => NS1})
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"namespace">> := NS2,
+            <<"description">> := <<"updated ns2">>
+        }},
+        get(ConnectorType, ConnectorName1, TCConfig, #{ns => NS2})
+    ),
+
+    ?assertMatch(
+        {201, #{<<"namespace">> := NS2}},
+        create(ConnectorType, ConnectorName2, ConnectorConfigNS2, TCConfig, #{
+            ns => NS2
+        })
+    ),
+    ?assertMatch(
+        {200, #{<<"namespace">> := NS2}},
+        update(ConnectorType, ConnectorName2, ConnectorConfigNS2, TCConfig, #{
+            ns => NS2
+        })
+    ),
+    ?assertMatch(
+        {204, _},
+        start(ConnectorType, ConnectorName1, TCConfig, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {204, _},
+        disable(ConnectorType, ConnectorName1, TCConfig, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {204, _},
+        enable(ConnectorType, ConnectorName1, TCConfig, #{ns => NS2})
+    ),
+    ?assertMatch(
+        {204, _},
+        delete(ConnectorType, ConnectorName2, TCConfig, #{
+            ns => NS2
+        })
+    ),
+    ?assertMatch(
+        {404, _},
+        get(ConnectorType, ConnectorName2, TCConfig, #{ns => NS2})
+    ),
+
     %% Delete
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfig)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_, _]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
     ?assertMatch(
@@ -1550,12 +1801,12 @@ t_namespaced_crud(TCConfig) ->
     ),
 
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfigNS1)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),
     ?assertMatch({200, [_]}, list(TCConfigNS2)),
 
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName1, TCConfigNS2)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, [_]}, list(TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfigNS2)),
     ?assertMatch(
@@ -1572,7 +1823,7 @@ t_namespaced_crud(TCConfig) ->
     ),
 
     ?assertMatch({204, _}, delete(ConnectorType, ConnectorName2, TCConfigNS1)),
-    ?assertMatch({200, []}, list(TCConfig)),
+    ?assertMatch({200, []}, list(TCConfig, #{only_global => true})),
     ?assertMatch({200, []}, list(TCConfigNS1)),
     ?assertMatch({200, []}, list(TCConfigNS2)),
 

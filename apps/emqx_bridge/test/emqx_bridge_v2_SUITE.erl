@@ -16,6 +16,7 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %%------------------------------------------------------------------------------
 %% Definitions
@@ -91,7 +92,15 @@ app_specs_without_dashboard() ->
         emqx,
         emqx_conf,
         emqx_connector,
-        emqx_bridge,
+        {emqx_bridge, #{
+            after_start => fun() ->
+                ok = emqx_hooks:add(
+                    'namespace.resource_pre_create',
+                    {?MODULE, on_namespace_resource_pre_create, []},
+                    ?HP_HIGHEST
+                )
+            end
+        }},
         emqx_rule_engine,
         emqx_management
     ].
@@ -146,6 +155,9 @@ end_per_testcase(TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
 
 con_mod() ->
     emqx_bridge_v2_test_connector.

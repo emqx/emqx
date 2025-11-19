@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 -include_lib("snabbkaffe/include/test_macros.hrl").
 
 -define(APPSPECS, [
@@ -129,15 +130,19 @@ t_double_delete_on_diff_node(Config) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
+%% todo: bad!  should actually do HTTP call...
 create_rule(Node, Params) when is_map(Params) ->
-    rpc:call(Node, emqx_rule_engine_api, '/rules', [post, #{body => Params}]).
+    rpc:call(Node, emqx_rule_engine_api, '/rules', [
+        post, #{body => Params, resolved_ns => ?global_ns}
+    ]).
 
+%% todo: bad!  should actually do HTTP call...
 delete_rule(Node, RuleId) when is_binary(RuleId) ->
     rpc:call(
         Node,
         emqx_rule_engine_api,
         '/rules/:id',
-        [delete, #{bindings => #{id => RuleId}}]
+        [delete, #{bindings => #{id => RuleId}, resolved_ns => ?global_ns}]
     ).
 
 cluster_conf_tx_id(Node) ->

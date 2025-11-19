@@ -50,7 +50,7 @@ filter_effects_test() ->
     }
 }).
 
-list_known_streams(SubId, HS = #test_host_state{iterators = Its}) ->
+list_known_streams(SubId, #test_host_state{iterators = Its}) ->
     maps:fold(
         fun({SID, Stream}, _, Acc) ->
             case SID of

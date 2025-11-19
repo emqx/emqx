@@ -10,6 +10,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(SIMPLE_RULE(NAME_SUFFIX), #{
     <<"description">> => <<"A simple rule">>,
@@ -50,10 +51,10 @@ end_per_testcase(t_crud_rule_api, Config) ->
     end_per_testcase(common, Config);
 end_per_testcase(_, _Config) ->
     {200, #{data := Rules}} =
-        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
+        bad_call_rules_api_directly(get, #{query_string => #{}}),
     lists:foreach(
         fun(#{id := Id}) ->
-            {204} = emqx_rule_engine_api:'/rules/:id'(
+            {204} = bad_call_rules_id_api_directly(
                 delete,
                 #{bindings => #{id => Id}}
             )
@@ -66,25 +67,25 @@ t_crud_rule_api(_Config) ->
     Rule = simple_rule_fixture(RuleId, <<>>),
     ?assertEqual(RuleId, maps:get(id, Rule)),
 
-    {200, #{data := Rules}} = emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
+    {200, #{data := Rules}} = bad_call_rules_api_directly(get, #{query_string => #{}}),
     ct:pal("RList : ~p", [Rules]),
     ?assert(length(Rules) > 0),
 
     %% if we post again with the same id, it return with 400 "rule id already exists"
     ?assertMatch(
         {400, #{code := _, message := _Message}},
-        emqx_rule_engine_api:'/rules'(post, #{body => ?SIMPLE_RULE(RuleId, <<"some_other">>)})
+        bad_call_rules_api_directly(post, #{body => ?SIMPLE_RULE(RuleId, <<"some_other">>)})
     ),
 
-    {204} = emqx_rule_engine_api:'/rules/:id/metrics/reset'(put, #{
+    {204} = bad_call_rule_metrics_reset_api_directly(put, #{
         bindings => #{id => RuleId}
     }),
 
-    {200, Rule1} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}}),
+    {200, Rule1} = bad_call_rules_id_api_directly(get, #{bindings => #{id => RuleId}}),
     ct:pal("RShow : ~p", [Rule1]),
     ?assertEqual(Rule, Rule1),
 
-    {200, Metrics} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{bindings => #{id => RuleId}}),
+    {200, Metrics} = bad_call_rule_metrics_api_directly(get, #{bindings => #{id => RuleId}}),
     ct:pal("RMetrics : ~p", [Metrics]),
     ?assertMatch(#{id := RuleId, metrics := _, node_metrics := _}, Metrics),
 
@@ -99,7 +100,7 @@ t_crud_rule_api(_Config) ->
             meck:passthrough([HandlerName, <<"unknown-", MetricId/binary>>])
         end,
         fun() ->
-            {200, Metrics1} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{
+            {200, Metrics1} = bad_call_rule_metrics_api_directly(get, #{
                 bindings => #{id => RuleId}
             }),
             ct:pal("RMetrics : ~p", [Metrics1]),
@@ -108,27 +109,27 @@ t_crud_rule_api(_Config) ->
         end
     ),
 
-    {200, Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
+    {200, Rule2} = bad_call_rules_id_api_directly(put, #{
         bindings => #{id => RuleId},
         body => ?SIMPLE_RULE(RuleId)#{<<"sql">> => <<"select * from \"t/b\"">>}
     }),
 
-    {200, Rule3} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}}),
+    {200, Rule3} = bad_call_rules_id_api_directly(get, #{bindings => #{id => RuleId}}),
     %ct:pal("RShow : ~p", [Rule3]),
     ?assertEqual(Rule3, Rule2),
     ?assertEqual(<<"select * from \"t/b\"">>, maps:get(sql, Rule3)),
 
-    {404, _} = emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => <<"unknown_rule">>}}),
-    {404, _} = emqx_rule_engine_api:'/rules/:id/metrics'(get, #{
+    {404, _} = bad_call_rules_id_api_directly(get, #{bindings => #{id => <<"unknown_rule">>}}),
+    {404, _} = bad_call_rule_metrics_api_directly(get, #{
         bindings => #{id => <<"unknown_rule">>}
     }),
-    {404, _} = emqx_rule_engine_api:'/rules/:id/metrics/reset'(put, #{
+    {404, _} = bad_call_rule_metrics_reset_api_directly(put, #{
         bindings => #{id => <<"unknown_rule">>}
     }),
 
     ?assertMatch(
         {204},
-        emqx_rule_engine_api:'/rules/:id'(
+        bad_call_rules_id_api_directly(
             delete,
             #{bindings => #{id => RuleId}}
         )
@@ -136,7 +137,7 @@ t_crud_rule_api(_Config) ->
 
     ?assertMatch(
         {404, #{code := 'NOT_FOUND'}},
-        emqx_rule_engine_api:'/rules/:id'(
+        bad_call_rules_id_api_directly(
             delete,
             #{bindings => #{id => RuleId}}
         )
@@ -144,7 +145,7 @@ t_crud_rule_api(_Config) ->
 
     ?assertMatch(
         {404, #{code := _, message := _Message}},
-        emqx_rule_engine_api:'/rules/:id'(get, #{bindings => #{id => RuleId}})
+        bad_call_rules_id_api_directly(get, #{bindings => #{id => RuleId}})
     ),
 
     {400, #{
@@ -202,7 +203,7 @@ t_list_rule_api(_Config) ->
     AddIds = rules_fixture(20),
     ct:pal("rule ids: ~p", [AddIds]),
     {200, #{data := Rules, meta := #{count := Count}}} =
-        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
+        bad_call_rules_api_directly(get, #{query_string => #{}}),
     ?assertEqual(20, length(AddIds)),
     ?assertEqual(20, length(Rules)),
     ?assertEqual(20, Count),
@@ -215,32 +216,32 @@ t_list_rule_api(_Config) ->
         <<"sql">> => <<"SELECT * from \"t/1/+\"">>,
         <<"name">> => <<"test_rule_update1">>
     },
-    {200, _Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
+    {200, _Rule2} = bad_call_rules_id_api_directly(put, #{
         bindings => #{id => RuleId},
         body => UpdateParams
     }),
     QueryStr1 = #{query_string => #{<<"enable">> => false}},
-    {200, Result1 = #{meta := #{count := Count1}}} = emqx_rule_engine_api:'/rules'(get, QueryStr1),
+    {200, Result1 = #{meta := #{count := Count1}}} = bad_call_rules_api_directly(get, QueryStr1),
     ?assertEqual(1, Count1),
 
     QueryStr2 = #{query_string => #{<<"like_description">> => <<"也能"/utf8>>}},
-    {200, Result2} = emqx_rule_engine_api:'/rules'(get, QueryStr2),
+    {200, Result2} = bad_call_rules_api_directly(get, QueryStr2),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result2)),
 
     QueryStr3 = #{query_string => #{<<"from">> => <<"t/1">>}},
-    {200, #{data := Data3}} = emqx_rule_engine_api:'/rules'(get, QueryStr3),
+    {200, #{data := Data3}} = bad_call_rules_api_directly(get, QueryStr3),
     ?assertEqual(19, length(Data3)),
 
     QueryStr4 = #{query_string => #{<<"like_from">> => <<"t/1/+">>}},
-    {200, Result4} = emqx_rule_engine_api:'/rules'(get, QueryStr4),
+    {200, Result4} = bad_call_rules_api_directly(get, QueryStr4),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result4)),
 
     QueryStr5 = #{query_string => #{<<"match_from">> => <<"t/+/+">>}},
-    {200, Result5} = emqx_rule_engine_api:'/rules'(get, QueryStr5),
+    {200, Result5} = bad_call_rules_api_directly(get, QueryStr5),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result5)),
 
     QueryStr6 = #{query_string => #{<<"like_id">> => RuleId}},
-    {200, Result6} = emqx_rule_engine_api:'/rules'(get, QueryStr6),
+    {200, Result6} = bad_call_rules_api_directly(get, QueryStr6),
     ?assertEqual(maps:get(data, Result1), maps:get(data, Result6)),
     ok.
 
@@ -250,19 +251,19 @@ t_reset_metrics_on_disable(_Config) ->
     %% generate some fake metrics
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'matched', 10),
     emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed', 10),
-    {200, #{metrics := Metrics0}} = emqx_rule_engine_api:'/rules/:id/metrics'(
+    {200, #{metrics := Metrics0}} = bad_call_rule_metrics_api_directly(
         get,
         #{bindings => #{id => RuleId}}
     ),
     ?assertMatch(#{passed := 10, matched := 10}, Metrics0),
 
     %% disable the rule; metrics should be reset
-    {200, _Rule2} = emqx_rule_engine_api:'/rules/:id'(put, #{
+    {200, _Rule2} = bad_call_rules_id_api_directly(put, #{
         bindings => #{id => RuleId},
         body => #{<<"enable">> => false}
     }),
 
-    {200, #{metrics := Metrics1}} = emqx_rule_engine_api:'/rules/:id/metrics'(
+    {200, #{metrics := Metrics1}} = bad_call_rule_metrics_api_directly(
         get,
         #{bindings => #{id => RuleId}}
     ),
@@ -287,22 +288,22 @@ test_rule_params(Sql, Payload) ->
 
 t_rule_engine(_) ->
     _ = simple_rule_fixture(),
-    {200, Config} = emqx_rule_engine_api:'/rule_engine'(get, #{}),
+    {200, Config} = bad_call_rule_engine_api_directly(get, #{}),
     ?assert(not maps:is_key(rules, Config)),
     {200, #{
         jq_function_default_timeout := 12000
         % hidden! jq_implementation_module := jq_port
-    }} = emqx_rule_engine_api:'/rule_engine'(put, #{
+    }} = bad_call_rule_engine_api_directly(put, #{
         body => #{
             <<"jq_function_default_timeout">> => <<"12s">>,
             <<"jq_implementation_module">> => <<"jq_port">>
         }
     }),
     SomeRule = #{<<"sql">> => <<"SELECT * FROM \"t/#\"">>},
-    {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{
+    {400, _} = bad_call_rule_engine_api_directly(put, #{
         body => #{<<"rules">> => #{<<"some_rule">> => SomeRule}}
     }),
-    {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{body => #{<<"something">> => <<"weird">>}}).
+    {400, _} = bad_call_rule_engine_api_directly(put, #{body => #{<<"something">> => <<"weird">>}}).
 
 rules_fixture(N) ->
     lists:map(
@@ -324,5 +325,25 @@ simple_rule_fixture(Id, NameSuffix) ->
     create_rule(?SIMPLE_RULE(Id, NameSuffix)).
 
 create_rule(Params) ->
-    {201, Rule} = emqx_rule_engine_api:'/rules'(post, #{body => Params}),
+    {201, Rule} = bad_call_rules_api_directly(post, #{body => Params}),
     Rule.
+
+%% todo: bad!  should actually do HTTP call...
+bad_call_rules_api_directly(Method, FakeRequest) ->
+    emqx_rule_engine_api:'/rules'(Method, FakeRequest#{resolved_ns => ?global_ns}).
+
+%% todo: bad!  should actually do HTTP call...
+bad_call_rules_id_api_directly(Method, FakeRequest) ->
+    emqx_rule_engine_api:'/rules/:id'(Method, FakeRequest#{resolved_ns => ?global_ns}).
+
+%% todo: bad!  should actually do HTTP call...
+bad_call_rule_engine_api_directly(Method, FakeRequest) ->
+    emqx_rule_engine_api:'/rule_engine'(Method, FakeRequest#{resolved_ns => ?global_ns}).
+
+%% todo: bad!  should actually do HTTP call...
+bad_call_rule_metrics_reset_api_directly(Method, FakeRequest) ->
+    emqx_rule_engine_api:'/rules/:id/metrics/reset'(Method, FakeRequest#{resolved_ns => ?global_ns}).
+
+%% todo: bad!  should actually do HTTP call...
+bad_call_rule_metrics_api_directly(Method, FakeRequest) ->
+    emqx_rule_engine_api:'/rules/:id/metrics'(Method, FakeRequest#{resolved_ns => ?global_ns}).

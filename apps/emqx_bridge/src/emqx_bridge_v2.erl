@@ -113,6 +113,7 @@
 -type namespace() :: binary().
 
 -type bridge_v2_info() :: #{
+    namespace := maybe_namespace(),
     type := binary(),
     name := binary(),
     raw_config := map(),
@@ -127,7 +128,7 @@
 
 -type root_cfg_key() :: ?ROOT_KEY_ACTIONS | ?ROOT_KEY_SOURCES.
 
--type maybe_namespace() :: ?global_ns | binary().
+-type maybe_namespace() :: emqx_config:maybe_namespace().
 
 -export_type([root_cfg_key/0, bridge_v2_type/0, bridge_v2_name/0, maybe_namespace/0]).
 
@@ -276,6 +277,7 @@ lookup(Namespace, ConfRootName, Type, Name) ->
                         {?status_disconnected, <<"Not installed">>}
                 end,
             {ok, #{
+                namespace => Namespace,
                 type => bin(Type),
                 name => bin(Name),
                 raw_config => RawConf,
@@ -285,7 +287,10 @@ lookup(Namespace, ConfRootName, Type, Name) ->
             }}
     end.
 
--spec list(maybe_namespace(), root_cfg_key()) -> [bridge_v2_info()] | {error, term()}.
+-spec list(all | maybe_namespace(), root_cfg_key()) -> [bridge_v2_info()] | {error, term()}.
+list(all, ConfRootKey) ->
+    Namespaces = [?global_ns | emqx_config:get_all_namespaces_containing(ConfRootKey)],
+    lists:flatmap(fun(Ns) -> list(Ns, ConfRootKey) end, Namespaces);
 list(Namespace, ConfRootKey) ->
     LookupFun = fun(Type, Name) ->
         lookup(Namespace, ConfRootKey, Type, Name)
