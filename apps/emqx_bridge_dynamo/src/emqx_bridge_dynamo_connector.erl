@@ -237,7 +237,7 @@ do_query(
     TraceRenderedCTX =
         emqx_trace:make_rendered_action_template_trace_context(ChannelId),
     Result =
-        case ensuare_dynamo_keys(Query, ChannelState) of
+        case ensure_dynamo_keys(Query, ChannelState) of
             true ->
                 ecpool:pick_and_do(
                     PoolName,
@@ -302,9 +302,9 @@ get_query_tuple([{_ChannelId, {_QueryType, _Data}} | _]) ->
 get_query_tuple([_InsertQuery | _] = Reqs) ->
     lists:map(fun get_query_tuple/1, Reqs).
 
-ensuare_dynamo_keys({_, Data} = Query, State) when is_map(Data) ->
-    ensuare_dynamo_keys([Query], State);
-ensuare_dynamo_keys([{_, Data} | _] = Queries, State) when is_map(Data) ->
+ensure_dynamo_keys({_, Data} = Query, State) when is_map(Data) ->
+    ensure_dynamo_keys([Query], State);
+ensure_dynamo_keys([{_, Data} | _] = Queries, State) when is_map(Data) ->
     Keys = maps:values(maps:with([hash_key, range_key], State)),
     lists:all(
         fun({_, Query}) ->
@@ -318,7 +318,7 @@ ensuare_dynamo_keys([{_, Data} | _] = Queries, State) when is_map(Data) ->
         Queries
     );
 %% this is not a insert query
-ensuare_dynamo_keys(_Query, _State) ->
+ensure_dynamo_keys(_Query, _State) ->
     true.
 
 connect(Opts) ->

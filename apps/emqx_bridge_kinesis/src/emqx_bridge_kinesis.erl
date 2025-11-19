@@ -73,8 +73,10 @@ fields(action_resource_opts) ->
         _Overrides = [
             {batch_size, #{
                 type => range(1, 500),
+                default => 100,
                 validator => emqx_resource_validator:max(int, 500)
             }},
+            {batch_time, #{default => <<"100ms">>}},
             {health_check_interval_jitter, #{
                 default => <<"15s">>
             }}

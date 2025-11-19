@@ -140,7 +140,8 @@ fields(datalayers_action) ->
             #{
                 required => true, desc => ?DESC(action_parameters_influx)
             }
-        )
+        ),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters_influx) ->
     [
@@ -155,6 +156,11 @@ fields(action_parameters_arrow_flight) ->
                 #{desc => ?DESC(sql_template), default => ?DEFAULT_SQL, format => <<"sql">>}
             )}
     ];
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields(Field) when
@@ -185,6 +191,8 @@ desc(action_parameters_influx) ->
     ?DESC(action_parameters_influx);
 desc(action_parameters_arrow_flight) ->
     ?DESC(action_parameters_arrow_flight);
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(sql_template) ->
     ?DESC(sql_template);
 desc("config_connector") ->
@@ -208,3 +216,5 @@ write_syntax(format) ->
     <<"sql">>;
 write_syntax(_) ->
     undefined.
+
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).

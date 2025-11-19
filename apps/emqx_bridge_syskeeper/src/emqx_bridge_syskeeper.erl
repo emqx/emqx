@@ -113,7 +113,12 @@ fields("parameters") ->
             )}
     ];
 fields("creation_opts") ->
-    emqx_resource_schema:create_opts([{request_ttl, #{default => infinity}}]);
+    %% fixme: wrong!  actions do not support all these fields....
+    emqx_resource_schema:create_opts([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}},
+        {request_ttl, #{default => infinity}}
+    ]);
 fields("post") ->
     [type_field(), name_field() | fields(config)];
 fields("post_bridge_v2") ->

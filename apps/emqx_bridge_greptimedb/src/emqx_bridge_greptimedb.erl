@@ -60,13 +60,11 @@ connector_examples(Method) ->
         }
     ].
 
-bridge_v1_values(_Method) ->
+connector_values(_Method) ->
     #{
         type => greptimedb,
         name => <<"demo">>,
         enable => true,
-        write_syntax => write_syntax_value(),
-        precision => ms,
         resource_opts => #{
             batch_size => 100,
             batch_time => <<"20ms">>
@@ -78,9 +76,6 @@ bridge_v1_values(_Method) ->
         server => <<"127.0.0.1:4001">>,
         ssl => #{enable => false}
     }.
-
-connector_values(Method) ->
-    maps:without([write_syntax, precision], bridge_v1_values(Method)).
 
 write_syntax_value() ->
     <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
@@ -105,13 +100,19 @@ fields(greptimedb_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(ref(?MODULE, action_parameters), #{
             required => true, desc => ?DESC(action_parameters)
-        })
+        }),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
     [
         {write_syntax, fun write_syntax/1},
         emqx_bridge_greptimedb_connector:precision_field()
     ];
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 %% Connectors
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
@@ -144,6 +145,8 @@ desc(greptimedb_action) ->
     ?DESC(greptimedb_action);
 desc(action_parameters) ->
     ?DESC(action_parameters);
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->
@@ -165,3 +168,5 @@ write_syntax(format) ->
     <<"sql">>;
 write_syntax(_) ->
     undefined.
+
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).

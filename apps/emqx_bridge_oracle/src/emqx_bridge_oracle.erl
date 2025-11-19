@@ -118,7 +118,8 @@ fields(oracle_action) ->
                 required => true,
                 desc => ?DESC("action_parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => hoconsc:ref(?MODULE, action_resource_opts)}
     );
 fields(action_parameters) ->
     [
@@ -128,6 +129,11 @@ fields(action_parameters) ->
                 #{desc => ?DESC("sql_template"), default => ?DEFAULT_SQL, format => <<"sql">>}
             )}
     ];
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++
         fields(connector_fields) ++
@@ -171,6 +177,8 @@ desc(oracle_action) ->
     ?DESC("oracle_action");
 desc(action_parameters) ->
     ?DESC("action_parameters");
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_) ->

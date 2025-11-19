@@ -71,8 +71,14 @@ fields(pgsql_action) ->
                 required => true,
                 desc => ?DESC("action_parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields("put_bridge_v2") ->
     fields(pgsql_action);
 fields("get_bridge_v2") ->
@@ -118,6 +124,8 @@ desc(pgsql_action) ->
     ?DESC("pgsql_action");
 desc(action_parameters) ->
     ?DESC("action_parameters");
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc("config_connector") ->
     ?DESC(emqx_postgresql_connector_schema, "config_connector");
 desc(_) ->
@@ -188,3 +196,5 @@ values(parameters) ->
                 >>
         }
     }.
+
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).

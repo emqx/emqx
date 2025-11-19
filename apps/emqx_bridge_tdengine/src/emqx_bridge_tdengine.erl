@@ -90,7 +90,8 @@ fields(action_config) ->
             #{
                 required => true, desc => ?DESC("action_parameters")
             }
-        )
+        ),
+        #{resource_opts_ref => ref(?MODULE, action_resource_opts)}
     );
 fields(action_parameters) ->
     [
@@ -106,6 +107,11 @@ fields(action_parameters) ->
             )},
         emqx_bridge_v2_schema:undefined_as_null_field()
     ];
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields("post_bridge_v2") ->
     emqx_bridge_v2_schema:type_and_name_fields(enum([tdengine])) ++ fields(action_config);
 fields("put_bridge_v2") ->
@@ -119,6 +125,8 @@ desc(action_config) ->
     ?DESC("desc_config");
 desc(action_parameters) ->
     ?DESC("action_parameters");
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
     ["Configuration for TDengine using `", string:to_upper(Method), "` method."];
 desc(_) ->

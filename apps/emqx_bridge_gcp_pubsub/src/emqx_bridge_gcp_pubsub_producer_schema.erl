@@ -57,10 +57,16 @@ fields(producer_action) ->
                 required => true,
                 desc => ?DESC(producer_action)
             }
-        )
+        ),
+        #{resource_opts_ref => ref(?MODULE, action_resource_opts)}
     );
 fields(action_parameters) ->
     emqx_bridge_gcp_pubsub:fields(producer);
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 %%=========================================
 %% Connector fields
 %%=========================================
@@ -111,6 +117,8 @@ desc(action_parameters) ->
     ?DESC(action_parameters);
 desc(producer_action) ->
     ?DESC(producer_action);
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(connector_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_Name) ->

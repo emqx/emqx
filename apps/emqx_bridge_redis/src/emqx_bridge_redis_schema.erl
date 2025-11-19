@@ -78,8 +78,8 @@ fields(redis_action) ->
     lists:keyreplace(resource_opts, 1, Schema, ResOpts);
 fields(action_resource_opts) ->
     emqx_bridge_v2_schema:action_resource_opts_fields([
-        {batch_size, #{desc => ?DESC(batch_size)}},
-        {batch_time, #{desc => ?DESC(batch_time)}}
+        {batch_size, #{default => 100, desc => ?DESC(batch_size)}},
+        {batch_time, #{default => <<"100ms">>, desc => ?DESC(batch_time)}}
     ]);
 %%=========================================
 %% HTTP API fields

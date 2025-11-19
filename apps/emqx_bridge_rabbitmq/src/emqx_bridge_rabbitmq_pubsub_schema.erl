@@ -187,7 +187,10 @@ fields(source_parameters) ->
             )}
     ];
 fields(action_resource_opts) ->
-    emqx_bridge_v2_schema:action_resource_opts_fields();
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields(source_resource_opts) ->
     emqx_bridge_v2_schema:source_resource_opts_fields();
 fields(Field) when
