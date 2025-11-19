@@ -895,9 +895,9 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 '/actions/:id'(put, #{bindings := #{id := Id}, body := Conf0} = Req) ->
     Namespace = get_namespace(Req),
     handle_update(Namespace, ?ROOT_KEY_ACTIONS, Id, Conf0);
-'/actions/:id'(delete, #{bindings := #{id := Id}, query_string := Qs} = Req) ->
+'/actions/:id'(delete, #{bindings := #{id := Id}, query_string := QS} = Req) ->
     Namespace = get_namespace(Req),
-    handle_delete(Namespace, ?ROOT_KEY_ACTIONS, Id, Qs).
+    handle_delete(Namespace, ?ROOT_KEY_ACTIONS, Id, QS).
 
 '/actions/:id/metrics'(get, #{bindings := #{id := Id}} = Req) ->
     Namespace = get_namespace(Req),
@@ -971,9 +971,9 @@ refine_api_schema(Schema, ReqMeta = #{path := Path, method := Method}) ->
 '/sources/:id'(put, #{bindings := #{id := Id}, body := Conf0} = Req) ->
     Namespace = get_namespace(Req),
     handle_update(Namespace, ?ROOT_KEY_SOURCES, Id, Conf0);
-'/sources/:id'(delete, #{bindings := #{id := Id}, query_string := Qs} = Req) ->
+'/sources/:id'(delete, #{bindings := #{id := Id}, query_string := QS} = Req) ->
     Namespace = get_namespace(Req),
-    handle_delete(Namespace, ?ROOT_KEY_SOURCES, Id, Qs).
+    handle_delete(Namespace, ?ROOT_KEY_SOURCES, Id, QS).
 
 '/sources/:id/metrics'(get, #{bindings := #{id := Id}} = Req) ->
     Namespace = get_namespace(Req),
