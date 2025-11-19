@@ -102,6 +102,8 @@
     " the connection parameters."
 ).
 
+-define(CONSUMER_GROUP_HEALTHCHECK_TIMEOUT, timer:seconds(5)).
+
 %% Allocatable resources
 -define(kafka_client_id, kafka_client_id).
 -define(kafka_subscriber_id, kafka_subscriber_id).
@@ -263,7 +265,12 @@ on_get_channel_status(
         kafka_topics := KafkaTopics,
         subscriber_id := SubscriberId
     } = maps:get(SourceResId, InstalledSources),
-    do_get_status(ConnResId, ClientID, KafkaTopics, SubscriberId);
+    case emqx_resource:is_dry_run(ConnResId) of
+        true ->
+            get_topics_connectivity_status(ClientID, KafkaTopics);
+        false ->
+            do_get_status(ClientID, KafkaTopics, SubscriberId)
+    end;
 on_get_channel_status(_ConnectorResId, _SourceResId, _ConnectorState) ->
     ?status_disconnected.
 
@@ -488,15 +495,11 @@ stop_client(ClientID) ->
     ),
     ok.
 
-do_get_status(ConnResId, ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
+do_get_status(ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
     case brod:get_partitions_count(ClientID, KafkaTopic) of
         {ok, _NPartitions} ->
-            case do_get_topic_status(ConnResId, ClientID, KafkaTopic, SubscriberId) of
-                ?status_connected ->
-                    do_get_status(ConnResId, ClientID, RestTopics, SubscriberId);
-                {Status, Message} when Status =/= ?status_connected ->
-                    {Status, Message}
-            end;
+            %% Continue to check next topic
+            do_get_status(ClientID, RestTopics, SubscriberId);
         {error, {client_down, Context}} ->
             case infer_client_error(Context) of
                 auth_error ->
@@ -523,105 +526,38 @@ do_get_status(ConnResId, ClientID, [KafkaTopic | RestTopics], SubscriberId) ->
         {error, Reason} ->
             {?status_disconnected, Reason}
     end;
-do_get_status(_ConnResId, _ClientID, _KafkaTopics = [], _SubscriberId) ->
-    ?status_connected.
+do_get_status(_ClientID, _KafkaTopics = [], SubscriberId) ->
+    %% After all kafka topics are checked, check group subscriber
+    get_subscriber_status(SubscriberId).
 
--spec do_get_topic_status(connector_resource_id(), brod:client_id(), binary(), subscriber_id()) ->
-    ?status_connected | {?status_disconnected | ?status_connecting, _Msg :: binary()}.
-do_get_topic_status(ConnResId, ClientID, KafkaTopic, SubscriberId) ->
-    IsDryRun = emqx_resource:is_dry_run(ConnResId),
-    case get_consumer_workers(KafkaTopic, SubscriberId) of
-        {_AliveWorkers = [], []} ->
-            %% Didn't have enough time to receive partition assignments?
-            case brod_client:get_partitions_count(ClientID, KafkaTopic) of
-                {ok, NumPartitions} ->
-                    Partitions = lists:seq(0, NumPartitions - 1),
-                    do_check_leader_connections(ClientID, KafkaTopic, Partitions);
-                {error, Reason} ->
-                    Msg = io_lib:format(
-                        "Failed to get partition count for ~s: ~p; client: ~p",
-                        [KafkaTopic, Reason, ClientID]
-                    ),
-                    {?status_disconnected, iolist_to_binary(Msg)}
-            end;
-        {AliveWorkers, []} ->
-            {Partitions, _WorkerPids} = lists:unzip(AliveWorkers),
-            do_check_leader_connections(ClientID, KafkaTopic, Partitions);
-        {_AliveWorkers, DeadWorkers} ->
-            DeadPartitions = lists:map(fun({P, _Pid}) -> P end, DeadWorkers),
-            Msg = io_lib:format(
-                "Partition workers down; client=~s; topic=~s; partitions=~0p",
-                [ClientID, KafkaTopic, DeadPartitions]
-            ),
-            {?status_connecting, iolist_to_binary(Msg)};
-        false when IsDryRun ->
-            %% We don't start workers for dry runs / probes.
-            case brod_client:get_partitions_count(ClientID, KafkaTopic) of
-                {ok, NumPartitions} ->
-                    Partitions = lists:seq(0, NumPartitions - 1),
-                    do_check_leader_connections(ClientID, KafkaTopic, Partitions);
-                {error, Reason} ->
-                    Msg = io_lib:format(
-                        "Failed to get partition count for ~s: ~p; client: ~p",
-                        [KafkaTopic, Reason, ClientID]
-                    ),
-                    {?status_disconnected, iolist_to_binary(Msg)}
-            end;
+-spec get_subscriber_status(subscriber_id()) ->
+    ?status_connected | {?status_connecting, _Msg :: binary()}.
+get_subscriber_status(SubscriberId) ->
+    case get_group_subscriber(SubscriberId) of
         false ->
-            {?status_connecting, <<"Subscriber workers restarting">>}
-    end.
-
-do_check_leader_connections(ClientID, KafkaTopic, Partitions) ->
-    DisconnectedLeaders = lists:filtermap(
-        fun(Partition) ->
-            case brod_client:get_leader_connection(ClientID, KafkaTopic, Partition) of
-                {ok, _Conn} ->
-                    false;
-                {error, Reason} ->
-                    {true, {Partition, Reason}}
+            {?status_connecting, <<"Subscriber workers restarting">>};
+        Pid when is_pid(Pid) ->
+            case brod_group_subscriber_v2:health_check(Pid, ?CONSUMER_GROUP_HEALTHCHECK_TIMEOUT) of
+                healthy ->
+                    ?status_connected;
+                rebalancing ->
+                    {?status_connecting, <<"Consumer group rebalancing">>};
+                {error, [Error1 | _] = Errors} ->
+                    Msg = io_lib:format("first_error=~0p; total_errors=~p", [Error1, length(Errors)]),
+                    {?status_connecting, iolist_to_binary(Msg)}
             end
-        end,
-        Partitions
-    ),
-    case DisconnectedLeaders of
-        [] ->
-            ?status_connected;
-        [{P, R} | _] ->
-            Msg = io_lib:format(
-                "Partition leader unavailable; client=~s; topic=~s; partition=~p; disconnected=~0p; total=~p",
-                [ClientID, KafkaTopic, P, R, length(DisconnectedLeaders)]
-            ),
-            {?status_disconnected, iolist_to_binary(Msg)}
     end.
 
-%% Returns 'false' if failed to get workers.
-%% Returns {AliveWorkers, DeadWorkers} otherwise.
-get_consumer_workers(KafkaTopic, SubscriberId) ->
+%% Returns 'false' if failed to find the group subscriber.
+%% Otherwise the pid.
+get_group_subscriber(SubscriberId) ->
     try
         Children = supervisor:which_children(emqx_bridge_kafka_consumer_sup),
         case lists:keyfind(SubscriberId, 1, Children) of
-            false ->
-                false;
-            {_, undefined, _, _} ->
-                false;
             {_, Pid, _, _} when is_pid(Pid) ->
-                Workers0 = brod_group_subscriber_v2:get_workers(Pid),
-                Workers = maps:fold(
-                    fun({Topic, Partition}, WokerPid, Acc) ->
-                        case Topic =:= KafkaTopic of
-                            true ->
-                                [{Partition, WokerPid} | Acc];
-                            false ->
-                                Acc
-                        end
-                    end,
-                    [],
-                    Workers0
-                ),
-                lists:partition(
-                    fun({_Partition, WorkerPid}) -> is_process_alive(WorkerPid) end,
-                    lists:keysort(1, Workers)
-                )
+                Pid;
+            _ ->
+                false
         end
     catch
         exit:{noproc, _} ->
@@ -629,6 +565,27 @@ get_consumer_workers(KafkaTopic, SubscriberId) ->
         exit:{shutdown, _} ->
             %% may happen if node is shutting down
             false
+    end.
+
+get_topics_connectivity_status(_ClientID, []) ->
+    ?status_connected;
+get_topics_connectivity_status(ClientID, [KafkaTopic | Rest]) ->
+    case check_partition0_connectivity(ClientID, KafkaTopic) of
+        ok ->
+            get_topics_connectivity_status(ClientID, Rest);
+        {error, Reason} ->
+            Msg = io_lib:format("Failed to connect partition 0; topic=~s; error=~p", [
+                KafkaTopic, Reason
+            ]),
+            {?status_disconnected, iolist_to_binary(Msg)}
+    end.
+
+check_partition0_connectivity(ClientID, KafkaTopic) ->
+    case brod_client:get_leader_connection(ClientID, KafkaTopic, 0) of
+        {ok, _Conn} ->
+            ok;
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 log_when_error(Fun, Log) ->
