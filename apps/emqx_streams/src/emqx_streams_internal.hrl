@@ -20,6 +20,14 @@
     })
 ).
 
+-define(QUOTA_INDEX_TS, 1).
+
+-define(STREAMS_QUOTA_BUFFER, streams_quota_buffer).
+
+-define(DEFAULT_QUOTA_BUFFER_MAX_SIZE, 100).
+-define(DEFAULT_QUOTA_BUFFER_FLUSH_INTERVAL, 1000).
+-define(DEFAULT_QUOTA_BUFFER_POOL_SIZE, 10).
+
 -record(shard_dispatch_command, {group, c, context}).
 
 -endif.
