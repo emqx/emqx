@@ -62,7 +62,8 @@ settings(put, #{body := Body}) ->
     #{
         <<"no_match">> := NoMatch,
         <<"deny_action">> := DenyAction,
-        <<"cache">> := Cache
+        <<"cache">> := Cache,
+        <<"include_mountpoint">> := IncludeMountpoint
         %% We do not pass the body to emqx_conf:update_config/3 which
         %% fills the defaults. So we need to fill the defaults here
     } = emqx_schema:fill_defaults(ref_authz_schema(), Body),
@@ -75,6 +76,9 @@ settings(put, #{body := Body}) ->
         [authorization, deny_action], DenyAction
     ),
     {ok, _} = emqx_authz_utils:update_config([authorization, cache], Cache),
+    {ok, _} = emqx_authz_utils:update_config(
+        [authorization, include_mountpoint], IncludeMountpoint
+    ),
 
     {200, authorization_settings()}.
 

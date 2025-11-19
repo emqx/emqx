@@ -59,7 +59,7 @@ t_api(_) ->
             <<"ttl">> => <<"60s">>,
             <<"excludes">> => [<<"nocache/#">>]
         },
-        <<"include_mountpoint">> => false
+        <<"include_mountpoint">> => true
     },
     Settings1Get = Settings1Put,
 
