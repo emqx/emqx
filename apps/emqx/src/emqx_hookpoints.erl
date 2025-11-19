@@ -101,6 +101,13 @@
 }.
 -type transformation_context() :: #{name := binary()}.
 -type validation_context() :: #{name := binary()}.
+-type common_chan_context() :: #{
+    %% Essentially `emqx_channel:info/2` with the channel in the function's closure.
+    chan_info_fn := fun((list(atom()) | atom() | tuple()) -> term()),
+    %% Essentially `emqx_session:info/2` with the channel's session in the function's
+    %% closure.
+    session_info_fn := fun((atom()) -> term())
+}.
 
 %%-----------------------------------------------------------------------------
 %% Callbacks
@@ -165,7 +172,9 @@ when
 when
     TopicFilters :: list({emqx_types:topic(), map()}).
 
--callback 'client.timeout'(_TimerReference :: reference(), _Msg :: term(), Replies) ->
+-callback 'client.timeout'(
+    _TimerReference :: reference(), _Msg :: term(), Replies
+) ->
     fold_callback_result(Replies)
 when
     Replies :: emqx_channel:replies().
