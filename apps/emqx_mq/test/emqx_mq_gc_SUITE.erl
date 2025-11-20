@@ -149,7 +149,7 @@ t_limited_regular(_Config) ->
     emqx_mq_test_utils:populate(400, #{
         topic_prefix => <<"tb/">>, payload_prefix => Bin1K, different_clients => true
     }),
-    ok = emqx_mq_message_quota_buffer:flush(),
+    ok = emqx_mq_quota_buffer:flush(?MQ_QUOTA_BUFFER),
     ?assertWaitEvent(emqx_mq_gc:gc(), #{?snk_kind := mq_gc_done}, 1000),
 
     %% Check that only the last 100KB + threshold of messages are available
