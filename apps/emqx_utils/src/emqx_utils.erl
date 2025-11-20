@@ -234,7 +234,7 @@ drain_deliver(0, Acc) ->
     lists:reverse(Acc);
 drain_deliver(N, Acc) ->
     receive
-        Deliver = {deliver, _Topic, _Msg} ->
+        Deliver when element(1, Deliver) == deliver ->
             drain_deliver(N - 1, [Deliver | Acc])
     after 0 ->
         lists:reverse(Acc)
