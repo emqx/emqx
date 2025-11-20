@@ -43,7 +43,8 @@
     t_e2e_client_pub_qos2_trace_level_0/1,
     t_e2e_client_pub_qos2_trace_level_1/1,
     t_e2e_client_source_republish_to_clients/1,
-    t_e2e_client_source_republish_to_clients/2
+    t_e2e_client_source_republish_to_clients/2,
+    t_e2e_http_publish_qos2/1
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -80,14 +81,22 @@
 ).
 
 -define(MATCH_ROOT_SPAN(SpanID, TraceID), #{
-    <<"spanID">> := SpanID, <<"traceID">> := TraceID, <<"references">> := []
-}).
-
--define(MATCH_ROOT_SPAN(SpanID, Tags, TraceID), #{
-    <<"tags">> := Tags,
     <<"spanID">> := SpanID,
     <<"traceID">> := TraceID,
     <<"references">> := []
+}).
+
+-define(MATCH_ROOT_SPAN(SpanID, Tags, TraceID), #{
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"tags">> := Tags,
+    <<"references">> := []
+}).
+
+-define(MATCH_ROOT_SPAN_WITH_REF(SpanID, TraceID, Refs), #{
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"references">> := Refs
 }).
 
 -define(MATCH_SUB_SPAN(SpanID, ParentSpanID, TraceID), #{
@@ -182,7 +191,8 @@ groups() ->
         t_e2e_cilent_borker_publish_whitelist,
         t_e2e_client_pub_qos2_trace_level_0,
         t_e2e_client_pub_qos2_trace_level_1,
-        t_e2e_client_source_republish_to_clients
+        t_e2e_client_source_republish_to_clients,
+        t_e2e_http_publish_qos2
     ],
 
     [
@@ -1835,6 +1845,107 @@ t_e2e_client_source_republish_to_clients(Config) ->
     _ = disconnect_conns([TriggerSourcePid, SubRepublishPid]),
     ok.
 
+t_e2e_http_publish_qos2(Config) ->
+    OtelConf = enabled_e2e_trace_conf_all(Config),
+    {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
+
+    Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    QoS = ?QOS_2,
+
+    BaseClientId = e2e_client_id(Config),
+    ClientId1 = <<BaseClientId/binary, "-1">>,
+    {ok, Conn1} = connect(Config, ClientId1),
+
+    timer:sleep(200),
+    %% both subscribe the topic
+    {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
+
+    timer:sleep(200),
+    WithTraceparent = ?config(otel_follow_traceparent, Config),
+    TraceParent = traceparent(true),
+
+    {ok, _} = http_publish(TraceParent, Topic, <<"must be traced">>, QoS),
+
+    %% find spans by clientid, the publisher clientid would
+    %% be `http_api` when publishing via HTTP API
+    PubClientId = <<"http_api">>,
+    F = ?F(<<"client.clientid">>, [PubClientId, ClientId1]),
+
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, #{<<"data">> := ClientPublishTraces}} = search_jaeger_traces(
+                    ?config(jaeger_url, Config),
+                    %% XXX:
+                    %% find by subscriber, cause the publisher is always `http_api`
+                    "broker.publish",
+                    #{
+                        <<"client.clientid">> => ClientId1,
+                        <<"cluster.id">> => <<"emqxcl">>
+                    }
+                ),
+                ct:pal("SubTraces: ~p~n", [ClientPublishTraces]),
+
+                [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = ClientPublishTraces,
+                6 = length(Spans),
+                %% 1. `client.publish` (ClientId1) Root span
+                %% 2.  └─ `message.route`
+                %%         │
+                %% 3.      └─ `broker.publish` (ClientId1)
+                %% 4.          └─ `client.pubrec`
+                %% 5.              └─ `broker.pubrel`
+                %% 6.                  └─ `client.pubcomp`
+
+                ct:pal("TraceID: ~p~n", [TraceID]),
+                [?MATCH_ROOT_SPAN_WITH_REF(SpanID1, TraceID, Refs)] = F(
+                    <<"client.publish">>, Spans
+                ),
+                true = refs_length_with_traceparent(WithTraceparent) =:= length(Refs),
+                [?MATCH_SUB_SPAN(SpanID2, SpanID1, _)] = F(<<"message.route">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID3, SpanID2, _)] = F(<<"broker.publish">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID4, SpanID3, _)] = F(<<"client.pubrec">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID5, SpanID4, _)] = F(<<"broker.pubrel">>, Spans),
+                [?MATCH_SUB_SPAN(_SpanID6, SpanID5, _)] = F(<<"client.pubcomp">>, Spans),
+                true
+            end,
+            10_000
+        )
+    ),
+    _ = disconnect_conns([Conn1]),
+
+    ok.
+
+http_publish(TraceParent, Topic, Payload, QoS) ->
+    Headers = [emqx_mgmt_api_test_util:auth_header_()],
+    Body = #{
+        payload => Payload,
+        payload_encoding => <<"plain">>,
+        properties => #{
+            content_type => <<"text/plain">>,
+            correlation_data => <<"string">>,
+            message_expiry_interval => 0,
+            payload_format_indicator => 0,
+            user_properties => #{
+                traceparent => TraceParent,
+                <<"foo">> => <<"bar">>
+            }
+        },
+        qos => QoS,
+        retain => false,
+        topic => Topic
+    },
+    emqx_mgmt_api_test_util:request_api(
+        post,
+        emqx_mgmt_api_test_util:api_path(["publish"]),
+        [],
+        Headers,
+        Body,
+        #{}
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
@@ -2121,6 +2232,7 @@ apps_spec(without_dashboard) ->
         emqx,
         emqx_conf,
         emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard(),
         emqx_opentelemetry
     ];
 apps_spec(with_dashboard) ->
@@ -2131,6 +2243,7 @@ apps_spec_with_rule_engine() ->
         emqx,
         emqx_conf,
         emqx_management,
+        emqx_mgmt_api_test_util:emqx_dashboard(),
         emqx_opentelemetry,
         emqx_rule_engine,
         emqx_connector,
