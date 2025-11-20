@@ -23,6 +23,7 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 do_start() ->
+    ok = emqx_streams_state_db:open(),
     {ok, _} = emqx_streams_sup:start_post_starter({?MODULE, start_link_post_start, []}),
     ok.
 
@@ -30,6 +31,7 @@ stop(_State) ->
     ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_conf:remove_handler(emqx_streams_schema:roots()),
     ok = emqx_streams:unregister_hooks(),
+    ok = emqx_streams_state_db:close(),
     ok.
 
 %% Readiness
@@ -58,6 +60,7 @@ start_link_post_start() ->
     {ok, proc_lib:spawn_link(?MODULE, post_start, [])}.
 
 post_start() ->
+    ok = emqx_streams_state_db:wait_readiness(infinity),
     complete_start(),
     optvar:set(?OPTVAR_READY, true).
 
