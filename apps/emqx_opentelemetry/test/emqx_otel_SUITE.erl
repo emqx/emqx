@@ -1952,15 +1952,22 @@ http_publish(TraceParent, Topic, Payload, QoS) ->
 
 enabled_e2e_trace_conf_all(TcConfig) ->
     OtelConf = enabled_trace_conf(TcConfig),
-    emqx_utils_maps:deep_put(
-        [<<"traces">>, <<"filter">>, <<"e2e_tracing_options">>], OtelConf, #{
-            <<"sample_ratio">> => 1.0,
-            <<"msg_trace_level">> => 2,
-            <<"client_connect_disconnect">> => true,
-            <<"client_subscribe_unsubscribe">> => true,
-            <<"client_messaging">> => true,
-            <<"trace_rule_engine">> => true
-        }
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"traces">> => #{
+                <<"filter">> => #{
+                    <<"e2e_tracing_options">> => #{
+                        <<"sample_ratio">> => 1.0,
+                        <<"msg_trace_level">> => 2,
+                        <<"client_connect_disconnect">> => true,
+                        <<"client_subscribe_unsubscribe">> => true,
+                        <<"client_messaging">> => true,
+                        <<"trace_rule_engine">> => true
+                    }
+                }
+            }
+        },
+        OtelConf
     ).
 
 enabled_trace_conf(TcConfig) ->
