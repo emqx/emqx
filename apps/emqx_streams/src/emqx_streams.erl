@@ -57,17 +57,17 @@ on_message_puback(PacketId, #message{topic = <<"$sdisp/", _/binary>>} = Message,
 on_message_puback(_PacketId, _Message, _Res, _RC) ->
     ok.
 
-on_client_handle_info(?ds_tx_commit_reply(Ref, _) = Reply, _Context, Acc) ->
+on_client_handle_info(_ClientInfo, ?ds_tx_commit_reply(Ref, _) = Reply, Acc) ->
     ?tp_debug("on_client_handle_info", #{message => Reply}),
     St = shard_dispatch_state(),
     Ret = emqx_streams_shard_dispatch:on_tx_commit(Ref, Reply, Acc, St),
     shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
-on_client_handle_info(#shard_dispatch_command{} = Command, _Context, Acc) ->
+on_client_handle_info(_ClientInfo, #shard_dispatch_command{} = Command, Acc) ->
     ?tp_debug("on_client_handle_info", #{command => Command}),
     St = shard_dispatch_state(),
     Ret = emqx_streams_shard_dispatch:on_command(Command, Acc, St),
     shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
-on_client_handle_info(_Info, _Context, _Acc) ->
+on_client_handle_info(_ClientInfo, _Info, _Acc) ->
     ok.
 
 on_session_subscribed(ClientInfo, Topic = <<"$sdisp/", _/binary>>, _SubOpts) ->
