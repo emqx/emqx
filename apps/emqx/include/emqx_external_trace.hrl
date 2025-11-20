@@ -13,6 +13,7 @@
 
 -define(EXT_TRACE__RULE_INTERNAL_CLIENTID, '$emqx_rule_internal_clientid').
 -define(EXT_TRACE__ACTION_INTERNAL_CLIENTID, '$emqx_action_internal_clientid').
+-define(EXT_TRACE__HTTP_API_INTERNAL_CLIENTID, 'http_api').
 
 -define(EMQX_EXTERNAL_MODULE, emqx_external_trace).
 -define(PROVIDER, {?EMQX_EXTERNAL_MODULE, trace_provider}).
@@ -172,6 +173,8 @@ end).
 ).
 
 %% Start broker.publish trace, ends by `?EXT_TRACE_OUTGOING_STOP`
+%% It's for broker prepares and publishes a message to a subscribers
+%% This is the processing by which the subscriber client process receives and processes the delivery.
 -define(EXT_TRACE_BROKER_PUBLISH(Attrs, Delivers),
     ?with_provider_action(broker_publish, Attrs, ?EXT_TRACE_START, Delivers)
 ).
