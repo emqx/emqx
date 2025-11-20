@@ -39,6 +39,13 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
+init_per_testcase(_, Config) ->
+    Config.
+
+end_per_testcase(_, _Config) ->
+    _ = call_janitor(),
+    ok.
+
 %%
 
 -define(group, atom_to_binary(?FUNCTION_NAME)).
