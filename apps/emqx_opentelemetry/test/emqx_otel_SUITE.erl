@@ -80,6 +80,10 @@
     (TC =:= t_e2e_client_source_republish_to_clients)
 ).
 
+-define(WITH_DASHBOARD_APP(TC),
+    (TC =:= t_e2e_http_publish_qos2)
+).
+
 -define(MATCH_ROOT_SPAN(SpanID, TraceID), #{
     <<"spanID">> := SpanID,
     <<"traceID">> := TraceID,
@@ -297,6 +301,12 @@ init_per_testcase(TC, Config) when ?WITH_CLUSTER(TC) ->
 init_per_testcase(TC, Config) when ?WITH_RULE_ENGINE(TC) ->
     Apps = emqx_cth_suite:start(
         apps_spec_with_rule_engine(),
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    local_init_per_test_case(TC, [{tc, TC}, {suite_apps, Apps} | Config]);
+init_per_testcase(TC, Config) when ?WITH_DASHBOARD_APP(TC) ->
+    Apps = emqx_cth_suite:start(
+        apps_spec() ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
     local_init_per_test_case(TC, [{tc, TC}, {suite_apps, Apps} | Config]);
@@ -2224,7 +2234,6 @@ apps_spec() ->
         emqx,
         emqx_conf,
         emqx_management,
-        emqx_mgmt_api_test_util:emqx_dashboard(),
         emqx_opentelemetry
     ].
 
@@ -2233,7 +2242,6 @@ apps_spec_with_rule_engine() ->
         emqx,
         emqx_conf,
         emqx_management,
-        emqx_mgmt_api_test_util:emqx_dashboard(),
         emqx_opentelemetry,
         emqx_rule_engine,
         emqx_connector,
