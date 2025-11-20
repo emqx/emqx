@@ -11,4 +11,6 @@
 
 -define(SCHEMA_ROOT, streams).
 
+-record(shard_dispatch_command, {group, c, context}).
+
 -endif.
