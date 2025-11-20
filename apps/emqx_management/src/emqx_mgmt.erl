@@ -7,6 +7,7 @@
 -include("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx_cm.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_external_trace.hrl").
 
 -elvis([{elvis_style, invalid_dynamic_call, disable}]).
 -elvis([{elvis_style, god_modules, disable}]).
@@ -593,9 +594,18 @@ do_subscribe(ClientId, TopicTables) ->
         [{_, Pid}] -> Pid ! {subscribe, TopicTables}
     end.
 
-publish(Msg) ->
-    emqx_metrics:inc_msg(Msg),
-    emqx:publish(Msg).
+publish(Message) ->
+    ?EXT_TRACE_CLIENT_PUBLISH(
+        ?EXT_TRACE_ATTR(#{
+            'client.clientid' => ?EXT_TRACE__HTTP_API_INTERNAL_CLIENTID
+        }),
+        fun(Msg) ->
+            emqx_metrics:inc_msg(Msg),
+            ok = ?EXT_TRACE_ADD_ATTRS(emqx_otel_trace:msg_attrs(Msg)),
+            emqx:publish(Msg)
+        end,
+        [Message]
+    ).
 
 -spec unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.

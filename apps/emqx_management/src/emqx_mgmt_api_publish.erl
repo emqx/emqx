@@ -8,6 +8,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_external_trace.hrl").
 
 -define(ALL_IS_WELL, 200).
 -define(PARTIALLY_OK, 202).
@@ -344,7 +345,12 @@ make_message(Map) ->
                     throw(invalid_topic_name)
             end,
             Message = emqx_message:make(
-                http_api, QoS, Topic, Payload, #{retain => Retain}, Headers
+                ?EXT_TRACE__HTTP_API_INTERNAL_CLIENTID,
+                QoS,
+                Topic,
+                Payload,
+                #{retain => Retain},
+                Headers
             ),
             Size = emqx_message:estimate_size(Message),
             (Size > size_limit()) andalso throw(packet_too_large),
