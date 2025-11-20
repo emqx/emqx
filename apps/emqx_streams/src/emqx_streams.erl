@@ -8,13 +8,16 @@
 
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -export([register_hooks/0, unregister_hooks/0]).
 
 -export([
     on_message_publish/1,
+    on_message_puback/4,
     on_session_subscribed/3,
-    on_session_unsubscribed/3
+    on_session_unsubscribed/3,
+    on_client_handle_info/3
 ]).
 
 %%
@@ -23,32 +26,63 @@
 register_hooks() ->
     %% FIXME: prios
     ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:add('message.puback', {?MODULE, on_message_puback, []}, ?HP_HIGHEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST).
+    ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+    emqx_hooks:del('message.puback', {?MODULE, on_message_puback}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
-    emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}).
+    emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
+    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
 %%
 
-on_message_publish(#message{topic = _Topic = <<"$sdisp/", _/binary>>} = Message) ->
-    ?tp_debug(streams_on_message_publish, #{topic => _Topic}),
-    on_shard_disp_message(Message);
+on_message_publish(#message{topic = <<"$sdisp/", _/binary>>} = Message) ->
+    ?tp_debug("streams_on_message_publish", #{topic => Message#message.topic}),
+    St = shard_dispatch_state(),
+    Ret = emqx_streams_shard_dispatch:on_publish(Message, St),
+    shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
 on_message_publish(_Message) ->
     ok.
 
+on_message_puback(PacketId, #message{topic = <<"$sdisp/", _/binary>>} = Message, _Res, _RC) ->
+    ?tp_debug("streams_on_message_puback", #{topic => Message#message.topic}),
+    St = shard_dispatch_state(),
+    Ret = emqx_streams_shard_dispatch:on_puback(PacketId, Message, St),
+    shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
+on_message_puback(_PacketId, _Message, _Res, _RC) ->
+    ok.
+
+on_client_handle_info(?ds_tx_commit_reply(Ref, _) = Reply, _Context, Acc) ->
+    ?tp_debug("on_client_handle_info", #{message => Reply}),
+    St = shard_dispatch_state(),
+    Ret = emqx_streams_shard_dispatch:on_tx_commit(Ref, Reply, Acc, St),
+    shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
+on_client_handle_info(#shard_dispatch_command{} = Command, _Context, Acc) ->
+    ?tp_debug("on_client_handle_info", #{command => Command}),
+    St = shard_dispatch_state(),
+    Ret = emqx_streams_shard_dispatch:on_command(Command, Acc, St),
+    shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
+on_client_handle_info(_Info, _Context, _Acc) ->
+    ok.
+
 on_session_subscribed(ClientInfo, Topic = <<"$sdisp/", _/binary>>, _SubOpts) ->
-    ?tp_debug(streams_on_session_subscribed, #{topic => Topic, subopts => _SubOpts}),
-    on_shard_disp_subscription(ClientInfo, Topic);
+    ?tp_debug("streams_on_session_subscribed", #{topic => Topic, subopts => _SubOpts}),
+    St = shard_dispatch_state(),
+    Ret = emqx_streams_shard_dispatch:on_subscription(ClientInfo, Topic, St),
+    shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
 on_session_subscribed(_ClientInfo, _Topic, _SubOpts) ->
     ok.
 
 on_session_unsubscribed(ClientInfo, Topic = <<"$sdisp/", _/binary>>, _SubOpts) ->
-    ?tp_debug(streams_on_session_unsubscribed, #{topic => Topic, subopts => _SubOpts}),
-    on_shard_disp_unsubscription(ClientInfo, Topic);
+    ?tp_debug("streams_on_session_unsubscribed", #{topic => Topic, subopts => _SubOpts}),
+    St = shard_dispatch_state(),
+    Ret = emqx_streams_shard_dispatch:on_unsubscription(ClientInfo, Topic, St),
+    shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
 on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
     ok.
 
@@ -133,11 +167,26 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 %% processed; those that fail to do so are considered dead, and their shard are
 %% released. This protocol requirement may be relaxed in the near future.
 
-on_shard_disp_subscription(ClientInfo, Topic) ->
-    ok.
+-define(pd_sdisp_state, emqx_streams_shard_dispatch_state).
 
-on_shard_disp_unsubscription(ClientInfo, Topic) ->
-    ok.
+shard_dispatch_handle_ret(on_message_publish, {Cont, #message{} = Message}) when is_atom(Cont) ->
+    {Cont, emqx_message:set_header(allow_publish, false, Message)};
+shard_dispatch_handle_ret(_Hook, Ret) ->
+    case Ret of
+        {stop, Acc, StNext} ->
+            shard_dispatch_update_state(StNext),
+            {stop, Acc};
+        {stop, Acc} ->
+            {stop, Acc};
+        {ok, StNext} ->
+            shard_dispatch_update_state(StNext),
+            ok;
+        ok ->
+            ok
+    end.
 
-on_shard_disp_message(Message) ->
-    ok.
+shard_dispatch_state() ->
+    erlang:get(?pd_sdisp_state).
+
+shard_dispatch_update_state(St) ->
+    erlang:put(?pd_sdisp_state, St).
