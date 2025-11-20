@@ -13,8 +13,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(CLUSTER, <<"link1">>).
-
 %%
 
 all() ->
@@ -32,6 +30,7 @@ init_per_testcase(TC, Config) ->
     emqx_common_test_helpers:init_per_testcase(?MODULE, TC, Config).
 
 end_per_testcase(TC, Config) ->
+    gc_actors(env(10_000_000)),
     emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
 
 init_db() ->
@@ -46,13 +45,14 @@ init_db_nodes(Nodes) ->
 %%
 
 t_consistent_routing_view(_Config) ->
-    Actor1 = {?FUNCTION_NAME, 1},
-    Actor2 = {?FUNCTION_NAME, 2},
-    Actor3 = {?FUNCTION_NAME, 3},
-    {true, AS10} = actor_init(Actor1, 1),
-    {true, AS20} = actor_init(Actor2, 1),
-    {true, _AS3} = actor_init(Actor3, 1),
-    {false, AS30} = actor_init(Actor3, 1),
+    Cluster = ?FUNCTION_NAME,
+    Actor1 = a1,
+    Actor2 = a2,
+    Actor3 = a3,
+    {true, AS10} = actor_init(Cluster, Actor1, 1),
+    {true, AS20} = actor_init(Cluster, Actor2, 1),
+    {true, _AS3} = actor_init(Cluster, Actor3, 1),
+    {false, AS30} = actor_init(Cluster, Actor3, 1),
     %% Add few routes originating from different actors.
     %% Also test that route operations are idempotent.
     AS11 = apply_operation({add, {<<"t/client/#">>, id}}, AS10),
@@ -64,12 +64,12 @@ t_consistent_routing_view(_Config) ->
     AS12 = apply_operation({add, {<<"t/client/+/+">>, id1}}, AS11),
     AS33 = apply_operation({delete, {<<"t/client/+/+">>, id1}}, AS32),
     _AS34 = apply_operation({delete, {<<"t/client/+/+">>, id2}}, AS33),
-    ?assertEqual(
+    ?assertSameSet(
         [<<"t/client/#">>, <<"t/client/+/+">>],
-        topics_sorted()
+        emqx_cluster_link_extrouter:topics()
     ),
     ?assertEqual(
-        [#route{topic = <<"t/client/#">>, dest = ?CLUSTER}],
+        [#route{topic = <<"t/client/#">>, dest = Cluster}],
         emqx_cluster_link_extrouter:match_routes(<<"t/client/42">>)
     ),
     %% Remove all routes from the actors.
@@ -78,76 +78,89 @@ t_consistent_routing_view(_Config) ->
     AS14 = apply_operation({delete, {<<"t/client/+/+">>, id1}}, AS13),
     ?assertEqual(
         [],
-        topics_sorted()
+        emqx_cluster_link_extrouter:topics()
     ).
 
 t_actor_reincarnation(_Config) ->
-    Actor1 = {?FUNCTION_NAME, 1},
-    Actor2 = {?FUNCTION_NAME, 2},
-    {true, AS10} = actor_init(Actor1, 1),
-    {true, AS20} = actor_init(Actor2, 1),
+    Cluster = ?FUNCTION_NAME,
+    Actor1 = a1,
+    Actor2 = a2,
+    {true, AS10} = actor_init(Cluster, Actor1, 1),
+    {true, AS20} = actor_init(Cluster, Actor2, 1),
     AS11 = apply_operation({add, {<<"topic/#">>, id}}, AS10),
     AS12 = apply_operation({add, {<<"topic/42/+">>, id}}, AS11),
     AS21 = apply_operation({add, {<<"topic/#">>, id}}, AS20),
-    ?assertEqual(
+    ?assertSameSet(
         [<<"topic/#">>, <<"topic/42/+">>],
-        topics_sorted()
+        emqx_cluster_link_extrouter:topics()
     ),
-    {true, _AS3} = actor_init(Actor1, 2),
+    {true, _AS3} = actor_init(Cluster, Actor1, 2),
     ?assertError(
         _IncarnationMismatch,
         apply_operation({add, {<<"toolate/#">>, id}}, AS12)
     ),
-    ?assertEqual(
+    ?assertSameSet(
         [<<"topic/#">>],
-        topics_sorted()
+        emqx_cluster_link_extrouter:topics()
     ),
-    {true, _AS4} = actor_init(Actor2, 2),
+    {true, _AS4} = actor_init(Cluster, Actor2, 2),
     ?assertError(
         _IncarnationMismatch,
         apply_operation({add, {<<"toolate/#">>, id}}, AS21)
     ),
     ?assertEqual(
         [],
-        topics_sorted()
+        emqx_cluster_link_extrouter:topics()
     ).
 
 t_actor_gc(_Config) ->
-    Actor1 = {?FUNCTION_NAME, 1},
-    Actor2 = {?FUNCTION_NAME, 2},
-    {true, AS10} = actor_init(Actor1, 1),
-    {true, AS20} = actor_init(Actor2, 1),
+    Cluster1 = "t_actor_gc:1",
+    Cluster2 = "t_actor_gc:2",
+    Actor1 = a1,
+    Actor2 = a2,
+    Actor3 = a3,
+    {true, AS10} = actor_init(Cluster1, Actor1, 1),
+    {true, AS20} = actor_init(Cluster1, Actor2, 1),
+    {true, AS30} = actor_init(Cluster2, Actor3, 1),
+    %% Insert few routes: 2 by Actor1, 1 by Actor2, 1 by Actor3:
     AS11 = apply_operation({add, {<<"topic/#">>, id}}, AS10),
     AS12 = apply_operation({add, {<<"topic/42/+">>, id}}, AS11),
     AS21 = apply_operation({add, {<<"global/#">>, id}}, AS20),
-    ?assertEqual(
-        [<<"global/#">>, <<"topic/#">>, <<"topic/42/+">>],
-        topics_sorted()
+    AS31 = apply_operation({add, {<<"broker">>, id}}, AS30),
+    ?assertSameSet(
+        [<<"broker">>, <<"global/#">>, <<"topic/#">>, <<"topic/42/+">>],
+        emqx_cluster_link_extrouter:topics()
     ),
-    _AS13 = apply_operation(heartbeat, AS12, 60_000),
-
+    %% Bump lifetime of Actor2 and Actor3:
+    _AS22 = apply_operation(heartbeat, AS21, 60_000),
+    _AS32 = apply_operation(heartbeat, AS31, 60_000),
+    %% Perform GC at T = 60s, exactly 1 actor should be collected:
     ?assertEqual(
         1,
-        emqx_cluster_link_extrouter:actor_gc(env(60_000))
+        gc_actors(env(60_000))
     ),
-    ?assertEqual(
-        [<<"topic/#">>, <<"topic/42/+">>],
-        topics_sorted()
+    %% Routes of Actor1 are collected:
+    ?assertSameSet(
+        [<<"broker">>, <<"global/#">>],
+        emqx_cluster_link_extrouter:topics()
     ),
+    %% Garbage-collected actor should be unable to do anything:
     ?assertError(
         _IncarnationMismatch,
-        apply_operation({add, {<<"toolate/#">>, id}}, AS21)
+        apply_operation({add, {<<"toolate/#">>, id}}, AS12)
     ),
+    %% Perform GC at T = 120s, rest of the actors are collected now:
     ?assertEqual(
-        1,
-        emqx_cluster_link_extrouter:actor_gc(env(120_000))
+        2,
+        gc_actors(env(120_000))
     ),
     ?assertEqual(
         [],
-        topics_sorted()
+        emqx_cluster_link_extrouter:topics()
     ).
 
 t_consistent_routing_view_concurrent_updates(_Config) ->
+    Cluster = ?FUNCTION_NAME,
     A1Seq = repeat(10, [
         reincarnate,
         {add, {<<"t/client/#">>, id}},
@@ -178,16 +191,16 @@ t_consistent_routing_view_concurrent_updates(_Config) ->
     _ = emqx_utils:pmap(
         fun run_actor/1,
         [
-            {{?FUNCTION_NAME, 1}, A1Seq},
-            {{?FUNCTION_NAME, 2}, A2Seq},
-            {{?FUNCTION_NAME, 3}, A3Seq},
-            {{?FUNCTION_NAME, gc}, A4Seq}
+            {Cluster, a1, A1Seq},
+            {Cluster, a2, A2Seq},
+            {Cluster, a3, A3Seq},
+            {Cluster, gc, A4Seq}
         ],
         infinity
     ),
-    ?assertEqual(
+    ?assertSameSet(
         [<<"global/#">>, <<"t/client/+/+">>, <<"t/client/+/+">>],
-        topics_sorted()
+        emqx_cluster_link_extrouter:topics()
     ).
 
 t_consistent_routing_view_concurrent_cluster_updates('init', Config) ->
@@ -206,6 +219,7 @@ t_consistent_routing_view_concurrent_cluster_updates('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(cluster, Config)).
 
 t_consistent_routing_view_concurrent_cluster_updates(Config) ->
+    Cluster = ?FUNCTION_NAME,
     [N1, N2, N3] = ?config(cluster, Config),
     A1Seq = repeat(10, [
         reincarnate,
@@ -237,16 +251,16 @@ t_consistent_routing_view_concurrent_cluster_updates(Config) ->
     Runners = lists:map(
         fun run_remote_actor/1,
         [
-            {N1, {{?FUNCTION_NAME, 1}, A1Seq}},
-            {N2, {{?FUNCTION_NAME, 2}, A2Seq}},
-            {N3, {{?FUNCTION_NAME, 3}, A3Seq}},
-            {N3, {{?FUNCTION_NAME, gc}, A4Seq}}
+            {N1, {Cluster, a1, A1Seq}},
+            {N2, {Cluster, a2, A2Seq}},
+            {N3, {Cluster, a3, A3Seq}},
+            {N3, {Cluster, gc, A4Seq}}
         ]
     ),
     [?assertReceive({'DOWN', MRef, _, Pid, normal}) || {Pid, MRef} <- Runners],
-    ?assertEqual(
+    ?assertSameSet(
         [<<"global/#">>, <<"t/client/+/+">>, <<"t/client/+/+">>],
-        erpc:call(N1, ?MODULE, topics_sorted, [])
+        erpc:call(N1, emqx_cluster_link_extrouter, topics, [])
     ).
 
 t_consistent_routing_view_concurrent_cluster_replicant_updates('init', Config) ->
@@ -270,8 +284,8 @@ t_consistent_routing_view_concurrent_cluster_replicant_updates(Config) ->
 run_remote_actor({Node, Run}) ->
     erlang:spawn_monitor(Node, ?MODULE, run_actor, [Run]).
 
-run_actor({Actor, Seq}) ->
-    {true, AS0} = actor_init(Actor, 0),
+run_actor({Cluster, Actor, Seq}) ->
+    {true, AS0} = actor_init(Cluster, Actor, 0),
     lists:foldl(
         fun
             ({TS, {add, _} = Op}, AS) ->
@@ -296,11 +310,11 @@ run_actor({Actor, Seq}) ->
 
 %%
 
-actor_init(Actor, Incarnation) ->
-    actor_init(Actor, Incarnation, _TS = 0).
+actor_init(Cluster, Actor, Incarnation) ->
+    actor_init(Cluster, Actor, Incarnation, _TS = 0).
 
-actor_init(Actor, Incarnation, TS) ->
-    emqx_cluster_link_extrouter:actor_init(?CLUSTER, Actor, Incarnation, env(TS)).
+actor_init(Cluster, Actor, Incarnation, TS) ->
+    emqx_cluster_link_extrouter:actor_init(Cluster, Actor, Incarnation, env(TS)).
 
 apply_operation(Op, AS) ->
     apply_operation(Op, AS, _TS = 42).
@@ -308,14 +322,17 @@ apply_operation(Op, AS) ->
 apply_operation(Op, AS, TS) ->
     emqx_cluster_link_extrouter:actor_apply_operation(Op, AS, env(TS)).
 
+gc_actors(Env) ->
+    case emqx_cluster_link_extrouter:actor_gc(Env) of
+        1 -> 1 + gc_actors(Env);
+        0 -> 0
+    end.
+
 env() ->
     env(42).
 
 env(TS) ->
     #{timestamp => TS}.
-
-topics_sorted() ->
-    lists:sort(emqx_cluster_link_extrouter:topics()).
 
 %%
 
