@@ -11,6 +11,7 @@
     remove_member/2,
     occupy_resource/3,
     release_resource/3,
+    free_resource/2,
     lookup_resource/2,
     lookup_member/2,
     unallocated_resources/1,
@@ -29,6 +30,11 @@
 
 -define(COST_LOAD_SHARD, 1.0).
 -define(COST_DISRUPTION, 0.5).
+
+-ifdef(TEST).
+-include_lib("proper/include/proper.hrl").
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 %%
 
@@ -100,6 +106,15 @@ release_resource(Resource, Member, A = #{resources := ResourceM, members := Memb
             {error, member_unknown}
     end.
 
+%% Idempotent.
+free_resource(Resource, A) ->
+    case lookup_resource(Resource, A) of
+        {Member} ->
+            release_resource(Resource, Member, A);
+        unallocated ->
+            A
+    end.
+
 -spec lookup_resource(R, alloc(R, M)) -> {M} | unallocated | {error, resource_unknown}.
 lookup_resource(Resource, #{resources := ResourceM}) ->
     maps:get(Resource, ResourceM, {error, resource_unknown}).
@@ -134,16 +149,18 @@ allocate_resources(_CostEstimates, [], Acc, _) ->
 
 %% NOTE: Callers are responsible to make sure `MembersM` has one or more members.
 allocate_resource(CostEstimates, Resource, #{members := MemberM}) ->
-    MemberCosts = maps:fold(
+    [{_CostMin, Member} | _] = estimate_member_costs(CostEstimates, Resource, MemberM),
+    Member.
+
+estimate_member_costs(CostEstimates, Resource, MemberM) ->
+    maps:fold(
         fun(M, _, Set) ->
             Cost = estimate_cost(CostEstimates, Resource, M, MemberM),
             ordsets:add_element({Cost, M}, Set)
         end,
         ordsets:new(),
         MemberM
-    ),
-    [{_CostMin, Member} | _] = MemberCosts,
-    Member.
+    ).
 
 estimate_cost(CostEstimates, Resource, Member, MemberM) ->
     BaseCost = estimate_load_factor(Member, MemberM),
@@ -153,35 +170,56 @@ estimate_load_factor(Member, Members) ->
     length(maps:get(Member, Members, [])) * ?COST_LOAD_SHARD.
 
 -spec rebalance([cost_estimate(R, M)], alloc(R, M)) -> [{R, _From :: M, _To :: M}].
-rebalance(CostEstimates, A = #{resources := ResourceM, members := MemberM}) ->
-    case maps:keys(MemberM) of
-        Members = [_ | _] ->
-            Resources = resm_resource_set(ResourceM),
-            A0 = new(Resources, Members),
-            rebalance_resources(Resources, A0, [], CostEstimates, A);
-        [] ->
+rebalance(CostEstimates, A = #{members := MemberM}) ->
+    case maps:size(MemberM) of
+        N when N > 0 ->
+            ResourceCosts = estimate_resource_costs(CostEstimates, A),
+            Resources = [R || {_Cost, R} <- ResourceCosts],
+            rebalance_resources(Resources, [], CostEstimates, A);
+        0 ->
             []
     end.
+
+%% NOTE: Reverse order, starting from the most costly.
+estimate_resource_costs(CostEstimates, #{resources := ResourceM, members := MemberM}) ->
+    A0 = new(resm_resource_set(ResourceM), maps:keys(MemberM)),
+    {ResourceCosts, _A} = maps:fold(
+        fun
+            (R, {M}, {Set, Acc}) ->
+                Cost = estimate_cost(CostEstimates, R, M, maps:get(members, Acc)),
+                {ordsets:add_element({-Cost, R}, Set), occupy_resource(R, M, Acc)};
+            (R, _, {Set, Acc}) ->
+                {ordsets:add_element({0, R}, Set), Acc}
+        end,
+        {ordsets:new(), A0},
+        ResourceM
+    ),
+    ResourceCosts.
 
 %% Rebalance resources among members.
 %% Unallocated resources are not included in the result.
 %% Resources are evaluated one-by-one, rebalance is essentially a situation where
-%% current allocation is more costly (including "disruption" costs) than blank state
-%% reallocation.
+%% current allocation is more costly (including "disruption" costs) than reallocation.
 %% Quadratic complexity, good but non-optimal allocation.
 %% NOTE: Callers are responsible to make sure `A0` has one or more members.
-rebalance_resources([Resource | Rest], A0, Acc0, CostEstimates, ACurrent) ->
-    CostDisruption = estimate_disruption_fun(ACurrent),
-    Member = allocate_resource([CostDisruption | CostEstimates], Resource, A0),
-    A1 = occupy_resource(Resource, Member, A0),
-    case lookup_resource(Resource, ACurrent) of
-        {MCurrent} when MCurrent =/= Member ->
-            Acc = [{Resource, MCurrent, Member} | Acc0];
-        _ ->
-            Acc = Acc0
-    end,
-    rebalance_resources(Rest, A1, Acc, CostEstimates, ACurrent);
-rebalance_resources([], _, Acc, _CostEstimates, _DCurrent) ->
+rebalance_resources([Resource | Rest], Acc0, CostEstimates, A0) ->
+    CostDisruption = estimate_disruption_fun(A0),
+    case lookup_resource(Resource, A0) of
+        {MCurrent} ->
+            A1 = release_resource(Resource, MCurrent, A0),
+            Member = allocate_resource([CostDisruption | CostEstimates], Resource, A1),
+            case Member of
+                MCurrent ->
+                    rebalance_resources(Rest, Acc0, CostEstimates, A0);
+                _Different ->
+                    Acc = [{Resource, MCurrent, Member} | Acc0],
+                    A = occupy_resource(Resource, Member, A1),
+                    rebalance_resources(Rest, Acc, CostEstimates, A)
+            end;
+        unallocated ->
+            rebalance_resources(Rest, Acc0, CostEstimates, A0)
+    end;
+rebalance_resources([], Acc, _CostEstimates, _DCurrent) ->
     Acc.
 
 estimate_disruption_fun(A) ->
@@ -215,7 +253,6 @@ resm_clear(Resource, ResourceM) ->
 %%
 
 -ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
 
 no_members_test() ->
     A = new([1, 2, 3], []),
@@ -259,32 +296,84 @@ rebalance_test() ->
     %% Offload resources from MA to MB and MC:
     Rebalances1 = rebalance([], A3),
     A4 = lists:foldl(fun apply_rebalance/2, A3, Rebalances1),
-    M1Rs = lookup_member(ma, A4),
-    M2Rs = lookup_member(mb, A4),
-    M3Rs = lookup_member(mc, A4),
-    ?assertMatch([_, _, _, _, _], M1Rs),
-    ?assertMatch([_, _, _, _, _], M2Rs),
-    ?assertMatch([_, _, _, _], M3Rs),
+    ?assertMatch([_, _, _, _, _], lookup_member(ma, A4)),
+    ?assertMatch([_, _, _, _, _], lookup_member(mb, A4)),
+    ?assertMatch([_, _, _, _], lookup_member(mc, A4)),
     A5 = add_member(md, A4),
     Rebalances2 = rebalance([], A5),
     %% Minimal number of rebalances:
     ?assertMatch([_, _, _], Rebalances2),
     A6 = lists:foldl(fun apply_rebalance/2, A5, Rebalances2),
-    %% First three members have only one shard release each:
-    ?assertMatch([_], M1Rs -- lookup_member(ma, A6)),
-    ?assertMatch([], lookup_member(ma, A6) -- M1Rs),
-    ?assertMatch([_], M2Rs -- lookup_member(mb, A6)),
-    ?assertMatch([], lookup_member(mb, A6) -- M2Rs),
-    ?assertMatch([_], M3Rs -- lookup_member(mc, A6)),
-    ?assertMatch([], lookup_member(mc, A6) -- M3Rs),
     ?assertMatch([_, _, _], lookup_member(md, A6)),
     %% Well-balanced now:
     ?assertEqual([], rebalance([], A6)).
+
+rebalance_prop_test() ->
+    Opts = [{numtests, 2000}, {to_file, user}],
+    ?assert(proper:quickcheck(p_rebalance(), Opts)).
+
+p_rebalance() ->
+    ?FORALL(
+        A0,
+        g_allocation(),
+        ?FORALL(
+            Rebalances,
+            exactly(rebalance([], A0)),
+            begin
+                A1 = lists:foldl(fun apply_rebalance/2, A0, Rebalances),
+                measure(
+                    #{"NRebalances" => length(Rebalances), "Imbalance" => imbalance(A0)},
+                    imbalance(A1) =< 1 andalso
+                        length(pointless_rebalances(Rebalances)) =:= 0
+                )
+            end
+        )
+    ).
+
+imbalance(#{members := MemberM}) ->
+    MResourceN = [length(Rs) || Rs <- maps:values(MemberM)],
+    case MResourceN of
+        [] -> 0;
+        _ -> lists:max(MResourceN) - lists:min(MResourceN)
+    end.
+
+pointless_rebalances(Rebalances) ->
+    [
+        Rebalance
+     || Rebalance = {_R, _F1, T1} <- Rebalances,
+        [] =/= [true || {_, F2, _T2} <- Rebalances, T1 =:= F2]
+    ].
+
+g_allocation() ->
+    ?LET(
+        Resources,
+        ?SIZED(S, lists:seq(0, S * 2)),
+        ?LET(
+            Occupation,
+            [{R, g_member()} || R <- Resources],
+            lists:foldl(
+                fun({R, M}, A) ->
+                    A1 = free_resource(R, A),
+                    A2 = add_member(M, A1),
+                    occupy_resource(R, M, A2)
+                end,
+                new(Resources, []),
+                Occupation
+            )
+        )
+    ).
+
+g_member() ->
+    %% Skewed:
+    frequency([{100 - C, list_to_atom([C])} || C <- lists:seq($A, $Z)]).
 
 apply_allocation({Resource, Member}, A) ->
     occupy_resource(Resource, Member, A).
 
 apply_rebalance({Resource, MFrom, MTo}, A) ->
     occupy_resource(Resource, MTo, release_resource(Resource, MFrom, A)).
+
+measure(NamedSamples, Test) ->
+    maps:fold(fun(Name, Sample, Acc) -> measure(Name, Sample, Acc) end, Test, NamedSamples).
 
 -endif.
