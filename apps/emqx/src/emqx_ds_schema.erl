@@ -18,6 +18,7 @@ Schema for EMQX_DS databases.
     db_config_shared_subs/0,
     db_config_mq_states/0,
     db_config_mq_messages/0,
+    db_config_streams_states/0,
 
     setup_db_group/2,
     db_group_config/0
@@ -96,6 +97,9 @@ db_config_mq_states() ->
 
 db_config_mq_messages() ->
     db_config(?MQ_MESSAGE_CONF_ROOT).
+
+db_config_streams_states() ->
+    db_config(?STREAMS_STATE_CONF_ROOT).
 
 setup_db_group(Group, Config) ->
     case emqx_ds:setup_db_group(Group, Config) of
@@ -245,6 +249,13 @@ schema() ->
                 [builtin_raft, builtin_local],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(mq_messages),
+                #{}
+            )},
+        {?STREAMS_STATE_CONF_ROOT,
+            db_schema(
+                [builtin_raft, builtin_local],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(streams_states),
                 #{}
             )}
     ].
