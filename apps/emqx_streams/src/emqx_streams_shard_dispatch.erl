@@ -122,9 +122,9 @@ announce_myself(Consumer, SGroup, GSt) ->
             })
     end.
 
-on_unsubscription(_ClientInfo, Topic, St) ->
+on_unsubscription(_ClientInfo, Topic, _St) ->
     case parse_subtopic(Topic) of
-        {consume, Stream, Group} ->
+        {consume, _Stream, _Group} ->
             ok;
         false ->
             protocol_error({subscribe, Topic})
