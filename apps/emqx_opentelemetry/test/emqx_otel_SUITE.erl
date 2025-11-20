@@ -34,12 +34,12 @@
     t_e2e_abnormal_disconnect/1,
     t_e2e_authn_failed/1,
     t_e2e_authn_failed/2,
-    t_e2e_cilent_sub_unsub/1,
-    t_e2e_cilent_publish_qos0/1,
-    t_e2e_cilent_publish_qos1/1,
-    t_e2e_cilent_publish_qos2/1,
-    t_e2e_cilent_publish_qos2_with_forward/1,
-    t_e2e_cilent_borker_publish_whitelist/1,
+    t_e2e_client_sub_unsub/1,
+    t_e2e_client_publish_qos0/1,
+    t_e2e_client_publish_qos1/1,
+    t_e2e_client_publish_qos2/1,
+    t_e2e_client_publish_qos2_with_forward/1,
+    t_e2e_client_borker_publish_whitelist/1,
     t_e2e_client_pub_qos2_trace_level_0/1,
     t_e2e_client_pub_qos2_trace_level_1/1,
     t_e2e_client_source_republish_to_clients/1,
@@ -70,8 +70,8 @@
 
 -define(WITH_CLUSTER(TC),
     ((TC =:= t_distributed_trace) orelse
-        (TC =:= t_e2e_cilent_publish_qos2_with_forward) orelse
-        (TC =:= t_e2e_cilent_borker_publish_whitelist) orelse
+        (TC =:= t_e2e_client_publish_qos2_with_forward) orelse
+        (TC =:= t_e2e_client_borker_publish_whitelist) orelse
         (TC =:= t_e2e_client_pub_qos2_trace_level_0) orelse
         (TC =:= t_e2e_client_pub_qos2_trace_level_1))
 ).
@@ -187,12 +187,12 @@ groups() ->
         t_e2e_connect_disconnect,
         t_e2e_abnormal_disconnect,
         t_e2e_authn_failed,
-        t_e2e_cilent_sub_unsub,
-        t_e2e_cilent_publish_qos0,
-        t_e2e_cilent_publish_qos1,
-        t_e2e_cilent_publish_qos2,
-        t_e2e_cilent_publish_qos2_with_forward,
-        t_e2e_cilent_borker_publish_whitelist,
+        t_e2e_client_sub_unsub,
+        t_e2e_client_publish_qos0,
+        t_e2e_client_publish_qos1,
+        t_e2e_client_publish_qos2,
+        t_e2e_client_publish_qos2_with_forward,
+        t_e2e_client_borker_publish_whitelist,
         t_e2e_client_pub_qos2_trace_level_0,
         t_e2e_client_pub_qos2_trace_level_1,
         t_e2e_client_source_republish_to_clients,
@@ -819,7 +819,7 @@ t_e2e_authn_failed(Config) ->
     ),
     ok.
 
-t_e2e_cilent_sub_unsub(Config) ->
+t_e2e_client_sub_unsub(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -931,7 +931,7 @@ t_e2e_cilent_sub_unsub(Config) ->
     ),
     ok.
 
-t_e2e_cilent_publish_qos0(Config) ->
+t_e2e_client_publish_qos0(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -998,7 +998,7 @@ t_e2e_cilent_publish_qos0(Config) ->
     ),
     ok.
 
-t_e2e_cilent_publish_qos1(Config) ->
+t_e2e_client_publish_qos1(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -1072,7 +1072,7 @@ t_e2e_cilent_publish_qos1(Config) ->
     _ = disconnect_conns([Conn1, Conn2]),
     ok.
 
-t_e2e_cilent_publish_qos2(Config) ->
+t_e2e_client_publish_qos2(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -1162,7 +1162,7 @@ t_e2e_cilent_publish_qos2(Config) ->
     _ = disconnect_conns([Conn1, Conn2]),
     ok.
 
-t_e2e_cilent_publish_qos2_with_forward(Config) ->
+t_e2e_client_publish_qos2_with_forward(Config) ->
     [Core1, Core2, Repl] = _Cluster = ?config(cluster, Config),
 
     OtelConf = enabled_e2e_trace_conf_all(Config),
@@ -1298,7 +1298,7 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
     _ = disconnect_conns([Conn1, Conn2, Conn3]),
     ok.
 
-t_e2e_cilent_borker_publish_whitelist(Config) ->
+t_e2e_client_borker_publish_whitelist(Config) ->
     [Core1, Core2, Repl] = _Cluster = ?config(cluster, Config),
 
     OtelConf0 = enabled_e2e_trace_conf_all(Config),
