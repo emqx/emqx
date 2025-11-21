@@ -169,19 +169,6 @@ new_subscription(TopicFilter, SubOpts, SessionId, #{upgrade_qos := UpgradeQoS}, 
     ok = add_route(Mode, SessionId, TopicFilter, SubOpts),
     {Mode, S, Subscription}.
 
-create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
-    {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
-    {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
-    SState = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
-    Subscription = #{
-        id => SubId,
-        current_state => SStateId,
-        start_time => emqx_persistent_session_ds:now_ms()
-    },
-    S3 = emqx_persistent_session_ds_state:put_subscription_state(SStateId, SState, S2),
-    S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Subscription, S3),
-    {S, Subscription}.
-
 mk_subscription_state(SubId, SubOpts, UpgradeQoS) ->
     SState = #{
         parent_subscription => SubId,
@@ -472,14 +459,116 @@ session_subscription(_Subscription, undefined) ->
 %% Internal functions
 %%================================================================================
 
+%% Perform side effects necessary for transferring the "outer world"
+%% into state where subscription exists:
+-spec create_subscription_effects(
+    subscription_mode(),
+    emqx_persistent_session_ds:topic_filter(),
+    subscription(),
+    subscription_state(),
+    emqx_persistent_session_ds:session()
+) -> emqx_persistent_session_ds:session().
+create_subscription_effects(durable, TopicFilter, Subscription, SubState, Sess = #{id := SessId}) ->
+    #{subopts := SubOpts} = SubState,
+    add_route(durable, SessId, TopicFilter, SubOpts),
+    ds_client_subscribe(TopicFilter, Subscription, Sess);
+create_subscription_effects(direct, TopicFilter, _Subscription, SubState, Sess = #{id := SessId}) ->
+    #{subopts := SubOpts} = SubState,
+    add_route(durable, SessId, TopicFilter, SubOpts),
+    Sess.
+
+%% Inverse of `create_subscription_effects'
+-spec delete_subscription_effects(
+    subscription_mode(),
+    emqx_persistent_session_ds:topic_filter(),
+    subscription(),
+    emqx_persistent_session_ds:session()
+) -> emqx_persistent_session_ds:session().
+delete_subscription_effects(durable, TopicFilter, Subscription, Sess = #{id := SessId}) ->
+    #{id := SubId} = Subscription,
+    delete_route(durable, SessId, TopicFilter),
+    ds_client_unsubscribe(SubId, Sess);
+delete_subscription_effects(direct, TopicFilter, _, Sess = #{id := SessId}) ->
+    delete_route(direct, SessId, TopicFilter),
+    Sess.
+
+%% Get **current** subscription mode:
+-spec get_subscription_mode(subscription(), emqx_persistent_session_ds_state:t()) ->
+    subscription_mode().
+get_subscription_mode(#{current_state := SStateId}, S) ->
+    #{mode := Mode} = emqx_persistent_session_ds_state:get_subscription_state(SStateId, S),
+    Mode.
+
 desired_subscription_mode(#{qos := ?QOS_0}) ->
     direct;
 desired_subscription_mode(#{qos := _QoS12}) ->
     durable.
 
-get_subscription_mode(#{current_state := SStateId}, S) ->
-    #{mode := Mode} = emqx_persistent_session_ds_state:get_subscription_state(SStateId, S),
-    Mode.
+%%--------------------------------------------------------------------------------
+%% Functions for manipulating subscription state. They don't have any
+%% side effects other than modifying the persistent session state (`s').
+%% --------------------------------------------------------------------------------
+
+create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
+    {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
+    {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
+    SState = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
+    Subscription = #{
+        id => SubId,
+        current_state => SStateId,
+        start_time => emqx_persistent_session_ds:now_ms()
+    },
+    S3 = emqx_persistent_session_ds_state:put_subscription_state(SStateId, SState, S2),
+    S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Subscription, S3),
+    {S, Subscription}.
+
+%%--------------------------------------------------------------------------------
+%% `emqx_ds_client' management
+%%--------------------------------------------------------------------------------
+
+%% A wrapper function that creates a subscription in `emqx_ds_client'
+%% with given options, and updates the session state:
+-spec ds_client_subscribe(
+    emqx_persistent_session_ds:topic_filter(),
+    subscription(),
+    emqx_persistent_session_ds:session()
+) ->
+    emqx_persistent_session_ds:session().
+ds_client_subscribe(TopicFilter, #{id := SubId, start_time := StartTime}, Sess0 = #{dscli := CLI0}) ->
+    SubOpts = #{
+        max_unacked => emqx_config:get([durable_sessions, batch_size])
+    },
+    Opts = #{
+        id => SubId,
+        db => ?PERSISTENT_MESSAGE_DB,
+        topic => emqx_ds:topic_words(TopicFilter),
+        start_time => StartTime,
+        ds_sub_opts => SubOpts
+    },
+    case emqx_ds_client:subscribe(CLI0, Opts, Sess0) of
+        {ok, CLI, Sess} ->
+            Sess#{dscli := CLI};
+        {error, already_exists} ->
+            Sess0
+    end.
+
+%% Inverse of `ds_cli_unsub':
+-spec ds_client_unsubscribe(
+    emqx_persistent_session_ds:subscription_id(),
+    emqx_persistent_session_ds:session()
+) ->
+    emqx_persistent_session_ds:session().
+ds_client_unsubscribe(SubId, Sess0 = #{dscli := CLI0}) ->
+    case emqx_ds_client:unsubscribe(CLI0, SubId, Sess0) of
+        {ok, CLI, Sess} ->
+            Sess#{dscli := CLI};
+        {error, not_found} ->
+            Sess0
+    end.
+
+%%--------------------------------------------------------------------------------
+%% Routing table management
+%%--------------------------------------------------------------------------------
 
 add_route(durable, SessionId, Topic, _SubOpts) ->
     add_persistent_route(SessionId, Topic);
@@ -506,42 +595,6 @@ add_direct_route(SessionId, Topic, SubOpts) ->
 
 delete_direct_route(_SessionId, Topic) ->
     emqx_broker:unsubscribe(Topic).
-
-%% A wrapper function that creates a subscription in the DS client
-%% with the given options and updates the state
--spec ds_cli_sub(
-    emqx_persistent_session_ds:topic_filter(), subscription(), emqx_persistent_session_ds:session()
-) ->
-    emqx_persistent_session_ds:session().
-ds_cli_sub(TopicFilter, #{id := SubId, start_time := StartTime}, Sess0 = #{dscli := CLI0}) ->
-    SubOpts = #{
-        max_unacked => emqx_config:get([durable_sessions, batch_size])
-    },
-    Opts = #{
-        id => SubId,
-        db => ?PERSISTENT_MESSAGE_DB,
-        topic => emqx_ds:topic_words(TopicFilter),
-        start_time => StartTime,
-        ds_sub_opts => SubOpts
-    },
-    case emqx_ds_client:subscribe(CLI0, Opts, Sess0) of
-        {ok, CLI, Sess} ->
-            Sess#{dscli := CLI};
-        {error, already_exists} ->
-            Sess0
-    end.
-
--spec ds_cli_unsub(
-    emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds:session()
-) ->
-    emqx_persistent_session_ds:session().
-ds_cli_unsub(SubId, Sess0 = #{dscli := CLI0}) ->
-    case emqx_ds_client:unsubscribe(CLI0, SubId, Sess0) of
-        {ok, CLI, Sess} ->
-            Sess#{dscli := CLI};
-        {error, not_found} ->
-            Sess0
-    end.
 
 %%================================================================================
 %% Test
