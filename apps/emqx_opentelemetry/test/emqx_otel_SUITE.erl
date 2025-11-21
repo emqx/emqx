@@ -34,16 +34,17 @@
     t_e2e_abnormal_disconnect/1,
     t_e2e_authn_failed/1,
     t_e2e_authn_failed/2,
-    t_e2e_cilent_sub_unsub/1,
-    t_e2e_cilent_publish_qos0/1,
-    t_e2e_cilent_publish_qos1/1,
-    t_e2e_cilent_publish_qos2/1,
-    t_e2e_cilent_publish_qos2_with_forward/1,
-    t_e2e_cilent_borker_publish_whitelist/1,
+    t_e2e_client_sub_unsub/1,
+    t_e2e_client_publish_qos0/1,
+    t_e2e_client_publish_qos1/1,
+    t_e2e_client_publish_qos2/1,
+    t_e2e_client_publish_qos2_with_forward/1,
+    t_e2e_client_borker_publish_whitelist/1,
     t_e2e_client_pub_qos2_trace_level_0/1,
     t_e2e_client_pub_qos2_trace_level_1/1,
     t_e2e_client_source_republish_to_clients/1,
-    t_e2e_client_source_republish_to_clients/2
+    t_e2e_client_source_republish_to_clients/2,
+    t_e2e_http_publish_qos2/1
 ]).
 
 -include_lib("emqx/include/logger.hrl").
@@ -69,8 +70,8 @@
 
 -define(WITH_CLUSTER(TC),
     ((TC =:= t_distributed_trace) orelse
-        (TC =:= t_e2e_cilent_publish_qos2_with_forward) orelse
-        (TC =:= t_e2e_cilent_borker_publish_whitelist) orelse
+        (TC =:= t_e2e_client_publish_qos2_with_forward) orelse
+        (TC =:= t_e2e_client_borker_publish_whitelist) orelse
         (TC =:= t_e2e_client_pub_qos2_trace_level_0) orelse
         (TC =:= t_e2e_client_pub_qos2_trace_level_1))
 ).
@@ -79,15 +80,27 @@
     (TC =:= t_e2e_client_source_republish_to_clients)
 ).
 
--define(MATCH_ROOT_SPAN(SpanID, TraceID), #{
-    <<"spanID">> := SpanID, <<"traceID">> := TraceID, <<"references">> := []
-}).
+-define(WITH_DASHBOARD_APP(TC),
+    (TC =:= t_e2e_http_publish_qos2)
+).
 
--define(MATCH_ROOT_SPAN(SpanID, Tags, TraceID), #{
-    <<"tags">> := Tags,
+-define(MATCH_ROOT_SPAN(SpanID, TraceID), #{
     <<"spanID">> := SpanID,
     <<"traceID">> := TraceID,
     <<"references">> := []
+}).
+
+-define(MATCH_ROOT_SPAN(SpanID, Tags, TraceID), #{
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"tags">> := Tags,
+    <<"references">> := []
+}).
+
+-define(MATCH_ROOT_SPAN_WITH_REF(SpanID, TraceID, Refs), #{
+    <<"spanID">> := SpanID,
+    <<"traceID">> := TraceID,
+    <<"references">> := Refs
 }).
 
 -define(MATCH_SUB_SPAN(SpanID, ParentSpanID, TraceID), #{
@@ -174,15 +187,16 @@ groups() ->
         t_e2e_connect_disconnect,
         t_e2e_abnormal_disconnect,
         t_e2e_authn_failed,
-        t_e2e_cilent_sub_unsub,
-        t_e2e_cilent_publish_qos0,
-        t_e2e_cilent_publish_qos1,
-        t_e2e_cilent_publish_qos2,
-        t_e2e_cilent_publish_qos2_with_forward,
-        t_e2e_cilent_borker_publish_whitelist,
+        t_e2e_client_sub_unsub,
+        t_e2e_client_publish_qos0,
+        t_e2e_client_publish_qos1,
+        t_e2e_client_publish_qos2,
+        t_e2e_client_publish_qos2_with_forward,
+        t_e2e_client_borker_publish_whitelist,
         t_e2e_client_pub_qos2_trace_level_0,
         t_e2e_client_pub_qos2_trace_level_1,
-        t_e2e_client_source_republish_to_clients
+        t_e2e_client_source_republish_to_clients,
+        t_e2e_http_publish_qos2
     ],
 
     [
@@ -287,6 +301,12 @@ init_per_testcase(TC, Config) when ?WITH_CLUSTER(TC) ->
 init_per_testcase(TC, Config) when ?WITH_RULE_ENGINE(TC) ->
     Apps = emqx_cth_suite:start(
         apps_spec_with_rule_engine(),
+        #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
+    ),
+    local_init_per_test_case(TC, [{tc, TC}, {suite_apps, Apps} | Config]);
+init_per_testcase(TC, Config) when ?WITH_DASHBOARD_APP(TC) ->
+    Apps = emqx_cth_suite:start(
+        apps_spec() ++ [emqx_mgmt_api_test_util:emqx_dashboard()],
         #{work_dir => emqx_cth_suite:work_dir(TC, Config)}
     ),
     local_init_per_test_case(TC, [{tc, TC}, {suite_apps, Apps} | Config]);
@@ -799,7 +819,7 @@ t_e2e_authn_failed(Config) ->
     ),
     ok.
 
-t_e2e_cilent_sub_unsub(Config) ->
+t_e2e_client_sub_unsub(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -911,7 +931,7 @@ t_e2e_cilent_sub_unsub(Config) ->
     ),
     ok.
 
-t_e2e_cilent_publish_qos0(Config) ->
+t_e2e_client_publish_qos0(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -978,7 +998,7 @@ t_e2e_cilent_publish_qos0(Config) ->
     ),
     ok.
 
-t_e2e_cilent_publish_qos1(Config) ->
+t_e2e_client_publish_qos1(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -1052,7 +1072,7 @@ t_e2e_cilent_publish_qos1(Config) ->
     _ = disconnect_conns([Conn1, Conn2]),
     ok.
 
-t_e2e_cilent_publish_qos2(Config) ->
+t_e2e_client_publish_qos2(Config) ->
     OtelConf = enabled_e2e_trace_conf_all(Config),
     {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
 
@@ -1142,7 +1162,7 @@ t_e2e_cilent_publish_qos2(Config) ->
     _ = disconnect_conns([Conn1, Conn2]),
     ok.
 
-t_e2e_cilent_publish_qos2_with_forward(Config) ->
+t_e2e_client_publish_qos2_with_forward(Config) ->
     [Core1, Core2, Repl] = _Cluster = ?config(cluster, Config),
 
     OtelConf = enabled_e2e_trace_conf_all(Config),
@@ -1278,7 +1298,7 @@ t_e2e_cilent_publish_qos2_with_forward(Config) ->
     _ = disconnect_conns([Conn1, Conn2, Conn3]),
     ok.
 
-t_e2e_cilent_borker_publish_whitelist(Config) ->
+t_e2e_client_borker_publish_whitelist(Config) ->
     [Core1, Core2, Repl] = _Cluster = ?config(cluster, Config),
 
     OtelConf0 = enabled_e2e_trace_conf_all(Config),
@@ -1825,21 +1845,129 @@ t_e2e_client_source_republish_to_clients(Config) ->
     _ = disconnect_conns([TriggerSourcePid, SubRepublishPid]),
     ok.
 
+t_e2e_http_publish_qos2(Config) ->
+    OtelConf = enabled_e2e_trace_conf_all(Config),
+    {ok, _} = emqx_conf:update(?CONF_PATH, OtelConf, #{override_to => cluster}),
+
+    Topic = <<"t/trace/test/", (atom_to_binary(?FUNCTION_NAME))/binary>>,
+    QoS = ?QOS_2,
+
+    BaseClientId = e2e_client_id(Config),
+    ClientId1 = <<BaseClientId/binary, "-1">>,
+    {ok, Conn1} = connect(Config, ClientId1),
+
+    timer:sleep(200),
+    %% both subscribe the topic
+    {ok, _, [QoS]} = emqtt:subscribe(Conn1, Topic, QoS),
+
+    timer:sleep(200),
+    WithTraceparent = ?config(otel_follow_traceparent, Config),
+    TraceParent = traceparent(true),
+
+    {ok, _} = http_publish(TraceParent, Topic, <<"must be traced">>, QoS),
+
+    %% find spans by clientid, the publisher clientid would
+    %% be `http_api` when publishing via HTTP API
+    PubClientId = <<"http_api">>,
+    F = ?F(<<"client.clientid">>, [PubClientId, ClientId1]),
+
+    ?assertEqual(
+        ok,
+        emqx_common_test_helpers:wait_for(
+            ?FUNCTION_NAME,
+            ?LINE,
+            fun() ->
+                {ok, #{<<"data">> := ClientPublishTraces}} = search_jaeger_traces(
+                    ?config(jaeger_url, Config),
+                    %% XXX:
+                    %% find by subscriber, cause the publisher is always `http_api`
+                    "broker.publish",
+                    #{
+                        <<"client.clientid">> => ClientId1,
+                        <<"cluster.id">> => <<"emqxcl">>
+                    }
+                ),
+                ct:pal("SubTraces: ~p~n", [ClientPublishTraces]),
+
+                [#{<<"spans">> := Spans, <<"traceID">> := TraceID}] = ClientPublishTraces,
+                6 = length(Spans),
+                %% 1. `client.publish` (ClientId1) Root span
+                %% 2.  └─ `message.route`
+                %%         │
+                %% 3.      └─ `broker.publish` (ClientId1)
+                %% 4.          └─ `client.pubrec`
+                %% 5.              └─ `broker.pubrel`
+                %% 6.                  └─ `client.pubcomp`
+
+                ct:pal("TraceID: ~p~n", [TraceID]),
+                [?MATCH_ROOT_SPAN_WITH_REF(SpanID1, TraceID, Refs)] = F(
+                    <<"client.publish">>, Spans
+                ),
+                true = refs_length_with_traceparent(WithTraceparent) =:= length(Refs),
+                [?MATCH_SUB_SPAN(SpanID2, SpanID1, _)] = F(<<"message.route">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID3, SpanID2, _)] = F(<<"broker.publish">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID4, SpanID3, _)] = F(<<"client.pubrec">>, Spans),
+                [?MATCH_SUB_SPAN(SpanID5, SpanID4, _)] = F(<<"broker.pubrel">>, Spans),
+                [?MATCH_SUB_SPAN(_SpanID6, SpanID5, _)] = F(<<"client.pubcomp">>, Spans),
+                true
+            end,
+            10_000
+        )
+    ),
+    _ = disconnect_conns([Conn1]),
+
+    ok.
+
+http_publish(TraceParent, Topic, Payload, QoS) ->
+    Headers = [emqx_mgmt_api_test_util:auth_header_()],
+    Body = #{
+        payload => Payload,
+        payload_encoding => <<"plain">>,
+        properties => #{
+            content_type => <<"text/plain">>,
+            correlation_data => <<"string">>,
+            message_expiry_interval => 0,
+            payload_format_indicator => 0,
+            user_properties => #{
+                traceparent => TraceParent,
+                <<"foo">> => <<"bar">>
+            }
+        },
+        qos => QoS,
+        retain => false,
+        topic => Topic
+    },
+    emqx_mgmt_api_test_util:request_api(
+        post,
+        emqx_mgmt_api_test_util:api_path(["publish"]),
+        [],
+        Headers,
+        Body,
+        #{}
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helpers
 %%------------------------------------------------------------------------------
 
 enabled_e2e_trace_conf_all(TcConfig) ->
     OtelConf = enabled_trace_conf(TcConfig),
-    emqx_utils_maps:deep_put(
-        [<<"traces">>, <<"filter">>, <<"e2e_tracing_options">>], OtelConf, #{
-            <<"sample_ratio">> => 1.0,
-            <<"msg_trace_level">> => 2,
-            <<"client_connect_disconnect">> => true,
-            <<"client_subscribe_unsubscribe">> => true,
-            <<"client_messaging">> => true,
-            <<"trace_rule_engine">> => true
-        }
+    emqx_utils_maps:deep_merge(
+        #{
+            <<"traces">> => #{
+                <<"filter">> => #{
+                    <<"e2e_tracing_options">> => #{
+                        <<"sample_ratio">> => 1.0,
+                        <<"msg_trace_level">> => 2,
+                        <<"client_connect_disconnect">> => true,
+                        <<"client_subscribe_unsubscribe">> => true,
+                        <<"client_messaging">> => true,
+                        <<"trace_rule_engine">> => true
+                    }
+                }
+            }
+        },
+        OtelConf
     ).
 
 enabled_trace_conf(TcConfig) ->
