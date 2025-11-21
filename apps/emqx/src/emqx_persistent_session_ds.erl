@@ -431,17 +431,17 @@ subscribe(
     Session0 = #{stream_scheduler_s := SchedS0}
 ) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {Ok, durable, S1, Subscription} when Ok == ok; Ok == mode_changed ->
+        {Ok, durable, Session1, Subscription} when Ok == ok; Ok == mode_changed ->
+            #{s := S0} = Session1,
             {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
-                TopicFilter, Subscription, S1, SchedS0
+                TopicFilter, Subscription, S0, SchedS0
             ),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
+            Session = Session1#{s := S, stream_scheduler_s := SchedS},
             %% If the subscription mode was changed, flush any matching transient messages
             %% coming directly from the broker:
             Ok == mode_changed andalso flush_transient(TopicFilter),
             {ok, async_checkpoint(Session)};
-        {ok, direct, S, _Subscription} ->
-            Session = Session0#{s := S},
+        {ok, direct, Session, _Subscription} ->
             {ok, async_checkpoint(Session)};
         Error = {error, _} ->
             Error
@@ -471,16 +471,14 @@ unsubscribe(
         Error = {error, _} ->
             Error
     end;
-unsubscribe(
-    TopicFilter,
-    Session0 = #{id := SessionId, s := S0, stream_scheduler_s := SchedS0}
-) ->
-    case emqx_persistent_session_ds_subs:on_unsubscribe(SessionId, TopicFilter, S0) of
-        {ok, S1, #{id := SubId, subopts := SubOpts}} ->
+unsubscribe(TopicFilter, Session0) ->
+    case emqx_persistent_session_ds_subs:on_unsubscribe(TopicFilter, Session0) of
+        {ok, Session1, #{id := SubId, subopts := SubOpts}} ->
+            #{s := S0, stream_scheduler_s := SchedS0} = Session1,
             {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                TopicFilter, SubId, S1, SchedS0
+                TopicFilter, SubId, S0, SchedS0
             ),
-            Session = Session0#{s := S, stream_scheduler_s := SchedS},
+            Session = Session1#{s := S, stream_scheduler_s := SchedS},
             {ok, async_checkpoint(clear_buffer(SubId, Session)), SubOpts};
         Error = {error, _} ->
             Error
@@ -754,32 +752,15 @@ shared_sub_opts(SessionId) ->
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
 replay(ClientInfo, [], Session0) ->
-    #{id := SessionId, s := S0, stream_scheduler_s := SchedS0} = Session0,
-    {S1, Events} = emqx_persistent_session_ds_subs:on_session_replay(SessionId, S0),
-    {S2, SchedS1} = lists:foldl(
-        fun({mode_changed, direct, TopicFilter, #{id := SubId}}, {SAcc, SchedSAcc}) ->
-            %% Subscription mode was changed, notify the stream scheduler:
-            emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                TopicFilter,
-                SubId,
-                SAcc,
-                SchedSAcc
-            )
-        end,
-        {S1, SchedS0},
-        Events
-    ),
-    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_session_replay(S2, SchedS1),
+    Session1 = emqx_persistent_session_ds_subs:on_session_restore(Session0),
+    #{s := S0, stream_scheduler_s := SchedS0} = Session1,
+    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_session_replay(S0, SchedS0),
     Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S),
-    Session1 = Session0#{
+    Session2 = async_checkpoint(Session1#{
         s := S,
         stream_scheduler_s := SchedS,
         replay := Streams
-    },
-    case Events of
-        [] -> Session2 = Session1;
-        _ -> Session2 = async_checkpoint(Session1)
-    end,
+    }),
     Session = replay_streams(Session2, ClientInfo),
     {ok, [], Session}.
 
@@ -1085,8 +1066,8 @@ session_drop(SessionId, Reason) ->
     case emqx_persistent_session_ds_state:open(SessionId) of
         {ok, S0} ->
             ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
-            ok = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
-            ok = emqx_persistent_session_ds_state:delete(S0),
+            S1 = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
+            ok = emqx_persistent_session_ds_state:delete(S1),
             emqx_persistent_session_ds_gc_timer:delete(SessionId);
         undefined ->
             ok
@@ -1420,9 +1401,12 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
                 S0, shared_sub_opts(ClientID)
             )
     end,
+    %% Create durable timers for clean-up and will messages:
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S1),
     ok = emqx_persistent_session_ds_gc_timer:on_connect(ClientID, SessExpiryInterval),
-    ok = emqx_durable_will:on_connect(ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg),
+    ok = emqx_durable_will:on_connect(
+        ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg
+    ),
     S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
     #{
         id => ClientID,
