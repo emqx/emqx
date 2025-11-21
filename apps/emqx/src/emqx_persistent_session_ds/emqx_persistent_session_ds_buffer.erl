@@ -2,10 +2,12 @@
 %% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Session uses this module for buffering replies from the DS
-%% while the stream is blocked or inflight is full. It groups small
-%% batches together, increasing the efficiency of replay.
 -module(emqx_persistent_session_ds_buffer).
+-moduledoc """
+Session uses this module for buffering replies from the DS while the
+stream is blocked or inflight is full. It groups small batches
+together, increasing the efficiency of replay.
+""".
 
 %% API:
 -export([
@@ -24,7 +26,7 @@
 %% Type declarations
 %%================================================================================
 
-%% Buffered poll reply:
+-doc "Buffered subscription reply".
 -type item() :: #ds_sub_reply{}.
 
 -type q() :: queue:queue(item()).
@@ -46,7 +48,7 @@
 new() ->
     #buffer{}.
 
-%% @doc Return an iterator for scanning through streams that have data.
+-doc "Return an iterator for scanning through streams that have data.".
 iterator(#buffer{messages = Msgs}) ->
     maps:iterator(Msgs).
 
@@ -58,7 +60,7 @@ next(It) ->
             none
     end.
 
-%% @doc Enqueue a batch of messages.
+-doc "Enqueue a batch of messages.".
 -spec push_batch(emqx_persistent_session_ds_stream_scheduler:stream_key(), item(), t()) -> t().
 push_batch(StreamId, Item, Buf = #buffer{messages = MsgQs}) ->
     case MsgQs of
@@ -72,8 +74,10 @@ push_batch(StreamId, Item, Buf = #buffer{messages = MsgQs}) ->
         messages = MsgQs#{StreamId => Q}
     }.
 
-%% @doc Delete all buffered data from the streams that belong to the
-%% given subscription
+-doc """
+Delete all buffered data from the streams that belong to the given
+subscription
+""".
 -spec clean_by_subid(emqx_persistent_session_ds:subscription_id(), t()) -> t().
 clean_by_subid(SubId, Buf = #buffer{messages = MsgQs0}) ->
     MsgQs = maps:filter(
@@ -85,12 +89,12 @@ clean_by_subid(SubId, Buf = #buffer{messages = MsgQs0}) ->
     ),
     Buf#buffer{messages = MsgQs}.
 
-%% @doc Delete buffered data for a particular stream.
+-doc "Delete buffered data for a particular stream.".
 -spec drop_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> t().
 drop_stream(StreamKey, Buf = #buffer{messages = Msgs}) ->
     Buf#buffer{messages = maps:remove(StreamKey, Msgs)}.
 
-%% @doc Dequeue a batch of messages from a specified stream.
+-doc "Dequeue a batch of messages from a specified stream.".
 -spec pop_batch(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) ->
     {[item()], t()}.
 pop_batch(StreamId, Buf = #buffer{messages = MsgQs0}) ->
@@ -109,7 +113,9 @@ pop_batch(StreamId, Buf = #buffer{messages = MsgQs0}) ->
             {[], Buf}
     end.
 
-%% @doc Get number of buffered messages in a given stream:
+-doc """
+Get number of buffered DS replies in a given stream.
+""".
 -spec len(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> non_neg_integer().
 len(StreamId, #buffer{messages = MsgQs}) ->
     case MsgQs of
