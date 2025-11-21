@@ -6,6 +6,8 @@
 
 -behaviour(application).
 
+-include("emqx_streams_internal.hrl").
+
 -export([start/2, stop/1, do_start/0]).
 -export([is_ready/0, wait_readiness/1]).
 
@@ -23,6 +25,9 @@ start(_StartType, _StartArgs) ->
     {ok, Sup}.
 
 do_start() ->
+    ok = mria:wait_for_tables(emqx_streams_registry:create_tables()),
+    ok = emqx_streams_message_db:open(),
+    ok = emqx_streams_state_db:open(),
     {ok, _} = emqx_streams_sup:start_post_starter({?MODULE, start_link_post_start, []}),
     ok.
 
@@ -30,6 +35,7 @@ stop(_State) ->
     ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_conf:remove_handler(emqx_streams_schema:roots()),
     ok = emqx_streams:unregister_hooks(),
+    ok = emqx_streams_state_db:close(),
     ok.
 
 %% Readiness
@@ -58,8 +64,21 @@ start_link_post_start() ->
     {ok, proc_lib:spawn_link(?MODULE, post_start, [])}.
 
 post_start() ->
+    ok = emqx_streams_message_db:wait_readiness(infinity),
+    ok = emqx_streams_state_db:wait_readiness(infinity),
     complete_start(),
     optvar:set(?OPTVAR_READY, true).
 
 complete_start() ->
+    ok = emqx_streams_sup:start_metrics(),
+    ok = emqx_mq_quota_buffer:start(?STREAMS_QUOTA_BUFFER, quota_buffer_options()),
     ok = emqx_streams:register_hooks().
+
+quota_buffer_options() ->
+    #{
+        cbm => emqx_mq_message_db,
+        %% TODO
+        pool_size => emqx:get_config(
+            [streams, quota, buffer_pool_size], ?DEFAULT_QUOTA_BUFFER_POOL_SIZE
+        )
+    }.

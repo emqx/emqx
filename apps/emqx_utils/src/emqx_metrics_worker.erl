@@ -82,7 +82,7 @@
 %% =<10ms, =<100ms, =<1s, =<5s, =<30s, >30s
 -define(DEFAULT_HIST_BUCKETS, [10, 100, 1000, 5000, 30000]).
 
--export_type([metrics/0, handler_name/0, metric_id/0, metric_spec/0]).
+-export_type([metrics/0, handler_name/0, metric_id/0, metric_spec/0, worker_id/0]).
 
 -type handler_name() :: atom().
 %% metric_id() is actually a resource id
