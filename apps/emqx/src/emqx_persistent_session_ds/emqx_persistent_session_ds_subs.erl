@@ -9,24 +9,26 @@
 %% In reality, however, the session has to retain old the
 %% subscriptions for longer to ensure the consistency of message
 %% replay.
+%%
+%% In addition, it is responsible for management of routing tables
+%% (durable, regular and external) and for updating the subscriptions
+%% of the session's `emqx_ds_client'.
 -module(emqx_persistent_session_ds_subs).
 
 %% API:
 -export([
     fold/4,
+    lookup/2,
+    find_by_subid/2,
+    to_map/1,
+    gc/1,
+
+    cold_get_subscription/2,
+
     on_subscribe/3,
     on_unsubscribe/3,
     on_session_replay/2,
-    on_session_drop/2,
-    gc/1,
-    lookup/2,
-    find_by_subid/2,
-    to_map/1
-]).
-
-%% Management API:
--export([
-    cold_get_subscription/2
+    on_session_drop/2
 ]).
 
 -ifdef(TEST).
@@ -36,7 +38,9 @@
 ]).
 -endif.
 
--export_type([subscription_state_id/0, subscription/0, subscription_state/0, subscription_mode/0]).
+-export_type([
+    subscription_state_id/0, subscription/0, subopts/0, subscription_state/0, subscription_mode/0
+]).
 
 -include("session_internals.hrl").
 -include("emqx_mqtt.hrl").
@@ -65,6 +69,14 @@
 
 -type subscription_mode() :: durable | direct.
 
+-type subopts() :: #{
+    nl => _,
+    qos => _,
+    rap => _,
+    subid => _,
+    _ => _
+}.
+
 -type subscription_state() :: #{
     parent_subscription := emqx_persistent_session_ds:subscription_id(),
     upgrade_qos := boolean(),
@@ -76,13 +88,7 @@
     %% is different from what QoS level of the subscription implies.
     mode := subscription_mode(),
     %% SubOpts:
-    subopts := #{
-        nl => _,
-        qos => _,
-        rap => _,
-        subid => _,
-        _ => _
-    },
+    subopts := subopts(),
     %% Optional field that is added when subscription state becomes
     %% outdated (note: do not use the value, as GC may delete
     %% subscription states referenced by `superseded_by'):
@@ -94,6 +100,11 @@
 %%================================================================================
 %% API functions
 %%================================================================================
+
+%%--------------------------------------------------------------------------------
+%% Pure APIs that don't have any side effects other than modifying
+%% persistent session state (i.e. `s' field).
+%% --------------------------------------------------------------------------------
 
 %% @doc Fold over subscriptions.
 %%
@@ -128,256 +139,6 @@ fold(Fun, Acc0, S, Includes) ->
         end,
         Acc0,
         S
-    ).
-
-%% @doc Process a new subscription
--spec on_subscribe(
-    emqx_persistent_session_ds:topic_filter(),
-    emqx_types:subopts(),
-    emqx_persistent_session_ds:session()
-) ->
-    {ok | mode_changed, subscription_mode(), emqx_persistent_session_ds_state:t(), subscription()}
-    | {error, ?RC_QUOTA_EXCEEDED}.
-on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) ->
-    #{max_subscriptions := MaxSubscriptions} = Props,
-    NSubscriptions = emqx_persistent_session_ds_state:n_subscriptions(S0),
-    case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
-        undefined when NSubscriptions < MaxSubscriptions ->
-            %% This is a new subscription:
-            {Mode, S, Subscription} =
-                new_subscription(TopicFilter, SubOpts, SessionId, Props, S0),
-            {ok, Mode, gc(S), Subscription};
-        undefined ->
-            {error, ?RC_QUOTA_EXCEEDED};
-        Sub0 ->
-            %% This is an existing subscription:
-            {Outcome, Mode, S, Subscription} =
-                update_subscription(TopicFilter, SubOpts, Sub0, SessionId, Props, S0),
-            {Outcome, Mode, gc(S), Subscription}
-    end.
-
-new_subscription(TopicFilter, SubOpts, SessionId, #{upgrade_qos := UpgradeQoS}, S0) ->
-    Mode = desired_subscription_mode(SubOpts),
-    {S, Subscription} = create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0),
-    ?tp(persistent_session_ds_subscription_added, #{
-        topic_filter => TopicFilter,
-        session => SessionId,
-        mode => Mode
-    }),
-    %% Immediate side-effects:
-    %% If the session fails to commit, routing might become inconsistent.
-    ok = add_route(Mode, SessionId, TopicFilter, SubOpts),
-    {Mode, S, Subscription}.
-
-mk_subscription_state(SubId, SubOpts, UpgradeQoS) ->
-    SState = #{
-        parent_subscription => SubId,
-        upgrade_qos => UpgradeQoS,
-        subopts => SubOpts
-    },
-    case desired_subscription_mode(SubOpts) of
-        %% Subscriptions are assumed to be durable by default:
-        durable -> SState#{mode => durable};
-        %% Explicitly mark as direct to differentiate from existing subscriptions:
-        direct -> SState#{mode => direct}
-    end.
-
-update_subscription(TopicFilter, SubOpts, Sub0, SessionId, #{upgrade_qos := UpgradeQoS}, S0) ->
-    #{id := SubId, current_state := SStateId0} = Sub0,
-    OldSState = emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0),
-    case OldSState of
-        #{
-            parent_subscription := SubId,
-            subopts := SubOpts,
-            upgrade_qos := UpgradeQoS,
-            mode := Mode
-        } ->
-            %% Client resubscribed with the same parameters:
-            {ok, Mode, S0, Sub0};
-        OldSState = #{mode := OldMode} ->
-            %% Subsription parameters changed:
-            DesiredMode = desired_subscription_mode(SubOpts),
-            SState0 = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
-            case OldMode of
-                DesiredMode ->
-                    %% No change in subscription mode:
-                    {S, Sub} =
-                        update_subscription_state(TopicFilter, Sub0, OldSState, SState0, S0),
-                    Ret = {ok, DesiredMode, S, Sub};
-                durable when DesiredMode =:= direct ->
-                    %% Switch from durable to direct is not possible when the session
-                    %% is active. Subscription will remain durable while the client is
-                    %% connected.
-                    SState = SState0#{mode => durable},
-                    {S, Sub} =
-                        update_subscription_state(TopicFilter, Sub0, OldSState, SState, S0),
-                    Ret = {ok, durable, S, Sub};
-                direct when DesiredMode =:= durable ->
-                    %% Switch from direct to durable is possible.
-                    %% The client however is not expecting to see any messages from the past,
-                    %% so we need to recreate the subscription.
-                    S1 = delete_subscription(TopicFilter, S0),
-                    {S, Sub} = create_subscription(TopicFilter, SubOpts, UpgradeQoS, S1),
-                    %% Immediate side-effects:
-                    ok = add_route(durable, SessionId, TopicFilter, SubOpts),
-                    ok = delete_route(direct, SessionId, TopicFilter),
-                    Ret = {mode_changed, durable, S, Sub}
-            end,
-            ?tp(persistent_session_ds_subscription_updated, #{
-                topic_filter => TopicFilter,
-                session => SessionId,
-                mode => element(2, Ret),
-                mode_changed => element(1, Ret) =:= mode_changed
-            }),
-            Ret
-    end.
-
-update_subscription_state(TopicFilter, Subscription0, OldSState, SState, S0) ->
-    #{current_state := SStateId0} = Subscription0,
-    {SStateId, S1} = emqx_persistent_session_ds_state:new_id(S0),
-    S2 = emqx_persistent_session_ds_state:put_subscription_state(SStateId, SState, S1),
-    S3 = emqx_persistent_session_ds_state:put_subscription_state(
-        SStateId0, OldSState#{superseded_by => SStateId}, S2
-    ),
-    Subscription = Subscription0#{current_state := SStateId},
-    S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Subscription, S3),
-    {S, Subscription}.
-
-%% @doc Process UNSUBSCRIBE
--spec on_unsubscribe(
-    emqx_persistent_session_ds:id(),
-    emqx_persistent_session_ds:topic_filter(),
-    emqx_persistent_session_ds_state:t()
-) ->
-    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds:subscription()}
-    | {error, ?RC_NO_SUBSCRIPTION_EXISTED}.
-on_unsubscribe(SessionId, TopicFilter, S0) ->
-    case lookup(TopicFilter, S0) of
-        undefined ->
-            {error, ?RC_NO_SUBSCRIPTION_EXISTED};
-        Subscription ->
-            Mode = get_subscription_mode(Subscription, S0),
-            S = delete_subscription(TopicFilter, S0),
-            ?tp(persistent_session_ds_subscription_delete, #{
-                session_id => SessionId,
-                topic_filter => TopicFilter,
-                mode => Mode
-            }),
-            %% Immediate side-effects:
-            ok = delete_route(Mode, SessionId, TopicFilter),
-            {ok, gc(S), Subscription}
-    end.
-
-delete_subscription(TopicFilter, S0) ->
-    emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0).
-
-%% @doc Restart (and potentially perform mode switch) subscriptions during session replay.
-%% 1. Resubscribes to the broker for direct subscriptions.
-%% 2. Replaces durable QoS0 subscriptions with direct ones.
-%% Returns a list of events, which currently includes only subscription mode changes.
-%% To be called before the stream scheduler is initialized.
--spec on_session_replay(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) ->
-    {emqx_persistent_session_ds_state:t(), [Event]}
-when
-    Event :: {mode_changed, subscription_mode(), TopicFilter, _Old :: subscription()},
-    TopicFilter :: emqx_persistent_session_ds:topic_filter().
-on_session_replay(SessionId, S0) ->
-    fold(
-        fun(TopicFilter, Sub0, {SAcc, Acc}) ->
-            case restart_subscription(TopicFilter, Sub0, SessionId, SAcc) of
-                ok ->
-                    {SAcc, Acc};
-                {Outcome, S} ->
-                    {S, [Outcome | Acc]}
-            end
-        end,
-        {S0, []},
-        S0,
-        [direct]
-    ).
-
-restart_subscription(TopicFilter, Sub0 = #{current_state := SStateId}, SessionId, S0) ->
-    SState =
-        #{subopts := SubOpts, mode := Mode} =
-        emqx_persistent_session_ds_state:get_subscription_state(SStateId, S0),
-    DesiredMode = desired_subscription_mode(SubOpts),
-    case Mode of
-        durable when DesiredMode =:= direct ->
-            %% Switch from durable to direct is now possible:
-            S = change_to_direct(TopicFilter, SState, SessionId, S0),
-            {{mode_changed, DesiredMode, TopicFilter, Sub0}, S};
-        direct ->
-            %% Restore the subscription in the broker:
-            ok = add_route(direct, SessionId, TopicFilter, SubOpts);
-        durable ->
-            %% Nothing to do:
-            ok
-    end.
-
-change_to_direct(TopicFilter, SState, SessionId, S0) ->
-    #{subopts := SubOpts, upgrade_qos := UpgradeQoS} = SState,
-    S1 = delete_subscription(TopicFilter, S0),
-    {S, _} = create_subscription(TopicFilter, SubOpts, UpgradeQoS, S1),
-    ?tp(persistent_session_ds_subscription_mode_changed, #{
-        topic_filter => TopicFilter,
-        session => SessionId,
-        mode => desired_subscription_mode(SubOpts)
-    }),
-    %% Immediate side-effects:
-    ok = add_route(direct, SessionId, TopicFilter, SubOpts),
-    ok = delete_route(durable, SessionId, TopicFilter),
-    S.
-
--spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) -> ok.
-on_session_drop(SessionId, S0) ->
-    _ = fold(
-        fun(TopicFilter, _Subscription, S) ->
-            case on_unsubscribe(SessionId, TopicFilter, S) of
-                {ok, S1, _} -> S1;
-                _ -> S
-            end
-        end,
-        S0,
-        S0,
-        [direct]
-    ),
-    ok.
-
-%% @doc Remove subscription states that don't have a parent, and that
-%% don't have any unacked messages.
-%% TODO
-%% This function collects shared subs as well
-%% Move to a separate module to keep symmetry?
--spec gc(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
-gc(S0) ->
-    %% Create a set of subscription states IDs referenced either by a
-    %% subscription or a stream replay state:
-    AliveSet0 = emqx_persistent_session_ds_state:fold_subscriptions(
-        fun(_TopicFilter, #{current_state := SStateId}, Acc) ->
-            Acc#{SStateId => true}
-        end,
-        #{},
-        S0
-    ),
-    AliveSet = emqx_persistent_session_ds_state:fold_streams(
-        fun(_StreamId, #srs{sub_state_id = SStateId}, Acc) ->
-            Acc#{SStateId => true}
-        end,
-        AliveSet0,
-        S0
-    ),
-    %% Delete subscription states that don't belong to the alive set:
-    emqx_persistent_session_ds_state:fold_subscription_states(
-        fun(SStateId, _, S) ->
-            case maps:is_key(SStateId, AliveSet) of
-                true ->
-                    S;
-                false ->
-                    emqx_persistent_session_ds_state:del_subscription_state(SStateId, S)
-            end
-        end,
-        S0,
-        S0
     ).
 
 %% @doc Lookup a subscription and merge it with its current state:
@@ -430,6 +191,43 @@ to_map(S) ->
         [direct]
     ).
 
+%% @doc Remove subscription states that don't have a parent, and that
+%% don't have any unacked messages.
+%% TODO
+%% This function collects shared subs as well
+%% Move to a separate module to keep symmetry?
+-spec gc(emqx_persistent_session_ds_state:t()) -> emqx_persistent_session_ds_state:t().
+gc(S0) ->
+    %% Create a set of subscription states IDs referenced either by a
+    %% subscription or a stream replay state:
+    AliveSet0 = emqx_persistent_session_ds_state:fold_subscriptions(
+        fun(_TopicFilter, #{current_state := SStateId}, Acc) ->
+            Acc#{SStateId => true}
+        end,
+        #{},
+        S0
+    ),
+    AliveSet = emqx_persistent_session_ds_state:fold_streams(
+        fun(_StreamId, #srs{sub_state_id = SStateId}, Acc) ->
+            Acc#{SStateId => true}
+        end,
+        AliveSet0,
+        S0
+    ),
+    %% Delete subscription states that don't belong to the alive set:
+    emqx_persistent_session_ds_state:fold_subscription_states(
+        fun(SStateId, _, S) ->
+            case maps:is_key(SStateId, AliveSet) of
+                true ->
+                    S;
+                false ->
+                    emqx_persistent_session_ds_state:del_subscription_state(SStateId, S)
+            end
+        end,
+        S0,
+        S0
+    ).
+
 -spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:topic()) ->
     emqx_persistent_session_ds:subscription() | undefined.
 cold_get_subscription(SessionId, Topic) ->
@@ -447,17 +245,222 @@ cold_get_subscription(SessionId, Topic) ->
             undefined
     end.
 
-%% @doc Merge subscription with its current state:
--spec session_subscription(subscription(), subscription_state()) ->
-    emqx_persistent_session_ds:subscription().
-session_subscription(Subscription, #{subopts := SubOpts, mode := Mode}) ->
-    Subscription#{subopts => SubOpts, mode => Mode};
-session_subscription(_Subscription, undefined) ->
-    undefined.
+%%--------------------------------------------------------------------------------
+%% Effectful APIs that can affect routing table, durable storage
+%% subscriptions, etc.
+%%--------------------------------------------------------------------------------
+
+%% @doc Process a new subscription
+-spec on_subscribe(
+    emqx_persistent_session_ds:topic_filter(),
+    emqx_types:subopts(),
+    emqx_persistent_session_ds:session()
+) ->
+    {ok | mode_changed, subscription_mode(), emqx_persistent_session_ds_state:t(), subscription()}
+    | {error, ?RC_QUOTA_EXCEEDED}.
+on_subscribe(TopicFilter, SubOpts, #{id := SessionId, s := S0, props := Props}) ->
+    #{max_subscriptions := MaxSubscriptions} = Props,
+    NSubscriptions = emqx_persistent_session_ds_state:n_subscriptions(S0),
+    case emqx_persistent_session_ds_state:get_subscription(TopicFilter, S0) of
+        undefined when NSubscriptions < MaxSubscriptions ->
+            %% This is a new subscription:
+            {Mode, S, Subscription} =
+                new_subscription(TopicFilter, SubOpts, SessionId, Props, S0),
+            {ok, Mode, gc(S), Subscription};
+        undefined ->
+            {error, ?RC_QUOTA_EXCEEDED};
+        Sub0 ->
+            %% This is an existing subscription:
+            {Outcome, Mode, S, Subscription} =
+                update_subscription(TopicFilter, SubOpts, Sub0, SessionId, Props, S0),
+            {Outcome, Mode, gc(S), Subscription}
+    end.
+
+%% @doc Process UNSUBSCRIBE
+-spec on_unsubscribe(
+    emqx_persistent_session_ds:id(),
+    emqx_persistent_session_ds:topic_filter(),
+    emqx_persistent_session_ds_state:t()
+) ->
+    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds:subscription()}
+    | {error, ?RC_NO_SUBSCRIPTION_EXISTED}.
+on_unsubscribe(SessionId, TopicFilter, S0) ->
+    case lookup(TopicFilter, S0) of
+        undefined ->
+            {error, ?RC_NO_SUBSCRIPTION_EXISTED};
+        Subscription ->
+            Mode = get_subscription_mode(Subscription, S0),
+            S = delete_subscription_state(TopicFilter, S0),
+            ?tp(persistent_session_ds_subscription_delete, #{
+                session_id => SessionId,
+                topic_filter => TopicFilter,
+                mode => Mode
+            }),
+            %% Immediate side-effects:
+            ok = delete_route(Mode, SessionId, TopicFilter),
+            {ok, gc(S), Subscription}
+    end.
+
+%% @doc Restart (and potentially perform mode switch) subscriptions during session replay.
+%% 1. Resubscribes to the broker for direct subscriptions.
+%% 2. Replaces durable QoS0 subscriptions with direct ones.
+%% Returns a list of events, which currently includes only subscription mode changes.
+%% To be called before the stream scheduler is initialized.
+-spec on_session_replay(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) ->
+    {emqx_persistent_session_ds_state:t(), [Event]}
+when
+    Event :: {mode_changed, subscription_mode(), TopicFilter, _Old :: subscription()},
+    TopicFilter :: emqx_persistent_session_ds:topic_filter().
+on_session_replay(SessionId, S0) ->
+    fold(
+        fun(TopicFilter, Sub0, {SAcc, Acc}) ->
+            case restart_subscription(TopicFilter, Sub0, SessionId, SAcc) of
+                ok ->
+                    {SAcc, Acc};
+                {Outcome, S} ->
+                    {S, [Outcome | Acc]}
+            end
+        end,
+        {S0, []},
+        S0,
+        [direct]
+    ).
+
+restart_subscription(TopicFilter, Sub0 = #{current_state := SStateId}, SessionId, S0) ->
+    SState =
+        #{subopts := SubOpts, mode := Mode} =
+        emqx_persistent_session_ds_state:get_subscription_state(SStateId, S0),
+    DesiredMode = desired_subscription_mode(SubOpts),
+    case Mode of
+        durable when DesiredMode =:= direct ->
+            %% Switch from durable to direct is now possible:
+            S = change_to_direct(TopicFilter, SState, SessionId, S0),
+            {{mode_changed, DesiredMode, TopicFilter, Sub0}, S};
+        direct ->
+            %% Restore the subscription in the broker:
+            ok = add_route(direct, SessionId, TopicFilter, SubOpts);
+        durable ->
+            %% Nothing to do:
+            ok
+    end.
+
+change_to_direct(TopicFilter, SState, SessionId, S0) ->
+    #{subopts := SubOpts, upgrade_qos := UpgradeQoS} = SState,
+    S1 = delete_subscription_state(TopicFilter, S0),
+    {S, _} = write_new_subscription(TopicFilter, SubOpts, UpgradeQoS, S1),
+    ?tp(persistent_session_ds_subscription_mode_changed, #{
+        topic_filter => TopicFilter,
+        session => SessionId,
+        mode => desired_subscription_mode(SubOpts)
+    }),
+    %% Immediate side-effects:
+    ok = add_route(direct, SessionId, TopicFilter, SubOpts),
+    ok = delete_route(durable, SessionId, TopicFilter),
+    S.
+
+-spec on_session_drop(emqx_persistent_session_ds:id(), emqx_persistent_session_ds_state:t()) -> ok.
+on_session_drop(SessionId, S0) ->
+    _ = fold(
+        fun(TopicFilter, _Subscription, S) ->
+            case on_unsubscribe(SessionId, TopicFilter, S) of
+                {ok, S1, _} -> S1;
+                _ -> S
+            end
+        end,
+        S0,
+        S0,
+        [direct]
+    ),
+    ok.
 
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+new_subscription(TopicFilter, SubOpts, SessionId, #{upgrade_qos := UpgradeQoS}, S0) ->
+    Mode = desired_subscription_mode(SubOpts),
+    {S, Subscription} = write_new_subscription(TopicFilter, SubOpts, UpgradeQoS, S0),
+    ?tp(persistent_session_ds_subscription_added, #{
+        topic_filter => TopicFilter,
+        session => SessionId,
+        mode => Mode
+    }),
+    %% Immediate side-effects:
+    %% If the session fails to commit, routing might become inconsistent.
+    ok = add_route(Mode, SessionId, TopicFilter, SubOpts),
+    {Mode, S, Subscription}.
+
+update_subscription(TopicFilter, SubOpts, Sub0, SessionId, #{upgrade_qos := UpgradeQoS}, S0) ->
+    #{id := SubId, current_state := SStateId0} = Sub0,
+    OldSState = emqx_persistent_session_ds_state:get_subscription_state(SStateId0, S0),
+    case OldSState of
+        #{
+            parent_subscription := SubId,
+            subopts := SubOpts,
+            upgrade_qos := UpgradeQoS,
+            mode := Mode
+        } ->
+            %% Client resubscribed with the same parameters:
+            {ok, Mode, S0, Sub0};
+        OldSState = #{mode := OldMode} ->
+            %% Subsription parameters changed:
+            DesiredMode = desired_subscription_mode(SubOpts),
+            SState0 = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
+            case OldMode of
+                DesiredMode ->
+                    %% No change in subscription mode:
+                    {S, Sub} =
+                        update_subscription_state(TopicFilter, Sub0, OldSState, SState0, S0),
+                    Ret = {ok, DesiredMode, S, Sub};
+                durable when DesiredMode =:= direct ->
+                    %% Switch from durable to direct is not possible when the session
+                    %% is active. Subscription will remain durable while the client is
+                    %% connected.
+                    SState = SState0#{mode => durable},
+                    {S, Sub} =
+                        update_subscription_state(TopicFilter, Sub0, OldSState, SState, S0),
+                    Ret = {ok, durable, S, Sub};
+                direct when DesiredMode =:= durable ->
+                    %% Switch from direct to durable is possible.
+                    %% The client however is not expecting to see any messages from the past,
+                    %% so we need to recreate the subscription.
+                    S1 = delete_subscription_state(TopicFilter, S0),
+                    {S, Sub} = write_new_subscription(TopicFilter, SubOpts, UpgradeQoS, S1),
+                    %% Immediate side-effects:
+                    ok = add_route(durable, SessionId, TopicFilter, SubOpts),
+                    ok = delete_route(direct, SessionId, TopicFilter),
+                    Ret = {mode_changed, durable, S, Sub}
+            end,
+            ?tp(persistent_session_ds_subscription_updated, #{
+                topic_filter => TopicFilter,
+                session => SessionId,
+                mode => element(2, Ret),
+                mode_changed => element(1, Ret) =:= mode_changed
+            }),
+            Ret
+    end.
+
+update_subscription_state(TopicFilter, Subscription0, OldSState, SState, S0) ->
+    #{current_state := SStateId0} = Subscription0,
+    {SStateId, S1} = emqx_persistent_session_ds_state:new_id(S0),
+    S2 = emqx_persistent_session_ds_state:put_subscription_state(SStateId, SState, S1),
+    S3 = emqx_persistent_session_ds_state:put_subscription_state(
+        SStateId0, OldSState#{superseded_by => SStateId}, S2
+    ),
+    Subscription = Subscription0#{current_state := SStateId},
+    S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Subscription, S3),
+    {S, Subscription}.
+
+-spec create_subscription_effects(
+    emqx_persistent_session_ds:topic_filter(),
+    subscription(),
+    subscription_state(),
+    emqx_persistent_session_ds:session()
+) ->
+    {subscription_mode(), emqx_persistent_session_ds:session()}.
+create_subscription_effects(TopicFilter, Subscription, SubState, Session = #{s := S}) ->
+    Mode = get_subscription_mode(Subscription, S),
+    {Mode, create_subscription_effects(Mode, TopicFilter, Subscription, SubState, Session)}.
 
 %% Perform side effects necessary for transferring the "outer world"
 %% into state where subscription exists:
@@ -492,24 +495,20 @@ delete_subscription_effects(direct, TopicFilter, _, Sess = #{id := SessId}) ->
     delete_route(direct, SessId, TopicFilter),
     Sess.
 
-%% Get **current** subscription mode:
--spec get_subscription_mode(subscription(), emqx_persistent_session_ds_state:t()) ->
-    subscription_mode().
-get_subscription_mode(#{current_state := SStateId}, S) ->
-    #{mode := Mode} = emqx_persistent_session_ds_state:get_subscription_state(SStateId, S),
-    Mode.
-
-desired_subscription_mode(#{qos := ?QOS_0}) ->
-    direct;
-desired_subscription_mode(#{qos := _QoS12}) ->
-    durable.
-
 %%--------------------------------------------------------------------------------
 %% Functions for manipulating subscription state. They don't have any
-%% side effects other than modifying the persistent session state (`s').
-%% --------------------------------------------------------------------------------
+%% side effects other than modifying persistent session state (i.e. `s' field).
+%%--------------------------------------------------------------------------------
 
-create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
+%% Create a new subscription record and a new subscription state and
+%% write it to the persistent session state.
+-spec write_new_subscription(
+    emqx_persistent_session_ds:topic_filter(),
+    subopts(),
+    boolean(),
+    emqx_persistent_session_ds_state:t()
+) -> {emqx_persistent_session_ds_state:t(), subscription()}.
+write_new_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
     {SubId, S1} = emqx_persistent_session_ds_state:new_id(S0),
     {SStateId, S2} = emqx_persistent_session_ds_state:new_id(S1),
     SState = mk_subscription_state(SubId, SubOpts, UpgradeQoS),
@@ -521,6 +520,35 @@ create_subscription(TopicFilter, SubOpts, UpgradeQoS, S0) ->
     S3 = emqx_persistent_session_ds_state:put_subscription_state(SStateId, SState, S2),
     S = emqx_persistent_session_ds_state:put_subscription(TopicFilter, Subscription, S3),
     {S, Subscription}.
+
+-spec delete_subscription_state(
+    emqx_persistent_session_ds:topic_filter(),
+    emqx_persistent_session_ds_state:t()
+) ->
+    emqx_persistent_session_ds_state:t().
+delete_subscription_state(TopicFilter, S0) ->
+    emqx_persistent_session_ds_state:del_subscription(TopicFilter, S0).
+
+%% @doc Merge subscription with its current state:
+-spec session_subscription(subscription(), subscription_state()) ->
+    emqx_persistent_session_ds:subscription().
+session_subscription(Subscription, #{subopts := SubOpts, mode := Mode}) ->
+    Subscription#{subopts => SubOpts, mode => Mode};
+session_subscription(_Subscription, undefined) ->
+    undefined.
+
+mk_subscription_state(SubId, SubOpts, UpgradeQoS) ->
+    SState = #{
+        parent_subscription => SubId,
+        upgrade_qos => UpgradeQoS,
+        subopts => SubOpts
+    },
+    case desired_subscription_mode(SubOpts) of
+        %% Subscriptions are assumed to be durable by default:
+        durable -> SState#{mode => durable};
+        %% Explicitly mark as direct to differentiate from existing subscriptions:
+        direct -> SState#{mode => direct}
+    end.
 
 %%--------------------------------------------------------------------------------
 %% `emqx_ds_client' management
@@ -595,6 +623,21 @@ add_direct_route(SessionId, Topic, SubOpts) ->
 
 delete_direct_route(_SessionId, Topic) ->
     emqx_broker:unsubscribe(Topic).
+
+%% Get **current** subscription mode:
+-spec get_subscription_mode(
+    emqx_persistent_session_ds:subscription(),
+    emqx_persistent_session_ds_state:t()
+) -> subscription_mode().
+get_subscription_mode(#{current_state := SStateId}, S) ->
+    #{mode := Mode} = emqx_persistent_session_ds_state:get_subscription_state(SStateId, S),
+    Mode.
+
+-spec desired_subscription_mode(subopts()) -> subscription_mode().
+desired_subscription_mode(#{qos := ?QOS_0}) ->
+    direct;
+desired_subscription_mode(#{qos := _QoS12}) ->
+    durable.
 
 %%================================================================================
 %% Test
