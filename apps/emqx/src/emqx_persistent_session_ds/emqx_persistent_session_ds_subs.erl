@@ -95,7 +95,11 @@
 %% API functions
 %%================================================================================
 
-%% @doc Fold over subscriptions:
+%% @doc Fold over subscriptions.
+%%
+%% If `Include' list is empty, this function folds only over
+%% non-shared durable subscriptions. Adding atoms `direct' or `shared'
+%% adds specified types of subscriptions to the loop.
 -spec fold(
     fun((emqx_persistent_session_ds:topic_filter(), subscription(), Acc) -> Acc),
     Acc,
@@ -502,6 +506,42 @@ add_direct_route(SessionId, Topic, SubOpts) ->
 
 delete_direct_route(_SessionId, Topic) ->
     emqx_broker:unsubscribe(Topic).
+
+%% A wrapper function that creates a subscription in the DS client
+%% with the given options and updates the state
+-spec ds_cli_sub(
+    emqx_persistent_session_ds:topic_filter(), subscription(), emqx_persistent_session_ds:session()
+) ->
+    emqx_persistent_session_ds:session().
+ds_cli_sub(TopicFilter, #{id := SubId, start_time := StartTime}, Sess0 = #{dscli := CLI0}) ->
+    SubOpts = #{
+        max_unacked => emqx_config:get([durable_sessions, batch_size])
+    },
+    Opts = #{
+        id => SubId,
+        db => ?PERSISTENT_MESSAGE_DB,
+        topic => emqx_ds:topic_words(TopicFilter),
+        start_time => StartTime,
+        ds_sub_opts => SubOpts
+    },
+    case emqx_ds_client:subscribe(CLI0, Opts, Sess0) of
+        {ok, CLI, Sess} ->
+            Sess#{dscli := CLI};
+        {error, already_exists} ->
+            Sess0
+    end.
+
+-spec ds_cli_unsub(
+    emqx_persistent_session_ds:subscription_id(), emqx_persistent_session_ds:session()
+) ->
+    emqx_persistent_session_ds:session().
+ds_cli_unsub(SubId, Sess0 = #{dscli := CLI0}) ->
+    case emqx_ds_client:unsubscribe(CLI0, SubId, Sess0) of
+        {ok, CLI, Sess} ->
+            Sess#{dscli := CLI};
+        {error, not_found} ->
+            Sess0
+    end.
 
 %%================================================================================
 %% Test
