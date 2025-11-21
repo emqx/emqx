@@ -634,7 +634,8 @@ download_plugin_config(get, #{bindings := #{name := NameVsn}}) ->
                 <<"content-disposition">> =>
                     <<"attachment; filename=\"", NameVsn/binary, ".json\"">>
             },
-            {200, Headers, Config};
+            JsonBin = jsone:encode(Config, [{indent, 2}, {space, 1}]),
+            {200, Headers, JsonBin};
         FailureResponse ->
             FailureResponse
     end.
