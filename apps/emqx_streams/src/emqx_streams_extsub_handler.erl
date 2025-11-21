@@ -85,7 +85,7 @@ DS streams are explicity called `DS streams' here.
 
 -record(complete_stream, {
     sub_id :: sub_id(),
-    slab :: {emqx_ds:shard(), emqx_ds:generation()},
+    slab :: emqx_ds:slab(),
     ds_stream :: emqx_ds:stream()
 }).
 
@@ -450,8 +450,24 @@ split_topic_filter(TopicFilter) ->
 
 find_stream(TopicFilter) ->
     case emqx_streams_registry:find(TopicFilter) of
-        {ok, Stream} -> {ok, Stream};
-        not_found -> {error, {stream_not_found, TopicFilter}}
+        {ok, Stream} ->
+            {ok, Stream};
+        not_found ->
+            case emqx_streams_config:auto_create(TopicFilter) of
+                {true, DefaultStream} ->
+                    % {ok, Stream};
+                    case emqx_streams_registry:create(DefaultStream) of
+                        {ok, Stream} ->
+                            {ok, Stream};
+                        {error, Reason} ->
+                            {error,
+                                {cannot_auto_create_stream, #{
+                                    stream => DefaultStream, reason => Reason
+                                }}}
+                    end;
+                false ->
+                    {error, {stream_not_found, TopicFilter}}
+            end
     end.
 
 validate_partition(Stream, Partition) ->

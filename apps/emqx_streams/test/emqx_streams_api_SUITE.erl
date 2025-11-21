@@ -29,7 +29,14 @@ init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            {emqx, emqx_streams_test_utils:cth_config(emqx)},
+            {emqx,
+                emqx_streams_test_utils:cth_config(emqx, #{
+                    <<"durable_storage">> => #{
+                        <<"streams_messages">> => #{
+                            <<"n_shards">> => 1
+                        }
+                    }
+                })},
             {emqx_mq, emqx_streams_test_utils:cth_config(emqx_mq)},
             {emqx_streams, emqx_streams_test_utils:cth_config(emqx_streams)},
             emqx_management,
@@ -372,29 +379,26 @@ t_limited_vs_unlimited(_Config) ->
     ).
 
 %% Verify that default values are good enough for lastvalue streams
-%% TODO
-%% Implement autocreate and fix test
+t_defaults(_Config) ->
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([message_streams, streams], #{<<"topic_filter">> => <<"t/#">>})
+    ),
+    %% Publish 10 messages to the queue
+    emqx_mq_test_utils:populate_lastvalue(10, #{
+        topic_prefix => <<"t/">>,
+        payload_prefix => <<"payload-">>,
+        n_keys => 10
+    }),
 
-% t_defaults(_Config) ->
-%     ?assertMatch(
-%         {ok, 200, _},
-%         api_post([message_streams, streams], #{<<"topic_filter">> => <<"t/#">>})
-%     ),
-%     %% Publish 10 messages to the queue
-%     emqx_mq_test_utils:populate_lastvalue(10, #{
-%         topic_prefix => <<"t/">>,
-%         payload_prefix => <<"payload-">>,
-%         n_keys => 10
-%     }),
+    %% Consume the messages from the queue
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
+    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 100),
+    ok = emqtt:disconnect(CSub),
 
-%     %% Consume the messages from the queue
-%     CSub = emqx_streams_test_utils:emqtt_connect([]),
-%     emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"t/#">>),
-%     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 100),
-%     ok = emqtt:disconnect(CSub),
-
-%     %% Verify the messages. Default key expression is clientid, so we should receive only one message.
-%     ?assertEqual(1, length(Msgs)).
+    %% Verify the messages. Default key expression is clientid, so we should receive only one message.
+    ?assertEqual(1, length(Msgs)).
 
 %% Verify that the max stream count is respected
 t_max_stream_count(_Config) ->
