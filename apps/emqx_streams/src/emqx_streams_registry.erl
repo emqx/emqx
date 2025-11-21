@@ -38,6 +38,7 @@ The module contains the registry of Streams.
     is_lastvalue :: boolean() | '_',
     key_expr :: emqx_variform:compiled() | undefined | '_',
     limits :: emqx_streams_types:limits() | '_',
+    read_max_unacked :: non_neg_integer() | '_',
     extra = #{} :: map() | '_'
 }).
 
@@ -88,7 +89,8 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue, limits := Lim
                             id = Id,
                             is_lastvalue = IsLastValue,
                             key_expr = maps:get(key_expression, Stream0, undefined),
-                            limits = Limits
+                            limits = Limits,
+                            read_max_unacked = maps:get(read_max_unacked, Stream0)
                         }),
                         ok;
                     [_] ->
@@ -96,8 +98,6 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue, limits := Lim
                 end
             end),
         Stream = Stream0#{id => Id},
-        %% TODO
-        %% Maybe create addtional state in storage
         {ok, Stream}
     else
         {atomic, {error, _} = Error} ->
@@ -137,9 +137,7 @@ find(TopicFilter) ->
         [] ->
             not_found;
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
-            %% TODO
-            %% Maybe read addtional state from storage
-            {ok, record_to_stream_handle(Rec)}
+            {ok, record_to_stream(Rec)}
     end.
 
 -doc """
@@ -166,8 +164,10 @@ delete(TopicFilter) ->
         [] ->
             not_found;
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
-            ok = mria:dirty_delete_object(Rec)
-        %% TODO Drop Streams messages and maybe additional state from storage
+            ok = mria:dirty_delete_object(Rec),
+            Stream = record_to_stream(Rec),
+            ok = emqx_streams_message_db:drop(Stream)
+        %% TODO Drop consumer groups
     end.
 
 -doc """
@@ -176,7 +176,8 @@ Delete all Streams. Only for testing/maintenance.
 -spec delete_all() -> ok.
 delete_all() ->
     _ = mria:clear_table(?STREAMS_REGISTRY_INDEX_TAB),
-    %% TODO Drop all Streams messages and maybe additional state from storage
+    ok = emqx_streams_message_db:delete_all(),
+    %% TODO Drop all consumer groups
     ok.
 
 -doc """
@@ -197,30 +198,24 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
         [] ->
             not_found;
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
-            #{id := Id} = StreamHandle = record_to_stream_handle(Rec),
-            IsLastvalueOld = emqx_streams_prop:is_lastvalue(StreamHandle),
+            #{id := Id} = Stream = record_to_stream(Rec),
+            IsLastvalueOld = emqx_streams_prop:is_lastvalue(Stream),
             IsLastvalueNew = emqx_streams_prop:is_lastvalue(UpdateFields),
-            IsLimitedOld = emqx_streams_prop:is_limited(StreamHandle),
+            IsLimitedOld = emqx_streams_prop:is_limited(Stream),
             IsLimitedNew = emqx_streams_prop:is_limited(UpdateFields),
-            NeedUpdateIndex = need_update_index(StreamHandle, UpdateFields),
             case UpdateFields of
                 _ when IsLastvalueOld =/= IsLastvalueNew ->
                     {error, is_lastvalue_not_allowed_to_be_updated};
                 _ when (not IsLastvalueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
                     {error, limit_presence_cannot_be_updated_for_regular_streams};
-                _ when NeedUpdateIndex ->
-                    case update_index(Key, Id, UpdateFields) of
+                _ ->
+                    StreamNew = maps:merge(Stream, UpdateFields),
+                    case update_index(Key, Id, StreamNew) of
                         ok ->
-                            {ok, maps:merge(StreamHandle, UpdateFields)};
-                        %% TODO
-                        %% Maybe update addtional state in storage
+                            {ok, StreamNew};
                         not_found ->
                             not_found
-                    end;
-                _ ->
-                    %% TODO
-                    %% Update addtional state in storage
-                    {ok, maps:merge(StreamHandle, UpdateFields)}
+                    end
             end
     end.
 
@@ -256,20 +251,6 @@ list(Cursor, Limit) when Limit >= 1 ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-need_update_index(
-    #{is_lastvalue := true, key_expression := OldKeyExpr} = _StreamHandle,
-    #{key_expression := NewKeyExpr} = _UpdateFields
-) when NewKeyExpr =/= OldKeyExpr ->
-    true;
-need_update_index(
-    #{limits := OldLimits} = _StreamHandle, #{limits := NewLimits} = _UpdateFields
-) when
-    OldLimits =/= NewLimits
-->
-    true;
-need_update_index(_, _) ->
-    false.
-
 record_stream() ->
     record_stream(undefined).
 
@@ -303,9 +284,7 @@ next_key(Key) ->
 record_stream_to_streams(Stream) ->
     emqx_utils_stream:chainmap(
         fun(#?STREAMS_REGISTRY_INDEX_TAB{} = Rec) ->
-            %% TODO
-            %% Maybe read addtional state from storage
-            [record_to_stream_handle(Rec)]
+            [record_to_stream(Rec)]
         end,
         Stream
     ).
@@ -316,15 +295,17 @@ make_key(TopicFilter) ->
 update_index(Key, Id, UpdateFields) ->
     {atomic, Result} = mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
         case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
-            [] ->
-                not_found;
             [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
                 NewKeyExpr = maps:get(key_expression, UpdateFields, undefined),
                 NewLimits = maps:get(limits, UpdateFields, ?DEFAULT_STREAM_LIMITS),
                 mnesia:write(Rec#?STREAMS_REGISTRY_INDEX_TAB{
-                    key_expr = NewKeyExpr, limits = NewLimits
+                    key_expr = NewKeyExpr,
+                    limits = NewLimits,
+                    read_max_unacked = maps:get(read_max_unacked, UpdateFields)
                 }),
-                ok
+                ok;
+            _ ->
+                not_found
         end
     end),
     Result.
@@ -338,6 +319,12 @@ record_to_stream_handle(#?STREAMS_REGISTRY_INDEX_TAB{
         is_lastvalue => IsLastValue,
         key_expression => KeyExpr,
         limits => Limits
+    }.
+
+record_to_stream(#?STREAMS_REGISTRY_INDEX_TAB{read_max_unacked = ReadMaxUnacked} = Rec) ->
+    StreamHandle = record_to_stream_handle(Rec),
+    StreamHandle#{
+        read_max_unacked => ReadMaxUnacked
     }.
 
 stream_count() ->
