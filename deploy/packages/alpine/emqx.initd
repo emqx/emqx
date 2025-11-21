@@ -1,0 +1,183 @@
+#!/sbin/openrc-run
+# Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+description="EMQX - The Most Scalable MQTT Broker"
+description_reload="Reload EMQX configuration"
+
+# Default values
+: ${EMQX_USER:=emqx}
+: ${EMQX_GROUP:=emqx}
+: ${EMQX_HOME:=/usr/lib/emqx}
+: ${EMQX_BIN:=/usr/bin/emqx}
+: ${EMQX_PIDFILE:=/var/run/emqx/emqx.pid}
+: ${EMQX_LOG_DIR:=/var/log/emqx}
+
+command="${EMQX_BIN}"
+command_user="${EMQX_USER}:${EMQX_GROUP}"
+
+depend() {
+    need net
+    use dns logger
+    after firewall
+}
+
+start_pre() {
+    # Create PID directory if it doesn't exist
+    checkpath --directory --owner "${EMQX_USER}:${EMQX_GROUP}" --mode 0755 \
+        "$(dirname "${EMQX_PIDFILE}")" || return 1
+    
+    # Create log directory if it doesn't exist
+    checkpath --directory --owner "${EMQX_USER}:${EMQX_GROUP}" --mode 0755 \
+        "${EMQX_LOG_DIR}" || return 1
+    
+    # Set environment variables
+    export HOME="/var/lib/emqx"
+    export EMQX_DEFAULT_LOG_HANDLER=file
+    
+    return 0
+}
+
+start() {
+    ebegin "Starting ${description}"
+    
+    # Get ERTS path to monitor run_erl process
+    local erts_path
+    erts_path="$(su -s /bin/sh "${EMQX_USER}" -c "${EMQX_BIN} ertspath 2>/dev/null")"
+    
+    if [ -z "${erts_path}" ]; then
+        eerror "Failed to determine ERTS path"
+        eend 1
+        return 1
+    fi
+    
+    local run_erl_bin="${erts_path}/bin/run_erl"
+    
+    if [ ! -x "${run_erl_bin}" ]; then
+        eerror "run_erl not found at ${run_erl_bin}"
+        eend 1
+        return 1
+    fi
+    
+    # Start EMQX in daemon mode (uses run_erl)
+    start-stop-daemon --start \
+        --user "${EMQX_USER}" \
+        --pidfile "${EMQX_PIDFILE}" \
+        --exec "${EMQX_BIN}" \
+        --background \
+        --make-pidfile \
+        -- start
+    
+    local retval=$?
+    
+    if [ ${retval} -eq 0 ]; then
+        # Wait a moment for EMQX to fully start
+        sleep 2
+        
+        # Verify EMQX is actually running by checking run_erl
+        if pgrep -u "${EMQX_USER}" -f "${run_erl_bin}" >/dev/null 2>&1; then
+            # Update PID file with actual run_erl PID
+            pgrep -u "${EMQX_USER}" -f "${run_erl_bin}" | head -n1 > "${EMQX_PIDFILE}"
+            eend 0
+            return 0
+        else
+            eerror "EMQX failed to start properly"
+            rm -f "${EMQX_PIDFILE}"
+            eend 1
+            return 1
+        fi
+    else
+        eend ${retval}
+        return ${retval}
+    fi
+}
+
+stop() {
+    ebegin "Stopping ${description}"
+    
+    # Get ERTS path for run_erl
+    local erts_path
+    erts_path="$(su -s /bin/sh "${EMQX_USER}" -c "${EMQX_BIN} ertspath 2>/dev/null")"
+    
+    if [ -n "${erts_path}" ]; then
+        local run_erl_bin="${erts_path}/bin/run_erl"
+        
+        # First attempt graceful shutdown via emqx stop
+        su -s /bin/sh "${EMQX_USER}" -c "${EMQX_BIN} stop" >/dev/null 2>&1
+        
+        # Wait for graceful shutdown (max 30 seconds)
+        local timeout=30
+        local elapsed=0
+        while [ ${elapsed} -lt ${timeout} ]; do
+            if ! pgrep -u "${EMQX_USER}" -f "${run_erl_bin}" >/dev/null 2>&1; then
+                rm -f "${EMQX_PIDFILE}"
+                eend 0
+                return 0
+            fi
+            sleep 1
+            elapsed=$((elapsed + 1))
+        done
+        
+        # If still running, use start-stop-daemon for forceful termination
+        start-stop-daemon --stop \
+            --user "${EMQX_USER}" \
+            --retry TERM/30/KILL/5 \
+            --exec "${run_erl_bin}"
+        
+        local retval=$?
+        rm -f "${EMQX_PIDFILE}"
+        eend ${retval}
+        return ${retval}
+    else
+        # Fallback: use PID file if ERTS path cannot be determined
+        start-stop-daemon --stop \
+            --pidfile "${EMQX_PIDFILE}" \
+            --retry TERM/30/KILL/5
+        
+        local retval=$?
+        rm -f "${EMQX_PIDFILE}"
+        eend ${retval}
+        return ${retval}
+    fi
+}
+
+reload() {
+    ebegin "Reloading ${description} configuration"
+    
+    # EMQX doesn't have a traditional reload, but we can use the RPC interface
+    # For now, just verify it's running
+    if ! pgrep -u "${EMQX_USER}" -f "run_erl" >/dev/null 2>&1; then
+        eerror "EMQX is not running"
+        eend 1
+        return 1
+    fi
+    
+    einfo "EMQX configuration can be updated via the dashboard or HTTP API"
+    einfo "Use 'rc-service emqx restart' to apply configuration changes that require restart"
+    eend 0
+}
+
+status() {
+    # Use EMQX's built-in status command
+    su -s /bin/sh "${EMQX_USER}" -c "${EMQX_BIN} status" 2>/dev/null
+    local retval=$?
+    
+    if [ ${retval} -eq 0 ]; then
+        einfo "EMQX is running"
+        return 0
+    else
+        einfo "EMQX is not running"
+        return 3
+    fi
+}
