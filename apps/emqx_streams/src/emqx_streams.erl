@@ -169,8 +169,6 @@ on_session_unsubscribed(_ClientInfo, _Topic, _SubOpts) ->
 
 -define(pd_sdisp_state, emqx_streams_shard_dispatch_state).
 
-shard_dispatch_handle_ret(on_message_publish, {Cont, #message{} = Message}) when is_atom(Cont) ->
-    {Cont, emqx_message:set_header(allow_publish, false, Message)};
 shard_dispatch_handle_ret(_Hook, Ret) ->
     case Ret of
         {stop, Acc, StNext} ->

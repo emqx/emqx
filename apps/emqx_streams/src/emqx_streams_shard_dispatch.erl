@@ -19,6 +19,9 @@
     on_command/3
 ]).
 
+%% FIXME
+-export([get_stream_info/2]).
+
 -type consumer() :: emqx_types:clientid().
 -type group() :: binary().
 -type stream() :: binary().
@@ -33,11 +36,9 @@
     pending => _Request
 }.
 
--define(N_CONCURRENT_PROPOSALS, 2).
+-define(N_CONCURRENT_PROPOSALS, 1).
 -define(HEARTBEAT_LIFETIME, 30).
 -define(ANNOUNCEMENT_LIFETIME, 15).
-
--define(sgroup(GROUP, STREAM), <<GROUP/binary, ":", STREAM/binary>>).
 
 %% Protocol interaction
 
@@ -53,7 +54,7 @@ on_subscription(ClientInfo, Topic, St) ->
     end.
 
 on_subscription_consume(Consumer, Group, Stream, St) ->
-    SGroup = ?sgroup(Group, Stream),
+    SGroup = ?streamgroup(Group, Stream),
     maybe
         _Stream = undefined ?= find_stream(Group, St),
         {ok, Shards} ?= get_stream_info(Stream, shards),
@@ -135,18 +136,21 @@ on_publish(#message{topic = Topic} = Msg, St) ->
         Request = {_Command, Group, _Shard, _Offset} ->
             case sgroup_state(Group, St) of
                 _GroupSt = #{} ->
-                    {stop, Msg, St#{pending => Request}};
+                    {stop, stop_publish(Msg), St#{pending => Request}};
                 undefined ->
                     ?tp(info, "streams_shard_dispatch_unexpected_message", #{
                         consumer => consumer(St),
                         topic => Topic,
                         payload => Msg#message.payload
                     }),
-                    {stop, Msg}
+                    {stop, stop_publish(Msg)}
             end;
         false ->
             protocol_error(Msg)
     end.
+
+stop_publish(Message) ->
+    emqx_message:set_header(allow_publish, false, Message).
 
 on_puback(PacketId, #message{}, St0) ->
     {Request, St1} = maps:take(pending, St0),
@@ -187,7 +191,7 @@ on_request(PacketId, {Command, Group, Shard, Offset}, St0) ->
             }),
             _ = on_request_error(Command, Group, Reason),
             St = update_sgroup_state(Group, invalidate_proposals(GSt), St0),
-            #ret{reply = ?RC_IMPLEMENTATION_SPECIFIC_ERROR, st = St};
+            #ret{reply = map_invalid_rc(Reason), st = St};
         Error ->
             %% FIXME error handling
             ?tp(info, "streams_shard_dispatch_progress_error", #{
@@ -265,8 +269,7 @@ handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St0) ->
             ?tp(debug, "streams_shard_dispatch_progress_tx_success", #{
                 consumer => Consumer,
                 streamgroup => SGroup,
-                tx => Ref,
-                ctx => Ctx
+                tx => Ref
             }),
             _ = on_tx_success(Command, Group, GSt),
             St = update_sgroup_state(Group, GSt, St0),
@@ -287,7 +290,7 @@ handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St0) ->
             }),
             _ = on_request_error(Command, Group, Reason),
             St = update_sgroup_state(Group, invalidate_proposals(GSt), St0),
-            #ret{reply = ?RC_IMPLEMENTATION_SPECIFIC_ERROR, st = St};
+            #ret{reply = map_invalid_rc(Reason), st = St};
         Error ->
             ?tp(info, "streams_shard_dispatch_progress_tx_error", #{
                 consumer => Consumer,
@@ -297,6 +300,11 @@ handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St0) ->
             #ret{}
     end.
 
+map_invalid_rc({leased, _}) ->
+    ?RC_NO_MATCHING_SUBSCRIBERS;
+map_invalid_rc(_Otherwise) ->
+    ?RC_IMPLEMENTATION_SPECIFIC_ERROR.
+
 on_tx_success(progress, Group, #{proposed := []}) ->
     self() ! #shard_dispatch_command{group = Group, c = reprovision, context = no_more_proposals};
 on_tx_success(progress, _SGroup, #{proposed := [_ | _]}) ->
@@ -304,17 +312,19 @@ on_tx_success(progress, _SGroup, #{proposed := [_ | _]}) ->
 on_tx_success(release, _SGroup, #{}) ->
     ok.
 
-on_command(#shard_dispatch_command{group = Group, c = reprovision}, RetAcc0, St0) ->
-    Consumer = consumer(St0),
-    Stream = maps:get({stream, Group}, St0),
-    GSt0 = sgroup_state(Group, St0),
+on_command(#shard_dispatch_command{group = Group, c = reprovision}, RetAcc0, St) ->
+    #{deliver := Deliver, replies := Replies} = RetAcc0,
+    Consumer = consumer(St),
+    Stream = maps:get({stream, Group}, St),
+    GSt0 = sgroup_state(Group, St),
     Ret = handle_reprovision(Consumer, Group, Stream, GSt0),
-    RetAcc = RetAcc0#{
-        delivers => Ret#ret.delivers
+    RetAcc = #{
+        deliver => Deliver ++ Ret#ret.delivers,
+        replies => Replies
     },
     case Ret of
-        #ret{st = St} when St =/= unchanged ->
-            {stop, RetAcc, St};
+        #ret{st = GSt} when GSt =/= unchanged ->
+            {stop, RetAcc, update_sgroup_state(Group, GSt, St)};
         #ret{} ->
             {stop, RetAcc}
     end.
@@ -322,8 +332,8 @@ on_command(#shard_dispatch_command{group = Group, c = reprovision}, RetAcc0, St0
 handle_reprovision(Consumer, Group, Stream, GSt0) ->
     %% FIXME error handling
     {ok, Shards} = get_stream_info(Stream, shards),
-    SGroup = ?sgroup(Group, Stream),
-    GSt = #{proposals := Proposals} = propose_shards(Consumer, SGroup, Shards, GSt0),
+    SGroup = ?streamgroup(Group, Stream),
+    GSt = #{proposed := Proposals} = propose_shards(Consumer, SGroup, Shards, GSt0),
     case Proposals of
         [_ | _] ->
             Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),

@@ -69,9 +69,11 @@ provision(Consumer, SGroup, Shards, HBWatermark) ->
     case ProvisionalShards of
         [_ | _] ->
             [{lease, Shard} || Shard <- ProvisionalShards];
-        [] ->
+        [] when Allocations =:= [] ->
             Rebalances = emqx_streams_allocation:rebalance([], Alloc1),
-            [{release, Shard} || {Shard, C, _} <- Rebalances, C == Consumer]
+            [{release, Shard} || {Shard, C, _} <- Rebalances, C == Consumer];
+        [] ->
+            []
     end.
 
 provision_takeovers(Consumer, SGroup, Shards, HBWatermark) ->
@@ -196,6 +198,12 @@ progress_shard(Consumer, SGroup, Shard, Offset, HB, St) ->
         true ->
             case emqx_streams_state_db:progress_shard_async(SGroup, Shard, Consumer, Offset, HB) of
                 ok ->
+                    ?tp_debug("sdisp_group_progress", #{
+                        leased => maps:get(lease, St),
+                        consumer => Consumer,
+                        shard => Shard,
+                        offset => Offset
+                    }),
                     {ok, St#{
                         lease := true,
                         heartbeat_last := HB,
@@ -233,7 +241,7 @@ handle_progress_tx(Consumer, SGroup, Ref, Reply, Ctx, St) ->
     {Ret, Shard, Offset, Heartbeat} = Ctx,
     #{{shard, Shard} := ShardSt0} = St,
     Result = emqx_streams_state_db:progress_shard_tx_result(Ret, Ref, Reply),
-    case handle_shard_progress(Result, Consumer, Offset, Heartbeat, ShardSt0) of
+    case handle_shard_progress(Result, Consumer, Shard, Offset, Heartbeat, ShardSt0) of
         {restart, ShardSt} ->
             %% FIXME logging context
             progress(Consumer, SGroup, Shard, Offset, Heartbeat, St#{{shard, Shard} := ShardSt});
@@ -241,13 +249,19 @@ handle_progress_tx(Consumer, SGroup, Ref, Reply, Ctx, St) ->
             return_update_shard(Shard, ShardRet, St)
     end.
 
-handle_shard_progress(Result, Consumer, Offset, Heartbeat, St) ->
+handle_shard_progress(Result, Consumer, _Shard, Offset, Heartbeat, St) ->
     #{
         offset_committed := OffsetCommitted,
         heartbeat_last := HBLast
     } = St,
     case Result of
         ok ->
+            ?tp_debug("sdisp_group_progress", #{
+                leased => maps:get(lease, St),
+                consumer => Consumer,
+                shard => _Shard,
+                offset => Offset
+            }),
             St#{
                 lease := true,
                 heartbeat_last := max(Heartbeat, emqx_maybe:define(HBLast, Heartbeat)),

@@ -11,6 +11,8 @@
 
 -define(SCHEMA_ROOT, streams).
 
+-define(streamgroup(GROUP, STREAM), <<GROUP/binary, ":", STREAM/binary>>).
+
 -record(shard_dispatch_command, {group, c, context}).
 
 -endif.
