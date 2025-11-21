@@ -182,6 +182,8 @@
 -type session() :: #{
     %% Client ID
     id := id(),
+    %% DS client state:
+    dscli := emqx_ds_client:t(),
     %% Configuration:
     props := #{upgrade_qos := boolean(), max_subscriptions := _, _ => _},
     %% Persistent state:
@@ -1404,6 +1406,7 @@ do_drain_buffer_of_stream(
     emqx_session:conf()
 ) -> session().
 create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
+    DSCli = emqx_ds_client:new(?MODULE, #{}),
     SchedS = emqx_persistent_session_ds_stream_scheduler:new(),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
@@ -1423,6 +1426,7 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
     #{
         id => ClientID,
+        dscli => DSCli,
         s => S,
         shared_sub_s => SharedSubS,
         buffer => Buffer,
