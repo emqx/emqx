@@ -333,7 +333,7 @@ stream_count() ->
 validate_max_stream_count() ->
     case stream_count() >= emqx_streams_config:max_stream_count() of
         true ->
-            {error, max_queue_count_reached};
+            {error, max_stream_count_reached};
         false ->
             ok
     end.
