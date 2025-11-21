@@ -1,0 +1,60 @@
+emqx_streams_api {
+
+    ## Method descriptions
+
+    message_streams_list {
+        desc: "List message streams with pagination."
+        label: "List Message Streams"
+    }
+    message_streams_create {
+        desc: "Create a new message stream."
+        label: "Create Message Stream"
+    }
+    message_streams_get {
+        desc: "Get message stream."
+        label: "Get Message Stream"
+    }
+    message_streams_update {
+        desc: "Update message stream."
+        label: "Update Message Stream"
+    }
+    message_streams_delete {
+        desc: "Delete message stream."
+        label: "Delete Message Stream"
+    }
+    message_streams_config_get {
+        desc: "Get streams config."
+        label: "Get Streams Config"
+    }
+    message_streams_config_update {
+        desc: "Update streams config."
+        label: "Update Streams Config"
+    }
+
+    ## Request/Response elements
+
+    bad_cursor {
+        desc: "Bad cursor"
+    }
+    message_streams_delete_success {
+        desc: "Message stream deleted successfully"
+    }
+    cannot_create_message_stream {
+        desc: "Cannot create message stream"
+    }
+    message_stream_not_found {
+        desc: "Message stream not found"
+    }
+    service_unavailable {
+        desc: "Service unavailable"
+    }
+    invalid_message_stream {
+        desc: "Invalid message stream"
+    }
+    invalid_streams_config {
+        desc: "Invalid streams config"
+    }
+    topic_filter {
+        desc: "Topic filter"
+    }
+}

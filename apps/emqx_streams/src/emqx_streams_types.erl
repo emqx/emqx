@@ -28,7 +28,8 @@ The module contains basic types for the Streams application.
     topic_filter := stream_topic(),
     is_lastvalue := boolean(),
     key_expression => emqx_variform:compiled() | undefined,
-    limits := limits()
+    limits := limits(),
+    read_max_unacked := non_neg_integer()
 }.
 
 -export_type([
