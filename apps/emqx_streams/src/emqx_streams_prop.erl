@@ -62,9 +62,8 @@ quota_index_opts(Stream) ->
 
 -spec max_unacked(emqx_streams_types:stream()) ->
     non_neg_integer().
-max_unacked(_Stream) ->
-    %% TODO: Implement max unacked
-    100.
+max_unacked(#{read_max_unacked := ReadMaxUnacked} = _Stream) ->
+    ReadMaxUnacked.
 
 -spec data_retention_period(emqx_streams_types:stream()) ->
     non_neg_integer().

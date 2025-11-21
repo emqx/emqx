@@ -59,7 +59,7 @@ on_message_publish(#message{topic = Topic} = Message) ->
             {Time, Result} = timer:tc(fun() -> publish_to_stream(StreamHandle, Message) end),
             case Result of
                 ok ->
-                    % emqx_mq_metrics:inc(ds, inserted_messages),
+                    emqx_streams_metrics:inc(ds, inserted_messages),
                     ?tp_debug(streams_on_message_publish_to_queue, #{
                         topic_filter => emqx_streams_prop:topic_filter(StreamHandle),
                         message_topic => emqx_message:topic(Message),
