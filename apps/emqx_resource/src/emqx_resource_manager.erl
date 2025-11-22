@@ -144,6 +144,9 @@
 
 -define(WAIT_FOR_RESOURCE_DELAY, 100).
 -define(T_OPERATION, 5000).
+%% Typical supervisor shutdown time is 5s
+%% we allow the remove operation to run slightly longer time.
+-define(T_OPERATION_REMOVE, (?T_OPERATION + 1000)).
 -define(T_LOOKUP, 1000).
 -define(RETRY_REMOVE_TIMEOUT, 2_000).
 
@@ -383,7 +386,8 @@ do_remove(ResId, ClearMetrics) ->
             ok;
         Pid when is_pid(Pid) ->
             MRef = monitor(process, Pid),
-            case safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION) of
+            %% Typical supervisor shutdown time is 5s
+            case safe_call(ResId, {remove, ClearMetrics}, ?T_OPERATION_REMOVE) of
                 {error, timeout} ->
                     ?tp(error, "forcefully_stopping_resource_due_to_timeout", #{
                         action => remove,
