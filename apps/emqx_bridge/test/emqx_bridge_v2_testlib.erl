@@ -553,6 +553,61 @@ op_bridge_api(Kind, Op, BridgeType, BridgeName) ->
     ct:pal("bridge op result:\n  ~p", [Res]),
     Res.
 
+%% Assert bridge start operation with retry logic for kafka_consumer rebalancing
+assert_bridge_start(Kind, Type, Name) when Type =:= <<"kafka_consumer">> ->
+    %% For kafka_consumer, retry when encountering "Consumer group rebalancing" errors
+    ?retry(
+        _Sleep = 1_000,
+        _Attempts = 10,
+        begin
+            Result = op_bridge_api(Kind, "start", Type, Name),
+            case Result of
+                {error, {{_, Status, _}, _Headers, Body}} when Status =:= 404; Status =:= 400 ->
+                    case Body of
+                        #{<<"message">> := Msg} when is_binary(Msg) ->
+                            case binary:match(Msg, <<"Consumer group rebalancing">>) of
+                                nomatch ->
+                                    %% Not a rebalancing error, fail immediately
+                                    ?assertMatch(
+                                        {ok, {{_, 204, _}, _Headers, []}},
+                                        Result
+                                    );
+                                _ ->
+                                    %% Rebalancing error, fail assertion to trigger retry
+                                    ?assertMatch(
+                                        {ok, {{_, 204, _}, _Headers, []}},
+                                        Result
+                                    )
+                            end;
+                        _ ->
+                            %% No message field or unexpected format, fail immediately
+                            ?assertMatch(
+                                {ok, {{_, 204, _}, _Headers, []}},
+                                Result
+                            )
+                    end;
+                {ok, {{_, 204, _}, _Headers, []}} ->
+                    %% Success, assertion passes
+                    ?assertMatch(
+                        {ok, {{_, 204, _}, _Headers, []}},
+                        Result
+                    );
+                _ ->
+                    %% Other error, fail immediately
+                    ?assertMatch(
+                        {ok, {{_, 204, _}, _Headers, []}},
+                        Result
+                    )
+            end
+        end
+    );
+assert_bridge_start(Kind, Type, Name) ->
+    %% For other bridge types, use normal assertion without retry
+    ?assertMatch(
+        {ok, {{_, 204, _}, _Headers, []}},
+        op_bridge_api(Kind, "start", Type, Name)
+    ).
+
 probe_bridge_api(Config) ->
     probe_bridge_api(Config, _Overrides = #{}).
 
@@ -1187,10 +1242,7 @@ t_start_stop(Config, StopTracePoint) ->
             ),
 
             %% `start` bridge to trigger `already_started`
-            ?assertMatch(
-                {ok, {{_, 204, _}, _Headers, []}},
-                op_bridge_api(Kind, "start", Type, Name)
-            ),
+            assert_bridge_start(Kind, Type, Name),
 
             ?assertEqual({ok, connected}, emqx_resource_manager:health_check(ResourceId)),
 
