@@ -109,7 +109,9 @@ fill_stream_defaults(#{topic_filter := _TopicFilter} = Stream0) ->
         limits => #{
             max_shard_message_count => infinity,
             max_shard_message_bytes => infinity
-        }
+        },
+        read_max_unacked => 1000,
+        data_retention_period => 7 * 24 * 60 * 60 * 1000
     },
     LastVelueDefault = #{
         key_expression =>
