@@ -16,7 +16,7 @@
     release_shard_async/5,
     progress_shard_tx_result/3,
     announce_consumer/4,
-    deannounce_consumer/4,
+    deannounce_consumer/3,
     shard_progress_dirty/1,
     shard_progress_dirty/2,
     shard_leases_dirty/1
@@ -27,9 +27,10 @@
 
 -define(DB, ?STREAMS_STATE_DB).
 
--define(topic_shard_lease(SGROUP, SHARD), [<<"sdisp:ls">>, SGROUP, SHARD]).
--define(topic_shard_hbeat(SGROUP, SHARD), [<<"sdisp:ls">>, SGROUP, SHARD, <<"hb">>]).
--define(topic_consumer_announce(SGROUP, SLOT), [<<"sdisp:ls">>, SGROUP, SLOT, <<"ann">>]).
+-define(topic_shard(SGROUP, TAIL), [<<"sdisp">>, SGROUP | TAIL]).
+-define(topic_shard_lease(SGROUP, SHARD), ?topic_shard(SGROUP, [<<"ls">>, SHARD])).
+-define(topic_shard_hbeat(SGROUP, SHARD), ?topic_shard(SGROUP, [<<"hb">>, SHARD])).
+-define(topic_consumer_announce(SGROUP), ?topic_shard(SGROUP, [<<"ann">>])).
 
 -define(topic_shard_progress(SGROUP, SHARD), [<<"sdisp:pr">>, SGROUP, SHARD]).
 
@@ -134,23 +135,29 @@ progress_shard_tx_result(Invalid, Ref, Reply) ->
     _ = emqx_ds:tx_commit_outcome(?DB, Ref, Reply),
     Invalid.
 
-announce_consumer(SGroup, Slot, Consumer, Heartbeat) ->
+-define(announce_hbits, 16).
+-define(time_announce(HEARTBEAT, HBITS), max(0, (HEARTBEAT) bsl ?announce_hbits + (HBITS))).
+
+announce_consumer(SGroup, Consumer, Heartbeat, Lifetime) ->
+    <<HBits:?announce_hbits, _/bits>> = erlang:md5(Consumer),
     sync_tx(SGroup, fun() ->
-        TopicAnnounce = ?topic_consumer_announce(SGroup, integer_to_binary(Slot)),
-        emqx_ds:tx_del_topic(TopicAnnounce, 0, Heartbeat),
-        emqx_ds:tx_write({TopicAnnounce, Heartbeat, Consumer})
+        TopicAnnounce = ?topic_consumer_announce(SGroup),
+        emqx_ds:tx_del_topic(TopicAnnounce, 0, ?time_announce(Heartbeat - Lifetime, 0)),
+        emqx_ds:tx_write({TopicAnnounce, ?time_announce(Heartbeat, HBits), Consumer})
     end).
 
-deannounce_consumer(SGroup, Slot, Consumer, Heartbeat) ->
+deannounce_consumer(SGroup, Consumer, Heartbeat) ->
+    <<HBits:?announce_hbits, _/bits>> = erlang:md5(Consumer),
     Ret = sync_tx(SGroup, fun() ->
-        TopicAnnounce = ?topic_consumer_announce(SGroup, integer_to_binary(Slot)),
-        emqx_ds:tx_ttv_assert_present(TopicAnnounce, Heartbeat, Consumer),
-        emqx_ds:tx_del_topic(TopicAnnounce, 0, Heartbeat + 1)
+        TopicAnnounce = ?topic_consumer_announce(SGroup),
+        Time = ?time_announce(Heartbeat, HBits),
+        emqx_ds:tx_ttv_assert_present(TopicAnnounce, Time, Consumer),
+        emqx_ds:tx_del_topic(TopicAnnounce, Time, Time + 1)
     end),
     case Ret of
         ok ->
             ok;
-        ?err_unrec({precondition_failed, [#{topic := ?topic_consumer_announce(_, _)} | _]}) ->
+        ?err_unrec({precondition_failed, [#{topic := ?topic_consumer_announce(_)} | _]}) ->
             {invalid, undefined};
         Error ->
             Error
@@ -195,7 +202,7 @@ shard_leases_dirty(SGroup) ->
             generation => 1
             % end_time => 1
         },
-        ?topic_shard_lease(SGroup, '#')
+        ?topic_shard(SGroup, ['#'])
     ),
     Leases = lists:foldl(
         fun
@@ -209,7 +216,8 @@ shard_leases_dirty(SGroup) ->
     ),
     Consumers = lists:foldl(
         fun
-            ({?topic_consumer_announce(_, _Slot), Heartbeat, Consumer}, Acc) ->
+            ({?topic_consumer_announce(_), Time, Consumer}, Acc) ->
+                Heartbeat = Time bsr ?announce_hbits,
                 HeartbeatShard = maps:get(Consumer, Acc, 0),
                 Acc#{Consumer => max(Heartbeat, HeartbeatShard)};
             ({?topic_shard_hbeat(_, Shard), _, V}, Acc) ->

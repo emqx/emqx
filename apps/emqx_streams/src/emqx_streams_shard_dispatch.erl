@@ -401,8 +401,9 @@ reannounce_myself(Consumer, Group, Stream, GSt) ->
     end.
 
 announce_myself(Consumer, SGroup, GSt0) ->
-    HB = heartbeat_announcement(),
-    case emqx_streams_shard_disp_group:announce(Consumer, SGroup, HB, GSt0) of
+    Lifetime = ?ANNOUNCEMENT_LIFETIME,
+    HB = timestamp_s() + Lifetime,
+    case emqx_streams_shard_disp_group:announce(Consumer, SGroup, HB, Lifetime, GSt0) of
         GSt = #{} ->
             GSt;
         Error ->
@@ -514,9 +515,6 @@ channel_deliver(Delivers) ->
 
 heartbeat() ->
     timestamp_s() + ?HEARTBEAT_LIFETIME.
-
-heartbeat_announcement() ->
-    timestamp_s() + ?ANNOUNCEMENT_LIFETIME.
 
 timestamp_s() ->
     erlang:system_time(second).

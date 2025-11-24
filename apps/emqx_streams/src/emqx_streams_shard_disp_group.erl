@@ -22,7 +22,7 @@
 ]).
 
 -export([
-    announce/4,
+    announce/5,
     deannounce/3
 ]).
 
@@ -49,8 +49,6 @@
     offset_committed_last => offset(),
     offset_committed_max => offset()
 }.
-
--define(N_ANNOUNCE_SLOTS, 16).
 
 %% Protocol interaction
 
@@ -122,11 +120,10 @@ phash_order(Consumer, Shards) ->
      || {_, Shard} <- lists:sort([{erlang:phash2([Consumer | S]), S} || S <- Shards])
     ].
 
--spec announce(consumer(), streamgroup(), heartbeat(), st()) ->
+-spec announce(consumer(), streamgroup(), heartbeat(), pos_integer(), st()) ->
     st() | emqx_ds:error(_).
-announce(Consumer, SGroup, Heartbeat, St) ->
-    Slot = erlang:phash2(Consumer, ?N_ANNOUNCE_SLOTS),
-    case emqx_streams_state_db:announce_consumer(SGroup, Slot, Consumer, Heartbeat) of
+announce(Consumer, SGroup, Heartbeat, Lifetime, St) ->
+    case emqx_streams_state_db:announce_consumer(SGroup, Consumer, Heartbeat, Lifetime) of
         ok ->
             St#{announcement => Heartbeat};
         Error ->
@@ -136,8 +133,7 @@ announce(Consumer, SGroup, Heartbeat, St) ->
 -spec deannounce(consumer(), streamgroup(), st()) ->
     ok | emqx_ds:error(_).
 deannounce(Consumer, SGroup, St = #{announcement := Heartbeat}) ->
-    Slot = erlang:phash2(Consumer, ?N_ANNOUNCE_SLOTS),
-    case emqx_streams_state_db:deannounce_consumer(SGroup, Slot, Consumer, Heartbeat) of
+    case emqx_streams_state_db:deannounce_consumer(SGroup, Consumer, Heartbeat) of
         ok ->
             maps:remove(announcement, St);
         {invalid, undefined} ->

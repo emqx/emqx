@@ -137,7 +137,7 @@ t_rebalance(_Config) ->
     %% Provision another consumer:
     ?assertEqual([], emqx_streams_shard_disp_group:provision(<<"c2">>, SGroup, Shards, 0)),
     %% Nothing to do, announce the consumer:
-    GB1 = emqx_streams_shard_disp_group:announce(<<"c2">>, SGroup, 2, G0),
+    GB1 = emqx_streams_shard_disp_group:announce(<<"c2">>, SGroup, 2, 60, G0),
     %% Find out if rebalancing is advertised:
     Releases = emqx_streams_shard_disp_group:provision(<<"c1">>, SGroup, Shards, 0),
     ?assertMatch([_, _], Releases),
@@ -168,9 +168,9 @@ t_rebalance_stale_announcement(_Config) ->
     Shards = [<<"S1">>, <<"S2">>, <<"S3">>, <<"S4">>, <<"S5">>],
     G0 = emqx_streams_shard_disp_group:new(),
     %% Announce C1 with Heartbeat Timestamp = 10:
-    _GA = emqx_streams_shard_disp_group:announce(<<"c1">>, ?sgroup, 10, G0),
+    _GA = emqx_streams_shard_disp_group:announce(<<"c1">>, ?sgroup, 10, 60, G0),
     %% Announce C2 with Heartbeat Timestamp = 20:
-    _GB = emqx_streams_shard_disp_group:announce(<<"c2">>, ?sgroup, 20, G0),
+    _GB = emqx_streams_shard_disp_group:announce(<<"c2">>, ?sgroup, 20, 60, G0),
     %% Compute the provision at C2 later, at Time = 15:
     %% All the shards are provosioned to C2 since C1's announcement has expired.
     ?assertSameSet(
