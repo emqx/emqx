@@ -40,7 +40,7 @@
 
 -define(N_CONCURRENT_PROPOSALS, 1).
 -define(N_CONCURRENT_TAKEOVERS, 2).
--define(REPROVISION_TIMEOUT, 1_000).
+-define(REPROVISION_CONFLICT_TIMEOUT, 1_000).
 -define(REPROVISION_RETRY_TIMEOUT, 2_500).
 
 -define(HEARTBEAT_LIFETIME, 30).
@@ -59,15 +59,26 @@ on_subscription(ClientInfo, Topic, St) ->
             protocol_error({subscribe, Topic})
     end.
 
-on_subscription_consume(Consumer, Group, Stream, St) ->
+on_subscription_consume(Consumer, Group, Stream, St0) ->
     SGroup = ?streamgroup(Group, Stream),
     maybe
-        _Stream = undefined ?= find_stream(Group, St),
+        _Stream = undefined ?= find_stream(Group, St0),
         {ok, Shards} ?= get_stream_info(Stream, shards),
-        GSt = announce_myself(Consumer, SGroup, emqx_streams_shard_disp_group:new()),
-        Ret = handle_provision(Consumer, Group, Stream, Shards, GSt),
-        ok = channel_deliver(Ret#ret.delivers),
-        {ok, set_sgroup_state(Group, Stream, Ret#ret.st, set_consumer(Consumer, St))}
+        %% Instantiate new group:
+        GSt0 = emqx_streams_shard_disp_group:new(),
+        %% Make others aware of us:
+        GSt1 = announce_myself(Consumer, SGroup, GSt0),
+        St1 = set_consumer(Consumer, St0),
+        case provision(Consumer, Group, Stream, Shards, GSt1) of
+            {ok, GSt, Delivers} ->
+                ok = channel_deliver(Delivers),
+                St = set_sgroup_state(Group, Stream, GSt, St1);
+            empty ->
+                Timeout = ?REPROVISION_RETRY_TIMEOUT,
+                St2 = schedule_command(Timeout, Group, reprovision, "empty provision", St1),
+                St = set_sgroup_state(Group, Stream, GSt1, St2)
+        end,
+        {ok, St}
     else
         Stream ->
             %% Already started.
@@ -133,33 +144,43 @@ on_request(PacketId, {Verb, Group, Shard, Offset}, St0) ->
         shard => Shard,
         offset => Offset
     },
-    case handle_request(Consumer, SGroup, Verb, Shard, Offset, GSt0) of
+    %% Deannounce consumer once has at least 1 leased shard:
+    GSt1 = deannounce_slogger(Consumer, SGroup, GSt0),
+    %% Update proposals for the group:
+    GSt2 = reflect_proposal(Consumer, SGroup, Verb, Shard, GSt1),
+    case handle_request(Consumer, SGroup, Verb, Shard, Offset, GSt2) of
         {tx, Ref, Ctx, GSt} ->
-            ?tp(debug, "streams_shard_dispatch_progress_tx_started", TraceCtx#{tx => Ref}),
+            ?tp(debug, "streams_shard_dispatch_tx_started", TraceCtx#{request => Verb, tx => Ref}),
             St = update_sgroup_state(Group, GSt, St0),
             #ret{st = stash_tx(Ref, {PacketId, Group, Ctx}, St)};
-        Ret ->
-            handle_request_outcome(Consumer, Group, Verb, Ret, TraceCtx, St0)
+        Outcome ->
+            handle_request_outcome(Consumer, Group, Verb, Outcome, TraceCtx, St0)
     end.
 
-handle_request(Consumer, SGroup, progress, Shard, Offset, GSt0) ->
-    HB = heartbeat(),
+reflect_proposal(Consumer, SGroup, progress, Shard, GSt0) ->
+    {Removed, GSt} = remove_proposal({lease, Shard}, GSt0),
     case emqx_streams_shard_disp_group:lookup_lease(Shard, GSt0) of
-        undefined ->
-            {Removed, GSt} = remove_proposal({lease, Shard}, GSt0),
+        #{} ->
+            ok;
+        undefined when Removed ->
+            ok;
+        undefined when not Removed ->
             %% TODO invalidate?
-            Removed orelse
-                ?tp(notice, "streams_shard_dispatch_leasing_no_proposal", #{
-                    consumer => Consumer,
-                    streamgroup => SGroup,
-                    shard => Shard
-                });
-        _ ->
-            GSt = GSt0
+            ?tp(notice, "streams_shard_dispatch_leasing_no_proposal", #{
+                consumer => Consumer,
+                streamgroup => SGroup,
+                shard => Shard
+            })
     end,
-    emqx_streams_shard_disp_group:progress(Consumer, SGroup, Shard, Offset, HB, GSt);
-handle_request(Consumer, SGroup, release, Shard, Offset, GSt0) ->
+    GSt;
+reflect_proposal(_Consumer, _SGroup, release, Shard, GSt0) ->
     {_Removed, GSt} = remove_proposal({release, Shard}, GSt0),
+    GSt.
+
+handle_request(Consumer, SGroup, progress, Shard, Offset, GSt) ->
+    HB = heartbeat(),
+    emqx_streams_shard_disp_group:progress(Consumer, SGroup, Shard, Offset, HB, GSt);
+handle_request(Consumer, SGroup, release, Shard, Offset, GSt) ->
     emqx_streams_shard_disp_group:release(Consumer, SGroup, Shard, Offset, GSt).
 
 on_tx_commit(Ref, Reply, RetAcc0 = #{replies := Replies, deliver := Deliver}, St0) ->
@@ -209,8 +230,8 @@ handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St0) ->
             ?tp(debug, "streams_shard_dispatch_progress_tx_restarted", TraceCtx#{tx => NRef}),
             St = update_sgroup_state(Group, GSt, St0),
             #ret{st = stash_tx(NRef, {PacketId, Group, NCtx}, St)};
-        Ret ->
-            handle_request_outcome(Consumer, Group, Verb, Ret, TraceCtx, St0)
+        Outcome ->
+            handle_request_outcome(Consumer, Group, Verb, Outcome, TraceCtx, St0)
     end.
 
 handle_request_outcome(Consumer, Group, progress, Ret, TraceCtx, St) ->
@@ -218,9 +239,8 @@ handle_request_outcome(Consumer, Group, progress, Ret, TraceCtx, St) ->
 handle_request_outcome(Consumer, Group, release, Ret, TraceCtx, St) ->
     handle_release_outcome(Consumer, Group, Ret, TraceCtx, St).
 
-handle_progress_outcome(Consumer, Group, GSt0 = #{}, TraceCtx, St0) ->
+handle_progress_outcome(_Consumer, Group, GSt = #{}, TraceCtx, St0) ->
     ?tp(debug, "streams_shard_dispatch_progress_success", TraceCtx),
-    GSt = deannounce_myself(Consumer, sgroup(Group, St0), GSt0),
     St = update_sgroup_state(Group, GSt, St0),
     case GSt of
         #{proposed := []} ->
@@ -233,14 +253,14 @@ handle_progress_outcome(_Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0
     %% FIXME loglevel
     ?tp(notice, "streams_shard_dispatch_progress_invalid", TraceCtx#{reason => Reason}),
     GSt = invalidate_proposals(GSt0),
-    St = update_sgroup_state(Group, GSt, St0),
+    St1 = update_sgroup_state(Group, GSt, St0),
     case Reason of
         {leased, _} ->
-            _ = schedule_command(?REPROVISION_TIMEOUT, Group, reprovision, Reason);
+            St = schedule_command(?REPROVISION_CONFLICT_TIMEOUT, Group, reprovision, Reason, St1);
         conflict ->
-            _ = schedule_command(?REPROVISION_TIMEOUT, Group, reprovision, Reason);
+            St = schedule_command(?REPROVISION_CONFLICT_TIMEOUT, Group, reprovision, Reason, St1);
         _ ->
-            ok
+            St = St1
     end,
     #ret{reply = map_invalid_rc(Reason), st = St};
 handle_progress_outcome(_Consumer, _Group, Error, TraceCtx, _St) ->
@@ -283,41 +303,42 @@ on_command(Command, #{deliver := DeliverAcc, replies := ReplyAcc}, St0) ->
             {stop, RetAcc}
     end.
 
-handle_command(Consumer, #shard_dispatch_command{group = Group, c = reprovision}, St) ->
-    Stream = maps:get({stream, Group}, St),
-    Ret = reprovision(Consumer, Group, Stream, sgroup_state(Group, St)),
-    case Ret of
-        #ret{st = GSt} when GSt =/= unchanged ->
-            Ret#ret{st = update_sgroup_state(Group, GSt, St)};
-        #ret{} ->
-            Ret
+handle_command(Consumer, #shard_dispatch_command{group = Group, c = reprovision}, St0) ->
+    Stream = maps:get({stream, Group}, St0),
+    GSt0 = sgroup_state(Group, St0),
+    case reprovision(Consumer, Group, Stream, GSt0) of
+        {ok, GSt, Delivers} ->
+            St = update_sgroup_state(Group, GSt, St0),
+            #ret{st = St, delivers = Delivers};
+        skipped ->
+            #ret{};
+        empty ->
+            St = reannounce(Consumer, Group, Stream, St0),
+            #ret{st = St}
     end;
 handle_command(Consumer, #shard_dispatch_command{group = Group, c = Takeover}, St) when
     element(1, Takeover) =:= takeover
 ->
     #ret{st = launch_takeover(Consumer, Group, Takeover, St)}.
 
-handle_provision(Consumer, Group, Stream, Shards, GSt0) ->
+provision(Consumer, Group, Stream, Shards, GSt0) ->
     SGroup = ?streamgroup(Group, Stream),
     HBWatermark = timestamp_s(),
     Provisions = emqx_streams_shard_disp_group:provision(Consumer, SGroup, Shards, HBWatermark),
     Proposals = propose_leases(Provisions),
-    %% NOTE piggyback
-    GSt1 = GSt0#{proposed => Proposals},
     case Proposals of
         [_ | _] ->
+            %% NOTE piggyback
+            GSt = GSt0#{proposed => Proposals},
             Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),
             Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
-            #ret{st = GSt1, delivers = Delivers};
+            {ok, GSt, Delivers};
         [] ->
-            _ = schedule_command(?REPROVISION_RETRY_TIMEOUT, Group, reprovision, "empty provision"),
-            %% Make others aware of us:
-            GSt = announce_myself(Consumer, SGroup, GSt1),
-            #ret{st = GSt}
+            empty
     end.
 
 reprovision(_Consumer, _Group, _Stream, #{proposed := [_ | _]}) ->
-    #ret{};
+    skipped;
 reprovision(Consumer, Group, Stream, GSt0) ->
     %% FIXME error handling
     {ok, Shards} = get_stream_info(Stream, shards),
@@ -331,13 +352,13 @@ reprovision(Consumer, Group, Stream, GSt0) ->
             GSt = GSt0#{proposed => Proposals},
             Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),
             Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
-            #ret{st = GSt, delivers = Delivers};
+            {ok, GSt, Delivers};
         [] ->
             reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0)
     end.
 
 reprovision_takeover(_Consumer, _Group, _Stream, _Shards, _Provisions, #{takeovers := [_ | _]}) ->
-    #ret{};
+    skipped;
 reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0) ->
     SGroup = ?streamgroup(Group, Stream),
     Takeovers = propose_takeovers(Consumer, SGroup, Shards),
@@ -353,21 +374,20 @@ reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0) ->
             ),
             %% NOTE piggyback
             GSt = GSt0#{takeovers => Takeovers},
-            #ret{st = GSt};
+            {ok, GSt, []};
         [] ->
             reprovision_release(Consumer, Group, Stream, Provisions, GSt0)
     end.
 
-reprovision_release(Consumer, Group, Stream, Provisions, GSt0) ->
+reprovision_release(_Consumer, Group, Stream, Provisions, GSt0) ->
     case propose_releases(Provisions) of
         [_ | _] = Proposals ->
             %% NOTE piggyback
             GSt = GSt0#{proposed => Proposals},
             Delivers = mk_proposal_delivers(Group, Stream, Proposals, #{}),
-            #ret{st = GSt, delivers = Delivers};
+            {ok, GSt, Delivers};
         [] ->
-            GSt = reannounce_myself(Consumer, Group, Stream, GSt0),
-            #ret{st = GSt}
+            empty
     end.
 
 remove_proposal(Proposal, GSt) ->
@@ -391,19 +411,17 @@ remove_takeover(Shard, GSt) ->
             {true, GSt#{takeovers => Rest}}
     end.
 
-reannounce_myself(Consumer, Group, Stream, GSt) ->
-    case emqx_streams_shard_disp_group:n_leases(GSt) of
+reannounce(Consumer, Group, Stream, St0) ->
+    GSt0 = sgroup_state(Group, St0),
+    case emqx_streams_shard_disp_group:n_leases(GSt0) of
         0 ->
             %% Make others aware of us:
-            _ = erlang:send_after(
-                ?REPROVISION_RETRY_TIMEOUT,
-                self(),
-                #shard_dispatch_command{group = Group, c = reprovision, context = "reannounce"}
-            ),
-            announce_myself(Consumer, ?streamgroup(Group, Stream), GSt);
+            GSt = announce_myself(Consumer, ?streamgroup(Group, Stream), GSt0),
+            St = update_sgroup_state(Group, GSt, St0),
+            schedule_command(?REPROVISION_RETRY_TIMEOUT, Group, reprovision, "reannounce", St);
         _ ->
             %% Wait for rebalance:
-            GSt
+            St0
     end.
 
 announce_myself(Consumer, SGroup, GSt0) ->
@@ -419,6 +437,14 @@ announce_myself(Consumer, SGroup, GSt0) ->
                 reason => Error
             }),
             GSt0
+    end.
+
+deannounce_slogger(Consumer, SGroup, GSt) ->
+    case emqx_streams_shard_disp_group:n_leases(GSt) of
+        0 ->
+            GSt;
+        _ ->
+            deannounce_myself(Consumer, SGroup, GSt)
     end.
 
 deannounce_myself(Consumer, SGroup, GSt0) ->
@@ -448,8 +474,8 @@ launch_takeover(Consumer, Group, {takeover, Shard, DeadConsumer, HB}, St) ->
         {async, Ref, Ret} ->
             ?tp(debug, "streams_shard_dispatch_takeover_tx_started", TraceCtx#{tx => Ref}),
             stash_tx(Ref, {takeover, Group, {Ret, Shard, DeadConsumer}}, St);
-        Ret ->
-            handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St)
+        Outcome ->
+            handle_takeover_outcome(Group, Shard, Outcome, TraceCtx, St)
     end.
 
 handle_takeover_tx_commit(Consumer, Group, Ref, Reply, {Ret, Shard, DeadConsumer}, St) ->
@@ -459,8 +485,8 @@ handle_takeover_tx_commit(Consumer, Group, Ref, Reply, {Ret, Shard, DeadConsumer
         shard => Shard,
         from => DeadConsumer
     },
-    Ret = emqx_streams_state_db:progress_shard_tx_result(Ret, Ref, Reply),
-    handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St).
+    Outcome = emqx_streams_state_db:progress_shard_tx_result(Ret, Ref, Reply),
+    handle_takeover_outcome(Group, Shard, Outcome, TraceCtx, St).
 
 handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St) ->
     case Ret of
@@ -587,12 +613,15 @@ pop_tx(Ref, St = #{}) ->
 postpone_command(Group, Command, Context) ->
     self() ! #shard_dispatch_command{group = Group, c = Command, context = Context}.
 
-schedule_command(Timeout, Group, Command, Context) ->
-    erlang:send_after(
+schedule_command(Timeout, Group, Command, Context, St) ->
+    Timer = {timer, Group, Command},
+    ok = emqx_utils:cancel_timer(maps:get(Timer, St, undefined)),
+    TRef = erlang:send_after(
         Timeout,
         self(),
         #shard_dispatch_command{group = Group, c = Command, context = Context}
-    ).
+    ),
+    St#{Timer => TRef}.
 
 %% Protocol structures
 
