@@ -424,11 +424,7 @@ print_session(ClientID) ->
 
 -spec subscribe(topic_filter(), emqx_types:subopts(), session()) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
-subscribe(
-    #share{} = TopicFilter,
-    SubOpts,
-    Session0
-) ->
+subscribe(#share{} = TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
         {ok, S, SharedSubS} ->
             Session = Session0#{s := S, shared_sub_s := SharedSubS},
@@ -436,18 +432,9 @@ subscribe(
         Error = {error, _} ->
             Error
     end;
-subscribe(
-    TopicFilter,
-    SubOpts,
-    Session0 = #{stream_scheduler_s := SchedS0}
-) ->
+subscribe(TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {Ok, durable, Session1, Subscription} when Ok == ok; Ok == mode_changed ->
-            #{s := S0} = Session1,
-            {_NewSLSIds, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_subscribe(
-                TopicFilter, Subscription, S0, SchedS0
-            ),
-            Session = Session1#{s := S, stream_scheduler_s := SchedS},
+        {Ok, durable, Session, _Subscription} when Ok == ok; Ok == mode_changed ->
             %% If the subscription mode was changed, flush any matching transient messages
             %% coming directly from the broker:
             Ok == mode_changed andalso flush_transient(TopicFilter),

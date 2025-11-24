@@ -104,8 +104,8 @@
     on_session_replay/2,
     on_unsubscribe/4,
     on_shared_stream_revoke/3,
-    on_enqueue/5,
-    on_seqno_release/4,
+    on_enqueue/4,
+    on_seqno_release/3,
     find_replay_streams/1,
     is_fully_acked/2,
     is_active_unblocked/2,
@@ -142,7 +142,7 @@
 
 -type stream_key() :: {emqx_persistent_session_ds:subscription_id(), emqx_ds:stream()}.
 
--type ret() :: {[stream_key()], emqx_persistent_session_ds_state:t(), t()}.
+-type ret() :: {[stream_key()], emqx_persistent_session_ds:session()}.
 
 -type srs() :: #srs{}.
 
@@ -257,46 +257,47 @@ on_shared_stream_revoke(StreamKey, S, SchedS) ->
         SRS ->
             Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
             Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
-            unsubscribe_stream(Comm1, Comm2, StreamKey, SRS, S, SchedS)
+            {unsubscribe_stream(Comm1, Comm2, StreamKey, SRS, S), SchedS}
     end.
 
 -spec on_enqueue(
-    _IsReplay :: boolean(), stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()
+    _IsReplay :: boolean(), stream_key(), srs(), emqx_persistent_session_ds:session()
 ) ->
     ret().
-on_enqueue(true, _Key, _SRS, S, SchedS) ->
-    {[], S, SchedS};
-on_enqueue(false, Key, SRS, S0, SchedS) ->
+on_enqueue(true, _Key, _SRS, Sess) ->
+    {[], Sess};
+on_enqueue(false, Key, SRS, Sess = #{s := S0, stream_scheduler_s := SchedS}) ->
     %% Is the stream blocked?
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
     case derive_state(Comm1, Comm2, SRS) of
         r ->
             ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => r}),
-            {[Key], S0, SchedS};
+            {[Key], Sess};
         bq1 ->
-            {[], S0, to_BQ1(Key, SRS, SchedS)};
+            {[], Sess#{stream_scheduler_s := to_BQ1(Key, SRS, SchedS)}};
         bq2 ->
-            {[], S0, to_BQ2(Key, SRS, SchedS)};
+            {[], Sess#{stream_scheduler_s := to_BQ2(Key, SRS, SchedS)}};
         bq12 ->
-            {[], S0, to_BQ12(Key, SRS, SchedS)};
+            {[], Sess#{stream_scheduler_s := to_BQ12(Key, SRS, SchedS)}};
         u ->
             %% Handle a special case: session just enqueued the last
             %% batch at the end of a stream, that contained only QoS0
             %% messages. Since no acks are expected for this batch, we
             %% should attempt to advance generation now:
-            on_stream_unblock(Key, r, SRS, S0, SchedS)
+            on_stream_unblock(Key, r, SRS, Sess)
     end.
 
 -spec on_seqno_release(
-    ?QOS_1 | ?QOS_2, emqx_persistent_session_ds:seqno(), emqx_persistent_session_ds_state:t(), t()
+    ?QOS_1 | ?QOS_2, emqx_persistent_session_ds:seqno(), emqx_persistent_session_ds:session()
 ) -> ret().
-on_seqno_release(?QOS_1, ReleasedSeqNo, S, SchedS = #s{bq1 = BQ10}) ->
+on_seqno_release(?QOS_1, ReleasedSeqNo, Sess) ->
+    #{s := S, stream_scheduler_s := SchedS = #s{bq1 = BQ10}} = Sess,
     CommQoS2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
     case bq_pop(ReleasedSeqNo, CommQoS2, BQ10) of
         true ->
             %% Still blocked:
-            {[], S, SchedS};
+            {[], Sess};
         {true, Key, BQ1} ->
             %% It was bq12:
             ?tp(?sessds_stream_state_trans, #{
@@ -304,7 +305,7 @@ on_seqno_release(?QOS_1, ReleasedSeqNo, S, SchedS = #s{bq1 = BQ10}) ->
                 to => bq2,
                 from => bq12
             }),
-            {[], S, SchedS#s{bq1 = BQ1}};
+            {[], Sess#{stream_scheduler_s := SchedS#s{bq1 = BQ1}}};
         {false, Key, BQ1} ->
             %% It was bq1:
             ?tp(?sessds_stream_state_trans, #{
@@ -313,14 +314,15 @@ on_seqno_release(?QOS_1, ReleasedSeqNo, S, SchedS = #s{bq1 = BQ10}) ->
                 from => bq1
             }),
             SRS = emqx_persistent_session_ds_state:get_stream(Key, S),
-            on_stream_unblock(Key, bq1, SRS, S, SchedS#s{bq1 = BQ1})
+            on_stream_unblock(Key, bq1, SRS, Sess#{stream_scheduler_s := SchedS#s{bq1 = BQ1}})
     end;
-on_seqno_release(?QOS_2, ReleasedSeqNo, S, SchedS = #s{bq2 = BQ20}) ->
+on_seqno_release(?QOS_2, ReleasedSeqNo, Sess) ->
+    #{s := S, stream_scheduler_s := SchedS = #s{bq2 = BQ20}} = Sess,
     CommQoS1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
     case bq_pop(ReleasedSeqNo, CommQoS1, BQ20) of
         true ->
             %% Still blocked:
-            {[], S, SchedS};
+            {[], Sess};
         {true, Key, BQ2} ->
             %% It was bq12:
             ?tp(?sessds_stream_state_trans, #{
@@ -328,7 +330,7 @@ on_seqno_release(?QOS_2, ReleasedSeqNo, S, SchedS = #s{bq2 = BQ20}) ->
                 to => bq1,
                 from => bq12
             }),
-            {[], S, SchedS#s{bq2 = BQ2}};
+            {[], Sess#{stream_scheduler_s := SchedS#s{bq2 = BQ2}}};
         {false, Key, BQ2} ->
             %% It was bq2:
             ?tp(?sessds_stream_state_trans, #{
@@ -337,27 +339,33 @@ on_seqno_release(?QOS_2, ReleasedSeqNo, S, SchedS = #s{bq2 = BQ20}) ->
                 from => bq2
             }),
             SRS = emqx_persistent_session_ds_state:get_stream(Key, S),
-            on_stream_unblock(Key, bq1, SRS, S, SchedS#s{bq2 = BQ2})
+            on_stream_unblock(Key, bq1, SRS, Sess#{stream_scheduler_s := SchedS#s{bq2 = BQ2}})
     end.
 
--spec on_stream_unblock(stream_key(), state(), srs(), emqx_persistent_session_ds_state:t(), t()) ->
-    {[stream_key(), ...], emqx_persistent_session_ds_state:t(), t()}.
-on_stream_unblock(Key, PrevState, #srs{unsubscribed = true}, S, SchedS) ->
+-spec on_stream_unblock(stream_key(), state(), srs(), emqx_persistent_session_ds:session()) ->
+    {[stream_key(), ...], emqx_persistent_session_ds:session()}.
+on_stream_unblock(Key, PrevState, #srs{unsubscribed = true}, Sess) ->
     ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => PrevState, unsubcribed => true}),
-    {[Key], S, SchedS};
+    {[Key], Sess};
 on_stream_unblock(
-    Key = {SubId, _}, PrevState, #srs{it_end = end_of_stream, rank_x = RankX}, S0, SchedS0
+    Key = {SubId, Stream},
+    PrevState,
+    #srs{it_end = end_of_stream, rank_x = Shard, rank_y = Generation},
+    Sess0
 ) ->
     %% We've reached end of the stream. We might advance generation
     %% now:
+    #{s := S0, stream_scheduler_s := SchedS0, dscli := CS0} = Sess0,
     ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => PrevState, eos => true}),
-    {Keys, S, SchedS} = renew_streams_for_x(S0, SubId, RankX, SchedS0),
+    %% FIXME: currently DS subscription will leak when this function
+    %% is called. Fix it in ds_client
+    {CS, Sess} = emqx_ds_client:complete_stream(CS0, SubId, {Shard, Generation}, Stream, Sess0),
     %% TODO: Reporting this key as unblocked for compatibility with
     %% shared_sub. This should not be needed.
-    {[Key | Keys], S, SchedS};
-on_stream_unblock(Key, PrevState, _SRS, S, SchedS) ->
+    {[Key], Sess#{dscli := CS}};
+on_stream_unblock(Key, PrevState, _SRS, Sess) ->
     ?tp(?sessds_stream_state_trans, #{key => Key, to => r, from => PrevState}),
-    {[Key], S, SchedS}.
+    {[Key], Sess}.
 
 %% @doc Batch operation to clean up historical streams.
 %%
