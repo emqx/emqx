@@ -782,8 +782,17 @@ clean_allocated_resources(ResourceId, ResourceMod) ->
         true ->
             %% The resource entries in the ETS table are erased inside
             %% `call_stop' if the call is successful.
-            ok = call_stop(ResourceId, ResourceMod, _ResourceState = undefined),
-            ok;
+            case call_stop(ResourceId, ResourceMod, _ResourceState = undefined) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    ?SLOG(error, #{
+                        msg => "clean_allocated_resources_exception",
+                        cause => Reason,
+                        resource_id => ResourceId
+                    }),
+                    ok
+            end;
         false ->
             ok
     end.
