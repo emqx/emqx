@@ -51,13 +51,16 @@ is_append_only(Stream) ->
     (not is_limited(Stream)) andalso (not is_lastvalue(Stream)).
 
 -spec quota_index_opts(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
-    %% move quota out of streams's
-    %% emqx_mq_quota_index:opts().
-    term().
-quota_index_opts(Stream) ->
+    emqx_mq_quota_index:opts().
+quota_index_opts(#{
+    limits := #{
+        max_shard_message_count := MaxShardMessageCount,
+        max_shard_message_bytes := MaxShardMessageBytes
+    }
+}) ->
     maps:from_list(
-        limit_to_index_opt(bytes, Stream) ++
-            limit_to_index_opt(count, Stream)
+        limit_to_index_opt(bytes, MaxShardMessageBytes) ++
+            limit_to_index_opt(count, MaxShardMessageCount)
     ).
 
 -spec max_unacked(emqx_streams_types:stream()) ->
@@ -87,6 +90,4 @@ quota_threshold(Limit) ->
     max(1, ThresholdPercentage * Limit div 100).
 
 threshold_percentage() ->
-    %% TODO
-    %% emqx:get_config([streams, quota, threshold_percentage]).
-    10.
+    emqx:get_config([streams, quota, threshold_percentage]).
