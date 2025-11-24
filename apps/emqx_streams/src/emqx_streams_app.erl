@@ -35,6 +35,7 @@ stop(_State) ->
     ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_conf:remove_handler(emqx_streams_schema:roots()),
     ok = emqx_streams:unregister_hooks(),
+    ok = emqx_mq_quota_buffer:stop(?STREAMS_QUOTA_BUFFER),
     ok = emqx_streams_state_db:close(),
     ok.
 
@@ -72,12 +73,12 @@ post_start() ->
 complete_start() ->
     ok = emqx_streams_sup:start_metrics(),
     ok = emqx_mq_quota_buffer:start(?STREAMS_QUOTA_BUFFER, quota_buffer_options()),
+    ok = emqx_streams_sup:start_gc_scheduler(),
     ok = emqx_streams:register_hooks().
 
 quota_buffer_options() ->
     #{
-        cbm => emqx_mq_message_db,
-        %% TODO
+        cbm => emqx_streams_message_db,
         pool_size => emqx:get_config(
             [streams, quota, buffer_pool_size], ?DEFAULT_QUOTA_BUFFER_POOL_SIZE
         )

@@ -6,6 +6,8 @@
 
 -moduledoc """
 The module contains the registry of Streams.
+
+NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid confusion.
 """.
 
 -include("emqx_streams_internal.hrl").
@@ -34,12 +36,8 @@ The module contains the registry of Streams.
 
 -record(?STREAMS_REGISTRY_INDEX_TAB, {
     key :: emqx_topic_index:key(nil()) | '_',
-    id :: emqx_streams_types:stream_id() | '_',
-    is_lastvalue :: boolean() | '_',
-    key_expr :: emqx_variform:compiled() | undefined | '_',
-    limits :: emqx_streams_types:limits() | '_',
-    read_max_unacked :: non_neg_integer() | '_',
-    extra = #{} :: map() | '_'
+    %% emqx_streams_types:stream() without topic_filter
+    stream :: map() | '_'
 }).
 
 -type cursor() :: binary() | undefined.
@@ -73,31 +71,25 @@ Create a new Stream.
     | {error, stream_exists}
     | {error, max_stream_count_reached}
     | {error, term()}.
-create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue, limits := Limits} = Stream0) when
+create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = Stream0) when
     (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, Stream0)))
 ->
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),
+    Stream = Stream0#{id => Id},
+    Rec = stream_to_record(Stream),
     maybe
         ok ?= validate_max_stream_count(),
         {atomic, ok} ?=
             mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
                 case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
                     [] ->
-                        ok = mnesia:write(#?STREAMS_REGISTRY_INDEX_TAB{
-                            key = Key,
-                            id = Id,
-                            is_lastvalue = IsLastValue,
-                            key_expr = maps:get(key_expression, Stream0, undefined),
-                            limits = Limits,
-                            read_max_unacked = maps:get(read_max_unacked, Stream0)
-                        }),
+                        ok = mnesia:write(Rec),
                         ok;
                     [_] ->
                         {error, stream_exists}
                 end
             end),
-        Stream = Stream0#{id => Id},
         {ok, Stream}
     else
         {atomic, {error, _} = Error} ->
@@ -209,13 +201,7 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
                 _ when (not IsLastvalueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
                     {error, limit_presence_cannot_be_updated_for_regular_streams};
                 _ ->
-                    StreamNew = maps:merge(Stream, UpdateFields),
-                    case update_index(Key, Id, StreamNew) of
-                        ok ->
-                            {ok, StreamNew};
-                        not_found ->
-                            not_found
-                    end
+                    update_index(Key, Id, UpdateFields)
             end
     end.
 
@@ -224,7 +210,7 @@ List all MQs.
 """.
 -spec list() -> emqx_utils_stream:stream(emqx_stream_types:stream()).
 list() ->
-    record_stream_to_streams(record_stream()).
+    record_iterator_to_streams(record_iterator()).
 
 -doc """
 List at most `Limit` MQs starting from `Cursor` position.
@@ -234,7 +220,7 @@ list(Cursor, Limit) when Limit >= 1 ->
     Streams0 = emqx_utils_stream:consume(
         emqx_utils_stream:limit_length(
             Limit + 1,
-            record_stream_to_streams(record_stream(Cursor))
+            record_iterator_to_streams(record_iterator(Cursor))
         )
     ),
     case length(Streams0) < Limit + 1 of
@@ -251,11 +237,11 @@ list(Cursor, Limit) when Limit >= 1 ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-record_stream() ->
-    record_stream(undefined).
+record_iterator() ->
+    record_iterator(undefined).
 
-record_stream(Cursor) ->
-    Stream = ets_record_stream(key_from_cursor(Cursor)),
+record_iterator(Cursor) ->
+    Stream = ets_record_iterator(key_from_cursor(Cursor)),
     emqx_utils_stream:chainmap(
         fun(L) -> L end,
         Stream
@@ -266,13 +252,13 @@ key_from_cursor(undefined) ->
 key_from_cursor(Cursor) ->
     make_key(Cursor).
 
-ets_record_stream(Key) ->
+ets_record_iterator(Key) ->
     fun() ->
         case next_key(Key) of
             '$end_of_table' ->
                 [];
             NextKey ->
-                [ets:lookup(?STREAMS_REGISTRY_INDEX_TAB, NextKey) | ets_record_stream(NextKey)]
+                [ets:lookup(?STREAMS_REGISTRY_INDEX_TAB, NextKey) | ets_record_iterator(NextKey)]
         end
     end.
 
@@ -281,12 +267,12 @@ next_key(undefined) ->
 next_key(Key) ->
     ets:next(?STREAMS_REGISTRY_INDEX_TAB, Key).
 
-record_stream_to_streams(Stream) ->
+record_iterator_to_streams(Iterator) ->
     emqx_utils_stream:chainmap(
         fun(#?STREAMS_REGISTRY_INDEX_TAB{} = Rec) ->
             [record_to_stream(Rec)]
         end,
-        Stream
+        Iterator
     ).
 
 make_key(TopicFilter) ->
@@ -295,37 +281,26 @@ make_key(TopicFilter) ->
 update_index(Key, Id, UpdateFields) ->
     {atomic, Result} = mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
         case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
-            [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
-                NewKeyExpr = maps:get(key_expression, UpdateFields, undefined),
-                NewLimits = maps:get(limits, UpdateFields, ?DEFAULT_STREAM_LIMITS),
-                mnesia:write(Rec#?STREAMS_REGISTRY_INDEX_TAB{
-                    key_expr = NewKeyExpr,
-                    limits = NewLimits,
-                    read_max_unacked = maps:get(read_max_unacked, UpdateFields)
-                }),
-                ok;
+            [#?STREAMS_REGISTRY_INDEX_TAB{stream = #{id := Id} = Stream0} = Rec] ->
+                Stream = maps:merge(Stream0, UpdateFields),
+                mnesia:write(Rec#?STREAMS_REGISTRY_INDEX_TAB{stream = Stream}),
+                {ok, Stream#{topic_filter => emqx_topic_index:get_topic(Key)}};
             _ ->
                 not_found
         end
     end),
     Result.
 
-record_to_stream_handle(#?STREAMS_REGISTRY_INDEX_TAB{
-    key = Key, id = Id, key_expr = KeyExpr, is_lastvalue = IsLastValue, limits = Limits
-}) ->
-    #{
-        id => Id,
-        topic_filter => emqx_topic_index:get_topic(Key),
-        is_lastvalue => IsLastValue,
-        key_expression => KeyExpr,
-        limits => Limits
-    }.
+record_to_stream_handle(#?STREAMS_REGISTRY_INDEX_TAB{key = Key, stream = Stream0}) ->
+    StreamHandle = maps:with([id, is_lastvalue, key_expression, limits], Stream0),
+    StreamHandle#{topic_filter => emqx_topic_index:get_topic(Key)}.
 
-record_to_stream(#?STREAMS_REGISTRY_INDEX_TAB{read_max_unacked = ReadMaxUnacked} = Rec) ->
-    StreamHandle = record_to_stream_handle(Rec),
-    StreamHandle#{
-        read_max_unacked => ReadMaxUnacked
-    }.
+record_to_stream(#?STREAMS_REGISTRY_INDEX_TAB{key = Key, stream = Stream}) ->
+    Stream#{topic_filter => emqx_topic_index:get_topic(Key)}.
+
+stream_to_record(#{topic_filter := TopicFilter} = Stream) ->
+    StreamStore = maps:without([topic_filter], Stream),
+    #?STREAMS_REGISTRY_INDEX_TAB{key = make_key(TopicFilter), stream = StreamStore}.
 
 stream_count() ->
     mnesia:table_info(?STREAMS_REGISTRY_INDEX_TAB, size).
