@@ -34,6 +34,9 @@
     '/connectors_probe'/2
 ]).
 
+%% minirest filter callback
+-export([filter/2]).
+
 %% RPC targets
 -export([
     lookup_from_local_node/2,
@@ -173,6 +176,12 @@ param_path_enable() ->
             }
         )}.
 
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
+
+only_global_qs_param() ->
+    {only_global, mk(boolean(), #{in => query, required => false, default => false})}.
+
 connector_info_array_example(Method) ->
     lists:map(fun(#{value := Config}) -> Config end, maps:values(connector_info_examples(Method))).
 
@@ -182,9 +191,11 @@ connector_info_examples(Method) ->
 schema("/connectors") ->
     #{
         'operationId' => '/connectors',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api1"),
+            parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_connector_schema:get_response()),
@@ -195,6 +206,7 @@ schema("/connectors") ->
         post => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api2"),
+            parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_connector_schema:post_request(),
                 connector_info_examples(post)
@@ -208,10 +220,11 @@ schema("/connectors") ->
 schema("/connectors/:id") ->
     #{
         'operationId' => '/connectors/:id',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api3"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => get_response_body_schema(),
                 404 => error_schema('NOT_FOUND', ?DESC("connector_not_found"))
@@ -220,7 +233,7 @@ schema("/connectors/:id") ->
         put => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api4"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_connector_schema:put_request(),
                 connector_info_examples(put)
@@ -234,7 +247,7 @@ schema("/connectors/:id") ->
         delete => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api5"),
-            parameters => [param_path_id()],
+            parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 204 => <<"Connector deleted">>,
                 400 => error_schema(
@@ -249,11 +262,12 @@ schema("/connectors/:id") ->
 schema("/connectors/:id/enable/:enable") ->
     #{
         'operationId' => '/connectors/:id/enable/:enable',
+        filter => fun ?MODULE:filter/2,
         put =>
             #{
                 tags => [<<"connectors">>],
                 desc => ?DESC("desc_enable_connector"),
-                parameters => [param_path_id(), param_path_enable()],
+                parameters => [param_path_id(), param_path_enable(), ns_qs_param()],
                 responses =>
                     #{
                         204 => <<"Success">>,
@@ -267,12 +281,14 @@ schema("/connectors/:id/enable/:enable") ->
 schema("/connectors/:id/:operation") ->
     #{
         'operationId' => '/connectors/:id/:operation',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
-                param_path_operation_cluster()
+                param_path_operation_cluster(),
+                ns_qs_param()
             ],
             responses => #{
                 204 => <<"Operation success">>,
@@ -288,13 +304,15 @@ schema("/connectors/:id/:operation") ->
 schema("/nodes/:node/connectors/:id/:operation") ->
     #{
         'operationId' => '/nodes/:node/connectors/:id/:operation',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"connectors">>],
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
                 param_path_id(),
-                param_path_operation_on_node()
+                param_path_operation_on_node(),
+                ns_qs_param()
             ],
             responses => #{
                 204 => <<"Operation success">>,
@@ -313,9 +331,11 @@ schema("/nodes/:node/connectors/:id/:operation") ->
 schema("/connectors_probe") ->
     #{
         'operationId' => '/connectors_probe',
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"connectors">>],
             desc => ?DESC("desc_api9"),
+            parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_connector_schema:post_request(),
                 connector_info_examples(post)
@@ -330,7 +350,7 @@ schema("/connectors_probe") ->
 '/connectors'(
     post, #{body := #{<<"type">> := ConnectorType, <<"name">> := ConnectorName} = Conf0} = Req
 ) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     case emqx_connector:is_exist(Namespace, ConnectorType, ConnectorName) of
         true ->
             ?BAD_REQUEST('ALREADY_EXISTS', <<"connector already exists">>);
@@ -338,10 +358,16 @@ schema("/connectors_probe") ->
             Conf = filter_out_request_body(Conf0),
             create_connector(Namespace, ConnectorType, ConnectorName, Conf)
     end;
-'/connectors'(get, Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
-    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 2),
-    NodeReplies = emqx_connector_proto_v2:list(Nodes, Namespace),
+'/connectors'(get, #{query_string := QS} = Req) ->
+    Namespace0 = get_namespace(Req),
+    Namespace =
+        case maps:get(<<"only_global">>, QS, false) of
+            false when Namespace0 == ?global_ns -> all;
+            _ -> Namespace0
+        end,
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 3),
+    Timeout = 15_000,
+    NodeReplies = emqx_connector_proto_v3:list(Nodes, Namespace, Timeout),
     case is_ok(NodeReplies) of
         {ok, NodeConnectors} ->
             AllConnectors = [
@@ -354,10 +380,10 @@ schema("/connectors_probe") ->
     end.
 
 '/connectors/:id'(get, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(Id, lookup_from_all_nodes(Namespace, ConnectorType, ConnectorName, 200));
 '/connectors/:id'(put, #{bindings := #{id := Id}, body := Conf0} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     Conf1 = filter_out_request_body(Conf0),
     ?TRY_PARSE_ID(
         Id,
@@ -373,7 +399,7 @@ schema("/connectors_probe") ->
         end
     );
 '/connectors/:id'(delete, #{bindings := #{id := Id}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id,
         case emqx_connector:is_exist(Namespace, ConnectorType, ConnectorName) of
@@ -397,7 +423,7 @@ schema("/connectors_probe") ->
     ).
 
 '/connectors_probe'(post, Request) ->
-    Namespace = emqx_dashboard:get_namespace(Request),
+    Namespace = get_namespace(Request),
     RequestMeta = #{module => ?MODULE, method => post, path => "/connectors_probe"},
     case emqx_dashboard_swagger:filter_check_request_and_translate_body(Request, RequestMeta) of
         {ok, #{body := #{<<"type">> := ConnType} = Params}} ->
@@ -461,7 +487,7 @@ lookup_from_all_nodes(Namespace, ConnectorType, ConnectorName, SuccCode) ->
 lookup_from_local_node(ConnectorType, ConnectorName) ->
     v2_lookup(?global_ns, ConnectorType, ConnectorName).
 
-%% RPC Target
+%% RPC Target (v2)
 v2_lookup(Namespace, ConnectorType, ConnectorName) ->
     case emqx_connector:lookup(Namespace, ConnectorType, ConnectorName) of
         {ok, Res} -> {ok, format_resource(Namespace, Res, node())};
@@ -610,21 +636,26 @@ enable_func(false) -> disable.
 
 zip_connectors([ConnectorsFirstNode | _] = ConnectorsAllNodes) ->
     lists:foldl(
-        fun(#{type := Type, name := Name}, Acc) ->
-            Connectors = pick_connectors_by_id(Type, Name, ConnectorsAllNodes),
+        fun(#{namespace := Namespace, type := Type, name := Name}, Acc) ->
+            Connectors = pick_connectors_by_id(Namespace, Type, Name, ConnectorsAllNodes),
             [format_connector_info(Connectors) | Acc]
         end,
         [],
         ConnectorsFirstNode
     ).
 
-pick_connectors_by_id(Type, Name, ConnectorsAllNodes) ->
+pick_connectors_by_id(Namespace, Type, Name, ConnectorsAllNodes) ->
     lists:foldl(
         fun(ConnectorsOneNode, Acc) ->
             case
                 [
                     Connector
-                 || Connector = #{type := Type0, name := Name0} <- ConnectorsOneNode,
+                 || Connector = #{
+                        namespace := Namespace0,
+                        type := Type0,
+                        name := Name0
+                    } <- ConnectorsOneNode,
+                    Namespace0 == Namespace,
                     Type0 == Type,
                     Name0 == Name
                 ]
@@ -635,6 +666,7 @@ pick_connectors_by_id(Type, Name, ConnectorsAllNodes) ->
                     ?SLOG(warning, #{
                         msg => "connector_inconsistent_in_cluster",
                         reason => not_found,
+                        namespace => Namespace,
                         type => Type,
                         name => Name,
                         connector => emqx_connector_resource:connector_id(Type, Name)
@@ -677,8 +709,9 @@ aggregate_status(AllStatus) ->
     end.
 
 format_resource(
-    Namespace,
+    _ReqNamespace,
     #{
+        namespace := Namespace,
         type := Type,
         name := ConnectorName,
         raw_config := RawConf0,
@@ -691,6 +724,7 @@ format_resource(
     redact(
         maps:merge(
             RawConf#{
+                namespace => namespace_out(Namespace),
                 type => Type,
                 name => maps:get(<<"name">>, RawConf, ConnectorName),
                 node => Node
@@ -914,3 +948,47 @@ deobfuscate_mqtt_connector_for_node(NewInfo0, OldInfo) ->
         NewIds0
     ),
     maps:put(<<"ids">>, NewIds, NewInfo0).
+
+namespace_out(?global_ns) ->
+    null;
+namespace_out(Namespace) when is_binary(Namespace) ->
+    Namespace.
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
+filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        validate_managed_namespace(Req1, Meta)
+    end.

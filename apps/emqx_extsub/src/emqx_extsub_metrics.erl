@@ -3,7 +3,6 @@
 %%--------------------------------------------------------------------
 
 -module(emqx_extsub_metrics).
--include_lib("emqx/include/http_api.hrl").
 
 -export([
     child_spec/0,
