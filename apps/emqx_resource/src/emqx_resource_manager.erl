@@ -69,7 +69,7 @@
 %% N.B.: This ONLY for tests or initializing the channel; actual health checks should be
 %% triggered by timers in the process.  Avoid doing manual health checks in other
 %% situations.
--export([health_check/1, channel_health_check/2]).
+-export([health_check/1, channel_health_check/2, cleanup_by_agent/3]).
 
 -ifdef(TEST).
 -export([summarize_query_mode/2]).
@@ -187,6 +187,8 @@
         end
     end)()
 ).
+
+-define(CLEANUP_TIMEOUT, 60_000).
 
 -type add_channel_opts() :: #{
     %% Whether to immediately perform a health check after adding the channel.
@@ -665,7 +667,6 @@ get_error(_ResId, #{error := Error}) ->
 force_kill(ResId, MRef0) ->
     case gproc:whereis_name(?NAME(ResId)) of
         undefined ->
-            try_clean_allocated_resources(ResId),
             ok;
         Pid when is_pid(Pid) ->
             MRef =
@@ -677,18 +678,68 @@ force_kill(ResId, MRef0) ->
             receive
                 {'DOWN', MRef, process, Pid, _} ->
                     ok
-            end,
-            try_clean_allocated_resources(ResId),
-            ok
-    end.
+            end
+    end,
+    LogFn = fun(Level, LogData) -> ?SLOG(Level, LogData#{resource_id => ResId}) end,
+    ok = cleanup_by_agent(LogFn, fun() -> try_clean_allocated_resources(ResId) end, ?CLEANUP_TIMEOUT).
 
 try_clean_allocated_resources(ResId) ->
-    try emqx_resource:clean_allocated_resources(ResId) of
-        _ ->
-            ok
-    catch
-        _:_ ->
-            ok
+    emqx_resource:clean_allocated_resources(ResId).
+
+%% Run a task by agent.
+%% The calling process might get killed (e.g. cowboy handler worker),
+%% but the agent should continue to run (not linked) to ensure the task is complete.
+cleanup_by_agent(LogFn, TaskFn, Timeout) ->
+    Parent = self(),
+    {Agent, Mref} = erlang:spawn_monitor(fun() -> run_agent(LogFn, Parent, TaskFn, Timeout) end),
+    %% Agent has a 60s timeout to complete,
+    %% the caller (cowboy handler) is unlikely to wait this long, so there is no 'after' clause here.
+    receive
+        {'DOWN', Mref, process, Agent, {cleanup_result, normal}} ->
+            LogFn(debug, #{msg => "resource_cleanup_done"});
+        {'DOWN', Mref, process, Agent, Reason} ->
+            %% It can be a resource leak, hence log at 'error' level.
+            %% If no resource is leaking, but exit non-normal,
+            %% we should fix the cleanup procedure to avoid exception
+            LogFn(error, #{msg => "resource_cleanup_exception", reason => Reason})
+    end.
+
+run_agent(LogFn, Parent, TaskFn, Timeout) ->
+    erlang:process_flag(trap_exit, true),
+    _ = monitor(process, Parent),
+    TaskPid = proc_lib:spawn_link(TaskFn),
+    wait_for_task(LogFn, Parent, TaskPid, Timeout).
+
+wait_for_task(LogFn, Parent, TaskPid, Timeout) ->
+    receive
+        {'DOWN', _, process, Pid, _} when Pid =:= Parent ->
+            LogFn(warning, #{msg => "cleanup_agent_is_orphanated", proc => self()}),
+            wait_for_task(LogFn, undefined, TaskPid, Timeout);
+        {'EXIT', Pid, Result} when Pid =:= TaskPid ->
+            case is_pid(Parent) of
+                true ->
+                    exit({cleanup_result, Result});
+                false ->
+                    LogFn(warning, #{msg => "orphanated_cleanup_agent_completed", proc => self()})
+            end
+    after Timeout ->
+        %% This is likely a bug, hence log at error level,
+        %% there can be resource leak, must fix.
+        Stack =
+            try
+                erlang:process_info(TaskPid, current_stacktrace)
+            catch
+                _:_ ->
+                    []
+            end,
+        %% The parent is maybe dead by now. Emit a log to make sure.
+        LogFn(error, #{
+            msg => cleanup_task_aborted_after_timeout,
+            proc => self(),
+            stacktrace => Stack
+        }),
+        %% Task pid is linked, so no need to kill here
+        exit(cleanup_task_aborted_after_timeout)
     end.
 
 %% Server start/stop callbacks
