@@ -262,17 +262,27 @@ on_new_iterator(
             error({unknown_subscription, #{sub_id => SubId}})
     end.
 
-on_unrecoverable_error(_SubId, Slab, _DSStream, Error, State) ->
+on_unrecoverable_error(SubId, Slab, _DSStream, Error, State) ->
     ?tp(error, streams_extsub_handler_on_unrecoverable_error, #{slab => Slab, error => Error}),
-    %% TODO
-    %% Handle unrecoverable error
-    State.
+    case State of
+        #{SubId := #stream_state{status = #stream_status_blocked{}} = StreamState} ->
+            update_stream_state(State, SubId, StreamState#stream_state{
+                status = #stream_status_unblocked{}
+            });
+        _ ->
+            State
+    end.
 
-on_subscription_down(_SubId, Slab, _DSStream, State) ->
+on_subscription_down(SubId, Slab, _DSStream, State) ->
     ?tp(error, streams_extsub_handler_on_subscription_down, #{slab => Slab}),
-    %% TODO
-    %% Handle subscription down
-    State.
+    case State of
+        #{SubId := #stream_state{status = #stream_status_blocked{}} = StreamState} ->
+            update_stream_state(State, SubId, StreamState#stream_state{
+                status = #stream_status_unblocked{}
+            });
+        _ ->
+            State
+    end.
 
 %% Internal functions
 
@@ -333,12 +343,16 @@ handle_ds_info(
                             HSt
                         end
                     },
-                    StreamState = StreamState0#stream_state{status = StreamStatus},
-                    {ok, update_stream_state(HState, SubId, StreamState),
-                        to_messages(StreamState, TTVs)};
+                    {LastTimestampUs, Messages} = to_messages(StreamState0, TTVs),
+                    StreamState = StreamState0#stream_state{
+                        status = StreamStatus, start_time_us = LastTimestampUs
+                    },
+                    {ok, update_stream_state(HState, SubId, StreamState), Messages};
                 #status_unblocked{} ->
                     ok = suback(HState, SubId, SubHandle, SeqNo),
-                    {ok, HState, to_messages(StreamState0, TTVs)}
+                    {LastTimestampUs, Messages} = to_messages(StreamState0, TTVs),
+                    StreamState = StreamState0#stream_state{start_time_us = LastTimestampUs},
+                    {ok, update_stream_state(HState, SubId, StreamState), Messages}
             end
     end.
 
@@ -373,16 +387,18 @@ unblock_streams(#h{state = #state{subs = Subs}} = HState) ->
         Subs
     ).
 
-to_messages(#stream_state{start_time_us = StartTimeUs}, TTVs) ->
-    lists:filtermap(
-        fun({_Topic, Time, Payload}) ->
-            case Time >= StartTimeUs of
-                true -> {true, emqx_streams_message_db:decode_message(Payload)};
-                false -> false
+to_messages(#stream_state{start_time_us = StartTimeUs} = StreamState, TTVs) ->
+    {NewLastTimestampUs, Messages} = lists:foldl(
+        fun({_Topic, Time, Payload}, {LastTimestampUsAcc, MessagesAcc}) ->
+            case Time >= LastTimestampUsAcc of
+                true -> {Time, [decode_message(StreamState, Time, Payload) | MessagesAcc]};
+                false -> {LastTimestampUsAcc, MessagesAcc}
             end
         end,
+        {StartTimeUs, []},
         TTVs
-    ).
+    ),
+    {NewLastTimestampUs, lists:reverse(Messages)}.
 
 complete_ds_stream(#h{state = State0, ds_client = DSClient0} = HState, SubRef) ->
     {DSClient, State} = emqx_ds_client:complete_stream(DSClient0, SubRef, State0),
@@ -475,3 +491,17 @@ validate_partition(Stream, Partition) ->
         true -> {ok, Partition};
         false -> {error, {invalid_partition, Partition}}
     end.
+
+decode_message(#stream_state{shard = Shard}, Time, Payload) ->
+    Message = emqx_streams_message_db:decode_message(Payload),
+    add_properties(Message, [
+        {<<"part">>, Shard},
+        {<<"offset">>, integer_to_binary(Time)}
+    ]).
+
+add_properties(Message, UserProperties) when length(UserProperties) > 0 ->
+    Props = emqx_message:get_header(properties, Message, #{}),
+    UserProperties0 = maps:get('User-Property', Props, []),
+    emqx_message:set_header(
+        properties, Props#{'User-Property' => UserProperties0 ++ UserProperties}, Message
+    ).
