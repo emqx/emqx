@@ -545,7 +545,7 @@ ds_client_subscribe(TopicFilter, #{id := SubId, start_time := StartTime}, Sess0 
         id => SubId,
         db => ?PERSISTENT_MESSAGE_DB,
         topic => emqx_ds:topic_words(TopicFilter),
-        start_time => StartTime,
+        start_time => emqx_persistent_session_ds:to_ds_time(StartTime),
         ds_sub_opts => SubOpts
     },
     case emqx_ds_client:subscribe(CLI0, Opts, Sess0) of

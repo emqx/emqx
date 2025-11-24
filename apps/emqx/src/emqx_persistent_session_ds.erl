@@ -19,6 +19,7 @@
 
 -compile(inline).
 -behaviour(emqx_session).
+-behaviour(emqx_ds_client).
 
 -include("emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -95,6 +96,17 @@
 -export([now_ms/0, to_ds_time/1]).
 
 -export([print_session/1, seqno_diff/4]).
+
+%% `emqx_ds_client' callbacks:
+-export([
+    get_current_generation/3,
+    on_advance_generation/4,
+    get_iterator/4,
+    on_new_iterator/5,
+    on_unrecoverable_error/5,
+    on_subscription_down/4,
+    list_known_streams/2
+]).
 
 -ifdef(TEST).
 -export([
@@ -930,6 +942,122 @@ terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWil
     ok = emqx_durable_will:on_disconnect(Id, ClientInfo, SessExpiryInterval, MaybeWillMsg),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
+
+%%--------------------------------------------------------------------
+%% DS client callbacks
+%%--------------------------------------------------------------------
+
+-spec get_current_generation(subscription_id(), emqx_ds:shard(), session()) -> emqx_ds:generation().
+get_current_generation(SubId, Shard, #{s := S}) ->
+    case emqx_persistent_session_ds_state:get_rank({SubId, Shard}, S) of
+        undefined ->
+            0;
+        N when is_integer(N) ->
+            N + 1
+    end.
+
+-spec on_advance_generation(subscription_id(), emqx_ds:shard(), emqx_ds:generation(), session()) ->
+    session().
+on_advance_generation(SubId, Shard, CurrentGen, Session = #{s := S0}) ->
+    FullyReplayedGen = CurrentGen - 1,
+    S1 = emqx_persistent_session_ds_state:put_rank({SubId, Shard}, FullyReplayedGen, S0),
+    %% Remove fully replayed streams from this shard:
+    S = emqx_persistent_session_ds_state:fold_streams(
+        fun(Key, #srs{rank_x = S, rank_y = G}, Acc) ->
+            case S of
+                Shard when G =< FullyReplayedGen ->
+                    emqx_persistent_session_ds_state:del_stream(Key, Acc);
+                _ ->
+                    Acc
+            end
+        end,
+        S1,
+        S1
+    ),
+    Session#{s := S}.
+
+-spec get_iterator(subscription_id(), emqx_ds:slab(), emqx_ds:stream(), session()) ->
+    {ok, end_of_stream}
+    | {subscribe, emqx_ds:iterator()}
+    | undefined.
+get_iterator(SubId, _Slab, Stream, #{s := S}) ->
+    case emqx_persistent_session_ds_state:get_stream({SubId, Stream}, S) of
+        undefined ->
+            undefined;
+        #srs{it_end = end_of_stream} ->
+            {ok, end_of_stream};
+        #srs{it_end = It} ->
+            {subscribe, It}
+    end.
+
+-spec on_new_iterator(
+    subscription_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), session()
+) ->
+    {subscribe, session()}.
+on_new_iterator(SubId, {Shard, Gen}, Stream, Iterator, Session = #{s := S0}) ->
+    case emqx_persistent_session_ds_subs:find_by_subid(SubId, S0) of
+        {_TopicFilter, Subscription} ->
+            #{
+                start_time := StartTime,
+                current_state := CurrentSubStateId
+            } = Subscription,
+            Key = {SubId, Stream},
+            ?tp(?sessds_stream_state_trans, #{
+                key => Key, to => r, from => p, start_time => StartTime
+            }),
+            NewStreamState = #srs{
+                rank_x = Shard,
+                rank_y = Gen,
+                it_begin = Iterator,
+                it_end = Iterator,
+                sub_state_id = CurrentSubStateId
+            },
+            S = emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S0),
+            {subscribe, Session#{s := S}};
+        undefined ->
+            {ignore, Session}
+    end.
+
+-spec on_unrecoverable_error(
+    subscription_id(), emqx_ds:slab(), emqx_ds:stream(), _Error, session()
+) ->
+    session().
+on_unrecoverable_error(SubId, Slab, Stream, Error, Session = #{s := S0}) ->
+    ?SLOG(warning, #{
+        msg => "sessds_unrecoverable_error",
+        stream => Stream,
+        reason => Error,
+        slab => Slab
+    }),
+    Key = {SubId, Stream},
+    case emqx_persistent_session_ds_state:get_stream(Key, S0) of
+        #srs{} = SRS0 ->
+            SRS = SRS0#srs{
+                it_end = end_of_stream
+            },
+            S = emqx_persistent_session_ds_state:put_stream(Key, SRS, S0),
+            Session#{s := S};
+        undefined ->
+            Session
+    end.
+
+-spec list_known_streams(subscription_id(), session()) -> [{emqx_ds:slab(), emqx_ds:stream()}].
+list_known_streams(SubId, #{s := S}) ->
+    emqx_persistent_session_ds_state:fold_streams(
+        SubId,
+        fun({_, Stream}, #srs{rank_x = Shard, rank_y = Generation}, Acc) ->
+            [{{Shard, Generation}, Stream} | Acc]
+        end,
+        [],
+        S
+    ).
+
+-spec on_subscription_down(subscription_id(), emqx_ds:slab(), emqx_ds:stream(), session()) ->
+    session().
+on_subscription_down(SubId, _Slab, Stream, Session = #{buffer := Buf0}) ->
+    Key = {SubId, Stream},
+    Buf = emqx_persistent_session_ds_buffer:drop_stream(Key, Buf0),
+    Session#{buffer := Buf}.
 
 %%--------------------------------------------------------------------
 %% Management APIs (dashboard)
