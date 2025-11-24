@@ -37,6 +37,10 @@
 }.
 
 -define(N_CONCURRENT_PROPOSALS, 1).
+-define(N_CONCURRENT_TAKEOVERS, 2).
+-define(REPROVISION_TIMEOUT, 1_000).
+-define(REPROVISION_RETRY_TIMEOUT, 2_500).
+
 -define(HEARTBEAT_LIFETIME, 30).
 -define(ANNOUNCEMENT_LIFETIME, 15).
 
@@ -58,24 +62,10 @@ on_subscription_consume(Consumer, Group, Stream, St) ->
     maybe
         _Stream = undefined ?= find_stream(Group, St),
         {ok, Shards} ?= get_stream_info(Stream, shards),
-        GSt0 = emqx_streams_shard_disp_group:new(),
-        GSt = #{proposed := Proposals} = propose_shards(Consumer, SGroup, Shards, GSt0),
-        case Proposals of
-            [_ | _] ->
-                Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),
-                Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
-                channel_deliver(Delivers);
-            [] ->
-                case emqx_streams_shard_disp_group:n_leases(GSt) of
-                    0 ->
-                        %% Make others aware of us:
-                        _ = announce_myself(Consumer, SGroup, GSt);
-                    _ ->
-                        %% Wait for rebalance:
-                        ok
-                end
-        end,
-        {ok, set_sgroup_state(Group, Stream, GSt, set_consumer(Consumer, St))}
+        GSt = emqx_streams_shard_disp_group:new(),
+        Ret = handle_provision(Consumer, Group, Stream, Shards, GSt),
+        ok = channel_deliver(Ret#ret.delivers),
+        {ok, set_sgroup_state(Group, Stream, Ret#ret.st, set_consumer(Consumer, St))}
     else
         Stream ->
             %% Already started.
@@ -87,39 +77,6 @@ on_subscription_consume(Consumer, Group, Stream, St) ->
                 consumer => Consumer,
                 streamgroup => SGroup,
                 reason => Reason
-            })
-    end.
-
-propose_shards(Consumer, SGroup, Shards, GSt) ->
-    HBWatermark = timestamp_s(),
-    Provisions = emqx_streams_shard_disp_group:provision(Consumer, SGroup, Shards, HBWatermark),
-    ProvisionalLeases = [L || L = {lease, _} <- Provisions],
-    ProposedLeases = lists:sublist(ProvisionalLeases, ?N_CONCURRENT_PROPOSALS),
-    %% NOTE piggyback
-    GSt#{proposed => ProposedLeases}.
-
-remove_proposal(Proposal, GSt) ->
-    Proposals = maps:get(proposed, GSt, []),
-    case Proposals -- [Proposal] of
-        Proposals ->
-            {false, GSt};
-        NProposals ->
-            {true, GSt#{proposed => NProposals}}
-    end.
-
-invalidate_proposals(GSt) ->
-    GSt#{proposed => []}.
-
-announce_myself(Consumer, SGroup, GSt) ->
-    HB = heartbeat_announcement(),
-    case emqx_streams_shard_disp_group:announce(Consumer, SGroup, HB, GSt) of
-        #{} ->
-            ok;
-        Error ->
-            ?tp(info, "streams_shard_dispatch_announce_error", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                reason => Error
             })
     end.
 
@@ -168,39 +125,19 @@ on_request(PacketId, {Command, Group, Shard, Offset}, St0) ->
     Consumer = consumer(St0),
     SGroup = sgroup(Group, St0),
     GSt0 = sgroup_state(Group, St0),
+    TraceCtx = #{
+        consumer => Consumer,
+        streamgroup => SGroup,
+        Command => Shard,
+        offset => Offset
+    },
     case handle_request(Consumer, SGroup, Command, Shard, Offset, GSt0) of
-        GSt = #{} ->
-            %% Just in case, generally unreachable.
-            St = update_sgroup_state(Group, GSt, St0),
-            #ret{reply = ?RC_SUCCESS, st = St};
         {tx, Ref, Ctx, GSt} ->
-            ?tp(debug, "streams_shard_dispatch_progress_tx_started", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                Command => {Shard, Offset},
-                tx => Ref
-            }),
+            ?tp(debug, "streams_shard_dispatch_progress_tx_started", TraceCtx#{tx => Ref}),
             St = update_sgroup_state(Group, GSt, St0),
             #ret{st = stash_tx(Ref, {PacketId, Group, Ctx}, St)};
-        {invalid, Reason, GSt} ->
-            ?tp(info, "streams_shard_dispatch_progress_invalid_request", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                Command => {Shard, Offset},
-                reason => Reason
-            }),
-            _ = on_request_error(Command, Group, Reason),
-            St = update_sgroup_state(Group, invalidate_proposals(GSt), St0),
-            #ret{reply = map_invalid_rc(Reason), st = St};
-        Error ->
-            %% FIXME error handling
-            ?tp(info, "streams_shard_dispatch_progress_error", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                Command => {Shard, Offset},
-                reason => Error
-            }),
-            #ret{}
+        Ret ->
+            handle_request_outcome(Consumer, Group, Command, Ret, TraceCtx, St0)
     end.
 
 handle_request(Consumer, SGroup, progress, Shard, Offset, GSt0) ->
@@ -208,6 +145,7 @@ handle_request(Consumer, SGroup, progress, Shard, Offset, GSt0) ->
     case emqx_streams_shard_disp_group:lookup_lease(Shard, GSt0) of
         undefined ->
             {Removed, GSt} = remove_proposal({lease, Shard}, GSt0),
+            %% TODO invalidate?
             Removed orelse
                 ?tp(notice, "streams_shard_dispatch_leasing_no_proposal", #{
                     consumer => Consumer,
@@ -218,26 +156,36 @@ handle_request(Consumer, SGroup, progress, Shard, Offset, GSt0) ->
             GSt = GSt0
     end,
     emqx_streams_shard_disp_group:progress(Consumer, SGroup, Shard, Offset, HB, GSt);
-handle_request(Consumer, SGroup, release, Shard, Offset, GSt) ->
+handle_request(Consumer, SGroup, release, Shard, Offset, GSt0) ->
+    {_Removed, GSt} = remove_proposal({release, Shard}, GSt0),
     emqx_streams_shard_disp_group:release(Consumer, SGroup, Shard, Offset, GSt).
 
 on_request_error(progress, Group, Reason) ->
     DispCommand = #shard_dispatch_command{group = Group, c = reprovision, context = Reason},
     case Reason of
         {leased, _} ->
-            self() ! DispCommand;
+            true;
         conflict ->
-            self() ! DispCommand;
+            true;
         _ ->
-            ok
-    end;
+            false
+    end andalso
+        erlang:send_after(?REPROVISION_TIMEOUT, self(), DispCommand);
 on_request_error(_, _, _) ->
     ok.
 
-on_tx_commit(Ref, Reply, #{replies := Replies, deliver := Deliver}, St0) ->
+on_tx_commit(Ref, Reply, RetAcc0 = #{replies := Replies, deliver := Deliver}, St0) ->
+    Consumer = consumer(St0),
     case pop_tx(Ref, St0) of
+        {{takeover, Group, Ctx}, St1} ->
+            Ret = handle_takeover_tx_commit(Consumer, Group, Ref, Reply, Ctx, St1),
+            case Ret of
+                #ret{st = St} when St =/= unchanged ->
+                    {stop, RetAcc0, St};
+                #ret{} ->
+                    {stop, RetAcc0}
+            end;
         {{PacketId, Group, Ctx}, St1} ->
-            Consumer = consumer(St1),
             Ret = handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St1),
             RetAcc = #{
                 replies => append_puback(PacketId, Ret#ret.reply, Replies),
@@ -260,88 +208,279 @@ append_puback(PacketId, RC, Replies) ->
     Replies ++ [?REPLY_OUTGOING(mk_puback(PacketId, RC))].
 
 handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St0) ->
-    %% FIXME error handling
     GSt0 = sgroup_state(Group, St0),
     SGroup = sgroup(Group, St0),
     Command = element(1, Ctx),
+    TraceCtx = #{
+        consumer => Consumer,
+        streamgroup => SGroup,
+        Command => true,
+        tx => Ref
+    },
     case emqx_streams_shard_disp_group:handle_tx_reply(Consumer, SGroup, Ref, Reply, Ctx, GSt0) of
-        GSt = #{} ->
-            ?tp(debug, "streams_shard_dispatch_progress_tx_success", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                tx => Ref
-            }),
-            _ = on_tx_success(Command, Group, GSt),
-            St = update_sgroup_state(Group, GSt, St0),
-            #ret{reply = ?RC_SUCCESS, st = St};
         {tx, NRef, NCtx, GSt} ->
-            ?tp(debug, "streams_shard_dispatch_progress_tx_restarted", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                tx => NRef
-            }),
+            ?tp(debug, "streams_shard_dispatch_progress_tx_restarted", TraceCtx#{tx => NRef}),
             St = update_sgroup_state(Group, GSt, St0),
             #ret{st = stash_tx(NRef, {PacketId, Group, NCtx}, St)};
+        Ret ->
+            handle_request_outcome(Consumer, Group, Command, Ret, TraceCtx, St0)
+    end.
+
+handle_request_outcome(Consumer, Group, Command, Ret, TraceCtx, St0) ->
+    case Ret of
+        GSt1 = #{} ->
+            ?tp(debug, "streams_shard_dispatch_progress_success", TraceCtx),
+            GSt = deannounce_myself(Consumer, sgroup(Group, St0), GSt1),
+            _ = on_request_success(Command, Group, GSt1),
+            St = update_sgroup_state(Group, GSt, St0),
+            #ret{reply = ?RC_SUCCESS, st = St};
         {invalid, Reason, GSt} ->
-            ?tp(info, "streams_shard_dispatch_progress_tx_invalid", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                reason => Reason
-            }),
+            ?tp(info, "streams_shard_dispatch_progress_invalid", TraceCtx#{reason => Reason}),
             _ = on_request_error(Command, Group, Reason),
             St = update_sgroup_state(Group, invalidate_proposals(GSt), St0),
             #ret{reply = map_invalid_rc(Reason), st = St};
         Error ->
-            ?tp(info, "streams_shard_dispatch_progress_tx_error", #{
-                consumer => Consumer,
-                streamgroup => SGroup,
-                reason => Error
-            }),
+            %% FIXME error handling
+            ?tp(info, "streams_shard_dispatch_progress_error", TraceCtx#{reason => Error}),
             #ret{}
     end.
 
 map_invalid_rc({leased, _}) ->
     ?RC_NO_MATCHING_SUBSCRIBERS;
+map_invalid_rc(conflict) ->
+    ?RC_NO_MATCHING_SUBSCRIBERS;
 map_invalid_rc(_Otherwise) ->
     ?RC_IMPLEMENTATION_SPECIFIC_ERROR.
 
-on_tx_success(progress, Group, #{proposed := []}) ->
-    self() ! #shard_dispatch_command{group = Group, c = reprovision, context = no_more_proposals};
-on_tx_success(progress, _SGroup, #{proposed := [_ | _]}) ->
+on_request_success(progress, Group, #{proposed := []}) ->
+    self() ! #shard_dispatch_command{group = Group, c = reprovision, context = "no proposals"};
+on_request_success(progress, _Group, #{proposed := [_ | _]}) ->
     ok;
-on_tx_success(release, _SGroup, #{}) ->
+on_request_success(release, _Group, #{}) ->
     ok.
 
-on_command(#shard_dispatch_command{group = Group, c = reprovision}, RetAcc0, St) ->
-    #{deliver := Deliver, replies := Replies} = RetAcc0,
-    Consumer = consumer(St),
-    Stream = maps:get({stream, Group}, St),
-    GSt0 = sgroup_state(Group, St),
-    Ret = handle_reprovision(Consumer, Group, Stream, GSt0),
+on_command(Command, #{deliver := DeliverAcc, replies := ReplyAcc}, St0) ->
+    Consumer = consumer(St0),
+    Ret = handle_command(Consumer, Command, St0),
     RetAcc = #{
-        deliver => Deliver ++ Ret#ret.delivers,
-        replies => Replies
+        deliver => DeliverAcc ++ Ret#ret.delivers,
+        replies => ReplyAcc
     },
     case Ret of
-        #ret{st = GSt} when GSt =/= unchanged ->
-            {stop, RetAcc, update_sgroup_state(Group, GSt, St)};
+        #ret{st = St} when St =/= unchanged ->
+            {stop, RetAcc, St};
         #ret{} ->
             {stop, RetAcc}
     end.
 
-handle_reprovision(Consumer, Group, Stream, GSt0) ->
-    %% FIXME error handling
-    {ok, Shards} = get_stream_info(Stream, shards),
+handle_command(Consumer, #shard_dispatch_command{group = Group, c = reprovision}, St) ->
+    Stream = maps:get({stream, Group}, St),
+    Ret = reprovision(Consumer, Group, Stream, sgroup_state(Group, St)),
+    case Ret of
+        #ret{st = GSt} when GSt =/= unchanged ->
+            Ret#ret{st = update_sgroup_state(Group, GSt, St)};
+        #ret{} ->
+            Ret
+    end;
+handle_command(Consumer, #shard_dispatch_command{group = Group, c = Takeover}, St) when
+    element(1, Takeover) =:= takeover
+->
+    #ret{st = launch_takeover(Consumer, Group, Takeover, St)}.
+
+handle_provision(Consumer, Group, Stream, Shards, GSt0) ->
     SGroup = ?streamgroup(Group, Stream),
-    GSt = #{proposed := Proposals} = propose_shards(Consumer, SGroup, Shards, GSt0),
+    HBWatermark = timestamp_s(),
+    Provisions = emqx_streams_shard_disp_group:provision(Consumer, SGroup, Shards, HBWatermark),
+    Proposals = propose_leases(Provisions),
+    %% NOTE piggyback
+    GSt1 = GSt0#{proposed => Proposals},
     case Proposals of
         [_ | _] ->
             Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),
             Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
-            #ret{st = GSt, delivers = Delivers};
+            #ret{st = GSt1, delivers = Delivers};
         [] ->
+            _ = erlang:send_after(
+                ?REPROVISION_RETRY_TIMEOUT,
+                self(),
+                #shard_dispatch_command{group = Group, c = reprovision, context = "empty provision"}
+            ),
+            %% Make others aware of us:
+            GSt = announce_myself(Consumer, SGroup, GSt1),
             #ret{st = GSt}
     end.
+
+reprovision(_Consumer, _Group, _Stream, #{proposed := [_ | _]}) ->
+    #ret{};
+reprovision(Consumer, Group, Stream, GSt0) ->
+    %% FIXME error handling
+    {ok, Shards} = get_stream_info(Stream, shards),
+    SGroup = ?streamgroup(Group, Stream),
+    HBWatermark = timestamp_s(),
+    Provisions = emqx_streams_shard_disp_group:provision(Consumer, SGroup, Shards, HBWatermark),
+    %% TODO too many consumers?
+    case propose_leases(Provisions) of
+        [_ | _] = Proposals ->
+            %% NOTE piggyback
+            GSt = GSt0#{proposed => Proposals},
+            Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),
+            Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
+            #ret{st = GSt, delivers = Delivers};
+        [] ->
+            reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0)
+    end.
+
+reprovision_takeover(_Consumer, _Group, _Stream, _Shards, _Provisions, #{takeovers := [_ | _]}) ->
+    #ret{};
+reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0) ->
+    SGroup = ?streamgroup(Group, Stream),
+    Takeovers = propose_takeovers(Consumer, SGroup, Shards),
+    case Takeovers of
+        [_ | _] ->
+            %% TODO simplify
+            %% TODO avoid concurrent takeovers
+            lists:foreach(
+                fun(Takeover) ->
+                    self() ! #shard_dispatch_command{group = Group, c = Takeover}
+                end,
+                Takeovers
+            ),
+            %% NOTE piggyback
+            GSt = GSt0#{takeovers => Takeovers},
+            #ret{st = GSt};
+        [] ->
+            reprovision_release(Consumer, Group, Stream, Provisions, GSt0)
+    end.
+
+reprovision_release(Consumer, Group, Stream, Provisions, GSt0) ->
+    case propose_releases(Provisions) of
+        [_ | _] = Proposals ->
+            %% NOTE piggyback
+            GSt = GSt0#{proposed => Proposals},
+            Delivers = mk_proposal_delivers(Group, Stream, Proposals, #{}),
+            #ret{st = GSt, delivers = Delivers};
+        [] ->
+            GSt = reannounce_myself(Consumer, Group, Stream, GSt0),
+            #ret{st = GSt}
+    end.
+
+remove_proposal(Proposal, GSt) ->
+    Proposals = maps:get(proposed, GSt, []),
+    case Proposals -- [Proposal] of
+        Proposals ->
+            {false, GSt};
+        Rest ->
+            {true, GSt#{proposed => Rest}}
+    end.
+
+invalidate_proposals(GSt) ->
+    GSt#{proposed => []}.
+
+remove_takeover(Shard, GSt) ->
+    Takeovers = maps:get(takeovers, GSt, []),
+    case lists:keydelete(Shard, 2, Takeovers) of
+        Takeovers ->
+            {false, GSt};
+        Rest ->
+            {true, GSt#{takeovers => Rest}}
+    end.
+
+reannounce_myself(Consumer, Group, Stream, GSt) ->
+    case emqx_streams_shard_disp_group:n_leases(GSt) of
+        0 ->
+            %% Make others aware of us:
+            _ = erlang:send_after(
+                ?REPROVISION_RETRY_TIMEOUT,
+                self(),
+                #shard_dispatch_command{group = Group, c = reprovision, context = "reannounce"}
+            ),
+            announce_myself(Consumer, ?streamgroup(Group, Stream), GSt);
+        _ ->
+            %% Wait for rebalance:
+            GSt
+    end.
+
+announce_myself(Consumer, SGroup, GSt0) ->
+    HB = heartbeat_announcement(),
+    case emqx_streams_shard_disp_group:announce(Consumer, SGroup, HB, GSt0) of
+        GSt = #{} ->
+            GSt;
+        Error ->
+            ?tp(info, "streams_shard_dispatch_announce_error", #{
+                consumer => Consumer,
+                streamgroup => SGroup,
+                reason => Error
+            }),
+            GSt0
+    end.
+
+deannounce_myself(Consumer, SGroup, GSt0) ->
+    case emqx_streams_shard_disp_group:deannounce(Consumer, SGroup, GSt0) of
+        GSt = #{} ->
+            GSt;
+        Error ->
+            ?tp(info, "streams_shard_dispatch_deannounce_error", #{
+                consumer => Consumer,
+                streamgroup => SGroup,
+                reason => Error
+            }),
+            GSt0
+    end.
+
+launch_takeover(Consumer, Group, {takeover, Shard, DeadConsumer, HB}, St) ->
+    SGroup = sgroup(Group, St),
+    TraceCtx = #{
+        consumer => Consumer,
+        streamgroup => SGroup,
+        shard => Shard,
+        from => DeadConsumer
+    },
+    %% TODO undefined?
+    Offset = emqx_streams_state_db:shard_progress_dirty(SGroup, Shard),
+    case emqx_streams_state_db:release_shard_async(SGroup, Shard, DeadConsumer, Offset, HB) of
+        {async, Ref, Ret} ->
+            ?tp(debug, "streams_shard_dispatch_takeover_tx_started", TraceCtx#{tx => Ref}),
+            stash_tx(Ref, {takeover, Group, {Ret, Shard, DeadConsumer}}, St);
+        Ret ->
+            handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St)
+    end.
+
+handle_takeover_tx_commit(Consumer, Group, Ref, Reply, {Ret, Shard, DeadConsumer}, St) ->
+    TraceCtx = #{
+        consumer => Consumer,
+        streamgroup => sgroup(Group, St),
+        shard => Shard,
+        from => DeadConsumer
+    },
+    Ret = emqx_streams_state_db:progress_shard_tx_result(Ret, Ref, Reply),
+    handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St).
+
+handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St) ->
+    case Ret of
+        ok ->
+            ?tp(debug, "streams_shard_dispatch_takeover_tx_success", TraceCtx);
+        {invalid, Reason} ->
+            ?tp(info, "streams_shard_dispatch_takeover_tx_invalid", TraceCtx#{reason => Reason});
+        Error ->
+            ?tp(warning, "streams_shard_dispatch_takeover_tx_error", TraceCtx#{reason => Error})
+    end,
+    {_Removed, GSt} = remove_takeover(Shard, sgroup_state(Group, St)),
+    #ret{st = update_sgroup_state(Group, GSt, St)}.
+
+propose_leases(Provisions) ->
+    ProvisionalLeases = [L || L = {lease, _} <- Provisions],
+    lists:sublist(ProvisionalLeases, ?N_CONCURRENT_PROPOSALS).
+
+propose_releases(Provisions) ->
+    ProvisionalLeases = [L || L = {release, _} <- Provisions],
+    lists:sublist(ProvisionalLeases, ?N_CONCURRENT_PROPOSALS).
+
+propose_takeovers(Consumer, SGroup, Shards) ->
+    HBWatermark = timestamp_s(),
+    lists:sublist(
+        emqx_streams_shard_disp_group:provision_takeovers(Consumer, SGroup, Shards, HBWatermark),
+        ?N_CONCURRENT_TAKEOVERS
+    ).
 
 %%
 

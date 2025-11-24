@@ -16,10 +16,14 @@
     new/0,
     n_leases/1,
     lookup_lease/2,
-    announce/4,
     progress/6,
     release/5,
     handle_tx_reply/6
+]).
+
+-export([
+    announce/4,
+    deannounce/3
 ]).
 
 -export_type([st/0, streamgroup/0]).
@@ -46,7 +50,7 @@
     offset_committed_max => offset()
 }.
 
--define(N_ANNOUNCE_SLOTS, 8).
+-define(N_ANNOUNCE_SLOTS, 16).
 
 %% Protocol interaction
 
@@ -124,10 +128,25 @@ announce(Consumer, SGroup, Heartbeat, St) ->
     Slot = erlang:phash2(Consumer, ?N_ANNOUNCE_SLOTS),
     case emqx_streams_state_db:announce_consumer(SGroup, Slot, Consumer, Heartbeat) of
         ok ->
-            St;
+            St#{announcement => Heartbeat};
         Error ->
             Error
     end.
+
+-spec deannounce(consumer(), streamgroup(), st()) ->
+    ok | emqx_ds:error(_).
+deannounce(Consumer, SGroup, St = #{announcement := Heartbeat}) ->
+    Slot = erlang:phash2(Consumer, ?N_ANNOUNCE_SLOTS),
+    case emqx_streams_state_db:deannounce_consumer(SGroup, Slot, Consumer, Heartbeat) of
+        ok ->
+            maps:remove(announcement, St);
+        {invalid, undefined} ->
+            maps:remove(announcement, St);
+        Error ->
+            Error
+    end;
+deannounce(_Consumer, _SGroup, St) ->
+    St.
 
 -spec n_leases(st()) -> non_neg_integer().
 n_leases(St) ->

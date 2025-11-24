@@ -70,13 +70,13 @@ loop(St) ->
             [Parent | _] = get('$ancestors'),
             sys:handle_system_msg(Req, From, Parent, ?MODULE, _Debug = [], St)
     after TickInterval ->
-        trace(St, "[TICK] shards:~0p", [list_shards(St)]),
+        trace(St, "[TICK] shards:~s", [fmt_shards(list_shards(St))]),
         handle_tick(St)
     end.
 
 terminate(St) ->
     Shards = list_shards(St),
-    trace(St, "[TERMINATE] shards:~0p", [Shards]),
+    trace(St, "[TERMINATE] shards:~s", [fmt_shards(Shards)]),
     lists:foldl(fun try_release_shard/2, St, Shards).
 
 handle_message(#{topic := Topic, payload := <<>>}, St) ->
@@ -97,8 +97,7 @@ handle_proposal({release, Shard}, St) ->
     trace(St, "[PROPOSAL] << RELEASE ~s", [Shard]),
     case shard(Shard, St) of
         ShardSt = #{} ->
-            % handle_proposed_release(Shard, ShardSt, St);
-            exit(todo);
+            handle_proposed_release(Shard, ShardSt, St);
         undefined ->
             exit({unexpected_release, Shard})
     end.
@@ -111,6 +110,9 @@ handle_proposed_lease(Shard, Offset, St) ->
         offset => Offset
     },
     loop(progress_shard(Shard, set_shard(Shard, ShardSt, St))).
+
+handle_proposed_release(Shard, ShardSt, St) ->
+    loop(release_shard(Shard, ShardSt, St)).
 
 handle_tick(St) ->
     Deadline = nowts() - opt(progress_update_interval, St),
@@ -243,6 +245,9 @@ mqtt_publish(St, Topic, Payload, QoS) ->
 
 trace(St, Fmt, Args) ->
     io:format(user, "~ts (~s) " ++ Fmt ++ "~n", [rfc3339(nowts()), maps:get(clientid, St) | Args]).
+
+fmt_shards(Shards) when is_list(Shards) ->
+    ["[", lists:join(", ", Shards), "]"].
 
 mrk_progress(#{last_progress_at := undefined}) ->
     "LEASED";

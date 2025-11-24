@@ -16,6 +16,7 @@
     release_shard_async/5,
     progress_shard_tx_result/3,
     announce_consumer/4,
+    deannounce_consumer/4,
     shard_progress_dirty/1,
     shard_progress_dirty/2,
     shard_leases_dirty/1
@@ -139,6 +140,21 @@ announce_consumer(SGroup, Slot, Consumer, Heartbeat) ->
         emqx_ds:tx_del_topic(TopicAnnounce, 0, Heartbeat),
         emqx_ds:tx_write({TopicAnnounce, Heartbeat, Consumer})
     end).
+
+deannounce_consumer(SGroup, Slot, Consumer, Heartbeat) ->
+    Ret = sync_tx(SGroup, fun() ->
+        TopicAnnounce = ?topic_consumer_announce(SGroup, integer_to_binary(Slot)),
+        emqx_ds:tx_ttv_assert_present(TopicAnnounce, Heartbeat, Consumer),
+        emqx_ds:tx_del_topic(TopicAnnounce, 0, Heartbeat + 1)
+    end),
+    case Ret of
+        ok ->
+            ok;
+        ?err_unrec({precondition_failed, [#{topic := ?topic_consumer_announce(_, _)} | _]}) ->
+            {invalid, undefined};
+        Error ->
+            Error
+    end.
 
 shard_progress_dirty(SGroup) ->
     TTVs = emqx_ds:dirty_read(
