@@ -17,6 +17,8 @@
     on_puback/3,
     on_tx_commit/4,
     on_command/3
+    %% TODO
+    %% on_terminate/2
 ]).
 
 %% FIXME
@@ -62,7 +64,7 @@ on_subscription_consume(Consumer, Group, Stream, St) ->
     maybe
         _Stream = undefined ?= find_stream(Group, St),
         {ok, Shards} ?= get_stream_info(Stream, shards),
-        GSt = emqx_streams_shard_disp_group:new(),
+        GSt = announce_myself(Consumer, SGroup, emqx_streams_shard_disp_group:new()),
         Ret = handle_provision(Consumer, Group, Stream, Shards, GSt),
         ok = channel_deliver(Ret#ret.delivers),
         {ok, set_sgroup_state(Group, Stream, Ret#ret.st, set_consumer(Consumer, St))}
@@ -121,23 +123,23 @@ on_puback(PacketId, #message{}, St0) ->
             {stop, MaybeRC}
     end.
 
-on_request(PacketId, {Command, Group, Shard, Offset}, St0) ->
+on_request(PacketId, {Verb, Group, Shard, Offset}, St0) ->
     Consumer = consumer(St0),
     SGroup = sgroup(Group, St0),
     GSt0 = sgroup_state(Group, St0),
     TraceCtx = #{
         consumer => Consumer,
         streamgroup => SGroup,
-        Command => Shard,
+        shard => Shard,
         offset => Offset
     },
-    case handle_request(Consumer, SGroup, Command, Shard, Offset, GSt0) of
+    case handle_request(Consumer, SGroup, Verb, Shard, Offset, GSt0) of
         {tx, Ref, Ctx, GSt} ->
             ?tp(debug, "streams_shard_dispatch_progress_tx_started", TraceCtx#{tx => Ref}),
             St = update_sgroup_state(Group, GSt, St0),
             #ret{st = stash_tx(Ref, {PacketId, Group, Ctx}, St)};
         Ret ->
-            handle_request_outcome(Consumer, Group, Command, Ret, TraceCtx, St0)
+            handle_request_outcome(Consumer, Group, Verb, Ret, TraceCtx, St0)
     end.
 
 handle_request(Consumer, SGroup, progress, Shard, Offset, GSt0) ->
@@ -159,20 +161,6 @@ handle_request(Consumer, SGroup, progress, Shard, Offset, GSt0) ->
 handle_request(Consumer, SGroup, release, Shard, Offset, GSt0) ->
     {_Removed, GSt} = remove_proposal({release, Shard}, GSt0),
     emqx_streams_shard_disp_group:release(Consumer, SGroup, Shard, Offset, GSt).
-
-on_request_error(progress, Group, Reason) ->
-    DispCommand = #shard_dispatch_command{group = Group, c = reprovision, context = Reason},
-    case Reason of
-        {leased, _} ->
-            true;
-        conflict ->
-            true;
-        _ ->
-            false
-    end andalso
-        erlang:send_after(?REPROVISION_TIMEOUT, self(), DispCommand);
-on_request_error(_, _, _) ->
-    ok.
 
 on_tx_commit(Ref, Reply, RetAcc0 = #{replies := Replies, deliver := Deliver}, St0) ->
     Consumer = consumer(St0),
@@ -210,11 +198,10 @@ append_puback(PacketId, RC, Replies) ->
 handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St0) ->
     GSt0 = sgroup_state(Group, St0),
     SGroup = sgroup(Group, St0),
-    Command = element(1, Ctx),
+    Verb = element(1, Ctx),
     TraceCtx = #{
         consumer => Consumer,
         streamgroup => SGroup,
-        Command => true,
         tx => Ref
     },
     case emqx_streams_shard_disp_group:handle_tx_reply(Consumer, SGroup, Ref, Reply, Ctx, GSt0) of
@@ -223,27 +210,56 @@ handle_tx_commit(Consumer, Group, PacketId, Ref, Reply, Ctx, St0) ->
             St = update_sgroup_state(Group, GSt, St0),
             #ret{st = stash_tx(NRef, {PacketId, Group, NCtx}, St)};
         Ret ->
-            handle_request_outcome(Consumer, Group, Command, Ret, TraceCtx, St0)
+            handle_request_outcome(Consumer, Group, Verb, Ret, TraceCtx, St0)
     end.
 
-handle_request_outcome(Consumer, Group, Command, Ret, TraceCtx, St0) ->
-    case Ret of
-        GSt1 = #{} ->
-            ?tp(debug, "streams_shard_dispatch_progress_success", TraceCtx),
-            GSt = deannounce_myself(Consumer, sgroup(Group, St0), GSt1),
-            _ = on_request_success(Command, Group, GSt1),
-            St = update_sgroup_state(Group, GSt, St0),
-            #ret{reply = ?RC_SUCCESS, st = St};
-        {invalid, Reason, GSt} ->
-            ?tp(info, "streams_shard_dispatch_progress_invalid", TraceCtx#{reason => Reason}),
-            _ = on_request_error(Command, Group, Reason),
-            St = update_sgroup_state(Group, invalidate_proposals(GSt), St0),
-            #ret{reply = map_invalid_rc(Reason), st = St};
-        Error ->
-            %% FIXME error handling
-            ?tp(info, "streams_shard_dispatch_progress_error", TraceCtx#{reason => Error}),
-            #ret{}
-    end.
+handle_request_outcome(Consumer, Group, progress, Ret, TraceCtx, St) ->
+    handle_progress_outcome(Consumer, Group, Ret, TraceCtx, St);
+handle_request_outcome(Consumer, Group, release, Ret, TraceCtx, St) ->
+    handle_release_outcome(Consumer, Group, Ret, TraceCtx, St).
+
+handle_progress_outcome(Consumer, Group, GSt0 = #{}, TraceCtx, St0) ->
+    ?tp(debug, "streams_shard_dispatch_progress_success", TraceCtx),
+    GSt = deannounce_myself(Consumer, sgroup(Group, St0), GSt0),
+    St = update_sgroup_state(Group, GSt, St0),
+    case GSt of
+        #{proposed := []} ->
+            _ = postpone_command(Group, reprovision, "no proposals");
+        #{proposed := [_ | _]} ->
+            ok
+    end,
+    #ret{reply = ?RC_SUCCESS, st = St};
+handle_progress_outcome(_Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0) ->
+    ?tp(debug, "streams_shard_dispatch_progress_invalid", TraceCtx#{reason => Reason}),
+    GSt = invalidate_proposals(GSt0),
+    St = update_sgroup_state(Group, GSt, St0),
+    case Reason of
+        {leased, _} ->
+            _ = schedule_command(?REPROVISION_TIMEOUT, Group, reprovision, Reason);
+        conflict ->
+            _ = schedule_command(?REPROVISION_TIMEOUT, Group, reprovision, Reason);
+        _ ->
+            ok
+    end,
+    #ret{reply = map_invalid_rc(Reason), st = St};
+handle_progress_outcome(_Consumer, _Group, Error, TraceCtx, _St) ->
+    %% FIXME error handling
+    ?tp(info, "streams_shard_dispatch_progress_error", TraceCtx#{reason => Error}),
+    #ret{}.
+
+handle_release_outcome(_Consumer, Group, GSt = #{}, TraceCtx, St0) ->
+    ?tp(debug, "streams_shard_dispatch_release_success", TraceCtx),
+    St = update_sgroup_state(Group, GSt, St0),
+    #ret{reply = ?RC_SUCCESS, st = St};
+handle_release_outcome(_Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0) ->
+    ?tp(debug, "streams_shard_dispatch_release_invalid", TraceCtx#{reason => Reason}),
+    GSt = invalidate_proposals(GSt0),
+    St = update_sgroup_state(Group, GSt, St0),
+    #ret{reply = map_invalid_rc(Reason), st = St};
+handle_release_outcome(_Consumer, _Group, Error, TraceCtx, _St) ->
+    %% FIXME error handling
+    ?tp(info, "streams_shard_dispatch_release_error", TraceCtx#{reason => Error}),
+    #ret{}.
 
 map_invalid_rc({leased, _}) ->
     ?RC_NO_MATCHING_SUBSCRIBERS;
@@ -251,13 +267,6 @@ map_invalid_rc(conflict) ->
     ?RC_NO_MATCHING_SUBSCRIBERS;
 map_invalid_rc(_Otherwise) ->
     ?RC_IMPLEMENTATION_SPECIFIC_ERROR.
-
-on_request_success(progress, Group, #{proposed := []}) ->
-    self() ! #shard_dispatch_command{group = Group, c = reprovision, context = "no proposals"};
-on_request_success(progress, _Group, #{proposed := [_ | _]}) ->
-    ok;
-on_request_success(release, _Group, #{}) ->
-    ok.
 
 on_command(Command, #{deliver := DeliverAcc, replies := ReplyAcc}, St0) ->
     Consumer = consumer(St0),
@@ -300,11 +309,7 @@ handle_provision(Consumer, Group, Stream, Shards, GSt0) ->
             Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
             #ret{st = GSt1, delivers = Delivers};
         [] ->
-            _ = erlang:send_after(
-                ?REPROVISION_RETRY_TIMEOUT,
-                self(),
-                #shard_dispatch_command{group = Group, c = reprovision, context = "empty provision"}
-            ),
+            _ = schedule_command(?REPROVISION_RETRY_TIMEOUT, Group, reprovision, "empty provision"),
             %% Make others aware of us:
             GSt = announce_myself(Consumer, SGroup, GSt1),
             #ret{st = GSt}
@@ -578,17 +583,27 @@ stash_tx(Ref, Context, St = #{}) ->
 pop_tx(Ref, St = #{}) ->
     maps:take({tx, Ref}, St).
 
+postpone_command(Group, Command, Context) ->
+    self() ! #shard_dispatch_command{group = Group, c = Command, context = Context}.
+
+schedule_command(Timeout, Group, Command, Context) ->
+    erlang:send_after(
+        Timeout,
+        self(),
+        #shard_dispatch_command{group = Group, c = Command, context = Context}
+    ).
+
 %% Protocol structures
 
 parse_topic(Topic) when is_binary(Topic) ->
     parse_topic(emqx_topic:tokens(Topic));
-parse_topic([_SDisp, CommandB, Group, Shard, OffsetB]) ->
+parse_topic([_SDisp, VerbB, Group, Shard, OffsetB]) ->
     maybe
         Offset = int(OffsetB),
         true ?= is_integer(Offset),
-        true ?= lists:member(CommandB, [<<"progress">>, <<"release">>]),
-        Command = binary_to_atom(CommandB),
-        {Command, Group, Shard, Offset}
+        true ?= lists:member(VerbB, [<<"progress">>, <<"release">>]),
+        Verb = binary_to_atom(VerbB),
+        {Verb, Group, Shard, Offset}
     end;
 parse_topic(_) ->
     false.

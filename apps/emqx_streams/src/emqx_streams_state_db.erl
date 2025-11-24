@@ -16,6 +16,7 @@
     release_shard_async/5,
     progress_shard_tx_result/3,
     announce_consumer/4,
+    reannounce_consumer/4,
     deannounce_consumer/3,
     shard_progress_dirty/1,
     shard_progress_dirty/2,
@@ -144,6 +145,16 @@ announce_consumer(SGroup, Consumer, Heartbeat, Lifetime) ->
         TopicAnnounce = ?topic_consumer_announce(SGroup),
         emqx_ds:tx_del_topic(TopicAnnounce, 0, ?time_announce(Heartbeat - Lifetime, 0)),
         emqx_ds:tx_write({TopicAnnounce, ?time_announce(Heartbeat, HBits), Consumer})
+    end).
+
+reannounce_consumer(SGroup, Consumer, Heartbeat, HeartbeatPrev) ->
+    <<HBits:?announce_hbits, _/bits>> = erlang:md5(Consumer),
+    sync_tx(SGroup, fun() ->
+        TopicAnnounce = ?topic_consumer_announce(SGroup),
+        Time = ?time_announce(Heartbeat, HBits),
+        TimePrev = ?time_announce(HeartbeatPrev, HBits),
+        emqx_ds:tx_del_topic(TopicAnnounce, TimePrev, TimePrev + 1),
+        emqx_ds:tx_write({TopicAnnounce, Time, Consumer})
     end).
 
 deannounce_consumer(SGroup, Consumer, Heartbeat) ->

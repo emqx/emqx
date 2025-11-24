@@ -122,6 +122,17 @@ phash_order(Consumer, Shards) ->
 
 -spec announce(consumer(), streamgroup(), heartbeat(), pos_integer(), st()) ->
     st() | emqx_ds:error(_).
+announce(_Consumer, _SGroup, Heartbeat, Lifetime, St = #{announcement := HeartbeatPrev}) when
+    Heartbeat - HeartbeatPrev < Lifetime div 2
+->
+    St;
+announce(Consumer, SGroup, Heartbeat, _Lifetime, St = #{announcement := HeartbeatPrev}) ->
+    case emqx_streams_state_db:reannounce_consumer(SGroup, Consumer, Heartbeat, HeartbeatPrev) of
+        ok ->
+            St#{announcement => Heartbeat};
+        Error ->
+            Error
+    end;
 announce(Consumer, SGroup, Heartbeat, Lifetime, St) ->
     case emqx_streams_state_db:announce_consumer(SGroup, Consumer, Heartbeat, Lifetime) of
         ok ->
