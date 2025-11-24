@@ -40,6 +40,7 @@
 -define(PUBLISH_API(METHOD, FN), ?API(emqx_mgmt_api_publish, METHOD, FN)).
 -define(DATA_BACKUP_API(METHOD, FN), ?API(emqx_mgmt_api_data_backup, METHOD, FN)).
 -define(AUTHZ_MNESIA_API(METHOD, FN), ?API(emqx_authz_api_mnesia, METHOD, FN)).
+-define(CERTS_API(METHOD, FN), ?API(emqx_mgmt_api_certs, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -197,6 +198,18 @@ do_check_rbac(
 ->
     %% Built-in / mnesia authz.
     true;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, Req, ?CERTS_API(_, _)
+) when
+    is_binary(Namespace)
+->
+    %% Centralized certificate management.
+    case Req of
+        #{bindings := #{namespace := Namespace}} ->
+            true;
+        _ ->
+            false
+    end;
 do_check_rbac(_, _, _) ->
     false.
 

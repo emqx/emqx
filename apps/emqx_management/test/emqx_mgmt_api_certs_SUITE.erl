@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -135,6 +136,35 @@ create_managed_ns(Ns) ->
     simple_request(#{
         method => post,
         url => URL
+    }).
+
+bearer_auth_header(Token) ->
+    {"Authorization", iolist_to_binary(["Bearer ", Token])}.
+
+create_superuser() ->
+    emqx_common_test_http:create_default_app(),
+    Username = <<"superuser">>,
+    Password = <<"secretP@ss1">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
+    {200, #{<<"token">> := Token}} = login(#{<<"username">> => Username, <<"password">> => Password}),
+    {"Authorization", iolist_to_binary(["Bearer ", Token])}.
+
+login(Params) ->
+    URL = emqx_mgmt_api_test_util:api_path(["login"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => [{"no", "auth"}],
+        method => post,
+        url => URL,
+        body => Params
+    }).
+
+create_user_api(Params, AuthHeader) ->
+    URL = emqx_mgmt_api_test_util:api_path(["users"]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        auth_header => AuthHeader,
+        method => post,
+        url => URL,
+        body => Params
     }).
 
 list_bundles_global() ->
@@ -668,5 +698,61 @@ t_smoke_multipart(TCConfig) when is_list(TCConfig) ->
     %% Uploading nothing
     ?assertMatch({400, _}, upload_files_multipart_global(Bundle2, [])),
     ?assertMatch({400, _}, upload_files_multipart_ns(Ns2, Bundle2, [])),
+
+    ok.
+
+-doc """
+Smoke tests that verify that a namespaced admin can operate on managed bundles in its own
+namespace, but not others.
+""".
+t_namespaced_admin_crud() ->
+    [{matrix, true}].
+t_namespaced_admin_crud(matrix) ->
+    [[?local]];
+t_namespaced_admin_crud(TCConfig) when is_list(TCConfig) ->
+    GlobalAdminHeader = create_superuser(),
+    Username1 = <<"iminans">>,
+    Password1 = <<"superSecureP@ss">>,
+    Ns1 = <<"ns1">>,
+    AdminRole1 = <<"ns:", Ns1/binary, "::", ?ROLE_SUPERUSER/binary>>,
+    ?assertMatch(
+        {200, _},
+        create_user_api(
+            #{
+                <<"username">> => Username1,
+                <<"password">> => Password1,
+                <<"role">> => AdminRole1,
+                <<"description">> => <<"namespaced person">>
+            },
+            GlobalAdminHeader
+        )
+    ),
+    {200, #{<<"token">> := Token1, <<"namespace">> := Ns1}} =
+        login(#{<<"username">> => Username1, <<"password">> => Password1}),
+    put_auth_header(bearer_auth_header(Token1)),
+
+    #{cert_pem := CA1} = gen_cert(#{key => ec, issuer => root}),
+
+    Bundle1 = <<"bundle1">>,
+
+    ?assertMatch({200, _}, list_bundles_ns(Ns1)),
+    ?assertMatch({204, _}, upload_file_ns(Ns1, Bundle1, ?FILE_KIND_CA, CA1)),
+    ?assertMatch({200, _}, list_files_ns(Ns1, Bundle1)),
+    ?assertMatch({204, _}, delete_bundle_ns(Ns1, Bundle1)),
+
+    Ns2 = <<"ns2">>,
+    %% This one is fine to work because it's read-only.
+    ?assertMatch({200, _}, list_bundles_ns(Ns2)),
+    ?assertMatch({403, _}, upload_file_ns(Ns2, Bundle1, ?FILE_KIND_CA, CA1)),
+    %% This one is fine to work because it's read-only.
+    ?assertMatch({404, _}, list_files_ns(Ns2, Bundle1)),
+    ?assertMatch({403, _}, delete_bundle_ns(Ns2, Bundle1)),
+
+    %% This one is fine to work because it's read-only.
+    ?assertMatch({200, _}, list_bundles_global()),
+    %% This one is fine to work because it's read-only.
+    ?assertMatch({404, _}, list_files_global(Bundle1)),
+    ?assertMatch({403, _}, delete_bundle_global(Bundle1)),
+    ?assertMatch({403, _}, upload_file_global(Bundle1, ?FILE_KIND_CA, CA1)),
 
     ok.
