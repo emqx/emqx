@@ -254,6 +254,9 @@ perform_connector_changes(Removed, Added, Updated, Namespace, Opts) ->
 list() ->
     list(?global_ns).
 
+list(all) ->
+    Namespaces = [?global_ns | emqx_config:get_all_namespaces_containing(connectors)],
+    lists:flatmap(fun list/1, Namespaces);
 list(Namespace) ->
     maps:fold(
         fun(Type, NameAndConf, Connectors) ->
@@ -283,6 +286,7 @@ do_lookup(Namespace, Type, Name, RawConf) ->
             {error, not_found};
         {ok, _, Data} ->
             {ok, #{
+                namespace => Namespace,
                 type => atom(Type),
                 name => atom(Name),
                 resource_data => Data,

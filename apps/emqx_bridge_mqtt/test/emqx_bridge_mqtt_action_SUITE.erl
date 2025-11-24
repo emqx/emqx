@@ -135,7 +135,15 @@ init_per_group(?local, TCConfig) ->
             emqx_conf,
             emqx_connector,
             emqx_bridge_mqtt,
-            emqx_bridge,
+            {emqx_bridge, #{
+                after_start => fun() ->
+                    ok = emqx_hooks:add(
+                        'namespace.resource_pre_create',
+                        {?MODULE, on_namespace_resource_pre_create, []},
+                        ?HP_HIGHEST
+                    )
+                end
+            }},
             emqx_rule_engine,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -198,6 +206,9 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
 
 connector_config(Overrides) ->
     emqx_bridge_schema_testlib:mqtt_connector_config(Overrides).
