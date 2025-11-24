@@ -46,6 +46,13 @@
 -define(HEARTBEAT_LIFETIME, 30).
 -define(ANNOUNCEMENT_LIFETIME, 15).
 
+-ifdef(TEST).
+-undef(HEARTBEAT_LIFETIME).
+-undef(ANNOUNCEMENT_LIFETIME).
+-define(HEARTBEAT_LIFETIME, 15).
+-define(ANNOUNCEMENT_LIFETIME, 10).
+-endif.
+
 %% Protocol interaction
 
 -record(ret, {reply = undefined, delivers = [], st = unchanged}).
