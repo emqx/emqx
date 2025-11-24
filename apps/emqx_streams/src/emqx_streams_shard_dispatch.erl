@@ -230,7 +230,8 @@ handle_progress_outcome(Consumer, Group, GSt0 = #{}, TraceCtx, St0) ->
     end,
     #ret{reply = ?RC_SUCCESS, st = St};
 handle_progress_outcome(_Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0) ->
-    ?tp(debug, "streams_shard_dispatch_progress_invalid", TraceCtx#{reason => Reason}),
+    %% FIXME loglevel
+    ?tp(notice, "streams_shard_dispatch_progress_invalid", TraceCtx#{reason => Reason}),
     GSt = invalidate_proposals(GSt0),
     St = update_sgroup_state(Group, GSt, St0),
     case Reason of
@@ -244,7 +245,7 @@ handle_progress_outcome(_Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0
     #ret{reply = map_invalid_rc(Reason), st = St};
 handle_progress_outcome(_Consumer, _Group, Error, TraceCtx, _St) ->
     %% FIXME error handling
-    ?tp(info, "streams_shard_dispatch_progress_error", TraceCtx#{reason => Error}),
+    ?tp(warning, "streams_shard_dispatch_progress_error", TraceCtx#{reason => Error}),
     #ret{}.
 
 handle_release_outcome(_Consumer, Group, GSt = #{}, TraceCtx, St0) ->
@@ -252,13 +253,13 @@ handle_release_outcome(_Consumer, Group, GSt = #{}, TraceCtx, St0) ->
     St = update_sgroup_state(Group, GSt, St0),
     #ret{reply = ?RC_SUCCESS, st = St};
 handle_release_outcome(_Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0) ->
-    ?tp(debug, "streams_shard_dispatch_release_invalid", TraceCtx#{reason => Reason}),
+    ?tp(notice, "streams_shard_dispatch_release_invalid", TraceCtx#{reason => Reason}),
     GSt = invalidate_proposals(GSt0),
     St = update_sgroup_state(Group, GSt, St0),
     #ret{reply = map_invalid_rc(Reason), st = St};
 handle_release_outcome(_Consumer, _Group, Error, TraceCtx, _St) ->
     %% FIXME error handling
-    ?tp(info, "streams_shard_dispatch_release_error", TraceCtx#{reason => Error}),
+    ?tp(warning, "streams_shard_dispatch_release_error", TraceCtx#{reason => Error}),
     #ret{}.
 
 map_invalid_rc({leased, _}) ->
@@ -466,7 +467,7 @@ handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St) ->
         ok ->
             ?tp(debug, "streams_shard_dispatch_takeover_tx_success", TraceCtx);
         {invalid, Reason} ->
-            ?tp(info, "streams_shard_dispatch_takeover_tx_invalid", TraceCtx#{reason => Reason});
+            ?tp(notice, "streams_shard_dispatch_takeover_tx_invalid", TraceCtx#{reason => Reason});
         Error ->
             ?tp(warning, "streams_shard_dispatch_takeover_tx_error", TraceCtx#{reason => Error})
     end,
