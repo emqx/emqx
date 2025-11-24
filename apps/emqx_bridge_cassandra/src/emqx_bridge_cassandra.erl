@@ -121,12 +121,18 @@ fields(cassandra_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(ref(?MODULE, action_parameters), #{
             required => true, desc => ?DESC(action_parameters)
-        })
+        }),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
     [
         cql_field()
     ];
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields(Field) when
@@ -174,6 +180,8 @@ desc(cassandra_action) ->
     ?DESC(cassandra_action);
 desc(action_parameters) ->
     ?DESC(action_parameters);
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->
@@ -185,6 +193,8 @@ desc(_) ->
 
 %%--------------------------------------------------------------------
 %% utils
+
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).
 
 type_field(Type) ->
     {type, mk(enum([Type]), #{required => true, desc => ?DESC("desc_type")})}.

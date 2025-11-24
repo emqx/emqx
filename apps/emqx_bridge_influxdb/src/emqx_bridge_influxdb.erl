@@ -133,13 +133,19 @@ fields(influxdb_action) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
         mk(ref(?MODULE, action_parameters), #{
             required => true, desc => ?DESC(action_parameters)
-        })
+        }),
+        #{resource_opts_ref => ref(action_resource_opts)}
     );
 fields(action_parameters) ->
     [
         {write_syntax, fun write_syntax/1},
         emqx_bridge_influxdb_connector:precision_field()
     ];
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 100}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]);
 fields(connector_resource_opts) ->
     emqx_connector_schema:resource_opts_fields();
 fields(Field) when
@@ -170,6 +176,8 @@ desc(influxdb_action) ->
     ?DESC(influxdb_action);
 desc(action_parameters) ->
     ?DESC(action_parameters);
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc("config_connector") ->
     ?DESC("desc_config");
 desc(connector_resource_opts) ->
@@ -347,3 +355,5 @@ str(B) when is_binary(B) ->
     binary_to_list(B);
 str(S) when is_list(S) ->
     S.
+
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).

@@ -5,6 +5,7 @@
 {emqx_authn,1}.
 {emqx_authz,1}.
 {emqx_bridge,8}.
+{emqx_bridge,9}.
 {emqx_bridge_kinesis,1}.
 {emqx_broker,1}.
 {emqx_cluster,1}.
@@ -19,6 +20,7 @@
 {emqx_conf,5}.
 {emqx_connector,1}.
 {emqx_connector,2}.
+{emqx_connector,3}.
 {emqx_dashboard,1}.
 {emqx_dashboard,2}.
 {emqx_dashboard_sso_oidc,1}.
