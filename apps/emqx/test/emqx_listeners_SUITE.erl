@@ -20,6 +20,9 @@
 
 -define(MK_NAME(SUFFIX), mk_name(?FUNCTION_NAME, SUFFIX)).
 
+-define(BUNDLE_NAME(SUFFIX), <<(atom_to_binary(?FUNCTION_NAME))/binary, "_", (SUFFIX)/binary>>).
+-define(BUNDLE_NAME(), ?BUNDLE_NAME(<<"bundle">>)).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -240,7 +243,7 @@ Smoke test for using managed certificates (global ns) in a WSS listener.
 """.
 t_wss_managed_certs_global(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(ssl),
-    BundleName = <<"bundle">>,
+    BundleName = ?BUNDLE_NAME(),
     {ok, _} = generate_and_upload_managed_certs(?global_ns, BundleName, #{}),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
@@ -260,7 +263,7 @@ Smoke test for using managed certificates (managed ns) in a WSS listener.
 t_wss_managed_certs_ns(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(ssl),
     Namespace = <<"some_ns">>,
-    BundleName = <<"bundle">>,
+    BundleName = ?BUNDLE_NAME(),
     {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{}),
     Conf = #{
         <<"bind">> => format_bind({"127.0.0.1", Port}),
@@ -282,7 +285,7 @@ Smoke test for using managed certificates (global ns) in a SSL listener.
 """.
 t_ssl_managed_certs_global(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(ssl),
-    BundleName = <<"bundle">>,
+    BundleName = ?BUNDLE_NAME(),
     {ok, _} = generate_and_upload_managed_certs(?global_ns, BundleName, #{}),
     LConf = #{
         <<"enable">> => true,
@@ -301,7 +304,7 @@ Smoke test for using managed certificates (managed ns) in a SSL listener.
 t_ssl_managed_certs_ns(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(ssl),
     Namespace = <<"some_ns">>,
-    BundleName = <<"bundle">>,
+    BundleName = ?BUNDLE_NAME(),
     {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{}),
     LConf = #{
         <<"enable">> => true,
@@ -328,7 +331,7 @@ t_ssl_managed_certs_password(Config) ->
     PrivDir = filename:join([PrivDir0, ?FUNCTION_NAME]),
     ok = filelib:ensure_path(PrivDir),
     Port = emqx_common_test_helpers:select_free_port(ssl),
-    BundleName = <<"bundle">>,
+    BundleName = ?BUNDLE_NAME(),
     Password = <<"$ecr3tP@sç"/utf8>>,
     {ok, #{
         ca := CAPEM,
@@ -541,7 +544,7 @@ Smoke test for using managed certificates (global ns) in a QUIC listener.
 """.
 t_quic_managed_certs_global(_TCConfig) ->
     Port = emqx_common_test_helpers:select_free_port(quic),
-    BundleName = <<"bundle">>,
+    BundleName = ?BUNDLE_NAME(),
     {ok, _} = generate_and_upload_managed_certs(?global_ns, BundleName, #{}),
     {ok, #{
         ?FILE_KIND_CA := #{path := CAPath0},
@@ -678,6 +681,7 @@ t_ssl_update_opts(Config) ->
         ),
 
         %% Unable to connect with old SSL options, certificate is now required.
+        ct:pal("attempting connection without CA"),
         try
             emqtt_connect_ssl(Host, Port, [
                 {cacertfile, filename:join(PrivDir, "ca-next.pem")} | ClientSSLOpts
@@ -694,6 +698,7 @@ t_ssl_update_opts(Config) ->
                 error({unexpected_exception, {K, E, S}})
         end,
 
+        ct:pal("attempting correct connection"),
         C3 = emqtt_connect_ssl(Host, Port, [
             {cacertfile, filename:join(PrivDir, "ca-next.pem")},
             {certfile, filename:join(PrivDir, "client.pem")},
@@ -1190,6 +1195,72 @@ t_symlink_certs(Config) ->
     end),
     ok.
 
+-doc """
+Verifies the following scenario.
+
+  1) Listener is initally created successfully.
+
+  2) It's then updated with bad SSL configuration (no cacertfile and set to verify peer).
+     This makes the update fail and ends up deleting the limiter group (at the time of
+     writing).
+
+  3) Then, it's updated back to the working config.  This should work.
+
+Original problem: step (3) would fail because limiter group was deleted in (2).
+""".
+t_failed_update_ssl(_TCConfig) ->
+    Type = ssl,
+    Name = ?FUNCTION_NAME,
+    on_exit(fun() ->
+        ok = emqx_listeners:stop(),
+        emqx:remove_config([listeners, Type, Name])
+    end),
+
+    OkBundleName = ?BUNDLE_NAME(<<"okbundle">>),
+    {ok, _} = generate_and_upload_managed_certs(?global_ns, OkBundleName, #{}),
+
+    BadBundleName = ?BUNDLE_NAME(<<"badbundle">>),
+    {ok, _} = generate_and_upload_managed_certs(?global_ns, BadBundleName, #{}),
+    ok = emqx_managed_certs:delete_managed_file(?global_ns, BadBundleName, ?FILE_KIND_CA),
+
+    Host = "127.0.0.1",
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    Conf0 = #{
+        <<"enable">> => true,
+        <<"bind">> => format_bind({Host, Port}),
+        <<"ssl_options">> => #{<<"verify">> => <<"verify_peer">>}
+    },
+    OkConf =
+        emqx_utils_maps:deep_merge(
+            Conf0,
+            #{
+                <<"ssl_options">> => #{
+                    <<"managed_certs">> => #{<<"bundle_name">> => OkBundleName}
+                }
+            }
+        ),
+    ct:pal("1) create with working config"),
+    ?assertMatch({ok, _}, emqx:update_config([listeners, Type, Name], {create, OkConf})),
+    ct:pal("2) update with bad config"),
+    %% Only has certificate and set to verify peer
+    BadConf =
+        emqx_utils_maps:deep_merge(
+            Conf0,
+            #{
+                <<"ssl_options">> => #{
+                    <<"managed_certs">> => #{<<"bundle_name">> => BadBundleName}
+                }
+            }
+        ),
+    ?assertMatch(
+        {error, {post_config_update, _, {failed_to_start, _}}},
+        emqx:update_config([listeners, Type, Name], {update, BadConf})
+    ),
+    ct:pal("3) update back to working config"),
+    %% Original issue: `{error, {config_update_crashed, {limiter_group_not_found, _}}}`
+    ?assertMatch({ok, _}, emqx:update_config([listeners, Type, Name], {update, OkConf})),
+    ok.
+
 with_listener(Type, Name, Config, Then) ->
     {ok, _} = emqx:update_config([listeners, Type, Name], {create, Config}),
     try
@@ -1330,10 +1401,53 @@ generate_and_upload_managed_certs(Namespace, BundleName, Opts) ->
                 Files0
         end,
     ok = emqx_managed_certs:add_managed_files(Namespace, BundleName, Files),
-    on_exit(fun() -> ok = emqx_managed_certs:delete_bundle(Namespace, BundleName) end),
+    on_exit(fun() ->
+        ok = emqx_managed_certs:delete_bundle(Namespace, BundleName),
+        restart_ssl_manager(),
+        ssl:clear_pem_cache()
+    end),
     {ok, #{mk_cert_key_fn => MkCertKeyFn, ca => CAPEM, ca_key => CAKeyPEM}}.
 
 mk_name(FnName, Suffix) ->
     binary_to_atom(iolist_to_binary([atom_to_binary(FnName), Suffix])).
 
 str(X) -> emqx_utils_conv:str(X).
+
+%% SSL manager often crashes in different test cases leading to flakiness when we delete
+%% managed certificates.
+%%
+%% e.g.:
+%%
+%% =CRASH REPORT==== 24-Nov-2025::16:28:45.025189 ===
+%% crasher:
+%%   initial call: ssl_manager:init/1
+%%   pid: <0.42809.0>
+%%   registered_name: ssl_manager
+%%   exception error: no match of right hand side value
+%%                    {error,{badmatch,{error,enoent}}}
+%%     in function  ssl_certificate:file_to_certificats/2 (ssl_certificate.erl, line 187)
+%%     in call from ssl_pkix_db:refresh_trusted_certs/3 (ssl_pkix_db.erl, line 154)
+%%     in call from ssl_pkix_db:'-refresh_trusted_certs/2-fun-0-'/4 (ssl_pkix_db.erl, line 162)
+%%     in call from lists:foldl/3 (lists.erl, line 2146)
+%%     in call from ets:do_foldl/4 (ets.erl, line 2073)
+%%     in call from ets:foldl/3 (ets.erl, line 2066)
+%%     in call from ssl_manager:handle_call/3 (ssl_manager.erl, line 321)
+%%     in call from gen_server:try_handle_call/4 (gen_server.erl, line 2381)
+restart_ssl_manager() ->
+    Ref = monitor(process, whereis(ssl_manager)),
+    exit(whereis(ssl_manager), kill),
+    receive
+        {'DOWN', Ref, process, _, _} ->
+            ok
+    after 1_000 ->
+        ct:fail("ssl_manager didn't die")
+    end,
+    ensure_ssl_manager_alive(),
+    ok.
+
+ensure_ssl_manager_alive() ->
+    ?retry(
+        _Sleep0 = 200,
+        _Attempts0 = 50,
+        true = is_pid(whereis(ssl_manager))
+    ).
