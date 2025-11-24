@@ -382,4 +382,5 @@ write_pem(Name, Entries = [_ | _]) ->
 write_pem(Name, Entry) ->
     write_pem(Name, [Entry]).
 
-str(X) -> emqx_utils_conv:str(X).
+str(X) when is_binary(X) -> unicode:characters_to_list(X, utf8);
+str(X) when is_list(X) -> X.

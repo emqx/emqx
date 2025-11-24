@@ -272,7 +272,7 @@ start_listener(Type, Name, #{bind := Bind, enable := true} = Conf) ->
             ),
             Msg = lists:flatten(
                 io_lib:format(
-                    "~ts(~ts) : ~p",
+                    "~ts(~ts) : ~0p",
                     [ListenerId, BindStr, filter_stacktrace(Reason)]
                 )
             ),
@@ -311,7 +311,19 @@ update_listener(Type, Name, Conf = #{enable := true}, #{enable := false}) ->
 update_listener(Type, Name, #{enable := false}, Conf = #{enable := true}) ->
     start_listener(Type, Name, Conf);
 update_listener(Type, Name, OldConf, NewConf) ->
-    ok = emqx_limiter:update_listener_limiters(listener_id(Type, Name), NewConf),
+    ListenerId = listener_id(Type, Name),
+    %% It's possible for the updated listener to not be running.  e.g., a previous failed
+    %% update could have led it to have its limiters deleted.
+    case is_running(Type, ListenerId, NewConf) of
+        true ->
+            ok = emqx_limiter:update_listener_limiters(ListenerId, NewConf),
+            do_update_running_listener(Type, Name, OldConf, NewConf);
+        false ->
+            ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
+            restart_listener(Type, Name, OldConf, NewConf)
+    end.
+
+do_update_running_listener(Type, Name, OldConf, NewConf) ->
     case do_update_listener(Type, Name, OldConf, NewConf) of
         ok ->
             ok = maybe_unregister_ocsp_stapling_refresh(Type, Name, NewConf),
