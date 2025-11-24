@@ -33,7 +33,7 @@ jobs:
         profile:
           - emqx-enterprise
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
           fetch-depth: 0
       - name: Work around https://github.com/actions/checkout/issues/766
@@ -52,7 +52,7 @@ jobs:
           echo "export PROFILE=${PROFILE}" | tee -a env.sh
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
           zip -ryq -x@.github/workflows/.zipignore2 $ARTIFACT_NAME .
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: ${{ matrix.profile }}-${{ inputs.build_type }}
           path: ${{ matrix.profile }}-${{ inputs.build_type }}.zip
@@ -63,7 +63,7 @@ jobs:
         env:
           PROFILE: ${{ matrix.profile }}
         run: make ${PROFILE}-rel
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: inputs.build_type == 'release'
         with:
           name: "${{ matrix.profile }}-schema-dump"
