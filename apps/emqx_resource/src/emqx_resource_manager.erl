@@ -681,7 +681,9 @@ force_kill(ResId, MRef0) ->
             end
     end,
     LogFn = fun(Level, LogData) -> ?SLOG(Level, LogData#{resource_id => ResId}) end,
-    ok = cleanup_by_agent(LogFn, fun() -> try_clean_allocated_resources(ResId) end, ?CLEANUP_TIMEOUT).
+    ok = cleanup_by_agent(
+        LogFn, fun() -> try_clean_allocated_resources(ResId) end, ?CLEANUP_TIMEOUT
+    ).
 
 try_clean_allocated_resources(ResId) ->
     emqx_resource:clean_allocated_resources(ResId).
