@@ -12,6 +12,7 @@ The module contains basic types for the Streams application.
 
 -type stream_topic() :: binary().
 -type stream_id() :: binary().
+-type interval_ms() :: pos_integer().
 
 -type limits() :: #{
     max_shard_message_count := infinity | pos_integer(),
@@ -29,6 +30,7 @@ The module contains basic types for the Streams application.
     is_lastvalue := boolean(),
     key_expression => emqx_variform:compiled() | undefined,
     limits := limits(),
+    data_retention_period := interval_ms(),
     read_max_unacked := non_neg_integer()
 }.
 

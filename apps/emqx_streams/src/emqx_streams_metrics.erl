@@ -4,6 +4,8 @@
 
 -module(emqx_streams_metrics).
 
+-include_lib("snabbkaffe/include/trace.hrl").
+
 -export([
     child_spec/0,
     inc/2,
