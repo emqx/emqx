@@ -26,6 +26,8 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
+-include("emqx_streams_internal.hrl").
+
 -define(DB, ?STREAMS_STATE_DB).
 
 -define(topic_shard(SGROUP, TAIL), [<<"sdisp">>, SGROUP | TAIL]).
@@ -205,6 +207,7 @@ shard_progress_dirty(SGroup, Shard) ->
         )
     ).
 
+%% TODO rename
 shard_leases_dirty(SGroup) ->
     TTVs = emqx_ds:dirty_read(
         #{
@@ -219,6 +222,16 @@ shard_leases_dirty(SGroup) ->
         fun
             ({?topic_shard_lease(_, Shard), _, Consumer}, Acc) ->
                 Acc#{Shard => Consumer};
+            (_TTV, Acc) ->
+                Acc
+        end,
+        #{},
+        TTVs
+    ),
+    ShardHBs = lists:foldl(
+        fun
+            ({?topic_shard_hbeat(_, Shard), _, V}, Acc) ->
+                Acc#{Shard => dec_timestamp(V)};
             (_TTV, Acc) ->
                 Acc
         end,
@@ -245,7 +258,11 @@ shard_leases_dirty(SGroup) ->
         #{},
         TTVs
     ),
-    {Consumers, Leases}.
+    #shard_group_st{
+        leases = Leases,
+        consumers = Consumers,
+        shards = ShardHBs
+    }.
 
 async_tx(SGroup, Fun) ->
     TxRet = emqx_ds:trans(

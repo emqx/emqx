@@ -58,7 +58,10 @@ new() ->
 
 -spec provision(consumer(), streamgroup(), [shard()], heartbeat()) -> [{lease | release, shard()}].
 provision(Consumer, SGroup, Shards, HBWatermark) ->
-    {Consumers, Leases} = emqx_streams_state_db:shard_leases_dirty(SGroup),
+    #shard_group_st{
+        consumers = Consumers,
+        leases = Leases
+    } = emqx_streams_state_db:shard_leases_dirty(SGroup),
     LiveConsumers = maps:keys(maps:filter(fun(_C, HB) -> HB >= HBWatermark end, Consumers)),
     Alloc0 = current_allocation_(Leases, Shards),
     Alloc1 = lists:foldl(
@@ -79,7 +82,11 @@ provision(Consumer, SGroup, Shards, HBWatermark) ->
     end.
 
 provision_takeovers(Consumer, SGroup, Shards, HBWatermark) ->
-    {Consumers, Leases} = emqx_streams_state_db:shard_leases_dirty(SGroup),
+    #shard_group_st{
+        consumers = Consumers,
+        leases = Leases,
+        shards = ShardHBs
+    } = emqx_streams_state_db:shard_leases_dirty(SGroup),
     Alloc0 = current_allocation_(Leases, Shards),
     Alloc1 = emqx_streams_allocation:add_member(Consumer, Alloc0),
     DeadConsumers = maps:filter(fun(_C, HB) -> HB < HBWatermark end, Consumers),
@@ -93,14 +100,14 @@ provision_takeovers(Consumer, SGroup, Shards, HBWatermark) ->
             end,
             Rebalances = emqx_streams_allocation:rebalance([DeadCost], Alloc1),
             [
-                {takeover, Shard, DeadC, maps:get(DeadC, DeadConsumers)}
+                {takeover, Shard, DeadC, maps:get(Shard, ShardHBs)}
              || {Shard, DeadC, C} <- Rebalances, C == Consumer
             ]
     end.
 
 % -spec current_allocation(streamgroup(), [shard()]) -> emqx_streams_allocation:t(consumer(), shard()).
 current_allocation(SGroup, Shards) ->
-    {_Consumers, Leases} = emqx_streams_state_db:shard_leases_dirty(SGroup),
+    #shard_group_st{leases = Leases} = emqx_streams_state_db:shard_leases_dirty(SGroup),
     current_allocation_(Leases, Shards).
 
 current_allocation_(Leases, Shards) ->

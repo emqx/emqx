@@ -13,6 +13,7 @@
 
 -define(streamgroup(GROUP, STREAM), <<GROUP/binary, ":", STREAM/binary>>).
 
+-record(shard_group_st, {leases, consumers, shards}).
 -record(shard_dispatch_command, {group, c, context}).
 
 -endif.
