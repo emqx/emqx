@@ -48,12 +48,12 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-% t_smoke(_Config) ->
-%     Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
-%     ok = emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
-%     AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
-%     ?assertEqual(10, length(AllMessages)),
-%     ok.
+t_smoke(_Config) ->
+    Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    ok = emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+    AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
+    ?assertEqual(10, length(AllMessages)),
+    ok.
 
 t_read_earliest(_Config) ->
     _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
@@ -63,11 +63,12 @@ t_read_earliest(_Config) ->
     ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
     ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/t/#">>),
 
-    {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout1 = 500),
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout1 = 500),
+    ok = validate_headers(Msgs0),
 
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
-    {ok, _Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 500),
-
+    {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 500),
+    ok = validate_headers(Msgs1),
     ok = emqtt:disconnect(CSub).
 
 t_read_latest(_Config) ->
@@ -82,7 +83,10 @@ t_read_latest(_Config) ->
     ?assertEqual(0, length(Msgs0)),
 
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
-    {ok, _Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 500).
+    {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 500),
+    ok = validate_headers(Msgs1),
+
+    ok = emqtt:disconnect(CSub).
 
 t_read_offset(_Config) ->
     Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
@@ -99,8 +103,32 @@ t_read_offset(_Config) ->
     ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/", OffsetBin/binary, "/t/#">>),
     ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/", OffsetBin/binary, "/t/#">>),
 
-    {ok, _} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout0 = 1000),
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout0 = 1000),
+    ok = validate_headers(Msgs0),
 
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
-    {ok, _} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 1000).
+    {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 1000),
+    ok = validate_headers(Msgs1),
+
+    ok = emqtt:disconnect(CSub).
+
+%%--------------------------------------------------------------------
+%% Helper functions
+%%--------------------------------------------------------------------
+
+validate_headers(Msgs) when is_list(Msgs) ->
+    lists:foreach(fun validate_msg_headers/1, Msgs).
+
+validate_msg_headers(Msg) ->
+    case user_properties(Msg) of
+        #{<<"part">> := _Part, <<"offset">> := _Offset} ->
+            ok;
+        _ ->
+            ct:fail("Message does not have required user properties (part and offset): ~p", [Msg])
+    end.
+
+user_properties(_Msg = #{properties := #{'User-Property' := UserProperties}}) ->
+    maps:from_list(UserProperties);
+user_properties(_Msg) ->
+    #{}.
