@@ -102,17 +102,10 @@
 -export([
     new/0,
     on_session_replay/2,
-    on_subscribe/4,
     on_unsubscribe/4,
-    on_new_stream_event/3,
-    on_shared_stream_add/3,
     on_shared_stream_revoke/3,
-    verify_reply/3,
-    suback/3,
     on_enqueue/5,
     on_seqno_release/4,
-    handle_down/3,
-    handle_retry/2,
     find_replay_streams/1,
     is_fully_acked/2,
     is_active_unblocked/2,
@@ -168,42 +161,10 @@
 
 -type stream_map() :: #{emqx_ds:shard() => [{emqx_ds:generation(), emqx_ds:stream()}]}.
 
-%% Subscription-specific state:
--record(sub_metadata, {
-    subid :: emqx_persistent_session_ds:subscription_id(),
-    %% Cache of streams pending for future replay (essentially,
-    %% these are streams that have y-rank greater than the
-    %% currently active y-rank for x-rank):
-    pending_streams = #{} :: stream_map(),
-    %% Back-reference to the new stream watch:
-    new_streams_watch = emqx_ds_new_streams:watch()
-}).
-
--type sub_metadata() :: #sub_metadata{}.
-
--record(ds_sub, {
-    handle :: emqx_ds:subscription_handle(),
-    seqno :: atomics:atomics_ref(),
-    stream_key :: stream_key()
-}).
-
--define(ix_seqno, 1).
-
--type ds_sub() :: #ds_sub{}.
-
 -record(s, {
-    %% Lookup table that maps new stream watch ID to topic filter:
-    new_stream_subs = #{} :: new_stream_subs(),
-    %% Per-topic metadata records:
-    sub_metadata = #{} :: #{emqx_types:topic() => sub_metadata()},
-    %% DS subscriptions:
-    ds_subs = #{} :: #{emqx_ds:sub_ref() => ds_sub()},
     %% Block queues:
     bq1 :: block_queue(),
-    bq2 :: block_queue(),
-    %% Retry:
-    retry = [] :: [{subscribe, stream_key()} | {renew_streams, reference()}],
-    retry_timer :: undefined | reference()
+    bq2 :: block_queue()
 }).
 
 -opaque t() :: #s{}.
@@ -222,29 +183,14 @@ new() ->
     }.
 
 -spec on_session_replay(emqx_persistent_session_ds_state:t(), t()) ->
-    {emqx_persistent_session_ds_state:t(), t()}.
-on_session_replay(S0, SchedS0) ->
-    %% Initialize per-subscription records:
-    {S, SchedS1} = emqx_persistent_session_ds_subs:fold(
-        fun(TopicFilterBin, Subscription, {AccS0, AccSchedS0}) ->
-            {_NewSRSIds, AccS, AccSchedS} = init_for_subscription(
-                TopicFilterBin, Subscription, AccS0, AccSchedS0
-            ),
-            {AccS, AccSchedS}
-        end,
-        {S0, SchedS0},
-        S0,
-        []
-    ),
-    %% Subscribe to new messages:
-    ActiveStreams = find_active_streams(S),
-    SchedS2 = ds_subscribe_all(ActiveStreams, S, SchedS1),
+    t().
+on_session_replay(S, SchedS0) ->
     %% Restore stream states.
     %%
     %% Note: these states are NOT used during replay.
-    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
-    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
-    SchedS = emqx_persistent_session_ds_state:fold_streams(
+    Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S),
+    Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S),
+    emqx_persistent_session_ds_state:fold_streams(
         fun(Key, Srs, Acc) ->
             ?tp(?sessds_stream_state_trans, #{key => Key, to => '$restore'}),
             case derive_state(Comm1, Comm2, Srs) of
@@ -262,10 +208,9 @@ on_session_replay(S0, SchedS0) ->
                     to_BQ12(Key, Srs, Acc)
             end
         end,
-        SchedS2,
+        SchedS0,
         S
-    ),
-    {S, SchedS}.
+    ).
 
 -spec find_active_streams(emqx_persistent_session_ds_state:t()) -> [stream_key()].
 find_active_streams(S) ->
@@ -303,42 +248,6 @@ find_replay_streams(S) ->
     ),
     lists:sort(fun compare_streams/2, Streams).
 
-%% @doc DS notified us about new streams.
--spec on_new_stream_event(emqx_ds_new_streams:watch(), emqx_persistent_session_ds_state:t(), t()) ->
-    ret().
-on_new_stream_event(Ref, S0, SchedS0 = #s{sub_metadata = SubsMetadata}) ->
-    case SchedS0#s.new_stream_subs of
-        #{Ref := TopicFilterBin} ->
-            #{TopicFilterBin := SubS0} = SubsMetadata,
-            ?tp(?sessds_sched_new_stream_event, #{ref => Ref, topic => TopicFilterBin}),
-            TopicFilter = emqx_ds:topic_words(TopicFilterBin),
-            Subscription = emqx_persistent_session_ds_subs:lookup(TopicFilterBin, S0),
-            %% Renew streams:
-            #{start_time := StartTime} = Subscription,
-            try
-                StreamMap = get_streams(TopicFilter, StartTime),
-                {NewSRSIds, S, SubS} = renew_streams(
-                    S0, TopicFilter, Subscription, StreamMap, SubS0
-                ),
-                %% Update state:
-                SchedS = ds_subscribe_all(NewSRSIds, S, SchedS0#s{
-                    sub_metadata = SubsMetadata#{TopicFilterBin := SubS}
-                }),
-                {NewSRSIds, S, SchedS}
-            catch
-                EC:Err:Stack ->
-                    ?tp(info, ?sessds_retry_renew_streams, #{EC => Err, stack => Stack}),
-                    {[], S0, push_retry({renew_streams, Ref}, SchedS0)}
-            end;
-        _ ->
-            ?tp(warning, ?sessds_unexpected_stream_notification, #{ref => Ref}),
-            {[], S0, SchedS0}
-    end.
-
--spec on_shared_stream_add(stream_key(), emqx_persistent_session_ds_state:t(), t()) -> t().
-on_shared_stream_add(StreamKey, S, SchedS) ->
-    ds_subscribe(StreamKey, S, SchedS).
-
 -spec on_shared_stream_revoke(stream_key(), emqx_persistent_session_ds_state:t(), t()) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 on_shared_stream_revoke(StreamKey, S, SchedS) ->
@@ -351,74 +260,13 @@ on_shared_stream_revoke(StreamKey, S, SchedS) ->
             unsubscribe_stream(Comm1, Comm2, StreamKey, SRS, S, SchedS)
     end.
 
-%% @doc Verify sequence number of DS subscription reply
--spec verify_reply(#ds_sub_reply{}, emqx_persistent_session_ds_state:t(), t()) ->
-    {boolean() | drop_buffer, stream_key() | undefined, t()}.
-verify_reply(#ds_sub_reply{ref = Ref, payload = ?err_rec(_)}, S, SchedS) ->
-    case SchedS#s.ds_subs of
-        #{Ref := #ds_sub{stream_key = StreamKey}} ->
-            {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)};
-        #{} ->
-            {false, undefined, SchedS}
-    end;
-verify_reply(Reply, S, SchedS) ->
-    #ds_sub_reply{ref = Ref, size = Size, seqno = SeqNo} = Reply,
-    case SchedS#s.ds_subs of
-        #{Ref := #ds_sub{seqno = Atomic, stream_key = StreamKey}} ->
-            case atomics:add_get(Atomic, ?ix_seqno, Size) of
-                SeqNo ->
-                    %% SeqNos match:
-                    {true, StreamKey, SchedS};
-                Other ->
-                    %% SeqNos don't match, and we've just corrupted
-                    %% the counter by `add_get'. Resubscribe now:
-                    ?tp(warning, ?sessds_unexpected_reply, #{
-                        stream => StreamKey,
-                        batch_seqno => SeqNo,
-                        batch_size => Size,
-                        expected_seqno => Other,
-                        sub_ref => Ref,
-                        stuck => Reply#ds_sub_reply.stuck,
-                        lagging => Reply#ds_sub_reply.lagging
-                    }),
-                    {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)}
-            end;
-        #{} ->
-            %% We have no record of this subscription, ignore it:
-            ?tp(warning, ?sessds_unexpected_reply, #{
-                batch_seqno => SeqNo,
-                batch_size => Size,
-                expected_seqno => undefined,
-                sub_ref => Ref,
-                stuck => Reply#ds_sub_reply.stuck,
-                lagging => Reply#ds_sub_reply.lagging
-            }),
-            {false, undefined, SchedS}
-    end.
-
-suback(SubRef, SeqNo, #s{ds_subs = Subs}) ->
-    case Subs of
-        #{SubRef := #ds_sub{handle = Ref}} ->
-            emqx_ds:suback(?PERSISTENT_MESSAGE_DB, Ref, SeqNo);
-        #{} ->
-            ok
-    end.
-
 -spec on_enqueue(
     _IsReplay :: boolean(), stream_key(), srs(), emqx_persistent_session_ds_state:t(), t()
 ) ->
     ret().
 on_enqueue(true, _Key, _SRS, S, SchedS) ->
     {[], S, SchedS};
-on_enqueue(false, Key, SRS, S0, SchedS0) ->
-    %% Drop DS subscription when encounter end_of_stream:
-    SchedS =
-        case SRS of
-            #srs{it_end = end_of_stream} ->
-                ds_unsubscribe(Key, SchedS0);
-            _ ->
-                SchedS0
-        end,
+on_enqueue(false, Key, SRS, S0, SchedS) ->
     %% Is the stream blocked?
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
@@ -529,24 +377,6 @@ gc(S) ->
         S
     ).
 
--spec on_subscribe(
-    emqx_types:topic(),
-    emqx_persistent_session_ds_subs:subscription(),
-    emqx_persistent_session_ds_state:t(),
-    t()
-) ->
-    ret().
-on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}) ->
-    case Subs of
-        #{TopicFilterBin := _} ->
-            %% Already subscribed:
-            {[], S0, SchedS0};
-        _ ->
-            init_for_subscription(
-                TopicFilterBin, Subscription, S0, SchedS0
-            )
-    end.
-
 %% @doc Makes stream scheduler forget about a subscription.
 %% This operation is idempotent.
 %%
@@ -564,25 +394,7 @@ on_subscribe(TopicFilterBin, Subscription, S0, SchedS0 = #s{sub_metadata = Subs}
     t()
 ) ->
     {emqx_persistent_session_ds_state:t(), t()}.
-on_unsubscribe(
-    Topic, SubId, S0, SchedS0 = #s{new_stream_subs = Watches0, sub_metadata = Subs}
-) ->
-    case Subs of
-        #{Topic := SubS} when is_binary(Topic) ->
-            #sub_metadata{new_streams_watch = Ref} = SubS,
-            %% Unsubscribe from new stream notifications:
-            Watches = unwatch_streams(Topic, Ref, Watches0),
-            SchedS1 = SchedS0#s{
-                new_stream_subs = Watches,
-                sub_metadata = maps:remove(Topic, Subs)
-            };
-        #{} when is_binary(Topic) ->
-            %% No subscription metadata for this topic:
-            SchedS1 = SchedS0;
-        #{} when is_record(Topic, share) ->
-            %% Metadata for shared topics is managed elsewhere:
-            SchedS1 = SchedS0
-    end,
+on_unsubscribe(_Topic, SubId, S0, SchedS) ->
     %% NOTE: this function only marks streams for deletion, but
     %% it doesn't outright delete them.
     %%
@@ -603,14 +415,15 @@ on_unsubscribe(
     %% acked by the client.
     Comm1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
     Comm2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
-    emqx_persistent_session_ds_state:fold_streams(
+    S = emqx_persistent_session_ds_state:fold_streams(
         SubId,
-        fun(Stream, SRS, {SAcc, SchedSAcc}) ->
-            unsubscribe_stream(Comm1, Comm2, {SubId, Stream}, SRS, SAcc, SchedSAcc)
+        fun(Stream, SRS, SAcc) ->
+            unsubscribe_stream(Comm1, Comm2, {SubId, Stream}, SRS, SAcc)
         end,
-        {S0, SchedS1},
+        S0,
         S0
-    ).
+    ),
+    {S, SchedS}.
 
 -spec is_fully_acked(
     emqx_persistent_session_ds:stream_state(), emqx_persistent_session_ds_state:t()
@@ -628,275 +441,16 @@ is_active_unblocked(#srs{unsubscribed = true}, _S) ->
 is_active_unblocked(SRS, S) ->
     is_fully_acked(SRS, S).
 
--spec handle_down(term(), emqx_persistent_session_ds_state:t(), t()) ->
-    {drop_buffer, stream_key(), t()} | ignore.
-handle_down(
-    {'DOWN', Ref, process, Pid, Reason},
-    S,
-    SchedS = #s{ds_subs = Subs}
-) ->
-    case Subs of
-        #{Ref := #ds_sub{stream_key = StreamKey}} ->
-            %% Handle crash of DS subscription:
-            ?tp(info, ?sessds_sub_down, #{
-                stream => StreamKey,
-                sub_ref => Ref,
-                pid => Pid,
-                reason => Reason
-            }),
-            {drop_buffer, StreamKey, ds_resubscribe(StreamKey, S, SchedS)};
-        #{} ->
-            ignore
-    end;
-handle_down(_, _, _) ->
-    ignore.
-
--spec handle_retry(emqx_persistent_session_ds_state:t(), t()) -> ret().
-handle_retry(S0, SchedS0 = #s{retry = Actions}) ->
-    lists:foldl(
-        fun
-            ({subscribe, StreamKey}, {NewStreamAcc, SAcc, SchedSAcc}) ->
-                {NewStreamAcc, SAcc, ds_subscribe(StreamKey, SAcc, SchedSAcc)};
-            ({renew_streams, Ref}, {NewStreamAcc, SAcc, SchedSAcc}) ->
-                {NewStreams, S, SchedS} = on_new_stream_event(Ref, SAcc, SchedSAcc),
-                {NewStreams ++ NewStreamAcc, S, SchedS}
-        end,
-        {[], S0, SchedS0#s{retry_timer = undefined, retry = []}},
-        Actions
-    ).
-
 %%================================================================================
 %% Internal functions
 %%================================================================================
 
-%% @doc Side effects:
-%%
-%% 1. Subscribe to new stream events
-%%
-%% 2. Get streams from DS
-%%
-%% 3. Create iterators and SRS records for the streams from the first
-%% applicable generation
-%%
-%% 4. Mark new streams as ready
--spec init_for_subscription(
-    emqx_types:topic(),
-    emqx_persistent_session_ds:subscription(),
-    emqx_persistent_session_ds_state:t(),
-    t()
-) ->
-    ret().
-init_for_subscription(
-    TopicFilterBin,
-    Subscription,
-    S0,
-    SchedS0 = #s{new_stream_subs = NewStreamSubs, sub_metadata = SubMetadata}
-) ->
-    #{id := SubId, start_time := StartTime} = Subscription,
-    TopicFilter = emqx_ds:topic_words(TopicFilterBin),
-    %% Start watching the streams immediately:
-    NewStreamsWatch = watch_streams(TopicFilter),
-    %% Create the initial record for subscription:
-    SubState0 = #sub_metadata{
-        subid = SubId,
-        new_streams_watch = NewStreamsWatch
-    },
-    %% Renew streams:
-    StreamMap = get_streams(TopicFilter, StartTime),
-    {NewSRSIds, S, SubState} = renew_streams(
-        S0, TopicFilter, Subscription, StreamMap, SubState0
-    ),
-    %% Update the accumulator:
-    SchedS1 = SchedS0#s{
-        new_stream_subs = NewStreamSubs#{NewStreamsWatch => TopicFilterBin},
-        sub_metadata = SubMetadata#{TopicFilterBin => SubState}
-    },
-    SchedS = ds_subscribe_all(NewSRSIds, S, SchedS1),
-    {NewSRSIds, S, SchedS}.
-
-%% @doc This function makes the session aware of the new streams.
-%%
-%% It has the following properties:
-%%
-%% 1. For each RankX, it schedules only the streams with the same
-%% RankY.
-%%
-%% 2. For each RankX, it never advances RankY until _all_ streams with
-%% the same RankX are replayed.
-%%
-%% 3. Once all streams with the given rank are replayed, it advances
-%% the RankY to the smallest known RankY that is greater than replayed
-%% RankY.
-%%
-%% 4. If the RankX is seen for the first time, it selects the streams
-%% with the smallest RankY.
-%%
-%% This way, messages from the same topic/shard are never reordered.
--spec renew_streams(
-    emqx_persistent_session_ds_state:t(),
-    emqx_ds:topic_filter(),
-    emqx_persistent_session_ds:subscription(),
-    stream_map(),
-    sub_metadata()
-) ->
-    {[stream_key()], emqx_persistent_session_ds_state:t(), sub_metadata()}.
-renew_streams(S0, TopicFilter, Subscription, StreamMap, SubState0) ->
-    ?tp(?sessds_sched_renew_streams, #{topic_filter => TopicFilter}),
-    {NewSRSIds, S, Pending} =
-        maps:fold(
-            fun(RankX, YStreamL, {AccNewSRSIds, AccS0, AccPendingStreams}) ->
-                {NewSRSIds, AccS, Pending} = do_renew_streams_for_x(
-                    AccS0, TopicFilter, Subscription, RankX, YStreamL
-                ),
-                {
-                    NewSRSIds ++ AccNewSRSIds,
-                    AccS,
-                    AccPendingStreams#{RankX => Pending}
-                }
-            end,
-            {[], S0, #{}},
-            StreamMap
-        ),
-    SubState = SubState0#sub_metadata{pending_streams = Pending},
-    ?tp(
-        debug,
-        ?sessds_sched_renew_streams_result,
-        #{
-            topic => TopicFilter,
-            all_streams => StreamMap,
-            new => NewSRSIds,
-            sub_state => SubState
-        }
-    ),
-    {NewSRSIds, S, SubState}.
-
--spec renew_streams_for_x(
-    emqx_persistent_session_ds_state:t(),
-    emqx_persistent_session_ds:subscription_id(),
-    emqx_ds:shard(),
-    t()
-) ->
-    ret().
-renew_streams_for_x(S0, SubId, RankX, SchedS0 = #s{sub_metadata = SubMeta0}) ->
-    case find_subscription_by_subid(SubId, maps:iterator(SubMeta0)) of
-        {TopicFilterBin, SubS0} ->
-            case emqx_persistent_session_ds_state:get_subscription(TopicFilterBin, S0) of
-                undefined ->
-                    {[], S0, SchedS0};
-                Subscription ->
-                    TopicFilter = emqx_ds:topic_words(TopicFilterBin),
-                    #sub_metadata{pending_streams = Cache} = SubS0,
-                    Pending0 = maps:get(RankX, Cache, []),
-                    {NewSRSIds, S, Pending} = do_renew_streams_for_x(
-                        S0, TopicFilter, Subscription, RankX, Pending0
-                    ),
-                    SubS = SubS0#sub_metadata{pending_streams = Cache#{RankX => Pending}},
-                    SchedS = ds_subscribe_all(NewSRSIds, S, SchedS0#s{
-                        sub_metadata = SubMeta0#{TopicFilterBin := SubS}
-                    }),
-                    {NewSRSIds, S, SchedS}
-            end;
-        undefined ->
-            {[], S0, SchedS0}
-    end.
-
--spec do_renew_streams_for_x(
-    emqx_persistent_session_ds_state:t(),
-    emqx_ds:topic_filter(),
-    emqx_persistent_session_ds_subs:subscription(),
-    emqx_ds:shard(),
-    [{emqx_ds:generation(), emqx_ds:stream()}]
-) ->
-    {[stream_key()], emqx_persistent_session_ds_state:t(), [
-        {emqx_ds:generation(), emqx_ds:stream()}
-    ]}.
-do_renew_streams_for_x(S0, TopicFilter, Subscription = #{id := SubId}, RankX, YStreamL) ->
-    CommQos1 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
-    CommQos2 = emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0),
-    ReplayedRankY = emqx_persistent_session_ds_state:get_rank({SubId, RankX}, S0),
-    %% 1. Scan the list of streams returned from DS (or from the local
-    %% stream cache) to find new streams, as well as y-rank of the
-    %% generation that can be scheduled for replay:
-    {DiscoveredStreams, CurrentY} =
-        lists:foldl(
-            fun
-                ({Y, _}, Acc) when is_integer(ReplayedRankY) andalso Y =< ReplayedRankY ->
-                    %% This stream belongs to a generation that we
-                    %% marked as fully replayed. Ignore it:
-                    Acc;
-                ({Y, Stream}, {AccPendingStreams, AccMinUnreplayed}) ->
-                    case emqx_persistent_session_ds_state:get_stream({SubId, Stream}, S0) of
-                        undefined ->
-                            %% We've never seen this stream:
-                            {[{Y, Stream} | AccPendingStreams], min(Y, AccMinUnreplayed)};
-                        SRS ->
-                            %% We have a record for this stream. Use
-                            %% it to adjust fully replayed barrier:
-                            case is_fully_replayed(CommQos1, CommQos2, SRS) of
-                                true ->
-                                    %% This is a known stream that has
-                                    %% been fully replayed:
-                                    {AccPendingStreams, AccMinUnreplayed};
-                                false ->
-                                    %% This is a known in-progress
-                                    %% stream:
-                                    {AccPendingStreams, min(Y, AccMinUnreplayed)}
-                            end
-                    end
-            end,
-            %% According to the Erlang term order, atom `undefined' is
-            %% greater than any integer y-rank:
-            {[], undefined},
-            YStreamL
-        ),
-    %% 2. Advance the "fully replayed" barrier if needed:
-    S1 =
-        case is_integer(CurrentY) of
-            true when ReplayedRankY < CurrentY - 1 ->
-                ?tp(debug, ?sessds_advance_generation, #{subid => SubId, x => RankX, y => CurrentY}),
-                emqx_persistent_session_ds_state:put_rank({SubId, RankX}, CurrentY - 1, S0);
-            _ ->
-                S0
-        end,
-    %% 3. Select newly discovered streams that belong to the current
-    %% generation and ensure all of them have an iterator:
-    lists:foldl(
-        fun(I = {RankY, Stream}, {AccNewSRSIds, AccS0, AccPendingStreams}) ->
-            case RankY =:= CurrentY of
-                true ->
-                    {NewSRSIds, AccS} = make_iterator(
-                        TopicFilter, Subscription, RankX, RankY, Stream, AccS0
-                    ),
-                    {NewSRSIds ++ AccNewSRSIds, AccS, AccPendingStreams};
-                false ->
-                    ?tp(?sessds_stream_state_trans, #{key => {SubId, Stream}, to => p}),
-                    {AccNewSRSIds, AccS0, [I | AccPendingStreams]}
-            end
-        end,
-        {[], S1, []},
-        DiscoveredStreams
-    ).
-
--spec get_streams(emqx_ds:topic_filter(), emqx_persistent_session_ds:millisecond()) -> stream_map().
-get_streams(TopicFilter, StartTime) ->
-    L = emqx_ds:get_streams(
-        ?PERSISTENT_MESSAGE_DB, TopicFilter, emqx_persistent_session_ds:to_ds_time(StartTime)
-    ),
-    maps:groups_from_list(
-        fun({{RankX, _}, _}) -> RankX end,
-        fun({{_, RankY}, Stream}) -> {RankY, Stream} end,
-        L
-    ).
-
 %% @doc Set `unsubscribed' flag to SRS and remove DS subscription
-unsubscribe_stream(Comm1, Comm2, Key, SRS0 = #srs{}, S, SchedS) ->
+unsubscribe_stream(Comm1, Comm2, Key, SRS0 = #srs{}, S) ->
     SRS = SRS0#srs{unsubscribed = true},
     is_fully_acked(Comm1, Comm2, SRS) andalso
         ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => x}),
-    {
-        emqx_persistent_session_ds_state:put_stream(Key, SRS, S),
-        ds_unsubscribe(Key, SchedS)
-    }.
+    emqx_persistent_session_ds_state:put_stream(Key, SRS, S).
 
 maybe_drop_stream(CommQos1, CommQos2, Key, SRS = #srs{unsubscribed = true}, S) ->
     %% This stream belongs to an unsubscribed topic:
@@ -937,91 +491,6 @@ maybe_drop_stream(
     end;
 maybe_drop_stream(_CommQos1, _CommQos2, _Key, _SRS, S) ->
     S.
-
-find_subscription_by_subid(SubId, It0) ->
-    case maps:next(It0) of
-        {TopicFilterBin, SubS = #sub_metadata{subid = SubId}, _It} ->
-            {TopicFilterBin, SubS};
-        {_, _, It} ->
-            find_subscription_by_subid(SubId, It);
-        none ->
-            undefined
-    end.
-
-%%--------------------------------------------------------------------------------
-%% DS subscription management
-%%--------------------------------------------------------------------------------
-
--spec ds_subscribe_all([stream_key()], emqx_persistent_session_ds_state:t(), t()) -> t().
-ds_subscribe_all(Streams, S, SchedS) ->
-    lists:foldl(
-        fun(Stream, Acc) -> ds_subscribe(Stream, S, Acc) end,
-        SchedS,
-        Streams
-    ).
-
-ds_subscribe(SrsID, S, SchedS = #s{ds_subs = Subs}) ->
-    case find_ds_sub_by_stream_id(SrsID, Subs) of
-        {_, _} ->
-            SchedS;
-        undefined ->
-            #srs{it_end = It} = emqx_persistent_session_ds_state:get_stream(SrsID, S),
-            %% TODO: deprecate batch_size and come up with a better name?
-            SubOpts = #{
-                max_unacked => emqx_config:get([durable_sessions, batch_size])
-            },
-            case emqx_ds:subscribe(?PERSISTENT_MESSAGE_DB, It, SubOpts) of
-                {ok, Handle, SubRef} ->
-                    ?tp(debug, ?sessds_sched_subscribe, #{
-                        stream => SrsID, handle => Handle, ref => SubRef
-                    }),
-                    NewSub = #ds_sub{
-                        handle = Handle,
-                        stream_key = SrsID,
-                        seqno = atomics:new(1, [])
-                    },
-                    SchedS#s{
-                        ds_subs = Subs#{SubRef => NewSub}
-                    };
-                ?err_unrec(Reason) ->
-                    ?tp(warning, ?sessds_sched_subscribe_fail, #{
-                        class => unrecoverable, reason => Reason, stream => SrsID
-                    }),
-                    SchedS;
-                ?err_rec(Reason) ->
-                    ?tp(debug, ?sessds_sched_subscribe_fail, #{
-                        class => recoverable, reason => Reason, stream => SrsID
-                    }),
-                    push_retry({subscribe, SrsID}, SchedS)
-            end
-    end.
-
-ds_unsubscribe(SrsID, SchedS = #s{ds_subs = Subs}) ->
-    case find_ds_sub_by_stream_id(SrsID, Subs) of
-        {SubRef, #ds_sub{handle = Handle}} ->
-            emqx_ds:unsubscribe(?PERSISTENT_MESSAGE_DB, Handle),
-            flush_sub_ref(SubRef),
-            ?tp(debug, ?sessds_sched_unsubscribe, #{
-                stream => SrsID, handle => Handle, ref => SubRef
-            }),
-            SchedS#s{
-                ds_subs = maps:remove(SubRef, Subs)
-            };
-        undefined ->
-            SchedS
-    end.
-
-ds_resubscribe(SrsID, S, SchedS) ->
-    ds_subscribe(SrsID, S, ds_unsubscribe(SrsID, SchedS)).
-
-%% @doc Remove all messages sent for the given DS subscription from
-%% the process mailbox.
-flush_sub_ref(SubRef) ->
-    receive
-        #ds_sub_reply{ref = SubRef} -> flush_sub_ref(SubRef)
-    after 0 ->
-        ok
-    end.
 
 %%--------------------------------------------------------------------------------
 %% SRS FSM
@@ -1076,60 +545,6 @@ to_BQ12(Key, SRS, S = #s{bq1 = BQ1, bq2 = BQ2}) ->
 %% Misc.
 %%--------------------------------------------------------------------------------
 
-%% Create an iterator for the stream if it doesn't exist yet.
--spec make_iterator(
-    emqx_ds:topic_filter(),
-    emqx_persistent_session_ds_subs:subscription(),
-    emqx_ds:shard(),
-    emqx_ds:generation(),
-    emqx_ds:stream(),
-    emqx_persistent_session_ds_state:t()
-) ->
-    {
-        [stream_key()],
-        emqx_persistent_session_ds_state:t()
-    }.
-make_iterator(TopicFilter, Subscription, RankX, RankY, Stream, S) ->
-    #{id := SubId, start_time := StartTime, current_state := CurrentSubState} = Subscription,
-    Key = {SubId, Stream},
-    case
-        emqx_ds:make_iterator(
-            ?PERSISTENT_MESSAGE_DB,
-            Stream,
-            TopicFilter,
-            emqx_persistent_session_ds:to_ds_time(StartTime)
-        )
-    of
-        {ok, Iterator} ->
-            ?tp(?sessds_stream_state_trans, #{
-                key => Key, to => r, from => p, start_time => StartTime
-            }),
-            NewStreamState = #srs{
-                rank_x = RankX,
-                rank_y = RankY,
-                it_begin = Iterator,
-                it_end = Iterator,
-                sub_state_id = CurrentSubState
-            },
-            {
-                [Key],
-                emqx_persistent_session_ds_state:put_stream(Key, NewStreamState, S)
-            };
-        {error, Class = unrecoverable, Reason} ->
-            %% TODO: Handling of recoverable errors is non-trivial,
-            %% since stream renewal is an event-driven process. As
-            %% such, re-creation of iterators should be triggered by
-            %% some event. Currently we just restart the session
-            %% should we encounter one in hope that it will recover.
-            ?SLOG(warning, #{
-                msg => "failed_to_initialize_stream_iterator",
-                stream => Stream,
-                class => Class,
-                reason => Reason
-            }),
-            {[], S}
-    end.
-
 %% @doc Compare the streams by the order in which they were replayed.
 compare_streams(
     {_KeyA, #srs{first_seqno_qos1 = A1, first_seqno_qos2 = A2}},
@@ -1153,42 +568,6 @@ is_track_acked(?QOS_1, Committed, #srs{first_seqno_qos1 = First, last_seqno_qos1
     First =:= Last orelse Committed >= Last;
 is_track_acked(?QOS_2, Committed, #srs{first_seqno_qos2 = First, last_seqno_qos2 = Last}) ->
     First =:= Last orelse Committed >= Last.
-
-watch_streams(TopicFilter) ->
-    ?tp(?sessds_sched_watch_streams, #{topic_filter => TopicFilter}),
-    {ok, Ref} = emqx_ds_new_streams:watch(?PERSISTENT_MESSAGE_DB, TopicFilter),
-    Ref.
-
-unwatch_streams(TopicFilterBin, Ref, NewStreamSubs) ->
-    ?tp(debug, ?sessds_sched_unwatch_streams, #{
-        topic_filter => emqx_ds:topic_words(TopicFilterBin), ref => Ref
-    }),
-    emqx_ds_new_streams:unwatch(?PERSISTENT_MESSAGE_DB, Ref),
-    maps:remove(Ref, NewStreamSubs).
-
-push_retry(Action, SchedS = #s{retry = R, retry_timer = undefined}) ->
-    %% TODO: do not hardcode, add randomness?
-    TRef = emqx_utils:start_timer(5_000, {emqx_session, ?TIMER_SCHEDULER_RETRY}),
-    SchedS#s{retry = [Action | R], retry_timer = TRef};
-push_retry(Action, SchedS = #s{retry = R}) ->
-    SchedS#s{retry = [Action | R]}.
-
-find_ds_sub_by_stream_id(SubRef, Subs) ->
-    Pred = fun(#ds_sub{stream_key = K}) -> SubRef =:= K end,
-    find_ds_sub(Pred, maps:iterator(Subs)).
-
-find_ds_sub(Predicate, It0) ->
-    case maps:next(It0) of
-        {SubRef, Val, It} ->
-            case Predicate(Val) of
-                true ->
-                    {SubRef, Val};
-                false ->
-                    find_ds_sub(Predicate, It)
-            end;
-        none ->
-            undefined
-    end.
 
 %%--------------------------------------------------------------------------------
 %% Block queue
