@@ -6,21 +6,14 @@
 
 -behaviour(minirest_api).
 
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_gateway_http.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
-
--import(
-    emqx_gateway_http,
-    [
-        return_http_error/2,
-        with_gateway/2,
-        with_authn/2
-    ]
-).
 
 %% minirest/dashbaord_swagger behaviour callbacks
 -export([
@@ -90,63 +83,31 @@ authn(delete, #{bindings := #{name := Name0}}) ->
         {204}
     end).
 
-users(get, #{bindings := #{name := Name0}, query_string := Qs}) ->
-    with_authn(Name0, fun(
-        _GwName,
-        #{
-            id := AuthId,
-            chain_name := ChainName
-        }
-    ) ->
-        emqx_authn_api:list_users(ChainName, AuthId, parse_qstring(Qs))
-    end);
-users(post, #{
-    bindings := #{name := Name0},
-    body := Body
-}) ->
-    with_authn(Name0, fun(
-        _GwName,
-        #{
-            id := AuthId,
-            chain_name := ChainName
-        }
-    ) ->
-        emqx_authn_api:add_user(ChainName, AuthId, Body)
-    end).
+users(get, #{query_string := Qs} = Req) ->
+    #{gateway := #{id := AuthId, chain_name := ChainName}} = Req,
+    emqx_authn_api:list_users(ChainName, AuthId, parse_qstring(Qs));
+users(post, #{body := Body} = Req) ->
+    #{gateway := #{id := AuthId, chain_name := ChainName}} = Req,
+    emqx_authn_api:add_user(ChainName, AuthId, Body).
 
-users_insta(get, #{bindings := #{name := Name0, uid := UserId}}) ->
-    with_authn(Name0, fun(
-        _GwName,
-        #{
-            id := AuthId,
-            chain_name := ChainName
-        }
-    ) ->
-        emqx_authn_api:find_user(ChainName, AuthId, UserId)
-    end);
-users_insta(put, #{
-    bindings := #{name := Name0, uid := UserId},
-    body := Body
-}) ->
-    with_authn(Name0, fun(
-        _GwName,
-        #{
-            id := AuthId,
-            chain_name := ChainName
-        }
-    ) ->
-        emqx_authn_api:update_user(ChainName, AuthId, UserId, Body)
-    end);
-users_insta(delete, #{bindings := #{name := Name0, uid := UserId}}) ->
-    with_authn(Name0, fun(
-        _GwName,
-        #{
-            id := AuthId,
-            chain_name := ChainName
-        }
-    ) ->
-        emqx_authn_api:delete_user(ChainName, AuthId, UserId)
-    end).
+users_insta(get, #{bindings := #{uid := UserId}} = Req) ->
+    #{
+        gateway := #{id := AuthId, chain_name := ChainName},
+        resolved_ns := Namespace
+    } = Req,
+    emqx_authn_api:find_user(ChainName, Namespace, AuthId, UserId);
+users_insta(put, #{bindings := #{uid := UserId}, body := Body} = Req) ->
+    #{
+        gateway := #{id := AuthId, chain_name := ChainName},
+        resolved_ns := Namespace
+    } = Req,
+    emqx_authn_api:update_user(ChainName, Namespace, AuthId, UserId, Body);
+users_insta(delete, #{bindings := #{uid := UserId}} = Req) ->
+    #{
+        gateway := #{id := AuthId, chain_name := ChainName},
+        resolved_ns := Namespace
+    } = Req,
+    emqx_authn_api:delete_user(ChainName, Namespace, AuthId, UserId).
 
 %%--------------------------------------------------------------------
 %% Utils
@@ -216,14 +177,18 @@ schema("/gateways/:name/authentication") ->
 schema("/gateways/:name/authentication/users") ->
     #{
         'operationId' => users,
+        filter => fun emqx_gateway_http:filter/2,
         get =>
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_users),
                 summary => <<"List users for gateway authenticator">>,
-                parameters => params_gateway_name_in_path() ++
-                    params_paging_in_qs() ++
-                    params_fuzzy_in_qs(),
+                parameters => lists:flatten([
+                    ns_qs_param(),
+                    params_gateway_name_in_path(),
+                    params_paging_in_qs(),
+                    params_fuzzy_in_qs()
+                ]),
                 responses =>
                     ?STANDARD_RESP(
                         #{
@@ -239,7 +204,10 @@ schema("/gateways/:name/authentication/users") ->
                 tags => ?TAGS,
                 desc => ?DESC(add_user),
                 summary => <<"Add user for gateway authenticator">>,
-                parameters => params_gateway_name_in_path(),
+                parameters => lists:flatten([
+                    ns_qs_param(),
+                    params_gateway_name_in_path()
+                ]),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(emqx_authn_api, request_user_create),
                     emqx_authn_api:request_user_create_examples()
@@ -258,13 +226,17 @@ schema("/gateways/:name/authentication/users") ->
 schema("/gateways/:name/authentication/users/:uid") ->
     #{
         'operationId' => users_insta,
+        filter => fun emqx_gateway_http:filter/2,
         get =>
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_user),
                 summary => <<"Get user info for gateway authenticator">>,
-                parameters => params_gateway_name_in_path() ++
-                    params_userid_in_path(),
+                parameters => lists:flatten([
+                    ns_qs_param(),
+                    params_gateway_name_in_path(),
+                    params_userid_in_path()
+                ]),
                 responses =>
                     ?STANDARD_RESP(
                         #{
@@ -280,8 +252,11 @@ schema("/gateways/:name/authentication/users/:uid") ->
                 tags => ?TAGS,
                 desc => ?DESC(update_user),
                 summary => <<"Update user info for gateway authenticator">>,
-                parameters => params_gateway_name_in_path() ++
-                    params_userid_in_path(),
+                parameters => lists:flatten([
+                    ns_qs_param(),
+                    params_gateway_name_in_path(),
+                    params_userid_in_path()
+                ]),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(emqx_authn_api, request_user_update),
                     emqx_authn_api:request_user_update_examples()
@@ -301,8 +276,11 @@ schema("/gateways/:name/authentication/users/:uid") ->
                 tags => ?TAGS,
                 desc => ?DESC(delete_user),
                 summary => <<"Delete user for gateway authenticator">>,
-                parameters => params_gateway_name_in_path() ++
-                    params_userid_in_path(),
+                parameters => lists:flatten([
+                    ns_qs_param(),
+                    params_gateway_name_in_path(),
+                    params_userid_in_path()
+                ]),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"User Deleted">>})
             }
@@ -364,6 +342,9 @@ params_fuzzy_in_qs() ->
             )}
     ].
 
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
+
 %%--------------------------------------------------------------------
 %% schemas
 
@@ -375,3 +356,6 @@ schema_authn() ->
         ]),
         emqx_authn_api:authenticator_examples()
     ).
+
+with_gateway(GwName, Fun) ->
+    emqx_gateway_http:with_gateway(GwName, Fun).

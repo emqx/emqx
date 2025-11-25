@@ -6,6 +6,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -219,6 +220,7 @@ t_authn_data_not_be_cleared_when_gateway_app_restarted(_Config) ->
     emqx_authn_chains:delete_user(
         ChainName,
         <<"password_based:built_in_database">>,
+        ?global_ns,
         <<"test">>
     ),
     %% user deleted successfully

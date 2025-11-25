@@ -42,6 +42,8 @@
 -define(AUTHZ_MNESIA_API(METHOD, FN), ?API(emqx_authz_api_mnesia, METHOD, FN)).
 -define(AUTHN_API(METHOD, FN), ?API(emqx_authn_api, METHOD, FN)).
 -define(CERTS_API(METHOD, FN), ?API(emqx_mgmt_api_certs, METHOD, FN)).
+-define(GW_AUTHN_API(METHOD, FN), ?API(emqx_gateway_api_authn, METHOD, FN)).
+-define(GW_LISTENER_API(METHOD, FN), ?API(emqx_gateway_api_listeners, METHOD, FN)).
 
 %%=====================================================================
 %% API
@@ -222,6 +224,28 @@ do_check_rbac(
         _ ->
             false
     end;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?GW_AUTHN_API(_, Fn)
+) when
+    is_binary(Namespace) andalso
+        (Fn == users orelse Fn == users_insta)
+->
+    %% Gateway authentication management (global chain).
+    %%
+    %% We only allow user management for namespaced users.  Actual check for matching
+    %% namespace is done in the handlers/filters of the module.
+    true;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?GW_LISTENER_API(_, Fn)
+) when
+    is_binary(Namespace) andalso
+        (Fn == users orelse Fn == users_insta)
+->
+    %% Gateway authentication management (per-listener chain).
+    %%
+    %% We only allow user management for namespaced users.  Actual check for matching
+    %% namespace is done in the handlers/filters of the module.
+    true;
 do_check_rbac(_, _, _) ->
     false.
 

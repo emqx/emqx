@@ -5,9 +5,11 @@
 %% @doc Gateway Interface Module for HTTP-APIs
 -module(emqx_gateway_http).
 
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_auth/include/emqx_authn_chains.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
 
@@ -52,7 +54,9 @@
     checks/2,
     reason2resp/1,
     reason2msg/1,
-    sum_cluster_connections/1
+    sum_cluster_connections/1,
+    filter/2,
+    filter_listener/2
 ]).
 
 %% RPC
@@ -571,6 +575,60 @@ to_list(B) when is_binary(B) ->
 
 sum_cluster_connections(List) ->
     sum_cluster_connections(List, 0, 0).
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
+add_gateway_authn(Req, _Meta) ->
+    #{bindings := #{name := Name}} = Req,
+    with_authn(Name, fun(GwName, Gw) -> {ok, Req#{gateway_name => GwName, gateway => Gw}} end).
+
+add_gateway_listener_authn(Req, _Meta) ->
+    #{bindings := #{name := Name, id := Id}} = Req,
+    with_listener_authn(Name, Id, fun(GwName, Gw) ->
+        {ok, Req#{gateway_name => GwName, gateway => Gw}}
+    end).
+
+filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        {ok, Req2} ?= validate_managed_namespace(Req1, Meta),
+        add_gateway_authn(Req2, Meta)
+    end.
+
+filter_listener(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        {ok, Req2} ?= validate_managed_namespace(Req1, Meta),
+        add_gateway_listener_authn(Req2, Meta)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal funcs
