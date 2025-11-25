@@ -155,12 +155,6 @@
 
 -type block_queue() :: gb_trees:tree(emqx_persistent_session_ds:seqno(), block()).
 
--type new_stream_subs() :: #{
-    emqx_ds_new_streams:watch() => emqx_persistent_session_ds:topic_filter()
-}.
-
--type stream_map() :: #{emqx_ds:shard() => [{emqx_ds:generation(), emqx_ds:stream()}]}.
-
 -record(s, {
     %% Block queues:
     bq1 :: block_queue(),

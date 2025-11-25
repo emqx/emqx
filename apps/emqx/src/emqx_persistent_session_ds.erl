@@ -681,25 +681,23 @@ handle_info(
         s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
     },
     schedule_delivery(Session);
-handle_info(AsyncReply = #ds_sub_reply{}, Session, ClientInfo) ->
-    handle_ds_reply(AsyncReply, Session, ClientInfo);
-handle_info(
-    #new_stream_event{subref = Ref},
-    Session = #{s := S0, stream_scheduler_s := SchedS0},
-    _ClientInfo
-) ->
-    %% Handle DS notification about new streams:
-    {_NewStreams, S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_new_stream_event(
-        Ref, S0, SchedS0
-    ),
-    Session#{s := S, stream_scheduler_s := SchedS};
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     Session = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
     Session;
-handle_info(
+handle_info(Message, Session0 = #{dscli := DSCli0}, ClientInfo) ->
+    case emqx_ds_client:dispatch_message(Message, DSCli0, Session0) of
+        {DSCli, Session} ->
+            Session#{dscli := DSCli};
+        {data, SubId, Stream, DSSubHandle, AsyncReply} ->
+            handle_ds_reply(SubId, Stream, DSSubHandle, AsyncReply, Session0, ClientInfo);
+        ignore ->
+            handle_info1(Message, Session0, ClientInfo)
+    end.
+
+handle_info1(
     Info,
-    Session = #{s := S0, stream_scheduler_s := SchedS0, buffer := Buf0},
+    Session = #{s := S0},
     _ClientInfo
 ) ->
     %% Handle all the other messages.
@@ -713,20 +711,9 @@ handle_info(
             %% Yes, session checkpoint just failed.
             exit(commit_failure);
         ignore ->
-            %% No. Is it a DS subscription crash then?
-            case emqx_persistent_session_ds_stream_scheduler:handle_down(Info, S0, SchedS0) of
-                {drop_buffer, StreamKey, SchedS} ->
-                    %% Yes, drop the buffer:
-                    Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
-                    Session#{
-                        stream_scheduler_s := SchedS,
-                        buffer := Buf
-                    };
-                ignore ->
-                    %% No, unknown message:
-                    ?tp(warning, ?sessds_unknown_message, #{message => Info}),
-                    Session
-            end
+            %% Unknown message:
+            ?tp(warning, ?sessds_unknown_message, #{message => Info}),
+            Session
     end.
 
 %%--------------------------------------------------------------------
@@ -1185,60 +1172,49 @@ session_drop(SessionId, Reason) ->
 %%--------------------------------------------------------------------
 
 handle_ds_reply(
+    SubId,
+    Stream,
+    DSSubHandle,
     Reply,
     Session0 = #{
         s := S,
         buffer := Buf0,
-        stream_scheduler_s := SchedS0,
         inflight := Inflight0,
         replay := Replay
     },
     ClientInfo
 ) ->
-    case emqx_persistent_session_ds_stream_scheduler:verify_reply(Reply, S, SchedS0) of
-        {true, StreamKey, SchedS} ->
-            SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-            case
-                emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS0, S) and
-                    not ?IS_REPLAY_ONGOING(Replay)
-            of
-                true ->
-                    ?tp(?sessds_poll_reply, #{reply => Reply, blocked => false}),
-                    %% This stream is not blocked. Add messages
-                    %% directly to the inflight and set drain timer.
-                    %%
-                    %% Note: this may overwrite SRS records of batches
-                    %% that only contain QoS0 messages. We ignore QoS0
-                    %% messages during replay, so it's not deemed a
-                    %% problem.
-                    {SRS1, SubState} = pre_enqueue_new(SRS0, S),
-                    {SRS, Inflight} = enqueue_batch(
-                        S, Reply, SubState, SRS1, ClientInfo, Inflight0
-                    ),
-                    Session = Session0#{inflight := Inflight, stream_scheduler_s := SchedS},
-                    post_enqueue_new(
-                        StreamKey,
-                        SRS,
-                        schedule_delivery(Session)
-                    );
-                false ->
-                    ?tp(?sessds_poll_reply, #{reply => Reply, blocked => true}),
-                    %% This stream is blocked, add batch to the buffer
-                    %% instead:
-                    Buf = emqx_persistent_session_ds_buffer:push_batch(StreamKey, Reply, Buf0),
-                    Session0#{buffer := Buf, stream_scheduler_s := SchedS}
-            end;
-        {false, _, SchedS} ->
-            %% Unexpected reply, no action needed:
-            Session0#{stream_scheduler_s := SchedS};
-        {drop_buffer, StreamKey, SchedS} ->
-            %% Scheduler detected inconsistency and requested to drop
-            %% the stream buffer:
-            Buf = emqx_persistent_session_ds_buffer:drop_stream(StreamKey, Buf0),
-            Session0#{
-                stream_scheduler_s := SchedS,
-                buffer := Buf
-            }
+    StreamKey = {SubId, Stream},
+    SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
+    case
+        emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS0, S) and
+            not ?IS_REPLAY_ONGOING(Replay)
+    of
+        true ->
+            ?tp(?sessds_poll_reply, #{reply => Reply, blocked => false}),
+            %% This stream is not blocked. Add messages
+            %% directly to the inflight and set drain timer.
+            %%
+            %% Note: this may overwrite SRS records of batches
+            %% that only contain QoS0 messages. We ignore QoS0
+            %% messages during replay, so it's not deemed a
+            %% problem.
+            {SRS1, SubState} = pre_enqueue_new(SRS0, S),
+            {SRS, Inflight} = enqueue_batch(
+                S, Reply, SubState, SRS1, ClientInfo, Inflight0
+            ),
+            Session = Session0#{inflight := Inflight},
+            post_enqueue_new(
+                StreamKey,
+                SRS,
+                schedule_delivery(Session)
+            );
+        false ->
+            ?tp(?sessds_poll_reply, #{reply => Reply, blocked => true}),
+            %% This stream is blocked, add batch to the buffer
+            %% instead:
+            Buf = emqx_persistent_session_ds_buffer:push_batch(StreamKey, Reply, Buf0),
+            Session0#{buffer := Buf}
     end.
 
 %% @doc Remove buffered data for all streams that belong to a given
