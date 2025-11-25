@@ -23,6 +23,8 @@
 
 -export([cth_config/1, cth_config/2, reset_config/0]).
 
+-export([reregister_extsub_handler/1]).
+
 -include_lib("../src/emqx_streams_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
@@ -48,9 +50,11 @@ emqtt_pub_stream(Client, Topic, Payload, Opts) ->
     PubOpts = [{qos, Qos}],
     emqtt:publish(Client, Topic, Properties, Payload, PubOpts).
 
-emqtt_sub_stream(Client, Topic) ->
-    FullTopic = <<"$s/", Topic/binary>>,
-    {ok, _, _} = emqtt:subscribe(Client, {FullTopic, 1}),
+emqtt_sub_stream(Client, Topic) when is_binary(Topic) ->
+    emqtt_sub_stream(Client, [Topic]);
+emqtt_sub_stream(Client, Topics) when is_list(Topics) ->
+    FullTopics = lists:map(fun(Topic) -> {<<"$s/", Topic/binary>>, 1} end, Topics),
+    {ok, _, _} = emqtt:subscribe(Client, FullTopics),
     ok.
 
 emqtt_drain() ->
@@ -234,3 +238,12 @@ default_mq_config() ->
     #{
         <<"enable">> => false
     }.
+
+reregister_extsub_handler(Opts) ->
+    DefaultOpts = #{
+        handle_generic_messages => true,
+        multi_topic => true
+    },
+    FullOpts = maps:merge(DefaultOpts, Opts),
+    ok = emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler),
+    ok = emqx_extsub_handler_registry:register(emqx_streams_extsub_handler, FullOpts).
