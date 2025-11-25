@@ -505,7 +505,7 @@ zone_global_defaults() ->
                 mqueue_store_qos0 => true,
                 peer_cert_as_clientid => disabled,
                 peer_cert_as_username => disabled,
-                response_information => [],
+                response_information => <<"">>,
                 retain_available => true,
                 retry_interval => infinity,
                 message_expiry_interval => infinity,
