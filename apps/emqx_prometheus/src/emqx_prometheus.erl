@@ -56,6 +56,8 @@
     do_stop/0
 ]).
 
+-export([fetch_cluster_wide_namespaced_metrics/2]).
+
 %% RPC targets
 -export([
     %% Proto v{1..2}
@@ -244,6 +246,7 @@ collect_mf(?PROMETHEUS_NS_STATS_REGISTRY, Callback) ->
 
     ok = add_collect_family(Callback, packet_metric_ns_meta(), ?MG(packet_data_ns, RawData)),
     ok = add_collect_family(Callback, message_metric_ns_meta(), ?MG(message_data_ns, RawData)),
+    ok = add_collect_family(Callback, session_metric_ns_meta(), ?MG(session_metric_ns, RawData)),
 
     ok;
 collect_mf(_Registry, _Callback) ->
@@ -420,6 +423,12 @@ fetch_namespaced_metrics_v1(Namespace, Mode) ->
         packet_data_ns => metric_data_ns(Namespace, packet_metric_ns_meta(), Mode),
         message_data_ns => metric_data_ns(Namespace, message_metric_ns_meta(), Mode)
     }}.
+
+-spec fetch_cluster_wide_namespaced_metrics(all | emqx_config:namespace(), _Mode) -> map().
+fetch_cluster_wide_namespaced_metrics(Namespace, Mode) ->
+    #{
+        session_metric_ns => session_metric_ns(Namespace, session_metric_ns_meta(), Mode)
+    }.
 
 %%--------------------------------------------------------------------
 %% Collector
@@ -830,6 +839,31 @@ metric_data_ns1(MetricKAtom, NsToMetrics, Mode) ->
         NsToMetrics
     ).
 
+session_metric_ns(Namespace, MetricSpecs, Mode) when is_binary(Namespace); Namespace == all ->
+    NsToMetrics = gather_session_ns_data(Namespace),
+    do_metric_data_ns(NsToMetrics, MetricSpecs, Mode).
+
+%% Currently, we only collect total session count.
+gather_session_ns_data(all) ->
+    FoldFn = fun(#{ns := Namespace}, Acc) ->
+        case emqx_mt_state:count_clients(Namespace) of
+            {ok, N} ->
+                Acc#{Namespace => [{emqx_sessions_count, N}]};
+            {error, _} ->
+                %% race?
+                Acc#{Namespace => [{emqx_sessions_count, 0}]}
+        end
+    end,
+    InitAcc = #{},
+    emqx_mt_state:fold_known_nss(FoldFn, InitAcc);
+gather_session_ns_data(Namespace) when is_binary(Namespace) ->
+    case emqx_mt_state:count_clients(Namespace) of
+        {ok, N} ->
+            #{Namespace => [{emqx_sessions_count, N}]};
+        {error, _} ->
+            #{Namespace => [{emqx_sessions_count, 0}]}
+    end.
+
 client_metric_data(Mode) ->
     Acc = listener_shutdown_counts(Mode),
     emqx_metric_data(client_metric_meta(), Mode, Acc).
@@ -1013,6 +1047,12 @@ session_metric_meta() ->
         {emqx_session_terminated, counter, 'session.terminated'}
     ].
 
+session_metric_ns_meta() ->
+    [
+        %% Taken from `emqx_mt_state:count_clients/1`.
+        {emqx_sessions_count, gauge, emqx_sessions_count}
+    ].
+
 %%==========
 %% Metrics - acl
 acl_metric_meta() ->
@@ -1056,8 +1096,6 @@ emqx_metrics_olp_meta(false) ->
 %% License
 %%========================================
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 maybe_license_add_collect_family(Callback, RawData) ->
     ok = add_collect_family(Callback, license_metric_meta(), ?MG(license_data, RawData)),
     ok.
@@ -1076,19 +1114,6 @@ license_metric_meta() ->
 
 license_data() ->
     #{emqx_license_expiry_at => emqx_license_checker:expiry_epoch()}.
-
--else.
-
-maybe_license_add_collect_family(_, _) ->
-    ok.
-
-maybe_license_fetch_data() ->
-    #{}.
-
-maybe_license_collect_json_data(_RawData) ->
-    #{}.
-
--endif.
 
 %%========================================
 %% Certs

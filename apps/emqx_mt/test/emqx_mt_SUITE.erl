@@ -1176,14 +1176,16 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
         <<"emqx_messages_received">>,
         <<"emqx_messages_sent">>,
         <<"emqx_packets_received">>,
-        <<"emqx_packets_sent">>
+        <<"emqx_packets_sent">>,
+        <<"emqx_sessions_count">>
     ],
     ?assertMatch(
         #{
             <<"emqx_messages_received">> := #{NsLabel0A := 1, NsLabel0B := 0},
             <<"emqx_messages_sent">> := #{NsLabel0A := 1, NsLabel0B := 0},
             <<"emqx_packets_received">> := #{NsLabel0A := N1, NsLabel0B := 0},
-            <<"emqx_packets_sent">> := #{NsLabel0A := N2, NsLabel0B := 0}
+            <<"emqx_packets_sent">> := #{NsLabel0A := N2, NsLabel0B := 0},
+            <<"emqx_sessions_count">> := #{NsLabel0A := 1, NsLabel0B := 0}
         } when N1 > 0 andalso N2 > 0,
         Metrics0,
         #{sample => maps:with(SampleMetrics, Metrics0)}
@@ -1193,11 +1195,15 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
         get_prometheus_ns_stats(Namespace, ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, prometheus),
     ?assertMatch(
         #{
-            <<"emqx_messages_received">> := #{NsLabel0A := 1} = M,
+            <<"emqx_messages_received">> := #{NsLabel0A := 1} = M1,
             <<"emqx_messages_sent">> := #{NsLabel0A := 1},
             <<"emqx_packets_received">> := #{NsLabel0A := N1},
-            <<"emqx_packets_sent">> := #{NsLabel0A := N2}
-        } when N1 > 0 andalso N2 > 0 andalso not is_map_key(NsLabel0B, M),
+            <<"emqx_packets_sent">> := #{NsLabel0A := N2},
+            <<"emqx_sessions_count">> := #{NsLabel0A := 1} = M2
+        } when
+            N1 > 0 andalso N2 > 0 andalso
+                not is_map_key(NsLabel0B, M1) andalso
+                not is_map_key(NsLabel0B, M2),
         Metrics1,
         #{sample => maps:with(SampleMetrics, Metrics1)}
     ),
@@ -1212,7 +1218,8 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
             <<"emqx_messages_received">> := #{NsLabel1A := 1, NsLabel1B := 0},
             <<"emqx_messages_sent">> := #{NsLabel1A := 1, NsLabel1B := 0},
             <<"emqx_packets_received">> := #{NsLabel1A := N1, NsLabel1B := 0},
-            <<"emqx_packets_sent">> := #{NsLabel1A := N2, NsLabel1B := 0}
+            <<"emqx_packets_sent">> := #{NsLabel1A := N2, NsLabel1B := 0},
+            <<"emqx_sessions_count">> := #{NsLabel1A := 1, NsLabel1B := 0}
         } when N1 > 0 andalso N2 > 0,
         Metrics2,
         #{sample => maps:with(SampleMetrics, Metrics2)}

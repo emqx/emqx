@@ -18,7 +18,8 @@
     evict_ccache/1,
     list_clients/3,
     list_clients_no_check/3,
-    is_known_client/2
+    is_known_client/2,
+    fold_known_nss/2
 ]).
 
 -export([
@@ -272,6 +273,21 @@ The third argument is the number of namespaces to return.
 -spec list_managed_ns_details(tns(), pos_integer()) -> [tns_details()].
 list_managed_ns_details(LastNs, Limit) ->
     do_list_ns_details(?CONFIG_TAB, LastNs, Limit).
+
+fold_known_nss(Fn, Acc) ->
+    do_fold_known_nss(ets:first(?NS_TAB), Fn, Acc).
+
+do_fold_known_nss('$end_of_table', _Fn, Acc) ->
+    Acc;
+do_fold_known_nss(Ns, Fn, Acc) ->
+    case ets:lookup(?NS_TAB, Ns) of
+        [#?NS_TAB{value = Value}] ->
+            NewAcc = Fn(#{ns => Ns, extra => Value}, Acc),
+            do_fold_known_nss(ets:next(?NS_TAB, Ns), Fn, NewAcc);
+        [] ->
+            %% Race?
+            do_fold_known_nss(ets:next(?NS_TAB, Ns), Fn, Acc)
+    end.
 
 fold_managed_nss(Fn, Acc) ->
     do_fold_managed_nss(ets:first(?CONFIG_TAB), Fn, Acc).
