@@ -52,7 +52,7 @@ cleanup_by_agent_test_() ->
     ].
 
 test_normal_completion() ->
-    LogCalls = ets:new(log_calls, [set, public]),
+    LogCalls = ets:new(log_calls, [bag, public]),
     LogFn = fun(Level, LogData) ->
         ets:insert(LogCalls, {Level, LogData}),
         ok
@@ -72,7 +72,7 @@ test_normal_completion() ->
     ets:delete(LogCalls).
 
 test_abnormal_completion() ->
-    LogCalls = ets:new(log_calls, [set, public]),
+    LogCalls = ets:new(log_calls, [bag, public]),
     LogFn = fun(Level, LogData) ->
         ets:insert(LogCalls, {Level, LogData}),
         ok
@@ -95,7 +95,7 @@ test_abnormal_completion() ->
     ets:delete(LogCalls).
 
 test_parent_dies_before_task() ->
-    LogCalls = ets:new(log_calls, [set, public]),
+    LogCalls = ets:new(log_calls, [bag, public]),
     LogFn = fun(Level, LogData) ->
         ets:insert(LogCalls, {Level, LogData}),
         ok
@@ -123,7 +123,7 @@ test_parent_dies_before_task() ->
     %% Should log warning about orphaned agent (or completion if parent died after task completed)
     LogEntries = ets:tab2list(LogCalls),
     %% Could be either orphaned or completed message depending on timing
-    HasOrphanedOrCompleted = lists:any(
+    HasOrphanedOrCompleted = lists:all(
         fun({warning, Log}) ->
             Msg = maps:get(msg, Log, undefined),
             Msg =:= "cleanup_agent_is_orphanated" orelse
@@ -136,7 +136,7 @@ test_parent_dies_before_task() ->
     ets:delete(LogCalls).
 
 test_timeout() ->
-    LogCalls = ets:new(log_calls, [set, public]),
+    LogCalls = ets:new(log_calls, [bag, public]),
     LogFn = fun(Level, LogData) ->
         ets:insert(LogCalls, {Level, LogData}),
         ok
@@ -159,7 +159,7 @@ test_timeout() ->
     %% and logs it as resource_cleanup_exception
     LogEntries = ets:tab2list(LogCalls),
     %% Could be either the direct timeout log or the exception log from parent
-    HasTimeoutLog = lists:any(
+    HasTimeoutLog = lists:all(
         fun({error, Log}) ->
             maps:get(msg, Log, undefined) =:= cleanup_task_aborted_after_timeout orelse
                 (maps:get(msg, Log, undefined) =:= "resource_cleanup_exception" andalso
@@ -172,7 +172,7 @@ test_timeout() ->
     ets:delete(LogCalls).
 
 test_orphaned_agent() ->
-    LogCalls = ets:new(log_calls, [set, public]),
+    LogCalls = ets:new(log_calls, [bag, public]),
     LogFn = fun(Level, LogData) ->
         ets:insert(LogCalls, {Level, LogData}),
         ok
