@@ -377,6 +377,7 @@ raw_config() ->
 
 set_user_handler(Username, Password) ->
     set_user_handler(Username, Password, #{is_superuser => false}).
+
 set_user_handler(Username, Password, Extra0) ->
     %% HTTP Server
     Handler = fun(Req0, State) ->

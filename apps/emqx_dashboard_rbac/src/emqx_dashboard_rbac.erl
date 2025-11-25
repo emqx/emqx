@@ -40,6 +40,7 @@
 -define(PUBLISH_API(METHOD, FN), ?API(emqx_mgmt_api_publish, METHOD, FN)).
 -define(DATA_BACKUP_API(METHOD, FN), ?API(emqx_mgmt_api_data_backup, METHOD, FN)).
 -define(AUTHZ_MNESIA_API(METHOD, FN), ?API(emqx_authz_api_mnesia, METHOD, FN)).
+-define(AUTHN_API(METHOD, FN), ?API(emqx_authn_api, METHOD, FN)).
 -define(CERTS_API(METHOD, FN), ?API(emqx_mgmt_api_certs, METHOD, FN)).
 
 %%=====================================================================
@@ -197,6 +198,17 @@ do_check_rbac(
     is_binary(Namespace)
 ->
     %% Built-in / mnesia authz.
+    true;
+do_check_rbac(
+    #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, _Req, ?AUTHN_API(_, Fn)
+) when
+    is_binary(Namespace) andalso
+        (Fn == authenticator_users orelse Fn == authenticator_user)
+->
+    %% Authentication management.
+    %%
+    %% We only allow user management for namespaced users.  Actual check for matching
+    %% namespace is done in the handlers/filters of the module.
     true;
 do_check_rbac(
     #{?role := ?ROLE_SUPERUSER, ?namespace := Namespace}, Req, ?CERTS_API(_, _)

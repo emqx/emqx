@@ -182,8 +182,12 @@ do_add_user(UserInfoRecord) ->
     case do_lookup_by_rec_txn(UserInfoRecord) of
         [] ->
             ok = insert_user(UserInfoRecord),
-            #{user_id := UserId, is_superuser := IsSuperuser} = rec_to_map(UserInfoRecord),
-            {ok, #{user_id => UserId, is_superuser => IsSuperuser}};
+            #{
+                namespace := Namespace,
+                user_id := UserId,
+                is_superuser := IsSuperuser
+            } = rec_to_map(UserInfoRecord),
+            {ok, #{namespace => Namespace, user_id => UserId, is_superuser => IsSuperuser}};
         [_] ->
             {error, already_exist}
     end.
