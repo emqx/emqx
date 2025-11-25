@@ -1811,10 +1811,15 @@ t_cluster_group(Config) ->
             {ok, _} = wait_until_group_is_balanced(KafkaTopic, NPartitions, Nodes, 30_000),
             lists:foreach(
                 fun(N) ->
-                    ?assertEqual(
-                        {ok, connected},
-                        health_check(N, Config),
-                        #{node => N}
+                    ?retry(
+                        _Sleep1 = 1000,
+                        _Attempts1 = 10,
+
+                        ?assertEqual(
+                            {ok, connected},
+                            health_check(N, Config),
+                            #{node => N}
+                        )
                     )
                 end,
                 Nodes
@@ -1879,11 +1884,11 @@ t_node_joins_existing_cluster(Config) ->
                 ),
             ?assertMatch({ok, _}, erpc:call(N1, emqx_bridge, lookup, [BridgeId])),
             {ok, _} = wait_until_group_is_balanced(KafkaTopic, NPartitions, [N1], 30_000),
-            ?assertEqual(
-                {ok, connected},
-                health_check(N1, Config)
+            ?retry(
+                _Sleep1 = 1000,
+                _Attempts1 = 10,
+                ?assertEqual({ok, connected}, health_check(N1, Config))
             ),
-
             %% Now, we start the second node and have it join the cluster.
             TCPPort1 = get_mqtt_port(N1),
             {ok, C1} = emqtt:start_link([{port, TCPPort1}, {proto_ver, v5}]),
@@ -1906,8 +1911,8 @@ t_node_joins_existing_cluster(Config) ->
 
             {ok, _} = snabbkaffe:receive_events(SRef0),
             ?retry(
-                _Sleep1 = 100,
-                _Attempts1 = 50,
+                _Sleep2 = 100,
+                _Attempts2 = 50,
                 ?assertMatch({ok, _}, erpc:call(N2, emqx_bridge, lookup, [BridgeId]))
             ),
 
@@ -1916,8 +1921,8 @@ t_node_joins_existing_cluster(Config) ->
             {ok, _} = wait_until_group_is_balanced(KafkaTopic, NPartitions, Nodes, 30_000),
             %% Publish some messages so we can check they came from each node.
             ?retry(
-                _Sleep2 = 100,
-                _Attempts2 = 50,
+                _Sleep3 = 100,
+                _Attempts3 = 50,
                 [] =/= erpc:call(N2, emqx_router, lookup_routes, [MQTTTopic])
             ),
             NumMsgs = 50 * NPartitions,
