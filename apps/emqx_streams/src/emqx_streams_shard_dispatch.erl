@@ -70,21 +70,14 @@ on_subscription_consume(Consumer, Group, Stream, St0) ->
     SGroup = ?streamgroup(Group, Stream),
     maybe
         _Stream = undefined ?= find_stream(Group, St0),
-        {ok, Shards} ?= get_stream_info(Stream, shards),
+        {ok, _Shards = [_ | _]} ?= get_stream_info(Stream, shards),
         %% Instantiate new group:
         GSt0 = emqx_streams_shard_disp_group:new(),
         %% Make others aware of us:
         GSt1 = announce_myself(Consumer, SGroup, GSt0),
         St1 = set_consumer(Consumer, St0),
-        case provision(Consumer, Group, Stream, Shards, GSt1) of
-            {ok, GSt, Delivers} ->
-                ok = channel_deliver(Delivers),
-                St = set_sgroup_state(Group, Stream, GSt, St1);
-            empty ->
-                Timeout = ?REPROVISION_RETRY_TIMEOUT,
-                St2 = schedule_command(Timeout, Group, reprovision, "empty provision", St1),
-                St = set_sgroup_state(Group, Stream, GSt1, St2)
-        end,
+        St = set_sgroup_state(Group, Stream, GSt1, St1),
+        _ = postpone_command(Group, reprovision, "new consumer"),
         {ok, St}
     else
         Stream ->
@@ -256,16 +249,16 @@ handle_progress_outcome(_Consumer, Group, GSt = #{}, TraceCtx, St0) ->
             ok
     end,
     #ret{reply = ?RC_SUCCESS, st = St};
-handle_progress_outcome(_Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0) ->
+handle_progress_outcome(Consumer, Group, {invalid, Reason, GSt0}, TraceCtx, St0) ->
     %% FIXME loglevel
     ?tp(notice, "streams_shard_dispatch_progress_invalid", TraceCtx#{reason => Reason}),
     GSt = invalidate_proposals(GSt0),
     St1 = update_sgroup_state(Group, GSt, St0),
     case Reason of
         {leased, _} ->
-            St = schedule_command(?REPROVISION_CONFLICT_TIMEOUT, Group, reprovision, Reason, St1);
+            St = reannounce_retry(Consumer, Group, ?REPROVISION_CONFLICT_TIMEOUT, St1);
         conflict ->
-            St = schedule_command(?REPROVISION_CONFLICT_TIMEOUT, Group, reprovision, Reason, St1);
+            St = reannounce_retry(Consumer, Group, ?REPROVISION_CONFLICT_TIMEOUT, St1);
         _ ->
             St = St1
     end,
@@ -311,7 +304,7 @@ on_command(Command, #{deliver := DeliverAcc, replies := ReplyAcc}, St0) ->
     end.
 
 handle_command(Consumer, #shard_dispatch_command{group = Group, c = reprovision}, St0) ->
-    Stream = maps:get({stream, Group}, St0),
+    Stream = find_stream(Group, St0),
     GSt0 = sgroup_state(Group, St0),
     case reprovision(Consumer, Group, Stream, GSt0) of
         {ok, GSt, Delivers} ->
@@ -320,29 +313,13 @@ handle_command(Consumer, #shard_dispatch_command{group = Group, c = reprovision}
         skipped ->
             #ret{};
         empty ->
-            St = reannounce(Consumer, Group, Stream, St0),
+            St = reannounce_retry(Consumer, Group, St0),
             #ret{st = St}
     end;
 handle_command(Consumer, #shard_dispatch_command{group = Group, c = Takeover}, St) when
     element(1, Takeover) =:= takeover
 ->
     #ret{st = launch_takeover(Consumer, Group, Takeover, St)}.
-
-provision(Consumer, Group, Stream, Shards, GSt0) ->
-    SGroup = ?streamgroup(Group, Stream),
-    HBWatermark = timestamp_s(),
-    Provisions = emqx_streams_shard_disp_group:provision(Consumer, SGroup, Shards, HBWatermark),
-    Proposals = propose_leases(Provisions),
-    case Proposals of
-        [_ | _] ->
-            %% NOTE piggyback
-            GSt = GSt0#{proposed => Proposals},
-            Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),
-            Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
-            {ok, GSt, Delivers};
-        [] ->
-            empty
-    end.
 
 reprovision(_Consumer, _Group, _Stream, #{proposed := [_ | _]}) ->
     skipped;
@@ -418,14 +395,17 @@ remove_takeover(Shard, GSt) ->
             {true, GSt#{takeovers => Rest}}
     end.
 
-reannounce(Consumer, Group, Stream, St0) ->
+reannounce_retry(Consumer, Group, St) ->
+    reannounce_retry(Consumer, Group, ?REPROVISION_RETRY_TIMEOUT, St).
+
+reannounce_retry(Consumer, Group, RetryTimeout, St0) ->
     GSt0 = sgroup_state(Group, St0),
     case emqx_streams_shard_disp_group:n_leases(GSt0) of
         0 ->
             %% Make others aware of us:
-            GSt = announce_myself(Consumer, ?streamgroup(Group, Stream), GSt0),
+            GSt = announce_myself(Consumer, sgroup(Group, St0), GSt0),
             St = update_sgroup_state(Group, GSt, St0),
-            schedule_command(?REPROVISION_RETRY_TIMEOUT, Group, reprovision, "reannounce", St);
+            schedule_command(RetryTimeout, Group, reprovision, "reannounce", St);
         _ ->
             %% Wait for rebalance:
             St0
