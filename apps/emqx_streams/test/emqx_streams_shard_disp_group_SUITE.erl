@@ -13,6 +13,8 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
+-include("../src/emqx_streams_internal.hrl").
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -42,14 +44,14 @@ end_per_suite(Config) ->
 
 t_smoke(_Config) ->
     ?assertEqual(
-        {#{}, #{}},
+        #db_sgroup_st{leases = #{}, consumers = #{}, shards = #{}},
         emqx_streams_state_db:shard_leases_dirty(?sgroup)
     ).
 
 t_lease_release(_Config) ->
     Shards = [<<"S1">>, <<"S2">>],
     G1 = emqx_streams_shard_disp_group:new(),
-    [{lease, Shard} | _] = emqx_streams_shard_disp_group:provision(<<"c1">>, ?sgroup, Shards, 0),
+    [{lease, Shard} | _] = provision_changes(<<"c1">>, mk_provision(?sgroup, Shards, 0)),
     %% Initial lease progress:
     G2 = run_progress(<<"c1">>, ?sgroup, Shard, 0, 42, G1),
     ?assertMatch(#{}, G2),
@@ -65,7 +67,7 @@ t_lease_release(_Config) ->
 t_lease_retry(_Config) ->
     Shards = [<<"S1">>, <<"S2">>],
     G1 = emqx_streams_shard_disp_group:new(),
-    [{lease, Shard} | _] = emqx_streams_shard_disp_group:provision(<<"c1">>, ?sgroup, Shards, 0),
+    [{lease, Shard} | _] = provision_changes(<<"c1">>, mk_provision(?sgroup, Shards, 0)),
     %% Initial lease progress:
     {tx, Ref1, _, _G2} =
         emqx_streams_shard_disp_group:progress(<<"c1">>, ?sgroup, Shard, 0, 42, G1),
@@ -99,8 +101,9 @@ t_lease_initial_conflict_avoidance(_Config) ->
     G0 = emqx_streams_shard_disp_group:new(),
     %% Ask for initial leases concurrently:
     %% Consumers do not know about each other at this point.
-    [{lease, Shard1} | _] = emqx_streams_shard_disp_group:provision(<<"c1">>, ?sgroup, Shards, 0),
-    [{lease, Shard2} | _] = emqx_streams_shard_disp_group:provision(<<"c2">>, ?sgroup, Shards, 0),
+    P1 = mk_provision(?sgroup, Shards, 0),
+    [{lease, Shard1} | _] = provision_changes(<<"c1">>, P1),
+    [{lease, Shard2} | _] = provision_changes(<<"c2">>, P1),
     %% Conflict should likely be avoided:
     %% NOTE: Sensitive to number of shards / consumer IDs.
     GA1 = run_progress(<<"c1">>, ?sgroup, Shard1, 0, 42, G0),
@@ -108,8 +111,9 @@ t_lease_initial_conflict_avoidance(_Config) ->
     GB1 = run_progress(<<"c2">>, ?sgroup, Shard2, 0, 42, G0),
     ?assertMatch(#{}, GB1),
     %% Now they know about each other, rest of shards proposed cooperatively:
-    Provisions1 = emqx_streams_shard_disp_group:provision(<<"c1">>, ?sgroup, Shards, 0),
-    Provisions2 = emqx_streams_shard_disp_group:provision(<<"c2">>, ?sgroup, Shards, 0),
+    P2 = mk_provision(?sgroup, Shards, 0),
+    Provisions1 = provision_changes(<<"c1">>, P2),
+    Provisions2 = provision_changes(<<"c2">>, P2),
     ?assertMatch(
         [_, _, _],
         Provisions1 ++ Provisions2
@@ -126,7 +130,7 @@ t_rebalance(_Config) ->
     Shards = [<<"S1">>, <<"S2">>, <<"S3">>, <<"S4">>, <<"S5">>],
     G0 = emqx_streams_shard_disp_group:new(),
     %% Ask for initial leases:
-    Leases1 = emqx_streams_shard_disp_group:provision(<<"c1">>, SGroup, Shards, 0),
+    Leases1 = provision_changes(<<"c1">>, mk_provision(SGroup, Shards, 0)),
     GA1 = lists:foldl(
         fun({lease, Shard}, G1A) ->
             #{} = run_progress(<<"c1">>, SGroup, Shard, NextOffset(), 1, G1A)
@@ -135,11 +139,11 @@ t_rebalance(_Config) ->
         Leases1
     ),
     %% Provision another consumer:
-    ?assertEqual([], emqx_streams_shard_disp_group:provision(<<"c2">>, SGroup, Shards, 0)),
+    ?assertEqual([], provision_changes(<<"c2">>, mk_provision(SGroup, Shards, 0))),
     %% Nothing to do, announce the consumer:
     GB1 = emqx_streams_shard_disp_group:announce(<<"c2">>, SGroup, 2, 60, G0),
     %% Find out if rebalancing is advertised:
-    Releases = emqx_streams_shard_disp_group:provision(<<"c1">>, SGroup, Shards, 0),
+    Releases = provision_changes(<<"c1">>, mk_provision(SGroup, Shards, 0)),
     ?assertMatch([_, _], Releases),
     _GA = lists:foldl(
         fun({release, Shard}, GAcc) ->
@@ -149,7 +153,7 @@ t_rebalance(_Config) ->
         Releases
     ),
     %% Retry another consumer:
-    Leases2 = emqx_streams_shard_disp_group:provision(<<"c2">>, SGroup, Shards, 0),
+    Leases2 = provision_changes(<<"c2">>, mk_provision(SGroup, Shards, 0)),
     ?assertMatch([_, _], Leases2),
     _GB = lists:foldl(
         fun({lease, Shard}, GAcc) ->
@@ -161,7 +165,7 @@ t_rebalance(_Config) ->
     %% Should be stable now:
     ?assertEqual(
         [],
-        emqx_streams_shard_disp_group:provision(<<"c1">>, SGroup, Shards, 0)
+        provision_changes(<<"c1">>, mk_provision(SGroup, Shards, 0))
     ).
 
 t_rebalance_stale_announcement(_Config) ->
@@ -175,17 +179,17 @@ t_rebalance_stale_announcement(_Config) ->
     %% All the shards are provosioned to C2 since C1's announcement has expired.
     ?assertSameSet(
         [{lease, S} || S <- Shards],
-        emqx_streams_shard_disp_group:provision(<<"c2">>, ?sgroup, Shards, 15)
+        provision_changes(<<"c2">>, mk_provision(?sgroup, Shards, 15))
     ).
 
 t_takeover(_Config) ->
     Shards = [<<"S1">>, <<"S2">>, <<"S3">>, <<"S4">>, <<"S5">>],
     G0 = emqx_streams_shard_disp_group:new(),
     %% Ask for a lease:
-    [{lease, ShardA1} | _] = emqx_streams_shard_disp_group:provision(<<"A">>, ?sgroup, Shards, 0),
+    [{lease, ShardA1} | _] = provision_changes(<<"A">>, mk_provision(?sgroup, Shards, 0)),
     GA1 = #{} = run_progress(<<"A">>, ?sgroup, ShardA1, 1, 10, G0),
     %% Concurrently, ask for leases as another consumer and take them:
-    GTProvisions = emqx_streams_shard_disp_group:provision(<<"TO">>, ?sgroup, Shards, 0),
+    GTProvisions = provision_changes(<<"TO">>, mk_provision(?sgroup, Shards, 0)),
     GTHeartbeat = 20,
     _GT = lists:foldl(
         fun({lease, Shard}, GAcc) ->
@@ -195,7 +199,7 @@ t_takeover(_Config) ->
         GTProvisions
     ),
     %% Let other consumers take the rest:
-    GBProvisions = emqx_streams_shard_disp_group:provision(<<"B">>, ?sgroup, Shards, 0),
+    GBProvisions = provision_changes(<<"B">>, mk_provision(?sgroup, Shards, 0)),
     _GB = lists:foldl(
         fun({lease, Shard}, GAcc) ->
             #{} = run_progress(<<"B">>, ?sgroup, Shard, 3, 30, GAcc)
@@ -203,7 +207,7 @@ t_takeover(_Config) ->
         G0,
         GBProvisions
     ),
-    GAProvisions = emqx_streams_shard_disp_group:provision(<<"A">>, ?sgroup, Shards, 0),
+    GAProvisions = provision_changes(<<"A">>, mk_provision(?sgroup, Shards, 0)),
     _GA = lists:foldl(
         fun({lease, Shard}, GAcc) ->
             #{} = run_progress(<<"A">>, ?sgroup, Shard, 4, 40, GAcc)
@@ -212,26 +216,22 @@ t_takeover(_Config) ->
         GAProvisions
     ),
     %% Every shard is allocated (at Time = 0):
+    P0 = mk_provision(?sgroup, Shards, 0),
     ?assertEqual(
         [[], [], []],
-        [
-            emqx_streams_shard_disp_group:provision(C, ?sgroup, Shards, 0)
-         || C <- [<<"A">>, <<"B">>, <<"T0">>]
-        ]
+        [provision_changes(C, P0) || C <- [<<"A">>, <<"B">>, <<"T0">>]]
     ),
     %% Fast-forward to Time = 25, assuming C is no longer with us:
     %% Provisions are still empty...
+    P25 = mk_provision(?sgroup, Shards, 25),
     ?assertEqual(
         [[], []],
-        [emqx_streams_shard_disp_group:provision(C, ?sgroup, Shards, 25) || C <- [<<"A">>, <<"B">>]]
+        [provision_changes(C, P25) || C <- [<<"A">>, <<"B">>]]
     ),
     %% ...But there proposed takeovers:
     ?assertSameSet(
         [{takeover, S, <<"TO">>, GTHeartbeat} || {lease, S} <- GTProvisions],
-        lists:append([
-            emqx_streams_shard_disp_group:provision_takeovers(C, ?sgroup, Shards, 25)
-         || C <- [<<"A">>, <<"B">>]
-        ])
+        lists:append([provision_takeovers(C, P25) || C <- [<<"A">>, <<"B">>]])
     ).
 
 t_progress_backwards(_Config) ->
@@ -264,14 +264,16 @@ t_concurrent(_Config) ->
      || C <- Consumers
     ],
     [?assertReceive({'DOWN', MRef, process, Pid, normal}) || {Pid, MRef} <- Actors],
-    Alloc = emqx_streams_shard_disp_group:current_allocation(SGroup, Shards),
+    DBGroupSt = emqx_streams_state_db:shard_leases_dirty(SGroup),
+    Alloc = emqx_streams_shard_disp_group:current_allocation(Shards, DBGroupSt),
     ?assertMatch(
         [{_}, {_}, {_}, {_}, {_}],
         [emqx_streams_allocation:lookup_resource(S, Alloc) || S <- Shards]
     ).
 
 run_consumer(C, SGroup, Shards, Step, G1) ->
-    case emqx_streams_shard_disp_group:provision(C, SGroup, Shards, 0) of
+    Provision = mk_provision(SGroup, Shards, _HBWatermark = 0),
+    case provision_changes(C, Provision) of
         [{lease, Shard} | _Rest] ->
             Offset = Step,
             HB = hb_timestamp(),
@@ -296,6 +298,16 @@ hb_timestamp() ->
     erlang:system_time(second).
 
 %%
+
+mk_provision(SGroup, Shards, HBWatermark) ->
+    DBGroupSt = emqx_streams_state_db:shard_leases_dirty(SGroup),
+    emqx_streams_shard_disp_group:new_provision(Shards, HBWatermark, DBGroupSt).
+
+provision_changes(Consumer, Provision) ->
+    emqx_streams_shard_disp_group:provision_changes(Consumer, Provision).
+
+provision_takeovers(Consumer, Provision) ->
+    emqx_streams_shard_disp_group:provision_takeovers(Consumer, Provision).
 
 run_progress(Consumer, SGroup, Shard, Offset, HB, G0) ->
     run_tx(

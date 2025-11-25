@@ -326,28 +326,39 @@ reprovision(_Consumer, _Group, _Stream, #{proposed := [_ | _]}) ->
 reprovision(Consumer, Group, Stream, GSt0) ->
     %% FIXME error handling
     {ok, Shards} = get_stream_info(Stream, shards),
-    SGroup = ?streamgroup(Group, Stream),
+    DBGroupSt = emqx_streams_state_db:shard_leases_dirty(?streamgroup(Group, Stream)),
     HBWatermark = timestamp_s(),
-    Provisions = emqx_streams_shard_disp_group:provision(Consumer, SGroup, Shards, HBWatermark),
+    Provision = emqx_streams_shard_disp_group:new_provision(Shards, HBWatermark, DBGroupSt),
+    provision(Consumer, Group, Stream, Provision, GSt0).
+
+provision(Consumer, Group, Stream, Provision, GSt) ->
     %% TODO too many consumers?
-    case propose_leases(Provisions) of
+    Provisional = emqx_streams_shard_disp_group:provision_changes(Consumer, Provision),
+    case propose_leases(Provisional) of
         [_ | _] = Proposals ->
-            %% NOTE piggyback
-            GSt = GSt0#{proposed => Proposals},
-            Offsets = emqx_streams_state_db:shard_progress_dirty(SGroup),
+            Offsets = emqx_streams_state_db:shard_progress_dirty(?streamgroup(Group, Stream)),
             Delivers = mk_proposal_delivers(Group, Stream, Proposals, Offsets),
-            {ok, GSt, Delivers};
+            %% NOTE piggyback
+            {ok, GSt#{proposed => Proposals}, Delivers};
         [] ->
-            reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0)
+            case provision_takeovers(Consumer, Group, Provision, GSt) of
+                Ret when Ret =/= empty ->
+                    Ret;
+                empty ->
+                    provision_releases(Consumer, Group, Stream, Provisional, GSt)
+            end
     end.
 
-reprovision_takeover(_Consumer, _Group, _Stream, _Shards, _Provisions, #{takeovers := [_ | _]}) ->
+propose_leases(Provisions) ->
+    ProvisionalLeases = [L || L = {lease, _} <- Provisions],
+    lists:sublist(ProvisionalLeases, ?N_CONCURRENT_PROPOSALS).
+
+provision_takeovers(_Consumer, _Group, _Provision, #{takeovers := [_ | _]}) ->
     skipped;
-reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0) ->
-    SGroup = ?streamgroup(Group, Stream),
-    Takeovers = propose_takeovers(Consumer, SGroup, Shards),
-    case Takeovers of
-        [_ | _] ->
+provision_takeovers(Consumer, Group, Provision, GSt) ->
+    Provisional = emqx_streams_shard_disp_group:provision_takeovers(Consumer, Provision),
+    case propose_takeovers(Provisional) of
+        [_ | _] = Takeovers ->
             %% TODO simplify
             %% TODO avoid concurrent takeovers
             lists:foreach(
@@ -357,22 +368,27 @@ reprovision_takeover(Consumer, Group, Stream, Shards, Provisions, GSt0) ->
                 Takeovers
             ),
             %% NOTE piggyback
-            GSt = GSt0#{takeovers => Takeovers},
-            {ok, GSt, []};
-        [] ->
-            reprovision_release(Consumer, Group, Stream, Provisions, GSt0)
-    end.
-
-reprovision_release(_Consumer, Group, Stream, Provisions, GSt0) ->
-    case propose_releases(Provisions) of
-        [_ | _] = Proposals ->
-            %% NOTE piggyback
-            GSt = GSt0#{proposed => Proposals},
-            Delivers = mk_proposal_delivers(Group, Stream, Proposals, #{}),
-            {ok, GSt, Delivers};
+            {ok, GSt#{takeovers => Takeovers}, []};
         [] ->
             empty
     end.
+
+propose_takeovers(Provisions) ->
+    lists:sublist(Provisions, ?N_CONCURRENT_TAKEOVERS).
+
+provision_releases(_Consumer, Group, Stream, Provisional, GSt) ->
+    case propose_releases(Provisional) of
+        [_ | _] = Proposals ->
+            Delivers = mk_proposal_delivers(Group, Stream, Proposals, #{}),
+            %% NOTE piggyback
+            {ok, GSt#{proposed => Proposals}, Delivers};
+        [] ->
+            empty
+    end.
+
+propose_releases(Provisions) ->
+    ProvisionalLeases = [L || L = {release, _} <- Provisions],
+    lists:sublist(ProvisionalLeases, ?N_CONCURRENT_PROPOSALS).
 
 remove_proposal(Proposal, GSt) ->
     Proposals = maps:get(proposed, GSt, []),
@@ -486,21 +502,6 @@ handle_takeover_outcome(Group, Shard, Ret, TraceCtx, St) ->
     end,
     {_Removed, GSt} = remove_takeover(Shard, sgroup_state(Group, St)),
     #ret{st = update_sgroup_state(Group, GSt, St)}.
-
-propose_leases(Provisions) ->
-    ProvisionalLeases = [L || L = {lease, _} <- Provisions],
-    lists:sublist(ProvisionalLeases, ?N_CONCURRENT_PROPOSALS).
-
-propose_releases(Provisions) ->
-    ProvisionalLeases = [L || L = {release, _} <- Provisions],
-    lists:sublist(ProvisionalLeases, ?N_CONCURRENT_PROPOSALS).
-
-propose_takeovers(Consumer, SGroup, Shards) ->
-    HBWatermark = timestamp_s(),
-    lists:sublist(
-        emqx_streams_shard_disp_group:provision_takeovers(Consumer, SGroup, Shards, HBWatermark),
-        ?N_CONCURRENT_TAKEOVERS
-    ).
 
 %%
 

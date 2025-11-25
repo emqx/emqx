@@ -30,10 +30,10 @@
 
 -define(DB, ?STREAMS_STATE_DB).
 
--define(topic_shard(SGROUP, TAIL), [<<"sdisp">>, SGROUP | TAIL]).
--define(topic_shard_lease(SGROUP, SHARD), ?topic_shard(SGROUP, [<<"ls">>, SHARD])).
--define(topic_shard_hbeat(SGROUP, SHARD), ?topic_shard(SGROUP, [<<"hb">>, SHARD])).
--define(topic_consumer_announce(SGROUP), ?topic_shard(SGROUP, [<<"ann">>])).
+-define(topic_sdisp(SGROUP, TAIL), [<<"sdisp">>, SGROUP | TAIL]).
+-define(topic_shard_lease(SGROUP, SHARD), ?topic_sdisp(SGROUP, [<<"ls">>, SHARD])).
+-define(topic_shard_hbeat(SGROUP, SHARD), ?topic_sdisp(SGROUP, [<<"hb">>, SHARD])).
+-define(topic_consumer_announce(SGROUP), ?topic_sdisp(SGROUP, [<<"ann">>])).
 
 -define(topic_shard_progress(SGROUP, SHARD), [<<"sdisp:pr">>, SGROUP, SHARD]).
 
@@ -216,7 +216,7 @@ shard_leases_dirty(SGroup) ->
             generation => 1
             % end_time => 1
         },
-        ?topic_shard(SGroup, ['#'])
+        ?topic_sdisp(SGroup, ['#'])
     ),
     Leases = lists:foldl(
         fun
@@ -258,7 +258,7 @@ shard_leases_dirty(SGroup) ->
         #{},
         TTVs
     ),
-    #shard_group_st{
+    #db_sgroup_st{
         leases = Leases,
         consumers = Consumers,
         shards = ShardHBs

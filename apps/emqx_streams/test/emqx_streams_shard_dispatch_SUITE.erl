@@ -194,7 +194,10 @@ format_sgroup_st(Group, Stream) ->
     SGroup = ?streamgroup(Group, Stream),
     TS = erlang:system_time(second),
     {ok, Shards} = emqx_streams_shard_dispatch:get_stream_info(Stream, shards),
-    {ConsumerHBs, Leases} = emqx_streams_state_db:shard_leases_dirty(SGroup),
+    #db_sgroup_st{
+        consumers = ConsumerHBs,
+        leases = Leases
+    } = emqx_streams_state_db:shard_leases_dirty(SGroup),
     Consumers = maps:keys(ConsumerHBs),
     Alloc = current_allocation(Consumers, Leases, Shards),
     [

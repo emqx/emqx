@@ -7,8 +7,9 @@
 -include("emqx_streams_internal.hrl").
 
 -export([
-    provision/4,
-    provision_takeovers/4,
+    new_provision/3,
+    provision_changes/2,
+    provision_takeovers/2,
     current_allocation/2
 ]).
 
@@ -26,13 +27,22 @@
     deannounce/3
 ]).
 
--export_type([st/0, streamgroup/0]).
+-export_type([st/0, streamgroup/0, dbstate/0]).
 
 -type consumer() :: emqx_types:clientid().
 -type streamgroup() :: binary().
 -type shard() :: binary().
 -type offset() :: non_neg_integer().
 -type heartbeat() :: non_neg_integer().
+
+-record(provision, {
+    db :: dbstate(),
+    shards :: [shard()],
+    hb_watermark :: heartbeat()
+}).
+
+-type dbstate() :: #db_sgroup_st{}.
+-type provision() :: #provision{}.
 
 -type st() :: #{
     {shard, shard()} := shard_st(),
@@ -50,20 +60,27 @@
     offset_committed_max => offset()
 }.
 
-%% Protocol interaction
+%%
 
--spec new() -> st().
-new() ->
-    #{}.
+-spec new_provision([shard()], heartbeat(), dbstate()) -> provision().
+new_provision(Shards, HBWatermark, DBGroupSt = #db_sgroup_st{}) ->
+    #provision{
+        db = DBGroupSt,
+        shards = Shards,
+        hb_watermark = HBWatermark
+    }.
 
--spec provision(consumer(), streamgroup(), [shard()], heartbeat()) -> [{lease | release, shard()}].
-provision(Consumer, SGroup, Shards, HBWatermark) ->
-    #shard_group_st{
-        consumers = Consumers,
-        leases = Leases
-    } = emqx_streams_state_db:shard_leases_dirty(SGroup),
+-spec provision_changes(consumer(), provision()) -> [{lease | release, shard()}].
+provision_changes(
+    Consumer,
+    #provision{
+        db = #db_sgroup_st{consumers = Consumers} = DBGroupSt,
+        shards = Shards,
+        hb_watermark = HBWatermark
+    }
+) ->
     LiveConsumers = maps:keys(maps:filter(fun(_C, HB) -> HB >= HBWatermark end, Consumers)),
-    Alloc0 = current_allocation_(Leases, Shards),
+    Alloc0 = current_allocation(Shards, DBGroupSt),
     Alloc1 = lists:foldl(
         fun emqx_streams_allocation:add_member/2,
         Alloc0,
@@ -81,13 +98,15 @@ provision(Consumer, SGroup, Shards, HBWatermark) ->
             []
     end.
 
-provision_takeovers(Consumer, SGroup, Shards, HBWatermark) ->
-    #shard_group_st{
-        consumers = Consumers,
-        leases = Leases,
-        shards = ShardHBs
-    } = emqx_streams_state_db:shard_leases_dirty(SGroup),
-    Alloc0 = current_allocation_(Leases, Shards),
+provision_takeovers(
+    Consumer,
+    #provision{
+        db = #db_sgroup_st{consumers = Consumers, shards = ShardHBs} = DBState,
+        shards = Shards,
+        hb_watermark = HBWatermark
+    }
+) ->
+    Alloc0 = current_allocation(Shards, DBState),
     Alloc1 = emqx_streams_allocation:add_member(Consumer, Alloc0),
     DeadConsumers = maps:filter(fun(_C, HB) -> HB < HBWatermark end, Consumers),
     case maps:size(DeadConsumers) of
@@ -105,12 +124,8 @@ provision_takeovers(Consumer, SGroup, Shards, HBWatermark) ->
             ]
     end.
 
-% -spec current_allocation(streamgroup(), [shard()]) -> emqx_streams_allocation:t(consumer(), shard()).
-current_allocation(SGroup, Shards) ->
-    #shard_group_st{leases = Leases} = emqx_streams_state_db:shard_leases_dirty(SGroup),
-    current_allocation_(Leases, Shards).
-
-current_allocation_(Leases, Shards) ->
+-spec current_allocation([shard()], dbstate()) -> emqx_streams_allocation:t(consumer(), shard()).
+current_allocation(Shards, #db_sgroup_st{leases = Leases}) ->
     maps:fold(
         fun(Shard, Consumer, Alloc0) ->
             Alloc = emqx_streams_allocation:add_member(Consumer, Alloc0),
@@ -126,6 +141,12 @@ phash_order(Consumer, Shards) ->
         Shard
      || {_, Shard} <- lists:sort([{erlang:phash2([Consumer | S]), S} || S <- Shards])
     ].
+
+%%
+
+-spec new() -> st().
+new() ->
+    #{}.
 
 -spec announce(consumer(), streamgroup(), heartbeat(), pos_integer(), st()) ->
     st() | emqx_ds:error(_).
