@@ -648,17 +648,17 @@ boostrap_user_from_file(Config, State) ->
     case maps:get(bootstrap_file, Config, <<>>) of
         <<>> ->
             ok;
-        FileName0 ->
+        Filename0 ->
             #{bootstrap_type := Type} = Config,
-            FileName = emqx_schema:naive_env_interpolation(FileName0),
-            case file:read_file(FileName) of
+            Filename = emqx_schema:naive_env_interpolation(Filename0),
+            case file:read_file(Filename) of
                 {ok, FileData} ->
-                    _ = import_users({Type, FileName, FileData}, State, #{override => false}),
+                    _ = import_users({Type, Filename, FileData}, State, #{override => false}),
                     ok;
                 {error, Reason} ->
                     ?SLOG(warning, #{
                         msg => "boostrap_authn_built_in_database_failed",
-                        boostrap_file => FileName,
+                        boostrap_file => Filename,
                         boostrap_type => Type,
                         reason => emqx_utils:explain_posix(Reason)
                     })
