@@ -245,16 +245,22 @@ update_extra(Username, Fun) ->
         [] ->
             mnesia:abort(<<"username_not_found">>);
         [#?ADMIN{extra = Extra0} = Admin] ->
-            ok = mnesia:write(Admin#?ADMIN{extra = Fun(Extra0)})
+            Extra1 = upgrade_extra(Extra0),
+            ok = mnesia:write(Admin#?ADMIN{extra = Fun(Extra1)})
     end.
 
 get_extra(Username) ->
     case ets:lookup(?ADMIN, Username) of
         [#?ADMIN{extra = Extra}] ->
-            {ok, Extra};
+            {ok, upgrade_extra(Extra)};
         [] ->
             {error, username_not_found}
     end.
+
+%% Before 5.3, extra is never used and initialized to [].
+-dialyzer({no_match, upgrade_extra/1}).
+upgrade_extra([]) -> #{};
+upgrade_extra(Map) when is_map(Map) -> Map.
 
 %% 0-9 or A-Z or a-z or $_
 legal_username(<<>>) ->
@@ -512,7 +518,7 @@ change_password_trusted(Username, Password) when is_binary(Username), is_binary(
 change_password_hash(Username, PasswordHash) ->
     ChangePWD =
         fun(User) ->
-            Extra = User#?ADMIN.extra,
+            Extra = upgrade_extra(User#?ADMIN.extra),
             User#?ADMIN{
                 pwdhash = PasswordHash,
                 extra = Extra#{password_ts => erlang:system_time(second)}
