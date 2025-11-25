@@ -88,14 +88,14 @@ validate(Path0) ->
             {ok, Terms} ->
                 [emqx_authz_rule:compile(Term) || Term <- Terms];
             {error, Reason} when is_atom(Reason) ->
-                ?SLOG(alert, #{
+                ?SLOG(critical, #{
                     msg => failed_to_read_acl_file,
                     path => Path,
                     explain => emqx_utils:explain_posix(Reason)
                 }),
                 throw(failed_to_read_acl_file);
             {error, Reason} ->
-                ?SLOG(alert, #{msg => bad_acl_file_content, path => Path, reason => Reason}),
+                ?SLOG(critical, #{msg => bad_acl_file_content, path => Path, reason => Reason}),
                 throw({bad_acl_file_content, Reason})
         end,
     {ok, Rules}.
