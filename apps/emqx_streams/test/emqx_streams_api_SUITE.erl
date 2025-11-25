@@ -429,24 +429,3 @@ t_max_stream_count(_Config) ->
 
 sort_by(Fun, List) ->
     lists:sort(fun(A, B) -> Fun(A) < Fun(B) end, List).
-
-err() ->
-    #{
-        reason => matched_no_union_member,
-        path => "conf",
-        kind => validation_error,
-        mismatches => #{
-            "streams:stream_lastvalue_api_get" => #{
-                reason => required_field,
-                path => "conf.topic_filter",
-                kind => validation_error
-            },
-            "streams:stream_regular_api_get" => #{
-                reason => unknown_fields,
-                path => "conf",
-                unknown => "key_expression",
-                kind => validation_error,
-                unmatched => "topic_filter"
-            }
-        }
-    }.
