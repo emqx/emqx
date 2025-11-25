@@ -96,7 +96,8 @@ unload(Started) ->
 
 new(Shards) ->
     put(?fake_ds, #fake_ds{
-        shards = Shards
+        shards = Shards,
+        gens = maps:from_list([{I, 0} || I <- Shards])
     }).
 
 destroy() ->
@@ -224,32 +225,44 @@ make_iterator(_DB, Stream = #fake_stream{shard = Shard}, _TopicFilter, StartTime
     end.
 
 subscribe(_DB, It, _SubOpts) ->
-    #fake_iter{stream = #fake_stream{shard = Shard}} = It,
+    #fake_iter{stream = #fake_stream{shard = Shard, gen = Gen}} = It,
     %% Add subscription:
     Result = with(
         fun(DS) ->
-            #fake_ds{errors = Err, ds_subs = DSSubs, sub_ref_ctr = Ctr} = DS,
+            #fake_ds{errors = Err, ds_subs = DSSubs, sub_ref_ctr = Ctr, gens = Gens} = DS,
+            %% Is recoverable error injected?
             case maps:is_key({Shard, ?err_subscribe}, Err) of
-                false ->
-                    Handle = ?sub_handle(Ctr),
-                    SubRef = ?sub_ref(Handle),
-                    DSSub = #test_ds_sub{
-                        sref = SubRef,
-                        handle = Handle,
-                        it = It
-                    },
-                    {
-                        {ok, Handle, SubRef},
-                        DS#fake_ds{
-                            sub_ref_ctr = Ctr + 1,
-                            ds_subs = [DSSub | DSSubs]
-                        }
-                    };
                 true ->
                     {
                         ?err_rec(simulated),
                         DS
-                    }
+                    };
+                false ->
+                    %% Does slab exist?
+                    case Gens of
+                        #{Shard := GenMin} when Gen >= GenMin ->
+                            %% Yes:
+                            Handle = ?sub_handle(Ctr),
+                            SubRef = ?sub_ref(Handle),
+                            DSSub = #test_ds_sub{
+                                sref = SubRef,
+                                handle = Handle,
+                                it = It
+                            },
+                            {
+                                {ok, Handle, SubRef},
+                                DS#fake_ds{
+                                    sub_ref_ctr = Ctr + 1,
+                                    ds_subs = [DSSub | DSSubs]
+                                }
+                            };
+                        #{} ->
+                            %% Shard or generation aren't found:
+                            {
+                                ?err_unrec(generation_not_found),
+                                DS
+                            }
+                    end
             end
         end
     ),
@@ -312,7 +325,7 @@ do_publish_payload(
     #fake_ds{gens = Gens} = get(?fake_ds),
     #fake_iter{stream = #fake_stream{shard = Shard, gen = Gen}} = It0,
     Msg =
-        case maps:get(Shard, Gens, 0) > Gen of
+        case maps:get(Shard, Gens) > Gen of
             true ->
                 SeqNo = SeqNo0 + 1 + SeqNoError,
                 #ds_sub_reply{

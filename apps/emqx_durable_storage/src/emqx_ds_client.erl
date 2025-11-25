@@ -732,17 +732,17 @@ result_handler(
                 HostState
             }
     end;
-result_handler(Eff = #eff_make_iterator{}, CS0, HostState0, Result) ->
+result_handler(Eff = #eff_make_iterator{}, CS, HostState, Result) ->
     case Result of
         {ok, It} ->
-            handle_add_iterator(Eff, CS0, HostState0, It);
+            handle_add_iterator(Eff, CS, HostState, It);
         ?err_rec(Err) ->
             {
-                retry(Err, Eff, CS0),
-                HostState0
+                retry(Err, Eff, CS),
+                HostState
             };
         ?err_unrec(Err) ->
-            handle_make_iterator_fail(Eff, CS0, HostState0, Err)
+            handle_unrecoverable_stream_error(Eff, CS, HostState, Err)
     end;
 result_handler(Eff = #eff_ds_sub{}, CS, HostState, Result) ->
     case Result of
@@ -755,7 +755,9 @@ result_handler(Eff = #eff_ds_sub{}, CS, HostState, Result) ->
             {
                 retry(Err, Eff, CS),
                 HostState
-            }
+            };
+        ?err_unrec(Err) ->
+            handle_unrecoverable_stream_error(Eff, CS, HostState, Err)
     end;
 result_handler(#eff_ds_unsub{ref = Ref}, CS, HostState, _Result) ->
     #cs{ds_subs = DSSubs} = CS,
@@ -807,26 +809,42 @@ handle_add_iterator(Eff, CS0, HostState0, It) ->
     end.
 
 -doc """
-Handle unrecoverable errors that happen during creation of iterators.
+Handle unrecoverable errors.
 """.
-handle_make_iterator_fail(Eff, CS0 = #cs{cbm = CBM}, HS0, Err) ->
-    #eff_make_iterator{
-        sub_id = SubId,
-        db = DB,
-        slab = Slab = {Shard, _},
-        stream = Stream,
-        topic = Topic,
-        start_time = StartTime
-    } = Eff,
-    ?tp(info, emqx_ds_client_make_iterator_fail, #{
-        unrecoverable => Err,
-        sub_id => SubId,
-        db => DB,
-        slab => Slab,
-        topic => Topic,
-        stream => Stream,
-        start_time => StartTime
-    }),
+handle_unrecoverable_stream_error(Eff, CS0 = #cs{cbm = CBM}, HS0, Err) ->
+    case Eff of
+        #eff_make_iterator{
+            sub_id = SubId,
+            db = DB,
+            slab = Slab = {Shard, _},
+            stream = Stream,
+            topic = Topic,
+            start_time = StartTime
+        } ->
+            ?tp(info, emqx_ds_client_make_iterator_fail, #{
+                unrecoverable => Err,
+                sub_id => SubId,
+                db => DB,
+                slab => Slab,
+                topic => Topic,
+                stream => Stream,
+                start_time => StartTime
+            });
+        #eff_ds_sub{
+            sub_id = SubId,
+            db = DB,
+            slab = Slab = {Shard, _},
+            stream = Stream,
+            iterator = Iterator
+        } ->
+            ?tp(info, emqx_ds_client_subscribe_fail, #{
+                unrecoverable => Err,
+                sub_id => SubId,
+                db => DB,
+                slab => Slab,
+                iterator => Iterator
+            })
+    end,
     HS1 = on_unrecoverable_error(CBM, SubId, Slab, Stream, Err, HS0),
     CS1 = forget_stream(CS0, SubId, Slab, Stream),
     with_stream_cache(
