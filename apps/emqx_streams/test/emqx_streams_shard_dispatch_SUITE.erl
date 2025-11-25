@@ -27,6 +27,7 @@ init_per_suite(Config) ->
                 n_shards = 4
             }
             """},
+            {emqx_mq, emqx_streams_test_utils:cth_config(emqx_mq)},
             {emqx_streams, """
             streams.enable = true
             """}
