@@ -330,8 +330,20 @@ handle_ds_info(
                         end
                     },
                     StreamState = StreamState0#stream_state{status = StreamStatus},
+                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
+                        status => blocked,
+                        sub_id => SubId,
+                        stream_state => StreamState,
+                        payload => end_of_stream
+                    }),
                     {ok, update_stream_state(HState, SubId, StreamState)};
                 #status_unblocked{} ->
+                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
+                        status => unblocked,
+                        sub_id => SubId,
+                        stream_state => StreamState0,
+                        payload => end_of_stream
+                    }),
                     {ok, complete_ds_stream(HState, SubRef)}
             end;
         #ds_sub_reply{payload = {ok, _It, TTVs}, seqno = SeqNo, size = _Size} ->
@@ -347,28 +359,42 @@ handle_ds_info(
                     StreamState = StreamState0#stream_state{
                         status = StreamStatus, start_time_us = LastTimestampUs
                     },
+                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
+                        status => blocked,
+                        sub_id => SubId,
+                        stream_state => StreamState,
+                        payload => {messages, length(Messages)}
+                    }),
                     {ok, update_stream_state(HState, SubId, StreamState), Messages};
                 #status_unblocked{} ->
                     ok = suback(HState, SubId, SubHandle, SeqNo),
                     {LastTimestampUs, Messages} = to_messages(StreamState0, TTVs),
                     StreamState = StreamState0#stream_state{start_time_us = LastTimestampUs},
+                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
+                        status => unblocked,
+                        sub_id => SubId,
+                        stream_state => StreamState,
+                        payload => {messages, length(Messages)}
+                    }),
                     {ok, update_stream_state(HState, SubId, StreamState), Messages}
             end
     end.
 
-update_blocking_status(#h{state = #state{status = Status} = State} = HState, DesiredCount) ->
+update_blocking_status(#h{state = #state{status = Status} = State0} = HState0, DesiredCount) ->
     case {Status, DesiredCount} of
         {#status_unblocked{}, 0} ->
-            HState#h{state = State#state{status = #status_blocked{}}};
+            HState0#h{state = State0#state{status = #status_blocked{}}};
         {#status_unblocked{}, N} when N > 0 ->
-            HState;
+            HState0;
         {#status_blocked{}, 0} ->
-            HState;
+            HState0;
         {#status_blocked{}, N} when N > 0 ->
-            unblock_streams(HState)
+            HState = #h{state = State} = unblock_streams(HState0),
+            HState#h{state = State#state{status = #status_unblocked{}}}
     end.
 
 unblock_streams(#h{state = #state{subs = Subs}} = HState) ->
+    ?tp_debug(streams_extsub_handler_unblock_streams, #{}),
     maps:fold(
         fun
             (_SubId, #stream_state{status = #stream_status_unblocked{}}, HStateAcc) ->
