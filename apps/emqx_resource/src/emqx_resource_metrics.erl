@@ -41,6 +41,7 @@
     dropped_resource_stopped_get/1,
     failed_inc/1,
     failed_inc/2,
+    failed_inc/3,
     failed_get/1,
     late_reply_inc/1,
     late_reply_inc/2,
@@ -56,12 +57,15 @@
     retried_get/1,
     retried_failed_inc/1,
     retried_failed_inc/2,
+    retried_failed_inc/3,
     retried_failed_get/1,
     retried_success_inc/1,
     retried_success_inc/2,
+    retried_success_inc/3,
     retried_success_get/1,
     success_inc/1,
     success_inc/2,
+    success_inc/3,
     success_get/1
 ]).
 
@@ -108,11 +112,11 @@ uninstall_telemetry_handler(HandlerID) ->
 handle_telemetry_event(
     [?TELEMETRY_PREFIX, Event],
     _Measurements = #{counter_inc := Val},
-    _Metadata = #{resource_id := ID},
+    Metadata = #{resource_id := ID},
     _HandlerConfig
 ) ->
     try
-        handle_counter_telemetry_event(Event, ID, Val)
+        handle_counter_telemetry_event(Event, ID, Val, Metadata)
     catch
         Kind:Reason:Stacktrace ->
             %% We catch errors to avoid detaching the telemetry handler function.
@@ -166,7 +170,7 @@ handle_telemetry_event(
 handle_telemetry_event(_EventName, _Measurements, _Metadata, _HandlerConfig) ->
     ok.
 
-handle_counter_telemetry_event(Event, ID, Val) ->
+handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
     case Event of
         dropped_other ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'dropped', Val),
@@ -186,7 +190,7 @@ handle_counter_telemetry_event(Event, ID, Val) ->
         late_reply ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'late_reply', Val);
         failed ->
-            emqx_metrics:inc_global('actions.executed'),
+            inc_actions_executed(Metadata),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val);
         matched ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'matched', Val);
@@ -194,16 +198,16 @@ handle_counter_telemetry_event(Event, ID, Val) ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'received', Val);
         retried_failed ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            emqx_metrics:inc_global('actions.executed'),
+            inc_actions_executed(Metadata),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'failed', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.failed', Val);
         retried_success ->
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried', Val),
-            emqx_metrics:inc_global('actions.executed'),
+            inc_actions_executed(Metadata),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'retried.success', Val);
         success ->
-            emqx_metrics:inc_global('actions.executed'),
+            inc_actions_executed(Metadata),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
         _ ->
             ok
@@ -401,7 +405,14 @@ failed_inc(ID) ->
 failed_inc(_ID, 0) ->
     ok;
 failed_inc(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, failed], #{counter_inc => Val}, #{resource_id => ID}).
+    failed_inc(ID, Val, _ExtraMeta = #{}).
+
+failed_inc(_ID, 0, _ExtraMeta) ->
+    ok;
+failed_inc(ID, Val, ExtraMeta) ->
+    telemetry:execute([?TELEMETRY_PREFIX, failed], #{counter_inc => Val}, ExtraMeta#{
+        resource_id => ID
+    }).
 
 failed_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'failed').
@@ -413,7 +424,12 @@ retried_failed_inc(ID) ->
 retried_failed_inc(_ID, 0) ->
     ok;
 retried_failed_inc(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, retried_failed], #{counter_inc => Val}, #{
+    retried_failed_inc(ID, Val, _ExtraMeta = #{}).
+
+retried_failed_inc(_ID, 0, _ExtraMeta) ->
+    ok;
+retried_failed_inc(ID, Val, ExtraMeta) ->
+    telemetry:execute([?TELEMETRY_PREFIX, retried_failed], #{counter_inc => Val}, ExtraMeta#{
         resource_id => ID
     }).
 
@@ -427,7 +443,12 @@ retried_success_inc(ID) ->
 retried_success_inc(_ID, 0) ->
     ok;
 retried_success_inc(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, retried_success], #{counter_inc => Val}, #{
+    retried_success_inc(ID, Val, _ExtraMeta = #{}).
+
+retried_success_inc(_ID, 0, _ExtraMeta) ->
+    ok;
+retried_success_inc(ID, Val, ExtraMeta) ->
+    telemetry:execute([?TELEMETRY_PREFIX, retried_success], #{counter_inc => Val}, ExtraMeta#{
         resource_id => ID
     }).
 
@@ -441,7 +462,19 @@ success_inc(ID) ->
 success_inc(_ID, 0) ->
     ok;
 success_inc(ID, Val) ->
-    telemetry:execute([?TELEMETRY_PREFIX, success], #{counter_inc => Val}, #{resource_id => ID}).
+    success_inc(ID, Val, _ExtraMeta = #{}).
+
+success_inc(_ID, 0, _ExtraMeta) ->
+    ok;
+success_inc(ID, Val, ExtraMeta) ->
+    telemetry:execute([?TELEMETRY_PREFIX, success], #{counter_inc => Val}, ExtraMeta#{
+        resource_id => ID
+    }).
 
 success_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'success').
+
+inc_actions_executed(#{namespace := Namespace}) ->
+    emqx_metrics:inc(Namespace, 'actions.executed');
+inc_actions_executed(_Metadata) ->
+    emqx_metrics:inc_global('actions.executed').
