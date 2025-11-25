@@ -35,6 +35,7 @@
     {group, group()} => emqx_streams_shard_disp_group:st(),
     {stream, group()} => stream(),
     {tx, reference()} => _Context,
+    {timer, group(), _Command} => reference(),
     pending => _Request
 }.
 

@@ -20,6 +20,7 @@
     deannounce_consumer/3,
     shard_progress_dirty/1,
     shard_progress_dirty/2,
+    alloc_vsn_dirty/1,
     shard_leases_dirty/1
 ]).
 
@@ -34,6 +35,7 @@
 -define(topic_shard_lease(SGROUP, SHARD), ?topic_sdisp(SGROUP, [<<"ls">>, SHARD])).
 -define(topic_shard_hbeat(SGROUP, SHARD), ?topic_sdisp(SGROUP, [<<"hb">>, SHARD])).
 -define(topic_consumer_announce(SGROUP), ?topic_sdisp(SGROUP, [<<"ann">>])).
+-define(topic_sgroup_allocvsn(SGROUP), ?topic_sdisp(SGROUP, [<<"avsn">>])).
 
 -define(topic_shard_progress(SGROUP, SHARD), [<<"sdisp:pr">>, SGROUP, SHARD]).
 
@@ -60,12 +62,14 @@ lease_shard_async(SGroup, Shard, Consumer, OffsetNext, Heartbeat) ->
     async_tx(SGroup, fun() ->
         TopicLease = ?topic_shard_lease(SGroup, Shard),
         TopicProgress = ?topic_shard_progress(SGroup, Shard),
+        TopicAllocVsn = ?topic_sgroup_allocvsn(SGroup),
         emqx_ds:tx_ttv_assert_absent(TopicLease, 0),
         case ttv_extract_offset(emqx_ds:tx_read(#{end_time => 1}, TopicProgress)) of
             Offset when not ?offset_ahead(Offset, OffsetNext) ->
                 emqx_ds:tx_write({TopicLease, 0, Consumer}),
                 emqx_ds:tx_write(mk_ttv_heartbeat(SGroup, Shard, Heartbeat)),
-                emqx_ds:tx_write({TopicProgress, 0, enc_offset(OffsetNext)});
+                emqx_ds:tx_write({TopicProgress, 0, enc_offset(OffsetNext)}),
+                emqx_ds:tx_write({TopicAllocVsn, 0, ?ds_tx_serial});
             Offset ->
                 {invalid, {offset_ahead, Offset}}
         end
@@ -91,12 +95,14 @@ release_shard_async(SGroup, Shard, Consumer, OffsetNext, LastHeartbeat) ->
         TopicLease = ?topic_shard_lease(SGroup, Shard),
         TopicHeartbeat = ?topic_shard_hbeat(SGroup, Shard),
         TopicProgress = ?topic_shard_progress(SGroup, Shard),
+        TopicAllocVsn = ?topic_sgroup_allocvsn(SGroup),
         emqx_ds:tx_ttv_assert_present(TopicLease, 0, Consumer),
         emqx_ds:tx_ttv_assert_present(TopicHeartbeat, 0, enc_timestamp(LastHeartbeat)),
         case ttv_extract_offset(emqx_ds:tx_read(#{end_time => 1}, TopicProgress)) of
             Offset when not ?offset_ahead(Offset, OffsetNext) ->
                 emqx_ds:tx_del_topic(TopicLease, 0, 1),
-                emqx_ds:tx_write({TopicProgress, 0, enc_offset(OffsetNext)});
+                emqx_ds:tx_write({TopicProgress, 0, enc_offset(OffsetNext)}),
+                emqx_ds:tx_write({TopicAllocVsn, 0, ?ds_tx_serial});
             Offset ->
                 {invalid, {offset_ahead, Offset}}
         end
@@ -129,7 +135,7 @@ progress_shard_tx_result(ok, Ref, Reply) ->
                     DifferentOffset = emqx_maybe:apply(fun dec_offset/1, Different),
                     {invalid, {offset_mismatch, DifferentOffset}}
             end;
-        ?err_rec({read_conflict, _}) ->
+        ?err_rec({read_conflict, _Conflict}) ->
             {invalid, conflict};
         Error ->
             Error
@@ -207,6 +213,23 @@ shard_progress_dirty(SGroup, Shard) ->
         )
     ).
 
+alloc_vsn_dirty(SGroup) ->
+    TTVs = emqx_ds:dirty_read(
+        #{
+            db => ?DB,
+            shard => emqx_ds:shard_of(?DB, SGroup),
+            generation => 1,
+            end_time => 1
+        },
+        ?topic_sgroup_allocvsn(SGroup)
+    ),
+    case TTVs of
+        [{_TopicAllocVsn, _, Vsn} | _] ->
+            Vsn;
+        [] ->
+            undefined
+    end.
+
 %% TODO rename
 shard_leases_dirty(SGroup) ->
     TTVs = emqx_ds:dirty_read(
@@ -258,7 +281,18 @@ shard_leases_dirty(SGroup) ->
         #{},
         TTVs
     ),
+    AllocVsn = lists:foldl(
+        fun
+            ({?topic_sgroup_allocvsn(_), _, Vsn}, _Acc) ->
+                Vsn;
+            (_TTV, Acc) ->
+                Acc
+        end,
+        undefined,
+        TTVs
+    ),
     #db_sgroup_st{
+        vsn = AllocVsn,
         leases = Leases,
         consumers = Consumers,
         shards = ShardHBs

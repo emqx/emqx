@@ -297,7 +297,6 @@ handle_progress_tx(Consumer, SGroup, Ref, Reply, Ctx, St) ->
     Result = emqx_streams_state_db:progress_shard_tx_result(Ret, Ref, Reply),
     case handle_shard_progress(Result, Consumer, Shard, Offset, Heartbeat, ShardSt0) of
         {restart, ShardSt} ->
-            %% FIXME logging context
             progress(Consumer, SGroup, Shard, Offset, Heartbeat, St#{{shard, Shard} := ShardSt});
         ShardRet ->
             return_update_shard(Shard, ShardRet, St)

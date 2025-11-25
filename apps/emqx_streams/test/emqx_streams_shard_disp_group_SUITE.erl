@@ -44,7 +44,7 @@ end_per_suite(Config) ->
 
 t_smoke(_Config) ->
     ?assertEqual(
-        #db_sgroup_st{leases = #{}, consumers = #{}, shards = #{}},
+        #db_sgroup_st{vsn = undefined, leases = #{}, consumers = #{}, shards = #{}},
         emqx_streams_state_db:shard_leases_dirty(?sgroup)
     ).
 
@@ -55,12 +55,17 @@ t_lease_release(_Config) ->
     %% Initial lease progress:
     G2 = run_progress(<<"c1">>, ?sgroup, Shard, 0, 42, G1),
     ?assertMatch(#{}, G2),
+    V1 = emqx_streams_state_db:alloc_vsn_dirty(?sgroup),
     %% Regular shard progress:
     G3 = run_progress(<<"c1">>, ?sgroup, Shard, 111, 43, G2),
     ?assertMatch(#{}, G3),
+    V2 = emqx_streams_state_db:alloc_vsn_dirty(?sgroup),
+    ?assertEqual(V1, V2),
     %% Shard release:
     G4 = run_release(<<"c1">>, ?sgroup, Shard, 111, G3),
     ?assertMatch(#{}, G4),
+    V3 = emqx_streams_state_db:alloc_vsn_dirty(?sgroup),
+    ?assertNotEqual(V2, V3),
     %% Retry:
     ?assertMatch(#{}, run_release(<<"c1">>, ?sgroup, Shard, 111, G3)).
 
