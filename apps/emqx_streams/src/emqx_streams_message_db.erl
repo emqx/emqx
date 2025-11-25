@@ -278,6 +278,11 @@ subscribe(Stream, DSClient0, SubId, State0) ->
             max_unacked => StreamMaxUnacked
         }
     },
+    ?tp_debug(streams_message_db_subscribe, #{
+        stream => Stream,
+        sub_id => SubId,
+        sub_opts => SubOpts
+    }),
     {ok, DSClient, State} = emqx_ds_client:subscribe(DSClient0, SubOpts, State0),
     {ok, DSClient, State}.
 
@@ -306,9 +311,12 @@ do_find_generation(TimestampMs, [{{_Shard, Generation} = _Slab, SlabInfo} | Rest
     emqx_streams_types:stream() | emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()
 ) -> ok.
 suback(Stream, SubHandle, SeqNo) when is_map(Stream) ->
-    emqx_ds:suback(db(Stream), SubHandle, SeqNo);
-suback(DB, SubHandle, SeqNo) when is_atom(DB) ->
-    emqx_ds:suback(DB, SubHandle, SeqNo).
+    ?tp_debug(streams_message_db_suback, #{
+        stream => Stream,
+        sub_handle => SubHandle,
+        seqno => SeqNo
+    }),
+    emqx_ds:suback(db(Stream), SubHandle, SeqNo).
 
 -spec encode_message(emqx_types:message()) -> binary().
 encode_message(Message) ->
