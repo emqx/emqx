@@ -203,7 +203,6 @@ jobs:
       fail-fast: false
       matrix:
         profile:
-          - emqx
           - emqx-enterprise
 
     container: ${{ inputs.builder }}
@@ -224,10 +223,15 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: install pytest
         run: |
+          apt-get update && apt-get install -y python3-venv
+          python3 -m venv venv
+          source venv/bin/activate
           pip install --upgrade pip
           pip install pytest
       - name: run pytest boot tests
-        run: pytest scripts/test/test_emqx_boot.py -v
+        run: |
+          source venv/bin/activate
+          pytest scripts/test/test_emqx_boot.py -v
       - name: print test output
         if: failure()
         run: |
