@@ -35,9 +35,11 @@ init_per_suite(Config) ->
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     ok = emqx_streams_app:wait_readiness(5_000),
+    ok = emqx_streams:register_sdisp_hooks(),
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    ok = emqx_streams:unregister_sdisp_hooks(),
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_, Config) ->
