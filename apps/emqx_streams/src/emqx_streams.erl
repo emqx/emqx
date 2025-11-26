@@ -11,9 +11,11 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 
 -export([register_hooks/0, unregister_hooks/0]).
+-export([register_sdisp_hooks/0, unregister_sdisp_hooks/0]).
 
 -export([
-    on_message_publish/1,
+    on_message_publish_sdisp/1,
+    on_message_publish_stream/1,
     on_message_puback/4,
     on_session_subscribed/3,
     on_session_unsubscribed/3,
@@ -24,34 +26,55 @@
 
 -spec register_hooks() -> ok.
 register_hooks() ->
+    ok = register_stream_hooks(),
+    ok.
+
+-spec unregister_hooks() -> ok.
+unregister_hooks() ->
+    ok = unregister_stream_hooks(),
+    ok.
+
+-spec register_sdisp_hooks() -> ok.
+register_sdisp_hooks() ->
     %% FIXME: prios
-    ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_HIGHEST),
+    ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish_sdisp, []}, ?HP_HIGHEST),
     ok = emqx_hooks:add('message.puback', {?MODULE, on_message_puback, []}, ?HP_HIGHEST),
     ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
+
+-spec register_stream_hooks() -> ok.
+register_stream_hooks() ->
+    ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish_stream, []}, ?HP_HIGHEST),
     ok = emqx_extsub_handler_registry:register(emqx_streams_extsub_handler, #{
         handle_generic_messages => true,
         multi_topic => true
     }).
 
--spec unregister_hooks() -> ok.
-unregister_hooks() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
+-spec unregister_sdisp_hooks() -> ok.
+unregister_sdisp_hooks() ->
+    emqx_hooks:del('message.publish', {?MODULE, on_message_publish_sdisp}),
     emqx_hooks:del('message.puback', {?MODULE, on_message_puback}),
     emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
-    emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
+
+-spec unregister_stream_hooks() -> ok.
+unregister_stream_hooks() ->
+    emqx_hooks:del('message.publish', {?MODULE, on_message_publish_stream}),
+    emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler).
 
 %%
 
-on_message_publish(#message{topic = <<"$sdisp/", _/binary>>} = Message) ->
+on_message_publish_sdisp(#message{topic = <<"$sdisp/", _/binary>>} = Message) ->
     ?tp_debug("streams_on_message_publish", #{topic => Message#message.topic}),
     St = shard_dispatch_state(),
     Ret = emqx_streams_shard_dispatch:on_publish(Message, St),
     shard_dispatch_handle_ret(?FUNCTION_NAME, Ret);
-on_message_publish(#message{topic = Topic} = Message) ->
+on_message_publish_sdisp(Message) ->
+    {ok, Message}.
+
+on_message_publish_stream(#message{topic = Topic} = Message) ->
     ?tp_debug(streams_on_message_publish_stream, #{topic => Topic}),
     StreamHandles = emqx_streams_registry:match(Topic),
     ok = lists:foreach(
