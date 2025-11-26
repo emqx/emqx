@@ -56,34 +56,45 @@ when
 when
     UserInfo :: user_info(), State :: state(), User :: user_info().
 
--callback delete_user(UserID, State) ->
+-callback delete_user(Namespace, UserID, State) ->
     ok
     | {error, term()}
 when
-    UserID :: binary(), State :: state().
+    Namespace :: emqx_config:maybe_namespace(),
+    UserID :: binary(),
+    State :: state().
 
--callback update_user(UserID, UserInfo, State) ->
+-callback update_user(Namespace, UserID, UserInfo, State) ->
     {ok, User}
     | {error, term()}
 when
-    UserID :: binary(), UserInfo :: map(), State :: state(), User :: user_info().
+    Namespace :: emqx_config:maybe_namespace(),
+    UserID :: binary(),
+    UserInfo :: map(),
+    State :: state(),
+    User :: user_info().
 
--callback lookup_user(UserID, UserInfo, State) ->
+-callback lookup_user(Namespace, UserID, State) ->
     {ok, User}
     | {error, term()}
 when
-    UserID :: binary(), UserInfo :: map(), State :: state(), User :: user_info().
+    Namespace :: emqx_config:maybe_namespace(),
+    UserID :: binary(),
+    State :: state(),
+    User :: user_info().
 
--callback list_users(State) ->
-    {ok, Users}
+-callback list_users(QueryParams, State) ->
+    %% Return type from `emqx_mgmt_api:node_query`
+    {error, page_limit_invalid} | {error, atom(), term()} | #{meta := map(), data := [term()]}
 when
-    State :: state(), Users :: [user_info()].
+    QueryParams :: map(),
+    State :: state().
 
 -optional_callbacks([
     import_users/2,
     add_user/2,
-    delete_user/2,
-    update_user/3,
+    delete_user/3,
+    update_user/4,
     lookup_user/3,
-    list_users/1
+    list_users/2
 ]).

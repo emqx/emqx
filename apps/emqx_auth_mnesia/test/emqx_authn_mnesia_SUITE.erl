@@ -9,15 +9,25 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(AUTHN_ID, <<"mechanism:backend">>).
+-define(NS, <<"some_ns">>).
+-define(OTHER_NS, <<"some_other_ns">>).
+
+-define(global, global).
+-define(ns, ns).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia], #{
-        work_dir => ?config(priv_dir, Config)
+        work_dir => emqx_cth_suite:work_dir(Config)
     }),
     [{apps, Apps} | Config].
 
@@ -25,12 +35,23 @@ end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
-init_per_testcase(_Case, Config) ->
-    mria:clear_table(emqx_authn_mnesia),
+init_per_group(?global, Config) ->
+    [{ns, ?global_ns} | Config];
+init_per_group(?ns, Config) ->
+    [{ns, ?NS} | Config];
+init_per_group(_Group, Config) ->
     Config.
 
-end_per_testcase(_Case, Config) ->
+end_per_group(_Group, _Config) ->
+    ok.
+
+init_per_testcase(_Case, Config) ->
+    mria:clear_table(emqx_authn_mnesia),
+    mria:clear_table(emqx_authn_mnesia_ns),
     Config.
+
+end_per_testcase(_Case, _Config) ->
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -51,17 +72,31 @@ t_bootstrap_file(_) ->
     HashConfig = Config#{password_hash_algorithm => #{name => sha256, salt_position => suffix}},
     ?assertMatch(
         [
-            {user_info, {_, <<"myuser1">>}, _, _, true},
-            {user_info, {_, <<"myuser2">>}, _, _, false}
+            #{namespace := ?global_ns, user_id := <<"myuser1">>, is_superuser := true},
+            #{namespace := ?global_ns, user_id := <<"myuser2">>, is_superuser := false}
         ],
         test_bootstrap_file(HashConfig, hash, <<"user-credentials.json">>)
     ),
     ?assertMatch(
         [
-            {user_info, {_, <<"myuser3">>}, _, _, true},
-            {user_info, {_, <<"myuser4">>}, _, _, false}
+            #{namespace := ?global_ns, user_id := <<"myuser3">>, is_superuser := true},
+            #{namespace := ?global_ns, user_id := <<"myuser4">>, is_superuser := false}
         ],
         test_bootstrap_file(HashConfig, hash, <<"user-credentials.csv">>)
+    ),
+    ?assertMatch(
+        [
+            #{namespace := ?global_ns, user_id := <<"myuser5">>, is_superuser := true},
+            #{namespace := <<"ns1">>, user_id := <<"myuser6">>, is_superuser := false}
+        ],
+        test_bootstrap_file(HashConfig, hash, <<"user-credentials-ns.csv">>)
+    ),
+    ?assertMatch(
+        [
+            #{namespace := ?global_ns, user_id := <<"myuser7">>, is_superuser := true},
+            #{namespace := <<"ns1">>, user_id := <<"myuser8">>, is_superuser := false}
+        ],
+        test_bootstrap_file(HashConfig, hash, <<"user-credentials-ns.json">>)
     ),
 
     %% plain to plain
@@ -71,23 +106,77 @@ t_bootstrap_file(_) ->
     },
     ?assertMatch(
         [
-            {user_info, {_, <<"myuser1">>}, <<"password1">>, _, true},
-            {user_info, {_, <<"myuser2">>}, <<"password2">>, _, false}
+            #{
+                namespace := ?global_ns,
+                user_id := <<"myuser1">>,
+                is_superuser := true,
+                password_hash := <<"password1">>
+            },
+            #{
+                namespace := ?global_ns,
+                user_id := <<"myuser2">>,
+                is_superuser := false,
+                password_hash := <<"password2">>
+            }
         ],
         test_bootstrap_file(PlainConfig, plain, <<"user-credentials-plain.json">>)
     ),
     ?assertMatch(
         [
-            {user_info, {_, <<"myuser3">>}, <<"password3">>, _, true},
-            {user_info, {_, <<"myuser4">>}, <<"password4">>, _, false}
+            #{
+                namespace := ?global_ns,
+                user_id := <<"myuser1">>,
+                is_superuser := true,
+                password_hash := <<"password1">>
+            },
+            #{
+                namespace := <<"ns1">>,
+                user_id := <<"myuser2">>,
+                is_superuser := false,
+                password_hash := <<"password2">>
+            }
+        ],
+        test_bootstrap_file(PlainConfig, plain, <<"user-credentials-plain-ns.json">>)
+    ),
+    ?assertMatch(
+        [
+            #{
+                namespace := ?global_ns,
+                user_id := <<"myuser3">>,
+                is_superuser := true,
+                password_hash := <<"password3">>
+            },
+            #{
+                namespace := ?global_ns,
+                user_id := <<"myuser4">>,
+                is_superuser := false,
+                password_hash := <<"password4">>
+            }
         ],
         test_bootstrap_file(PlainConfig, plain, <<"user-credentials-plain.csv">>)
+    ),
+    ?assertMatch(
+        [
+            #{
+                namespace := ?global_ns,
+                user_id := <<"myuser3">>,
+                is_superuser := true,
+                password_hash := <<"password3">>
+            },
+            #{
+                namespace := <<"ns1">>,
+                user_id := <<"myuser4">>,
+                is_superuser := false,
+                password_hash := <<"password4">>
+            }
+        ],
+        test_bootstrap_file(PlainConfig, plain, <<"user-credentials-plain-ns.csv">>)
     ),
     %% plain to hash
     ?assertMatch(
         [
-            {user_info, {_, <<"myuser1">>}, _, _, true},
-            {user_info, {_, <<"myuser2">>}, _, _, false}
+            #{namespace := ?global_ns, user_id := <<"myuser1">>, is_superuser := true},
+            #{namespace := ?global_ns, user_id := <<"myuser2">>, is_superuser := false}
         ],
         test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain.json">>)
     ),
@@ -95,8 +184,8 @@ t_bootstrap_file(_) ->
     Result = test_bootstrap_file(HashConfig, plain, <<"user-credentials-plain.csv">>, Opts),
     ?assertMatch(
         [
-            {user_info, {_, <<"myuser3">>}, _, _, true},
-            {user_info, {_, <<"myuser4">>}, _, _, false}
+            #{namespace := ?global_ns, user_id := <<"myuser3">>, is_superuser := true},
+            #{namespace := ?global_ns, user_id := <<"myuser4">>, is_superuser := false}
         ],
         Result
     ),
@@ -116,15 +205,20 @@ test_bootstrap_file(Config0, Type, File, Opts) ->
         bootstrap_type => Type
     },
     {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config2),
-    Result = ets:tab2list(emqx_authn_mnesia),
+    Result = read_tables(),
     case maps:get(clean, Opts) of
         true ->
             ok = emqx_authn_mnesia:destroy(State0),
-            ?assertMatch([], ets:tab2list(emqx_authn_mnesia));
+            ?assertMatch([], ets:tab2list(emqx_authn_mnesia)),
+            ?assertMatch([], ets:tab2list(emqx_authn_mnesia_ns));
         _ ->
             ok
     end,
     Result.
+
+read_tables() ->
+    Rows = ets:tab2list(emqx_authn_mnesia) ++ ets:tab2list(emqx_authn_mnesia_ns),
+    lists:map(fun emqx_authn_mnesia:rec_to_map/1, Rows).
 
 t_update(_) ->
     Config0 = config(),
@@ -133,103 +227,165 @@ t_update(_) ->
     Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
     {ok, _} = emqx_authn_mnesia:update(Config1, State).
 
-t_destroy(_) ->
+t_destroy() ->
+    [{matrix, true}].
+t_destroy(matrix) ->
+    [[?global], [?ns]];
+t_destroy(TCConfig) ->
+    Namespace = ns(TCConfig),
     Config = config(),
     OtherConfig = Config#{user_group => <<"stomp:global">>},
     {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
     {ok, StateOther} = emqx_authn_mnesia:create(?AUTHN_ID, OtherConfig),
 
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
+    User2 = add_ns(#{user_id => <<"u">>, password => <<"p">>}, ?OTHER_NS),
 
     {ok, _} = emqx_authn_mnesia:add_user(User, State0),
+    {ok, _} = emqx_authn_mnesia:add_user(User2, State0),
     {ok, _} = emqx_authn_mnesia:add_user(User, StateOther),
+    {ok, _} = emqx_authn_mnesia:add_user(User2, StateOther),
 
-    {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, State0),
-    {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, StateOther),
+    {ok, _} = lookup_user(Namespace, <<"u">>, State0),
+    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, State0),
+    {ok, _} = lookup_user(Namespace, <<"u">>, StateOther),
+    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, StateOther),
 
     ok = emqx_authn_mnesia:destroy(State0),
 
     {ok, State1} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
-    {error, not_found} = emqx_authn_mnesia:lookup_user(<<"u">>, State1),
-    {ok, _} = emqx_authn_mnesia:lookup_user(<<"u">>, StateOther).
+    {error, not_found} = lookup_user(Namespace, <<"u">>, State1),
+    {error, not_found} = lookup_user(?OTHER_NS, <<"u">>, State1),
+    {ok, _} = lookup_user(Namespace, <<"u">>, StateOther),
+    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, StateOther),
 
-t_authenticate(_) ->
+    ok.
+
+t_authenticate() ->
+    [{matrix, true}].
+t_authenticate(matrix) ->
+    [[?global], [?ns]];
+t_authenticate(TCConfig) ->
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
 
     {ok, _} = emqx_authn_mnesia:authenticate(
-        #{username => <<"u">>, password => <<"p">>},
+        maybe_add_ns_clientinfo(#{username => <<"u">>, password => <<"p">>}, TCConfig),
         State
     ),
     {error, bad_username_or_password} = emqx_authn_mnesia:authenticate(
-        #{username => <<"u">>, password => <<"badpass">>},
+        maybe_add_ns_clientinfo(#{username => <<"u">>, password => <<"badpass">>}, TCConfig),
         State
     ),
     ignore = emqx_authn_mnesia:authenticate(
-        #{clientid => <<"u">>, password => <<"p">>},
+        maybe_add_ns_clientinfo(#{clientid => <<"u">>, password => <<"p">>}, TCConfig),
         State
-    ).
+    ),
+    %% Namespace mismatch; user doesn't exist
+    ignore = emqx_authn_mnesia:authenticate(
+        add_ns_clientinfo(#{username => <<"u">>, password => <<"p">>}, ?OTHER_NS),
+        State
+    ),
+    ok.
 
-t_add_user(_) ->
+t_add_user() ->
+    [{matrix, true}].
+t_add_user(matrix) ->
+    [[?global], [?ns]];
+t_add_user(TCConfig) ->
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
-    {error, already_exist} = emqx_authn_mnesia:add_user(User, State).
+    {error, already_exist} = emqx_authn_mnesia:add_user(User, State),
 
-t_delete_user(_) ->
+    OtherUser = add_ns(User, ?OTHER_NS),
+    {ok, _} = emqx_authn_mnesia:add_user(OtherUser, State),
+
+    ok.
+
+t_delete_user() ->
+    [{matrix, true}].
+t_delete_user(matrix) ->
+    [[?global], [?ns]];
+t_delete_user(TCConfig) ->
+    Namespace = ns(TCConfig),
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    {error, not_found} = emqx_authn_mnesia:delete_user(<<"u">>, State),
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    {error, not_found} = delete_user(Namespace, <<"u">>, State),
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
 
-    ok = emqx_authn_mnesia:delete_user(<<"u">>, State),
-    {error, not_found} = emqx_authn_mnesia:delete_user(<<"u">>, State).
+    {error, not_found} = delete_user(?OTHER_NS, <<"u">>, State),
+    ok = delete_user(Namespace, <<"u">>, State),
+    {error, not_found} = delete_user(Namespace, <<"u">>, State).
 
-t_update_user(_) ->
+t_update_user() ->
+    [{matrix, true}].
+t_update_user(matrix) ->
+    [[?global], [?ns]];
+t_update_user(TCConfig) ->
+    Namespace = ns(TCConfig),
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_mnesia:add_user(User, State),
 
-    {error, not_found} = emqx_authn_mnesia:update_user(<<"u1">>, #{password => <<"p1">>}, State),
+    {error, not_found} = update_user(?OTHER_NS, <<"u">>, #{password => <<"p1">>}, State),
+    {error, not_found} = update_user(Namespace, <<"u1">>, #{password => <<"p1">>}, State),
+
     {ok, #{
         user_id := <<"u">>,
         is_superuser := true
-    }} = emqx_authn_mnesia:update_user(
+    }} = update_user(
+        Namespace,
         <<"u">>,
         #{password => <<"p1">>, is_superuser => true},
         State
     ),
 
     {ok, _} = emqx_authn_mnesia:authenticate(
-        #{username => <<"u">>, password => <<"p1">>},
+        maybe_add_ns_clientinfo(#{username => <<"u">>, password => <<"p1">>}, TCConfig),
         State
     ),
 
-    {ok, #{is_superuser := true}} = emqx_authn_mnesia:lookup_user(<<"u">>, State).
+    {ok, #{is_superuser := true}} = lookup_user(Namespace, <<"u">>, State).
 
-t_list_users(_) ->
+t_list_users() ->
+    [{matrix, true}].
+t_list_users(matrix) ->
+    [[?global], [?ns]];
+t_list_users(TCConfig) ->
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    Users = [
+    Users0 = [
         #{user_id => <<"u1">>, password => <<"p">>},
         #{user_id => <<"u2">>, password => <<"p">>},
         #{user_id => <<"u3">>, password => <<"p">>}
     ],
+    Users = lists:map(fun(U) -> maybe_add_ns(U, TCConfig) end, Users0),
 
     lists:foreach(
         fun(U) -> {ok, _} = emqx_authn_mnesia:add_user(U, State) end,
         Users
     ),
+    OtherUser = #{user_id => <<"u4">>, password => <<"p">>},
+    {ok, _} = emqx_authn_mnesia:add_user(add_ns(OtherUser, ?OTHER_NS), State),
+
+    Namespace = ns(TCConfig),
+    NSQS = fun
+        (QS) when Namespace == ?global_ns ->
+            QS;
+        (QS) ->
+            QS#{<<"ns">> => Namespace}
+    end,
 
     #{
         data := [
@@ -238,7 +394,7 @@ t_list_users(_) ->
         ],
         meta := #{page := 1, limit := 2, count := 3, hasnext := true}
     } = emqx_authn_mnesia:list_users(
-        #{<<"page">> => 1, <<"limit">> => 2},
+        NSQS(#{<<"page">> => 1, <<"limit">> => 2}),
         State
     ),
 
@@ -246,7 +402,7 @@ t_list_users(_) ->
         data := [#{is_superuser := false, user_id := _}],
         meta := #{page := 2, limit := 2, count := 3, hasnext := false}
     } = emqx_authn_mnesia:list_users(
-        #{<<"page">> => 2, <<"limit">> => 2},
+        NSQS(#{<<"page">> => 2, <<"limit">> => 2}),
         State
     ),
 
@@ -254,13 +410,26 @@ t_list_users(_) ->
         data := [#{is_superuser := false, user_id := <<"u3">>}],
         meta := #{page := 1, limit := 20, hasnext := false}
     } = emqx_authn_mnesia:list_users(
-        #{
+        NSQS(#{
             <<"page">> => 1,
             <<"limit">> => 20,
             <<"like_user_id">> => <<"3">>
+        }),
+        State
+    ),
+
+    #{
+        data := [#{is_superuser := false, user_id := <<"u4">>}],
+        meta := #{page := 1, limit := 20, hasnext := false}
+    } = emqx_authn_mnesia:list_users(
+        #{
+            <<"page">> => 1,
+            <<"limit">> => 20,
+            <<"ns">> => ?OTHER_NS
         },
         State
-    ).
+    ),
+    ok.
 
 t_import_users(_) ->
     Config0 = config(),
@@ -278,7 +447,23 @@ t_import_users(_) ->
     ?assertMatch(
         {ok, _},
         emqx_authn_mnesia:import_users(
+            sample_filename_and_data(<<"user-credentials-ns.json">>),
+            State
+        )
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:import_users(
             sample_filename_and_data(<<"user-credentials.csv">>),
+            State
+        )
+    ),
+
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(<<"user-credentials-ns.csv">>),
             State
         )
     ),
@@ -391,7 +576,8 @@ t_import_users_prepared_list(_) ->
 
     Users1 = [
         #{<<"user_id">> => <<"u1">>, <<"password">> => <<"p1">>, <<"is_superuser">> => true},
-        #{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>, <<"is_superuser">> => true}
+        #{<<"user_id">> => <<"u2">>, <<"password">> => <<"p2">>, <<"is_superuser">> => true},
+        #{<<"user_id">> => <<"u5">>, <<"password">> => <<"p5">>, <<"is_superuser">> => true}
     ],
     Users2 = [
         #{
@@ -407,6 +593,14 @@ t_import_users_prepared_list(_) ->
                 <<"f4d17f300b11e522fd33f497c11b126ef1ea5149c74d2220f9a16dc876d4567b">>,
             <<"salt">> => <<"6d3f9bd5b54d94b98adbcfe10b6d181f">>,
             <<"is_superuser">> => true
+        },
+        #{
+            <<"user_id">> => <<"u6">>,
+            <<"password_hash">> =>
+                <<"f4d17f300b11e522fd33f497c11b126ef1ea5149c74d2220f9a16dc876d4567b">>,
+            <<"salt">> => <<"6d3f9bd5b54d94b98adbcfe10b6d181f">>,
+            <<"is_superuser">> => true,
+            <<"namespace">> => <<"ns1">>
         }
     ],
 
@@ -468,12 +662,63 @@ t_import_users_duplicated_records(_) ->
     %% assert: the last record overwrites the previous one
     ?assertMatch(
         [
-            {user_info, {_, <<"myuser1">>}, <<"password2">>, _, false},
-            {user_info, {_, <<"myuser3">>}, <<"password4">>, _, false},
-            {user_info, {_, <<"myuser5">>}, <<"password6">>, _, false}
+            #{
+                namespace := ?global,
+                user_id := <<"myuser1">>,
+                password_hash := <<"password2">>,
+                is_superuser := false
+            },
+            #{
+                namespace := ?global,
+                user_id := <<"myuser3">>,
+                password_hash := <<"password4">>,
+                is_superuser := false
+            },
+            #{
+                namespace := ?global,
+                user_id := <<"myuser5">>,
+                password_hash := <<"password6">>,
+                is_superuser := false
+            }
         ],
-        ets:tab2list(emqx_authn_mnesia)
-    ).
+        read_tables()
+    ),
+
+    %% Namespaced users on different namespaces are independent.
+    ok = emqx_authn_mnesia:destroy(State),
+    {ok, State2} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:import_users(
+            sample_filename_and_data(plain, <<"user-credentials-plain-dup-ns.json">>),
+            State2
+        )
+    ),
+    ?assertMatch(
+        [
+            #{
+                namespace := ?global,
+                user_id := <<"myuser1">>,
+                password_hash := <<"password5">>,
+                is_superuser := false
+            },
+            #{
+                namespace := <<"ns1">>,
+                user_id := <<"myuser1">>,
+                password_hash := <<"password4">>,
+                is_superuser := false
+            },
+            #{
+                namespace := <<"ns2">>,
+                user_id := <<"myuser1">>,
+                password_hash := <<"password3">>,
+                is_superuser := false
+            }
+        ],
+        read_tables()
+    ),
+
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Helpers
@@ -500,3 +745,37 @@ config() ->
         },
         user_group => <<"global:mqtt">>
     }.
+
+lookup_user(Namespace, UserId, State) ->
+    emqx_authn_mnesia:lookup_user(Namespace, UserId, State).
+
+update_user(Namespace, UserId, UserInfo, State) ->
+    emqx_authn_mnesia:update_user(Namespace, UserId, UserInfo, State).
+
+delete_user(Namespace, UserId, State) ->
+    emqx_authn_mnesia:delete_user(Namespace, UserId, State).
+
+maybe_add_ns(UserInfo, TCConfig) ->
+    case ns(TCConfig) of
+        ?global_ns ->
+            UserInfo;
+        Namespace when is_binary(Namespace) ->
+            add_ns(UserInfo, Namespace)
+    end.
+
+add_ns(UserInfo, Namespace) when is_binary(Namespace) ->
+    UserInfo#{namespace => Namespace}.
+
+maybe_add_ns_clientinfo(ClientInfo, TCConfig) ->
+    case ns(TCConfig) of
+        ?global_ns ->
+            ClientInfo;
+        Namespace when is_binary(Namespace) ->
+            add_ns_clientinfo(ClientInfo, Namespace)
+    end.
+
+add_ns_clientinfo(ClientInfo, Namespace) when is_binary(Namespace) ->
+    ClientInfo#{client_attrs => #{?CLIENT_ATTR_NAME_TNS => Namespace}}.
+
+ns(TCConfig) ->
+    ?config(ns, TCConfig).

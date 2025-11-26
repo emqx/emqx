@@ -12,6 +12,8 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(PATH, [authentication]).
 
@@ -20,23 +22,50 @@
     is_superuser := _
 }).
 
+-define(NS, <<"some_ns">>).
+-define(OTHER_NS, <<"some_other_ns">>).
+
+-define(global, global).
+-define(ns, ns).
+
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mnesia], #{
-        work_dir => ?config(priv_dir, Config)
-    }),
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
+            emqx_auth,
+            emqx_auth_mnesia
+        ],
+        #{
+            work_dir => ?config(priv_dir, Config)
+        }
+    ),
     IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
     [{apps, Apps}, {idle_timeout, IdleTimeout} | Config].
 
 end_per_suite(Config) ->
-    ok = emqx_config:put([mqtt, idle_timeout], ?config(idle_timeout, Config)),
     ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
+
+init_per_group(?global, Config) ->
+    [{ns, ?global_ns} | Config];
+init_per_group(?ns, Config) ->
+    [{ns, ?NS} | Config];
+init_per_group(_Group, Config) ->
+    Config.
+
+end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_Case, Config) ->
     mria:clear_table(emqx_authn_scram_mnesia),
+    mria:clear_table(emqx_authn_scram_mnesia_ns),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -84,12 +113,16 @@ t_create_invalid(_Config) ->
         emqx_authn_chains:list_authenticators(?GLOBAL)
     ).
 
-t_authenticate(_Config) ->
+t_authenticate() ->
+    [{matrix, true}].
+t_authenticate(matrix) ->
+    [[?global], [?ns]];
+t_authenticate(TCConfig) ->
     Algorithm = sha512,
     Username = <<"u">>,
     Password = <<"p">>,
 
-    init_auth(Username, Password, Algorithm),
+    init_auth(Username, Password, Algorithm, TCConfig),
 
     ok = emqx_config:put([mqtt, idle_timeout], 500),
 
@@ -98,13 +131,16 @@ t_authenticate(_Config) ->
     ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
-        #mqtt_packet_connect{
-            proto_ver = ?MQTT_PROTO_V5,
-            properties = #{
-                'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                'Authentication-Data' => ClientFirstMessage
-            }
-        }
+        maybe_add_ns_connect_packet(
+            #mqtt_packet_connect{
+                proto_ver = ?MQTT_PROTO_V5,
+                properties = #{
+                    'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                    'Authentication-Data' => ClientFirstMessage
+                }
+            },
+            TCConfig
+        )
     ),
 
     ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
@@ -145,74 +181,116 @@ t_authenticate(_Config) ->
 
     ok = sasl_auth_scram:check_server_final_message(
         ServerFinalMessage, ClientCache#{algorithm => Algorithm}
-    ).
+    ),
 
-t_authenticate_bad_props(_Config) ->
+    %% Namespace mismatch
+    {ok, Pid2} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
+    ConnectPacket2 = ?CONNECT_PACKET(
+        add_ns_connect_packet(
+            #mqtt_packet_connect{
+                proto_ver = ?MQTT_PROTO_V5,
+                properties = #{
+                    'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                    'Authentication-Data' => ClientFirstMessage
+                }
+            },
+            ?OTHER_NS
+        )
+    ),
+    ok = emqx_mqtt_test_client:send(Pid2, ConnectPacket2),
+    %% Intentional sleep to trigger idle timeout for the connection not yet authenticated
+    ok = ct:sleep(1000),
+    ?CONNACK_PACKET(?RC_NOT_AUTHORIZED, _) = receive_packet(),
+
+    ok.
+
+t_authenticate_bad_props() ->
+    [{matrix, true}].
+t_authenticate_bad_props(matrix) ->
+    [[?global], [?ns]];
+t_authenticate_bad_props(TCConfig) ->
     Algorithm = sha512,
     Username = <<"u">>,
     Password = <<"p">>,
 
-    init_auth(Username, Password, Algorithm),
+    init_auth(Username, Password, Algorithm, TCConfig),
 
     {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ConnectPacket = ?CONNECT_PACKET(
-        #mqtt_packet_connect{
-            proto_ver = ?MQTT_PROTO_V5,
-            properties = #{
-                'Authentication-Method' => <<"SCRAM-SHA-512">>
-            }
-        }
+        maybe_add_ns_connect_packet(
+            #mqtt_packet_connect{
+                proto_ver = ?MQTT_PROTO_V5,
+                properties = #{
+                    'Authentication-Method' => <<"SCRAM-SHA-512">>
+                }
+            },
+            TCConfig
+        )
     ),
 
     ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
-t_authenticate_bad_username(_Config) ->
+t_authenticate_bad_username() ->
+    [{matrix, true}].
+t_authenticate_bad_username(matrix) ->
+    [[?global], [?ns]];
+t_authenticate_bad_username(TCConfig) ->
     Algorithm = sha512,
     Username = <<"u">>,
     Password = <<"p">>,
 
-    init_auth(Username, Password, Algorithm),
+    init_auth(Username, Password, Algorithm, TCConfig),
 
     {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ClientFirstMessage = sasl_auth_scram:client_first_message(<<"badusername">>),
 
     ConnectPacket = ?CONNECT_PACKET(
-        #mqtt_packet_connect{
-            proto_ver = ?MQTT_PROTO_V5,
-            properties = #{
-                'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                'Authentication-Data' => ClientFirstMessage
-            }
-        }
+        maybe_add_ns_connect_packet(
+            #mqtt_packet_connect{
+                proto_ver = ?MQTT_PROTO_V5,
+                properties = #{
+                    'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                    'Authentication-Data' => ClientFirstMessage
+                }
+            },
+            TCConfig
+        )
     ),
 
     ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
-t_authenticate_bad_password(_Config) ->
+t_authenticate_bad_password() ->
+    [{matrix, true}].
+t_authenticate_bad_password(matrix) ->
+    [[?global], [?ns]];
+t_authenticate_bad_password(TCConfig) ->
     Algorithm = sha512,
     Username = <<"u">>,
     Password = <<"p">>,
 
-    init_auth(Username, Password, Algorithm),
+    init_auth(Username, Password, Algorithm, TCConfig),
 
     {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
     ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
-        #mqtt_packet_connect{
-            proto_ver = ?MQTT_PROTO_V5,
-            properties = #{
-                'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                'Authentication-Data' => ClientFirstMessage
-            }
-        }
+        maybe_add_ns_connect_packet(
+            #mqtt_packet_connect{
+                proto_ver = ?MQTT_PROTO_V5,
+                properties = #{
+                    'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                    'Authentication-Data' => ClientFirstMessage
+                }
+            },
+            TCConfig
+        )
     ),
 
     ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
@@ -244,74 +322,118 @@ t_authenticate_bad_password(_Config) ->
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
-t_destroy(_) ->
+t_destroy() ->
+    [{matrix, true}].
+t_destroy(matrix) ->
+    [[?global], [?ns]];
+t_destroy(TCConfig) ->
+    Namespace = ns(TCConfig),
     Config = config(),
     OtherId = list_to_binary([<<"id-other">>]),
     {ok, State0} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
     {ok, StateOther} = emqx_authn_scram_mnesia:create(OtherId, Config),
 
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
+    User2 = add_ns(#{user_id => <<"u">>, password => <<"p">>}, ?OTHER_NS),
 
     {ok, _} = emqx_authn_scram_mnesia:add_user(User, State0),
+    {ok, _} = emqx_authn_scram_mnesia:add_user(User2, State0),
     {ok, _} = emqx_authn_scram_mnesia:add_user(User, StateOther),
+    {ok, _} = emqx_authn_scram_mnesia:add_user(User2, StateOther),
 
-    {ok, _} = emqx_authn_scram_mnesia:lookup_user(<<"u">>, State0),
-    {ok, _} = emqx_authn_scram_mnesia:lookup_user(<<"u">>, StateOther),
+    {ok, _} = lookup_user(Namespace, <<"u">>, State0),
+    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, State0),
+    {ok, _} = lookup_user(Namespace, <<"u">>, StateOther),
+    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, StateOther),
 
     ok = emqx_authn_scram_mnesia:destroy(State0),
 
     {ok, State1} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
-    {error, not_found} = emqx_authn_scram_mnesia:lookup_user(<<"u">>, State1),
-    {ok, _} = emqx_authn_scram_mnesia:lookup_user(<<"u">>, StateOther).
+    {error, not_found} = lookup_user(Namespace, <<"u">>, State1),
+    {error, not_found} = lookup_user(?OTHER_NS, <<"u">>, State1),
+    {ok, _} = lookup_user(Namespace, <<"u">>, StateOther),
+    {ok, _} = lookup_user(?OTHER_NS, <<"u">>, StateOther),
 
-t_add_user(_) ->
+    ok.
+
+t_add_user() ->
+    [{matrix, true}].
+t_add_user(matrix) ->
+    [[?global], [?ns]];
+t_add_user(TCConfig) ->
     Config = config(),
     {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
 
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_scram_mnesia:add_user(User, State),
-    {error, already_exist} = emqx_authn_scram_mnesia:add_user(User, State).
+    {error, already_exist} = emqx_authn_scram_mnesia:add_user(User, State),
 
-t_delete_user(_) ->
+    OtherUser = add_ns(User, ?OTHER_NS),
+    {ok, _} = emqx_authn_scram_mnesia:add_user(OtherUser, State),
+
+    ok.
+
+t_delete_user() ->
+    [{matrix, true}].
+t_delete_user(matrix) ->
+    [[?global], [?ns]];
+t_delete_user(TCConfig) ->
+    Namespace = ns(TCConfig),
     Config = config(),
     {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
 
-    {error, not_found} = emqx_authn_scram_mnesia:delete_user(<<"u">>, State),
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    {error, not_found} = delete_user(Namespace, <<"u">>, State),
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_scram_mnesia:add_user(User, State),
 
-    ok = emqx_authn_scram_mnesia:delete_user(<<"u">>, State),
-    {error, not_found} = emqx_authn_scram_mnesia:delete_user(<<"u">>, State).
+    {error, not_found} = delete_user(?OTHER_NS, <<"u">>, State),
+    ok = delete_user(Namespace, <<"u">>, State),
+    {error, not_found} = delete_user(Namespace, <<"u">>, State).
 
-t_update_user(_) ->
+t_update_user() ->
+    [{matrix, true}].
+t_update_user(matrix) ->
+    [[?global], [?ns]];
+t_update_user(TCConfig) ->
+    Namespace = ns(TCConfig),
     Config = config(),
     {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
 
-    User = #{user_id => <<"u">>, password => <<"p">>},
+    User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_scram_mnesia:add_user(User, State),
-    {ok, #{is_superuser := false}} = emqx_authn_scram_mnesia:lookup_user(<<"u">>, State),
+    {ok, #{is_superuser := false}} = lookup_user(Namespace, <<"u">>, State),
+
+    {error, not_found} = update_user(?OTHER_NS, <<"u">>, #{password => <<"p1">>}, State),
+    {error, not_found} = update_user(Namespace, <<"u1">>, #{password => <<"p1">>}, State),
 
     {ok, #{
         user_id := <<"u">>,
         is_superuser := true
-    }} = emqx_authn_scram_mnesia:update_user(
+    }} = update_user(
+        Namespace,
         <<"u">>,
         #{password => <<"p1">>, is_superuser => true},
         State
     ),
 
-    {ok, #{is_superuser := true}} = emqx_authn_scram_mnesia:lookup_user(<<"u">>, State).
+    {ok, #{is_superuser := true}} = lookup_user(Namespace, <<"u">>, State).
 
-t_update_user_keys(_Config) ->
+t_update_user_keys() ->
+    [{matrix, true}].
+t_update_user_keys(matrix) ->
+    [[?global], [?ns]];
+t_update_user_keys(TCConfig) ->
+    Namespace = ns(TCConfig),
     Algorithm = sha512,
     Username = <<"u">>,
     Password = <<"p">>,
 
-    init_auth(Username, <<"badpass">>, Algorithm),
+    init_auth(Username, <<"badpass">>, Algorithm, TCConfig),
 
     {ok, [#{state := State}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
 
-    emqx_authn_scram_mnesia:update_user(
+    update_user(
+        Namespace,
         Username,
         #{password => Password},
         State
@@ -324,13 +446,16 @@ t_update_user_keys(_Config) ->
     ClientFirstMessage = sasl_auth_scram:client_first_message(Username),
 
     ConnectPacket = ?CONNECT_PACKET(
-        #mqtt_packet_connect{
-            proto_ver = ?MQTT_PROTO_V5,
-            properties = #{
-                'Authentication-Method' => <<"SCRAM-SHA-512">>,
-                'Authentication-Data' => ClientFirstMessage
-            }
-        }
+        maybe_add_ns_connect_packet(
+            #mqtt_packet_connect{
+                proto_ver = ?MQTT_PROTO_V5,
+                properties = #{
+                    'Authentication-Method' => <<"SCRAM-SHA-512">>,
+                    'Authentication-Data' => ClientFirstMessage
+                }
+            },
+            TCConfig
+        )
     ),
 
     ok = emqx_mqtt_test_client:send(Pid, ConnectPacket),
@@ -370,33 +495,48 @@ t_update_user_keys(_Config) ->
         ServerFinalMessage, ClientCache#{algorithm => Algorithm}
     ).
 
-t_list_users(_) ->
+t_list_users() ->
+    [{matrix, true}].
+t_list_users(matrix) ->
+    [[?global], [?ns]];
+t_list_users(TCConfig) ->
     Config = config(),
     {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
 
-    Users = [
+    Users0 = [
         #{user_id => <<"u1">>, password => <<"p">>},
         #{user_id => <<"u2">>, password => <<"p">>},
         #{user_id => <<"u3">>, password => <<"p">>}
     ],
+    Users = lists:map(fun(U) -> maybe_add_ns(U, TCConfig) end, Users0),
 
     lists:foreach(
         fun(U) -> {ok, _} = emqx_authn_scram_mnesia:add_user(U, State) end,
         Users
     ),
+    OtherUser = #{user_id => <<"u4">>, password => <<"p">>},
+    {ok, _} = emqx_authn_scram_mnesia:add_user(add_ns(OtherUser, ?OTHER_NS), State),
+
+    Namespace = ns(TCConfig),
+    NSQS = fun
+        (QS) when Namespace == ?global_ns ->
+            QS;
+        (QS) ->
+            QS#{<<"ns">> => Namespace}
+    end,
 
     #{
         data := [?USER_MAP, ?USER_MAP],
         meta := #{page := 1, limit := 2, count := 3, hasnext := true}
     } = emqx_authn_scram_mnesia:list_users(
-        #{<<"page">> => 1, <<"limit">> => 2},
+        NSQS(#{<<"page">> => 1, <<"limit">> => 2}),
         State
     ),
     #{
         data := [?USER_MAP],
         meta := #{page := 2, limit := 2, count := 3, hasnext := false}
     } = emqx_authn_scram_mnesia:list_users(
-        #{<<"page">> => 2, <<"limit">> => 2},
+        NSQS(#{<<"page">> => 2, <<"limit">> => 2}),
         State
     ),
     #{
@@ -408,13 +548,26 @@ t_list_users(_) ->
         ],
         meta := #{page := 1, limit := 3, hasnext := false}
     } = emqx_authn_scram_mnesia:list_users(
-        #{
+        NSQS(#{
             <<"page">> => 1,
             <<"limit">> => 3,
             <<"like_user_id">> => <<"1">>
+        }),
+        State
+    ),
+
+    #{
+        data := [#{is_superuser := false, user_id := <<"u4">>}],
+        meta := #{page := 1, limit := 20, hasnext := false}
+    } = emqx_authn_scram_mnesia:list_users(
+        #{
+            <<"page">> => 1,
+            <<"limit">> => 20,
+            <<"ns">> => ?OTHER_NS
         },
         State
-    ).
+    ),
+    ok.
 
 t_is_superuser(_Config) ->
     ok = test_is_superuser(#{is_superuser => false}, false),
@@ -495,7 +648,7 @@ raw_config(Algorithm) ->
         <<"iteration_count">> => <<"4096">>
     }.
 
-init_auth(Username, Password, Algorithm) ->
+init_auth(Username, Password, Algorithm, TCConfig) ->
     Config = raw_config(Algorithm),
 
     {ok, _} = emqx:update_config(
@@ -506,7 +659,7 @@ init_auth(Username, Password, Algorithm) ->
     {ok, [#{state := State}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
 
     emqx_authn_scram_mnesia:add_user(
-        #{user_id => Username, password => Password},
+        maybe_add_ns(#{user_id => Username, password => Password}, TCConfig),
         State
     ).
 
@@ -518,3 +671,48 @@ receive_packet() ->
     after 1000 ->
         ct:fail("Deliver timeout")
     end.
+
+lookup_user(Namespace, UserId, State) ->
+    emqx_authn_scram_mnesia:lookup_user(Namespace, UserId, State).
+
+update_user(Namespace, UserId, UserInfo, State) ->
+    emqx_authn_scram_mnesia:update_user(Namespace, UserId, UserInfo, State).
+
+delete_user(Namespace, UserId, State) ->
+    emqx_authn_scram_mnesia:delete_user(Namespace, UserId, State).
+
+maybe_add_ns(UserInfo, TCConfig) ->
+    case ns(TCConfig) of
+        ?global_ns ->
+            UserInfo;
+        Namespace when is_binary(Namespace) ->
+            add_ns(UserInfo, Namespace)
+    end.
+
+add_ns(UserInfo, Namespace) when is_binary(Namespace) ->
+    UserInfo#{namespace => Namespace}.
+
+maybe_add_ns_clientinfo(ClientInfo, TCConfig) ->
+    case ns(TCConfig) of
+        ?global_ns ->
+            ClientInfo;
+        Namespace when is_binary(Namespace) ->
+            add_ns_clientinfo(ClientInfo, Namespace)
+    end.
+
+maybe_add_ns_connect_packet(ConnectPacket, TCConfig) ->
+    case ns(TCConfig) of
+        ?global_ns ->
+            ConnectPacket;
+        Namespace when is_binary(Namespace) ->
+            add_ns_connect_packet(ConnectPacket, Namespace)
+    end.
+
+add_ns_connect_packet(ConnectPacket, Namespace) ->
+    ConnectPacket#mqtt_packet_connect{username = Namespace}.
+
+add_ns_clientinfo(ClientInfo, Namespace) when is_binary(Namespace) ->
+    ClientInfo#{client_attrs => #{?CLIENT_ATTR_NAME_TNS => Namespace}}.
+
+ns(TCConfig) ->
+    ?config(ns, TCConfig).
