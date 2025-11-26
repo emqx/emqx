@@ -77,7 +77,8 @@
     delete_rules/2,
     list_clientid_rules/1,
     list_username_rules/1,
-    record_count/1
+    record_count/1,
+    record_count_per_namespace/0
 ]).
 
 -export([backup_tables/0]).
@@ -267,6 +268,16 @@ record_count(Namespace) when is_binary(Namespace) ->
         }
     ],
     ets:select_count(?ACL_NS_TABLE, MS).
+
+-spec record_count_per_namespace() -> #{emqx_config:namespace() => non_neg_integer()}.
+record_count_per_namespace() ->
+    ets:foldl(
+        fun(#?ACL_NS_TABLE{who = ?WHO_NS(Namespace, _)}, Acc) ->
+            maps:update_with(Namespace, fun(N) -> N + 1 end, 1, Acc)
+        end,
+        #{},
+        ?ACL_NS_TABLE
+    ).
 
 %%--------------------------------------------------------------------
 %% Internal functions

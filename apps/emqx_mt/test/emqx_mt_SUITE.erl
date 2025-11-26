@@ -417,6 +417,7 @@ assert_namespaced_metrics_channel_implicit(Namespace, ClientId, TCConfig, Client
 mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
     AppSpecs = [
         {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
+        emqx_auth_mnesia,
         emqx_mt,
         emqx_prometheus,
         emqx_management
@@ -1166,6 +1167,18 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
     emqtt:publish(C1, Topic, <<"hey!">>, [{qos, 1}]),
     ?assertReceive({publish, _}),
 
+    AuthzRule = #{
+        <<"permission">> => <<"allow">>,
+        <<"action">> => <<"publish">>,
+        <<"topic">> => <<"t">>,
+        <<"listener_re">> => <<"^tcp:">>
+    },
+    ?ON(N, begin
+        emqx_authz_mnesia:store_rules(Namespace, all, [AuthzRule]),
+        emqx_authz_mnesia:store_rules(Namespace, {username, <<"user1">>}, [AuthzRule]),
+        emqx_authz_mnesia:store_rules(Namespace, {clientid, <<"client1">>}, [AuthzRule])
+    end),
+
     %% Check prometheus
     NsLabel0A = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace},
     NsLabel0B = #{<<"node">> => atom_to_binary(N), <<"namespace">> => Namespace2},
@@ -1177,7 +1190,8 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
         <<"emqx_messages_sent">>,
         <<"emqx_packets_received">>,
         <<"emqx_packets_sent">>,
-        <<"emqx_sessions_count">>
+        <<"emqx_sessions_count">>,
+        <<"emqx_authz_builtin_record_count">>
     ],
     ?assertMatch(
         #{
@@ -1185,7 +1199,9 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
             <<"emqx_messages_sent">> := #{NsLabel0A := 1, NsLabel0B := 0},
             <<"emqx_packets_received">> := #{NsLabel0A := N1, NsLabel0B := 0},
             <<"emqx_packets_sent">> := #{NsLabel0A := N2, NsLabel0B := 0},
-            <<"emqx_sessions_count">> := #{NsLabel0A := 1, NsLabel0B := 0}
+            <<"emqx_sessions_count">> := #{NsLabel0A := 1, NsLabel0B := 0},
+            %% Namespaces without any rules at all don't show up
+            <<"emqx_authz_builtin_record_count">> := #{NsLabel0A := 3}
         } when N1 > 0 andalso N2 > 0,
         Metrics0,
         #{sample => maps:with(SampleMetrics, Metrics0)}
@@ -1199,11 +1215,13 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
             <<"emqx_messages_sent">> := #{NsLabel0A := 1},
             <<"emqx_packets_received">> := #{NsLabel0A := N1},
             <<"emqx_packets_sent">> := #{NsLabel0A := N2},
-            <<"emqx_sessions_count">> := #{NsLabel0A := 1} = M2
+            <<"emqx_sessions_count">> := #{NsLabel0A := 1} = M2,
+            <<"emqx_authz_builtin_record_count">> := #{NsLabel0A := 3} = M3
         } when
             N1 > 0 andalso N2 > 0 andalso
                 not is_map_key(NsLabel0B, M1) andalso
-                not is_map_key(NsLabel0B, M2),
+                not is_map_key(NsLabel0B, M2) andalso
+                not is_map_key(NsLabel0B, M3),
         Metrics1,
         #{sample => maps:with(SampleMetrics, Metrics1)}
     ),
@@ -1219,7 +1237,9 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
             <<"emqx_messages_sent">> := #{NsLabel1A := 1, NsLabel1B := 0},
             <<"emqx_packets_received">> := #{NsLabel1A := N1, NsLabel1B := 0},
             <<"emqx_packets_sent">> := #{NsLabel1A := N2, NsLabel1B := 0},
-            <<"emqx_sessions_count">> := #{NsLabel1A := 1, NsLabel1B := 0}
+            <<"emqx_sessions_count">> := #{NsLabel1A := 1, NsLabel1B := 0},
+            %% Namespaces without any rules at all don't show up
+            <<"emqx_authz_builtin_record_count">> := #{NsLabel1A := 3}
         } when N1 > 0 andalso N2 > 0,
         Metrics2,
         #{sample => maps:with(SampleMetrics, Metrics2)}
