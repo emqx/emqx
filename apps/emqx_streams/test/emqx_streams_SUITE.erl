@@ -270,6 +270,76 @@ t_backpressure(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that the stream is eventually found even if it is not present when
+%% subscribing
+t_find_stream(_Config) ->
+    emqx_config:put([streams, check_stream_status_interval], 100),
+
+    %% Connect a client and subscribe to a non-existent queue
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"0/earliest/t/#">>, <<"1/earliest/t/#">>]),
+
+    %% Create the stream
+    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+
+    %% Verify that the message is received
+    {ok, _Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify that if the stream is recreated, the subscribers are eventually
+%% resubscribe to the new stream.
+t_stream_recreate(_Config) ->
+    emqx_config:put([streams, check_stream_status_interval], 100),
+
+    %% Create the stream
+    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"t/">>, payload_prefix => <<"payload-1-">>
+    }),
+
+    %% Subscribe to the stream
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/t/#">>),
+
+    %% Verify that the message is received
+    {ok, [#{payload := <<"payload-1-", _/binary>>}]} = emqx_streams_test_utils:emqtt_drain(
+        _MinMsg0 = 1, _Timeout0 = 1000
+    ),
+
+    %% Recreate the stream
+    emqx_streams_registry:delete(<<"t/#">>),
+    ?retry(5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t/#">>))),
+    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+    emqx_streams_test_utils:populate_lastvalue(1, #{
+        topic_prefix => <<"t/">>, payload_prefix => <<"payload-2-">>
+    }),
+
+    %% Verify that the messages are received from the new stream
+    {ok, [#{payload := <<"payload-2-", _/binary>>}]} = emqx_streams_test_utils:emqtt_drain(
+        _MinMsg1 = 1, _Timeout1 = 1000
+    ),
+
+    %% Recreate the stream again, but with a pause > check_stream_status_interval
+    emqx_streams_registry:delete(<<"t/#">>),
+    ?retry(5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t/#">>))),
+    ct:sleep(emqx_config:get([streams, check_stream_status_interval]) * 3),
+    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"t/">>, payload_prefix => <<"payload-3-">>
+    }),
+
+    %% Verify that the message are received from the new stream
+    {ok, [#{payload := <<"payload-3-", _/binary>>}]} = emqx_streams_test_utils:emqtt_drain(
+        _MinMsg3 = 1, _Timeout3 = 1000
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

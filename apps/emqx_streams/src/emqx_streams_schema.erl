@@ -49,6 +49,13 @@ fields(?SCHEMA_ROOT) ->
                 required => true,
                 desc => ?DESC(regular_stream_retention_period)
             })},
+        {check_stream_status_interval,
+            mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"10s">>,
+                required => true,
+                desc => ?DESC(check_stream_status_interval),
+                importance => ?IMPORTANCE_HIDDEN
+            })},
         {auto_create,
             mk(ref(auto_create), #{
                 required => true,

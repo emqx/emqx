@@ -231,7 +231,11 @@ reset_config() ->
 default_streams_config() ->
     #{
         <<"max_stream_count">> => 1000,
-        <<"enable">> => true
+        <<"enable">> => true,
+        <<"auto_create">> => #{
+            <<"regular">> => false,
+            <<"lastvalue">> => false
+        }
     }.
 
 default_mq_config() ->
