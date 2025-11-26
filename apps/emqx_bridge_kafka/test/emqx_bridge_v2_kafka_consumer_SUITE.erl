@@ -581,26 +581,16 @@ t_pretty_api_dry_run_reason(Config) ->
                     ),
                     ?assertMatch({400, _}, Res),
                     {400, #{<<"message">> := Msg}} = Res,
-                    LeaderUnavailable =
-                        match ==
-                            re:run(
-                                Msg,
-                                <<
-                                    "Partition leader unavailable; "
-                                    "client=.+; topic=.+; partition=.+; disconnected=.+; total=.+"
-                                >>,
-                                [{capture, none}]
-                            ),
-                    %% In CI, if this tests runs soon enough, Kafka may not be stable yet, and
-                    %% this failure might occur.
-                    CoordinatorFailure =
-                        match ==
-                            re:run(
-                                Msg,
-                                <<"shutdown,coordinator_failure">>,
-                                [{capture, none}]
-                            ),
-                    ?assert(LeaderUnavailable or CoordinatorFailure, #{message => Msg})
+                    case
+                        re:run(Msg, <<"Failed to connect partition 0; topic=.+; error=.+">>, [
+                            {capture, none}
+                        ])
+                    of
+                        match ->
+                            ok;
+                        nomatch ->
+                            error({unexpected_error_message, Msg})
+                    end
                 end
             ),
             %% Wait for recovery; avoids affecting other test cases due to Kafka restabilizing...
