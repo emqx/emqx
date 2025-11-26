@@ -105,7 +105,7 @@ schema("/certs/global/name/:name") ->
         delete => #{
             tags => ?TAGS,
             description => ?DESC("global_bundle_delete"),
-            parameters => [param_path_bundle_name()],
+            parameters => [param_path_bundle_name(), param_qs_file_kind()],
             responses =>
                 #{
                     204 => <<"">>,
@@ -164,7 +164,7 @@ schema("/certs/ns/:namespace/name/:name") ->
         delete => #{
             tags => ?TAGS,
             description => ?DESC("ns_bundle_delete"),
-            parameters => [param_path_ns(), param_path_bundle_name()],
+            parameters => [param_path_ns(), param_path_bundle_name(), param_qs_file_kind()],
             responses =>
                 #{
                     204 => <<"">>,
@@ -215,6 +215,23 @@ param_path_bundle_name() ->
             }
         )}.
 
+param_qs_file_kind() ->
+    {kind,
+        mk(
+            hoconsc:enum([
+                ?FILE_KIND_KEY,
+                ?FILE_KIND_CHAIN,
+                ?FILE_KIND_CA,
+                ?FILE_KIND_ACC_KEY,
+                ?FILE_KIND_KEY_PASSWORD
+            ]),
+            #{
+                in => query,
+                required => false,
+                desc => ?DESC("param_qs_file_kind")
+            }
+        )}.
+
 upload_files_request_body() ->
     hoconsc:mk(ref(files_in), #{
         converter => fun upload_files_request_body_converter/2,
@@ -262,8 +279,14 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
 '/certs/global/name/:name'(post, #{bindings := #{name := BundleName}} = Req) ->
     #{body := Files} = Req,
     handle_upload_files(?global_ns, BundleName, Files);
-'/certs/global/name/:name'(delete, #{bindings := #{name := BundleName}} = _Req) ->
-    handle_delete_bundle(?global_ns, BundleName).
+'/certs/global/name/:name'(delete, #{bindings := #{name := BundleName}} = Req) ->
+    #{query_string := QueryParams} = Req,
+    case QueryParams of
+        #{<<"kind">> := Kind} ->
+            handle_delete_file(?global_ns, BundleName, Kind);
+        _ ->
+            handle_delete_bundle(?global_ns, BundleName)
+    end.
 
 '/certs/ns/:namespace/list'(get, #{bindings := #{namespace := Namespace}} = _Req) ->
     handle_list_bundles(Namespace).
@@ -276,8 +299,16 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
     #{body := Files} = Req,
     handle_upload_files(Namespace, BundleName, Files);
 '/certs/ns/:namespace/name/:name'(delete, Req) ->
-    #{bindings := #{namespace := Namespace, name := BundleName}} = Req,
-    handle_delete_bundle(Namespace, BundleName).
+    #{
+        bindings := #{namespace := Namespace, name := BundleName},
+        query_string := QueryParams
+    } = Req,
+    case QueryParams of
+        #{<<"kind">> := Kind} ->
+            handle_delete_file(Namespace, BundleName, Kind);
+        _ ->
+            handle_delete_bundle(Namespace, BundleName)
+    end.
 
 %%-------------------------------------------------------------------------------------------------
 %% Examples
@@ -334,6 +365,14 @@ handle_list_files(Namespace, BundleName) ->
 
 handle_delete_bundle(Namespace, BundleName) ->
     case emqx_managed_certs:delete_bundle(Namespace, BundleName) of
+        ok ->
+            ?NO_CONTENT;
+        {error, Errors} ->
+            ?INTERNAL_ERROR(Errors)
+    end.
+
+handle_delete_file(Namespace, BundleName, Kind) ->
+    case emqx_managed_certs:delete_managed_file(Namespace, BundleName, Kind) of
         ok ->
             ?NO_CONTENT;
         {error, Errors} ->

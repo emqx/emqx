@@ -10,14 +10,12 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
--define(BAD_REQUEST, 'BAD_REQUEST').
--define(NOT_FOUND, 'NOT_FOUND').
--define(ALREADY_EXISTS, 'ALREADY_EXISTS').
--define(INTERNAL_ERROR, 'INTERNAL_ERROR').
 -define(CONFIG, emqx_authn_config).
 
 -define(join(List), lists:join(", ", List)).
@@ -74,9 +72,9 @@
 -export([
     list_users/3,
     add_user/3,
-    delete_user/3,
-    find_user/3,
-    update_user/4,
+    delete_user/4,
+    find_user/4,
+    update_user/5,
     serialize_error/1,
     aggregate_metrics/1,
 
@@ -84,6 +82,9 @@
     param_auth_id/0,
     param_listener_id/0
 ]).
+
+%% minirest filter callback
+-export([filter/2]).
 
 -export([update_config/2]).
 
@@ -127,6 +128,7 @@ roots() ->
 
 fields(request_user_create) ->
     [
+        {namespace, mk(binary(), #{required => false})},
         {user_id, mk(binary(), #{required => true})}
         | fields(request_user_update)
     ];
@@ -137,6 +139,7 @@ fields(request_user_update) ->
     ];
 fields(response_user) ->
     [
+        {namespace, mk(binary(), #{required => false})},
         {user_id, mk(binary(), #{required => true})},
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
@@ -369,10 +372,11 @@ schema("/listeners/:listener_id/authentication/:id/position/:position") ->
 schema("/authentication/:id/users") ->
     #{
         'operationId' => authenticator_users,
+        filter => fun ?MODULE:filter/2,
         post => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_post),
-            parameters => [param_auth_id()],
+            parameters => [param_auth_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_create),
                 request_user_create_examples()
@@ -391,6 +395,7 @@ schema("/authentication/:id/users") ->
             description => ?DESC(authentication_id_users_get),
             parameters => [
                 param_auth_id(),
+                ns_qs_param(),
                 ref(emqx_dashboard_swagger, page),
                 ref(emqx_dashboard_swagger, limit),
                 {like_user_id,
@@ -464,10 +469,11 @@ schema("/listeners/:listener_id/authentication/:id/users") ->
 schema("/authentication/:id/users/:user_id") ->
     #{
         'operationId' => authenticator_user,
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_user_id_get),
-            parameters => [param_auth_id(), param_user_id()],
+            parameters => [param_auth_id(), param_user_id(), ns_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     ref(response_user),
@@ -479,7 +485,7 @@ schema("/authentication/:id/users/:user_id") ->
         put => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_user_id_put),
-            parameters => [param_auth_id(), param_user_id()],
+            parameters => [param_auth_id(), param_user_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_update),
                 request_user_update_examples()
@@ -496,7 +502,7 @@ schema("/authentication/:id/users/:user_id") ->
         delete => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_user_id_delete),
-            parameters => [param_auth_id(), param_user_id()],
+            parameters => [param_auth_id(), param_user_id(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("user_deleted"),
                 404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
@@ -659,6 +665,9 @@ param_user_id() ->
             desc => ?DESC(param_user_id)
         })
     }.
+
+ns_qs_param() ->
+    {ns, mk(binary(), #{in => query, required => false})}.
 
 authenticators(post, #{body := Config}) ->
     create_authenticator([authentication], ?GLOBAL, Config);
@@ -838,23 +847,37 @@ listener_authenticator_position(
         end
     ).
 
-authenticator_users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
-    add_user(?GLOBAL, AuthenticatorID, UserInfo);
+authenticator_users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case UserInfo of
+        #{<<"namespace">> := UserNamespace} when
+            ActorNamespace /= ?global_ns andalso UserNamespace /= ActorNamespace
+        ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>);
+        _ ->
+            add_user(?GLOBAL, AuthenticatorID, UserInfo)
+    end;
 authenticator_users(get, #{bindings := #{id := AuthenticatorID}, query_string := QueryString}) ->
     list_users(?GLOBAL, AuthenticatorID, QueryString).
 
-authenticator_user(put, #{
-    bindings := #{
-        id := AuthenticatorID,
-        user_id := UserID
-    },
-    body := UserInfo
-}) ->
-    update_user(?GLOBAL, AuthenticatorID, UserID, UserInfo);
-authenticator_user(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    find_user(?GLOBAL, AuthenticatorID, UserID);
-authenticator_user(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    delete_user(?GLOBAL, AuthenticatorID, UserID).
+authenticator_user(
+    put,
+    #{
+        bindings := #{
+            id := AuthenticatorID,
+            user_id := UserID
+        },
+        body := UserInfo
+    } = Req
+) ->
+    Namespace = get_namespace(Req),
+    update_user(?GLOBAL, Namespace, AuthenticatorID, UserID, UserInfo);
+authenticator_user(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}} = Req) ->
+    Namespace = get_namespace(Req),
+    find_user(?GLOBAL, Namespace, AuthenticatorID, UserID);
+authenticator_user(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}} = Req) ->
+    Namespace = get_namespace(Req),
+    delete_user(?GLOBAL, Namespace, AuthenticatorID, UserID).
 
 listener_authenticator_users(post, #{
     bindings := #{
@@ -883,44 +906,56 @@ listener_authenticator_users(get, #{
         end
     ).
 
-listener_authenticator_user(put, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID,
-        user_id := UserID
-    },
-    body := UserInfo
-}) ->
+listener_authenticator_user(
+    put,
+    #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID,
+            user_id := UserID
+        },
+        body := UserInfo
+    } = Req
+) ->
+    Namespace = get_namespace(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            update_user(ChainName, AuthenticatorID, UserID, UserInfo)
+            update_user(ChainName, Namespace, AuthenticatorID, UserID, UserInfo)
         end
     );
-listener_authenticator_user(get, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID,
-        user_id := UserID
-    }
-}) ->
+listener_authenticator_user(
+    get,
+    #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID,
+            user_id := UserID
+        }
+    } = Req
+) ->
+    Namespace = get_namespace(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            find_user(ChainName, AuthenticatorID, UserID)
+            find_user(ChainName, Namespace, AuthenticatorID, UserID)
         end
     );
-listener_authenticator_user(delete, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID,
-        user_id := UserID
-    }
-}) ->
+listener_authenticator_user(
+    delete,
+    #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID,
+            user_id := UserID
+        }
+    } = Req
+) ->
+    Namespace = get_namespace(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            delete_user(ChainName, AuthenticatorID, UserID)
+            delete_user(ChainName, Namespace, AuthenticatorID, UserID)
         end
     ).
 
@@ -1208,12 +1243,14 @@ add_user(
     AuthenticatorID,
     #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo
 ) ->
+    Namespace = maps:get(<<"namespace">>, UserInfo, ?global_ns),
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
     case
         emqx_authn_chains:add_user(
             ChainName,
             AuthenticatorID,
             #{
+                namespace => Namespace,
                 user_id => UserID,
                 password => Password,
                 is_superuser => IsSuperuser
@@ -1221,7 +1258,7 @@ add_user(
         )
     of
         {ok, User} ->
-            {201, User};
+            {201, user_out(User)};
         {error, Reason} ->
             serialize_error({user_error, Reason})
     end;
@@ -1230,30 +1267,34 @@ add_user(_, _, #{<<"user_id">> := _}) ->
 add_user(_, _, _) ->
     serialize_error({missing_parameter, user_id}).
 
-update_user(ChainName, AuthenticatorID, UserID, UserInfo0) ->
+update_user(ChainName, Namespace, AuthenticatorID, UserID, UserInfo0) ->
     case maps:with([<<"password">>, <<"is_superuser">>], UserInfo0) =:= #{} of
         true ->
             serialize_error({missing_parameter, password});
         false ->
             UserInfo = emqx_utils_maps:safe_atom_key_map(UserInfo0),
-            case emqx_authn_chains:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
+            case
+                emqx_authn_chains:update_user(
+                    ChainName, AuthenticatorID, Namespace, UserID, UserInfo
+                )
+            of
                 {ok, User} ->
-                    {200, User};
+                    {200, user_out(User)};
                 {error, Reason} ->
                     serialize_error({user_error, Reason})
             end
     end.
 
-find_user(ChainName, AuthenticatorID, UserID) ->
-    case emqx_authn_chains:lookup_user(ChainName, AuthenticatorID, UserID) of
+find_user(ChainName, Namespace, AuthenticatorID, UserID) ->
+    case emqx_authn_chains:lookup_user(ChainName, AuthenticatorID, Namespace, UserID) of
         {ok, User} ->
-            {200, User};
+            {200, user_out(User)};
         {error, Reason} ->
             serialize_error({user_error, Reason})
     end.
 
-delete_user(ChainName, AuthenticatorID, UserID) ->
-    case emqx_authn_chains:delete_user(ChainName, AuthenticatorID, UserID) of
+delete_user(ChainName, Namespace, AuthenticatorID, UserID) ->
+    case emqx_authn_chains:delete_user(ChainName, AuthenticatorID, Namespace, UserID) of
         ok ->
             {204};
         {error, Reason} ->
@@ -1692,3 +1733,47 @@ authn_settings_example() ->
 
 authn_cache_status_example() ->
     emqx_auth_cache_schema:metrics_example().
+
+user_out(#{namespace := ?global_ns} = User) ->
+    User#{namespace := null};
+user_out(User) ->
+    User.
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
+filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        validate_managed_namespace(Req1, Meta)
+    end.

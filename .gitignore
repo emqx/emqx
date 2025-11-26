@@ -25,6 +25,7 @@ rebar3.crashdump
 .DS_Store
 # emqx_ds_replication_layer_meta:ensure_site/0
 data
+!apps/emqx_auth/test/data
 etc/gen.emqx.conf
 compile_commands.json
 cuttlefish
