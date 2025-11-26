@@ -234,6 +234,11 @@
     ?TIMER_COMMIT := timer_state()
 }.
 
+-type host_state() :: #{
+    s := emqx_persistent_session_ds_state:t(),
+    buffer := emqx_persistent_session_ds_buffer:t()
+}.
+
 -define(IS_REPLAY_ONGOING(REPLAY), is_list(REPLAY)).
 
 -record(req_sync, {
@@ -890,11 +895,18 @@ on_enqueue(
             Session0,
             ClientInfo
         ),
-    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-        S1, SharedSubS0, UnblockedStreams ++ CompletedStreams
-    ),
+    %% {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
+    %%     S1, SharedSubS0, UnblockedStreams ++ CompletedStreams
+    %% ),
+    SharedSubS = SharedSubS0,
+    S = S1,
     Session#{s := S, shared_sub_s := SharedSubS}.
 
+-doc """
+Side effects:
+- Drain buffers of newly unblocked streams to inflight
+- Notify `emqx_ds_client` about completion of completed streams.
+""".
 -spec handle_unlocked_streams(
     {Streams, Streams, emqx_persistent_session_ds_streams:t()},
     session(),
@@ -954,7 +966,8 @@ terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWil
 %% DS client callbacks
 %%--------------------------------------------------------------------
 
--spec get_current_generation(subscription_id(), emqx_ds:shard(), session()) -> emqx_ds:generation().
+-spec get_current_generation(subscription_id(), emqx_ds:shard(), host_state()) ->
+    emqx_ds:generation().
 get_current_generation(SubId, Shard, #{s := S}) ->
     case emqx_persistent_session_ds_state:get_rank({SubId, Shard}, S) of
         undefined ->
@@ -963,8 +976,8 @@ get_current_generation(SubId, Shard, #{s := S}) ->
             N + 1
     end.
 
--spec on_advance_generation(subscription_id(), emqx_ds:shard(), emqx_ds:generation(), session()) ->
-    session().
+-spec on_advance_generation(subscription_id(), emqx_ds:shard(), emqx_ds:generation(), host_state()) ->
+    host_state().
 on_advance_generation(SubId, Shard, CurrentGen, Session = #{s := S0}) ->
     FullyReplayedGen = CurrentGen - 1,
     S1 = emqx_persistent_session_ds_state:put_rank({SubId, Shard}, FullyReplayedGen, S0),
@@ -983,7 +996,7 @@ on_advance_generation(SubId, Shard, CurrentGen, Session = #{s := S0}) ->
     ),
     Session#{s := S}.
 
--spec get_iterator(subscription_id(), emqx_ds:slab(), emqx_ds:stream(), session()) ->
+-spec get_iterator(subscription_id(), emqx_ds:slab(), emqx_ds:stream(), host_state()) ->
     {ok, end_of_stream}
     | {subscribe, emqx_ds:iterator()}
     | undefined.
@@ -998,9 +1011,9 @@ get_iterator(SubId, _Slab, Stream, #{s := S}) ->
     end.
 
 -spec on_new_iterator(
-    subscription_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), session()
+    subscription_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), host_state()
 ) ->
-    {subscribe, session()}.
+    {subscribe, host_state()}.
 on_new_iterator(SubId, {Shard, Gen}, Stream, Iterator, Session = #{s := S0}) ->
     case emqx_persistent_session_ds_subs:find_by_subid(SubId, S0) of
         {_TopicFilter, Subscription} ->
@@ -1026,9 +1039,9 @@ on_new_iterator(SubId, {Shard, Gen}, Stream, Iterator, Session = #{s := S0}) ->
     end.
 
 -spec on_unrecoverable_error(
-    subscription_id(), emqx_ds:slab(), emqx_ds:stream(), _Error, session()
+    subscription_id(), emqx_ds:slab(), emqx_ds:stream(), _Error, host_state()
 ) ->
-    session().
+    host_state().
 on_unrecoverable_error(SubId, Slab, Stream, Error, Session = #{s := S0}) ->
     ?SLOG(warning, #{
         msg => "sessds_unrecoverable_error",
@@ -1048,7 +1061,7 @@ on_unrecoverable_error(SubId, Slab, Stream, Error, Session = #{s := S0}) ->
             Session
     end.
 
--spec list_known_streams(subscription_id(), session()) -> [{emqx_ds:slab(), emqx_ds:stream()}].
+-spec list_known_streams(subscription_id(), host_state()) -> [{emqx_ds:slab(), emqx_ds:stream()}].
 list_known_streams(SubId, #{s := S}) ->
     emqx_persistent_session_ds_state:fold_streams(
         SubId,
@@ -1059,8 +1072,8 @@ list_known_streams(SubId, #{s := S}) ->
         S
     ).
 
--spec on_subscription_down(subscription_id(), emqx_ds:slab(), emqx_ds:stream(), session()) ->
-    session().
+-spec on_subscription_down(subscription_id(), emqx_ds:slab(), emqx_ds:stream(), host_state()) ->
+    host_state().
 on_subscription_down(SubId, _Slab, Stream, Session = #{buffer := Buf0}) ->
     Key = {SubId, Stream},
     Buf = emqx_persistent_session_ds_buffer:drop_stream(Key, Buf0),
@@ -1423,6 +1436,7 @@ do_drain_inflight(Inflight0, S0, Acc, DSSubacks0) ->
             DSSubacks = maps:update_with(
                 SubHandle,
                 fun(Old) -> max(Old, SeqNo) end,
+                SeqNo,
                 DSSubacks0
             ),
             do_drain_inflight(Inflight, S0, Acc, DSSubacks);

@@ -316,7 +316,7 @@ on_seqno_release(?QOS_2, ReleasedSeqNo, S, Blocks = #s{bq2 = BQ20}) ->
     ret().
 on_stream_unblock(Key, PrevState, #srs{unsubscribed = true}, Blocks) ->
     ?tp(?sessds_stream_state_trans, #{key => Key, to => u, from => PrevState, unsubcribed => true}),
-    {[], [Key], Blocks};
+    {[Key], [], Blocks};
 on_stream_unblock(
     Key,
     PrevState,
