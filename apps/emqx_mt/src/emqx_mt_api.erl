@@ -35,7 +35,8 @@
     '/mt/ns/:ns/config'/2,
     '/mt/ns/:ns/client_list'/2,
     '/mt/ns/:ns/client_count'/2,
-    '/mt/ns/:ns/kick_all_clients'/2
+    '/mt/ns/:ns/kick_all_clients'/2,
+    '/mt/ns/:ns/metrics'/2
 ]).
 
 %%-------------------------------------------------------------------------------------------------
@@ -43,6 +44,8 @@
 %%-------------------------------------------------------------------------------------------------
 
 -define(TAGS, [<<"Multi-tenancy">>]).
+
+-define(EMQX_BPAPI, emqx).
 
 %%-------------------------------------------------------------------------------------------------
 %% `minirest' and `minirest_trails' API
@@ -72,6 +75,7 @@ paths() ->
         "/mt/ns/:ns",
         "/mt/ns/:ns/config",
         "/mt/ns/:ns/kick_all_clients",
+        "/mt/ns/:ns/metrics",
         "/mt/bulk_import_configs",
         "/mt/bulk_export_ns_configs",
         "/mt/bulk_import_ns_configs",
@@ -231,6 +235,24 @@ schema("/mt/ns/:ns/kick_all_clients") ->
                 #{
                     202 => ?DESC("kick_process_started"),
                     409 => error_schema('CONFLICT', ?DESC("kick_process_underway")),
+                    404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
+                }
+        }
+    };
+schema("/mt/ns/:ns/metrics") ->
+    #{
+        'operationId' => '/mt/ns/:ns/metrics',
+        get => #{
+            tags => ?TAGS,
+            description => ?DESC("metrics"),
+            parameters => [param_path_ns()],
+            responses =>
+                #{
+                    200 =>
+                        emqx_dashboard_swagger:schema_with_examples(
+                            ref(metrics_out),
+                            example_metrics_out()
+                        ),
                     404 => error_schema('NOT_FOUND', ?DESC("namespace_not_found"))
                 }
         }
@@ -450,7 +472,9 @@ fields(ns_with_details_out) ->
     [
         {name, mk(binary(), #{})},
         {created_at, mk(integer(), #{})}
-    ].
+    ];
+fields(metrics_out) ->
+    [{metrics, mk(map(), #{})}].
 
 error_schema(Code, ?DESC(_) = MessageRef) ->
     emqx_dashboard_swagger:error_codes([Code], MessageRef).
@@ -526,6 +550,9 @@ error_schema(Code, ?DESC(_) = MessageRef) ->
 
 '/mt/ns/:ns/kick_all_clients'(post, #{bindings := #{ns := Ns}}) ->
     with_known_ns(Ns, fun() -> handle_kick_all_clients(Ns) end).
+
+'/mt/ns/:ns/metrics'(get, #{bindings := #{ns := Ns}}) ->
+    with_known_ns(Ns, fun() -> handle_get_metrics(Ns) end).
 
 '/mt/bulk_delete_ns'(delete, #{body := Params}) ->
     handle_bulk_delete_ns(Params).
@@ -647,6 +674,39 @@ handle_kick_all_clients(Ns) ->
         {error, already_started} ->
             ?CONFLICT(<<"Kick process already underway">>)
     end.
+
+handle_get_metrics(Ns) ->
+    Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?EMQX_BPAPI, 3),
+    Timeout = timer:seconds(5),
+    Results = emqx_proto_v3:get_metrics_cluster(Nodes, Ns, Timeout),
+    NodeResults = lists:zip(Nodes, Results),
+    NodeErrors = [Result || Result = {_Node, {NOk, _}} <- NodeResults, NOk =/= ok],
+    NodeErrors == [] orelse
+        ?SLOG(warning, #{
+            msg => "rpc_mt_metrics_errors",
+            errors => NodeErrors
+        }),
+    OkMetrics = [Metrics || {_Node, {ok, Metrics}} <- NodeResults],
+    %% TODO: aggregate, format
+    AggregMetrics = aggregate_metrics(OkMetrics),
+    SessionCount =
+        case emqx_mt:count_clients(Ns) of
+            {ok, SC} ->
+                SC;
+            {error, _} ->
+                %% Race?
+                0
+        end,
+    AuthzCount = emqx_authz_mnesia:record_count(Ns),
+    AuthnCount = emqx_authn_mnesia:record_count(Ns),
+    Response = #{
+        <<"messaging_stats">> => aggregate_metrics_out(AggregMetrics),
+        %% Metrics below are replicated by mnesia/ds
+        <<"session_count">> => SessionCount,
+        <<"builtin_authz_record_count">> => AuthzCount,
+        <<"builtin_authn_record_count">> => AuthnCount
+    },
+    ?OK(Response).
 
 handle_bulk_delete_ns(#{nss := NSs}) ->
     Errors =
@@ -815,6 +875,17 @@ example_limiter_out() ->
             }
     }.
 
+example_metrics_out() ->
+    #{
+        <<"metrics">> =>
+            #{
+                <<"messages.received">> => 1,
+                <<"messages.sent">> => 2,
+                <<"bytes.received">> => 30,
+                <<"bytes.sent">> => 40
+            }
+    }.
+
 configs_out(RootConfigs) ->
     maps:map(
         fun
@@ -948,6 +1019,27 @@ with_known_ns(Ns, Fn) ->
         false ->
             ns_not_found()
     end.
+
+%% Only for metrics that can be just summed.
+-spec aggregate_metrics([[{emqx_metrics:metric_name(), non_neg_integer()}]]) ->
+    #{emqx_metrics:metric_name() => non_neg_integer()}.
+aggregate_metrics(OkMetrics) ->
+    lists:foldl(
+        fun(Metrics, Acc0) ->
+            lists:foldl(
+                fun({K, V}, Acc1) ->
+                    maps:update_with(K, fun(U) -> U + V end, V, Acc1)
+                end,
+                Acc0,
+                Metrics
+            )
+        end,
+        #{},
+        OkMetrics
+    ).
+
+aggregate_metrics_out(AggregMetrics) ->
+    AggregMetrics.
 
 ns_not_found() ->
     ?NOT_FOUND(<<"Namespace not found">>).
