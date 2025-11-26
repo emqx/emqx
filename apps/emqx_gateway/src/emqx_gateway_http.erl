@@ -593,18 +593,19 @@ resolve_namespace(Req, _Meta) ->
             ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
     end.
 
-validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
-    {ok, Req};
-validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
-    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
-        exists => false
-    }),
-    case Res of
-        #{exists := false} ->
-            ?BAD_REQUEST(<<"Managed namespace not found">>);
-        #{exists := true} ->
-            {ok, Req}
-    end.
+%% Uncomment when we decide to support namespaces in gateway
+%% validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+%%     {ok, Req};
+%% validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+%%     Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+%%         exists => false
+%%     }),
+%%     case Res of
+%%         #{exists := false} ->
+%%             ?BAD_REQUEST(<<"Managed namespace not found">>);
+%%         #{exists := true} ->
+%%             {ok, Req}
+%%     end.
 
 add_gateway_authn(Req, _Meta) ->
     #{bindings := #{name := Name}} = Req,
@@ -616,17 +617,33 @@ add_gateway_listener_authn(Req, _Meta) ->
         {ok, Req#{gateway_name => GwName, gateway => Gw}}
     end).
 
+%% For now, we only support global namespace for gateway.  We may remove this filter once
+%% we decide to add support.
+validate_global_namespace(Req, _Meta) ->
+    case Req of
+        #{resolved_ns := ?global_ns} ->
+            {ok, Req};
+        #{resolved_ns := Namespace} when is_binary(Namespace) ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
 filter(Req0, Meta) ->
     maybe
         {ok, Req1} ?= resolve_namespace(Req0, Meta),
-        {ok, Req2} ?= validate_managed_namespace(Req1, Meta),
+        {ok, Req2} ?= validate_global_namespace(Req1, Meta),
+        %% Uncomment when we decide to support namespaces in gateway
+        %% {ok, Req3} ?= validate_managed_namespace(Req2, Meta),
+        %% add_gateway_authn(Req3, Meta)
         add_gateway_authn(Req2, Meta)
     end.
 
 filter_listener(Req0, Meta) ->
     maybe
         {ok, Req1} ?= resolve_namespace(Req0, Meta),
-        {ok, Req2} ?= validate_managed_namespace(Req1, Meta),
+        {ok, Req2} ?= validate_global_namespace(Req1, Meta),
+        %% Uncomment when we decide to support namespaces in gateway
+        %% {ok, Req3} ?= validate_managed_namespace(Req2, Meta),
+        %% add_gateway_listener_authn(Req3, Meta)
         add_gateway_listener_authn(Req2, Meta)
     end.
 

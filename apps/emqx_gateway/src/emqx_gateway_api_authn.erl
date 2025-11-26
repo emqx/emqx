@@ -34,6 +34,8 @@
 
 -define(TAGS, [<<"Gateway Authentication">>]).
 
+-define(NAMESPACE, ?global_ns).
+
 %%--------------------------------------------------------------------
 %% minirest behaviour callbacks
 %%--------------------------------------------------------------------
@@ -184,7 +186,6 @@ schema("/gateways/:name/authentication/users") ->
                 desc => ?DESC(list_users),
                 summary => <<"List users for gateway authenticator">>,
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_paging_in_qs(),
                     params_fuzzy_in_qs()
@@ -205,7 +206,6 @@ schema("/gateways/:name/authentication/users") ->
                 desc => ?DESC(add_user),
                 summary => <<"Add user for gateway authenticator">>,
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path()
                 ]),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -233,7 +233,6 @@ schema("/gateways/:name/authentication/users/:uid") ->
                 desc => ?DESC(get_user),
                 summary => <<"Get user info for gateway authenticator">>,
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_userid_in_path()
                 ]),
@@ -253,7 +252,6 @@ schema("/gateways/:name/authentication/users/:uid") ->
                 desc => ?DESC(update_user),
                 summary => <<"Update user info for gateway authenticator">>,
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_userid_in_path()
                 ]),
@@ -277,7 +275,6 @@ schema("/gateways/:name/authentication/users/:uid") ->
                 desc => ?DESC(delete_user),
                 summary => <<"Delete user for gateway authenticator">>,
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_userid_in_path()
                 ]),
@@ -341,9 +338,6 @@ params_fuzzy_in_qs() ->
                 }
             )}
     ].
-
-ns_qs_param() ->
-    {ns, mk(binary(), #{in => query, required => false})}.
 
 %%--------------------------------------------------------------------
 %% schemas

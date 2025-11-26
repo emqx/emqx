@@ -474,7 +474,6 @@ schema("/gateways/:name/listeners/:id/authentication/users") ->
                 tags => ?TAGS,
                 description => ?DESC("list_users"),
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_listener_id_in_path(),
                     params_paging_in_qs()
@@ -494,7 +493,6 @@ schema("/gateways/:name/listeners/:id/authentication/users") ->
                 tags => ?TAGS,
                 description => ?DESC("add_user"),
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_listener_id_in_path()
                 ]),
@@ -522,7 +520,6 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
                 tags => ?TAGS,
                 description => ?DESC("get_user"),
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_listener_id_in_path(),
                     params_userid_in_path()
@@ -542,7 +539,6 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
                 tags => ?TAGS,
                 description => ?DESC("update_user"),
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_listener_id_in_path(),
                     params_userid_in_path()
@@ -566,7 +562,6 @@ schema("/gateways/:name/listeners/:id/authentication/users/:uid") ->
                 tags => ?TAGS,
                 description => ?DESC("delete_user"),
                 parameters => lists:flatten([
-                    ns_qs_param(),
                     params_gateway_name_in_path(),
                     params_listener_id_in_path(),
                     params_userid_in_path()
@@ -621,9 +616,6 @@ params_userid_in_path() ->
 params_paging_in_qs() ->
     emqx_dashboard_swagger:fields(page) ++
         emqx_dashboard_swagger:fields(limit).
-
-ns_qs_param() ->
-    {ns, mk(binary(), #{in => query, required => false})}.
 
 %%--------------------------------------------------------------------
 %% schemas
