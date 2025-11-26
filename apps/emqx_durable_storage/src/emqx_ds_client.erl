@@ -27,6 +27,8 @@ Host MUST call `emqx_ds:suback` function when it's done processing the batch.
     dispatch_message/3,
     complete_stream/3,
     complete_stream/5,
+    attach_iterator/6,
+    detach_iterator/5,
     inspect/1
 ]).
 
@@ -140,20 +142,30 @@ Global state of the client. It encapsulates states of all active subscriptions.
     handle :: emqx_ds:subscription_handle()
 }).
 
--doc "Global options for the client.".
+-doc """
+Global options for the client.
+
+- `retry_interval`: all recoverable errors will be periodically
+  retried at this interval (milliseconds). Default: 5_000.
+""".
 -type client_opts() :: #{
-    retry_interval => non_neg_integer()
+    retry_interval => non_neg_integer(),
+    stream_discovery => boolean()
 }.
 
 -doc "Unique identifier of the subscription.".
 -type sub_id() :: term().
 
+-doc """
+Subscription options.
+""".
 -type sub_options() :: #{
     id := sub_id(),
     db := emqx_ds:db(),
     topic := emqx_ds:topic_filter(),
     start_time => emqx_ds:time(),
-    ds_sub_opts => emqx_ds:sub_opts()
+    ds_sub_opts => emqx_ds:sub_opts(),
+    stream_discovery => boolean()
 }.
 
 -type effect() ::
@@ -287,6 +299,11 @@ Mandatory options:
 Optional:
 - `start_time`: Consume messages older than this time.
 - `ds_sub_opts`: Flow control options for the DS subscriptions.
+- `stream_discovery`: watch for new streams and subscribe to them
+  automatically. If disabled, all streams should be explicitly
+  attached to the client/subscription using `attach_iterator` API.
+  Subscriptions with disabled stream discovery simply act as
+  supervisors for DS subscriptions. Default: `true`.
 """.
 -spec subscribe(t(), sub_options(), HostState) ->
     {ok, t(), HostState} | {error, badarg | already_exists}.
@@ -351,6 +368,26 @@ In fact, this function must NOT be used when subscription exists, as it may leak
     {t(), HostState}.
 complete_stream(CS0, SubId, Slab, Stream, HS0) ->
     {CS, HS} = complete_unsubscribed_stream_(CS0, SubId, Slab, Stream, HS0),
+    execute(#cs.plan, CS, HS).
+
+-doc """
+This function is used when `discover_streams` is `false`.
+""".
+-spec attach_iterator(
+    sub_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), t(), HostState
+) ->
+    {t(), HostState}.
+attach_iterator(SubId, Slab, Stream, It, CS0, HS0) ->
+    {CS, HS} = attach_iterator_(SubId, Slab, Stream, It, CS0, HS0),
+    execute(#cs.plan, CS, HS).
+
+-doc """
+This function is used when `discover_streams` is `false`.
+""".
+-spec detach_iterator(sub_id(), emqx_ds:slab(), emqx_ds:stream(), t(), HostState) ->
+    {t(), HostState}.
+detach_iterator(SubId, Slab, Stream, CS0, HS0) ->
+    {CS, HS} = detach_iterator_(SubId, Slab, Stream, CS0, HS0),
     execute(#cs.plan, CS, HS).
 
 -doc """
@@ -423,6 +460,62 @@ complete_unsubscribed_stream_(CS0, SubId, {Shard, _}, Stream, HS) ->
                 active = maps:remove(Stream, Active)
             },
             maybe_advance_generation(SubId, Shard, Cache, CS0, HS)
+        end
+    ).
+
+-spec attach_iterator_(
+    sub_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), t(), HostState
+) ->
+    {t(), HostState}.
+attach_iterator_(SubId, Slab, Stream, It, CS, HS) ->
+    #cs{subs = Subs} = CS,
+    #{SubId := #sub{db = DB}} = Subs,
+    Eff = #eff_make_iterator{
+        sub_id = SubId,
+        db = DB,
+        slab = Slab,
+        stream = Stream,
+        %% Note: here we can fill the fields with dummy values,
+        %% because `handle_add_iterator' ignores them:
+        topic = [],
+        start_time = 0
+    },
+    handle_add_iterator(Eff, CS, HS, It).
+
+-spec detach_iterator_(sub_id(), emqx_ds:slab(), emqx_ds:stream(), t(), HostState) ->
+    {t(), HostState}.
+detach_iterator_(SubId, {Shard, Gen}, Stream, CS0, HS0) ->
+    %% 1. Remove pending resubscribe actions:
+    CS1 = filter_effects(
+        fun
+            (#eff_ds_sub{sub_id = SId, stream = STR}) ->
+                not (SId =:= SubId andalso STR =:= Stream);
+            (_) ->
+                true
+        end,
+        CS0
+    ),
+    %% 2. Unsubscribe and remove stream from the cache:
+    with_stream_cache(
+        SubId,
+        Shard,
+        CS1,
+        HS0,
+        fun(Cache = #stream_cache{active = Active}) ->
+            case Active of
+                #{Stream := {_It, SRef}} when is_reference(SRef) ->
+                    {
+                        del_stream_from_cache(Gen, Stream, Cache),
+                        ds_unsub_(CS1, SRef),
+                        HS0
+                    };
+                #{} ->
+                    {
+                        del_stream_from_cache(Gen, Stream, Cache),
+                        CS1,
+                        HS0
+                    }
+            end
         end
     ).
 
@@ -606,12 +699,14 @@ subscribe_(CS0 = #cs{subs = Subs0}, UserOpts = #{id := SubId, db := DB, topic :=
             %% Derive optional subscription options:
             StartTime = maps:get(start_time, UserOpts, 0),
             DSSubOpts = maps:get(ds_sub_opts, UserOpts, #{max_unacked => 1000}),
+            StreamDiscovery = maps:get(stream_discovery, UserOpts, true),
             %% Register new subscription:
             Sub = #sub{
                 db = DB,
                 topic = Topic,
                 start_time = StartTime,
-                ds_sub_opts = DSSubOpts
+                ds_sub_opts = DSSubOpts,
+                passive = not StreamDiscovery
             },
             CS1 = CS0#cs{subs = Subs0#{SubId => Sub}},
             CS = watch_streams_(CS1, SubId, Sub, HostState),
@@ -915,22 +1010,27 @@ forget_stream(CS, SubId, {Shard, Gen}, Stream) ->
         fun
             (undefined) ->
                 undefined;
-            (
-                #stream_cache{
-                    pending_iterator = Pending,
-                    active = Active,
-                    replayed = Replayed,
-                    future = Future
-                } = Cache
-            ) ->
-                Cache#stream_cache{
-                    pending_iterator = Pending -- [Stream],
-                    active = maps:remove(Stream, Active),
-                    replayed = maps:remove(Stream, Replayed),
-                    future = gb_sets:delete_any({Gen, Stream}, Future)
-                }
+            (#stream_cache{} = Cache) ->
+                del_stream_from_cache(Gen, Stream, Cache)
         end
     ).
+
+del_stream_from_cache(
+    Gen,
+    Stream,
+    #stream_cache{
+        pending_iterator = Pending,
+        active = Active,
+        replayed = Replayed,
+        future = Future
+    } = Cache
+) ->
+    Cache#stream_cache{
+        pending_iterator = Pending -- [Stream],
+        active = maps:remove(Stream, Active),
+        replayed = maps:remove(Stream, Replayed),
+        future = gb_sets:delete_any({Gen, Stream}, Future)
+    }.
 
 -spec update_streams(
     t(), sub_id(), emqx_ds:shard(), [{emqx_ds:slab(), emqx_ds:stream()}], HostState
@@ -1380,6 +1480,8 @@ ds_unsub_(CS0 = #cs{ds_subs = DSSubs0}, SRef) ->
 
 -doc "Plan subscription to the stream events followed by stream renewal.".
 -spec watch_streams_(t(), sub_id(), sub(), _HostState) -> t().
+watch_streams_(CS, _SubId, #sub{passive = true}, _HostState) ->
+    CS;
 watch_streams_(CS0, SubId, Sub = #sub{db = DB, topic = Topic}, HostState) ->
     CS1 = plan(#eff_watch_streams{sub_id = SubId, db = DB, topic = Topic}, CS0),
     renew_streams_(CS1, SubId, Sub, HostState).
