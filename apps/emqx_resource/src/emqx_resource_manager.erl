@@ -682,13 +682,13 @@ try_clean_allocated_resources(ResId) ->
 %% but the agent should continue to run (not linked) to ensure the task is complete.
 cleanup_by_agent(LogFn, TaskFn, Timeout) ->
     Parent = self(),
-    {Agent, Mref} = erlang:spawn_monitor(fun() -> run_agent(LogFn, Parent, TaskFn, Timeout) end),
+    {Agent, MRef} = erlang:spawn_monitor(fun() -> run_agent(LogFn, Parent, TaskFn, Timeout) end),
     %% Agent has a 60s timeout to complete,
     %% the caller (cowboy handler) is unlikely to wait this long, so there is no 'after' clause here.
     receive
-        {'DOWN', Mref, process, Agent, {cleanup_result, normal}} ->
+        {'DOWN', MRef, process, Agent, {cleanup_result, normal}} ->
             LogFn(debug, #{msg => "resource_cleanup_done"});
-        {'DOWN', Mref, process, Agent, Reason} ->
+        {'DOWN', MRef, process, Agent, Reason} ->
             %% It can be a resource leak, hence log at 'error' level.
             %% If no resource is leaking, but exit non-normal,
             %% we should fix the cleanup procedure to avoid exception
