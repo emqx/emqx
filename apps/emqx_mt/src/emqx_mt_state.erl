@@ -352,11 +352,23 @@ update_ccache(Ns) ->
     Cnt.
 
 do_count_clients(Ns) ->
-    MS = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Ns0, _), count = Count}) when
-        Ns0 =:= Ns
-    ->
-        Count
-    end),
+    %% MS = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Ns0, _), count = Count}) when
+    %%     Ns0 =:= Ns
+    %% ->
+    %%     Count
+    %% end),
+    %% We manually construct match specs to ensure we have a partially bound key instead
+    %% of using a guard that would result in a full scan.
+    MH = erlang:make_tuple(
+        record_info(size, ?COUNTER_TAB),
+        '_',
+        [
+            {1, ?COUNTER_TAB},
+            {#?COUNTER_TAB.key, ?COUNTER_KEY(Ns, '_')},
+            {#?COUNTER_TAB.count, '$1'}
+        ]
+    ),
+    MS = [{MH, [], ['$1']}],
     lists:sum(ets:select(?COUNTER_TAB, MS)).
 
 %% @doc Returns true if it is a known namespace.
