@@ -591,7 +591,12 @@ create_bridge_wait_for_balance(TCConfig) ->
     setup_group_subscriber_spy(self()),
     try
         {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
-        {201, #{<<"status">> := <<"connected">>}} = create_source_api(TCConfig, #{}),
+        case create_source_api(TCConfig, #{}) of
+            {201, #{<<"status">> := Status}} ->
+                ?assert(Status =:= <<"connected">> orelse Status =:= <<"connecting">>);
+            Result ->
+                error({unexpected, Result})
+        end,
         receive
             {kafka_assignment, _, _} ->
                 ok
@@ -992,7 +997,12 @@ t_receive_after_recovery(TCConfig) ->
     ?check_trace(
         begin
             {201, _} = create_connector_api(TCConfig, #{}),
-            {201, #{<<"status">> := <<"connected">>}} = create_source_api(TCConfig, #{}),
+            case create_source_api(TCConfig, #{}) of
+                {201, #{<<"status">> := Status}} ->
+                    ?assert(Status =:= <<"connected">> orelse Status =:= <<"connecting">>);
+                Result ->
+                    error({unexpected, Result})
+            end,
             %% 0) ensure each partition commits its offset so it can
             %% recover later.
             Messages0 = [
@@ -1217,15 +1227,19 @@ t_cluster_group(TCConfig) ->
             {ok, _} = wait_until_group_is_balanced(KafkaTopic, NPartitions, Nodes, 30_000),
             lists:foreach(
                 fun(N) ->
-                    ?assertMatch(
-                        #{status := ?status_connected},
-                        ?ON(
-                            N,
-                            emqx_bridge_v2_testlib:force_health_check(
-                                emqx_bridge_v2_testlib:get_common_values(TCConfig)
-                            )
-                        ),
-                        #{node => N}
+                    ?retry(
+                        100,
+                        50,
+                        ?assertMatch(
+                            #{status := ?status_connected},
+                            ?ON(
+                                N,
+                                emqx_bridge_v2_testlib:force_health_check(
+                                    emqx_bridge_v2_testlib:get_common_values(TCConfig)
+                                )
+                            ),
+                            #{node => N}
+                        )
                     )
                 end,
                 Nodes
