@@ -207,10 +207,10 @@ update_subscription(
     emqx_persistent_session_ds:id(),
     share_topic_filter(),
     emqx_persistent_session_ds_state:t(),
-    emqx_persistent_session_ds_stream_scheduler:t(),
+    emqx_persistent_session_ds_streams:t(),
     t()
 ) ->
-    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds_stream_scheduler:t(), t(),
+    {ok, emqx_persistent_session_ds_state:t(), emqx_persistent_session_ds_streams:t(), t(),
         emqx_persistent_session_ds:subscription()}
     | {error, emqx_types:reason_code()}.
 on_unsubscribe(
@@ -231,7 +231,7 @@ on_unsubscribe(
                 session_id => SessionId,
                 share_topic_filter => ShareTopicFilter
             }),
-            {S2, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
+            {S2, SchedS} = emqx_persistent_session_ds_streams:on_unsubscribe(
                 ShareTopicFilter, SubId, S1, SchedS0
             ),
             Agent1 = emqx_ds_shared_sub_agent:on_unsubscribe(
@@ -246,7 +246,7 @@ on_unsubscribe(
 %% on_streams_replay
 
 -spec on_streams_replay(emqx_persistent_session_ds_state:t(), t(), [
-    emqx_persistent_session_ds_stream_scheduler:stream_key()
+    emqx_persistent_session_ds_streams:stream_key()
 ]) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 on_streams_replay(S, SharedS, []) ->

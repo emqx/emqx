@@ -440,27 +440,27 @@ del_subscription_state(SStateId, Rec) ->
 
 %%
 
--spec get_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) ->
+-spec get_stream(emqx_persistent_session_ds_streams:stream_key(), t()) ->
     emqx_persistent_session_ds:stream_state() | undefined.
 get_stream(Key, Rec) ->
     emqx_ds_pmap:collection_get(?streams, Key, Rec).
 
 -spec put_stream(
-    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds_streams:stream_key(),
     emqx_persistent_session_ds:stream_state(),
     t()
 ) -> t().
 put_stream(Key, Val, Rec) ->
     emqx_ds_pmap:collection_put(?streams, Key, Val, Rec).
 
--spec del_stream(emqx_persistent_session_ds_stream_scheduler:stream_key(), t()) -> t().
+-spec del_stream(emqx_persistent_session_ds_streams:stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
     emqx_ds_pmap:collection_del(?streams, Key, Rec).
 
 -spec fold_streams(
     fun(
         (
-            emqx_persistent_session_ds_stream_scheduler:stream_key(),
+            emqx_persistent_session_ds_streams:stream_key(),
             emqx_persistent_session_ds:stream_state(),
             Acc
         ) -> Acc

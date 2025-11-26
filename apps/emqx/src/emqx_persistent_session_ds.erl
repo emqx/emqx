@@ -185,7 +185,10 @@
 
 -type timer_state() :: reference() | undefined.
 
--record(ds_suback, {sub_ref, seqno}).
+-record(ds_suback, {
+    sub_handle :: emqx_ds:subscription_handle(),
+    seqno :: non_neg_integer()
+}).
 
 %% TODO: Needs configuration?
 -define(TIMEOUT_RETRY_REPLAY, 1000).
@@ -218,7 +221,7 @@
     %% stream can be added to the inflight until the client acks the
     %% previous messages.
     inflight := emqx_persistent_session_ds_inflight:t(),
-    stream_scheduler_s := emqx_persistent_session_ds_stream_scheduler:t(),
+    stream_scheduler_s := emqx_persistent_session_ds_streams:t(),
     %% In-progress replay:
     %% List of stream replay states to be added to the inflight.
     replay := [{_StreamKey, stream_state()}, ...] | undefined,
@@ -238,7 +241,7 @@
     ref :: reference()
 }).
 
--type stream_state() :: emqx_persistent_session_ds_stream_scheduler:srs().
+-type stream_state() :: emqx_persistent_session_ds_streams:srs().
 
 -type message() :: emqx_types:message().
 -type timestamp() :: emqx_utils_calendar:epoch_millisecond().
@@ -472,11 +475,9 @@ unsubscribe(
 unsubscribe(TopicFilter, Session0) ->
     case emqx_persistent_session_ds_subs:on_unsubscribe(TopicFilter, Session0) of
         {ok, Session1, #{id := SubId, subopts := SubOpts}} ->
-            #{s := S0, stream_scheduler_s := SchedS0} = Session1,
-            {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_unsubscribe(
-                TopicFilter, SubId, S0, SchedS0
-            ),
-            Session = Session1#{s := S, stream_scheduler_s := SchedS},
+            #{s := S0} = Session1,
+            S = emqx_persistent_session_ds_streams:on_unsubscribe(SubId, S0),
+            Session = Session1#{s := S},
             {ok, async_checkpoint(clear_buffer(SubId, Session)), SubOpts};
         Error = {error, _} ->
             Error
@@ -731,11 +732,10 @@ shared_sub_opts(SessionId) ->
     {ok, replies(), session()}.
 replay(ClientInfo, [], Session0) ->
     Session1 = emqx_persistent_session_ds_subs:on_session_restore(Session0),
-    #{s := S0, stream_scheduler_s := SchedS0} = Session1,
-    {S, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_session_replay(S0, SchedS0),
-    Streams = emqx_persistent_session_ds_stream_scheduler:find_replay_streams(S),
+    #{s := S} = Session1,
+    SchedS = emqx_persistent_session_ds_streams:restore(S),
+    Streams = emqx_persistent_session_ds_streams:find_replay_streams(S),
     Session2 = async_checkpoint(Session1#{
-        s := S,
         stream_scheduler_s := SchedS,
         replay := Streams
     }),
@@ -799,7 +799,7 @@ skip_replay_batch(StreamKey, SRS0, Session = #{s := S0}, ClientInfo, Reason) ->
     Session#{s := S}.
 
 -spec replay_batch(
-    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds_streams:stream_key(),
     stream_state(),
     session(),
     clientinfo()
@@ -831,7 +831,7 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
             check_replay_consistency(
                 StreamKey, SRS, ItEnd, Batch, LastSeqNoQos1, LastSeqNoQos2, Session0
             ),
-            Session = on_enqueue(true, StreamKey, SRS, Session0#{inflight := Inflight}),
+            Session = on_enqueue(true, StreamKey, SRS, Session0#{inflight := Inflight}, ClientInfo),
             {ok, SRS, Session};
         Error = {error, _, _} ->
             Error
@@ -870,19 +870,60 @@ check_replay_consistency(StreamKey, SRS, _ItEnd, Batch, LastSeqNoQos1, LastSeqNo
 on_replay_complete(Session, ClientInfo) ->
     schedule_delivery(drain_buffer(Session, ClientInfo)).
 
+-spec on_enqueue(
+    boolean(),
+    emqx_persistent_session_ds_streams:stream_key(),
+    emqx_persistent_session_ds_streams:srs(),
+    session(),
+    clientinfo()
+) -> session().
 on_enqueue(
     IsReplay,
     StreamKey,
     SRS,
-    Session = #{s := S0, stream_scheduler_s := SchedS0, shared_sub_s := SharedSubS0}
+    Session0 = #{shared_sub_s := SharedSubS0, s := S0, stream_scheduler_s := SchedS0},
+    ClientInfo
 ) ->
-    {UnblockedStreams, S1, SchedS} = emqx_persistent_session_ds_stream_scheduler:on_enqueue(
-        IsReplay, StreamKey, SRS, S0, SchedS0
-    ),
+    {UnblockedStreams, CompletedStreams, Session = #{s := S1}} =
+        handle_unlocked_streams(
+            emqx_persistent_session_ds_streams:on_enqueue(IsReplay, StreamKey, SRS, S0, SchedS0),
+            Session0,
+            ClientInfo
+        ),
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-        S1, SharedSubS0, UnblockedStreams
+        S1, SharedSubS0, UnblockedStreams ++ CompletedStreams
     ),
-    Session#{s := S, stream_scheduler_s := SchedS, shared_sub_s := SharedSubS}.
+    Session#{s := S, shared_sub_s := SharedSubS}.
+
+-spec handle_unlocked_streams(
+    {Streams, Streams, emqx_persistent_session_ds_streams:t()},
+    session(),
+    clientinfo()
+) -> {Streams, Streams, session()} when
+    Streams :: [emqx_persistent_session_ds_streams:stream_key()].
+handle_unlocked_streams({UnblockedStreams, CompletedStreams, SchedS}, Session0, ClientInfo) ->
+    Session1 = Session0#{stream_scheduler_s := SchedS},
+    Session2 = lists:foldl(fun complete_stream/2, Session1, CompletedStreams),
+    Session = lists:foldl(
+        fun(StreamKey, SessionAcc) ->
+            ?tp(?sessds_unblock_stream, #{key => StreamKey}),
+            drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
+        end,
+        Session2,
+        UnblockedStreams
+    ),
+    {UnblockedStreams, CompletedStreams, Session}.
+
+complete_stream({SubId, Stream} = Key, Session0 = #{dscli := CS0, s := S0}) ->
+    #srs{rank_x = Shard, rank_y = Generation} = emqx_persistent_session_ds_state:get_stream(
+        Key, S0
+    ),
+    %% FIXME: currently DS subscription will leak when this function
+    %% is called. Fix it in ds_client
+    {CS, Session} = emqx_ds_client:complete_stream(
+        CS0, SubId, {Shard, Generation}, Stream, Session0
+    ),
+    Session#{dscli := CS}.
 
 %%--------------------------------------------------------------------
 
@@ -1175,7 +1216,7 @@ handle_ds_reply(
     SubId,
     Stream,
     DSSubHandle,
-    Reply,
+    Reply0,
     Session0 = #{
         s := S,
         buffer := Buf0,
@@ -1185,9 +1226,11 @@ handle_ds_reply(
     ClientInfo
 ) ->
     StreamKey = {SubId, Stream},
+    %% Replace subscription reference with subscription handle:
+    Reply = Reply0#ds_sub_reply{ref = DSSubHandle},
     SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
     case
-        emqx_persistent_session_ds_stream_scheduler:is_fully_acked(SRS0, S) and
+        emqx_persistent_session_ds_streams:is_fully_acked(SRS0, S) andalso
             not ?IS_REPLAY_ONGOING(Replay)
     of
         true ->
@@ -1207,7 +1250,8 @@ handle_ds_reply(
             post_enqueue_new(
                 StreamKey,
                 SRS,
-                schedule_delivery(Session)
+                schedule_delivery(Session),
+                ClientInfo
             );
         false ->
             ?tp(?sessds_poll_reply, #{reply => Reply, blocked => true}),
@@ -1356,12 +1400,12 @@ flush_transient(TopicFilter) ->
 %% Inflight management
 %%--------------------------------------------------------------------
 
-drain_inflight(Session0 = #{inflight := Inflight0, s := S0, stream_scheduler_s := SchedS}) ->
+drain_inflight(Session0 = #{inflight := Inflight0, s := S0}) ->
     ?tp(?sessds_drain_inflight, #{}),
     {Publishes, Inflight, DSSubacks, S} = do_drain_inflight(Inflight0, S0, [], #{}),
     maps:foreach(
-        fun(SubRef, SeqNo) ->
-            emqx_persistent_session_ds_stream_scheduler:suback(SubRef, SeqNo, SchedS)
+        fun(SubHandle, SeqNo) ->
+            emqx_ds:suback(?PERSISTENT_MESSAGE_DB, SubHandle, SeqNo)
         end,
         DSSubacks
     ),
@@ -1374,9 +1418,13 @@ do_drain_inflight(Inflight0, S0, Acc, DSSubacks0) ->
     case emqx_persistent_session_ds_inflight:pop(Inflight0) of
         undefined ->
             {lists:reverse(Acc), Inflight0, DSSubacks0, S0};
-        {{other, #ds_suback{sub_ref = SubRef, seqno = SeqNo}}, Inflight} ->
+        {{other, #ds_suback{sub_handle = SubHandle, seqno = SeqNo}}, Inflight} ->
             %% Accumulate the DS subacks:
-            DSSubacks = DSSubacks0#{SubRef => SeqNo},
+            DSSubacks = maps:update_with(
+                SubHandle,
+                fun(Old) -> max(Old, SeqNo) end,
+                DSSubacks0
+            ),
             do_drain_inflight(Inflight, S0, Acc, DSSubacks);
         {{pubrel, SeqNo}, Inflight} ->
             Publish = {pubrel, seqno_to_packet_id(?QOS_2, SeqNo)},
@@ -1414,7 +1462,7 @@ drain_buffer(Session0, ClientInfo, BufferIterator) ->
 %% This function is called when the client unblocks the stream by
 %% acking a message.
 -spec drain_buffer_of_stream(
-    emqx_persistent_session_ds_stream_scheduler:stream_key(),
+    emqx_persistent_session_ds_streams:stream_key(),
     session(),
     clientinfo()
 ) ->
@@ -1425,7 +1473,7 @@ drain_buffer_of_stream(
     ClientInfo
 ) ->
     SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-    case emqx_persistent_session_ds_stream_scheduler:is_active_unblocked(SRS0, S) of
+    case emqx_persistent_session_ds_streams:is_active_unblocked(SRS0, S) of
         true ->
             {SRS, SubState} = pre_enqueue_new(SRS0, S),
             do_drain_buffer_of_stream(
@@ -1455,7 +1503,9 @@ do_drain_buffer_of_stream(
             );
         {[], Buf} ->
             %% No more buffered messages:
-            post_enqueue_new(StreamKey, SRS0, Session0#{buffer := Buf, inflight := Inflight0})
+            post_enqueue_new(
+                StreamKey, SRS0, Session0#{buffer := Buf, inflight := Inflight0}, ClientInfo
+            )
     end.
 
 %%--------------------------------------------------------------------------------
@@ -1471,7 +1521,7 @@ do_drain_buffer_of_stream(
 ) -> session().
 create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     DSCli = emqx_ds_client:new(?MODULE, #{}),
-    SchedS = emqx_persistent_session_ds_stream_scheduler:new(),
+    SchedS = emqx_persistent_session_ds_streams:new(),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
     %% Create or init shared subscription state:
@@ -1648,31 +1698,24 @@ update_seqno(
             Session = Session0#{inflight := Inflight, s := S},
             {ok, Msg, schedule_delivery(Session)};
         {ok, Inflight1} ->
-            {UnblockedStreams, S1, SchedS} =
-                emqx_persistent_session_ds_stream_scheduler:on_seqno_release(
-                    QoS, PacketSeqNo, S0, SchedS0
+            S1 = put_seqno(SeqNoKey, PacketSeqNo, S0),
+            Session1 = Session0#{inflight := Inflight1, s := S1},
+            {UnblockedStreams, CompletedStreams, Session2} =
+                handle_unlocked_streams(
+                    emqx_persistent_session_ds_streams:on_seqno_release(
+                        QoS, PacketSeqNo, S1, SchedS0
+                    ),
+                    Session1,
+                    ClientInfo
                 ),
-            S2 = put_seqno(SeqNoKey, PacketSeqNo, S1),
+            #{s := S2} = Session2,
             {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(
-                S2, SharedSubS0, UnblockedStreams
+                S2, SharedSubS0, UnblockedStreams ++ CompletedStreams
             ),
-            Session1 = Session0#{
-                inflight := Inflight1,
+            Session = Session2#{
                 s := S,
-                stream_scheduler_s := SchedS,
                 shared_sub_s := SharedSubS
             },
-            %% Dump stream messages that have been stored in the
-            %% buffer while the stream was blocked into the inflight:
-            Session =
-                lists:foldl(
-                    fun(StreamKey, SessionAcc) ->
-                        ?tp(?sessds_unblock_stream, #{key => StreamKey}),
-                        drain_buffer_of_stream(StreamKey, SessionAcc, ClientInfo)
-                    end,
-                    Session1,
-                    UnblockedStreams
-                ),
             {ok, Msg, schedule_delivery(Session)};
         {error, undefined = _Expected} ->
             {error, ?RC_PROTOCOL_ERROR};
@@ -1793,7 +1836,7 @@ pre_enqueue_new(SRS0 = #srs{it_end = NewItBegin}, S) ->
 %% seqnos, but do not change the begin iterator and first seqnos.
 enqueue_batch(
     S,
-    #ds_sub_reply{ref = SubRef, seqno = SeqNo, payload = {ok, It, Batch}, size = Size},
+    #ds_sub_reply{ref = SubHandle, seqno = SeqNo, payload = {ok, It, Batch}, size = Size},
     SubState,
     SRS0 = #srs{batch_size = BatchSize, last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
     ClientInfo,
@@ -1815,7 +1858,7 @@ enqueue_batch(
     %% sent to the wire. This way we tie pushback towards the DS to
     %% the client's speed:
     Inflight = emqx_persistent_session_ds_inflight:push(
-        {other, #ds_suback{sub_ref = SubRef, seqno = SeqNo}},
+        {other, #ds_suback{sub_handle = SubHandle, seqno = SeqNo}},
         Inflight1
     ),
     SRS = SRS0#srs{
@@ -1827,7 +1870,7 @@ enqueue_batch(
     {SRS, Inflight};
 enqueue_batch(
     _S,
-    #ds_sub_reply{ref = SubRef, seqno = SeqNo, payload = Other},
+    #ds_sub_reply{ref = SubHandle, seqno = SeqNo, payload = Other},
     _SubState,
     SRS0,
     _ClientInfo,
@@ -1845,7 +1888,7 @@ enqueue_batch(
     end,
     %% Enqueue the DS suback:
     Inflight = emqx_persistent_session_ds_inflight:push(
-        {other, #ds_suback{sub_ref = SubRef, seqno = SeqNo}},
+        {other, #ds_suback{sub_handle = SubHandle, seqno = SeqNo}},
         Inflight0
     ),
     SRS = SRS0#srs{
@@ -1856,20 +1899,21 @@ enqueue_batch(
 post_enqueue_new(
     StreamKey,
     SRS = #srs{last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
-    Session0 = #{s := S0}
+    Session0 = #{s := S0},
+    ClientInfo
 ) ->
     S1 = put_seqno(?next(?QOS_1), SNQ1, S0),
     S2 = put_seqno(?next(?QOS_2), SNQ2, S1),
     S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S2),
     Session = Session0#{s := S},
-    on_enqueue(false, StreamKey, SRS, Session).
+    on_enqueue(false, StreamKey, SRS, Session, ClientInfo).
 
 %% If needed, refresh reference to the subscription state in the SRS
 %% and return the updated records:
 -spec maybe_update_sub_state_id(SRS, emqx_persistent_session_ds_state:t()) ->
     {SRS, emqx_persistent_session_ds_subs:subscription_state()}
 when
-    SRS :: emqx_persistent_session_ds_stream_scheduler:srs().
+    SRS :: emqx_persistent_session_ds_streams:srs().
 maybe_update_sub_state_id(SRS = #srs{sub_state_id = SSID0}, S) ->
     case emqx_persistent_session_ds_state:get_subscription_state(SSID0, S) of
         #{superseded_by := _, parent_subscription := ParentSub} ->
@@ -1909,7 +1953,7 @@ async_checkpoint(Session) ->
 
 commit(Session0 = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0, opts => Opts}),
-    S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_stream_scheduler:gc(S0)),
+    S1 = emqx_persistent_session_ds_subs:gc(emqx_persistent_session_ds_streams:gc(S0)),
     S = emqx_persistent_session_ds_state:commit(S1, Opts),
     Session = Session0#{s := S},
     cancel_state_commit_timer(Session).
@@ -2101,12 +2145,10 @@ tprop_seqnos(Trace) ->
 
 %% @doc Check invariantss for a living session
 runtime_state_invariants(ModelState, Session) ->
-    emqx_persistent_session_ds_stream_scheduler:runtime_state_invariants(ModelState, Session) and
-        emqx_persistent_session_ds_subs:runtime_state_invariants(ModelState, Session).
+    emqx_persistent_session_ds_subs:runtime_state_invariants(ModelState, Session).
 
 %% @doc Check invariants for a saved session state
 offline_state_invariants(ModelState, Session) ->
-    emqx_persistent_session_ds_stream_scheduler:offline_state_invariants(ModelState, Session) and
-        emqx_persistent_session_ds_subs:offline_state_invariants(ModelState, Session).
+    emqx_persistent_session_ds_subs:offline_state_invariants(ModelState, Session).
 
 -endif.
