@@ -121,7 +121,7 @@
     " the connection parameters."
 ).
 
--define(HEALTHCHECK_TIMEOUT, timer:seconds(5)).
+-define(CONSUMER_GROUP_HEALTHCHECK_TIMEOUT, timer:seconds(5)).
 
 %% Allocatable resources
 -define(kafka_client_id, kafka_client_id).
@@ -581,7 +581,7 @@ get_subscriber_status(SubscriberId) ->
         false ->
             {?status_connecting, <<"Subscriber workers restarting">>};
         Pid when is_pid(Pid) ->
-            case brod_group_subscriber_v2:health_check(Pid, ?HEALTHCHECK_TIMEOUT) of
+            case brod_group_subscriber_v2:health_check(Pid, ?CONSUMER_GROUP_HEALTHCHECK_TIMEOUT) of
                 healthy ->
                     ?status_connected;
                 rebalancing ->
