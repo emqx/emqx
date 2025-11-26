@@ -67,9 +67,9 @@
 -export([
     import_users/3,
     add_user/3,
-    delete_user/3,
-    update_user/4,
-    lookup_user/3,
+    delete_user/4,
+    update_user/5,
+    lookup_user/4,
     list_users/3
 ]).
 
@@ -148,7 +148,17 @@ end).
     failed := non_neg_integer()
 }.
 
+-type maybe_namespace() :: emqx_config:maybe_namespace().
+
 -export_type([authenticator/0, config/0, state/0, extra/0, user_info/0]).
+
+%% Calls/casts/infos
+-record(import_users, {chain_name, authenticator_id, filename}).
+-record(add_user, {chain_name, authenticator_id, user_info}).
+-record(delete_user, {chain_name, authenticator_id, namespace, user_id}).
+-record(update_user, {chain_name, authenticator_id, namespace, user_id, user_info}).
+-record(lookup_user, {chain_name, authenticator_id, namespace, user_id}).
+-record(list_users, {chain_name, authenticator_id, fuzzy_params}).
 
 %%------------------------------------------------------------------------------
 %% Authenticate
@@ -332,7 +342,11 @@ reorder_authenticator(ChainName, AuthenticatorIDs) ->
 ) ->
     {ok, import_users_result()} | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
-    call({import_users, ChainName, AuthenticatorID, Filename}).
+    call(#import_users{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        filename = Filename
+    }).
 
 -spec add_user(chain_name(), authenticator_id(), user_info()) ->
     {ok, user_info()} | {error, term()}.
@@ -340,28 +354,53 @@ add_user(ChainName, AuthenticatorID, UserInfo) ->
     #{user_id := UserID} = UserInfo,
     case validate_user_id(UserID) of
         ok ->
-            call({add_user, ChainName, AuthenticatorID, UserInfo});
+            call(#add_user{
+                chain_name = ChainName,
+                authenticator_id = AuthenticatorID,
+                user_info = UserInfo
+            });
         Error ->
             Error
     end.
 
--spec delete_user(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
-delete_user(ChainName, AuthenticatorID, UserID) ->
-    call({delete_user, ChainName, AuthenticatorID, UserID}).
+-spec delete_user(chain_name(), authenticator_id(), maybe_namespace(), binary()) ->
+    ok | {error, term()}.
+delete_user(ChainName, AuthenticatorID, Namespace, UserID) ->
+    call(#delete_user{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID
+    }).
 
--spec update_user(chain_name(), authenticator_id(), binary(), map()) ->
+-spec update_user(chain_name(), authenticator_id(), maybe_namespace(), binary(), map()) ->
     {ok, user_info()} | {error, term()}.
-update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
-    call({update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
+update_user(ChainName, AuthenticatorID, Namespace, UserID, NewUserInfo) ->
+    call(#update_user{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID,
+        user_info = NewUserInfo
+    }).
 
--spec lookup_user(chain_name(), authenticator_id(), binary()) ->
+-spec lookup_user(chain_name(), authenticator_id(), maybe_namespace(), binary()) ->
     {ok, user_info()} | {error, term()}.
-lookup_user(ChainName, AuthenticatorID, UserID) ->
-    call({lookup_user, ChainName, AuthenticatorID, UserID}).
+lookup_user(ChainName, AuthenticatorID, Namespace, UserID) ->
+    call(#lookup_user{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID
+    }).
 
 -spec list_users(chain_name(), authenticator_id(), map()) -> {ok, [user_info()]} | {error, term()}.
 list_users(ChainName, AuthenticatorID, FuzzyParams) ->
-    call({list_users, ChainName, AuthenticatorID, FuzzyParams}).
+    call(#list_users{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        fuzzy_params = FuzzyParams
+    }).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -444,22 +483,66 @@ handle_call({reorder_authenticator, ChainName, AuthenticatorIDs}, _From, State) 
     end,
     Reply = with_chain(ChainName, UpdateFun),
     reply(Reply, State);
-handle_call({import_users, ChainName, AuthenticatorID, Filename}, _From, State) ->
+handle_call(
+    #import_users{chain_name = ChainName, authenticator_id = AuthenticatorID, filename = Filename},
+    _From,
+    State
+) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, import_users, [Filename]),
     reply(Reply, State);
-handle_call({add_user, ChainName, AuthenticatorID, UserInfo}, _From, State) ->
+handle_call(
+    #add_user{chain_name = ChainName, authenticator_id = AuthenticatorID, user_info = UserInfo},
+    _From,
+    State
+) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, add_user, [UserInfo]),
     reply(Reply, State);
-handle_call({delete_user, ChainName, AuthenticatorID, UserID}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, delete_user, [UserID]),
+handle_call(
+    #delete_user{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID
+    },
+    _From,
+    State
+) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, delete_user, [Namespace, UserID]),
     reply(Reply, State);
-handle_call({update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, update_user, [UserID, NewUserInfo]),
+handle_call(
+    #update_user{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID,
+        user_info = NewUserInfo
+    },
+    _From,
+    State
+) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, update_user, [
+        Namespace, UserID, NewUserInfo
+    ]),
     reply(Reply, State);
-handle_call({lookup_user, ChainName, AuthenticatorID, UserID}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, lookup_user, [UserID]),
+handle_call(
+    #lookup_user{
+        chain_name = ChainName,
+        authenticator_id = AuthenticatorID,
+        namespace = Namespace,
+        user_id = UserID
+    },
+    _From,
+    State
+) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, lookup_user, [Namespace, UserID]),
     reply(Reply, State);
-handle_call({list_users, ChainName, AuthenticatorID, FuzzyParams}, _From, State) ->
+handle_call(
+    #list_users{
+        chain_name = ChainName, authenticator_id = AuthenticatorID, fuzzy_params = FuzzyParams
+    },
+    _From,
+    State
+) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, list_users, [FuzzyParams]),
     reply(Reply, State);
 handle_call(Req, _From, State) ->

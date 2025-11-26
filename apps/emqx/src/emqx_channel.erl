@@ -2892,9 +2892,12 @@ enrich_response_information(AckProps, #channel{
         1 ->
             AckProps#{
                 'Response-Information' =>
-                    case get_mqtt_conf(Zone, response_information, "") of
+                    case get_mqtt_conf(Zone, response_information, <<"">>) of
+                        <<"">> -> undefined;
+                        RspInfo when is_binary(RspInfo) -> RspInfo;
+                        %% Backward compatibility, handle iolist
                         "" -> undefined;
-                        RspInfo -> RspInfo
+                        RspInfo when is_list(RspInfo) -> iolist_to_binary(RspInfo)
                     end
             }
     end.

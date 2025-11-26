@@ -202,11 +202,27 @@ delete_bundle_global(BundleName) ->
         url => URL
     }).
 
+delete_file_global(BundleName, Kind) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
+    simple_request(#{
+        method => delete,
+        url => URL,
+        query_params => #{<<"kind">> => Kind}
+    }).
+
 delete_bundle_ns(Ns, BundleName) ->
     URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
     simple_request(#{
         method => delete,
         url => URL
+    }).
+
+delete_file_ns(Ns, BundleName, Kind) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
+    simple_request(#{
+        method => delete,
+        url => URL,
+        query_params => #{<<"kind">> => Kind}
     }).
 
 upload_file_global(BundleName, Kind, Contents) ->
@@ -462,6 +478,7 @@ t_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({204, _}, upload_file_ns(Ns2, Bundle1, ?FILE_KIND_CA, CA4)),
 
     ?assertMatch({204, _}, upload_file_ns(Ns2, Bundle2, ?FILE_KIND_CHAIN, Cert3)),
+    ?assertMatch({204, _}, upload_file_ns(Ns2, Bundle2, ?FILE_KIND_KEY, Key3)),
 
     ?assertNotMatch(
         {200, #{
@@ -486,6 +503,26 @@ t_crud(TCConfig) when is_list(TCConfig) ->
     ?assertMatch({200, _}, list_files_ns(Ns1, Bundle1)),
     ?assertMatch({200, _}, list_files_global(Bundle1)),
 
+    %% Deleting specific files
+    ?assertMatch({204, _}, delete_file_ns(Ns2, Bundle2, ?FILE_KIND_KEY_BIN)),
+    KindCABin = ?FILE_KIND_CA_BIN,
+    KindKeyBin = ?FILE_KIND_KEY_BIN,
+    KindChainBin = ?FILE_KIND_CHAIN_BIN,
+    ?assertMatch(
+        {200, Files} when
+            not is_map_key(KindKeyBin, Files) andalso
+                is_map_key(KindChainBin, Files),
+        list_files_ns(Ns2, Bundle2)
+    ),
+    %% Idempotency
+    ?assertMatch({204, _}, delete_file_ns(Ns2, Bundle2, ?FILE_KIND_KEY_BIN)),
+    ?assertMatch(
+        {200, Files} when
+            not is_map_key(KindKeyBin, Files) andalso
+                is_map_key(KindChainBin, Files),
+        list_files_ns(Ns2, Bundle2)
+    ),
+
     ?assertMatch({204, _}, delete_bundle_ns(Ns2, Bundle2)),
     ?assertMatch({404, _}, list_files_ns(Ns2, Bundle1)),
     ?assertMatch({404, _}, list_files_ns(Ns2, Bundle2)),
@@ -506,6 +543,24 @@ t_crud(TCConfig) when is_list(TCConfig) ->
 
     %% Cleanup other bundles
     ?assertMatch({204, _}, delete_bundle_ns(Ns1, Bundle1)),
+
+    %% Deleting specific files (global)
+    ?assertMatch({204, _}, delete_file_global(Bundle1, ?FILE_KIND_KEY_BIN)),
+    ?assertMatch(
+        {200, Files} when
+            not is_map_key(KindKeyBin, Files) andalso
+                is_map_key(KindChainBin, Files),
+        list_files_global(Bundle1)
+    ),
+    %% Idempotency
+    ?assertMatch({204, _}, delete_file_global(Bundle1, ?FILE_KIND_CA_BIN)),
+    ?assertMatch(
+        {200, Files} when
+            not is_map_key(KindCABin, Files) andalso
+                is_map_key(KindChainBin, Files),
+        list_files_global(Bundle1)
+    ),
+
     ?assertMatch({204, _}, delete_bundle_global(Bundle1)),
     %% Idempotent responses
     ?assertMatch({204, _}, delete_bundle_ns(Ns1, Bundle1)),

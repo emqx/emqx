@@ -147,6 +147,8 @@ delete_managed_file(Namespace, BundleName, Kind) ->
         fun
             ({_Node, {ok, ok}}) ->
                 false;
+            ({_Node, {ok, {error, enoent}}}) ->
+                false;
             ({Node, {ok, {error, Reason}}}) ->
                 {true, #{node => Node, kind => file, reason => Reason}};
             ({Node, {Class, Reason}}) ->
