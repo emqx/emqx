@@ -656,12 +656,12 @@ t_handle_out_connack_success(_) ->
 
 t_handle_out_connack_response_information(_) ->
     mock_cm_open_session(),
-    emqx_config:put_zone_conf(default, [mqtt, response_information], test),
+    emqx_config:put_zone_conf(default, [mqtt, response_information], <<"test">>),
     IdleChannel = channel(#{conn_state => idle}),
     {ok,
         [
             {event, connected},
-            {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := test})}
+            {connack, ?CONNACK_PACKET(?RC_SUCCESS, 0, #{'Response-Information' := <<"test">>})}
         ],
         _} = emqx_channel:handle_in(
         ?CONNECT_PACKET(connpkt(#{'Request-Response-Information' => 1})),
