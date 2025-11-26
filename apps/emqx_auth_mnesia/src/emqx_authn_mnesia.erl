@@ -82,6 +82,9 @@
     extra = #{} :: map()
 }).
 
+%% ETS table, only for counting records per namespace.
+-define(NS_COUNT_TAB, emqx_authn_mnesia_ns_count).
+
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -105,6 +108,7 @@ create_tables() ->
         {attributes, record_info(fields, ?NS_TAB)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]),
+    ok = emqx_utils_ets:new(?NS_COUNT_TAB, [ordered_set, public]),
     [?TAB, ?NS_TAB].
 
 %% Init
@@ -226,18 +230,32 @@ import_users({PasswordType, Filename, FileData}, State, Opts) ->
 do_import_users([], _Opts) ->
     {error, empty_users};
 do_import_users(Users, Opts) ->
+    IncBucketFn = fun(Bucket, Acc) ->
+        N = maps:get(Bucket, Acc, 0),
+        maps:put(Bucket, N + 1, Acc)
+    end,
+    FoldFn = fun(User, Acc0) ->
+        Return = insert_user(User, Opts),
+        case Return of
+            {success, Ns} ->
+                PerNs0 = maps:get(per_ns, Acc0),
+                PerNs = maps:update_with(Ns, fun(N) -> N + 1 end, 1, PerNs0),
+                Acc1 = Acc0#{per_ns := PerNs},
+                IncBucketFn(success, Acc1);
+            _ ->
+                IncBucketFn(Return, Acc0)
+        end
+    end,
     Fun = fun() ->
         lists:foldl(
-            fun(User, Acc) ->
-                Return = insert_user(User, Opts),
-                N = maps:get(Return, Acc, 0),
-                maps:put(Return, N + 1, Acc)
-            end,
-            #{success => 0, skipped => 0, override => 0, failed => 0},
+            FoldFn,
+            #{success => 0, skipped => 0, override => 0, failed => 0, per_ns => #{}},
             Users
         )
     end,
-    Res = trans(Fun),
+    Res0 = #{per_ns := FinalPerNs} = trans(Fun),
+    maps:foreach(fun inc_ns_rule_count/2, FinalPerNs),
+    Res = maps:remove(per_ns, Res0),
     {ok, Res#{total => length(Users)}}.
 
 add_user(
@@ -245,7 +263,12 @@ add_user(
     State
 ) ->
     UserInfoRecord = user_info_record(UserInfo, State),
-    trans(fun ?MODULE:do_add_user/1, [UserInfoRecord]).
+    Res = trans(fun ?MODULE:do_add_user/1, [UserInfoRecord]),
+    maybe
+        {ok, #{namespace := Namespace}} ?= Res,
+        inc_ns_rule_count(Namespace, 1)
+    end,
+    Res.
 
 do_add_user(UserInfoRecord) ->
     case do_lookup_by_rec_txn(UserInfoRecord) of
@@ -263,7 +286,12 @@ do_add_user(UserInfoRecord) ->
     end.
 
 delete_user(Namespace, UserId, State) ->
-    trans(fun ?MODULE:do_delete_user/3, [Namespace, UserId, State]).
+    Res = trans(fun ?MODULE:do_delete_user/3, [Namespace, UserId, State]),
+    maybe
+        ok ?= Res,
+        dec_ns_rule_count(Namespace, 1)
+    end,
+    Res.
 
 do_delete_user(Namespace, UserId, #{user_group := UserGroup}) ->
     Table = table(Namespace),
@@ -337,26 +365,15 @@ list_users(QueryString0, #{user_group := UserGroup}) ->
 record_count(?global_ns) ->
     mnesia:table_info(?TAB, size);
 record_count(Namespace) when is_binary(Namespace) ->
-    %% Manually constructing match spec to ensure key is at least partially bound to avoid
-    %% full scan.
-    MS = [
-        {
-            #?NS_TAB{user_id = ?NS_KEY(Namespace, '_', '_'), _ = '_'},
-            [],
-            [true]
-        }
-    ],
-    ets:select_count(?NS_TAB, MS).
+    try
+        ets:lookup_element(?NS_COUNT_TAB, Namespace, 2, 0)
+    catch
+        error:badarg -> 0
+    end.
 
 -spec record_count_per_namespace() -> #{emqx_config:namespace() => non_neg_integer()}.
 record_count_per_namespace() ->
-    ets:foldl(
-        fun(#?NS_TAB{user_id = ?NS_KEY(Namespace, _, _)}, Acc) ->
-            maps:update_with(Namespace, fun(N) -> N + 1 end, 1, Acc)
-        end,
-        #{},
-        ?NS_TAB
-    ).
+    maps:from_list(ets:tab2list(?NS_COUNT_TAB)).
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
@@ -394,7 +411,8 @@ run_fuzzy_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
--spec insert_user(map(), map()) -> success | skipped | override | failed.
+-spec insert_user(map(), map()) ->
+    {success, emqx_config:maybe_namespace()} | skipped | override | failed.
 insert_user(User, Opts) ->
     #{
         <<"user_group">> := UserGroup,
@@ -410,7 +428,7 @@ insert_user(User, Opts) ->
     case do_lookup_by_rec_txn(UserInfoRecord) of
         [] ->
             ok = insert_user(UserInfoRecord),
-            success;
+            {success, Namespace};
         [UserInfoRecord] ->
             skipped;
         [_] ->
@@ -760,3 +778,15 @@ get_namespace(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Namespace}} = _Client
     Namespace;
 get_namespace(_ClientInfo) ->
     ?global_ns.
+
+inc_ns_rule_count(?global_ns, _N) ->
+    ok;
+inc_ns_rule_count(Namespace, N) when is_binary(Namespace) ->
+    _ = ets:update_counter(?NS_COUNT_TAB, Namespace, {2, N}, {Namespace, 0}),
+    ok.
+
+dec_ns_rule_count(?global_ns, _N) ->
+    ok;
+dec_ns_rule_count(Namespace, N) when is_binary(Namespace) ->
+    _ = ets:update_counter(?NS_COUNT_TAB, Namespace, {2, -N, 0, 0}, {Namespace, 0}),
+    ok.
