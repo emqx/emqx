@@ -20,7 +20,7 @@ start(_StartType, _StartArgs) ->
         ok = init_conf()
     catch
         C:E:St ->
-            ?SLOG(error, #{
+            ?SLOG(critical, #{
                 msg => "failed_to_load_config", error => C, reason => E, stacktrace => St
             }),
             exit_loop(1)
@@ -308,7 +308,7 @@ sync_data_from_node(Node) ->
             end,
             ok;
         Error ->
-            ?SLOG(emergency, #{node => Node, msg => "sync_data_from_node_failed", reason => Error}),
+            ?SLOG(critical, #{node => Node, msg => "sync_data_from_node_failed", reason => Error}),
             error(Error)
     end.
 
