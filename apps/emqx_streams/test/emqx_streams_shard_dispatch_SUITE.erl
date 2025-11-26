@@ -138,14 +138,79 @@ t_concurrent_consumers(_Config) ->
         []
     ).
 
+t_concurrent_consumers_takeover(_Config) ->
+    Group = ?group,
+    Stream = <<"t/#">>,
+    ?check_trace(
+        begin
+            trace("------------ Starting 4 consumers", []),
+            {ok, SRef} = snabbkaffe:subscribe(
+                ?match_event(#{?snk_kind := "sdisp_group_progress", leased := false}),
+                _NShards = 16,
+                5_000
+            ),
+
+            {ok, C1} = emqx_streams_shard_disp_client:start_link(<<"XX">>, Group, Stream, #{}),
+            {ok, C2} = emqx_streams_shard_disp_client:start_link(<<"YY">>, Group, Stream, #{}),
+            {ok, C3} = emqx_streams_shard_disp_client:start_link(<<"ZZ">>, Group, Stream, #{}),
+            {ok, C4} = emqx_streams_shard_disp_client:start_link(<<"WW">>, Group, Stream, #{}),
+
+            ?assertMatch({ok, _Events}, snabbkaffe:receive_events(SRef)),
+
+            trace("------------ All shards are allocated", []),
+            trace("[SGROUP] ~s ~s~n~s", [Stream, Group, indent(30, format_sgroup_st(Group, Stream))]),
+            ok = timer:sleep(3_000),
+
+            trace("------------ Killing consumer 1", []),
+            unlink(C1),
+            exit(C1, kill),
+            trace("[KILLED] XX", []),
+
+            ok = timer:sleep(24_000),
+            trace("[SGROUP] ~s ~s~n~s", [Stream, Group, indent(30, format_sgroup_st(Group, Stream))]),
+
+            trace("------------ Killing consumer 2", []),
+            unlink(C2),
+            exit(C2, kill),
+            trace("[KILLED] YY", []),
+
+            ok = timer:sleep(24_000),
+            trace("[SGROUP] ~s ~s~n~s", [Stream, Group, indent(30, format_sgroup_st(Group, Stream))]),
+
+            trace("------------ Restarting consumer 1 + 2", []),
+            {ok, C11} = emqx_streams_shard_disp_client:start_link(<<"XX">>, Group, Stream, #{}),
+            {ok, C21} = emqx_streams_shard_disp_client:start_link(<<"YY">>, Group, Stream, #{}),
+
+            ok = timer:sleep(8_000),
+            trace("[SGROUP] ~s ~s~n~s", [Stream, Group, indent(30, format_sgroup_st(Group, Stream))]),
+
+            trace("------------ Stopping consumers", []),
+            emqx_streams_shard_disp_client:stop(C11),
+            emqx_streams_shard_disp_client:stop(C21),
+            emqx_streams_shard_disp_client:stop(C3),
+            emqx_streams_shard_disp_client:stop(C4),
+
             ok = timer:sleep(5_000),
             trace("[SGROUP] ~s ~s~n~s", [Stream, Group, indent(30, format_sgroup_st(Group, Stream))])
-
         end,
-        fun(Trace) ->
-            ct:pal("~p", [Trace])
-        end
+        []
     ).
+
+t_many_concurrent_consumers(_Config) ->
+    Group = ?group,
+    Stream = <<"#">>,
+    ClientIDs = [<<C>> || C <- lists:seq($A, $X)],
+    CPids = [
+        CPid
+     || CID <- ClientIDs,
+        {ok, CPid} <- [emqx_streams_shard_disp_client:start_link(CID, Group, Stream, #{})]
+    ],
+
+    ok = timer:sleep(10_000),
+    trace("[SGROUP] ~s ~s~n~s", [Stream, Group, indent(30, format_sgroup_st(Group, Stream))]),
+
+    lists:foreach(fun emqx_streams_shard_disp_client:stop/1, CPids),
+    trace("[SGROUP] ~s ~s~n~s", [Stream, Group, indent(30, format_sgroup_st(Group, Stream))]).
 
 emqtt_connect(ClientID) ->
     {ok, CPid} = emqtt:start_link(#{clientid => ClientID, proto_ver => v5}),
