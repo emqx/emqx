@@ -38,18 +38,25 @@ json_status() {
 check_api_docs() {
     local attempts=5
     local url="$BASE_URL/api-docs/index.html"
-    local status="undefined"
-    while [ "$status" != "200" ]; do
+    local status
+    local attempts=5
+    while [ $attempts -gt 0 ]; do
         status="$(curl -s -o /dev/null -w "%{http_code}" "$url")"
-        if [ "$status" != "200" ]; then
-            if [ $attempts -eq 0 ]; then
-                echo "emqx return non-200 responses($status) on $url"
-                exit 1
-            fi
-            sleep 1
-            attempts=$((attempts-1))
+        if [ "$status" = "200" ]; then
+            return 0
         fi
+        if [ "$status" != "404" ]; then
+            echo "emqx return non-200 responses($status) on $url"
+            exit 1
+        fi
+        if [ $attempts -gt 1 ]; then
+            echo "emqx returned 404 on $url, waiting 1s for routes to be registered... ($((6 - attempts))/5)"
+            sleep 1
+        fi
+        attempts=$((attempts - 1))
     done
+    echo "emqx return non-200 responses($status) on $url after retries"
+    exit 1
 }
 
 ## Check if the swagger.json contains hidden fields
