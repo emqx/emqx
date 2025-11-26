@@ -248,6 +248,7 @@ collect_mf(?PROMETHEUS_NS_STATS_REGISTRY, Callback) ->
     ok = add_collect_family(Callback, message_metric_ns_meta(), ?MG(message_data_ns, RawData)),
     ok = add_collect_family(Callback, session_metric_ns_meta(), ?MG(session_metric_ns, RawData)),
     ok = add_collect_family(Callback, authz_metric_ns_meta(), ?MG(authz_metric_ns, RawData)),
+    ok = add_collect_family(Callback, authn_metric_ns_meta(), ?MG(authn_metric_ns, RawData)),
 
     ok;
 collect_mf(_Registry, _Callback) ->
@@ -429,7 +430,8 @@ fetch_namespaced_metrics_v1(Namespace, Mode) ->
 fetch_cluster_wide_namespaced_metrics(Namespace, Mode) ->
     #{
         session_metric_ns => session_metric_ns(Namespace, session_metric_ns_meta(), Mode),
-        authz_metric_ns => authz_metric_ns(Namespace, authz_metric_ns_meta(), Mode)
+        authz_metric_ns => authz_metric_ns(Namespace, authz_metric_ns_meta(), Mode),
+        authn_metric_ns => authn_metric_ns(Namespace, authn_metric_ns_meta(), Mode)
     }.
 
 %%--------------------------------------------------------------------
@@ -611,6 +613,8 @@ emqx_collect(K = emqx_authz_builtin_record_count, D) -> gauge_metrics(?MG(K, D))
 emqx_collect(K = emqx_authentication_success, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_authentication_success_anonymous, D) -> counter_metrics(?MG(K, D));
 emqx_collect(K = emqx_authentication_failure, D) -> counter_metrics(?MG(K, D));
+%% This comes from a cluster-wide collection (namespaced)
+emqx_collect(K = emqx_authn_builtin_record_count, D) -> gauge_metrics(?MG(K, D));
 %%--------------------------------------------------------------------
 %% License
 emqx_collect(K = emqx_license_expiry_at, D) -> gauge_metric(?MG(K, D));
@@ -884,6 +888,22 @@ gather_authz_ns_data(Namespace) when is_binary(Namespace) ->
     N = emqx_authz_mnesia:record_count(Namespace),
     #{Namespace => [{emqx_authz_builtin_record_count, N}]}.
 
+authn_metric_ns(Namespace, MetricSpecs, Mode) when is_binary(Namespace); Namespace == all ->
+    NsToMetrics = gather_authn_ns_data(Namespace),
+    do_metric_data_ns(NsToMetrics, MetricSpecs, Mode).
+
+%% Currently, we only collect number of records.
+gather_authn_ns_data(all) ->
+    maps:map(
+        fun(_Namespace, RecordCount) ->
+            [{emqx_authn_builtin_record_count, RecordCount}]
+        end,
+        emqx_authn_mnesia:record_count_per_namespace()
+    );
+gather_authn_ns_data(Namespace) when is_binary(Namespace) ->
+    N = emqx_authn_mnesia:record_count(Namespace),
+    #{Namespace => [{emqx_authn_builtin_record_count, N}]}.
+
 client_metric_data(Mode) ->
     Acc = listener_shutdown_counts(Mode),
     emqx_metric_data(client_metric_meta(), Mode, Acc).
@@ -1101,6 +1121,13 @@ authn_metric_meta() ->
         {emqx_authentication_success, counter, 'authentication.success'},
         {emqx_authentication_success_anonymous, counter, 'authentication.success.anonymous'},
         {emqx_authentication_failure, counter, 'authentication.failure'}
+    ].
+
+authn_metric_ns_meta() ->
+    [
+        %% Taken from `emqx_authn_mnesia:record_count/1` and
+        %% `emqx_authn_mnesia:record_count_per_namespace/0`
+        {emqx_authn_builtin_record_count, gauge, emqx_authn_builtin_record_count}
     ].
 
 %%==========

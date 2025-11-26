@@ -31,6 +31,8 @@
     list_users/2
 ]).
 
+-export([record_count/1, record_count_per_namespace/0]).
+
 -export([
     run_fuzzy_filter/2,
     format_user_info/1
@@ -329,6 +331,31 @@ list_users(QueryString0, #{user_group := UserGroup}) ->
         ?AUTHN_QSCHEMA,
         mk_qs2ms(Namespace),
         fun ?MODULE:format_user_info/1
+    ).
+
+-spec record_count(emqx_config:maybe_namespace()) -> non_neg_integer().
+record_count(?global_ns) ->
+    mnesia:table_info(?TAB, size);
+record_count(Namespace) when is_binary(Namespace) ->
+    %% Manually constructing match spec to ensure key is at least partially bound to avoid
+    %% full scan.
+    MS = [
+        {
+            #?NS_TAB{user_id = ?NS_KEY(Namespace, '_', '_'), _ = '_'},
+            [],
+            [true]
+        }
+    ],
+    ets:select_count(?NS_TAB, MS).
+
+-spec record_count_per_namespace() -> #{emqx_config:namespace() => non_neg_integer()}.
+record_count_per_namespace() ->
+    ets:foldl(
+        fun(#?NS_TAB{user_id = ?NS_KEY(Namespace, _, _)}, Acc) ->
+            maps:update_with(Namespace, fun(N) -> N + 1 end, 1, Acc)
+        end,
+        #{},
+        ?NS_TAB
     ).
 
 %%--------------------------------------------------------------------
