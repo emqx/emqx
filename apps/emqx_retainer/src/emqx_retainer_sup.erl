@@ -81,12 +81,13 @@ init([?worker_sup]) ->
 %%--------------------------------------------------------------------
 
 start_dispatcher() ->
+    NumWorkers = max(1, min(4, emqx_vm:schedulers())),
     ChildSpec = emqx_pool_sup:spec(
         dispatcher,
         [
             ?DISPATCHER_POOL,
             hash,
-            emqx_vm:schedulers(),
+            NumWorkers,
             {emqx_retainer_dispatcher, start_link, []}
         ]
     ),
