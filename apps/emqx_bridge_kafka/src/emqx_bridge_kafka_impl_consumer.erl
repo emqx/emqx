@@ -543,8 +543,7 @@ get_subscriber_status(SubscriberId) ->
                 rebalancing ->
                     {?status_connecting, <<"Consumer group rebalancing">>};
                 {error, [Error1 | _] = Errors} ->
-                    Msg = io_lib:format("first_error=~0p; total_errors=~p", [Error1, length(Errors)]),
-                    {?status_connecting, iolist_to_binary(Msg)}
+                    {?status_connecting, #{first_error => Error1, total_errors => length(Errors)}}
             end
     end.
 
