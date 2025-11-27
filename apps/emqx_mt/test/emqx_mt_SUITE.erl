@@ -422,7 +422,7 @@ mk_cluster(TestCase, #{n := NumNodes} = _Opts, TCConfig) ->
         emqx_auth_mnesia,
         emqx_auth,
         emqx_mt,
-        emqx_prometheus,
+        {emqx_prometheus, "prometheus.namespaced_metrics_limiter.rate = infinity"},
         emqx_management
     ],
     MkDashApp = fun(N) ->
@@ -475,8 +475,10 @@ get_prometheus_ns_stats(Namespace, Mode, Format) ->
     case Format of
         json ->
             {Status, Response};
+        prometheus when Status == 200 ->
+            {Status, parse_prometheus(Response)};
         prometheus ->
-            {Status, parse_prometheus(Response)}
+            {Status, Response}
     end.
 
 parse_prometheus(RawData) ->
@@ -1331,5 +1333,61 @@ t_namespaced_metrics_prometheus(TCConfig) when is_list(TCConfig) ->
             Mode <- ?PROM_DATA_MODES
         ]
     ),
+
+    ok.
+
+-doc """
+Verifies that we rate limit requests to the namespaced metrics scraping endpoint.
+
+We limit requests that attempt to retrieve data from all namespaces.  Requests for a
+single namespace are not rate limited.
+""".
+t_namespaced_metrics_prometheus_rate_limit({init, TCConfig}) ->
+    Nodes = mk_cluster(?FUNCTION_NAME, #{n => 1}, TCConfig),
+    ?ON_ALL(Nodes, begin
+        meck:new(emqx_license_checker, [non_strict, passthrough, no_link]),
+        meck:expect(emqx_license_checker, expiry_epoch, fun() -> 1859673600 end)
+    end),
+    [{nodes, Nodes} | TCConfig];
+t_namespaced_metrics_prometheus_rate_limit({'end', _TCConfig}) ->
+    ok;
+t_namespaced_metrics_prometheus_rate_limit(TCConfig) when is_list(TCConfig) ->
+    [N | _] = ?config(nodes, TCConfig),
+    Namespace = <<"rate_limited">>,
+    ok = ?ON(N, emqx_mt_config:create_managed_ns(Namespace)),
+
+    %% Exercising propagated post config update hook
+    RawPromConf0 = ?ON(N, emqx_config:get_raw([prometheus])),
+    RawPromConf = emqx_utils_maps:deep_put(
+        [<<"namespaced_metrics_limiter">>, <<"rate">>],
+        RawPromConf0,
+        <<"1/s">>
+    ),
+    {{ok, _}, {ok, _}} =
+        ?wait_async_action(
+            ?ON(
+                N,
+                emqx_conf:update(
+                    [prometheus],
+                    RawPromConf,
+                    #{override_to => cluster}
+                )
+            ),
+            #{?snk_kind := "prometheus_api_limiter_updated"},
+            5_000
+        ),
+
+    Mode = ?PROM_DATA_MODE__NODE,
+
+    %% Requesting specific namespace is not rate limited.
+    lists:foreach(
+        fun(_) ->
+            ?assertMatch({200, _}, get_prometheus_ns_stats(Namespace, Mode, prometheus))
+        end,
+        lists:seq(1, 10)
+    ),
+
+    %% Requesting all namespaces is rate limited.
+    ?retry(100, 5, ?assertMatch({429, _}, get_prometheus_ns_stats(all, Mode, prometheus))),
 
     ok.
