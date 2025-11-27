@@ -15,26 +15,35 @@
 
 -include("../src/emqx_streams_internal.hrl").
 
--define(COMMON_LIMITED_TESTS, [
+-define(PUBLISH_AND_CONSUME_CASES, [
     t_publish_and_consume_regular_many_generations,
     t_publish_and_consume_lastvalue
+]).
+
+-define(READ_CASES, [
+    t_read_earliest,
+    t_read_latest,
+    t_read_offset
 ]).
 
 -define(MANY, 999_999_999_999).
 
 all() ->
-    All =
-        emqx_common_test_helpers:all(?MODULE) -- ?COMMON_LIMITED_TESTS,
-    [
-        {group, unlimited},
-        {group, limited}
-    ] ++ All.
+    All = emqx_common_test_helpers:all(?MODULE) -- (?PUBLISH_AND_CONSUME_CASES ++ ?READ_CASES),
+    [{group, pub_and_consume}, {group, read}] ++ All.
 
 groups() ->
-    [
-        {limited, [], ?COMMON_LIMITED_TESTS},
-        {unlimited, [], ?COMMON_LIMITED_TESTS}
-    ].
+    emqx_common_test_helpers:nested_groups([
+        [pub_and_consume],
+        [limited, unlimited],
+        [subscribe_all, subscribe_shard],
+        ?PUBLISH_AND_CONSUME_CASES
+    ]) ++
+        emqx_common_test_helpers:nested_groups([
+            [read],
+            [subscribe_all, subscribe_shard],
+            ?READ_CASES
+        ]).
 
 init_per_suite(Config) ->
     Apps =
@@ -59,6 +68,10 @@ init_per_group(unlimited, Config) ->
         {limits, #{max_shard_message_bytes => infinity, max_shard_message_count => infinity}}
         | Config
     ];
+init_per_group(subscribe_all, Config) ->
+    [{subscribe, all} | Config];
+init_per_group(subscribe_shard, Config) ->
+    [{subscribe, shard} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -89,13 +102,20 @@ t_smoke(_Config) ->
     ?assertEqual(10, length(AllMessages)),
     ok.
 
-t_read_earliest(_Config) ->
+t_read_earliest(Config) ->
     _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/t/#">>),
+    case ?config(subscribe, Config) of
+        all ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]);
+        shard ->
+            emqx_streams_test_utils:emqtt_sub_stream(
+                CSub,
+                [<<"0/earliest/t/#">>, <<"1/earliest/t/#">>]
+            )
+    end,
 
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout1 = 500),
     ok = validate_headers(Msgs0),
@@ -105,13 +125,20 @@ t_read_earliest(_Config) ->
     ok = validate_headers(Msgs1),
     ok = emqtt:disconnect(CSub).
 
-t_read_latest(_Config) ->
+t_read_latest(Config) ->
     _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/latest/t/#">>),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/latest/t/#">>),
+    case ?config(subscribe, Config) of
+        all ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/latest/t/#">>]);
+        shard ->
+            emqx_streams_test_utils:emqtt_sub_stream(
+                CSub,
+                [<<"0/latest/t/#">>, <<"1/latest/t/#">>]
+            )
+    end,
 
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 0, _Timeout1 = 500),
     ?assertEqual(0, length(Msgs0)),
@@ -122,7 +149,7 @@ t_read_latest(_Config) ->
 
     ok = emqtt:disconnect(CSub).
 
-t_read_offset(_Config) ->
+t_read_offset(Config) ->
     Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
@@ -134,8 +161,14 @@ t_read_offset(_Config) ->
 
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     OffsetBin = integer_to_binary(Offset),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/", OffsetBin/binary, "/t/#">>),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/", OffsetBin/binary, "/t/#">>),
+    case ?config(subscribe, Config) of
+        all ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/", OffsetBin/binary, "/t/#">>]);
+        shard ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [
+                <<"0/", OffsetBin/binary, "/t/#">>, <<"1/", OffsetBin/binary, "/t/#">>
+            ])
+    end,
 
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout0 = 1000),
     ok = validate_headers(Msgs0),
@@ -160,8 +193,14 @@ t_publish_and_consume_regular_many_generations(Config) ->
 
     %% Consume the messages from the queue
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/t/#">>),
+    case ?config(subscribe, Config) of
+        all ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]);
+        shard ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [
+                <<"0/earliest/t/#">>, <<"1/earliest/t/#">>
+            ])
+    end,
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 5000),
 
     %% Verify the messages
@@ -201,8 +240,14 @@ t_publish_and_consume_lastvalue(Config) ->
 
     %% Consume the messages from the stream
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/t/#">>),
+    case ?config(subscribe, Config) of
+        all ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]);
+        shard ->
+            emqx_streams_test_utils:emqtt_sub_stream(CSub, [
+                <<"0/earliest/t/#">>, <<"1/earliest/t/#">>
+            ])
+    end,
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
     ok = emqtt:disconnect(CSub),
 
