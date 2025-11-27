@@ -38,6 +38,8 @@
     | {pubrel, emqx_persistent_session_ds:seqno()}
     | {other, term()}.
 
+-type block_queue() :: gb_trees:tree(emqx_persistent_session_ds:seqno(), _).
+
 -record(ds_inflight, {
     receive_maximum :: pos_integer(),
     %% Main queue:
@@ -46,7 +48,10 @@
     puback_queue :: iqueue(),
     pubrec_queue :: iqueue(),
     pubcomp_queue :: iqueue(),
-    %% Counters:
+    %% Queues that store post-ack actions:
+    bq1 :: block_queue(),
+    bq2 :: block_queue(),
+    %% Tally counters:
     n_inflight = 0 :: non_neg_integer(),
     n_qos0 = 0 :: non_neg_integer(),
     n_qos1 = 0 :: non_neg_integer(),
@@ -66,7 +71,9 @@ new(ReceiveMaximum) when ReceiveMaximum > 0 ->
         queue = queue:new(),
         puback_queue = iqueue_new(),
         pubrec_queue = iqueue_new(),
-        pubcomp_queue = iqueue_new()
+        pubcomp_queue = iqueue_new(),
+        bq1 = gb_trees:empty(),
+        bq2 = gb_trees:empty()
     }.
 
 -spec receive_maximum(t()) -> pos_integer().
