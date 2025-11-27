@@ -29,6 +29,7 @@ Facade for all operations with the message database.
     subscribe/4,
     drop/1,
     partitions/1,
+    find_generations/2,
     find_generation/3
 ]).
 
@@ -295,6 +296,26 @@ find_generation(Stream, Shard, TimestampUs) ->
             {ok, do_find_generation(TimestampMs, lists:sort(maps:to_list(SlabInfo)))};
         {_, Errors} ->
             {error, {cannot_list_slabs, Errors}}
+    end.
+
+find_generations(Stream, TimestampUs) ->
+    Shards = emqx_ds:list_shards(db(Stream)),
+    try
+        Generations = lists:map(
+            fun(Shard) ->
+                case find_generation(Stream, Shard, TimestampUs) of
+                    {ok, Generation} ->
+                        {Shard, Generation};
+                    {error, Reason} ->
+                        throw(Reason)
+                end
+            end,
+            Shards
+        ),
+        {ok, maps:from_list(Generations)}
+    catch
+        throw:Reason ->
+            {error, Reason}
     end.
 
 do_find_generation(_TimestampMs, [{{_Shard, Generation} = _Slab, _SlabInfo}]) ->
