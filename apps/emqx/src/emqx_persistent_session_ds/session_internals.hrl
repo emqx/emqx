@@ -67,6 +67,14 @@
 }).
 -define(shared_sub_message, #shared_sub_message{}).
 
+-record(on_release_action, {
+    %% SeqNo in the QoS1 release queue:
+    qos1 :: emqx_persistent_session_ds:seqno() | undefined,
+    %% SeqNo in the QoS2 release queue:
+    qos2 :: emqx_persistent_session_ds:seqno() | undefined,
+    val :: term()
+}).
+
 -include("../emqx_tracepoints.hrl").
 
 -endif.

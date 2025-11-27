@@ -246,7 +246,7 @@ on_unsubscribe(
 %% on_streams_replay
 
 -spec on_streams_replay(emqx_persistent_session_ds_state:t(), t(), [
-    emqx_persistent_session_ds_streams:stream_key()
+    emqx_persistent_session_ds:stream_key()
 ]) ->
     {emqx_persistent_session_ds_state:t(), t()}.
 on_streams_replay(S, SharedS, []) ->

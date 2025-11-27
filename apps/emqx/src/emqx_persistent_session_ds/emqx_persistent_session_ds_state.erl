@@ -144,7 +144,7 @@
     ?seqnos := emqx_ds_pmap:pmap(seqno_type(), emqx_persistent_session_ds:seqno()),
     %% Fixme: key is actualy `{StreamId :: non_neg_integer(), emqx_ds:stream()}', from
     %% stream scheduler module.
-    ?streams := emqx_ds_pmap:pmap(emqx_ds:stream(), emqx_persistent_session_ds:stream_state()),
+    ?streams := emqx_ds_pmap:pmap(emqx_ds:stream(), emqx_persistent_session_ds:srs()),
     ?ranks := emqx_ds_pmap:pmap(term(), integer()),
     ?awaiting_rel := emqx_ds_pmap:pmap(emqx_types:packet_id(), _Timestamp :: integer())
 }.
@@ -440,28 +440,28 @@ del_subscription_state(SStateId, Rec) ->
 
 %%
 
--spec get_stream(emqx_persistent_session_ds_streams:stream_key(), t()) ->
-    emqx_persistent_session_ds:stream_state() | undefined.
+-spec get_stream(emqx_persistent_session_ds:stream_key(), t()) ->
+    emqx_persistent_session_ds:srs() | undefined.
 get_stream(Key, Rec) ->
     emqx_ds_pmap:collection_get(?streams, Key, Rec).
 
 -spec put_stream(
-    emqx_persistent_session_ds_streams:stream_key(),
-    emqx_persistent_session_ds:stream_state(),
+    emqx_persistent_session_ds:stream_key(),
+    emqx_persistent_session_ds:srs(),
     t()
 ) -> t().
 put_stream(Key, Val, Rec) ->
     emqx_ds_pmap:collection_put(?streams, Key, Val, Rec).
 
--spec del_stream(emqx_persistent_session_ds_streams:stream_key(), t()) -> t().
+-spec del_stream(emqx_persistent_session_ds:stream_key(), t()) -> t().
 del_stream(Key, Rec) ->
     emqx_ds_pmap:collection_del(?streams, Key, Rec).
 
 -spec fold_streams(
     fun(
         (
-            emqx_persistent_session_ds_streams:stream_key(),
-            emqx_persistent_session_ds:stream_state(),
+            emqx_persistent_session_ds:stream_key(),
+            emqx_persistent_session_ds:srs(),
             Acc
         ) -> Acc
     ),
@@ -474,7 +474,7 @@ fold_streams(Fun, Acc, Rec) ->
 %% @doc Fold streams for a specific subscription id:
 -spec fold_streams(
     emqx_persistent_session_ds:subscription_id(),
-    fun((_StreamId, emqx_persistent_session_ds:stream_state(), Acc) -> Acc),
+    fun((_StreamId, emqx_persistent_session_ds:srs(), Acc) -> Acc),
     Acc,
     t()
 ) -> Acc.

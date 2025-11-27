@@ -37,7 +37,7 @@ This type reuses `ds_sub_reply` record with one important difference:
 -type q() :: queue:queue(item()).
 
 %% Collection of per-stream buffers:
--type mqs() :: #{emqx_persistent_session_ds_streams:stream_key() => q()}.
+-type mqs() :: #{emqx_persistent_session_ds:stream_key() => q()}.
 
 -record(buffer, {
     messages = #{} :: mqs()
@@ -66,7 +66,7 @@ next(It) ->
     end.
 
 -doc "Enqueue a batch of messages.".
--spec push_batch(emqx_persistent_session_ds_streams:stream_key(), item(), t()) -> t().
+-spec push_batch(emqx_persistent_session_ds:stream_key(), item(), t()) -> t().
 push_batch(StreamId, Item, Buf = #buffer{messages = MsgQs}) ->
     case MsgQs of
         #{StreamId := Q0} ->
@@ -95,12 +95,12 @@ clean_by_subid(SubId, Buf = #buffer{messages = MsgQs0}) ->
     Buf#buffer{messages = MsgQs}.
 
 -doc "Delete buffered data for a particular stream.".
--spec drop_stream(emqx_persistent_session_ds_streams:stream_key(), t()) -> t().
+-spec drop_stream(emqx_persistent_session_ds:stream_key(), t()) -> t().
 drop_stream(StreamKey, Buf = #buffer{messages = Msgs}) ->
     Buf#buffer{messages = maps:remove(StreamKey, Msgs)}.
 
 -doc "Dequeue a batch of messages from a specified stream.".
--spec pop_batch(emqx_persistent_session_ds_streams:stream_key(), t()) ->
+-spec pop_batch(emqx_persistent_session_ds:stream_key(), t()) ->
     {[item()], t()}.
 pop_batch(StreamId, Buf = #buffer{messages = MsgQs0}) ->
     case MsgQs0 of
@@ -121,7 +121,7 @@ pop_batch(StreamId, Buf = #buffer{messages = MsgQs0}) ->
 -doc """
 Get number of buffered DS replies in a given stream.
 """.
--spec len(emqx_persistent_session_ds_streams:stream_key(), t()) -> non_neg_integer().
+-spec len(emqx_persistent_session_ds:stream_key(), t()) -> non_neg_integer().
 len(StreamId, #buffer{messages = MsgQs}) ->
     case MsgQs of
         #{StreamId := Q} ->
