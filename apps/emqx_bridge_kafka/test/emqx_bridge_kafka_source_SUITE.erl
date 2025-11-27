@@ -820,6 +820,7 @@ t_start_stop(matrix) ->
         [?tls_sasl, ?plain_auth]
     ];
 t_start_stop(Config) when is_list(Config) ->
+    StopTracePoint = "kafka_consumer_stopped",
     Kind = proplists:get_value(bridge_kind, Config, action),
     ConnectorName = ?config(connector_name, Config),
     ConnectorType = ?config(connector_type, Config),
@@ -836,7 +837,7 @@ t_start_stop(Config) when is_list(Config) ->
 
     ct:timetrap({seconds, 20}),
     ?check_trace(
-        snk_timetrap(),
+        emqx_bridge_v2_testlib:snk_timetrap(),
         begin
             ?assertMatch(
                 {ok, {{_, 204, _}, _Headers, _Body}},
@@ -1878,10 +1879,10 @@ t_repeated_topics(TCConfig) ->
 t_pretty_api_dry_run_reason(TCConfig) ->
     ?check_trace(
         begin
-            {ok, {{_, 201, _}, _, _}} =
-                with_group_subscriber_spy(#{timeout => 15_000}, fun() ->
-                    emqx_bridge_v2_testlib:create_bridge_api(TCConfig)
-                end),
+            with_group_subscriber_spy(#{timeout => 15_000}, fun() ->
+                {201, _} = create_connector_api(TCConfig, #{}),
+                {201, _} = create_source_api(TCConfig, #{})
+            end),
             emqx_common_test_helpers:with_mock(
                 brod_client,
                 get_leader_connection,
