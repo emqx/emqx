@@ -42,7 +42,7 @@ DS streams are explicity called `DS streams' here.
 
 -record(stream_status_unblocked, {}).
 -record(stream_status_blocked, {
-    unblock_fn :: fun((handler()) -> handler())
+    unblock_fns :: [fun((handler()) -> handler())]
 }).
 
 -type stream_status() :: #stream_status_unblocked{} | #stream_status_blocked{}.
@@ -55,11 +55,24 @@ DS streams are explicity called `DS streams' here.
 %% DS Client subscription ID
 -type sub_id() :: reference().
 
+-define(all_shards, all).
+-define(is_subscribed_to_shard(Shard, SubShard),
+    (SubShard =:= Shard orelse SubShard =:= ?all_shards)
+).
+
+-record(shard_progress, {
+    generation :: emqx_ds:generation(),
+    last_timestamp_us :: emqx_ds:time()
+}).
+
+-type shard_progress() :: #shard_progress{}.
+
 -record(stream_state, {
     stream :: emqx_streams_types:stream(),
-    shard :: emqx_ds:shard(),
-    generation :: emqx_ds:generation(),
+    shard :: emqx_ds:shard() | ?all_shards,
     start_time_us :: emqx_ds:time(),
+    progress :: #{emqx_ds:shard() => shard_progress()},
+    shard_by_dsstream :: #{emqx_ds:stream() => emqx_ds:shard()},
     sub_id :: sub_id(),
     status :: stream_status()
 }).
@@ -102,10 +115,8 @@ DS streams are explicity called `DS streams' here.
 }).
 
 %%------------------------------------------------------------------------------------
-%% API
-%%------------------------------------------------------------------------------------
-
 %% ExtSub Handler callbacks
+%%------------------------------------------------------------------------------------
 
 handle_subscribe(
     _SubscribeType,
@@ -136,44 +147,6 @@ handle_subscribe(
 handle_subscribe(_SubscribeType, _SubscribeCtx, _Handler, _FullTopicFilter) ->
     ignore.
 
-subscribe(Handler, SubscribeTopicFilter) ->
-    maybe
-        {ok, Partition, Rest1} ?= split_topic_filter(SubscribeTopicFilter),
-        {ok, OffsetBin, TopicFilter} ?= split_topic_filter(Rest1),
-        {ok, Offset} ?= parse_offset(OffsetBin),
-        ok ?= validate_new_topic_filter(Handler, SubscribeTopicFilter),
-        {ok, Stream} ?= find_stream(TopicFilter),
-        {ok, Shard} ?= validate_partition(Stream, Partition),
-        #h{
-            state = #state{by_topic_filter = ByTopicFilter, subs = Subs} = State0,
-            ds_client = DSClient0
-        } = Handler,
-        SubId = make_ref(),
-        StartTimeUs = start_time_us(Offset),
-        {ok, Generation} ?= emqx_streams_message_db:find_generation(Stream, Shard, StartTimeUs),
-        StreamState = #stream_state{
-            stream = Stream,
-            shard = Shard,
-            generation = Generation,
-            start_time_us = StartTimeUs,
-            sub_id = SubId,
-            status = #stream_status_unblocked{}
-        },
-        State1 = State0#state{
-            by_topic_filter = ByTopicFilter#{SubscribeTopicFilter => SubId},
-            subs = Subs#{SubId => StreamState}
-        },
-        ?tp_debug(streams_extsub_handler_handle_subscribe, #{
-            sub_id => SubId,
-            stream => Stream,
-            shard => Shard,
-            generation => Generation,
-            start_time_us => StartTimeUs
-        }),
-        {ok, DSClient, State} = emqx_streams_message_db:subscribe(Stream, DSClient0, SubId, State1),
-        {ok, Handler#h{state = State, ds_client = DSClient}}
-    end.
-
 handle_unsubscribe(
     _UnsubscribeType,
     #h{
@@ -200,21 +173,6 @@ handle_unsubscribe(
             end
     end.
 
-unsubscribe(
-    #h{state = #state{by_topic_filter = ByTopicFilter, subs = Subs} = State0, ds_client = DSClient0} =
-        Handler,
-    SubscribeTopicFilter,
-    SubId
-) ->
-    {ok, DSClient, #state{by_topic_filter = ByTopicFilter, subs = Subs} = State1} = emqx_ds_client:unsubscribe(
-        DSClient0, SubId, State0
-    ),
-    State = State1#state{
-        by_topic_filter = maps:remove(SubscribeTopicFilter, ByTopicFilter),
-        subs = maps:remove(SubId, Subs)
-    },
-    Handler#h{state = State, ds_client = DSClient}.
-
 handle_terminate(#h{state = State, ds_client = DSClient}) ->
     ?tp(debug, handle_terminate, #{state => State}),
     _ = emqx_ds_client:destroy(DSClient, State),
@@ -231,13 +189,18 @@ handle_delivered(
 handle_info(Handler, #{desired_message_count := DesiredCount} = _InfoCtx, Info) ->
     handle_info(update_blocking_status(Handler, DesiredCount), Info).
 
+%%------------------------------------------------------------------------------------
 %% DS Client callbacks
+%%------------------------------------------------------------------------------------
 
-get_current_generation(SubId, _Shard, #state{subs = Subs}) ->
-    ?tp_debug(streams_extsub_handler_get_current_generation, #{sub_id => SubId, shard => _Shard}),
+get_current_generation(SubId, Shard, #state{subs = Subs}) ->
+    ?tp_debug(streams_extsub_handler_get_current_generation, #{sub_id => SubId, shard => Shard}),
     case Subs of
-        #{SubId := #stream_state{generation = Generation}} ->
+        #{SubId := #stream_state{progress = #{Shard := #shard_progress{generation = Generation}}}} ->
             Generation;
+        #{SubId := #stream_state{}} ->
+            %% Should not happen
+            0;
         _ ->
             error({unknown_subscription, #{sub_id => SubId}})
     end.
@@ -249,21 +212,19 @@ on_advance_generation(
         sub_id => SubId, shard => Shard, generation => Generation
     }),
     case Subs of
-        #{SubId := #stream_state{shard = Shard} = StreamState} ->
-            update_stream_state(
-                State,
-                SubId,
-                StreamState#stream_state{generation = Generation}
-            );
-        #{SubId := _} ->
-            State;
+        #{SubId := StreamState0} ->
+            StreamState = advance_shard_generation(StreamState0, Shard, Generation),
+            update_stream_state(State, SubId, StreamState);
         _ ->
             error({unknown_subscription, #{sub_id => SubId}})
     end.
 
 get_iterator(SubId, {Shard, _} = Slab, DSStream, #state{subs = Subs, send_fn = SendFn}) ->
     case Subs of
-        #{SubId := #stream_state{shard = Shard, start_time_us = StartTimeUs}} ->
+        #{SubId := #stream_state{shard = SubShard} = StreamState} when
+            ?is_subscribed_to_shard(Shard, SubShard)
+        ->
+            StartTimeUs = get_shard_start_time_us(StreamState, Shard),
             StartTimeMs = erlang:convert_time_unit(StartTimeUs, microsecond, millisecond),
             ?tp_debug(streams_extsub_handler_get_iterator, #{
                 status => create,
@@ -294,14 +255,16 @@ on_new_iterator(
     SubId, {Shard, _} = Slab, DSStream, _It, #state{subs = Subs, send_fn = SendFn} = State
 ) ->
     case Subs of
-        #{SubId := #stream_state{shard = Shard}} ->
+        #{SubId := #stream_state{shard = SubShard}} when
+            SubShard =:= Shard orelse SubShard =:= ?all_shards
+        ->
             ?tp_debug(streams_extsub_handler_on_new_iterator_subscribe, #{
                 status => subscribe,
                 sub_id => SubId,
                 slab => Slab,
                 ds_stream => DSStream
             }),
-            {subscribe, State};
+            {subscribe, add_dsstream_to_index(State, SubId, DSStream, Shard)};
         #{SubId := _} ->
             SendFn(#complete_stream{
                 sub_id = SubId, slab = Slab, ds_stream = DSStream
@@ -334,7 +297,63 @@ on_subscription_down(SubId, Slab, _DSStream, State) ->
             State
     end.
 
+%%------------------------------------------------------------------------------------
 %% Internal functions
+%%------------------------------------------------------------------------------------
+
+subscribe(Handler, SubscribeTopicFilter) ->
+    maybe
+        {ok, Partition, Rest1} ?= split_topic_filter(SubscribeTopicFilter),
+        {ok, OffsetBin, TopicFilter} ?= split_topic_filter(Rest1),
+        {ok, Offset} ?= parse_offset(OffsetBin),
+        ok ?= validate_new_topic_filter(Handler, SubscribeTopicFilter),
+        {ok, Stream} ?= find_stream(TopicFilter),
+        {ok, SubShard} ?= validate_partition(Stream, Partition),
+        #h{
+            state = #state{by_topic_filter = ByTopicFilter, subs = Subs} = State0,
+            ds_client = DSClient0
+        } = Handler,
+        SubId = make_ref(),
+        StartTimeUs = start_time_us(Offset),
+        {ok, Progress} ?= init_progress(Stream, SubShard, StartTimeUs),
+        StreamState = #stream_state{
+            stream = Stream,
+            shard = SubShard,
+            start_time_us = StartTimeUs,
+            progress = Progress,
+            shard_by_dsstream = #{},
+            sub_id = SubId,
+            status = #stream_status_unblocked{}
+        },
+        State1 = State0#state{
+            by_topic_filter = ByTopicFilter#{SubscribeTopicFilter => SubId},
+            subs = Subs#{SubId => StreamState}
+        },
+        ?tp_debug(streams_extsub_handler_handle_subscribe, #{
+            sub_id => SubId,
+            stream => Stream,
+            shard => SubShard,
+            progress => Progress,
+            start_time_us => StartTimeUs
+        }),
+        {ok, DSClient, State} = emqx_streams_message_db:subscribe(Stream, DSClient0, SubId, State1),
+        {ok, Handler#h{state = State, ds_client = DSClient}}
+    end.
+
+unsubscribe(
+    #h{state = #state{by_topic_filter = ByTopicFilter, subs = Subs} = State0, ds_client = DSClient0} =
+        Handler,
+    SubscribeTopicFilter,
+    SubId
+) ->
+    {ok, DSClient, #state{by_topic_filter = ByTopicFilter, subs = Subs} = State1} = emqx_ds_client:unsubscribe(
+        DSClient0, SubId, State0
+    ),
+    State = State1#state{
+        by_topic_filter = maps:remove(SubscribeTopicFilter, ByTopicFilter),
+        subs = maps:remove(SubId, Subs)
+    },
+    Handler#h{state = State, ds_client = DSClient}.
 
 handle_info(
     #h{state = #state{subs = Subs} = State0, ds_client = DSClient0} = Handler, {generic, Info}
@@ -353,18 +372,15 @@ handle_info(
             end
     end;
 handle_info(
-    #h{state = #state{subs = Subs} = State0, ds_client = DSClient0} = Handler0, #complete_stream{
+    #h{state = #state{subs = Subs}} = Handler, #complete_stream{
         sub_id = SubId, slab = Slab, ds_stream = DSStream
     }
 ) ->
     case Subs of
         #{SubId := _} ->
-            {DSClient, State} = emqx_ds_client:complete_stream(
-                DSClient0, SubId, Slab, DSStream, State0
-            ),
-            {ok, Handler0#h{ds_client = DSClient, state = State}};
+            {ok, complete_skipped_dsstream(Handler, SubId, Slab, DSStream)};
         _ ->
-            {ok, Handler0}
+            {ok, Handler}
     end;
 handle_info(Handler0, #check_stream_status{}) ->
     Handler1 = check_active_streams_status(Handler0),
@@ -375,7 +391,7 @@ handle_ds_info(
     #h{state = #state{status = Status}} = Handler,
     StreamState0,
     SubId,
-    _DSStream,
+    DSStream,
     SubHandle,
     DSReply
 ) ->
@@ -383,12 +399,12 @@ handle_ds_info(
         #ds_sub_reply{payload = {ok, end_of_stream}, ref = SubRef} ->
             case Status of
                 #status_blocked{} ->
-                    StreamStatus = #stream_status_blocked{
-                        unblock_fn = fun(HSt) ->
-                            complete_ds_stream(HSt, SubRef)
+                    StreamState = block_stream(
+                        StreamState0,
+                        fun(Hndlr) ->
+                            complete_subscribed_dsstream(Hndlr, SubId, SubRef, DSStream)
                         end
-                    },
-                    StreamState = StreamState0#stream_state{status = StreamStatus},
+                    ),
                     ?tp_debug(streams_extsub_handler_handle_ds_info, #{
                         status => blocked,
                         sub_id => SubId,
@@ -403,32 +419,36 @@ handle_ds_info(
                         stream_state => StreamState0,
                         payload => end_of_stream
                     }),
-                    {ok, complete_ds_stream(Handler, SubRef)}
+                    {ok, complete_subscribed_dsstream(Handler, SubId, SubRef, DSStream)}
             end;
-        #ds_sub_reply{payload = {ok, _It, TTVs}, seqno = SeqNo, size = _Size} ->
+        #ds_sub_reply{payload = {ok, _It, TTVs}, seqno = SeqNo, size = Size} ->
             case Status of
                 #status_blocked{} ->
-                    StreamStatus = #stream_status_blocked{
-                        unblock_fn = fun(HSt) ->
-                            ok = suback(HSt, SubId, SubHandle, SeqNo),
-                            HSt
+                    Shard = get_shard_by_dsstream(StreamState0, DSStream),
+                    LastTimestampUs0 = get_shard_start_time_us(StreamState0, Shard),
+                    {LastTimestampUs, Messages} = to_messages(Shard, LastTimestampUs0, TTVs),
+                    StreamState1 = advance_shard_last_time(StreamState0, Shard, LastTimestampUs),
+                    StreamState = block_stream(
+                        StreamState1,
+                        fun(Hndlr) ->
+                            ok = suback(Hndlr, SubId, SubHandle, SeqNo),
+                            Hndlr
                         end
-                    },
-                    {LastTimestampUs, Messages} = to_messages(StreamState0, TTVs),
-                    StreamState = StreamState0#stream_state{
-                        status = StreamStatus, start_time_us = LastTimestampUs
-                    },
+                    ),
                     ?tp_debug(streams_extsub_handler_handle_ds_info, #{
                         status => blocked,
                         sub_id => SubId,
                         stream_state => StreamState,
-                        payload => {messages, length(Messages)}
+                        payload => #{total => Size, filtered => length(Messages)}
                     }),
                     {ok, update_stream_state(Handler, SubId, StreamState), Messages};
                 #status_unblocked{} ->
                     ok = suback(Handler, SubId, SubHandle, SeqNo),
-                    {LastTimestampUs, Messages} = to_messages(StreamState0, TTVs),
-                    StreamState = StreamState0#stream_state{start_time_us = LastTimestampUs},
+                    Shard = get_shard_by_dsstream(StreamState0, DSStream),
+                    LastTimestampUs0 = get_shard_start_time_us(StreamState0, Shard),
+                    {LastTimestampUs, Messages} = to_messages(Shard, LastTimestampUs0, TTVs),
+                    StreamState1 = advance_shard_last_time(StreamState0, Shard, LastTimestampUs),
+                    StreamState = StreamState1#stream_state{status = #stream_status_unblocked{}},
                     ?tp_debug(streams_extsub_handler_handle_ds_info, #{
                         status => unblocked,
                         sub_id => SubId,
@@ -438,6 +458,8 @@ handle_ds_info(
                     {ok, update_stream_state(Handler, SubId, StreamState), Messages}
             end
     end.
+
+%% Blocking/unblocking streams
 
 update_blocking_status(#h{state = #state{status = Status} = State0} = Handler0, DesiredCount) ->
     case {Status, DesiredCount} of
@@ -460,17 +482,115 @@ unblock_streams(#h{state = #state{subs = Subs}} = Handler) ->
                 HandlerAcc;
             (
                 SubId,
-                #stream_state{status = #stream_status_blocked{unblock_fn = UnblockFn}} =
+                #stream_state{status = #stream_status_blocked{unblock_fns = UnblockFns}} =
                     StreamState0,
                 HandlerAcc0
             ) ->
-                HandlerAcc = UnblockFn(HandlerAcc0),
+                HandlerAcc = unblock_stream(HandlerAcc0, UnblockFns),
                 StreamState = StreamState0#stream_state{status = #stream_status_unblocked{}},
                 update_stream_state(HandlerAcc, SubId, StreamState)
         end,
         Handler,
         Subs
     ).
+
+unblock_stream(Handler, UnblockFns) ->
+    lists:foldl(
+        fun(UnblockFn, HandlerAcc) ->
+            UnblockFn(HandlerAcc)
+        end,
+        Handler,
+        UnblockFns
+    ).
+
+%% Managament of DS streams in Stream states.
+
+remove_dsstream_from_index(#state{} = State, SubId, DSStream) ->
+    #stream_state{shard_by_dsstream = ShardByDSStream} =
+        StreamState0 = get_stream_state(SubId, State),
+    StreamState = StreamState0#stream_state{
+        shard_by_dsstream = maps:remove(DSStream, ShardByDSStream)
+    },
+    update_stream_state(State, SubId, StreamState).
+
+complete_skipped_dsstream(
+    #h{state = State0, ds_client = DSClient0} = Handler, SubId, Slab, DSStream
+) ->
+    {DSClient, State1} = emqx_ds_client:complete_stream(DSClient0, SubId, Slab, DSStream, State0),
+    State = remove_dsstream_from_index(State1, SubId, DSStream),
+    Handler#h{ds_client = DSClient, state = State}.
+
+complete_subscribed_dsstream(
+    #h{state = State0, ds_client = DSClient0} = Handler, SubId, SubRef, DSStream
+) ->
+    {DSClient, State1} = emqx_ds_client:complete_stream(DSClient0, SubRef, State0),
+    State = remove_dsstream_from_index(State1, SubId, DSStream),
+    Handler#h{ds_client = DSClient, state = State}.
+
+add_dsstream_to_index(#state{} = State, SubId, DSStream, Shard) ->
+    #stream_state{shard_by_dsstream = ShardByDSStream} =
+        StreamState0 = get_stream_state(SubId, State),
+    StreamState = StreamState0#stream_state{
+        shard_by_dsstream = ShardByDSStream#{DSStream => Shard}
+    },
+    update_stream_state(State, SubId, StreamState).
+
+get_shard_by_dsstream(#stream_state{shard_by_dsstream = ShardByDSStream}, DSStream) ->
+    maps:get(DSStream, ShardByDSStream).
+
+advance_shard_generation(
+    #stream_state{shard = SubShard, start_time_us = StartTimeUs, progress = Progress0} =
+        StreamState0,
+    Shard,
+    Generation
+) when ?is_subscribed_to_shard(Shard, SubShard) ->
+    ShardProgress =
+        case Progress0 of
+            #{Shard := #shard_progress{} = ShardProgress0} ->
+                ShardProgress0#shard_progress{generation = Generation};
+            _ ->
+                #shard_progress{generation = Generation, last_timestamp_us = StartTimeUs}
+        end,
+    Progress = Progress0#{Shard => ShardProgress},
+    StreamState0#stream_state{progress = Progress};
+advance_shard_generation(StreamState0, _Shard, _Generation) ->
+    StreamState0.
+
+advance_shard_last_time(
+    #stream_state{progress = Progress0} = StreamState0,
+    Shard,
+    LastSeenTimestampUs
+) ->
+    ShardProgress =
+        case Progress0 of
+            #{Shard := #shard_progress{} = ShardProgress0} ->
+                ShardProgress0#shard_progress{last_timestamp_us = LastSeenTimestampUs + 1};
+            _ ->
+                %% Should not happen
+                #shard_progress{
+                    last_timestamp_us = LastSeenTimestampUs + 1, generation = 0
+                }
+        end,
+    Progress = Progress0#{Shard => ShardProgress},
+    StreamState0#stream_state{progress = Progress}.
+
+get_shard_start_time_us(#stream_state{progress = Progress, start_time_us = StartTimeUs}, Shard) ->
+    case Progress of
+        #{Shard := #shard_progress{last_timestamp_us = LastTimestampUs}} ->
+            LastTimestampUs;
+        _ ->
+            StartTimeUs
+    end.
+
+block_stream(#stream_state{status = #stream_status_unblocked{}} = StreamState, UnblockFn) ->
+    StreamState#stream_state{status = #stream_status_blocked{unblock_fns = [UnblockFn]}};
+block_stream(
+    #stream_state{status = #stream_status_blocked{unblock_fns = UnblockFns}} = StreamState,
+    UnblockFn
+) ->
+    StreamState#stream_state{
+        status = #stream_status_blocked{unblock_fns = [UnblockFn | UnblockFns]}
+    }.
 
 %% Subscribe parsers and validators
 
@@ -536,6 +656,8 @@ find_stream(TopicFilter) ->
             end
     end.
 
+validate_partition(_Stream, <<"all">>) ->
+    {ok, ?all_shards};
 validate_partition(Stream, Partition) ->
     case string:to_integer(Partition) of
         {PartitionInt, <<>>} when PartitionInt >= 0 ->
@@ -549,22 +671,21 @@ validate_partition(Stream, Partition) ->
 
 %% Other helpers
 
-to_messages(#stream_state{start_time_us = StartTimeUs} = StreamState, TTVs) ->
+to_messages(Shard, LastTimestampUs, TTVs) ->
+    ?tp_debug(streams_extsub_handler_to_messages, #{
+        shard => Shard, last_timestamp_us => LastTimestampUs, ttvs => TTVs
+    }),
     {NewLastTimestampUs, Messages} = lists:foldl(
         fun({_Topic, Time, Payload}, {LastTimestampUsAcc, MessagesAcc}) ->
             case Time >= LastTimestampUsAcc of
-                true -> {Time, [decode_message(StreamState, Time, Payload) | MessagesAcc]};
+                true -> {Time, [decode_message(Shard, Time, Payload) | MessagesAcc]};
                 false -> {LastTimestampUsAcc, MessagesAcc}
             end
         end,
-        {StartTimeUs, []},
+        {LastTimestampUs, []},
         TTVs
     ),
     {NewLastTimestampUs, lists:reverse(Messages)}.
-
-complete_ds_stream(#h{state = State0, ds_client = DSClient0} = Handler, SubRef) ->
-    {DSClient, State} = emqx_ds_client:complete_stream(DSClient0, SubRef, State0),
-    Handler#h{ds_client = DSClient, state = State}.
 
 suback(#h{state = #state{subs = Subs}}, SubId, SubHandle, SeqNo) ->
     case Subs of
@@ -594,7 +715,10 @@ update_stream_state(#h{state = State} = Handler, SubId, StreamState) ->
 update_stream_state(#state{subs = Subs} = State, SubId, StreamState) ->
     State#state{subs = Subs#{SubId => StreamState}}.
 
-decode_message(#stream_state{shard = Shard}, Time, Payload) ->
+get_stream_state(SubId, #state{subs = Subs}) ->
+    maps:get(SubId, Subs).
+
+decode_message(Shard, Time, Payload) ->
     Message = emqx_streams_message_db:decode_message(Payload),
     add_properties(Message, [
         {<<"part">>, Shard},
@@ -607,6 +731,33 @@ add_properties(Message, UserProperties) when length(UserProperties) > 0 ->
     emqx_message:set_header(
         properties, Props#{'User-Property' => UserProperties0 ++ UserProperties}, Message
     ).
+
+init_progress(Stream, ?all_shards, StartTimeUs) ->
+    case emqx_streams_message_db:find_generations(Stream, StartTimeUs) of
+        {ok, Generations} ->
+            {ok,
+                maps:map(
+                    fun(_Shard, Generation) ->
+                        #shard_progress{generation = Generation, last_timestamp_us = StartTimeUs}
+                    end,
+                    Generations
+                )};
+        {error, Reason} ->
+            ?err_rec({cannot_init_generations, #{stream => Stream, reason => Reason}})
+    end;
+init_progress(Stream, Shard, StartTimeUs) ->
+    case emqx_streams_message_db:find_generation(Stream, Shard, StartTimeUs) of
+        {ok, Generation} ->
+            {ok, #{
+                Shard => #shard_progress{generation = Generation, last_timestamp_us = StartTimeUs}
+            }};
+        {error, Reason} ->
+            ?err_rec(
+                {cannot_init_generations, #{stream => Stream, shard => Shard, reason => Reason}}
+            )
+    end.
+
+%% Management of stream appearing/disappearing.
 
 add_unknown_stream(
     #h{state = #state{unknown_topic_filters = UnknownTopicFilters0} = State0} = Handler, TopicFilter
