@@ -1005,7 +1005,7 @@ t_aggreg_upload_parquet(TCConfig) ->
                 <<"qos">> := 0
             }
         ],
-        Content
+        lists:sort(Content)
     ),
     ok.
 

@@ -594,7 +594,7 @@ t_aggreg_upload_parquet(TCConfig) ->
                 <<"qos">> := 0
             }
         ],
-        read_parquet(Content)
+        lists:sort(read_parquet(Content))
     ),
     ok.
 
