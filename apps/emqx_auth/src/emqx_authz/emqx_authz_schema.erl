@@ -124,7 +124,14 @@ injected_fields(AuthzSchemaMods) ->
     }.
 
 authz_fields() ->
-    sources_fields() ++ node_cache_fields().
+    [
+        {builtin_record_count_refresh_interval,
+            hoconsc:mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"1h">>,
+                importance => ?IMPORTANCE_HIDDEN
+            })}
+        | sources_fields() ++ node_cache_fields()
+    ].
 
 sources_fields() ->
     AuthzSchemaMods = source_schema_mods(),

@@ -24,5 +24,14 @@ init([]) ->
         intensity => 0,
         period => 1
     },
-    ChildSpecs = [],
+    ChildSpecs = [worker(emqx_auth_mnesia_bookkeeper)],
     {ok, {SupFlags, ChildSpecs}}.
+
+worker(Mod) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => permanent,
+        shutdown => 5_000,
+        type => worker
+    }.
