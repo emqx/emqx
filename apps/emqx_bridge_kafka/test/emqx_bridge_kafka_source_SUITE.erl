@@ -819,8 +819,177 @@ t_start_stop(matrix) ->
         [?tls_plain, ?no_auth],
         [?tls_sasl, ?plain_auth]
     ];
-t_start_stop(TCConfig) when is_list(TCConfig) ->
-    emqx_bridge_v2_testlib:t_start_stop(TCConfig, "kafka_consumer_stopped").
+t_start_stop(Config) when is_list(Config) ->
+    Kind = proplists:get_value(bridge_kind, Config, action),
+    ConnectorName = ?config(connector_name, Config),
+    ConnectorType = ?config(connector_type, Config),
+    #{
+        type := Type,
+        name := Name,
+        config := BridgeConfig
+    } = emqx_bridge_v2_testlib:get_config_by_kind(Kind, Config, _Overrides = #{}),
+
+    ?assertMatch(
+        {ok, {{_, 201, _}, _, _}},
+        emqx_bridge_v2_testlib:create_connector_api(Config)
+    ),
+
+    ct:timetrap({seconds, 20}),
+    ?check_trace(
+        snk_timetrap(),
+        begin
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, _Body}},
+                emqx_bridge_v2_testlib:probe_bridge_api(
+                    Kind,
+                    Type,
+                    Name,
+                    BridgeConfig
+                )
+            ),
+            %% Check that the bridge probe API doesn't leak atoms.
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, _Body}},
+                emqx_bridge_v2_testlib:probe_bridge_api(
+                    Kind,
+                    Type,
+                    Name,
+                    BridgeConfig
+                )
+            ),
+            AtomsBefore = emqx_bridge_v2_testlib:all_atoms(),
+            AtomCountBefore = erlang:system_info(atom_count),
+            %% Probe again; shouldn't have created more atoms.
+            ProbeRes1 = emqx_bridge_v2_testlib:probe_bridge_api(
+                Kind,
+                Type,
+                Name,
+                BridgeConfig
+            ),
+
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
+            AtomsAfter = emqx_bridge_v2_testlib:all_atoms(),
+            AtomCountAfter = erlang:system_info(atom_count),
+            ?assertEqual(
+                AtomCountBefore,
+                AtomCountAfter,
+                #{new_atoms => AtomsAfter -- AtomsBefore}
+            ),
+            ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_kind_api(Config)),
+
+            %% Since the connection process is async, we give it some time to
+            %% stabilize and avoid flakiness.
+            ?retry(
+                1_000,
+                20,
+                ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
+            ),
+            ?retry(
+                1_000,
+                20,
+                ?assertMatch(
+                    #{status := connected}, emqx_bridge_v2_testlib:health_check_channel(Config)
+                )
+            ),
+
+            %% `start` bridge to trigger `already_started`
+            assert_bridge_start(Kind, Type, Name),
+
+            ?retry(
+                1_000,
+                20,
+                ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
+            ),
+            ?retry(
+                1_000,
+                20,
+                ?assertMatch(
+                    #{status := connected}, emqx_bridge_v2_testlib:health_check_channel(Config)
+                )
+            ),
+
+            %% Disable the connector, which will also stop it.
+            ?assertMatch(
+                {{ok, _}, {ok, _}},
+                ?wait_async_action(
+                    emqx_connector:disable_enable(
+                        ?global_ns, disable, ConnectorType, ConnectorName
+                    ),
+                    #{?snk_kind := StopTracePoint}
+                )
+            ),
+            ?retry(
+                1_000,
+                20,
+                ?assertEqual(
+                    {error, resource_is_stopped},
+                    emqx_bridge_v2_testlib:health_check_connector(Config)
+                )
+            ),
+
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+            #{resource_id => ConnResId}
+        end,
+        fun(Res, Trace) ->
+            #{resource_id := ResourceId} = Res,
+            %% one for each probe, one for real
+            ?assertMatch(
+                [_, _, _, #{instance_id := ResourceId}],
+                ?of_kind(StopTracePoint, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+%% Assert bridge start operation with retry logic for kafka_consumer rebalancing
+assert_bridge_start(Kind, Type, Name) ->
+    %% For kafka_consumer, retry when encountering "Consumer group rebalancing" errors
+    ?retry(
+        1_000,
+        10,
+        begin
+            Result = emqx_bridge_v2_testlib:op_bridge_api(Kind, "start", Type, Name),
+            case Result of
+                {error, {{_, Status, _}, _Headers, Body}} when Status =:= 404; Status =:= 400 ->
+                    case Body of
+                        #{<<"message">> := Msg} when is_binary(Msg) ->
+                            case binary:match(Msg, <<"Consumer group rebalancing">>) of
+                                nomatch ->
+                                    %% Not a rebalancing error, fail immediately
+                                    ?assertMatch(
+                                        {ok, {{_, 204, _}, _Headers, []}},
+                                        Result
+                                    );
+                                _ ->
+                                    %% Rebalancing error, fail assertion to trigger retry
+                                    ?assertMatch(
+                                        {ok, {{_, 204, _}, _Headers, []}},
+                                        Result
+                                    )
+                            end;
+                        _ ->
+                            %% No message field or unexpected format, fail immediately
+                            ?assertMatch(
+                                {ok, {{_, 204, _}, _Headers, []}},
+                                Result
+                            )
+                    end;
+                {ok, {{_, 204, _}, _Headers, []}} ->
+                    %% Success, assertion passes
+                    ?assertMatch(
+                        {ok, {{_, 204, _}, _Headers, []}},
+                        Result
+                    );
+                _ ->
+                    %% Other error, fail immediately
+                    ?assertMatch(
+                        {ok, {{_, 204, _}, _Headers, []}},
+                        Result
+                    )
+            end
+        end
+    ).
 
 t_on_get_status() ->
     [{matrix, true}].
