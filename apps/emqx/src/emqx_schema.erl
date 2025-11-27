@@ -4014,7 +4014,7 @@ mqtt_general() ->
             )},
         {"response_information",
             sc(
-                string(),
+                binary(),
                 #{
                     default => <<"">>,
                     desc => ?DESC(mqtt_response_information)

@@ -1197,7 +1197,7 @@ fields_trace_max_traces.label:
 
 mqtt_response_information.desc:
 """UTF-8 string, for creating the response topic, for example, if set to <code>reqrsp/</code>, the publisher/subscriber will communicate using the topic prefix <code>reqrsp/</code>.
-To disable this feature, input <code>""</code> in the text box below. Only applicable to MQTT 5.0 clients."""
+To disable this feature, leave empty in the text box below. Only applicable to MQTT 5.0 clients."""
 
 mqtt_response_information.label:
 """Response Information"""
