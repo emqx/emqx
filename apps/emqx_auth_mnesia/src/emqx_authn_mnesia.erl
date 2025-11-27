@@ -5,6 +5,7 @@
 -module(emqx_authn_mnesia).
 
 -include("emqx_auth_mnesia.hrl").
+-include("emqx_auth_mnesia_internal.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx.hrl").
@@ -54,6 +55,8 @@
 -export([rec_to_map/1]).
 -endif.
 
+-export_type([user_group/0, user_id/0]).
+
 -type user_group() :: binary().
 -type user_id() :: binary().
 
@@ -71,20 +74,6 @@
     {<<"is_superuser">>, atom}
 ]).
 
--define(NS_TAB, emqx_authn_mnesia_ns).
--define(NS_KEY(NS, GROUP, ID), {NS, GROUP, ID}).
-
--record(?NS_TAB, {
-    user_id :: ?NS_KEY(emqx_config:namespace(), user_group(), user_id()),
-    password_hash :: binary(),
-    salt :: binary(),
-    is_superuser :: boolean(),
-    extra = #{} :: map()
-}).
-
-%% ETS table, only for counting records per namespace.
--define(NS_COUNT_TAB, emqx_authn_mnesia_ns_count).
-
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
 %%------------------------------------------------------------------------------
@@ -100,16 +89,16 @@ create_tables() ->
         {attributes, record_info(fields, user_info)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]),
-    ok = mria:create_table(?NS_TAB, [
+    ok = mria:create_table(?AUTHN_NS_TAB, [
         {rlog_shard, ?AUTHN_SHARD},
         {type, ordered_set},
         {storage, disc_copies},
-        {record_name, ?NS_TAB},
-        {attributes, record_info(fields, ?NS_TAB)},
+        {record_name, ?AUTHN_NS_TAB},
+        {attributes, record_info(fields, ?AUTHN_NS_TAB)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]),
-    ok = emqx_utils_ets:new(?NS_COUNT_TAB, [ordered_set, public]),
-    [?TAB, ?NS_TAB].
+    ok = emqx_utils_ets:new(?AUTHN_NS_COUNT_TAB, [ordered_set, public]),
+    [?TAB, ?AUTHN_NS_TAB].
 
 %% Init
 -spec init_tables() -> ok.
@@ -120,7 +109,7 @@ init_tables() ->
 %% Data backup
 %%------------------------------------------------------------------------------
 
-backup_tables() -> {<<"builtin_authn">>, [?TAB, ?NS_TAB]}.
+backup_tables() -> {<<"builtin_authn">>, [?TAB, ?AUTHN_NS_TAB]}.
 
 %%------------------------------------------------------------------------------
 %% APIs
@@ -192,9 +181,9 @@ do_destroy(UserGroup) ->
     ),
     lists:foreach(
         fun(User) ->
-            mnesia:delete_object(?NS_TAB, User, write)
+            mnesia:delete_object(?AUTHN_NS_TAB, User, write)
         end,
-        mnesia:select(?NS_TAB, all_ns_group_match_spec('_', UserGroup), write)
+        mnesia:select(?AUTHN_NS_TAB, all_ns_group_match_spec('_', UserGroup), write)
     ).
 
 import_users(ImportSource, State) ->
@@ -230,20 +219,16 @@ import_users({PasswordType, Filename, FileData}, State, Opts) ->
 do_import_users([], _Opts) ->
     {error, empty_users};
 do_import_users(Users, Opts) ->
-    IncBucketFn = fun(Bucket, Acc) ->
-        N = maps:get(Bucket, Acc, 0),
-        maps:put(Bucket, N + 1, Acc)
-    end,
     FoldFn = fun(User, Acc0) ->
         Return = insert_user(User, Opts),
         case Return of
             {success, Ns} ->
                 PerNs0 = maps:get(per_ns, Acc0),
-                PerNs = maps:update_with(Ns, fun(N) -> N + 1 end, 1, PerNs0),
+                PerNs = inc_bucket_count(Ns, PerNs0),
                 Acc1 = Acc0#{per_ns := PerNs},
-                IncBucketFn(success, Acc1);
+                inc_bucket_count(success, Acc1);
             _ ->
-                IncBucketFn(Return, Acc0)
+                inc_bucket_count(Return, Acc0)
         end
     end,
     Fun = fun() ->
@@ -257,6 +242,10 @@ do_import_users(Users, Opts) ->
     maps:foreach(fun inc_ns_rule_count/2, FinalPerNs),
     Res = maps:remove(per_ns, Res0),
     {ok, Res#{total => length(Users)}}.
+
+inc_bucket_count(Bucket, Acc) ->
+    N = maps:get(Bucket, Acc, 0),
+    maps:put(Bucket, N + 1, Acc).
 
 add_user(
     UserInfo,
@@ -366,14 +355,14 @@ record_count(?global_ns) ->
     mnesia:table_info(?TAB, size);
 record_count(Namespace) when is_binary(Namespace) ->
     try
-        ets:lookup_element(?NS_COUNT_TAB, Namespace, 2, 0)
+        ets:lookup_element(?AUTHN_NS_COUNT_TAB, Namespace, 2, 0)
     catch
         error:badarg -> 0
     end.
 
 -spec record_count_per_namespace() -> #{emqx_config:namespace() => non_neg_integer()}.
 record_count_per_namespace() ->
-    maps:from_list(ets:tab2list(?NS_COUNT_TAB)).
+    maps:from_list(ets:tab2list(?AUTHN_NS_COUNT_TAB)).
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec
@@ -402,7 +391,7 @@ run_fuzzy_filter(
 ) ->
     binary:match(UserId, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy);
 run_fuzzy_filter(
-    E = #?NS_TAB{user_id = ?NS_KEY(_, _, UserId)},
+    E = #?AUTHN_NS_TAB{user_id = ?AUTHN_NS_KEY(_, _, UserId)},
     [{user_id, like, UsernameSubStr} | Fuzzy]
 ) ->
     binary:match(UserId, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
@@ -454,8 +443,8 @@ insert_user(User, Opts) ->
 
 insert_user(#user_info{} = UserInfoRecord) ->
     mnesia:write(?TAB, UserInfoRecord, write);
-insert_user(#?NS_TAB{} = UserInfoRecord) ->
-    mnesia:write(?NS_TAB, UserInfoRecord, write).
+insert_user(#?AUTHN_NS_TAB{} = UserInfoRecord) ->
+    mnesia:write(?AUTHN_NS_TAB, UserInfoRecord, write).
 
 user_info_record(?global_ns, UserGroup, UserId, PasswordHash, Salt, IsSuperuser) ->
     #user_info{
@@ -467,8 +456,8 @@ user_info_record(?global_ns, UserGroup, UserId, PasswordHash, Salt, IsSuperuser)
 user_info_record(Namespace, UserGroup, UserId, PasswordHash, Salt, IsSuperuser) when
     is_binary(Namespace)
 ->
-    #?NS_TAB{
-        user_id = ?NS_KEY(Namespace, UserGroup, UserId),
+    #?AUTHN_NS_TAB{
+        user_id = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
         password_hash = PasswordHash,
         salt = Salt,
         is_superuser = IsSuperuser
@@ -512,12 +501,14 @@ update_user_record(UserInfoRecord, []) ->
     UserInfoRecord;
 update_user_record(#user_info{} = UserInfoRecord, [{hash_and_salt, {PasswordHash, Salt}} | Rest]) ->
     update_user_record(UserInfoRecord#user_info{password_hash = PasswordHash, salt = Salt}, Rest);
-update_user_record(#?NS_TAB{} = UserInfoRecord, [{hash_and_salt, {PasswordHash, Salt}} | Rest]) ->
-    update_user_record(UserInfoRecord#?NS_TAB{password_hash = PasswordHash, salt = Salt}, Rest);
+update_user_record(#?AUTHN_NS_TAB{} = UserInfoRecord, [{hash_and_salt, {PasswordHash, Salt}} | Rest]) ->
+    update_user_record(
+        UserInfoRecord#?AUTHN_NS_TAB{password_hash = PasswordHash, salt = Salt}, Rest
+    );
 update_user_record(#user_info{} = UserInfoRecord, [{is_superuser, IsSuperuser} | Rest]) ->
     update_user_record(UserInfoRecord#user_info{is_superuser = IsSuperuser}, Rest);
-update_user_record(#?NS_TAB{} = UserInfoRecord, [{is_superuser, IsSuperuser} | Rest]) ->
-    update_user_record(UserInfoRecord#?NS_TAB{is_superuser = IsSuperuser}, Rest).
+update_user_record(#?AUTHN_NS_TAB{} = UserInfoRecord, [{is_superuser, IsSuperuser} | Rest]) ->
+    update_user_record(UserInfoRecord#?AUTHN_NS_TAB{is_superuser = IsSuperuser}, Rest).
 
 %% TODO: Support other type
 get_user_identity(#{username := Username}, username) ->
@@ -546,7 +537,7 @@ to_binary(L) when is_list(L) ->
 
 format_user_info(#user_info{user_id = {_, UserId}, is_superuser = IsSuperuser}) ->
     #{user_id => UserId, is_superuser => IsSuperuser};
-format_user_info(#?NS_TAB{user_id = ?NS_KEY(_, _, UserId), is_superuser = IsSuperuser}) ->
+format_user_info(#?AUTHN_NS_TAB{user_id = ?AUTHN_NS_KEY(_, _, UserId), is_superuser = IsSuperuser}) ->
     #{user_id => UserId, is_superuser => IsSuperuser}.
 
 ms_from_qstring(Namespace, QString) ->
@@ -581,15 +572,19 @@ mk_group_match_head(?global_ns, UserGroup, PosValues) ->
     );
 mk_group_match_head(Namespace, UserGroup, PosValues) when is_binary(Namespace); Namespace == '_' ->
     erlang:make_tuple(
-        record_info(size, ?NS_TAB),
+        record_info(size, ?AUTHN_NS_TAB),
         '_',
-        [{1, ?NS_TAB}, {#?NS_TAB.user_id, ?NS_KEY(Namespace, UserGroup, '_')} | PosValues]
+        [
+            {1, ?AUTHN_NS_TAB},
+            {#?AUTHN_NS_TAB.user_id, ?AUTHN_NS_KEY(Namespace, UserGroup, '_')}
+            | PosValues
+        ]
     ).
 
 mk_pos_value(?global_ns, is_superuser, Value) ->
     {#user_info.is_superuser, Value};
 mk_pos_value(Namespace, is_superuser, Value) when is_binary(Namespace); Namespace == '_' ->
-    {#?NS_TAB.is_superuser, Value}.
+    {#?AUTHN_NS_TAB.is_superuser, Value}.
 
 %%--------------------------------------------------------------------
 %% parse import file/data
@@ -718,17 +713,17 @@ do_lookup_user(?global_ns, UserGroup, UserId) ->
             {ok, rec_to_map(Rec)}
     end;
 do_lookup_user(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
-    case mnesia:dirty_read(?NS_TAB, ?NS_KEY(Namespace, UserGroup, UserId)) of
+    case mnesia:dirty_read(?AUTHN_NS_TAB, ?AUTHN_NS_KEY(Namespace, UserGroup, UserId)) of
         [] ->
             error;
-        [#?NS_TAB{} = Rec] ->
+        [#?AUTHN_NS_TAB{} = Rec] ->
             {ok, rec_to_map(Rec)}
     end.
 
 do_lookup_by_rec_txn(#user_info{user_id = Key}) ->
     mnesia:read(?TAB, Key, write);
-do_lookup_by_rec_txn(#?NS_TAB{user_id = Key}) ->
-    mnesia:read(?NS_TAB, Key, write).
+do_lookup_by_rec_txn(#?AUTHN_NS_TAB{user_id = Key}) ->
+    mnesia:read(?AUTHN_NS_TAB, Key, write).
 
 rec_to_map(#user_info{} = Rec) ->
     #user_info{
@@ -746,9 +741,9 @@ rec_to_map(#user_info{} = Rec) ->
         is_superuser => IsSuperuser,
         extra => #{}
     };
-rec_to_map(#?NS_TAB{} = Rec) ->
-    #?NS_TAB{
-        user_id = ?NS_KEY(Namespace, UserGroup, UserId),
+rec_to_map(#?AUTHN_NS_TAB{} = Rec) ->
+    #?AUTHN_NS_TAB{
+        user_id = ?AUTHN_NS_KEY(Namespace, UserGroup, UserId),
         password_hash = PasswordHash,
         salt = Salt,
         is_superuser = IsSuperuser,
@@ -765,12 +760,12 @@ rec_to_map(#?NS_TAB{} = Rec) ->
     }.
 
 table(?global_ns) -> ?TAB;
-table(Namespace) when is_binary(Namespace) -> ?NS_TAB.
+table(Namespace) when is_binary(Namespace) -> ?AUTHN_NS_TAB.
 
 key(?global_ns, UserGroup, UserId) ->
     {UserGroup, UserId};
 key(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
-    ?NS_KEY(Namespace, UserGroup, UserId).
+    ?AUTHN_NS_KEY(Namespace, UserGroup, UserId).
 
 get_namespace(#{client_attrs := #{?CLIENT_ATTR_NAME_TNS := Namespace}} = _ClientInfo) when
     is_binary(Namespace)
@@ -782,11 +777,11 @@ get_namespace(_ClientInfo) ->
 inc_ns_rule_count(?global_ns, _N) ->
     ok;
 inc_ns_rule_count(Namespace, N) when is_binary(Namespace) ->
-    _ = ets:update_counter(?NS_COUNT_TAB, Namespace, {2, N}, {Namespace, 0}),
+    _ = ets:update_counter(?AUTHN_NS_COUNT_TAB, Namespace, {2, N}, {Namespace, 0}),
     ok.
 
 dec_ns_rule_count(?global_ns, _N) ->
     ok;
 dec_ns_rule_count(Namespace, N) when is_binary(Namespace) ->
-    _ = ets:update_counter(?NS_COUNT_TAB, Namespace, {2, -N, 0, 0}, {Namespace, 0}),
+    _ = ets:update_counter(?AUTHN_NS_COUNT_TAB, Namespace, {2, -N, 0, 0}, {Namespace, 0}),
     ok.

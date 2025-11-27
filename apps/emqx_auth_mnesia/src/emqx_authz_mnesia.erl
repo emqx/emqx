@@ -7,6 +7,7 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-include("emqx_auth_mnesia_internal.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
@@ -45,20 +46,7 @@
     rules :: rules()
 }).
 
--define(WHO_NS(NS, WHO), {NS, WHO}).
-
 -type maybe_namespace() :: emqx_config:maybe_namespace().
-
--record(?ACL_NS_TABLE, {
-    %% ?WHO_NS(emqx_config:namespace(), table_who())
-    who,
-    %% rules()
-    rules,
-    extra = #{}
-}).
-
-%% ETS table, only for counting records per namespace.
--define(NS_COUNT_TAB, emqx_authz_mnesia_ns_count).
 
 -behaviour(emqx_authz_source).
 -behaviour(emqx_db_backup).
@@ -100,15 +88,15 @@ create_tables() ->
         {attributes, record_info(fields, ?ACL_TABLE)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]),
-    ok = mria:create_table(?ACL_NS_TABLE, [
+    ok = mria:create_table(?AUTHZ_NS_TAB, [
         {type, ordered_set},
         {rlog_shard, ?ACL_SHARDED},
         {storage, disc_copies},
-        {attributes, record_info(fields, ?ACL_NS_TABLE)},
+        {attributes, record_info(fields, ?AUTHZ_NS_TAB)},
         {storage_properties, [{ets, [{read_concurrency, true}]}]}
     ]),
-    ok = emqx_utils_ets:new(?NS_COUNT_TAB, [ordered_set, public]),
-    [?ACL_TABLE, ?ACL_NS_TABLE].
+    ok = emqx_utils_ets:new(?AUTHZ_NS_COUNT_TAB, [ordered_set, public]),
+    [?ACL_TABLE, ?AUTHZ_NS_TAB].
 
 %%--------------------------------------------------------------------
 %% emqx_authz callbacks
@@ -120,8 +108,8 @@ update(_State, Source) -> create(Source).
 
 destroy(_Source) ->
     {atomic, ok} = mria:clear_table(?ACL_TABLE),
-    {atomic, ok} = mria:clear_table(?ACL_NS_TABLE),
-    true = ets:delete_all_objects(?NS_COUNT_TAB),
+    {atomic, ok} = mria:clear_table(?AUTHZ_NS_TAB),
+    true = ets:delete_all_objects(?AUTHZ_NS_COUNT_TAB),
     ok.
 
 authorize(
@@ -144,7 +132,7 @@ authorize(
 %% Data backup
 %%--------------------------------------------------------------------
 
-backup_tables() -> {<<"builtin_authz">>, [?ACL_TABLE, ?ACL_NS_TABLE]}.
+backup_tables() -> {<<"builtin_authz">>, [?ACL_TABLE, ?AUTHZ_NS_TAB]}.
 
 %%--------------------------------------------------------------------
 %% Management API
@@ -176,12 +164,12 @@ purge_rules(?global_ns) ->
 purge_rules(Namespace) when is_binary(Namespace) ->
     ok = lists:foreach(
         fun
-            (?WHO_NS(Ns, _) = Key) when Ns == Namespace ->
+            (?AUTHZ_WHO_NS(Ns, _) = Key) when Ns == Namespace ->
                 ok = do_delete_one_ns(Ns, Key);
             (_Key) ->
                 ok
         end,
-        mnesia:dirty_all_keys(?ACL_NS_TABLE)
+        mnesia:dirty_all_keys(?AUTHZ_NS_TAB)
     ).
 
 %% @doc Get one record
@@ -219,8 +207,8 @@ list_username_rules(Namespace) when is_binary(Namespace) ->
     %% full scan.
     [
         {
-            #?ACL_NS_TABLE{
-                who = ?WHO_NS(Namespace, {?ACL_TABLE_USERNAME, '$1'}), rules = '$2', _ = '_'
+            #?AUTHZ_NS_TAB{
+                who = ?AUTHZ_WHO_NS(Namespace, {?ACL_TABLE_USERNAME, '$1'}), rules = '$2', _ = '_'
             },
             [],
             [[{{username, '$1'}}, {{rules, '$2'}}]]
@@ -246,8 +234,8 @@ list_clientid_rules(Namespace) when is_binary(Namespace) ->
     %% full scan.
     [
         {
-            #?ACL_NS_TABLE{
-                who = ?WHO_NS(Namespace, {?ACL_TABLE_CLIENTID, '$1'}), rules = '$2', _ = '_'
+            #?AUTHZ_NS_TAB{
+                who = ?AUTHZ_WHO_NS(Namespace, {?ACL_TABLE_CLIENTID, '$1'}), rules = '$2', _ = '_'
             },
             [],
             [[{{clientid, '$1'}}, {{rules, '$2'}}]]
@@ -259,14 +247,14 @@ record_count(?global_ns) ->
     mnesia:table_info(?ACL_TABLE, size);
 record_count(Namespace) when is_binary(Namespace) ->
     try
-        ets:lookup_element(?NS_COUNT_TAB, Namespace, 2, 0)
+        ets:lookup_element(?AUTHZ_NS_COUNT_TAB, Namespace, 2, 0)
     catch
         error:badarg -> 0
     end.
 
 -spec record_count_per_namespace() -> #{emqx_config:namespace() => non_neg_integer()}.
 record_count_per_namespace() ->
-    maps:from_list(ets:tab2list(?NS_COUNT_TAB)).
+    maps:from_list(ets:tab2list(?AUTHZ_NS_COUNT_TAB)).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -282,8 +270,8 @@ do_store_rules(?global_ns, Who, Rules) ->
     Record = #?ACL_TABLE{who = Who, rules = Rules},
     mria:dirty_write(Record);
 do_store_rules(Namespace, Who, Rules) when is_binary(Namespace) ->
-    Key = ?WHO_NS(Namespace, Who),
-    Record = #?ACL_NS_TABLE{who = Key, rules = Rules},
+    Key = ?AUTHZ_WHO_NS(Namespace, Who),
+    Record = #?AUTHZ_NS_TAB{who = Key, rules = Rules},
     do_write_one_ns(Namespace, Key, Record).
 
 normalize_rules(Rules) ->
@@ -304,8 +292,8 @@ do_get_rules(?global_ns, Key) ->
         [] -> not_found
     end;
 do_get_rules(Namespace, Key) when is_binary(Namespace) ->
-    case mnesia:dirty_read(?ACL_NS_TABLE, ?WHO_NS(Namespace, Key)) of
-        [#?ACL_NS_TABLE{rules = Rules}] -> {ok, Rules};
+    case mnesia:dirty_read(?AUTHZ_NS_TAB, ?AUTHZ_WHO_NS(Namespace, Key)) of
+        [#?AUTHZ_NS_TAB{rules = Rules}] -> {ok, Rules};
         [] -> not_found
     end.
 
@@ -326,17 +314,17 @@ compile_rule({Permission, Action, TopicFilter}) ->
 do_delete_one(?global_ns, TableWho) ->
     mria:dirty_delete(?ACL_TABLE, TableWho);
 do_delete_one(Namespace, TableWho) when is_binary(Namespace) ->
-    Key = ?WHO_NS(Namespace, TableWho),
+    Key = ?AUTHZ_WHO_NS(Namespace, TableWho),
     do_delete_one_ns(Namespace, Key).
 
 do_delete_one_ns(Namespace, Key) when is_binary(Namespace) ->
-    HasKey = ets:member(?ACL_NS_TABLE, Key),
-    mria:dirty_delete(?ACL_NS_TABLE, Key),
+    HasKey = ets:member(?AUTHZ_NS_TAB, Key),
+    mria:dirty_delete(?AUTHZ_NS_TAB, Key),
     HasKey andalso dec_ns_rule_count(Namespace),
     ok.
 
 do_write_one_ns(Namespace, Key, Record) when is_binary(Namespace) ->
-    HasKey = ets:member(?ACL_NS_TABLE, Key),
+    HasKey = ets:member(?AUTHZ_NS_TAB, Key),
     mria:dirty_write(Record),
     HasKey orelse inc_ns_rule_count(Namespace),
     ok.
@@ -349,9 +337,9 @@ get_namespace(_ClientInfo) ->
     ?global_ns.
 
 inc_ns_rule_count(Namespace) when is_binary(Namespace) ->
-    _ = ets:update_counter(?NS_COUNT_TAB, Namespace, {2, 1}, {Namespace, 0}),
+    _ = ets:update_counter(?AUTHZ_NS_COUNT_TAB, Namespace, {2, 1}, {Namespace, 0}),
     ok.
 
 dec_ns_rule_count(Namespace) when is_binary(Namespace) ->
-    _ = ets:update_counter(?NS_COUNT_TAB, Namespace, {2, -1, 0, 0}, {Namespace, 0}),
+    _ = ets:update_counter(?AUTHZ_NS_COUNT_TAB, Namespace, {2, -1, 0, 0}, {Namespace, 0}),
     ok.
