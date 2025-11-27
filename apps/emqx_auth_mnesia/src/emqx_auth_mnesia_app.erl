@@ -11,13 +11,10 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    ok = emqx_authz_mnesia:init_tables(),
-    ok = emqx_authn_mnesia:init_tables(),
-    ok = emqx_authn_scram_mnesia:init_tables(),
+    {ok, Sup} = emqx_auth_mnesia_sup:start_link(),
     ok = emqx_authz:register_source(?AUTHZ_TYPE, emqx_authz_mnesia),
     ok = emqx_authn:register_provider(?AUTHN_TYPE_SIMPLE, emqx_authn_mnesia),
     ok = emqx_authn:register_provider(?AUTHN_TYPE_SCRAM, emqx_authn_scram_mnesia),
-    {ok, Sup} = emqx_auth_mnesia_sup:start_link(),
     {ok, Sup}.
 
 stop(_State) ->
