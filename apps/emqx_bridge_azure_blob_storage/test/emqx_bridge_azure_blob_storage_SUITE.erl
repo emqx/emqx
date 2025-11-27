@@ -73,6 +73,7 @@ init_per_suite(Config) ->
                     emqx_bridge_azure_blob_storage,
                     emqx_bridge,
                     emqx_rule_engine,
+                    emqx_schema_registry,
                     emqx_management,
                     emqx_mgmt_api_test_util:emqx_dashboard()
                 ],
@@ -369,6 +370,9 @@ create_action_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:create_action_api(Config, Overrides)
     ).
+
+get_action_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_api2(TCConfig).
 
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
@@ -1030,5 +1034,44 @@ t_aggreg_upload_parquet_bad_reference(TCConfig0) ->
                 }
             }
         })
+    ),
+    ok.
+
+%% Checks that we validate schema registry references during channel health checks.
+t_parquet_bad_reference_health_check() ->
+    [{matrix, true}].
+t_parquet_bad_reference_health_check(matrix) ->
+    [[?aggregated, ?parquet]];
+t_parquet_bad_reference_health_check(TCConfig0) ->
+    TCConfig = emqx_bridge_v2_testlib:proplist_update(TCConfig0, action_config, fun(Old) ->
+        emqx_utils_maps:deep_remove([<<"parameters">>, <<"aggregation">>, <<"container">>], Old)
+    end),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    %% It's fine, initially.
+    SerdeName = <<"my_avro_sc">>,
+    emqx_connector_aggreg_delivery_parquet_SUITE:add_sample_serde1(SerdeName),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_action_api(TCConfig, #{
+            <<"parameters">> => #{
+                <<"aggregation">> => #{
+                    <<"container">> => aggregation_container_config_parquet_ref(#{
+                        <<"schema">> => #{
+                            <<"name">> => SerdeName
+                        }
+                    })
+                }
+            }
+        })
+    ),
+    %% Now we delete the schema.  Action should become disconnected.
+    ok = emqx_schema_registry:delete_schema(SerdeName),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {200, #{<<"status">> := <<"disconnected">>}},
+            get_action_api(TCConfig)
+        )
     ),
     ok.
