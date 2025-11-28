@@ -20,7 +20,7 @@ The module contains basic types for the Streams application.
 }.
 
 -type partition() :: emqx_ds:shard().
--type offset() :: {emqx_ds:generation(), emqx_ds:time()} | earliest | latest.
+-type message_ts() :: emqx_ds:time().
 
 -type stream() :: #{
     id := stream_id(),
@@ -38,6 +38,6 @@ The module contains basic types for the Streams application.
     stream/0,
     limits/0,
     partition/0,
-    offset/0,
+    message_ts/0,
     interval_ms/0
 ]).
