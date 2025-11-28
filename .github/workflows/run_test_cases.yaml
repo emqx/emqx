@@ -186,11 +186,53 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  pytest_boot_tests:
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    name: "pytest_boot_tests (${{ matrix.profile }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - emqx-enterprise
+
+    container: ${{ inputs.builder }}
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      PROFILE: ${{ matrix.profile }}
+
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: ${{ matrix.profile }}-test
+      - name: extract artifact
+        run: |
+          unzip -o -q ${{ matrix.profile }}-test.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: install pytest
+        run: |
+          apt-get update && apt-get install -y python3-venv
+          python3 -m venv venv
+          source venv/bin/activate
+          pip install --upgrade pip
+          pip install pytest
+      - name: run pytest boot tests
+        run: |
+          source venv/bin/activate
+          pytest scripts/test/test_emqx_boot.py -v
+      - name: print test output
+        if: failure()
+        run: |
+          echo "Pytest boot tests failed for profile ${{ matrix.profile }}"
+
   tests_passed:
     needs:
       - eunit_and_proper
       - ct
       - ct_docker
+      - pytest_boot_tests
     runs-on: 'ubuntu-22.04'
     strategy:
       fail-fast: false

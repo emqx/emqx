@@ -52,10 +52,10 @@
     sockstate :: running | shutdown,
     %% MQTT Piggyback
     mqtt_piggyback :: single | multiple,
-    %% Parse State
-    parse_state :: emqx_frame:parse_state(),
-    %% Serialize options
-    serialize :: emqx_frame:serialize_opts(),
+    %% Parse State (undefined before initialization)
+    parse_state :: undefined | emqx_frame:parse_state(),
+    %% Serialize options (undefined before initialization)
+    serialize :: undefined | emqx_frame:serialize_opts(),
     %% Channel
     channel :: emqx_channel:channel(),
     %% GC State
@@ -128,6 +128,8 @@ info(stats_timer, #state{stats_timer = TRef}) ->
     TRef;
 info(idle_timer, #state{idle_timer = TRef}) ->
     TRef;
+info(zone, #state{zone = Zone}) ->
+    Zone;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
@@ -256,35 +258,19 @@ init_connection(
     Opts = #{listener := {Type, Listener}, zone := Zone}
 ) ->
     MQTTPiggyback = get_ws_opt(Type, Listener, mqtt_piggyback),
-    FrameOpts = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
-    },
-    ParseState = emqx_frame:initial_parse_state(FrameOpts),
-    Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     Channel = emqx_channel:init(ConnInfo, Opts),
-    GcState = get_force_gc(Zone),
-    StatsTimer = get_stats_enable(Zone),
-    %% MQTT Idle Timeout
-    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
-    IdleTimer = emqx_utils:start_timer(IdleTimeout, idle_timeout),
     _ = tune_heap_size(Channel),
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
-    State = #state{
+    State0 = #state{
         peername = Peername,
         sockname = Sockname,
         sockstate = running,
         mqtt_piggyback = MQTTPiggyback,
-        parse_state = ParseState,
-        serialize = Serialize,
         channel = Channel,
-        gc_state = GcState,
-        stats_timer = StatsTimer,
-        idle_timer = IdleTimer,
-        zone = Zone,
         listener = {Type, Listener},
         extra = []
     },
+    State = init_zone_specific_state(Zone, Opts, State0),
     init_gc_metrics(),
     {ok, State, hibernate}.
 
@@ -447,7 +433,8 @@ handle_event({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     State;
-%% TODO: handle `{event, {zone_changed, NewZone}}`
+handle_event({event, {zone_changed, NewZone}}, State0 = #state{}) ->
+    init_zone_specific_state(NewZone, _Opts = #{}, State0);
 handle_event({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State0#state{namespace = Namespace};
 handle_event({event, _Other}, State = #state{channel = Channel}) ->
@@ -909,6 +896,53 @@ inc_metrics(Name, State, Val) ->
             _ = emqx_metrics:inc_safe(Namespace, Name, Val),
             ok
     end.
+
+%%--------------------------------------------------------------------
+%% Zone
+%%--------------------------------------------------------------------
+
+init_zone_specific_state(Zone, _Opts, #state{} = State0) ->
+    FrameOpts0 = #{
+        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
+        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+        %% zone will **not** take effect after the override.
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
+    },
+    {Parser, Serialize} =
+        case State0#state.parse_state of
+            undefined ->
+                init_parser_and_serializer(FrameOpts0);
+            Parser1 ->
+                case emqx_frame:describe_state(Parser1) of
+                    #{state := Clean, proto_ver := ProtoVer} when Clean == frame; Clean == clean ->
+                        FrameOpts = FrameOpts0#{version => ProtoVer},
+                        init_parser_and_serializer(FrameOpts);
+                    _ ->
+                        %% Keep state
+                        {State0#state.parse_state, State0#state.serialize}
+                end
+        end,
+    GcState = get_force_gc(Zone),
+    StatsTimer = get_stats_enable(Zone),
+    %% MQTT Idle Timeout
+    IdleTimeout = emqx_channel:get_mqtt_conf(Zone, idle_timeout),
+    IdleTimer = emqx_utils:start_timer(IdleTimeout, idle_timeout),
+    State0#state{
+        parse_state = Parser,
+        serialize = Serialize,
+        gc_state = GcState,
+        stats_timer = StatsTimer,
+        idle_timer = IdleTimer,
+        zone = Zone
+    }.
+
+init_parser_and_serializer(FrameOpts0) ->
+    Parser0 = init_parser(FrameOpts0),
+    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
+    {Parser0, Serialize0}.
+
+init_parser(FrameOpts0) ->
+    emqx_frame:initial_parse_state(FrameOpts0).
 
 %%--------------------------------------------------------------------
 %% For CT tests

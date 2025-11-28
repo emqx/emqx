@@ -228,7 +228,12 @@ fields("settings") ->
                     importance => ?IMPORTANCE_LOW,
                     default => emqx_auth_cache_schema:default_config()
                 }
-            )}
+            )},
+        {builtin_record_count_refresh_interval,
+            hoconsc:mk(emqx_schema:timeout_duration_ms(), #{
+                default => <<"1h">>,
+                importance => ?IMPORTANCE_HIDDEN
+            })}
     ];
 fields("metrics_status_fields") ->
     [

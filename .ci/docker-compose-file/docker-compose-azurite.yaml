@@ -11,7 +11,7 @@ services:
       - emqx_bridge
     healthcheck:
       test: ["CMD", "nc", "-zv", "127.0.0.1", "10000"]
-      interval: 30s
+      interval: 5s
       timeout: 5s
       retries: 4
     command:

@@ -16,10 +16,22 @@ start_link() ->
     supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
+    ok = emqx_authz_mnesia:init_tables(),
+    ok = emqx_authn_mnesia:init_tables(),
+    ok = emqx_authn_scram_mnesia:init_tables(),
     SupFlags = #{
         strategy => one_for_all,
         intensity => 0,
         period => 1
     },
-    ChildSpecs = [],
+    ChildSpecs = [worker(emqx_auth_mnesia_bookkeeper)],
     {ok, {SupFlags, ChildSpecs}}.
+
+worker(Mod) ->
+    #{
+        id => Mod,
+        start => {Mod, start_link, []},
+        restart => permanent,
+        shutdown => 5_000,
+        type => worker
+    }.

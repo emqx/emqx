@@ -113,4 +113,14 @@ latency_buckets.desc:
 latency_buckets.label:
 """Latency Histogram Buckets"""
 
+  namespaced_metrics_limiter {
+    label: "Limiter"
+    desc: """Rate limiter options for namespace metrics scraping endpoint."""
+  }
+
+  namespaced_metrics_limiter_rate {
+    label: "Rate"
+    desc: """Maximum request rate when requesting data from all namespaces.  Requests for specific namespaces are not rate limited."""
+  }
+
 }

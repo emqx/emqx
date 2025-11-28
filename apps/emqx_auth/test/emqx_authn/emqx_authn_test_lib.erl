@@ -6,6 +6,8 @@
 
 -include("emqx_authn.hrl").
 -include_lib("stdlib/include/assert.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -115,7 +117,7 @@ t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
         overridden_zone := OverriddenZone
     } = Opts,
     PostConfigFn = maps:get(post_config_fn, Opts, fun() -> ok end),
-    ClientOpts = maps:get(client_opts, Opts, #{}),
+    ClientOpts = maps:get(client_opts, Opts, #{proto_ver => v5}),
     Config = MkConfigFn(),
     OldZoneConfig = emqx_config:get_raw([zones]),
     NewZoneConfig = OldZoneConfig#{atom_to_binary(OverriddenZone) => #{}},
@@ -130,11 +132,15 @@ t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
     ),
     PostConfigFn(),
     {ok, C} = emqtt:start_link(ClientOpts),
-    {ok, _} = emqtt:connect(C),
+    ConnFn = maps:get(conn_fn, Opts, fun emqtt:connect/1),
+    {ok, _} = ConnFn(C),
     %% We use the zone override internally.
-    [ChanPid] = emqx_cm:all_channels(),
-    ConnState = sys:get_state(ChanPid),
-    ?assertEqual(OverriddenZone, emqx_connection:info({channel, zone}, ConnState)),
-    ?assertEqual(OverriddenZone, emqx_connection:info(zone, ConnState)),
+    ?assertEqual(OverriddenZone, emqx_cth_broker:connection_info({channel, zone}, C)),
+    ?assertEqual(OverriddenZone, emqx_cth_broker:connection_info(zone, C)),
+    %% Smoke test: subscribe and publish simple payload
+    SubQoS = maps:get(sub_qos, Opts, 0),
+    ?assertMatch({ok, _, [RC]} when RC =< 16#02, emqtt:subscribe(C, <<"t">>, SubQoS)),
+    {ok, _} = emqtt:publish(C, <<"t">>, <<"hey">>, [{qos, 1}]),
+    ?assertReceive({publish, #{payload := <<"hey">>}}),
     ok = emqtt:stop(C),
     ok.

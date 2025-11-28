@@ -86,6 +86,7 @@ init_per_group(new_config, Config) ->
             emqx_rule_engine,
             emqx_auth,
             {emqx_prometheus, #{config => config(default)}},
+            emqx_mt,
             emqx_management
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
@@ -104,6 +105,7 @@ init_per_group(legacy_config, Config) ->
             emqx_rule_engine,
             emqx_auth,
             {emqx_prometheus, #{config => config(legacy)}},
+            emqx_mt,
             emqx_management
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}

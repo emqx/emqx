@@ -7,6 +7,7 @@
 -behaviour(minirest_api).
 
 -include("emqx_auth_mnesia.hrl").
+-include("emqx_auth_mnesia_internal.hrl").
 -include_lib("emqx_auth/include/emqx_authz.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -944,7 +945,7 @@ validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
     end.
 
 table(?global_ns) -> ?ACL_TABLE;
-table(_Namespace) -> ?ACL_NS_TABLE.
+table(_Namespace) -> ?AUTHZ_NS_TAB.
 
 filter(Req0, Meta) ->
     maybe

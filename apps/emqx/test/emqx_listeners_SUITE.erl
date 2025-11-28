@@ -1274,13 +1274,15 @@ emqtt_connect_tcp(Host, Port) ->
     emqtt_connect(fun emqtt:connect/1, #{
         host => Host,
         port => Port,
-        connect_timeout => 500
+        %% N.B.: this is in seconds...
+        connect_timeout => 2
     }).
 
 emqtt_connect_ssl(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 500,
+        %% N.B.: this is in seconds...
+        connect_timeout => 2,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -1288,7 +1290,8 @@ emqtt_connect_ssl(Host, Port, SSLOpts) ->
 emqtt_connect_quic(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:quic_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 500,
+        %% N.B.: this is in seconds...
+        connect_timeout => 2,
         ssl => true,
         ssl_opts => SSLOpts
     }).
@@ -1296,7 +1299,8 @@ emqtt_connect_quic(Host, Port, SSLOpts) ->
 emqtt_connect_wss(Host, Port, SSLOpts) ->
     emqtt_connect(fun emqtt:ws_connect/1, #{
         hosts => [{Host, Port}],
-        connect_timeout => 500,
+        %% N.B.: this is in seconds...
+        connect_timeout => 2,
         ws_transport_options => [
             {protocols, [http]},
             {transport, tls},

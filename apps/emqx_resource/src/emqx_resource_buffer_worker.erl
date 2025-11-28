@@ -1066,7 +1066,8 @@ batch_reply_dropped(Id, Batch, Result) ->
 handle_simple_query_result(Id, Query, Result, HasBeenSent) ->
     {Decision, PostFn, DeltaCounters} = handle_query_result_pure(Id, Result, HasBeenSent, #{}),
     PostFn(result_context([Query])),
-    bump_counters(Id, DeltaCounters),
+    Namespace = infer_namespace_from_id(Id),
+    bump_counters(Id, DeltaCounters, Namespace),
     Decision.
 
 %% We should always retry (nack), except when:
@@ -1249,8 +1250,8 @@ merge_counters(OldCounters, DeltaCounters) ->
     ).
 
 -spec flush_metrics(data()) -> data().
-flush_metrics(Data = #{id := Id, counters := Counters}) ->
-    bump_counters(Id, Counters),
+flush_metrics(Data = #{id := Id, namespace := Namespace, counters := Counters}) ->
+    bump_counters(Id, Counters, Namespace),
     set_gauges(Data),
     log_expired_message_count(Data),
     ensure_metrics_flush_timer(Data#{counters := #{}}).
@@ -1261,35 +1262,39 @@ ensure_metrics_flush_timer(Data = #{metrics_tref := undefined, metrics_flush_int
     TRef = erlang:send_after(T, self(), {flush_metrics, Ref}),
     Data#{metrics_tref := {TRef, Ref}}.
 
--spec bump_counters(id(), counters()) -> ok.
-bump_counters(Id, Counters) ->
+-spec bump_counters(id(), counters(), maybe_namespace()) -> ok.
+bump_counters(Id, Counters, Namespace) ->
     Iter = maps:iterator(Counters),
-    do_bump_counters(Iter, Id).
+    do_bump_counters(Iter, Id, Namespace).
 
-do_bump_counters(Iter, Id) ->
+do_bump_counters(Iter, Id, Namespace) ->
     case maps:next(Iter) of
         {Key, Val, NIter} ->
-            do_bump_counters1(Key, Val, Id),
-            do_bump_counters(NIter, Id);
+            do_bump_counters1(Key, Val, Id, Namespace),
+            do_bump_counters(NIter, Id, Namespace);
         none ->
             ok
     end.
 
-do_bump_counters1(dropped_expired, Val, Id) ->
+do_bump_counters1(dropped_expired, Val, Id, _Namespace) ->
     emqx_resource_metrics:dropped_expired_inc(Id, Val);
-do_bump_counters1(dropped_queue_full, Val, Id) ->
+do_bump_counters1(dropped_queue_full, Val, Id, _Namespace) ->
     emqx_resource_metrics:dropped_queue_full_inc(Id, Val);
-do_bump_counters1(failed, Val, Id) ->
-    emqx_resource_metrics:failed_inc(Id, Val);
-do_bump_counters1(retried_failed, Val, Id) ->
-    emqx_resource_metrics:retried_failed_inc(Id, Val);
-do_bump_counters1(success, Val, Id) ->
-    emqx_resource_metrics:success_inc(Id, Val);
-do_bump_counters1(retried_success, Val, Id) ->
-    emqx_resource_metrics:retried_success_inc(Id, Val);
-do_bump_counters1(dropped_resource_not_found, Val, Id) ->
+do_bump_counters1(failed, Val, Id, Namespace) ->
+    ExtraMeta = #{namespace => Namespace},
+    emqx_resource_metrics:failed_inc(Id, Val, ExtraMeta);
+do_bump_counters1(retried_failed, Val, Id, Namespace) ->
+    ExtraMeta = #{namespace => Namespace},
+    emqx_resource_metrics:retried_failed_inc(Id, Val, ExtraMeta);
+do_bump_counters1(success, Val, Id, Namespace) ->
+    ExtraMeta = #{namespace => Namespace},
+    emqx_resource_metrics:success_inc(Id, Val, ExtraMeta);
+do_bump_counters1(retried_success, Val, Id, Namespace) ->
+    ExtraMeta = #{namespace => Namespace},
+    emqx_resource_metrics:retried_success_inc(Id, Val, ExtraMeta);
+do_bump_counters1(dropped_resource_not_found, Val, Id, _Namespace) ->
     emqx_resource_metrics:dropped_resource_not_found_inc(Id, Val);
-do_bump_counters1(dropped_resource_stopped, Val, Id) ->
+do_bump_counters1(dropped_resource_stopped, Val, Id, _Namespace) ->
     emqx_resource_metrics:dropped_resource_stopped_inc(Id, Val).
 
 -spec log_expired_message_count(data()) -> ok.
@@ -1925,16 +1930,17 @@ do_handle_async_batch_reply(
     end.
 
 do_async_ack(InflightTID, Ref, Id, PostFn, BufferWorkerPid, DeltaCounters, Batch, IsSimpleQuery) ->
+    Namespace = infer_namespace_from_id(Id),
     {IsKnownRef, Queries} = ack_inflight(InflightTID, Ref, BufferWorkerPid),
     case IsSimpleQuery of
         true ->
             %% If this was a simple request, there's no inflight table, so we take the
             %% batch from the async reply context.
             PostFn(result_context(Batch)),
-            bump_counters(Id, DeltaCounters);
+            bump_counters(Id, DeltaCounters, Namespace);
         false when IsKnownRef ->
             PostFn(result_context(Queries)),
-            bump_counters(Id, DeltaCounters);
+            bump_counters(Id, DeltaCounters, Namespace);
         false ->
             ok
     end,
@@ -2718,6 +2724,15 @@ trigger_fallback_action(Id, #{kind := republish, args := #{?COMPUTED := Args}}, 
 trigger_fallback_action(Id, FallbackFn, Req, QueryOpts) when is_function(FallbackFn) ->
     %% This clause is only for tests.
     FallbackFn(#{action_res_id => Id, request => Req, query_opts => QueryOpts}).
+
+infer_namespace_from_id(Id) ->
+    try emqx_resource:parse_channel_id(Id) of
+        #{namespace := Namespace} ->
+            Namespace
+    catch
+        throw:{invalid_id, _} ->
+            ?global_ns
+    end.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

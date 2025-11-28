@@ -58,26 +58,30 @@ raw_data_ns(Module, undefined = _Namespace, undefined = _Mode) ->
     raw_data_ns(Module, Namespace, Mode);
 raw_data_ns(Module, Namespace, ?PROM_DATA_MODE__NODE = Mode) ->
     {_Node, LocalNodeMetrics} = Module:fetch_namespaced_metrics_v1(Namespace, Mode),
-    LocalNodeMetrics;
+    ClusterWideMetrics = Module:fetch_cluster_wide_namespaced_metrics(Namespace, Mode),
+    maps:merge(LocalNodeMetrics, ClusterWideMetrics);
 raw_data_ns(Module, Namespace, Mode) ->
+    ClusterWideMetrics = Module:fetch_cluster_wide_namespaced_metrics(Namespace, Mode),
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 3),
     RPCResults0 = emqx_prometheus_proto_v2:raw_prom_data(
         Nodes, Module, fetch_namespaced_metrics_v1, [Namespace, Mode]
     ),
     {InitAcc, RPCResults} = initial_acc(RPCResults0, Module),
-    case Mode of
-        ?PROM_DATA_MODE__ALL_NODES_AGGREGATED ->
-            do_aggre_cluster(
-                Module:logic_sum_metrics(),
-                RPCResults,
-                InitAcc
-            );
-        ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED ->
-            zip_cluster(
-                RPCResults,
-                InitAcc
-            )
-    end.
+    Metrics =
+        case Mode of
+            ?PROM_DATA_MODE__ALL_NODES_AGGREGATED ->
+                do_aggre_cluster(
+                    Module:logic_sum_metrics(),
+                    RPCResults,
+                    InitAcc
+                );
+            ?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED ->
+                zip_cluster(
+                    RPCResults,
+                    InitAcc
+                )
+        end,
+    maps:merge(Metrics, ClusterWideMetrics).
 
 initial_acc([], Module) ->
     {Module:aggre_or_zip_init_acc(), []};

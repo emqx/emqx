@@ -8,7 +8,7 @@
 -include("emqx_prometheus.hrl").
 
 -export([add_handler/0, remove_handler/0]).
--export([pre_config_update/3, post_config_update/5]).
+-export([pre_config_update/3, post_config_update/5, propagated_post_config_update/5]).
 -export([update/1]).
 -export([conf/0, is_push_gateway_server_enabled/1]).
 -export([to_recommend_type/1]).
@@ -33,10 +33,12 @@ update(Config) ->
 
 add_handler() ->
     ok = emqx_config_handler:add_handler(?PROMETHEUS, ?MODULE),
+    ok = emqx_config_handler:add_handler([prometheus, namespaced_metrics_limiter], ?MODULE),
     ok.
 
 remove_handler() ->
     ok = emqx_config_handler:remove_handler(?PROMETHEUS),
+    ok = emqx_config_handler:remove_handler([prometheus, namespaced_metrics_limiter]),
     ok.
 
 %% when we import the config with the old version
@@ -91,6 +93,14 @@ post_config_update(?PROMETHEUS, _Req, New, Old, AppEnvs) ->
     ok = emqx_prometheus_auth:update_latency_metrics(New),
     update_auth(New, Old);
 post_config_update(_ConfPath, _Req, _NewConf, _OldConf, _AppEnvs) ->
+    ok.
+
+propagated_post_config_update(
+    [prometheus, namespaced_metrics_limiter], _Req, #{} = New, _Old, _AppEnvs
+) ->
+    emqx_prometheus_limiter:update_api_limiter_group(New),
+    ok;
+propagated_post_config_update(_Path, _Req, _New, _Old, _AppEnvs) ->
     ok.
 
 update_prometheus(AppEnvs) ->

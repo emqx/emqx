@@ -1870,6 +1870,10 @@ t_fallback_actions_different_namespaces(_Config) ->
     ?check_trace(
         #{timetrap => 3_000},
         begin
+            ActionsExecutedGlobal0 = emqx_metrics:val_global('actions.executed'),
+            ActionsExecutedNs0 = emqx_metrics:val(Namespace, 'actions.executed'),
+
+            ok = emqx_metrics:register_namespace(Namespace),
             AuthHeaderNS = emqx_bridge_v2_testlib:ensure_namespaced_api_key(#{
                 namespace => Namespace
             }),
@@ -1879,7 +1883,8 @@ t_fallback_actions_different_namespaces(_Config) ->
 
             FallbackActionName = <<"my_fallback">>,
             FallbackActionConfig = (bridge_config())#{
-                <<"connector">> => atom_to_binary(ConnectorName)
+                <<"connector">> => atom_to_binary(ConnectorName),
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>}
             },
             ct:pal("fallback action config:\n  ~p", [FallbackActionConfig]),
 
@@ -1903,6 +1908,7 @@ t_fallback_actions_different_namespaces(_Config) ->
             ActionConfig = (bridge_config())#{
                 <<"connector">> => atom_to_binary(ConnectorName),
                 <<"parameters">> => #{<<"on_query_fn">> => OnQueryFn},
+                <<"resource_opts">> => #{<<"metrics_flush_interval">> => <<"100ms">>},
                 <<"fallback_actions">> => [
                     #{
                         <<"kind">> => <<"reference">>,
@@ -1997,6 +2003,28 @@ t_fallback_actions_different_namespaces(_Config) ->
             ?assertNotReceive({query_called, #{message := #{payload := Payload0}}}),
 
             ok = emqtt:stop(C),
+
+            ?retry(
+                100,
+                10,
+                ?assertEqual(
+                    #{
+                        %% All actions that execute here are namespaced.
+                        global => ActionsExecutedGlobal0,
+                        %% Why 3?
+                        %% * 1 publish when there's no fallback matching the namespace
+                        %%   + 1 failure (primary in ns)
+                        %% * 1 publish when there's a fallback matching the namespace
+                        %%   + 1 failure (primary in ns), 1 success (fallback in ns)
+                        ns => ActionsExecutedNs0 + 3
+                    },
+                    #{
+                        global => emqx_metrics:val_global('actions.executed'),
+                        ns => emqx_metrics:val(Namespace, 'actions.executed')
+                    }
+                )
+            ),
+
             ok
         end,
         []
