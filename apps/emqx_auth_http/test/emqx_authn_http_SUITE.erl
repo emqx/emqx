@@ -1027,7 +1027,7 @@ used to override the listener's zone.
 t_zone_override() ->
     [{matrix, true}].
 t_zone_override(matrix) ->
-    [[tcp], [socket]];
+    [[tcp], [socket], [ws]];
 t_zone_override(TCConfig) when is_list(TCConfig) ->
     GroupPath = emqx_common_test_helpers:group_path(TCConfig, [tcp]),
     maybe
@@ -1042,6 +1042,23 @@ t_zone_override(TCConfig) when is_list(TCConfig) ->
         ),
         ok
     end,
+    Opts0 =
+        case GroupPath of
+            [ws] ->
+                #{
+                    conn_fn => fun emqtt:ws_connect/1,
+                    client_opts => #{
+                        proto_ver => v5,
+                        port => 8083,
+                        ws_transport_options => [
+                            {protocols, [http]},
+                            {transport, tcp}
+                        ]
+                    }
+                };
+            _ ->
+                #{}
+        end,
     OverriddenZone = new_zone,
     MkConfigFn = fun raw_http_auth_config/0,
     PostConfigFn = fun() ->
@@ -1060,7 +1077,7 @@ t_zone_override(TCConfig) when is_list(TCConfig) ->
             end
         )
     end,
-    Opts = #{
+    Opts = Opts0#{
         mk_config_fn => MkConfigFn,
         post_config_fn => PostConfigFn,
         overridden_zone => OverriddenZone

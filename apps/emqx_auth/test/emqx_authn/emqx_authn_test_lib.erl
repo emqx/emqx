@@ -132,7 +132,8 @@ t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
     ),
     PostConfigFn(),
     {ok, C} = emqtt:start_link(ClientOpts),
-    {ok, _} = emqtt:connect(C),
+    ConnFn = maps:get(conn_fn, Opts, fun emqtt:connect/1),
+    {ok, _} = ConnFn(C),
     %% We use the zone override internally.
     ?assertEqual(OverriddenZone, emqx_cth_broker:connection_info({channel, zone}, C)),
     ?assertEqual(OverriddenZone, emqx_cth_broker:connection_info(zone, C)),
