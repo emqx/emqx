@@ -62,6 +62,25 @@ init_per_testcase(t_adjust_limiters = TestCase, Config) ->
     AuthHeader = ?ON(N1, emqx_mgmt_api_test_util:auth_header_()),
     put(?AUTH_HEADER_PD_KEY, AuthHeader),
     [{cluster, Cluster} | Config];
+init_per_testcase(t_namespaced_metrics = TestCase, Config) ->
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf,
+                "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]\n"
+                "authentication = [{mechanism = password_based, backend = built_in_database}]\n"
+                "authorization.no_match = allow\n"
+                "authorization.sources = [{type = built_in_database, max_rules = 7}]"},
+            {emqx_mt, "multi_tenancy.default_max_sessions = 10"},
+            emqx_auth_mnesia,
+            emqx_auth,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    snabbkaffe:start_trace(),
+    [{apps, Apps} | Config];
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -72,8 +91,8 @@ init_per_testcase(TestCase, Config) ->
                 "authorization.no_match = deny\n"
                 "authorization.sources = [{type = built_in_database, max_rules = 7}]"},
             {emqx_mt, "multi_tenancy.default_max_sessions = 10"},
-            emqx_auth,
             emqx_auth_mnesia,
+            emqx_auth,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -281,6 +300,12 @@ import_backup(BackupName) ->
     URL = emqx_mgmt_api_test_util:api_path(["data", "import"]),
     Body = #{<<"filename">> => unicode:characters_to_binary(BackupName)},
     simple_request(#{method => post, url => URL, body => Body}).
+
+get_metrics(Ns) ->
+    Path = emqx_mgmt_api_test_util:api_path(["mt", "ns", Ns, "metrics"]),
+    Res = simple_request(get, Path, ""),
+    ct:pal("get ns metrics result:\n  ~p", [Res]),
+    Res.
 
 tenant_limiter_params() ->
     tenant_limiter_params(_Overrides = #{}).
@@ -1477,6 +1502,64 @@ t_namespaced_authz(_TCConfig) ->
     ?assertMatch(
         {ok, #{reason_code := ?RC_NO_MATCHING_SUBSCRIBERS}},
         emqtt:publish(C1, TopicPub1, <<"hi">>, [{qos, 1}])
+    ),
+
+    ok.
+
+-doc """
+Smoke tests for consulting namespaced metrics.
+""".
+t_namespaced_metrics(_TCConfig) ->
+    Namespace = <<"ns02">>,
+
+    ?assertMatch({404, _}, get_metrics(Namespace)),
+
+    {204, _} = create_managed_ns(Namespace),
+
+    %% Generate some values
+    {ok, _} = emqx_authn_chains:add_user(
+        'mqtt:global',
+        <<"password_based:built_in_database">>,
+        #{
+            user_id => Namespace,
+            namespace => Namespace,
+            password => <<"123456">>
+        }
+    ),
+    emqx_authz_mnesia:store_rules(Namespace, all, [
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"publish">>,
+            <<"topic">> => <<"t/ns02">>
+        },
+        #{
+            <<"permission">> => <<"allow">>,
+            <<"action">> => <<"subscribe">>,
+            <<"topic">> => <<"t/ns02">>
+        }
+    ]),
+
+    ClientId1 = ?NEW_CLIENTID(1),
+    C1 = connect(ClientId1, Namespace),
+    Topic = <<"t/ns02">>,
+    {ok, _, _} = emqtt:subscribe(C1, Topic, [{qos, 1}]),
+    emqtt:publish(C1, Topic, <<"hey1">>, [{qos, 1}]),
+    emqtt:publish(C1, Topic, <<"hey2">>, [{qos, 1}]),
+
+    ?assertMatch(
+        {200, #{
+            %% Only a sample of all namespaced metrics are matched below.
+            <<"messaging_stats">> := #{
+                <<"messages.sent">> := 2,
+                <<"messages.received">> := 2,
+                <<"bytes.sent">> := _,
+                <<"bytes.received">> := _
+            },
+            <<"session_count">> := 1,
+            <<"builtin_authz_record_count">> := 1,
+            <<"builtin_authn_record_count">> := 1
+        }},
+        get_metrics(Namespace)
     ),
 
     ok.

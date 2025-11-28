@@ -274,10 +274,11 @@ cleanup(#{name := Name, tab := Tab}) ->
     Now = now_ms_monotonic(),
     MS = ets:fun2ms(fun(#cache_record{expire_at = ExpireAt}) when ExpireAt < Now -> true end),
     NumDeleted = ets:select_delete(Tab, MS),
-    ?tp(debug, auth_cache_cleanup, #{
-        name => Name,
-        num_deleted => NumDeleted
-    }),
+    NumDeleted > 0 andalso
+        ?tp(debug, auth_cache_cleanup, #{
+            name => Name,
+            num_deleted => NumDeleted
+        }),
     ok.
 
 update_stats(#{tab := Tab, stat_tab := StatTab} = PtState) ->

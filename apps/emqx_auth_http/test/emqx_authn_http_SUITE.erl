@@ -14,6 +14,8 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(PATH, [?CONF_NS_ATOM]).
 
 -define(HTTP_PORT, 32333).
@@ -71,7 +73,10 @@
 -define(CLIENTID(N), iolist_to_binary([atom_to_list(?FUNCTION_NAME), "-", integer_to_binary(N)])).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    emqx_common_test_helpers:all_with_matrix(?MODULE).
+
+groups() ->
+    emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
 init_per_suite(Config) ->
     emqx_utils:interactive_load(emqx_variform_bif),
@@ -110,7 +115,9 @@ end_per_testcase(Case, Config) ->
     end,
     _ = emqx_auth_cache:reset(?AUTHN_CACHE),
     ok = emqx_authn_test_lib:enable_node_cache(false),
-    ok = emqx_utils_http_test_server:stop().
+    ok = emqx_utils_http_test_server:stop(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Tests
@@ -1017,7 +1024,68 @@ t_clientid_override(TCConfig) when is_list(TCConfig) ->
 Checks that, if an authentication backend returns the `zone_override` attribute, it's
 used to override the listener's zone.
 """.
+t_zone_override() ->
+    [{matrix, true}].
+t_zone_override(matrix) ->
+    [[tcp], [socket], [ws], [quic]];
 t_zone_override(TCConfig) when is_list(TCConfig) ->
+    GroupPath = emqx_common_test_helpers:group_path(TCConfig, [tcp]),
+    maybe
+        [socket | _] ?= GroupPath,
+        Listener0 = emqx_config:get_raw([listeners, tcp, default]),
+        on_exit(fun() ->
+            {ok, _} = emqx:update_config([listeners, tcp, default], {update, Listener0})
+        end),
+        {ok, _} = emqx:update_config(
+            [listeners, tcp, default],
+            {update, Listener0#{<<"tcp_backend">> => <<"socket">>}}
+        ),
+        ok
+    end,
+    Opts0 =
+        case GroupPath of
+            [ws] ->
+                #{
+                    conn_fn => fun emqtt:ws_connect/1,
+                    client_opts => #{
+                        proto_ver => v5,
+                        port => 8083,
+                        ws_transport_options => [
+                            {protocols, [http]},
+                            {transport, tcp}
+                        ]
+                    }
+                };
+            [quic] ->
+                CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+                QuicLConfig = #{
+                    <<"bind">> => <<"127.0.0.1:14567">>,
+                    <<"ssl_options">> => #{
+                        <<"keyfile">> => filename:join([CertsPath, "key.pem"]),
+                        <<"certfile">> => filename:join([CertsPath, "cert.pem"]),
+                        <<"cacertfile">> => filename:join([CertsPath, "cert.pem"])
+                    }
+                },
+                {ok, _} = emqx:update_config(
+                    [listeners, quic, default], {create, QuicLConfig}
+                ),
+                on_exit(fun() -> emqx:remove_config([listeners, quic, default]) end),
+                #{
+                    conn_fn => fun emqtt:quic_connect/1,
+                    client_opts => #{
+                        proto_ver => v5,
+                        hosts => [{"127.0.0.1", 14567}],
+                        ssl => true,
+                        ssl_opts => [
+                            {keyfile, filename:join([CertsPath, "key.pem"])},
+                            {certfile, filename:join([CertsPath, "cert.pem"])},
+                            {cacertfile, filename:join([CertsPath, "cacert.pem"])}
+                        ]
+                    }
+                };
+            _ ->
+                #{}
+        end,
     OverriddenZone = new_zone,
     MkConfigFn = fun raw_http_auth_config/0,
     PostConfigFn = fun() ->
@@ -1036,7 +1104,7 @@ t_zone_override(TCConfig) when is_list(TCConfig) ->
             end
         )
     end,
-    Opts = #{
+    Opts = Opts0#{
         mk_config_fn => MkConfigFn,
         post_config_fn => PostConfigFn,
         overridden_zone => OverriddenZone

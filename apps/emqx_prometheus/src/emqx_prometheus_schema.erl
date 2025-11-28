@@ -58,7 +58,15 @@ fields(recommend_setting) ->
                 desc => ?DESC(collectors)
             })},
         {latency_buckets,
-            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(latency_buckets)})}
+            emqx_schema:latency_histogram_buckets_sc(#{desc => ?DESC(latency_buckets)})},
+        {namespaced_metrics_limiter,
+            mk(
+                ref(namespaced_metrics_limiter), #{
+                    required => false,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(namespaced_metrics_limiter)
+                }
+            )}
     ];
 fields(push_gateway) ->
     [
@@ -182,6 +190,14 @@ fields(collectors) ->
                     desc => ?DESC(vm_msacc_collector)
                 }
             )}
+    ];
+fields(namespaced_metrics_limiter) ->
+    [
+        {rate,
+            mk(emqx_limiter_schema:rate_type(), #{
+                default => <<"1/5s">>,
+                desc => ?DESC("namespaced_metrics_limiter_rate")
+            })}
     ];
 fields(legacy_deprecated_setting) ->
     [
@@ -334,6 +350,7 @@ desc(collectors) -> ?DESC(collectors);
 desc(legacy_deprecated_setting) -> ?DESC(legacy_deprecated_setting);
 desc(recommend_setting) -> ?DESC(recommend_setting);
 desc(push_gateway) -> ?DESC(push_gateway);
+desc(namespaced_metrics_limiter) -> ?DESC(namespaced_metrics_limiter);
 desc(_) -> undefined.
 
 convert_headers(undefined, _) ->
@@ -372,3 +389,6 @@ translation(Name) ->
     %% 'vm_system_info_collector', 'vm_memory_collector', 'vm_msacc_collector'
     %% to prometheus environments
     emqx_conf_schema:translation(Name).
+
+mk(Type, Sc) -> hoconsc:mk(Type, Sc).
+ref(StructName) -> hoconsc:ref(?MODULE, StructName).

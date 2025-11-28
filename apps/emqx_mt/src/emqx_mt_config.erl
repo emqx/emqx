@@ -191,7 +191,8 @@ create_managed_ns(Ns) ->
 delete_managed_ns(Ns) ->
     maybe
         {ok, Configs} ?= emqx_mt_state:delete_managed_ns(Ns),
-        emqx_mt_config_proto_v1:cleanup_managed_ns_configs(Ns, maps:to_list(Configs)),
+        map_size(Configs) > 0 andalso
+            emqx_mt_config_proto_v1:cleanup_managed_ns_configs(Ns, maps:to_list(Configs)),
         _ = emqx_mt_client_kicker:start_kicking(Ns),
         ok = emqx_mt_config_janitor:clean_namespace(Ns),
         ok
