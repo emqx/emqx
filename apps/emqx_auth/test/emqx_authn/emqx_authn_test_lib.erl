@@ -115,7 +115,8 @@ t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
         overridden_zone := OverriddenZone
     } = Opts,
     PostConfigFn = maps:get(post_config_fn, Opts, fun() -> ok end),
-    ClientOpts = maps:get(client_opts, Opts, #{}),
+    ClientOpts0 = maps:get(client_opts, Opts, #{}),
+    ClientOpts = ClientOpts0#{proto_ver => v5},
     Config = MkConfigFn(),
     OldZoneConfig = emqx_config:get_raw([zones]),
     NewZoneConfig = OldZoneConfig#{atom_to_binary(OverriddenZone) => #{}},

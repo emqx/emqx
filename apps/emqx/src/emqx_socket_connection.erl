@@ -83,8 +83,8 @@
     %% Sock State
     sockstate :: idle | closed | congested(),
     %% Packet parser / serializer
-    parser :: parser(),
-    serialize :: emqx_frame:serialize_opts(),
+    parser :: undefined | parser(),
+    serialize :: undefined | emqx_frame:serialize_opts(),
     %% Channel State
     channel :: emqx_channel:channel(),
     %% GC State
@@ -601,7 +601,9 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
-%% TODO: handle `{event, {zone_changed, NewZone}}`
+handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
+    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    {ok, State};
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
     {ok, State};
@@ -841,8 +843,10 @@ parse_incoming(Data, State = #state{parser = Parser}) ->
     end.
 
 init_parser(FrameOpts) ->
-    %% Go with regular streaming parser.
     emqx_frame:initial_parse_state(FrameOpts).
+
+update_parser(Parser, FrameOpts) ->
+    emqx_frame:update_init_parser_opts(Parser, FrameOpts).
 
 update_state_on_parse_error(#{proto_ver := ProtoVer, parse_state := ParseState}, State) ->
     Serialize = emqx_frame:serialize_opts(ProtoVer, ?MAX_PACKET_SIZE),
@@ -1291,6 +1295,47 @@ set_tcp_keepalive({tcp, Id}) ->
 graceful_shutdown_transport(_Reason, S = #state{socket = Socket}) ->
     _ = socket:shutdown(Socket, read_write),
     S#state{sockstate = closed}.
+
+init_zone_specific_state(
+    Zone,
+    Opts,
+    #state{
+        parser = Parser0,
+        serialize = Serialize0
+    } = State0
+) ->
+    FrameOpts = #{
+        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
+        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+        %% zone will **not** take effect after the override.
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
+    },
+    Parser =
+        case Parser0 =:= undefined of
+            true ->
+                init_parser(FrameOpts);
+            false ->
+                update_parser(Parser0, FrameOpts)
+        end,
+    Serialize =
+        case Serialize0 =:= undefined of
+            true ->
+                emqx_frame:initial_serialize_opts(FrameOpts);
+            false ->
+                emqx_frame:update_serialize_opts(Serialize0, FrameOpts)
+        end,
+    GcState =
+        case emqx_config:get_zone_conf(Zone, [force_gc]) of
+            #{enable := false} -> undefined;
+            GcPolicy -> emqx_gc:init(GcPolicy)
+        end,
+    State0#state{
+        parser = Parser,
+        serialize = Serialize,
+        gc_state = GcState,
+        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
+        zone = Zone
+    }.
 
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).

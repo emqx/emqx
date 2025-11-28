@@ -9,7 +9,8 @@
 -export([
     initial_parse_state/0,
     initial_parse_state/1,
-    update_parse_state/2
+    update_parse_state/2,
+    update_init_parser_opts/2
 ]).
 
 -export([
@@ -19,6 +20,7 @@
     serialize_fun/0,
     serialize_fun/1,
     initial_serialize_opts/1,
+    update_serialize_opts/2,
     serialize_opts/1,
     serialize_opts/2,
     serialize_pkt/2,
@@ -297,6 +299,22 @@ parse_connect(Frame, Options = #options{strict_mode = StrictMode}) ->
     parse_state_initial().
 update_parse_state(ProtoVer, Options) ->
     Options#options{version = ProtoVer}.
+
+-spec update_init_parser_opts(parse_state_initial(), options()) ->
+    parse_state_initial().
+update_init_parser_opts(
+    #options{
+        strict_mode = StrictMode,
+        max_size = MaxSize,
+        version = Version
+    },
+    Options
+) ->
+    #options{
+        strict_mode = maps:get(strict_mode, Options, StrictMode),
+        max_size = maps:get(max_size, Options, MaxSize),
+        version = maps:get(version, Options, Version)
+    }.
 
 do_parse_connect(
     ProtoName,
@@ -787,6 +805,9 @@ serialize_fun(#{version := Ver, max_size := MaxSize, strict_mode := StrictMode})
 
 initial_serialize_opts(Opts) ->
     maps:merge(?DEFAULT_OPTIONS, Opts).
+
+update_serialize_opts(Opts0, Opts) ->
+    maps:merge(Opts0, Opts).
 
 serialize_opts(ProtoVer, MaxSize) ->
     #{version => ProtoVer, max_size => MaxSize, strict_mode => false}.

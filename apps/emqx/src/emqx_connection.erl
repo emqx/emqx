@@ -94,8 +94,8 @@
     %% Sock State
     sockstate :: emqx_types:sockstate(),
     %% Packet parser / serializer
-    parser :: parser(),
-    serialize :: emqx_frame:serialize_opts(),
+    parser :: undefined | parser(),
+    serialize :: undefined | emqx_frame:serialize_opts(),
     %% Channel State
     channel :: emqx_channel:channel(),
     %% GC State
@@ -804,6 +804,11 @@ init_parser(Transport, Socket, FrameOpts) ->
             emqx_frame:initial_parse_state(FrameOpts)
     end.
 
+update_parser({frame, Parser}, FrameOpts) ->
+    {frame, emqx_frame:update_init_parser_opts(Parser, FrameOpts)};
+update_parser(Parser, FrameOpts) ->
+    emqx_frame:update_init_parser_opts(Parser, FrameOpts).
+
 update_state_on_parse_error(
     ParseState0,
     #{proto_ver := ProtoVer, parse_state := ParseState},
@@ -1276,19 +1281,36 @@ wait_for_quic_stream_close(
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
-init_zone_specific_state(Zone, Opts, #state{} = State0) ->
+init_zone_specific_state(
+    Zone,
+    Opts,
     #state{
+        parser = Parser0,
+        serialize = Serialize0,
         transport = Transport,
         socket = Socket
-    } = State0,
+    } = State0
+) ->
     FrameOpts = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
-    Parser = init_parser(Transport, Socket, FrameOpts),
-    Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
+    Parser =
+        case Parser0 =:= undefined of
+            true ->
+                init_parser(Transport, Socket, FrameOpts);
+            false ->
+                update_parser(Parser0, FrameOpts)
+        end,
+    Serialize =
+        case Serialize0 =:= undefined of
+            true ->
+                emqx_frame:initial_serialize_opts(FrameOpts);
+            false ->
+                emqx_frame:update_serialize_opts(Serialize0, FrameOpts)
+        end,
     GcState =
         case emqx_config:get_zone_conf(Zone, [force_gc]) of
             #{enable := false} -> undefined;
