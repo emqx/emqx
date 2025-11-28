@@ -13,6 +13,7 @@
 -include("emqx_mqtt.hrl").
 -include("session_internals.hrl").
 
+-include_lib("stdlib/include/assert.hrl").
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
@@ -22,8 +23,8 @@
 %%================================================================================
 
 -type elem(Val) :: #on_release_action{
-    qos1 :: emqx_persistent_session_ds:seqno() | undefined,
-    qos2 :: emqx_persistent_session_ds:seqno() | undefined,
+    qos1 :: emqx_persistent_session_ds:seqno() | -1,
+    qos2 :: emqx_persistent_session_ds:seqno() | -1,
     val :: Val
 }.
 
@@ -34,8 +35,11 @@
     %% Seqnos of last inserted actions:
     q1_last = 0,
     q2_last = 0,
+    %% Queues of actions blocked by PUBACK and PUBCOMP respectively:
     q1 = queue:new(),
-    q2 = queue:new()
+    q2 = queue:new(),
+    %% "Queue" for immediate release:
+    qnow = []
 }).
 
 -opaque t(Val) :: #onrel_q{
@@ -44,7 +48,8 @@
     q1_last :: emqx_persistent_session_ds:seqno(),
     q2_last :: emqx_persistent_session_ds:seqno(),
     q1 :: queue:queue(elem(Val)),
-    q2 :: queue:queue(elem(Val))
+    q2 :: queue:queue(elem(Val)),
+    qnow :: [Val]
 }.
 
 -type t() :: t(_).
@@ -59,25 +64,45 @@ new() ->
 
 -spec push(elem(Val), t(Val)) -> t(Val).
 push(
-    Elem = #on_release_action{qos1 = SN1, qos2 = SN2},
-    Rec0 = #onrel_q{q1_last = Last1, q2_last = Last2, q1 = Q1, q2 = Q2}
-) when
-    is_integer(SN1) orelse is_integer(SN2),
-    SN1 >= Last1,
-    SN2 >= Last2
-->
-    Rec =
-        case is_integer(SN1) of
-            true ->
-                Rec0#onrel_q{q1_last = SN1, q1 = queue:in(Elem, Q1)};
-            false ->
-                Rec0
-        end,
-    case is_integer(SN2) of
+    Elem = #on_release_action{qos1 = SN1, qos2 = SN2, val = Val},
+    Rec0 = #onrel_q{
+        q1_first = First1,
+        q1_last = Last1,
+        q2_first = First2,
+        q2_last = Last2,
+        q1 = Q1,
+        q2 = Q2,
+        qnow = QNow
+    }
+) ->
+    IsBlocked1 = SN1 > First1,
+    IsBlocked2 = SN2 > First2,
+    if
+        IsBlocked1 andalso IsBlocked2 ->
+            ?assert(SN1 >= Last1, {SN1, '>=', Last1}),
+            ?assert(SN2 >= Last2, {SN2, '>=', Last2}),
+            Rec0#onrel_q{
+                q1_last = SN1,
+                q2_last = SN2,
+                q1 = queue:in(Elem, Q1),
+                q2 = queue:in(Elem, Q2)
+            };
+        IsBlocked1 ->
+            ?assert(SN1 >= Last1, {SN1, '>=', Last1}),
+            Rec0#onrel_q{
+                q1_last = SN1,
+                q1 = queue:in(Elem, Q1)
+            };
+        IsBlocked2 ->
+            ?assert(SN2 >= Last2, {SN2, '>=', Last2}),
+            Rec0#onrel_q{
+                q2_last = SN2,
+                q2 = queue:in(Elem, Q2)
+            };
         true ->
-            Rec#onrel_q{q2_last = SN2, q2 = queue:in(Elem, Q2)};
-        false ->
-            Rec
+            Rec0#onrel_q{
+                qnow = [Val | QNow]
+            }
     end.
 
 -doc """
@@ -85,9 +110,8 @@ Pop out all elements that belong to seqnos that are already released.
 """.
 -spec pop(t(Val)) -> {[Val], t(Val)}.
 pop(Rec0 = #onrel_q{q1_first = S1, q2_first = S2}) ->
-    {A1, Rec1} = pop(?QOS_1, S1, Rec0),
-    {A2, Rec} = pop(?QOS_2, S2, Rec1),
-    {A1 ++ A2, Rec}.
+    {Acc, Rec1} = pop(?QOS_1, S1, Rec0, []),
+    pop(?QOS_2, S2, Rec1, Acc).
 
 -doc """
 Release a sequence number.
@@ -97,30 +121,8 @@ Release a sequence number.
     emqx_persistent_session_ds:seqno(),
     t(Val)
 ) -> {[Val], t(Val)}.
-pop(?QOS_1, SeqNo, Rec = #onrel_q{q1_first = First, q2_first = Other, q1 = Q0}) when
-    SeqNo >= First
-->
-    {Elems, Q} = do_pop(
-        #on_release_action.qos1,
-        #on_release_action.qos2,
-        SeqNo,
-        Other,
-        Q0,
-        []
-    ),
-    {Elems, Rec#onrel_q{q1_first = SeqNo, q1 = Q}};
-pop(?QOS_2, SeqNo, Rec = #onrel_q{q2_first = First, q1_first = Other, q2 = Q0}) when
-    SeqNo >= First
-->
-    {Elems, Q} = do_pop(
-        #on_release_action.qos2,
-        #on_release_action.qos1,
-        SeqNo,
-        Other,
-        Q0,
-        []
-    ),
-    {Elems, Rec#onrel_q{q2_first = SeqNo, q2 = Q}}.
+pop(QoS, SeqNo, Rec) ->
+    pop(QoS, SeqNo, Rec, []).
 
 %%================================================================================
 %% Internal exports
@@ -129,6 +131,37 @@ pop(?QOS_2, SeqNo, Rec = #onrel_q{q2_first = First, q1_first = Other, q2 = Q0}) 
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+-spec pop(
+    ?QOS_1 | ?QOS_2,
+    emqx_persistent_session_ds:seqno(),
+    t(Val),
+    [Val]
+) -> {[Val], t(Val)}.
+pop(
+    ?QOS_1, SeqNo, Rec = #onrel_q{q1_first = First, q2_first = Other, q1 = Q0, qnow = QNow}, Acc
+) ->
+    {Elems, Q} = do_pop(
+        #on_release_action.qos1,
+        #on_release_action.qos2,
+        SeqNo,
+        Other,
+        Q0,
+        QNow ++ Acc
+    ),
+    {Elems, Rec#onrel_q{q1_first = max(First, SeqNo), q1 = Q, qnow = []}};
+pop(
+    ?QOS_2, SeqNo, Rec = #onrel_q{q2_first = First, q1_first = Other, q2 = Q0, qnow = QNow}, Acc
+) ->
+    {Elems, Q} = do_pop(
+        #on_release_action.qos2,
+        #on_release_action.qos1,
+        SeqNo,
+        Other,
+        Q0,
+        QNow ++ Acc
+    ),
+    {Elems, Rec#onrel_q{q2_first = max(First, SeqNo), q2 = Q, qnow = []}}.
 
 do_pop(ThisIdx, OtherIdx, This, Other, Q0, Acc) ->
     case queue:out(Q0) of

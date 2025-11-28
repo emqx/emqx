@@ -315,11 +315,9 @@ dispatch_events(_, [], _) ->
     [stream()].
 get_streams(DBShard = {_DB, Shard}, TopicFilter, StartTime, MinGeneration) ->
     Gens = emqx_ds_storage_layer:generations_since(DBShard, StartTime),
-    ?tp(get_streams_all_gens, #{gens => Gens}),
     lists:flatmap(
         fun
             (GenId) when GenId >= MinGeneration ->
-                ?tp(get_streams_get_gen, #{gen_id => GenId}),
                 case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
                     #{module := Mod, data := GenData} ->
                         Streams = Mod:get_streams(DBShard, GenData, TopicFilter, StartTime),

@@ -694,74 +694,6 @@ t_mixed_qos_subscription_mode_switch(_Config) ->
     ?assertEqual([<<"t/#">>], emqx_persistent_session_ds_router:topics()),
     ok = emqtt:disconnect(CSub2).
 
-%% This testcase verifies the lifetimes of session's subscriptions to
-%% new stream events.
-t_new_stream_notifications(init, Config) ->
-    start_cluster(?FUNCTION_NAME, Config, #{n => 1}).
-t_new_stream_notifications(Config) ->
-    [Node1] = ?config(cluster_nodes, Config),
-    Port = get_mqtt_port(Node1, tcp),
-    ClientId = mk_clientid(?FUNCTION_NAME, sub),
-    ?check_trace(
-        #{timetrap => 30_000},
-        begin
-            %% Init:
-            Sub0 = start_connect_client(#{port => Port, clientid => ClientId}),
-            %% 1. Sessions should start watching streams when they
-            %% subscribe to the topics:
-            ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, <<"foo/+">>, ?QOS_1),
-                #{?snk_kind := ?sessds_sched_watch_streams, topic_filter := [<<"foo">>, '+']}
-            ),
-            ?wait_async_action(
-                {ok, _, _} = emqtt:subscribe(Sub0, <<"bar">>, ?QOS_1),
-                #{?snk_kind := ?sessds_sched_watch_streams, topic_filter := [<<"bar">>]}
-            ),
-            %% 2. Sessions should re-subscribe to the events after
-            %% reconnect:
-            emqtt:disconnect(Sub0),
-            {ok, SNKsub} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := ?sessds_sched_watch_streams}),
-                2,
-                timer:seconds(10)
-            ),
-            Sub1 = start_connect_client(#{port => Port, clientid => ClientId, clean_start => false}),
-            %% Verify that both subscriptions have been renewed:
-            {ok, EventsAfterRestart} = snabbkaffe:receive_events(SNKsub),
-            ?assertMatch(
-                [[<<"bar">>], [<<"foo">>, '+']],
-                lists:sort(?projection(topic_filter, EventsAfterRestart))
-            ),
-            %% Verify that stream notifications are handled:
-            ?wait_async_action(
-                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"bar">>]),
-                #{?snk_kind := ?sessds_sched_renew_streams, topic_filter := [<<"bar">>]}
-            ),
-            ?wait_async_action(
-                emqx_ds_new_streams:notify_new_stream(?PERSISTENT_MESSAGE_DB, [<<"foo">>, <<"1">>]),
-                #{?snk_kind := ?sessds_sched_renew_streams, topic_filter := [<<"foo">>, '+']}
-            ),
-            %% Verify that new stream subscriptions are removed when
-            %% session unsubscribes from a topic:
-            ?wait_async_action(
-                emqtt:unsubscribe(Sub1, <<"bar">>),
-                #{?snk_kind := ?sessds_sched_unwatch_streams, topic_filter := [<<"bar">>]}
-            ),
-            %% But the rest of subscriptions are still active:
-            ?wait_async_action(
-                emqx_ds_new_streams:set_dirty(?PERSISTENT_MESSAGE_DB),
-                #{?snk_kind := ?sessds_sched_renew_streams, topic_filter := [<<"foo">>, '+']}
-            )
-        end,
-        [
-            fun(Trace) ->
-                ?assertMatch(
-                    [], ?of_kind(?sessds_unexpected_stream_notification, Trace)
-                )
-            end
-        ]
-    ).
-
 %% This testcase verifies that session handles removal of generations
 %% pending for replay gracefully.
 t_replay_deleted_generation(init, Config) ->
@@ -1443,7 +1375,7 @@ t_ds_resubscribe(_Config) ->
             %% the subscription:
             ?wait_async_action(
                 {ok, _} = emqtt:publish(Pub, <<"t/1">>, <<"1">>, ?QOS_1),
-                #{?snk_kind := ?sessds_sched_subscribe}
+                #{?snk_kind := ?sessds_new_stream}
             ),
             %% Collect messages:
             [#{payload := <<"1">>}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
@@ -1455,13 +1387,13 @@ t_ds_resubscribe(_Config) ->
                     ok = emqx_ds:close_db(?PERSISTENT_MESSAGE_DB),
                     #{?snk_kind := ?sessds_sub_down}
                 ),
-                #{?snk_kind := ?sessds_sched_subscribe_fail}
+                #{?snk_kind := emqx_ds_client_subscribe_fail}
             ),
             %% Bring the DB back up and verify that session
             %% successfully resubscribed:
             ?tp(notice, "test: Restarting the DB", #{}),
             {ok, EvtSub} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := ?sessds_sched_subscribe})
+                ?match_event(#{?snk_kind := emqx_ds_client_subscribe})
             ),
             ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, emqx_persistent_message:get_db_config()),
             ok = emqx_ds:wait_db(?PERSISTENT_MESSAGE_DB, all, infinity),
@@ -1479,7 +1411,7 @@ t_ds_resubscribe(_Config) ->
                 ok
             end
         end,
-        []
+        [fun ?MODULE:no_abnormal_worker_terminate/1]
     ).
 
 %% Trace specifications:

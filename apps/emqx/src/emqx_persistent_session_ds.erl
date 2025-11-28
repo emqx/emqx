@@ -705,10 +705,10 @@ handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     Session;
 handle_info(Message, Session0 = #{dscli := DSCli0}, ClientInfo) ->
     case emqx_ds_client:dispatch_message(Message, DSCli0, Session0) of
-        {DSCli, Session} ->
-            Session#{dscli := DSCli};
         {data, SubId, Stream, DSSubHandle, AsyncReply} ->
             handle_ds_reply(SubId, Stream, DSSubHandle, AsyncReply, Session0, ClientInfo);
+        {DSCli, Session} ->
+            Session#{dscli := DSCli};
         ignore ->
             handle_info1(Message, Session0, ClientInfo)
     end.
@@ -927,6 +927,9 @@ get_current_generation(SubId, Shard, #{s := S}) ->
 -spec on_advance_generation(subscription_id(), emqx_ds:shard(), emqx_ds:generation(), host_state()) ->
     host_state().
 on_advance_generation(SubId, Shard, CurrentGen, Session = #{s := S0}) ->
+    ?tp(debug, ?sessds_advance_generation, #{subid => SubId, shard => Shard, gen => CurrentGen}),
+    %% For historical reasons session stores ID of replayed generation
+    %% instead of the current one:
     FullyReplayedGen = CurrentGen - 1,
     S1 = emqx_persistent_session_ds_state:put_rank({SubId, Shard}, FullyReplayedGen, S0),
     %% Remove fully replayed streams from this shard:
@@ -970,8 +973,9 @@ on_new_iterator(SubId, {Shard, Gen}, Stream, Iterator, Session = #{s := S0}) ->
                 current_state := CurrentSubStateId
             } = Subscription,
             Key = {SubId, Stream},
-            ?tp(?sessds_stream_state_trans, #{
-                key => Key, to => r, from => p, start_time => StartTime
+            ?tp(?sessds_new_stream, #{
+                sub_id => SubId,
+                iterator => Iterator
             }),
             NewStreamState = #srs{
                 rank_x = Shard,
@@ -1923,8 +1927,10 @@ set_timer(Timer, Time, Session) ->
 %% Actions that happen when a batch is fully acked by the client
 %%--------------------------------------------------------------------
 
-%% Schedule an action that should happen when certain sequence numbers
-%% are released by the client:
+-doc """
+Schedule an action that should happen when certain sequence numbers
+are released by the client.
+""".
 -spec on_release(emqx_sessds_seqno_rel_q:elem(onrel_action()), session(), clientinfo()) ->
     session().
 on_release(Action, Session = #{inflight := Inflight0}, ClientInfo) ->

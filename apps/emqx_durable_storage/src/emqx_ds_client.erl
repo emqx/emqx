@@ -595,17 +595,18 @@ handle_ds_sub_message_(
 
 handle_ds_sub_recoverable_error_(Reason, CS0, SRef, DSSub, HS0) ->
     #cs{cbm = CBM} = CS0,
-    #ds_sub{id = SubId, db = DB, handle = Handle, stream = Stream, slab = Slab = {Shard, _Gen}} =
-        DSSub,
-    ?tp(
-        info,
-        emqx_ds_client_subscription_down,
-        #{
-            reason => Reason,
-            sub_id => SubId,
-            stream => Stream
-        }
-    ),
+    #ds_sub{
+        id = SubId,
+        db = DB,
+        handle = Handle,
+        stream = Stream,
+        slab = Slab = {Shard, _Gen}
+    } = DSSub,
+    ?tp(debug, emqx_ds_client_subscription_down, #{
+        reason => Reason,
+        sub_id => SubId,
+        stream => Stream
+    }),
     %% Notify host about subscription down:
     HS1 = on_subscription_down(CBM, SubId, Slab, Stream, HS0),
     %% Unsubscribe. Even if the subscription is already dead, it'll
@@ -839,14 +840,32 @@ result_handler(Eff = #eff_make_iterator{}, CS, HostState, Result) ->
         ?err_unrec(Err) ->
             handle_unrecoverable_stream_error(Eff, CS, HostState, Err)
     end;
-result_handler(Eff = #eff_ds_sub{}, CS, HostState, Result) ->
+result_handler(
+    #eff_ds_sub{sub_id = SubId, db = DB, iterator = It, slab = Slab} = Eff,
+    CS,
+    HostState,
+    Result
+) ->
     case Result of
         {ok, Handle, SubRef} ->
+            ?tp(emqx_ds_client_subscribe_stream, #{
+                sub_id => SubId,
+                db => DB,
+                it => It,
+                slab => Slab
+            }),
             {
                 handle_new_ds_sub(Eff, CS, Handle, SubRef),
                 HostState
             };
         ?err_rec(Err) ->
+            ?tp(debug, emqx_ds_client_subscribe_fail, #{
+                recoverable => Err,
+                sub_id => SubId,
+                db => DB,
+                slab => Slab,
+                iterator => It
+            }),
             {
                 retry(Err, Eff, CS),
                 HostState
@@ -1352,13 +1371,9 @@ execute(Field, CS0, HS0) ->
 
 -spec execute(integer(), effect_handler(), result_handler(), t(), HostState) -> {t(), HostState}.
 execute(Field, EffectHandler, ResultHandler, CS0, HS0) ->
-    ?tp_ignore_side_effects_in_prod(emqx_ds_client_exec_loop, #{field => Field}),
     case element(Field, CS0) of
         [] ->
             %% No planned effects:
-            ?tp_ignore_side_effects_in_prod(emqx_ds_client_exec_done, #{
-                cs => inspect(CS0), hs => HS0
-            }),
             {CS0, HS0};
         Effects ->
             %% Clear effects in the state:
@@ -1379,7 +1394,6 @@ do_execute(_, _, [], CS, Acc) ->
     {CS, Acc};
 do_execute(EffectHandler, ResultHandler, [Effect | Effects], CS0, Acc0) ->
     Result = EffectHandler(Effect),
-    ?tp_ignore_side_effects_in_prod(emqx_ds_client_exec, #{eff => Effect, res => Result}),
     {CS, Acc} = ResultHandler(Effect, CS0, Acc0, Result),
     do_execute(EffectHandler, ResultHandler, Effects, CS, Acc).
 
