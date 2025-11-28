@@ -247,6 +247,8 @@ fields("connector_influxdb_api_v1") ->
     [influxdb_type_field(influxdb_api_v1) | influxdb_api_v1_fields()];
 fields("connector_influxdb_api_v2") ->
     [influxdb_type_field(influxdb_api_v2) | influxdb_api_v2_fields()];
+fields("connector_influxdb_api_v3") ->
+    [influxdb_type_field(influxdb_api_v3) | influxdb_api_v3_fields()];
 %% ============ begin: schema for old bridge configs ============
 fields(influxdb_api_v1) ->
     fields(common) ++ influxdb_api_v1_fields();
@@ -296,8 +298,9 @@ parameter_field() ->
     {parameters,
         mk(
             hoconsc:union([
-                ref(?MODULE, "connector_" ++ T)
-             || T <- ["influxdb_api_v1", "influxdb_api_v2"]
+                ref(?MODULE, "connector_influxdb_api_v1"),
+                ref(?MODULE, "connector_influxdb_api_v2"),
+                ref(?MODULE, "connector_influxdb_api_v3")
             ]),
             #{required => true, desc => ?DESC("influxdb_parameters")}
         )}.
@@ -313,6 +316,12 @@ influxdb_api_v2_fields() ->
     [
         {bucket, mk(binary(), #{required => true, desc => ?DESC("bucket")})},
         {org, mk(binary(), #{required => true, desc => ?DESC("org")})},
+        {token, emqx_schema_secret:mk(#{required => true, desc => ?DESC("token")})}
+    ].
+
+influxdb_api_v3_fields() ->
+    [
+        {database, mk(binary(), #{required => true, desc => ?DESC("database")})},
         {token, emqx_schema_secret:mk(#{required => true, desc => ?DESC("token")})}
     ].
 
@@ -335,12 +344,16 @@ desc(influxdb_api_v1) ->
     ?DESC("influxdb_api_v1");
 desc(influxdb_api_v2) ->
     ?DESC("influxdb_api_v2");
+desc(influxdb_api_v3) ->
+    ?DESC("influxdb_api_v3");
 desc("connector") ->
     ?DESC("connector");
 desc("connector_influxdb_api_v1") ->
     ?DESC("influxdb_api_v1");
 desc("connector_influxdb_api_v2") ->
-    ?DESC("influxdb_api_v2").
+    ?DESC("influxdb_api_v2");
+desc("connector_influxdb_api_v3") ->
+    ?DESC("influxdb_api_v3").
 
 %% -------------------------------------------------------------------------------------------------
 %% internal functions
@@ -388,7 +401,7 @@ do_start_client(InstId, ClientConfig, Config) ->
                             }),
                             {ok, State};
                         Error ->
-                            ?tp(influxdb_connector_start_failed, #{error => auth_error}),
+                            ?tp(influxdb_connector_start_failed, #{reason => auth_error}),
                             ?SLOG(warning, #{
                                 msg => "failed_to_start_influxdb_connector",
                                 error => Error,
@@ -400,9 +413,16 @@ do_start_client(InstId, ClientConfig, Config) ->
                             _ = influxdb:stop_client(Client),
                             {error, connect_ok_but_auth_failed}
                     end;
-                {false, Reason} ->
+                {false, Reason0} ->
+                    Reason =
+                        case Reason0 of
+                            401 -> auth_error;
+                            _ -> Reason0
+                        end,
                     ?tp(influxdb_connector_start_failed, #{
-                        error => influxdb_client_not_alive, reason => Reason
+                        error => influxdb_client_not_alive,
+                        reason => Reason,
+                        raw_reason => Reason0
                     }),
                     ?SLOG(warning, #{
                         msg => "failed_to_start_influxdb_connector",
@@ -466,6 +486,17 @@ protocol_config(#{
         {version, v2},
         {bucket, str(Bucket)},
         {org, str(Org)},
+        %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
+        {token, emqx_secret:unwrap(Token)}
+    ] ++ ssl_config(SSL);
+protocol_config(#{
+    parameters := #{influxdb_type := influxdb_api_v3, database := Database, token := Token},
+    ssl := SSL
+}) ->
+    [
+        {protocol, http},
+        {version, v3},
+        {database, Database},
         %% TODO: teach `influxdb` to accept 0-arity closures as passwords.
         {token, emqx_secret:unwrap(Token)}
     ] ++ ssl_config(SSL).
@@ -557,9 +588,19 @@ reply_callback(ReplyFunAndArgs, {ok, 401, _, _}) ->
     ?tp(influxdb_connector_do_query_failure, #{error => <<"authorization failure">>}),
     Result = {error, {unrecoverable_error, <<"authorization failure">>}},
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+reply_callback(ReplyFunAndArgs, {ok, 401, _}) ->
+    ?tp(influxdb_connector_do_query_failure, #{error => <<"authorization failure">>}),
+    Result = {error, {unrecoverable_error, <<"authorization failure">>}},
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 reply_callback(ReplyFunAndArgs, {ok, Code, _, Body}) when ?IS_HTTP_ERROR(Code) ->
-    ?tp(influxdb_connector_do_query_failure, #{error => Body}),
-    Result = {error, {unrecoverable_error, Body}},
+    Error = #{code => Code, body => Body},
+    ?tp(influxdb_connector_do_query_failure, #{error => Error}),
+    Result = {error, {unrecoverable_error, Error}},
+    emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
+reply_callback(ReplyFunAndArgs, {ok, Code, _}) when ?IS_HTTP_ERROR(Code) ->
+    Error = #{code => Code, body => <<"">>},
+    ?tp(influxdb_connector_do_query_failure, #{error => Error}),
+    Result = {error, {unrecoverable_error, Error}},
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result);
 reply_callback(ReplyFunAndArgs, Result) ->
     ?tp(influxdb_connector_do_query_ok, #{result => Result}),

@@ -1128,7 +1128,7 @@ t_authentication_error(Config0) ->
         end,
         fun(Trace) ->
             ?assertMatch(
-                [#{error := auth_error} | _],
+                [#{reason := auth_error} | _],
                 ?of_kind(influxdb_connector_start_failed, Trace)
             ),
             ok
