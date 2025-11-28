@@ -27,6 +27,8 @@
 
 %% RPC targets (`emqx_proto_v{1..2}`).
 -export([all/0]).
+%% RPC targets (`emqx_proto_v3`).
+-export([all_v3/1]).
 
 -export([
     all_global/0,
@@ -180,6 +182,10 @@ all(Namespace) ->
         error:badarg ->
             []
     end.
+
+%% RPC target (`emqx_proto_v3`).
+all_v3(Namespace) ->
+    all(Namespace).
 
 -spec all_ns() -> #{maybe_namespace() => [{metric_name(), non_neg_integer()}]}.
 all_ns() ->
