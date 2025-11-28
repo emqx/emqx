@@ -76,29 +76,29 @@ on_message_publish_sdisp(Message) ->
 
 on_message_publish_stream(#message{topic = Topic} = Message) ->
     ?tp_debug(streams_on_message_publish_stream, #{topic => Topic}),
-    StreamHandles = emqx_streams_registry:match(Topic),
+    Streams = emqx_streams_registry:match(Topic),
     ok = lists:foreach(
-        fun(StreamHandle) ->
-            {Time, Result} = timer:tc(fun() -> publish_to_stream(StreamHandle, Message) end),
+        fun(Stream) ->
+            {Time, Result} = timer:tc(fun() -> publish_to_stream(Stream, Message) end),
             case Result of
                 ok ->
                     emqx_streams_metrics:inc(ds, inserted_messages),
                     ?tp_debug(streams_on_message_publish_to_queue, #{
-                        topic_filter => emqx_streams_prop:topic_filter(StreamHandle),
+                        topic_filter => emqx_streams_prop:topic_filter(Stream),
                         message_topic => emqx_message:topic(Message),
                         time_us => Time,
                         result => ok
                     });
                 {error, Reason} ->
                     ?tp(error, streams_on_message_publish_queue_error, #{
-                        topic_filter => emqx_streams_prop:topic_filter(StreamHandle),
+                        topic_filter => emqx_streams_prop:topic_filter(Stream),
                         message_topic => emqx_message:topic(Message),
                         time_us => Time,
                         reason => Reason
                     })
             end
         end,
-        StreamHandles
+        Streams
     ),
     {ok, Message}.
 
@@ -244,5 +244,5 @@ shard_dispatch_state() ->
 shard_dispatch_update_state(St) ->
     erlang:put(?pd_sdisp_state, St).
 
-publish_to_stream(StreamHandle, #message{} = Message) ->
-    emqx_streams_message_db:insert(StreamHandle, Message).
+publish_to_stream(Stream, #message{} = Message) ->
+    emqx_streams_message_db:insert(Stream, Message).

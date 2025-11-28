@@ -23,7 +23,7 @@ The module contains accessor functions for the Streams/Stream handles.
 %% API
 %%--------------------------------------------------------------------
 
--spec is_limited(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) -> boolean().
+-spec is_limited(emqx_streams_types:stream()) -> boolean().
 is_limited(
     #{limits := #{max_shard_message_count := infinity, max_shard_message_bytes := infinity}} =
         _Stream
@@ -32,25 +32,25 @@ is_limited(
 is_limited(_Stream) ->
     true.
 
--spec is_lastvalue(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) -> boolean().
+-spec is_lastvalue(emqx_streams_types:stream()) -> boolean().
 is_lastvalue(#{is_lastvalue := IsLastvalue} = _Stream) ->
     IsLastvalue.
 
--spec topic_filter(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
+-spec topic_filter(emqx_streams_types:stream()) ->
     emqx_types:topic().
 topic_filter(#{topic_filter := TopicFilter} = _Stream) ->
     TopicFilter.
 
--spec id(emqx_streams_types:stream_handle() | emqx_streams_types:stream()) ->
+-spec id(emqx_streams_types:stream()) ->
     emqx_streams_types:stream_id().
 id(#{id := ID} = _Stream) ->
     ID.
 
--spec is_append_only(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) -> boolean().
+-spec is_append_only(emqx_streams_types:stream()) -> boolean().
 is_append_only(Stream) ->
     (not is_limited(Stream)) andalso (not is_lastvalue(Stream)).
 
--spec quota_index_opts(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
+-spec quota_index_opts(emqx_streams_types:stream()) ->
     emqx_mq_quota_index:opts().
 quota_index_opts(#{
     limits := #{

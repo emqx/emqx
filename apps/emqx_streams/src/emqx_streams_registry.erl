@@ -36,8 +36,15 @@ NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid c
 
 -record(?STREAMS_REGISTRY_INDEX_TAB, {
     key :: emqx_topic_index:key(nil()) | '_',
-    %% emqx_streams_types:stream() without topic_filter
-    stream :: map() | '_'
+    id :: emqx_streams_types:stream_id() | '_',
+    is_lastvalue :: boolean() | '_',
+    key_expression :: emqx_variform:compiled() | undefined | '_',
+    data_retention_period :: emqx_streams_types:interval_ms() | '_',
+    read_max_unacked :: non_neg_integer() | '_',
+    %% Stream limits
+    max_shard_message_count :: infinity | pos_integer() | '_',
+    max_shard_message_bytes :: infinity | pos_integer() | '_',
+    extra = #{} :: map() | '_'
 }).
 
 -type cursor() :: binary() | undefined.
@@ -103,7 +110,7 @@ create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = Stream0) wh
 -doc """
 Find all Streams matching the given concrete topic.
 """.
--spec match(emqx_types:topic()) -> [emqx_streams_types:stream_handle()].
+-spec match(emqx_types:topic()) -> [emqx_streams_types:stream()].
 match(Topic) ->
     Keys = emqx_topic_index:matches(Topic, ?STREAMS_REGISTRY_INDEX_TAB, []),
     lists:flatmap(
@@ -112,7 +119,7 @@ match(Topic) ->
                 [] ->
                     [];
                 [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
-                    [record_to_stream_handle(Rec)]
+                    [record_to_stream(Rec)]
             end
         end,
         Keys
@@ -281,9 +288,10 @@ make_key(TopicFilter) ->
 update_index(Key, Id, UpdateFields) ->
     {atomic, Result} = mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
         case mnesia:read(?STREAMS_REGISTRY_INDEX_TAB, Key, write) of
-            [#?STREAMS_REGISTRY_INDEX_TAB{stream = #{id := Id} = Stream0} = Rec] ->
-                Stream = maps:merge(Stream0, UpdateFields),
-                mnesia:write(Rec#?STREAMS_REGISTRY_INDEX_TAB{stream = Stream}),
+            [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
+                Stream0 = record_to_stream(Rec),
+                Stream = emqx_utils_maps:deep_merge(Stream0, UpdateFields),
+                mnesia:write(record_to_stream(Stream)),
                 {ok, Stream#{topic_filter => emqx_topic_index:get_topic(Key)}};
             _ ->
                 not_found
@@ -291,16 +299,60 @@ update_index(Key, Id, UpdateFields) ->
     end),
     Result.
 
-record_to_stream_handle(#?STREAMS_REGISTRY_INDEX_TAB{key = Key, stream = Stream0}) ->
-    StreamHandle = maps:with([id, is_lastvalue, key_expression, limits], Stream0),
-    StreamHandle#{topic_filter => emqx_topic_index:get_topic(Key)}.
+record_to_stream(
+    #?STREAMS_REGISTRY_INDEX_TAB{
+        key = Key,
+        id = Id,
+        is_lastvalue = IsLastValue,
+        key_expression = KeyExpression,
+        data_retention_period = DataRetentionPeriod,
+        read_max_unacked = ReadMaxUnacked,
+        max_shard_message_count = MaxShardMessageCount,
+        max_shard_message_bytes = MaxShardMessageBytes,
+        extra = _Extra
+    } = _Rec
+) ->
+    Stream = #{
+        id => Id,
+        topic_filter => emqx_topic_index:get_topic(Key),
+        is_lastvalue => IsLastValue,
+        data_retention_period => DataRetentionPeriod,
+        read_max_unacked => ReadMaxUnacked,
+        limits => #{
+            max_shard_message_count => MaxShardMessageCount,
+            max_shard_message_bytes => MaxShardMessageBytes
+        }
+    },
+    case KeyExpression of
+        undefined ->
+            Stream;
+        _ ->
+            Stream#{key_expression => KeyExpression}
+    end.
 
-record_to_stream(#?STREAMS_REGISTRY_INDEX_TAB{key = Key, stream = Stream}) ->
-    Stream#{topic_filter => emqx_topic_index:get_topic(Key)}.
-
-stream_to_record(#{topic_filter := TopicFilter} = Stream) ->
-    StreamStore = maps:without([topic_filter], Stream),
-    #?STREAMS_REGISTRY_INDEX_TAB{key = make_key(TopicFilter), stream = StreamStore}.
+stream_to_record(
+    #{
+        topic_filter := TopicFilter,
+        id := Id,
+        is_lastvalue := IsLastValue,
+        data_retention_period := DataRetentionPeriod,
+        read_max_unacked := ReadMaxUnacked,
+        limits := #{
+            max_shard_message_count := MaxShardMessageCount,
+            max_shard_message_bytes := MaxShardMessageBytes
+        }
+    } = Stream
+) ->
+    #?STREAMS_REGISTRY_INDEX_TAB{
+        key = make_key(TopicFilter),
+        id = Id,
+        is_lastvalue = IsLastValue,
+        key_expression = maps:get(key_expression, Stream, undefined),
+        data_retention_period = DataRetentionPeriod,
+        read_max_unacked = ReadMaxUnacked,
+        max_shard_message_count = MaxShardMessageCount,
+        max_shard_message_bytes = MaxShardMessageBytes
+    }.
 
 stream_count() ->
     mnesia:table_info(?STREAMS_REGISTRY_INDEX_TAB, size).

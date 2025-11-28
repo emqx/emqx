@@ -21,10 +21,8 @@ The module contains basic types for the Streams application.
 
 -type partition() :: emqx_ds:shard().
 -type offset() :: {emqx_ds:generation(), emqx_ds:time()} | earliest | latest.
--type stream() :: stream_handle().
 
-%% Minimal data necessary to write data into the MQ.
--type stream_handle() :: #{
+-type stream() :: #{
     id := stream_id(),
     topic_filter := stream_topic(),
     is_lastvalue := boolean(),
@@ -37,9 +35,9 @@ The module contains basic types for the Streams application.
 -export_type([
     stream_topic/0,
     stream_id/0,
-    stream_handle/0,
     stream/0,
     limits/0,
     partition/0,
-    offset/0
+    offset/0,
+    interval_ms/0
 ]).
