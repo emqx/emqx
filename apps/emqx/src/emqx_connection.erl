@@ -93,8 +93,8 @@
     socket :: esockd:socket() | emqx_quic_stream:socket(),
     %% Sock State
     sockstate :: emqx_types:sockstate(),
-    %% Packet parser / serializer
-    parser :: parser(),
+    %% Packet parser / serializer (undefined before initialization)
+    parser :: undefined | parser(),
     serialize :: emqx_frame:serialize_opts(),
     %% Channel State
     channel :: emqx_channel:channel(),
@@ -1281,14 +1281,30 @@ init_zone_specific_state(Zone, Opts, #state{} = State0) ->
         transport = Transport,
         socket = Socket
     } = State0,
-    FrameOpts = #{
+    FrameOpts0 = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
         %% zone will **not** take effect after the override.
         max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
     },
-    Parser = init_parser(Transport, Socket, FrameOpts),
-    Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
+    {Parser, Serialize} =
+        case State0#state.parser of
+            undefined ->
+                Parser0 = init_parser(Transport, Socket, FrameOpts0),
+                Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
+                {Parser0, Serialize0};
+            Parser1 ->
+                case emqx_frame:describe_state(Parser1) of
+                    #{state := Clean, proto_ver := ProtoVer} when Clean == frame; Clean == clean ->
+                        FrameOpts = FrameOpts0#{version => ProtoVer},
+                        Parser0 = init_parser(Transport, Socket, FrameOpts),
+                        Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts),
+                        {Parser0, Serialize0};
+                    _ ->
+                        %% Keep state
+                        {State0#state.parser, State0#state.serialize}
+                end
+        end,
     GcState =
         case emqx_config:get_zone_conf(Zone, [force_gc]) of
             #{enable := false} -> undefined;
