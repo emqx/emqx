@@ -1027,7 +1027,7 @@ used to override the listener's zone.
 t_zone_override() ->
     [{matrix, true}].
 t_zone_override(matrix) ->
-    [[tcp], [socket], [ws]];
+    [[tcp], [socket], [ws], [quic]];
 t_zone_override(TCConfig) when is_list(TCConfig) ->
     GroupPath = emqx_common_test_helpers:group_path(TCConfig, [tcp]),
     maybe
@@ -1053,6 +1053,33 @@ t_zone_override(TCConfig) when is_list(TCConfig) ->
                         ws_transport_options => [
                             {protocols, [http]},
                             {transport, tcp}
+                        ]
+                    }
+                };
+            [quic] ->
+                CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+                QuicLConfig = #{
+                    <<"bind">> => <<"127.0.0.1:14567">>,
+                    <<"ssl_options">> => #{
+                        <<"keyfile">> => filename:join([CertsPath, "key.pem"]),
+                        <<"certfile">> => filename:join([CertsPath, "cert.pem"]),
+                        <<"cacertfile">> => filename:join([CertsPath, "cert.pem"])
+                    }
+                },
+                {ok, _} = emqx:update_config(
+                    [listeners, quic, default], {create, QuicLConfig}
+                ),
+                on_exit(fun() -> emqx:remove_config([listeners, quic, default]) end),
+                #{
+                    conn_fn => fun emqtt:quic_connect/1,
+                    client_opts => #{
+                        proto_ver => v5,
+                        hosts => [{"127.0.0.1", 14567}],
+                        ssl => true,
+                        ssl_opts => [
+                            {keyfile, filename:join([CertsPath, "key.pem"])},
+                            {certfile, filename:join([CertsPath, "cert.pem"])},
+                            {cacertfile, filename:join([CertsPath, "cacert.pem"])}
                         ]
                     }
                 };
