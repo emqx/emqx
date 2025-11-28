@@ -103,7 +103,7 @@
     %% Resume
     resuming :: false | _ReplayContext,
     %% Pending delivers when takeovering
-    pendings :: list()
+    pendings :: [emqx_types:deliver()]
 }).
 
 -opaque channel() :: #channel{}.
