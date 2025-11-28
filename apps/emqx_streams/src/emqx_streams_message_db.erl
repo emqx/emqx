@@ -106,7 +106,7 @@ wait_readiness(Timeout) ->
         ok ?= emqx_ds:wait_db(?STREAMS_MESSAGE_REGULAR_DB, all, Timeout)
     end.
 
--spec insert(emqx_streams_types:stream_handle(), emqx_types:message()) ->
+-spec insert(emqx_streams_types:stream(), emqx_types:message()) ->
     ok | {error, term()}.
 insert(StreamHandle, Message) ->
     insert(StreamHandle, emqx_streams_prop:is_limited(StreamHandle), Message).
@@ -248,7 +248,7 @@ insert(#{is_lastvalue := false} = StreamHandle, false = _IsLimited, Message) ->
             end
     end.
 
--spec drop(emqx_streams_types:stream_handle()) -> ok | {error, term()}.
+-spec drop(emqx_streams_types:stream()) -> ok | {error, term()}.
 drop(StreamHandle) ->
     DB = db(StreamHandle),
     delete(DB, delete_topics(DB, StreamHandle)).
@@ -422,7 +422,7 @@ tx_stream_delete_expired_data(Stream, Index) ->
 regular_db_slab_info() ->
     emqx_ds:list_slabs(?STREAMS_MESSAGE_REGULAR_DB).
 
--spec initial_generations(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
+-spec initial_generations(emqx_streams_types:stream()) ->
     #{emqx_ds:slab() => emqx_ds:generation()}.
 initial_generations(Stream) ->
     SlabInfo = emqx_ds:list_slabs(db(Stream)),
@@ -432,12 +432,12 @@ initial_generations(Stream) ->
 drop_regular_db_slab(Slab) ->
     ok = emqx_ds:drop_slab(?STREAMS_MESSAGE_REGULAR_DB, Slab).
 
--spec dirty_read_all(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
+-spec dirty_read_all(emqx_streams_types:stream()) ->
     [emqx_ds:ttv()].
 dirty_read_all(Stream) ->
     emqx_ds:dirty_read(db(Stream), stream_message_topic(Stream, '#')).
 
--spec partitions(emqx_streams_types:stream() | emqx_streams_types:stream_handle()) ->
+-spec partitions(emqx_streams_types:stream()) ->
     [emqx_streams_types:partition()].
 partitions(Stream) ->
     emqx_ds:list_shards(db(Stream)).
@@ -497,7 +497,7 @@ quota_buffer_flush_tx_write(_TxKey, IndexTopic = _Key, Index) ->
 %%--------------------------------------------------------------------
 
 -spec dirty_index(
-    emqx_streams_types:stream() | emqx_streams_types:stream_handle(), emqx_ds:shard()
+    emqx_streams_types:stream(), emqx_ds:shard()
 ) ->
     emqx_mq_quota_index:t() | undefined.
 dirty_index(Stream, Shard) ->

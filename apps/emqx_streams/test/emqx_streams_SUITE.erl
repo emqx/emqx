@@ -82,7 +82,12 @@ init_per_testcase(_CaseName, Config) ->
     ok = emqx_streams_test_utils:cleanup_streams(),
     ok = snabbkaffe:start_trace(),
     ExtSubMaxUnacked = emqx_extsub:max_unacked(),
-    [{ext_sub_max_unacked, ExtSubMaxUnacked} | Config].
+    LimitOpts =
+        case ?config(limits, Config) of
+            undefined -> #{};
+            Limits -> #{limits => Limits}
+        end,
+    [{ext_sub_max_unacked, ExtSubMaxUnacked}, {limits, LimitOpts} | Config].
 
 end_per_testcase(_CaseName, Config) ->
     ok = snabbkaffe:stop(),
@@ -183,8 +188,9 @@ t_read_offset(Config) ->
 %% Consume some history messages from a non-lastvalue(regular) queue
 t_publish_and_consume_regular_many_generations(Config) ->
     %% Create a non-lastvalue Stream
-    _ = emqx_streams_test_utils:create_stream(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false, limits => ?config(limits, Config)
+    LimitOpts = ?config(limits, Config),
+    _ = emqx_streams_test_utils:create_stream(LimitOpts#{
+        topic_filter => <<"t/#">>, is_lastvalue => false
     }),
 
     %% Publish 100 messages to the stream
@@ -227,8 +233,9 @@ t_publish_and_consume_regular_many_generations(Config) ->
 %% Consume some history messages from a lastvalue queue
 t_publish_and_consume_lastvalue(Config) ->
     %% Create a lastvalue Stream
-    _ = emqx_streams_test_utils:create_stream(#{
-        topic_filter => <<"t/#">>, is_lastvalue => true, limits => ?config(limits, Config)
+    LimitOpts = ?config(limits, Config),
+    _ = emqx_streams_test_utils:create_stream(LimitOpts#{
+        topic_filter => <<"t/#">>, is_lastvalue => true
     }),
 
     %% Publish 100 messages to the stream
