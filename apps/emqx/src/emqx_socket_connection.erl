@@ -82,9 +82,9 @@
     socket :: socket:socket(),
     %% Sock State
     sockstate :: idle | closed | congested(),
-    %% Packet parser / serializer
-    parser :: parser(),
-    serialize :: emqx_frame:serialize_opts(),
+    %% Packet parser / serializer (undefined before initialization)
+    parser :: undefined | parser(),
+    serialize :: undefined | emqx_frame:serialize_opts(),
     %% Channel State
     channel :: emqx_channel:channel(),
     %% GC State
@@ -96,8 +96,8 @@
     stats_timer :: disabled | option(reference()) | {idle, reference()},
     %% ActiveN + GC tracker
     gc_tracker :: gc_tracker(),
-    %% Hibernate connection process if inactive for
-    hibernate_after :: integer() | infinity,
+    %% Hibernate connection process if inactive for (undefined only before initialization)
+    hibernate_after :: undefined | integer() | infinity,
     %% Zone name
     zone :: atom(),
     %% Listener Type and Name
@@ -191,6 +191,8 @@ info(sockstate, #state{sockstate = SockSt}) ->
     SockSt;
 info(stats_timer, #state{stats_timer = StatsTimer}) ->
     StatsTimer;
+info(zone, #state{zone = Zone}) ->
+    Zone;
 info({channel, Info}, #state{channel = Channel}) ->
     emqx_channel:info(Info, Channel).
 
@@ -311,33 +313,20 @@ init_state(
     },
 
     ActiveN = get_active_n(Type, Listener),
-    FrameOpts = #{
-        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
-        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
-    },
-    Parser = init_parser(FrameOpts),
-    Serialize = emqx_frame:initial_serialize_opts(FrameOpts),
     %% Init Channel
     Channel = emqx_channel:init(ConnInfo, Opts),
-    GcState =
-        case emqx_config:get_zone_conf(Zone, [force_gc]) of
-            #{enable := false} -> undefined;
-            GcPolicy -> emqx_gc:init(GcPolicy)
-        end,
 
-    #state{
+    State0 = #state{
         socket = Socket,
         sockstate = idle,
-        parser = Parser,
-        serialize = Serialize,
         channel = Channel,
-        gc_state = GcState,
         gc_tracker = init_gc_tracker(ActiveN),
-        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         zone = Zone,
         listener = {Type, Listener},
+        namespace = ?global_ns,
         extra = []
-    }.
+    },
+    init_zone_specific_state(Zone, Opts, State0).
 
 ensure_ok_or_exit(Result, Sock) ->
     case Result of
@@ -601,7 +590,9 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),
     {ok, State};
-%% TODO: handle `{event, {zone_changed, NewZone}}`
+handle_msg({event, {zone_changed, NewZone}}, State0 = #state{}) ->
+    State = init_zone_specific_state(NewZone, _Opts = #{}, State0),
+    {ok, State};
 handle_msg({event, {set_namespace, Namespace}}, State0 = #state{}) ->
     State = State0#state{namespace = Namespace},
     {ok, State};
@@ -1294,6 +1285,45 @@ graceful_shutdown_transport(_Reason, S = #state{socket = Socket}) ->
 
 start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
+
+init_zone_specific_state(Zone, Opts, #state{} = State0) ->
+    FrameOpts0 = #{
+        strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
+        %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
+        %% zone will **not** take effect after the override.
+        max_size => emqx_config:get_zone_conf(Zone, [mqtt, max_packet_size])
+    },
+    {Parser, Serialize} =
+        case State0#state.parser of
+            undefined ->
+                init_parser_and_serializer(FrameOpts0);
+            Parser1 ->
+                case emqx_frame:describe_state(Parser1) of
+                    #{state := Clean, proto_ver := ProtoVer} when Clean == frame; Clean == clean ->
+                        FrameOpts = FrameOpts0#{version => ProtoVer},
+                        init_parser_and_serializer(FrameOpts);
+                    _ ->
+                        %% Keep state
+                        {State0#state.parser, State0#state.serialize}
+                end
+        end,
+    GcState =
+        case emqx_config:get_zone_conf(Zone, [force_gc]) of
+            #{enable := false} -> undefined;
+            GcPolicy -> emqx_gc:init(GcPolicy)
+        end,
+    State0#state{
+        parser = Parser,
+        serialize = Serialize,
+        gc_state = GcState,
+        hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
+        zone = Zone
+    }.
+
+init_parser_and_serializer(FrameOpts0) ->
+    Parser0 = init_parser(FrameOpts0),
+    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
+    {Parser0, Serialize0}.
 
 %%--------------------------------------------------------------------
 %% For CT tests

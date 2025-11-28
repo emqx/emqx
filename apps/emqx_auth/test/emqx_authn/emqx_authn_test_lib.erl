@@ -132,12 +132,11 @@ t_zone_override(TCConfig, Opts) when is_list(TCConfig) ->
     ),
     PostConfigFn(),
     {ok, C} = emqtt:start_link(ClientOpts),
-    {ok, _} = emqtt:connect(C),
+    ConnFn = maps:get(conn_fn, Opts, fun emqtt:connect/1),
+    {ok, _} = ConnFn(C),
     %% We use the zone override internally.
-    [ChanPid] = emqx_cm:all_channels(),
-    ConnState = sys:get_state(ChanPid),
-    ?assertEqual(OverriddenZone, emqx_connection:info({channel, zone}, ConnState)),
-    ?assertEqual(OverriddenZone, emqx_connection:info(zone, ConnState)),
+    ?assertEqual(OverriddenZone, emqx_cth_broker:connection_info({channel, zone}, C)),
+    ?assertEqual(OverriddenZone, emqx_cth_broker:connection_info(zone, C)),
     %% Smoke test: subscribe and publish simple payload
     SubQoS = maps:get(sub_qos, Opts, 0),
     ?assertMatch({ok, _, [RC]} when RC =< 16#02, emqtt:subscribe(C, <<"t">>, SubQoS)),
