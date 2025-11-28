@@ -654,10 +654,14 @@ t_parquet_bad_reference_health_check(TCConfig0) ->
     ?retry(
         200,
         10,
-        ?assertMatch(
-            {200, #{<<"status">> := <<"disconnected">>}},
-            get_action_api(TCConfig)
-        )
+        begin
+            {200, Res} = get_action_api(TCConfig),
+            ?assertMatch(#{<<"status">> := <<"disconnected">>}, Res),
+            #{<<"status_reason">> := Msg} = Res,
+            ?assertMatch(match, re:run(Msg, <<"parquet_schema_not_found">>, [{capture, none}])),
+            ?assertMatch(match, re:run(Msg, SerdeName, [{capture, none}])),
+            ok
+        end
     ),
     ok.
 
