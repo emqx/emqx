@@ -1277,10 +1277,6 @@ start_timer(Time, Msg) ->
     emqx_utils:start_timer(Time, Msg).
 
 init_zone_specific_state(Zone, Opts, #state{} = State0) ->
-    #state{
-        transport = Transport,
-        socket = Socket
-    } = State0,
     FrameOpts0 = #{
         strict_mode => emqx_config:get_zone_conf(Zone, [mqtt, strict_mode]),
         %% N.B.: when the listener's `parse_unit = frame`, `max_packet_size` from the new
@@ -1290,16 +1286,12 @@ init_zone_specific_state(Zone, Opts, #state{} = State0) ->
     {Parser, Serialize} =
         case State0#state.parser of
             undefined ->
-                Parser0 = init_parser(Transport, Socket, FrameOpts0),
-                Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
-                {Parser0, Serialize0};
+                init_parser_and_serializer(FrameOpts0, State0);
             Parser1 ->
                 case emqx_frame:describe_state(Parser1) of
                     #{state := Clean, proto_ver := ProtoVer} when Clean == frame; Clean == clean ->
                         FrameOpts = FrameOpts0#{version => ProtoVer},
-                        Parser0 = init_parser(Transport, Socket, FrameOpts),
-                        Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts),
-                        {Parser0, Serialize0};
+                        init_parser_and_serializer(FrameOpts, State0);
                     _ ->
                         %% Keep state
                         {State0#state.parser, State0#state.serialize}
@@ -1317,6 +1309,15 @@ init_zone_specific_state(Zone, Opts, #state{} = State0) ->
         hibernate_after = maps:get(hibernate_after, Opts, get_zone_idle_timeout(Zone)),
         zone = Zone
     }.
+
+init_parser_and_serializer(FrameOpts0, State0) ->
+    #state{
+        transport = Transport,
+        socket = Socket
+    } = State0,
+    Parser0 = init_parser(Transport, Socket, FrameOpts0),
+    Serialize0 = emqx_frame:initial_serialize_opts(FrameOpts0),
+    {Parser0, Serialize0}.
 
 %%--------------------------------------------------------------------
 %% For CT tests
