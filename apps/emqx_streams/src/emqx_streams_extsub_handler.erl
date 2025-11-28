@@ -722,7 +722,7 @@ decode_message(Shard, Time, Payload) ->
     Message = emqx_streams_message_db:decode_message(Payload),
     add_properties(Message, [
         {<<"part">>, Shard},
-        {<<"offset">>, integer_to_binary(Time)}
+        {<<"ts">>, integer_to_binary(Time)}
     ]).
 
 add_properties(Message, UserProperties) when length(UserProperties) > 0 ->

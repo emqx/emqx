@@ -401,10 +401,10 @@ validate_headers(Msgs) when is_list(Msgs) ->
 
 validate_msg_headers(Msg) ->
     case user_properties(Msg) of
-        #{<<"part">> := _Part, <<"offset">> := _Offset} ->
+        #{<<"part">> := _Part, <<"ts">> := _Ts} ->
             ok;
         _ ->
-            ct:fail("Message does not have required user properties (part and offset): ~p", [Msg])
+            ct:fail("Message does not have required user properties (part and ts): ~p", [Msg])
     end.
 
 user_properties(_Msg = #{properties := #{'User-Property' := UserProperties}}) ->
