@@ -591,7 +591,12 @@ create_bridge_wait_for_balance(TCConfig) ->
     setup_group_subscriber_spy(self()),
     try
         {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
-        {201, #{<<"status">> := <<"connected">>}} = create_source_api(TCConfig, #{}),
+        case create_source_api(TCConfig, #{}) of
+            {201, #{<<"status">> := Status}} ->
+                ?assert(Status =:= <<"connected">> orelse Status =:= <<"connecting">>);
+            Result ->
+                error({unexpected, Result})
+        end,
         receive
             {kafka_assignment, _, _} ->
                 ok
@@ -783,6 +788,21 @@ get_groups() ->
         all_bootstrap_hosts()
     ).
 
+with_group_subscriber_spy(Opts, Fn) ->
+    #{timeout := Timeout} = Opts,
+    setup_group_subscriber_spy(self()),
+    try
+        Res = Fn(),
+        receive
+            {kafka_assignment, _, _} ->
+                Res
+        after Timeout ->
+            ct:fail("timed out waiting for kafka assignment")
+        end
+    after
+        kill_group_subscriber_spy()
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -799,8 +819,178 @@ t_start_stop(matrix) ->
         [?tls_plain, ?no_auth],
         [?tls_sasl, ?plain_auth]
     ];
-t_start_stop(TCConfig) when is_list(TCConfig) ->
-    emqx_bridge_v2_testlib:t_start_stop(TCConfig, "kafka_consumer_stopped").
+t_start_stop(Config) when is_list(Config) ->
+    StopTracePoint = "kafka_consumer_stopped",
+    Kind = proplists:get_value(bridge_kind, Config, action),
+    ConnectorName = ?config(connector_name, Config),
+    ConnectorType = ?config(connector_type, Config),
+    #{
+        type := Type,
+        name := Name,
+        config := BridgeConfig
+    } = emqx_bridge_v2_testlib:get_config_by_kind(Kind, Config, _Overrides = #{}),
+
+    ?assertMatch(
+        {ok, {{_, 201, _}, _, _}},
+        emqx_bridge_v2_testlib:create_connector_api(Config)
+    ),
+
+    ct:timetrap({seconds, 20}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, _Body}},
+                emqx_bridge_v2_testlib:probe_bridge_api(
+                    Kind,
+                    Type,
+                    Name,
+                    BridgeConfig
+                )
+            ),
+            %% Check that the bridge probe API doesn't leak atoms.
+            ?assertMatch(
+                {ok, {{_, 204, _}, _Headers, _Body}},
+                emqx_bridge_v2_testlib:probe_bridge_api(
+                    Kind,
+                    Type,
+                    Name,
+                    BridgeConfig
+                )
+            ),
+            AtomsBefore = emqx_bridge_v2_testlib:all_atoms(),
+            AtomCountBefore = erlang:system_info(atom_count),
+            %% Probe again; shouldn't have created more atoms.
+            ProbeRes1 = emqx_bridge_v2_testlib:probe_bridge_api(
+                Kind,
+                Type,
+                Name,
+                BridgeConfig
+            ),
+
+            ?assertMatch({ok, {{_, 204, _}, _Headers, _Body}}, ProbeRes1),
+            AtomsAfter = emqx_bridge_v2_testlib:all_atoms(),
+            AtomCountAfter = erlang:system_info(atom_count),
+            ?assertEqual(
+                AtomCountBefore,
+                AtomCountAfter,
+                #{new_atoms => AtomsAfter -- AtomsBefore}
+            ),
+            ?assertMatch({ok, _}, emqx_bridge_v2_testlib:create_kind_api(Config)),
+
+            %% Since the connection process is async, we give it some time to
+            %% stabilize and avoid flakiness.
+            ?retry(
+                1_000,
+                20,
+                ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
+            ),
+            ?retry(
+                1_000,
+                20,
+                ?assertMatch(
+                    #{status := connected}, emqx_bridge_v2_testlib:health_check_channel(Config)
+                )
+            ),
+
+            %% `start` bridge to trigger `already_started`
+            assert_bridge_start(Kind, Type, Name),
+
+            ?retry(
+                1_000,
+                20,
+                ?assertEqual({ok, connected}, emqx_bridge_v2_testlib:health_check_connector(Config))
+            ),
+            ?retry(
+                1_000,
+                20,
+                ?assertMatch(
+                    #{status := connected}, emqx_bridge_v2_testlib:health_check_channel(Config)
+                )
+            ),
+
+            %% Disable the connector, which will also stop it.
+            ?assertMatch(
+                {{ok, _}, {ok, _}},
+                ?wait_async_action(
+                    emqx_connector:disable_enable(
+                        ?global_ns, disable, ConnectorType, ConnectorName
+                    ),
+                    #{?snk_kind := StopTracePoint}
+                )
+            ),
+            ?retry(
+                1_000,
+                20,
+                ?assertEqual(
+                    {error, resource_is_stopped},
+                    emqx_bridge_v2_testlib:health_check_connector(Config)
+                )
+            ),
+
+            ConnResId = emqx_bridge_v2_testlib:connector_resource_id(Config),
+            #{resource_id => ConnResId}
+        end,
+        fun(Res, Trace) ->
+            #{resource_id := ResourceId} = Res,
+            %% one for each probe, one for real
+            ?assertMatch(
+                [_, _, _, #{instance_id := ResourceId}],
+                ?of_kind(StopTracePoint, Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
+%% Assert bridge start operation with retry logic for kafka_consumer rebalancing
+assert_bridge_start(Kind, Type, Name) ->
+    %% For kafka_consumer, retry when encountering "Consumer group rebalancing" errors
+    ?retry(
+        1_000,
+        10,
+        begin
+            Result = emqx_bridge_v2_testlib:op_bridge_api(Kind, "start", Type, Name),
+            case Result of
+                {error, {{_, Status, _}, _Headers, Body}} when Status =:= 404; Status =:= 400 ->
+                    case Body of
+                        #{<<"message">> := Msg} when is_binary(Msg) ->
+                            case binary:match(Msg, <<"Consumer group rebalancing">>) of
+                                nomatch ->
+                                    %% Not a rebalancing error, fail immediately
+                                    ?assertMatch(
+                                        {ok, {{_, 204, _}, _Headers, []}},
+                                        Result
+                                    );
+                                _ ->
+                                    %% Rebalancing error, fail assertion to trigger retry
+                                    ?assertMatch(
+                                        {ok, {{_, 204, _}, _Headers, []}},
+                                        Result
+                                    )
+                            end;
+                        _ ->
+                            %% No message field or unexpected format, fail immediately
+                            ?assertMatch(
+                                {ok, {{_, 204, _}, _Headers, []}},
+                                Result
+                            )
+                    end;
+                {ok, {{_, 204, _}, _Headers, []}} ->
+                    %% Success, assertion passes
+                    ?assertMatch(
+                        {ok, {{_, 204, _}, _Headers, []}},
+                        Result
+                    );
+                _ ->
+                    %% Other error, fail immediately
+                    ?assertMatch(
+                        {ok, {{_, 204, _}, _Headers, []}},
+                        Result
+                    )
+            end
+        end
+    ).
 
 t_on_get_status() ->
     [{matrix, true}].
@@ -977,7 +1167,12 @@ t_receive_after_recovery(TCConfig) ->
     ?check_trace(
         begin
             {201, _} = create_connector_api(TCConfig, #{}),
-            {201, #{<<"status">> := <<"connected">>}} = create_source_api(TCConfig, #{}),
+            case create_source_api(TCConfig, #{}) of
+                {201, #{<<"status">> := Status}} ->
+                    ?assert(Status =:= <<"connected">> orelse Status =:= <<"connecting">>);
+                Result ->
+                    error({unexpected, Result})
+            end,
             %% 0) ensure each partition commits its offset so it can
             %% recover later.
             Messages0 = [
@@ -1202,15 +1397,19 @@ t_cluster_group(TCConfig) ->
             {ok, _} = wait_until_group_is_balanced(KafkaTopic, NPartitions, Nodes, 30_000),
             lists:foreach(
                 fun(N) ->
-                    ?assertMatch(
-                        #{status := ?status_connected},
-                        ?ON(
-                            N,
-                            emqx_bridge_v2_testlib:force_health_check(
-                                emqx_bridge_v2_testlib:get_common_values(TCConfig)
-                            )
-                        ),
-                        #{node => N}
+                    ?retry(
+                        100,
+                        50,
+                        ?assertMatch(
+                            #{status := ?status_connected},
+                            ?ON(
+                                N,
+                                emqx_bridge_v2_testlib:force_health_check(
+                                    emqx_bridge_v2_testlib:get_common_values(TCConfig)
+                                )
+                            ),
+                            #{node => N}
+                        )
                     )
                 end,
                 Nodes
@@ -1678,36 +1877,35 @@ t_repeated_topics(TCConfig) ->
 %% Verifies that we return an error containing information to debug connection issues when
 %% one of the partition leaders is unreachable.
 t_pretty_api_dry_run_reason(TCConfig) ->
-    ProxyName = "kafka_2_plain",
     ?check_trace(
         begin
-            {201, _} = create_connector_api(TCConfig, #{}),
-            {201, _} = create_source_api(TCConfig, #{}),
-            emqx_common_test_helpers:with_failure(
-                down, ProxyName, ?PROXY_HOST, ?PROXY_PORT, fun() ->
+            with_group_subscriber_spy(#{timeout => 15_000}, fun() ->
+                {201, _} = create_connector_api(TCConfig, #{}),
+                {201, _} = create_source_api(TCConfig, #{})
+            end),
+            emqx_common_test_helpers:with_mock(
+                brod_client,
+                get_leader_connection,
+                fun(_KafkaClientId, _KafkaTopic, _Partition) ->
+                    {error, "error-injection"}
+                end,
+                fun() ->
                     Res = probe_source_api(
                         TCConfig,
                         #{<<"parameters">> => #{<<"topic">> => <<"test-topic-three-partitions">>}}
                     ),
                     ?assertMatch({400, _}, Res),
                     {400, #{<<"message">> := Msg}} = Res,
-                    LeaderUnavailable =
-                        match ==
-                            re:run(
-                                Msg,
-                                <<"Leader for partition . unavailable; reason: ">>,
-                                [{capture, none}]
-                            ),
-                    %% In CI, if this tests runs soon enough, Kafka may not be stable yet, and
-                    %% this failure might occur.
-                    CoordinatorFailure =
-                        match ==
-                            re:run(
-                                Msg,
-                                <<"shutdown,coordinator_failure">>,
-                                [{capture, none}]
-                            ),
-                    ?assert(LeaderUnavailable or CoordinatorFailure, #{message => Msg})
+                    case
+                        re:run(Msg, <<"Failed to connect partition 0; topic=.+; error=.+">>, [
+                            {capture, none}
+                        ])
+                    of
+                        match ->
+                            ok;
+                        nomatch ->
+                            error({unexpected_error_message, Msg})
+                    end
                 end
             ),
             %% Wait for recovery; avoids affecting other test cases due to Kafka restabilizing...

@@ -4,7 +4,7 @@
 
 -module(emqx_bridge_kafka_consumer_sup).
 
--behaviour(supervisor).
+-behaviour(brod_supervisor3).
 
 %% `supervisor' API
 -export([init/1]).
@@ -25,30 +25,31 @@
 %%--------------------------------------------------------------------------------------------
 
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    brod_supervisor3:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec child_spec(child_id(), map()) -> supervisor:child_spec().
+-spec child_spec(child_id(), map()) -> brod_supervisor3:child_spec().
 child_spec(Id, GroupSubscriberConfig) ->
     Mod = brod_group_subscriber_v2,
-    #{
-        id => Id,
-        start => {Mod, start_link, [GroupSubscriberConfig]},
-        restart => permanent,
-        shutdown => 10_000,
-        type => worker,
-        modules => [Mod]
+    DelaySecs = 5,
+    {
+        Id,
+        _Start = {Mod, start_link, [GroupSubscriberConfig]},
+        _Restart = {permanent, DelaySecs},
+        _Shutdown = 10_000,
+        _Type = worker,
+        _Module = [Mod]
     }.
 
 -spec start_child(child_id(), map()) -> {ok, pid()} | {error, term()}.
 start_child(Id, GroupSubscriberConfig) ->
     ChildSpec = child_spec(Id, GroupSubscriberConfig),
-    case supervisor:start_child(?MODULE, ChildSpec) of
+    case brod_supervisor3:start_child(?MODULE, ChildSpec) of
         {ok, Pid} ->
             {ok, Pid};
         {ok, Pid, _Info} ->
             {ok, Pid};
         {error, already_present} ->
-            supervisor:restart_child(?MODULE, Id);
+            brod_supervisor3:restart_child(?MODULE, Id);
         {error, {already_started, Pid}} ->
             {ok, Pid};
         {error, Error} ->
@@ -57,9 +58,9 @@ start_child(Id, GroupSubscriberConfig) ->
 
 -spec ensure_child_deleted(child_id()) -> ok.
 ensure_child_deleted(Id) ->
-    case supervisor:terminate_child(?MODULE, Id) of
+    case brod_supervisor3:terminate_child(?MODULE, Id) of
         ok ->
-            ok = supervisor:delete_child(?MODULE, Id),
+            ok = brod_supervisor3:delete_child(?MODULE, Id),
             ok;
         {error, not_found} ->
             ok
@@ -70,10 +71,6 @@ ensure_child_deleted(Id) ->
 %%--------------------------------------------------------------------------------------------
 
 init([]) ->
-    SupFlags = #{
-        strategy => one_for_one,
-        intensity => 100,
-        period => 10
-    },
+    SupFlags = {one_for_one, 0, 1},
     ChildSpecs = [],
     {ok, {SupFlags, ChildSpecs}}.

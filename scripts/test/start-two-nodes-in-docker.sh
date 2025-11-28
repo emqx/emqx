@@ -18,6 +18,7 @@ NODE2="node2.$NET"
 COOKIE='this-is-a-secret'
 IPV6=0
 DASHBOARD_NODES='both'
+USE_NET=''
 
 cleanup() {
     docker rm -f haproxy >/dev/null 2>&1 || true
@@ -43,9 +44,11 @@ show_help() {
     echo "       both: This is the default value, which means both nodes serve dashboard"
     echo "       This is often needed for tests which want to check one dashboard version"
     echo "       when starting two different versions of EMQX."
+    echo "  -n: <docker_net_name>"
+    echo "      use existing docker network, do not create a network for this test"
 }
 
-while getopts "hc6Pd:" opt
+while getopts "hc6Pd:n:" opt
 do
     case $opt in
         # -P option is treated similarly to docker run -P:
@@ -55,6 +58,7 @@ do
         h) show_help; exit 0;;
         6) IPV6=1;;
         d) DASHBOARD_NODES="$OPTARG";;
+        n) USE_NET="$OPTARG";;
         *) ;;
     esac
 done
@@ -83,12 +87,18 @@ fi
 
 cleanup
 
-if [ ${IPV6} = 1 ]; then
-    docker network create --ipv6 --subnet 2001:0DB8::/112 "$NET"
-    RPC_ADDRESS="::"
-    PROTO_DIST='inet6_tls'
+if [ -z "${USE_NET}" ]; then
+    if [ ${IPV6} = 1 ]; then
+        docker network create --ipv6 --subnet 2001:0DB8::/112 "$NET"
+        RPC_ADDRESS="::"
+        PROTO_DIST='inet6_tls'
+    else
+        docker network create "$NET"
+        RPC_ADDRESS="0.0.0.0"
+        PROTO_DIST='inet_tls'
+    fi
 else
-    docker network create "$NET"
+    NET="${USE_NET}"
     RPC_ADDRESS="0.0.0.0"
     PROTO_DIST='inet_tls'
 fi
