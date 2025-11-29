@@ -1439,7 +1439,10 @@ drain_buffer_of_stream(
     ClientInfo
 ) ->
     SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
-    case srs_active_unblocked(SRS0, S) of
+    case
+        srs_active_unblocked(SRS0, S) andalso
+            emqx_persistent_session_ds_buffer:has_data(StreamKey, Buf)
+    of
         true ->
             {SRS, SubState} = pre_enqueue_new(SRS0, S),
             do_drain_buffer_of_stream(
@@ -1860,7 +1863,12 @@ post_enqueue_new(
 ) -> session().
 post_enqueue(
     StreamKey,
-    #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2, it_end = ItEnd} = SRS,
+    #srs{
+        last_seqno_qos1 = SN1,
+        last_seqno_qos2 = SN2,
+        it_end = ItEnd,
+        batch_size = BatchSize
+    } = SRS,
     Session,
     ClientInfo
 ) ->
@@ -1874,13 +1882,15 @@ post_enqueue(
             ),
             ?tp(warning, post_enqueue_state, #{stream => StreamKey, 1 => SN1, 2 => SN2, s => X}),
             X;
-        _ ->
+        _ when BatchSize > 0 ->
             on_release(
                 SRS,
                 #onrel_unblock{stream = StreamKey},
                 Session,
                 ClientInfo
-            )
+            );
+        _ ->
+            Session
     end.
 
 %% If needed, refresh reference to the subscription state in the SRS

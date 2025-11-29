@@ -11,7 +11,14 @@ together, increasing the efficiency of replay.
 
 %% API:
 -export([
-    new/0, len/2, push_batch/3, pop_batch/2, iterator/1, next/1, clean_by_subid/2, drop_stream/2
+    new/0,
+    has_data/2,
+    push_batch/3,
+    pop_batch/2,
+    iterator/1,
+    next/1,
+    clean_by_subid/2,
+    drop_stream/2
 ]).
 
 -export_type([t/0, item/0]).
@@ -121,14 +128,10 @@ pop_batch(StreamId, Buf = #buffer{messages = MsgQs0}) ->
 -doc """
 Get number of buffered DS replies in a given stream.
 """.
--spec len(emqx_persistent_session_ds:stream_key(), t()) -> non_neg_integer().
-len(StreamId, #buffer{messages = MsgQs}) ->
-    case MsgQs of
-        #{StreamId := Q} ->
-            queue:len(Q);
-        #{} ->
-            0
-    end.
+-spec has_data(emqx_persistent_session_ds:stream_key(), t()) -> boolean().
+has_data(StreamId, #buffer{messages = MsgQs}) ->
+    %% Empty queues are removed by `pop_batch':
+    maps:is_key(StreamId, MsgQs).
 
 %%================================================================================
 %% Tests
