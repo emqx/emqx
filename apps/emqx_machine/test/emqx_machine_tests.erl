@@ -24,7 +24,7 @@ sorted_reboot_apps_test_() ->
 sorted_reboot_apps_cycle_test() ->
     Apps = [{1, [2]}, {2, [1, 3]}],
     ?assertError(
-        {circular_application_dependency, [[1, 2, 1], [2, 1, 2]]},
+        {circular_application_dependency, [[2, 1, 2], [1, 2, 1]]},
         check_order(Apps)
     ).
 
