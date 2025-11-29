@@ -1387,13 +1387,13 @@ t_ds_resubscribe(_Config) ->
                     ok = emqx_ds:close_db(?PERSISTENT_MESSAGE_DB),
                     #{?snk_kind := ?sessds_sub_down}
                 ),
-                #{?snk_kind := emqx_ds_client_subscribe_fail}
+                #{?snk_kind := dscli_subscribe_fail}
             ),
             %% Bring the DB back up and verify that session
             %% successfully resubscribed:
             ?tp(notice, "test: Restarting the DB", #{}),
             {ok, EvtSub} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := emqx_ds_client_subscribe})
+                ?match_event(#{?snk_kind := dscli_subscribe})
             ),
             ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, emqx_persistent_message:get_db_config()),
             ok = emqx_ds:wait_db(?PERSISTENT_MESSAGE_DB, all, infinity),

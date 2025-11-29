@@ -553,6 +553,12 @@ do_dispatch_message(
     case Watches of
         #{Watch := SubId} ->
             #{SubId := Sub} = Subs,
+            ?tp(debug, dscli_new_stream_event, #{
+                watch => Watch,
+                sub_id => SubId,
+                db => Sub#sub.db,
+                topic => Sub#sub.topic
+            }),
             CS = renew_streams_(CS0, SubId, Sub, HS),
             {#cs.plan, CS, HS};
         #{} ->
@@ -602,7 +608,7 @@ handle_ds_sub_recoverable_error_(Reason, CS0, SRef, DSSub, HS0) ->
         stream = Stream,
         slab = Slab = {Shard, _Gen}
     } = DSSub,
-    ?tp(debug, emqx_ds_client_subscription_down, #{
+    ?tp(debug, dscli_subscription_down, #{
         reason => Reason,
         sub_id => SubId,
         stream => Stream
@@ -621,7 +627,7 @@ handle_ds_sub_unrecoverable_error_(Reason, CS0, SRef, DSSub, HS0) ->
     #cs{cbm = CBM} = CS0,
     #ds_sub{id = SubId, db = DB, handle = Handle, stream = Stream, slab = Slab = {Shard, _}} =
         DSSub,
-    ?tp(info, emqx_ds_client_read_failure, #{
+    ?tp(info, dscli_read_failure, #{
         unrecoverable => Reason,
         sub_id => SubId,
         db => DB,
@@ -848,7 +854,7 @@ result_handler(
 ) ->
     case Result of
         {ok, Handle, SubRef} ->
-            ?tp(emqx_ds_client_subscribe_stream, #{
+            ?tp(dscli_subscribe_stream, #{
                 sub_id => SubId,
                 db => DB,
                 it => It,
@@ -859,7 +865,7 @@ result_handler(
                 HostState
             };
         ?err_rec(Err) ->
-            ?tp(debug, emqx_ds_client_subscribe_fail, #{
+            ?tp(debug, dscli_subscribe_fail, #{
                 recoverable => Err,
                 sub_id => SubId,
                 db => DB,
@@ -935,7 +941,7 @@ handle_unrecoverable_stream_error(Eff, CS0 = #cs{cbm = CBM}, HS0, Err) ->
             topic = Topic,
             start_time = StartTime
         } ->
-            ?tp(info, emqx_ds_client_make_iterator_fail, #{
+            ?tp(info, dscli_iterator_fail, #{
                 unrecoverable => Err,
                 sub_id => SubId,
                 db => DB,
@@ -951,7 +957,7 @@ handle_unrecoverable_stream_error(Eff, CS0 = #cs{cbm = CBM}, HS0, Err) ->
             stream = Stream,
             iterator = Iterator
         } ->
-            ?tp(info, emqx_ds_client_subscribe_fail, #{
+            ?tp(info, dscli_subscribe_fail, #{
                 unrecoverable => Err,
                 sub_id => SubId,
                 db => DB,
@@ -1141,7 +1147,7 @@ add_stream_to_cache(
             {CS0, Cache0};
         false ->
             %% This stream is new (for the client)
-            ?tp(debug, emqx_ds_client_new_stream, #{sub => SubId, shard => Shard, stream => Stream}),
+            ?tp(debug, dscli_new_stream, #{sub => SubId, shard => Shard, stream => Stream}),
             %% Does the host already have the iterator?
             case get_iterator(CS0#cs.cbm, SubId, {Shard, Generation}, Stream, HostState) of
                 {Action, end_of_stream} when Action =:= ok; Action =:= subscribe ->
@@ -1204,7 +1210,7 @@ maybe_advance_generation(
             %% Generation is not fully replayed:
             {Cache0, CS0, HostState0};
         {true, NextGen, StreamsOfNextGen, Future} ->
-            ?tp(debug, emqx_ds_client_advance_generation, #{next_gen => NextGen}),
+            ?tp(debug, dscli_advance_generation, #{next_gen => NextGen}),
             %% Advance generation:
             #{SubId := #sub{db = DB, topic = Topic, start_time = StartTime}} = Subs,
             %% Here we don't ask the host if it has the iterator: it
@@ -1289,7 +1295,7 @@ A wrapper of `retry/2` that prints a message before adding effect to the retry q
 """.
 -spec retry(_Reason, effect(), t()) -> t().
 retry(Reason, Effect, CS) ->
-    ?tp(info, emqx_ds_client_retry, #{action => Effect, reason => Reason}),
+    ?tp(info, dscli_retry, #{action => Effect, reason => Reason}),
     retry(Effect, CS).
 
 -spec retry(effect(), t()) -> t().
