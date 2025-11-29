@@ -1435,7 +1435,7 @@ drain_buffer(Session0, ClientInfo, BufferIterator) ->
     session().
 drain_buffer_of_stream(
     StreamKey,
-    Session0 = #{s := S, buffer := Buf, inflight := Inflight},
+    Session = #{s := S, buffer := Buf, inflight := Inflight},
     ClientInfo
 ) ->
     SRS0 = emqx_persistent_session_ds_state:get_stream(StreamKey, S),
@@ -1446,10 +1446,10 @@ drain_buffer_of_stream(
         true ->
             {SRS, SubState} = pre_enqueue_new(SRS0, S),
             do_drain_buffer_of_stream(
-                StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight
+                StreamKey, SRS, SubState, Session, ClientInfo, Buf, Inflight
             );
         false ->
-            Session0
+            Session
     end.
 
 do_drain_buffer_of_stream(
@@ -1883,6 +1883,7 @@ post_enqueue(
             ?tp(warning, post_enqueue_state, #{stream => StreamKey, 1 => SN1, 2 => SN2, s => X}),
             X;
         _ when BatchSize > 0 ->
+            %% TODO: instead of checking batch size, check if locked?
             on_release(
                 SRS,
                 #onrel_unblock{stream = StreamKey},
