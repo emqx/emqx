@@ -292,7 +292,7 @@ t_storage_generations(Config) ->
     TopicFilter = <<"t/+">>,
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => 10_000},
         begin
             %% Start subscriber:
             Sub = start_connect_client(#{port => Port, clientid => ClientId, auto_ack => never}),
@@ -333,6 +333,11 @@ t_storage_generations(Config) ->
             ok = emqtt:puback(Sub, PI2),
             ?tp(notice, "test: PUBACK", #{packet_id => PI3}),
             ok = emqtt:puback(Sub, PI3),
+            %% ?tp(
+            %%     notice,
+            %%     session_state,
+            %%     #{s => ?ON(Node1, emqx_persistent_session_ds:print_session(ClientId))}
+            %% ),
             [
                 #{topic := <<"t/1">>, payload := <<"4">>},
                 #{topic := <<"t/2">>, payload := <<"5">>}

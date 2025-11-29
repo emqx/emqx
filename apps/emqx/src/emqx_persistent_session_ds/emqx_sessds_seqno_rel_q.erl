@@ -75,8 +75,8 @@ push(
         qnow = QNow
     }
 ) ->
-    IsBlocked1 = SN1 > First1,
-    IsBlocked2 = SN2 > First2,
+    IsBlocked1 = is_integer(SN1) andalso SN1 > First1,
+    IsBlocked2 = is_integer(SN2) andalso SN2 > First2,
     if
         IsBlocked1 andalso IsBlocked2 ->
             ?assert(SN1 >= Last1, {SN1, '>=', Last1}),

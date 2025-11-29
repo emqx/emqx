@@ -69,9 +69,9 @@
 
 -record(on_release_action, {
     %% SeqNo in the QoS1 release queue:
-    qos1 = -1 :: emqx_persistent_session_ds:seqno() | -1,
+    qos1 :: emqx_persistent_session_ds:seqno() | undefined,
     %% SeqNo in the QoS2 release queue:
-    qos2 = -1 :: emqx_persistent_session_ds:seqno() | -1,
+    qos2 :: emqx_persistent_session_ds:seqno() | undefined,
     val :: term()
 }).
 

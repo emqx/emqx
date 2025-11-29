@@ -1860,28 +1860,24 @@ post_enqueue_new(
 ) -> session().
 post_enqueue(
     StreamKey,
-    #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2, it_end = ItEnd},
+    #srs{last_seqno_qos1 = SN1, last_seqno_qos2 = SN2, it_end = ItEnd} = SRS,
     Session,
     ClientInfo
 ) ->
     case ItEnd of
         end_of_stream ->
-            on_release(
-                #on_release_action{
-                    qos1 = SN1,
-                    qos2 = SN2,
-                    val = #onrel_complete{stream = StreamKey}
-                },
+            X = on_release(
+                SRS,
+                #onrel_complete{stream = StreamKey},
                 Session,
                 ClientInfo
-            );
+            ),
+            ?tp(warning, post_enqueue_state, #{stream => StreamKey, 1 => SN1, 2 => SN2, s => X}),
+            X;
         _ ->
             on_release(
-                #on_release_action{
-                    qos1 = SN1,
-                    qos2 = SN2,
-                    val = #onrel_unblock{stream = StreamKey}
-                },
+                SRS,
+                #onrel_unblock{stream = StreamKey},
                 Session,
                 ClientInfo
             )
@@ -1941,6 +1937,30 @@ on_release(Action, Session = #{inflight := Inflight0}, ClientInfo) ->
         Session#{inflight := Inflight},
         ClientInfo
     ).
+
+-doc """
+Schedule and action that should happen when all messages from a batch
+are released.
+""".
+-spec on_release(srs(), onrel_action(), session(), clientinfo()) ->
+    session().
+on_release(
+    #srs{first_seqno_qos1 = F1, last_seqno_qos1 = L1, first_seqno_qos2 = F2, last_seqno_qos2 = L2},
+    Action,
+    Session,
+    ClientInfo
+) ->
+    SN1 =
+        case L1 > F1 of
+            true -> L1;
+            false -> undefined
+        end,
+    SN2 =
+        case L2 > F2 of
+            true -> L2;
+            false -> undefined
+        end,
+    on_release(#on_release_action{qos1 = SN1, qos2 = SN2, val = Action}, Session, ClientInfo).
 
 -spec handle_onrels([onrel_action()], session(), clientinfo()) -> session().
 handle_onrels([], Session, _) ->
