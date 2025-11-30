@@ -15,7 +15,7 @@
     pubcomp/2,
     receive_maximum/1,
 
-    on_release/2
+    on_release/4
 ]).
 
 %% internal exports:
@@ -103,10 +103,11 @@ numbers are released via `puback/2` or `pubcomp/2`.
 WARNING: it's an error to add actions with decreasing sequence
 numbers.
 """.
--spec on_release(emqx_sessds_seqno_rel_q:elem(_), t()) -> {[_Action], t()}.
-on_release(Action, Rec = #ds_inflight{rel_queue = RelQ0}) ->
+-spec on_release(SeqNo, SeqNo, Action, t()) -> {[Action], t()} when
+    SeqNo :: emqx_persistent_session_ds:seqno() | undefined.
+on_release(SN1, SN2, Action, Rec = #ds_inflight{rel_queue = RelQ0}) ->
     {Actions, RelQ} = emqx_sessds_seqno_rel_q:pop(
-        emqx_sessds_seqno_rel_q:push(Action, RelQ0)
+        emqx_sessds_seqno_rel_q:push(SN1, SN2, Action, RelQ0)
     ),
     {Actions, Rec#ds_inflight{rel_queue = RelQ}}.
 

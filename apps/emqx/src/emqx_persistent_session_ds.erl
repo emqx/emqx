@@ -1935,21 +1935,6 @@ set_timer(Timer, Time, Session) ->
 %%--------------------------------------------------------------------
 
 -doc """
-Schedule an action that should happen when certain sequence numbers
-are released by the client.
-""".
--spec on_release(emqx_sessds_seqno_rel_q:elem(onrel_action()), session(), clientinfo()) ->
-    session().
-on_release(Action, Session = #{inflight := Inflight0}, ClientInfo) ->
-    {Actions, Inflight} = emqx_persistent_session_ds_inflight:on_release(Action, Inflight0),
-    %% This (and other actions) can be released immediately:
-    handle_onrels(
-        Actions,
-        Session#{inflight := Inflight},
-        ClientInfo
-    ).
-
--doc """
 Schedule and action that should happen when all messages from a batch
 are released.
 """.
@@ -1971,7 +1956,24 @@ on_release(
             true -> L2;
             false -> undefined
         end,
-    on_release(#on_release_action{qos1 = SN1, qos2 = SN2, val = Action}, Session, ClientInfo).
+    on_release(SN1, SN2, Action, Session, ClientInfo).
+
+-doc """
+Schedule an action that should happen when certain sequence numbers
+are released by the client.
+""".
+-spec on_release(SeqNo, SeqNo, onrel_action(), session(), clientinfo()) -> session() when
+    SeqNo :: seqno() | undefined.
+on_release(SN1, SN2, Action, Session = #{inflight := Inflight0}, ClientInfo) ->
+    {Actions, Inflight} = emqx_persistent_session_ds_inflight:on_release(
+        SN1, SN2, Action, Inflight0
+    ),
+    %% This (and other actions) can be released immediately:
+    handle_onrels(
+        Actions,
+        Session#{inflight := Inflight},
+        ClientInfo
+    ).
 
 -spec handle_onrels([onrel_action()], session(), clientinfo()) -> session().
 handle_onrels([], Session, _) ->

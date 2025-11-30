@@ -6,7 +6,7 @@
 """.
 
 %% API:
--export([new/0, push/2, pop/1, pop/3]).
+-export([new/0, push/4, pop/1, pop/3]).
 
 -export_type([elem/1, t/0, t/1]).
 
@@ -22,10 +22,10 @@
 %% Type declarations
 %%================================================================================
 
--type elem(Val) :: #on_release_action{
-    qos1 :: emqx_persistent_session_ds:seqno() | -1,
-    qos2 :: emqx_persistent_session_ds:seqno() | -1,
-    val :: Val
+-type elem(Val) :: {
+    _SeqNoQos1 :: emqx_persistent_session_ds:seqno() | undefined,
+    _SeqNoQoS2 :: emqx_persistent_session_ds:seqno() | undefined,
+    Val
 }.
 
 -record(onrel_q, {
@@ -62,9 +62,12 @@
 new() ->
     #onrel_q{}.
 
--spec push(elem(Val), t(Val)) -> t(Val).
+-spec push(SeqNo, SeqNo, Val, t(Val)) -> t(Val) when
+    SeqNo :: emqx_persistent_session_ds:seqno() | undefined.
 push(
-    Elem = #on_release_action{qos1 = SN1, qos2 = SN2, val = Val},
+    SN1,
+    SN2,
+    Val,
     Rec0 = #onrel_q{
         q1_first = First1,
         q1_last = Last1,
@@ -81,6 +84,7 @@ push(
         IsBlocked1 andalso IsBlocked2 ->
             ?assert(SN1 >= Last1, {SN1, '>=', Last1}),
             ?assert(SN2 >= Last2, {SN2, '>=', Last2}),
+            Elem = {SN1, SN2, Val},
             Rec0#onrel_q{
                 q1_last = SN1,
                 q2_last = SN2,
@@ -89,12 +93,14 @@ push(
             };
         IsBlocked1 ->
             ?assert(SN1 >= Last1, {SN1, '>=', Last1}),
+            Elem = {SN1, SN2, Val},
             Rec0#onrel_q{
                 q1_last = SN1,
                 q1 = queue:in(Elem, Q1)
             };
         IsBlocked2 ->
             ?assert(SN2 >= Last2, {SN2, '>=', Last2}),
+            Elem = {SN1, SN2, Val},
             Rec0#onrel_q{
                 q2_last = SN2,
                 q2 = queue:in(Elem, Q2)
@@ -106,7 +112,8 @@ push(
     end.
 
 -doc """
-Pop out all elements that belong to seqnos that are already released.
+Pop out all elements that belong to seqnos that are already released
+without updating the released sequence numbers.
 """.
 -spec pop(t(Val)) -> {[Val], t(Val)}.
 pop(Rec0 = #onrel_q{q1_first = S1, q2_first = S2}) ->
@@ -142,8 +149,7 @@ pop(
     ?QOS_1, SeqNo, Rec = #onrel_q{q1_first = First, q2_first = Other, q1 = Q0, qnow = QNow}, Acc
 ) ->
     {Elems, Q} = do_pop(
-        #on_release_action.qos1,
-        #on_release_action.qos2,
+        ?QOS_1,
         SeqNo,
         Other,
         Q0,
@@ -154,8 +160,7 @@ pop(
     ?QOS_2, SeqNo, Rec = #onrel_q{q2_first = First, q1_first = Other, q2 = Q0, qnow = QNow}, Acc
 ) ->
     {Elems, Q} = do_pop(
-        #on_release_action.qos2,
-        #on_release_action.qos1,
+        ?QOS_2,
         SeqNo,
         Other,
         Q0,
@@ -163,30 +168,37 @@ pop(
     ),
     {Elems, Rec#onrel_q{q2_first = max(First, SeqNo), q2 = Q, qnow = []}}.
 
-do_pop(ThisIdx, OtherIdx, This, Other, Q0, Acc) ->
+do_pop(QoS, ThisRel, OtherRel, Q0, Acc) ->
     case queue:out(Q0) of
         {empty, Q} ->
             %% End of queue:
             {lists:reverse(Acc), Q};
-        {{value, Rec = #on_release_action{val = Val}}, Q} ->
-            T = element(ThisIdx, Rec),
-            O = element(OtherIdx, Rec),
+        {{value, {SN1, SN2, Val}}, Q} ->
+            case QoS of
+                ?QOS_1 ->
+                    This = SN1,
+                    Other = SN2;
+                ?QOS_2 ->
+                    This = SN2,
+                    Other = SN1
+            end,
             if
-                T > This ->
+                This > ThisRel ->
                     %% Not released yet:
                     {lists:reverse(Acc), Q0};
-                is_integer(O) andalso O > Other ->
+                is_integer(Other) andalso Other > OtherRel ->
                     %% Not released by the other queue. Skip
                     %% (releasing seqno on the other track will return
                     %% this item):
-                    do_pop(ThisIdx, OtherIdx, This, Other, Q, Acc);
+                    do_pop(QoS, ThisRel, OtherRel, Q, Acc);
                 true ->
-                    do_pop(ThisIdx, OtherIdx, This, Other, Q, [Val | Acc])
+                    do_pop(QoS, ThisRel, OtherRel, Q, [Val | Acc])
             end
     end.
 
 -ifdef(TEST).
 
+%% Delimit a scope
 -define(sc(BODY),
     (fun() ->
         BODY
@@ -195,14 +207,16 @@ do_pop(ThisIdx, OtherIdx, This, Other, Q0, Acc) ->
 
 simple_test() ->
     Q0 = lists:foldl(
-        fun push/2,
+        fun({SN1, SN2, Val}, Acc) ->
+            push(SN1, SN2, Val, Acc)
+        end,
         new(),
         [
-            #on_release_action{qos1 = 0, val = 1},
-            #on_release_action{qos2 = 0, val = 2},
-            #on_release_action{qos1 = 2, qos2 = 2, val = 3},
-            #on_release_action{qos1 = 3, val = 4},
-            #on_release_action{qos2 = 3, val = 5}
+            {0, undefined, 1},
+            {undefined, 0, 2},
+            {2, 2, 3},
+            {3, undefined, 4},
+            {undefined, 3, 5}
         ]
     ),
     {[1], Q1} = pop(?QOS_1, 0, Q0),
@@ -212,7 +226,7 @@ simple_test() ->
     {[3, 5], _} = pop(?QOS_2, 10, Q4).
 
 symmetry_test() ->
-    Q0 = push(#on_release_action{qos1 = 0, qos2 = 0, val = val}, new()),
+    Q0 = push(0, 0, val, new()),
     ?sc(
         begin
             {[], Q1} = pop(?QOS_1, 0, Q0),
