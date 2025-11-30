@@ -6,12 +6,11 @@
 """.
 
 %% API:
--export([new/0, push/4, pop/1, pop/3]).
+-export([new/2, push/4, pop/1, pop/3]).
 
 -export_type([elem/1, t/0, t/1]).
 
 -include("emqx_mqtt.hrl").
--include("session_internals.hrl").
 
 -include_lib("stdlib/include/assert.hrl").
 -ifdef(TEST).
@@ -58,9 +57,12 @@
 %% API functions
 %%================================================================================
 
--spec new() -> t(_).
-new() ->
-    #onrel_q{}.
+-spec new(emqx_persistent_session_ds:seqno(), emqx_persistent_session_ds:seqno()) -> t(_).
+new(QoS1Released, QoS2Released) ->
+    #onrel_q{
+        q1_first = QoS1Released,
+        q2_first = QoS2Released
+    }.
 
 -spec push(SeqNo, SeqNo, Val, t(Val)) -> t(Val) when
     SeqNo :: emqx_persistent_session_ds:seqno() | undefined.
@@ -210,7 +212,7 @@ simple_test() ->
         fun({SN1, SN2, Val}, Acc) ->
             push(SN1, SN2, Val, Acc)
         end,
-        new(),
+        new(-1, -1),
         [
             {0, undefined, 1},
             {undefined, 0, 2},
@@ -226,7 +228,7 @@ simple_test() ->
     {[3, 5], _} = pop(?QOS_2, 10, Q4).
 
 symmetry_test() ->
-    Q0 = push(0, 0, val, new()),
+    Q0 = push(0, 0, val, new(-1, -1)),
     ?sc(
         begin
             {[], Q1} = pop(?QOS_1, 0, Q0),

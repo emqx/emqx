@@ -5,7 +5,7 @@
 
 %% API:
 -export([
-    new/1,
+    new/3,
     push/2,
     pop/1,
     n_buffered/2,
@@ -64,15 +64,17 @@
 %% API functions
 %%================================================================================
 
--spec new(non_neg_integer()) -> t().
-new(ReceiveMaximum) when ReceiveMaximum > 0 ->
+-spec new(
+    non_neg_integer(), emqx_persistent_session_ds:seqno(), emqx_persistent_session_ds:seqno()
+) -> t().
+new(ReceiveMaximum, QoS1Released, QoS2Released) when ReceiveMaximum > 0 ->
     #ds_inflight{
         receive_maximum = ReceiveMaximum,
         queue = queue:new(),
         puback_queue = iqueue_new(),
         pubrec_queue = iqueue_new(),
         pubcomp_queue = iqueue_new(),
-        rel_queue = emqx_sessds_seqno_rel_q:new()
+        rel_queue = emqx_sessds_seqno_rel_q:new(QoS1Released, QoS2Released)
     }.
 
 -spec receive_maximum(t()) -> pos_integer().

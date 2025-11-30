@@ -1491,7 +1491,11 @@ do_drain_buffer_of_stream(
 create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     DSCli = emqx_ds_client:new(?MODULE, #{}),
     Buffer = emqx_persistent_session_ds_buffer:new(),
-    Inflight = emqx_persistent_session_ds_inflight:new(receive_maximum(ConnInfo)),
+    Inflight = emqx_persistent_session_ds_inflight:new(
+        receive_maximum(ConnInfo),
+        emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
+        emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0)
+    ),
     %% Create or init shared subscription state:
     case Lifetime of
         new ->
