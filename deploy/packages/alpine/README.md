@@ -98,28 +98,27 @@ Edit `/etc/conf.d/emqx` to customize:
 
 ### Service fails to stop properly
 
-The init script uses a graceful shutdown approach:
-1. First attempts `emqx stop` command (waits up to 30 seconds)
-2. If still running, uses `start-stop-daemon` with SIGTERM (waits 30 seconds)
-3. Finally uses SIGKILL if needed (waits 5 seconds)
+The init script uses `supervise-daemon` which handles graceful shutdown automatically. You can configure the stop timeout in `/etc/conf.d/emqx` if needed.
 
-Total timeout is approximately 65 seconds.
+### Process supervision
 
-### PID file issues
-
-The init script monitors the `run_erl` process (EMQX's daemon wrapper) rather than relying solely on PID files. This resolves the PID mismatch issues described in [issue #4640](https://github.com/emqx/emqx/issues/4640).
+Using `supervise-daemon` eliminates the PID file tracking issues described in [issue #4640](https://github.com/emqx/emqx/issues/4640) because OpenRC directly monitors the EMQX foreground process.
 
 ## Technical Details
 
 ### How It Works
 
-EMQX runs in daemon mode using Erlang's `run_erl` wrapper. The init script:
+The init script uses OpenRC's `supervise-daemon` to run EMQX in foreground mode (matching the systemd approach):
 
-1. **Start**: Launches EMQX with `emqx start`, then locates and monitors the `run_erl` process
-2. **Stop**: Issues graceful shutdown via `emqx stop`, then forcefully terminates `run_erl` if needed
-3. **Status**: Uses EMQX's built-in `emqx status` command
+1. **Start**: Launches EMQX with `emqx foreground` command
+2. **Stop**: `supervise-daemon` handles graceful shutdown with configurable timeout
+3. **Monitoring**: OpenRC automatically monitors the process and can restart it if it crashes
 
-This approach ensures reliable service management by tracking the actual daemon process rather than relying on potentially stale PID files.
+This approach provides:
+- Better process supervision compared to traditional daemon mode
+- Consistent behavior with systemd units
+- No PID file tracking issues
+- Automatic process monitoring and restart capabilities
 
 ### Dependencies
 
