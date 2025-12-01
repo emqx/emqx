@@ -109,70 +109,69 @@ wait_readiness(Timeout) ->
 -spec insert(emqx_streams_types:stream(), emqx_types:message()) ->
     ok | {error, term()}.
 insert(Stream, Message) ->
-    insert(Stream, emqx_streams_prop:is_limited(Stream), Message).
-
-insert(#{is_lastvalue := true} = Stream, IsLimited, Message) ->
-    DB = db(Stream),
     case key(Stream, Message) of
         {error, _} = Error ->
             Error;
         {ok, Key} ->
-            Shard = emqx_ds:shard_of(DB, Key),
-            Topic = stream_message_topic(Stream, Key),
-            MessageBin = encode_message(Message),
-            Gen = insert_generation(DB),
-            TxOpts = #{
-                db => DB,
-                shard => Shard,
-                generation => Gen,
-                sync => true,
-                retries => ?STREAMS_MESSAGE_DB_APPEND_RETRY,
-                retry_interval => retry_interval(DB)
-            },
-            ?tp(debug, streams_message_db_insert, #{
-                stream => Stream,
-                topic => Topic,
-                key => Key,
-                shard => Shard,
-                tx_opts => TxOpts
-            }),
-            TxFun = fun() ->
-                MaybeOldMessage =
-                    case IsLimited of
-                        true ->
-                            emqx_ds:tx_read(Topic);
-                        false ->
-                            []
-                    end,
-                emqx_ds:tx_del_topic(Topic),
-                emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, MessageBin}),
-                MaybeOldMessage
-            end,
-            {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
-            case Result of
-                {atomic, _Serial, MaybeOldMessage} ->
-                    emqx_streams_metrics:observe_hist_stream(
-                        Stream, insert_latency_ms, us_to_ms(Time)
-                    ),
-                    emqx_streams_metrics:inc_stream(Stream, insert_ok),
-                    IsLimited andalso
-                        update_quota(
-                            Stream,
-                            {Shard, Gen},
-                            old_message_quota_info(MaybeOldMessage),
-                            #{message => Message, message_size => byte_size(MessageBin)}
-                        ),
-                    ok;
-                {error, IsRecoverable, Reason} ->
-                    emqx_streams_metrics:inc_stream(Stream, insert_errors),
-                    {error, {IsRecoverable, Reason}}
-            end
-    end;
-insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Message) ->
+            insert(Stream, emqx_streams_prop:is_limited(Stream), Key, Message)
+    end.
+
+insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
     DB = db(Stream),
-    ClientId = emqx_message:from(Message),
-    Shard = emqx_ds:shard_of(DB, ClientId),
-    Topic = stream_message_topic(Stream, ClientId),
+    Shard = emqx_ds:shard_of(DB, Key),
+    Topic = stream_message_topic(Stream, Key),
+    MessageBin = encode_message(Message),
+    Gen = insert_generation(DB),
+    TxOpts = #{
+        db => DB,
+        shard => Shard,
+        generation => Gen,
+        sync => true,
+        retries => ?STREAMS_MESSAGE_DB_APPEND_RETRY,
+        retry_interval => retry_interval(DB)
+    },
+    ?tp(debug, streams_message_db_insert, #{
+        stream => Stream,
+        topic => Topic,
+        key => Key,
+        shard => Shard,
+        tx_opts => TxOpts
+    }),
+    TxFun = fun() ->
+        MaybeOldMessage =
+            case IsLimited of
+                true ->
+                    emqx_ds:tx_read(Topic);
+                false ->
+                    []
+            end,
+        emqx_ds:tx_del_topic(Topic),
+        emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, MessageBin}),
+        MaybeOldMessage
+    end,
+    {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
+    case Result of
+        {atomic, _Serial, MaybeOldMessage} ->
+            emqx_streams_metrics:observe_hist_stream(
+                Stream, insert_latency_ms, us_to_ms(Time)
+            ),
+            emqx_streams_metrics:inc_stream(Stream, insert_ok),
+            IsLimited andalso
+                update_quota(
+                    Stream,
+                    {Shard, Gen},
+                    old_message_quota_info(MaybeOldMessage),
+                    #{message => Message, message_size => byte_size(MessageBin)}
+                ),
+            ok;
+        {error, IsRecoverable, Reason} ->
+            emqx_streams_metrics:inc_stream(Stream, insert_errors),
+            {error, {IsRecoverable, Reason}}
+    end;
+insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
+    DB = db(Stream),
+    Shard = emqx_ds:shard_of(DB, Key),
+    Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     Gen = insert_generation(DB),
     TxOpts = #{
@@ -208,11 +207,10 @@ insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Message) ->
             emqx_streams_metrics:inc_stream(Stream, insert_errors),
             {error, {IsRecoverable, Reason}}
     end;
-insert(#{is_lastvalue := false} = Stream, false = _IsLimited, Message) ->
+insert(#{is_lastvalue := false} = Stream, false = _IsLimited, Key, Message) ->
     DB = db(Stream),
-    ClientId = emqx_message:from(Message),
-    Shard = emqx_ds:shard_of(DB, ClientId),
-    Topic = stream_message_topic(Stream, ClientId),
+    Shard = emqx_ds:shard_of(DB, Key),
+    Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     NeedReply = need_reply(Message),
     DirtyOpts = #{
@@ -546,7 +544,7 @@ stream_index_topic(#{topic_filter := TopicFilter, id := Id} = _Stream) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-key(#{is_lastvalue := true, key_expression := KeyExpression} = Stream, Message) ->
+key(#{key_expression := KeyExpression} = Stream, Message) ->
     Bindings = #{message => message_to_map(Message)},
     case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
         {error, Reason} ->
