@@ -392,6 +392,46 @@ t_stream_recreate(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+t_metrics(_Config) ->
+    #{received_messages := ReceivedMessages0, inserted_messages := InsertedMessages0} =
+        emqx_streams_metrics:get_counters(ds),
+
+    %% Create a queue, publish and consume some messages
+    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]),
+    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
+    ok = emqtt:disconnect(CSub),
+    ?assertEqual(10, length(Msgs)),
+
+    %% Verify that the metrics are updated correctly
+    #{received_messages := ReceivedMessages1, inserted_messages := InsertedMessages1} = emqx_streams_metrics:get_counters(
+        ds
+    ),
+    ?assertEqual(10, ReceivedMessages1 - ReceivedMessages0),
+    ?assertEqual(10, InsertedMessages1 - InsertedMessages0),
+    #{received_messages := #{current := Current}} = emqx_streams_metrics:get_rates(ds),
+    ?assert(Current > 0),
+
+    %% Verify that other accessors work
+    ?assert(is_integer(emqx_streams_metrics:get_quota_buffer_inbox_size())),
+    emqx_streams_metrics:print_common_hists(),
+    emqx_streams_metrics:print_flush_quota_hist(),
+    emqx_streams_metrics:print_common_hists(regular_limited).
+
+t_subscribe_invalid_topic(_Config) ->
+    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"0/invalid-ts/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"9999/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]),
+
+    {ok, _Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

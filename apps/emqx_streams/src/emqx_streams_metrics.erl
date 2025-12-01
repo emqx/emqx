@@ -11,7 +11,6 @@
     inc/2,
     inc/3,
     observe_hist_stream/3,
-    observe_latency_stream/3,
     inc_stream/2,
     inc_stream/3,
     observe_hist/3,
@@ -49,6 +48,7 @@
 
 -define(COMMON_STREAMS_METRICS, [
     {counter, insert_errors},
+    {counter, insert_ok},
     {hist, insert_latency_ms, ?LATENCY_BUCKETS}
 ]).
 
@@ -103,11 +103,6 @@ inc_stream(Stream, Metric, Val) ->
 observe_hist_stream(Stream, Metric, Val) ->
     Id = stream_metrics_id(Stream),
     observe_hist(Id, Metric, Val).
-
-observe_latency_stream(Stream, Metric, Fun) ->
-    {Time, Result} = timer:tc(Fun),
-    observe_hist_stream(Stream, Metric, erlang:convert_time_unit(Time, microsecond, millisecond)),
-    Result.
 
 set_quota_buffer_inbox_size(WorkerId, Val) ->
     ok = emqx_metrics_worker:set_gauge(

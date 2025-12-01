@@ -9,7 +9,6 @@
     inc/2,
     inc/3,
     observe_hist_mq/3,
-    observe_latency_mq/3,
     inc_mq/2,
     inc_mq/3,
     observe_hist/3,
@@ -101,11 +100,6 @@ inc_mq(MQ, Metric, Val) ->
 observe_hist_mq(MQ, Metric, Val) ->
     Id = mq_metrics_id(MQ),
     observe_hist(Id, Metric, Val).
-
-observe_latency_mq(MQ, Metric, Fun) ->
-    {Time, Result} = timer:tc(Fun),
-    observe_hist_mq(MQ, Metric, erlang:convert_time_unit(Time, microsecond, millisecond)),
-    Result.
 
 set_quota_buffer_inbox_size(WorkerId, Val) ->
     ok = emqx_metrics_worker:set_gauge(
