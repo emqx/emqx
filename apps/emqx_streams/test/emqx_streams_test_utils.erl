@@ -108,8 +108,17 @@ create_stream(#{topic_filter := TopicFilter} = Stream0) ->
     Stream.
 
 fill_stream_defaults(#{topic_filter := _TopicFilter} = Stream0) ->
+    IsLastvalue = maps:get(is_lastvalue, Stream0, false),
+    KeyExpressionDefault =
+        case IsLastvalue of
+            true ->
+                compile_key_expression(<<"message.headers.properties.User-Property.stream-key">>);
+            false ->
+                compile_key_expression(<<"message.from">>)
+        end,
     Default = #{
-        is_lastvalue => false,
+        is_lastvalue => IsLastvalue,
+        key_expression => KeyExpressionDefault,
         limits => #{
             max_shard_message_count => infinity,
             max_shard_message_bytes => infinity
@@ -117,19 +126,9 @@ fill_stream_defaults(#{topic_filter := _TopicFilter} = Stream0) ->
         read_max_unacked => 1000,
         data_retention_period => 7 * 24 * 60 * 60 * 1000
     },
-    LastVelueDefault = #{
-        key_expression =>
-            compile_key_expression(<<"message.headers.properties.User-Property.stream-key">>)
-    },
-    Stream1 = maps:merge(Default, Stream0),
-    case Stream1 of
-        #{is_lastvalue := true} ->
-            Stream = maps:merge(LastVelueDefault, Stream1),
-            KeyExpression = maps:get(key_expression, Stream),
-            Stream#{key_expression => compile_key_expression(KeyExpression)};
-        _ ->
-            Stream1
-    end.
+    Stream = maps:merge(Default, Stream0),
+    KeyExpression = maps:get(key_expression, Stream),
+    Stream#{key_expression => compile_key_expression(KeyExpression)}.
 
 populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
