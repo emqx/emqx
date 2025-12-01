@@ -127,6 +127,10 @@ handle_subscribe(
     Handler1 = init_handler(Handler0, SubscribeCtx),
     case subscribe(Handler1, SubscribeTopicFilter) of
         {ok, Handler} ->
+            ?tp_debug(streams_extsub_handler_subscribe_success, #{
+                subscribe_topic_filter => SubscribeTopicFilter,
+                handler => Handler
+            }),
             {ok, schedule_check_stream_status(Handler)};
         ?err_unrec(Reason) ->
             ?tp(error, streams_extsub_handler_subscribe_error, #{
@@ -302,6 +306,9 @@ on_subscription_down(SubId, Slab, _DSStream, State) ->
 %%------------------------------------------------------------------------------------
 
 subscribe(Handler, SubscribeTopicFilter) ->
+    ?tp_debug(streams_extsub_handler_subscribe, #{
+        subscribe_topic_filter => SubscribeTopicFilter, handler => Handler
+    }),
     maybe
         {ok, Partition, Rest1} ?= split_topic_filter(SubscribeTopicFilter),
         {ok, OffsetBin, TopicFilter} ?= split_topic_filter(Rest1),
@@ -395,6 +402,7 @@ handle_ds_info(
     SubHandle,
     DSReply
 ) ->
+    ok = inc_received_message_stat(DSReply),
     case DSReply of
         #ds_sub_reply{payload = {ok, end_of_stream}, ref = SubRef} ->
             case Status of
@@ -757,6 +765,11 @@ init_progress(Stream, Shard, StartTimeUs) ->
             )
     end.
 
+inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, _TTVs}, size = Size}) ->
+    emqx_streams_metrics:inc(ds, received_messages, Size);
+inc_received_message_stat(#ds_sub_reply{}) ->
+    ok.
+
 %% Management of stream appearing/disappearing.
 
 add_unknown_stream(
@@ -780,8 +793,8 @@ schedule_check_stream_status(
     #state{check_stream_status_tref = undefined, send_after_fn = SendAfterFn} = State, N
 ) when N > 0 ->
     Interval = emqx_config:get([streams, check_stream_status_interval]),
-    Ref = SendAfterFn(Interval, #check_stream_status{}),
-    State#state{check_stream_status_tref = Ref};
+    TRef = SendAfterFn(Interval, #check_stream_status{}),
+    State#state{check_stream_status_tref = TRef};
 schedule_check_stream_status(State, _N) ->
     State.
 

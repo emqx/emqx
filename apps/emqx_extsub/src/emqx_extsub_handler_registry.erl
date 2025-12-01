@@ -330,10 +330,9 @@ create_subscribe_ctx(Ref, Ctx) ->
         ?tp_debug(extsub_handler_registry_create_subscribe_ctx_send_after, #{
             to => Pid, interval => Interval, info => Info
         }),
-        _ = erlang:send_after(Interval, Pid, #info_to_extsub{
+        erlang:send_after(Interval, Pid, #info_to_extsub{
             handler_ref = Ref, info = Info
-        }),
-        ok
+        })
     end,
     Send = fun(Info) ->
         ?tp_debug(extsub_handler_registry_create_subscribe_ctx_send, #{to => Pid, info => Info}),
