@@ -38,7 +38,7 @@ NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid c
     key :: emqx_topic_index:key(nil()) | '_',
     id :: emqx_streams_types:stream_id() | '_',
     is_lastvalue :: boolean() | '_',
-    key_expression :: emqx_variform:compiled() | undefined | '_',
+    key_expression :: emqx_variform:compiled() | '_',
     data_retention_period :: emqx_streams_types:interval_ms() | '_',
     read_max_unacked :: non_neg_integer() | '_',
     %% Stream limits
@@ -78,9 +78,16 @@ Create a new Stream.
     | {error, stream_exists}
     | {error, max_stream_count_reached}
     | {error, term()}.
-create(#{topic_filter := TopicFilter, is_lastvalue := IsLastValue} = Stream0) when
-    (not IsLastValue) orelse (IsLastValue andalso is_map(map_get(key_expression, Stream0)))
-->
+create(
+    #{
+        topic_filter := TopicFilter,
+        key_expression := _KeyExpression,
+        is_lastvalue := _IsLastvalue,
+        limits := _Limits,
+        data_retention_period := _DataRetentionPeriod,
+        read_max_unacked := _ReadMaxUnacked
+    } = Stream0
+) ->
     Key = make_key(TopicFilter),
     Id = emqx_guid:gen(),
     Stream = Stream0#{id => Id},
@@ -312,42 +319,38 @@ record_to_stream(
         extra = _Extra
     } = _Rec
 ) ->
-    Stream = #{
+    #{
         id => Id,
         topic_filter => emqx_topic_index:get_topic(Key),
         is_lastvalue => IsLastValue,
         data_retention_period => DataRetentionPeriod,
         read_max_unacked => ReadMaxUnacked,
+        key_expression => KeyExpression,
         limits => #{
             max_shard_message_count => MaxShardMessageCount,
             max_shard_message_bytes => MaxShardMessageBytes
         }
-    },
-    case KeyExpression of
-        undefined ->
-            Stream;
-        _ ->
-            Stream#{key_expression => KeyExpression}
-    end.
+    }.
 
 stream_to_record(
     #{
         topic_filter := TopicFilter,
         id := Id,
         is_lastvalue := IsLastValue,
+        key_expression := KeyExpression,
         data_retention_period := DataRetentionPeriod,
         read_max_unacked := ReadMaxUnacked,
         limits := #{
             max_shard_message_count := MaxShardMessageCount,
             max_shard_message_bytes := MaxShardMessageBytes
         }
-    } = Stream
+    } = _Stream
 ) ->
     #?STREAMS_REGISTRY_INDEX_TAB{
         key = make_key(TopicFilter),
         id = Id,
         is_lastvalue = IsLastValue,
-        key_expression = maps:get(key_expression, Stream, undefined),
+        key_expression = KeyExpression,
         data_retention_period = DataRetentionPeriod,
         read_max_unacked = ReadMaxUnacked,
         max_shard_message_count = MaxShardMessageCount,

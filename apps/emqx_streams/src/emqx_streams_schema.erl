@@ -115,7 +115,7 @@ fields(auto_create_regular) ->
     RegularMQFields = stream_fields(false),
     without_fields([is_lastvalue, topic_filter], RegularMQFields);
 fields(auto_create_lastvalue) ->
-    LastvalueMQFields = stream_fields(true) ++ stream_lastvalue_fields(),
+    LastvalueMQFields = stream_fields(true),
     without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
 %% Stream structs
 fields(stream_individual_limits) ->
@@ -133,11 +133,11 @@ fields(stream_individual_limits) ->
 %% Lastvalue structs
 %%
 fields(stream_lastvalue_api_put) ->
-    without_fields([topic_filter], stream_fields(true)) ++ stream_lastvalue_fields();
+    without_fields([topic_filter], stream_fields(true));
 fields(stream_lastvalue_api_get) ->
-    stream_fields(true) ++ stream_lastvalue_fields();
+    stream_fields(true);
 fields(stream_lastvalue_api_post) ->
-    stream_fields(true) ++ stream_lastvalue_fields();
+    stream_fields(true);
 %%
 %% Regular structs
 %%
@@ -184,6 +184,7 @@ stream_sctype_api_put() ->
 
 stream_sctype_api_post() ->
     stream_sctype(ref(stream_lastvalue_api_post), ref(stream_regular_api_post)).
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
@@ -200,6 +201,13 @@ stream_fields(IsLastvalue) ->
                     default => IsLastvalue
                 }
             )},
+        {key_expression,
+            mk(typerefl:alias("string", any()), #{
+                desc => ?DESC(key_expression),
+                required => true,
+                converter => fun compile_variform/2,
+                default => <<"message.from">>
+            })},
         {data_retention_period,
             mk(emqx_schema:duration_ms(), #{
                 desc => ?DESC(data_retention_period),
@@ -221,17 +229,6 @@ stream_fields(IsLastvalue) ->
                 required => false,
                 importance => ?IMPORTANCE_HIDDEN,
                 default => 1000
-            })}
-    ].
-
-stream_lastvalue_fields() ->
-    [
-        {key_expression,
-            mk(typerefl:alias("string", any()), #{
-                desc => ?DESC(key_expression),
-                required => true,
-                converter => fun compile_variform/2,
-                default => <<"message.from">>
             })}
     ].
 

@@ -253,18 +253,8 @@ t_config(_Config) ->
         })
     ).
 
-%% Verify that regular stream cannot be created with key expression.
+%% Verify is_lastvalue change limitations.
 t_lastvalue_vs_regular(_Config) ->
-    %% Cannot create a regular stream with key expression
-    ?assertMatch(
-        {ok, 400, _},
-        api_post([message_streams, streams], #{
-            <<"topic_filter">> => <<"t/1">>,
-            <<"key_expression">> => <<"message.from">>,
-            <<"is_lastvalue">> => false
-        })
-    ),
-
     %% Cannot update a regular stream to lastvalue
     ?assertMatch(
         {ok, 200, _},
@@ -275,14 +265,6 @@ t_lastvalue_vs_regular(_Config) ->
     ?assertMatch(
         {ok, 400, _},
         api_put([message_streams, streams, urlencode(<<"t/1">>)], #{<<"is_lastvalue">> => true})
-    ),
-
-    %% Key expression is not allowed to be updated for regular streams
-    ?assertMatch(
-        {ok, 400, _},
-        api_put([message_streams, streams, urlencode(<<"t/1">>)], #{
-            <<"key_expression">> => <<"message.from">>
-        })
     ),
 
     %% Cannot update a lastvalue stream to regular
