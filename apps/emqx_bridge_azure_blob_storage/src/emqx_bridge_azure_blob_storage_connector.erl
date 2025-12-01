@@ -82,8 +82,7 @@
     parameters := #{
         mode := aggregated,
         aggregation := #{
-            %% TODO: other containers
-            container := #{type := csv | json_lines},
+            container := #{type := csv | json_lines | parquet},
             time_interval := pos_integer(),
             max_records := pos_integer()
         },
@@ -111,6 +110,7 @@
     container := string(),
     aggreg_id := aggreg_id(),
     supervisor := pid(),
+    aggreg_container_opts := map(),
     on_stop := {module(), atom(), [term()]}
 }.
 -type aggreg_id() :: {binary(), binary()}.
@@ -560,6 +560,7 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState)
             mode => Mode,
             name => Name,
             container => ContainerName,
+            aggreg_container_opts => ContainerOpts,
             aggreg_id => AggregId,
             supervisor => SupPid,
             on_stop => {?AGGREG_SUP, delete_child, [AggregId]}
@@ -681,6 +682,7 @@ channel_status(#{mode := aggregated} = ActionState, ConnState) ->
     %% NOTE: This will effectively trigger uploads of buffers yet to be uploaded.
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
+    ok = check_schema_reference_valid(ActionState),
     ok = check_container_accessible(DriverState, Container),
     ok = check_aggreg_upload_errors(AggregId),
     ?status_connected.
@@ -712,6 +714,14 @@ check_aggreg_upload_errors(AggregId) ->
 
 check_container_accessible(DriverState, Container) ->
     do_list_blobs(DriverState, Container).
+
+check_schema_reference_valid(#{aggreg_container_opts := ContainerOpts} = _ActionState) ->
+    case emqx_connector_aggreg_delivery:validate_container_opts(ContainerOpts) of
+        ok ->
+            ok;
+        {error, Details} ->
+            throw(Details)
+    end.
 
 block_id(N) ->
     NumDigits = 32,

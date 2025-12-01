@@ -44,6 +44,8 @@
 
 -export([lookup_from_local_nodes/3]).
 
+-export([namespaced_stats_filter/2]).
+
 -define(TAGS, [<<"Monitor">>]).
 
 namespace() -> undefined.
@@ -84,6 +86,7 @@ schema("/prometheus") ->
 schema("/prometheus/namespaced_stats") ->
     #{
         'operationId' => ns_stats,
+        filter => fun ?MODULE:namespaced_stats_filter/2,
         get =>
             #{
                 description => ?DESC("ns_stats"),
@@ -372,3 +375,33 @@ prometheus_data_schema() ->
                 {'application/json', #{schema => #{type => object}}}
             ]
     }.
+
+validate_not_json(#{headers := Headers} = Req, _Meta) ->
+    case response_type(Headers) of
+        <<"json">> ->
+            {400, <<"only prometheus format is supported">>};
+        <<"prometheus">> ->
+            {ok, Req}
+    end.
+
+parse_collect_opt_ns(#{query_string := Qs} = Req, _Meta) ->
+    Opts = collect_opts_ns(Qs),
+    {ok, Req#{collect_opts => Opts}}.
+
+rate_limit_all_ns_stats(#{collect_opts := #{namespace := all}} = Req, _Meta) ->
+    Client = emqx_prometheus_limiter:connect_api(),
+    case emqx_limiter_client:try_consume(Client, 1) of
+        {true, _NewClient} ->
+            {ok, Req};
+        {false, _NewClient, _Reason} ->
+            {429, <<"Too many requests">>}
+    end;
+rate_limit_all_ns_stats(Req, _Meta) ->
+    {ok, Req}.
+
+namespaced_stats_filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= validate_not_json(Req0, Meta),
+        {ok, Req2} ?= parse_collect_opt_ns(Req1, Meta),
+        rate_limit_all_ns_stats(Req2, Meta)
+    end.

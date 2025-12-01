@@ -230,6 +230,7 @@ start_channel(State, #{
             aggreg_id => AggregId,
             bucket => Bucket,
             supervisor => SupPid,
+            aggreg_container_opts => ContainerOpts,
             on_stop => fun() -> ?AGGREG_SUP:delete_child(AggregId) end
         },
         {ok, ChannelState}
@@ -251,13 +252,24 @@ channel_status(#{mode := direct}, _State) ->
     %% Since bucket name may be templated, we can't really provide any additional
     %% information regarding the channel health.
     ?status_connected;
-channel_status(#{mode := aggregated, aggreg_id := AggregId, bucket := Bucket}, State) ->
+channel_status(
+    #{mode := aggregated, aggreg_id := AggregId, bucket := Bucket} = ChannelState, State
+) ->
     %% NOTE: This will effectively trigger uploads of buffers yet to be uploaded.
     Timestamp = erlang:system_time(second),
     ok = emqx_connector_aggregator:tick(AggregId, Timestamp),
+    ok = check_schema_reference_valid(ChannelState),
     ok = check_bucket_accessible(Bucket, State),
     ok = check_aggreg_upload_errors(AggregId),
     ?status_connected.
+
+check_schema_reference_valid(#{aggreg_container_opts := ContainerOpts} = _ActionState) ->
+    case emqx_connector_aggreg_delivery:validate_container_opts(ContainerOpts) of
+        ok ->
+            ok;
+        {error, Details} ->
+            throw(Details)
+    end.
 
 check_bucket_accessible(Bucket, #{client_config := Config}) ->
     case emqx_s3_client:aws_config(Config) of

@@ -2165,6 +2165,15 @@ fix_mountpoint(_PipelineOutput, #channel{clientinfo = ClientInfo0} = Channel0) -
     Channel = Channel0#channel{clientinfo = ClientInfo},
     {ok, Channel}.
 
+%% Re-init limiter if zone changed during authentication.
+maybe_update_limiter(_, #channel{clientinfo = #{old_zone := _} = ClientInfo} = Channel0) ->
+    #{listener := ListenerId, zone := NewZone} = ClientInfo,
+    Limiter = emqx_limiter:create_channel_client_container(NewZone, ListenerId),
+    Channel = Channel0#channel{quota = Limiter},
+    {ok, Channel};
+maybe_update_limiter(_, Channel) ->
+    {ok, Channel}.
+
 %%--------------------------------------------------------------------
 %% Set log metadata
 
@@ -2339,6 +2348,7 @@ authentication_pipeline(Credential, Channel) ->
         [
             fun do_authenticate/2,
             fun fix_mountpoint/2,
+            fun maybe_update_limiter/2,
             %% We call `set_log_meta' again here because authentication may have injected
             %% different attributes.  Note that `clientid` might have changed as well, if
             %% authentication returned a non-empty `clientid_override` value.

@@ -18,10 +18,12 @@ start(_StartType, _StartArgs) ->
     Res = emqx_prometheus_sup:start_link(),
     emqx_prometheus_config:add_handler(),
     init_latency_metrics(),
+    ok = emqx_prometheus_limiter:create_api_limiter_group(),
     Res.
 
 stop(_State) ->
     emqx_prometheus_config:remove_handler(),
+    ok = emqx_prometheus_limiter:delete_api_limiter_group(),
     ok.
 
 %%--------------------------------------------------------------------
