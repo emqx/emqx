@@ -70,11 +70,8 @@ max_unacked(#{read_max_unacked := ReadMaxUnacked} = _Stream) ->
 
 -spec data_retention_period(emqx_streams_types:stream()) ->
     non_neg_integer().
-data_retention_period(_Stream) ->
-    %% TODO: Implement data retention period
-
-    %% 7 days
-    7 * 24 * 60 * 60 * 1000.
+data_retention_period(#{data_retention_period := DataRetentionPeriod} = _Stream) ->
+    DataRetentionPeriod.
 
 %%--------------------------------------------------------------------
 %% Internal functions
