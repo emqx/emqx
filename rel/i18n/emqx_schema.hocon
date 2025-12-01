@@ -1117,7 +1117,7 @@ mqtt_shared_subscription_strategy.desc: """~
 
   - `random`: Randomly select a subscriber for dispatch.
   - `round_robin`: Deliver messages to subscribers in turn within each shared subscription group. The round-robin progress is maintained per publishing client, so messages from different publishers may be delivered to the same subscriber consecutively.
-  - `round_robin_per_group`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each node, so two adjacent messages from **different nodes** may be consumed by the same client in the subscription group;
+  - `round_robin_per_group`: Similar to `round_robin`, but the round-robin progress is tracked independently on each node. This means messages published from different nodes in a cluster may be delivered to the same subscriber.
   - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster.
   - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial subscriber is chosen based on `mqtt_shared_subscription_initial_sticky_pick`.
   - `hash_clientid`: Hash the publisher's client ID to select a subscriber.
