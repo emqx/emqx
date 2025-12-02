@@ -128,6 +128,10 @@ override_parameters(Fields) ->
                         hoconsc:ref(
                             emqx_bridge_influxdb_connector,
                             "connector_influxdb_api_v2"
+                        ),
+                        hoconsc:ref(
+                            emqx_bridge_influxdb_connector,
+                            "connector_influxdb_api_v3"
                         )
                     ])
                 },

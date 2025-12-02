@@ -1070,11 +1070,16 @@ with_mocks(#{} = ModsToMocked, Opts, TestFn) ->
 
 do_with_mocks([], _Opts, TestFn) ->
     TestFn();
-do_with_mocks([{Mod, #{} = MockedFns} | Rest], Opts, TestFn) ->
+do_with_mocks([{Mod, MockedFns0} | Rest], Opts, TestFn) ->
     MeckOpts = maps:get(meck_opts, Opts, [no_history, passthrough]),
     ok = meck:new(Mod, MeckOpts),
-    maps:foreach(
-        fun(FnName, MockedFn) ->
+    MockedFns =
+        case is_map(MockedFns0) of
+            true -> maps:to_list(MockedFns0);
+            false when is_list(MockedFns0) -> MockedFns0
+        end,
+    lists:foreach(
+        fun({FnName, MockedFn}) ->
             ok = meck:expect(Mod, FnName, MockedFn)
         end,
         MockedFns

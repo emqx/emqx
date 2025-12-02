@@ -125,7 +125,8 @@ for dep in ${CT_DEPS}; do
             ;;
         influxdb)
             FILES+=( '.ci/docker-compose-file/docker-compose-influxdb-tcp.yaml'
-                     '.ci/docker-compose-file/docker-compose-influxdb-tls.yaml' )
+                     '.ci/docker-compose-file/docker-compose-influxdb-tls.yaml'
+                     '.ci/docker-compose-file/docker-compose-influxdb-v3.yaml' )
             ;;
         mongo)
             FILES+=( '.ci/docker-compose-file/docker-compose-mongo-single-tcp.yaml'

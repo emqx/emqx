@@ -12,6 +12,18 @@
     "enabled": true
   },
   {
+    "name": "influxdb_tcp_v3",
+    "listen": "0.0.0.0:8088",
+    "upstream": "influxdb_tcp_v3:8181",
+    "enabled": true
+  },
+  {
+    "name": "influxdb_tls_v3",
+    "listen": "0.0.0.0:8089",
+    "upstream": "influxdb_tls_v3:8181",
+    "enabled": true
+  },
+  {
     "name": "mysql_tcp",
     "listen": "0.0.0.0:3306",
     "upstream": "mysql:3306",

@@ -19,7 +19,13 @@ influxdb_api_v1.label:
 """HTTP API Protocol"""
 
 influxdb_api_v2.desc:
-"""InfluxDB's protocol. Support InfluxDB v2.0 and after."""
+"""InfluxDB's protocol. Support InfluxDB v2.0 until v3.0."""
+
+influxdb_api_v3.label:
+"""HTTP API V3 Protocol"""
+
+influxdb_api_v3.desc:
+"""InfluxDB's protocol. Support InfluxDB v3.0 and after."""
 
 influxdb_api_v2.label:
 """HTTP API V2 Protocol"""

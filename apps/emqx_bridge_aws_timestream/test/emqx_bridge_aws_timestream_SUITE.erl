@@ -23,10 +23,13 @@
 -define(PROXY_PORT, 8474).
 -define(PROXY_NAME_TCP, "influxdb_tcp").
 -define(PROXY_NAME_TLS, "influxdb_tls").
+-define(PROXY_NAME_TCP_V3, "influxdb_tcp_v3").
+-define(PROXY_NAME_TLS_V3, "influxdb_tls_v3").
 
 -define(HELPER_POOL, <<"influx_suite">>).
 
 -define(api_v2, api_v2).
+-define(api_v3, api_v3).
 -define(async, async).
 -define(sync, sync).
 -define(tcp, tcp).
@@ -73,20 +76,20 @@ end_per_suite(TCConfig) ->
 
 init_per_group(?api_v2, TCConfig) ->
     [{api_type, ?api_v2} | TCConfig];
+init_per_group(?api_v3, TCConfig) ->
+    [{api_type, ?api_v3} | TCConfig];
 init_per_group(?tcp, TCConfig) ->
+    UseTLS = false,
     [
-        {host, <<"toxiproxy">>},
-        {port, 8086},
-        {use_tls, false},
-        {proxy_name, ?PROXY_NAME_TCP}
+        {use_tls, UseTLS},
+        {proxy_name, proxy_name(UseTLS, TCConfig)}
         | TCConfig
     ];
 init_per_group(?tls, TCConfig) ->
+    UseTLS = true,
     [
-        {host, <<"toxiproxy">>},
-        {port, 8087},
-        {use_tls, true},
-        {proxy_name, ?PROXY_NAME_TLS}
+        {use_tls, UseTLS},
+        {proxy_name, proxy_name(UseTLS, TCConfig)}
         | TCConfig
     ];
 init_per_group(?async, TCConfig) ->
@@ -103,16 +106,19 @@ init_per_group(_Group, TCConfig) ->
 end_per_group(_Group, _TCConfig) ->
     ok.
 
-init_per_testcase(TestCase, TCConfig) ->
+init_per_testcase(TestCase, TCConfig0) ->
     reset_proxy(),
-    Path = group_path(TCConfig, no_groups),
+    Path = group_path(TCConfig0, no_groups),
     ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    UseTLS = get_config(use_tls, TCConfig0, false),
+    Server = server(TCConfig0),
+    TCConfig = [{server, Server} | TCConfig0],
     ConnectorName = atom_to_binary(TestCase),
     ConnectorConfig = connector_config(
         merge_maps([
-            #{<<"server">> => server(TCConfig)},
+            #{<<"server">> => Server},
             connector_config_auth_fields(TCConfig),
-            #{<<"ssl">> => #{<<"enable">> => get_config(use_tls, TCConfig, false)}}
+            #{<<"ssl">> => #{<<"enable">> => UseTLS}}
         ])
     ),
     ActionName = ConnectorName,
@@ -164,6 +170,7 @@ connector_config(Overrides) ->
     emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
 
 connector_config_auth_fields(TCConfig) ->
+    UseTLS = get_config(use_tls, TCConfig, false),
     case get_config(api_type, TCConfig, ?api_v2) of
         ?api_v2 ->
             #{
@@ -172,6 +179,14 @@ connector_config_auth_fields(TCConfig) ->
                     <<"bucket">> => <<"mqtt">>,
                     <<"org">> => <<"emqx">>,
                     <<"token">> => <<"abcdefg">>
+                }
+            };
+        ?api_v3 ->
+            #{
+                <<"parameters">> => #{
+                    <<"influxdb_type">> => <<"influxdb_api_v3">>,
+                    <<"database">> => <<"mqtt">>,
+                    <<"token">> => emqx_bridge_influxdb_SUITE:v3_token(UseTLS)
                 }
             }
     end.
@@ -236,25 +251,33 @@ create_action_api(TCConfig, Overrides) ->
     ).
 
 server(TCConfig) ->
-    case get_config(use_tls, TCConfig, false) of
-        false ->
+    UseTLS = get_config(use_tls, TCConfig, false),
+    Version = get_config(api_type, TCConfig, ?api_v2),
+    case {UseTLS, Version} of
+        {false, ?api_v3} ->
+            <<"toxiproxy:8088">>;
+        {false, _} ->
             <<"toxiproxy:8086">>;
-        true ->
+        {true, ?api_v3} ->
+            <<"toxiproxy:8089">>;
+        {true, _} ->
             <<"toxiproxy:8087">>
     end.
 
 full_matrix() ->
     [
         [APIType, Conn, Sync, Batch]
-     || APIType <- [?api_v2],
+     || APIType <- api_values(),
         Conn <- [?tcp, ?tls],
         Sync <- [?sync, ?async],
         Batch <- [?without_batch, ?with_batch]
     ].
 
+api_values() ->
+    [?api_v2, ?api_v3].
+
 start_ehttpc_helper_pool(TCConfig) ->
-    Host = get_config(host, TCConfig, <<"toxiproxy">>),
-    Port = get_config(port, TCConfig, 8086),
+    {Host, Port} = server_tuple(TCConfig),
     {Transport, TransportOpts} =
         case get_config(use_tls, TCConfig, false) of
             true -> {tls, [{verify, verify_none}]};
@@ -273,7 +296,29 @@ start_ehttpc_helper_pool(TCConfig) ->
 stop_ehttpc_helper_pool() ->
     ehttpc_sup:stop_pool(?HELPER_POOL).
 
+server_tuple(TCConfig) ->
+    Server = get_config(server, TCConfig),
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server, #{}),
+    {Host, Port}.
+
 str(X) -> emqx_utils_conv:str(X).
+
+proxy_name(TCConfig) ->
+    UseTLS = get_config(use_tls, TCConfig, false),
+    proxy_name(UseTLS, TCConfig).
+
+proxy_name(UseTLS, TCConfig) ->
+    APIType = get_config(api_type, TCConfig, ?api_v2),
+    case {APIType, UseTLS} of
+        {?api_v3, false} ->
+            ?PROXY_NAME_TCP_V3;
+        {?api_v3, true} ->
+            ?PROXY_NAME_TLS_V3;
+        {_, false} ->
+            ?PROXY_NAME_TCP;
+        {_, true} ->
+            ?PROXY_NAME_TLS
+    end.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -284,7 +329,7 @@ t_start_stop() ->
 t_start_stop(matrix) ->
     [
         [APIType, Conn, ?sync, ?without_batch]
-     || APIType <- [?api_v2],
+     || APIType <- api_values(),
         Conn <- [?tcp, ?tls]
     ];
 t_start_stop(TCConfig) when is_list(TCConfig) ->
@@ -295,7 +340,7 @@ t_on_get_status() ->
 t_on_get_status(matrix) ->
     [
         [APIType, Conn, ?sync, ?without_batch]
-     || APIType <- [?api_v2],
+     || APIType <- api_values(),
         Conn <- [?tcp, ?tls]
     ];
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
