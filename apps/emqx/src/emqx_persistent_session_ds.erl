@@ -1030,6 +1030,7 @@ list_known_streams(SubId, #{s := S}) ->
 -spec on_subscription_down(subscription_id(), emqx_ds:slab(), emqx_ds:stream(), host_state()) ->
     host_state().
 on_subscription_down(SubId, _Slab, Stream, Session = #{buffer := Buf0}) ->
+    ?tp(info, ?sessds_sub_down, #{sub => SubId, stream => Stream}),
     Key = {SubId, Stream},
     Buf = emqx_persistent_session_ds_buffer:drop_stream(Key, Buf0),
     Session#{buffer := Buf}.
@@ -1495,7 +1496,7 @@ do_drain_buffer_of_stream(
     emqx_session:conf()
 ) -> session().
 create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
-    DSCli = emqx_ds_client:new(?MODULE, #{}),
+    DSCli = emqx_ds_client:new(?MODULE, #{retry_interval => dscli_retry_interval()}),
     Buffer = emqx_persistent_session_ds_buffer:new(),
     Inflight = emqx_persistent_session_ds_inflight:new(
         receive_maximum(ConnInfo),
@@ -2203,6 +2204,14 @@ ensure_state_commit_timer(#{s := S} = Session) ->
 cancel_state_commit_timer(#{?TIMER_COMMIT := TRef} = Session) ->
     emqx_utils:cancel_timer(TRef),
     Session#{?TIMER_COMMIT := undefined}.
+
+-ifndef(TEST).
+dscli_retry_interval() ->
+    5_000.
+-else.
+dscli_retry_interval() ->
+    100.
+-endif.
 
 %%--------------------------------------------------------------------
 %% Tests

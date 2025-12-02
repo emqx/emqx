@@ -266,7 +266,7 @@ subopts() ->
     ).
 
 qos() ->
-    range(1, 2).
+    range(0, 2).
 
 from() ->
     oneof([limited_latin_atom()]).

@@ -278,15 +278,12 @@ consume(S = #{conninfo := #{client_pid := CPID, session_pid := SPID}}) ->
     %% Consume and ack all messages we can get from the broker:
     CMRef = monitor(process, CPID),
     SMRef = monitor(process, SPID),
-    debug_state(before_consume),
-    Result = ?tp_span(
+    ?tp_span(
         info,
         ?sessds_test_consume,
         #{},
         receive_ack_loop(S, CMRef, SMRef, ok)
-    ),
-    debug_state(after_consume),
-    Result.
+    ).
 
 %% @doc This function receives and acknowledges all MQTT messages sent
 %% to the client

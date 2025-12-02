@@ -1354,7 +1354,13 @@ t_delayed_will_message(_Config) ->
 %% Verify that session handles restart of the shard (or the entire DB)
 %% smoothly:
 t_ds_resubscribe(init, Config) ->
-    start_local(?FUNCTION_NAME, Config).
+    %% Disable state checkpointing for the duration of the test:
+    meck:new(emqx_persistent_session_ds_state, [passthrough, no_history]),
+    meck:expect(emqx_persistent_session_ds_state, commit, fun(Rec, _) -> Rec end),
+    Cleanup = fun() ->
+        meck:unload(emqx_persistent_session_ds_state)
+    end,
+    start_local(?FUNCTION_NAME, [{cleanup, Cleanup} | Config]).
 t_ds_resubscribe(_Config) ->
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
     TopicFilter = <<"t/+">>,
@@ -1393,7 +1399,7 @@ t_ds_resubscribe(_Config) ->
             %% successfully resubscribed:
             ?tp(notice, "test: Restarting the DB", #{}),
             {ok, EvtSub} = snabbkaffe:subscribe(
-                ?match_event(#{?snk_kind := dscli_subscribe})
+                ?match_event(#{?snk_kind := dscli_subscribe_stream})
             ),
             ok = emqx_ds:open_db(?PERSISTENT_MESSAGE_DB, emqx_persistent_message:get_db_config()),
             ok = emqx_ds:wait_db(?PERSISTENT_MESSAGE_DB, all, infinity),
