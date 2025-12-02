@@ -1774,11 +1774,11 @@ t_inexistent_topic_after_created(TCConfig) ->
                     delete_kafka_topic(Topic),
                     #{?snk_kind := "kafka_producer_action_unknown_topic"}
                 ),
-            ?assertMatch(
-                {200, #{<<"status">> := <<"connecting">>}},
-                get_action_api(TCConfig)
+            ?retry(
+                100,
+                50,
+                ?assertMatch({200, #{<<"status">> := <<"connecting">>}}, get_action_api(TCConfig))
             ),
-
             %% Recovers after topic is back
             {ok, {ok, _}} =
                 ?wait_async_action(
