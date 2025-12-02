@@ -498,6 +498,7 @@ t_ts_column(TCConfig) ->
     ok.
 
 t_boolean_variants(TCConfig) ->
+    ok = emqx_logger:set_primary_log_level(debug),
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{}),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
