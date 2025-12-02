@@ -25,17 +25,7 @@
     on_gateway_unload/2
 ]).
 
--import(
-    emqx_gateway_utils,
-    [
-        normalize_config/1,
-        start_listeners/4,
-        stop_listeners/2,
-        update_gateway/5
-    ]
-).
-
--define(MOD_CFG, #{
+-define(DEFAULT_MOD_CFG, #{
     frame_mod => emqx_coap_frame,
     chann_mod => emqx_coap_channel
 }).
@@ -51,39 +41,46 @@ on_gateway_load(
     },
     Ctx
 ) ->
-    Listeners = normalize_config(Config),
-    ModCfg = maps:merge(connection_opts(Config), ?MOD_CFG),
-    case
-        start_listeners(
-            Listeners, GwName, Ctx, ModCfg
-        )
-    of
+    ModConfig = mod_cfg(Config),
+    ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, Config, ModConfig, Ctx
+    ),
+    case emqx_gateway_utils:start_listeners(ListenerConfigs) of
         {ok, ListenerPids} ->
             {ok, ListenerPids, #{ctx => Ctx}};
-        {error, {Reason, Listener}} ->
+        {error, {Reason, #{original_listener_config := ListenerConfig}}} ->
             throw(
                 {badconf, #{
                     key => listeners,
-                    value => Listener,
+                    value => ListenerConfig,
                     reason => Reason
                 }}
             )
     end.
 
-on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
-    GwName = maps:get(name, Gateway),
-    try
-        ModCfg = maps:merge(connection_opts(Config), ?MOD_CFG),
-        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ModCfg),
-        {ok, NewPids, GwState}
-    catch
-        Class:Reason:Stk ->
-            logger:error(
-                "Failed to update ~ts; "
-                "reason: {~0p, ~0p} stacktrace: ~0p",
-                [GwName, Class, Reason, Stk]
-            ),
-            {error, Reason}
+on_gateway_update(
+    Config,
+    _Gateway = #{
+        name := GwName,
+        config := OldConfig
+    },
+    GwState = #{ctx := Ctx}
+) ->
+    OldModConfig = mod_cfg(OldConfig),
+    OldListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, OldConfig, OldModConfig, Ctx
+    ),
+    NewModConfig = mod_cfg(Config),
+    NewListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, Config, NewModConfig, Ctx
+    ),
+    case
+        emqx_gateway_utils:update_gateway_listeners(GwName, OldListenerConfigs, NewListenerConfigs)
+    of
+        {ok, NewPids} ->
+            {ok, NewPids, GwState};
+        {error, _} = Error ->
+            Error
     end.
 
 on_gateway_unload(
@@ -91,17 +88,20 @@ on_gateway_unload(
         name := GwName,
         config := Config
     },
-    _GwState
+    _GwState = #{ctx := Ctx}
 ) ->
-    Listeners = normalize_config(Config),
-    stop_listeners(GwName, Listeners).
+    ModConfig = mod_cfg(Config),
+    ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, Config, ModConfig, Ctx
+    ),
+    emqx_gateway_utils:stop_listeners(ListenerConfigs).
 
-connection_opts(#{connection_required := false}) ->
-    #{};
-connection_opts(_) ->
-    #{
+mod_cfg(#{connection_required := true}) ->
+    maps:merge(?DEFAULT_MOD_CFG, #{
         connection_mod => esockd_udp_proxy,
         esockd_proxy_opts => #{
             connection_mod => emqx_coap_proxy_conn
         }
-    }.
+    });
+mod_cfg(#{connection_required := false}) ->
+    ?DEFAULT_MOD_CFG.
