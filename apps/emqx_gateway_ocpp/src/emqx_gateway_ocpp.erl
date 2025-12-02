@@ -12,8 +12,7 @@
 -gateway(#{
     name => ocpp,
     callback_module => ?MODULE,
-    config_schema_module => emqx_ocpp_schema,
-    edition => ee
+    config_schema_module => emqx_ocpp_schema
 }).
 
 %% callback_module must implement the emqx_gateway_impl behaviour
@@ -25,16 +24,6 @@
     on_gateway_update/3,
     on_gateway_unload/2
 ]).
-
--import(
-    emqx_gateway_utils,
-    [
-        normalize_config/1,
-        start_listeners/4,
-        stop_listeners/2,
-        update_gateway/5
-    ]
-).
 
 -define(MOD_CFG, #{
     frame_mod => emqx_ocpp_frame,
@@ -56,39 +45,36 @@ on_gateway_load(
     %% ensure json schema validator is loaded
     emqx_ocpp_schemas:load(),
 
-    Listeners = normalize_config(Config),
-    case
-        start_listeners(
-            Listeners, GwName, Ctx, ?MOD_CFG
-        )
-    of
+    ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(GwName, Config, ?MOD_CFG, Ctx),
+    case emqx_gateway_utils:start_listeners(ListenerConfigs) of
         {ok, ListenerPids} ->
-            %% FIXME: How to throw an exception to interrupt the restart logic ?
-            %% FIXME: Assign ctx to GwState
             {ok, ListenerPids, _GwState = #{ctx => Ctx}};
-        {error, {Reason, Listener}} ->
+        {error, {Reason, #{original_listener_config := ListenerConfig}}} ->
             throw(
                 {badconf, #{
                     key => listeners,
-                    value => Listener,
+                    value => ListenerConfig,
                     reason => Reason
                 }}
             )
     end.
 
-on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
-    GwName = maps:get(name, Gateway),
-    try
-        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ?MOD_CFG),
-        {ok, NewPids, GwState}
-    catch
-        Class:Reason:Stk ->
-            logger:error(
-                "Failed to update ~ts; "
-                "reason: {~0p, ~0p} stacktrace: ~0p",
-                [GwName, Class, Reason, Stk]
-            ),
-            {error, Reason}
+on_gateway_update(
+    Config, _Gateway = #{config := OldConfig, name := GwName}, GwState = #{ctx := Ctx}
+) ->
+    OldListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, OldConfig, ?MOD_CFG, Ctx
+    ),
+    NewListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, Config, ?MOD_CFG, Ctx
+    ),
+    case
+        emqx_gateway_utils:update_gateway_listeners(GwName, OldListenerConfigs, NewListenerConfigs)
+    of
+        {ok, NewPids} ->
+            {ok, NewPids, GwState};
+        {error, _} = Error ->
+            Error
     end.
 
 on_gateway_unload(
@@ -96,7 +82,7 @@ on_gateway_unload(
         name := GwName,
         config := Config
     },
-    _GwState
+    _GwState = #{ctx := Ctx}
 ) ->
-    Listeners = normalize_config(Config),
-    stop_listeners(GwName, Listeners).
+    ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(GwName, Config, ?MOD_CFG, Ctx),
+    emqx_gateway_utils:stop_listeners(ListenerConfigs).
