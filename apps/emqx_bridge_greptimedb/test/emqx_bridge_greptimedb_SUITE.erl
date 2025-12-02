@@ -518,12 +518,18 @@ t_boolean_variants(TCConfig) ->
     },
     maps:foreach(
         fun(BoolVariant, Translation) ->
+            ct:pal("variant: ~p", [{BoolVariant, Translation}]),
             Payload = json_encode(#{
                 int_key => -123,
                 bool => BoolVariant,
                 uint_key => 123
             }),
-            emqtt:publish(C, Topic, Payload),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload),
+                    #{?snk_kind := handle_async_reply},
+                    5_000
+                ),
             ?retry(
                 _Sleep2 = 500,
                 _Attempts2 = 20,
@@ -535,7 +541,8 @@ t_boolean_variants(TCConfig) ->
                     #{variant => {BoolVariant, Translation}}
                 )
             ),
-            clear_table(TCConfig)
+            clear_table(TCConfig),
+            ct:sleep(200)
         end,
         BoolVariants
     ),
