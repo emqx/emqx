@@ -677,8 +677,7 @@ assert_direct_routes(_) ->
 
 %% Verify that the DS client of the session is subscribed to all
 %% durable model subs.
-assert_ds_client_subscriptions(ModelState, #{dscli := DSCliRaw}) ->
-    DSCli = emqx_ds_client:inspect(DSCliRaw),
+assert_ds_client_subscriptions(ModelState, #{dscli := DSCli}) ->
     CliSubs = maps:fold(
         fun(_SubId, #{topic := Topic}, Acc) ->
             [emqx_topic:join(Topic) | Acc]

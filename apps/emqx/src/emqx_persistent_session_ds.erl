@@ -282,7 +282,7 @@
 
 %% Effects that may occur when sequence number is released:
 -record(onrel_unblock, {stream :: stream_key()}).
--record(onrel_complete, {stream :: stream_key(), subref :: emqx_ds:subid() | undefined}).
+-record(onrel_complete, {stream :: stream_key()}).
 -record(onrel_shared_report_progress, {}).
 
 -type onrel_action() :: #onrel_unblock{} | #onrel_complete{} | #onrel_shared_report_progress{}.
@@ -421,12 +421,12 @@ to_ds_time(Time) ->
 -spec print_session(emqx_types:clientid()) -> map() | undefined.
 print_session(ClientID) ->
     case try_get_live_session(ClientID) of
-        {Pid, SessionState} ->
-            maps:update_with(
-                s, fun emqx_persistent_session_ds_state:format/1, SessionState#{
-                    '_alive' => {true, Pid}
-                }
-            );
+        {Pid, Sess = #{s := S, dscli := DSCli}} ->
+            Sess#{
+                s := emqx_persistent_session_ds_state:format(S),
+                dscli := emqx_ds_client:inspect(DSCli),
+                '_alive' => {true, Pid}
+            };
         not_found ->
             case emqx_persistent_session_ds_state:print_session(ClientID) of
                 undefined ->
@@ -454,12 +454,16 @@ subscribe(#share{} = TopicFilter, SubOpts, Session0) ->
     end;
 subscribe(TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {Ok, durable, Session, _Subscription} when Ok == ok; Ok == mode_changed ->
-            %% If the subscription mode was changed, flush any matching transient messages
-            %% coming directly from the broker:
-            Ok == mode_changed andalso flush_transient(TopicFilter),
-            {ok, async_checkpoint(Session)};
-        {ok, direct, Session, _Subscription} ->
+        {Ok, NewMode, Session, _Subscription} when
+            Ok =:= ok;
+            Ok =:= mode_changed,
+            NewMode =:= direct;
+            NewMode =:= durable
+        ->
+            %% If the subscription mode was changed from direct to
+            %% durable, flush any matching transient messages coming
+            %% directly from the broker:
+            Ok == mode_changed andalso NewMode =:= durable andalso flush_transient(TopicFilter),
             {ok, async_checkpoint(Session)};
         Error = {error, _} ->
             Error
@@ -847,7 +851,7 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
                 StreamKey, SRS, ItEnd, Batch, LastSeqNoQos1, LastSeqNoQos2, Session0
             ),
             Session = post_enqueue(
-                StreamKey, SRS, undefined, Session0#{inflight := Inflight}, ClientInfo
+                StreamKey, SRS, Session0#{inflight := Inflight}, ClientInfo
             ),
             {ok, SRS, Session};
         Error = {error, _, _} ->
@@ -1214,7 +1218,6 @@ handle_ds_reply(
             post_enqueue_new(
                 StreamKey,
                 SRS,
-                Reply0#ds_sub_reply.ref,
                 schedule_delivery(Session),
                 ClientInfo
             );
@@ -1446,7 +1449,7 @@ drain_buffer_of_stream(
         true ->
             {SRS, SubState} = pre_enqueue_new(SRS0, S),
             do_drain_buffer_of_stream(
-                StreamKey, SRS, undefined, SubState, Session, ClientInfo, Buf, Inflight
+                StreamKey, SRS, SubState, Session, ClientInfo, Buf, Inflight
             );
         false ->
             Session
@@ -1455,7 +1458,6 @@ drain_buffer_of_stream(
 do_drain_buffer_of_stream(
     StreamKey,
     SRS0,
-    SubRef0,
     SubState,
     Session0 = #{s := S0},
     ClientInfo,
@@ -1469,14 +1471,13 @@ do_drain_buffer_of_stream(
                 S0, DSReply, SubState, SRS0, ClientInfo, Inflight0
             ),
             do_drain_buffer_of_stream(
-                StreamKey, SRS, SubRef, SubState, Session0, ClientInfo, Buf, Inflight
+                StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight
             );
         {[], Buf} ->
             %% No more buffered messages:
             post_enqueue_new(
                 StreamKey,
                 SRS0,
-                SubRef0,
                 Session0#{buffer := Buf, inflight := Inflight0},
                 ClientInfo
             )
@@ -1852,12 +1853,11 @@ enqueue_batch(
     },
     {SRS, Inflight}.
 
--spec post_enqueue_new(stream_key(), srs(), emqx_ds:sub_ref(), session(), clientinfo()) ->
+-spec post_enqueue_new(stream_key(), srs(), session(), clientinfo()) ->
     session().
 post_enqueue_new(
     StreamKey,
     SRS = #srs{last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
-    SubRef,
     Session0 = #{s := S0},
     ClientInfo
 ) ->
@@ -1865,37 +1865,31 @@ post_enqueue_new(
     S2 = put_seqno(?next(?QOS_2), SNQ2, S1),
     S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S2),
     Session = Session0#{s := S},
-    post_enqueue(StreamKey, SRS, SubRef, Session, ClientInfo).
+    post_enqueue(StreamKey, SRS, Session, ClientInfo).
 
 -spec post_enqueue(
     stream_key(),
     srs(),
-    emqx_ds:sub_ref() | undefined,
     session(),
     clientinfo()
 ) -> session().
 post_enqueue(
     StreamKey,
     #srs{
-        last_seqno_qos1 = SN1,
-        last_seqno_qos2 = SN2,
         it_end = ItEnd,
         batch_size = BatchSize
     } = SRS,
-    SubRef,
     Session,
     ClientInfo
 ) ->
     case ItEnd of
         end_of_stream ->
-            X = on_release(
+            on_release(
                 SRS,
-                #onrel_complete{stream = StreamKey, subref = SubRef},
+                #onrel_complete{stream = StreamKey},
                 Session,
                 ClientInfo
-            ),
-            ?tp(warning, post_enqueue_state, #{stream => StreamKey, 1 => SN1, 2 => SN2, s => X}),
-            X;
+            );
         _ when BatchSize > 0 ->
             %% TODO: instead of checking batch size, check if locked?
             on_release(
@@ -2004,26 +1998,19 @@ handle_onrel(
     ?tp(?sessds_unblock_stream, #{key => Key}),
     drain_buffer_of_stream(Key, Session, ClientInfo);
 handle_onrel(
-    #onrel_complete{stream = {SubId, Stream} = Key, subref = SubRef},
+    #onrel_complete{stream = {SubId, Stream} = Key},
     Session0 = #{dscli := CS0, s := S0},
     _ClientInfo
 ) ->
-    case SubRef of
-        undefined ->
-            %% This happened during replay.
-            #srs{rank_x = Shard, rank_y = Generation} = emqx_persistent_session_ds_state:get_stream(
-                Key, S0
-            ),
-            %% FIXME: currently DS subscription will leak when this function
-            %% is called. Fix it in ds_client
-            {CS, Session} = emqx_ds_client:complete_stream(
-                CS0, SubId, {Shard, Generation}, Stream, Session0
-            ),
-            Session#{dscli := CS};
-        _ ->
-            {CS, Session} = emqx_ds_client:complete_stream(CS0, SubRef, Session0),
-            Session#{dscli := CS}
-    end.
+    #srs{rank_x = Shard, rank_y = Generation} = emqx_persistent_session_ds_state:get_stream(
+        Key, S0
+    ),
+    %% FIXME: currently DS subscription will leak when this function
+    %% is called. Fix it in ds_client
+    {CS, Session} = emqx_ds_client:complete_stream(
+        CS0, SubId, {Shard, Generation}, Stream, Session0
+    ),
+    Session#{dscli := CS}.
 
 %%--------------------------------------------------------------------
 %% Functions related to stream replay states
