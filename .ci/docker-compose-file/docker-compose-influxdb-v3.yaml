@@ -1,0 +1,64 @@
+services:
+  influxdb_server_tcp_v3:
+    container_name: influxdb_tcp_v3
+    build:
+      context: ./
+      dockerfile: ./influxdb/v3.Dockerfile
+      args:
+        DOCKER_USER: "${DOCKER_USER:-root}"
+    restart: always
+    networks:
+      - emqx_bridge
+    volumes:
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
+      - ./influxdb/setup-v3.sh:/tmp/setup-v3.sh
+    environment:
+      MODE: tcp
+    command:
+      - /tmp/setup-v3.sh
+      - >-
+          influxdb3
+          serve
+          --admin-token-file /var/lib/secret_container/influxv3.json
+          --data-dir=/var/lib/influxdb3/data
+          --node-id=node0
+
+  influxdb_server_tls_v3:
+    container_name: influxdb_tls_v3
+    build:
+      context: ./
+      dockerfile: ./influxdb/v3.Dockerfile
+      args:
+        DOCKER_USER: "${DOCKER_USER:-root}"
+    restart: always
+    networks:
+      - emqx_bridge
+    volumes:
+      - ./certs/server.crt:/etc/influxdb/cert.pem
+      - ./certs/server.key:/etc/influxdb/key.pem
+      - /tmp/emqx-ci/emqx-shared-secret:/var/lib/secret
+      - ./influxdb/setup-v3.sh:/tmp/setup-v3.sh
+    environment:
+      MODE: tls
+    command:
+      - /tmp/setup-v3.sh
+      - >-
+          influxdb3
+          serve
+          --admin-token-file /var/lib/secret_container/influxv3.json
+          --data-dir=/var/lib/influxdb3/data
+          --node-id=node0
+          --tls-cert=/etc/influxdb/cert.pem
+          --tls-key=/etc/influxdb/key.pem
+
+# networks:
+#   emqx_bridge:
+#     driver: bridge
+#     name: emqx_bridge
+#     ipam:
+#       driver: default
+#       config:
+#         - subnet: 172.100.239.0/24
+#           gateway: 172.100.239.1
+#         - subnet: 2001:3200:3200::/64
+#           gateway: 2001:3200:3200::1

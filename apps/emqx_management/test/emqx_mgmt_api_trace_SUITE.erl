@@ -13,6 +13,10 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 %%--------------------------------------------------------------------
 %% Setups
@@ -44,7 +48,9 @@ init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(_, _Config) ->
-    snabbkaffe:stop().
+    snabbkaffe:stop(),
+    emqx_common_test_helpers:call_janitor(),
+    ok.
 
 t_config(_Config) ->
     %% Config should contain schema defaults:
@@ -829,8 +835,110 @@ t_download_empty_trace(_Config) ->
     ?assertMatch(#{<<"message">> := <<"Trace is empty">>}, emqx_utils_json:decode(Body)),
     ok.
 
+-doc """
+Verifies that we check the namespace query parameter (`ns`) against the actor's namespace.
+
+* Global admins can start traces for arbitrary namespaces.
+* Namespaced admins are restricted to their own namespace.
+""".
+t_namespaced_rule_trace(_TCConfig) ->
+    on_exit(fun() ->
+        emqx_hooks:del(
+            'namespace.resource_pre_create',
+            {?MODULE, on_namespace_resource_pre_create}
+        )
+    end),
+    ok = emqx_hooks:add(
+        'namespace.resource_pre_create',
+        {?MODULE, on_namespace_resource_pre_create, []},
+        ?HP_HIGHEST
+    ),
+
+    Namespace = <<"some_ns">>,
+    CreateTrace = fun(Params, Opts) ->
+        ?wait_async_action(
+            create_trace_api(Params, Opts),
+            #{?snk_kind := "creating_trace"},
+            1_000
+        )
+    end,
+
+    %% Global admin can start traces on any namespace.
+    Name = <<"my_trace">>,
+    Params = #{
+        <<"name">> => Name,
+        <<"type">> => <<"ruleid">>,
+        <<"ruleid">> => Name
+    },
+    %% Create a trace targeting ns (specified ns param, global admin).
+    ?assertMatch(
+        {{200, _}, {ok, #{namespace := Namespace}}},
+        CreateTrace(Params, #{ns => Namespace})
+    ),
+    {204, _} = delete_trace_api(Name),
+
+    %% Create a trace targeting global (no ns param, global admin).
+    ?assertMatch(
+        {{200, _}, {ok, #{namespace := ?global_ns}}},
+        CreateTrace(Params, #{})
+    ),
+    {204, _} = delete_trace_api(Name),
+
+    Role = iolist_to_binary(["ns:", Namespace, "::administrator"]),
+    NsToken = emqx_bridge_v2_testlib:create_namespaced_user_and_token(#{
+        params => #{<<"role">> => Role}
+    }),
+    AuthHeader = {"Authorization", iolist_to_binary(["Bearer ", NsToken])},
+
+    %% Create a trace targeting ns (no ns param, namespaced admin).
+    ?assertMatch(
+        {{200, _}, {ok, #{namespace := Namespace}}},
+        CreateTrace(Params, #{auth_header => AuthHeader})
+    ),
+    {204, _} = delete_trace_api(Name),
+
+    %% Create a trace targeting valid ns (ns param, equal to namespaced admin's).
+    ?assertMatch(
+        {{200, _}, {ok, #{namespace := Namespace}}},
+        CreateTrace(Params, #{ns => Namespace, auth_header => AuthHeader})
+    ),
+    {204, _} = delete_trace_api(Name),
+
+    %% Create a trace targeting inavlid ns (ns param, different from namespaced admin's).
+    OtherNamespace = <<"other_ns">>,
+    ?assertMatch(
+        {403, _},
+        create_trace_api(Params, #{ns => OtherNamespace, auth_header => AuthHeader})
+    ),
+
+    ok.
+
 to_rfc3339(Second) ->
     list_to_binary(calendar:system_time_to_rfc3339(Second)).
+
+create_trace_api(Params, Opts) ->
+    URL = emqx_mgmt_api_test_util:api_path(["trace"]),
+    QueryParams =
+        case maps:find(ns, Opts) of
+            {ok, Ns} when is_binary(Ns) ->
+                #{<<"ns">> => Ns};
+            error ->
+                #{}
+        end,
+    ReqOpts = maps:with([auth_header], Opts),
+    emqx_mgmt_api_test_util:simple_request(ReqOpts#{
+        method => post,
+        url => URL,
+        body => Params,
+        query_params => QueryParams
+    }).
+
+delete_trace_api(Name) ->
+    URL = emqx_mgmt_api_test_util:api_path(["trace", Name]),
+    emqx_mgmt_api_test_util:simple_request(#{
+        method => delete,
+        url => URL
+    }).
 
 request_api(Method, Url) ->
     request_api(Method, Url, []).
@@ -849,3 +957,6 @@ api_path(Path) ->
 
 json(Data) ->
     emqx_utils_json:decode(Data).
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.

@@ -12,6 +12,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -import(hoconsc, [mk/2, array/1, enum/1]).
 
@@ -535,7 +536,7 @@ do_create_or_update_connector(Namespace, ConnectorType, ConnectorName, Conf, Htt
     end.
 
 '/connectors/:id/enable/:enable'(put, #{bindings := #{id := Id, enable := Enable}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id,
         case
@@ -557,7 +558,7 @@ do_create_or_update_connector(Namespace, ConnectorType, ConnectorName, Conf, Htt
     ).
 
 '/connectors/:id/:operation'(post, #{bindings := #{id := Id, operation := Op}} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id,
         begin
@@ -581,7 +582,7 @@ do_create_or_update_connector(Namespace, ConnectorType, ConnectorName, Conf, Htt
             #{id := Id, operation := Op, node := Node}
     } = Req
 ) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
     ?TRY_PARSE_ID(
         Id,
         maybe
@@ -961,8 +962,10 @@ parse_namespace(#{query_string := QueryString} = Req) ->
     ActorNamespace = emqx_dashboard:get_namespace(Req),
     case maps:get(<<"ns">>, QueryString, ActorNamespace) of
         QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            ?tp("connector_api_parsed_ns", #{ns => QSNamespace}),
             {error, not_authorized};
         QSNamespace ->
+            ?tp("connector_api_parsed_ns", #{ns => QSNamespace}),
             {ok, QSNamespace}
     end.
 

@@ -10,6 +10,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -export([
     api_spec/0,
@@ -30,6 +31,9 @@
 ]).
 
 -export([validate_name/1]).
+
+%% minirest filter callback
+-export([filter/2]).
 
 %% RPC Targets:
 -export([
@@ -65,6 +69,7 @@ paths() ->
 schema("/trace") ->
     #{
         'operationId' => trace,
+        filter => fun ?MODULE:filter/2,
         get => #{
             description => ?DESC(list_all),
             tags => ?TAGS,
@@ -75,6 +80,7 @@ schema("/trace") ->
         post => #{
             description => ?DESC(create_new),
             tags => ?TAGS,
+            parameters => [ns_qs_param()],
             'requestBody' => hoconsc:ref(trace_params),
             responses => #{
                 200 => hoconsc:ref(trace),
@@ -418,6 +424,9 @@ fields(stream_hint) ->
             )}
     ].
 
+ns_qs_param() ->
+    {ns, hoconsc:mk(binary(), #{in => query, required => false})}.
+
 %%
 
 -define(NAME_RE, "^[A-Za-z]+[A-Za-z0-9-_]*$").
@@ -461,7 +470,8 @@ trace(get, _Params) ->
             {200, Traces}
     end;
 trace(post, #{body := Params} = Req) ->
-    Namespace = emqx_dashboard:get_namespace(Req),
+    Namespace = get_namespace(Req),
+    ?tp("creating_trace", #{namespace => Namespace}),
     case emqx_trace:create(mk_trace(Params, Namespace)) of
         {ok, Created} ->
             {200, format_trace(Created)};
@@ -883,3 +893,42 @@ read_trace_file(_Name, Position, _Limit) when is_integer(Position) ->
     {ok, <<>>};
 read_trace_file(Name, Cont, Limit) ->
     emqx_trace:stream_log(Name, Cont, Limit).
+
+get_namespace(#{resolved_ns := Namespace}) ->
+    Namespace.
+
+parse_namespace(#{query_string := QueryString} = Req) ->
+    ActorNamespace = emqx_dashboard:get_namespace(Req),
+    case maps:get(<<"ns">>, QueryString, ActorNamespace) of
+        QSNamespace when QSNamespace /= ActorNamespace andalso ActorNamespace /= ?global_ns ->
+            {error, not_authorized};
+        QSNamespace ->
+            {ok, QSNamespace}
+    end.
+
+resolve_namespace(Req, _Meta) ->
+    case parse_namespace(Req) of
+        {ok, Namespace} ->
+            {ok, Req#{resolved_ns => Namespace}};
+        {error, not_authorized} ->
+            ?FORBIDDEN(<<"User not authorized to operate on requested namespace">>)
+    end.
+
+validate_managed_namespace(#{resolved_ns := ?global_ns} = Req, _Meta) ->
+    {ok, Req};
+validate_managed_namespace(#{resolved_ns := Namespace} = Req, _Meta) ->
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end.
+
+filter(Req0, Meta) ->
+    maybe
+        {ok, Req1} ?= resolve_namespace(Req0, Meta),
+        validate_managed_namespace(Req1, Meta)
+    end.

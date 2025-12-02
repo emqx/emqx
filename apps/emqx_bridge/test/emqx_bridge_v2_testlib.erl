@@ -853,6 +853,12 @@ op_bridge_api(Kind, Op, BridgeType, BridgeName) ->
     ct:pal("bridge op result:\n  ~p", [Res]),
     Res.
 
+assert_bridge_start(Kind, Type, Name) ->
+    ?assertMatch(
+        {ok, {{_, 204, _}, _Headers, []}},
+        op_bridge_api(Kind, "start", Type, Name)
+    ).
+
 probe_bridge_api(Config) ->
     probe_bridge_api(Config, _Overrides = #{}).
 
@@ -1488,17 +1494,21 @@ t_rule_action(TCConfig, Opts) ->
         ?assertMatch({201, _}, create_connector_api2(TCConfig, #{})),
         ?assertMatch({201, _}, create_action_api2(TCConfig, ActionOverrides))
     end),
+    CreateRuleFn = maps:get(create_rule_fn, Opts, fun() ->
+        #{type := Type} = get_common_values(TCConfig),
+        RuleTopic = maps:get(
+            rule_topic,
+            RuleCreationOpts,
+            emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)])
+        ),
+        {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig, RuleCreationOpts),
+        #{topic => RuleTopic}
+    end),
     ?check_trace(
         begin
-            #{type := Type} = get_common_values(TCConfig),
             CreateBridgeFn(),
-            RuleTopic = maps:get(
-                rule_topic,
-                RuleCreationOpts,
-                emqx_topic:join([<<"test">>, emqx_utils_conv:bin(Type)])
-            ),
             ct:pal("creating rule"),
-            {ok, _} = create_rule_and_action_http(Type, RuleTopic, TCConfig, RuleCreationOpts),
+            #{topic := RuleTopic} = CreateRuleFn(),
             ResourceId = connector_resource_id(TCConfig),
             ?retry(
                 _Sleep = 1_000,
@@ -1778,10 +1788,7 @@ t_start_stop(Config, StopTracePoint, #{} = Opts) ->
             ),
 
             %% `start` bridge to trigger `already_started`
-            ?assertMatch(
-                {ok, {{_, 204, _}, _Headers, []}},
-                op_bridge_api(Kind, "start", Type, Name)
-            ),
+            assert_bridge_start(Kind, Type, Name),
 
             ?retry(
                 _Sleep = 1_000,
