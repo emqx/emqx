@@ -282,7 +282,7 @@
 
 %% Effects that may occur when sequence number is released:
 -record(onrel_unblock, {stream :: stream_key()}).
--record(onrel_complete, {stream :: stream_key()}).
+-record(onrel_complete, {stream :: stream_key(), subref :: emqx_ds:subid() | undefined}).
 -record(onrel_shared_report_progress, {}).
 
 -type onrel_action() :: #onrel_unblock{} | #onrel_complete{} | #onrel_shared_report_progress{}.
@@ -846,7 +846,9 @@ replay_batch(StreamKey, SRS, Session0 = #{s := S0, inflight := Inflight0}, Clien
             check_replay_consistency(
                 StreamKey, SRS, ItEnd, Batch, LastSeqNoQos1, LastSeqNoQos2, Session0
             ),
-            Session = post_enqueue(StreamKey, SRS, Session0#{inflight := Inflight}, ClientInfo),
+            Session = post_enqueue(
+                StreamKey, SRS, undefined, Session0#{inflight := Inflight}, ClientInfo
+            ),
             {ok, SRS, Session};
         Error = {error, _, _} ->
             Error
@@ -968,10 +970,7 @@ get_iterator(SubId, _Slab, Stream, #{s := S}) ->
 on_new_iterator(SubId, {Shard, Gen}, Stream, Iterator, Session = #{s := S0}) ->
     case emqx_persistent_session_ds_subs:find_by_subid(SubId, S0) of
         {_TopicFilter, Subscription} ->
-            #{
-                start_time := StartTime,
-                current_state := CurrentSubStateId
-            } = Subscription,
+            #{current_state := CurrentSubStateId} = Subscription,
             Key = {SubId, Stream},
             ?tp(?sessds_new_stream, #{
                 sub_id => SubId,
@@ -1215,6 +1214,7 @@ handle_ds_reply(
             post_enqueue_new(
                 StreamKey,
                 SRS,
+                Reply0#ds_sub_reply.ref,
                 schedule_delivery(Session),
                 ClientInfo
             );
@@ -1446,7 +1446,7 @@ drain_buffer_of_stream(
         true ->
             {SRS, SubState} = pre_enqueue_new(SRS0, S),
             do_drain_buffer_of_stream(
-                StreamKey, SRS, SubState, Session, ClientInfo, Buf, Inflight
+                StreamKey, SRS, undefined, SubState, Session, ClientInfo, Buf, Inflight
             );
         false ->
             Session
@@ -1455,6 +1455,7 @@ drain_buffer_of_stream(
 do_drain_buffer_of_stream(
     StreamKey,
     SRS0,
+    SubRef0,
     SubState,
     Session0 = #{s := S0},
     ClientInfo,
@@ -1462,18 +1463,22 @@ do_drain_buffer_of_stream(
     Inflight0
 ) ->
     case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
-        {[DSReply], Buf} ->
+        {[DSReply = #ds_sub_reply{ref = SubRef}], Buf} ->
             ?tp("sessds_drain_buffer_of_stream", #{stream => StreamKey, reply => DSReply}),
             {SRS, Inflight} = enqueue_batch(
                 S0, DSReply, SubState, SRS0, ClientInfo, Inflight0
             ),
             do_drain_buffer_of_stream(
-                StreamKey, SRS, SubState, Session0, ClientInfo, Buf, Inflight
+                StreamKey, SRS, SubRef, SubState, Session0, ClientInfo, Buf, Inflight
             );
         {[], Buf} ->
             %% No more buffered messages:
             post_enqueue_new(
-                StreamKey, SRS0, Session0#{buffer := Buf, inflight := Inflight0}, ClientInfo
+                StreamKey,
+                SRS0,
+                SubRef0,
+                Session0#{buffer := Buf, inflight := Inflight0},
+                ClientInfo
             )
     end.
 
@@ -1847,9 +1852,12 @@ enqueue_batch(
     },
     {SRS, Inflight}.
 
+-spec post_enqueue_new(stream_key(), srs(), emqx_ds:sub_ref(), session(), clientinfo()) ->
+    session().
 post_enqueue_new(
     StreamKey,
     SRS = #srs{last_seqno_qos1 = SNQ1, last_seqno_qos2 = SNQ2},
+    SubRef,
     Session0 = #{s := S0},
     ClientInfo
 ) ->
@@ -1857,11 +1865,12 @@ post_enqueue_new(
     S2 = put_seqno(?next(?QOS_2), SNQ2, S1),
     S = emqx_persistent_session_ds_state:put_stream(StreamKey, SRS, S2),
     Session = Session0#{s := S},
-    post_enqueue(StreamKey, SRS, Session, ClientInfo).
+    post_enqueue(StreamKey, SRS, SubRef, Session, ClientInfo).
 
 -spec post_enqueue(
     stream_key(),
     srs(),
+    emqx_ds:sub_ref() | undefined,
     session(),
     clientinfo()
 ) -> session().
@@ -1873,6 +1882,7 @@ post_enqueue(
         it_end = ItEnd,
         batch_size = BatchSize
     } = SRS,
+    SubRef,
     Session,
     ClientInfo
 ) ->
@@ -1880,7 +1890,7 @@ post_enqueue(
         end_of_stream ->
             X = on_release(
                 SRS,
-                #onrel_complete{stream = StreamKey},
+                #onrel_complete{stream = StreamKey, subref = SubRef},
                 Session,
                 ClientInfo
             ),
@@ -1994,19 +2004,26 @@ handle_onrel(
     ?tp(?sessds_unblock_stream, #{key => Key}),
     drain_buffer_of_stream(Key, Session, ClientInfo);
 handle_onrel(
-    #onrel_complete{stream = {SubId, Stream} = Key},
+    #onrel_complete{stream = {SubId, Stream} = Key, subref = SubRef},
     Session0 = #{dscli := CS0, s := S0},
     _ClientInfo
 ) ->
-    #srs{rank_x = Shard, rank_y = Generation} = emqx_persistent_session_ds_state:get_stream(
-        Key, S0
-    ),
-    %% FIXME: currently DS subscription will leak when this function
-    %% is called. Fix it in ds_client
-    {CS, Session} = emqx_ds_client:complete_stream(
-        CS0, SubId, {Shard, Generation}, Stream, Session0
-    ),
-    Session#{dscli := CS}.
+    case SubRef of
+        undefined ->
+            %% This happened during replay.
+            #srs{rank_x = Shard, rank_y = Generation} = emqx_persistent_session_ds_state:get_stream(
+                Key, S0
+            ),
+            %% FIXME: currently DS subscription will leak when this function
+            %% is called. Fix it in ds_client
+            {CS, Session} = emqx_ds_client:complete_stream(
+                CS0, SubId, {Shard, Generation}, Stream, Session0
+            ),
+            Session#{dscli := CS};
+        _ ->
+            {CS, Session} = emqx_ds_client:complete_stream(CS0, SubRef, Session0),
+            Session#{dscli := CS}
+    end.
 
 %%--------------------------------------------------------------------
 %% Functions related to stream replay states

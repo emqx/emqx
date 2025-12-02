@@ -394,7 +394,7 @@ detach_iterator(SubId, Slab, Stream, CS0, HS0) ->
 Pretty-print state of the client.
 """.
 -spec inspect(t()) -> map().
-inspect(CS = #cs{streams = Streams, ds_subs = DSSubs}) ->
+inspect(CS = #cs{streams = Streams, subs = Subs, ds_subs = DSSubs}) ->
     PrettyStreams = maps:map(
         fun(_, Cache0 = #stream_cache{future = F}) ->
             Cache = Cache0#stream_cache{
@@ -404,8 +404,15 @@ inspect(CS = #cs{streams = Streams, ds_subs = DSSubs}) ->
         end,
         Streams
     ),
+    PrettySubs = maps:map(
+        fun(_, Sub) ->
+            ?record_to_map(sub, Sub)
+        end,
+        Subs
+    ),
     ?record_to_map(cs, CS#cs{
         streams = PrettyStreams,
+        subs = PrettySubs,
         ds_subs = maps:map(fun(_, V) -> ?record_to_map(ds_sub, V) end, DSSubs)
     }).
 

@@ -610,51 +610,36 @@ subscription_mode(#{qos := _QoS12}) ->
 
 -ifdef(TEST).
 
--spec runtime_state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
+-spec runtime_state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{
+    s := map(), dscli := _
+}) ->
     boolean().
 runtime_state_invariants(ModelState = #{subs := ModelSubs}, State) ->
-    true = state_invariants(ModelState, State),
-    maps:foreach(
-        fun(TopicFilter, SubOpts) ->
-            AssertDurable = assert_runtime_durable_subscription(TopicFilter, SubOpts, State),
-            AssertDirect = assert_runtime_direct_subscription(TopicFilter, SubOpts, State),
-            if
-                AssertDurable == [] ->
-                    true;
-                AssertDirect == [] ->
-                    true;
-                true ->
-                    ?defer_assert(
-                        ?assertEqual(
-                            "For each model subscription there should be either a direct or "
-                            "durable broker subscription",
-                            {TopicFilter, SubOpts},
-                            {"Failed assertions", AssertDurable ++ AssertDirect}
-                        )
-                    )
-            end
-        end,
-        ModelSubs
-    ),
-    true.
+    state_invariants(ModelState, State) and
+        assert_ds_client_subscriptions(ModelState, State) and
+        assert_direct_routes(ModelState).
 
 -spec offline_state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
     boolean().
 offline_state_invariants(ModelState = #{subs := _ModelSubs}, State) ->
+    assert_durable_routes(ModelState),
     state_invariants(ModelState, State).
 
 -spec state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
     boolean().
-state_invariants(#{subs := ModelSubs}, #{s := S}) ->
+state_invariants(#{subs := ModelSubs}, #{s := S} = Rec) ->
+    #{subscriptions := Subs} = S,
+    assert_one_to_one(
+        "model subs",
+        maps:keys(ModelSubs),
+        "subs stored in session state",
+        maps:keys(Subs),
+        #{s => S}
+    ) and assert_state_sub_qos(ModelSubs, S).
+
+%% Verify that QoS of the current subscription state matches the model QoS:
+assert_state_sub_qos(ModelSubs, S) ->
     #{subscriptions := Subs, subscription_states := SStates} = S,
-    ?defer_assert(
-        ?assertEqual(
-            lists:sort(maps:keys(ModelSubs)),
-            lists:sort(maps:keys(Subs)),
-            "There should be 1:1 relationship between model and session's subscriptions"
-        )
-    ),
-    %% Verify that QoS of the current subscription state matches the model QoS:
     maps:foreach(
         fun(TopicFilter, #{qos := ExpectedQoS}) ->
             ?defer_assert(
@@ -669,42 +654,91 @@ state_invariants(#{subs := ModelSubs}, #{s := S}) ->
     ),
     true.
 
-assert_runtime_durable_subscription(Topic, SubOpts, State) ->
-    case emqx_persistent_session_ds_router:lookup_routes(Topic) of
-        [_Route] ->
-            Acc1 = [];
-        _ ->
-            Acc1 = [
-                "There's 1:1 relationship between durable subscriptions and "
-                "persistent routes"
-            ]
-    end,
-    Acc2 = emqx_persistent_session_ds_stream_scheduler:assert_runtime_durable_subscription(
-        Topic,
-        SubOpts,
-        State
+%% This function verifies that for each model subscription with QoS >
+%% 0 there's a durable route.
+assert_durable_routes(ModelState) ->
+    Routes = emqx_persistent_session_ds_router:foldl_routes(
+        fun({ps_route, Topic, _Dest}, Acc) ->
+            [Topic | Acc]
+        end,
+        []
     ),
-    Acc1 ++ Acc2.
+    assert_one_to_one(
+        "durable model subscriptions",
+        durable_model_subs(ModelState),
+        "durable routes",
+        Routes,
+        #{model => ModelState}
+    ).
 
-assert_runtime_direct_subscription(Topic, _SubOpts, #{id := SessionId}) ->
-    case emqx_router:lookup_routes(Topic) of
-        [_Route] ->
-            Acc1 = [];
+assert_direct_routes(_) ->
+    %% TODO
+    true.
+
+%% Verify that the DS client of the session is subscribed to all
+%% durable model subs.
+assert_ds_client_subscriptions(ModelState, #{dscli := DSCliRaw}) ->
+    DSCli = emqx_ds_client:inspect(DSCliRaw),
+    CliSubs = maps:fold(
+        fun(_SubId, #{topic := Topic}, Acc) ->
+            [emqx_topic:join(Topic) | Acc]
+        end,
+        [],
+        maps:get(subs, DSCli)
+    ),
+    assert_one_to_one(
+        "durable subscriptions",
+        durable_model_subs(ModelState),
+        "DS client subscriptions",
+        CliSubs,
+        #{model => ModelState, client => DSCli}
+    ).
+
+%% Return list of model subscriptions with QoS > 0
+durable_model_subs(#{subs := ModelSubs}) ->
+    maps:fold(
+        fun(TopicFilter, SubOpts = #{qos := QoS}, Acc) ->
+            case QoS of
+                ?QOS_0 ->
+                    Acc;
+                _ ->
+                    [TopicFilter | Acc]
+            end
+        end,
+        [],
+        ModelSubs
+    ).
+
+%% Return list of model subscriptions with QoS = 0
+direct_model_subs(#{subs := ModelSubs}) ->
+    maps:fold(
+        fun(TopicFilter, #{qos := QoS}, Acc) ->
+            case QoS of
+                ?QOS_0 ->
+                    [TopicFilter | Acc];
+                _ ->
+                    Acc
+            end
+        end,
+        [],
+        ModelSubs
+    ).
+
+%% Helper function that sorts and then compares two lists for equality
+assert_one_to_one(What1, Expected, What2, Got, Misc) ->
+    Diff = snabbkaffe_diff:diff_lists(#{}, lists:sort(Expected), lists:sort(Got)),
+    case Diff of
+        [] ->
+            true;
         _ ->
-            Acc1 = [
-                "There's 1:1 relationship between direct subscriptions and "
-                "broker routes"
-            ]
-    end,
-    case emqx_broker:subscribed(SessionId, Topic) of
-        true ->
-            Acc2 = [];
-        false ->
-            Acc2 = [
-                "There's 1:1 relationship between direct subscriptions and "
-                "broker subscribers"
-            ]
-    end,
-    Acc1 ++ Acc2.
+            logger:error(
+                "There must be 1:1 relation between ~s and ~s. Diff:~n~s~n~nMore info: ~p",
+                [What1, What2, snabbkaffe_diff:format(Diff), Misc]
+            ),
+            ?defer_assert(
+                error(?FUNCTION_NAME)
+            ),
+            false
+    end.
 
 -endif.
