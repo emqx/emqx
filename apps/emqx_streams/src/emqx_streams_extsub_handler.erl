@@ -684,9 +684,9 @@ to_messages(Shard, LastTimestampUs, TTVs) ->
         shard => Shard, last_timestamp_us => LastTimestampUs, ttvs => TTVs
     }),
     {NewLastTimestampUs, Messages} = lists:foldl(
-        fun({_Topic, Time, Payload}, {LastTimestampUsAcc, MessagesAcc}) ->
+        fun({Topic, Time, Payload}, {LastTimestampUsAcc, MessagesAcc}) ->
             case Time >= LastTimestampUsAcc of
-                true -> {Time, [decode_message(Shard, Time, Payload) | MessagesAcc]};
+                true -> {Time, [decode_message(Shard, Topic, Time, Payload) | MessagesAcc]};
                 false -> {LastTimestampUsAcc, MessagesAcc}
             end
         end,
@@ -726,11 +726,12 @@ update_stream_state(#state{subs = Subs} = State, SubId, StreamState) ->
 get_stream_state(SubId, #state{subs = Subs}) ->
     maps:get(SubId, Subs).
 
-decode_message(Shard, Time, Payload) ->
+decode_message(Shard, ?STREAMS_MESSAGE_DB_TOPIC(_TF, _StreamId, Key), Time, Payload) ->
     Message = emqx_streams_message_db:decode_message(Payload),
     add_properties(Message, [
         {<<"part">>, Shard},
-        {<<"ts">>, integer_to_binary(Time)}
+        {<<"ts">>, integer_to_binary(Time)},
+        {<<"key">>, Key}
     ]).
 
 add_properties(Message, UserProperties) when length(UserProperties) > 0 ->

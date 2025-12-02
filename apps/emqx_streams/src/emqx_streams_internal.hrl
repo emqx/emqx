@@ -28,6 +28,10 @@
 -define(DEFAULT_QUOTA_BUFFER_FLUSH_INTERVAL, 1000).
 -define(DEFAULT_QUOTA_BUFFER_POOL_SIZE, 10).
 
+-define(STREAMS_MESSAGE_DB_TOPIC(STREAM_TOPIC, STREAM_ID, KEY), [
+    <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"key">>, KEY
+]).
+
 -record(shard_dispatch_command, {group, c, context}).
 
 -endif.
