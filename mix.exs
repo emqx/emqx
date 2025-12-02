@@ -275,13 +275,13 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.15", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.1.2"}
+  def common_dep(:wolff), do: {:wolff, "4.1.3"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
-    do: {:kafka_protocol, "4.3.0", override: true}
+    do: {:kafka_protocol, "4.3.1", override: true}
 
-  def common_dep(:brod), do: {:brod, "4.4.7"}
+  def common_dep(:brod), do: {:brod, "4.5.1"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}

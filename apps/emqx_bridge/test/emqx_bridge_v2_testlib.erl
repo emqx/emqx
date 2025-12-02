@@ -853,6 +853,12 @@ op_bridge_api(Kind, Op, BridgeType, BridgeName) ->
     ct:pal("bridge op result:\n  ~p", [Res]),
     Res.
 
+assert_bridge_start(Kind, Type, Name) ->
+    ?assertMatch(
+        {ok, {{_, 204, _}, _Headers, []}},
+        op_bridge_api(Kind, "start", Type, Name)
+    ).
+
 probe_bridge_api(Config) ->
     probe_bridge_api(Config, _Overrides = #{}).
 
@@ -1782,10 +1788,7 @@ t_start_stop(Config, StopTracePoint, #{} = Opts) ->
             ),
 
             %% `start` bridge to trigger `already_started`
-            ?assertMatch(
-                {ok, {{_, 204, _}, _Headers, []}},
-                op_bridge_api(Kind, "start", Type, Name)
-            ),
+            assert_bridge_start(Kind, Type, Name),
 
             ?retry(
                 _Sleep = 1_000,
