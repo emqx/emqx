@@ -208,7 +208,17 @@ esockd_close({udp, _SockPid, _Sock}) ->
 esockd_close({esockd_transport, Sock}) ->
     esockd_transport:fast_close(Sock);
 esockd_close({esockd_udp_proxy, ProxyId, _Sock}) ->
-    esockd_udp_proxy:close(ProxyId).
+    try
+        esockd_udp_proxy:close(ProxyId)
+    catch
+        exit:{ssl_closed, _} ->
+            ok;
+        _:Reason ->
+            ?SLOG(warning, #{
+                msg => gateway_conn_esockd_close, reason => Reason, proxy_id => ProxyId
+            }),
+            ok
+    end.
 
 esockd_ensure_ok_or_exit(peercert, {udp, _SockPid, _Sock}) ->
     nossl;
@@ -281,6 +291,9 @@ init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
                 )
             );
         {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => gateway_conn_init_error, reason => Reason, wrapped_sock => WrappedSock
+            }),
             ok = esockd_close(WrappedSock),
             exit_on_sock_error(Reason)
     end.
@@ -951,6 +964,7 @@ activate_socket(
 close_socket(State = #state{sockstate = closed}) ->
     State;
 close_socket(State = #state{socket = Socket}) ->
+    ?SLOG(warning, #{msg => gateway_conn_close_socket, socket => Socket}),
     ok = esockd_close(Socket),
     State#state{sockstate = closed}.
 
