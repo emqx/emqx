@@ -70,9 +70,6 @@ Facade for all operations with the message database.
     %% "topic/STREAM_TOPIC/STREAM_ID/key/СOMPACTION_KEY"
     lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
 }).
--define(STREAMS_MESSAGE_DB_TOPIC(STREAM_TOPIC, STREAM_ID, KEY), [
-    <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"key">>, KEY
-]).
 -define(STREAMS_INDEX_TOPIC(STREAM_TOPIC, STREAM_ID), [
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"index">>
 ]).
