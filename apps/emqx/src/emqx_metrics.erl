@@ -87,14 +87,15 @@
 %% Type declarations
 %%------------------------------------------------------------------------------
 
--opaque metric_idx() :: 1..1024.
+-define(MAX_SIZE, 256).
+-define(RESERVED_IDX, 128).
+
+-opaque metric_idx() :: 1..?MAX_SIZE.
 
 -type metric_name() :: atom() | string() | binary().
 
 -type maybe_namespace() :: emqx_config:maybe_namespace().
 
--define(MAX_SIZE, 1024).
--define(RESERVED_IDX, 512).
 -define(TAB, ?MODULE).
 -define(SERVER, ?MODULE).
 
@@ -512,110 +513,107 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %%--------------------------------------------------------------------
 
-reserved_idx('bytes.received') -> 01;
-reserved_idx('bytes.sent') -> 02;
-%% Reserved indices of packet's metrics
-reserved_idx('packets.received') -> 10;
-reserved_idx('packets.sent') -> 11;
-reserved_idx('packets.connect.received') -> 12;
-reserved_idx('packets.connack.sent') -> 13;
-reserved_idx('packets.connack.error') -> 14;
-reserved_idx('packets.connack.auth_error') -> 15;
-reserved_idx('packets.publish.received') -> 16;
-reserved_idx('packets.publish.sent') -> 17;
-reserved_idx('packets.publish.inuse') -> 18;
-reserved_idx('packets.publish.error') -> 19;
-reserved_idx('packets.publish.auth_error') -> 20;
-reserved_idx('packets.puback.received') -> 21;
-reserved_idx('packets.puback.sent') -> 22;
-reserved_idx('packets.puback.inuse') -> 23;
-reserved_idx('packets.puback.missed') -> 24;
-reserved_idx('packets.pubrec.received') -> 25;
-reserved_idx('packets.pubrec.sent') -> 26;
-reserved_idx('packets.pubrec.inuse') -> 27;
-reserved_idx('packets.pubrec.missed') -> 28;
-reserved_idx('packets.pubrel.received') -> 29;
-reserved_idx('packets.pubrel.sent') -> 30;
-reserved_idx('packets.pubrel.missed') -> 31;
-reserved_idx('packets.pubcomp.received') -> 32;
-reserved_idx('packets.pubcomp.sent') -> 33;
-reserved_idx('packets.pubcomp.inuse') -> 34;
-reserved_idx('packets.pubcomp.missed') -> 35;
-reserved_idx('packets.subscribe.received') -> 36;
-reserved_idx('packets.subscribe.error') -> 37;
-reserved_idx('packets.subscribe.auth_error') -> 38;
-reserved_idx('packets.suback.sent') -> 39;
-reserved_idx('packets.unsubscribe.received') -> 40;
-reserved_idx('packets.unsubscribe.error') -> 41;
-reserved_idx('packets.unsuback.sent') -> 42;
-reserved_idx('packets.pingreq.received') -> 43;
-reserved_idx('packets.pingresp.sent') -> 44;
-reserved_idx('packets.disconnect.received') -> 45;
-reserved_idx('packets.disconnect.sent') -> 46;
-reserved_idx('packets.auth.received') -> 47;
-reserved_idx('packets.auth.sent') -> 48;
-%% reserved_idx('packets.publish.dropped') -> 49; %% deprecated; new metrics may use this index.
-reserved_idx('packets.publish.quota_exceeded') -> 50;
-%% Reserved indices of message's metrics
-reserved_idx('messages.received') -> 100;
-reserved_idx('messages.sent') -> 101;
-reserved_idx('messages.qos0.received') -> 102;
-reserved_idx('messages.qos0.sent') -> 103;
-reserved_idx('messages.qos1.received') -> 104;
-reserved_idx('messages.qos1.sent') -> 105;
-reserved_idx('messages.qos2.received') -> 106;
-reserved_idx('messages.qos2.sent') -> 107;
-reserved_idx('messages.publish') -> 108;
-reserved_idx('messages.dropped') -> 109;
-reserved_idx('messages.dropped.await_pubrel_timeout') -> 110;
-reserved_idx('messages.dropped.no_subscribers') -> 111;
-reserved_idx('messages.forward') -> 112;
-reserved_idx('messages.dropped.quota_exceeded') -> 113;
-reserved_idx('messages.delayed') -> 114;
-reserved_idx('messages.delivered') -> 115;
-reserved_idx('messages.acked') -> 116;
-reserved_idx('messages.dropped.receive_maximum') -> 117;
-reserved_idx('delivery.dropped') -> 118;
-reserved_idx('delivery.dropped.no_local') -> 119;
-reserved_idx('delivery.dropped.too_large') -> 120;
-reserved_idx('delivery.dropped.qos0_msg') -> 121;
-reserved_idx('delivery.dropped.queue_full') -> 122;
-reserved_idx('delivery.dropped.expired') -> 123;
-reserved_idx('client.connect') -> 200;
-reserved_idx('client.connack') -> 201;
-reserved_idx('client.connected') -> 202;
-reserved_idx('client.authenticate') -> 203;
-reserved_idx('client.ping') -> 204;
-reserved_idx('client.auth.anonymous') -> 205;
-reserved_idx('client.authorize') -> 206;
-reserved_idx('client.subscribe') -> 207;
-reserved_idx('client.unsubscribe') -> 208;
-reserved_idx('client.disconnected') -> 209;
-reserved_idx('session.created') -> 220;
-reserved_idx('session.resumed') -> 221;
-reserved_idx('session.takenover') -> 222;
-reserved_idx('session.discarded') -> 223;
-reserved_idx('session.terminated') -> 224;
-reserved_idx('session.disconnected') -> 225;
-reserved_idx('authorization.allow') -> 300;
-reserved_idx('authorization.deny') -> 301;
-reserved_idx('authorization.cache_hit') -> 302;
-reserved_idx('authorization.cache_miss') -> 303;
-reserved_idx('authentication.success') -> 310;
-reserved_idx('authentication.success.anonymous') -> 311;
-reserved_idx('authentication.failure') -> 312;
-reserved_idx('overload_protection.delay.ok') -> 400;
-reserved_idx('overload_protection.delay.timeout') -> 401;
-reserved_idx('overload_protection.hibernation') -> 402;
-reserved_idx('overload_protection.gc') -> 403;
-reserved_idx('overload_protection.new_conn') -> 404;
-reserved_idx('messages.validation_succeeded') -> 405;
-reserved_idx('messages.validation_failed') -> 406;
-reserved_idx('messages.persisted') -> 407;
-reserved_idx('messages.transformation_succeeded') -> 408;
-reserved_idx('messages.transformation_failed') -> 409;
-reserved_idx('rules.matched') -> 410;
-reserved_idx('actions.executed') -> 411;
+reserved_idx('bytes.received') -> 1;
+reserved_idx('bytes.sent') -> 2;
+reserved_idx('packets.received') -> 3;
+reserved_idx('packets.sent') -> 4;
+reserved_idx('packets.connect.received') -> 5;
+reserved_idx('packets.connack.sent') -> 6;
+reserved_idx('packets.connack.error') -> 7;
+reserved_idx('packets.connack.auth_error') -> 8;
+reserved_idx('packets.publish.received') -> 9;
+reserved_idx('packets.publish.sent') -> 10;
+reserved_idx('packets.publish.inuse') -> 11;
+reserved_idx('packets.publish.error') -> 12;
+reserved_idx('packets.publish.auth_error') -> 13;
+reserved_idx('packets.puback.received') -> 14;
+reserved_idx('packets.puback.sent') -> 15;
+reserved_idx('packets.puback.inuse') -> 16;
+reserved_idx('packets.puback.missed') -> 17;
+reserved_idx('packets.pubrec.received') -> 18;
+reserved_idx('packets.pubrec.sent') -> 19;
+reserved_idx('packets.pubrec.inuse') -> 20;
+reserved_idx('packets.pubrec.missed') -> 21;
+reserved_idx('packets.pubrel.received') -> 22;
+reserved_idx('packets.pubrel.sent') -> 23;
+reserved_idx('packets.pubrel.missed') -> 24;
+reserved_idx('packets.pubcomp.received') -> 25;
+reserved_idx('packets.pubcomp.sent') -> 26;
+reserved_idx('packets.pubcomp.inuse') -> 27;
+reserved_idx('packets.pubcomp.missed') -> 28;
+reserved_idx('packets.subscribe.received') -> 29;
+reserved_idx('packets.subscribe.error') -> 30;
+reserved_idx('packets.subscribe.auth_error') -> 31;
+reserved_idx('packets.suback.sent') -> 32;
+reserved_idx('packets.unsubscribe.received') -> 33;
+reserved_idx('packets.unsubscribe.error') -> 34;
+reserved_idx('packets.unsuback.sent') -> 35;
+reserved_idx('packets.pingreq.received') -> 36;
+reserved_idx('packets.pingresp.sent') -> 37;
+reserved_idx('packets.disconnect.received') -> 38;
+reserved_idx('packets.disconnect.sent') -> 39;
+reserved_idx('packets.auth.received') -> 40;
+reserved_idx('packets.auth.sent') -> 41;
+reserved_idx('packets.publish.quota_exceeded') -> 42;
+reserved_idx('messages.received') -> 43;
+reserved_idx('messages.sent') -> 44;
+reserved_idx('messages.qos0.received') -> 45;
+reserved_idx('messages.qos0.sent') -> 46;
+reserved_idx('messages.qos1.received') -> 47;
+reserved_idx('messages.qos1.sent') -> 48;
+reserved_idx('messages.qos2.received') -> 49;
+reserved_idx('messages.qos2.sent') -> 50;
+reserved_idx('messages.publish') -> 51;
+reserved_idx('messages.dropped') -> 52;
+reserved_idx('messages.dropped.await_pubrel_timeout') -> 53;
+reserved_idx('messages.dropped.no_subscribers') -> 54;
+reserved_idx('messages.forward') -> 55;
+reserved_idx('messages.dropped.quota_exceeded') -> 56;
+reserved_idx('messages.delayed') -> 57;
+reserved_idx('messages.delivered') -> 58;
+reserved_idx('messages.acked') -> 59;
+reserved_idx('messages.dropped.receive_maximum') -> 60;
+reserved_idx('delivery.dropped') -> 61;
+reserved_idx('delivery.dropped.no_local') -> 62;
+reserved_idx('delivery.dropped.too_large') -> 63;
+reserved_idx('delivery.dropped.qos0_msg') -> 64;
+reserved_idx('delivery.dropped.queue_full') -> 65;
+reserved_idx('delivery.dropped.expired') -> 66;
+reserved_idx('client.connect') -> 67;
+reserved_idx('client.connack') -> 68;
+reserved_idx('client.connected') -> 69;
+reserved_idx('client.authenticate') -> 70;
+reserved_idx('client.ping') -> 71;
+reserved_idx('client.auth.anonymous') -> 72;
+reserved_idx('client.authorize') -> 73;
+reserved_idx('client.subscribe') -> 74;
+reserved_idx('client.unsubscribe') -> 75;
+reserved_idx('client.disconnected') -> 76;
+reserved_idx('session.created') -> 77;
+reserved_idx('session.resumed') -> 78;
+reserved_idx('session.takenover') -> 79;
+reserved_idx('session.discarded') -> 80;
+reserved_idx('session.terminated') -> 81;
+reserved_idx('session.disconnected') -> 82;
+reserved_idx('authorization.allow') -> 83;
+reserved_idx('authorization.deny') -> 84;
+reserved_idx('authorization.cache_hit') -> 85;
+reserved_idx('authorization.cache_miss') -> 86;
+reserved_idx('authentication.success') -> 87;
+reserved_idx('authentication.success.anonymous') -> 88;
+reserved_idx('authentication.failure') -> 89;
+reserved_idx('overload_protection.delay.ok') -> 90;
+reserved_idx('overload_protection.delay.timeout') -> 91;
+reserved_idx('overload_protection.hibernation') -> 92;
+reserved_idx('overload_protection.gc') -> 93;
+reserved_idx('overload_protection.new_conn') -> 94;
+reserved_idx('messages.validation_succeeded') -> 95;
+reserved_idx('messages.validation_failed') -> 96;
+reserved_idx('messages.persisted') -> 97;
+reserved_idx('messages.transformation_succeeded') -> 98;
+reserved_idx('messages.transformation_failed') -> 99;
+reserved_idx('rules.matched') -> 100;
+reserved_idx('actions.executed') -> 101;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
