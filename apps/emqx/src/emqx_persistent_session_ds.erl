@@ -1466,7 +1466,7 @@ do_drain_buffer_of_stream(
     Inflight0
 ) ->
     case emqx_persistent_session_ds_buffer:pop_batch(StreamKey, Buf0) of
-        {[DSReply = #ds_sub_reply{ref = SubRef}], Buf} ->
+        {[DSReply], Buf} ->
             ?tp("sessds_drain_buffer_of_stream", #{stream => StreamKey, reply => DSReply}),
             {SRS, Inflight} = enqueue_batch(
                 S0, DSReply, SubState, SRS0, ClientInfo, Inflight0
