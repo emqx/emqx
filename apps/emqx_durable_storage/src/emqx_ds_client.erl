@@ -553,7 +553,7 @@ do_dispatch_message(
     CS = #cs{ref = Ref, retry_tref = TRef},
     HS
 ) when is_reference(TRef) ->
-    {#cs.retry, CS, HS};
+    {#cs.retry, CS#cs{retry_tref = undefined}, HS};
 do_dispatch_message(
     #new_stream_event{subref = Watch}, CS0 = #cs{new_streams_watches = Watches, subs = Subs}, HS
 ) ->
