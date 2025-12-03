@@ -42,9 +42,7 @@
     %% gRPC channel pid
     channel := pid(),
     %% Registered hook names and options
-    hookspec := #{hookpoint() => map()},
-    %% Metrcis name prefix
-    prefix := list()
+    hookspec := #{hookpoint() => map()}
 }.
 
 -type hookpoint() ::
@@ -70,8 +68,6 @@
 
 -export_type([service/0, hookpoint/0]).
 
--dialyzer({nowarn_function, [inc_metrics/2]}).
-
 -elvis([
     {elvis_style, dont_repeat_yourself, disable},
     {elvis_style, no_catch_expressions, disable}
@@ -92,17 +88,13 @@ load(Name, #{request_timeout := Timeout, failed_action := FailedAction} = Opts) 
                 {ok, _ChannPoolPid} ->
                     case do_init(Name, ReqOpts) of
                         {ok, HookSpecs} ->
-                            %% Register metrics
-                            Prefix = lists:flatten(io_lib:format("exhook.~ts.", [Name])),
-                            ensure_metrics(Prefix, HookSpecs),
                             %% Ensure hooks
                             ensure_hooks(HookSpecs),
                             {ok, #{
                                 name => Name,
                                 options => ReqOpts,
                                 channel => _ChannPoolPid,
-                                hookspec => HookSpecs,
-                                prefix => Prefix
+                                hookspec => HookSpecs
                             }};
                         {error, Reason} ->
                             _ = emqx_exhook_sup:stop_grpc_client_channel(Name),
@@ -230,14 +222,6 @@ resolve_hookspec(HookSpecs) when is_list(HookSpecs) ->
     ).
 
 %% @private
-ensure_metrics(Prefix, HookSpecs) ->
-    Keys = [
-        list_to_atom(Prefix ++ atom_to_list(Hookpoint))
-     || Hookpoint <- maps:keys(HookSpecs)
-    ],
-    lists:foreach(fun emqx_metrics:ensure/1, Keys).
-
-%% @private
 ensure_hooks(HookSpecs) ->
     lists:foreach(
         fun(Hookpoint) ->
@@ -351,8 +335,7 @@ call(
     #{
         name := ChannName,
         options := ReqOpts,
-        hookspec := Hooks,
-        prefix := Prefix
+        hookspec := Hooks
     }
 ) ->
     case maps:get(Hookpoint, Hooks, undefined) of
@@ -371,19 +354,10 @@ call(
                 false ->
                     ignore;
                 _ ->
-                    inc_metrics(Prefix, Hookpoint),
                     GrpcFun = hk2func(Hookpoint),
                     do_call(ChannName, Hookpoint, GrpcFun, Req, ReqOpts)
             end
     end.
-
-%% @private
-inc_metrics(IncFun, Name) when is_function(IncFun) ->
-    %% BACKW: e4.2.0-e4.2.2
-    {env, [Prefix | _]} = erlang:fun_info(IncFun, env),
-    inc_metrics(Prefix, Name);
-inc_metrics(Prefix, Name) when is_list(Prefix) ->
-    emqx_metrics:inc_global(list_to_atom(Prefix ++ atom_to_list(Name))).
 
 -compile({inline, [match_topic_filter/2]}).
 match_topic_filter(_, []) ->
