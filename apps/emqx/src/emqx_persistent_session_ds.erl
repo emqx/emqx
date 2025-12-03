@@ -2000,7 +2000,7 @@ handle_onrel(
     drain_buffer_of_stream(Key, Session, ClientInfo);
 handle_onrel(
     #onrel_complete{stream = {SubId, Stream} = Key},
-    Session0 = #{dscli := CS0, s := S0},
+    Session0 = #{dscli := DSCli0, s := S0},
     _ClientInfo
 ) ->
     #srs{rank_x = Shard, rank_y = Generation} = emqx_persistent_session_ds_state:get_stream(
@@ -2008,10 +2008,10 @@ handle_onrel(
     ),
     %% FIXME: currently DS subscription will leak when this function
     %% is called. Fix it in ds_client
-    {CS, Session} = emqx_ds_client:complete_stream(
-        CS0, SubId, {Shard, Generation}, Stream, Session0
+    {DSCli, Session} = emqx_ds_client:complete_stream(
+        DSCli0, SubId, {Shard, Generation}, Stream, Session0
     ),
-    Session#{dscli := CS}.
+    Session#{dscli := DSCli}.
 
 %%--------------------------------------------------------------------
 %% Functions related to stream replay states
