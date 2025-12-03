@@ -704,3 +704,27 @@ t_rule_test_trace(TCConfig) ->
     end,
     Opts = #{payload_fn => PayloadFn},
     emqx_bridge_v2_testlib:t_rule_test_trace(TCConfig, Opts).
+
+t_bad_password() ->
+    [{matrix, true}].
+t_bad_password(matrix) ->
+    [[?iotdb130], [?thrift]];
+t_bad_password(TCConfig) ->
+    BadAuth = #{<<"password">> => <<"wrong password">>},
+    Driver = get_config(driver, TCConfig),
+    Overrides =
+        case Driver of
+            ?thrift -> BadAuth;
+            ?iotdb130 -> #{<<"authentication">> => BadAuth}
+        end,
+    {201, #{
+        <<"status">> := <<"disconnected">>,
+        <<"status_reason">> := Msg
+    }} = create_connector_api(TCConfig, Overrides),
+    case Driver of
+        ?thrift ->
+            ?assertMatch(match, re:run(Msg, <<"Authentication failed">>, [{capture, none}]));
+        ?iotdb130 ->
+            ?assertMatch(match, re:run(Msg, <<"WRONG_LOGIN_PASSWORD">>, [{capture, none}]))
+    end,
+    ok.
