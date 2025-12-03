@@ -108,16 +108,16 @@ create_stream(#{topic_filter := TopicFilter} = Stream0) ->
     Stream.
 
 fill_stream_defaults(#{topic_filter := _TopicFilter} = Stream0) ->
-    IsLastvalue = maps:get(is_lastvalue, Stream0, false),
+    IsLastValue = maps:get(is_lastvalue, Stream0, false),
     KeyExpressionDefault =
-        case IsLastvalue of
+        case IsLastValue of
             true ->
                 compile_key_expression(<<"message.headers.properties.User-Property.stream-key">>);
             false ->
                 compile_key_expression(<<"message.from">>)
         end,
     Default = #{
-        is_lastvalue => IsLastvalue,
+        is_lastvalue => IsLastValue,
         key_expression => KeyExpressionDefault,
         limits => #{
             max_shard_message_count => infinity,

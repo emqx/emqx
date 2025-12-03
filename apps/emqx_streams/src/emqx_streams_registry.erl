@@ -82,7 +82,7 @@ create(
     #{
         topic_filter := TopicFilter,
         key_expression := _KeyExpression,
-        is_lastvalue := _IsLastvalue,
+        is_lastvalue := _IsLastValue,
         limits := _Limits,
         data_retention_period := _DataRetentionPeriod,
         read_max_unacked := _ReadMaxUnacked
@@ -172,7 +172,7 @@ delete(TopicFilter) ->
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
             ok = mria:dirty_delete_object(Rec),
             Stream = record_to_stream(Rec),
-            ok = emqx_streams_message_db:drop(Stream)
+            emqx_streams_message_db:drop(Stream)
         %% TODO Drop consumer groups
     end.
 
@@ -205,14 +205,14 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
             not_found;
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
             #{id := Id} = Stream = record_to_stream(Rec),
-            IsLastvalueOld = emqx_streams_prop:is_lastvalue(Stream),
-            IsLastvalueNew = emqx_streams_prop:is_lastvalue(UpdateFields),
+            IsLastValueOld = emqx_streams_prop:is_lastvalue(Stream),
+            IsLastValueNew = emqx_streams_prop:is_lastvalue(UpdateFields),
             IsLimitedOld = emqx_streams_prop:is_limited(Stream),
             IsLimitedNew = emqx_streams_prop:is_limited(UpdateFields),
             case UpdateFields of
-                _ when IsLastvalueOld =/= IsLastvalueNew ->
+                _ when IsLastValueOld =/= IsLastValueNew ->
                     {error, is_lastvalue_not_allowed_to_be_updated};
-                _ when (not IsLastvalueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
+                _ when (not IsLastValueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
                     {error, limit_presence_cannot_be_updated_for_regular_streams};
                 _ ->
                     update_index(Key, Id, UpdateFields)
@@ -222,14 +222,14 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
 -doc """
 List all MQs.
 """.
--spec list() -> emqx_utils_stream:stream(emqx_stream_types:stream()).
+-spec list() -> emqx_utils_stream:stream(emqx_streams_types:stream()).
 list() ->
     record_iterator_to_streams(record_iterator()).
 
 -doc """
 List at most `Limit` MQs starting from `Cursor` position.
 """.
--spec list(cursor(), non_neg_integer()) -> {[emqx_mq_types:mq()], cursor()}.
+-spec list(cursor(), non_neg_integer()) -> {[emqx_streams_types:stream()], cursor()}.
 list(Cursor, Limit) when Limit >= 1 ->
     Streams0 = emqx_utils_stream:consume(
         emqx_utils_stream:limit_length(

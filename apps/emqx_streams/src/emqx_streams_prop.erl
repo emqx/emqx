@@ -33,8 +33,8 @@ is_limited(_Stream) ->
     true.
 
 -spec is_lastvalue(emqx_streams_types:stream()) -> boolean().
-is_lastvalue(#{is_lastvalue := IsLastvalue} = _Stream) ->
-    IsLastvalue.
+is_lastvalue(#{is_lastvalue := IsLastValue} = _Stream) ->
+    IsLastValue.
 
 -spec topic_filter(emqx_streams_types:stream()) ->
     emqx_types:topic().

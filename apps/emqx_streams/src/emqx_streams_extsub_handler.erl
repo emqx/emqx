@@ -229,15 +229,14 @@ get_iterator(SubId, {Shard, _} = Slab, DSStream, #state{subs = Subs, send_fn = S
             ?is_subscribed_to_shard(Shard, SubShard)
         ->
             StartTimeUs = get_shard_start_time_us(StreamState, Shard),
-            StartTimeMs = erlang:convert_time_unit(StartTimeUs, microsecond, millisecond),
             ?tp_debug(streams_extsub_handler_get_iterator, #{
                 status => create,
                 sub_id => SubId,
                 slab => Slab,
                 ds_stream => DSStream,
-                start_time => StartTimeMs
+                start_time => StartTimeUs
             }),
-            {undefined, #{start_time => StartTimeMs}};
+            {undefined, #{start_time => StartTimeUs}};
         #{SubId := _} ->
             %% Other shards we are not interested in
             SendFn(#complete_stream{
@@ -247,7 +246,8 @@ get_iterator(SubId, {Shard, _} = Slab, DSStream, #state{subs = Subs, send_fn = S
                 status => create_end_of_stream,
                 sub_id => SubId,
                 slab => Slab,
-                ds_stream => DSStream
+                ds_stream => DSStream,
+                start_time => end_of_stream
             }),
             {ok, end_of_stream};
         _ ->
@@ -279,9 +279,9 @@ on_new_iterator(
             error({unknown_subscription, #{sub_id => SubId}})
     end.
 
-on_unrecoverable_error(SubId, Slab, _DSStream, Error, State) ->
+on_unrecoverable_error(SubId, Slab, _DSStream, Error, #state{subs = Subs} = State) ->
     ?tp(error, streams_extsub_handler_on_unrecoverable_error, #{slab => Slab, error => Error}),
-    case State of
+    case Subs of
         #{SubId := #stream_state{status = #stream_status_blocked{}} = StreamState} ->
             update_stream_state(State, SubId, StreamState#stream_state{
                 status = #stream_status_unblocked{}
@@ -290,9 +290,9 @@ on_unrecoverable_error(SubId, Slab, _DSStream, Error, State) ->
             State
     end.
 
-on_subscription_down(SubId, Slab, _DSStream, State) ->
+on_subscription_down(SubId, Slab, _DSStream, #state{subs = Subs} = State) ->
     ?tp(error, streams_extsub_handler_on_subscription_down, #{slab => Slab}),
-    case State of
+    case Subs of
         #{SubId := #stream_state{status = #stream_status_blocked{}} = StreamState} ->
             update_stream_state(State, SubId, StreamState#stream_state{
                 status = #stream_status_unblocked{}
@@ -447,6 +447,7 @@ handle_ds_info(
                         status => blocked,
                         sub_id => SubId,
                         stream_state => StreamState,
+                        ds_stream => DSStream,
                         payload => #{total => Size, filtered => length(Messages)}
                     }),
                     {ok, update_stream_state(Handler, SubId, StreamState), Messages};
@@ -461,7 +462,8 @@ handle_ds_info(
                         status => unblocked,
                         sub_id => SubId,
                         stream_state => StreamState,
-                        payload => {messages, length(Messages)}
+                        ds_stream => DSStream,
+                        payload => #{total => Size, filtered => length(Messages)}
                     }),
                     {ok, update_stream_state(Handler, SubId, StreamState), Messages}
             end
@@ -728,18 +730,18 @@ get_stream_state(SubId, #state{subs = Subs}) ->
 
 decode_message(Shard, ?STREAMS_MESSAGE_DB_TOPIC(_TF, _StreamId, Key), Time, Payload) ->
     Message = emqx_streams_message_db:decode_message(Payload),
-    add_properties(Message, [
-        {<<"part">>, Shard},
-        {<<"ts">>, integer_to_binary(Time)},
-        {<<"key">>, Key}
-    ]).
+    add_properties(Message, #{
+        <<"part">> => Shard,
+        <<"ts">> => integer_to_binary(Time),
+        <<"key">> => Key
+    }).
 
-add_properties(Message, UserProperties) when length(UserProperties) > 0 ->
+add_properties(Message, AddProperties) when is_map(AddProperties) ->
     Props = emqx_message:get_header(properties, Message, #{}),
     UserProperties0 = maps:get('User-Property', Props, []),
-    emqx_message:set_header(
-        properties, Props#{'User-Property' => UserProperties0 ++ UserProperties}, Message
-    ).
+    UserPropMap = maps:merge(maps:from_list(UserProperties0), AddProperties),
+    UserProperties = maps:to_list(UserPropMap),
+    emqx_message:set_header(properties, Props#{'User-Property' => UserProperties}, Message).
 
 init_progress(Stream, ?all_shards, StartTimeUs) ->
     case emqx_streams_message_db:find_generations(Stream, StartTimeUs) of
