@@ -406,9 +406,8 @@ t_metrics(_Config) ->
     ?assertEqual(10, length(Msgs)),
 
     %% Verify that the metrics are updated correctly
-    #{received_messages := ReceivedMessages1, inserted_messages := InsertedMessages1} = emqx_streams_metrics:get_counters(
-        ds
-    ),
+    #{received_messages := ReceivedMessages1, inserted_messages := InsertedMessages1} =
+        emqx_streams_metrics:get_counters(ds),
     ?assertEqual(10, ReceivedMessages1 - ReceivedMessages0),
     ?assertEqual(10, InsertedMessages1 - InsertedMessages0),
     #{received_messages := #{current := Current}} = emqx_streams_metrics:get_rates(ds),

@@ -82,7 +82,7 @@ create(
     #{
         topic_filter := TopicFilter,
         key_expression := _KeyExpression,
-        is_lastvalue := _IsLastvalue,
+        is_lastvalue := _IsLastValue,
         limits := _Limits,
         data_retention_period := _DataRetentionPeriod,
         read_max_unacked := _ReadMaxUnacked
@@ -205,14 +205,14 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
             not_found;
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
             #{id := Id} = Stream = record_to_stream(Rec),
-            IsLastvalueOld = emqx_streams_prop:is_lastvalue(Stream),
-            IsLastvalueNew = emqx_streams_prop:is_lastvalue(UpdateFields),
+            IsLastValueOld = emqx_streams_prop:is_lastvalue(Stream),
+            IsLastValueNew = emqx_streams_prop:is_lastvalue(UpdateFields),
             IsLimitedOld = emqx_streams_prop:is_limited(Stream),
             IsLimitedNew = emqx_streams_prop:is_limited(UpdateFields),
             case UpdateFields of
-                _ when IsLastvalueOld =/= IsLastvalueNew ->
+                _ when IsLastValueOld =/= IsLastValueNew ->
                     {error, is_lastvalue_not_allowed_to_be_updated};
-                _ when (not IsLastvalueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
+                _ when (not IsLastValueNew) andalso (IsLimitedOld =/= IsLimitedNew) ->
                     {error, limit_presence_cannot_be_updated_for_regular_streams};
                 _ ->
                     update_index(Key, Id, UpdateFields)
