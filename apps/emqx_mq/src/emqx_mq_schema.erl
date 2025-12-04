@@ -44,7 +44,7 @@ fields(mq) ->
             mk(emqx_schema:timeout_duration_ms(), #{
                 default => <<"7d">>,
                 required => true,
-                desc => ?DESC(regular_stream_retention_period)
+                desc => ?DESC(regular_queue_retention_period)
             })},
         {max_queue_count,
             mk(pos_integer(), #{
