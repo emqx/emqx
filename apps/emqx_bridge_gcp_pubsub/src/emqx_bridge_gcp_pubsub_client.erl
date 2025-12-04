@@ -297,9 +297,7 @@ parse_jwt_config(ResourceId, #{
         sub => ServiceAccountEmail,
         aud => Aud,
         kid => KId,
-        alg => Alg,
-        % 30 seconds grace period
-        grace_period => 30000
+        alg => Alg
     },
     #{
         jwt_config => JWTConfig,

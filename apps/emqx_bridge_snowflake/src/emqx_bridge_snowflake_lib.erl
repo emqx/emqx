@@ -95,8 +95,7 @@ jwt_config(ResId, Params) ->
         aud => <<"unused">>,
         kid => <<"unused">>,
         alg => <<"RS256">>,
-        table => emqx_connector_jwt,
-        grace_period => 30000
+        table => emqx_connector_jwt
     }.
 
 http_pool_workers_healthy(HTTPPool, Timeout) ->
