@@ -335,6 +335,7 @@ handle_reprovision(Consumer, Group, Stream, GSt0) ->
 
 %%
 
+-dialyzer([{nowarn_function, [protocol_error/1]}]).
 protocol_error(Details) ->
     error({?MODULE, protocol_error, Details}).
 
