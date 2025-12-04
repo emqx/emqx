@@ -131,11 +131,11 @@ print_common_hists(Id) ->
 stream_metrics_id(Stream) ->
     stream_metrics_id(emqx_streams_prop:is_lastvalue(Stream), emqx_streams_prop:is_limited(Stream)).
 
-stream_metrics_id(true = _IsLastvalue, true = _IsLimited) ->
+stream_metrics_id(true = _IsLastValue, true = _IsLimited) ->
     lastvalue_limited;
-stream_metrics_id(true = _IsLastvalue, false = _IsLimited) ->
+stream_metrics_id(true = _IsLastValue, false = _IsLimited) ->
     lastvalue_unlimited;
-stream_metrics_id(false = _IsLastvalue, true = _IsLimited) ->
+stream_metrics_id(false = _IsLastValue, true = _IsLimited) ->
     regular_limited;
-stream_metrics_id(false = _IsLastvalue, false = _IsLimited) ->
+stream_metrics_id(false = _IsLastValue, false = _IsLimited) ->
     regular_unlimited.

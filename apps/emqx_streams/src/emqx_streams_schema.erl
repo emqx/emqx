@@ -189,16 +189,16 @@ stream_sctype_api_post() ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-stream_fields(IsLastvalue) ->
+stream_fields(IsLastValue) ->
     [
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
         {is_lastvalue,
             mk(
-                IsLastvalue,
+                IsLastValue,
                 #{
                     desc => ?DESC(is_lastvalue),
                     required => true,
-                    default => IsLastvalue
+                    default => IsLastValue
                 }
             )},
         {key_expression,
