@@ -4,6 +4,8 @@ services:
     hostname: emqx
     environment:
       EMQX_DASHBOARD__DEFAULT_PASSWORD: admin
+      EMQX_MQ__ENABLE: false
+      EMQX_STREAMS__ENABLE: false
 
   selenium:
     shm_size: '2gb'
