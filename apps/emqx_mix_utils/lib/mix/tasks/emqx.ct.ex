@@ -470,19 +470,19 @@ defmodule Mix.Tasks.Emqx.Ct do
     end)
   end
 
+  # Static list of modules generated from .xrl (Leex) and .yrl (Yecc) files
+  @generated_modules MapSet.new([
+                       # Generated from .xrl files
+                       "emqx_ldap_filter_lexer",
+                       "emqx_variform_scan",
+                       # Generated from .yrl files
+                       "emqx_ldap_filter_parser",
+                       "emqx_variform_parser"
+                     ])
+
   # Set of "real" module names in the project as strings, i.e., excluding test modules
   # and modules generated from .xrl (Leex) and .yrl (Yecc) files
   defp real_modules() do
-    # Add build directories to code path so we can load modules
-    Mix.Dep.Umbrella.loaded()
-    |> Enum.each(fn dep ->
-      beams_dir = Path.join(dep.opts[:build], "ebin")
-
-      if File.exists?(beams_dir) do
-        :code.add_path(Path.expand(beams_dir) |> to_charlist())
-      end
-    end)
-
     all_modules =
       Mix.Dep.Umbrella.loaded()
       |> Stream.flat_map(fn dep ->
@@ -493,44 +493,7 @@ defmodule Mix.Tasks.Emqx.Ct do
       |> MapSet.new(&Path.basename(&1, ".erl"))
 
     # Exclude modules generated from .xrl (Leex) and .yrl (Yecc) files
-    # by checking if they have characteristic exports
-    Enum.reject(all_modules, fn mod_name ->
-      is_generated_parser_or_lexer?(mod_name)
-    end)
-    |> MapSet.new()
-  end
-
-  # Check if a module is generated from .xrl (Leex) or .yrl (Yecc) files
-  # by loading the module and checking for characteristic exports
-  defp is_generated_parser_or_lexer?(mod_name) do
-    mod_atom = String.to_atom(mod_name)
-
-    # Try to load the module if not already loaded
-    case :code.ensure_loaded(mod_atom) do
-      {:module, _} ->
-        # Get exports using module_info
-        try do
-          exports = mod_atom.module_info(:exports)
-
-          # Yecc parsers export: parse/1, parse_and_scan/1
-          # (return_error/2 is optional and not always exported)
-          # Leex lexers export: string/1, token/2, token/3
-          yecc_core_exports = [{:parse, 1}, {:parse_and_scan, 1}]
-          leex_exports = [{:string, 1}, {:token, 2}, {:token, 3}]
-
-          yecc_match = Enum.all?(yecc_core_exports, &(&1 in exports))
-          leex_match = Enum.all?(leex_exports, &(&1 in exports))
-
-          yecc_match or leex_match
-        rescue
-          _ -> false
-        end
-
-      _ ->
-        false
-    end
-  rescue
-    _ -> false
+    MapSet.difference(all_modules, @generated_modules)
   end
 
   def write_coverdata(opts) do
