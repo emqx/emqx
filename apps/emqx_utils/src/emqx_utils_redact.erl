@@ -69,6 +69,9 @@ is_sensitive_key(<<"jwt">>) -> true;
 is_sensitive_key(bind_password) -> true;
 is_sensitive_key("bind_password") -> true;
 is_sensitive_key(<<"bind_password">>) -> true;
+is_sensitive_key(client_secret) -> true;
+is_sensitive_key("client_secret") -> true;
+is_sensitive_key(<<"client_secret">>) -> true;
 is_sensitive_key(_) -> false.
 
 redact(Term) ->
