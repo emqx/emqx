@@ -27,7 +27,7 @@ emqx_mq_schema {
 
     mq {
         desc: """~
-            Settings for an individual Message Queue."""
+            Global settings for the Message Queues."""
         label: "Message Queue Settings"
     }
 
@@ -39,7 +39,7 @@ emqx_mq_schema {
 
     is_lastvalue {
         desc: """~
-            Indicates if the message has Last-Value semantics. Last-Value semantics means that
+            Indicates if the Message Queue has Last-Value semantics. Last-Value semantics means that
             messages overwrite previous messages with the same queue key in the same topic."""
         label: "Is Last Value"
     }
@@ -158,18 +158,6 @@ emqx_mq_schema {
         desc: """~
             Last-Value Message Queue settings for automatic creation"""
         label: "Auto Create Last-Value Settings"
-    }
-
-    auto_create_regular_enable {
-        desc: """~
-            Use Last-Value settings for automatic Message Queue creation"""
-        label: "Use Last-Value Settings"
-    }
-
-    auto_create_lastvalue_enable {
-        desc: """~
-            Use Regular settings for automatic Message Queue creation"""
-        label: "Use Regular Settings"
     }
 
 }
