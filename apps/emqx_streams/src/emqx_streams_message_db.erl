@@ -286,7 +286,7 @@ subscribe(Stream, DSClient0, SubId, State0) ->
     {ok, DSClient, State}.
 
 -spec find_generation(emqx_streams_types:stream(), emqx_ds:shard(), emqx_ds:time()) ->
-    emqx_ds:generation().
+    {ok, emqx_ds:generation()} | {error, term()}.
 find_generation(Stream, Shard, TimestampUs) ->
     case emqx_ds:list_slabs(db(Stream), #{shard => Shard}) of
         {SlabInfo, []} ->

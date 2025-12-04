@@ -279,9 +279,9 @@ on_new_iterator(
             error({unknown_subscription, #{sub_id => SubId}})
     end.
 
-on_unrecoverable_error(SubId, Slab, _DSStream, Error, State) ->
+on_unrecoverable_error(SubId, Slab, _DSStream, Error, #state{subs = Subs} = State) ->
     ?tp(error, streams_extsub_handler_on_unrecoverable_error, #{slab => Slab, error => Error}),
-    case State of
+    case Subs of
         #{SubId := #stream_state{status = #stream_status_blocked{}} = StreamState} ->
             update_stream_state(State, SubId, StreamState#stream_state{
                 status = #stream_status_unblocked{}
@@ -290,9 +290,9 @@ on_unrecoverable_error(SubId, Slab, _DSStream, Error, State) ->
             State
     end.
 
-on_subscription_down(SubId, Slab, _DSStream, State) ->
+on_subscription_down(SubId, Slab, _DSStream, #state{subs = Subs} = State) ->
     ?tp(error, streams_extsub_handler_on_subscription_down, #{slab => Slab}),
-    case State of
+    case Subs of
         #{SubId := #stream_state{status = #stream_status_blocked{}} = StreamState} ->
             update_stream_state(State, SubId, StreamState#stream_state{
                 status = #stream_status_unblocked{}

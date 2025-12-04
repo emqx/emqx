@@ -172,7 +172,7 @@ delete(TopicFilter) ->
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
             ok = mria:dirty_delete_object(Rec),
             Stream = record_to_stream(Rec),
-            ok = emqx_streams_message_db:drop(Stream)
+            emqx_streams_message_db:drop(Stream)
         %% TODO Drop consumer groups
     end.
 
@@ -222,14 +222,14 @@ update(TopicFilter, #{is_lastvalue := _IsLastValue} = UpdateFields0) ->
 -doc """
 List all MQs.
 """.
--spec list() -> emqx_utils_stream:stream(emqx_stream_types:stream()).
+-spec list() -> emqx_utils_stream:stream(emqx_streams_types:stream()).
 list() ->
     record_iterator_to_streams(record_iterator()).
 
 -doc """
 List at most `Limit` MQs starting from `Cursor` position.
 """.
--spec list(cursor(), non_neg_integer()) -> {[emqx_mq_types:mq()], cursor()}.
+-spec list(cursor(), non_neg_integer()) -> {[emqx_streams_types:stream()], cursor()}.
 list(Cursor, Limit) when Limit >= 1 ->
     Streams0 = emqx_utils_stream:consume(
         emqx_utils_stream:limit_length(
