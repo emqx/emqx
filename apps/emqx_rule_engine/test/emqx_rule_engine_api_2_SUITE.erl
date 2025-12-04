@@ -2674,9 +2674,7 @@ t_direct_dispatch_empty_string(_Config) ->
             ?assertReceive({deliver, <<"rep">>, _}),
             ok
         end,
-        fun(_Trace) ->
-            ok
-        end
+        []
     ),
     ok.
 

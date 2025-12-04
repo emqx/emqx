@@ -267,17 +267,23 @@ read_server_cert(ServerCertPemPath0) ->
         [] ->
             case file:read_file(ServerCertPemPath) of
                 {ok, ServerCertPem} when byte_size(ServerCertPem) > 0 ->
-                    case public_key:pem_decode(ServerCertPem) of
-                        [{'Certificate', ServerCertDer, _} | _] ->
-                            public_key:der_decode('Certificate', ServerCertDer);
-                        [] ->
-                            error({empty_pem_file, ServerCertPemPath})
-                    end;
+                    ServerCertDer = pem_decode(ServerCertPemPath, ServerCertPem),
+                    public_key:der_decode('Certificate', ServerCertDer);
                 {ok, <<>>} ->
                     error({empty_server_cert_file, ServerCertPemPath});
                 {error, Error1} ->
                     error({bad_server_cert_file, Error1})
             end
+    end.
+
+pem_decode(Path, Pem) ->
+    case public_key:pem_decode(Pem) of
+        [{'Certificate', Der, _} | _] ->
+            Der;
+        [] ->
+            error({empty_pem_file, Path});
+        _ ->
+            error({not_a_certificate_pem, Path})
     end.
 
 handle_refresh(ListenerID, Conf, State0) ->
@@ -376,20 +382,12 @@ do_http_fetch_and_cache(ListenerID, Params) ->
     } = Params,
     IssuerPemPathBin = to_bin(IssuerPemPath),
     IssuerPem =
-        %% Check if IssuerPemPath is PEM content (starts with "-----BEGIN") or a file path
-        case binary:match(IssuerPemPathBin, <<"-----BEGIN">>) of
-            {0, _} ->
-                %% It's PEM content, use it directly
-                IssuerPemPathBin;
-            nomatch ->
-                %% It's a file path, read from file
-                case file:read_file(IssuerPemPathBin) of
-                    {ok, IssuerPem0} -> IssuerPem0;
-                    {error, Error0} -> error({bad_issuer_pem_file, Error0})
-                end
+        case file:read_file(IssuerPemPathBin) of
+            {ok, IssuerPem0} -> IssuerPem0;
+            {error, Error0} -> error({bad_issuer_pem_file, Error0})
         end,
     ServerCert = read_server_cert(ServerCertPemPath),
-    Request = build_ocsp_request(IssuerPem, ServerCert),
+    Request = build_ocsp_request(IssuerPemPathBin, IssuerPem, ServerCert),
     ?tp(ocsp_http_fetch, #{
         listener_id => ListenerID,
         responder_url => ResponderURL,
@@ -501,14 +499,8 @@ ensure_timer(ListenerID, Message, State, Timeout) ->
         )
     }.
 
-build_ocsp_request(IssuerPem, ServerCert) ->
-    IssuerDer =
-        case public_key:pem_decode(IssuerPem) of
-            [{'Certificate', Der, _} | _] ->
-                Der;
-            [] ->
-                error({empty_issuer_pem, "No certificates found in issuer PEM data"})
-        end,
+build_ocsp_request(IssuerPemPath, IssuerPem, ServerCert) ->
+    IssuerDer = pem_decode(IssuerPemPath, IssuerPem),
     #'Certificate'{
         tbsCertificate =
             #'TBSCertificate'{
