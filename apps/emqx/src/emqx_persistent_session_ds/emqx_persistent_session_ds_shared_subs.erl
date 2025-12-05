@@ -241,8 +241,7 @@ ds_client_subscribe(#share{topic = TopicFilter}, SubId, Sess0 = #{dscli := CLI0}
 ) ->
     emqx_persistent_session_ds:session().
 ds_client_attach_iterator(SubId, Stream, It, Session0 = #{dscli := DSCli0}) ->
-    Slab = emqx_ds:slab_of_stream(Stream),
-    {DSCli, Session} = emqx_ds_client:attach_iterator(SubId, Slab, Stream, It, DSCli0, Session0),
+    {DSCli, Session} = emqx_ds_client:attach_iterator(SubId, Stream, It, DSCli0, Session0),
     Session#{dscli := DSCli}.
 
 -spec ds_client_unsubscribe(
@@ -555,11 +554,9 @@ handle_revoke_stream(
     #{subscription_id := SubId, stream := Stream},
     Session0 = #{dscli := DSCli0, buffer := Buf0}
 ) ->
-    Slab = emqx_ds:slab_of_stream(Stream),
     Buf = emqx_persistent_session_ds_buffer:drop_stream({SubId, Stream}, Buf0),
     {DSCli, Session} = emqx_ds_client:detach_iterator(
         SubId,
-        Slab,
         Stream,
         DSCli0,
         Session0#{buffer := Buf}
