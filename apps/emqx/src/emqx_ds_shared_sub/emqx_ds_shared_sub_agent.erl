@@ -39,6 +39,8 @@
     subscription/0,
     subscription_id/0,
     session_id/0,
+    stream_lease/0,
+    stream_revoke/0,
     stream_lease_event/0,
     stream_progress/0,
     event/0,
@@ -71,15 +73,15 @@
 }.
 
 -type stream_lease() :: #{
-    type => lease,
+    type := lease,
     subscription_id := subscription_id(),
     share_topic_filter := share_topic_filter(),
     stream := emqx_ds:stream(),
-    iterator := emqx_ds:iterator()
+    progress := emqx_persistent_session_ds_shared_subs:progress()
 }.
 
 -type stream_revoke() :: #{
-    type => revoke,
+    type := revoke,
     subscription_id := subscription_id(),
     share_topic_filter := share_topic_filter(),
     stream := emqx_ds:stream()
@@ -363,6 +365,11 @@ with_borrower(State0, SubscriptionId, Fun) ->
             {[], State0}
     end.
 
+-spec enrich_events(
+    [emqx_ds_shared_sub_borrower:to_agent_events()],
+    emqx_persistent_session_ds:subscription_id(),
+    emqx_types:share()
+) -> [stream_lease_event()].
 enrich_events(Events, SubscriptionId, ShareTopicFilter) ->
     [
         Event#{subscription_id => SubscriptionId, share_topic_filter => ShareTopicFilter}
