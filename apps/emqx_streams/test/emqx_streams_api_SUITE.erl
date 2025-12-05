@@ -375,7 +375,7 @@ t_defaults(_Config) ->
 
     %% Consume the messages from the queue
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 100),
     ok = emqtt:disconnect(CSub),
 

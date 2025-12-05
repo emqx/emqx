@@ -122,8 +122,33 @@ handle_subscribe(
     _SubscribeType,
     SubscribeCtx,
     Handler0,
-    <<"$s/", SubscribeTopicFilter/binary>> = _FullTopicFilter
+    <<"$s/", NoPartitionSubscribeTopicFilter/binary>>
 ) ->
+    do_handle_subscribe(SubscribeCtx, Handler0, <<"all/", NoPartitionSubscribeTopicFilter/binary>>);
+handle_subscribe(
+    _SubscribeType,
+    SubscribeCtx,
+    Handler0,
+    <<"$sp/", SubscribeTopicFilter/binary>>
+) ->
+    do_handle_subscribe_partition(SubscribeCtx, Handler0, SubscribeTopicFilter);
+handle_subscribe(_SubscribeType, _SubscribeCtx, _Handler, _SubscribeTopicFilter) ->
+    ignore.
+
+%% Hide partitions from the user for now
+-ifdef(TEST).
+
+do_handle_subscribe_partition(SubscribeCtx, Handler0, SubscribeTopicFilter) ->
+    do_handle_subscribe(SubscribeCtx, Handler0, SubscribeTopicFilter).
+
+-else.
+
+do_handle_subscribe_partition(_SubscribeCtx, _Handler0, _SubscribeTopicFilter) ->
+    ignore.
+
+-endif.
+
+do_handle_subscribe(SubscribeCtx, Handler0, SubscribeTopicFilter) ->
     Handler1 = init_handler(Handler0, SubscribeCtx),
     case subscribe(Handler1, SubscribeTopicFilter) of
         {ok, Handler} ->
@@ -147,9 +172,7 @@ handle_subscribe(
             }),
             Handler = add_unknown_stream(Handler1, SubscribeTopicFilter),
             {ok, schedule_check_stream_status(Handler)}
-    end;
-handle_subscribe(_SubscribeType, _SubscribeCtx, _Handler, _FullTopicFilter) ->
-    ignore.
+    end.
 
 handle_unsubscribe(
     _UnsubscribeType,
@@ -666,6 +689,7 @@ find_stream(TopicFilter) ->
             end
     end.
 
+-dialyzer([{nowarn_function, validate_partition/2}]).
 validate_partition(_Stream, <<"all">>) ->
     {ok, ?all_shards};
 validate_partition(Stream, Partition) ->
@@ -728,10 +752,9 @@ update_stream_state(#state{subs = Subs} = State, SubId, StreamState) ->
 get_stream_state(SubId, #state{subs = Subs}) ->
     maps:get(SubId, Subs).
 
-decode_message(Shard, ?STREAMS_MESSAGE_DB_TOPIC(_TF, _StreamId, Key), Time, Payload) ->
+decode_message(_Shard, ?STREAMS_MESSAGE_DB_TOPIC(_TF, _StreamId, Key), Time, Payload) ->
     Message = emqx_streams_message_db:decode_message(Payload),
     add_properties(Message, #{
-        <<"part">> => Shard,
         <<"ts">> => integer_to_binary(Time),
         <<"key">> => Key
     }).

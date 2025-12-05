@@ -84,8 +84,10 @@ t_cluster_smoke(Config) ->
     %% Create subscribers and subscribe to the stream
     SubClient0 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB0_PORT}]),
     SubClient1 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(SubClient0, <<"0/earliest/q/1">>),
-    ok = emqx_streams_test_utils:emqtt_sub_stream(SubClient1, <<"1/earliest/q/1">>),
+    SubClient2 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
+    ok = emqx_streams_test_utils:emqtt_sub(SubClient0, <<"$sp/0/earliest/q/1">>),
+    ok = emqx_streams_test_utils:emqtt_sub(SubClient1, <<"$sp/1/earliest/q/1">>),
+    ok = emqx_streams_test_utils:emqtt_sub(SubClient2, <<"$s/earliest/q/1">>),
 
     %% Publish 100 messages to the queue
     PubClient = emqx_streams_test_utils:emqtt_connect([{port, ?PUB_PORT}]),
@@ -99,22 +101,26 @@ t_cluster_smoke(Config) ->
         lists:seq(0, 99)
     ),
 
-    %% Make sure the messages are distributed more-or-less evenly between the subscribers(=shards)
-    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 2000),
-    MessagesByClientId = lists:foldl(
+    %% Make sure the messages are distributed more-or-less evenly between partition subscribers.
+    %% Make sure that the whole stream subscriber receives all messages.
+    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 200, _Timeout = 2000),
+    MessagesByClient = lists:foldl(
         fun(#{client_pid := Pid} = Msg, Acc) ->
             maps:update_with(Pid, fun(ClientMsgs) -> [Msg | ClientMsgs] end, [Msg], Acc)
         end,
         #{},
         Msgs
     ),
-    Client0Cnt = length(maps:get(SubClient0, MessagesByClientId)),
-    Client1Cnt = length(maps:get(SubClient1, MessagesByClientId)),
+    Client0Cnt = length(maps:get(SubClient0, MessagesByClient)),
+    Client1Cnt = length(maps:get(SubClient1, MessagesByClient)),
+    Client2Cnt = length(maps:get(SubClient2, MessagesByClient)),
     ?assert(Client0Cnt > 30),
     ?assert(Client1Cnt > 30),
     ?assertEqual(100, Client0Cnt + Client1Cnt),
+    ?assertEqual(100, Client2Cnt),
 
     %% Clean up
     ok = emqtt:disconnect(PubClient),
     ok = emqtt:disconnect(SubClient0),
-    ok = emqtt:disconnect(SubClient1).
+    ok = emqtt:disconnect(SubClient1),
+    ok = emqtt:disconnect(SubClient2).

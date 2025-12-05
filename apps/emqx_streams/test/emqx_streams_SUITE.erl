@@ -114,11 +114,11 @@ t_read_earliest(Config) ->
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     case ?config(subscribe, Config) of
         all ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]);
+            emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]);
         shard ->
-            emqx_streams_test_utils:emqtt_sub_stream(
+            emqx_streams_test_utils:emqtt_sub(
                 CSub,
-                [<<"0/earliest/t/#">>, <<"1/earliest/t/#">>]
+                [<<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>]
             )
     end,
 
@@ -137,11 +137,11 @@ t_read_latest(Config) ->
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     case ?config(subscribe, Config) of
         all ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/latest/t/#">>]);
+            emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/latest/t/#">>]);
         shard ->
-            emqx_streams_test_utils:emqtt_sub_stream(
+            emqx_streams_test_utils:emqtt_sub(
                 CSub,
-                [<<"0/latest/t/#">>, <<"1/latest/t/#">>]
+                [<<"$sp/0/latest/t/#">>, <<"$sp/1/latest/t/#">>]
             )
     end,
 
@@ -168,10 +168,10 @@ t_read_offset(Config) ->
     OffsetBin = integer_to_binary(Offset),
     case ?config(subscribe, Config) of
         all ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/", OffsetBin/binary, "/t/#">>]);
+            emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/", OffsetBin/binary, "/t/#">>]);
         shard ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [
-                <<"0/", OffsetBin/binary, "/t/#">>, <<"1/", OffsetBin/binary, "/t/#">>
+            emqx_streams_test_utils:emqtt_sub(CSub, [
+                <<"$sp/0/", OffsetBin/binary, "/t/#">>, <<"$sp/1/", OffsetBin/binary, "/t/#">>
             ])
     end,
 
@@ -201,10 +201,10 @@ t_publish_and_consume_regular_many_generations(Config) ->
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     case ?config(subscribe, Config) of
         all ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]);
+            emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]);
         shard ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [
-                <<"0/earliest/t/#">>, <<"1/earliest/t/#">>
+            emqx_streams_test_utils:emqtt_sub(CSub, [
+                <<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>
             ])
     end,
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 5000),
@@ -249,10 +249,10 @@ t_publish_and_consume_lastvalue(Config) ->
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     case ?config(subscribe, Config) of
         all ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]);
+            emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]);
         shard ->
-            emqx_streams_test_utils:emqtt_sub_stream(CSub, [
-                <<"0/earliest/t/#">>, <<"1/earliest/t/#">>
+            emqx_streams_test_utils:emqtt_sub(CSub, [
+                <<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>
             ])
     end,
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
@@ -288,7 +288,7 @@ t_backpressure(_Config) ->
 
     %% Consume the messages from the queue
     CSub = emqx_streams_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"0/earliest/t/#">>, <<"1/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
     {ok, Msgs0} =
         emqx_streams_test_utils:emqtt_drain(_MinMsg = BufferSize, _Timeout = 200),
 
@@ -329,7 +329,7 @@ t_find_stream(_Config) ->
 
     %% Connect a client and subscribe to a non-existent queue
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"0/earliest/t/#">>, <<"1/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
 
     %% Create the stream
     emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
@@ -354,8 +354,7 @@ t_stream_recreate(_Config) ->
 
     %% Subscribe to the stream
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/t/#">>),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/t/#">>),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
 
     %% Verify that the message is received
     {ok, [#{payload := <<"payload-1-", _/binary>>}]} = emqx_streams_test_utils:emqtt_drain(
@@ -400,7 +399,7 @@ t_metrics(_Config) ->
     _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
     emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]),
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
     ok = emqtt:disconnect(CSub),
     ?assertEqual(10, length(Msgs)),
@@ -424,9 +423,10 @@ t_subscribe_invalid_topic(_Config) ->
     emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"0/invalid-ts/t/#">>]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"9999/earliest/t/#">>]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, [<<"all/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/invalid-ts/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$sp/0/invalid-ts/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$sp/9999/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$sp/all/earliest/t/#">>]),
 
     {ok, _Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
     ok = emqtt:disconnect(CSub).
@@ -440,7 +440,7 @@ validate_headers(Msgs) when is_list(Msgs) ->
 
 validate_msg_headers(Msg) ->
     case user_properties(Msg) of
-        #{<<"part">> := _Part, <<"ts">> := _Ts, <<"key">> := _Key} ->
+        #{<<"ts">> := _Ts, <<"key">> := _Key} ->
             ok;
         _ ->
             ct:fail("Message does not have required user properties (part, ts, key): ~p", [Msg])

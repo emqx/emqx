@@ -8,7 +8,7 @@
     emqtt_connect/1,
     emqtt_pub_stream/3,
     emqtt_pub_stream/4,
-    emqtt_sub_stream/2,
+    emqtt_sub/2,
     emqtt_drain/0,
     emqtt_drain/1,
     emqtt_drain/2,
@@ -50,10 +50,10 @@ emqtt_pub_stream(Client, Topic, Payload, Opts) ->
     PubOpts = [{qos, Qos}],
     emqtt:publish(Client, Topic, Properties, Payload, PubOpts).
 
-emqtt_sub_stream(Client, Topic) when is_binary(Topic) ->
-    emqtt_sub_stream(Client, [Topic]);
-emqtt_sub_stream(Client, Topics) when is_list(Topics) ->
-    FullTopics = lists:map(fun(Topic) -> {<<"$s/", Topic/binary>>, 1} end, Topics),
+emqtt_sub(Client, Topic) when is_binary(Topic) ->
+    emqtt_sub(Client, [Topic]);
+emqtt_sub(Client, Topics) when is_list(Topics) ->
+    FullTopics = lists:map(fun(Topic) -> {Topic, 1} end, Topics),
     {ok, _, _} = emqtt:subscribe(Client, FullTopics),
     ok.
 

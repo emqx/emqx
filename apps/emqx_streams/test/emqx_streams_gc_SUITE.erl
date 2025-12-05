@@ -196,8 +196,8 @@ t_limited_lastvalue(_Config) ->
     %% the republished 1st portion should go next,
     %% and the 2nd portion should be partially evicted
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"0/earliest/tc/#">>),
-    emqx_streams_test_utils:emqtt_sub_stream(CSub, <<"1/earliest/tc/#">>),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$sp/0/earliest/tc/#">>),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$sp/1/earliest/tc/#">>),
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 200, _Timeout = 1000),
     ?assert(length(Msgs) < 200 + 20),
     PortionCounts = lists:foldl(
