@@ -1,6 +1,106 @@
 emqx_streams_schema {
 
-enable.desc:
-"""Enable Message Streams feature."""
+enable {
+    desc: """~
+        Enable Message Streams feature."""
+    label: "Enable Message Streams"
+}
+
+max_stream_count {
+    desc: """~
+        Maximum number of Message Streams that can be created."""
+    label: "Max Stream Count"
+}
+
+gc_interval {
+    desc: """~
+        The interval at which the Message Streams will clean up expired messages."""
+    label: "GC Interval"
+}
+
+regular_stream_retention_period {
+    desc: """~
+        The maximum retention period of messages in regular Message Streams."""
+    label: "Regular Stream Retention Period"
+}
+
+stream_individual_limits {
+    desc: """~
+        The byte size and count limits for an individual Message Stream."""
+    label: "Message Stream Limits"
+}
+
+max_shard_message_count {
+    desc: """~
+        The maximum number of messages in a shard for the Message Stream. The number of shards is configured
+        for all Message Streams in the Durable Storage settings.
+        The total count limit for the Message Stream is `n_shards * max_shard_message_count`."""
+    label: "Max Shard Message Count"
+}
+
+max_shard_message_bytes {
+    desc: """~
+        The maximum number of bytes in a shard for the Message Stream. The number of shards is configured
+        for all Message Streams in the Durable Storage settings. Note that this limit is not aware of the replication factor.
+        So the total byte limit for the Message Stream is `n_shards * replication_factor * max_shard_message_bytes`."""
+    label: "Max Shard Message Bytes"
+}
+
+auto_create {
+    desc: """~
+        Settings for automatically creating the Message Stream if it does not exist
+        when subscribing to the queue topic."""
+    label: "Auto Create Settings"
+}
+
+auto_create_regular {
+    desc: """~
+        Regular Message Stream settings for automatic creation"""
+    label: "Auto Create Regular Settings"
+}
+
+auto_create_lastvalue {
+    desc: """~
+        Last-Value Message Stream settings for automatic creation"""
+    label: "Auto Create Last-Value Settings"
+}
+
+streams {
+    desc: """~
+        Global settings for the Message Streams."""
+    label: "Message Streams Settings"
+}
+
+topic_filter {
+    desc: """~
+        The filter used to determine which messages are getting into the message stream."""
+    label: "Topic Filter"
+}
+
+is_lastvalue {
+    desc: """~
+        Indicates if the Message Stream has Last-Value semantics. Last-Value semantics means that
+        messages overwrite previous messages with the same stream key in the same topic."""
+    label: "Is Last Value"
+}
+
+key_expression {
+    desc: """~
+        The expression used to determine the key of the message for Last-Value Message Queues."""
+    label: "Key Expression"
+}
+
+data_retention_period {
+    desc: """~
+        The period for which data is retained in the Message Queue."""
+    label: "Data Retention Period"
+}
+
+read_max_unacked {
+    desc: """~
+        Threshold at which the DS stops delivering messages to a Message Stream client after its
+        buffer is full."""
+    label: "Read Max Unacked"
+}
 
 }

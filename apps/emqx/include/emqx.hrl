@@ -48,6 +48,14 @@
     message :: #message{}
 }).
 
+%% Message delivery routed to a channel.
+-record(deliver, {
+    %% Subscription topic
+    topic :: emqx_types:topic(),
+    %% Routed message
+    message :: emqx_types:message()
+}).
+
 %%--------------------------------------------------------------------
 %% Route
 %%--------------------------------------------------------------------

@@ -2,7 +2,7 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_mq_message_db).
+-module(emqx_streams_message_db).
 
 -moduledoc """
 Facade for all operations with the message database.
@@ -14,7 +14,7 @@ Facade for all operations with the message database.
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
--include("emqx_mq_internal.hrl").
+-include("emqx_streams_internal.hrl").
 
 -export([
     open/0,
@@ -27,7 +27,10 @@ Facade for all operations with the message database.
     suback/3,
     create_client/1,
     subscribe/4,
-    drop/1
+    drop/1,
+    partitions/1,
+    find_generations/2,
+    find_generation/3
 ]).
 
 -export([
@@ -43,7 +46,6 @@ Facade for all operations with the message database.
     initial_generations/1
 ]).
 
-%% QuotaBuffer CBM callbacks
 -export([
     quota_buffer_max_size/0,
     quota_buffer_flush_interval/0,
@@ -56,24 +58,22 @@ Facade for all operations with the message database.
 %% For testing/maintenance
 -export([
     delete_all/0,
-    dirty_read_all/1
+    dirty_read_all/1,
+    dirty_index/2
 ]).
 
--define(MQ_MESSAGE_DB_APPEND_RETRY, 3).
--define(MQ_MESSAGE_DB_INDEX_APPEND_RETRY, 3).
--define(MQ_MESSAGE_DB_DELETE_RETRY, 1).
--define(MQ_MESSAGE_DB_DELETE_RETRY_DELAY, 1000).
--define(MQ_MESSAGE_DB_LTS_SETTINGS, #{
-    %% "topic/MQ_TOPIC/MQ_ID/key/СOMPACTION_KEY"
+-define(STREAMS_MESSAGE_DB_APPEND_RETRY, 3).
+-define(STREAMS_MESSAGE_DB_QUOTA_INDEX_APPEND_RETRY, 3).
+-define(STREAMS_MESSAGE_DB_DELETE_RETRY, 1).
+-define(STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY, 1000).
+-define(STREAMS_MESSAGE_DB_LTS_SETTINGS, #{
+    %% "topic/STREAM_TOPIC/STREAM_ID/key/СOMPACTION_KEY"
     lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
 }).
--define(MQ_MESSAGE_DB_TOPIC(MQ_TOPIC, MQ_ID, KEY), [
-    <<"topic">>, MQ_TOPIC, MQ_ID, <<"key">>, KEY
+-define(STREAMS_INDEX_TOPIC(STREAM_TOPIC, STREAM_ID), [
+    <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"index">>
 ]).
--define(MQ_INDEX_TOPIC(MQ_TOPIC, MQ_ID), [
-    <<"topic">>, MQ_TOPIC, MQ_ID, <<"index">>
-]).
--define(MQ_DIRTY_APPEND_TIMEOUT, 5000).
+-define(STREAMS_DIRTY_APPEND_TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
 %% API
@@ -81,92 +81,42 @@ Facade for all operations with the message database.
 
 -spec open() -> ok.
 open() ->
-    Config = maps:merge(emqx_ds_schema:db_config_mq_messages(), #{
-        storage => {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS}
+    Config = maps:merge(emqx_ds_schema:db_config_streams_messages(), #{
+        storage => {emqx_ds_storage_skipstream_lts_v2, ?STREAMS_MESSAGE_DB_LTS_SETTINGS}
     }),
     maybe
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_LASTVALUE_DB, Config),
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, Config)
+        ok ?= emqx_ds:open_db(?STREAMS_MESSAGE_LASTVALUE_DB, Config),
+        ok ?= emqx_ds:open_db(?STREAMS_MESSAGE_REGULAR_DB, Config)
     else
-        _ -> error(failed_to_open_mq_databases)
+        _ -> error(failed_to_open_streams_databases)
     end.
 
 -spec close() -> ok.
 close() ->
-    ok = emqx_ds:close_db(?MQ_MESSAGE_LASTVALUE_DB),
-    ok = emqx_ds:close_db(?MQ_MESSAGE_REGULAR_DB).
+    ok = emqx_ds:close_db(?STREAMS_MESSAGE_LASTVALUE_DB),
+    ok = emqx_ds:close_db(?STREAMS_MESSAGE_REGULAR_DB).
 
 -spec wait_readiness(timeout()) -> ok | timeout.
 wait_readiness(Timeout) ->
     maybe
-        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_LASTVALUE_DB, all, Timeout),
-        ok ?= emqx_ds:wait_db(?MQ_MESSAGE_REGULAR_DB, all, Timeout)
+        ok ?= emqx_ds:wait_db(?STREAMS_MESSAGE_LASTVALUE_DB, all, Timeout),
+        ok ?= emqx_ds:wait_db(?STREAMS_MESSAGE_REGULAR_DB, all, Timeout)
     end.
 
--spec insert(emqx_mq_types:mq_handle(), emqx_types:message()) ->
+-spec insert(emqx_streams_types:stream(), emqx_types:message()) ->
     ok | {error, term()}.
-insert(MQHandle, Message) ->
-    insert(MQHandle, emqx_mq_prop:is_limited(MQHandle), Message).
-
-insert(#{is_lastvalue := true} = MQHandle, IsLimited, Message) ->
-    DB = db(MQHandle),
-    case key(MQHandle, Message) of
+insert(Stream, Message) ->
+    case key(Stream, Message) of
         {error, _} = Error ->
             Error;
         {ok, Key} ->
-            Shard = emqx_ds:shard_of(DB, Key),
-            Topic = mq_message_topic(MQHandle, Key),
-            MessageBin = encode_message(Message),
-            Gen = insert_generation(DB),
-            TxOpts = #{
-                db => DB,
-                shard => Shard,
-                generation => Gen,
-                sync => true,
-                retries => ?MQ_MESSAGE_DB_APPEND_RETRY,
-                retry_interval => retry_interval(DB)
-            },
-            ?tp(debug, mq_message_db_insert, #{
-                mq => MQHandle,
-                topic => Topic,
-                key => Key,
-                shard => Shard,
-                tx_opts => TxOpts
-            }),
-            TxFun = fun() ->
-                MaybeOldMessage =
-                    case IsLimited of
-                        true ->
-                            emqx_ds:tx_read(Topic);
-                        false ->
-                            []
-                    end,
-                emqx_ds:tx_del_topic(Topic),
-                emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, MessageBin}),
-                MaybeOldMessage
-            end,
-            {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
-            case Result of
-                {atomic, _Serial, MaybeOldMessage} ->
-                    emqx_mq_metrics:observe_hist_mq(MQHandle, insert_latency_ms, us_to_ms(Time)),
-                    IsLimited andalso
-                        update_quota(
-                            MQHandle,
-                            {Shard, Gen},
-                            old_message_quota_info(MaybeOldMessage),
-                            #{message => Message, message_size => byte_size(MessageBin)}
-                        ),
-                    ok;
-                {error, IsRecoverable, Reason} ->
-                    emqx_mq_metrics:inc_mq(MQHandle, insert_errors),
-                    {error, {IsRecoverable, Reason}}
-            end
-    end;
-insert(#{is_lastvalue := false} = MQHandle, true = _IsLimited, Message) ->
-    DB = db(MQHandle),
-    ClientId = emqx_message:from(Message),
-    Shard = emqx_ds:shard_of(DB, ClientId),
-    Topic = mq_message_topic(MQHandle, ClientId),
+            insert(Stream, emqx_streams_prop:is_limited(Stream), Key, Message)
+    end.
+
+insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
+    DB = db(Stream),
+    Shard = emqx_ds:shard_of(DB, Key),
+    Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     Gen = insert_generation(DB),
     TxOpts = #{
@@ -174,11 +124,63 @@ insert(#{is_lastvalue := false} = MQHandle, true = _IsLimited, Message) ->
         shard => Shard,
         generation => Gen,
         sync => true,
-        retries => ?MQ_MESSAGE_DB_APPEND_RETRY,
+        retries => ?STREAMS_MESSAGE_DB_APPEND_RETRY,
         retry_interval => retry_interval(DB)
     },
-    ?tp(debug, mq_message_db_insert, #{
-        mq => MQHandle,
+    ?tp(debug, streams_message_db_insert, #{
+        stream => Stream,
+        topic => Topic,
+        key => Key,
+        shard => Shard,
+        tx_opts => TxOpts
+    }),
+    TxFun = fun() ->
+        MaybeOldMessage =
+            case IsLimited of
+                true ->
+                    emqx_ds:tx_read(Topic);
+                false ->
+                    []
+            end,
+        emqx_ds:tx_del_topic(Topic),
+        emqx_ds:tx_write({Topic, ?ds_tx_ts_monotonic, MessageBin}),
+        MaybeOldMessage
+    end,
+    {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
+    case Result of
+        {atomic, _Serial, MaybeOldMessage} ->
+            emqx_streams_metrics:observe_hist_stream(
+                Stream, insert_latency_ms, us_to_ms(Time)
+            ),
+            emqx_streams_metrics:inc_stream(Stream, insert_ok),
+            IsLimited andalso
+                update_quota(
+                    Stream,
+                    {Shard, Gen},
+                    old_message_quota_info(MaybeOldMessage),
+                    #{message => Message, message_size => byte_size(MessageBin)}
+                ),
+            ok;
+        {error, IsRecoverable, Reason} ->
+            emqx_streams_metrics:inc_stream(Stream, insert_errors),
+            {error, {IsRecoverable, Reason}}
+    end;
+insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
+    DB = db(Stream),
+    Shard = emqx_ds:shard_of(DB, Key),
+    Topic = stream_message_topic(Stream, Key),
+    MessageBin = encode_message(Message),
+    Gen = insert_generation(DB),
+    TxOpts = #{
+        db => DB,
+        shard => Shard,
+        generation => Gen,
+        sync => true,
+        retries => ?STREAMS_MESSAGE_DB_APPEND_RETRY,
+        retry_interval => retry_interval(DB)
+    },
+    ?tp(debug, streams_message_db_insert, #{
+        stream => Stream,
         topic => Topic,
         tx_opts => TxOpts
     }),
@@ -188,22 +190,24 @@ insert(#{is_lastvalue := false} = MQHandle, true = _IsLimited, Message) ->
     {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
     case Result of
         {atomic, _Serial, ok} ->
-            emqx_mq_metrics:observe_hist_mq(MQHandle, insert_latency_ms, us_to_ms(Time)),
+            emqx_streams_metrics:observe_hist_stream(
+                Stream, insert_latency_ms, us_to_ms(Time)
+            ),
+            emqx_streams_metrics:inc_stream(Stream, insert_ok),
             ok = update_quota(
-                MQHandle,
+                Stream,
                 {Shard, Gen},
                 undefined,
                 #{message => Message, message_size => byte_size(MessageBin)}
             );
         {error, IsRecoverable, Reason} ->
-            emqx_mq_metrics:inc_mq(MQHandle, insert_errors),
+            emqx_streams_metrics:inc_stream(Stream, insert_errors),
             {error, {IsRecoverable, Reason}}
     end;
-insert(#{is_lastvalue := false} = MQHandle, false = _IsLimited, Message) ->
-    DB = db(MQHandle),
-    ClientId = emqx_message:from(Message),
-    Shard = emqx_ds:shard_of(DB, ClientId),
-    Topic = mq_message_topic(MQHandle, ClientId),
+insert(#{is_lastvalue := false} = Stream, false = _IsLimited, Key, Message) ->
+    DB = db(Stream),
+    Shard = emqx_ds:shard_of(DB, Key),
+    Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     NeedReply = need_reply(Message),
     DirtyOpts = #{
@@ -211,8 +215,8 @@ insert(#{is_lastvalue := false} = MQHandle, false = _IsLimited, Message) ->
         shard => Shard,
         reply => NeedReply
     },
-    ?tp(debug, mq_message_db_insert, #{
-        mq => MQHandle,
+    ?tp(debug, streams_message_db_insert, #{
+        stream => Stream,
         topic => Topic,
         dirty_opts => DirtyOpts
     }),
@@ -228,57 +232,110 @@ insert(#{is_lastvalue := false} = MQHandle, false = _IsLimited, Message) ->
                     case emqx_ds:dirty_append_outcome(Ref, Reply) of
                         {ok, _Serial} ->
                             ElapsedMs = erlang:monotonic_time(millisecond) - TimeStartMs,
-                            emqx_mq_metrics:observe_hist_mq(MQHandle, insert_latency_ms, ElapsedMs),
+                            emqx_streams_metrics:observe_hist_stream(
+                                Stream, insert_latency_ms, ElapsedMs
+                            ),
+                            emqx_streams_metrics:inc_stream(Stream, insert_ok),
                             ok;
                         {error, IsRecoverable, Reason} ->
-                            emqx_mq_metrics:inc_mq(MQHandle, insert_errors),
+                            emqx_streams_metrics:inc_stream(Stream, insert_errors),
                             {error, {IsRecoverable, Reason}}
                     end
-            after ?MQ_DIRTY_APPEND_TIMEOUT ->
+            after ?STREAMS_DIRTY_APPEND_TIMEOUT ->
                 {error, dirty_append_timeout}
             end
     end.
 
--spec drop(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
-drop(MQHandle) ->
-    DB = db(MQHandle),
-    delete(DB, delete_topics(DB, MQHandle)).
+-spec drop(emqx_streams_types:stream()) -> ok | {error, term()}.
+drop(Stream) ->
+    DB = db(Stream),
+    delete(DB, delete_topics(DB, Stream)).
 
 -spec delete_all() -> ok.
 delete_all() ->
-    ok = delete(?MQ_MESSAGE_LASTVALUE_DB, [['#']]),
-    ok = delete(?MQ_MESSAGE_REGULAR_DB, [['#']]).
+    ok = delete(?STREAMS_MESSAGE_LASTVALUE_DB, [['#']]),
+    ok = delete(?STREAMS_MESSAGE_REGULAR_DB, [['#']]).
 
 -spec create_client(module()) -> emqx_ds_client:t().
 create_client(Module) ->
     emqx_ds_client:new(Module, #{}).
 
 -spec subscribe(
-    emqx_mq_types:mq(),
+    emqx_streams_types:stream(),
     emqx_ds_client:t(),
     emqx_ds_client:sub_id(),
     State
 ) ->
     {ok, emqx_ds_client:t(), State}.
-subscribe(#{stream_max_unacked := StreamMaxUnacked} = MQ, DSClient0, SubId, State0) ->
+subscribe(Stream, DSClient0, SubId, State0) ->
+    StreamMaxUnacked = emqx_streams_prop:max_unacked(Stream),
     SubOpts = #{
-        db => db(MQ),
+        db => db(Stream),
         id => SubId,
-        topic => mq_message_topic(MQ, '#'),
+        topic => stream_message_topic(Stream, '#'),
         ds_sub_opts => #{
             max_unacked => StreamMaxUnacked
         }
     },
+    ?tp_debug(streams_message_db_subscribe, #{
+        stream => Stream,
+        sub_id => SubId,
+        sub_opts => SubOpts
+    }),
     {ok, DSClient, State} = emqx_ds_client:subscribe(DSClient0, SubOpts, State0),
     {ok, DSClient, State}.
 
+-spec find_generation(emqx_streams_types:stream(), emqx_ds:shard(), emqx_ds:time()) ->
+    {ok, emqx_ds:generation()} | {error, term()}.
+find_generation(Stream, Shard, TimestampUs) ->
+    case emqx_ds:list_slabs(db(Stream), #{shard => Shard}) of
+        {SlabInfo, []} ->
+            TimestampMs = us_to_ms(TimestampUs),
+            {ok, do_find_generation(TimestampMs, lists:sort(maps:to_list(SlabInfo)))};
+        {_, Errors} ->
+            {error, {cannot_list_slabs, Errors}}
+    end.
+
+find_generations(Stream, TimestampUs) ->
+    Shards = emqx_ds:list_shards(db(Stream)),
+    try
+        Generations = lists:map(
+            fun(Shard) ->
+                case find_generation(Stream, Shard, TimestampUs) of
+                    {ok, Generation} ->
+                        {Shard, Generation};
+                    {error, Reason} ->
+                        throw(Reason)
+                end
+            end,
+            Shards
+        ),
+        {ok, maps:from_list(Generations)}
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
+do_find_generation(_TimestampMs, [{{_Shard, Generation} = _Slab, _SlabInfo}]) ->
+    Generation;
+do_find_generation(TimestampMs, [{{_Shard, Generation} = _Slab, SlabInfo} | Rest]) ->
+    case SlabInfo of
+        #{until := Until} when TimestampMs =< Until orelse Until =:= undefined ->
+            Generation;
+        _ ->
+            do_find_generation(TimestampMs, Rest)
+    end.
+
 -spec suback(
-    emqx_mq_types:mq() | emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()
+    emqx_streams_types:stream() | emqx_ds:db(), emqx_ds:subscription_handle(), emqx_ds:sub_seqno()
 ) -> ok.
-suback(MQ, SubHandle, SeqNo) when is_map(MQ) ->
-    emqx_ds:suback(db(MQ), SubHandle, SeqNo);
-suback(DB, SubHandle, SeqNo) when is_atom(DB) ->
-    emqx_ds:suback(DB, SubHandle, SeqNo).
+suback(Stream, SubHandle, SeqNo) when is_map(Stream) ->
+    ?tp_debug(streams_message_db_suback, #{
+        stream => Stream,
+        sub_handle => SubHandle,
+        seqno => SeqNo
+    }),
+    emqx_ds:suback(db(Stream), SubHandle, SeqNo).
 
 -spec encode_message(emqx_types:message()) -> binary().
 encode_message(Message) ->
@@ -290,24 +347,24 @@ decode_message(Bin) ->
 
 -spec add_regular_db_generation() -> ok.
 add_regular_db_generation() ->
-    ok = emqx_ds:add_generation(?MQ_MESSAGE_REGULAR_DB).
+    ok = emqx_ds:add_generation(?STREAMS_MESSAGE_REGULAR_DB).
 
--spec delete_expired_data([emqx_mq_types:mq()]) -> ok.
-delete_expired_data(MQs) ->
-    Shards = emqx_ds:list_shards(?MQ_MESSAGE_LASTVALUE_DB),
+-spec delete_expired_data([emqx_streams_types:stream()]) -> ok.
+delete_expired_data(Streams) ->
+    Shards = emqx_ds:list_shards(?STREAMS_MESSAGE_LASTVALUE_DB),
     Refs = lists:filtermap(
         fun(Shard) ->
             TxOpts = #{
-                db => ?MQ_MESSAGE_LASTVALUE_DB,
+                db => ?STREAMS_MESSAGE_LASTVALUE_DB,
                 shard => Shard,
-                generation => insert_generation(?MQ_MESSAGE_LASTVALUE_DB),
+                generation => insert_generation(?STREAMS_MESSAGE_LASTVALUE_DB),
                 sync => false
             },
-            Indices = [dirty_index(MQ, Shard) || MQ <- MQs],
+            Indices = [dirty_index(Stream, Shard) || Stream <- Streams],
             Res = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(
-                    fun({MQ, Index}) -> tx_mq_delete_expired_data(MQ, Index) end,
-                    lists:zip(MQs, Indices)
+                    fun({Stream, Index}) -> tx_stream_delete_expired_data(Stream, Index) end,
+                    lists:zip(Streams, Indices)
                 )
             end),
             case Res of
@@ -316,7 +373,7 @@ delete_expired_data(MQs) ->
                 {nop, ok} ->
                     false;
                 {error, IsRecoverable, Reason} ->
-                    ?tp(error, mq_message_db_delete_expired_error, #{
+                    ?tp(error, streams_message_db_delete_expired_error, #{
                         is_recoverable => IsRecoverable,
                         reason => Reason,
                         shard => Shard
@@ -330,12 +387,12 @@ delete_expired_data(MQs) ->
         fun(Ref) ->
             receive
                 ?ds_tx_commit_reply(Ref, Reply) ->
-                    case emqx_ds:tx_commit_outcome(?MQ_MESSAGE_LASTVALUE_DB, Ref, Reply) of
+                    case emqx_ds:tx_commit_outcome(?STREAMS_MESSAGE_LASTVALUE_DB, Ref, Reply) of
                         {ok, _} ->
                             ok;
                         {error, IsRecoverable, Reason} ->
-                            ?tp(error, mq_message_db_delete_expired_error, #{
-                                mqs => MQs,
+                            ?tp(error, streams_message_db_delete_expired_error, #{
+                                streams => Streams,
                                 is_recoverable => IsRecoverable,
                                 reason => Reason
                             })
@@ -345,7 +402,8 @@ delete_expired_data(MQs) ->
         Refs
     ).
 
-tx_mq_delete_expired_data(#{data_retention_period := DataRetentionPeriod} = MQ, Index) ->
+tx_stream_delete_expired_data(Stream, Index) ->
+    DataRetentionPeriod = emqx_streams_prop:data_retention_period(Stream),
     TimeRetentionDeadline = max(now_ms() - DataRetentionPeriod, 0),
     LimitsDeadline =
         case Index of
@@ -355,39 +413,45 @@ tx_mq_delete_expired_data(#{data_retention_period := DataRetentionPeriod} = MQ, 
                 emqx_mq_quota_index:deadline(Index)
         end,
     DeleteTill = max(TimeRetentionDeadline, LimitsDeadline),
-    Topic = mq_message_topic(MQ, '#'),
+    Topic = stream_message_topic(Stream, '#'),
     emqx_ds:tx_del_topic(Topic, 0, DeleteTill).
 
 -spec regular_db_slab_info() -> #{emqx_ds:slab() => emqx_ds:slab_info()}.
 regular_db_slab_info() ->
-    emqx_ds:list_slabs(?MQ_MESSAGE_REGULAR_DB).
+    emqx_ds:list_slabs(?STREAMS_MESSAGE_REGULAR_DB).
 
--spec initial_generations(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
+-spec initial_generations(emqx_streams_types:stream()) ->
     #{emqx_ds:slab() => emqx_ds:generation()}.
-initial_generations(MQ) ->
-    SlabInfo = emqx_ds:list_slabs(db(MQ)),
+initial_generations(Stream) ->
+    SlabInfo = emqx_ds:list_slabs(db(Stream)),
     maps:from_list(lists:reverse(lists:sort(maps:keys(SlabInfo)))).
 
 -spec drop_regular_db_slab(emqx_ds:slab()) -> ok.
 drop_regular_db_slab(Slab) ->
-    ok = emqx_ds:drop_slab(?MQ_MESSAGE_REGULAR_DB, Slab).
+    ok = emqx_ds:drop_slab(?STREAMS_MESSAGE_REGULAR_DB, Slab).
 
--spec dirty_read_all(emqx_mq_types:mq()) -> [emqx_ds:ttv()].
-dirty_read_all(MQ) ->
-    emqx_ds:dirty_read(db(MQ), mq_message_topic(MQ, '#')).
+-spec dirty_read_all(emqx_streams_types:stream()) ->
+    [emqx_ds:ttv()].
+dirty_read_all(Stream) ->
+    emqx_ds:dirty_read(db(Stream), stream_message_topic(Stream, '#')).
+
+-spec partitions(emqx_streams_types:stream()) ->
+    [emqx_streams_types:partition()].
+partitions(Stream) ->
+    emqx_ds:list_shards(db(Stream)).
 
 %%--------------------------------------------------------------------
 %% QuotaBuffer CBM callbacks
 %%--------------------------------------------------------------------
 
 quota_buffer_max_size() ->
-    emqx:get_config([mq, quota, buffer_max_size], ?DEFAULT_QUOTA_BUFFER_MAX_SIZE).
+    emqx:get_config([streams, quota, buffer_max_size], ?DEFAULT_QUOTA_BUFFER_MAX_SIZE).
 
 quota_buffer_flush_interval() ->
-    emqx:get_config([mq, quota, buffer_flush_interval], ?DEFAULT_QUOTA_BUFFER_FLUSH_INTERVAL).
+    emqx:get_config([streams, quota, buffer_flush_interval], ?DEFAULT_QUOTA_BUFFER_FLUSH_INTERVAL).
 
 quota_buffer_notify_queue_size(WorkerId, QueueSize) ->
-    emqx_mq_metrics:set_quota_buffer_inbox_size(WorkerId, QueueSize).
+    emqx_streams_metrics:set_quota_buffer_inbox_size(WorkerId, QueueSize).
 
 quota_buffer_flush_transaction({DB, {Shard, Generation}} = _TxKey, TxFun) ->
     TxOpts = #{
@@ -395,16 +459,16 @@ quota_buffer_flush_transaction({DB, {Shard, Generation}} = _TxKey, TxFun) ->
         shard => Shard,
         generation => Generation,
         sync => true,
-        retries => ?MQ_MESSAGE_DB_INDEX_APPEND_RETRY,
+        retries => ?STREAMS_MESSAGE_DB_QUOTA_INDEX_APPEND_RETRY,
         retry_interval => retry_interval(DB)
     },
     {Time, Result} = timer:tc(fun() -> emqx_ds:trans(TxOpts, TxFun) end),
     case Result of
         {atomic, _Serial, ok} ->
-            emqx_mq_metrics:observe_hist(flush_quota_index, flush_latency_ms, us_to_ms(Time)),
+            emqx_streams_metrics:observe_hist(flush_quota_index, flush_latency_ms, us_to_ms(Time)),
             ok;
         {error, IsRecoverable, Reason} ->
-            emqx_mq_metrics:inc(flush_quota_index, flush_errors),
+            emqx_streams_metrics:inc(flush_quota_index, flush_errors),
             ?tp(error, mq_message_db_flush_quota_index_error, #{
                 shard => Shard,
                 generation => Generation,
@@ -430,23 +494,27 @@ quota_buffer_flush_tx_write(_TxKey, IndexTopic = _Key, Index) ->
 %% Quota index utilities
 %%--------------------------------------------------------------------
 
-dirty_index(MQHandle, Shard) ->
-    dirty_index(MQHandle, Shard, emqx_mq_prop:is_limited(MQHandle)).
+-spec dirty_index(
+    emqx_streams_types:stream(), emqx_ds:shard()
+) ->
+    emqx_mq_quota_index:t() | undefined.
+dirty_index(Stream, Shard) ->
+    dirty_index(Stream, Shard, emqx_streams_prop:is_limited(Stream)).
 
-dirty_index(_MQHandle, _Shard, false = _IsLimited) ->
+dirty_index(_StreanHandle, _Shard, false = _IsLimited) ->
     undefined;
-dirty_index(MQHandle, Shard, true = _IsLimited) ->
-    DB = db(MQHandle),
+dirty_index(Stream, Shard, true = _IsLimited) ->
+    DB = db(Stream),
     case
         emqx_ds:dirty_read(
             #{db => DB, shard => Shard, generation => insert_generation(DB)},
-            mq_index_topic(MQHandle)
+            stream_index_topic(Stream)
         )
     of
         [] ->
             undefined;
         [{_, ?QUOTA_INDEX_TS, IndexBin}] ->
-            Opts = emqx_mq_prop:quota_index_opts(MQHandle),
+            Opts = emqx_streams_prop:quota_index_opts(Stream),
             emqx_mq_quota_index:decode(Opts, IndexBin)
     end.
 
@@ -456,29 +524,29 @@ old_message_quota_info([{_, _, OldMessageBin}]) ->
     OldMessage = decode_message(OldMessageBin),
     #{message => OldMessage, message_size => byte_size(OldMessageBin)}.
 
-update_quota(MQHandle, Slab, OldMessageInfo, NewMessageInfo) ->
+update_quota(Stream, Slab, OldMessageInfo, NewMessageInfo) ->
     emqx_mq_quota_buffer:add(
-        ?MQ_QUOTA_BUFFER,
-        {db(MQHandle), Slab},
-        mq_index_topic(MQHandle),
-        emqx_mq_prop:quota_index_opts(MQHandle),
+        ?STREAMS_QUOTA_BUFFER,
+        {db(Stream), Slab},
+        stream_index_topic(Stream),
+        emqx_streams_prop:quota_index_opts(Stream),
         OldMessageInfo,
         NewMessageInfo
     ).
 
-mq_index_topic(#{topic_filter := TopicFilter, id := Id} = _MQ) ->
-    ?MQ_INDEX_TOPIC(TopicFilter, Id).
+stream_index_topic(#{topic_filter := TopicFilter, id := Id} = _Stream) ->
+    ?STREAMS_INDEX_TOPIC(TopicFilter, Id).
 
 %%--------------------------------------------------------------------
-%% Other helper functions
+%% Internal functions
 %%--------------------------------------------------------------------
 
-key(#{is_lastvalue := true, key_expression := KeyExpression} = MQ, Message) ->
+key(#{key_expression := KeyExpression} = Stream, Message) ->
     Bindings = #{message => message_to_map(Message)},
     case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
         {error, Reason} ->
-            ?tp(warning, mq_message_db_key_expression_error, #{
-                mq => MQ,
+            ?tp(warning, streams_message_db_key_expression_error, #{
+                stream => Stream,
                 reason => Reason,
                 key_expression => emqx_variform:decompile(KeyExpression),
                 bindings => Bindings
@@ -503,12 +571,12 @@ delete(DB, Topics) ->
         %% So we delete in groups with all different shards.
         lists:flatmap(
             fun(Slabs) ->
-                do_delete(DB, Topics, ?MQ_MESSAGE_DB_DELETE_RETRY + 1, Slabs, [])
+                do_delete(DB, Topics, ?STREAMS_MESSAGE_DB_DELETE_RETRY + 1, Slabs, [])
             end,
             slabs_by_generation(DB)
         )
     end),
-    ?tp_debug(mq_message_db_delete, #{
+    ?tp_debug(streams_message_db_delete, #{
         topic => Topics,
         time => us_to_ms(_Time),
         errors => Errors
@@ -561,7 +629,7 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
                         {ok, _} ->
                             false;
                         {error, IsRecoverable, Reason} ->
-                            ?tp(warning, mq_message_db_delete_error, #{
+                            ?tp(warning, streams_message_db_delete_error, #{
                                 topics => Topics,
                                 is_recoverable => IsRecoverable,
                                 reason => Reason,
@@ -578,26 +646,26 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
             [];
         _ ->
             {Slabs, _} = lists:unzip(Errors),
-            timer:sleep(?MQ_MESSAGE_DB_DELETE_RETRY_DELAY),
+            timer:sleep(?STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY),
             do_delete(DB, Topics, Retries - 1, Slabs, Errors)
     end.
 
-mq_message_topic(#{topic_filter := TopicFilter, id := Id} = _MQ, Key) ->
-    ?MQ_MESSAGE_DB_TOPIC(TopicFilter, Id, Key).
+stream_message_topic(#{topic_filter := TopicFilter, id := Id} = _Stream, Key) ->
+    ?STREAMS_MESSAGE_DB_TOPIC(TopicFilter, Id, Key).
 
-db(MQ) ->
-    case emqx_mq_prop:is_append_only(MQ) of
+db(Stream) ->
+    case emqx_streams_prop:is_append_only(Stream) of
         true ->
-            ?MQ_MESSAGE_REGULAR_DB;
+            ?STREAMS_MESSAGE_REGULAR_DB;
         false ->
-            ?MQ_MESSAGE_LASTVALUE_DB
+            ?STREAMS_MESSAGE_LASTVALUE_DB
     end.
 
-insert_generation(?MQ_MESSAGE_LASTVALUE_DB) ->
+insert_generation(?STREAMS_MESSAGE_LASTVALUE_DB) ->
     1.
 
-retry_interval(?MQ_MESSAGE_LASTVALUE_DB) ->
-    emqx:get_config([durable_storage, mq_messages, transaction, flush_interval], 100) * 2.
+retry_interval(?STREAMS_MESSAGE_LASTVALUE_DB) ->
+    emqx:get_config([durable_storage, streams_messages, transaction, flush_interval], 100) * 2.
 
 message_to_map(Message) ->
     convert([user_property, peername, peerhost], emqx_message:to_map(Message)).
@@ -622,10 +690,10 @@ ntoa(Addr) ->
 us_to_ms(Us) ->
     erlang:convert_time_unit(Us, microsecond, millisecond).
 
-delete_topics(?MQ_MESSAGE_REGULAR_DB, MQHandle) ->
-    [mq_message_topic(MQHandle, '#')];
-delete_topics(?MQ_MESSAGE_LASTVALUE_DB, MQHandle) ->
-    [mq_index_topic(MQHandle), mq_message_topic(MQHandle, '#')].
+delete_topics(?STREAMS_MESSAGE_REGULAR_DB, Stream) ->
+    [stream_message_topic(Stream, '#')];
+delete_topics(?STREAMS_MESSAGE_LASTVALUE_DB, Stream) ->
+    [stream_index_topic(Stream), stream_message_topic(Stream, '#')].
 
 now_ms() ->
     erlang:monotonic_time(millisecond).
