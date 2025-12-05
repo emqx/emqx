@@ -13,6 +13,7 @@
 
 -include_lib("public_key/include/public_key.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_connector_jwt/include/emqx_connector_jwt_tables.hrl").
 
 %%------------------------------------------------------------------------------
 %% Type declarations
@@ -93,7 +94,8 @@ jwt_config(ResId, Params) ->
         sub => Sub,
         aud => <<"unused">>,
         kid => <<"unused">>,
-        alg => <<"RS256">>
+        alg => <<"RS256">>,
+        table => emqx_connector_jwt
     }.
 
 http_pool_workers_healthy(HTTPPool, Timeout) ->

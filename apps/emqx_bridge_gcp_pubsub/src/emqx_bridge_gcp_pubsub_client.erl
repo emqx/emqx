@@ -244,11 +244,7 @@ get_transport(Type) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
--spec parse_jwt_config(resource_id(), config()) ->
-    #{
-        jwt_config := emqx_connector_jwt:jwt_config(),
-        project_id := binary()
-    }.
+-spec parse_jwt_config(resource_id(), config()) -> map().
 parse_jwt_config(ResourceId, #{
     jwt_opts := #{aud := Aud},
     service_account_json := ServiceAccountJSON

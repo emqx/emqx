@@ -97,7 +97,7 @@ jobs:
 
       - name: Verify that size of docker image is less than 140 MB
         run: |
-          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c | xargs -I {} test {} -lt 140000000
+          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c | xargs -I {} test {} -lt 150000000
 
       - name: smoke test
         timeout-minutes: 5

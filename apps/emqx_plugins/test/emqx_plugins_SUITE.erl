@@ -33,8 +33,8 @@
 -define(EMQX_ELIXIR_PLUGIN_TEMPLATE_URL,
     "https://github.com/emqx/emqx-elixir-plugin/releases/download/"
 ).
--define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.0").
--define(EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG, "0.1.0-2").
+-define(EMQX_ELIXIR_PLUGIN_TEMPLATE_VSN, "0.1.2").
+-define(EMQX_ELIXIR_PLUGIN_TEMPLATE_TAG, "0.1.2").
 -define(PACKAGE_SUFFIX, ".tar.gz").
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).

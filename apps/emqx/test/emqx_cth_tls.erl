@@ -336,10 +336,10 @@ decode_privkey(PemBinary) when is_binary(PemBinary) ->
 
 -spec encode_privkey(#'ECPrivateKey'{} | #'RSAPrivateKey'{}) -> private_key().
 encode_privkey(Key = #'ECPrivateKey'{}) ->
-    {ok, Der} = 'OTP-PUB-KEY':encode('ECPrivateKey', Key),
+    Der = public_key:der_encode('ECPrivateKey', Key),
     {'ECPrivateKey', Der, not_encrypted};
 encode_privkey(Key = #'RSAPrivateKey'{}) ->
-    {ok, Der} = 'OTP-PUB-KEY':encode('RSAPrivateKey', Key),
+    Der = public_key:der_encode('RSAPrivateKey', Key),
     {'RSAPrivateKey', Der, not_encrypted}.
 
 -spec encode_cert(public_key:der_encoded()) -> certificate().
