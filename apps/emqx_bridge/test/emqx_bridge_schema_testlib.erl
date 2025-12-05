@@ -6,6 +6,17 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+tls_opts() ->
+    CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
+    #{
+        <<"enable">> => true,
+        <<"keyfile">> => bin(filename:join([CertsPath, "client-key.pem"])),
+        <<"certfile">> => bin(filename:join([CertsPath, "client-cert.pem"])),
+        <<"cacertfile">> => bin(filename:join([CertsPath, "cacert.pem"]))
+    }.
+
+bin(X) -> emqx_utils_conv:bin(X).
+
 http_connector_config(Overrides) ->
     Defaults = #{
         <<"enable">> => true,

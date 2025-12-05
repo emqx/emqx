@@ -42,7 +42,7 @@ bridge_types() ->
     [?ACTION_TYPE].
 
 resource_callback_module() ->
-    emqx_bridge_greptimedb_connector.
+    emqx_bridge_greptimedb_rs_impl.
 
 config_schema() ->
     {?CONNECTOR_TYPE,
