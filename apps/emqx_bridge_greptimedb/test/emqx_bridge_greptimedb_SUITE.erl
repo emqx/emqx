@@ -235,7 +235,7 @@ query_by_sql(SQL, TCConfig) ->
             _Timeout = 10_000,
             _Retry = 0
         ),
-
+    ct:pal("query:\n  ~s\nresult:\n  ~p", [SQL, {StatusCode, RawBody0}]),
     case emqx_utils_json:decode(RawBody0) of
         #{
             <<"output">> := [
@@ -260,6 +260,8 @@ query_by_sql(SQL, TCConfig) ->
                     %% Table not found
                     #{}
             end;
+        #{<<"output">> := _} = Res ->
+            {ok, Res};
         Error ->
             {error, Error}
     end.
@@ -547,25 +549,19 @@ t_bad_timestamp(TCConfig) ->
                 10_000
             ),
         fun(Trace) ->
-            IsBatch = get_config(batch_size, TCConfig, 1) > 1,
-            case IsBatch of
-                true ->
-                    ?assertMatch(
-                        [#{error := points_trans_failed}],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    );
-                false ->
-                    ?assertMatch(
-                        [
-                            #{
-                                error := [
-                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
-                                ]
-                            }
-                        ],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    )
-            end,
+            ?assertMatch(
+                [
+                    #{
+                        error :=
+                            {points_trans_failed, #{
+                                last_error :=
+                                    {bad_timestamp, <<"bad_timestamp">>}
+                            }}
+                    }
+                    | _
+                ],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
             ok
         end
     ),
@@ -658,8 +654,6 @@ t_missing_field(matrix) ->
      || Batch <- [?without_batch, ?with_batch]
     ];
 t_missing_field(TCConfig) ->
-    BatchSize = get_config(batch_size, TCConfig),
-    IsBatch = BatchSize > 1,
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
         <<"parameters">> => #{<<"write_syntax">> => <<"mqtt,clientid=${clientid} foo=${foo}i">>},
@@ -691,18 +685,13 @@ t_missing_field(TCConfig) ->
         fun(Trace) ->
             PersistedData0 = query_by_clientid(ClientId0, TCConfig),
             PersistedData1 = query_by_clientid(ClientId1, TCConfig),
-            case IsBatch of
-                true ->
-                    ?assertMatch(
-                        [#{error := points_trans_failed} | _],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    );
-                false ->
-                    ?assertMatch(
-                        [#{error := [{error, no_fields}]} | _],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    )
-            end,
+            ?assertMatch(
+                [
+                    #{error := {points_trans_failed, #{last_error := no_fields}}}
+                    | _
+                ],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
             %% nothing should have been persisted
             ?assertEqual(#{}, PersistedData0),
             ?assertEqual(#{}, PersistedData1),
