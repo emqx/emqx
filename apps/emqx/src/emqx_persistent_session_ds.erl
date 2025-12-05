@@ -2,20 +2,20 @@
 %% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc This module implements an MQTT session that can survive the
-%% restart of an EMQX node by backing up its state on disk. It
-%% consumes messages from a shared durable storage, in contrast to
-%% regular "mem" sessions, which store all received messages in their
-%% own memory queues.
-%%
-%% The main challenge with durable sessions is to replay sent but
-%% unacked messages when the client reconnects. This implementation
-%% addresses this issue by storing iterators, batch sizes, and
-%% sequence numbers of MQTT packets for consumed messages as an array
-%% of "stream replay state" records (`#srs'). In this way, messages
-%% and their corresponding packet IDs can be reconstructed by
-%% "replaying" the stored SRSes.
 -module(emqx_persistent_session_ds).
+-moduledoc """
+This module implements an MQTT session that can survive restart of an
+EMQX node by backing up its state on disk. It consumes messages from a
+shared durable storage, in contrast to regular "mem" sessions, which
+store all received messages in their own memory queues.
+
+The main challenge with durable sessions is to replay sent but unacked
+messages when the client reconnects. This implementation addresses
+this issue by storing iterators, batch sizes, and sequence numbers of
+MQTT packets for consumed messages as an array of "stream replay
+state" records (`#srs`). In this way, messages and their corresponding
+packet IDs can be reconstructed by "replaying" the stored SRSes.
+""".
 
 -compile(inline).
 -behaviour(emqx_session).
@@ -471,30 +471,15 @@ subscribe(TopicFilter, SubOpts, Session0) ->
 
 -spec unsubscribe(topic_filter(), session()) ->
     {ok, session(), emqx_types:subopts()} | {error, emqx_types:reason_code()}.
-unsubscribe(
-    #share{} = TopicFilter,
-    Session0 = #{
-        id := SessionId,
-        s := S0,
-        shared_sub_s := SharedSubS0,
-        stream_scheduler_s := SchedS0
-    }
-) ->
-    case
-        emqx_persistent_session_ds_shared_subs:on_unsubscribe(
-            SessionId, TopicFilter, S0, SchedS0, SharedSubS0
-        )
-    of
-        {ok, S, SchedS, SharedSubS, SubOpts = #{id := SubId}} ->
-            Session = Session0#{
-                s := S, shared_sub_s := SharedSubS, stream_scheduler_s := SchedS
-            },
-            {ok, async_checkpoint(clear_buffer(SubId, Session)), SubOpts};
-        Error = {error, _} ->
-            Error
-    end;
 unsubscribe(TopicFilter, Session0) ->
-    case emqx_persistent_session_ds_subs:on_unsubscribe(TopicFilter, Session0) of
+    Ret =
+        case TopicFilter of
+            #share{} ->
+                emqx_persistent_session_ds_shared_subs:on_unsubscribe(TopicFilter, Session0);
+            _ ->
+                emqx_persistent_session_ds_subs:on_unsubscribe(TopicFilter, Session0)
+        end,
+    case Ret of
         {ok, Session1, #{id := SubId, subopts := SubOpts}} ->
             #{s := S0} = Session1,
             S = mark_all_streams_unsubscribed(SubId, S0),
@@ -693,16 +678,10 @@ handle_timeout(_ClientInfo, Timeout, Session) ->
 -spec handle_info(term(), session(), clientinfo()) -> session().
 handle_info(
     ?shared_sub_message = Msg,
-    Session0 = #{s := S0, shared_sub_s := SharedSubS0},
-    _ClientInfo
+    Session,
+    ClientInfo
 ) ->
-    {_NeedPush, S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_info(
-        S0, SharedSubS0, Msg
-    ),
-    Session = Session0#{
-        s := S, shared_sub_s := SharedSubS
-    },
-    schedule_delivery(Session);
+    schedule_delivery(emqx_persistent_session_ds_shared_subs:on_info(Msg, Session, ClientInfo));
 handle_info(#req_sync{from = From, ref = Ref}, Session0, _ClientInfo) ->
     Session = commit(Session0, #{lifetime => up, sync => true}),
     From ! Ref,
@@ -1043,35 +1022,32 @@ on_subscription_down(SubId, _Slab, Stream, Session = #{buffer := Buf0}) ->
     {node() | undefined, [{emqx_types:topic() | emqx_types:share(), emqx_types:subopts()}]}
     | {error, not_found}.
 list_client_subscriptions(ClientID) ->
-    case emqx_persistent_message:is_persistence_enabled() of
-        true ->
-            %% TODO: this is not the most optimal implementation, since it
-            %% should be possible to avoid reading extra data (streams, etc.)
-            case print_session(ClientID) of
-                Sess = #{s := #{subscriptions := Subs, subscription_states := SStates}} ->
-                    Node =
-                        case Sess of
-                            #{'_alive' := {true, Pid}} ->
-                                node(Pid);
-                            _ ->
-                                undefined
-                        end,
-                    SubList =
-                        maps:fold(
-                            fun(Topic, #{current_state := CS}, Acc) ->
-                                #{subopts := SubOpts} = maps:get(CS, SStates),
-                                Elem = {Topic, SubOpts#{durable => true}},
-                                [Elem | Acc]
-                            end,
-                            [],
-                            Subs
-                        ),
-                    {Node, SubList};
-                undefined ->
-                    {error, not_found}
-            end;
-        false ->
-            {error, not_found}
+    maybe
+        true ?= emqx_persistent_message:is_persistence_enabled(),
+        %% TODO: this is not the most optimal implementation, since it
+        %% should be possible to avoid reading extra data (streams, etc.)
+        Sess = print_session(ClientID),
+        #{s := #{subscriptions := Subs, subscription_states := SStates}} ?= Sess,
+        Node =
+            case Sess of
+                #{'_alive' := {true, Pid}} ->
+                    node(Pid);
+                _ ->
+                    undefined
+            end,
+        SubList =
+            maps:fold(
+                fun(Topic, #{current_state := CS}, Acc) ->
+                    #{subopts := SubOpts} = maps:get(CS, SStates),
+                    Elem = {Topic, SubOpts#{durable => true}},
+                    [Elem | Acc]
+                end,
+                [],
+                Subs
+            ),
+        {Node, SubList}
+    else
+        _ -> {error, not_found}
     end.
 
 -spec get_client_subscription(emqx_types:clientid(), topic_filter()) ->
@@ -1868,6 +1844,9 @@ post_enqueue_new(
     Session = Session0#{s := S},
     post_enqueue(StreamKey, SRS, Session, ClientInfo).
 
+-doc """
+Schedule actions that should happen when the client acks all messages from the batch.
+""".
 -spec post_enqueue(
     stream_key(),
     srs(),
