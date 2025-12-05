@@ -143,35 +143,10 @@ end_per_testcase(_TestCase, TCConfig) ->
 %%------------------------------------------------------------------------------
 
 connector_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my connector">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"server">> => <<"toxiproxy:4001">>,
-        <<"dbname">> => <<"public">>,
-        <<"username">> => <<"greptime_user">>,
-        <<"password">> => <<"greptime_pwd">>,
-        <<"ttl">> => <<"3 years">>,
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_connector_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_schema_testlib:greptimedb_connector_config(Overrides).
 
 action_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my action">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"parameters">> => #{
-            <<"precision">> => <<"ns">>,
-            <<"write_syntax">> => example_write_syntax()
-        },
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_action_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_schema_testlib:greptimedb_action_config(Overrides).
 
 example_write_syntax() ->
     %% N.B.: this single space character is relevant
@@ -260,7 +235,7 @@ query_by_sql(SQL, TCConfig) ->
             _Timeout = 10_000,
             _Retry = 0
         ),
-
+    ct:pal("query:\n  ~s\nresult:\n  ~p", [SQL, {StatusCode, RawBody0}]),
     case emqx_utils_json:decode(RawBody0) of
         #{
             <<"output">> := [
@@ -285,6 +260,8 @@ query_by_sql(SQL, TCConfig) ->
                     %% Table not found
                     #{}
             end;
+        #{<<"output">> := _} = Res ->
+            {ok, Res};
         Error ->
             {error, Error}
     end.
@@ -340,9 +317,7 @@ json_encode(X) ->
 %%------------------------------------------------------------------------------
 
 t_start_stop(TCConfig) when is_list(TCConfig) ->
-    %% `greptimedb_worker' leaks atoms...  pids become atoms 🫠
-    Opts = #{skip_atom_leak_check => true},
-    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped, Opts).
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped).
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
@@ -574,25 +549,19 @@ t_bad_timestamp(TCConfig) ->
                 10_000
             ),
         fun(Trace) ->
-            IsBatch = get_config(batch_size, TCConfig, 1) > 1,
-            case IsBatch of
-                true ->
-                    ?assertMatch(
-                        [#{error := points_trans_failed}],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    );
-                false ->
-                    ?assertMatch(
-                        [
-                            #{
-                                error := [
-                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
-                                ]
-                            }
-                        ],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    )
-            end,
+            ?assertMatch(
+                [
+                    #{
+                        error :=
+                            {points_trans_failed, #{
+                                last_error :=
+                                    {bad_timestamp, <<"bad_timestamp">>}
+                            }}
+                    }
+                    | _
+                ],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
             ok
         end
     ),
@@ -685,8 +654,6 @@ t_missing_field(matrix) ->
      || Batch <- [?without_batch, ?with_batch]
     ];
 t_missing_field(TCConfig) ->
-    BatchSize = get_config(batch_size, TCConfig),
-    IsBatch = BatchSize > 1,
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
         <<"parameters">> => #{<<"write_syntax">> => <<"mqtt,clientid=${clientid} foo=${foo}i">>},
@@ -718,18 +685,13 @@ t_missing_field(TCConfig) ->
         fun(Trace) ->
             PersistedData0 = query_by_clientid(ClientId0, TCConfig),
             PersistedData1 = query_by_clientid(ClientId1, TCConfig),
-            case IsBatch of
-                true ->
-                    ?assertMatch(
-                        [#{error := points_trans_failed} | _],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    );
-                false ->
-                    ?assertMatch(
-                        [#{error := [{error, no_fields}]} | _],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    )
-            end,
+            ?assertMatch(
+                [
+                    #{error := {points_trans_failed, #{last_error := no_fields}}}
+                    | _
+                ],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
             %% nothing should have been persisted
             ?assertEqual(#{}, PersistedData0),
             ?assertEqual(#{}, PersistedData1),

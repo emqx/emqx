@@ -2813,3 +2813,13 @@ generate_and_upload_managed_certs(Namespace, BundleName, Opts) ->
     ok = emqx_managed_certs:add_managed_files(Namespace, BundleName, Files),
     on_exit(fun emqx_managed_certs:clean_certs_dir/0),
     {ok, #{mk_cert_key_fn => MkCertKeyFn, ca => CAPEM, ca_key => CAKeyPEM}}.
+
+with_forced_sync_callback_mode(ConnectorType, Fn) ->
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        callback_mode,
+        fun() -> always_sync end,
+        #{meck_opts => [no_history, passthrough]},
+        Fn
+    ).
