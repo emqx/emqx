@@ -149,8 +149,7 @@ Global options for the client.
   retried at this interval (milliseconds). Default: 5_000.
 """.
 -type client_opts() :: #{
-    retry_interval => non_neg_integer(),
-    stream_discovery => boolean()
+    retry_interval => non_neg_integer()
 }.
 
 -doc "Unique identifier of the subscription.".
