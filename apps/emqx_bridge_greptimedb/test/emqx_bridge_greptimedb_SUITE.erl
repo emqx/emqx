@@ -498,6 +498,7 @@ t_ts_column(TCConfig) ->
     ok.
 
 t_boolean_variants(TCConfig) ->
+    ok = emqx_logger:set_primary_log_level(debug),
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{}),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
@@ -517,12 +518,18 @@ t_boolean_variants(TCConfig) ->
     },
     maps:foreach(
         fun(BoolVariant, Translation) ->
+            ct:pal("variant: ~p", [{BoolVariant, Translation}]),
             Payload = json_encode(#{
                 int_key => -123,
                 bool => BoolVariant,
                 uint_key => 123
             }),
-            emqtt:publish(C, Topic, Payload),
+            {_, {ok, _}} =
+                ?wait_async_action(
+                    emqtt:publish(C, Topic, Payload),
+                    #{?snk_kind := handle_async_reply},
+                    5_000
+                ),
             ?retry(
                 _Sleep2 = 500,
                 _Attempts2 = 20,
@@ -534,7 +541,8 @@ t_boolean_variants(TCConfig) ->
                     #{variant => {BoolVariant, Translation}}
                 )
             ),
-            clear_table(TCConfig)
+            clear_table(TCConfig),
+            ct:sleep(200)
         end,
         BoolVariants
     ),
