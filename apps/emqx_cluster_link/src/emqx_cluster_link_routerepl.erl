@@ -599,11 +599,13 @@ announce_client(TargetCluster, Actor, Pid) ->
     true = gproc:reg_other(?CLIENT_NAME(TargetCluster, Actor), Pid),
     ok.
 
-publish_routes(ClientPid, ActorName, Incarnation, Updates) ->
+publish_routes(ClientPid, ActorName, Incarnation, Updates) when ClientPid =/= undefined ->
     ?SAFE_MQTT_PUB(
         emqx_cluster_link_mqtt:publish_route_sync(ClientPid, ActorName, Incarnation, Updates),
         #{}
-    ).
+    );
+publish_routes(undefined, _ActorName, _Incarnation, _Updates) ->
+    {error, mqtt_client_down}.
 
 publish_heartbeat(ClientPid, Actor, Incarnation) ->
     %% NOTE: Fully asynchronous, no need for error handling.
