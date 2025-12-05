@@ -555,7 +555,7 @@ ds_client_subscribe(TopicFilter, #{id := SubId, start_time := StartTime}, Sess0 
             Sess0
     end.
 
-%% Inverse of `ds_cli_unsub':
+%% Undoes `ds_cli_subscribe':
 -spec ds_client_unsubscribe(
     subscription(),
     emqx_persistent_session_ds:session()
