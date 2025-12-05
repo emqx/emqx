@@ -27,8 +27,8 @@ Host MUST call `emqx_ds:suback` function when it's done processing the batch.
     dispatch_message/3,
     complete_stream/3,
     complete_stream/5,
-    attach_iterator/6,
-    detach_iterator/5,
+    attach_iterator/5,
+    detach_iterator/4,
     inspect/1
 ]).
 
@@ -373,20 +373,20 @@ complete_stream(CS0, SubId, Slab, Stream, HS0) ->
 This function is used when `discover_streams` is `false`.
 """.
 -spec attach_iterator(
-    sub_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), t(), HostState
+    sub_id(), emqx_ds:stream(), emqx_ds:iterator(), t(), HostState
 ) ->
     {t(), HostState}.
-attach_iterator(SubId, Slab, Stream, It, CS0, HS0) ->
-    {CS, HS} = attach_iterator_(SubId, Slab, Stream, It, CS0, HS0),
+attach_iterator(SubId, Stream, It, CS0, HS0) ->
+    {CS, HS} = attach_iterator_(SubId, Stream, It, CS0, HS0),
     execute(#cs.plan, CS, HS).
 
 -doc """
 This function is used when `discover_streams` is `false`.
 """.
--spec detach_iterator(sub_id(), emqx_ds:slab(), emqx_ds:stream(), t(), HostState) ->
+-spec detach_iterator(sub_id(), emqx_ds:stream(), t(), HostState) ->
     {t(), HostState}.
-detach_iterator(SubId, Slab, Stream, CS0, HS0) ->
-    {CS, HS} = detach_iterator_(SubId, Slab, Stream, CS0, HS0),
+detach_iterator(SubId, Stream, CS0, HS0) ->
+    {CS, HS} = detach_iterator_(SubId, Stream, CS0, HS0),
     execute(#cs.plan, CS, HS).
 
 -doc """
@@ -470,12 +470,13 @@ complete_unsubscribed_stream_(CS0, SubId, {Shard, _}, Stream, HS) ->
     ).
 
 -spec attach_iterator_(
-    sub_id(), emqx_ds:slab(), emqx_ds:stream(), emqx_ds:iterator(), t(), HostState
+    sub_id(), emqx_ds:stream(), emqx_ds:iterator(), t(), HostState
 ) ->
     {t(), HostState}.
-attach_iterator_(SubId, Slab, Stream, It, CS, HS) ->
+attach_iterator_(SubId, Stream, It, CS, HS) ->
     #cs{subs = Subs} = CS,
     #{SubId := #sub{db = DB}} = Subs,
+    {ok, Slab} = emqx_ds:slab_of_stream(DB, Stream),
     Eff = #eff_make_iterator{
         sub_id = SubId,
         db = DB,
@@ -488,9 +489,11 @@ attach_iterator_(SubId, Slab, Stream, It, CS, HS) ->
     },
     handle_add_iterator(Eff, CS, HS, It).
 
--spec detach_iterator_(sub_id(), emqx_ds:slab(), emqx_ds:stream(), t(), HostState) ->
+-spec detach_iterator_(sub_id(), emqx_ds:stream(), t(), HostState) ->
     {t(), HostState}.
-detach_iterator_(SubId, {Shard, Gen}, Stream, CS0, HS0) ->
+detach_iterator_(SubId, Stream, CS0 = #cs{subs = Subs}, HS0) ->
+    #{SubId := #sub{db = DB}} = Subs,
+    {ok, {Shard, Gen}} = emqx_ds:slab_of_stream(DB, Stream),
     %% 1. Remove pending resubscribe actions:
     CS1 = filter_effects(
         fun
