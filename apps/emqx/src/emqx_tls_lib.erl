@@ -598,9 +598,9 @@ to_server_opts(Type, Opts) ->
         | emqx_utils:flattermap(
             fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
             [
-                {keyfile, fun conf_resolve_path_strict/2},
-                {certfile, fun conf_resolve_path_strict/2},
-                {cacertfile, fun conf_resolve_path_strict/2},
+                {keyfile, fun resolve_keyfile/2},
+                {certfile, fun resolve_certfile/2},
+                {cacertfile, fun resolve_certfile/2},
                 {cacerts, fun conf_get_opt/2},
                 {password, fun conf_get_password/2},
                 {depth, fun conf_get_opt/2},
@@ -669,9 +669,9 @@ to_client_opts(Type, Opts = #{enable := true}) ->
             | emqx_utils:flattermap(
                 fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
                 [
-                    {keyfile, fun conf_resolve_path_strict/2},
-                    {certfile, fun conf_resolve_path_strict/2},
-                    {cacertfile, fun conf_resolve_path_strict/2},
+                    {keyfile, fun resolve_keyfile/2},
+                    {certfile, fun resolve_certfile/2},
+                    {cacertfile, fun resolve_certfile/2},
                     {password, fun conf_get_password/2},
                     {depth, fun conf_get_opt/2},
                     {verify, fun conf_get_opt/2},
@@ -813,8 +813,40 @@ conf_get_opt(Key, Options, Default) ->
             maps:get(atom_to_binary(Key, utf8), Options, Default)
     end.
 
-conf_resolve_path_strict(Key, Options) ->
-    resolve_cert_path_for_read_strict(conf_get_opt(Key, Options)).
+resolve_keyfile(Key, Options) ->
+    resolve_pem_file(
+        "^-----BEGIN (.*)PRIVATE KEY-----.*-----END \\1PRIVATE KEY-----$", Key, Options
+    ).
+
+resolve_certfile(Key, Options) ->
+    resolve_pem_file("^-----BEGIN .*CERTIFICATE-----.*-----END .*CERTIFICATE-----$", Key, Options).
+
+resolve_pem_file(Pattern, Key, Options) ->
+    case resolve_cert_path_for_read_strict(conf_get_opt(Key, Options)) of
+        undefined ->
+            undefined;
+        Path ->
+            do_resolve_pem_file(Pattern, Path)
+    end.
+
+do_resolve_pem_file(Pattern, Path) ->
+    case file:read_file(Path) of
+        {ok, PEM} ->
+            case re:run(PEM, Pattern, [dotall, multiline]) of
+                {match, _} ->
+                    Path;
+                nomatch ->
+                    ?SLOG(error, #{msg => "invalid_pem_file_ignored", path => Path}),
+                    undefined
+            end;
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "unreadable_pem_file_ignored",
+                path => Path,
+                cause => emqx_utils:explain_posix(Reason)
+            }),
+            undefined
+    end.
 
 conf_get_password(Name, Opts) ->
     ensure_password(conf_get_opt(Name, Opts)).

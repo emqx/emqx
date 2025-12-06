@@ -604,6 +604,255 @@ to_client_opts_test() ->
     ),
     ok.
 
+pem_validation_test_() ->
+    {setup,
+        fun() ->
+            Fn = setup_ssl_files(),
+            setup_pem_validation_files(Fn())
+        end,
+        fun cleanup_ssl_files/1, fun pem_validation_cases/1}.
+
+setup_pem_validation_files(Context) ->
+    #{temp_dir := TmpDir} = Context,
+    InvalidKeyPath = filename:join(TmpDir, "invalid_key.pem"),
+    InvalidCertPath = filename:join(TmpDir, "invalid_cert.pem"),
+    InvalidCacertPath = filename:join(TmpDir, "invalid_cacert.pem"),
+    NonExistentPath = filename:join(TmpDir, "nonexistent.pem"),
+    ok = file:write_file(InvalidKeyPath, <<"not a valid private key">>),
+    ok = file:write_file(InvalidCertPath, <<"not a valid certificate">>),
+    ok = file:write_file(InvalidCacertPath, <<"not a valid certificate">>),
+    Context#{
+        invalid_key_path => InvalidKeyPath,
+        invalid_cert_path => InvalidCertPath,
+        invalid_cacert_path => InvalidCacertPath,
+        non_existent_path => NonExistentPath
+    }.
+
+pem_validation_cases(Context) ->
+    #{
+        keyfile_path := ValidKeyPath,
+        certfile_path := ValidCertPath,
+        cacertfile_path := ValidCacertPath,
+        temp_dir := TmpDir,
+        invalid_key_path := InvalidKeyPath,
+        invalid_cert_path := InvalidCertPath,
+        invalid_cacert_path := InvalidCacertPath,
+        non_existent_path := NonExistentPath
+    } = Context,
+    [
+        {"with valid keyfile, certfile, and cacertfile",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => ValidKeyPath,
+                    certfile => ValidCertPath,
+                    cacertfile => ValidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertNotEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with invalid keyfile (should omit keyfile)",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => InvalidKeyPath,
+                    certfile => ValidCertPath,
+                    cacertfile => ValidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with invalid certfile (should omit certfile)",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => ValidKeyPath,
+                    certfile => InvalidCertPath,
+                    cacertfile => ValidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertNotEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with non-existent keyfile (should omit keyfile)",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => NonExistentPath,
+                    certfile => ValidCertPath,
+                    cacertfile => ValidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with certificate file as keyfile (wrong type, should omit keyfile)",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => ValidCertPath,
+                    certfile => ValidCertPath,
+                    cacertfile => ValidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_server_opts(tls, Options),
+                ?assertEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with private key file as certfile (wrong type, should omit certfile)",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => ValidKeyPath,
+                    certfile => ValidKeyPath,
+                    cacertfile => ValidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertNotEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with undefined certfile",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => ValidKeyPath,
+                    cacertfile => ValidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertNotEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertNotEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with all invalid files (should omit all)",
+            ?_test(begin
+                Options = #{
+                    enable => true,
+                    keyfile => InvalidKeyPath,
+                    certfile => InvalidCertPath,
+                    cacertfile => InvalidCacertPath
+                },
+                ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                ?assertEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                ?assertEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                ?assertEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+            end)},
+        {"with directory path as cacertfile (should be omitted)",
+            ?_test(begin
+                %% Use a separate empty directory to avoid conflicts
+                EmptyDir = filename:join(
+                    TmpDir, integer_to_list(erlang:system_time(microsecond)) ++ "_dir"
+                ),
+                ok = filelib:ensure_dir(filename:join(EmptyDir, "dummy")),
+                try
+                    Options = #{
+                        enable => true,
+                        keyfile => ValidKeyPath,
+                        certfile => ValidCertPath,
+                        cacertfile => EmptyDir
+                    },
+                    ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                    %% Directory path is not a regular file, so cacertfile should be omitted
+                    ?assertNotEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                    ?assertNotEqual(undefined, proplists:get_value(certfile, ClientOpts)),
+                    ?assertEqual(undefined, proplists:get_value(cacertfile, ClientOpts))
+                after
+                    catch file:del_dir(EmptyDir)
+                end
+            end)}
+        | IsUnix =
+            case os:type() of
+                {unix, _} ->
+                    pem_validation_cases_unix(Context);
+                _ ->
+                    []
+            end
+    ].
+
+pem_validation_cases_unix(Context) ->
+    #{
+        keyfile_path := ValidKeyPath,
+        certfile_path := ValidCertPath,
+        cacertfile_path := ValidCacertPath,
+        temp_dir := TmpDir,
+        invalid_key_path := InvalidKeyPath,
+        invalid_cert_path := InvalidCertPath,
+        invalid_cacert_path := InvalidCacertPath,
+        non_existent_path := NonExistentPath
+    } = Context,
+    [
+        {"with file without read permission (file:read_file should fail)",
+            ?_test(begin
+                NoPermFile = filename:join(TmpDir, "no_permission.pem"),
+                %% Read key content, handling potential errors
+                KeyContent =
+                    case file:read_file(ValidKeyPath) of
+                        {ok, Content} -> Content;
+                        {error, _} -> <<"dummy key content">>
+                    end,
+                ok = file:write_file(NoPermFile, KeyContent),
+                %% Remove read permission
+                os:cmd("chmod 000 " ++ NoPermFile),
+                try
+                    Options = #{
+                        enable => true,
+                        keyfile => NoPermFile,
+                        certfile => ValidCertPath,
+                        cacertfile => ValidCacertPath
+                    },
+                    ClientOpts = emqx_tls_lib:to_server_opts(tls, Options),
+                    %% File without read permission should cause file:read_file to fail
+                    %% so keyfile should be omitted
+                    ?assertEqual(undefined, proplists:get_value(keyfile, ClientOpts)),
+                    ?assertNotEqual(
+                        undefined, proplists:get_value(certfile, ClientOpts)
+                    ),
+                    ?assertNotEqual(
+                        undefined, proplists:get_value(cacertfile, ClientOpts)
+                    )
+                after
+                    %% Restore permissions so we can delete the file
+                    os:cmd("chmod 644 " ++ NoPermFile),
+                    file:delete(NoPermFile)
+                end
+            end)},
+        {"with broken symlink as keyfile (should be omitted)",
+            ?_test(begin
+                SymlinkDir = filename:join(
+                    TmpDir,
+                    integer_to_list(erlang:system_time(microsecond)) ++ "_symlink"
+                ),
+                ok = filelib:ensure_dir(filename:join(SymlinkDir, "dummy")),
+                BrokenSymlink = filename:join(SymlinkDir, "broken_symlink.pem"),
+                TargetPath = filename:join(SymlinkDir, "nonexistent_target.pem"),
+                %% Create a symlink pointing to a non-existent file
+                ok = file:make_symlink(TargetPath, BrokenSymlink),
+                try
+                    %% Verify the symlink exists and points to non-existent file
+                    %% filelib:is_file returns false for broken symlinks, so we check read_file instead
+                    {error, enoent} = file:read_file(BrokenSymlink),
+                    Options = #{
+                        enable => true,
+                        keyfile => BrokenSymlink,
+                        certfile => ValidCertPath,
+                        cacertfile => ValidCacertPath
+                    },
+                    ClientOpts = emqx_tls_lib:to_client_opts(tls, Options),
+                    %% Broken symlink points to non-existent file, so keyfile should be omitted
+                    ?assertEqual(undefined, proplists:get_value(keyfile, ClientOpts))
+                after
+                    file:delete(BrokenSymlink),
+                    catch file:del_dir(SymlinkDir)
+                end
+            end)}
+    ].
+
 password_file_test() ->
     T = integer_to_list(erlang:system_time(microsecond)),
     TmpFile = filename:join("/tmp", "secret-" ++ T ++ ".txt"),
