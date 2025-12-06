@@ -2039,7 +2039,7 @@ handle_destroy_group(Id, S0 = #s{groups = G0}) ->
     non_neg_integer()
 ) ->
     transaction_result(Ret).
-trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval, sync := Sync}, Retries) ->
+trans_maybe_retry(DB, Fun, Opts = #{retry_interval := RetryInterval, sync := _Sync}, Retries) ->
     case trans_inner(DB, Fun, Opts) of
         ?err_rec(Reason) when Retries > 0 ->
             ?tp(

@@ -44,12 +44,6 @@ defmodule Mix.Tasks.Emqx.Eunit do
     node_name = :"test@127.0.0.1"
     :net_kernel.start([node_name, :longnames])
 
-    # unmangle PROFILE env because some places (`:emqx_conf.resolve_schema_module`) expect
-    # the version without the `-test` suffix.
-    System.fetch_env!("PROFILE")
-    |> String.replace_suffix("-test", "")
-    |> then(&System.put_env("PROFILE", &1))
-
     EMQX.Mix.Utils.clear_screen()
 
     ECt.maybe_start_cover()

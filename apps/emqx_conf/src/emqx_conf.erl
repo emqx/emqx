@@ -450,7 +450,7 @@ warn_bad_namespace(Namespace) ->
 schema_module() ->
     case os:getenv("SCHEMA_MOD") of
         false ->
-            resolve_schema_module();
+            emqx_enterprise_schema;
         Value ->
             list_to_existing_atom(Value)
     end.
@@ -458,22 +458,6 @@ schema_module() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
-
--ifdef(TEST).
-resolve_schema_module() ->
-    case os:getenv("PROFILE") of
-        "emqx" ->
-            emqx_conf_schema;
-        "emqx-enterprise" ->
-            emqx_enterprise_schema;
-        false ->
-            error("PROFILE environment variable is not set")
-    end.
--else.
--spec resolve_schema_module() -> no_return().
-resolve_schema_module() ->
-    error("SCHEMA_MOD environment variable is not set").
--endif.
 
 %% @doc Make a resolver function that can be used to lookup the description by hocon_schema_json dump.
 make_desc_resolver(Lang) ->
