@@ -101,13 +101,6 @@
 }.
 -type transformation_context() :: #{name := binary()}.
 -type validation_context() :: #{name := binary()}.
--type common_chan_context() :: #{
-    %% Essentially `emqx_channel:info/2` with the channel in the function's closure.
-    chan_info_fn := fun((list(atom()) | atom() | tuple()) -> term()),
-    %% Essentially `emqx_session:info/2` with the channel's session in the function's
-    %% closure.
-    session_info_fn := fun((atom()) -> term())
-}.
 
 %%-----------------------------------------------------------------------------
 %% Callbacks
