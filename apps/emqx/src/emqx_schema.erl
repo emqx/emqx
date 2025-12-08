@@ -1538,13 +1538,6 @@ fields("sysmon") ->
                 ref("sysmon_os"),
                 #{}
             )},
-        {"top",
-            sc(
-                ref("sysmon_top"),
-                %% Userful monitoring solution when benchmarking,
-                %% but hardly common enough for regular users.
-                #{importance => ?IMPORTANCE_HIDDEN}
-            )},
         {"mnesia_tm_mailbox_size_alarm_threshold",
             sc(
                 pos_integer(),
@@ -1677,83 +1670,6 @@ fields("sysmon_os") ->
                 #{
                     default => <<"5%">>,
                     desc => ?DESC(sysmon_os_procmem_high_watermark)
-                }
-            )}
-    ];
-fields("sysmon_top") ->
-    [
-        {"num_items",
-            sc(
-                non_neg_integer(),
-                #{
-                    mapping => "system_monitor.top_num_items",
-                    default => 10,
-                    desc => ?DESC(sysmon_top_num_items)
-                }
-            )},
-        {"sample_interval",
-            sc(
-                emqx_schema:duration(),
-                #{
-                    mapping => "system_monitor.top_sample_interval",
-                    default => <<"2s">>,
-                    desc => ?DESC(sysmon_top_sample_interval)
-                }
-            )},
-        {"max_procs",
-            sc(
-                non_neg_integer(),
-                #{
-                    mapping => "system_monitor.top_max_procs",
-                    default => 1_000_000,
-                    desc => ?DESC(sysmon_top_max_procs)
-                }
-            )},
-        {"db_hostname",
-            sc(
-                string(),
-                #{
-                    mapping => "system_monitor.db_hostname",
-                    desc => ?DESC(sysmon_top_db_hostname),
-                    default => <<>>
-                }
-            )},
-        {"db_port",
-            sc(
-                integer(),
-                #{
-                    mapping => "system_monitor.db_port",
-                    default => 5432,
-                    desc => ?DESC(sysmon_top_db_port)
-                }
-            )},
-        {"db_username",
-            sc(
-                string(),
-                #{
-                    mapping => "system_monitor.db_username",
-                    default => <<"system_monitor">>,
-                    desc => ?DESC(sysmon_top_db_username)
-                }
-            )},
-        {"db_password",
-            sc(
-                binary(),
-                #{
-                    mapping => "system_monitor.db_password",
-                    default => <<"system_monitor_password">>,
-                    desc => ?DESC(sysmon_top_db_password),
-                    converter => fun password_converter/2,
-                    sensitive => true
-                }
-            )},
-        {"db_name",
-            sc(
-                string(),
-                #{
-                    mapping => "system_monitor.db_name",
-                    default => <<"postgres">>,
-                    desc => ?DESC(sysmon_top_db_name)
                 }
             )}
     ];
@@ -2383,10 +2299,6 @@ desc("sysmon_vm") ->
 desc("sysmon_os") ->
     "This part of the configuration is responsible for monitoring\n"
     " the host OS health, such as free memory, disk space, CPU load, etc.";
-desc("sysmon_top") ->
-    "This part of the configuration is responsible for monitoring\n"
-    " the Erlang processes in the VM. This information can be sent to an external\n"
-    " PostgreSQL database. This feature is inactive unless the PostgreSQL sink is configured.";
 desc("alarm") ->
     "Settings for the alarms.";
 desc("trace") ->
