@@ -335,9 +335,7 @@ t_on_get_status(matrix) ->
      || Conn <- [?tcp, ?tls]
     ];
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
-    %% todo: driver currently exposes no way to probe connection during health checks.
-    Opts = #{skip_proxy => true},
-    emqx_bridge_v2_testlib:t_on_get_status(TCConfig, Opts).
+    emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
 
 t_rule_action() ->
     [{matrix, true}].

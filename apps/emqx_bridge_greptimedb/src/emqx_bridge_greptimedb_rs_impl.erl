@@ -153,9 +153,23 @@ on_stop(ConnResId, _ConnState) ->
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | ?status_disconnected.
-on_get_status(_ConnResId, _ConnState) ->
+on_get_status(_ConnResId, #{?client := Client} = _ConnState) ->
     %% todo: make lib expose a way to health check it.
-    ?status_connected.
+    try greptimedb_rs:query(Client, <<"select 1">>) of
+        {ok, _} ->
+            ?status_connected;
+        {error, Reason} ->
+            {?status_disconnected, Reason}
+    catch
+        Kind:Reason:Stacktrace ->
+            ?SLOG(error, #{
+                msg => "greptimedb_rs_connector_health_check_exception",
+                kind => Kind,
+                reason => Reason,
+                stacktrace => Stacktrace
+            }),
+            {?status_disconnected, {Kind, Reason}}
+    end.
 
 -spec on_get_channels(connector_resource_id()) ->
     [{action_resource_id(), channel_config()}].
@@ -219,7 +233,7 @@ on_get_channel_status(
     ChanResId,
     _ConnState = #{?installed_channels := InstalledChannels}
 ) when is_map_key(ChanResId, InstalledChannels) ->
-    %% todo: make lib expose a way to health check it.
+    %% there seems to be no particular status for an action of this kind
     ?status_connected;
 on_get_channel_status(_ConnResId, _ChanResId, _ConnState) ->
     ?status_disconnected.

@@ -316,7 +316,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
 
   def common_dep(:greptimedb_rs),
-    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.0"}
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.1"}
 
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
