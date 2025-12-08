@@ -4,6 +4,13 @@
 
 -module(emqx_streams).
 
+-moduledoc """
+The module is responsible for integrating the Streams application into the EMQX core.
+
+The write part is integrated via registering `message.publish` hook.
+The read part is integrated via registering an ExtSub handler.
+""".
+
 -include("emqx_streams_internal.hrl").
 
 -include_lib("emqx/include/emqx_hooks.hrl").

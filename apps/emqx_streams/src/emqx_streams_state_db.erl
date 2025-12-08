@@ -4,6 +4,11 @@
 
 -module(emqx_streams_state_db).
 
+-moduledoc """
+The module is a draft, not integrated yet.
+It is subject to change.
+""".
+
 -export([
     open/0,
     close/0,

@@ -4,6 +4,11 @@
 
 -module(emqx_streams_config).
 
+-moduledoc """
+Utility module to handle configuration of the Message Streams application and
+individual streams.
+""".
+
 -include("emqx_streams_internal.hrl").
 
 -export([

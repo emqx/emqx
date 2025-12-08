@@ -39,6 +39,8 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+%% Verify basic CRUD operations on streams registry.
+%% We do not test matching thoroughly, as it is actually provided by `emqx_router` module.
 t_crud(_Config) ->
     _ = create_stream(<<"a/b/c">>),
     _ = create_stream(<<"a/b/#">>),

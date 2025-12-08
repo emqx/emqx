@@ -5,7 +5,7 @@
 -module(emqx_streams_prop).
 
 -moduledoc """
-The module contains accessor functions for the Streams/Stream handles.
+The module contains accessor functions for the Streams.
 """.
 
 -export([

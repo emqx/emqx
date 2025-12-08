@@ -4,6 +4,11 @@
 
 -module(emqx_streams_shard_disp_group).
 
+-moduledoc """
+The module is a draft, not integrated yet.
+It is subject to change.
+""".
+
 -include("emqx_streams_internal.hrl").
 
 -export([

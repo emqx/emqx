@@ -2,8 +2,12 @@
 %% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% TODO: documentation.
 -module(emqx_streams_allocation).
+
+-moduledoc """
+The module is a draft, not integrated yet.
+It is subject to change.
+""".
 
 -export([
     new/2,

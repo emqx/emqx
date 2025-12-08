@@ -48,12 +48,12 @@ end_per_testcase(_TestCase, Config) ->
 %%--------------------------------------------------------------------
 
 %% Verify that the GC works as expected:
-%% * drops expired generations for regular queues
-%% * drops expired messages for lastvalue queues
+%% * drops expired generations for regular streams
+%% * drops expired messages for lastvalue streams
 t_gc(_Config) ->
     emqx_config:put([streams, regular_stream_retention_period], 1000),
     ct:sleep(500),
-    % %% Create a lastvalue Queue
+    %% Create a lastvalue Stream
     StreamLV = emqx_streams_test_utils:create_stream(#{
         topic_filter => <<"tc/#">>, is_lastvalue => true
     }),
@@ -62,7 +62,7 @@ t_gc(_Config) ->
         topic_filter => <<"tr/#">>, is_lastvalue => false, data_retention_period => 1000
     }),
 
-    % Publish 10 messages to the queues
+    % Publish 10 messages to the streams
     emqx_streams_test_utils:populate_lastvalue(10, #{
         topic_prefix => <<"tc/">>,
         payload_prefix => <<"payload-old-">>
@@ -79,7 +79,7 @@ t_gc(_Config) ->
     RegularDBGens0 = maps:values(emqx_streams_message_db:initial_generations(StreamR)),
     ?assertEqual([1], lists:usort(RegularDBGens0)),
 
-    % Publish 10 messages to the queue
+    % Publish 10 messages to the stream
     emqx_streams_test_utils:populate_lastvalue(10, #{
         topic_prefix => <<"tc/">>,
         payload_prefix => <<"payload-new-">>
@@ -106,7 +106,7 @@ t_gc_noop(_Config) ->
 
 %% Verify that the GC collects data of regular streams limited by count or byte size
 t_limited_regular(_Config) ->
-    %% Create a regular queue limited by count
+    %% Create a regular stream limited by count
     %% 50 messages per shard maximum
     %% We have ?N_SHARDS = 2 shards, so 50 * 2 = 100 messages maximum
     StreamRC = emqx_streams_test_utils:create_stream(
@@ -147,7 +147,7 @@ t_limited_regular(_Config) ->
         }
     ),
 
-    %% Publish 200KB messages to the queue and run GC
+    %% Publish 200KB messages to the stream and run GC
     Bin1K = <<1:512>>,
     emqx_streams_test_utils:populate(400, #{
         topic_prefix => <<"tb/">>, payload_prefix => Bin1K, different_clients => true

@@ -5,7 +5,8 @@
 -module(emqx_streams_registry).
 
 -moduledoc """
-The module contains the registry of Streams.
+The module contains the registry of Streams and provides API
+to create, update, delete, and look up streams.
 
 NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid confusion.
 """.
@@ -173,7 +174,7 @@ delete(TopicFilter) ->
             ok = mria:dirty_delete_object(Rec),
             Stream = record_to_stream(Rec),
             emqx_streams_message_db:drop(Stream)
-        %% TODO Drop consumer groups
+        %% TODO Drop consumer groups when they appear
     end.
 
 -doc """
@@ -183,7 +184,7 @@ Delete all Streams. Only for testing/maintenance.
 delete_all() ->
     _ = mria:clear_table(?STREAMS_REGISTRY_INDEX_TAB),
     ok = emqx_streams_message_db:delete_all(),
-    %% TODO Drop all consumer groups
+    %% TODO Drop all consumer groups when they appear
     ok.
 
 -doc """

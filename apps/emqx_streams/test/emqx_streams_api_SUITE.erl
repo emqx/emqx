@@ -75,13 +75,14 @@ t_crud(_Config) ->
         {ok, 404, _},
         api_get([message_streams, streams, urlencode(<<"t/1">>)])
     ),
-    %% Create a regular stream
+    %% Create a stream
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
             <<"topic_filter">> => <<"t/1/1">>, <<"read_max_unacked">> => 1000
         })
     ),
+    %% Create a capped stream
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
@@ -93,6 +94,7 @@ t_crud(_Config) ->
             }
         })
     ),
+    %% Verify that the streams are created
     ?retry(
         5,
         20,
@@ -127,24 +129,24 @@ t_crud(_Config) ->
             )
         end
     ),
+    %% Try to update a non-existent stream, expect 404
     ?assertMatch(
         {ok, 404, _},
         api_put([message_streams, streams, urlencode(<<"t/2">>)], #{<<"read_max_unacked">> => 10000})
     ),
-    ?retry(
-        5,
-        20,
-        ?assertMatch(
-            {ok, 200, #{<<"topic_filter">> := <<"t/1/1">>, <<"read_max_unacked">> := 10000}},
-            api_put([message_streams, streams, urlencode(<<"t/1/1">>)], #{
-                <<"read_max_unacked">> => 10000
-            })
-        )
+    %% Update an existing stream
+    ?assertMatch(
+        {ok, 200, #{<<"topic_filter">> := <<"t/1/1">>, <<"read_max_unacked">> := 10000}},
+        api_put([message_streams, streams, urlencode(<<"t/1/1">>)], #{
+            <<"read_max_unacked">> => 10000
+        })
     ),
+    %% Verify that the stream is updated
     ?assertMatch(
         {ok, 200, #{<<"topic_filter">> := <<"t/1/1">>, <<"read_max_unacked">> := 10000}},
         api_get([message_streams, streams, urlencode(<<"t/1/1">>)])
     ),
+    %% Delete both streams
     ?assertMatch(
         {ok, 204},
         api_delete([message_streams, streams, urlencode(<<"t/1/1">>)])
@@ -153,10 +155,12 @@ t_crud(_Config) ->
         {ok, 204},
         api_delete([message_streams, streams, urlencode(<<"t/1/2">>)])
     ),
+    %% Verify that the streams are deleted
     ?assertMatch(
         {ok, 404, _},
         api_delete([message_streams, streams, urlencode(<<"t/1/1">>)])
     ),
+    %% Verify that the streams are not listed
     ?retry(
         5,
         20,
@@ -198,14 +202,17 @@ t_pagination(_Config) ->
 
 %% Verify streams subsystem (re)configuration via API.
 t_config(_Config) ->
+    %% Get the current config
     ?assertMatch(
         {ok, 200, _},
         api_get([message_streams, config])
     ),
+    %% Fail to update the config with an invalid GC interval
     ?assertMatch(
         {ok, 400, _},
         api_put([message_streams, config], #{<<"gc_interval">> => <<"-10h">>})
     ),
+    %% Update the config successfully
     ?assertMatch(
         {ok, 204},
         api_put([message_streams, config], #{
@@ -213,6 +220,7 @@ t_config(_Config) ->
             <<"regular_stream_retention_period">> => <<"14d">>
         })
     ),
+    %% Verify that the config is updated
     ?assertMatch(
         {ok, 200, #{
             <<"gc_interval">> := <<"2h">>,
@@ -220,6 +228,7 @@ t_config(_Config) ->
         }},
         api_get([message_streams, config])
     ),
+    %% Successfully enable auto-creation of lastvalue streams
     ?assertMatch(
         {ok, 204},
         api_put([message_streams, config], #{
@@ -229,6 +238,7 @@ t_config(_Config) ->
             }
         })
     ),
+    %% Verify that the auto-creation of lastvalue streams is enabled
     ?assertMatch(
         {ok, 200, #{
             <<"auto_create">> := #{
@@ -240,6 +250,7 @@ t_config(_Config) ->
         }},
         api_get([message_streams, config])
     ),
+    %% Fail to enable auto-creation of both regular and lastvalue streams
     ?assertMatch(
         {ok, 400, #{
             <<"code">> := <<"BAD_REQUEST">>,
