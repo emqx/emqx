@@ -6,7 +6,6 @@
 
 -moduledoc """
 Collection of handlers for the external message sources.
-Primarily, allows to access the handlers both by the handler unique reference or by topic filter.
 """.
 
 -include("emqx_extsub_internal.hrl").
