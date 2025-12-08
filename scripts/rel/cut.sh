@@ -12,19 +12,12 @@ cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
 usage() {
     cat <<EOF
 $0 RELEASE_GIT_TAG [option]
-RELEASE_GIT_TAG is a 'e*' tag, for example:
-  e5.8.7-alpha.1
-  e5.9.1-beta.6
-  e6.0.0-M1.202507-rc.1
-  e6.0.0
+RELEASE_GIT_TAG is a 'Major.Minor.Patch' tag, for example: 6.0.0
 
 options:
   -h|--help:         Print this usage.
 
   -b|--base:         Specify the current release base branch, can be one of
-                     release-58
-                     release-59
-                     release-510
                      release-60
                      NOTE: this option should be used when --dryrun.
 
@@ -37,15 +30,10 @@ options:
                      If this option is absent, the tag found by git describe will be used
 
 
-For 5.X series the current working branch must be 'release-5X'
-      --.--[  master  ]---------------------------.-----------.---
-         \\                                      /
-          \`---[release-5X]----------------e5.10.0
-
 For 6.X series the current working branch must be 'release-6X'
       --.--[  master  ]---------------------------.-----------.---
          \\                                      /
-          \`---[release-6X]----------------e6.0.0
+          \`---[release-6X]----------------- 6.0.0
 EOF
 }
 
@@ -64,20 +52,15 @@ logmsg() {
 TAG="${1:-}"
 
 case "$TAG" in
-    e*)
-        TAG_PREFIX='e'
-        PROFILE='emqx-enterprise'
-        #TODO change to no when we are ready to support hot-upgrade
-        SKIP_APPUP='yes'
-        ;;
     -h|--help)
         usage
         exit 0
         ;;
     *)
-        logerr "Unknown version tag $TAG"
-        usage
-        exit 1
+        TAG_PREFIX='e'
+        PROFILE='emqx-enterprise'
+        #TODO change to no when we are ready to support hot-upgrade
+        SKIP_APPUP='yes'
         ;;
 esac
 
@@ -121,17 +104,11 @@ done
 rel_branch() {
     local tag="$1"
     case "$tag" in
-        e5.8.*)
-            echo 'release-58'
-            ;;
-        e5.9.*)
-            echo 'release-59'
-            ;;
-        e5.10.*)
-            echo 'release-510'
-            ;;
-        e6.0.*)
+        6.0.*)
             echo 'release-60'
+            ;;
+        6.1.*)
+            echo 'release-61'
             ;;
         *)
             logerr "Unsupported version tag $TAG"
@@ -303,7 +280,7 @@ case "$TAG" in
     *beta*)
         true
         ;;
-    e*)
+    *)
         check_bpapi
         check_changelog
         ;;

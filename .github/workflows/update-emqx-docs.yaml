@@ -72,10 +72,9 @@ jobs:
 
       - name: Generate changelog
         run: |
-          TAG_PATTERN=$(echo "${TAG:0:1}*")
-          PREV_TAG=$(git describe --abbrev=0 --tags --match "${TAG_PATTERN}" --exclude '*rc*' --exclude '*alpha*' --exclude '*beta*' --exclude '*docker*' HEAD~1)
+          PREV_TAG=$(./scripts/find-prev-rel-tag.sh)
 
-          changes_dir=("changes/ce" "changes/ee")
+          changes_dir=("changes/ee")
           while read -r file; do
              tar --append --file=changes.tar $file
           done < <(git diff --diff-filter=A --name-only "tags/${PREV_TAG}...HEAD" "${changes_dir[@]}")
