@@ -28,9 +28,7 @@ Collection of handlers for the external message sources.
 
 -record(extsub, {
     handler :: emqx_extsub_handler:t(),
-    %% TODO
-    %% Use set
-    topic_filters :: [emqx_extsub_types:topic_filter()]
+    topic_filters :: sets:set(emqx_extsub_types:topic_filter())
 }).
 
 -record(registry, {
@@ -158,7 +156,7 @@ recreate(
             subscribe(RegistryAcc, resume, SubscribeCtx, {Module, Options}, TopicFilter)
         end,
         Registry,
-        TopicFilters
+        sets:to_list(TopicFilters)
     ).
 
 -spec generic_message_handlers(t()) -> [emqx_extsub_types:handler_ref()].
@@ -220,7 +218,7 @@ subscribe(
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
                                         handler = Handler,
-                                        topic_filters = [TopicFilter | TopicFilters]
+                                        topic_filters = sets:add_element(TopicFilter, TopicFilters)
                                     }
                                 },
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
@@ -250,7 +248,8 @@ subscribe(
                             Registry#registry{
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
-                                        handler = Handler, topic_filters = [TopicFilter]
+                                        handler = Handler,
+                                        topic_filters = sets:from_list([TopicFilter], [{version, 2}])
                                     }
                                 },
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
@@ -285,7 +284,10 @@ subscribe(
                 {ok, Handler} ->
                     Registry#registry{
                         by_ref = ByRef#{
-                            HandlerRef => #extsub{handler = Handler, topic_filters = [TopicFilter]}
+                            HandlerRef => #extsub{
+                                handler = Handler,
+                                topic_filters = sets:from_list([TopicFilter], [{version, 2}])
+                            }
                         },
                         by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
                     };
@@ -305,7 +307,7 @@ unsubscribe(
         HandlerRef, ByRef0
     ),
     Handler = emqx_extsub_handler:unsubscribe(UnsubscribeType, Handler0, TopicFilter),
-    HandlerTopicFilters = lists:delete(TopicFilter, HandlerTopicFilters0),
+    HandlerTopicFilters = sets:del_element(TopicFilter, HandlerTopicFilters0),
     ByRef =
         case HandlerTopicFilters of
             [] ->
