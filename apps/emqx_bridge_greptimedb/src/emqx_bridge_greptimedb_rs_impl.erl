@@ -374,13 +374,14 @@ do_insert_sync(TablesToPoints, ConnState) ->
                 {Indices, Points} = lists:unzip(PointsWithIndices),
                 Res0 = greptimedb_rs:insert(Client, Table, Points),
                 Res = lists:map(fun(I) -> {I, Res0} end, Indices),
-                Res ++ Acc0
+                [Res | Acc0]
             end,
             [],
             TablesToPoints
         ),
-    Results1 = lists:keysort(1, Results0),
-    {_, Results} = lists:unzip(Results1),
+    Results1 = lists:flatten(Results0),
+    Results2 = lists:keysort(1, Results1),
+    {_, Results} = lists:unzip(Results2),
     ?tp("greptime_rs_sync_batch_reply", #{results => Results}),
     Results.
 
