@@ -1,6 +1,6 @@
 emqx_bridge_emqx_tables_action_schema {
   emqx_tables {
-    label: """Upload to EMQX Tables"""
+    label: """Ingest to EMQX Tables"""
     desc:
     """Action that takes incoming events and appends them to EMQX Tables."""
   }
