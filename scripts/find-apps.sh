@@ -7,8 +7,9 @@ cd -P -- "$(dirname -- "$0")/.."
 
 help() {
     echo
-    echo "-h|--help:        To display this usage info"
-    echo "--ci:             Print apps in json format for github ci matrix"
+    echo "-h|--help:                 To display this usage info"
+    echo "--ci:                      Print apps in json format for github ci matrix"
+    echo "--app-filter <filter>:     Filter apps by name (e.g. 'emqx_mq')"
 }
 
 MODE='list'
@@ -21,6 +22,10 @@ while [ "$#" -gt 0 ]; do
         --ci)
             MODE='ci'
             shift 1
+            ;;
+        --app-filter)
+            APP_FILTER="$2"
+            shift 2
             ;;
         *)
             echo "unknown option $1"
@@ -41,7 +46,11 @@ find_app() {
     "$FIND" "${appdir}" -mindepth 1 -maxdepth 1 -type d
 }
 
-APPS_ALL="$(find_app 'apps')"
+if [ -z "$APP_FILTER" ]; then
+    APPS_ALL="$(find_app 'apps')"
+else
+    APPS_ALL="$(find_app 'apps' | grep "$APP_FILTER")"
+fi
 
 if [ "$MODE" = 'list' ]; then
     echo "${APPS_ALL}"

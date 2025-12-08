@@ -20,6 +20,9 @@ defaults:
 
 env:
   IS_CI: "yes"
+  # ENABLED_JOBS: ""
+  APP_FILTER: "emqx_mq"
+  ENABLED_JOBS: "init,sanity-checks,compile,run_test_cases"
 
 jobs:
   init:
@@ -29,10 +32,15 @@ jobs:
       OTP_VSN: ${{ steps.env.outputs.OTP_VSN }}
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
+      ENABLED_JOBS: ${{ steps.enabled-jobs.outputs.jobs }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           ref: ${{ github.event.inputs.ref }}
+      - name: Set enabled jobs
+        id: enabled-jobs
+        run: |
+          echo "jobs=$ENABLED_JOBS" | tee -a "$GITHUB_OUTPUT"
       - name: Set up environment
         id: env
         run: |
@@ -43,6 +51,7 @@ jobs:
           echo "BUILDER=$EMQX_BUILDER" | tee -a "$GITHUB_OUTPUT"
 
   sanity-checks:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     runs-on: ubuntu-22.04
     needs: init
     container: ${{ needs.init.outputs.BUILDER }}
@@ -55,9 +64,12 @@ jobs:
       AFTER_REF: ${{ github.sha }}
       MIX_ENV: emqx-enterprise
       PROFILE: emqx-enterprise
-
-
+      ENABLED_JOBS_FROM_INIT: ${{ needs.init.outputs.ENABLED_JOBS }}
+      IF_FROM_INIT: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     steps:
+      - name: Print environment variables
+        run: |
+          env 
       - name: Install prerequisites
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -107,7 +119,7 @@ jobs:
       - name: Generate CT Matrix
         id: matrix
         run: |
-          MATRIX="$(./scripts/find-apps.sh --ci)"
+          MATRIX="$(./scripts/find-apps.sh --ci --app-filter ${{ env.APP_FILTER }})"
           echo "${MATRIX}" | jq
           CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile}) | unique')"
           CT_HOST="$(echo "${MATRIX}"   | jq -c 'map(select(.runner == "host"))')"
@@ -117,6 +129,7 @@ jobs:
           echo "ct-docker=${CT_DOCKER}" | tee -a $GITHUB_OUTPUT
 
   compile:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
       - init
       - sanity-checks
@@ -131,6 +144,7 @@ jobs:
       build_type: ${{ matrix.build_type }}
 
   run_test_cases:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
       - init
       - sanity-checks
@@ -147,6 +161,7 @@ jobs:
     secrets: inherit
 
   static_checks:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
       - init
       - sanity-checks
@@ -157,11 +172,14 @@ jobs:
       ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
 
   build_slim_packages:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
+      - init
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
 
   build_docker_emqx_enterprise:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
       - init
       - sanity-checks
@@ -172,12 +190,15 @@ jobs:
     secrets: inherit
 
   spellcheck:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
+      - init
       - sanity-checks
       - compile
     uses: ./.github/workflows/spellcheck.yaml
 
   run_conf_tests:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
       - init
       - sanity-checks
@@ -187,6 +208,10 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
 
   check_deps_integrity:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
+    env:
+      IF_FROM_INIT: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
+      ENABLED_JOBS_FROM_INIT: ${{ needs.init.outputs.ENABLED_JOBS }}
     needs:
       - init
       - sanity-checks
@@ -195,13 +220,17 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
 
   run_docker_tests:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
+      - init
       - sanity-checks
       - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_docker_tests.yaml
 
   run_helm_tests:
+    if: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
     needs:
+      - init
       - sanity-checks
       - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_helm_tests.yaml

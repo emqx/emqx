@@ -17,11 +17,16 @@ jobs:
     env:
       MIX_ENV: ${{ matrix.profile }}
       PROFILE: ${{ matrix.profile }}
+      IF_FROM_INIT: ${{ needs.init.outputs.ENABLED_JOBS == '' || contains(needs.init.outputs.ENABLED_JOBS, github.job) }}
+      ENABLED_JOBS_FROM_INIT: ${{ needs.init.outputs.ENABLED_JOBS }}
     strategy:
       matrix:
         profile:
           - emqx-enterprise
     steps:
+      - name: Print environment variables
+        run: |
+          env
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: make ensure-rebar3
