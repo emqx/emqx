@@ -30,7 +30,6 @@
             observer_cli,
             tools,
             observer,
-            {system_monitor, load},
             jq
         ],
     %% must always be of type `load'

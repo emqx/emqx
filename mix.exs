@@ -99,7 +99,6 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:jose),
       # in conflict by ehttpc and emqtt
       common_dep(:gun),
-      # in conflict by emqx_connector and system_monitor
       common_dep(:epgsql),
       # in conflict by emqx and observer_cli
       common_dep(:recon),
@@ -138,8 +137,7 @@ defmodule EMQXUmbrella.MixProject do
   def extra_release_apps() do
     [
       common_dep(:redbug),
-      common_dep(:observer_cli),
-      common_dep(:system_monitor)
+      common_dep(:observer_cli)
     ]
   end
 
@@ -210,13 +208,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-1", override: true}
 
-  # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.4", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.3", override: true}
-
-  def common_dep(:system_monitor),
-    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
