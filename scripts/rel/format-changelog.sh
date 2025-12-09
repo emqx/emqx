@@ -15,11 +15,9 @@ $0 [option]
 options:
   -h|--help: print this usages info
   -b|--base:
-    The git tag of compare base to find included changes.
-    e.g. v5.0.18, e5.0.0 etc.
+    The git tag of compare base to find included changes. e.g. 6.0.0
   -v|--version:
-    The tag to be released
-    e.g. v5.0.19, e5.0.1-alpha.1 etc.
+    The tag to be released e.g. 6.0.1
 EOF
 }
 
@@ -48,18 +46,7 @@ done
 
 LANGUAGE='en'
 
-case "${BASE_TAG:-}" in
-    v*)
-        PROFILE="emqx"
-        ;;
-    e*)
-        PROFILE="emqx-enterprise"
-        ;;
-    *)
-        logerr "Unsupported -b|--base option, must be v* or e*"
-        exit 1
-        ;;
-esac
+PROFILE="emqx-enterprise"
 
 TEMPLATE_VSN_HEADING="${TEMPLATE_VSN_HEADING:-<VSN-TAG>}"
 
