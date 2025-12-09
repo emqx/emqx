@@ -1083,7 +1083,7 @@ handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, T
             error,
             "ERROR",
             "resource_exception",
-            TraceCtx#{info => emqx_utils:redact(Msg)}
+            TraceCtx#{info => emqx_utils:redact(map_resource_exception(Msg))}
         ),
         ok
     end,
@@ -2718,6 +2718,14 @@ trigger_fallback_action(Id, #{kind := republish, args := #{?COMPUTED := Args}}, 
 trigger_fallback_action(Id, FallbackFn, Req, QueryOpts) when is_function(FallbackFn) ->
     %% This clause is only for tests.
     FallbackFn(#{action_res_id => Id, request => Req, query_opts => QueryOpts}).
+
+%% We remove the arglist to avoid logging huge terms
+map_resource_exception(#{error := {exit, {Reason, {gen_server, call, _ArgList}}}} = Msg0) ->
+    Msg0#{error := {exit, Reason}};
+map_resource_exception(#{error := {exit, {Reason, {gen_statem, call, _ArgList}}}} = Msg0) ->
+    Msg0#{error := {exit, Reason}};
+map_resource_exception(Msg) ->
+    Msg.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
