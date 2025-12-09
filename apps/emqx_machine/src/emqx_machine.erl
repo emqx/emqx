@@ -10,8 +10,7 @@
     brutal_shutdown/0,
     is_ready/0,
 
-    node_status/0,
-    update_vips/0
+    node_status/0
 ]).
 
 -export([open_ports_check/0]).
@@ -36,7 +35,6 @@ start() ->
             os:set_signal(sigterm, handle)
     end,
     ok = set_backtrace_depth(),
-    ok = start_sysmon(),
     configure_shard_transports(),
     set_mnesia_extra_diagnostic_checks(),
     ok = configure_otel_deps(),
@@ -66,29 +64,11 @@ set_backtrace_depth() ->
 is_ready() ->
     emqx_machine_terminator:is_running().
 
-start_sysmon() ->
-    _ = application:load(system_monitor),
-    application:set_env(system_monitor, node_status_fun, {?MODULE, node_status}),
-    application:set_env(system_monitor, status_checks, [{?MODULE, update_vips, false, 10}]),
-    case application:get_env(system_monitor, db_hostname) of
-        {ok, [_ | _]} ->
-            application:set_env(system_monitor, callback_mod, system_monitor_pg),
-            _ = application:ensure_all_started(system_monitor, temporary),
-            ok;
-        _ ->
-            %% If there is no sink for the events, there is no reason
-            %% to run system_monitor_top, ignore start
-            ok
-    end.
-
 node_status() ->
     emqx_utils_json:encode(#{
         backend => mria_rlog:backend(),
         role => mria_rlog:role()
     }).
-
-update_vips() ->
-    system_monitor:add_vip(mria_status:shards_up()).
 
 configure_shard_transports() ->
     ShardTransports = application:get_env(emqx_machine, custom_shard_transports, #{}),

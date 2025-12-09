@@ -7,7 +7,7 @@ defmodule EMQXBridgeGreptimedb.MixProject do
       app: :emqx_bridge_greptimedb,
       version: "6.0.2",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.strict_erlc_options(),
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -32,7 +32,8 @@ defmodule EMQXBridgeGreptimedb.MixProject do
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},
-      {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
+      :greptimedb,
+      :greptimedb_rs
     ])
   end
 end

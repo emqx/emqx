@@ -15,12 +15,6 @@ Find more details in 'authorization.sources' config."""
 fields_authorization_no_match.label:
 """Authorization no match"""
 
-sysmon_top_db_hostname.desc:
-"""Hostname of the PostgreSQL database that collects the data points"""
-
-sysmon_top_db_hostname.label:
-"""DB Hostname"""
-
 zones.desc:
 """A zone is a set of configs grouped by the zone <code>name</code>.
 For flexible configuration mapping, the <code>name</code> can be set to a listener's <code>zone</code> config.
@@ -103,13 +97,6 @@ fields_listeners_wss.desc:
 
 fields_listeners_wss.label:
 """HTTPS websocket listeners"""
-
-sysmon_top_max_procs.desc:
-"""Stop collecting data when the number of processes
-in the VM exceeds this value"""
-
-sysmon_top_max_procs.label:
-"""Max procs"""
 
 mqtt_use_username_as_clientid.desc:
 """Whether to use Username as Client ID.
@@ -257,12 +244,6 @@ flapping_detect_enable.desc:
 flapping_detect_enable.label:
 """Enable flapping detection"""
 
-sysmon_top_db_password.desc:
-"""EMQX user password in the PostgreSQL database"""
-
-sysmon_top_db_password.label:
-"""DB Password"""
-
 fields_ws_opts_check_origins.desc:
 """List of allowed origins.<br/>See <code>check_origin_enable</code>."""
 
@@ -402,12 +383,6 @@ flapping_detect_ban_time.desc:
 
 flapping_detect_ban_time.label:
 """Ban time"""
-
-sysmon_top_num_items.desc:
-"""The number of top processes per monitoring group"""
-
-sysmon_top_num_items.label:
-"""Top num items"""
 
 mqtt_upgrade_qos.desc:
 """Force upgrade of QoS level according to subscription."""
@@ -1015,12 +990,6 @@ sys_topics.desc:
 sys_event_client_subscribed.desc:
 """Enable to publish event message that client subscribed a topic successfully."""
 
-sysmon_top_db_port.desc:
-"""Port of the PostgreSQL database that collects the data points."""
-
-sysmon_top_db_port.label:
-"""DB Port"""
-
 fields_mqtt_quic_listener_max_operations_per_drain.desc:
 """The maximum number of operations to drain per connection quantum. Default: 16"""
 
@@ -1082,12 +1051,6 @@ Default: 'none', Set to 'none' to use OS default keepalive settings (still activ
 
 fields_tcp_opts_keepalive.label:
 """TCP keepalive options"""
-
-sysmon_top_db_username.desc:
-"""Username of the PostgreSQL database"""
-
-sysmon_top_db_username.label:
-"""DB Username"""
 
 broker.desc:
 """Message broker options."""
@@ -1264,12 +1227,6 @@ fields_mqtt_quic_listener_maximum_mtu.desc:
 
 fields_mqtt_quic_listener_maximum_mtu.label:
 """Maximum MTU"""
-
-sysmon_top_db_name.desc:
-"""PostgreSQL database name"""
-
-sysmon_top_db_name.label:
-"""DB Name"""
 
 mqtt_strict_mode.desc:
 """Whether to parse MQTT messages in strict mode.
@@ -1682,12 +1639,6 @@ sysmon_os_cpu_check_interval.desc:
 
 sysmon_os_cpu_check_interval.label:
 """The time interval for the periodic CPU check."""
-
-sysmon_top_sample_interval.desc:
-"""Specifies how often process top should be collected"""
-
-sysmon_top_sample_interval.label:
-"""Top sample interval"""
 
 fields_mqtt_quic_listener_idle_timeout_ms.desc:
 """How long a connection can go idle before it is gracefully shut down. 0 to disable timeout"""

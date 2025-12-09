@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_cluster_link_schema_tests).
 
+-compile({no_auto_import, [link/2]}).
+
 -include_lib("eunit/include/eunit.hrl").
 
 %%------------------------------------------------------------------------------
