@@ -27,7 +27,6 @@ start(_StartType, _StartArgs) ->
 do_start() ->
     ok = mria:wait_for_tables(emqx_streams_registry:create_tables()),
     ok = emqx_streams_message_db:open(),
-    ok = emqx_streams_state_db:open(),
     {ok, _} = emqx_streams_sup:start_post_starter({?MODULE, start_link_post_start, []}),
     ok.
 
@@ -36,7 +35,6 @@ stop(_State) ->
     ok = emqx_conf:remove_handler(emqx_streams_schema:roots()),
     ok = emqx_streams:unregister_hooks(),
     ok = emqx_mq_quota_buffer:stop(?STREAMS_QUOTA_BUFFER),
-    ok = emqx_streams_state_db:close(),
     ok.
 
 %% Readiness
@@ -66,7 +64,6 @@ start_link_post_start() ->
 
 post_start() ->
     ok = emqx_streams_message_db:wait_readiness(infinity),
-    ok = emqx_streams_state_db:wait_readiness(infinity),
     complete_start(),
     optvar:set(?OPTVAR_READY, true).
 

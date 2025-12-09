@@ -31,6 +31,4 @@
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"key">>, KEY
 ]).
 
--record(shard_dispatch_command, {group, c, context}).
-
 -endif.
