@@ -151,7 +151,7 @@ authenticate(
 ) ->
     Namespace = get_namespace(Credential),
     UserId = get_user_identity(Credential, Type),
-    case do_lookup_user(Namespace, UserGroup, UserId) of
+    case lookup_user_with_fallback(Namespace, UserGroup, UserId) of
         error ->
             ?TRACE_AUTHN_PROVIDER("user_not_found"),
             ignore;
@@ -703,6 +703,14 @@ boostrap_user_from_file(Config, State) ->
                         reason => emqx_utils:explain_posix(Reason)
                     })
             end
+    end.
+
+lookup_user_with_fallback(?global_ns, UserGroup, UserId) ->
+    do_lookup_user(?global_ns, UserGroup, UserId);
+lookup_user_with_fallback(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
+    maybe
+        error ?= do_lookup_user(Namespace, UserGroup, UserId),
+        do_lookup_user(?global_ns, UserGroup, UserId)
     end.
 
 do_lookup_user(?global_ns, UserGroup, UserId) ->
