@@ -58,16 +58,7 @@ if [[ "${PKG_VSN:-novalue}" != novalue && "${LONG_VERSION:-novalue}" != 'yes' ]]
     exit 0
 fi
 
-case "${PROFILE}" in
-    *enterprise*)
-        RELEASE_EDITION="EMQX_RELEASE_EE"
-        GIT_TAG_PREFIX="e"
-        ;;
-    *)
-        echo "Unsupported profile ${PROFILE}"
-        exit 1
-        ;;
-esac
+RELEASE_EDITION="EMQX_RELEASE_EE"
 
 ## emqx_release.hrl is the single source of truth for release version
 RELEASE="$(grep -E "define.+${RELEASE_EDITION}" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
@@ -78,9 +69,7 @@ if [ "${RELEASE_VERSION:-}" = 'yes' ]; then
 fi
 
 git_exact_vsn() {
-    local tag
-    tag="$(git describe --tags --match "${GIT_TAG_PREFIX}*" --exact 2>/dev/null)"
-    echo "${tag#[v|e]}"
+    git describe --tags --exact 2>/dev/null || true
 }
 
 GIT_EXACT_VSN="$(git_exact_vsn)"

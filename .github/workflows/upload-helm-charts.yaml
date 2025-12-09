@@ -29,22 +29,8 @@ jobs:
       - name: Detect profile
         id: profile
         run: |
-          if git describe --tags --match 'e*' --exact; then
-            REF=$(git describe --tags --match 'e*' --exact)
-          else
-            echo "Only release tags matching 'e*' are supported"
-            exit 1
-          fi
-          case "$REF" in
-            v*)
-              echo "profile=emqx" >> $GITHUB_OUTPUT
-              echo "version=$(./pkg-vsn.sh emqx)" >> $GITHUB_OUTPUT
-              ;;
-            e*)
-              echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
-              echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
-              ;;
-          esac
+          echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
+          echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
       - uses: emqx/push-helm-action@5ca37070f42cf874fc843a0e0c7c10ac76de5255 # v1.1
         if: github.event_name == 'release' && !github.event.release.prerelease
         with:

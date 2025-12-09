@@ -8,19 +8,10 @@ set -euo pipefail
 # it might be with suffix such as -pkg etc.
 PROFILE_STR="${1:-emqx-enterprise}"
 
-case "$PROFILE_STR" in
-    *enterprise*)
-        dashboard_version="$EMQX_EE_DASHBOARD_VERSION"
-        ;;
-    *)
-        dashboard_version="$EMQX_DASHBOARD_VERSION"
-        ;;
-esac
-
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
-./scripts/get-dashboard.sh "$dashboard_version"
+./scripts/get-dashboard.sh "$EMQX_DASHBOARD_VERSION"
 
 # generate merged config files and English translation of the desc (desc.en.hocon)
 ./scripts/merge-config.escript
