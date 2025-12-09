@@ -21,7 +21,8 @@
     register_channel/3,
     unregister_channel/1,
     unregister_channel/2,
-    insert_channel_info/3
+    insert_channel_info/3,
+    is_monitored/1
 ]).
 
 -export([
@@ -183,6 +184,19 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when
     ok = emqx_cm_registry:register_channel(Chan),
     ok = mark_channel_connected(ChanPid),
     ok.
+
+%% @doc Return 'true' if the process is monitored by emqx_cm.
+%% @end
+%% This implementation depends on the fact that
+%% the insertion to ?CHAN_CONN_TAB is always followed by
+%% a {registered, ChannPid} cast.
+is_monitored(ChanPid) ->
+    try
+        ets:member(?CHAN_CONN_TAB, ChanPid)
+    catch
+        _:_ ->
+            false
+    end.
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_types:clientid()) -> ok.
@@ -811,9 +825,10 @@ collect_msgs(Regs, Down, N) ->
 clean_down([]) ->
     ok;
 clean_down([Pid | Pids]) ->
-    ok = clean_down(Pid),
-    clean_down(Pids);
-clean_down(Pid) when is_pid(Pid) ->
+    ok = clean_down2(Pid),
+    clean_down(Pids).
+
+clean_down2(Pid) when is_pid(Pid) ->
     ok = emqx_broker_helper:clean_down(Pid),
     try ets:lookup_element(?CHAN_CONN_TAB, Pid, #chan_conn.clientid) of
         ClientId ->

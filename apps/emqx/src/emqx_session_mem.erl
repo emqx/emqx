@@ -308,13 +308,22 @@ subscribe(
     Session = #session{clientid = ClientId, subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
+    %% No need for broker to monitor self() process because
+    %% it's monitored by emqx_cm
+    %% and emqx_cm:clean_down/1 calls emqx_broker_helper:clean_down/1
+    %% when the process is DOWN
+    Monitor =
+        case emqx_cm:is_monitored(self()) of
+            true ->
+                %% gen_tcp/ssl/socket connections
+                no_monitor;
+            false ->
+                %% quic stream
+                monitor
+        end,
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
-            %% No need for broker to monitor self() process because
-            %% it's monitored by emqx_cm
-            %% and emqx_cm:clean_down/1 calls emqx_broker_helper:clean_down/1
-            %% when the process is DOWN
-            ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, no_monitor),
+            ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, Monitor),
             Session1 = Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)},
             {ok, Session1};
         true ->
