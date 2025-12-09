@@ -273,7 +273,7 @@ collect_messages(Reg, Down) ->
 %% There is no other message sent to this process, so the
 %% 'receive' should not have to scan the mailbox.
 collect_messages(Reg, Down, 0) ->
-    {Reg, Down};
+    {lists:reverse(Reg), lists:reverse(Down)};
 collect_messages(Reg, Down, N) ->
     receive
         {register_sub, Pid, Id} ->
@@ -281,7 +281,7 @@ collect_messages(Reg, Down, N) ->
         {'DOWN', _MRef, process, Pid, _Reason} ->
             collect_messages(Reg, [Pid | Down], N - 1)
     after 0 ->
-        {Reg, Down}
+        {lists:reverse(Reg), lists:reverse(Down)}
     end.
 
 handle_registrations(Regs) ->
