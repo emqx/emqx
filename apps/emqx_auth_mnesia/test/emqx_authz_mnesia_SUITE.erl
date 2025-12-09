@@ -308,6 +308,16 @@ t_authz(_Config) ->
         }},
         {with_ns(Namespace2, ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>}
     ),
+    %% user exists in global namespace, but credentials are namespace; falls back to
+    %% global namespace for backwards compatibility.
+    test_authz(
+        allow,
+        ?global_ns,
+        {all, #{
+            <<"permission">> => <<"allow">>, <<"action">> => <<"subscribe">>, <<"topic">> => <<"t">>
+        }},
+        {with_ns(Namespace1, ClientInfo), ?AUTHZ_SUBSCRIBE, <<"t">>}
+    ),
     ok.
 
 test_authz(Expected, {Who, Rule}, {ClientInfo, Action, Topic}) ->
