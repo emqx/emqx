@@ -283,7 +283,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
 %% Effects that may occur when sequence number is released:
 -record(onrel_unblock, {stream :: stream_key()}).
 -record(onrel_complete, {stream :: stream_key()}).
--record(onrel_shared_report_progress, {}).
+-record(onrel_shared_report_progress, {stream :: stream_key()}).
 
 -type onrel_action() :: #onrel_unblock{} | #onrel_complete{} | #onrel_shared_report_progress{}.
 
@@ -446,8 +446,7 @@ print_session(ClientID) ->
     {ok, session()} | {error, emqx_types:reason_code()}.
 subscribe(#share{} = TopicFilter, SubOpts, Session0) ->
     case emqx_persistent_session_ds_shared_subs:on_subscribe(TopicFilter, SubOpts, Session0) of
-        {ok, S, SharedSubS} ->
-            Session = Session0#{s := S, shared_sub_s := SharedSubS},
+        {ok, Session} ->
             {ok, async_checkpoint(Session)};
         Error = {error, _} ->
             Error
@@ -1859,22 +1858,39 @@ post_enqueue(
         it_end = ItEnd,
         batch_size = BatchSize
     } = SRS,
-    Session,
+    Session0,
     ClientInfo
 ) ->
-    case ItEnd of
-        end_of_stream ->
+    Session =
+        case ItEnd of
+            end_of_stream ->
+                on_release(
+                    SRS,
+                    #onrel_complete{stream = StreamKey},
+                    Session0,
+                    ClientInfo
+                );
+            _ when BatchSize > 0 ->
+                %% TODO: instead of checking batch size, check if locked?
+                on_release(
+                    SRS,
+                    #onrel_unblock{stream = StreamKey},
+                    Session0,
+                    ClientInfo
+                );
+            _ ->
+                Session0
+        end,
+    maybe_report_shared_progress(StreamKey, SRS, Session, ClientInfo).
+
+maybe_report_shared_progress(
+    StreamKey, SRS = #srs{sub_state_id = SSId}, Session = #{s := S}, ClientInfo
+) ->
+    case emqx_persistent_session_ds_state:get_subscription_state(SSId, S) of
+        #{share_topic_filter := #share{}} ->
             on_release(
                 SRS,
-                #onrel_complete{stream = StreamKey},
-                Session,
-                ClientInfo
-            );
-        _ when BatchSize > 0 ->
-            %% TODO: instead of checking batch size, check if locked?
-            on_release(
-                SRS,
-                #onrel_unblock{stream = StreamKey},
+                #onrel_shared_report_progress{stream = StreamKey},
                 Session,
                 ClientInfo
             );
@@ -1990,7 +2006,16 @@ handle_onrel(
     {DSCli, Session} = emqx_ds_client:complete_stream(
         DSCli0, SubId, {Shard, Generation}, Stream, Session0
     ),
-    Session#{dscli := DSCli}.
+    Session#{dscli := DSCli};
+handle_onrel(
+    #onrel_shared_report_progress{stream = StreamKey},
+    Session = #{s := S0, shared_sub_s := SharedSubS0},
+    _ClientInfo
+) ->
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(S0, SharedSubS0, [
+        StreamKey
+    ]),
+    Session#{s := S, shared_sub_s := SharedSubS}.
 
 %%--------------------------------------------------------------------
 %% Functions related to stream replay states
