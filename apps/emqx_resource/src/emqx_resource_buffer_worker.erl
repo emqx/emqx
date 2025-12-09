@@ -1070,12 +1070,13 @@ handle_simple_query_result(Id, Query, Result, HasBeenSent) ->
 %% the caller until one of those final results above happen.
 -spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean(), TraceCtx :: map()) ->
     query_result_pure().
-handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCtx) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun(_ResultContext) ->
-        ?TRACE(
+        ?TRACE_THROTTLE(
             error,
+            Id,
             "ERROR",
-            "resource_exception",
+            resource_exception,
             (trace_ctx_map(TraceCtx))#{info => emqx_utils:redact(map_resource_exception(Msg))}
         ),
         ok
