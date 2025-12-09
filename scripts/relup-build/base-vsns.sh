@@ -49,15 +49,6 @@ else
     IS_RELEASE=false
 fi
 
-case "${PROFILE}" in
-    *enterprise*)
-        GIT_TAG_PREFIX="e"
-        ;;
-    *)
-        GIT_TAG_PREFIX="v"
-        ;;
-esac
-
 while read -r git_tag; do
     # shellcheck disable=SC2207
     semver=($(parse_semver "$git_tag"))
@@ -71,4 +62,4 @@ while read -r git_tag; do
             echo "$git_tag"
         fi
     fi
-done < <(git tag -l "${GIT_TAG_PREFIX}${CUR_SEMVER[0]}.${CUR_SEMVER[1]}.*")
+done < <(git tag -l "${CUR_SEMVER[0]}.${CUR_SEMVER[1]}.*")

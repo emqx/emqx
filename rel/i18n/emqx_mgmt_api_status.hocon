@@ -7,11 +7,9 @@ Returns response to describe the status of the node and the application.
 This endpoint requires no authentication.
 
 Returns status code 200 if the EMQX application is up and running, 503 otherwise.
-This API was introduced in v5.0.10.
 The GET `/status` endpoint (without the `/api/...` prefix) is also an alias to this endpoint and works in the same way.
-This alias has been available since v5.0.0.
 
-Starting from v5.0.25 or e5.0.4, you can also use 'format' parameter to get JSON format information."""
+You can also use `format` parameter to get JSON format information."""
 
 get_status_api.label:
 """Service health check"""

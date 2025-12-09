@@ -68,7 +68,7 @@ jobs:
             }' | sort -rV -k1,1 | head -n 1 | cut -d' ' -f2-)"
           NEW_BRANCH="bump-${EMQX_NAME}-dashboard-version-$(date +"%Y%m%d-%H%M%S")"
           git checkout -b ${NEW_BRANCH} --track origin/${BASE_BRANCH}
-          sed -i "s|EMQX_EE_DASHBOARD_VERSION ?= .*|EMQX_EE_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile
+          sed -i "s|EMQX_DASHBOARD_VERSION ?= .*|EMQX_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile
           git add Makefile
           git commit -m "chore: bump dashboard version"
           git push origin ${NEW_BRANCH}:${NEW_BRANCH}
