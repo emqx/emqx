@@ -124,7 +124,7 @@ on_unrecoverable_error(
     _Slab,
     Stream,
     Reason,
-    HS = #test_host_state{iterators = Its, completed_replay = Completed}
+    HS = #test_host_state{iterators = _Its, completed_replay = _Completed}
 ) ->
     ?tp(test_host_unrecoverable, #{subid => SubId, stream => Stream, reason => Reason}),
     host_move_to_complete(SubId, Stream, HS).
