@@ -310,7 +310,11 @@ subscribe(
     IsNew = not maps:is_key(TopicFilter, Subs),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
-            ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts),
+            %% No need for broker to monitor self() process because
+            %% it's monitored by emqx_cm
+            %% and emqx_cm:clean_down/1 calls emqx_broker_helper:clean_down/1
+            %% when the process is DOWN
+            ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, no_monitor),
             Session1 = Session#session{subscriptions = maps:put(TopicFilter, SubOpts, Subs)},
             {ok, Session1};
         true ->
