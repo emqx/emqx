@@ -1013,6 +1013,7 @@ effect_handler(#eff_ds_unsub{db = DB, handle = Handle}) ->
 %% Stream management
 %%------------------------------------------------------------------------------
 
+%% Remove stream from pending list (if present) and add it to active:
 -spec activate_stream(
     t(),
     sub_id(),
@@ -1027,11 +1028,16 @@ activate_stream(CS, SubId, {Shard, _Gen}, Stream, Iterator, MaybeSubRef) ->
         SubId,
         Shard,
         CS,
-        fun(#stream_cache{pending_iterator = Pending, active = Active} = Cache) ->
-            Cache#stream_cache{
-                pending_iterator = Pending -- [Stream],
-                active = Active#{Stream => {Iterator, MaybeSubRef}}
-            }
+        fun
+            (#stream_cache{pending_iterator = Pending, active = Active} = Cache) ->
+                Cache#stream_cache{
+                    pending_iterator = Pending -- [Stream],
+                    active = Active#{Stream => {Iterator, MaybeSubRef}}
+                };
+            (undefined) ->
+                #stream_cache{
+                    active = #{Stream => {Iterator, MaybeSubRef}}
+                }
         end
     ).
 
