@@ -100,6 +100,21 @@
     )
 end).
 
+%% Only evaluate when necessary
+-define(TRACE_THROTTLE(Level, UniqueKey, Tag, Msg, Meta), begin
+    ?_DO_TRACE(Tag, Msg, Meta),
+    ?SLOG_THROTTLE(
+        Level,
+        UniqueKey,
+        (begin
+            Meta
+        end)#{
+            msg => Msg, tag => Tag
+        },
+        #{is_trace => false}
+    )
+end).
+
 -ifdef(EMQX_RELEASE_EDITION).
 
 -if(?EMQX_RELEASE_EDITION == ee).
