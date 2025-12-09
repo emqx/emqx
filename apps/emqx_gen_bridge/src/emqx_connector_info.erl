@@ -78,6 +78,7 @@ hard_coded_connector_info_modules_ee() ->
         emqx_bridge_disk_log_connector_info,
         emqx_bridge_doris_connector_info,
         emqx_bridge_dynamo_connector_info,
+        emqx_bridge_emqx_tables_connector_info,
         emqx_bridge_es_connector_info,
         emqx_bridge_gcp_pubsub_consumer_connector_info,
         emqx_bridge_gcp_pubsub_producer_connector_info,
