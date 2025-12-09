@@ -177,14 +177,8 @@ subscribe(
     {Module, #{multi_topic := true} = Options},
     TopicFilter
 ) ->
-    ?tp_debug(extsub_handler_registry_subscribe_multi_topic, #{
-        module => Module, options => Options, topic_filter => TopicFilter
-    }),
     case ByTopicCBM of
         #{{Module, TopicFilter} := _HandlerRef} ->
-            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_already_subscribed, #{
-                module => Module, options => Options, topic_filter => TopicFilter
-            }),
             Registry;
         _ ->
             ModuleHandlerRefs = [
@@ -203,9 +197,6 @@ subscribe(
                         )
                     of
                         {ok, Handler} ->
-                            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_subscribed, #{
-                                module => Module, options => Options, topic_filter => TopicFilter
-                            }),
                             Registry#registry{
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
@@ -216,9 +207,6 @@ subscribe(
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
                             };
                         ignore ->
-                            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_ignore, #{
-                                module => Module, options => Options, topic_filter => TopicFilter
-                            }),
                             Registry
                     end;
                 [] ->
@@ -230,13 +218,6 @@ subscribe(
                         )
                     of
                         {ok, Handler} ->
-                            ?tp_debug(
-                                extsub_handler_registry_subscribe_multi_topic_subscribed_new, #{
-                                    module => Module,
-                                    options => Options,
-                                    topic_filter => TopicFilter
-                                }
-                            ),
                             Registry#registry{
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
@@ -250,9 +231,6 @@ subscribe(
                                 )
                             };
                         ignore ->
-                            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_ignore_new, #{
-                                module => Module, options => Options, topic_filter => TopicFilter
-                            }),
                             Registry
                     end
             end
@@ -266,9 +244,6 @@ subscribe(
     {Module, #{multi_topic := false} = Options},
     TopicFilter
 ) ->
-    ?tp_debug(extsub_handler_registry_subscribe_single_topic, #{
-        module => Module, options => Options, topic_filter => TopicFilter
-    }),
     case ByTopicCBM of
         #{{Module, TopicFilter} := _HandlerRef} ->
             Registry;
@@ -350,18 +325,13 @@ remove_from_generic_message_handlers(GenericMessageHandlers, HandlerRef) ->
     lists:delete(HandlerRef, GenericMessageHandlers).
 
 create_subscribe_ctx(Ref, Ctx) ->
-    ?tp_debug(extsub_handler_registry_create_subscribe_ctx, #{ref => Ref, ctx => Ctx}),
     Pid = self(),
     SendAfter = fun(Interval, Info) ->
-        ?tp_debug(extsub_handler_registry_create_subscribe_ctx_send_after, #{
-            to => Pid, interval => Interval, info => Info
-        }),
         erlang:send_after(Interval, Pid, #info_to_extsub{
             handler_ref = Ref, info = Info
         })
     end,
     Send = fun(Info) ->
-        ?tp_debug(extsub_handler_registry_create_subscribe_ctx_send, #{to => Pid, info => Info}),
         _ = erlang:send(Pid, #info_to_extsub{
             handler_ref = Ref, info = Info
         }),

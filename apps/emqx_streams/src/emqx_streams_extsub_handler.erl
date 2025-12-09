@@ -167,10 +167,6 @@ do_handle_subscribe(SubscribeCtx, Handler0, SubscribeTopicFilter) ->
     Handler1 = init_handler(Handler0, SubscribeCtx),
     case subscribe(Handler1, SubscribeTopicFilter) of
         {ok, Handler} ->
-            ?tp_debug(streams_extsub_handler_subscribe_success, #{
-                subscribe_topic_filter => SubscribeTopicFilter,
-                handler => Handler
-            }),
             {ok, schedule_check_stream_status(Handler)};
         ?err_unrec(Reason) ->
             ?tp(error, streams_extsub_handler_subscribe_error, #{
@@ -245,7 +241,6 @@ handle_info(Handler, #{desired_message_count := DesiredCount} = _InfoCtx, Info) 
 %%------------------------------------------------------------------------------------
 
 get_current_generation(DSSubId, Shard, #state{ds_subs = DSSubs}) ->
-    ?tp_debug(streams_extsub_handler_get_current_generation, #{ds_sub_id => DSSubId, shard => Shard}),
     case DSSubs of
         #{
             DSSubId := #stream_state{
@@ -263,9 +258,6 @@ get_current_generation(DSSubId, Shard, #state{ds_subs = DSSubs}) ->
 on_advance_generation(
     DSSubId, Shard, Generation, #state{ds_subs = DSSubs} = State
 ) ->
-    ?tp_debug(streams_extsub_handler_on_advance_generation, #{
-        ds_sub_id => DSSubId, shard => Shard, generation => Generation
-    }),
     case DSSubs of
         #{DSSubId := StreamState0} ->
             StreamState = advance_shard_generation(StreamState0, Shard, Generation),
@@ -280,25 +272,11 @@ get_iterator(DSSubId, {Shard, _} = Slab, DSStream, #state{ds_subs = DSSubs, send
             ?is_subscribed_to_shard(Shard, SubShard)
         ->
             StartTimeUs = get_shard_start_time_us(StreamState, Shard),
-            ?tp_debug(streams_extsub_handler_get_iterator, #{
-                status => create,
-                ds_sub_id => DSSubId,
-                slab => Slab,
-                ds_stream => DSStream,
-                start_time => StartTimeUs
-            }),
             {undefined, #{start_time => StartTimeUs}};
         #{DSSubId := _} ->
             %% Other shards we are not interested in
             SendFn(#complete_stream{
                 ds_sub_id = DSSubId, slab = Slab, ds_stream = DSStream
-            }),
-            ?tp_debug(streams_extsub_handler_get_iterator, #{
-                status => create_end_of_stream,
-                ds_sub_id => DSSubId,
-                slab => Slab,
-                ds_stream => DSStream,
-                start_time => end_of_stream
             }),
             {ok, end_of_stream};
         _ ->
@@ -313,12 +291,6 @@ on_new_iterator(
         #{DSSubId := #stream_state{shard = SubShard}} when
             SubShard =:= Shard orelse SubShard =:= ?all_shards
         ->
-            ?tp_debug(streams_extsub_handler_on_new_iterator_subscribe, #{
-                status => subscribe,
-                ds_sub_id => DSSubId,
-                slab => Slab,
-                ds_stream => DSStream
-            }),
             {subscribe, add_dsstream_to_index(State, DSSubId, DSStream, Shard)};
         #{DSSubId := _} ->
             SendFn(#complete_stream{
@@ -357,9 +329,6 @@ on_subscription_down(DSSubId, Slab, _DSStream, #state{ds_subs = DSSubs} = State)
 %%------------------------------------------------------------------------------------
 
 subscribe(Handler, SubscribeTopicFilter) ->
-    ?tp_debug(streams_extsub_handler_subscribe, #{
-        subscribe_topic_filter => SubscribeTopicFilter, handler => Handler
-    }),
     maybe
         {ok, Partition, Rest1} ?= split_topic_filter(SubscribeTopicFilter),
         {ok, OffsetBin, TopicFilter} ?= split_topic_filter(Rest1),
@@ -387,13 +356,6 @@ subscribe(Handler, SubscribeTopicFilter) ->
             by_topic_filter = ByTopicFilter#{SubscribeTopicFilter => DSSubId},
             ds_subs = DSSubs#{DSSubId => StreamState}
         },
-        ?tp_debug(streams_extsub_handler_handle_subscribe, #{
-            ds_sub_id => DSSubId,
-            stream => Stream,
-            shard => SubShard,
-            progress => Progress,
-            start_time_us => StartTimeUs
-        }),
         {ok, DSClient, State} = emqx_streams_message_db:subscribe(
             Stream, DSClient0, DSSubId, State1
         ),
@@ -469,20 +431,8 @@ handle_ds_info(
                             complete_subscribed_dsstream(Hndlr, DSSubId, SubRef, DSStream)
                         end
                     ),
-                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
-                        status => blocked,
-                        ds_sub_id => DSSubId,
-                        stream_state => StreamState,
-                        payload => end_of_stream
-                    }),
                     {ok, update_stream_state(Handler, DSSubId, StreamState)};
                 #status_unblocked{} ->
-                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
-                        status => unblocked,
-                        ds_sub_id => DSSubId,
-                        stream_state => StreamState0,
-                        payload => end_of_stream
-                    }),
                     {ok, complete_subscribed_dsstream(Handler, DSSubId, SubRef, DSStream)}
             end;
         #ds_sub_reply{payload = {ok, _It, TTVs}, seqno = SeqNo, size = _Size} ->
@@ -499,13 +449,6 @@ handle_ds_info(
                             Hndlr
                         end
                     ),
-                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
-                        status => blocked,
-                        ds_sub_id => DSSubId,
-                        stream_state => StreamState,
-                        ds_stream => DSStream,
-                        payload => #{total => Size, filtered => length(Messages)}
-                    }),
                     {ok, update_stream_state(Handler, DSSubId, StreamState), Messages};
                 #status_unblocked{} ->
                     ok = suback(Handler, DSSubId, SubHandle, SeqNo),
@@ -514,13 +457,6 @@ handle_ds_info(
                     {LastTimestampUs, Messages} = to_messages(Shard, LastTimestampUs0, TTVs),
                     StreamState1 = advance_shard_last_time(StreamState0, Shard, LastTimestampUs),
                     StreamState = StreamState1#stream_state{status = #stream_status_unblocked{}},
-                    ?tp_debug(streams_extsub_handler_handle_ds_info, #{
-                        status => unblocked,
-                        ds_sub_id => DSSubId,
-                        stream_state => StreamState,
-                        ds_stream => DSStream,
-                        payload => #{total => Size, filtered => length(Messages)}
-                    }),
                     {ok, update_stream_state(Handler, DSSubId, StreamState), Messages}
             end
     end.
@@ -541,7 +477,6 @@ update_blocking_status(#h{state = #state{status = Status} = State0} = Handler0, 
     end.
 
 unblock_streams(#h{state = #state{ds_subs = DSSubs}} = Handler) ->
-    ?tp_debug(streams_extsub_handler_unblock_streams, #{}),
     maps:fold(
         fun
             (_SubId, #stream_state{status = #stream_status_unblocked{}}, HandlerAcc) ->
@@ -739,9 +674,6 @@ validate_partition(Stream, Partition) ->
 %% Other helpers
 
 to_messages(Shard, LastTimestampUs, TTVs) ->
-    ?tp_debug(streams_extsub_handler_to_messages, #{
-        shard => Shard, last_timestamp_us => LastTimestampUs, ttvs => TTVs
-    }),
     {NewLastTimestampUs, Messages} = lists:foldl(
         fun({Topic, Time, Payload}, {LastTimestampUsAcc, MessagesAcc}) ->
             case Time >= LastTimestampUsAcc of
