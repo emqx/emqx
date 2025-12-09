@@ -76,7 +76,7 @@ fields(connector_config) ->
                 emqx_schema:timeout_duration_ms(),
                 #{
                     required => false,
-                    deprecated => {since, "e5.0.1"},
+                    deprecated => {since, "5.0.1"},
                     default => <<"15s">>,
                     desc => ?DESC("request_timeout")
                 }

@@ -98,7 +98,7 @@ fields(message) ->
             })},
         {clientid,
             hoconsc:mk(binary(), #{
-                deprecated => {since, "v5.0.14"}
+                deprecated => {since, "5.0.14"}
             })},
         {payload,
             hoconsc:mk(binary(), #{
