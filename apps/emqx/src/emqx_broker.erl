@@ -21,7 +21,8 @@
 -export([
     subscribe/1,
     subscribe/2,
-    subscribe/3
+    subscribe/3,
+    subscribe/4
 ]).
 
 -export([unsubscribe/1]).
@@ -157,14 +158,28 @@ subscribe(Topic, SubOpts) when ?IS_TOPIC(Topic), is_map(SubOpts) ->
 
 -spec subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subid(), emqx_types:subopts()) ->
     ok.
-subscribe(Topic, SubId, SubOpts0) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts0) ->
+subscribe(Topic, SubId, SubOpts) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts) ->
+    subscribe(Topic, SubId, SubOpts, monitor).
+
+%% This API is called by MQTT session process with `no_monitor`.
+%% MQTT session is already monitored by emqx_cm, so there is no need to monitor again.
+-spec subscribe(
+    emqx_types:topic() | emqx_types:share(),
+    emqx_types:subid(),
+    emqx_types:subopts(),
+    monitor | no_monitor
+) ->
+    ok.
+subscribe(Topic, SubId, SubOpts0, Monitor) when
+    ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts0)
+->
     SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
     _ = emqx_trace:subscribe(Topic, SubId, SubOpts),
     SubPid = self(),
     case subscribed(SubPid, Topic) of
         %% New
         false ->
-            ok = emqx_broker_helper:register_sub(SubPid, SubId),
+            ok = emqx_broker_helper:register_sub(SubPid, SubId, Monitor),
             true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
             do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
         %% Existed
