@@ -411,13 +411,21 @@ do_insert_async(ChanResId, TablesToPoints, ConnState, ReplyFnAndArgs0) ->
     %% Already checked that map is non-empty.
     {Table, PointsWithIndices, Iter} = maps:next(Iter0),
     {Indices, Points} = lists:unzip(PointsWithIndices),
+    IsBatch =
+        case {map_size(TablesToPoints), PointsWithIndices} of
+            {1, [_]} ->
+                false;
+            _ ->
+                true
+        end,
     Context = #{
         res_id => ChanResId,
         iter => Iter,
         last_indices => Indices,
         final_cont => ReplyFnAndArgs0,
         final_res => [],
-        client => Client
+        client => Client,
+        is_batch => IsBatch
     },
     ReplyFnAndArgs = {fun ?MODULE:reply_callback/2, [Context]},
     greptimedb_rs:insert_async(Client, Table, Points, ReplyFnAndArgs).
@@ -426,13 +434,20 @@ handle_last_async_result(Context, Result) ->
     #{
         last_indices := LastIndices,
         final_cont := ReplyFnAndArgs,
-        final_res := ResAcc0
+        final_res := ResAcc0,
+        is_batch := IsBatch
     } = Context,
     ResultsWithIndices = lists:map(fun(I) -> {I, Result} end, LastIndices),
     ResAcc1 = ResultsWithIndices ++ ResAcc0,
     ResAcc2 = lists:keysort(1, ResAcc1),
-    {_, FinalResult} = lists:unzip(ResAcc2),
-    emqx_resource:apply_reply_fun(ReplyFnAndArgs, FinalResult).
+    {_, FinalResult0} = lists:unzip(ResAcc2),
+    case IsBatch of
+        true ->
+            emqx_resource:apply_reply_fun(ReplyFnAndArgs, FinalResult0);
+        false ->
+            [FinalResult1] = FinalResult0,
+            emqx_resource:apply_reply_fun(ReplyFnAndArgs, FinalResult1)
+    end.
 
 handle_async_result_continuation(Context0, Result, NextTable, PointsWithIndices) ->
     #{
