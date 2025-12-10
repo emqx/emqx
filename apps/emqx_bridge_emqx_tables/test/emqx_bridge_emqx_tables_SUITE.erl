@@ -363,11 +363,86 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
                 query_by_clientid(ClientId, TCConfig)
             )
         ),
+        ?retry(
+            500,
+            5,
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> := #{
+                        <<"matched">> := 1,
+                        <<"success">> := 1,
+                        <<"failed">> := 0
+                    }
+                }},
+                emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig)
+            )
+        ),
         ok
     end,
     Opts = #{
         start_client_opts => StartClientOpts,
         post_publish_fn => PostPublishFn
+    },
+    maybe_with_forced_sync_query_mode(TCConfig, fun() ->
+        emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts)
+    end).
+
+-doc """
+Smoke test to exercise the code path where a batch with more than 1 record is handled.
+""".
+t_batch() ->
+    [{matrix, true}].
+t_batch(matrix) ->
+    [
+        [?tcp, Sync, ?with_batch]
+     || Sync <- [?sync, ?async]
+    ];
+t_batch(TCConfig) ->
+    NumMsgs = 3,
+    ActionOverrides = #{
+        <<"resource_opts">> => #{<<"worker_pool_size">> => 1}
+    },
+    PublishFn = fun(#{rule_topic := RuleTopic, payload_fn := PayloadFnIn} = Context) ->
+        Payload = PayloadFnIn(),
+        emqx_utils:pforeach(
+            fun(_) ->
+                C = start_client(),
+                emqtt:publish(C, RuleTopic, Payload, [{qos, 0}]),
+                ok = emqtt:stop(C)
+            end,
+            lists:seq(1, NumMsgs)
+        ),
+        Context#{payload => Payload}
+    end,
+    PostPublishFn = fun(_Context) ->
+        ?retry(
+            500,
+            5,
+            ?assertMatch(
+                {200, #{
+                    <<"metrics">> := #{
+                        <<"matched">> := 3,
+                        <<"success">> := 3,
+                        <<"failed">> := 0
+                    }
+                }},
+                emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig)
+            )
+        ),
+        ok
+    end,
+    TraceChecker = fun(Trace) ->
+        ?assertMatch(
+            [#{batch_or_query := [_, _ | _]}],
+            ?of_kind(buffer_worker_flush_ack, Trace)
+        ),
+        ok
+    end,
+    Opts = #{
+        action_overrides => ActionOverrides,
+        publish_fn => PublishFn,
+        post_publish_fn => PostPublishFn,
+        trace_checkers => [TraceChecker]
     },
     maybe_with_forced_sync_query_mode(TCConfig, fun() ->
         emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts)
