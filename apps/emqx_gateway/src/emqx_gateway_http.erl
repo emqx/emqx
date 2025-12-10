@@ -402,7 +402,7 @@ reason2resp(R) ->
 return_http_error(Code, Msg) ->
     {Code, codestr(Code), emqx_gateway_utils:stringfy(Msg)}.
 
--spec reason2msg({atom(), map()} | any()) -> error | string().
+-spec reason2msg({atom(), map()} | any()) -> error | map() | string().
 reason2msg({badconf, #{key := Key, value := Value, reason := Reason}}) ->
     NValue =
         case emqx_utils_json:safe_encode(Value) of
@@ -493,6 +493,8 @@ reason2msg(
 ) ->
     Bin = emqx_utils:readable_error_msg(Error),
     <<"Invalid configurations: ", Bin/binary>>;
+reason2msg(#{kind := validation_error} = Error) ->
+    Error;
 reason2msg(_) ->
     error.
 
