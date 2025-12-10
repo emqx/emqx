@@ -308,19 +308,7 @@ subscribe(
     Session = #session{clientid = ClientId, subscriptions = Subs}
 ) ->
     IsNew = not maps:is_key(TopicFilter, Subs),
-    %% No need for broker to monitor self() process because
-    %% it's monitored by emqx_cm
-    %% and emqx_cm:clean_down/1 calls emqx_broker_helper:clean_down/1
-    %% when the process is DOWN
-    Monitor =
-        case emqx_cm:is_monitored(self()) of
-            true ->
-                %% gen_tcp/ssl/socket connections
-                no_monitor;
-            false ->
-                %% quic stream
-                monitor
-        end,
+    Monitor = maybe_mointor(),
     case IsNew andalso is_subscriptions_full(Session) of
         false ->
             ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, Monitor),
@@ -328,6 +316,22 @@ subscribe(
             {ok, Session1};
         true ->
             {error, ?RC_QUOTA_EXCEEDED}
+    end.
+
+%% Returns 'no_monitor' if self() is monitored by emqx_cm.
+%% Otherwise `monitor`.
+%%
+%% When 'no_monitor', it means there is no need for broker to monitor self() process,
+%% because emqx_cm:clean_down/1 calls emqx_broker_helper:clean_down/1
+%% when the process is DOWN
+maybe_mointor() ->
+    case emqx_cm:is_monitored(self()) of
+        true ->
+            %% gen_tcp/ssl/socket connections
+            no_monitor;
+        false ->
+            %% quic stream
+            monitor
     end.
 
 is_subscriptions_full(#session{max_subscriptions = infinity}) ->
@@ -719,9 +723,10 @@ takeover(#session{subscriptions = Subs}) ->
 -spec resume(emqx_types:clientinfo(), session()) ->
     session().
 resume(_ClientInfo = #{clientid := ClientId}, Session = #session{subscriptions = Subs}) ->
+    Monitor = maybe_mointor(),
     ok = maps:foreach(
         fun(TopicFilter, SubOpts) ->
-            ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts)
+            ok = emqx_broker:subscribe(TopicFilter, ClientId, SubOpts, Monitor)
         end,
         Subs
     ),
