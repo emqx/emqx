@@ -723,3 +723,11 @@ flush_client_messages(CPid) ->
     after 0 ->
         ok
     end.
+
+debug_state(Msg) ->
+    logger:notice(
+        #{
+            msg => Msg,
+            s => emqx_persistent_session_ds:print_session(?clientid)
+        }
+    ).

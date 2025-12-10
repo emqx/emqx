@@ -27,7 +27,8 @@
 
 -export_type([
     t/0,
-    options/0
+    options/0,
+    to_agent_events/0
 ]).
 
 -type options() :: #{

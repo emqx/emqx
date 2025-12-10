@@ -5,7 +5,7 @@
 
 %% API:
 -export([
-    new/1,
+    new/3,
     push/2,
     pop/1,
     n_buffered/2,
@@ -13,7 +13,9 @@
     puback/2,
     pubrec/2,
     pubcomp/2,
-    receive_maximum/1
+    receive_maximum/1,
+
+    on_release/4
 ]).
 
 %% internal exports:
@@ -46,11 +48,14 @@
     puback_queue :: iqueue(),
     pubrec_queue :: iqueue(),
     pubcomp_queue :: iqueue(),
-    %% Counters:
+    %% Tally counters:
     n_inflight = 0 :: non_neg_integer(),
     n_qos0 = 0 :: non_neg_integer(),
     n_qos1 = 0 :: non_neg_integer(),
-    n_qos2 = 0 :: non_neg_integer()
+    n_qos2 = 0 :: non_neg_integer(),
+    %% Queue of actions that happen when certain sequence numbers are
+    %% released:
+    rel_queue :: emqx_sessds_seqno_rel_q:t()
 }).
 
 -type t() :: #ds_inflight{}.
@@ -59,14 +64,17 @@
 %% API functions
 %%================================================================================
 
--spec new(non_neg_integer()) -> t().
-new(ReceiveMaximum) when ReceiveMaximum > 0 ->
+-spec new(
+    non_neg_integer(), emqx_persistent_session_ds:seqno(), emqx_persistent_session_ds:seqno()
+) -> t().
+new(ReceiveMaximum, QoS1Released, QoS2Released) when ReceiveMaximum > 0 ->
     #ds_inflight{
         receive_maximum = ReceiveMaximum,
         queue = queue:new(),
         puback_queue = iqueue_new(),
         pubrec_queue = iqueue_new(),
-        pubcomp_queue = iqueue_new()
+        pubcomp_queue = iqueue_new(),
+        rel_queue = emqx_sessds_seqno_rel_q:new(QoS1Released, QoS2Released)
     }.
 
 -spec receive_maximum(t()) -> pos_integer().
@@ -89,6 +97,21 @@ push(Payload = {_, Msg}, Rec) ->
         ?QOS_2 ->
             Rec#ds_inflight{queue = Q, n_qos2 = NQos2 + 1}
     end.
+
+-doc """
+Add an action that will be returned when the specified sequence
+numbers are released via `puback/2` or `pubcomp/2`.
+
+WARNING: it's an error to add actions with decreasing sequence
+numbers.
+""".
+-spec on_release(SeqNo, SeqNo, Action, t()) -> {[Action], t()} when
+    SeqNo :: emqx_persistent_session_ds:seqno() | undefined.
+on_release(SN1, SN2, Action, Rec = #ds_inflight{rel_queue = RelQ0}) ->
+    {Actions, RelQ} = emqx_sessds_seqno_rel_q:pop(
+        emqx_sessds_seqno_rel_q:push(SN1, SN2, Action, RelQ0)
+    ),
+    {Actions, Rec#ds_inflight{rel_queue = RelQ}}.
 
 -spec pop(t()) -> {payload(), t()} | undefined.
 pop(Rec0) ->
@@ -156,14 +179,18 @@ n_buffered(all, #ds_inflight{n_qos0 = NQos0, n_qos1 = NQos1, n_qos2 = NQos2}) ->
 n_inflight(#ds_inflight{n_inflight = NInflight}) ->
     NInflight.
 
--spec puback(emqx_persistent_session_ds:seqno(), t()) -> {ok, t()} | {error, Expected} when
+-spec puback(emqx_persistent_session_ds:seqno(), t()) ->
+    {ok, [_Action], t()} | {error, Expected}
+when
     Expected :: emqx_persistent_session_ds:seqno() | undefined.
-puback(SeqNo, Rec = #ds_inflight{puback_queue = Q0, n_inflight = N}) ->
+puback(SeqNo, Rec = #ds_inflight{puback_queue = Q0, n_inflight = N, rel_queue = RelQ0}) ->
     case ipop(Q0) of
         {{value, SeqNo}, Q} ->
-            {ok, Rec#ds_inflight{
+            {Actions, RelQ} = emqx_sessds_seqno_rel_q:pop(?QOS_1, SeqNo, RelQ0),
+            {ok, Actions, Rec#ds_inflight{
                 puback_queue = Q,
-                n_inflight = max(0, N - 1)
+                n_inflight = max(0, N - 1),
+                rel_queue = RelQ
             }};
         {{value, Expected}, _} ->
             {error, Expected};
@@ -171,14 +198,18 @@ puback(SeqNo, Rec = #ds_inflight{puback_queue = Q0, n_inflight = N}) ->
             {error, undefined}
     end.
 
--spec pubcomp(emqx_persistent_session_ds:seqno(), t()) -> {ok, t()} | {error, Expected} when
+-spec pubcomp(emqx_persistent_session_ds:seqno(), t()) ->
+    {ok, [_Action], t()} | {error, Expected}
+when
     Expected :: emqx_persistent_session_ds:seqno() | undefined.
-pubcomp(SeqNo, Rec = #ds_inflight{pubcomp_queue = Q0, n_inflight = N}) ->
+pubcomp(SeqNo, Rec = #ds_inflight{pubcomp_queue = Q0, n_inflight = N, rel_queue = RelQ0}) ->
     case ipop(Q0) of
         {{value, SeqNo}, Q} ->
-            {ok, Rec#ds_inflight{
+            {Actions, RelQ} = emqx_sessds_seqno_rel_q:pop(?QOS_2, SeqNo, RelQ0),
+            {ok, Actions, Rec#ds_inflight{
                 pubcomp_queue = Q,
-                n_inflight = max(0, N - 1)
+                n_inflight = max(0, N - 1),
+                rel_queue = RelQ
             }};
         {{value, Expected}, _} ->
             {error, Expected};
