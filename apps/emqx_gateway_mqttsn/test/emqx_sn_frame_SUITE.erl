@@ -28,6 +28,9 @@ serialize_pkt(P) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+t_deleteme(_) ->
+    ct:fail(deleteme).
+
 t_advertise(_) ->
     Adv = ?SN_ADVERTISE_MSG(1, 100),
     ?assertEqual(Adv, parse(serialize_pkt(Adv))).
