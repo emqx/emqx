@@ -285,10 +285,15 @@ t_authenticate(TCConfig) ->
         State
     ),
     %% Namespace mismatch; user doesn't exist
-    ignore = emqx_authn_mnesia:authenticate(
-        add_ns_clientinfo(#{username => <<"u">>, password => <<"p">>}, ?OTHER_NS),
-        State
-    ),
+    %% Since we fallback to global namespace when the credentials are namespaced, we don't
+    %% assert this for the global test group.
+    maybe
+        true ?= is_binary(ns(TCConfig)),
+        ignore = emqx_authn_mnesia:authenticate(
+            add_ns_clientinfo(#{username => <<"u">>, password => <<"p">>}, ?OTHER_NS),
+            State
+        )
+    end,
     ok.
 
 t_add_user() ->
@@ -716,6 +721,53 @@ t_import_users_duplicated_records(_) ->
             }
         ],
         read_tables()
+    ),
+
+    ok.
+
+-doc """
+Verifies that, if we don't find an username in the desired namespace, we fallback the
+lookup to the global namespace.
+""".
+t_namespace_fallback_to_global(_TCConfig) ->
+    Config = config(),
+    {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
+
+    Namespace = ?NS,
+
+    Username = <<"u">>,
+    PasswordGlobal = <<"pglobal">>,
+    UserGlobal = #{user_id => Username, password => PasswordGlobal},
+
+    %% First, only global user exists, and we attempt to authenticate using its password,
+    %% even though we're aiming at the namespace.  Should succeed.
+    {ok, _} = emqx_authn_mnesia:add_user(UserGlobal, State),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(
+            add_ns_clientinfo(#{username => Username, password => PasswordGlobal}, Namespace),
+            State
+        )
+    ),
+
+    %% Now, we create a namespaced user with the same username and different password.
+    %% Authentication should now return this new user.
+    PasswordNs = <<"pns">>,
+    UserNs = add_ns(#{user_id => Username, password => PasswordNs}, Namespace),
+    {ok, _} = emqx_authn_mnesia:add_user(UserNs, State),
+    ?assertMatch(
+        {error, bad_username_or_password},
+        emqx_authn_mnesia:authenticate(
+            add_ns_clientinfo(#{username => Username, password => PasswordGlobal}, Namespace),
+            State
+        )
+    ),
+    ?assertMatch(
+        {ok, _},
+        emqx_authn_mnesia:authenticate(
+            add_ns_clientinfo(#{username => Username, password => PasswordNs}, Namespace),
+            State
+        )
     ),
 
     ok.

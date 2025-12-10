@@ -122,10 +122,7 @@ authorize(
     #{type := built_in_database}
 ) ->
     Namespace = get_namespace(ClientInfo),
-    Rules =
-        read_rules(Namespace, {?ACL_TABLE_CLIENTID, Clientid}) ++
-            read_rules(Namespace, {?ACL_TABLE_USERNAME, Username}) ++
-            read_rules(Namespace, ?ACL_TABLE_ALL),
+    Rules = load_rules_for_authorize(Namespace, Clientid, Username),
     do_authorize(ClientInfo, PubSub, Topic, Rules).
 
 %%--------------------------------------------------------------------
@@ -259,6 +256,19 @@ record_count_per_namespace() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+load_rules_for_authorize(?global_ns, Clientid, Username) ->
+    do_load_rules_for_authorize(?global_ns, Clientid, Username);
+load_rules_for_authorize(Namespace, Clientid, Username) when is_binary(Namespace) ->
+    maybe
+        [] ?= do_load_rules_for_authorize(Namespace, Clientid, Username),
+        do_load_rules_for_authorize(?global_ns, Clientid, Username)
+    end.
+
+do_load_rules_for_authorize(Namespace, Clientid, Username) ->
+    read_rules(Namespace, {?ACL_TABLE_CLIENTID, Clientid}) ++
+        read_rules(Namespace, {?ACL_TABLE_USERNAME, Username}) ++
+        read_rules(Namespace, ?ACL_TABLE_ALL).
 
 read_rules(Namespace, Key) ->
     case do_get_rules(Namespace, Key) of
