@@ -32,7 +32,7 @@ jobs:
           - "amd64"
 
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         fetch-depth: 0
     - name: build tgz
@@ -41,7 +41,7 @@ jobs:
     - name: build pkg
       run: |
         ./scripts/buildx.sh --profile $PROFILE --pkgtype pkg --arch $ARCH
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+    - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: "${{ matrix.profile }}-${{ matrix.arch }}"
         path: _packages/${{ matrix.profile }}/*
@@ -62,7 +62,7 @@ jobs:
       EMQX_NAME: ${{ matrix.profile }}
 
     steps:
-    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
     - name: Set up environment
       id: env
       run: |
@@ -75,7 +75,7 @@ jobs:
         otp: ${{ steps.env.outputs.OTP_VSN }}
         elixir: ${{ steps.env.outputs.ELIXIR_VSN }}
         os: ${{ matrix.os }}
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+    - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       with:
         name: ${{ matrix.os }}
         path: _packages/**/*
