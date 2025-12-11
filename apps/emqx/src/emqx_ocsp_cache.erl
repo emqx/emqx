@@ -266,13 +266,24 @@ read_server_cert(ServerCertPemPath0) ->
             public_key:der_decode('Certificate', ServerCertDer);
         [] ->
             case file:read_file(ServerCertPemPath) of
-                {ok, ServerCertPem} ->
-                    [{'Certificate', ServerCertDer, _} | _] =
-                        public_key:pem_decode(ServerCertPem),
+                {ok, ServerCertPem} when byte_size(ServerCertPem) > 0 ->
+                    ServerCertDer = pem_decode(ServerCertPemPath, ServerCertPem),
                     public_key:der_decode('Certificate', ServerCertDer);
+                {ok, <<>>} ->
+                    error({empty_server_cert_file, ServerCertPemPath});
                 {error, Error1} ->
                     error({bad_server_cert_file, Error1})
             end
+    end.
+
+pem_decode(Path, Pem) ->
+    case public_key:pem_decode(Pem) of
+        [{'Certificate', Der, _} | _] ->
+            Der;
+        [] ->
+            error({empty_pem_file, Path});
+        _ ->
+            error({not_a_certificate_pem, Path})
     end.
 
 handle_refresh(ListenerID, Conf, State0) ->
@@ -304,11 +315,13 @@ with_refresh_params(ListenerID, Conf, ErrorRet, Fn) ->
             try
                 Fn(Params)
             catch
-                Kind:Error ->
+                Kind:Error:Stack ->
                     ?SLOG(error, #{
                         msg => "error_fetching_ocsp_response",
                         listener_id => ListenerID,
-                        error => {Kind, Error}
+                        exception => Kind,
+                        reason => Error,
+                        stacktrace => Stack
                     }),
                     ErrorRet
             end
@@ -328,7 +341,7 @@ get_refresh_params(ListenerID, undefined = _Conf) ->
             }
         ) ->
             {ok, #{
-                issuer_pem => IssuerPemPath,
+                issuer_pem => to_bin(IssuerPemPath),
                 responder_url => ResponderURL,
                 refresh_http_timeout => HTTPTimeout,
                 server_certfile => ServerCertPemPath
@@ -352,7 +365,7 @@ get_refresh_params(_ListenerID, #{
     }
 }) ->
     {ok, #{
-        issuer_pem => IssuerPemPath,
+        issuer_pem => to_bin(IssuerPemPath),
         responder_url => ResponderURL,
         refresh_http_timeout => HTTPTimeout,
         server_certfile => ServerCertPemPath
@@ -367,13 +380,14 @@ do_http_fetch_and_cache(ListenerID, Params) ->
         refresh_http_timeout := HTTPTimeout,
         server_certfile := ServerCertPemPath
     } = Params,
+    IssuerPemPathBin = to_bin(IssuerPemPath),
     IssuerPem =
-        case file:read_file(IssuerPemPath) of
+        case file:read_file(IssuerPemPathBin) of
             {ok, IssuerPem0} -> IssuerPem0;
             {error, Error0} -> error({bad_issuer_pem_file, Error0})
         end,
     ServerCert = read_server_cert(ServerCertPemPath),
-    Request = build_ocsp_request(IssuerPem, ServerCert),
+    Request = build_ocsp_request(IssuerPemPathBin, IssuerPem, ServerCert),
     ?tp(ocsp_http_fetch, #{
         listener_id => ListenerID,
         responder_url => ResponderURL,
@@ -485,8 +499,8 @@ ensure_timer(ListenerID, Message, State, Timeout) ->
         )
     }.
 
-build_ocsp_request(IssuerPem, ServerCert) ->
-    [{'Certificate', IssuerDer, _} | _] = public_key:pem_decode(IssuerPem),
+build_ocsp_request(IssuerPemPath, IssuerPem, ServerCert) ->
+    IssuerDer = pem_decode(IssuerPemPath, IssuerPem),
     #'Certificate'{
         tbsCertificate =
             #'TBSCertificate'{
@@ -515,8 +529,7 @@ build_ocsp_request(IssuerPem, ServerCert) ->
                                     hashAlgorithm =
                                         #'AlgorithmIdentifier'{
                                             algorithm = ?'id-sha1',
-                                            %% ???
-                                            parameters = <<5, 0>>
+                                            parameters = asn1_NOVALUE
                                         },
                                     issuerNameHash = IssuerDNHash,
                                     issuerKeyHash = IssuerPKHash,

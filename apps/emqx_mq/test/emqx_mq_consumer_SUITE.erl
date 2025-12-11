@@ -36,6 +36,7 @@ init_per_testcase(_CaseName, Config) ->
     Config.
 
 end_per_testcase(_CaseName, _Config) ->
+    _ = meck:unload(),
     ok = snabbkaffe:stop(),
     ok = emqx_mq_test_utils:cleanup_mqs().
 
@@ -82,7 +83,7 @@ t_quick_reconnect(_Config) ->
                 ok
         end
     end),
-    meck:new(emqx_mq_consumer, [passthrough]),
+    meck:new(emqx_mq_consumer, [passthrough, no_link, no_passthrough_cover]),
     meck:expect(emqx_mq_consumer, find, fun(_) -> not_found end),
 
     %% Connect a client to the queue

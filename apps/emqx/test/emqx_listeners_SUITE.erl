@@ -370,10 +370,10 @@ Checks the behavior of referencing a managed cert bundle that is somehow broken.
 
 - Inexistent.
 - Password file cannot be read.
+- Bad directory/file permissions.
 
 The problems above should throw an error at runtime when starting the listener.
 
-- Bad directory/file permissions.
 - Incomplete bundle (e.g., missing cert chain).
 
 The problems above just log an error and fail the client connection, but do not prevent
@@ -451,9 +451,11 @@ t_ssl_managed_certs_broken_reference(_Config) ->
         emqx_managed_certs:list_managed_files(Namespace, BundleName),
     %% No read permission
     ok = file:change_mode(KeyPath, 8#333),
+    %% This check only passes on OTP 28 but not in older version
+    %% because older version OTP does not check ssl file permissions when starting listener
     CheckRuntimeReadError = fun() ->
         ?assertMatch(
-            {ok, _},
+            {error, {post_config_update, emqx_listeners, {failed_to_start, _}}},
             emqx:update_config([listeners, Type, Name], {create, Conf})
         ),
         ?assertError(
@@ -482,8 +484,9 @@ t_ssl_managed_certs_broken_reference(_Config) ->
                 CheckRuntimeReadError
             )
     end,
+    %% Restore file permission
+    ok = file:change_mode(KeyPath, 8#644),
     {ok, _} = emqx:remove_config([listeners, Type, Name]),
-
     %% Incomplete bundle (e.g., missing cert chain).
     {ok, _} = generate_and_upload_managed_certs(Namespace, BundleName, #{}),
     ok = emqx_managed_certs:delete_managed_file(Namespace, BundleName, ?FILE_KIND_CHAIN),

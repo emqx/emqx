@@ -1,0 +1,5 @@
+[grpc.tls]
+mode = "require"
+ca_cert_path = "/etc/greptime/certs/ca.crt"
+cert_path = "/etc/greptime/certs/server.crt"
+key_path = "/etc/greptime/certs/server.key"

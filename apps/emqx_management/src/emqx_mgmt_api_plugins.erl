@@ -49,7 +49,7 @@
     sync_plugin_cluster/2
 ]).
 
--define(NAME_RE, "^[A-Za-z]+\\w*\\-[\\w-.]*$").
+-define(NAME_RE, "^[A-Za-z]+\\w*\\-[\\w.-]*$").
 -define(TAGS, [<<"Plugins">>]).
 
 -define(CONTENT_PLUGIN, plugin).

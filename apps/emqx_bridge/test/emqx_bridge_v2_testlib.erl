@@ -1841,6 +1841,7 @@ t_on_get_status(Config, Opts) ->
     ProxyHost = get_value(proxy_host, Config, undefined),
     FailureStatus = maps:get(failure_status, Opts, ?status_disconnected),
     NormalStatus = maps:get(normal_status, Opts, ?status_connected),
+    SkipProxy = maps:get(skip_proxy, Opts, false),
     ?assertMatch({201, _}, create_connector_api2(Config, ConnOverrides)),
     ?assertMatch({201, _}, simplify_result(create_kind_api(Config, KindOverrides))),
     ResourceId = connector_resource_id(Config),
@@ -1857,6 +1858,8 @@ t_on_get_status(Config, Opts) ->
     ),
     case ProxyHost of
         undefined ->
+            ok;
+        _ when SkipProxy ->
             ok;
         _ ->
             ProxyPort = get_value(proxy_port, Config),
@@ -2813,3 +2816,13 @@ generate_and_upload_managed_certs(Namespace, BundleName, Opts) ->
     ok = emqx_managed_certs:add_managed_files(Namespace, BundleName, Files),
     on_exit(fun emqx_managed_certs:clean_certs_dir/0),
     {ok, #{mk_cert_key_fn => MkCertKeyFn, ca => CAPEM, ca_key => CAKeyPEM}}.
+
+with_forced_sync_callback_mode(ConnectorType, Fn) ->
+    Mod = emqx_connector_info:resource_callback_module(ConnectorType),
+    emqx_common_test_helpers:with_mock(
+        Mod,
+        callback_mode,
+        fun() -> always_sync end,
+        #{meck_opts => [no_history, passthrough]},
+        Fn
+    ).

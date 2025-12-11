@@ -414,8 +414,9 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   def cover_compile_files() do
-    info("Cover compiling project modules...")
     real_modules = real_modules()
+    modules_count = MapSet.size(real_modules)
+    info("Cover compiling #{modules_count} project modules...")
 
     Mix.Dep.Umbrella.loaded()
     |> Stream.flat_map(fn umbrella_app ->
@@ -459,25 +460,40 @@ defmodule Mix.Tasks.Emqx.Ct do
                 :ok
 
               {:error, reason} ->
-                warn("Cover compilation failed: #{inspect(reason, pretty: true)}")
+                warn("Cover compilation failed #{mod}: #{inspect(reason, pretty: true)}")
             end
         end
       catch
         kind, reason ->
-          warn("Cover compilation failed: #{inspect({kind, reason}, pretty: true)}")
+          warn("Cover compilation failed #{mod}: #{inspect({kind, reason}, pretty: true)}")
       end
     end)
   end
 
+  # Static list of modules generated from .xrl (Leex) and .yrl (Yecc) files
+  @generated_modules MapSet.new([
+                       # Generated from .xrl files
+                       "emqx_ldap_filter_lexer",
+                       "emqx_variform_scan",
+                       # Generated from .yrl files
+                       "emqx_ldap_filter_parser",
+                       "emqx_variform_parser"
+                     ])
+
   # Set of "real" module names in the project as strings, i.e., excluding test modules
+  # and modules generated from .xrl (Leex) and .yrl (Yecc) files
   defp real_modules() do
-    Mix.Dep.Umbrella.loaded()
-    |> Stream.flat_map(fn dep ->
-      dep.opts[:path]
-      |> Path.join("{src,gen_src}/**/*.erl")
-      |> Path.wildcard()
-    end)
-    |> MapSet.new(&Path.basename(&1, ".erl"))
+    all_modules =
+      Mix.Dep.Umbrella.loaded()
+      |> Stream.flat_map(fn dep ->
+        dep.opts[:path]
+        |> Path.join("{src,gen_src}/**/*.erl")
+        |> Path.wildcard()
+      end)
+      |> MapSet.new(&Path.basename(&1, ".erl"))
+
+    # Exclude modules generated from .xrl (Leex) and .yrl (Yecc) files
+    MapSet.difference(all_modules, @generated_modules)
   end
 
   def write_coverdata(opts) do

@@ -872,14 +872,14 @@ t_namespaced_rule_trace(_TCConfig) ->
     },
     %% Create a trace targeting ns (specified ns param, global admin).
     ?assertMatch(
-        {{200, _}, {ok, #{namespace := Namespace}}},
+        {{200, #{<<"namespace">> := Namespace}}, {ok, #{namespace := Namespace}}},
         CreateTrace(Params, #{ns => Namespace})
     ),
     {204, _} = delete_trace_api(Name),
 
     %% Create a trace targeting global (no ns param, global admin).
     ?assertMatch(
-        {{200, _}, {ok, #{namespace := ?global_ns}}},
+        {{200, #{<<"namespace">> := null}}, {ok, #{namespace := ?global_ns}}},
         CreateTrace(Params, #{})
     ),
     {204, _} = delete_trace_api(Name),

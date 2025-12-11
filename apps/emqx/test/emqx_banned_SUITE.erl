@@ -11,6 +11,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% Legacy format macro (pre OTP-28)
+-define(LEGACY_RE_PATTERN(COMPILED, PATTERN), {COMPILED, PATTERN}).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -354,3 +357,178 @@ get_banned_list() ->
     ),
     Records = [emqx_banned:format(Record) || Record <- Records0],
     lists:sort(Records).
+
+%% Extract pattern from who field, handling both new and legacy formats
+extract_pattern({clientid_re, Pattern}) when is_binary(Pattern) ->
+    Pattern;
+extract_pattern({clientid_re, {_Compiled, Pattern}}) when is_binary(Pattern) ->
+    Pattern;
+extract_pattern({username_re, Pattern}) when is_binary(Pattern) ->
+    Pattern;
+extract_pattern({username_re, {_Compiled, Pattern}}) when is_binary(Pattern) ->
+    Pattern;
+extract_pattern(_) ->
+    error(badarg).
+
+%%--------------------------------------------------------------------
+%% Legacy format upgrade tests (pre OTP-28)
+%%--------------------------------------------------------------------
+
+t_legacy_format_upgrade(_) ->
+    %% Insert legacy format records directly into ETS to simulate pre-OTP-28 data
+    LegacyClientIdPattern = <<"LegacyClient.*">>,
+    LegacyUsernamePattern = <<"LegacyUser.*">>,
+    {ok, CompiledClientIdRE} = re:compile(LegacyClientIdPattern),
+    {ok, CompiledUsernameRE} = re:compile(LegacyUsernamePattern),
+
+    LegacyClientIdWho =
+        {clientid_re, ?LEGACY_RE_PATTERN(CompiledClientIdRE, LegacyClientIdPattern)},
+    LegacyUsernameWho =
+        {username_re, ?LEGACY_RE_PATTERN(CompiledUsernameRE, LegacyUsernamePattern)},
+
+    Now = erlang:system_time(second),
+    LegacyClientIdBanned = #banned{
+        who = LegacyClientIdWho,
+        by = <<"test">>,
+        reason = <<"legacy format test">>,
+        at = Now,
+        until = Now + 3600
+    },
+    LegacyUsernameBanned = #banned{
+        who = LegacyUsernameWho,
+        by = <<"test">>,
+        reason = <<"legacy format test">>,
+        at = Now,
+        until = Now + 3600
+    },
+
+    %% Insert legacy format records directly into ETS
+    ets:insert(emqx_banned_rules, LegacyClientIdBanned),
+    ets:insert(emqx_banned_rules, LegacyUsernameBanned),
+
+    %% Test that look_up works with legacy format
+    %% Note: look_up returns records as stored in ETS (may still be legacy format)
+    LegacyClientIdLookup = emqx_banned:look_up({clientid_re, LegacyClientIdPattern}),
+    LegacyUsernameLookup = emqx_banned:look_up({username_re, LegacyUsernamePattern}),
+
+    ?assertEqual(1, length(LegacyClientIdLookup)),
+    ?assertEqual(1, length(LegacyUsernameLookup)),
+    %% Verify look_up found the records (format may be legacy or upgraded)
+    [#banned{who = ClientIdWho}] = LegacyClientIdLookup,
+    [#banned{who = UsernameWho}] = LegacyUsernameLookup,
+    ?assertMatch({clientid_re, _}, ClientIdWho),
+    ?assertMatch({username_re, _}, UsernameWho),
+
+    %% Test that all_rules upgrades legacy format
+    AllRules = emqx_banned:all_rules(),
+    LegacyClientIdRule = lists:filter(
+        fun
+            (#banned{who = {clientid_re, Pattern}}) when is_binary(Pattern) ->
+                Pattern =:= LegacyClientIdPattern;
+            (_) ->
+                false
+        end,
+        AllRules
+    ),
+    LegacyUsernameRule = lists:filter(
+        fun
+            (#banned{who = {username_re, Pattern}}) when is_binary(Pattern) ->
+                Pattern =:= LegacyUsernamePattern;
+            (_) ->
+                false
+        end,
+        AllRules
+    ),
+
+    ?assertEqual(1, length(LegacyClientIdRule)),
+    ?assertEqual(1, length(LegacyUsernameRule)),
+    %% Verify the rule is upgraded (not in legacy format)
+    [#banned{who = {clientid_re, UpgradedClientIdPattern}}] = LegacyClientIdRule,
+    [#banned{who = {username_re, UpgradedUsernamePattern}}] = LegacyUsernameRule,
+    ?assertEqual(LegacyClientIdPattern, UpgradedClientIdPattern),
+    ?assertEqual(LegacyUsernamePattern, UpgradedUsernamePattern),
+    ?assertNot(is_tuple(UpgradedClientIdPattern)),
+    ?assertNot(is_tuple(UpgradedUsernamePattern)),
+
+    %% Test that check works with upgraded rules
+    ClientInfoLegacyClientId = #{
+        clientid => <<"LegacyClient123">>,
+        username => <<"user">>,
+        peerhost => {127, 0, 0, 1}
+    },
+    ClientInfoLegacyUsername = #{
+        clientid => <<"client">>,
+        username => <<"LegacyUser456">>,
+        peerhost => {127, 0, 0, 1}
+    },
+    ClientInfoNotMatch = #{
+        clientid => <<"OtherClient">>,
+        username => <<"OtherUser">>,
+        peerhost => {127, 0, 0, 1}
+    },
+
+    ?assert(emqx_banned:check(ClientInfoLegacyClientId)),
+    ?assert(emqx_banned:check(ClientInfoLegacyUsername)),
+    ?assertNot(emqx_banned:check(ClientInfoNotMatch)),
+
+    %% Clean up: delete legacy format records using the actual who field from the records
+    [#banned{who = ActualClientIdWho}] = LegacyClientIdLookup,
+    [#banned{who = ActualUsernameWho}] = LegacyUsernameLookup,
+    ok = emqx_banned:delete(ActualClientIdWho),
+    ok = emqx_banned:delete(ActualUsernameWho),
+
+    ?assertEqual(0, length(emqx_banned:look_up({clientid_re, LegacyClientIdPattern}))),
+    ?assertEqual(0, length(emqx_banned:look_up({username_re, LegacyUsernamePattern}))),
+    ?assertNot(emqx_banned:check(ClientInfoLegacyClientId)),
+    ?assertNot(emqx_banned:check(ClientInfoLegacyUsername)),
+    ok.
+
+t_legacy_format_look_up(_) ->
+    %% Test look_up with legacy format records
+    Pattern1 = <<"TestClient.*">>,
+    Pattern2 = <<"TestUser.*">>,
+    {ok, CompiledRE1} = re:compile(Pattern1),
+    {ok, CompiledRE2} = re:compile(Pattern2),
+
+    Now = erlang:system_time(second),
+    LegacyBanned1 = #banned{
+        who = {clientid_re, ?LEGACY_RE_PATTERN(CompiledRE1, Pattern1)},
+        by = <<"test">>,
+        reason = <<"test">>,
+        at = Now,
+        until = Now + 3600
+    },
+    LegacyBanned2 = #banned{
+        who = {username_re, ?LEGACY_RE_PATTERN(CompiledRE2, Pattern2)},
+        by = <<"test">>,
+        reason = <<"test">>,
+        at = Now,
+        until = Now + 3600
+    },
+
+    %% Insert legacy format records
+    ets:insert(emqx_banned_rules, LegacyBanned1),
+    ets:insert(emqx_banned_rules, LegacyBanned2),
+
+    %% Test look_up finds legacy format records
+    %% Note: look_up returns records as stored in ETS (may still be legacy format)
+    Result1 = emqx_banned:look_up({clientid_re, Pattern1}),
+    Result2 = emqx_banned:look_up({username_re, Pattern2}),
+
+    ?assertEqual(1, length(Result1)),
+    ?assertEqual(1, length(Result2)),
+    %% Verify look_up found the records (format may be legacy or upgraded)
+    [#banned{who = Who1}] = Result1,
+    [#banned{who = Who2}] = Result2,
+    ?assertMatch({clientid_re, _}, Who1),
+    ?assertMatch({username_re, _}, Who2),
+    %% Verify the pattern matches (extract pattern from either format)
+    Pattern1Extracted = extract_pattern(Who1),
+    Pattern2Extracted = extract_pattern(Who2),
+    ?assertEqual(Pattern1, Pattern1Extracted),
+    ?assertEqual(Pattern2, Pattern2Extracted),
+
+    %% Clean up
+    ok = emqx_banned:delete({clientid_re, Pattern1}),
+    ok = emqx_banned:delete({username_re, Pattern2}),
+    ok.

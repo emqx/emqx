@@ -30,6 +30,7 @@ CT_READABLE ?= true
 CT_COVER_EXPORT_PREFIX ?= $(PROFILE)
 
 export REBAR_GIT_CLONE_OPTIONS += --depth=1
+export MIX_REBAR3 = $(CURDIR)/rebar3
 
 ELIXIR_COMMON_DEPS := ensure-hex ensure-mix-rebar3 ensure-mix-rebar
 
@@ -52,7 +53,7 @@ $(REBAR): .prepare ensure-rebar3
 
 .PHONY: ensure-hex
 ensure-hex:
-	@mix local.hex 2.2.1 --if-missing --force
+	@mix local.hex --if-missing --force
 
 .PHONY: ensure-mix-rebar3
 ensure-mix-rebar3: $(REBAR)
@@ -61,7 +62,6 @@ ensure-mix-rebar3: $(REBAR)
 .PHONY: ensure-mix-rebar
 ensure-mix-rebar: $(REBAR)
 	@mix local.rebar --if-missing --force
-
 
 .PHONY: elixir-common-deps
 elixir-common-deps: $(ELIXIR_COMMON_DEPS)
@@ -81,6 +81,7 @@ proper: $(ELIXIR_COMMON_DEPS)
 .PHONY: test-compile
 test-compile: $(REBAR) merge-config
 	env PROFILE=$(PROFILE)-test MIX_QUIET=1 $(MIX) deps.get
+	env PROFILE=$(PROFILE)-test $(MIX) deps.compile cth_readable
 	env PROFILE=$(PROFILE)-test $(MIX) compile
 
 .PHONY: $(REL_PROFILES:%=%-compile)

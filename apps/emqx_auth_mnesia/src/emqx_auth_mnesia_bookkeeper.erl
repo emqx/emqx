@@ -28,6 +28,7 @@
 %%------------------------------------------------------------------------------
 
 -include("emqx_auth_mnesia_internal.hrl").
+-include_lib("snabbkaffe/include/trace.hrl").
 
 -define(authz_tref, authz_tref).
 -define(authn_tref, authn_tref).
@@ -69,14 +70,15 @@ handle_continue(#tally_authn{}, State0) ->
     {noreply, State, {continue, #tally_authz{}}};
 handle_continue(#tally_authz{}, State0) ->
     State = handle_tally({?AUTHZ_NS_TAB, ?AUTHZ_NS_COUNT_TAB}, State0),
+    ?tp("auth_bookkeeper_finished_startup", #{}),
     {noreply, State}.
 
 handle_call(#tally_authz{}, _From, State0) ->
     State = handle_tally({?AUTHZ_NS_TAB, ?AUTHZ_NS_COUNT_TAB}, State0),
-    {noreply, State};
+    {reply, ok, State};
 handle_call(#tally_authn{}, _From, State0) ->
     State = handle_tally({?AUTHN_NS_TAB, ?AUTHN_NS_COUNT_TAB}, State0),
-    {noreply, State};
+    {reply, ok, State};
 handle_call(Call, _From, State) ->
     {reply, {error, {unknown_call, Call}}, State}.
 
@@ -116,7 +118,7 @@ do_tally(?AUTHN_NS_TAB) ->
             maps:update_with(Ns, fun(N) -> N + 1 end, 1, Acc)
         end,
         #{},
-        ?AUTHZ_NS_TAB
+        ?AUTHN_NS_TAB
     ).
 
 cancel_tally_timer(?AUTHZ_NS_TAB, State0) ->

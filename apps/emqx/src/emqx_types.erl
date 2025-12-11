@@ -239,9 +239,13 @@
     {clientid, binary()}
     | {peerhost, inet:ip_address()}
     | {username, binary()}
+    | {clientid_re, binary()}
+    | {username_re, binary()}
+    | {peerhost_net, esockd_cidr:cidr()}
+    %% legacy format
     | {clientid_re, {_RE :: tuple(), binary()}}
-    | {username_re, {_RE :: tuple(), binary()}}
-    | {peerhost_net, esockd_cidr:cidr()}.
+    %% legacy format
+    | {username_re, {_RE :: tuple(), binary()}}.
 
 -type deliver() :: {deliver, topic(), message()}.
 -type delivery() :: #delivery{}.

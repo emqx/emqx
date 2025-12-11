@@ -60,23 +60,22 @@ init_per_suite(TCConfig) ->
         #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
     ),
     EHttpcPoolName = <<(atom_to_binary(?MODULE))/binary, "_http">>,
-    ok = start_ehttpc_pool(EHttpcPoolName),
     [
         {apps, Apps},
-        {ehttpc_pool_name, EHttpcPoolName}
+        {ehttpc_pool_name, EHttpcPoolName},
+        {query_server, <<"toxiproxy:4000">>}
         | TCConfig
     ].
 
 end_per_suite(TCConfig) ->
     reset_proxy(),
     Apps = get_config(apps, TCConfig),
-    EHttpcPoolName = get_config(ehttpc_pool_name, TCConfig),
-    ehttpc_sup:stop_pool(EHttpcPoolName),
     emqx_cth_suite:stop(Apps),
     ok.
 
 init_per_group(?tcp, TCConfig) ->
     [
+        {query_server, <<"toxiproxy:4000">>},
         {server, <<"toxiproxy:4001">>},
         {enable_tls, false},
         {proxy_name, ?PROXY_NAME_GRPC},
@@ -116,6 +115,7 @@ init_per_testcase(TestCase, TCConfig) ->
             <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>)
         }
     }),
+    ok = start_ehttpc_pool(TCConfig),
     clear_table(TCConfig),
     snabbkaffe:start_trace(),
     [
@@ -136,6 +136,7 @@ end_per_testcase(_TestCase, TCConfig) ->
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
+    stop_ehttpc_pool(TCConfig),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -143,35 +144,10 @@ end_per_testcase(_TestCase, TCConfig) ->
 %%------------------------------------------------------------------------------
 
 connector_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my connector">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"server">> => <<"toxiproxy:4001">>,
-        <<"dbname">> => <<"public">>,
-        <<"username">> => <<"greptime_user">>,
-        <<"password">> => <<"greptime_pwd">>,
-        <<"ttl">> => <<"3 years">>,
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_connector_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(?CONNECTOR_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_schema_testlib:greptimedb_connector_config(Overrides).
 
 action_config(Overrides) ->
-    Defaults = #{
-        <<"enable">> => true,
-        <<"description">> => <<"my action">>,
-        <<"tags">> => [<<"some">>, <<"tags">>],
-        <<"parameters">> => #{
-            <<"precision">> => <<"ns">>,
-            <<"write_syntax">> => example_write_syntax()
-        },
-        <<"resource_opts">> =>
-            emqx_bridge_v2_testlib:common_action_resource_opts()
-    },
-    InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
+    emqx_bridge_schema_testlib:greptimedb_action_config(Overrides).
 
 example_write_syntax() ->
     %% N.B.: this single space character is relevant
@@ -209,17 +185,25 @@ with_failure(FailureType, TCConfig, Fn) ->
     ProxyName = get_config(proxy_name, TCConfig),
     emqx_common_test_helpers:with_failure(FailureType, ProxyName, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
-start_ehttpc_pool(EHttpcPoolName) ->
+start_ehttpc_pool(TCConfig) ->
+    #{hostname := Host, port := Port} =
+        emqx_schema:parse_server(get_config(query_server, TCConfig), #{}),
+    EHttpcPoolName = get_config(ehttpc_pool_name, TCConfig),
     EHttpcTransport = tcp,
     EHttpcTransportOpts = [],
     EHttpcPoolOpts = [
-        {host, "greptimedb"},
-        {port, 4000},
+        {host, Host},
+        {port, Port},
         {pool_size, 1},
         {transport, EHttpcTransport},
         {transport_opts, EHttpcTransportOpts}
     ],
     {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
+    ok.
+
+stop_ehttpc_pool(TCConfig) ->
+    EHttpcPoolName = get_config(ehttpc_pool_name, TCConfig),
+    ehttpc_sup:stop_pool(EHttpcPoolName),
     ok.
 
 clear_table(TCConfig) ->
@@ -230,8 +214,8 @@ query_by_clientid(ClientId, TCConfig) ->
     query_by_sql(SQL, TCConfig).
 
 query_by_sql(SQL, TCConfig) ->
-    GreptimedbHost = "toxiproxy",
-    GreptimedbPort = 4000,
+    #{hostname := Host, port := Port} =
+        emqx_schema:parse_server(get_config(query_server, TCConfig), #{}),
     EHttpcPoolName = get_config(ehttpc_pool_name, TCConfig),
     UseTLS = get_config(enable_tls, TCConfig, false),
     Path = <<"/v1/sql?db=public">>,
@@ -242,9 +226,9 @@ query_by_sql(SQL, TCConfig) ->
         end,
     URI = iolist_to_binary([
         Scheme,
-        list_to_binary(GreptimedbHost),
+        list_to_binary(Host),
         ":",
-        integer_to_binary(GreptimedbPort),
+        integer_to_binary(Port),
         Path
     ]),
     Headers = [
@@ -260,7 +244,7 @@ query_by_sql(SQL, TCConfig) ->
             _Timeout = 10_000,
             _Retry = 0
         ),
-
+    ct:pal("server: ~s:~b\nquery:\n  ~s\nresult:\n  ~p", [Host, Port, SQL, {StatusCode, RawBody0}]),
     case emqx_utils_json:decode(RawBody0) of
         #{
             <<"output">> := [
@@ -285,6 +269,8 @@ query_by_sql(SQL, TCConfig) ->
                     %% Table not found
                     #{}
             end;
+        #{<<"output">> := _} = Res ->
+            {ok, Res};
         Error ->
             {error, Error}
     end.
@@ -340,9 +326,7 @@ json_encode(X) ->
 %%------------------------------------------------------------------------------
 
 t_start_stop(TCConfig) when is_list(TCConfig) ->
-    %% `greptimedb_worker' leaks atoms...  pids become atoms 🫠
-    Opts = #{skip_atom_leak_check => true},
-    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped, Opts).
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped).
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
@@ -574,25 +558,19 @@ t_bad_timestamp(TCConfig) ->
                 10_000
             ),
         fun(Trace) ->
-            IsBatch = get_config(batch_size, TCConfig, 1) > 1,
-            case IsBatch of
-                true ->
-                    ?assertMatch(
-                        [#{error := points_trans_failed}],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    );
-                false ->
-                    ?assertMatch(
-                        [
-                            #{
-                                error := [
-                                    {error, {bad_timestamp, <<"bad_timestamp">>}}
-                                ]
-                            }
-                        ],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    )
-            end,
+            ?assertMatch(
+                [
+                    #{
+                        error :=
+                            {points_trans_failed, #{
+                                last_error :=
+                                    {bad_timestamp, <<"bad_timestamp">>}
+                            }}
+                    }
+                    | _
+                ],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
             ok
         end
     ),
@@ -685,8 +663,6 @@ t_missing_field(matrix) ->
      || Batch <- [?without_batch, ?with_batch]
     ];
 t_missing_field(TCConfig) ->
-    BatchSize = get_config(batch_size, TCConfig),
-    IsBatch = BatchSize > 1,
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{
         <<"parameters">> => #{<<"write_syntax">> => <<"mqtt,clientid=${clientid} foo=${foo}i">>},
@@ -718,18 +694,13 @@ t_missing_field(TCConfig) ->
         fun(Trace) ->
             PersistedData0 = query_by_clientid(ClientId0, TCConfig),
             PersistedData1 = query_by_clientid(ClientId1, TCConfig),
-            case IsBatch of
-                true ->
-                    ?assertMatch(
-                        [#{error := points_trans_failed} | _],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    );
-                false ->
-                    ?assertMatch(
-                        [#{error := [{error, no_fields}]} | _],
-                        ?of_kind(greptimedb_connector_send_query_error, Trace)
-                    )
-            end,
+            ?assertMatch(
+                [
+                    #{error := {points_trans_failed, #{last_error := no_fields}}}
+                    | _
+                ],
+                ?of_kind(greptimedb_connector_send_query_error, Trace)
+            ),
             %% nothing should have been persisted
             ?assertEqual(#{}, PersistedData0),
             ?assertEqual(#{}, PersistedData1),

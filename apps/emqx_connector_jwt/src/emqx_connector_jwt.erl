@@ -19,7 +19,8 @@
 ]).
 
 -type jwt() :: binary().
--type wrapped_jwk() :: fun(() -> jose_jwk:key()).
+%% Ideally, it should be emqx_secret:t(jwk()) instead of emqx_secret:t(_)
+-type wrapped_jwk() :: emqx_secret:t(_).
 -type jwk() :: jose_jwk:key().
 -type duration() :: non_neg_integer().
 

@@ -694,7 +694,7 @@ to_size_limit(In) when is_integer(In), In > 0 ->
 to_size_limit(In) when In =:= infinity; In =:= "infinity"; In =:= <<"infinity">> ->
     {ok, infinity};
 to_size_limit(In) when is_list(In); is_binary(In) ->
-    RE = "^([0-9]+)(.[0-9]{1,3})? *([kKMGTPEZYRQ]i?B)?$",
+    RE = "^([0-9]+)(\\.[0-9]{1,3})? *([kKMGTPEZYRQ]i?B)?$",
     case re:run(In, RE, [{capture, all_but_first, list}]) of
         {match, [Nstr]} ->
             {ok, list_to_integer(Nstr)};

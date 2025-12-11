@@ -70,6 +70,7 @@
 -define(IS_STRING(L), (is_list(L) andalso L =/= [] andalso is_integer(hd(L)))).
 %% non-empty list of strings
 -define(IS_STRING_LIST(L), (is_list(L) andalso L =/= [] andalso ?IS_STRING(hd(L)))).
+-define(NO_PWD(PWD), (PWD =:= undefined orelse PWD =:= "" orelse PWD =:= <<>>)).
 
 -define(SELECTED_CIPHERS, [
     "ECDHE-ECDSA-AES256-GCM-SHA384",
@@ -427,12 +428,10 @@ is_pem(MaybePem) ->
     end
 ).
 -define(catching(BODY), ?catching(BODY, error)).
-try_validate_pem(PEM, certfile, _Password) ->
-    do_validate_certfile(PEM);
 try_validate_pem(PEM, keyfile, Password) ->
     do_validate_keyfile(PEM, Password);
-try_validate_pem(_PEM, _Type, _Password) ->
-    ok.
+try_validate_pem(PEM, _, _Password) ->
+    do_validate_certfile(PEM).
 
 do_validate_certfile(PEM) ->
     maybe
@@ -445,18 +444,33 @@ do_validate_certfile(PEM) ->
     end.
 
 do_validate_keyfile(PEM, Password) ->
-    maybe
-        {ok, [Entry]} ?= ?catching(public_key:pem_decode(PEM)),
-        {ok, _} ?= der_decode_file(Entry, Password),
-        ok
-    else
-        {error, Reason} -> {error, Reason};
-        _ -> {error, #{reason => failed_to_parse_keyfile}}
+    case ?catching(public_key:pem_decode(PEM)) of
+        {ok, [Entry]} ->
+            {Type, _DER, _EncryptionData} = Entry,
+            %% Ensure it's actually a key type, not a certificate
+            case is_key_type(Type) andalso der_decode_file(Entry, Password) of
+                {ok, _} ->
+                    ok;
+                false ->
+                    {error, #{reason => not_a_private_key}};
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        _ ->
+            {error, #{reason => failed_to_parse_keyfile}}
     end.
 
+is_key_type('RSAPrivateKey') -> true;
+is_key_type('ECPrivateKey') -> true;
+is_key_type('DSAPrivateKey') -> true;
+is_key_type('PrivateKeyInfo') -> true;
+is_key_type(_) -> false.
+
 der_decode_file({Type, DER, not_encrypted}, _Password) ->
-    ?catching(public_key:der_decode(Type, DER));
-der_decode_file({_EncType, _EncDER, _EncryptionData}, undefined) ->
+    ?catching(
+        public_key:der_decode(Type, DER), {error, #{reason => failed_to_decode, type => Type}}
+    );
+der_decode_file({_EncType, _EncDER, _EncryptionData}, Password) when ?NO_PWD(Password) ->
     {error, #{reason => encryped_keyfile_missing_password}};
 der_decode_file({_EncType, _EncDER, _EncryptionData} = EncryptedEntry, Password) ->
     ?catching(
@@ -525,10 +539,8 @@ is_valid_pem_file(Path0, Type, Password) ->
                     case is_pem(PEM) andalso try_validate_pem(PEM, Type, Password) of
                         ok ->
                             true;
-                        {error, #{reason := Reason}} ->
-                            {error, #{reason => Reason, file_path => Path}};
                         {error, Reason} ->
-                            {error, #{reason => Reason, file_path => Path}};
+                            {error, Reason#{file_path => Path}};
                         false ->
                             {error, #{pem_check => not_pem, file_path => Path}}
                     end;
@@ -568,7 +580,7 @@ do_drop_invalid_certs([KeyPath | KeyPaths], SSL) ->
         undefined ->
             do_drop_invalid_certs(KeyPaths, SSL);
         PemOrPath ->
-            case is_pem(PemOrPath) orelse is_valid_pem_file(PemOrPath, Type, Password) of
+            case is_valid_pem_file(PemOrPath, Type, Password) of
                 true ->
                     do_drop_invalid_certs(KeyPaths, SSL);
                 {error, _} ->
@@ -684,15 +696,14 @@ to_client_opts(_Type, #{}) ->
     [].
 
 resolve_managed_certs(undefined, Opts) ->
-    emqx_utils:flattermap(
-        fun(Extractor) -> conf_extract_opt(Extractor, Opts) end,
-        [
-            {keyfile, fun conf_resolve_path_strict/2},
-            {certfile, fun conf_resolve_path_strict/2},
-            {cacertfile, fun conf_resolve_path_strict/2},
-            {password, fun conf_get_password/2}
-        ]
-    );
+    Password = conf_get_password(password, Opts),
+    Keyfile = resolve_keyfile(Password, Opts),
+    [
+        {password, Password},
+        {keyfile, Keyfile},
+        {certfile, resolve_certfile(certfile, Opts)},
+        {cacertfile, resolve_certfile(cacertfile, Opts)}
+    ];
 resolve_managed_certs([FirstCertOpts | _] = ManagedCertOpts, Opts) ->
     DefaultOpts = resolve_managed_certs(FirstCertOpts, Opts),
     SNIFnOpts = mk_managed_certs_sni_fun(ManagedCertOpts, Opts),
@@ -855,7 +866,10 @@ resolve_cert_path_for_read(Path) ->
 
 ensure_valid_options(Options) ->
     Versions = proplists:get_value(versions, Options),
-    ensure_valid_options(Options, Versions, []).
+    lists:filter(
+        fun({_, V}) -> V =/= undefined andalso V =/= "" end,
+        ensure_valid_options(Options, Versions, [])
+    ).
 
 ensure_valid_options([], _, Acc) ->
     lists:reverse(Acc);
@@ -931,8 +945,33 @@ conf_get_opt(Key, Options, Default) ->
             maps:get(atom_to_binary(Key, utf8), Options, Default)
     end.
 
-conf_resolve_path_strict(Key, Options) ->
-    resolve_cert_path_for_read_strict(conf_get_opt(Key, Options)).
+resolve_keyfile(Password, Options) ->
+    case resolve_cert_path_for_read_strict(conf_get_opt(keyfile, Options)) of
+        undefined ->
+            undefined;
+        Path ->
+            case is_valid_pem_file(Path, keyfile, Password) of
+                true ->
+                    Path;
+                {error, Reason} ->
+                    ?SLOG(error, Reason#{msg => "bad_keyfile_ignored"}),
+                    undefined
+            end
+    end.
+
+resolve_certfile(Key, Options) ->
+    case resolve_cert_path_for_read_strict(conf_get_opt(Key, Options)) of
+        undefined ->
+            undefined;
+        Path ->
+            case is_valid_pem_file(Path, Key, undefined) of
+                true ->
+                    Path;
+                {error, Reason} ->
+                    ?SLOG(error, Reason#{msg => "invalid_pem_file_ignored"}),
+                    undefined
+            end
+    end.
 
 conf_get_password(Name, Opts) ->
     ensure_password(conf_get_opt(Name, Opts)).
@@ -947,7 +986,7 @@ ensure_sni(B) when is_binary(B) -> unicode:characters_to_list(B, utf8).
 
 ensure_password(Password) ->
     case emqx_secret:unwrap(Password) of
-        undefined ->
+        Pwd when ?NO_PWD(Pwd) ->
             undefined;
         S ->
             ensure_str(S)

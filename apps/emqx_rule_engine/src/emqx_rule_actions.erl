@@ -302,6 +302,10 @@ parse_user_properties(_) ->
 render_template(Template, Bindings) ->
     emqx_template:render(Template, {emqx_jsonish, Bindings}).
 
+render_simple_var([], _Data, Default) ->
+    %% Empty template (e.g., from empty binary) should return default value.
+    %% In OTP 28, re:split(<<>>, Pattern) returns [] instead of [<<>>] (OTP 27 behavior).
+    Default;
 render_simple_var([{var, _Name, Accessor}], Data, Default) ->
     case emqx_jsonish:lookup(Accessor, Data) of
         {ok, Var} -> Var;

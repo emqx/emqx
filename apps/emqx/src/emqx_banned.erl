@@ -56,6 +56,9 @@
 
 -define(BANNED_INDIVIDUAL_TAB, ?MODULE).
 -define(BANNED_RULE_TAB, emqx_banned_rules).
+%% Before OTP-28 (6.1) the regex patterns are compiled and stored in Mnesia
+%% The compiled patterns are not compatible to OTP-28, so the COMPILED is ignored.
+-define(LEGACY_RE_PATTERN(COMPILED, PATTERN), {COMPILED, PATTERN}).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -87,7 +90,9 @@ backup_tables() -> {<<"banned">>, tables()}.
 -spec tables() -> [atom()].
 tables() -> [?BANNED_RULE_TAB, ?BANNED_INDIVIDUAL_TAB].
 
-%% @doc Start the banned server.
+-doc """
+Start the banned server.
+""".
 -spec start_link() -> startlink_ret().
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -191,8 +196,35 @@ create(Banned = #banned{who = Who}) ->
 -spec look_up(emqx_types:banned_who() | map()) -> [emqx_types:banned()].
 look_up(Who) when is_map(Who) ->
     look_up(parse_who(Who));
+look_up({clientid_re, Pattern}) when is_binary(Pattern) ->
+    %% Use ets:foldl to match both old format {clientid_re, {_Compiled, Pattern}}
+    %% and new format {clientid_re, Pattern}
+    ets:foldl(
+        fun(Banned = #banned{who = Who}, Acc) ->
+            case matches_clientid_re_pattern(Who, Pattern) of
+                true -> [Banned | Acc];
+                false -> Acc
+            end
+        end,
+        [],
+        ?BANNED_RULE_TAB
+    );
+look_up({username_re, Pattern}) when is_binary(Pattern) ->
+    %% Use ets:foldl to match both old format {username_re, {_Compiled, Pattern}}
+    %% and new format {username_re, Pattern}
+    ets:foldl(
+        fun(Banned = #banned{who = Who}, Acc) ->
+            case matches_username_re_pattern(Who, Pattern) of
+                true -> [Banned | Acc];
+                false -> Acc
+            end
+        end,
+        [],
+        ?BANNED_RULE_TAB
+    );
 look_up(Who) ->
-    mnesia:dirty_read(table(Who), Who).
+    Table = table(Who),
+    mnesia:dirty_read(Table, Who).
 
 -spec delete(map() | emqx_types:banned_who()) -> ok.
 delete(Who) when is_map(Who) ->
@@ -220,11 +252,11 @@ who(peerhost, Peerhost) when is_binary(Peerhost) ->
     {ok, Addr} = inet:parse_address(binary_to_list(Peerhost)),
     {peerhost, Addr};
 who(clientid_re, RE) when is_binary(RE) ->
-    {ok, RECompiled} = re:compile(RE),
-    {clientid_re, {RECompiled, RE}};
+    {ok, _} = re:compile(RE),
+    {clientid_re, RE};
 who(username_re, RE) when is_binary(RE) ->
-    {ok, RECompiled} = re:compile(RE),
-    {username_re, {RECompiled, RE}};
+    {ok, _} = re:compile(RE),
+    {username_re, RE};
 who(peerhost_net, CIDR) when is_tuple(CIDR) -> {peerhost_net, CIDR};
 who(peerhost_net, CIDR) when is_binary(CIDR) ->
     {peerhost_net, esockd_cidr:parse(binary_to_list(CIDR), true)}.
@@ -367,6 +399,7 @@ handle_continue(init_from_csv, State) ->
     File = emqx_schema:naive_env_interpolation(
         emqx:get_config([banned, bootstrap_file], undefined)
     ),
+    %% init_from_csv checks if tables are empty by itself
     _ = init_from_csv(File),
     {noreply, State}.
 
@@ -415,11 +448,11 @@ do_check_rules(ClientInfo) ->
 is_rule_actual(#banned{until = Until}, Now) ->
     Until > Now.
 
-do_check_rule(#banned{who = {clientid_re, {RE, _}}}, #{clientid := ClientId}) ->
+do_check_rule(#banned{who = {clientid_re, RE}}, #{clientid := ClientId}) ->
     is_binary(ClientId) andalso re:run(ClientId, RE) =/= nomatch;
 do_check_rule(#banned{who = {clientid_re, _}}, #{}) ->
     false;
-do_check_rule(#banned{who = {username_re, {RE, _}}}, #{username := Username}) ->
+do_check_rule(#banned{who = {username_re, RE}}, #{username := Username}) ->
     is_binary(Username) andalso re:run(Username, RE) =/= nomatch;
 do_check_rule(#banned{who = {username_re, _}}, #{}) ->
     false;
@@ -445,7 +478,7 @@ parse_who(#{<<"as">> := AsRE, <<"who">> := Who}) when
     AsRE =:= clientid_re orelse AsRE =:= username_re
 ->
     case re:compile(Who) of
-        {ok, RE} -> {AsRE, {RE, Who}};
+        {ok, _RE} -> {AsRE, Who};
         {error, _} = Error -> Error
     end;
 parse_who(#{<<"as">> := As, <<"who">> := Who}) when As =:= clientid orelse As =:= username ->
@@ -457,7 +490,7 @@ format_who({peerhost, Host}) ->
 format_who({peerhost_net, CIDR}) ->
     CIDRBinary = list_to_binary(esockd_cidr:to_string(CIDR)),
     {peerhost_net, CIDRBinary};
-format_who({AsRE, {_RE, REOriginal}}) when AsRE =:= clientid_re orelse AsRE =:= username_re ->
+format_who({AsRE, REOriginal}) when AsRE =:= clientid_re orelse AsRE =:= username_re ->
     {AsRE, REOriginal};
 format_who({As, Who}) when As =:= clientid orelse As =:= username ->
     {As, Who}.
@@ -521,7 +554,8 @@ on_banned(_) ->
     ok.
 
 all_rules() ->
-    ets:tab2list(?BANNED_RULE_TAB).
+    %% Upgrade legacy format records when returning rules
+    lists:map(fun upgrade_legacy_rule/1, ets:tab2list(?BANNED_RULE_TAB)).
 
 trans(Fun) ->
     case mria:transaction(?COMMON_SHARD, Fun) of
@@ -534,3 +568,40 @@ trans(Fun, Args) ->
         {atomic, Res} -> {ok, Res};
         {aborted, Reason} -> {error, Reason}
     end.
+
+%%--------------------------------------------------------------------
+%% Legacy format support (pre OTP-28)
+%%--------------------------------------------------------------------
+
+%% Check if Who matches the Pattern in either new format {clientid_re, Pattern}
+%% or old format {clientid_re, {_Compiled, Pattern}}
+matches_clientid_re_pattern({clientid_re, Pattern}, Pattern) ->
+    true;
+matches_clientid_re_pattern({clientid_re, ?LEGACY_RE_PATTERN(_Compiled, Pattern)}, Pattern) ->
+    true;
+matches_clientid_re_pattern(_, _) ->
+    false.
+
+%% Check if Who matches the Pattern in either new format {username_re, Pattern}
+%% or old format {username_re, {_Compiled, Pattern}}
+matches_username_re_pattern({username_re, Pattern}, Pattern) ->
+    true;
+matches_username_re_pattern({username_re, ?LEGACY_RE_PATTERN(_Compiled, Pattern)}, Pattern) ->
+    true;
+matches_username_re_pattern(_, _) ->
+    false.
+
+%% Upgrade legacy format rule from {clientid_re, {Compiled, Pattern}} or
+%% {username_re, {Compiled, Pattern}} to new format {clientid_re, Pattern} or
+%% {username_re, Pattern}. This is called lazily when rules are accessed.
+-spec upgrade_legacy_rule(emqx_types:banned()) -> emqx_types:banned().
+upgrade_legacy_rule(
+    Banned = #banned{who = {clientid_re, ?LEGACY_RE_PATTERN(_Compiled, Pattern)}}
+) when is_binary(Pattern) ->
+    Banned#banned{who = {clientid_re, Pattern}};
+upgrade_legacy_rule(
+    Banned = #banned{who = {username_re, ?LEGACY_RE_PATTERN(_Compiled, Pattern)}}
+) when is_binary(Pattern) ->
+    Banned#banned{who = {username_re, Pattern}};
+upgrade_legacy_rule(Banned) ->
+    Banned.

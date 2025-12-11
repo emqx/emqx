@@ -261,6 +261,8 @@
 %% Used for tagging log entries.
 -callback resource_type() -> atom().
 
+-elvis([{elvis_style, no_match_in_condition, disable}]).
+
 -define(SAFE_CALL(EXPR),
     (fun() ->
         try
@@ -837,7 +839,7 @@ clean_allocated_resources(ResourceId) ->
         {ok, ResourceMod} ->
             %% The resource entries in the ETS table are erased inside
             %% `call_stop' if the call is successful.
-            case call_stop(ResourceId, ResourceMod, undefined) of
+            case call_stop(ResourceId, ResourceMod, _ResourceState = undefined) of
                 ok ->
                     ok;
                 {error, Reason} ->

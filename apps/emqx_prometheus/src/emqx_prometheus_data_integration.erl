@@ -384,9 +384,10 @@ merge_acc_with_rules(Mode, Id, RuleMetrics, PointsAcc) ->
 rule_point(Mode, Id, V) ->
     {with_node_label(Mode, [{id, Id}]), V}.
 
-get_metric(#{id := Id, enable := Bool} = _Rule) ->
+get_metric(#{enable := Bool} = Rule) ->
+    RuleResId = emqx_rule_engine:rule_resource_id(Rule),
     #{counters := Counters} =
-        emqx_metrics_worker:get_metrics(rule_metrics, Id),
+        emqx_metrics_worker:get_metrics(rule_metrics, RuleResId),
     #{
         emqx_rule_enable => emqx_prometheus_cluster:boolean_to_number(Bool),
         emqx_rule_matched => ?MG(matched, Counters),

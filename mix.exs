@@ -99,7 +99,6 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:jose),
       # in conflict by ehttpc and emqtt
       common_dep(:gun),
-      # in conflict by emqx_connector and system_monitor
       common_dep(:epgsql),
       # in conflict by emqx and observer_cli
       common_dep(:recon),
@@ -138,8 +137,7 @@ defmodule EMQXUmbrella.MixProject do
   def extra_release_apps() do
     [
       common_dep(:redbug),
-      common_dep(:observer_cli),
-      common_dep(:system_monitor)
+      common_dep(:observer_cli)
     ]
   end
 
@@ -173,10 +171,10 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.2", override: true}
 
   def common_dep(:esockd),
-    do: {:esockd, github: "emqx/esockd", tag: "5.15.0", override: true}
+    do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.5", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.6", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
@@ -210,13 +208,9 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
   def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-1", override: true}
 
-  # in conflict by emqx_connector and system_monitor
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.4", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
   def common_dep(:gen_rpc), do: {:gen_rpc, github: "emqx/gen_rpc", tag: "3.4.3", override: true}
-
-  def common_dep(:system_monitor),
-    do: {:system_monitor, github: "ieQu1/system_monitor", tag: "3.0.6"}
 
   def common_dep(:uuid), do: {:uuid, github: "okeuday/uuid", tag: "v2.0.7.1", override: true}
   def common_dep(:redbug), do: {:redbug, github: "emqx/redbug", tag: "2.0.10"}
@@ -304,14 +298,19 @@ defmodule EMQXUmbrella.MixProject do
     do: {:unicode_util_compat, "0.7.1", override: true}
 
   def common_dep(:proper),
-    # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
-    do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}
+    do: {:proper, "1.5.0"}
 
   def common_dep(:optvar),
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
 
   def common_dep(:parquer),
     do: {:parquer, github: "emqx/parquer", tag: "0.1.5", manager: :rebar3}
+
+  def common_dep(:greptimedb),
+    do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}
+
+  def common_dep(:greptimedb_rs),
+    do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.1"}
 
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
@@ -371,7 +370,7 @@ defmodule EMQXUmbrella.MixProject do
     if test_env?() do
       [
         {:bbmustache, "1.10.0"},
-        {:cth_readable, "1.5.1"},
+        {:cth_readable, "1.6.1"},
         common_dep(:proper),
         {:meck, "1.1.0"}
       ]

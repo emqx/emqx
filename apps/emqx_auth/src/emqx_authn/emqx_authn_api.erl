@@ -376,7 +376,7 @@ schema("/authentication/:id/users") ->
         post => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_post),
-            parameters => [param_auth_id(), ns_qs_param()],
+            parameters => [param_auth_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_create),
                 request_user_create_examples()

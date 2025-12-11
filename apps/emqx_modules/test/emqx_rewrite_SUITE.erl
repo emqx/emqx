@@ -58,6 +58,12 @@
     ]
 }).
 
+-if(?OTP_RELEASE >= 28).
+-define(BAD_QUANTIFIER_MSG, "quantifier does not follow a repeatable item").
+-else.
+-define(BAD_QUANTIFIER_MSG, "nothing to repeat").
+-endif.
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -147,7 +153,7 @@ t_rewrite_re_error(_Config) ->
         "y/+/z/#",
         "{^y/(.+)/z/(.+)$*",
         "\"y/z/$2",
-        {"nothing to repeat", 16}
+        {?BAD_QUANTIFIER_MSG, 16}
     },
     ?assertEqual({[], [], [Error]}, emqx_rewrite:compile(Rules)),
     ok.
@@ -206,7 +212,7 @@ t_update_re_failed(_Config) ->
             path := "rewrite.1.re",
             reason := #{
                 regexp := <<"*^test/*">>,
-                compile_error := {"nothing to repeat", 0}
+                compile_error := {?BAD_QUANTIFIER_MSG, 0}
             },
             value := <<"*^test/*">>
         },
