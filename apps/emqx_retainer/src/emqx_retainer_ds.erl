@@ -13,7 +13,7 @@
     delete_message/2,
     consume/2,
     dispatch_message/2,
-    test_consume/1
+    test_consume/2
 ]).
 
 %% behavior callbacks:
@@ -140,20 +140,18 @@ dispatch_message(H = #handle{sub_ref = SubRef, sub_handle = SubHandle}, Message)
     end.
 
 %% For testing:
-test_consume(H0) ->
-    receive
-        Msg ->
-            case dispatch_message(H0, Msg) of
-                ignore ->
-                    test_consume(H0);
-                {more, H} ->
-                    test_consume(H);
-                {data, Messages} ->
-                    io:format("Got messages: ~p", [Messages]),
-                    test_consume(H0);
-                done ->
-                    ok
-            end
+test_consume(Topic, Options) ->
+    T0 = os:perf_counter(microsecond),
+    case consume(Topic, Options) of
+        {more, H} ->
+            put(emqx_retainer_ds_cntr, 0),
+            ok = do_test_consume(H),
+            T = os:perf_counter(microsecond),
+            io:format("Consumed ~p messages in ~p s~n", [
+                erase(emqx_retainer_ds_cntr), (T - T0) / 1_000_000
+            ]);
+        done ->
+            io:format("Nothing to consume~n")
     end.
 
 %%================================================================================
@@ -190,3 +188,21 @@ list_generations() ->
 
 active_gen() ->
     1.
+
+do_test_consume(H0) ->
+    receive
+        Msg ->
+            case dispatch_message(H0, Msg) of
+                ignore ->
+                    do_test_consume(H0);
+                {more, H} ->
+                    do_test_consume(H);
+                {data, Messages} ->
+                    put(emqx_retainer_ds_cntr, get(emqx_retainer_ds_cntr) + length(Messages)),
+                    do_test_consume(H0);
+                done ->
+                    ok
+            end
+    after 10_000 ->
+        timeout
+    end.
