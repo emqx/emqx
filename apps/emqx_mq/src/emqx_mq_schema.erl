@@ -42,7 +42,9 @@ fields(mq) ->
             })},
         {regular_queue_retention_period,
             mk(emqx_schema:timeout_duration_ms(), #{
-                default => <<"7d">>, required => true, desc => ?DESC(regular_queue_retention_period)
+                default => <<"7d">>,
+                required => true,
+                desc => ?DESC(regular_queue_retention_period)
             })},
         {max_queue_count,
             mk(pos_integer(), #{
@@ -80,36 +82,7 @@ fields(mq) ->
 %% Exposing these settings should be done with guidance from the documentation
 %% and after we gain more use cases for the quota feature.
 fields(quota) ->
-    [
-        {threshold_percentage,
-            mk(range(1, 100), #{
-                required => true,
-                desc => ?DESC(threshold_percentage),
-                default => 10,
-                importance => ?IMPORTANCE_HIDDEN
-            })},
-        {buffer_max_size,
-            mk(pos_integer(), #{
-                required => true,
-                desc => ?DESC(buffer_max_size),
-                default => 100,
-                importance => ?IMPORTANCE_HIDDEN
-            })},
-        {buffer_flush_interval,
-            mk(emqx_schema:duration_ms(), #{
-                required => true,
-                desc => ?DESC(buffer_flush_interval),
-                default => 1000,
-                importance => ?IMPORTANCE_HIDDEN
-            })},
-        {buffer_pool_size,
-            mk(pos_integer(), #{
-                required => true,
-                desc => ?DESC(buffer_pool_size),
-                default => 16,
-                importance => ?IMPORTANCE_HIDDEN
-            })}
-    ];
+    emqx_mq_quota_schema:quota_fields();
 fields(auto_create) ->
     [
         {regular,
