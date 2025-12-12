@@ -1,0 +1,97 @@
+name: Report dependency issues
+
+on:
+  workflow_call:
+    inputs:
+      builder:
+        required: true
+        type: string
+      ct-matrix:
+        required: true
+        type: string
+      pr-number:
+        type: string
+      git-base-ref:
+        required: true
+        type: string
+
+env:
+  IS_CI: "yes"
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # Preconditions:
+  # - PR number is provided and it does not have 'skip-depxref' label.
+  preconditions:
+    runs-on: ubuntu-22.04
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+    steps:
+      - name: check preconditions
+        id: decide
+        run: |
+          if [ -n "${{ inputs.pr-number || '' }}" ]; then
+            labels=$(gh pr view ${{ inputs.pr-number }} --json labels | jq -r '.labels[].name')
+            if (echo "$labels" | grep -q "skip-depxref"); then
+              echo "PR has 'skip-depxref' label, skipping"
+              exit 0
+            fi
+          fi          
+          echo "proceed=true" >> $GITHUB_OUTPUT
+
+  # Main job:
+  depxref:
+    needs: preconditions
+    if: needs.preconditions.outputs.proceed == 'true'
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    name: "depxref (${{ matrix.profile }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(inputs.ct-matrix) }}
+    container: "${{ inputs.builder }}"
+    env:
+      PROFILE: ${{ matrix.profile }}
+    steps:
+
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: ${{ matrix.profile }}-release
+
+      - name: extract artifact
+        run: |
+          unzip -o -q ${{ matrix.profile }}-release.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - run: make elixir-common-deps
+
+      # Relies on `.git` directory being present:
+      - name: compile report
+        id: report
+        run: |
+          if ! (./scripts/report-depxref-issues.sh $(./scripts/find-changed-apps.sh ${{ inputs.git-base-ref }})); then
+            if [ -f "depxref-report.md" ]; then
+              echo "::notice::Found dependency issues in affected applications"
+              echo "issues-found=true" >> $GITHUB_OUTPUT
+            else
+              exit 1
+            fi
+          fi
+
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: steps.report.outputs.issues-found == 'true'
+        with:
+          name: depxref-report-${{ matrix.profile }}
+          path: depxref-report.md
+
+      - name: leave comment
+        if: steps.report.outputs.issues-found == 'true' && inputs.pr-number
+        run: |
+          echo "# [Depxref] Application dependency issues" > depxref-comment.md
+          echo "" >> depxref-comment.md
+          cat depxref-report.md >> depxref-comment.md
+          gh pr comment ${{ inputs.pr-number }} --create-if-none --edit-last --body-file depxref-comment.md
