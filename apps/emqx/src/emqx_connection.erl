@@ -573,7 +573,7 @@ handle_msg({Passive, _Sock}, State = #state{gc_tracker = {ActiveN, {Pubs, Bytes}
     FState = NState#state{gc_tracker = init_gc_tracker(ActiveN)},
     handle_info(activate_socket, FState);
 handle_msg(
-    Deliver = {deliver, _Topic, _Msg},
+    Deliver = #deliver{},
     #state{gc_tracker = {ActiveN, _, _}} = State
 ) ->
     ?BROKER_INSTR_SETMARK(t0_deliver, {_Msg#message.extra, ?BROKER_INSTR_TS()}),

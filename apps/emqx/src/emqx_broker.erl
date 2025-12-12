@@ -38,7 +38,10 @@
     safe_publish/2
 ]).
 
--export([dispatch/2]).
+-export([
+    dispatch/2,
+    deliver/3
+]).
 
 %% PubSub Infos
 -export([
@@ -478,6 +481,12 @@ dispatch(Topic, Delivery = #delivery{sender = _Sender, message = _Msg}) ->
         [Delivery]
     ).
 
+%% Notify channel about message delivery to a subscription topic.
+-spec deliver(pid(), emqx_types:topic(), emqx_types:message()) -> ok.
+deliver(ChannelPid, Topic, Msg) ->
+    ChannelPid ! #deliver{topic = Topic, message = Msg},
+    ok.
+
 %% @doc Dispatch message to local subscribers.
 -spec do_dispatch(emqx_types:topic() | emqx_types:share(), emqx_types:delivery()) ->
     emqx_types:deliver_result().
@@ -697,7 +706,8 @@ handle_call(Req, _From, State) ->
 
 handle_cast({dispatch, Topic, I, Msg}, State) ->
     ?BROKER_INSTR_TS(TDisp),
-    _ = do_dispatch_chans({deliver, Topic, Msg}, subscribers({shard, Topic, I}), 0),
+    Deliver = #deliver{topic = Topic, message = Msg},
+    _ = do_dispatch_chans(Deliver, subscribers({shard, Topic, I}), 0),
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_delay_us, ?US(TDisp - Msg#message.extra)),
     ?BROKER_INSTR_OBSERVE_HIST(broker, dispatch_shard_lat_us, ?US_SINCE(TDisp)),
     {noreply, State};
@@ -754,7 +764,7 @@ do_dispatch2(Topic, #delivery{message = MsgIn}) ->
     ?BROKER_INSTR_TS(T0),
     ?BROKER_INSTR_BIND(Msg, MsgIn, MsgIn#message{extra = T0}),
     AsyncDispatch = persistent_term:get(?PT_FLAG_ASYNC_SHARD_DISPATCH, false),
-    Deliver = {deliver, Topic, Msg},
+    Deliver = #deliver{topic = Topic, message = Msg},
     Shards = lookup_value(?SUBSCRIBER, {shard, Topic}, []),
     case AsyncDispatch of
         false ->
