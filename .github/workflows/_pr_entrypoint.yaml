@@ -170,7 +170,6 @@ jobs:
     uses: ./.github/workflows/report_depxref_issues.yaml
     with:
       builder: ${{ needs.init.outputs.BUILDER }}
-      ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
       pr-number: ${{ github.event.pull_request.number }}
       git-base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
     secrets: inherit
