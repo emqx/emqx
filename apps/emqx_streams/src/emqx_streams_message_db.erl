@@ -14,6 +14,7 @@ Facade for all operations with the message database.
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_streams_internal.hrl").
 
 -export([
@@ -545,12 +546,17 @@ key(#{key_expression := KeyExpression} = Stream, Message) ->
     Bindings = #{message => message_to_map(Message)},
     case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
         {error, Reason} ->
-            ?tp(warning, streams_message_db_key_expression_error, #{
-                stream => Stream,
-                reason => Reason,
-                key_expression => emqx_variform:decompile(KeyExpression),
-                bindings => Bindings
-            }),
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => streams_message_db_key_expression_error,
+                    stream => Stream,
+                    reason => Reason,
+                    key_expression => emqx_variform:decompile(KeyExpression),
+                    bindings => Bindings
+                },
+                #{tag => "STREAM"}
+            ),
             {error, Reason};
         {ok, Key} ->
             {ok, Key}
