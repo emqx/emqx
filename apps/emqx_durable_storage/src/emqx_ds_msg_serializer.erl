@@ -22,7 +22,6 @@
 ]).
 
 -include_lib("emqx_utils/include/emqx_message.hrl").
--include_lib("typerefl/include/types.hrl").
 
 -elvis([{elvis_style, atom_naming_convention, disable}]).
 -include("../gen_src/DurableMessage.hrl").
