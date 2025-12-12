@@ -1,0 +1,134 @@
+name: Report dependency issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        required: true
+        type: string
+      workflow-run-id:
+        required: true
+        type: string
+  workflow_run:
+    workflows: ["PR Entrypoint"]
+    types:
+      - completed
+
+env:
+  IS_CI: "yes"
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  init:
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+      pr-number: ${{ steps.decide.outputs.pr-number }}
+      run-id: ${{ steps.decide.outputs.run-id }}
+      base-sha: ${{ steps.decide.outputs.base-sha }}
+      head-sha: ${{ steps.decide.outputs.head-sha }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    steps:
+      - name: inspect event
+        run: cat ${GITHUB_EVENT_PATH} | jq
+      - name: check preconditions
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GH_REPO="${{ github.repository }}"
+          GH_PR_NUMBER="${{ inputs.pr-number || github.event.workflow_run.pull_requests[0].number }}"
+
+          if [ "${GH_PR_NUMBER}" == "" ]; then
+            echo 'Skipping: no associated pull request' && exit 0
+          fi
+
+          GH_PR_LABEL="$(gh --repo ${GH_REPO} pr view ${GH_PR_NUMBER} --json labels --jq '.labels[].name | select(. == "depxref")')"
+          if [ "${GH_PR_LABEL}" == "" ]; then
+            echo 'Skipping: pull request has no `depxref` label' && exit 0
+          fi
+
+          GH_RUN_ID="${{ inputs.workflow-run-id || github.event.workflow_run.id }}"
+
+          GH_PR_REFS="$(gh pr --repo ${GH_REPO} view ${GH_PR_NUMBER} --json baseRefOid,headRefOid)"
+          GH_BASE_SHA="${{ github.event.workflow_run.pull_requests[0].base.sha }}"
+          GH_BASE_SHA="${GH_BASE_SHA:-$(echo ${GH_PR_REFS} | jq -r .baseRefOid)}"
+          GH_HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          GH_HEAD_SHA="${GH_HEAD_SHA:-$(echo ${GH_PR_REFS} | jq -r .headRefOid)}"
+
+          echo "proceed=true"              | tee -a $GITHUB_OUTPUT
+          echo "pr-number=${GH_PR_NUMBER}" | tee -a $GITHUB_OUTPUT
+          echo "run-id=${GH_RUN_ID}"       | tee -a $GITHUB_OUTPUT
+          echo "base-sha=${GH_BASE_SHA}"   | tee -a $GITHUB_OUTPUT
+          echo "head-sha=${GH_HEAD_SHA}"   | tee -a $GITHUB_OUTPUT
+
+  # Main job:
+  depxref:
+    needs: init
+    if: needs.init.outputs.proceed == 'true'
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    steps:
+      # - name: issue GitHub App token
+      #   id: token
+      #   uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+      #   with:
+      #     app-id: ${{ vars.AUTH_APP_ID }}
+      #     private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: emqx-enterprise-release
+          run-id: ${{ needs.init.outputs.run-id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }} # ${{ steps.token.outputs.token }}
+
+      - name: extract artifact
+        id: artifact
+        run: |
+          if [ -f emqx-enterprise-release.zip ]; then
+            unzip -o -q emqx-enterprise-release.zip
+            echo "emqx-compiled=true" | tee -a $GITHUB_OUTPUT
+          fi
+
+      # Relies on `.git` directory being present:
+      - name: compile report
+        if: steps.artifact.outputs.emqx-compiled == 'true'
+        id: report
+        run: |
+          source ./env.sh
+          docker run --rm -v $PWD:$PWD --workdir $PWD "${EMQX_BUILDER}" bash -c '
+
+            # workaround safe directory error
+            git config --global --add safe.directory $PWD
+
+            # use release profile
+            export PROFILE=emqx-enterprise
+
+            # determine affected apps
+            APPS="$(./scripts/find-changed-apps.sh ${{ needs.init.outputs.base-sha }})"
+            if [ "${APPS}" = "" ]; then
+              echo 'Skipping: no apps changed in the PR' && exit 0
+            fi
+
+            # run analysis
+            make elixir-common-deps
+            if ! (mix emqx.depxref --output=depxref-report.md ${APPS}); then
+              if [ -f "depxref-report.md" ]; then
+                echo "issues-found=true" | tee -a $GITHUB_OUTPUT
+              else
+                exit 1
+              fi
+            fi
+          '
+
+      - name: leave comment
+        if: steps.report.outputs.issues-found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # ${{ steps.token.outputs.token }}
+        run: |
+          echo "## [Depxref] Application dependency issues" > depxref-comment.md
+          echo "" >> depxref-comment.md
+          cat depxref-report.md >> depxref-comment.md
+          gh --repo ${{ github.event.repository }} pr comment ${{ needs.init.outputs.pr-number }} --create-if-none --edit-last --body-file depxref-comment.md
