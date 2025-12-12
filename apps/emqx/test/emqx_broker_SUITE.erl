@@ -139,8 +139,7 @@ t_subscribed({init, Config}) ->
     emqx_broker:subscribe(<<"topic">>),
     Config;
 t_subscribed(Config) when is_list(Config) ->
-    ?assertEqual(false, emqx_broker:subscribed(undefined, <<"topic">>)),
-    ?assertEqual(true, emqx_broker:subscribed(self(), <<"topic">>));
+    ?assertEqual(true, emqx:subscribed(self(), <<"topic">>));
 t_subscribed({'end', _Config}) ->
     emqx_broker:unsubscribe(<<"topic">>).
 
