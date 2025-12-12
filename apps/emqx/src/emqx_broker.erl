@@ -54,11 +54,6 @@
     foldl_topics/2
 ]).
 
--export([
-    get_subopts/2,
-    set_subopts/2
-]).
-
 -export([topics/0]).
 
 %% gen_server callbacks
@@ -600,21 +595,6 @@ subscribed(SubPid, Topic) when is_pid(SubPid) ->
 subscribed(SubId, Topic) when ?IS_SUBID(SubId) ->
     SubPid = emqx_broker_helper:lookup_subpid(SubId),
     ets:member(?SUBOPTION, {Topic, SubPid}).
-
--spec get_subopts(pid(), emqx_types:topic() | emqx_types:share()) -> option(emqx_types:subopts()).
-get_subopts(SubPid, Topic) when is_pid(SubPid), ?IS_TOPIC(Topic) ->
-    lookup_value(?SUBOPTION, {Topic, SubPid});
-get_subopts(SubId, Topic) when ?IS_SUBID(SubId) ->
-    case emqx_broker_helper:lookup_subpid(SubId) of
-        SubPid when is_pid(SubPid) ->
-            get_subopts(SubPid, Topic);
-        undefined ->
-            undefined
-    end.
-
--spec set_subopts(emqx_types:topic() | emqx_types:share(), emqx_types:subopts()) -> boolean().
-set_subopts(Topic, NewOpts) when is_binary(Topic), is_map(NewOpts) ->
-    set_subopts(self(), Topic, NewOpts).
 
 %% @private
 set_subopts(SubPid, Topic, NewOpts) ->
