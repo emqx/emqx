@@ -58,10 +58,11 @@ quota_index_opts(#{
         max_shard_message_bytes := MaxShardMessageBytes
     }
 }) ->
-    maps:from_list(
-        limit_to_index_opt(bytes, MaxShardMessageBytes) ++
-            limit_to_index_opt(count, MaxShardMessageCount)
-    ).
+    #{
+        bytes => MaxShardMessageBytes,
+        count => MaxShardMessageCount,
+        threshold_percentage => emqx:get_config([streams, quota, threshold_percentage])
+    }.
 
 -spec max_unacked(emqx_streams_types:stream()) ->
     non_neg_integer().
@@ -72,19 +73,3 @@ max_unacked(#{read_max_unacked := ReadMaxUnacked} = _Stream) ->
     non_neg_integer().
 data_retention_period(#{data_retention_period := DataRetentionPeriod} = _Stream) ->
     DataRetentionPeriod.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-limit_to_index_opt(_Name, infinity) ->
-    [];
-limit_to_index_opt(Name, Limit) ->
-    [{Name, #{max => Limit, threshold => quota_threshold(Limit)}}].
-
-quota_threshold(Limit) ->
-    ThresholdPercentage = threshold_percentage(),
-    max(1, ThresholdPercentage * Limit div 100).
-
-threshold_percentage() ->
-    emqx:get_config([streams, quota, threshold_percentage]).
