@@ -475,6 +475,67 @@ t_subscribe_invalid_topic(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+t_autocreate_stream(_Config) ->
+    %% Create a client
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+
+    %% Autocreate some lastvalue streams
+    {ok, _} = emqx:update_config([streams], #{
+        <<"auto_create">> => #{
+            <<"regular">> => false,
+            <<"lastvalue">> => #{
+                <<"key_expression">> => <<"message.headers.properties.User-Property.stream-key">>
+            }
+        }
+    }),
+    ok = emqx_streams_test_utils:emqtt_sub(CSub, [
+        <<"$sp/0/latest/a/#">>,
+        <<"$sp/1/latest/a/#">>,
+        <<"$s/earliest/b/#">>,
+        <<"$s/0/c/#">>
+    ]),
+
+    %% Autocreate some regular streams
+    {ok, _} = emqx:update_config([streams], #{
+        <<"auto_create">> => #{
+            <<"regular">> => #{},
+            <<"lastvalue">> => false
+        }
+    }),
+    ok = emqx_streams_test_utils:emqtt_sub(CSub, [
+        <<"$sp/0/latest/d/#">>,
+        <<"$sp/1/latest/d/#">>,
+        <<"$s/earliest/e/#">>,
+        <<"$s/0/f/#">>
+    ]),
+
+    %% Verify that all 6 streams are created
+    ?assertMatch(
+        [
+            #{topic_filter := <<"a/#">>},
+            #{topic_filter := <<"b/#">>},
+            #{topic_filter := <<"c/#">>},
+            #{topic_filter := <<"d/#">>},
+            #{topic_filter := <<"e/#">>},
+            #{topic_filter := <<"f/#">>}
+        ],
+        emqx_utils_stream:consume(emqx_streams_registry:list())
+    ),
+
+    %% Publish some messages to the streams
+    emqx_streams_test_utils:populate_lastvalue(10, #{topic_prefix => <<"a/">>}),
+    emqx_streams_test_utils:populate_lastvalue(10, #{topic_prefix => <<"b/">>}),
+    emqx_streams_test_utils:populate_lastvalue(10, #{topic_prefix => <<"c/">>}),
+    emqx_streams_test_utils:populate(10, #{topic_prefix => <<"d/">>}),
+    emqx_streams_test_utils:populate(10, #{topic_prefix => <<"e/">>}),
+    emqx_streams_test_utils:populate(10, #{topic_prefix => <<"f/">>}),
+
+    %% Verify that we receive all the messages
+    {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(60, 1000),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

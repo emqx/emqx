@@ -181,12 +181,8 @@ subscribe(
         #{{Module, TopicFilter} := _HandlerRef} ->
             Registry;
         _ ->
-            ModuleHandlerRefs = [
-                HandlerRef
-             || {{Mod, _TF}, HandlerRef} <- maps:to_list(ByTopicCBM), Mod =:= Module
-            ],
-            case ModuleHandlerRefs of
-                [HandlerRef] ->
+            case find_module_handler_ref(Registry, Module) of
+                {ok, HandlerRef} ->
                     #extsub{handler = Handler0, topic_filters = TopicFilters} = maps:get(
                         HandlerRef, ByRef
                     ),
@@ -209,7 +205,7 @@ subscribe(
                         ignore ->
                             Registry
                     end;
-                [] ->
+                not_found ->
                     HandlerRef = make_ref(),
                     SubscribeCtx = create_subscribe_ctx(HandlerRef, SubscribeCtx0),
                     case
@@ -270,6 +266,16 @@ subscribe(
                     Registry
             end
     end.
+
+find_module_handler_ref(#registry{by_topic_cbm = ByTopicCBM}, Module) ->
+    do_find_module_handler_ref(maps:to_list(ByTopicCBM), Module).
+
+do_find_module_handler_ref([], _Module) ->
+    not_found;
+do_find_module_handler_ref([{{Module, _TopicFilter}, HandlerRef} | _Rest], Module) ->
+    {ok, HandlerRef};
+do_find_module_handler_ref([_ | Rest], Module) ->
+    do_find_module_handler_ref(Rest, Module).
 
 unsubscribe(
     #registry{
