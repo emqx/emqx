@@ -167,7 +167,13 @@ subscriptions(SubPid) when is_pid(SubPid) ->
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
     emqx_broker:subscribed(SubPid, iolist_to_binary(Topic));
 subscribed(SubId, Topic) when is_atom(SubId); is_binary(SubId) ->
-    emqx_broker:subscribed(SubId, iolist_to_binary(Topic)).
+    case emqx_cm:lookup_channels(local, SubId) of
+        [] ->
+            false;
+        Pids ->
+            %% last is the latest (hopefully)
+            subscribed(lists:last(Pids), Topic)
+    end.
 
 %%--------------------------------------------------------------------
 %% Config API

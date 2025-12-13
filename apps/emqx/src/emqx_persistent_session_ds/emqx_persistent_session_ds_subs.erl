@@ -595,7 +595,7 @@ assert_runtime_direct_subscription(Topic, _SubOpts, #{id := SessionId}) ->
                 "broker routes"
             ]
     end,
-    case emqx_broker:subscribed(SessionId, Topic) of
+    case emqx:subscribed(SessionId, Topic) of
         true ->
             Acc2 = [];
         false ->

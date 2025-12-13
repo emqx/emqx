@@ -587,13 +587,8 @@ subscriptions_via_topic(Topic) ->
     MatchSpec = [{{{Topic, '_'}, '_'}, [], ['$_']}],
     ets:select(?SUBOPTION, MatchSpec).
 
--spec subscribed(
-    pid() | emqx_types:subid(), emqx_types:topic() | emqx_types:share()
-) -> boolean().
+-spec subscribed(pid(), emqx_types:topic() | emqx_types:share()) -> boolean().
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
-    ets:member(?SUBOPTION, {Topic, SubPid});
-subscribed(SubId, Topic) when ?IS_SUBID(SubId) ->
-    SubPid = emqx_broker_helper:lookup_subpid(SubId),
     ets:member(?SUBOPTION, {Topic, SubPid}).
 
 %% @private
