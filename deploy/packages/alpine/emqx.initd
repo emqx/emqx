@@ -21,15 +21,14 @@ description_reload="Reload EMQX configuration"
 : ${EMQX_GROUP:=emqx}
 : ${EMQX_HOME:=/usr/lib/emqx}
 : ${EMQX_BIN:=/usr/bin/emqx}
-: ${EMQX_PIDFILE:=/var/run/emqx/emqx.pid}
 : ${EMQX_LOG_DIR:=/var/log/emqx}
+: ${EMQX_NODE_NAME:='emqx@127.0.0.1'}
 
 # Use supervise-daemon for better process supervision
 supervisor="supervise-daemon"
 command="${EMQX_BIN}"
 command_args="foreground"
 command_user="${EMQX_USER}:${EMQX_GROUP}"
-pidfile="${EMQX_PIDFILE}"
 
 depend() {
     need net
@@ -38,19 +37,15 @@ depend() {
 }
 
 start_pre() {
-    # Create PID directory if it doesn't exist
-    checkpath --directory --owner "${EMQX_USER}:${EMQX_GROUP}" --mode 0755 \
-        "$(dirname "${EMQX_PIDFILE}")" || return 1
-    
-    # Create log directory if it doesn't exist
-    checkpath --directory --owner "${EMQX_USER}:${EMQX_GROUP}" --mode 0755 \
-        "${EMQX_LOG_DIR}" || return 1
-    
     # Set environment variables for EMQX
     export HOME="/var/lib/emqx"
     export EMQX_DEFAULT_LOG_HANDLER=file
-    
+
     return 0
+}
+
+healthcheck() {
+    "${EMQX_BIN}" status
 }
 
 reload() {
