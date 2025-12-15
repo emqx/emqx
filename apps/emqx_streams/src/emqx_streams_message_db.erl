@@ -67,10 +67,6 @@ Facade for all operations with the message database.
 -define(STREAMS_MESSAGE_DB_QUOTA_INDEX_APPEND_RETRY, 3).
 -define(STREAMS_MESSAGE_DB_DELETE_RETRY, 1).
 -define(STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY, 1000).
--define(STREAMS_MESSAGE_DB_LTS_SETTINGS, #{
-    %% "topic/STREAM_TOPIC/STREAM_ID/key/СOMPACTION_KEY"
-    lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
-}).
 -define(STREAMS_INDEX_TOPIC(STREAM_TOPIC, STREAM_ID), [
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"index">>
 ]).

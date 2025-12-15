@@ -30,5 +30,11 @@
 -define(STREAMS_MESSAGE_DB_TOPIC(STREAM_TOPIC, STREAM_ID, KEY), [
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"key">>, KEY
 ]).
+%% NOTE
+%% LTS spec should correspond to the topic structure.
+-define(STREAMS_MESSAGE_DB_LTS_SETTINGS, #{
+    %% "topic/STREAM_TOPIC/STREAM_ID/key/СOMPACTION_KEY"
+    lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
+}).
 
 -endif.
