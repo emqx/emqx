@@ -789,7 +789,7 @@ schedule_check_stream_status(#state{check_stream_status_tref = TRef} = State, 0)
 schedule_check_stream_status(
     #state{check_stream_status_tref = undefined, send_after_fn = SendAfterFn} = State, N
 ) when N > 0 ->
-    Interval = emqx_config:get([streams, check_stream_status_interval]),
+    Interval = emqx_streams_config:check_stream_status_interval(),
     TRef = SendAfterFn(Interval, #check_stream_status{}),
     State#state{check_stream_status_tref = TRef};
 schedule_check_stream_status(State, _N) ->

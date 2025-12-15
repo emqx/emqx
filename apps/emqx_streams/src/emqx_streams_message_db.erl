@@ -14,6 +14,7 @@ Facade for all operations with the message database.
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include("emqx_streams_internal.hrl").
 
 -export([
@@ -66,14 +67,11 @@ Facade for all operations with the message database.
 -define(STREAMS_MESSAGE_DB_QUOTA_INDEX_APPEND_RETRY, 3).
 -define(STREAMS_MESSAGE_DB_DELETE_RETRY, 1).
 -define(STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY, 1000).
--define(STREAMS_MESSAGE_DB_LTS_SETTINGS, #{
-    %% "topic/STREAM_TOPIC/STREAM_ID/key/СOMPACTION_KEY"
-    lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
-}).
 -define(STREAMS_INDEX_TOPIC(STREAM_TOPIC, STREAM_ID), [
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"index">>
 ]).
 -define(STREAMS_DIRTY_APPEND_TIMEOUT, 5000).
+-define(STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION, 1).
 
 %%--------------------------------------------------------------------
 %% API
@@ -114,11 +112,11 @@ insert(Stream, Message) ->
     end.
 
 insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
     Shard = emqx_ds:shard_of(DB, Key),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
-    Gen = insert_generation(DB),
+    Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
     TxOpts = #{
         db => DB,
         shard => Shard,
@@ -166,11 +164,11 @@ insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
             {error, {IsRecoverable, Reason}}
     end;
 insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
     Shard = emqx_ds:shard_of(DB, Key),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
-    Gen = insert_generation(DB),
+    Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
     TxOpts = #{
         db => DB,
         shard => Shard,
@@ -205,7 +203,7 @@ insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
             {error, {IsRecoverable, Reason}}
     end;
 insert(#{is_lastvalue := false} = Stream, false = _IsLimited, Key, Message) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_REGULAR_DB,
     Shard = emqx_ds:shard_of(DB, Key),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
@@ -357,7 +355,7 @@ delete_expired_data(Streams) ->
             TxOpts = #{
                 db => ?STREAMS_MESSAGE_LASTVALUE_DB,
                 shard => Shard,
-                generation => insert_generation(?STREAMS_MESSAGE_LASTVALUE_DB),
+                generation => ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
                 sync => false
             },
             Indices = [dirty_index(Stream, Shard) || Stream <- Streams],
@@ -445,10 +443,10 @@ partitions(Stream) ->
 %%--------------------------------------------------------------------
 
 quota_buffer_max_size() ->
-    emqx:get_config([streams, quota, buffer_max_size], ?DEFAULT_QUOTA_BUFFER_MAX_SIZE).
+    emqx_streams_config:quota_option(buffer_max_size).
 
 quota_buffer_flush_interval() ->
-    emqx:get_config([streams, quota, buffer_flush_interval], ?DEFAULT_QUOTA_BUFFER_FLUSH_INTERVAL).
+    emqx_streams_config:quota_option(buffer_flush_interval).
 
 quota_buffer_notify_queue_size(WorkerId, QueueSize) ->
     emqx_streams_metrics:set_quota_buffer_inbox_size(WorkerId, QueueSize).
@@ -504,10 +502,14 @@ dirty_index(Stream, Shard) ->
 dirty_index(_StreanHandle, _Shard, false = _IsLimited) ->
     undefined;
 dirty_index(Stream, Shard, true = _IsLimited) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
     case
         emqx_ds:dirty_read(
-            #{db => DB, shard => Shard, generation => insert_generation(DB)},
+            #{
+                db => DB,
+                shard => Shard,
+                generation => ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION
+            },
             stream_index_topic(Stream)
         )
     of
@@ -545,12 +547,17 @@ key(#{key_expression := KeyExpression} = Stream, Message) ->
     Bindings = #{message => message_to_map(Message)},
     case emqx_variform:render(KeyExpression, Bindings, #{eval_as_string => true}) of
         {error, Reason} ->
-            ?tp(warning, streams_message_db_key_expression_error, #{
-                stream => Stream,
-                reason => Reason,
-                key_expression => emqx_variform:decompile(KeyExpression),
-                bindings => Bindings
-            }),
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => streams_message_db_key_expression_error,
+                    stream => Stream,
+                    reason => Reason,
+                    key_expression => emqx_variform:decompile(KeyExpression),
+                    bindings => Bindings
+                },
+                #{tag => "STREAM"}
+            ),
             {error, Reason};
         {ok, Key} ->
             {ok, Key}
@@ -661,11 +668,8 @@ db(Stream) ->
             ?STREAMS_MESSAGE_LASTVALUE_DB
     end.
 
-insert_generation(?STREAMS_MESSAGE_LASTVALUE_DB) ->
-    1.
-
 retry_interval(?STREAMS_MESSAGE_LASTVALUE_DB) ->
-    emqx:get_config([durable_storage, streams_messages, transaction, flush_interval], 100) * 2.
+    emqx_streams_config:message_db_tx_retry_interval().
 
 message_to_map(Message) ->
     convert([user_property, peername, peerhost], emqx_message:to_map(Message)).

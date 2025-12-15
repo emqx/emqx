@@ -23,6 +23,7 @@
 
 -define(STREAMS_QUOTA_BUFFER, streams_quota_buffer).
 
+-define(DEFAULT_QUOTA_THRESHOLD_PERCENTAGE, 10).
 -define(DEFAULT_QUOTA_BUFFER_MAX_SIZE, 100).
 -define(DEFAULT_QUOTA_BUFFER_FLUSH_INTERVAL, 1000).
 -define(DEFAULT_QUOTA_BUFFER_POOL_SIZE, 10).
@@ -30,5 +31,11 @@
 -define(STREAMS_MESSAGE_DB_TOPIC(STREAM_TOPIC, STREAM_ID, KEY), [
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"key">>, KEY
 ]).
+%% NOTE
+%% LTS spec should correspond to the topic structure.
+-define(STREAMS_MESSAGE_DB_LTS_SETTINGS, #{
+    %% "topic/STREAM_TOPIC/STREAM_ID/key/СOMPACTION_KEY"
+    lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
+}).
 
 -endif.

@@ -76,7 +76,5 @@ complete_start() ->
 quota_buffer_options() ->
     #{
         cbm => emqx_streams_message_db,
-        pool_size => emqx:get_config(
-            [streams, quota, buffer_pool_size], ?DEFAULT_QUOTA_BUFFER_POOL_SIZE
-        )
+        pool_size => emqx_streams_config:quota_buffer_pool_size()
     }.
