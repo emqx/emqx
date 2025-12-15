@@ -66,9 +66,7 @@ If the handler wants to handle the topic, then it should return `{ok, state()}`.
 
 The `subscribe_ctx()` contains callback functions that the handler may use to send messages to self (optionally with delay).
 
-`handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is always `undefined`. For a multi-topic handler, state() is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
-
-The subscribe
+`handle_subscribe` callback is called when the client subscribes to a topic. For a single-topic handler, state() is always `undefined`. For a multi-topic handler, `state()` is either `undefined` if no topic has been handled yet, or the state of the handler for the previous topics.
 
 #### `handle_unsubscribe` callback
 
@@ -97,7 +95,7 @@ For single-topic handlers, unsubscribe and terminate may be used interchangeably
 ```
 
 `handle_delivered` callback is called when a message provided by the handler has been delivered to the client.
-For QoS 0 messages this happens when the message is pushed to the inflight. For QoS 1 and 2 messages, this happens when the message is acknowledged by the client (if the underlying session supports acknowledgements; otherwise the callback is called when the message was delivered to the inflight).
+For QoS 0 messages this happens when the message is pushed to the inflight. For QoS 1 and 2 messages, this happens when the message is acknowledged by the client (if the underlying session supports acknowledgements; otherwise the callback is called when the message was sent to the outcoming connection buffer).
 
 If the `ack_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 
