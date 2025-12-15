@@ -311,5 +311,6 @@ format_gateway(
 format_error(Reason) ->
     case emqx_gateway_http:reason2msg(Reason) of
         error -> io_lib:format("~p", [Reason]);
+        #{} = Map -> io_lib:format("~0p", [Map]);
         Msg -> Msg
     end.
