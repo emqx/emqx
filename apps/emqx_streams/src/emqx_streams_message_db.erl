@@ -75,6 +75,7 @@ Facade for all operations with the message database.
     <<"topic">>, STREAM_TOPIC, STREAM_ID, <<"index">>
 ]).
 -define(STREAMS_DIRTY_APPEND_TIMEOUT, 5000).
+-define(STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION, 1).
 
 %%--------------------------------------------------------------------
 %% API
@@ -115,11 +116,11 @@ insert(Stream, Message) ->
     end.
 
 insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
     Shard = emqx_ds:shard_of(DB, Key),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
-    Gen = insert_generation(DB),
+    Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
     TxOpts = #{
         db => DB,
         shard => Shard,
@@ -167,11 +168,11 @@ insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
             {error, {IsRecoverable, Reason}}
     end;
 insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
     Shard = emqx_ds:shard_of(DB, Key),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
-    Gen = insert_generation(DB),
+    Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
     TxOpts = #{
         db => DB,
         shard => Shard,
@@ -206,7 +207,7 @@ insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
             {error, {IsRecoverable, Reason}}
     end;
 insert(#{is_lastvalue := false} = Stream, false = _IsLimited, Key, Message) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_REGULAR_DB,
     Shard = emqx_ds:shard_of(DB, Key),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
@@ -358,7 +359,7 @@ delete_expired_data(Streams) ->
             TxOpts = #{
                 db => ?STREAMS_MESSAGE_LASTVALUE_DB,
                 shard => Shard,
-                generation => insert_generation(?STREAMS_MESSAGE_LASTVALUE_DB),
+                generation => ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
                 sync => false
             },
             Indices = [dirty_index(Stream, Shard) || Stream <- Streams],
@@ -505,10 +506,14 @@ dirty_index(Stream, Shard) ->
 dirty_index(_StreanHandle, _Shard, false = _IsLimited) ->
     undefined;
 dirty_index(Stream, Shard, true = _IsLimited) ->
-    DB = db(Stream),
+    DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
     case
         emqx_ds:dirty_read(
-            #{db => DB, shard => Shard, generation => insert_generation(DB)},
+            #{
+                db => DB,
+                shard => Shard,
+                generation => ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION
+            },
             stream_index_topic(Stream)
         )
     of
@@ -667,9 +672,10 @@ db(Stream) ->
             ?STREAMS_MESSAGE_LASTVALUE_DB
     end.
 
-insert_generation(?STREAMS_MESSAGE_LASTVALUE_DB) ->
-    1.
-
+%% NOTE
+%% All transactions to the lastvalue db are simple writes, we do not do
+%% anything inside. So if we have a conflict, we may retry after a flush.
+%% We multiply by 2 to avoid races.
 retry_interval(?STREAMS_MESSAGE_LASTVALUE_DB) ->
     emqx:get_config([durable_storage, streams_messages, transaction, flush_interval], 100) * 2.
 
