@@ -171,10 +171,14 @@ delete(TopicFilter) ->
         [] ->
             not_found;
         [#?STREAMS_REGISTRY_INDEX_TAB{} = Rec] ->
-            ok = mria:dirty_delete_object(Rec),
             Stream = record_to_stream(Rec),
-            emqx_streams_message_db:drop(Stream)
-        %% TODO Drop consumer groups when they appear
+            %% TODO Drop consumer groups when they appear
+            case emqx_streams_message_db:drop(Stream) of
+                ok ->
+                    ok = mria:dirty_delete_object(Rec);
+                {error, _} = Error ->
+                    Error
+            end
     end.
 
 -doc """
