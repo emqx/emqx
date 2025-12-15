@@ -536,6 +536,72 @@ t_autocreate_stream(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that the data retention period is applied correctly
+t_data_retention_period(_Config) ->
+    %% Create a lastvalue and a regular streams with 1s data retention period
+    StreamLV = emqx_streams_test_utils:create_stream(#{
+        topic_filter => <<"t1/#">>, is_lastvalue => true, data_retention_period => 1000
+    }),
+    StreamR = emqx_streams_test_utils:create_stream(#{
+        topic_filter => <<"t2/#">>, is_lastvalue => false, data_retention_period => 1000
+    }),
+
+    %% Publish 1 message to the lastvalue stream
+    emqx_streams_test_utils:populate_lastvalue(1, #{topic_prefix => <<"t1/">>, key_start_from => 0}),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+    emqx_streams_message_db:add_regular_db_generation(),
+
+    %% Wait for 1s to let the data expire
+    ct:sleep(1000),
+
+    %% Publish 1 more message to the streams
+    emqx_streams_test_utils:populate_lastvalue(1, #{topic_prefix => <<"t1/">>, key_start_from => 1}),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+
+    %% Try to read the messages as earliest and see that the limit is applied.
+    %% We should see the second message from each stream, totaling 2 messages.
+    CSub0 = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub(CSub0, [<<"$s/earliest/t1/#">>, <<"$s/earliest/t2/#">>]),
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 2, _Timeout0 = 100),
+    ?assertEqual(2, length(Msgs0)),
+    ok = emqtt:disconnect(CSub0),
+
+    %% Try to read the messages from timestamp 2s ago and see that the limit is applied
+    Timestamp2sAgo = erlang:system_time(microsecond) - 2_000_000,
+    Timestamp2sAgoBin = integer_to_binary(Timestamp2sAgo),
+    CSub1 = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub(CSub1, [
+        <<"$s/", Timestamp2sAgoBin/binary, "/t1/#">>, <<"$s/", Timestamp2sAgoBin/binary, "/t2/#">>
+    ]),
+    {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 2, _Timeout1 = 100),
+    ?assertEqual(2, length(Msgs1)),
+    ok = emqtt:disconnect(CSub1),
+
+    %% Now update the data retention period to 1m and verify that we see all the messages
+    %% (because it was not yet GC-ed)
+    emqx_streams_registry:update(
+        emqx_streams_prop:topic_filter(StreamLV),
+        StreamLV#{data_retention_period => 60_000}
+    ),
+    emqx_streams_registry:update(
+        emqx_streams_prop:topic_filter(StreamR),
+        StreamR#{data_retention_period => 60_000}
+    ),
+
+    %% Try to read the messages as earliest and get all the messages
+    CSub2 = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub(CSub2, [<<"$s/earliest/t1/#">>, <<"$s/earliest/t2/#">>]),
+    {ok, _Msgs2} = emqx_streams_test_utils:emqtt_drain(_MinMsg2 = 4, _Timeout2 = 100),
+    ok = emqtt:disconnect(CSub2),
+
+    %% Try to read the messages from timestamp Timestamp1sAgo and get all the messages
+    CSub3 = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub(CSub3, [
+        <<"$s/", Timestamp2sAgoBin/binary, "/t1/#">>, <<"$s/", Timestamp2sAgoBin/binary, "/t2/#">>
+    ]),
+    {ok, _Msgs3} = emqx_streams_test_utils:emqtt_drain(_MinMsg3 = 4, _Timeout3 = 1000),
+    ok = emqtt:disconnect(CSub3).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

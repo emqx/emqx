@@ -331,8 +331,8 @@ on_subscription_down(DSSubId, Slab, _DSStream, #state{ds_subs = DSSubs} = State)
 subscribe(Handler, SubscribeTopicFilter) ->
     maybe
         {ok, Partition, Rest1} ?= split_topic_filter(SubscribeTopicFilter),
-        {ok, OffsetBin, TopicFilter} ?= split_topic_filter(Rest1),
-        {ok, Offset} ?= parse_offset(OffsetBin),
+        {ok, StartFromBin, TopicFilter} ?= split_topic_filter(Rest1),
+        {ok, StartFrom} ?= parse_offset(StartFromBin),
         ok ?= validate_new_topic_filter(Handler, SubscribeTopicFilter),
         {ok, Stream} ?= find_stream(TopicFilter),
         {ok, SubShard} ?= validate_partition(Stream, Partition),
@@ -341,7 +341,7 @@ subscribe(Handler, SubscribeTopicFilter) ->
             ds_client = DSClient0
         } = Handler,
         DSSubId = make_ref(),
-        StartTimeUs = start_time_us(Offset),
+        StartTimeUs = start_time_us(Stream, StartFrom),
         {ok, Progress} ?= init_progress(Stream, SubShard, StartTimeUs),
         StreamState = #stream_state{
             stream = Stream,
@@ -595,12 +595,18 @@ block_stream(
 
 %% Subscribe parsers and validators
 
-start_time_us(earliest) ->
-    0;
-start_time_us(latest) ->
+start_time_us(Stream, earliest) ->
+    DataRetentionPeriodUs = erlang:convert_time_unit(
+        emqx_streams_prop:data_retention_period(Stream), millisecond, microsecond
+    ),
+    erlang:system_time(microsecond) - DataRetentionPeriodUs;
+start_time_us(_Stream, latest) ->
     erlang:system_time(microsecond);
-start_time_us(Timestamp) when is_integer(Timestamp) ->
-    Timestamp.
+start_time_us(Stream, TimestampUs) when is_integer(TimestampUs) ->
+    DataRetentionPeriodUs = erlang:convert_time_unit(
+        emqx_streams_prop:data_retention_period(Stream), millisecond, microsecond
+    ),
+    max(TimestampUs, erlang:system_time(microsecond) - DataRetentionPeriodUs).
 
 parse_offset(<<"earliest">>) ->
     {ok, earliest};
