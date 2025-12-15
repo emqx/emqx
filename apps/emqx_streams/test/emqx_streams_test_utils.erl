@@ -153,9 +153,27 @@ populate(N, #{topic_prefix := TopicPrefix} = Opts) ->
     ),
     ok = emqtt:disconnect(C).
 
+-spec populate_lastvalue(non_neg_integer(), #{
+    %% Publish messages to the topics with the given topic prefix
+    %% Like if topic_prefix is "t/", then the topics will be "t/0", "t/1", "t/2", ...
+    topic_prefix := binary(),
+
+    %% The prefix of the payload of published messages
+    payload_prefix := binary(),
+
+    %% If true, use different client for each message to publish
+    different_clients := boolean(),
+
+    %% Assign cyclically repeating keys starting from KeyStartFrom to each message.
+    %% Like, k-10, k-11, k-12, k-10, k-11, k-12, ...
+    %% where key_start_from is 10 and n_keys is 3.
+    key_start_from := non_neg_integer(),
+    n_keys := non_neg_integer()
+}) -> ok.
 populate_lastvalue(N, #{topic_prefix := TopicPrefix} = Opts) ->
     PayloadPrefix = maps:get(payload_prefix, Opts, <<"payload-">>),
     NeedDifferentClients = maps:get(different_clients, Opts, false),
+    KeyStartFrom = maps:get(key_start_from, Opts, 0),
     NKeys = maps:get(n_keys, Opts, N),
     C0 = emqtt_connect([]),
     C = lists:foldl(
@@ -163,7 +181,7 @@ populate_lastvalue(N, #{topic_prefix := TopicPrefix} = Opts) ->
             IBin = integer_to_binary(I),
             Topic = <<TopicPrefix/binary, IBin/binary>>,
             Payload = <<PayloadPrefix/binary, IBin/binary>>,
-            Key = <<"k-", (integer_to_binary(I rem NKeys))/binary>>,
+            Key = <<"k-", (integer_to_binary(KeyStartFrom + (I rem NKeys)))/binary>>,
             emqtt_pub_stream(Conn0, Topic, Payload, pub_opts(Opts, #{key => Key})),
             case NeedDifferentClients of
                 true ->
