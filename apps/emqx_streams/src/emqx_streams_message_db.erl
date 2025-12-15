@@ -443,10 +443,10 @@ partitions(Stream) ->
 %%--------------------------------------------------------------------
 
 quota_buffer_max_size() ->
-    emqx:get_config([streams, quota, buffer_max_size], ?DEFAULT_QUOTA_BUFFER_MAX_SIZE).
+    emqx_streams_config:quota_option(buffer_max_size).
 
 quota_buffer_flush_interval() ->
-    emqx:get_config([streams, quota, buffer_flush_interval], ?DEFAULT_QUOTA_BUFFER_FLUSH_INTERVAL).
+    emqx_streams_config:quota_option(buffer_flush_interval).
 
 quota_buffer_notify_queue_size(WorkerId, QueueSize) ->
     emqx_streams_metrics:set_quota_buffer_inbox_size(WorkerId, QueueSize).
@@ -668,12 +668,8 @@ db(Stream) ->
             ?STREAMS_MESSAGE_LASTVALUE_DB
     end.
 
-%% NOTE
-%% All transactions to the lastvalue db are simple writes, we do not do
-%% anything inside. So if we have a conflict, we may retry after a flush.
-%% We multiply by 2 to avoid races.
 retry_interval(?STREAMS_MESSAGE_LASTVALUE_DB) ->
-    emqx:get_config([durable_storage, streams_messages, transaction, flush_interval], 100) * 2.
+    emqx_streams_config:message_db_tx_retry_interval().
 
 message_to_map(Message) ->
     convert([user_property, peername, peerhost], emqx_message:to_map(Message)).

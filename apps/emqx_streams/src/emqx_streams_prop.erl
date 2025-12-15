@@ -61,7 +61,7 @@ quota_index_opts(#{
     #{
         bytes => MaxShardMessageBytes,
         count => MaxShardMessageCount,
-        threshold_percentage => emqx:get_config([streams, quota, threshold_percentage])
+        threshold_percentage => emqx_streams_config:quota_option(threshold_percentage)
     }.
 
 -spec max_unacked(emqx_streams_types:stream()) ->

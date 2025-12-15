@@ -124,7 +124,7 @@ gc_regular_streams() ->
     ?tp_debug(streams_gc_regular_streams_started, #{}),
     SlabInfo = emqx_streams_message_db:regular_db_slab_info(),
     NowMS = now_ms(),
-    RetentionPeriod = emqx_config:get([streams, regular_stream_retention_period]),
+    RetentionPeriod = emqx_streams_config:regular_stream_retention_period(),
     TimeThreshold = NowMS - RetentionPeriod,
     maybe_create_new_generation(SlabInfo, TimeThreshold),
     ExpiredSlabInfo =

@@ -56,7 +56,7 @@ gc() ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    Interval = rand:uniform(gc_interval()),
+    Interval = rand:uniform(emqx_streams_config:gc_interval()),
     erlang:send_after(Interval, self(), #gc{}),
     {ok, #{}}.
 
@@ -68,7 +68,7 @@ handle_cast(_Request, State) ->
 
 handle_info(#gc{}, State) ->
     ok = start_gc(),
-    erlang:send_after(gc_interval(), self(), #gc{}),
+    erlang:send_after(emqx_streams_config:gc_interval(), self(), #gc{}),
     {noreply, State}.
 
 %%--------------------------------------------------------------------
@@ -83,9 +83,6 @@ start_gc() ->
         false ->
             ok
     end.
-
-gc_interval() ->
-    emqx_config:get([streams, gc_interval]).
 
 is_responsible() ->
     case lists:sort(mria_membership:running_core_nodelist()) of
