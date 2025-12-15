@@ -55,7 +55,7 @@ jobs:
 
       - name: Upload schema-dump artifact
         if: steps.check-artifact.outputs.result == 'false'
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: "${{ env.PROFILE }}-schema-dump"
           path: |
@@ -82,7 +82,7 @@ jobs:
           gzip changes.tar
 
       - name: Upload changes.tar.gz artifact
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: changes
           path: changes.tar.gz
