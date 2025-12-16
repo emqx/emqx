@@ -9,7 +9,8 @@
     list_bundles/1,
     delete_bundle/2,
     delete_managed_file/3,
-    add_managed_files/3
+    add_managed_files/3,
+    find_references/2
 ]).
 
 %% RPC targets (v1)
@@ -24,6 +25,7 @@
 
 -ifdef(TEST).
 -export([clean_certs_dir/0]).
+-export([do_find_references/3]).
 -endif.
 
 -export_type([
@@ -275,6 +277,59 @@ filename_to_kind(_) ->
 
 escape_name(Name) ->
     uri_string:quote(Name).
+
+find_references(TargetNamespace, TargetBundleName) ->
+    NsConfigs = maps:merge(
+        #{?global_ns => emqx_config:get_raw([])},
+        emqx_config:get_all_raw_namespaced_configs()
+    ),
+    do_find_references(NsConfigs, TargetNamespace, TargetBundleName).
+
+do_find_references(NsConfigs, TargetNamespace, TargetBundleName) ->
+    emqx_config_lib:fold_namespace_configs(
+        fun
+            (Ns, [<<"managed_certs">> | _] = Stack, Value, Acc) ->
+                case contains_managed_cert(Value, TargetNamespace, TargetBundleName) of
+                    true ->
+                        PrettyStack =
+                            case Stack of
+                                [_, <<"ssl">> | Stack0] ->
+                                    Stack0;
+                                [_ | Stack0] ->
+                                    Stack0
+                            end,
+                        {stop, [{Ns, lists:reverse(PrettyStack)} | Acc]};
+                    false ->
+                        {cont, Acc}
+                end;
+            (_Ns, _Stack, _Value, Acc) ->
+                {cont, Acc}
+        end,
+        [],
+        NsConfigs
+    ).
+
+contains_managed_cert(
+    #{<<"bundle_name">> := TargetBundleName} = Config,
+    ?global_ns = _TargetNamespace,
+    TargetBundleName
+) when
+    not is_map_key(<<"namespace">>, Config)
+->
+    true;
+contains_managed_cert(
+    #{<<"bundle_name">> := TargetBundleName, <<"namespace">> := TargetNamespace},
+    TargetNamespace,
+    TargetBundleName
+) ->
+    true;
+contains_managed_cert(Items, TargetNamespace, TargetBundleName) when is_list(Items) ->
+    lists:any(
+        fun(Item) -> contains_managed_cert(Item, TargetNamespace, TargetBundleName) end,
+        Items
+    );
+contains_managed_cert(_, _TargetNamespace, _TargetBundleName) ->
+    false.
 
 -ifdef(TEST).
 clean_certs_dir() ->
