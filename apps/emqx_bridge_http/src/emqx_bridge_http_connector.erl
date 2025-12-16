@@ -40,8 +40,8 @@
     namespace/0
 ]).
 
-%% for other http-like connectors.
--export([redact_request/1]).
+%% Internal exports (for other http-like connectors.)
+-export([redact_request/1, render_headers/1]).
 
 -export([validate_method/1, formalize_request/2, transform_result/1]).
 
@@ -676,6 +676,23 @@ on_format_query_result(Result) ->
     Result.
 
 %%--------------------------------------------------------------------
+%% Internal exports (for other http-like connectors.)
+%%--------------------------------------------------------------------
+
+%% because the body may contain some sensitive data
+%% and at the same time the redact function will not scan the binary data
+%% and we also can't know the body format and where the sensitive data will be
+%% so the easy way to keep data security is redacted the whole body
+redact_request({Path, Headers}) ->
+    {Path, emqx_utils_redact:redact_headers(Headers)};
+redact_request({Path, Headers, _Body}) ->
+    {Path, emqx_utils_redact:redact_headers(Headers), <<"******">>}.
+
+render_headers(HeadersTemplate) ->
+    RenderTemplateFn = fun render_template/2,
+    render_headers(HeadersTemplate, RenderTemplateFn, _Msg = #{}).
+
+%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
@@ -950,15 +967,6 @@ maybe_retry(Result, _Context, ReplyFunAndArgs) ->
 %% information (i.e., passwords)
 redact(Data) ->
     emqx_utils:redact(Data).
-
-%% because the body may contain some sensitive data
-%% and at the same time the redact function will not scan the binary data
-%% and we also can't know the body format and where the sensitive data will be
-%% so the easy way to keep data security is redacted the whole body
-redact_request({Path, Headers}) ->
-    {Path, emqx_utils_redact:redact_headers(Headers)};
-redact_request({Path, Headers, _Body}) ->
-    {Path, emqx_utils_redact:redact_headers(Headers), <<"******">>}.
 
 clientid(Msg) -> maps:get(clientid, Msg, undefined).
 
