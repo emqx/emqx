@@ -389,7 +389,7 @@ on_start(
                 request => emqx_utils:redact(maps:get(request, Config, <<>>)),
                 reason => Reason
             }),
-            throw(failed_to_start_iotdb_bridge)
+            throw({failed_to_start_iotdb_bridge, Reason})
     end.
 
 -spec on_stop(manager_id(), state()) -> ok | {error, term()}.
@@ -412,8 +412,17 @@ on_stop(InstanceId, #{driver := thrift} = _State) ->
 
 -spec on_get_status(manager_id(), state()) ->
     connected | connecting | {disconnected, state(), term()}.
-on_get_status(InstanceId, #{driver := restapi} = State) ->
-    Func = fun(Worker, Timeout) ->
+on_get_status(ConnResId, #{driver := restapi} = ConnState) ->
+    maybe
+        ok ?= check_auth_restapi(ConnResId, ConnState),
+        check_ping_restapi(ConnResId, ConnState)
+    end;
+on_get_status(ConnResId, #{driver := thrift} = _ConnState) ->
+    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
+    emqx_resource_pool:common_health_check_workers(ConnResId, Opts).
+
+check_ping_restapi(ConnResId, ConnState) ->
+    Fn = fun(Worker, Timeout) ->
         Request = {?IOTDB_PING_PATH, [], undefined},
         NRequest = emqx_bridge_http_connector:formalize_request(get, Request),
         Result0 = ehttpc:request(Worker, get, NRequest, Timeout),
@@ -431,10 +440,35 @@ on_get_status(InstanceId, #{driver := restapi} = State) ->
                 {error, {unexpected_ping_result, Result}}
         end
     end,
-    emqx_bridge_http_connector:on_get_status(InstanceId, State, Func);
-on_get_status(InstanceId, #{driver := thrift} = _State) ->
-    Opts = #{check_fn => fun ?MODULE:do_get_status/1},
-    emqx_resource_pool:common_health_check_workers(InstanceId, Opts).
+    emqx_bridge_http_connector:on_get_status(ConnResId, ConnState, Fn).
+
+check_auth_restapi(ConnResId, ConnState) ->
+    #{request := #{headers := Headers0}} = ConnState,
+    Headers = emqx_bridge_http_connector:render_headers(Headers0),
+    Req =
+        {post,
+            {<<"rest/v2/nonQuery">>, Headers,
+                emqx_utils_json:encode(#{sql => <<"show databases">>})}},
+    Res = emqx_bridge_http_connector:on_query(ConnResId, Req, ConnState),
+    case emqx_bridge_http_connector:transform_result(Res) of
+        {ok, 200, _, _} ->
+            ok;
+        {ok, 200, _} ->
+            ok;
+        {error, {_IsRecoverable, #{status_code := 401, body := RespBody0}}} ->
+            RespBody =
+                case emqx_utils_json:safe_decode(RespBody0) of
+                    {ok, RespBody1} -> RespBody1;
+                    {error, _} -> RespBody0
+                end,
+            {?status_disconnected, RespBody};
+        {error, {_IsRecoverable, Reason}} ->
+            {?status_disconnected, Reason};
+        {error, Reason} ->
+            {?status_disconnected, Reason};
+        Error ->
+            {?status_disconnected, Error}
+    end.
 
 do_get_status(Conn) ->
     case iotdb:ping(Conn) of
