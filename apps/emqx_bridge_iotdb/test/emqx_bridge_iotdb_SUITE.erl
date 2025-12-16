@@ -716,7 +716,6 @@ t_bad_password(TCConfig) ->
         case Driver of
             ?thrift -> BadAuth;
             ?iotdb130 -> #{<<"authentication">> => BadAuth}
-            %% ?iotdb130 -> #{}
         end,
     {201, #{
         <<"status">> := <<"disconnected">>,
