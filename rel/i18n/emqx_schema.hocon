@@ -1165,8 +1165,11 @@ fields_trace_payload_encode.label:
 """Payload encode"""
 
 mqtt_response_information.desc:
-"""UTF-8 string, for creating the response topic, for example, if set to <code>reqrsp/</code>, the publisher/subscriber will communicate using the topic prefix <code>reqrsp/</code>.
-To disable this feature, input <code>""</code> in the text box below. Only applicable to MQTT 5.0 clients."""
+"""MQTT v5 Response Information (Optional).
+Specifies a string returned to clients in the `CONNACK` packet if requested.
+The server passes this value as-is and does automatically add it to Access Control (ACL) rules.
+It is intended solely to help publishers and subscribers establish their own topic contract
+ (e.g., a topic prefix). Leave blank to disable."""
 
 mqtt_response_information.label:
 """Response Information"""
