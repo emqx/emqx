@@ -138,7 +138,7 @@ t_conn_success_verify_peer_ext_key_usage_matched_raw_oid(Config) ->
     DataDir = ?config(data_dir, Config),
     %% Give listener keyusage is set to raw OID
 
-    %% from OTP-PUB-KEY.hrl
+    %% See lib/public_key/include/public_key.hrl:441:30:-define('id-kp-clientAuth', {1,3,6,1,5,5,7,3,2}).
     Options = [
         {ssl_options, [
             {verify_peer_ext_key_usage, "OID:1.3.6.1.5.5.7.3.2"}

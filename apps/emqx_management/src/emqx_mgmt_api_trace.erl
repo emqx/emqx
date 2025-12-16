@@ -541,7 +541,13 @@ format_trace(
         Nodes
     ),
     TraceOut = maps:with([name, payload_encode, payload_limit, formatter], Trace),
+    Namespace =
+        case maps:get(namespace, Trace, ?global_ns) of
+            ?global_ns -> null;
+            Ns -> Ns
+        end,
     TraceOut#{
+        namespace => Namespace,
         name => Name,
         type => Type,
         Type => Filter,

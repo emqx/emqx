@@ -22,7 +22,7 @@ defmodule EMQXMachine.MixProject do
   def application do
     [
       extra_applications: UMP.extra_applications(),
-      included_applications: [:system_monitor],
+      included_applications: [],
       mod: {:emqx_machine_app, []}
     ]
   end
@@ -35,7 +35,6 @@ defmodule EMQXMachine.MixProject do
       {:emqx_conf, in_umbrella: true, runtime: false},
       {:emqx_dashboard, in_umbrella: true, runtime: false},
       {:emqx_management, in_umbrella: true, runtime: false},
-      UMP.common_dep(:system_monitor, runtime: false),
       :redbug
     ])
   end

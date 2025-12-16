@@ -59,15 +59,15 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '27.3.4.2-5'
+        default: '28.2-1'
       elixir_vsn:
         required: false
         type: string
-        default: '1.18.3'
+        default: '1.19.1'
       builder_vsn:
         required: false
         type: string
-        default: '6.0-3'
+        default: '6.0-6'
 
 permissions:
   contents: read
@@ -168,6 +168,13 @@ jobs:
           - ${{ inputs.builder_vsn }}
         elixir:
           - ${{ inputs.elixir_vsn }}
+        include:
+          - profile: ${{ inputs.profile }}
+            os: el7
+            arch: amd64
+            otp: ${{ inputs.otp_vsn }}
+            builder: ${{ inputs.builder_vsn }}
+            elixir: ${{ inputs.elixir_vsn }}
 
     defaults:
       run:

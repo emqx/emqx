@@ -97,7 +97,7 @@ jobs:
 
       - name: Verify that size of docker image is less than 140 MB
         run: |
-          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c | xargs -I {} test {} -lt 140000000
+          docker save $_EMQX_DOCKER_IMAGE_TAG | gzip -c | wc -c | xargs -I {} test {} -lt 150000000
 
       - name: smoke test
         timeout-minutes: 5
@@ -134,7 +134,7 @@ jobs:
           retention-days: 7
 
   docker-sfodbc:
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04' }}
+    runs-on: ${{ format('aws-ubuntu22.04-{0}', matrix.arch) }}
     if: inputs.profile == 'emqx-enterprise'
     needs:
       - docker

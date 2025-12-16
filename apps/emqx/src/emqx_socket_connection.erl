@@ -289,7 +289,7 @@ init(Parent, esockd_socket, RawSocket, Options) ->
             }),
             run_loop(Parent, init_state(Socket, Options));
         {error, Reason} ->
-            ok = esockd_socket:fast_close(RawSocket),
+            ok = fast_close(Reason, RawSocket),
             exit_on_sock_error(Reason)
     end.
 
@@ -358,6 +358,7 @@ run_loop(
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
+    %% Not possible to get {select, {Info, Partial}} because length is 0
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             NState = start_idle_timer(State),
@@ -366,12 +367,18 @@ run_loop(
             NState = start_idle_timer(State),
             hibernate(Parent, NState);
         {error, {Reason, _}} ->
-            _ = Reason == closed orelse esockd_socket:fast_close(Socket),
+            ok = fast_close(Reason, Socket),
             exit_on_sock_error(Reason);
         {error, Reason} ->
-            _ = Reason == closed orelse esockd_socket:fast_close(Socket),
+            ok = fast_close(Reason, Socket),
             exit_on_sock_error(Reason)
     end.
+
+fast_close(closed, _Socket) ->
+    ok;
+fast_close(_, Socket) ->
+    _ = esockd_socket:fast_close(Socket),
+    ok.
 
 -spec exit_on_sock_error(any()) -> no_return().
 exit_on_sock_error(Reason) when ?IS_NORMAL_SOCKET_ERROR(Reason) ->
@@ -762,6 +769,10 @@ handle_data(
             {ok, Msgs, State}
     end.
 
+%% Dialyzer warns that {error, {closed, DataMore}} can never match, but this pattern
+%% can occur at runtime in OTP 27 or under certain error conditions where the socket
+%% closes with data available. We keep this clause for backward compatibility.
+-dialyzer({nowarn_function, request_more_data/4}).
 -compile({inline, [request_more_data/4]}).
 request_more_data(Socket, More, Acc, State) ->
     %% TODO: `{otp, select_read}`.
@@ -773,6 +784,7 @@ request_more_data(Socket, More, Acc, State) ->
         {select, _Info} ->
             {ok, Acc, State};
         {error, {closed, DataMore}} ->
+            %% This is dead code starting from OTP 28
             NState = socket_closed(State),
             {ok, [Acc, {recv, DataMore}, {sock_closed, tcp_closed}], NState};
         {error, closed} ->
@@ -784,12 +796,21 @@ request_more_data(Socket, More, Acc, State) ->
             {ok, [Acc, {sock_error, Reason}], State}
     end.
 
+%% Dialyzer warns that {error, {closed, Data}} can never match, but this pattern
+%% can occur at runtime in OTP 27 or under certain error conditions where the socket
+%% closes with data available. We keep this clause for backward compatibility.
+%%
+%% Call async receive after '$socket' receive notification is received
+%% no handling of {select, Info} because data is ready,
+%% no handling of {select, {Info, Partial}} because receive length is 0
+-dialyzer({nowarn_function, handle_data_ready/2}).
 -compile({inline, [handle_data_ready/2]}).
 handle_data_ready(Socket, State) ->
     case sock_async_recv(Socket, 0) of
         {ok, Data} ->
             handle_data(Data, true, State);
         {error, {closed, Data}} ->
+            %% This is dead code starting from OTP 28
             {ok, [{recv, Data}, {sock_closed, tcp_closed}], socket_closed(State)};
         {error, closed} ->
             handle_info({sock_closed, tcp_closed}, socket_closed(State));

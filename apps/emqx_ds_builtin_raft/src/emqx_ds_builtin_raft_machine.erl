@@ -297,9 +297,10 @@ apply(
     ),
     Result = emqx_ds_storage_layer:add_generation(DBShard, Since),
     emqx_ds_beamformer:generation_event(DBShard),
-    Effects = release_log(RaftMeta, State),
-    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
-    {State, Result, Effects};
+    Effect = release_log(RaftMeta, State),
+    Effect =/= {release_cursor, 0, State} andalso
+        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
+    {State, Result, [Effect]};
 apply(
     RaftMeta,
     #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
@@ -325,9 +326,10 @@ apply(
                 ok = emqx_ds_storage_layer:update_config(DBShard, Latest, Schema),
                 State0#{schema := Schema, last_schema_changes := LSC#{Site => PendingId}}
         end,
-    Effects = release_log(RaftMeta, State),
-    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
-    {State, ok, Effects};
+    Effect = release_log(RaftMeta, State),
+    Effect =/= {release_cursor, 0, State} andalso
+        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
+    {State, ok, [Effect]};
 apply(
     _RaftMeta,
     #{?tag := drop_generation, generation := GenId},

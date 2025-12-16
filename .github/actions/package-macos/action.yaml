@@ -51,6 +51,8 @@ runs:
       run: |
         erl -s init stop
         elixir -e "System.version() |> IO.puts()"
+        # needed by greptimedb-ingester-erlnif
+        brew install protobuf
         make ensure-rebar3
         mkdir -p $HOME/bin
         cp rebar3 $HOME/bin/rebar3
