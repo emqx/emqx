@@ -58,8 +58,6 @@ case "$TAG" in
         exit 0
         ;;
     *)
-        TAG_PREFIX='e'
-        PROFILE='emqx-enterprise'
         #TODO change to no when we are ready to support hot-upgrade
         SKIP_APPUP='yes'
         ;;
@@ -117,18 +115,6 @@ rel_branch() {
             ;;
     esac
 }
-
-assert_profile() {
-    local tag="$1"
-    local allowed_prefix
-    # allow only 'e' tags for now
-    allowed_prefix='e'
-    if [[ "${tag}" != "${allowed_prefix}"* ]]; then
-        logerr "Expecting a '${allowed_prefix}' tag on this commit"
-        exit 1
-    fi
-}
-assert_profile "$TAG"
 
 ## Ensure the current work branch
 assert_work_branch() {
@@ -196,12 +182,13 @@ bump_vsn() {
     fi
 }
 
+PROFILE='emqx-enterprise'
 RELEASE_VSN=$(./pkg-vsn.sh "$PROFILE" --release)
 
 ## Assert package version is updated to the tag which is being created
 assert_release_version() {
     local tag="$1"
-    if [ "${TAG_PREFIX}${RELEASE_VSN}" != "${tag}" ]; then
+    if [ "${RELEASE_VSN}" != "${tag}" ]; then
         logmsg "The release version ($RELEASE_VSN) is different from the desired git tag."
         logmsg "Updating the release version in emqx_release.hrl and Chart.yaml"
         bump_vsn "${tag#e}"
