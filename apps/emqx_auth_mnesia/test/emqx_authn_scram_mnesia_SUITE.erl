@@ -40,7 +40,9 @@ init_per_suite(Config) ->
             emqx,
             {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
             emqx_auth,
-            emqx_auth_mnesia
+            emqx_auth_mnesia,
+            emqx_management,
+            emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{
             work_dir => ?config(priv_dir, Config)
@@ -183,6 +185,13 @@ t_authenticate(TCConfig) ->
         ServerFinalMessage, ClientCache#{algorithm => Algorithm}
     ),
 
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{<<"total">> := 1, <<"success">> := 1}
+        }},
+        get_authenticator_status()
+    ),
+
     %% Namespace mismatch
     {ok, Pid2} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
     ConnectPacket2 = ?CONNECT_PACKET(
@@ -201,6 +210,18 @@ t_authenticate(TCConfig) ->
     %% Intentional sleep to trigger idle timeout for the connection not yet authenticated
     ok = ct:sleep(1000),
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED, _) = receive_packet(),
+
+    ?assertMatch(
+        {200, #{
+            <<"metrics">> := #{
+                <<"total">> := 2,
+                <<"success">> := 1,
+                <<"failed">> := 0,
+                <<"nomatch">> := 1
+            }
+        }},
+        get_authenticator_status()
+    ),
 
     ok.
 
@@ -716,3 +737,10 @@ add_ns_clientinfo(ClientInfo, Namespace) when is_binary(Namespace) ->
 
 ns(TCConfig) ->
     ?config(ns, TCConfig).
+
+get_authenticator_status() ->
+    AuthenticatorId = <<"scram:built_in_database">>,
+    emqx_bridge_v2_testlib:simple_request(#{
+        method => get,
+        url => emqx_mgmt_api_test_util:api_path(["authentication", AuthenticatorId, "status"])
+    }).
