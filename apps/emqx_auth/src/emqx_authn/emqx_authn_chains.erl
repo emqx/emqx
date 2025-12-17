@@ -769,7 +769,16 @@ do_authenticate(
     Credential
 ) ->
     MetricsID = metrics_id(ChainName, ID),
-    emqx_metrics_worker:inc(authn_metrics, MetricsID, total),
+    %% For multi-step authentication mechanisms (SCRAM), we want to bump the total counter
+    %% when handling the first packet, but not when handling further packets in the
+    %% protocol.  The best we can infer with the information here is if the `auth_cache`
+    %% has been tampered with by the backend, since it stores the authentication state.
+    case Credential of
+        #{auth_cache := AuthCache} when map_size(AuthCache) > 0 ->
+            ok;
+        _ ->
+            emqx_metrics_worker:inc(authn_metrics, MetricsID, total)
+    end,
 
     Result = ?EXT_TRACE_CLIENT_AUTHN_BACKEND(
         ?EXT_TRACE_ATTR(#{
@@ -787,12 +796,15 @@ do_authenticate(
                     ignore;
                 Res ->
                     %% {ok, Extra}
-                    %% {ok, Extra, AuthData} XXX: should inc metrics success for this clause?
+                    %% {ok, Extra, AuthData}
                     %% {continue, AuthCache}
                     %% {continue, AuthData, AuthCache}
                     %% {error, Reason}
                     case Res of
                         {ok, _} ->
+                            emqx_metrics_worker:inc(authn_metrics, MetricsID, success),
+                            ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => ok});
+                        {ok, _, _} ->
                             emqx_metrics_worker:inc(authn_metrics, MetricsID, success),
                             ?EXT_TRACE_ADD_ATTRS(#{'authn.result' => ok});
                         {error, _} ->
