@@ -59,7 +59,7 @@ on:
       otp_vsn:
         required: false
         type: string
-        default: '27.3.4.2-4'
+        default: '27.3.4.2-6'
       elixir_vsn:
         required: false
         type: string
@@ -67,7 +67,7 @@ on:
       builder_vsn:
         required: false
         type: string
-        default: '5.6-3'
+        default: '6.0-7'
 
 permissions:
   contents: read
