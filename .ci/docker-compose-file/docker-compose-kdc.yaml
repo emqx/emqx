@@ -1,7 +1,7 @@
 services:
   kdc:
     hostname: kdc.emqx.net
-    image:  ghcr.io/emqx/emqx-builder/6.0-8:1.19.1-28.2-2-ubuntu24.04
+    image:  ghcr.io/emqx/emqx-builder/6.0-9:1.19.1-28.2-2-ubuntu24.04
     container_name: kdc.emqx.net
     expose:
       - 88 # kdc
