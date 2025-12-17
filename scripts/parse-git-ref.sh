@@ -39,6 +39,9 @@ if [[ $1 =~ ^refs/tags/[6-9]+\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+$ ]]; then
 elif [[ $1 =~ ^refs/tags/[6-9]+\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
     RELEASE=true
     LATEST=false
+elif [[ $1 =~ ^refs/tags/[6-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)\.[0-9]+$ ]]; then
+    RELEASE=true
+    LATEST=false
 elif [[ $1 =~ ^refs/tags/.+ ]]; then
     echo "Unrecognized tag: $1" 1>&2
     exit 1
