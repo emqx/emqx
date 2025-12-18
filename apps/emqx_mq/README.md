@@ -98,13 +98,13 @@ Message Queues can be capped by time or size individually. The capping is config
 * `max_shard_message_count` is the maximum number of messages in a shard for the Message Queue. The number of shards is configured for all Message Queues in the Durable Storage settings. So the total count limit for the Message Queue is `n_shards * max_shard_message_count`.
 * `max_shard_message_bytes` is the maximum number of bytes in a shard for the Message Queue. Note that this limit is not aware of the replication factor. So the total byte limit for the Message Queue is `n_shards * replication_factor * max_shard_message_bytes`
 
-Also the limit is soft. The limit threshold 10% and is applied to the queues during the GC process. That means that immediately after GC the queue may exceed the limit by up to 10%, but between GC runs the amount of excess data may be larger.
+Also the limit is soft. The limit is applied to the queues during the GC process with 10% threshold. That means that immediately after GC the queue may exceed the limits by up to 10%, but between GC runs the amount of excess data may be larger.
 
 The threshold and some other settings are configured via the `quota` section of the global Message Queue configuration, but they are not publicly exposed currently.
 
 ## Queue auto creation
 
-Message Queues are be automatically created when subscribing to a queue topic `$q/some/topic`. The auto creation is configured via the `auto_create` section of the global Message Queue configuration. By default, the queues are auto created as last-value queues.
+Message Queues are automatically created when subscribing to a queue topic `$q/some/topic`. The auto creation is configured via the `auto_create` section of the global Message Queue configuration. By default, the queues are auto created as last-value queues.
 ```hocon
 ...
 auto_create {
@@ -121,9 +121,9 @@ One may change the auto creation settings to regular queues, or disable the auto
 
 When delivering messages to the subscribers, the QoS level is overridden to 1 to require PUBACK from the client.
 
-With one exception, when publishing messages to the Message Queue, the messages are stores synchronously to the Message Queue database. That means that the publisher will not receive PUBACK from the broker till the message is stored.
+With one exception, when publishing messages to the Message Queue, the messages are stored synchronously to the Message Queue database. For QoS 1/2 messages, that means that the publisher will not receive PUBACK/PUBREC from the broker till the message is stored.
 
-The exception is when a message is published with QoS0 to a unlimited regular queue. In this case, the message is stored asynchronously via dirty append mechanism and the publisher will receive PUBACK from the broker immediately.
+The exception is when a message is published with QoS0 to a unlimited regular queue. In this case, the message is stored asynchronously via dirty append mechanism. This significantly improves throughput, but does not provide backpressure to the publisher.
 
 # Documentation
 
