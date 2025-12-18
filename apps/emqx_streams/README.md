@@ -80,6 +80,11 @@ The following diagram shows the data flow between the Message Stream components:
                                                                          +--------------------------+
 ```
 
+
+## Capping, auto creation and QoS handling
+
+For streams, the capping, auto creation and QoS handling are handled very similarly to Message Queues. See [MQs README](../emqx_mq/README.md) for more details.
+
 # Documentation
 
 To be added to https://docs.emqx.com.
@@ -97,6 +102,14 @@ streams {
     ## The interval at which subscribers will retry to find a stream if the stream is not found
     ## when subscribing to a stream topic.
     check_stream_status_interval = 10s
+    ## maximum number of Message Streams that can be created.
+    max_stream_count = 1000
+    ## settings for automatically creating the Message Stream if it does not exist
+    ## when subscribing to the stream topic.
+    auto_create {
+        regular = false
+        lastvalue = false
+    }
 }
 
 durable_storage {

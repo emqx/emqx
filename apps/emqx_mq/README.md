@@ -83,6 +83,48 @@ The following diagram shows the data flow between the Message Queue components:
                                                                          +--------------------------+
 ```
 
+## Capping by time or size
+
+Message Queues can be capped by time or size individually. The capping is configured via the `limits` field in the Message Queue configuration (e.g. in HTTP API):
+```json
+...
+"limits": {
+    "max_shard_message_count": 1000,
+    "max_shard_message_bytes": "100MB"
+}
+...
+```
+
+* `max_shard_message_count` is the maximum number of messages in a shard for the Message Queue. The number of shards is configured for all Message Queues in the Durable Storage settings. So the total count limit for the Message Queue is `n_shards * max_shard_message_count`.
+* `max_shard_message_bytes` is the maximum number of bytes in a shard for the Message Queue. Note that this limit is not aware of the replication factor. So the total byte limit for the Message Queue is `n_shards * replication_factor * max_shard_message_bytes`
+
+Also the limit is soft. The limit threshold 10% and is applied to the queues during the GC process. That means that immediately after GC the queue may exceed the limit by up to 10%, but between GC runs the amount of excess data may be larger.
+
+The threshold and some other settings are configured via the `quota` section of the global Message Queue configuration, but they are not publicly exposed currently.
+
+## Queue auto creation
+
+Message Queues are be automatically created when subscribing to a queue topic `$q/some/topic`. The auto creation is configured via the `auto_create` section of the global Message Queue configuration. By default, the queues are auto created as last-value queues.
+```hocon
+...
+auto_create {
+    regular = false
+    lastvalue = {
+      ## Default settings for the Last-Value Message Queue, excluding the topic filter and is_lastvalue fields.
+    }
+}
+...
+```
+One may change the auto creation settings to regular queues, or disable the auto creation. Obviously, one may not autocreate queues as regular and last-value at the same time.
+
+## QoS handling
+
+When delivering messages to the subscribers, the QoS level is overridden to 1 to require PUBACK from the client.
+
+With one exception, when publishing messages to the Message Queue, the messages are stores synchronously to the Message Queue database. That means that the publisher will not receive PUBACK from the broker till the message is stored.
+
+The exception is when a message is published with QoS0 to a unlimited regular queue. In this case, the message is stored asynchronously via dirty append mechanism and the publisher will receive PUBACK from the broker immediately.
+
 # Documentation
 
 To be added to https://docs.emqx.com.
@@ -97,9 +139,17 @@ mq {
     gc_interval = 1h
     ## The maximum retention period of messages in regular Message Queues.
     regular_queue_retention_period = 1d
+    ## The maximum number of Message Queues that can be created.
+    max_queue_count = 100
     ## The interval at which subscribers will retry to find a queue if the queue is not found
     ## when subscribing to a queue topic.
     find_queue_retry_interval = 10s
+    ## Settings for automatically creating the Message Queue if it does not exist
+    ## when subscribing to the queue topic.
+    auto_create {
+        regular = false
+        lastvalue = false
+    }
 }
 
 durable_storage {
