@@ -1,0 +1,419 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
+-module(emqx_streams_shard_disp_group).
+
+-include("emqx_streams_internal.hrl").
+
+-export([
+    new_provision/3,
+    provision_changes/2,
+    provision_takeovers/2,
+    current_allocation/2
+]).
+
+-export([
+    new/0,
+    n_leases/1,
+    lookup_lease/2,
+    progress/6,
+    release/5,
+    handle_tx_reply/6
+]).
+
+-export([
+    announce/5,
+    deannounce/3
+]).
+
+-export_type([st/0, streamgroup/0, dbstate/0]).
+
+-type consumer() :: emqx_types:clientid().
+-type streamgroup() :: binary().
+-type shard() :: binary().
+-type offset() :: non_neg_integer().
+-type heartbeat() :: non_neg_integer().
+
+-record(provision, {
+    db :: dbstate(),
+    shards :: [shard()],
+    hb_watermark :: heartbeat()
+}).
+
+-type dbstate() :: #db_sgroup_st{}.
+-type provision() :: #provision{}.
+
+-type st() :: #{
+    {shard, shard()} := shard_st(),
+    %% Piggyback
+    _ => _
+}.
+
+-type shard_st() :: #{
+    lease := boolean() | releasing,
+    offset_last := offset(),
+    offset_committed := offset() | undefined,
+    heartbeat_last := heartbeat(),
+    %% Introspection:
+    offset_committed_last => offset(),
+    offset_committed_max => offset()
+}.
+
+%%
+
+-spec new_provision([shard()], heartbeat(), dbstate()) -> provision().
+new_provision(Shards, HBWatermark, DBGroupSt = #db_sgroup_st{}) ->
+    #provision{
+        db = DBGroupSt,
+        shards = Shards,
+        hb_watermark = HBWatermark
+    }.
+
+-spec provision_changes(consumer(), provision()) -> [{lease | release, shard()}].
+provision_changes(
+    Consumer,
+    #provision{
+        db = #db_sgroup_st{consumers = Consumers} = DBGroupSt,
+        shards = Shards,
+        hb_watermark = HBWatermark
+    }
+) ->
+    LiveConsumers = maps:keys(maps:filter(fun(_C, HB) -> HB >= HBWatermark end, Consumers)),
+    Alloc0 = current_allocation(Shards, DBGroupSt),
+    Alloc1 = lists:foldl(
+        fun emqx_streams_allocation:add_member/2,
+        Alloc0,
+        [Consumer | LiveConsumers]
+    ),
+    Allocations = emqx_streams_allocation:allocate([], Alloc1),
+    ProvisionalShards = phash_order(Consumer, [Shard || {Shard, C} <- Allocations, C == Consumer]),
+    case ProvisionalShards of
+        [_ | _] ->
+            [{lease, Shard} || Shard <- ProvisionalShards];
+        [] when Allocations =:= [] ->
+            Rebalances = emqx_streams_allocation:rebalance([], Alloc1),
+            [{release, Shard} || {Shard, C, _} <- Rebalances, C == Consumer];
+        [] ->
+            []
+    end.
+
+provision_takeovers(
+    Consumer,
+    #provision{
+        db = #db_sgroup_st{consumers = Consumers, shards = ShardHBs} = DBState,
+        shards = Shards,
+        hb_watermark = HBWatermark
+    }
+) ->
+    Alloc0 = current_allocation(Shards, DBState),
+    Alloc1 = emqx_streams_allocation:add_member(Consumer, Alloc0),
+    DeadConsumers = maps:filter(fun(_C, HB) -> HB < HBWatermark end, Consumers),
+    case maps:size(DeadConsumers) of
+        0 ->
+            [];
+        _ ->
+            DeadCost = fun(_Shard, C) ->
+                HeartbeatLast = maps:get(C, DeadConsumers, HBWatermark),
+                max(0, HBWatermark - HeartbeatLast)
+            end,
+            Rebalances = emqx_streams_allocation:rebalance([DeadCost], Alloc1),
+            [
+                {takeover, Shard, DeadC, maps:get(Shard, ShardHBs)}
+             || {Shard, DeadC, C} <- Rebalances, C == Consumer
+            ]
+    end.
+
+-spec current_allocation([shard()], dbstate()) -> emqx_streams_allocation:t(consumer(), shard()).
+current_allocation(Shards, #db_sgroup_st{leases = Leases}) ->
+    maps:fold(
+        fun(Shard, Consumer, Alloc0) ->
+            Alloc = emqx_streams_allocation:add_member(Consumer, Alloc0),
+            emqx_streams_allocation:occupy_resource(Shard, Consumer, Alloc)
+        end,
+        emqx_streams_allocation:new(Shards, []),
+        Leases
+    ).
+
+phash_order(Consumer, Shards) ->
+    %% TODO describe rand purpose
+    [
+        Shard
+     || {_, Shard} <- lists:sort([{erlang:phash2([Consumer | S]), S} || S <- Shards])
+    ].
+
+%%
+
+-spec new() -> st().
+new() ->
+    #{}.
+
+-spec announce(consumer(), streamgroup(), heartbeat(), pos_integer(), st()) ->
+    st() | emqx_ds:error(_).
+announce(_Consumer, _SGroup, Heartbeat, Lifetime, St = #{announcement := HeartbeatPrev}) when
+    Heartbeat - HeartbeatPrev < Lifetime div 2
+->
+    St;
+announce(Consumer, SGroup, Heartbeat, _Lifetime, St = #{announcement := HeartbeatPrev}) ->
+    case emqx_streams_state_db:reannounce_consumer(SGroup, Consumer, Heartbeat, HeartbeatPrev) of
+        ok ->
+            St#{announcement => Heartbeat};
+        Error ->
+            Error
+    end;
+announce(Consumer, SGroup, Heartbeat, Lifetime, St) ->
+    case emqx_streams_state_db:announce_consumer(SGroup, Consumer, Heartbeat, Lifetime) of
+        ok ->
+            St#{announcement => Heartbeat};
+        Error ->
+            Error
+    end.
+
+-spec deannounce(consumer(), streamgroup(), st()) ->
+    ok | emqx_ds:error(_).
+deannounce(Consumer, SGroup, St = #{announcement := Heartbeat}) ->
+    case emqx_streams_state_db:deannounce_consumer(SGroup, Consumer, Heartbeat) of
+        ok ->
+            maps:remove(announcement, St);
+        {invalid, undefined} ->
+            maps:remove(announcement, St);
+        Error ->
+            Error
+    end;
+deannounce(_Consumer, _SGroup, St) ->
+    St.
+
+-spec n_leases(st()) -> non_neg_integer().
+n_leases(St) ->
+    maps:fold(
+        fun
+            ({shard, _}, #{lease := true}, N) -> N + 1;
+            ({shard, _}, #{lease := releasing}, N) -> N + 1;
+            (_, _, N) -> N
+        end,
+        0,
+        St
+    ).
+
+-spec lookup_lease(shard(), st()) -> shard_st() | undefined.
+lookup_lease(Shard, St) ->
+    case St of
+        #{{shard, Shard} := ShardSt} ->
+            ShardSt;
+        #{} ->
+            undefined
+    end.
+
+-spec progress(consumer(), streamgroup(), shard(), offset(), heartbeat(), st()) ->
+    st()
+    | {tx, reference(), _Ctx, st()}
+    | {invalid, _Reason, st()}
+    | emqx_ds:error(_).
+progress(Consumer, SGroup, Shard, Offset, Heartbeat, St) ->
+    case St of
+        #{{shard, Shard} := ShardSt0 = #{lease := true}} ->
+            Result = progress_shard(Consumer, SGroup, Shard, Offset, Heartbeat, ShardSt0);
+        #{{shard, Shard} := #{lease := releasing}} ->
+            Result = {invalid, releasing};
+        #{} ->
+            Result = lease_shard(Consumer, SGroup, Shard, Offset, Heartbeat)
+    end,
+    case Result of
+        {tx, Ref, Ret, ShardSt} ->
+            Ctx = {Ret, Shard, Offset, Heartbeat},
+            {tx, Ref, {progress, Ctx}, St#{{shard, Shard} => ShardSt}};
+        ShardRet ->
+            return_update_shard(Shard, ShardRet, St)
+    end.
+
+lease_shard(Consumer, SGroup, Shard, Offset, HB) ->
+    case emqx_streams_state_db:lease_shard_async(SGroup, Shard, Consumer, Offset, HB) of
+        ok ->
+            #{
+                lease => true,
+                offset_last => Offset,
+                offset_committed => Offset,
+                heartbeat_last => HB
+            };
+        {async, Ref, Ret} ->
+            {tx, Ref, Ret, #{
+                lease => false,
+                offset_last => Offset,
+                offset_committed => undefined,
+                heartbeat_last => HB
+            }};
+        Other ->
+            Other
+    end.
+
+progress_shard(Consumer, SGroup, Shard, Offset, HB, St) ->
+    #{offset_last := OffsetLast} = St,
+    case OffsetLast =< Offset of
+        true ->
+            case emqx_streams_state_db:progress_shard_async(SGroup, Shard, Consumer, Offset, HB) of
+                ok ->
+                    ?tp_debug("sdisp_group_progress", #{
+                        leased => maps:get(lease, St),
+                        consumer => Consumer,
+                        shard => Shard,
+                        offset => Offset
+                    }),
+                    {ok, St#{
+                        lease := true,
+                        heartbeat_last := HB,
+                        offset_last := Offset,
+                        offset_committed := Offset
+                    }};
+                {async, Ref, Ret} ->
+                    {tx, Ref, Ret, St#{
+                        offset_last := Offset,
+                        heartbeat_last := HB
+                    }};
+                Other ->
+                    Other
+            end;
+        false ->
+            {invalid, {offset_going_backwards, OffsetLast}}
+    end.
+
+-spec handle_tx_reply(consumer(), streamgroup(), reference(), _Reply, _Ctx, st()) ->
+    st()
+    | {tx, reference(), _Ctx, st()}
+    | {invalid, _Reason, st()}
+    | emqx_ds:error(_).
+handle_tx_reply(Consumer, SGroup, Ref, Reply, {progress, Ctx}, St) ->
+    handle_progress_tx(Consumer, SGroup, Ref, Reply, Ctx, St);
+handle_tx_reply(_Consumer, _SGroup, Ref, Reply, {release, Ctx}, St) ->
+    handle_release_tx(Ref, Reply, Ctx, St).
+
+-spec handle_progress_tx(consumer(), streamgroup(), reference(), _Reply, _Ctx, st()) ->
+    st()
+    | {tx, reference(), _Ctx, st()}
+    | {invalid, _Reason, st()}
+    | emqx_ds:error(_).
+handle_progress_tx(Consumer, SGroup, Ref, Reply, Ctx, St) ->
+    {Ret, Shard, Offset, Heartbeat} = Ctx,
+    #{{shard, Shard} := ShardSt0} = St,
+    Result = emqx_streams_state_db:progress_shard_tx_result(Ret, Ref, Reply),
+    case handle_shard_progress(Result, Consumer, Shard, Offset, Heartbeat, ShardSt0) of
+        {restart, ShardSt} ->
+            progress(Consumer, SGroup, Shard, Offset, Heartbeat, St#{{shard, Shard} := ShardSt});
+        ShardRet ->
+            return_update_shard(Shard, ShardRet, St)
+    end.
+
+handle_shard_progress(Result, Consumer, _Shard, Offset, Heartbeat, St) ->
+    #{
+        offset_committed := OffsetCommitted,
+        heartbeat_last := HBLast
+    } = St,
+    case Result of
+        ok ->
+            ?tp_debug("sdisp_group_progress", #{
+                leased => maps:get(lease, St),
+                consumer => Consumer,
+                shard => _Shard,
+                offset => Offset
+            }),
+            St#{
+                lease := true,
+                heartbeat_last := max(Heartbeat, emqx_maybe:define(HBLast, Heartbeat)),
+                offset_committed := max(Offset, emqx_maybe:define(OffsetCommitted, Offset))
+            };
+        {invalid, {leased, Consumer}} ->
+            undefined = OffsetCommitted,
+            {restart, St#{lease := true}};
+        {invalid, Reason = {leased, _}} ->
+            {invalid, Reason, St#{lease := false}};
+        {invalid, Reason} ->
+            {invalid, Reason, handle_invalid(Reason, St)};
+        Other ->
+            Other
+    end.
+
+release(Consumer, SGroup, Shard, Offset, St) ->
+    case St of
+        #{{shard, Shard} := ShardSt0 = #{lease := true, heartbeat_last := HBLast}} ->
+            case release_shard(Consumer, SGroup, Shard, Offset, HBLast, ShardSt0) of
+                {tx, Ref, Ret, ShardSt} ->
+                    Ctx = {Ret, Shard, Offset},
+                    {tx, Ref, {release, Ctx}, St#{{shard, Shard} => ShardSt}};
+                ShardRet ->
+                    return_update_shard(Shard, ShardRet, St)
+            end;
+        #{{shard, Shard} := #{lease := releasing}} ->
+            {invalid, releasing};
+        #{{shard, Shard} := #{lease := false}} ->
+            %% TODO if offset updated?
+            St;
+        #{} ->
+            St
+    end.
+
+release_shard(Consumer, SGroup, Shard, Offset, HBLast, St) ->
+    #{offset_last := OffsetLast} = St,
+    case OffsetLast =< Offset of
+        true ->
+            case
+                emqx_streams_state_db:release_shard_async(SGroup, Shard, Consumer, Offset, HBLast)
+            of
+                ok ->
+                    {ok, St#{
+                        lease := false,
+                        offset_last := Offset,
+                        offset_committed := Offset
+                    }};
+                {async, Ref, Ret} ->
+                    {tx, Ref, Ret, St#{
+                        lease := releasing,
+                        offset_last := Offset
+                    }};
+                Other ->
+                    Other
+            end;
+        false ->
+            {invalid, {offset_going_backwards, OffsetLast}}
+    end.
+
+-spec handle_release_tx(reference(), _Reply, _Ctx, st()) ->
+    st()
+    | {invalid, _Reason, st()}
+    | emqx_ds:error(_).
+handle_release_tx(Ref, Reply, Ctx, St) ->
+    {Ret, Shard, Offset} = Ctx,
+    #{{shard, Shard} := ShardSt} = St,
+    Result = emqx_streams_state_db:progress_shard_tx_result(Ret, Ref, Reply),
+    return_update_shard(Shard, handle_shard_release(Result, Offset, ShardSt), St).
+
+handle_shard_release(Result, Offset, St = #{offset_committed := OffsetCommitted}) ->
+    case Result of
+        ok ->
+            St#{
+                lease := false,
+                offset_committed := max(Offset, emqx_maybe:define(OffsetCommitted, Offset))
+            };
+        {invalid, {leased, _DifferentConsumer}} ->
+            St#{
+                lease := false,
+                offset_committed := undefined,
+                offset_committed_last => OffsetCommitted
+            };
+        {invalid, Reason} ->
+            {invalid, Reason, handle_invalid(Reason, St#{lease := true})};
+        Other ->
+            Other
+    end.
+
+return_update_shard(Shard, ShardSt = #{}, St) ->
+    St#{{shard, Shard} := ShardSt};
+return_update_shard(Shard, {invalid, Reason, ShardSt}, St) ->
+    {invalid, Reason, St#{{shard, Shard} := ShardSt}};
+return_update_shard(_Shard, {invalid, Reason}, St) ->
+    {invalid, Reason, St};
+return_update_shard(_Shard, Error, _St) ->
+    Error.
+
+handle_invalid({offset_ahead, Offset}, St) ->
+    St#{offset_committed_max => Offset};
+handle_invalid(_, St) ->
+    St.
