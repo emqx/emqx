@@ -710,6 +710,8 @@ lookup_user_with_fallback(?global_ns, UserGroup, UserId) ->
 lookup_user_with_fallback(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
     maybe
         error ?= do_lookup_user(Namespace, UserGroup, UserId),
+        %% We only fall back to global if there are no records for the whole namespace.
+        true ?= is_namespace_empty(Namespace) orelse error,
         do_lookup_user(?global_ns, UserGroup, UserId)
     end.
 
@@ -732,6 +734,15 @@ do_lookup_by_rec_txn(#user_info{user_id = Key}) ->
     mnesia:read(?TAB, Key, write);
 do_lookup_by_rec_txn(#?AUTHN_NS_TAB{user_id = Key}) ->
     mnesia:read(?AUTHN_NS_TAB, Key, write).
+
+is_namespace_empty(Namespace) when is_binary(Namespace) ->
+    %% `[]` is `<` than any (binary) user id or group
+    case mnesia:dirty_next(?AUTHN_NS_TAB, ?AUTHN_NS_KEY(Namespace, [], [])) of
+        ?AUTHN_NS_KEY(Namespace, _, _) ->
+            false;
+        _ ->
+            true
+    end.
 
 rec_to_map(#user_info{} = Rec) ->
     #user_info{

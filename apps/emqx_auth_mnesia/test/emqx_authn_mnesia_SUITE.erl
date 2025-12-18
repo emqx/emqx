@@ -285,15 +285,39 @@ t_authenticate(TCConfig) ->
         State
     ),
     %% Namespace mismatch; user doesn't exist
-    %% Since we fallback to global namespace when the credentials are namespaced, we don't
-    %% assert this for the global test group.
+    %%
+    %% 1) If there are no username for the whole namespace, we fall back the lookup to the
+    %%    global table.
+    %%
+    %% 2) If there is even a single record for the namespace being inspected, we don't
+    %%    check the global table.
+
+    %% Since we only have a global entry for the user in the `?global` test group, we run
+    %% these assertions in it.
     maybe
-        true ?= is_binary(ns(TCConfig)),
-        ignore = emqx_authn_mnesia:authenticate(
-            add_ns_clientinfo(#{username => <<"u">>, password => <<"p">>}, ?OTHER_NS),
-            State
-        )
+        false ?= is_binary(ns(TCConfig)),
+        %% At first, this other namespace has no records, hence we fall back to global.
+        ?assertMatch(
+            {ok, _},
+            emqx_authn_mnesia:authenticate(
+                add_ns_clientinfo(#{username => <<"u">>, password => <<"p">>}, ?OTHER_NS),
+                State
+            )
+        ),
+        %% Once we create any record for this namespace, we no longer fall back, hence
+        %% authentication will find no user.
+        OtherUser = add_ns(#{user_id => <<"v">>, password => <<"p">>}, ?OTHER_NS),
+        {ok, _} = emqx_authn_mnesia:add_user(OtherUser, State),
+        ?assertMatch(
+            ignore,
+            emqx_authn_mnesia:authenticate(
+                add_ns_clientinfo(#{username => <<"u">>, password => <<"p">>}, ?OTHER_NS),
+                State
+            )
+        ),
+        ok
     end,
+
     ok.
 
 t_add_user() ->
