@@ -607,7 +607,6 @@ to_server_opts(Type, Opts) ->
                 {dhfile, fun conf_get_opt/2},
                 {verify, fun conf_get_opt/2},
                 {fail_if_no_peer_cert, fun conf_get_opt/2},
-                {reuse_session, fun conf_get_opt/2, #{omit_if => true}},
                 {secure_renegotiate, fun conf_get_opt/2, #{omit_if => true}},
                 {honor_cipher_order, fun conf_get_opt/2},
                 {client_renegotiation, fun conf_get_opt/2, #{omit_if => true}},
@@ -615,6 +614,8 @@ to_server_opts(Type, Opts) ->
                 {user_lookup_fun, fun conf_get_opt/2, #{default => DefaultUserLookupFun}},
                 {log_level, fun conf_get_opt/2},
                 {hibernate_after, fun conf_get_opt/2},
+                {reuse_sessions, fun conf_get_opt/2, #{omit_if => true}},
+                {session_tickets, fun conf_get_opt/2, #{omit_if => disabled}},
                 %% esockd-only
                 {gc_after_handshake, fun conf_get_opt/2, #{omit_if => false}},
                 {crl_check, conf_crl_check(Opts)},
@@ -622,11 +623,18 @@ to_server_opts(Type, Opts) ->
             ]
         )
     ],
+    %% Add stateless_tickets_seed from node config if not empty
+    Seed = emqx_config:get([node, tls_stateless_tickets_seed], <<>>),
+    TLSServerOptsWithSeed =
+        case Seed of
+            <<>> -> TLSServerOpts;
+            _ -> [{stateless_tickets_seed, Seed} | TLSServerOpts]
+        end,
     TLSAuthExt = lists:append(
         emqx_tls_lib_auth_ext:opt_partial_chain(Opts),
         emqx_tls_lib_auth_ext:opt_verify_fun(Opts)
     ),
-    ensure_valid_options(TLSServerOpts ++ TLSAuthExt).
+    ensure_valid_options(TLSServerOptsWithSeed ++ TLSAuthExt).
 
 conf_crl_check(#{enable_crl_check := true}) ->
     %% `{crl_check, true}' doesn't work
@@ -737,7 +745,7 @@ resolve_cert_path_for_read(Path) ->
 
 ensure_valid_options(Options) ->
     Versions = proplists:get_value(versions, Options),
-    ensure_valid_options(Options, Versions, []).
+    session_tickets(ensure_valid_options(Options, Versions, [])).
 
 ensure_valid_options([], _, Acc) ->
     lists:reverse(Acc);
@@ -755,6 +763,26 @@ ensure_valid_options([{K, V} | T], Versions, Acc) ->
                     ensure_valid_options(T, Versions, Acc);
                 _ ->
                     ensure_valid_options(T, Versions, [{K, V} | Acc])
+            end
+    end.
+
+%% Ensure session_tickets and stateless_tickets_seed are always addeed together
+%% Silently drop stateless_tickets_seed if session_tickets is not found
+%% Emit a error log if session_tickets is configured, but stateless_tickets_seed is not
+session_tickets(Opts) ->
+    case lists:keyfind(session_tickets, 1, Opts) of
+        false ->
+            lists:keydelete(stateless_tickets_seed, 1, Opts);
+        {_, _} ->
+            case lists:keyfind(stateless_tickets_seed, 1, Opts) of
+                false ->
+                    ?SLOG(error, #{
+                        msg => "cannot_enable_tls_1_3_session_resumption",
+                        cause => "node.tls_stateless_tickets_seed is not configured"
+                    }),
+                    lists:keydelete(session_tickets, 1, Opts);
+                {_, _} ->
+                    Opts
             end
     end.
 
