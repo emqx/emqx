@@ -216,6 +216,15 @@ t_limited_lastvalue(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that when updating the GC interval, the GC is rescheduled with the new interval
+t_update_gc_interval(_Config) ->
+    OldConfig = emqx:get_raw_config([streams]),
+    ?assertWaitEvent(
+        emqx:update_config([streams], OldConfig#{<<"gc_interval">> => <<"1s">>}),
+        #{?snk_kind := streams_gc_done},
+        2000
+    ).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
