@@ -90,6 +90,7 @@
     dropped_qos0_msg,
     dropped_msg_due_to_mqueue_is_full,
     external_broker_crashed,
+    failed_to_connect_server,
     failed_to_fetch_crl,
     failed_to_retain_message,
     handle_resource_metrics_failed,
