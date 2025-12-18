@@ -32,6 +32,7 @@ start(_Type, _Args) ->
     ok = emqx_limiter:init(),
     ok = maybe_start_listeners(),
     emqx_config:add_handlers(),
+    emqx_rpc_log:init(),
     register(emqx, self()),
     {ok, Sup}.
 
