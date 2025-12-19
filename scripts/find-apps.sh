@@ -82,8 +82,8 @@ matrix() {
         fi
         case "${app}" in
             apps/emqx)
-                entries+=("$(format_app_entry "$app" 8 emqx "$runner")")
-                entries+=("$(format_app_entry "$app" 8 emqx-enterprise "$runner")")
+                entries+=("$(format_app_entry "$app" 10 emqx "$runner")")
+                entries+=("$(format_app_entry "$app" 10 emqx-enterprise "$runner")")
                 ;;
             apps/emqx_bridge)
                 entries+=("$(format_app_entry "$app" 1 emqx "$runner")")
