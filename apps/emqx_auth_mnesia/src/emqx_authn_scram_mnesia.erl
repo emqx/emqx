@@ -152,7 +152,7 @@ add_user(UserInfo, State) ->
     trans(fun ?MODULE:do_add_user/1, [UserInfoRecord]).
 
 do_add_user(
-    #user_info{user_id = {UserID, _} = DBUserID, is_superuser = IsSuperuser} = UserInfoRecord
+    #user_info{user_id = {_, UserID} = DBUserID, is_superuser = IsSuperuser} = UserInfoRecord
 ) ->
     case mnesia:read(?TAB, DBUserID, write) of
         [] ->
