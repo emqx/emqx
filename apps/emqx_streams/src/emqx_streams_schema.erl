@@ -31,7 +31,7 @@ fields(?SCHEMA_ROOT) ->
     [
         {enable,
             mk(boolean(), #{
-                default => true,
+                default => false,
                 desc => ?DESC(enable)
             })},
         {max_stream_count,

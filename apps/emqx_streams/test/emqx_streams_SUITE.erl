@@ -480,7 +480,8 @@ t_autocreate_stream(_Config) ->
     CSub = emqx_streams_test_utils:emqtt_connect([]),
 
     %% Autocreate some lastvalue streams
-    {ok, _} = emqx:update_config([streams], #{
+    RawConfig = emqx:get_raw_config([streams]),
+    {ok, _} = emqx:update_config([streams], RawConfig#{
         <<"auto_create">> => #{
             <<"regular">> => false,
             <<"lastvalue">> => #{
@@ -496,7 +497,7 @@ t_autocreate_stream(_Config) ->
     ]),
 
     %% Autocreate some regular streams
-    {ok, _} = emqx:update_config([streams], #{
+    {ok, _} = emqx:update_config([streams], RawConfig#{
         <<"auto_create">> => #{
             <<"regular">> => #{},
             <<"lastvalue">> => false
