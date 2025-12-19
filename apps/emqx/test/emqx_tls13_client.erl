@@ -95,7 +95,8 @@ The client uses the following SSL options:
     socket :: ssl:sslsocket() | undefined,
     session_ticket :: map() | undefined,
     ssl_opts :: [ssl:ssl_option()],
-    ticket_received :: boolean()
+    ticket_received :: boolean(),
+    retry_count :: non_neg_integer()
 }).
 
 %% API
@@ -145,7 +146,8 @@ init({Host, Port, BaseSslOpts}) ->
         host = Host,
         port = Port,
         ssl_opts = SslOpts,
-        ticket_received = false
+        ticket_received = false,
+        retry_count = 0
     },
     {ok, connecting, State, [{next_event, internal, connect}]}.
 
@@ -187,7 +189,12 @@ connected(info, {ssl, session_ticket, Ticket}, #state{} = State) when is_map(Tic
 connected(
     state_timeout,
     check_ticket,
-    #state{socket = Socket, ticket_received = Received, session_ticket = Ticket} = State
+    #state{
+        socket = Socket,
+        ticket_received = Received,
+        session_ticket = Ticket,
+        retry_count = RetryCount
+    } = State
 ) ->
     case {Received, Ticket} of
         {true, Ticket} when is_map(Ticket) ->
@@ -196,9 +203,15 @@ connected(
             {next_state, reconnecting, State#state{socket = undefined}, [
                 {next_event, internal, reconnect}
             ]};
+        {false, _} when RetryCount < 3 ->
+            %% No ticket received yet, wait a bit more (max 3 retries = ~5 seconds total)
+            {keep_state, State#state{retry_count = RetryCount + 1}, [
+                {state_timeout, 1000, check_ticket}
+            ]};
         {false, _} ->
-            %% No ticket received yet, wait a bit more
-            {keep_state, State, [{state_timeout, 1000, check_ticket}]};
+            %% No ticket received after retries, stop with error
+            ssl:close(Socket),
+            {stop, no_session_ticket_received};
         _ ->
             {stop, no_session_ticket_received}
     end;

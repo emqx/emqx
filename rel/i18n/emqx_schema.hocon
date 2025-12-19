@@ -1454,11 +1454,14 @@ server_ssl_opts_schema_session_tickets.desc:
 """Enable TLS 1.3 session resumption using stateless session tickets.
 
 Possible values:
+
 - `disabled`: Disable session tickets (default).
 - `stateless`: Enable stateless session tickets. The server sends encrypted tickets that clients can use to resume sessions without storing session state on the server.
 - `stateless_with_cert`: Enable stateless session tickets with certificate information included. This allows session resumption even when the server certificate changes, but increases network bandwidth usage as each ticket includes certificate data.
 
-Note: EMQX only supports stateless session tickets. The number of tickets sent after a full handshake is controlled by the config `node.tls_server_session_tickets_amount`. The seed key is configured at `node.tls_stateless_tickets_seed`."""
+Note: EMQX only supports stateless session tickets without support for client early data (0-RTT).
+The number of tickets sent after a full handshake is controlled by the config `node.tls_server_session_tickets_amount`.
+The seed key is configured at `node.tls_stateless_tickets_seed`."""
 
 server_ssl_opts_schema_session_tickets.label:
 """TLS 1.3 Session Tickets"""
