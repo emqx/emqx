@@ -302,6 +302,37 @@ unique_payload() ->
 simple_create_rule_api(TCConfig) ->
     emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
 
+delete_global_managed_certs_bundle(BundleName, Opts) ->
+    QueryParams =
+        case Opts of
+            #{force_delete := ForceDelete} ->
+                #{<<"force_delete">> => ForceDelete};
+            _ ->
+                #{}
+        end,
+    emqx_bridge_v2_testlib:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
+        query_params => QueryParams
+    }).
+
+delete_global_managed_certs_file(BundleName, FileKind, Opts) ->
+    QueryParams =
+        case Opts of
+            #{force_delete := ForceDelete} ->
+                #{
+                    <<"force_delete">> => ForceDelete,
+                    <<"kind">> => FileKind
+                };
+            _ ->
+                #{<<"kind">> => FileKind}
+        end,
+    emqx_bridge_v2_testlib:simple_request(#{
+        method => delete,
+        url => emqx_mgmt_api_test_util:api_path(["certs", "global", "name", BundleName]),
+        query_params => QueryParams
+    }).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -857,6 +888,30 @@ t_managed_certs(TCConfig) when is_list(TCConfig) ->
     C = start_client(),
     emqtt:publish(C, Topic, <<"hey">>, [{qos, 1}]),
     ?assertReceive({http, _, _}, 2_000),
+    %% When configurations depend on the managed certs, unless we force it, we deny
+    %% deleting them.
+    ?assertMatch(
+        {400, #{
+            <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
+        }},
+        delete_global_managed_certs_bundle(BundleName, #{})
+    ),
+    ?assertMatch(
+        {400, #{
+            <<"referencing_configs">> := #{<<"global">> := [[<<"connectors">>, <<"http">>, _]]}
+        }},
+        delete_global_managed_certs_file(BundleName, <<"ca">>, #{})
+    ),
+    %% Override check
+    ?assertMatch(
+        {204, _},
+        delete_global_managed_certs_file(
+            BundleName,
+            <<"ca">>,
+            #{force_delete => true}
+        )
+    ),
+    ?assertMatch({204, _}, delete_global_managed_certs_bundle(BundleName, #{force_delete => true})),
     ok.
 
 -doc """

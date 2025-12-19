@@ -245,8 +245,8 @@ find_config_references(Root) ->
     GlobalConfig = emqx_config:get_raw([Root]),
     NsConfigs0 = emqx_config:get_raw_root_from_all_namespaces(Root),
     NsConfigs = NsConfigs0#{?global_ns => GlobalConfig},
-    fold_namespace_configs(
-        fun(Stack, Value, Acc) ->
+    emqx_config_lib:fold_namespace_configs(
+        fun(_Namespace, Stack, Value, Acc) ->
             case is_file_reference(Stack) andalso is_binary(Value) of
                 true ->
                     Filename = emqx_schema:naive_env_interpolation(Value),
@@ -256,15 +256,6 @@ find_config_references(Root) ->
             end
         end,
         [],
-        NsConfigs
-    ).
-
-fold_namespace_configs(Fn, Acc0, NsConfigs) ->
-    maps:fold(
-        fun(_Namespace, RawConfig, Acc1) ->
-            fold_config(Fn, Acc1, RawConfig)
-        end,
-        Acc0,
         NsConfigs
     ).
 
@@ -297,44 +288,6 @@ mk_fileref(AbsPath, Info = #file_info{}) ->
     % * On Windows, inode is always 0.
     % * On Unix, files can be hardlinked and have the same basename.
     {filename:basename(AbsPath), Info#file_info{atime = undefined}}.
-
-%%
-
-fold_config(FoldFun, AccIn, Config) ->
-    fold_config(FoldFun, AccIn, [], Config).
-
-fold_config(FoldFun, AccIn, Stack, Config) when is_map(Config) ->
-    maps:fold(
-        fun(K, SubConfig, Acc) ->
-            fold_subconf(FoldFun, Acc, [K | Stack], SubConfig)
-        end,
-        AccIn,
-        Config
-    );
-fold_config(FoldFun, Acc, Stack, []) ->
-    fold_confval(FoldFun, Acc, Stack, []);
-fold_config(FoldFun, Acc, Stack, Config) when is_list(Config) ->
-    fold_confarray(FoldFun, Acc, Stack, 1, Config);
-fold_config(FoldFun, Acc, Stack, Config) ->
-    fold_confval(FoldFun, Acc, Stack, Config).
-
-fold_confarray(FoldFun, AccIn, StackIn, I, [H | T]) ->
-    Acc = fold_subconf(FoldFun, AccIn, [I | StackIn], H),
-    fold_confarray(FoldFun, Acc, StackIn, I + 1, T);
-fold_confarray(_FoldFun, Acc, _Stack, _, []) ->
-    Acc.
-
-fold_subconf(FoldFun, AccIn, Stack, SubConfig) ->
-    case FoldFun(Stack, SubConfig, AccIn) of
-        {cont, Acc} ->
-            fold_config(FoldFun, Acc, Stack, SubConfig);
-        {stop, Acc} ->
-            Acc
-    end.
-
-fold_confval(FoldFun, AccIn, Stack, ConfVal) ->
-    {_, Acc} = FoldFun(Stack, ConfVal, AccIn),
-    Acc.
 
 %%
 
