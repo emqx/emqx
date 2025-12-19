@@ -266,10 +266,11 @@ t_destroy(_) ->
 
 t_add_user(_) ->
     Config = config(),
-    {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
+    {ok, State} = emqx_authn_scram_mnesia:create(<<"authn-id">>, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
-    {ok, _} = emqx_authn_scram_mnesia:add_user(User, State),
+    {ok, #{is_superuser := false, user_id := <<"u">>}} =
+        emqx_authn_scram_mnesia:add_user(User, State),
     {error, already_exist} = emqx_authn_scram_mnesia:add_user(User, State).
 
 t_delete_user(_) ->
