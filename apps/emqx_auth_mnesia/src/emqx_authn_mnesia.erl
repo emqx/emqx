@@ -57,7 +57,7 @@
 
 -export_type([user_group/0, user_id/0]).
 
--type user_group() :: binary().
+-type user_group() :: atom() | binary().
 -type user_id() :: binary().
 
 -record(user_info, {
@@ -737,7 +737,9 @@ do_lookup_by_rec_txn(#?AUTHN_NS_TAB{user_id = Key}) ->
 
 is_namespace_empty(Namespace) when is_binary(Namespace) ->
     %% `[]` is `<` than any (binary) user id or group
-    case mnesia:dirty_next(?AUTHN_NS_TAB, ?AUTHN_NS_KEY(Namespace, [], [])) of
+    %% `0` is `<` than any (atom) group (user group is an atom, despite what the original
+    %% typespec said...)
+    case mnesia:dirty_next(?AUTHN_NS_TAB, ?AUTHN_NS_KEY(Namespace, 0, [])) of
         ?AUTHN_NS_KEY(Namespace, _, _) ->
             false;
         _ ->

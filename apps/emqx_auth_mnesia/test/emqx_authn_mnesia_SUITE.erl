@@ -819,7 +819,7 @@ config() ->
             name => bcrypt,
             salt_rounds => 8
         },
-        user_group => <<"global:mqtt">>
+        user_group => 'global:mqtt'
     }.
 
 lookup_user(Namespace, UserId, State) ->
