@@ -65,7 +65,6 @@ gc() ->
 
 -spec reschedule(pos_integer()) -> ok.
 reschedule(IntervalMs) ->
-    ?tp(warning, mq_gc_rescheduling, #{interval_ms => IntervalMs}),
     gen_server:cast(?MODULE, #reschedule{interval_ms = IntervalMs}).
 
 %%--------------------------------------------------------------------
