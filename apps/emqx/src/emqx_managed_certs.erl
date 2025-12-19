@@ -295,6 +295,8 @@ do_find_references(NsConfigs, TargetNamespace, TargetBundleName) ->
                             case Stack of
                                 [_, <<"ssl">> | Stack0] ->
                                     Stack0;
+                                [_, <<"ssl_options">> | Stack0] ->
+                                    Stack0;
                                 [_ | Stack0] ->
                                     Stack0
                             end,

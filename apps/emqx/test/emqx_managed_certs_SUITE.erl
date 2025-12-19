@@ -62,7 +62,10 @@ t_find_references(_TCConfig) ->
                 }
             },
             <<"b0">> => #{<<"managed_certs">> => Mk(?global_ns, <<"bundle6">>)},
-            <<"c0">> => #{<<"managed_certs">> => Mk(Ns1, <<"bundle1">>)}
+            <<"c0">> => #{<<"managed_certs">> => Mk(Ns1, <<"bundle1">>)},
+            <<"d0">> => #{
+                <<"ssl_options">> => #{<<"managed_certs">> => Mk(?global_ns, <<"bundle7">>)}
+            }
         },
         Ns1 => #{
             <<"a0">> => #{
@@ -121,6 +124,10 @@ t_find_references(_TCConfig) ->
     ?assertSameSet(
         [{Ns1, [<<"a0">>, <<"a1">>, 3]}],
         Refs(Ns1, <<"bundle3">>)
+    ),
+    ?assertSameSet(
+        [{?global_ns, [<<"d0">>]}],
+        Refs(?global_ns, <<"bundle7">>)
     ),
 
     ok.
