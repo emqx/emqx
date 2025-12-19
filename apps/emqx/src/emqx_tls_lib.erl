@@ -634,7 +634,7 @@ to_server_opts(Type, Opts) ->
         emqx_tls_lib_auth_ext:opt_partial_chain(Opts),
         emqx_tls_lib_auth_ext:opt_verify_fun(Opts)
     ),
-    ensure_valid_options(TLSServerOptsWithSeed ++ TLSAuthExt).
+    ensure_no_early_data(ensure_valid_options(TLSServerOptsWithSeed ++ TLSAuthExt)).
 
 conf_crl_check(#{enable_crl_check := true}) ->
     %% `{crl_check, true}' doesn't work
@@ -764,6 +764,24 @@ ensure_valid_options([{K, V} | T], Versions, Acc) ->
                 _ ->
                     ensure_valid_options(T, Versions, [{K, V} | Acc])
             end
+    end.
+
+%% Ensure early_data (0-RTT) is disabled when session_tickets is enabled.
+%% 0-RTT is hard-coded to disabled because EMQX does not offer stateful session tickets.
+%% With stateless tickets, anyone who captures a session ticket can replay it, and there is no
+%% server-side state to prevent replay attacks. The nature of MQTT CONNECT replay can be a DoS
+%% attack since a replayed CONNECT packet with the same client ID forces existing clients to go
+%% offline (session takeover). Without stateful ticket tracking, EMQX cannot distinguish
+%% between legitimate resumption and malicious replay of early data.
+%% Additionally, bloom filters for anti-replay protection are not configured, and even if they were,
+%% they are local to each node and would not be effective in a cluster environment.
+ensure_no_early_data(Opts) ->
+    case lists:keyfind(session_tickets, 1, Opts) of
+        false ->
+            Opts;
+        {_, _} ->
+            %% session_tickets is present, ensure early_data is disabled
+            [{early_data, disabled} | lists:keydelete(early_data, 1, Opts)]
     end.
 
 %% Ensure session_tickets and stateless_tickets_seed are always addeed together
