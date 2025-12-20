@@ -225,6 +225,88 @@ t_wss_conn(Config) ->
         ok = ssl:close(Socket)
     end).
 
+t_tls13_session_resumption(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    %% Generate a valid session ticket seed (at least 16 bytes)
+    Seed = base64:encode(crypto:strong_rand_bytes(32), #{padding => false, mode => urlsafe}),
+    %% Configure node-level session ticket seed
+    OldSeed = emqx_config:get([node, tls_stateless_tickets_seed], <<>>),
+    emqx_config:put([node, tls_stateless_tickets_seed], Seed),
+    %% Setup base SSL options for client
+    %% Note: server.pem and client.pem are signed by ca-next, so use ca-next.pem as CA
+    ClientSslOpts = [
+        {verify, verify_peer},
+        {versions, ['tlsv1.3']},
+        {session_tickets, manual},
+        {active, true},
+        {keyfile, filename:join(PrivDir, "client.key")},
+        {certfile, filename:join(PrivDir, "client.pem")},
+        {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+        {customize_hostname_check, [
+            {match_fun, fun(_CertDomain, _UserDomain) -> true end}
+        ]}
+    ],
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key"),
+            <<"session_tickets">> => <<"stateless">>
+        }
+    },
+    try
+        with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
+            %% Test TLS 1.3 session resumption
+            Result = emqx_tls13_client:run2("127.0.0.1", Port, ClientSslOpts),
+            ?assertEqual(ok, Result)
+        end)
+    after
+        %% Restore original seed config
+        emqx_config:put([node, tls_stateless_tickets_seed], OldSeed)
+    end.
+
+t_tls13_session_resumption_disabled(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(ssl),
+    %% Ensure seed is empty (default) so no tickets will be generated
+    OldSeed = emqx_config:get([node, tls_stateless_tickets_seed], <<>>),
+    emqx_config:put([node, tls_stateless_tickets_seed], <<>>),
+    %% Setup base SSL options for client
+    ClientSslOpts = [
+        {verify, verify_peer},
+        {versions, ['tlsv1.3']},
+        {session_tickets, manual},
+        {active, true},
+        {keyfile, filename:join(PrivDir, "client.key")},
+        {certfile, filename:join(PrivDir, "client.pem")},
+        {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+        {customize_hostname_check, [
+            {match_fun, fun(_CertDomain, _UserDomain) -> true end}
+        ]}
+    ],
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key"),
+            <<"session_tickets">> => <<"stateless">>
+        }
+    },
+    try
+        with_listener(ssl, ?FUNCTION_NAME, Conf, fun() ->
+            %% Test that no session ticket is received when seed is empty
+            %% The client should fail with no_session_ticket_received
+            Result = emqx_tls13_client:run2("127.0.0.1", Port, ClientSslOpts),
+            ?assertMatch({error, no_session_ticket_received}, Result)
+        end)
+    after
+        %% Restore original seed config
+        emqx_config:put([node, tls_stateless_tickets_seed], OldSeed)
+    end.
+
 t_quic_conn(Config) ->
     PrivDir = ?config(priv_dir, Config),
     Port = emqx_common_test_helpers:select_free_port(quic),
