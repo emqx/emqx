@@ -43,5 +43,21 @@ jobs:
           key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}
           restore-keys: |
             rebar3-dialyzer-plt-${{ matrix.profile }}-
+      - name: check deps.txt is up to date
+        run: |
+          # Only check for emqx-enterprise profile (where gen_deps.escript runs)
+          if [ "${{ matrix.profile }}" = 'emqx-enterprise' ]; then
+            # Run gen_deps.escript to regenerate deps.txt
+            ./scripts/gen_deps.escript
+            # Check if deps.txt has changed
+            if ! git diff --exit-code deps.txt; then
+              echo "Error: deps.txt is out of date. Please run 'scripts/gen_deps.escript' and commit the changes."
+              git diff deps.txt
+              exit 1
+            fi
+            echo "deps.txt is up to date"
+          else
+            echo "Skipping deps.txt check for profile ${{ matrix.profile }}"
+          fi
       - name: run static checks
         run: make static_checks
