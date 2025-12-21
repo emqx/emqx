@@ -1,7 +1,37 @@
 #!/usr/bin/env escript
 %% -*- erlang -*-
 %%--------------------------------------------------------------------
-%% Generate dependency tree from beam files and include_lib directives
+%% Generate "used-by" dependency relationships for EMQX apps
+%%
+%% This script analyzes BEAM files and source code to determine which apps
+%% use (depend on) each app. The output is in "used-by" format (reverse
+%% dependency direction), meaning if app1 uses app2, the output will show
+%% "app2: app1" (app2 is used by app1).
+%%
+%% Analysis methods:
+%% 1. Remote function calls: Uses xref to scan all BEAM files and find
+%%    all remote calls (XC query). Maps caller and callee modules to their
+%%    respective apps using module-to-app mapping from .app files.
+%% 2. Include directives: Parses -include_lib() directives from source files
+%%    to find header file dependencies between apps.
+%%
+%% Special handling:
+%% - emqx and emqx_conf are considered used by all other apps
+%% - Self-dependencies are excluded
+%% - Transitive closure is computed: if app1 uses app2, and app2 uses app3,
+%%   then app1 transitively uses app3
+%%
+%% Output format (deps.txt):
+%%   app_name: user1 user2 user3
+%%   app_name: all          (if used by all apps)
+%%   app_name: none         (if used by no other apps)
+%%
+%% Usage:
+%%   ./scripts/gen_deps.escript
+%%
+%% Requirements:
+%%   - Project must be compiled (BEAM files in _build/emqx-enterprise/lib/)
+%%   - OTP 25+ (for maybe expressions)
 %%--------------------------------------------------------------------
 
 -feature(maybe_expr, enable).
