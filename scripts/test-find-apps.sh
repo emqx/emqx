@@ -82,7 +82,8 @@ test_find_apps() {
 # Make a dummy change in an app directory and commit it
 make_change() {
     local app_path="$1"
-    local test_file="${app_path}/test-change.$(date +%s).tmp"
+    local test_file
+    test_file="${app_path}/test-change.$(date +%s).tmp"
 
     mkdir -p "${app_path}"
     echo "# Test change for dependency testing" > "${test_file}"
@@ -223,7 +224,7 @@ if [ ! -d ".github" ]; then
     echo -e "${RED}SKIP: .github directory does not exist${NC}"
 else
     mkdir -p .github
-    echo "# Test change" > .github/test-change.$(date +%s).tmp
+    echo "# Test change" > ".github/test-change.$(date +%s).tmp"
     git add .github/test-change.*.tmp >/dev/null 2>&1
     git commit -m "test: change .github directory" >/dev/null 2>&1 || true
 
