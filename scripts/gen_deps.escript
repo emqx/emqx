@@ -17,7 +17,7 @@
 %%    to find header file dependencies between apps.
 %%
 %% Special handling:
-%% - emqx and emqx_conf are considered used by all other apps
+%% - emqx and emqx_conf are set to be used by all other apps (handled in this script)
 %% - Self-dependencies are excluded
 %% - Transitive closure is computed: if app1 uses app2, and app2 uses app3,
 %%   then app1 transitively uses app3
@@ -113,7 +113,7 @@ build_deps_map(BuildDir, AppsDir, EmqxApps) ->
     ),
 
     % Final step: Convert sets to sorted lists and format output
-    % Format: app1: app2,app3 (where app2 and app3 transitively use app1)
+    % Format: app1: app2 app3 (where app2 and app3 transitively use app1, space-separated)
     % If UsedBySet + {App} = AllApps, output "all" instead
     lists:foldr(
         fun({App, UsedBySet}, Acc) ->
