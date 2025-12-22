@@ -79,7 +79,7 @@ get_all_remote_calls(LibDir) ->
     XrefServer = gen_deps_xref,
     {ok, _} = xref:start(XrefServer),
     try
-        xref:set_default(XrefServer, [{warnings, false}]),
+        ok = xref:set_default(XrefServer, [{warnings, false}]),
         {ok, _} = xref:add_release(XrefServer, LibDir),
         {ok, Calls} = xref:q(XrefServer, "XC"),
         length(Calls) > 0 orelse error(no_remote_calls_found),
@@ -179,13 +179,11 @@ parse_include_lib_line(_Line) ->
     error.
 
 extract_app_from_path(Path) ->
-    case string:split(Path, "/", leading) of
-        [AppName | _] ->
-            % All apps in apps/ directory are emqx apps, so accept any app name
-            {ok, list_to_atom(AppName)};
-        _ ->
-            error
-    end.
+    % string:split with leading option always returns at least one element when Path is non-empty
+    % Path is guaranteed to be non-empty as it comes from a regex match
+    [AppName | _] = string:split(Path, "/", leading),
+    % All apps in apps/ directory are emqx apps, so accept any app name
+    {ok, list_to_atom(AppName)}.
 
 trim_whitespace(Bin) when is_binary(Bin) ->
     re:replace(Bin, "^\\s+|\\s+$", "", [global, {return, binary}]).
