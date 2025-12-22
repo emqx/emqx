@@ -131,94 +131,154 @@ compute_transitive_closure_test_() ->
         end}
     ].
 
-%% Test get_include_dependents/1 with mock data
+%% Test get_include_dependents/2 with mocked beam_lib
 get_include_dependents_test_() ->
-    {setup, fun setup_include_test/0, fun cleanup_include_test/1, fun(TestDir) ->
-        [
-            {"no include_lib directives", fun() ->
-                AppsDir = TestDir,
-                AppNames = [emqx_test1, emqx_test2],
-                Result = emqx_utils_deps:get_include_dependents(AppsDir, AppNames),
-                % Should return map with empty sets for all apps
-                ?assert(is_map(Result)),
-                lists:foreach(
-                    fun(App) ->
-                        case maps:get(App, Result, undefined) of
-                            undefined -> ok;
-                            Set -> ?assertEqual(sets:new(), Set)
-                        end
-                    end,
-                    AppNames
-                )
-            end},
-            {"single include_lib directive", fun() ->
-                AppsDir = TestDir,
-                AppNames = [emqx_test1, emqx_test2],
-                % Create a test file with include_lib
-                App1Src = filename:join([AppsDir, "emqx_test1", "src"]),
-                filelib:ensure_dir(filename:join([App1Src, "dummy"])),
-                TestFile = filename:join([App1Src, "test.erl"]),
-                ok = file:write_file(
-                    TestFile, <<"-include_lib(\"emqx_test2/include/test.hrl\").\n">>
-                ),
-                Result = emqx_utils_deps:get_include_dependents(AppsDir, AppNames),
-                % emqx_test2 should have emqx_test1 in its includers set
-                App2Set = maps:get(emqx_test2, Result, sets:new()),
-                ?assert(sets:is_element(emqx_test1, App2Set))
-            end},
-            {"multiple include_lib directives", fun() ->
-                AppsDir = TestDir,
-                AppNames = [emqx_test1, emqx_test2],
-                % Create test files
-                App1Src = filename:join([AppsDir, "emqx_test1", "src"]),
-                App2Src = filename:join([AppsDir, "emqx_test2", "src"]),
-                filelib:ensure_dir(filename:join([App1Src, "dummy"])),
-                filelib:ensure_dir(filename:join([App2Src, "dummy"])),
-                ok = file:write_file(
-                    filename:join([App1Src, "test1.erl"]),
-                    <<"-include_lib(\"emqx_test2/include/test.hrl\").\n">>
-                ),
-                ok = file:write_file(
-                    filename:join([App2Src, "test2.erl"]),
-                    <<"-include_lib(\"emqx_test1/include/test.hrl\").\n">>
-                ),
-                Result = emqx_utils_deps:get_include_dependents(AppsDir, AppNames),
-                % emqx_test2 should have emqx_test1 in its includers set
-                App2Set = maps:get(emqx_test2, Result, sets:new()),
-                ?assert(sets:is_element(emqx_test1, App2Set)),
-                % emqx_test1 should have emqx_test2 in its includers set
-                App1Set = maps:get(emqx_test1, Result, sets:new()),
-                ?assert(sets:is_element(emqx_test2, App1Set))
-            end},
-            {"non-existent app is filtered out", fun() ->
-                AppsDir = TestDir,
-                AppNames = [emqx_test1],
-                App1Src = filename:join([AppsDir, "emqx_test1", "src"]),
-                filelib:ensure_dir(filename:join([App1Src, "dummy"])),
-                ok = file:write_file(
-                    filename:join([App1Src, "test.erl"]),
-                    <<"-include_lib(\"other_app/include/test.hrl\").\n">>
-                ),
-                Result = emqx_utils_deps:get_include_dependents(AppsDir, AppNames),
-                % other_app should not be in the result (not in AppNames)
-                ?assertNot(maps:is_key(other_app, Result))
-            end}
-        ]
-    end}.
+    {setup, fun setup_include_meck/0, fun cleanup_include_meck/1, [
+        {"no include_lib directives", fun() ->
+            LibDir = "/mock/lib",
+            AppNames = [emqx_test1, emqx_test2],
+            % Mock beam_lib to return no abstract code
+            meck:expect(filelib, is_dir, fun
+                ("/mock/lib/emqx_test1/ebin") -> true;
+                ("/mock/lib/emqx_test2/ebin") -> true;
+                (_) -> false
+            end),
+            meck:expect(filelib, wildcard, fun(_) -> [] end),
+            Result = emqx_utils_deps:get_include_dependents(LibDir, AppNames),
+            % Should return map with empty sets for all apps
+            ?assert(is_map(Result)),
+            lists:foreach(
+                fun(App) ->
+                    Set = maps:get(App, Result),
+                    ?assertEqual(sets:new(), Set)
+                end,
+                AppNames
+            )
+        end},
+        {"single include_lib directive", fun() ->
+            LibDir = "/mock/lib",
+            AppNames = [emqx_test1, emqx_test2],
+            BeamFile1 = "/mock/lib/emqx_test1/ebin/test1.beam",
+            % Mock beam_lib to return abstract code with include_lib
+            meck:expect(filelib, is_dir, fun
+                ("/mock/lib/emqx_test1/ebin") -> true;
+                ("/mock/lib/emqx_test2/ebin") -> true;
+                (_) -> false
+            end),
+            meck:expect(filelib, wildcard, fun(Pattern) ->
+                case Pattern of
+                    "/mock/lib/emqx_test1/ebin/*.beam" -> [BeamFile1];
+                    _ -> []
+                end
+            end),
+            meck:expect(beam_lib, chunks, fun(BeamFile, Chunks) ->
+                case {BeamFile, Chunks} of
+                    {BeamFile1, [abstract_code]} ->
+                        {ok,
+                            {test1, [
+                                {abstract_code,
+                                    {raw_abstract_v1, [
+                                        {attribute, 1, include_lib, "emqx_test2/include/test.hrl"}
+                                    ]}}
+                            ]}};
+                    _ ->
+                        {error, no_abstract_code}
+                end
+            end),
+            Result = emqx_utils_deps:get_include_dependents(LibDir, AppNames),
+            % emqx_test2 should have emqx_test1 in its includers set
+            App2Set = maps:get(emqx_test2, Result, sets:new()),
+            ?assert(sets:is_element(emqx_test1, App2Set))
+        end},
+        {"multiple include_lib directives", fun() ->
+            LibDir = "/mock/lib",
+            AppNames = [emqx_test1, emqx_test2],
+            BeamFile1 = "/mock/lib/emqx_test1/ebin/test1.beam",
+            BeamFile2 = "/mock/lib/emqx_test2/ebin/test2.beam",
+            meck:expect(filelib, is_dir, fun
+                ("/mock/lib/emqx_test1/ebin") -> true;
+                ("/mock/lib/emqx_test2/ebin") -> true;
+                (_) -> false
+            end),
+            meck:expect(filelib, wildcard, fun(Pattern) ->
+                case Pattern of
+                    "/mock/lib/emqx_test1/ebin/*.beam" -> [BeamFile1];
+                    "/mock/lib/emqx_test2/ebin/*.beam" -> [BeamFile2];
+                    _ -> []
+                end
+            end),
+            meck:expect(beam_lib, chunks, fun(BeamFile, Chunks) ->
+                case {BeamFile, Chunks} of
+                    {BeamFile1, [abstract_code]} ->
+                        {ok,
+                            {test1, [
+                                {abstract_code,
+                                    {raw_abstract_v1, [
+                                        {attribute, 1, include_lib, "emqx_test2/include/test.hrl"}
+                                    ]}}
+                            ]}};
+                    {BeamFile2, [abstract_code]} ->
+                        {ok,
+                            {test2, [
+                                {abstract_code,
+                                    {raw_abstract_v1, [
+                                        {attribute, 1, include_lib, "emqx_test1/include/test.hrl"}
+                                    ]}}
+                            ]}};
+                    _ ->
+                        {error, no_abstract_code}
+                end
+            end),
+            Result = emqx_utils_deps:get_include_dependents(LibDir, AppNames),
+            % emqx_test2 should have emqx_test1 in its includers set
+            App2Set = maps:get(emqx_test2, Result, sets:new()),
+            ?assert(sets:is_element(emqx_test1, App2Set)),
+            % emqx_test1 should have emqx_test2 in its includers set
+            App1Set = maps:get(emqx_test1, Result, sets:new()),
+            ?assert(sets:is_element(emqx_test2, App1Set))
+        end},
+        {"non-existent app is filtered out", fun() ->
+            LibDir = "/mock/lib",
+            AppNames = [emqx_test1],
+            BeamFile1 = "/mock/lib/emqx_test1/ebin/test1.beam",
+            meck:expect(filelib, is_dir, fun
+                ("/mock/lib/emqx_test1/ebin") -> true;
+                (_) -> false
+            end),
+            meck:expect(filelib, wildcard, fun(Pattern) ->
+                case Pattern of
+                    "/mock/lib/emqx_test1/ebin/*.beam" -> [BeamFile1];
+                    _ -> []
+                end
+            end),
+            meck:expect(beam_lib, chunks, fun(BeamFile, Chunks) ->
+                case {BeamFile, Chunks} of
+                    {BeamFile1, [abstract_code]} ->
+                        {ok,
+                            {test1, [
+                                {abstract_code,
+                                    {raw_abstract_v1, [
+                                        {attribute, 1, include_lib, "other_app/include/test.hrl"}
+                                    ]}}
+                            ]}};
+                    _ ->
+                        {error, no_abstract_code}
+                end
+            end),
+            Result = emqx_utils_deps:get_include_dependents(LibDir, AppNames),
+            % other_app should not be in the result (not in AppNames)
+            ?assertNot(maps:is_key(other_app, Result))
+        end}
+    ]}.
 
-setup_include_test() ->
-    TestDir = filename:join([
-        "/tmp", "emqx_utils_deps_test_" ++ integer_to_list(erlang:system_time(second))
-    ]),
-    % Create test app directories (using emqx_ prefix so they're recognized as emqx apps)
-    App1Dir = filename:join([TestDir, "emqx_test1", "src"]),
-    App2Dir = filename:join([TestDir, "emqx_test2", "src"]),
-    filelib:ensure_dir(App1Dir),
-    filelib:ensure_dir(App2Dir),
-    TestDir.
+setup_include_meck() ->
+    % Mock beam_lib and filelib modules
+    meck:new(beam_lib, [unstick, passthrough]),
+    meck:new(filelib, [unstick, passthrough]),
+    ok.
 
-cleanup_include_test(TestDir) ->
-    file:del_dir_r(TestDir).
+cleanup_include_meck(_) ->
+    meck:unload([beam_lib, filelib]).
 
 %% Test get_call_dependents/2 with mocked xref
 get_call_dependents_test_() ->

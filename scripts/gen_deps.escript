@@ -50,7 +50,7 @@ main(_Args) ->
     io:format("Found ~p emqx apps~n", [length(EmqxApps)]),
 
     % Build used_by relationships (reverse dependency direction)
-    DepsList = build_deps_map(BuildDir, AppsDir, EmqxApps),
+    DepsList = build_deps_map(BuildDir, EmqxApps),
 
     % Write to file
     ok = file:write_file(OutputFile, DepsList),
@@ -76,7 +76,7 @@ get_emqx_apps(AppsDir) ->
             []
     end.
 
-build_deps_map(BuildDir, AppsDir, EmqxApps) ->
+build_deps_map(BuildDir, EmqxApps) ->
     % Filter to only apps that have beam directories
     AppsWithBeams = lists:filter(
         fun(App) ->
@@ -97,7 +97,8 @@ build_deps_map(BuildDir, AppsDir, EmqxApps) ->
 
     % Collect included-to-including map from include_lib directives
     % When App1 includes headers from App2, add App1 to App2's including set
-    IncludedToIncludingMap = emqx_utils_deps:get_include_dependents(AppsDir, EmqxApps),
+    % Use BEAM files to extract include_lib directives from AST
+    IncludedToIncludingMap = emqx_utils_deps:get_include_dependents(LibDir, EmqxApps),
 
     % Set emqx and emqx_conf to be used by all apps
     All = sets:from_list(EmqxApps),

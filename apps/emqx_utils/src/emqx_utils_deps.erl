@@ -38,30 +38,30 @@ get_call_dependents(RelDir, ModToAppMap) ->
     collect_callee_to_caller_map(AllRemoteCalls, ModToAppMap, EmqxAppsSet, Acc0).
 
 %% @doc Get "used-by" dependencies from include_lib directives.
-%% SrcDir Path to the apps directory (e.g., "apps")
+%% LibDir Path to the release lib directory (e.g., "_build/emqx-enterprise/lib")
 %% AppNames List of app atoms
 %% Returns map of App => Set of apps that include headers from it (directly)
-get_include_dependents(SrcDir, AppNames) ->
+get_include_dependents(LibDir, AppNames) ->
     EmqxAppsSet = sets:from_list(AppNames),
-    % Filter to only apps that have src directories
-    AppsWithSrc = lists:filter(
+    % Filter to only apps that have ebin directories with BEAM files
+    AppsWithBeams = lists:filter(
         fun(App) ->
             AppName = atom_to_list(App),
-            SrcPath = filename:join([SrcDir, AppName, "src"]),
-            filelib:is_dir(SrcPath)
+            EbinPath = filename:join([LibDir, AppName, "ebin"]),
+            filelib:is_dir(EbinPath)
         end,
         AppNames
     ),
     % Initialize with empty sets for all apps
     Acc0 = maps:from_list([{App, sets:new()} || App <- AppNames]),
-    get_include_dependents_loop(AppsWithSrc, SrcDir, EmqxAppsSet, Acc0).
+    get_include_dependents_loop(AppsWithBeams, LibDir, EmqxAppsSet, Acc0).
 
-get_include_dependents_loop([], _SrcDir, _EmqxAppsSet, Acc) ->
+get_include_dependents_loop([], _LibDir, _EmqxAppsSet, Acc) ->
     Acc;
-get_include_dependents_loop([App | Rest], SrcDir, EmqxAppsSet, Acc) ->
+get_include_dependents_loop([App | Rest], LibDir, EmqxAppsSet, Acc) ->
     AppName = atom_to_list(App),
-    AppSrcPath = filename:join([SrcDir, AppName, "src"]),
-    IncludeDeps = get_include_lib_deps(AppSrcPath, EmqxAppsSet),
+    EbinPath = filename:join([LibDir, AppName, "ebin"]),
+    IncludeDeps = get_include_lib_deps_from_beams(EbinPath, EmqxAppsSet),
     % For each app that App includes headers from, add App to that app's including set
     NewAcc = sets:fold(
         fun(IncludedApp, AccMap) ->
@@ -70,7 +70,7 @@ get_include_dependents_loop([App | Rest], SrcDir, EmqxAppsSet, Acc) ->
         Acc,
         IncludeDeps
     ),
-    get_include_dependents_loop(Rest, SrcDir, EmqxAppsSet, NewAcc).
+    get_include_dependents_loop(Rest, LibDir, EmqxAppsSet, NewAcc).
 
 %% Internal functions for remote calls
 
@@ -125,68 +125,65 @@ get_emqx_app(Module, ModuleToAppMap, EmqxAppsSet) ->
 
 %% Internal functions for include_lib directives
 
-get_include_lib_deps(SrcPath, EmqxAppsSet) ->
-    % Use wildcard to recursively find all .erl files in src directory
-    Pattern = filename:join(SrcPath, "**/*.erl"),
-    ErlFiles = filelib:wildcard(Pattern),
+get_include_lib_deps_from_beams(EbinPath, EmqxAppsSet) ->
+    % Find all BEAM files in ebin directory
+    Pattern = filename:join(EbinPath, "*.beam"),
+    BeamFiles = filelib:wildcard(Pattern),
     lists:foldl(
-        fun(ErlFile, Acc) ->
-            case file:read_file(ErlFile) of
-                {ok, Content} ->
-                    Deps = parse_include_lib_deps(Content, EmqxAppsSet),
+        fun(BeamFile, Acc) ->
+            case get_include_lib_from_beam(BeamFile, EmqxAppsSet) of
+                {ok, Deps} ->
                     sets:union(Acc, Deps);
-                {error, _} ->
-                    Acc
-            end
-        end,
-        sets:new(),
-        ErlFiles
-    ).
-
-parse_include_lib_deps(Content, EmqxAppsSet) ->
-    Lines = binary:split(Content, <<"\n">>, [global]),
-    lists:foldl(
-        fun(Line, Acc) ->
-            case parse_include_lib_line(Line) of
-                {ok, App} ->
-                    case sets:is_element(App, EmqxAppsSet) of
-                        true -> sets:add_element(App, Acc);
-                        false -> Acc
-                    end;
                 error ->
                     Acc
             end
         end,
         sets:new(),
-        Lines
+        BeamFiles
     ).
 
-parse_include_lib_line(Line) when is_binary(Line) ->
-    % Match: -include_lib("emqx/include/...") or -include_lib("emqx_*/include/...")
-    Trimmed = trim_whitespace(Line),
-    TrimmedStr =
-        case is_binary(Trimmed) of
-            true -> binary_to_list(Trimmed);
-            false -> Trimmed
-        end,
-    case re:run(TrimmedStr, "^-include_lib\\(\"([^\"]+)\"\\)", [{capture, all_but_first, list}]) of
-        {match, [Path]} ->
-            extract_app_from_path(Path);
-        nomatch ->
+get_include_lib_from_beam(BeamFile, EmqxAppsSet) ->
+    case beam_lib:chunks(BeamFile, [abstract_code]) of
+        {ok, {_Module, [{abstract_code, {raw_abstract_v1, Forms}}]}} ->
+            Deps = extract_include_lib_from_forms(Forms, EmqxAppsSet),
+            {ok, Deps};
+        {ok, {_Module, [{abstract_code, no_abstract_code}]}} ->
+            % BEAM file compiled without debug_info, skip
+            error;
+        {error, beam_lib, _} ->
             error
-    end;
-parse_include_lib_line(_Line) ->
-    error.
+    end.
 
-extract_app_from_path(Path) ->
-    % string:split with leading option always returns at least one element when Path is non-empty
-    % Path is guaranteed to be non-empty as it comes from a regex match
-    [AppName | _] = string:split(Path, "/", leading),
-    % All apps in apps/ directory are emqx apps, so accept any app name
-    {ok, list_to_atom(AppName)}.
+extract_include_lib_from_forms(Forms, EmqxAppsSet) ->
+    AllDeps = lists:foldl(
+        fun(Form, Acc) ->
+            case Form of
+                {attribute, _Line, include_lib, Path} ->
+                    case extract_app_from_include_lib_path(Path) of
+                        {ok, App} ->
+                            sets:add_element(App, Acc);
+                        error ->
+                            Acc
+                    end;
+                _ ->
+                    Acc
+            end
+        end,
+        sets:new(),
+        Forms
+    ),
+    sets:intersection(AllDeps, EmqxAppsSet).
 
-trim_whitespace(Bin) when is_binary(Bin) ->
-    re:replace(Bin, "^\\s+|\\s+$", "", [global, {return, binary}]).
+extract_app_from_include_lib_path(Path) ->
+    % Path in AST is a string (list of integers) like "emqx/include/file.hrl"
+    case Path of
+        List when is_list(List), length(List) > 0, is_integer(hd(List)) ->
+            % Extract app name from path (first component)
+            [AppName | _] = string:split(List, "/", leading),
+            {ok, list_to_atom(AppName)};
+        _ ->
+            error
+    end.
 
 %% Helper functions
 
