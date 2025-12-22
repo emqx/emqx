@@ -84,7 +84,7 @@ jobs:
       - name: Build matrix
         id: matrix
         run: |
-          MATRIX="$(./scripts/find-apps.sh --ci)"
+          MATRIX="$(python3 scripts/find_apps.py --ci)"
           echo "${MATRIX}" | jq
           CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile}) | unique')"
           CT_HOST="$(echo "${MATRIX}"   | jq -c 'map(select(.runner == "host"))')"
