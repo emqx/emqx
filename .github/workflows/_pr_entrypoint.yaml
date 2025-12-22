@@ -74,6 +74,11 @@ jobs:
         run: |
           DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shelltestrunner
           scripts/shelltest/run_tests.sh
+      - name: Run pytest find-apps tests
+        run: |
+          pip install --upgrade pip
+          pip install pytest
+          pytest scripts/test/test_find_apps.py -v
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.6.25
