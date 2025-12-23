@@ -192,7 +192,9 @@ defmodule EMQXUmbrella.MixProject do
        github: "emqx/grpc-erl", tag: "0.7.2", override: true, system_env: emqx_app_system_env()}
 
   def common_dep(:cowboy),
-    do: {:cowboy, github: "emqx/cowboy", tag: "2.13.0-emqx-2", override: true}
+    do:
+      {:cowboy,
+       github: "emqx/cowboy", branch: "fix/EMQX-14990/no-send-close-sock-error", override: true}
 
   def common_dep(:hackney),
     do: {:hackney, github: "emqx/hackney", tag: "1.24.1-emqx2", override: true}
