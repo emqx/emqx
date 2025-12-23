@@ -1841,28 +1841,28 @@ client_attrs_init_set_as_attr {
 clientid_override {
   label: "Client ID Override Expression"
   desc: """~
-    A one line expression to evaluate a set of predefined string functions (like in the rule engine SQL statements).
-    The expression can be a function call with nested calls as its arguments, or direct variable reference.
-    So far, it does not provide user-defined variable binding (like `var a=1`) or user-defined functions.
-    As an example, to extract the prefix of username delimited by a dot: `nth(1, tokens(username, '.'))`.
+    Override the Client ID using a Variform expression.
+    Example: `concat(client_attrs.tns, '-', clientid)` adds the namespace as a prefix.
+    This allows clients in different namespaces to connect using the same Client ID without conflict.
+    See EMQX documentation for expression syntax.~"""
+}
 
-    The variables pre-bound variables are:
-    - `clientid`: The original MQTT Client ID.
-    - `username`: MQTT Client's username.
-    - `client_attrs.{NAME}`: Client attributes initialized by per config `client_attrs_init`.
-    For TLS clients, connected directly or via proxy-protocol (v2) enabled load balancer,
-    some extra variables can be used:
-    - `cn`: Client's TLS certificate common name.
-    - `dn`: Client's TLS certificate distinguished name (the subject).
-    - `peersni`: TLS server name indication sent by the client.
-
-    You can read more about variform expressions in EMQX docs."""
+namespace_as_mountpoint {
+  label: "Use Namespace as Topic Mountpoint"
+  desc: """~
+    Uses the client's namespace as a topic mountpoint. This setting is ignored if the listener already has a `mountpoint` configured.
+    When enabled, EMQX isolates topics by:
+      - Prepending the namespace to topics in PUBLISH, SUBSCRIBE, UNSUBSCRIBE, and Will messages.
+      - Stripping this prefix from messages delivered to the client.
+    Example (Namespace `n1`):
+      - Client subscribes to `sensors/#` -> Broker registers `n1/sensors/#`.
+      - Broker routes `n1/sensors/data` -> Client receives `sensors/data`.~"""
 }
 
 authz_include_mountpoint {
   label: "Mount Prefix for Authorization"
   desc: """~
-    When enabled, the target topics and topic filters are prefixed by the listener's configured mountpoint before being checked by authorization backends.~"""
+    When enabled, the target topics and topic filters are prefixed by the topic mountpoint before being matched against ACL rules or by authorization backends.~"""
 }
 
 banned_bootstrap_file.desc:

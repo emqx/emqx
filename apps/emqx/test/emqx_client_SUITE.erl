@@ -71,7 +71,10 @@ groups() ->
             t_peercert_preserved_before_connected,
             t_clientid_override,
             t_clientid_override_fail_with_empty_render_result,
-            t_clientid_override_fail_with_expression_exception
+            t_clientid_override_fail_with_expression_exception,
+            t_namespace_as_mountpoint_enabled,
+            t_namespace_as_mountpoint_disabled,
+            t_namespace_as_mountpoint_no_tns
         ]},
         {misbehaving, [], [
             t_sock_closed_instantly,
@@ -156,6 +159,7 @@ end_per_testcase(_Case, _Config) ->
     emqx_config:put_zone_conf(default, [mqtt, peer_cert_as_clientid], disabled),
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     emqx_config:put_zone_conf(default, [mqtt, clientid_override], disabled),
+    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false),
     emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "none"),
     ok.
 
@@ -512,6 +516,73 @@ test_clientid_override_fail(ClientId, Expr) ->
     {ok, Client} = emqtt:start_link([{clientid, ClientId}, {port, 1883}]),
     {ok, _} = emqtt:connect(Client),
     ?assertMatch(#{clientid := ClientId}, maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))),
+    emqtt:disconnect(Client).
+
+t_namespace_as_mountpoint_enabled(_) ->
+    Namespace = <<"n1">>,
+    ClientId = <<"test-client-1">>,
+    %% Set tns attribute from user property
+    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"tns">>
+        }
+    ]),
+    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], true),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {port, 1883},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"namespace">>, Namespace}]}}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    ExpectedMountpoint = <<"n1/">>,
+    ?assertMatch(
+        #{mountpoint := ExpectedMountpoint},
+        maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))
+    ),
+    emqtt:disconnect(Client).
+
+t_namespace_as_mountpoint_disabled(_) ->
+    Namespace = <<"n1">>,
+    ClientId = <<"test-client-2">>,
+    %% Set tns attribute from user property
+    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"tns">>
+        }
+    ]),
+    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {port, 1883},
+        {proto_ver, v5},
+        {properties, #{'User-Property' => [{<<"namespace">>, Namespace}]}}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    ?assertMatch(
+        #{mountpoint := undefined},
+        maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))
+    ),
+    emqtt:disconnect(Client).
+
+t_namespace_as_mountpoint_no_tns(_) ->
+    ClientId = <<"test-client-3">>,
+    %% Don't set tns attribute
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
+    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], true),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {port, 1883}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    ?assertMatch(
+        #{mountpoint := undefined},
+        maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))
+    ),
     emqtt:disconnect(Client).
 
 t_certcn_as_clientid_default_config_tls(_) ->
