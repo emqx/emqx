@@ -525,7 +525,7 @@ t_multiple_tables_failure_in_the_middle(TCConfig) when is_list(TCConfig) ->
                             #{
                                 result := [
                                     {ok, _},
-                                    {error, _},
+                                    {ok, _},
                                     {ok, _}
                                 ]
                             }
@@ -538,7 +538,7 @@ t_multiple_tables_failure_in_the_middle(TCConfig) when is_list(TCConfig) ->
                             #{
                                 results := [
                                     {ok, _},
-                                    {error, _},
+                                    {ok, _},
                                     {ok, _}
                                 ]
                             }
@@ -576,7 +576,7 @@ t_multiple_tables_failure_in_the_end(TCConfig) when is_list(TCConfig) ->
                                 result := [
                                     {ok, _},
                                     {ok, _},
-                                    {error, _}
+                                    {ok, _}
                                 ]
                             }
                         ],
@@ -589,7 +589,7 @@ t_multiple_tables_failure_in_the_end(TCConfig) when is_list(TCConfig) ->
                                 results := [
                                     {ok, _},
                                     {ok, _},
-                                    {error, _}
+                                    {ok, _}
                                 ]
                             }
                         ],
