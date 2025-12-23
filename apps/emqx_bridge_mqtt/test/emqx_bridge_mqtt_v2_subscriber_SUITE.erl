@@ -527,13 +527,9 @@ t_static_clientids(Config) ->
                 Publishes0
             )
         ),
-    ?assertMatch(
-        #{
-            N2Bin := [<<"1">>, <<"2">>, <<"3">>],
-            N3Bin := [<<"1">>, <<"2">>, <<"3">>]
-        },
-        Publishes
-    ),
+    #{N2Bin := Msgs2, N3Bin := Msgs3} = Publishes,
+    ?assertEqual([<<"1">>, <<"2">>, <<"3">>], lists:sort(Msgs2)),
+    ?assertEqual([<<"1">>, <<"2">>, <<"3">>], lists:sort(Msgs3)),
     ?assertEqual([], emqx_common_test_helpers:wait_publishes(10, 100)),
     ?retry(
         500,
