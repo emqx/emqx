@@ -13,6 +13,7 @@ Schema for EMQX_DS databases.
 -export([add_handler/0]).
 -export([
     db_config_messages/0,
+    db_config_retained_messages/0,
     db_config_sessions/0,
     db_config_timers/0,
     db_config_shared_subs/0,
@@ -81,6 +82,9 @@ add_handler() ->
 -spec db_config_messages() -> emqx_ds:create_db_opts().
 db_config_messages() ->
     db_config(?PERSISTENT_MESSAGE_DB).
+
+db_config_retained_messages() ->
+    db_config(?RETAINED_MESSAGES_DB).
 
 db_config_sessions() ->
     db_config(?DURABLE_SESSION_STATE_DB).
@@ -198,6 +202,13 @@ schema() ->
                 [builtin_raft_messages, builtin_local_messages],
                 ?IMPORTANCE_MEDIUM,
                 ?DESC(messages),
+                #{}
+            )},
+        {?RETAINED_MESSAGES_DB,
+            db_schema(
+                [builtin_raft_messages, builtin_local_messages],
+                ?IMPORTANCE_MEDIUM,
+                ?DESC(retained_messages),
                 #{}
             )},
         {?DURABLE_SESSION_STATE_DB,
