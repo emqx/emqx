@@ -1,0 +1,64 @@
+#!/sbin/openrc-run
+# Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+description="EMQX - The Most Scalable MQTT Broker"
+description_reload="Reload EMQX configuration"
+
+# Default values
+: ${EMQX_USER:=emqx}
+: ${EMQX_GROUP:=emqx}
+: ${EMQX_HOME:=/usr/lib/emqx}
+: ${EMQX_BIN:=/usr/bin/emqx}
+: ${EMQX_LOG_DIR:=/var/log/emqx}
+: ${EMQX_NODE_NAME:='emqx@127.0.0.1'}
+
+# Use supervise-daemon for better process supervision
+supervisor="supervise-daemon"
+command="${EMQX_BIN}"
+command_args="foreground"
+command_user="${EMQX_USER}:${EMQX_GROUP}"
+
+depend() {
+    need net
+    use dns logger
+    after firewall
+}
+
+start_pre() {
+    # Set environment variables for EMQX
+    export HOME="/var/lib/emqx"
+    export EMQX_DEFAULT_LOG_HANDLER=file
+
+    return 0
+}
+
+healthcheck() {
+    "${EMQX_BIN}" status
+}
+
+reload() {
+    ebegin "Reloading ${description} configuration"
+
+    # Check if EMQX is running using supervise-daemon
+    if ! service_started; then
+        eerror "EMQX is not running"
+        eend 1
+        return 1
+    fi
+
+    einfo "EMQX configuration can be updated via the dashboard or HTTP API"
+    einfo "Use 'rc-service emqx restart' to apply configuration changes that require restart"
+    eend 0
+}
