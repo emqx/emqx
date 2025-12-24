@@ -74,6 +74,11 @@ jobs:
         run: |
           DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy shelltestrunner
           scripts/shelltest/run_tests.sh
+      - name: Run pytest find-apps tests
+        run: |
+          pip install --upgrade pip
+          pip install pytest
+          pytest scripts/test/test_find_apps.py -v
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.6.25
@@ -110,8 +115,15 @@ jobs:
           ./scripts/elvis-check.sh $GITHUB_BASE_REF
       - name: Generate CT Matrix
         id: matrix
+        env:
+          BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          MATRIX="$(./scripts/find-apps.sh --ci)"
+          # Use BEFORE_REF for git diff to determine which apps changed
+          if [ -n "${BEFORE_REF}" ] && git rev-parse --verify "${BEFORE_REF}" >/dev/null 2>&1; then
+            MATRIX="$(./scripts/find-apps.sh --ci --base-ref "${BEFORE_REF}")"
+          else
+            MATRIX="$(./scripts/find-apps.sh --ci)"
+          fi
           echo "${MATRIX}" | jq
           CT_MATRIX="$(echo "${MATRIX}" | jq -c 'map({profile}) | unique')"
           CT_HOST="$(echo "${MATRIX}"   | jq -c 'map(select(.runner == "host"))')"

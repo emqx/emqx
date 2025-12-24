@@ -43,5 +43,26 @@ jobs:
           key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}
           restore-keys: |
             rebar3-dialyzer-plt-${{ matrix.profile }}-
+      - name: check deps.txt is up to date
+        run: |
+          # Only check for emqx-enterprise profile (where gen_deps.escript runs)
+          if [ "${{ matrix.profile }}" = 'emqx-enterprise' ]; then
+            # Make a copy of current deps.txt for comparison
+            cp deps.txt deps.txt.orig
+            # Run gen_deps.escript to regenerate deps.txt
+            ./scripts/gen_deps.escript
+            # Compare the original and newly generated deps.txt
+            if ! cmp -s deps.txt.orig deps.txt; then
+              echo "Error: deps.txt is out of date. Please run 'scripts/gen_deps.escript' and commit the changes."
+              echo "Diff:"
+              diff -u deps.txt.orig deps.txt || true
+              rm -f deps.txt.orig
+              exit 1
+            fi
+            echo "deps.txt is up to date"
+            rm -f deps.txt.orig
+          else
+            echo "Skipping deps.txt check for profile ${{ matrix.profile }}"
+          fi
       - name: run static checks
         run: make static_checks
