@@ -837,11 +837,15 @@ do_drop_db_v1(DB) ->
     [{emqx_ds:generation(), emqx_ds_storage_layer:stream() | emqx_ds_storage_layer_ttv:stream()}]
     | emqx_ds:error(storage_down).
 do_get_streams_v1(DB, Shard, TopicFilter, StartTime, MinGeneration) ->
-    ?IF_SHARD_READY(
-        DB,
-        Shard,
-        emqx_ds_storage_layer_ttv:get_streams({DB, Shard}, TopicFilter, StartTime, MinGeneration)
-    ).
+    maybe
+        true ?= emqx_ds_builtin_raft_shard:shard_info(DB, Shard, ready) orelse
+            ?err_rec(shard_unavailable),
+        {ok, Streams} ?=
+            emqx_ds_storage_layer_ttv:get_streams(
+                {DB, Shard}, TopicFilter, StartTime, MinGeneration
+            ),
+        Streams
+    end.
 
 -spec do_make_iterator_v1(
     emqx_ds:db(),
