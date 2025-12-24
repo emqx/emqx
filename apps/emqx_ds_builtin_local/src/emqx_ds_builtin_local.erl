@@ -328,19 +328,28 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
                 emqx_ds_builtin_local_meta:shards(DB)
         end,
     MinGeneration = maps:get(generation_min, Opts, 0),
-    Results = lists:flatmap(
-        fun(Shard) ->
-            Streams = emqx_ds_storage_layer_ttv:get_streams(
-                {DB, Shard}, TopicFilter, StartTime, MinGeneration
-            ),
-            [
-                {{Shard, Stream#'Stream'.generation}, Stream}
-             || Stream <- Streams
-            ]
+    lists:foldl(
+        fun(Shard, {AccStreams, AccErrors}) ->
+            case
+                emqx_ds_storage_layer_ttv:get_streams(
+                    {DB, Shard}, TopicFilter, StartTime, MinGeneration
+                )
+            of
+                {ok, Streams} ->
+                    L = [
+                        {{Shard, Stream#'Stream'.generation}, Stream}
+                     || Stream <- Streams
+                    ],
+                    {
+                        L ++ AccStreams, AccErrors
+                    };
+                {error, _, _} = Err ->
+                    {AccStreams, [{Shard, Err} | AccErrors]}
+            end
         end,
+        {[], []},
         Shards
-    ),
-    {Results, []}.
+    ).
 
 -spec make_iterator(
     emqx_ds:db(), emqx_ds:ds_specific_stream(), emqx_ds:topic_filter(), emqx_ds:time()
