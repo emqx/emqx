@@ -39,6 +39,7 @@ This is the entrypoint into the `builtin_raft` backend.
     suback/3,
     subscription_info/2,
 
+    slab_of_stream/2,
     stream_to_binary/2,
     binary_to_stream/2,
     iterator_to_binary/2,
@@ -562,6 +563,11 @@ subscription_info(DB, #sub_handle{shard = Shard, server = Server, ref = SubRef})
     end.
 
 %% Metadata API:
+-spec slab_of_stream(emqx_ds:db(), stream()) -> {ok, emqx_ds:slab()} | emqx_ds:error(_).
+slab_of_stream(_, #'Stream'{shard = Shard, generation = Gen}) ->
+    {ok, {Shard, Gen}};
+slab_of_stream(_, _) ->
+    ?err_unrec(badarg).
 
 -spec stream_to_binary(emqx_ds:db(), stream()) -> {ok, binary()} | {error, _}.
 stream_to_binary(_DB, Stream = #'Stream'{}) ->
