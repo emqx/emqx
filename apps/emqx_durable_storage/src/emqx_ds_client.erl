@@ -453,13 +453,19 @@ do_dispatch_message(
     CS = #cs{ref = Ref, retry_tref = TRef},
     HS
 ) when is_reference(TRef) ->
-    {#cs.retry, CS, HS};
+    {#cs.retry, CS#cs{retry_tref = undefined}, HS};
 do_dispatch_message(
     #new_stream_event{subref = Watch}, CS0 = #cs{new_streams_watches = Watches, subs = Subs}, HS
 ) ->
     case Watches of
         #{Watch := SubId} ->
             #{SubId := Sub} = Subs,
+            ?tp(debug, dscli_new_stream_event, #{
+                watch => Watch,
+                sub_id => SubId,
+                db => Sub#sub.db,
+                topic => Sub#sub.topic
+            }),
             CS = renew_streams_(CS0, SubId, Sub, HS),
             {#cs.plan, CS, HS};
         #{} ->
