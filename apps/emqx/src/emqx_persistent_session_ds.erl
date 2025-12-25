@@ -717,13 +717,6 @@ handle_info1(
     end.
 
 %%--------------------------------------------------------------------
-%% Shared subscription outgoing messages
-%%--------------------------------------------------------------------
-
-shared_sub_opts(SessionId) ->
-    #{session_id => SessionId}.
-
-%%--------------------------------------------------------------------
 %% Replay of old messages during session restart
 %%--------------------------------------------------------------------
 
@@ -1480,11 +1473,9 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     case Lifetime of
         new ->
             S1 = S0,
-            SharedSubS = emqx_persistent_session_ds_shared_subs:new(shared_sub_opts(ClientID));
+            SharedSubS = emqx_persistent_session_ds_shared_subs:new();
         _ ->
-            {ok, S1, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(
-                S0, shared_sub_opts(ClientID)
-            )
+            {ok, S1, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(S0)
     end,
     %% Create durable timers for clean-up and will messages:
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S1),
@@ -2014,9 +2005,11 @@ handle_onrel(
     Session = #{s := S0, shared_sub_s := SharedSubS0},
     _ClientInfo
 ) ->
-    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_streams_replay(S0, SharedSubS0, [
+    {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_stream_replay(
+        S0,
+        SharedSubS0,
         StreamKey
-    ]),
+    ),
     Session#{s := S, shared_sub_s := SharedSubS}.
 
 %%--------------------------------------------------------------------
@@ -2263,7 +2256,7 @@ packet_id_to_seqno_prop() ->
                         io:format(user, " *** CommittedSeqNo = ~p (-~p)~n",
                                   [CommittedSeqNo, ExpectedSeqNo - CommittedSeqNo]),
                         io:format(user, " *** PacketID = ~p~n", [PacketId]),
-                        io:format(user, " *** Derived = ~p -> ~p~n", [SeqNo])
+                        io:format(user, " *** Derived = ~p~n", [SeqNo])
                     end,
                     PacketId < 16#10000 andalso SeqNo =:= ExpectedSeqNo
                 )
