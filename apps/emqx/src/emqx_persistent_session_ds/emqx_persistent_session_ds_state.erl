@@ -36,7 +36,7 @@
     list_sessions/0
 ]).
 -export([is_dirty/1, checkpoint_ref/1]).
--export([get_created_at/1, set_created_at/2]).
+-export([get_id/1, get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
 -export([set_offline_info/2, get_offline_info/1]).
@@ -290,6 +290,10 @@ is_dirty(#{?collection_dirty := Dirty}) ->
 -spec checkpoint_ref(t()) -> undefined | reference().
 checkpoint_ref(#{?checkpoint_ref := Dirty}) ->
     Dirty.
+
+-spec get_id(t()) -> emqx_persistent_session_ds:id().
+get_id(#{?id := Id}) ->
+    Id.
 
 -spec get_created_at(t()) -> emqx_persistent_session_ds:timestamp() | undefined.
 get_created_at(Rec) ->
