@@ -14,21 +14,15 @@
 
 -module(emqx_persistent_session_ds_shared_subs).
 
--include("emqx_mqtt.hrl").
--include("logger.hrl").
--include("session_internals.hrl").
-
--include_lib("snabbkaffe/include/trace.hrl").
-
 -export([
-    new/1,
-    open/2,
+    new/0,
+    open/1,
 
     on_subscribe/3,
     on_unsubscribe/2,
     on_disconnect/2,
 
-    on_streams_replay/3,
+    on_stream_replay/3,
     on_streams_gc/2,
     on_info/3,
 
@@ -40,27 +34,59 @@
     cold_get_subscription/2
 ]).
 
--type agent_stream_progress() :: #{
-    stream := emqx_ds:stream(),
-    progress := progress(),
-    use_finished := boolean()
-}.
+-include("emqx_mqtt.hrl").
+-include("logger.hrl").
+-include("session_internals.hrl").
+-include("emqx_session.hrl").
+-include_lib("emqx/src/emqx_ds_shared_sub/emqx_ds_shared_sub_borrower.hrl").
+
+-include_lib("snabbkaffe/include/trace.hrl").
+
+%%--------------------------------------------------------------------
+%% Type declarations
+%%--------------------------------------------------------------------
 
 -type progress() ::
     #{
         iterator := emqx_ds:iterator()
     }.
 
--type t() :: #{
-    agent := emqx_ds_shared_sub_agent:t()
-}.
--type share_topic_filter() :: emqx_types:share().
--type opts() :: #{
-    session_id := emqx_persistent_session_ds:id()
+-type agent_stream_progress() :: #{
+    stream := emqx_ds:stream(),
+    progress := progress(),
+    use_finished := boolean()
 }.
 
--define(rank_x, <<"0">>).
--define(rank_y, 0).
+-record(borrower_entry, {
+    borrower_id :: emqx_ds_shared_sub_proto:borrower_id(),
+    topic_filter :: emqx_types:share(),
+    borrower :: emqx_ds_shared_sub_borrower:t()
+}).
+
+-type borrower_entry() :: #borrower_entry{}.
+
+-type t() :: #{
+    borrowers := #{
+        emqx_persistent_session_ds:subscription_id() => borrower_entry()
+    }
+}.
+
+-type stream_lease() :: #{
+    type := lease,
+    subscription_id := emqx_persistent_session_ds:subscription_id(),
+    share_topic_filter := emqx_types:share(),
+    stream := emqx_ds:stream(),
+    progress := emqx_persistent_session_ds_shared_subs:progress()
+}.
+
+-type stream_revoke() :: #{
+    type := revoke,
+    subscription_id := emqx_persistent_session_ds:subscription_id(),
+    share_topic_filter := emqx_types:share(),
+    stream := emqx_ds:stream()
+}.
+
+-type stream_lease_event() :: stream_lease() | stream_revoke().
 
 -export_type([
     progress/0,
@@ -71,23 +97,16 @@
 %% API
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% new
-
--spec new(opts()) -> t().
-new(Opts) ->
+-spec new() -> t().
+new() ->
     #{
-        agent => emqx_ds_shared_sub_agent:new(
-            agent_opts(Opts)
-        )
+        borrowers => #{}
     }.
 
-%%--------------------------------------------------------------------
-%% open
-
--spec open(emqx_persistent_session_ds_state:t(), opts()) ->
+-spec open(emqx_persistent_session_ds_state:t()) ->
     {ok, emqx_persistent_session_ds_state:t(), t()}.
-open(S0, Opts) ->
+open(S0) ->
+    SessionId = emqx_persistent_session_ds_state:get_id(S0),
     ToOpen = fold_shared_subs(
         fun(#share{} = ShareTopicFilter, Subscription, ToOpenAcc) ->
             [{ShareTopicFilter, Subscription} | ToOpenAcc]
@@ -95,18 +114,25 @@ open(S0, Opts) ->
         [],
         S0
     ),
-    Agent = emqx_ds_shared_sub_agent:open(
-        ToOpen, agent_opts(Opts)
+    SharedSubS = lists:foldl(
+        fun({ShareTopicFilter, #{id := SubscriptionId}}, SharedSubSAcc) ->
+            ?tp(debug, ds_shared_sub_agent_open, #{
+                subscription_id => SubscriptionId,
+                topic_filter => ShareTopicFilter
+            }),
+            add_borrower(SessionId, SharedSubSAcc, SubscriptionId, ShareTopicFilter)
+        end,
+        new(),
+        ToOpen
     ),
-    SharedSubS = #{agent => Agent},
-    S1 = terminate_streams(S0),
-    {ok, S1, SharedSubS}.
+    S = terminate_streams(S0),
+    {ok, S, SharedSubS}.
 
 %%--------------------------------------------------------------------
 %% on_subscribe
 
 -spec on_subscribe(
-    share_topic_filter(),
+    emqx_types:share(),
     emqx_types:subopts(),
     emqx_persistent_session_ds:session()
 ) -> {ok, emqx_persistent_session_ds:session()} | {error, emqx_types:reason_code()}.
@@ -131,15 +157,11 @@ on_subscribe(Subscription, ShareTopicFilter, SubOpts, Session) ->
 create_new_subscription(ShareTopicFilter, SubOpts, Session0) ->
     #{
         s := S0,
-        props := #{upgrade_qos := UpgradeQoS},
-        shared_sub_s := #{agent := Agent}
+        props := #{upgrade_qos := UpgradeQoS}
     } = Session0,
-    case
-        emqx_ds_shared_sub_agent:pre_subscribe(
-            Agent, ShareTopicFilter, SubOpts
-        )
-    of
-        ok ->
+    #share{group = Group, topic = Topic} = ShareTopicFilter,
+    case emqx_ds_shared_sub:declare(Group, Topic, #{}) of
+        {ok, _} ->
             %% NOTE
             %% Module that manages durable shared subscription / durable queue state is
             %% also responsible for propagating corresponding routing updates.
@@ -172,11 +194,17 @@ create_new_subscription(ShareTopicFilter, SubOpts, Session0) ->
             Session = ds_client_subscribe(
                 ShareTopicFilter,
                 SubId,
-                agent_subscribe(SubId, ShareTopicFilter, SubOpts, Session1)
+                borrower_subscribe(SubId, ShareTopicFilter, SubOpts, Session1)
             ),
             {ok, Session};
-        {error, _} = Error ->
-            Error
+        {error, Class, Reason} ->
+            ?tp(warning, ds_shared_sub_agent_queue_declare_failed, #{
+                group => Group,
+                topic => Topic,
+                class => Class,
+                reason => Reason
+            }),
+            {error, ?RC_UNSPECIFIED_ERROR}
     end.
 
 update_subscription(
@@ -253,19 +281,17 @@ ds_client_unsubscribe(SubId, Session0 = #{dscli := DSCli0}) ->
     {ok, DSCli, Session} = emqx_ds_client:unsubscribe(DSCli0, SubId, Session0),
     Session#{dscli := DSCli}.
 
--spec agent_subscribe(
+-spec borrower_subscribe(
     emqx_persistent_session_ds:subscription_id(),
     emqx_types:share(),
     emqx_persistent_session_ds_subs:subopts(),
     emqx_persistent_session_ds:session()
 ) ->
     emqx_persistent_session_ds:session().
-agent_subscribe(SubId, ShareTopicFilter, SubOpts, Session = #{shared_sub_s := SharedSubS0}) ->
-    #{agent := Agent0} = SharedSubS0,
-    Agent = emqx_ds_shared_sub_agent:on_subscribe(
-        Agent0, SubId, ShareTopicFilter, SubOpts
-    ),
-    SharedSubS = SharedSubS0#{agent := Agent},
+borrower_subscribe(
+    SubId, ShareTopicFilter, _SubOpts, Session = #{id := SessionId, shared_sub_s := SharedSubS0}
+) ->
+    SharedSubS = add_borrower(SessionId, SharedSubS0, SubId, ShareTopicFilter),
     Session#{shared_sub_s := SharedSubS}.
 
 -spec agent_unsubscribe(
@@ -273,17 +299,22 @@ agent_subscribe(SubId, ShareTopicFilter, SubOpts, Session = #{shared_sub_s := Sh
     emqx_persistent_session_ds:session()
 ) ->
     emqx_persistent_session_ds:session().
-agent_unsubscribe(SubId, Session = #{shared_sub_s := SharedSubS0}) ->
-    #{agent := Agent0} = SharedSubS0,
-    Agent = emqx_ds_shared_sub_agent:on_unsubscribe(Agent0, SubId),
-    SharedSubS = SharedSubS0#{agent := Agent},
+agent_unsubscribe(SubId, Session = #{id := SessionId, shared_sub_s := SharedSubS0}) ->
+    {[], SharedSubS} = with_borrower(
+        SessionId,
+        SharedSubS0,
+        SubId,
+        fun(_BorrowerId, Borrower) ->
+            emqx_ds_shared_sub_borrower:on_unsubscribe(Borrower)
+        end
+    ),
     Session#{shared_sub_s := SharedSubS}.
 
 %%--------------------------------------------------------------------
 %% on_unsubscribe
 
 -spec on_unsubscribe(
-    share_topic_filter(),
+    emqx_types:share(),
     emqx_persistent_session_ds:session()
 ) ->
     {ok, emqx_persistent_session_ds:session(), t(), emqx_persistent_session_ds:subscription()}
@@ -310,18 +341,14 @@ on_unsubscribe(ShareTopicFilter, Session0) ->
 %%--------------------------------------------------------------------
 %% on_streams_replay
 
--spec on_streams_replay(emqx_persistent_session_ds_state:t(), t(), [
+-spec on_stream_replay(
+    emqx_persistent_session_ds_state:t(),
+    t(),
     emqx_persistent_session_ds:stream_key()
-]) ->
+) ->
     {emqx_persistent_session_ds_state:t(), t()}.
-on_streams_replay(S, SharedS, []) ->
-    {S, SharedS};
-on_streams_replay(S, #{agent := Agent} = SharedS, StreamKeys) ->
-    %% No-op if there are no shared subscriptions
-    case emqx_ds_shared_sub_agent:has_subscriptions(Agent) of
-        false -> {S, SharedS};
-        true -> report_progress(S, SharedS, StreamKeys, _NeedUnacked = false)
-    end.
+on_stream_replay(S, SharedS, StreamKey) ->
+    report_progress(S, SharedS, [StreamKey], _NeedUnacked = false).
 
 %%--------------------------------------------------------------------
 %% on_streams_replay gc
@@ -335,13 +362,27 @@ on_streams_gc(S, SharedS) ->
 %% on_streams_replay/on_streams_gc internal functions
 
 report_progress(
-    S, #{agent := Agent0} = SharedS, StreamKeySelector, NeedUnacked
+    S, SharedSubsS0, StreamKeySelector, NeedUnacked
 ) ->
-    Progresses = stream_progresses(S, SharedS, StreamKeySelector, NeedUnacked),
-    Agent = emqx_ds_shared_sub_agent:on_stream_progress(
-        Agent0, Progresses
+    SessionId = emqx_persistent_session_ds_state:get_id(S),
+    StreamProgresses = stream_progresses(S, SharedSubsS0, StreamKeySelector, NeedUnacked),
+    SharedSubsS = maps:fold(
+        fun(SubscriptionId, Progresses, Acc0) ->
+            {[], Acc} =
+                with_borrower(
+                    SessionId,
+                    Acc0,
+                    SubscriptionId,
+                    fun(_BorrowerId, Borrower) ->
+                        emqx_ds_shared_sub_borrower:on_stream_progress(Borrower, Progresses)
+                    end
+                ),
+            Acc
+        end,
+        SharedSubsS0,
+        StreamProgresses
     ),
-    {S, SharedS#{agent => Agent}}.
+    {S, SharedSubsS}.
 
 stream_progresses(S, SharedS, StreamKeySelector, NeedUnacked) ->
     StreamStates = select_stream_states(S, SharedS, StreamKeySelector),
@@ -399,10 +440,10 @@ stream_progress(
         fully_acked => FullyAcked
     }.
 
-select_stream_states(S, #{agent := Agent} = _SharedS, all) ->
+select_stream_states(S, SharedSubsS, all) ->
     emqx_persistent_session_ds_state:fold_streams(
         fun({SubId, _Stream} = Key, SRS, Acc0) ->
-            case emqx_ds_shared_sub_agent:has_subscription(Agent, SubId) of
+            case has_subscription(SharedSubsS, SubId) of
                 true ->
                     [{Key, SRS} | Acc0];
                 false ->
@@ -412,10 +453,10 @@ select_stream_states(S, #{agent := Agent} = _SharedS, all) ->
         [],
         S
     );
-select_stream_states(S, #{agent := Agent} = _SharedS, StreamKeys) ->
+select_stream_states(S, SharedSubsS, StreamKeys) ->
     lists:filtermap(
         fun({SubId, _} = Key) ->
-            case emqx_ds_shared_sub_agent:has_subscription(Agent, SubId) of
+            case has_subscription(SharedSubsS, SubId) of
                 true ->
                     case emqx_persistent_session_ds_state:get_stream(Key, S) of
                         undefined -> false;
@@ -428,28 +469,47 @@ select_stream_states(S, #{agent := Agent} = _SharedS, StreamKeys) ->
         StreamKeys
     ).
 
-%%--------------------------------------------------------------------
-%% on_disconnect
+on_disconnect(S0, #{borrowers := Borrowers} = SharedSubS0) ->
+    S = terminate_streams(S0),
+    Progresses = stream_progresses(S, SharedSubS0, all, _NeedUnacked = true),
+    SharedSubS = lists:foldl(
+        fun(SubscriptionId, Acc) ->
+            Progress = maps:get(SubscriptionId, Progresses, []),
+            disconnect_borrower(Acc, SubscriptionId, Progress)
+        end,
+        SharedSubS0,
+        maps:keys(Borrowers)
+    ),
+    {S, SharedSubS}.
 
-on_disconnect(S0, #{agent := Agent0} = SharedSubS0) ->
-    S1 = terminate_streams(S0),
-    Progresses = stream_progresses(S1, SharedSubS0, all, _NeedUnacked = true),
-    Agent1 = emqx_ds_shared_sub_agent:on_disconnect(Agent0, Progresses),
-    SharedSubS1 = SharedSubS0#{agent => Agent1},
-    {S1, SharedSubS1}.
-
-%%--------------------------------------------------------------------
-%% on_disconnect helpers
-
+%% Mark all shared SRSs as unsubscribed.
+-spec terminate_streams(emqx_persistent_session_ds_state:t()) ->
+    emqx_persistent_session_ds_state:t().
 terminate_streams(S0) ->
     fold_shared_stream_states(
-        fun(_ShareTopicFilter, SubId, Stream, Srs0, S) ->
-            Srs = Srs0#srs{unsubscribed = true},
-            emqx_persistent_session_ds_state:put_stream({SubId, Stream}, Srs, S)
+        fun(_ShareTopicFilter, SubId, Stream, SRS0, S) ->
+            SRS = SRS0#srs{unsubscribed = true},
+            emqx_persistent_session_ds_state:put_stream({SubId, Stream}, SRS, S)
         end,
         S0,
         S0
     ).
+
+-spec terminate_stream(
+    emqx_persistent_session_ds:subscription_id(),
+    emqx_ds:stream(),
+    emqx_persistent_session_ds_state:t()
+) -> emqx_persistent_session_ds_state:t().
+terminate_stream(SubId, Stream, S) ->
+    maybe
+        SRS0 = emqx_persistent_session_ds_state:get_stream({SubId, Stream}, S),
+        #srs{} ?= SRS0,
+        SRS = SRS0#srs{unsubscribed = true},
+        emqx_persistent_session_ds_state:put_stream({SubId, Stream}, SRS, S)
+    else
+        undefined ->
+            S
+    end.
 
 %%--------------------------------------------------------------------
 %% on_info
@@ -460,16 +520,40 @@ terminate_streams(S0) ->
     emqx_types:clientinfo()
 ) ->
     emqx_persistent_session_ds:session().
-on_info(?shared_sub_message(SubscriptionId, Msg), Session0, _ClientInfo) ->
-    #{shared_sub_s := #{agent := Agent0} = SharedSubS0} = Session0,
-    {StreamLeaseEvents, Agent} = emqx_ds_shared_sub_agent:on_info(
-        Agent0, SubscriptionId, Msg
+on_info(
+    ?shared_sub_message(
+        SubscriptionId,
+        #message_to_borrower{borrower_id = BorrowerId, message = Message}
     ),
-    SharedSubS = SharedSubS0#{agent => Agent},
+    Session0,
+    _ClientInfo
+) ->
+    #{id := SessionId, shared_sub_s := SharedSubS0} = Session0,
+    ?tp(debug, ds_shared_sub_message_to_borrower, #{
+        session_id => SessionId,
+        subscription_id => SubscriptionId,
+        borrower_id => BorrowerId,
+        message => Message
+    }),
+    {StreamLeaseEvents, SharedSubS} = with_borrower(
+        SessionId,
+        SharedSubS0,
+        SubscriptionId,
+        fun(KnownBorrowerId, Borrower) ->
+            %% We may have recreated invalidated Borrower, resulting in a new BorrowerId.
+            %% Ignore the messages to the old Borrower.
+            case KnownBorrowerId of
+                BorrowerId ->
+                    emqx_ds_shared_sub_borrower:on_info(Borrower, Message);
+                _ ->
+                    {ok, [], Borrower}
+            end
+        end
+    ),
     Session = Session0#{shared_sub_s := SharedSubS},
     handle_events(Session, StreamLeaseEvents).
 
--spec handle_events(emqx_persistent_session_ds:session(), [emqx_ds_shared_sub_agent:event()]) ->
+-spec handle_events(emqx_persistent_session_ds:session(), [stream_lease_event()]) ->
     emqx_persistent_session_ds:session().
 handle_events(Session, []) ->
     Session;
@@ -492,7 +576,7 @@ handle_events(Session0, StreamLeaseEvents) ->
     {S, SharedSubS} = on_streams_gc(S0, SharedSubS0),
     Session#{s := S, shared_sub_s := SharedSubS}.
 
--spec handle_lease_stream(emqx_ds_shared_sub_agent:event(), emqx_persistent_session_ds:session()) ->
+-spec handle_lease_stream(stream_lease_event(), emqx_persistent_session_ds:session()) ->
     emqx_persistent_session_ds:session().
 handle_lease_stream(
     #{share_topic_filter := ShareTopicFilter} = Event,
@@ -507,7 +591,7 @@ handle_lease_stream(
     end.
 
 -spec add_stream_to_session(
-    emqx_ds_shared_sub_agent:stream_lease(),
+    stream_lease(),
     emqx_persistent_session_ds_subs:subscription(),
     emqx_persistent_session_ds:session()
 ) ->
@@ -527,12 +611,13 @@ add_stream_to_session(
             _SRS ->
                 false
         end,
+    {ok, {Shard, Generation}} = emqx_ds:slab_of_stream(?PERSISTENT_MESSAGE_DB, Stream),
     case NeedCreateStream of
         true ->
             NewSRS =
                 #srs{
-                    rank_x = ?rank_x,
-                    rank_y = ?rank_y,
+                    rank_x = Shard,
+                    rank_y = Generation,
                     it_begin = Iterator,
                     it_end = Iterator,
                     sub_state_id = SStateId
@@ -548,18 +633,19 @@ add_stream_to_session(
     end.
 
 -spec handle_revoke_stream(
-    emqx_ds_shared_sub_agent:stream_revoke(), emqx_persistent_session_ds:session()
+    stream_revoke(), emqx_persistent_session_ds:session()
 ) -> emqx_persistent_session_ds:session().
 handle_revoke_stream(
     #{subscription_id := SubId, stream := Stream},
-    Session0 = #{dscli := DSCli0, buffer := Buf0}
+    Session0 = #{s := S0, dscli := DSCli0, buffer := Buf0}
 ) ->
+    S = terminate_stream(SubId, Stream, S0),
     Buf = emqx_persistent_session_ds_buffer:drop_stream({SubId, Stream}, Buf0),
     {DSCli, Session} = emqx_ds_client:detach_iterator(
         SubId,
         Stream,
         DSCli0,
-        Session0#{buffer := Buf}
+        Session0#{buffer := Buf, s := S}
     ),
     Session#{dscli := DSCli}.
 
@@ -577,7 +663,7 @@ to_map(S, _SharedSubS) ->
 %%--------------------------------------------------------------------
 %% cold_get_subscription
 
--spec cold_get_subscription(emqx_persistent_session_ds:id(), share_topic_filter()) ->
+-spec cold_get_subscription(emqx_persistent_session_ds:id(), emqx_types:share()) ->
     emqx_persistent_session_ds:subscription() | undefined.
 cold_get_subscription(SessionId, ShareTopicFilter) ->
     maybe
@@ -641,9 +727,6 @@ fold_shared_stream_states(Fun, Acc, S) ->
         S
     ).
 
-agent_opts(#{session_id := SessionId}) ->
-    #{session_id => SessionId}.
-
 is_use_finished(#srs{unsubscribed = Unsubscribed}) ->
     Unsubscribed.
 
@@ -658,3 +741,143 @@ is_stream_fully_acked(_, _, #srs{
     true;
 is_stream_fully_acked(Comm1, Comm2, #srs{last_seqno_qos1 = S1, last_seqno_qos2 = S2}) ->
     (Comm1 >= S1) andalso (Comm2 >= S2).
+
+-spec add_borrower(
+    emqx_persistent_session_ds:id(),
+    t(),
+    emqx_persistent_session_ds:subscription_id(),
+    emqx_types:share()
+) -> t().
+add_borrower(
+    SessionId,
+    #{borrowers := Borrowers0} = SharedSubS,
+    SubscriptionId,
+    ShareTopicFilter
+) ->
+    ?tp(debug, ds_shared_sub_agent_add_borrower, #{
+        session_id => SessionId,
+        share_topic_filter => ShareTopicFilter
+    }),
+    BorrowerId = make_borrower_id(SessionId, SubscriptionId),
+    Borrower = emqx_ds_shared_sub_borrower:new(#{
+        session_id => SessionId,
+        share_topic_filter => ShareTopicFilter,
+        id => BorrowerId,
+        send_after => send_to_borrower_after(BorrowerId)
+    }),
+    BorrowerEntry = #borrower_entry{
+        borrower_id = BorrowerId,
+        topic_filter = ShareTopicFilter,
+        borrower = Borrower
+    },
+    Borrowers = Borrowers0#{
+        SubscriptionId => BorrowerEntry
+    },
+    SharedSubS#{borrowers := Borrowers}.
+
+-spec disconnect_borrower(t(), emqx_persistent_session_ds:subscription_id(), progress()) -> t().
+disconnect_borrower(SharedSubS, SubscriptionId, Progress) ->
+    case SharedSubS of
+        #{
+            borrowers := #{
+                SubscriptionId := #borrower_entry{
+                    borrower = Borrower, borrower_id = BorrowerId
+                }
+            } = Borrowers
+        } ->
+            ok = destroy_borrower_id(BorrowerId),
+            %% The whole session is shutting down, no need to handle the result.
+            _ = emqx_ds_shared_sub_borrower:on_disconnect(Borrower, Progress),
+            SharedSubS#{borrowers => maps:remove(SubscriptionId, Borrowers)};
+        _ ->
+            SharedSubS
+    end.
+
+-spec has_subscription(t(), emqx_persistent_session_ds:subscription_id()) -> boolean().
+has_subscription(#{borrowers := Borrowers}, SubscriptionId) ->
+    maps:is_key(SubscriptionId, Borrowers).
+
+-spec with_borrower(
+    emqx_persistent_session_ds:id(),
+    t(),
+    emqx_persistent_session_ds:subscription_id(),
+    Fun
+) ->
+    {[stream_lease_event()], t()}
+when
+    Fun :: fun((BorrowerId, Borrower) -> {ok, Events, Borrower} | {stop, Events} | {reset, Events}),
+    Events :: [emqx_ds_shared_sub_borrower:to_agent_events()],
+    BorrowerId :: emqx_ds_shared_sub_proto:borrower_id(),
+    Borrower :: emqx_ds_shared_sub_borrower:t().
+with_borrower(SessionId, SharedSubS0, SubscriptionId, Fun) ->
+    #{borrowers := Borrowers} = SharedSubS0,
+    case Borrowers of
+        #{SubscriptionId := Entry0} ->
+            #borrower_entry{
+                topic_filter = ShareTopicFilter,
+                borrower = Borrower0,
+                borrower_id = BorrowerId
+            } = Entry0,
+            case Fun(BorrowerId, Borrower0) of
+                {ok, RawEvents, Borrower} ->
+                    Entry = Entry0#borrower_entry{borrower = Borrower},
+                    SharedSubS = SharedSubS0#{borrowers := Borrowers#{SubscriptionId := Entry}};
+                {stop, RawEvents} ->
+                    SharedSubS = SharedSubS0#{borrowers := maps:remove(SubscriptionId, Borrowers)};
+                {reset, RawEvents} ->
+                    ok = destroy_borrower_id(BorrowerId),
+                    SharedSubS = add_borrower(
+                        SessionId, SharedSubS0, SubscriptionId, ShareTopicFilter
+                    )
+            end,
+            Events = enrich_events(RawEvents, SubscriptionId, ShareTopicFilter),
+            {Events, SharedSubS};
+        _ ->
+            ?tp(warning, ds_shared_sub_borrower_not_found, #{
+                session_id => SessionId,
+                subscription_id => SubscriptionId
+            }),
+            {[], SharedSubS0}
+    end.
+
+-spec enrich_events(
+    [emqx_ds_shared_sub_borrower:to_agent_events()],
+    emqx_persistent_session_ds:subscription_id(),
+    emqx_types:share()
+) -> [stream_lease_event()].
+enrich_events(Events, SubscriptionId, ShareTopicFilter) ->
+    [
+        Event#{subscription_id => SubscriptionId, share_topic_filter => ShareTopicFilter}
+     || Event <- Events
+    ].
+
+make_borrower_id(Id, SubscriptionId) ->
+    emqx_ds_shared_sub_proto:borrower_id(Id, SubscriptionId, alias()).
+
+destroy_borrower_id(BorrowerId) ->
+    Alias = emqx_ds_shared_sub_proto:borrower_pidref(BorrowerId),
+    _ = unalias(Alias),
+    ok.
+
+send_to_borrower_after(BorrowerId) ->
+    SubscriptionId = emqx_ds_shared_sub_proto:borrower_subscription_id(BorrowerId),
+    fun(Time, Msg) ->
+        send_after(
+            Time,
+            SubscriptionId,
+            self(),
+            #message_to_borrower{
+                borrower_id = BorrowerId,
+                message = Msg
+            }
+        )
+    end.
+
+-spec send_after(
+    non_neg_integer(),
+    emqx_persistent_session_ds:subscription_id(),
+    pid() | reference(),
+    term()
+) -> reference().
+send_after(Time, SubscriptionId, Dest, Msg) ->
+    erlang:send_after(Time, Dest, ?session_message(?shared_sub_message(SubscriptionId, Msg))).

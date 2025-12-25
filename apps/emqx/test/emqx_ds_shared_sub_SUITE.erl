@@ -49,6 +49,7 @@ init_per_suite(Config) ->
                 realloc_interval = 100
                 leader_timeout = 100
                 checkpoint_interval = 10
+                revocation_timeout = 1000
               }
             }
             """}
@@ -802,6 +803,7 @@ emqtt_connect_sub(ClientId) ->
     emqtt_connect_sub(ClientId, []).
 
 emqtt_connect_sub(ClientId, Options) ->
+    ?tp(test_connect_client, #{clientid => ClientId}),
     {ok, C} = emqtt:start_link(
         [
             {clientid, ClientId},
