@@ -38,7 +38,7 @@
 -include("logger.hrl").
 -include("session_internals.hrl").
 -include("emqx_session.hrl").
--include_lib("emqx/src/emqx_ds_shared_sub/emqx_ds_shared_sub_borrower.hrl").
+-include("emqx_ds_shared_sub_borrower.hrl").
 
 -include_lib("snabbkaffe/include/trace.hrl").
 
