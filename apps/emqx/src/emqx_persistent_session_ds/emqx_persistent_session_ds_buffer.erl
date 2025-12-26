@@ -126,7 +126,7 @@ pop_batch(StreamId, Buf = #buffer{messages = MsgQs0}) ->
     end.
 
 -doc """
-Get number of buffered DS replies in a given stream.
+Does buffer have DS replies from a given stream?
 """.
 -spec has_data(emqx_persistent_session_ds:stream_key(), t()) -> boolean().
 has_data(StreamId, #buffer{messages = MsgQs}) ->
