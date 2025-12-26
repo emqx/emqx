@@ -222,12 +222,13 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: install pytest
+      - name: install pytest and run pytest boot tests
         run: |
+          python3 -m venv venv
+          source venv/bin/activate
           pip install --upgrade pip
           pip install pytest
-      - name: run pytest boot tests
-        run: pytest scripts/test/test_emqx_boot.py -v
+          pytest scripts/test/test_emqx_boot.py -v
       - name: print test output
         if: failure()
         run: |
