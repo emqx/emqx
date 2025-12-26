@@ -82,9 +82,11 @@ jobs:
           scripts/shelltest/run_tests.sh
       - name: Run pytest find-apps tests
         run: |
-          pip install --upgrade pip
-          pip install pytest
-          pytest scripts/test/test_find_apps.py -v
+          apt-get update && apt-get install -y python3-venv
+          python3 -m venv venv
+          venv/bin/pip install --upgrade pip
+          venv/bin/pip install pytest
+          venv/bin/pytest scripts/test/test_find_apps.py -v
       - name: Check workflow files
         env:
           ACTIONLINT_VSN: 1.6.25
