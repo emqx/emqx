@@ -64,6 +64,7 @@ jobs:
           BEFORE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
           AFTER_REF: ${{ github.sha }}
         run: |
+          DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy python3-venv
           pip install --require-hashes -r .ci/gitlint.requirements.txt
           gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
       - name: Run shellcheck
