@@ -25,6 +25,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include("session_internals.hrl").
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").
@@ -49,7 +50,8 @@
     pubrec_queue :: iqueue(),
     pubcomp_queue :: iqueue(),
     %% Tally counters:
-    n_inflight = 0 :: non_neg_integer(),
+    n_inflight_qos1 = 0 :: non_neg_integer(),
+    n_inflight_qos2 = 0 :: non_neg_integer(),
     n_qos0 = 0 :: non_neg_integer(),
     n_qos1 = 0 :: non_neg_integer(),
     n_qos2 = 0 :: non_neg_integer(),
@@ -117,7 +119,8 @@ on_release(SN1, SN2, Action, Rec = #ds_inflight{rel_queue = RelQ0}) ->
 pop(Rec0) ->
     #ds_inflight{
         receive_maximum = ReceiveMaximum,
-        n_inflight = NInflight,
+        n_inflight_qos1 = NInflightQoS1,
+        n_inflight_qos2 = NInflightQoS2,
         queue = Q0,
         puback_queue = QAck,
         pubrec_queue = QRec,
@@ -126,7 +129,18 @@ pop(Rec0) ->
         n_qos1 = NQos1,
         n_qos2 = NQos2
     } = Rec0,
-    case NInflight < ReceiveMaximum andalso queue:out(Q0) of
+    case
+        (NInflightQoS1 + NInflightQoS2) < ReceiveMaximum andalso
+            %% Make sure number of inflight messages in each track is
+            %% less than the epoch size (see theorem
+            %% `seqno_reconstruct' in emqx_sessds_proofs.v). Note:
+            %% QoS1 track skips over sequence numbers producing
+            %% PacketId = 0, we account for that by reducing the
+            %% allowed number of inflight messages in this track by 1:
+            NInflightQoS1 < ?EPOCH_SIZE - 1 andalso
+            NInflightQoS2 < ?EPOCH_SIZE andalso
+            queue:out(Q0)
+    of
         {{value, Payload}, Q} ->
             Rec =
                 case Payload of
@@ -147,14 +161,14 @@ pop(Rec0) ->
                                 Rec0#ds_inflight{
                                     queue = Q,
                                     n_qos1 = NQos1 - 1,
-                                    n_inflight = NInflight + 1,
+                                    n_inflight_qos1 = NInflightQoS1 + 1,
                                     puback_queue = ipush(SeqNo, QAck)
                                 };
                             ?QOS_2 ->
                                 Rec0#ds_inflight{
                                     queue = Q,
                                     n_qos2 = NQos2 - 1,
-                                    n_inflight = NInflight + 1,
+                                    n_inflight_qos2 = NInflightQoS2 + 1,
                                     pubrec_queue = ipush(SeqNo, QRec),
                                     pubcomp_queue = ipush(SeqNo, QComp)
                                 }
@@ -176,20 +190,20 @@ n_buffered(all, #ds_inflight{n_qos0 = NQos0, n_qos1 = NQos1, n_qos2 = NQos2}) ->
     NQos0 + NQos1 + NQos2.
 
 -spec n_inflight(t()) -> non_neg_integer().
-n_inflight(#ds_inflight{n_inflight = NInflight}) ->
-    NInflight.
+n_inflight(#ds_inflight{n_inflight_qos1 = N1, n_inflight_qos2 = N2}) ->
+    N1 + N2.
 
 -spec puback(emqx_persistent_session_ds:seqno(), t()) ->
     {ok, [_Action], t()} | {error, Expected}
 when
     Expected :: emqx_persistent_session_ds:seqno() | undefined.
-puback(SeqNo, Rec = #ds_inflight{puback_queue = Q0, n_inflight = N, rel_queue = RelQ0}) ->
+puback(SeqNo, Rec = #ds_inflight{puback_queue = Q0, n_inflight_qos1 = N, rel_queue = RelQ0}) ->
     case ipop(Q0) of
         {{value, SeqNo}, Q} ->
             {Actions, RelQ} = emqx_sessds_seqno_rel_q:pop(?QOS_1, SeqNo, RelQ0),
             {ok, Actions, Rec#ds_inflight{
                 puback_queue = Q,
-                n_inflight = max(0, N - 1),
+                n_inflight_qos1 = max(0, N - 1),
                 rel_queue = RelQ
             }};
         {{value, Expected}, _} ->
@@ -202,13 +216,13 @@ puback(SeqNo, Rec = #ds_inflight{puback_queue = Q0, n_inflight = N, rel_queue = 
     {ok, [_Action], t()} | {error, Expected}
 when
     Expected :: emqx_persistent_session_ds:seqno() | undefined.
-pubcomp(SeqNo, Rec = #ds_inflight{pubcomp_queue = Q0, n_inflight = N, rel_queue = RelQ0}) ->
+pubcomp(SeqNo, Rec = #ds_inflight{pubcomp_queue = Q0, n_inflight_qos2 = N, rel_queue = RelQ0}) ->
     case ipop(Q0) of
         {{value, SeqNo}, Q} ->
             {Actions, RelQ} = emqx_sessds_seqno_rel_q:pop(?QOS_2, SeqNo, RelQ0),
             {ok, Actions, Rec#ds_inflight{
                 pubcomp_queue = Q,
-                n_inflight = max(0, N - 1),
+                n_inflight_qos2 = max(0, N - 1),
                 rel_queue = RelQ
             }};
         {{value, Expected}, _} ->

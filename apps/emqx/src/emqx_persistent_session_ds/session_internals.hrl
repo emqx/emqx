@@ -8,7 +8,13 @@
 -include("emqx_durable_session_metadata.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
--define(DS_MRIA_SHARD, emqx_ds_session_shard).
+%% Constants for PacketId <-> SeqNo translation
+-define(EPOCH_BITS, 15).
+-define(PACKET_ID_MASK, 2#111_1111_1111_1111).
+
+%% Epoch size = `16#10000 div 2' since we generate different sets of
+%% packet IDs for QoS1 and QoS2:
+-define(EPOCH_SIZE, 16#8000).
 
 %%%%% Session sequence numbers:
 
