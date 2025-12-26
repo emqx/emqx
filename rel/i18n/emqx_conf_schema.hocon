@@ -257,7 +257,9 @@ desc_cluster_etcd.label:
 """Cluster Etcd"""
 
 cluster_name.desc:
-"""Human-friendly name of the EMQX cluster."""
+"""Human-friendly name of the EMQX cluster.
+Note: Cluster name should only contain characters in `a-z`, `A-Z`, `0-9`, `_`, `-`, and the first character must be `a-z` or `A-Z`,
+otherwise you will not be able to configure it as a peer cluster for Cluster Link."""
 
 cluster_name.label:
 """Cluster Name"""
