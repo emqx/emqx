@@ -351,22 +351,22 @@ dispatch_message(Message, CS0, HS0) ->
 Called by the host when it's done processing all data from a stream
 that ended with `end_of_stream`.
 """.
--spec complete_stream(t(), emqx_ds:sub_ref(), HostState) -> {t(), HostState}.
-complete_stream(CS0, SRef, HS0) ->
-    {CS, HS} = complete_stream_(CS0, SRef, HS0),
-    execute(#cs.plan, CS, HS).
+-spec complete_stream(t(), sub_id(), emqx_ds:slab() | emqx_ds:db(), emqx_ds:stream(), HostState) ->
+    {t(), HostState}.
+complete_stream(CS0, SubId, Slab, Stream, HS0) when is_tuple(Slab) ->
+    {CS, HS} = complete_stream_by_subid_(CS0, SubId, Slab, Stream, HS0),
+    execute(#cs.plan, CS, HS);
+complete_stream(CS, SubId, DB, Stream, HS) ->
+    {ok, Slab} = emqx_ds:slab_of_stream(DB, Stream),
+    complete_stream(CS, SubId, Slab, Stream, HS).
 
 -doc """
-This function is similar to `complete_stream/3`,
-but it's meant for clients that doesn't subscribe to the streams,
-and therefore don't have the subscription reference.
-
-In fact, this function must NOT be used when subscription exists, as it may leak.
+This function is similar to `complete_stream/5`,
+but the stream is identified implicitly by DS sub ref.
 """.
--spec complete_stream(t(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), HostState) ->
-    {t(), HostState}.
-complete_stream(CS0, SubId, Slab, Stream, HS0) ->
-    {CS, HS} = complete_unsubscribed_stream_(CS0, SubId, Slab, Stream, HS0),
+-spec complete_stream(t(), emqx_ds:sub_ref(), HostState) -> {t(), HostState}.
+complete_stream(CS0, SRef, HS0) ->
+    {CS, HS} = complete_stream_by_subref_(CS0, SRef, HS0),
     execute(#cs.plan, CS, HS).
 
 -doc """
@@ -420,33 +420,45 @@ inspect(CS = #cs{streams = Streams, subs = Subs, ds_subs = DSSubs}) ->
 %%================================================================================
 
 -doc """
-Complete stream with lookup by subscription ID.
+Complete stream identified by the DS sub reference.
 """.
--spec complete_stream_(t(), emqx_ds:sub_ref(), HostState) -> {t(), HostState}.
-complete_stream_(CS0 = #cs{ds_subs = DSSubs}, SRef, HS) ->
+-spec complete_stream_by_subref_(t(), emqx_ds:sub_ref(), HostState) -> {t(), HostState}.
+complete_stream_by_subref_(CS0 = #cs{ds_subs = DSSubs}, SRef, HS) ->
     case DSSubs of
         #{SRef := DSSub} ->
-            #ds_sub{id = SubId, db = DB, handle = Handle, slab = {Shard, _}, stream = Stream} =
-                DSSub,
-            with_stream_cache(
-                SubId,
-                Shard,
-                CS0,
-                HS,
-                fun(Cache0 = #stream_cache{active = Active, replayed = Replayed}) ->
-                    %% 1. Unsubscribe
-                    CS1 = plan(#eff_ds_unsub{ref = SRef, db = DB, handle = Handle}, CS0),
-                    %% 2. Remove stream from active and move it to replayed:
-                    Cache = Cache0#stream_cache{
-                        replayed = Replayed#{Stream => true},
-                        active = maps:remove(Stream, Active)
-                    },
-                    maybe_advance_generation(SubId, Shard, Cache, CS1, HS)
-                end
-            );
+            #ds_sub{id = SubId, db = DB, handle = Handle, slab = Slab, stream = Stream} = DSSub,
+            CS = plan(#eff_ds_unsub{ref = SRef, db = DB, handle = Handle}, CS0),
+            complete_unsubscribed_stream_(CS, SubId, Slab, Stream, HS);
         #{} ->
             {CS0, HS}
     end.
+
+-doc """
+Complete stream identified by client sub id and DS attributes.
+""".
+-spec complete_stream_by_subid_(t(), sub_id(), emqx_ds:slab(), emqx_ds:stream(), HostState) ->
+    {t(), HostState}.
+complete_stream_by_subid_(CS0 = #cs{ds_subs = DSSubs}, SubId, Slab, Stream, HS) ->
+    CS =
+        try
+            maps:foreach(
+                fun(SRef, DSSub) ->
+                    case DSSub of
+                        #ds_sub{id = SubId, slab = Slab, stream = Stream, db = DB, handle = Handle} ->
+                            throw({found, DB, Handle, SRef});
+                        _ ->
+                            ok
+                    end
+                end,
+                DSSubs
+            ),
+            %% Not found
+            CS0
+        catch
+            {found, DB, Handle, SRef} ->
+                plan(#eff_ds_unsub{ref = SRef, db = DB, handle = Handle}, CS0)
+        end,
+    complete_unsubscribed_stream_(CS, SubId, Slab, Stream, HS).
 
 -doc """
 Complete a stream that doesn't have a DS subscription.
