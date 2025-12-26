@@ -1994,8 +1994,6 @@ handle_onrel(
     #srs{rank_x = Shard, rank_y = Generation} = emqx_persistent_session_ds_state:get_stream(
         Key, S0
     ),
-    %% FIXME: currently DS subscription will leak when this function
-    %% is called. Fix it in ds_client
     {DSCli, Session} = emqx_ds_client:complete_stream(
         DSCli0, SubId, {Shard, Generation}, Stream, Session0
     ),
