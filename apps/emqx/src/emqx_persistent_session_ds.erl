@@ -1661,13 +1661,6 @@ update_seqno(
 %% generation
 %% --------------------------------------------------------------------
 
--define(EPOCH_BITS, 15).
--define(PACKET_ID_MASK, 2#111_1111_1111_1111).
-
-%% Epoch size = `16#10000 div 2' since we generate different sets of
-%% packet IDs for QoS1 and QoS2:
--define(EPOCH_SIZE, 16#8000).
-
 %% Reconstruct session counter by adding most significant bits from
 %% the current counter to the packet id:
 -spec packet_id_to_seqno(emqx_types:packet_id(), seqno()) ->
