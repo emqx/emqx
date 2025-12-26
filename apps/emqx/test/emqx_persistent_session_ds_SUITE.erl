@@ -1420,6 +1420,94 @@ t_ds_resubscribe(_Config) ->
         [fun ?MODULE:no_abnormal_worker_terminate/1]
     ).
 
+%% This testcase verifies that the session doesn't let sequence
+%% numbers wrap around epoch size
+t_flow_control_no_wrap_around(init, Config) ->
+    Opts = #{
+        emqx_opts =>
+            #{
+                <<"mqtt">> => #{<<"max_inflight">> => 65_535},
+                <<"durable_sessions">> => #{<<"batch_size">> => 1_000_000},
+                <<"force_shutdown">> => #{<<"enable">> => false}
+            }
+    },
+    start_local(?FUNCTION_NAME, Config, Opts).
+t_flow_control_no_wrap_around(_Config) ->
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    Topic = <<"t1">>,
+    Nmsgs = 65_534,
+    EpochSize = 16#8000,
+    %% Setup:
+    Pub = start_client(#{
+        clientid => mk_clientid(?FUNCTION_NAME, pub),
+        properties => #{'Receive-Maximum' => Nmsgs}
+    }),
+    {ok, _} = emqtt:connect(Pub),
+    %%   Start subscriber:
+    Sub = start_client(#{
+        clientid => ClientId,
+        auto_ack => never,
+        properties => #{'Session-Expiry-Interval' => 1000, 'Receive-Maximum' => Nmsgs}
+    }),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, _} = emqtt:subscribe(Sub, Topic, ?QOS_1),
+    %% Workaround for the current stream blocking implementation: put
+    %% client into state where the stream is blocked:
+    {ok, _} = emqtt:publish(Pub, Topic, <<"0">>, ?QOS_1),
+    [#{packet_id := PacketId0}] = emqx_common_test_helpers:wait_publishes(1, 5_000),
+    %% Now the rest of the messages will be buffered, and then flushed
+    %% to inflight in one large batch once PacketId0 is acked:
+    ?tp(notice, "test is publishing messages", #{}),
+    _ = [
+        {ok, _} = emqtt:publish(Pub, Topic, integer_to_binary(I), ?QOS_1)
+     || I <- lists:seq(1, Nmsgs)
+    ],
+    %% Acking first message will trigger receiving of the large batch:
+    ok = emqtt:puback(Sub, PacketId0),
+    ct:sleep(1000),
+    %% Receive messages without ack. Flow control should pause
+    %% transmission at EpochSize - 2 to avoid packet id
+    %% overflow:
+    ?tp(notice, "test is receiving messages", #{}),
+    Received1 = emqx_common_test_helpers:wait_publishes(EpochSize - 2, 5_000),
+    ct:sleep(1000),
+    NReceived1 = length(Received1),
+    ?assertEqual(
+        EpochSize - 2,
+        NReceived1,
+        emqx_persistent_session_ds:print_session(ClientId)
+    ),
+    %% Ack and receive more messages:
+    _ = lists:foldl(
+        fun(#{packet_id := PID, payload := Payload}, Acc) ->
+            ok = emqtt:puback(Sub, PID),
+            MsgId = binary_to_integer(Payload),
+            ?assertEqual(Acc, MsgId),
+            Acc + 1
+        end,
+        1,
+        Received1
+    ),
+    Received2 = emqx_common_test_helpers:wait_publishes(EpochSize - 2, 5_000),
+    ct:sleep(1000),
+    NReceived2 = NReceived1 + length(Received2),
+    ?assertEqual(
+        EpochSize - 2,
+        NReceived2 - NReceived1,
+        emqx_persistent_session_ds:print_session(ClientId)
+    ),
+    %% Ack and receive the rest of the messages:
+    _ = lists:foldl(
+        fun(#{packet_id := PID, payload := Payload}, Acc) ->
+            ok = emqtt:puback(Sub, PID),
+            MsgId = binary_to_integer(Payload),
+            ?assertEqual(Acc, MsgId),
+            Acc + 1
+        end,
+        NReceived1 + 1,
+        Received2
+    ).
+
 %% Trace specifications:
 
 %% @doc Verify that sessions didn't terminate abnormally. Note: it's
@@ -1465,11 +1553,14 @@ start_cluster(TestCase, Config0, ClusterOpts) ->
         end,
     [{cleanup, Cleanup} | Config].
 
-start_local(TestCase, Config0) ->
+start_local(TC, Config) ->
+    start_local(TC, Config, #{}).
+
+start_local(TestCase, Config0, UserOpts) ->
     DurableSessionsOpts = #{
         <<"enable">> => true
     },
-    Opts = #{
+    DefaultOpts = #{
         durable_storage_opts =>
             #{
                 <<"messages">> =>
@@ -1488,7 +1579,11 @@ start_local(TestCase, Config0) ->
         start_emqx_conf => false,
         work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
     },
-    Config = emqx_common_test_helpers:start_apps_ds(Config0, _ExtraApps = [], Opts),
+    Config = emqx_common_test_helpers:start_apps_ds(
+        Config0,
+        _ExtraApps = [],
+        emqx_utils_maps:deep_merge(DefaultOpts, UserOpts)
+    ),
     Cleanup =
         fun() ->
             ct:pal("Stopping apps ~p", [Config]),
