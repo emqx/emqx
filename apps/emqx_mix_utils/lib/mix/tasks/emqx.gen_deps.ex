@@ -57,23 +57,15 @@ defmodule Mix.Tasks.Emqx.GenDeps do
   end
 
   defp build_deps_map(emqx_apps) do
-    # Set emqx and emqx_conf to be used by all apps
-    common_deps = %{
-      :emqx => emqx_apps,
-      :emqx_conf => emqx_apps,
-      :emqx_mix_utils => emqx_apps
-    }
-
-    transitive_deps = Mix.Tasks.Emqx.GenDeps.DB.transitive_dependents()
-
-    # Final step: Convert sets to sorted lists and format output
+    # Convert sets to sorted lists and format output
     # Format: app1: app2 app3 (where app2 and app3 transitively use app1, space-separated)
     # If UsedBySet + {App} = AllApps, output "all" instead
+transitive_deps = Mix.Tasks.Emqx.GenDeps.DB.transitive_dependents()
     emqx_apps
     |> Enum.sort()
     |> Enum.reduce([], fn app, acc ->
       # Check if UsedBySet + {App} = AllApps
-      used_by = common_deps[app] || transitive_deps[app] || []
+      used_by = transitive_deps[app] || []
       cond do
         emqx_apps -- [app | used_by] == [] ->
           ["#{app}: all" | acc]
@@ -102,7 +94,7 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     Map of App => Set of apps that call it
     """
     def transitive_dependents() do
-      {:ok, uses} = query("closure strict (AE + IE + MDE) | EMQX || EMQX")
+      {:ok, uses} = query("closure strict (AE + IE + MDE + CommE) | EMQX || EMQX")
 
       for {app_used_by, app_uses} <- uses,
           app_used_by != app_uses,
@@ -143,6 +135,7 @@ defmodule Mix.Tasks.Emqx.GenDeps do
           build_xref()
           define_include_edges()
           define_mixdeps_edges()
+define_common_edges()
           query("EMQX")
       end
     end
@@ -182,6 +175,15 @@ defmodule Mix.Tasks.Emqx.GenDeps do
       end
 
       query("MDE := #{as_set(mix_deps)}")
+    end
+
+    defp define_common_edges() do
+      apps = Mix.Dep.Umbrella.cached()
+      app_names = apps |> Enum.map(fn app -> app.app end)
+      # Set emqx and emqx_conf to be used by all apps
+      common = [:emqx, :emqx_conf]
+      edges = for app <- common, dep <- app_names, do: {dep, app}
+      query("CommE := #{as_set(edges)}")
     end
 
     defp as_set(elems) do
