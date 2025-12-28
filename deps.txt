@@ -2,7 +2,6 @@ emqx: all
 emqx_audit: all
 emqx_auth: all
 emqx_auth_cinfo: none
-emqx_auth_ext: none
 emqx_auth_http: all
 emqx_auth_jwt: none
 emqx_auth_kerberos: none
@@ -12,7 +11,7 @@ emqx_auth_mongodb: none
 emqx_auth_mysql: none
 emqx_auth_postgresql: none
 emqx_auth_redis: none
-emqx_auto_subscribe: emqx_telemetry
+emqx_auto_subscribe: all
 emqx_bridge: all
 emqx_bridge_azure_blob_storage: none
 emqx_bridge_azure_event_hub: all
@@ -21,6 +20,7 @@ emqx_bridge_clickhouse: none
 emqx_bridge_confluent: none
 emqx_bridge_couchbase: none
 emqx_bridge_datalayers: none
+emqx_bridge_disk_log: none
 emqx_bridge_dynamo: none
 emqx_bridge_es: none
 emqx_bridge_gcp_pubsub: emqx_enterprise
@@ -65,7 +65,7 @@ emqx_ds_shared_sub: all
 emqx_durable_storage: all
 emqx_enterprise: none
 emqx_eviction_agent: emqx_node_rebalance
-emqx_exhook: emqx_telemetry
+emqx_exhook: all
 emqx_ft: none
 emqx_gateway: all
 emqx_gateway_coap: emqx_gateway_lwm2m
@@ -83,8 +83,9 @@ emqx_machine: none
 emqx_management: all
 emqx_message_transformation: emqx_prometheus
 emqx_mix_utils: none
-emqx_modules: emqx_node_rebalance emqx_telemetry
+emqx_modules: all
 emqx_mongodb: emqx_auth_mongodb emqx_bridge_mongodb
+emqx_mt: none
 emqx_mysql: emqx_auth_mysql emqx_bridge_mysql
 emqx_node_rebalance: none
 emqx_opentelemetry: all
@@ -95,11 +96,11 @@ emqx_prometheus: none
 emqx_psk: none
 emqx_redis: emqx_auth_redis emqx_bridge_redis
 emqx_resource: all
-emqx_retainer: emqx_gcp_device emqx_node_rebalance emqx_telemetry
+emqx_retainer: all
 emqx_rule_engine: all
 emqx_s3: emqx_bridge_s3 emqx_ft
 emqx_schema_registry: emqx_message_transformation emqx_prometheus emqx_schema_validation
 emqx_schema_validation: emqx_prometheus
 emqx_slow_subs: none
-emqx_telemetry: none
+emqx_telemetry: all
 emqx_utils: all
