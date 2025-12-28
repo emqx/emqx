@@ -76,8 +76,9 @@ jobs:
           AFTER_REF: ${{ github.sha }}
         run: |
           DEBIAN_FRONTEND=noninteractive apt-get update -qy && apt-get install -qy python3-venv
-          pip install --require-hashes -r .ci/gitlint.requirements.txt
-          gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
+          python3 -m venv venv
+          venv/bin/pip install --require-hashes -r .ci/gitlint.requirements.txt
+          venv/bin/gitlint --commits $BEFORE_REF..$AFTER_REF --config .github/workflows/.gitlint
       - name: Check changelog file name pattern
         run: ./scripts/check-changes-filename-pattern.sh
       - name: Run shellcheck
