@@ -26,6 +26,33 @@ def project_root():
     return Path(__file__).parent.parent.parent
 
 
+@pytest.fixture(scope="module", autouse=True)
+def check_git_status(project_root):
+    """Check that git status is clean before running tests."""
+    os.chdir(project_root)
+
+    # Check for uncommitted changes (excluding untracked files)
+    status_result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+
+    # Filter out untracked files (lines starting with ??)
+    tracked_changes = [
+        line for line in status_result.stdout.strip().split('\n')
+        if line and not line.startswith('??')
+    ]
+
+    if tracked_changes:
+        changes_output = '\n'.join(tracked_changes)
+        pytest.fail(
+            f"Git working directory has uncommitted tracked changes:\n{changes_output}\n"
+            "Please commit or stash your changes before running these tests."
+        )
+
+
 @pytest.fixture(scope="module")
 def original_head(project_root):
     """Save and return the original HEAD commit."""
@@ -303,7 +330,7 @@ def make_change(project_root: Path, app_path: Path) -> None:
 
 def test_change_app_used_by_others(project_root: Path, original_head: str):
     """Test 1: Change an app that is used by other apps."""
-    test_app = "emqx_auto_subscribe"
+    test_app = "emqx_message_transformation"
     test_app_path = project_root / "apps" / test_app
 
     if not test_app_path.exists():
@@ -311,12 +338,12 @@ def test_change_app_used_by_others(project_root: Path, original_head: str):
 
     make_change(project_root, test_app_path)
 
-    # According to deps.txt, emqx_auto_subscribe is used by emqx_telemetry
+    # According to deps.txt, emqx_message_transformation is used by emqx_prometheus
     # So we expect both apps to be in the output
     assert_find_apps(
         project_root,
         f"Change {test_app}",
-        [f"apps/{test_app}", "apps/emqx_telemetry"],
+        [f"apps/{test_app}", "apps/emqx_prometheus"],
         original_head
     )
 
@@ -370,7 +397,7 @@ def test_change_app_used_by_none(project_root: Path, original_head: str):
 def test_change_multiple_apps(project_root: Path, original_head: str):
     """Test 4: Change multiple apps."""
     test_app1 = "emqx_auth_cinfo"
-    test_app2 = "emqx_auth_ext"
+    test_app2 = "emqx_auth_jwt"
     test_app_path1 = project_root / "apps" / test_app1
     test_app_path2 = project_root / "apps" / test_app2
 
