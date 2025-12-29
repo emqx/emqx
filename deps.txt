@@ -1,4 +1,5 @@
 emqx: all
+emqx_ai_completion: none
 emqx_audit: all
 emqx_auth: all
 emqx_auth_cinfo: none
@@ -21,6 +22,7 @@ emqx_bridge_confluent: none
 emqx_bridge_couchbase: none
 emqx_bridge_datalayers: none
 emqx_bridge_disk_log: none
+emqx_bridge_doris: none
 emqx_bridge_dynamo: none
 emqx_bridge_es: none
 emqx_bridge_gcp_pubsub: emqx_enterprise
@@ -34,7 +36,7 @@ emqx_bridge_kinesis: none
 emqx_bridge_matrix: none
 emqx_bridge_mongodb: none
 emqx_bridge_mqtt: emqx_cluster_link
-emqx_bridge_mysql: none
+emqx_bridge_mysql: emqx_bridge_doris
 emqx_bridge_opents: none
 emqx_bridge_oracle: all
 emqx_bridge_pgsql: emqx_bridge_matrix emqx_bridge_timescale
@@ -43,6 +45,7 @@ emqx_bridge_rabbitmq: none
 emqx_bridge_redis: none
 emqx_bridge_rocketmq: none
 emqx_bridge_s3: none
+emqx_bridge_s3tables: none
 emqx_bridge_snowflake: none
 emqx_bridge_sqlserver: none
 emqx_bridge_syskeeper: none
@@ -52,7 +55,7 @@ emqx_bridge_timescale: none
 emqx_cluster_link: none
 emqx_conf: all
 emqx_connector: all
-emqx_connector_aggregator: emqx_bridge_azure_blob_storage emqx_bridge_s3 emqx_bridge_snowflake
+emqx_connector_aggregator: emqx_bridge_azure_blob_storage emqx_bridge_s3 emqx_bridge_s3tables emqx_bridge_snowflake
 emqx_connector_jwt: emqx_bridge_gcp_pubsub emqx_bridge_snowflake emqx_enterprise
 emqx_ctl: all
 emqx_dashboard: all
@@ -74,6 +77,7 @@ emqx_gateway_gbt32960: none
 emqx_gateway_jt808: none
 emqx_gateway_lwm2m: none
 emqx_gateway_mqttsn: none
+emqx_gateway_nats: none
 emqx_gateway_ocpp: none
 emqx_gateway_stomp: none
 emqx_gcp_device: none
@@ -86,7 +90,7 @@ emqx_mix_utils: none
 emqx_modules: all
 emqx_mongodb: emqx_auth_mongodb emqx_bridge_mongodb
 emqx_mt: none
-emqx_mysql: emqx_auth_mysql emqx_bridge_mysql
+emqx_mysql: emqx_auth_mysql emqx_bridge_doris emqx_bridge_mysql
 emqx_node_rebalance: none
 emqx_opentelemetry: all
 emqx_oracle: all
@@ -98,8 +102,8 @@ emqx_redis: emqx_auth_redis emqx_bridge_redis
 emqx_resource: all
 emqx_retainer: all
 emqx_rule_engine: all
-emqx_s3: emqx_bridge_s3 emqx_ft
-emqx_schema_registry: emqx_message_transformation emqx_prometheus emqx_schema_validation
+emqx_s3: emqx_bridge_s3 emqx_bridge_s3tables emqx_ft
+emqx_schema_registry: all
 emqx_schema_validation: emqx_prometheus
 emqx_slow_subs: none
 emqx_telemetry: all
