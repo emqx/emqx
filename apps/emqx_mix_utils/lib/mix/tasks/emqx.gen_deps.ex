@@ -15,7 +15,8 @@ defmodule Mix.Tasks.Emqx.GenDeps do
   Special handling:
   - emqx and emqx_conf are set to be used by all other apps
   - Self-dependencies are excluded
-  - Transitive closure is computed: if app1 uses app2, and app2 uses app3, then app1 transitively uses app3
+  - Transitive closure is computed: if app1 uses app2, and app2 uses app3, then app1 transitively
+    uses app3
 
   Output format (deps.txt):
     app_name: user1 user2 user3
@@ -61,11 +62,13 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     # Format: app1: app2 app3 (where app2 and app3 transitively use app1, space-separated)
     # If UsedBySet + {App} = AllApps, output "all" instead
     transitive_deps = Mix.Tasks.Emqx.GenDeps.DB.transitive_dependents()
+
     emqx_apps
     |> Enum.sort()
     |> Enum.reduce([], fn app, acc ->
       # Check if UsedBySet + {App} = AllApps
       used_by = transitive_deps[app] || []
+
       cond do
         emqx_apps -- [app | used_by] == [] ->
           ["#{app}: all" | acc]
@@ -170,9 +173,11 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     defp define_mixdeps_edges() do
       apps = Mix.Dep.Umbrella.cached()
       app_names = apps |> Enum.map(fn app -> app.app end) |> MapSet.new()
-      mix_deps = for app <- apps, dep <- app.deps, MapSet.member?(app_names, dep.app) do
-        {app.app, dep.app}
-      end
+
+      mix_deps =
+        for app <- apps, dep <- app.deps, MapSet.member?(app_names, dep.app) do
+          {app.app, dep.app}
+        end
 
       query("MDE := #{as_set(mix_deps)}")
     end
@@ -208,14 +213,15 @@ defmodule Mix.Tasks.Emqx.GenDeps do
 
     defp get_include_dependencies(app) do
       app_path = app.opts[:dest]
-      pattern = Path.join([app_path, "src", "*.erl"])
-      erl_files = Path.wildcard(pattern)
+      erl_files = Path.wildcard(Path.join([app_path, "src", "**", "*.erl"]))
+      hrl_files = Path.wildcard(Path.join([app_path, "{include,src}", "**", "*.hrl"]))
 
-      Enum.reduce(erl_files, [], fn erl_path, acc ->
-        case find_include_directives(erl_path, %{app: app, stack: []}) do
+      Enum.reduce(erl_files ++ hrl_files, [], fn file_path, acc ->
+        case find_include_directives(file_path, %{app: app, file: file_path}) do
           {:ok, deps, warn} ->
             Enum.each(warn, &Mix.shell().info/1)
             deps ++ acc
+
           {:error, error} ->
             Mix.shell().error("#{app.app}: #{inspect(error)}")
             acc
@@ -224,8 +230,7 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     end
 
     def find_include_directives(file_path, st) do
-      with {:ok, st} <- push_scan(file_path, st),
-           {:ok, res} <-
+      with {:ok, res} <-
              File.open(file_path, [:read], fn fd ->
                scan_include_erl_forms(fd, 1, [], [], st)
              end) do
@@ -237,12 +242,8 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     defp scan_include_erl_forms(fd, loc, acc, acc_warn, st) do
       case :io.scan_erl_form(fd, "", loc, []) do
         {:ok, tokens, loc} ->
-          case scan_include_tokens(tokens, st) do
-            {:ok, found, warn} ->
-              scan_include_erl_forms(fd, loc, found ++ acc, warn ++ acc_warn, st)
-
-            error ->
-              error
+          with {:ok, found, warn} <- scan_include_tokens(tokens, st) do
+            scan_include_erl_forms(fd, loc, found ++ acc, warn ++ acc_warn, st)
           end
 
         {:eof, _} ->
@@ -254,10 +255,9 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     end
 
     # Adopted from `epp.erl'
-    defp scan_include_tokens([{:-, _lh}, {:atom, li, attr} | rest] = tokens, st)
-         when attr == :include or attr == :include_lib do
+    defp scan_include_tokens([{:-, _lh}, {:atom, li, :include_lib} | rest] = tokens, st) do
       case coalesce_strings(rest) do
-        [{:"(", _}, {:string, af, name}, {:")", _}, {:dot, _}] when attr == :include_lib ->
+        [{:"(", _}, {:string, af, name}, {:")", _}, {:dot, _}] ->
           with true <- length(name) > 0 and is_integer(hd(name)),
                # Extract app name from path (first component)
                [app_name, _ | _] <- String.split(to_string(name), "/", parts: 2) do
@@ -267,18 +267,8 @@ defmodule Mix.Tasks.Emqx.GenDeps do
               {:ok, [], [warn("malformed `include_lib' path: #{name}", af, st)]}
           end
 
-        [{:"(", _}, {:string, af, name}, {:")", _}, {:dot, _}] when attr == :include ->
-          case find_include_file(name, st) do
-            {:ok, hrl_path} ->
-              find_include_directives(hrl_path, st)
-
-            {:error, reason} ->
-              reason = inspect(reason)
-              {:ok, [], [warn("cannot find include file `#{name}': #{reason}", af, st)]}
-            end
-
-          _ ->
-          {:ok, [], [warn("unrecognized `#{attr}' attribute: #{inspect(tokens)}", li, st)]}
+        _ ->
+          {:ok, [], [warn("unrecognized `include_lib' attribute: #{inspect(tokens)}", li, st)]}
       end
     end
 
@@ -286,31 +276,7 @@ defmodule Mix.Tasks.Emqx.GenDeps do
       {:ok, [], []}
     end
 
-    defp find_include_file(name, %{app: app, stack: [path_top | _]}) do
-      app_path = app.opts[:dest]
-      candidates = [
-        Path.dirname(path_top),
-        app_path,
-        Path.join(app_path, "src"),
-        Path.join(app_path, "include")
-      ]
-
-      Enum.reduce_while(candidates, {:error, :enoent}, fn path, _ ->
-        hrl_path = Path.join([path, name])
-
-        case File.lstat(hrl_path) do
-          {:ok, %File.Stat{type: :regular}} ->
-            {:halt, {:ok, hrl_path}}
-
-          {:ok, _} ->
-            {:cont, {:error, :badfile}}
-
-          error ->
-            {:cont, error}
-        end
-      end)
-    end
-
+    # Adopted from `epp.erl'
     defp coalesce_strings([{:string, a, s} | tokens]), do: coalesce_strings(tokens, a, [s])
     defp coalesce_strings([t | tokens]), do: [t | coalesce_strings(tokens)]
     defp coalesce_strings([]), do: []
@@ -323,29 +289,9 @@ defmodule Mix.Tasks.Emqx.GenDeps do
       [{:string, a, List.flatten(Enum.reverse(s))} | coalesce_strings(tokens)]
     end
 
-    defp push_scan(path, %{stack: stack} = st) when length(stack) < 8 do
-      {:ok, %{st | stack: [path | stack]}}
-    end
-
-    defp push_scan(_path, %{stack: stack}) do
-      {:error, {"too many nested includes", stack}}
-    end
-
-    defp warn(message, loc, %{app: app, stack: stack}) do
+    defp warn(message, loc, %{app: app, file: path}) do
       app_path = app.opts[:dest]
-      path_initial = List.last(stack)
-      path_top = hd(stack)
-      file_initial = Path.relative_to(path_initial, app_path)
-      file_top = Path.relative_to(path_top, Path.dirname(path_initial))
-
-      full_location =
-        if path_initial == path_top do
-          "#{file_top}:#{loc}"
-        else
-          "#{file_initial} @ #{file_top}:#{loc}"
-        end
-
-      "#{app.app}: #{full_location}: #{message}"
+      "#{app.app}: #{Path.relative_to(path, app_path)}:#{loc}: #{message}"
     end
   end
 end
