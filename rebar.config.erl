@@ -335,9 +335,7 @@ relx(Vsn, RelType, PkgType, Edition) ->
         {vm_args, false},
         {release, {emqx, Vsn}, relx_apps(RelType, Edition)},
         {tar_hooks, [
-            "scripts/rel/cleanup-release-package.sh",
-            "scripts/rel/macos-sign-binaries.sh",
-            "scripts/rel/macos-notarize-package.sh"
+            "scripts/rel/cleanup-release-package.sh"
         ]},
         {overlay, relx_overlay(RelType, Edition)},
         {overlay_vars_values,
