@@ -225,13 +225,11 @@ jobs:
         run: |
           apt-get update && apt-get install -y python3-venv
           python3 -m venv venv
-          source venv/bin/activate
-          pip install --upgrade pip
-          pip install pytest
+          venv/bin/pip install --upgrade pip
+          venv/bin/pip install pytest
       - name: run pytest boot tests
         run: |
-          source venv/bin/activate
-          pytest scripts/test/test_emqx_boot.py -v
+          venv/bin/pytest scripts/test/test_emqx_boot.py -v
       - name: print test output
         if: failure()
         run: |
