@@ -6,8 +6,7 @@
 
 -feature(maybe_expr, enable).
 
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("emqx_authz.hrl").
+-include("emqx_authz.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([
