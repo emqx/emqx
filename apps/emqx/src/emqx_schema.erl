@@ -16,7 +16,7 @@
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("logger.hrl").
+-include("logger.hrl").
 
 -define(KB, 1024).
 -define(MB, 1024 * ?KB).
