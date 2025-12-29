@@ -303,29 +303,33 @@
 
 %% @doc "msgid()" Func
 msgid() ->
+    %% The input parameter are passed from
+    %% emqx_rule_runtime:select_and_transform/3; L313 or L306 in emqx_rule_runtime.erl
     fun
-        (#{id := MsgId}) -> MsgId;
-        (_) -> undefined
+        ([_, #{id := MsgId}]) ->
+            MsgId;
+        (_) ->
+            undefined
     end.
 
 %% @doc "qos()" Func
 qos() ->
     fun
-        (#{qos := QoS}) -> QoS;
+        ([_, #{qos := QoS}]) -> QoS;
         (_) -> undefined
     end.
 
 %% @doc "topic()" Func
 topic() ->
     fun
-        (#{topic := Topic}) -> Topic;
+        ([_, #{topic := Topic}]) -> Topic;
         (_) -> undefined
     end.
 
 %% @doc "topic(N)" Func
 topic(I) when is_integer(I) ->
     fun
-        (#{topic := Topic}) ->
+        ([_, #{topic := Topic}]) ->
             lists:nth(I, emqx_topic:tokens(Topic));
         (_) ->
             undefined
@@ -334,28 +338,28 @@ topic(I) when is_integer(I) ->
 %% @doc "flags()" Func
 flags() ->
     fun
-        (#{flags := Flags}) -> Flags;
+        ([_, #{flags := Flags}]) -> Flags;
         (_) -> #{}
     end.
 
 %% @doc "flags(Name)" Func
 flag(Name) ->
     fun
-        (#{flags := Flags}) -> emqx_rule_maps:nested_get({var, Name}, Flags);
+        ([_, #{flags := Flags}]) -> emqx_rule_maps:nested_get({var, Name}, Flags);
         (_) -> undefined
     end.
 
 %% @doc "clientid()" Func
 clientid() ->
     fun
-        (#{from := ClientId}) -> ClientId;
+        ([_, #{clientid := ClientId}]) -> ClientId;
         (_) -> undefined
     end.
 
 %% @doc "username()" Func
 username() ->
     fun
-        (#{username := Username}) -> Username;
+        ([_, #{username := Username}]) -> Username;
         (_) -> undefined
     end.
 
@@ -365,20 +369,26 @@ clientip() ->
 
 peerhost() ->
     fun
-        (#{peerhost := Addr}) -> Addr;
+        ([_, #{peerhost := Addr}]) -> Addr;
         (_) -> undefined
     end.
 
 payload() ->
     fun
-        (#{payload := Payload}) -> Payload;
+        ([_, #{payload := Payload}]) -> Payload;
         (_) -> undefined
     end.
 
 payload(Path) ->
     fun
-        (#{payload := Payload}) when erlang:is_map(Payload) ->
-            emqx_rule_maps:nested_get(map_path(Path), Payload);
+        ([_, #{payload := Payload}]) when erlang:is_binary(Payload) ->
+            try
+                Json = emqx_utils_json:decode(Payload),
+                emqx_rule_maps:nested_get(map_path(Path), Json)
+            catch
+                error:badarg ->
+                    undefined
+            end;
         (_) ->
             undefined
     end.
