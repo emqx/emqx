@@ -71,18 +71,18 @@ defmodule Mix.Tasks.Emqx.GenDeps do
 
       cond do
         emqx_apps -- [app | used_by] == [] ->
-          ["#{app}: all" | acc]
+          ["#{app}: all\n" | acc]
 
         used_by == [] ->
-          ["#{app}: none" | acc]
+          ["#{app}: none\n" | acc]
 
         true ->
           used_by_str = used_by |> Enum.sort() |> Enum.map(&to_string/1) |> Enum.join(" ")
-          ["#{app}: #{used_by_str}" | acc]
+          ["#{app}: #{used_by_str}\n" | acc]
       end
     end)
     |> Enum.reverse()
-    |> Enum.join("\n")
+    |> Enum.join()
   end
 
   defmodule DB do
