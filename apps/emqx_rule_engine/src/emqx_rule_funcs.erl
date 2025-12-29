@@ -383,8 +383,8 @@ payload(Path) ->
     fun
         ([_, #{payload := Payload}]) when erlang:is_binary(Payload) ->
             try
-                Json = emqx_utils_json:decode(Payload),
-                emqx_rule_maps:nested_get(map_path(Path), Json)
+                JSON = emqx_utils_json:decode(Payload),
+                emqx_rule_maps:nested_get(map_path(Path), JSON)
             catch
                 error:badarg ->
                     undefined
