@@ -72,6 +72,7 @@ mix-deps-get: elixir-common-deps
 .PHONY: eunit
 eunit: $(ELIXIR_COMMON_DEPS) merge-config
 	@env PROFILE=$(PROFILE)-test $(MIX) eunit --cover-export-name $(CT_COVER_EXPORT_PREFIX)-eunit
+	@env MIX_ENV=$(PROFILE)-test $(MIX) test apps/emqx_mix_utils/test/ --no-start
 
 .PHONY: proper
 proper: $(ELIXIR_COMMON_DEPS)
