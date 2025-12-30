@@ -94,11 +94,13 @@ jobs:
       with:
         profile: ${{ matrix.profile }}
         otp: ${{ matrix.otp }}
+        elixir: ${{ inputs.elixir_vsn }}
         os: ${{ matrix.os }}
         apple_id_password: ${{ secrets.APPLE_ID_PASSWORD }}
         apple_developer_identity: ${{ secrets.APPLE_DEVELOPER_IDENTITY }}
         apple_developer_id_bundle: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE }}
         apple_developer_id_bundle_password: ${{ matrix.os == 'macos-15' && secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD_NEW || secrets.APPLE_DEVELOPER_ID_BUNDLE_PASSWORD }}
+
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       if: success()
       with:
