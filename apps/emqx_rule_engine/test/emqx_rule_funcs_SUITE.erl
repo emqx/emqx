@@ -35,59 +35,63 @@ eventmsg_publish(Msg) ->
     {Columns, _} = emqx_rule_events:eventmsg_publish(Msg),
     Columns.
 
+iot_func_params(Msg) ->
+    Columns = eventmsg_publish(Msg),
+    [#{}, Columns].
+
 %%------------------------------------------------------------------------------
 %% Test cases for IoT Funcs
 %%------------------------------------------------------------------------------
 
 t_msgid(_) ->
     Msg = message(),
-    ?assertEqual(undefined, apply_func(msgid, [], #{})),
+    ?assertEqual(undefined, apply_func(msgid, [], [])),
     ?assertEqual(
-        emqx_guid:to_hexstr(emqx_message:id(Msg)), apply_func(msgid, [], eventmsg_publish(Msg))
+        emqx_guid:to_hexstr(emqx_message:id(Msg)), apply_func(msgid, [], iot_func_params(Msg))
     ).
 
 t_qos(_) ->
-    ?assertEqual(undefined, apply_func(qos, [], #{})),
-    ?assertEqual(1, apply_func(qos, [], message())).
+    ?assertEqual(undefined, apply_func(qos, [], [])),
+    ?assertEqual(1, apply_func(qos, [], iot_func_params(message()))).
 
 t_flags(_) ->
-    ?assertEqual(#{dup => false}, apply_func(flags, [], message())).
+    ?assertEqual(#{dup => false}, apply_func(flags, [], iot_func_params(message()))).
 
 t_flag(_) ->
     Msg = message(),
     Msg1 = emqx_message:set_flag(retain, Msg),
-    ?assertNot(apply_func(flag, [dup], Msg)),
-    ?assert(apply_func(flag, [retain], Msg1)).
+    ?assertNot(apply_func(flag, [dup], iot_func_params(Msg))),
+    ?assert(apply_func(flag, [retain], iot_func_params(Msg1))).
 
 t_topic(_) ->
     Msg = message(),
-    ?assertEqual(<<"topic/#">>, apply_func(topic, [], Msg)),
-    ?assertEqual(<<"topic">>, apply_func(topic, [1], Msg)).
+    ?assertEqual(<<"topic/#">>, apply_func(topic, [], iot_func_params(Msg))),
+    ?assertEqual(<<"topic">>, apply_func(topic, [1], iot_func_params(Msg))).
 
 t_clientid(_) ->
     Msg = message(),
-    ?assertEqual(undefined, apply_func(clientid, [], #{})),
-    ?assertEqual(<<"clientid">>, apply_func(clientid, [], Msg)).
+    ?assertEqual(undefined, apply_func(clientid, [], [])),
+    ?assertEqual(<<"clientid">>, apply_func(clientid, [], iot_func_params(Msg))).
 
 t_clientip(_) ->
     Msg = emqx_message:set_header(peerhost, {127, 0, 0, 1}, message()),
-    ?assertEqual(undefined, apply_func(clientip, [], #{})),
-    ?assertEqual(<<"127.0.0.1">>, apply_func(clientip, [], eventmsg_publish(Msg))).
+    ?assertEqual(undefined, apply_func(clientip, [], [])),
+    ?assertEqual(<<"127.0.0.1">>, apply_func(clientip, [], iot_func_params(Msg))).
 
 t_peerhost(_) ->
     Msg = emqx_message:set_header(peerhost, {127, 0, 0, 1}, message()),
-    ?assertEqual(undefined, apply_func(peerhost, [], #{})),
-    ?assertEqual(<<"127.0.0.1">>, apply_func(peerhost, [], eventmsg_publish(Msg))).
+    ?assertEqual(undefined, apply_func(peerhost, [], [])),
+    ?assertEqual(<<"127.0.0.1">>, apply_func(peerhost, [], iot_func_params(Msg))).
 
 t_username(_) ->
     Msg = emqx_message:set_header(username, <<"feng">>, message()),
-    ?assertEqual(<<"feng">>, apply_func(username, [], eventmsg_publish(Msg))).
+    ?assertEqual(<<"feng">>, apply_func(username, [], iot_func_params(Msg))).
 
 t_payload(_) ->
-    Input = emqx_message:to_map(message()),
-    NestedMap = #{a => #{b => #{c => c}}},
-    ?assertEqual(<<"hello">>, apply_func(payload, [], Input#{payload => <<"hello">>})),
-    ?assertEqual(c, apply_func(payload, [<<"a.b.c">>], Input#{payload => NestedMap})).
+    Input1 = iot_func_params(message(<<"hello">>)),
+    Input2 = iot_func_params(message(emqx_utils_json:encode(#{a => #{b => #{c => c}}}))),
+    ?assertEqual(<<"hello">>, apply_func(payload, [], Input1)),
+    ?assertEqual(<<"c">>, apply_func(payload, [<<"a.b.c">>], Input2)).
 
 %%------------------------------------------------------------------------------
 %% Data Type Conversion Funcs
@@ -1516,15 +1520,17 @@ apply_func(Name, Args) when is_atom(Name) ->
 apply_func(Fun, Args) when is_function(Fun) ->
     erlang:apply(Fun, Args).
 
-apply_func(Name, Args, Input) when is_map(Input) ->
-    apply_func(apply_func(Name, Args), [Input]);
-apply_func(Name, Args, Msg) ->
-    apply_func(Name, Args, emqx_message:to_map(Msg)).
+apply_func(Name, Args, Input) when is_list(Input) ->
+    apply_func(apply_func(Name, Args), [Input]).
 
 message() ->
+    Payload = <<"payload">>,
+    message(Payload).
+
+message(Payload) ->
     emqx_message:set_flags(
         #{dup => false},
-        emqx_message:make(<<"clientid">>, 1, <<"topic/#">>, <<"payload">>)
+        emqx_message:make(<<"clientid">>, 1, <<"topic/#">>, Payload)
     ).
 
 % t_contains_topic(_) ->
