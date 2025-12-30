@@ -289,18 +289,22 @@ make_tgz() {
     if [ -f "${tard}/emqx/releases/${PKG_VSN}/relup" ]; then
         ./scripts/relup-build/inject-relup.escript "${tard}/emqx/releases/${PKG_VSN}/relup"
     fi
-    find "${tard}/emqx"/lib/quicer-*/priv/ -type f ! -name 'libquicer_nif.so' -print -delete
+    if [ -z "${BUILD_WITHOUT_QUIC:-}" ]; then
+        find "${tard}/emqx"/lib/quicer-*/priv/ -type f ! -name 'libquicer_nif.so' -print -delete
+    fi
     ## try to be portable for tar.gz packages.
     ## for DEB and RPM packages the dependencies are resoved by yum and apt
     cp_dyn_libs "${tard}/emqx"
     case "$SYSTEM" in
         macos*)
+            ./scripts/rel/macos-sign-binaries.sh "${tard}/emqx"
+            pushd "${tard}/emqx" >/dev/null
             ## create zip after change dir
             ## to avoid creating an extra level of 'emqx' dir in the .zip file
-            pushd "${tard}/emqx" >/dev/null
             zip -r "../${target_name}" -- * >/dev/null
             popd >/dev/null
             mv "${tard}/${target_name}" "${target}"
+            ./scripts/rel/macos-notarize-package.sh "${target}"
             # sha256sum may not be available on macos
             openssl dgst -sha256 "${target}" | cut -d ' ' -f 2  > "${target}.sha256"
             ;;
