@@ -99,29 +99,15 @@ jobs:
         run: |
           source ./env.sh
           docker run --rm -v $PWD:$PWD --workdir $PWD "${EMQX_BUILDER}" bash -c '
-
             # workaround safe directory error
             git config --global --add safe.directory $PWD
-
-            # use release profile
-            export PROFILE=emqx-enterprise
-
-            # determine affected apps
-            APPS="$(./scripts/find-changed-apps.sh ${{ needs.init.outputs.base-sha }})"
-            if [ "${APPS}" = "" ]; then
-              echo 'Skipping: no apps changed in the PR' && exit 0
-            fi
-
             # run analysis
             make elixir-common-deps
-            if ! (mix emqx.depxref --output=depxref-report.md ${APPS}); then
-              if [ -f "depxref-report.md" ]; then
-                echo "issues-found=true" | tee -a $GITHUB_OUTPUT
-              else
-                exit 1
-              fi
-            fi
+            ./scripts/report-depxref-issues.sh ${{ needs.init.outputs.base-sha }} || true
           '
+          if [ -s "depxref-report.md" ]; then
+            echo "issues-found=true" | tee -a $GITHUB_OUTPUT
+          fi
 
       - name: leave comment
         if: steps.report.outputs.issues-found == 'true'
