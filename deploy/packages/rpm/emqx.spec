@@ -19,15 +19,16 @@ BuildRoot: %{_tmppath}/%{_name}-%{_version}-root
 Provides: %{_name}
 AutoReq: 0
 
-# package name openssl11 is from epel-release, and only applicable for rhel 7
-%if "%{_arch} %{?rhel}" == "x86_64 7"
-Requires: openssl11 libatomic procps which findutils
+Requires: libatomic procps which findutils ncurses
+
+%if 0%{?rhel} == 7 && "%{_arch}" == "x86_64"
+Requires: openssl11
+%elif "%{?dist}" == ".amzn2023"
+Requires: util-linux shadow-utils
+%elif 0%{?rhel} == 9
+Requires: openssl >= 1:3.5.1
 %else
-%if "%{?dist}" == ".amzn2023"
-Requires: libatomic procps which findutils ncurses util-linux shadow-utils
-%else
-Requires: libatomic procps which findutils
-%endif
+Requires: openssl
 %endif
 
 %description
