@@ -67,10 +67,12 @@ jobs:
       run: |
         source env.sh
         echo "OTP_VSN=$OTP_VSN" >> "$GITHUB_OUTPUT"
+        echo "ELIXIR_VSN=$ELIXIR_VSN" >> "$GITHUB_OUTPUT"
     - uses: ./.github/actions/package-macos
       with:
         profile: ${{ matrix.profile }}
         otp: ${{ steps.env.outputs.OTP_VSN }}
+        elixir: ${{ steps.env.outputs.ELIXIR_VSN }}
         os: ${{ matrix.os }}
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
