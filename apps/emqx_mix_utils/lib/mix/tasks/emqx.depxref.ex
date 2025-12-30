@@ -9,118 +9,6 @@ defmodule Mix.Tasks.Emqx.Depxref do
   @xref_common_libs [:erts, :stdlib, :kernel, :elixir]
   @xref_ignore_missing [:snabbkaffe]
 
-  defmodule Report do
-    alias Mix.Tasks.Emqx.Depxref
-
-    def apps(apps, iodev \\ :stdio) when is_list(apps) do
-      Enum.map(apps, fn app ->
-        {:ok, strbuf} = StringIO.open("")
-        issues? = app(app, strbuf)
-        {:ok, {_, report}} = StringIO.close(strbuf)
-
-        if issues? do
-          IO.puts(iodev, "<details><summary>#{app}</summary>")
-          IO.puts(iodev, "")
-          IO.puts(iodev, report)
-          IO.puts(iodev, "")
-          IO.puts(iodev, "</details>")
-          IO.puts(iodev, "")
-        end
-
-        issues?
-      end)
-      |> Enum.any?()
-    end
-
-    def app(app, iodev \\ :stdio) do
-      undeclared = Depxref.undeclared_dependencies(app)
-      unneeded = Depxref.unneeded_dependencies(app)
-      cyclic = Depxref.cyclic_dependencies(app)
-
-      if undeclared != [] or unneeded != [] or cyclic != [] do
-        report_issues(app, undeclared, unneeded, cyclic, iodev)
-        true
-      else
-        false
-      end
-    end
-
-    defp report_issues(app, undeclared, unneeded, cyclic, iodev) do
-      if undeclared != [] do
-        IO.puts(iodev, "### Application `#{app}` uses undeclared direct dependencies")
-
-        Enum.each(undeclared, fn {dep, callsites} ->
-          if List.keyfind(cyclic, dep, 0) != nil do
-            IO.puts(iodev, " * `#{dep}` (cyclic)")
-          else
-            IO.puts(iodev, " * `#{dep}`")
-
-            Enum.each(callsites, fn {from, to} ->
-              IO.puts(
-                iodev,
-                "    - #{as_vtype(from)} `#{as_vertex(from)}` calls `#{as_vertex(to)}`"
-              )
-            end)
-          end
-        end)
-
-        IO.puts(iodev, "")
-      end
-
-      if unneeded != [] do
-        IO.puts(iodev, "### Application `#{app}` declares seemingly unneeded dependencies")
-        Enum.each(unneeded, fn dep -> IO.puts(iodev, " * `#{dep}`") end)
-        IO.puts(iodev, "")
-      end
-
-      if cyclic != [] do
-        IO.puts(iodev, "### Application `#{app}` has cyclic dependencies")
-
-        Enum.each(cyclic, fn {dep, callsites, backsites} ->
-          IO.puts(iodev, " * `#{dep}`")
-
-          if List.keyfind(undeclared, dep, 0) != nil do
-            Enum.each(callsites, fn {from, to} ->
-              IO.puts(
-                iodev,
-                "    - #{as_vtype(from)} `#{as_vertex(from)}` calls `#{as_vertex(to)}`"
-              )
-            end)
-          else
-            Enum.each(backsites, fn {from, to} ->
-              IO.puts(
-                iodev,
-                "    - #{as_vtype(to)} `#{as_vertex(to)}` is called by `#{as_vertex(from)}`"
-              )
-            end)
-          end
-        end)
-
-        IO.puts(iodev, "")
-      end
-    end
-
-    # defp as_edge({from, to}) do
-    #   "#{as_vertex(from)} -> #{as_vertex(to)}"
-    # end
-
-    defp as_vtype({_mod, _func, _arity}) do
-      "function"
-    end
-
-    defp as_vtype(_mod) do
-      "module"
-    end
-
-    defp as_vertex({mod, func, arity}) do
-      "#{mod}:#{func}/#{arity}"
-    end
-
-    defp as_vertex(mod) do
-      "#{mod}"
-    end
-  end
-
   @impl true
   def run(args) do
     {:ok, app_names} = initialize()
@@ -129,20 +17,21 @@ defmodule Mix.Tasks.Emqx.Depxref do
       OptionParser.parse!(
         args,
         strict: [
-          output: :string
+          report_md: :string,
+          summarize: :boolean
         ]
       )
 
-    iodev =
-      case opts[:output] do
+    {format, iodev} =
+      case opts[:report_md] do
         nil ->
-          :stdio
+          {:text, :stdio}
 
         "-" ->
-          :stdio
+          {:text, :stdio}
 
         filename ->
-          File.open!(filename, [:write])
+          {:md, File.open!(filename, [:write])}
       end
 
     apps_report =
@@ -162,7 +51,42 @@ defmodule Mix.Tasks.Emqx.Depxref do
           apps_in
       end
 
-    issues? = Report.apps(apps_report, iodev)
+    apps_issues =
+      Enum.flat_map(apps_report, fn app ->
+        undeclared = undeclared_dependencies(app)
+        unneeded = unneeded_dependencies(app)
+        cyclic = cyclic_dependencies(app)
+
+        case length(undeclared) + length(unneeded) + length(cyclic) do
+          n when n > 0 ->
+            [
+              {app,
+               %{
+                 undeclared: undeclared,
+                 unneeded: unneeded,
+                 cyclic: cyclic,
+                 total: n
+               }}
+            ]
+
+          0 ->
+            []
+        end
+      end)
+
+    issues? = length(apps_issues) > 0
+
+    Mix.Tasks.Emqx.Depxref.Report.produce(apps_issues, iodev, format)
+
+    if opts[:summarize] do
+      if issues? do
+        n_apps = length(apps_issues)
+        n_issues = Enum.sum_by(apps_issues, fn {_, issues} -> issues[:total] end)
+        IO.puts("[Depxref] Found #{n_issues} issues across #{n_apps} applications")
+      else
+        IO.puts("[Depxref] No issues were found")
+      end
+    end
 
     if issues? do
       System.halt(1)
@@ -254,11 +178,16 @@ defmodule Mix.Tasks.Emqx.Depxref do
       |> Stream.map(fn dep -> to_charlist(dep.opts[:build]) end)
 
     # Add Erlang/OTP applications as release:
-    {:ok, _} = :xref.add_release(@xref, rel_otp, name: :otp)
+    {:ok, _} = :xref.add_release(@xref, rel_otp, name: :otp, warnings: false)
 
     # Add applications and dependencies:
-    Enum.each(dir_deps, fn lib -> {:ok, _} = :xref.add_application(@xref, lib) end)
-    Enum.each(dir_apps, fn lib -> {:ok, _} = :xref.add_application(@xref, lib) end)
+    Enum.each(dir_deps, fn lib ->
+      {:ok, _} = :xref.add_application(@xref, lib, warnings: false)
+    end)
+
+    Enum.each(dir_apps, fn lib ->
+      {:ok, _} = :xref.add_application(@xref, lib)
+    end)
 
     # Setup shortcut variables:
     # * `EMQX` is the applications in the umbrella project
@@ -290,5 +219,101 @@ defmodule Mix.Tasks.Emqx.Depxref do
 
   def stop_xref() do
     :xref.stop(@xref)
+  end
+
+  defmodule Report do
+    def produce(apps_issues, iodev, format) when is_list(apps_issues) do
+      Enum.each(apps_issues, fn app_issues = {app, _} ->
+        format == :md && IO.puts(iodev, "<details><summary>#{app}</summary>")
+        format == :text && IO.puts(iodev, String.duplicate("-----", 16))
+        IO.puts(iodev, "")
+        produce_app(app_issues, iodev, format)
+        format == :md && IO.puts(iodev, "</details>")
+        format == :md && IO.puts(iodev, "")
+      end)
+
+      format == :text && IO.puts(iodev, String.duplicate("-----", 16))
+    end
+
+    def produce_app({app, issues}, iodev, _format) do
+      %{
+        undeclared: undeclared,
+        unneeded: unneeded,
+        cyclic: cyclic
+      } = issues
+
+      if undeclared != [] do
+        IO.puts(iodev, "### Application `#{app}` uses undeclared direct dependencies")
+
+        Enum.each(undeclared, fn {dep, callsites} ->
+          if List.keyfind(cyclic, dep, 0) != nil do
+            IO.puts(iodev, " * `#{dep}` (cyclic)")
+          else
+            IO.puts(iodev, " * `#{dep}`")
+
+            Enum.each(callsites, fn {from, to} ->
+              IO.puts(
+                iodev,
+                "    - #{as_vtype(from)} `#{as_vertex(from)}` calls `#{as_vertex(to)}`"
+              )
+            end)
+          end
+        end)
+
+        IO.puts(iodev, "")
+      end
+
+      if unneeded != [] do
+        IO.puts(iodev, "### Application `#{app}` declares seemingly unneeded dependencies")
+        Enum.each(unneeded, fn dep -> IO.puts(iodev, " * `#{dep}`") end)
+        IO.puts(iodev, "")
+      end
+
+      if cyclic != [] do
+        IO.puts(iodev, "### Application `#{app}` has cyclic dependencies")
+
+        Enum.each(cyclic, fn {dep, callsites, backsites} ->
+          IO.puts(iodev, " * `#{dep}`")
+
+          if List.keyfind(undeclared, dep, 0) != nil do
+            Enum.each(callsites, fn {from, to} ->
+              IO.puts(
+                iodev,
+                "    - #{as_vtype(from)} `#{as_vertex(from)}` calls `#{as_vertex(to)}`"
+              )
+            end)
+          else
+            Enum.each(backsites, fn {from, to} ->
+              IO.puts(
+                iodev,
+                "    - #{as_vtype(to)} `#{as_vertex(to)}` is called by `#{as_vertex(from)}`"
+              )
+            end)
+          end
+        end)
+
+        IO.puts(iodev, "")
+      end
+    end
+
+    # defp as_edge({from, to}) do
+    #   "#{as_vertex(from)} -> #{as_vertex(to)}"
+    # end
+
+    defp as_vtype({_mod, _func, _arity}) do
+      "function"
+    end
+
+    defp as_vtype(_mod) do
+      "module"
+    end
+
+    defp as_vertex({mod, func, arity}) do
+      "#{mod}:#{func}/#{arity}"
+    end
+
+    defp as_vertex(mod) do
+      "#{mod}"
+    end
   end
 end
