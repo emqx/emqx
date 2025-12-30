@@ -5,7 +5,7 @@ defmodule EMQXGatewayExproto.MixProject do
   def project do
     [
       app: :emqx_gateway_exproto,
-      version: "6.0.2",
+      version: "6.1.0",
       build_path: "../../_build",
       compilers: [:elixir, :grpc, :erlang, :app],
       # used by our `Mix.Tasks.Compile.Grpc` compiler
