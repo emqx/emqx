@@ -106,9 +106,10 @@ jobs:
             git config --global --add safe.directory $PWD
             # run analysis
             make elixir-common-deps
-            ./scripts/report-depxref-issues.sh ${{ needs.init.outputs.base-sha }} || true
+            ./scripts/report-depxref-issues.sh ${{ needs.init.outputs.base-sha }} | tee depxref.out || true
           '
           if [ -s "depxref-report.md" ]; then
+            ( tail -n1 depxref.out || true ) > depxref-summary
             echo "issues-found=true" | tee -a $GITHUB_OUTPUT
           fi
 
@@ -117,6 +118,31 @@ jobs:
         if: steps.report.outputs.issues-found == 'true'
         with:
           path: depxref-report.md
+
+      - name: report check result
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }} # ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GH_CHECK_CONCLUSION="${{ steps.report.outputs.issues-found == 'true' && 'neutral' || 'success' }}"
+          if [ "${GH_CHECK_CONCLUSION}" = "neutral" ]; then
+            GH_API_ARGS=(
+              -f 'output[title]=Application dependency issues found'
+              -F 'output[summary]=@depxref-summary'
+              -F 'output[text]=@depxref-report.md'
+            )
+          else
+            GH_API_ARGS=(-f 'output[title]=Everything good')
+          fi
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/check-runs \
+             -f 'name=depxref' \
+             -f 'head_sha=${{ needs.init.outputs.head-sha }}' \
+             -f 'status=completed' \
+             -f 'conclusion='${GH_CHECK_CONCLUSION} \
+             "${GH_API_ARGS[@]}"
 
       - name: leave comment
         if: steps.report.outputs.issues-found == 'true'
