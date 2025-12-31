@@ -109,6 +109,11 @@ jobs:
             echo "issues-found=true" | tee -a $GITHUB_OUTPUT
           fi
 
+      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: steps.report.outputs.issues-found == 'true'
+        with:
+          name: depxref-report.md
+
       - name: leave comment
         if: steps.report.outputs.issues-found == 'true'
         env:
