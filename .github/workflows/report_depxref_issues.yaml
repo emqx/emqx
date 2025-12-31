@@ -46,6 +46,11 @@ jobs:
             echo 'Skipping: no associated pull request' && exit 0
           fi
 
+          GH_RUN_CONCLUSION=${{ github.event.workflow_run.conclusion }}
+          if [ -n "${GH_RUN_CONCLUSION}" ] && [ "${GH_RUN_CONCLUSION}" != "success" ]; then
+            echo 'Skipping: pull request run finished with:' "${GH_RUN_CONCLUSION}" && exit 0
+          fi
+
           GH_PR_LABEL="$(gh --repo ${GH_REPO} pr view ${GH_PR_NUMBER} --json labels --jq '.labels[].name | select(. == "depxref")')"
           if [ "${GH_PR_LABEL}" == "" ]; then
             echo 'Skipping: pull request has no `depxref` label' && exit 0
@@ -89,12 +94,10 @@ jobs:
         run: |
           if [ -f emqx-enterprise-release.zip ]; then
             unzip -o -q emqx-enterprise-release.zip
-            echo "emqx-compiled=true" | tee -a $GITHUB_OUTPUT
           fi
 
       # Relies on `.git` directory being present:
       - name: compile report
-        if: steps.artifact.outputs.emqx-compiled == 'true'
         id: report
         run: |
           source ./env.sh
@@ -109,10 +112,11 @@ jobs:
             echo "issues-found=true" | tee -a $GITHUB_OUTPUT
           fi
 
-      - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      - name: upload depxref report
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         if: steps.report.outputs.issues-found == 'true'
         with:
-          name: depxref-report.md
+          path: depxref-report.md
 
       - name: leave comment
         if: steps.report.outputs.issues-found == 'true'
