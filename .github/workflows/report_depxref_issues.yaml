@@ -71,18 +71,18 @@ jobs:
     if: needs.init.outputs.proceed == 'true'
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     steps:
-      # - name: issue GitHub App token
-      #   id: token
-      #   uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
-      #   with:
-      #     app-id: ${{ vars.AUTH_APP_ID }}
-      #     private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+      - name: issue GitHub App token
+        id: token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
 
       - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           name: emqx-enterprise-release
           run-id: ${{ needs.init.outputs.run-id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }} # ${{ steps.token.outputs.token }}
+          github-token: ${{ steps.token.outputs.token }} # ${{ secrets.GITHUB_TOKEN }}
 
       - name: extract artifact
         id: artifact
@@ -117,7 +117,7 @@ jobs:
       - name: leave comment
         if: steps.report.outputs.issues-found == 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # ${{ steps.token.outputs.token }}
+          GH_TOKEN: ${{ steps.token.outputs.token }} # ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "## Depxref"                                  > depxref-comment.md
           echo "Application dependency issues were found."  >> depxref-comment.md
