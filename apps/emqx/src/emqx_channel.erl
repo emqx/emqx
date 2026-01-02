@@ -103,7 +103,7 @@
     %% Resume
     resuming :: false | _ReplayContext,
     %% Pending delivers when takeovering
-    pendings :: list()
+    pendings :: [emqx_types:deliver()]
 }).
 
 -opaque channel() :: #channel{}.
@@ -1189,11 +1189,14 @@ do_handle_deliver(
     end.
 
 %% Nack delivers from shared subscription
-maybe_nack(Delivers0) ->
-    Delivers = lists:filter(fun not_nacked_by_shared_sub/1, Delivers0),
-    lists:filter(fun not_nacked_by_hook/1, Delivers).
+maybe_nack(Delivers) ->
+    lists:filter(fun not_nacked/1, Delivers).
 
-not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
+not_nacked(#deliver{message = Msg}) ->
+    not_nacked_by_shared_sub(Msg) orelse not_nacked_by_hook(Msg).
+
+-compile({inline, [not_nacked_by_shared_sub/1]}).
+not_nacked_by_shared_sub(Msg) ->
     case emqx_shared_sub:is_ack_required(Msg) of
         true ->
             ok = emqx_shared_sub:nack_no_connection(Msg),
@@ -1202,7 +1205,8 @@ not_nacked_by_shared_sub({deliver, _Topic, Msg}) ->
             true
     end.
 
-not_nacked_by_hook({deliver, _Topic, Msg}) ->
+-compile({inline, [not_nacked_by_hook/1]}).
+not_nacked_by_hook(Msg) ->
     %% NOTE if a callback nacks a message, it returns `true`
     %% nack'ed messages will be dropped from the session.
     not emqx_hooks:run_fold('message.nack', [Msg], false).
