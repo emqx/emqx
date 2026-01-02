@@ -704,11 +704,7 @@ calculate_rate(CurrVal, #rate{
     CurrRate = (CurrVal - LastVal) / ?SAMPLING,
 
     %% calculate the max rate since the emqx startup
-    MaxRate =
-        case MaxRate0 >= CurrRate of
-            true -> MaxRate0;
-            false -> CurrRate
-        end,
+    MaxRate = max(MaxRate0, CurrRate),
 
     %% calculate the average rate in last 5 mins
     {Last5MinSamples, Acc5Min, Last5Min} =
