@@ -377,19 +377,27 @@ t_rate(_) ->
     ok = emqx_metrics_worker:inc(?NAME, <<"rule1">>, 'rules.matched'),
     ok = emqx_metrics_worker:inc(?NAME, <<"rule:2">>, 'rules.matched'),
     ?assertEqual(2, emqx_metrics_worker:get(?NAME, <<"rule1">>, 'rules.matched')),
-    ct:sleep(1000),
+    %% Rates should be sampled 1 time:
+    ct:sleep(1100),
     ?LET(
-        #{'rules.matched' := #{max := Max, current := Current}},
+        #{'rules.matched' := #{max := Max, current := Current, last5m := Last5Min} = Rate},
         emqx_metrics_worker:get_rate(?NAME, <<"rule1">>),
-        {?assert(Max =< 2), ?assert(Current =< 2)}
+        ?assert(
+            (Max == 2.0) andalso (Current == 2.0) andalso (Last5Min == 2.0),
+            Rate
+        )
     ),
-    ct:sleep(2100),
+    %% Rates should be sampled 2 more times:
+    ct:sleep(2200),
+    %% Moving average dips below 1.0:
     ?LET(
-        #{'rules.matched' := #{max := Max, current := Current, last5m := Last5Min}},
+        #{'rules.matched' := Rate = #{max := Max, current := Current, last5m := Last5Min}},
         emqx_metrics_worker:get_rate(?NAME, <<"rule1">>),
-        {?assert(Max =< 2), ?assert(Current == 0), ?assert(Last5Min =< 0.67)}
+        ?assert(
+            (Max =< 2.0) andalso (Current == 0.0) andalso (Last5Min =< 1.0),
+            Rate
+        )
     ),
-    ct:sleep(3000),
     ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule1">>),
     ok = emqx_metrics_worker:clear_metrics(?NAME, <<"rule:2">>).
 

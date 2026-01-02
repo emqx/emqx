@@ -130,7 +130,13 @@
     | [{metric_id(), [metric_spec()]}].
 
 -define(CntrRef(Name), {?MODULE, Name}).
--define(SAMPCOUNT_5M, (?SECS_5M div ?SAMPLING)).
+
+%% How many samples are in the moving average window:
+-define(WINSIZE_5M, (?SECS_5M div ?SAMPLING)).
+%% Respective ɑ of EWMA approximating simple moving average with this window size:
+%% * https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.ewm.html
+-define(WINSPAN_5M_EWMA_ALPHA, 2.0 / (1 + ?WINSIZE_5M)).
+
 -define(GAUGE_TABLE(NAME),
     list_to_atom(atom_to_list(?MODULE) ++ "_" ++ atom_to_list(NAME) ++ "_gauge")
 ).
@@ -138,13 +144,11 @@
 -record(rate, {
     max = 0 :: number(),
     current = 0 :: number(),
-    last5m = 0 :: number(),
     %% metadata for calculating the avg rate
     tick = 1 :: number(),
-    last_v = 0 :: number(),
-    %% metadata for calculating the 5min avg rate
-    last5m_acc = 0 :: number(),
-    last5m_smpl = [] :: list()
+    last = 0 :: number(),
+    %% 5min moving avg rate, exponentially weighted
+    last5m_ewma = 0 :: number()
 }).
 
 -record(slide_datapoint, {
@@ -695,10 +699,9 @@ calculate_rate(_CurrVal, undefined) ->
     undefined;
 calculate_rate(CurrVal, #rate{
     max = MaxRate0,
-    last_v = LastVal,
-    tick = Tick,
-    last5m_acc = AccRate5Min0,
-    last5m_smpl = Last5MinSamples0
+    last = LastVal,
+    last5m_ewma = EWMA5Min0,
+    tick = Tick
 }) ->
     %% calculate the current rate based on the last value of the counter
     CurrRate = (CurrVal - LastVal) / ?SAMPLING,
@@ -707,24 +710,18 @@ calculate_rate(CurrVal, #rate{
     MaxRate = max(MaxRate0, CurrRate),
 
     %% calculate the average rate in last 5 mins
-    {Last5MinSamples, Acc5Min, Last5Min} =
-        case Tick =< ?SAMPCOUNT_5M of
-            true ->
-                Acc = AccRate5Min0 + CurrRate,
-                {lists:reverse([CurrRate | lists:reverse(Last5MinSamples0)]), Acc, Acc / Tick};
-            false ->
-                [FirstRate | Rates] = Last5MinSamples0,
-                Acc = AccRate5Min0 + CurrRate - FirstRate,
-                {lists:reverse([CurrRate | lists:reverse(Rates)]), Acc, Acc / ?SAMPCOUNT_5M}
-        end,
+    case Tick of
+        1 -> EWMA5Min1 = CurrRate;
+        _ -> EWMA5Min1 = EWMA5Min0
+    end,
+
+    EWMA5Min = ?WINSPAN_5M_EWMA_ALPHA * CurrRate + (1.0 - ?WINSPAN_5M_EWMA_ALPHA) * EWMA5Min1,
 
     #rate{
         max = MaxRate,
         current = CurrRate,
-        last5m = Last5Min,
-        last_v = CurrVal,
-        last5m_acc = Acc5Min,
-        last5m_smpl = Last5MinSamples,
+        last = CurrVal,
+        last5m_ewma = EWMA5Min,
         tick = Tick + 1
     }.
 
@@ -800,8 +797,8 @@ format_rates_of_id(RatesPerId) ->
         RatesPerId
     ).
 
-format_rate(#rate{max = Max, current = Current, last5m = Last5Min}) ->
-    make_rate(Current, Max, Last5Min).
+format_rate(#rate{max = Max, current = Current, last5m_ewma = EWMALast5m}) ->
+    make_rate(Current, Max, EWMALast5m).
 
 make_rate(Current, Max, Last5Min) ->
     #{
