@@ -14,6 +14,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_mqtt_v2_subscriber_SUITE).
 
+-feature(maybe_expr, enable).
 -compile(nowarn_export_all).
 -compile(export_all).
 
@@ -28,6 +29,23 @@
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
+
+-define(assertReceivePublish(TOPIC, EXPR, TIMEOUT), begin
+    ?assertMatch(
+        EXPR,
+        maps:update_with(
+            payload,
+            fun emqx_utils_json:decode/1,
+            element(2, ?assertReceive({publish, #{topic := TOPIC}}, TIMEOUT, #{topic => TOPIC}))
+        ),
+        #{
+            topic => TOPIC,
+            mailbox => ?drainMailbox()
+        }
+    )
+end).
+-define(assertReceivePublish(TOPIC, EXPR), ?assertReceivePublish(TOPIC, EXPR, 1_000)).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -48,7 +66,7 @@ groups() ->
     ].
 
 cluster_testcases() ->
-    [t_static_clientids].
+    [t_static_clientids, t_resubscribe_on_fast_failure].
 
 init_per_suite(Config) ->
     Config.
@@ -121,6 +139,7 @@ init_per_testcase(TestCase, Config) ->
         _ ->
             ok
     end,
+    snabbkaffe:start_trace(),
     [
         {bridge_kind, source},
         {source_type, mqtt},
@@ -189,6 +208,9 @@ source_config(Overrides0) ->
 replace(Key, Value, Proplist) ->
     lists:keyreplace(Key, 1, Proplist, {Key, Value}).
 
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
 bridge_id(Config) ->
     Type = ?config(source_type, Config),
     Name = ?config(source_name, Config),
@@ -200,6 +222,26 @@ hookpoint(Config) ->
 
 simplify_result(Res) ->
     emqx_bridge_v2_testlib:simplify_result(Res).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client(TCConfigOrNode) ->
+    start_client(TCConfigOrNode, _Opts = #{}).
+
+start_client(TCConfig, Opts) when is_list(TCConfig) ->
+    case get_config(nodes, TCConfig, undefined) of
+        [N | _] ->
+            start_client(N, Opts);
+        _ ->
+            start_client(node(), Opts)
+    end;
+start_client(Node, Opts) when is_atom(Node) ->
+    Port = get_tcp_mqtt_port(Node),
+    {ok, C} = emqtt:start_link(Opts#{port => Port, proto_ver => v5}),
+    on_exit(fun() -> catch emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
 
 get_tcp_mqtt_port(Node) ->
     emqx_bridge_mqtt_v2_publisher_SUITE:get_tcp_mqtt_port(Node).
@@ -218,6 +260,11 @@ create_source_api(Config) ->
 
 create_source_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:create_source_api(Config, Overrides).
+
+delete_source_api(TCConfig) ->
+    #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    Opts = #{query_params => #{<<"also_delete_dep_actions">> => <<"true">>}},
+    emqx_bridge_v2_testlib:delete_kind_api(source, Type, Name, Opts).
 
 get_source_api(Config) ->
     #{
@@ -664,6 +711,175 @@ t_shared_subscription(Config) ->
 
     {ok, _} = emqtt:publish(Client, PublishTopic, <<"2">>, [{qos, 1}]),
     ?assertReceive({publish, #{payload := <<"republish_2">>}}),
+    ?assertNotReceive({publish, _}),
+
+    ok.
+
+%% Verifies that we re-subscribe source topics when reconnecting after a connection
+%% failure that happens before connector health check can catch it.
+t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
+    Nodes = get_config(nodes, TCConfig),
+    lists:foreach(
+        fun({CleanStart, ProtoVer}) ->
+            do_t_resubscribe_on_fast_failure(CleanStart, ProtoVer, TCConfig),
+            ?ON_ALL(Nodes, emqx_bridge_v2_testlib:delete_all_rules()),
+            ?ON_ALL(Nodes, emqx_bridge_v2_testlib:delete_all_bridges_and_connectors()),
+            emqx_common_test_helpers:call_janitor()
+        end,
+        [
+            {CleanStart, ProtoVer}
+         || CleanStart <- [true, false],
+            ProtoVer <- [<<"v3">>, <<"v5">>]
+        ]
+    ).
+
+do_t_resubscribe_on_fast_failure(CleanStart, ProtoVer, TCConfig) ->
+    ct:pal("testing clean start = ~p and proto ver = ~p", [CleanStart, ProtoVer]),
+    #{<<"pool_size">> := PoolSize} = get_config(connector_config, TCConfig),
+    [N1 | _] = Nodes = get_config(nodes, TCConfig),
+    ?ON(N1, emqx_logger:set_log_level(debug)),
+    NumNodes = length(Nodes),
+    WorkDir = emqx_cth_suite:work_dir(?FUNCTION_NAME, TCConfig),
+    on_exit(fun() -> emqx_cth_suite:clean_work_dir(WorkDir) end),
+    SourceNSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {source1, #{
+                role => core,
+                apps => [
+                    emqx,
+                    {emqx_conf,
+                        "log.console.level = debug\n"
+                        "log.console.enable = true"},
+                    emqx_connector,
+                    emqx_bridge_mqtt,
+                    emqx_bridge
+                ],
+                base_port => 20100
+            }}
+        ],
+        #{work_dir => WorkDir}
+    ),
+    [Source] = emqx_cth_cluster:start(SourceNSpecs),
+    on_exit(fun() -> emqx_cth_cluster:stop([Source]) end),
+
+    Port = get_tcp_mqtt_port(Source),
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
+        <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
+        <<"proto_ver">> => ProtoVer,
+        <<"clean_start">> => CleanStart,
+        <<"resource_opts">> => #{<<"health_check_interval">> => <<"10m">>}
+    }),
+    %% Let's create two sources; their reconnect should be independent.
+    SourceNameA = <<"a">>,
+    SourceNameB = <<"b">>,
+    TCConfigA = lists:keyreplace(source_name, 1, TCConfig, {source_name, SourceNameA}),
+    TCConfigB = lists:keyreplace(source_name, 1, TCConfig, {source_name, SourceNameB}),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_source_api(TCConfigA, #{
+            <<"parameters">> => #{
+                <<"topic">> => iolist_to_binary(["$queue/t/#"]),
+                <<"qos">> => 1
+            },
+            <<"resource_opts">> => #{<<"health_check_interval">> => <<"10m">>}
+        }),
+    {201, #{<<"status">> := <<"connected">>}} =
+        create_source_api(TCConfigB, #{
+            <<"parameters">> => #{
+                <<"topic">> => <<"u/#">>,
+                <<"qos">> => 1
+            },
+            <<"resource_opts">> => #{<<"health_check_interval">> => <<"10m">>}
+        }),
+    #{topic := RepublishTopicA} = simple_create_rule_api(TCConfigA),
+    #{topic := RepublishTopicB} = simple_create_rule_api(TCConfigB),
+    Sub = start_client(N1, #{clientid => <<"subscriber">>}),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, RepublishTopicA, ?QOS_1),
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Sub, RepublishTopicB, ?QOS_1),
+    Pub1 = start_client(Source, #{clientid => <<"publisher">>}),
+    emqtt:publish(Pub1, <<"t/a">>, <<"1">>),
+    emqtt:publish(Pub1, <<"u/a">>, <<"2">>),
+    %% Sanity check: sources should be working.
+    ?assertReceivePublish(
+        RepublishTopicA,
+        #{payload := #{<<"payload">> := <<"1">>}}
+    ),
+    %% We receive this multiple times because it's an ordinary subscription, so each node
+    %% receives and forwards it.
+    lists:foreach(
+        fun(_) ->
+            ?assertReceivePublish(
+                RepublishTopicB,
+                #{payload := #{<<"payload">> := <<"2">>}}
+            )
+        end,
+        lists:seq(1, NumNodes)
+    ),
+    emqtt:stop(Pub1),
+
+    %% Now, we restart the source's node.  The health check interval is large enough so
+    %% that it doesn't "notice" that the connection went down.
+    ct:pal("Restarting source node (1)"),
+    {ok, SRef0} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "mqtt_source_reconnected"}),
+        %% 2 sources with 3 workers each
+        2 * PoolSize,
+        %% Timeout
+        5_000
+    ),
+    [Source] = emqx_cth_cluster:restart(SourceNSpecs),
+
+    %% Source should recover.
+    {ok, _} = snabbkaffe:receive_events(SRef0),
+    ct:pal("Restarted source node (1)"),
+
+    Pub2 = start_client(Source),
+    emqtt:publish(Pub2, <<"t/a">>, <<"3">>),
+    emqtt:publish(Pub2, <<"u/a">>, <<"4">>),
+    emqtt:stop(Pub2),
+
+    ?assertReceivePublish(
+        RepublishTopicA,
+        #{payload := #{<<"payload">> := <<"3">>}},
+        3_000
+    ),
+    lists:foreach(
+        fun(N) ->
+            ct:pal("expecting B message ~b", [N]),
+            ?assertReceivePublish(
+                RepublishTopicB,
+                #{payload := #{<<"payload">> := <<"4">>}}
+            )
+        end,
+        lists:seq(1, NumNodes)
+    ),
+
+    %% Remove one of the sources and restart again.  Removing the reconnect callback of
+    %% one shouldn't affect the other.
+    ct:pal("Deleting source"),
+    {204, _} = delete_source_api(TCConfigB),
+
+    ct:pal("Restarting source node (2)"),
+    {ok, SRef1} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "mqtt_source_reconnected"}),
+        %% 1 source with 3 workers each
+        1 * PoolSize,
+        %% Timeout
+        5_000
+    ),
+    [Source] = emqx_cth_cluster:restart(SourceNSpecs),
+    {ok, _} = snabbkaffe:receive_events(SRef1),
+    ct:pal("Restarted source node (2)"),
+
+    Pub3 = start_client(Source),
+    emqtt:publish(Pub3, <<"t/a">>, <<"5">>),
+    emqtt:publish(Pub3, <<"u/a">>, <<"6">>),
+    emqtt:stop(Pub3),
+
+    ?assertReceivePublish(
+        RepublishTopicA,
+        #{payload := #{<<"payload">> := <<"5">>}},
+        3_000
+    ),
     ?assertNotReceive({publish, _}),
 
     ok.
