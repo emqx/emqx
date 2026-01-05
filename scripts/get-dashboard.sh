@@ -6,21 +6,7 @@ set -euo pipefail
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 
 VERSION="${1}"
-case "$VERSION" in
-    v*)
-        RELEASE_ASSET_FILE="emqx-dashboard-$VERSION.zip"
-        ;;
-    e*)
-        RELEASE_ASSET_FILE="emqx-enterprise-dashboard-$VERSION.zip"
-        ;;
-    2*)
-        RELEASE_ASSET_FILE="emqx-enterprise-dashboard-$VERSION.zip"
-        ;;
-    *)
-        echo "Unknown version $VERSION"
-        exit 1
-        ;;
-esac
+RELEASE_ASSET_FILE="emqx-enterprise-dashboard-$VERSION.zip"
 
 DASHBOARD_PATH='apps/emqx_dashboard/priv'
 DASHBOARD_REPO='emqx-dashboard5'

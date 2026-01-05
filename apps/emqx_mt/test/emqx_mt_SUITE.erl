@@ -15,6 +15,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include("emqx_mt.hrl").
 -include_lib("../../emqx_prometheus/include/emqx_prometheus.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -1390,4 +1391,41 @@ t_namespaced_metrics_prometheus_rate_limit(TCConfig) when is_list(TCConfig) ->
     %% Requesting all namespaces is rate limited.
     ?retry(100, 5, ?assertMatch({429, _}, get_prometheus_ns_stats(all, Mode, prometheus))),
 
+    ok.
+
+-doc """
+Verifies that we delete all managed certificate bundles under a namespace when the latter
+is deleted.
+""".
+t_delete_namespace_with_managed_certs({init, TCConfig}) ->
+    Namespace = <<"explicit_ns">>,
+    ok = emqx_mt_config:create_managed_ns(Namespace),
+    [{namespace, Namespace} | TCConfig];
+t_delete_namespace_with_managed_certs({'end', TCConfig}) ->
+    Namespace = ?config(namespace, TCConfig),
+    ok = emqx_mt_config:delete_managed_ns(Namespace),
+    %% Wait for cleanup
+    ?retry(250, 10, ?assertNot(emqx_mt_state:is_tombstoned(Namespace))),
+    ok;
+t_delete_namespace_with_managed_certs(TCConfig) when is_list(TCConfig) ->
+    Namespace = ?config(namespace, TCConfig),
+    BundleName = <<"some_bundle">>,
+    %% Sanity check
+    {error, enoent} =
+        emqx_managed_certs:list_managed_files(Namespace, BundleName),
+    {ok, #{}} =
+        emqx_bridge_v2_testlib:generate_and_upload_managed_certs(Namespace, BundleName, #{}),
+    %% Sanity check
+    {ok, #{?FILE_KIND_KEY := _, ?FILE_KIND_CHAIN := _}} =
+        emqx_managed_certs:list_managed_files(Namespace, BundleName),
+    %% After namespace is deleted, managed certs that belong to it should be deleted.
+    ok = emqx_mt_config:delete_managed_ns(Namespace),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            {error, enoent},
+            emqx_managed_certs:list_managed_files(Namespace, BundleName)
+        )
+    ),
     ok.

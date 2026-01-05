@@ -14,7 +14,11 @@
 
 -export([alarms/2, format_alarm/2, force_deactivate_alarm/2]).
 
+%% RPC targets (`emqx_mgmt_api_alarms_proto_v1`)
+-export([safe_deactivate_v1/1]).
+
 -define(TAGS, [<<"Alarms">>]).
+-define(BPAPI_NAME, emqx_mgmt_api_alarms).
 
 %% internal export (for query)
 -export([qs2ms/2]).
@@ -154,25 +158,27 @@ force_deactivate_alarm(post, #{body := Body}) ->
         true ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"name is required">>}};
         false ->
-            Result = lists:map(fun emqx_alarm:safe_deactivate/1, convert_alarm_names(Name)),
-            case
-                lists:any(
-                    fun
-                        (ok) -> true;
-                        (_) -> false
-                    end,
-                    Result
-                )
-            of
-                true ->
+            Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI_NAME, 1),
+            Timeout = 15_000,
+            Result = emqx_mgmt_api_alarms_proto_v1:safe_deactivate(Nodes, Name, Timeout),
+            AnyOk = [ok || {ok, NRes} <- Result, ok <- NRes],
+            case AnyOk of
+                [ok | _] ->
                     {204};
-                false ->
+                [] ->
                     {400, #{
                         code => <<"NOT_FOUND">>,
                         message => <<"Alarm not found or already deactivated">>
                     }}
             end
     end.
+
+%%%==============================================================================================
+%% RPC Targets
+
+-spec safe_deactivate_v1(emqx_alarm:name()) -> [ok | {error, term()}].
+safe_deactivate_v1(Name) ->
+    lists:map(fun emqx_alarm:safe_deactivate/1, convert_alarm_names(Name)).
 
 %%%==============================================================================================
 %% internal
@@ -190,4 +196,6 @@ convert_alarm_names(Name) when is_binary(Name) ->
     catch
         error:badarg ->
             [Name]
-    end.
+    end;
+convert_alarm_names(Name) when is_atom(Name) ->
+    [Name].

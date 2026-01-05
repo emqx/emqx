@@ -37,7 +37,7 @@ end_per_group(_Group, _Config) ->
 %% In the end of test, we should have < 250000 * 1.1 = 275000 bytes.
 t_byte_limit_regular(_Config) ->
     Index0 = emqx_mq_quota_index:new(
-        #{bytes => #{max => 250000, threshold => 25000}}, now_us()
+        #{bytes => 250000, threshold_percentage => 10}, now_us()
     ),
     NowTime = now_us(),
     EndTime = NowTime + 2_000_000,
@@ -73,7 +73,7 @@ t_byte_limit_regular(_Config) ->
 t_byte_limit_lastvalue(Config) ->
     KeyCount = ?config(key_count, Config),
     Index0 = emqx_mq_quota_index:new(
-        #{bytes => #{max => 250000, threshold => 25000}}, now_us()
+        #{bytes => 250000, threshold_percentage => 10}, now_us()
     ),
     NowTime = now_us(),
     EndTime = NowTime + 2_000_000,
@@ -111,7 +111,7 @@ t_delete_all(_Config) ->
     KeyCount = 10000,
     PayloadSize = 200,
     Index0 = emqx_mq_quota_index:new(
-        #{bytes => #{max => 250000, threshold => 25000}}, now_us()
+        #{bytes => 250000, threshold_percentage => 10}, now_us()
     ),
     %% Fill the index with messages
     {Index1, DB} = lists:foldl(

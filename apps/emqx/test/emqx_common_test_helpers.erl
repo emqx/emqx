@@ -13,6 +13,7 @@
     all_with_matrix/1,
     groups_with_matrix/1,
     matrix_to_groups/2,
+    nested_groups/1,
     group_path/1,
     group_path/2,
     get_matrix_prop/3,
@@ -214,6 +215,47 @@ all0(Module) ->
      || {F, 1} <- Module:module_info(exports),
         string:substr(atom_to_list(F), 1, 2) == "t_"
     ]).
+
+-doc """
+```
+all() ->
+    [
+        {group, generic},
+        ...
+    ].
+
+groups() ->
+    emqx_common_test_helpers:nested_groups([
+            [generic],
+            [groupA, groupB],
+            [group1, group2],
+            [t_x, t_y]
+        ]) ++ [...].
+```
+
+will yield:
+```
+generic.groupA.group1.t_x
+generic.groupA.group1.t_y
+generic.groupA.group2.t_x
+generic.groupA.group2.t_y
+generic.groupB.group1.t_x
+generic.groupB.group1.t_y
+generic.groupB.group2.t_x
+generic.groupB.group2.t_y
+```
+""".
+nested_groups([GroupsNames, LeafItems]) ->
+    [
+        {Group, [], LeafItems}
+     || Group <- GroupsNames
+    ];
+nested_groups([ParentNames, ChildNames | Names]) ->
+    ChildGroups = [{group, GroupName} || GroupName <- ChildNames],
+    [
+        {ParentName, [], ChildGroups}
+     || ParentName <- ParentNames
+    ] ++ nested_groups([ChildNames | Names]).
 
 -spec flaky_tests(module()) -> #{atom() => pos_integer()}.
 flaky_tests(Suite) ->

@@ -56,20 +56,24 @@ fields(action) ->
         )};
 fields(?ACTION_TYPE) ->
     emqx_bridge_v2_schema:make_producer_action_schema(
-        mk(
-            hoconsc:ref(emqx_bridge_greptimedb, action_parameters),
-            #{
-                required => true,
-                desc => ?DESC("parameters")
-            }
-        )
-    ).
+        mk(hoconsc:ref(emqx_bridge_greptimedb, action_parameters), #{
+            required => true, desc => ?DESC("parameters")
+        }),
+        #{resource_opts_ref => ref(action_resource_opts)}
+    );
+fields(action_resource_opts) ->
+    emqx_bridge_v2_schema:action_resource_opts_fields([
+        {batch_size, #{default => 1000}},
+        {batch_time, #{default => <<"100ms">>}}
+    ]).
 
 desc(Name) when
     Name =:= ?ACTION_TYPE;
     Name =:= action_parameters
 ->
     ?DESC(Name);
+desc(action_resource_opts) ->
+    emqx_bridge_v2_schema:desc(action_resource_opts);
 desc(_Name) ->
     undefined.
 
@@ -120,8 +124,8 @@ action_example(put) ->
             },
         resource_opts =>
             #{
-                batch_time => <<"0s">>,
-                batch_size => 1,
+                batch_time => <<"100ms">>,
+                batch_size => 1000,
                 health_check_interval => <<"30s">>,
                 inflight_window => 100,
                 query_mode => <<"sync">>,

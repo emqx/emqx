@@ -5,7 +5,9 @@
 -module(emqx_extsub_buffer).
 
 -moduledoc """
-Buffer of message_buffer received from the ExtSub handlers
+Buffer of messages received from the ExtSub handlers.
+The buffer is common for all the ExtSub handlers,
+But the amount of messages from each handler is tracked separately.
 """.
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").

@@ -65,7 +65,6 @@ init(?ROOT_SUP) ->
         period => 10
     },
     ChildSpecs = [
-        emqx_mq_metrics:child_spec(),
         consumer_sup_child_spec(),
         gc_sup_child_spec()
     ],

@@ -53,20 +53,8 @@ quota_index_opts(#{
         max_shard_message_bytes := MaxShardMessageBytes
     }
 }) ->
-    maps:from_list(
-        limit_to_index_opt(bytes, MaxShardMessageBytes) ++
-            limit_to_index_opt(count, MaxShardMessageCount)
-    ).
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
-
-limit_to_index_opt(_Name, infinity) ->
-    [];
-limit_to_index_opt(Name, Limit) ->
-    [{Name, #{max => Limit, threshold => quota_threshold(Limit)}}].
-
-quota_threshold(Limit) ->
-    ThresholdPercentage = emqx:get_config([mq, quota, threshold_percentage]),
-    max(1, ThresholdPercentage * Limit div 100).
+    #{
+        bytes => MaxShardMessageBytes,
+        count => MaxShardMessageCount,
+        threshold_percentage => emqx:get_config([mq, quota, threshold_percentage])
+    }.

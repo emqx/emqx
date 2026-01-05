@@ -4,6 +4,7 @@
 %%
 -module(emqx_gateway_api).
 
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include("emqx_gateway_http.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -15,7 +16,8 @@
     api_spec/0,
     paths/0,
     schema/1,
-    namespace/0
+    namespace/0,
+    check_api_schema/2
 ]).
 
 -export([
@@ -41,7 +43,7 @@
 namespace() -> undefined.
 
 api_spec() ->
-    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
+    emqx_dashboard_swagger:spec(?MODULE, #{check_schema => fun ?MODULE:check_api_schema/2}).
 
 paths() ->
     [
@@ -184,7 +186,7 @@ schema("/gateways/:name") ->
                 tags => ?TAGS,
                 desc => ?DESC(update_gateway),
                 parameters => params_gateway_name_in_path(),
-                'requestBody' => schema_load_or_update_gateways_conf(),
+                'requestBody' => gateway_upsert_schema(),
                 responses =>
                     ?STANDARD_RESP(#{204 => ?DESC("gateway_configuration_updated")})
             }
@@ -423,22 +425,69 @@ fields(Listener) when
 fields(gateway_stats) ->
     [{key, mk(binary(), #{})}].
 
-schema_load_or_update_gateways_conf() ->
+check_api_schema(Req, #{path := "/gateways/:name", method := put} = Meta) ->
+    do_check_named_gateway_api_schema(Req, Meta);
+check_api_schema(Req, Meta) ->
+    emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(Req, Meta).
+
+do_check_named_gateway_api_schema(Req, Meta) ->
+    Name = emqx_utils_maps:deep_get([bindings, name], Req),
     Names = emqx_gateway_schema:gateway_names(),
+    maybe
+        {ok, NameA} ?= emqx_utils:safe_to_existing_atom(Name),
+        true ?= lists:member(NameA, Names),
+        Ref = hoconsc:mk(hoconsc:ref(?MODULE, NameA)),
+        RefinedMeta = refine_api_schema(Ref, Meta),
+        emqx_dashboard_swagger:filter_check_request_and_translate_body_serializable(
+            Req, RefinedMeta
+        )
+    else
+        _ ->
+            ?BAD_REQUEST(<<"unknown_gateway_type">>)
+    end.
+
+refine_api_schema(Schema, Metadata = #{path := Path, method := Method}) ->
+    Spec = maps:get(Method, schema(Path)),
+    SpecRefined = Spec#{'requestBody' => Schema},
+    Metadata#{apispec => SpecRefined}.
+
+gateway_upsert_schema() ->
     emqx_dashboard_swagger:schema_with_examples(
-        hoconsc:union(
-            [
-                ref(?MODULE, Name)
-             || Name <-
-                    Names ++
-                        [
-                            erlang:list_to_existing_atom("update_" ++ erlang:atom_to_list(Name))
-                         || Name <- Names
-                        ]
-            ]
-        ),
+        hoconsc:union(fun gateway_upsert_union/1),
         examples_update_gateway_confs()
     ).
+
+gateway_upsert_union(all_union_members) ->
+    Names = emqx_gateway_schema:gateway_names(),
+    lists:map(fun(Name) -> ref(?MODULE, Name) end, Names);
+gateway_upsert_union({value, V}) ->
+    Names = emqx_gateway_schema:gateway_names(),
+    case V of
+        #{<<"name">> := Name} ->
+            try binary_to_existing_atom(Name, utf8) of
+                NameA ->
+                    case lists:member(NameA, Names) of
+                        true ->
+                            [ref(?MODULE, NameA)];
+                        false ->
+                            throw(#{
+                                reason => <<"unknown_gateway_type">>,
+                                gateway_type => Name
+                            })
+                    end
+            catch
+                error:badarg ->
+                    throw(#{
+                        reason => <<"unknown_gateway_type">>,
+                        gateway_type => Name
+                    })
+            end;
+        _ ->
+            throw(#{
+                reason => <<"unknown_gateway_type">>,
+                value => V
+            })
+    end.
 
 schema_gateways_conf() ->
     emqx_dashboard_swagger:schema_with_examples(
@@ -467,39 +516,93 @@ remove_listener_and_authn(Schema) ->
     ).
 
 listeners_schema(?R_REF(_Mod, tcp_listeners)) ->
-    hoconsc:array(hoconsc:union([ref(tcp_listener), ref(ssl_listener)]));
+    hoconsc:array(hoconsc:union(mk_listener_union([tcp, ssl])));
 listeners_schema(?R_REF(_Mod, udp_listeners)) ->
-    hoconsc:array(hoconsc:union([ref(udp_listener), ref(dtls_listener)]));
+    hoconsc:array(hoconsc:union(mk_listener_union([udp, dtls])));
 listeners_schema(?R_REF(_Mod, tcp_udp_listeners)) ->
-    hoconsc:array(
-        hoconsc:union([
-            ref(tcp_listener),
-            ref(ssl_listener),
-            ref(udp_listener),
-            ref(dtls_listener)
-        ])
-    );
+    hoconsc:array(hoconsc:union(mk_listener_union([tcp, ssl, udp, dtls])));
 listeners_schema(?R_REF(_Mod, ws_listeners)) ->
-    hoconsc:array(hoconsc:union([ref(ws_listener), ref(wss_listener)]));
+    hoconsc:array(hoconsc:union(mk_listener_union([ws, wss])));
 listeners_schema(?R_REF(_Mod, tcp_ws_listeners)) ->
-    hoconsc:array(
-        hoconsc:union([
-            ref(tcp_listener),
-            ref(ssl_listener),
-            ref(ws_listener),
-            ref(wss_listener)
-        ])
-    ).
+    hoconsc:array(hoconsc:union(mk_listener_union([tcp, ssl, ws, wss]))).
 
 listener_schema() ->
-    hoconsc:union([
+    hoconsc:union(fun listener_union/1).
+
+mk_listener_union(AllowedStructs) ->
+    GWTypeToListenerType = #{
+        tcp => tcp_listener,
+        ssl => ssl_listener,
+        udp => udp_listener,
+        dtls => dtls_listener,
+        ws => ws_listener,
+        wss => wss_listener
+    },
+    Index = maps:from_keys(AllowedStructs, true),
+    fun
+        (all_union_members) ->
+            [ref(?MODULE, maps:get(S, GWTypeToListenerType)) || S <- AllowedStructs];
+        ({value, V}) ->
+            case V of
+                #{<<"type">> := <<"tcp">>} when is_map_key(tcp, Index) ->
+                    [ref(?MODULE, tcp_listener)];
+                #{<<"type">> := <<"ssl">>} when is_map_key(ssl, Index) ->
+                    [ref(?MODULE, ssl_listener)];
+                #{<<"type">> := <<"udp">>} when is_map_key(udp, Index) ->
+                    [ref(?MODULE, udp_listener)];
+                #{<<"type">> := <<"dtls">>} when is_map_key(dtls, Index) ->
+                    [ref(?MODULE, dtls_listener)];
+                #{<<"type">> := <<"ws">>} when is_map_key(ws, Index) ->
+                    [ref(?MODULE, ws_listener)];
+                #{<<"type">> := <<"wss">>} when is_map_key(wss, Index) ->
+                    [ref(?MODULE, wss_listener)];
+                #{<<"type">> := TypeBin} ->
+                    throw(#{
+                        reason => <<"unknown_listener_type">>,
+                        type => TypeBin
+                    });
+                _ ->
+                    throw(#{
+                        reason => <<"unknown_listener_type">>,
+                        value => V
+                    })
+            end
+    end.
+
+listener_union(all_union_members) ->
+    [
         ref(?MODULE, tcp_listener),
         ref(?MODULE, ssl_listener),
         ref(?MODULE, udp_listener),
         ref(?MODULE, dtls_listener),
         ref(?MODULE, ws_listener),
         ref(?MODULE, wss_listener)
-    ]).
+    ];
+listener_union({value, V}) ->
+    case V of
+        #{<<"type">> := <<"tcp">>} ->
+            [ref(?MODULE, tcp_listener)];
+        #{<<"type">> := <<"ssl">>} ->
+            [ref(?MODULE, ssl_listener)];
+        #{<<"type">> := <<"udp">>} ->
+            [ref(?MODULE, udp_listener)];
+        #{<<"type">> := <<"dtls">>} ->
+            [ref(?MODULE, dtls_listener)];
+        #{<<"type">> := <<"ws">>} ->
+            [ref(?MODULE, ws_listener)];
+        #{<<"type">> := <<"wss">>} ->
+            [ref(?MODULE, wss_listener)];
+        #{<<"type">> := TypeBin} ->
+            throw(#{
+                reason => <<"unknown_listener_type">>,
+                type => TypeBin
+            });
+        _ ->
+            throw(#{
+                reason => <<"unknown_listener_type">>,
+                value => V
+            })
+    end.
 
 mk(Schema, Opts) ->
     hoconsc:mk(Schema, Opts).

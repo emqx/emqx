@@ -192,20 +192,20 @@ handle_continue({build_serdes, Schemas}, State) ->
 handle_continue(load_external_registries, State) ->
     do_load_external_registries(),
     ?tp("external_registries_loaded", #{}),
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 handle_call(_Call, _From, State) ->
-    {reply, {error, unknown_call}, State}.
+    {reply, {error, unknown_call}, State, hibernate}.
 
 handle_cast({delete_serdes, Names}, State) ->
     lists:foreach(fun ensure_serde_absent/1, Names),
     ?tp(schema_registry_serdes_deleted, #{}),
-    {noreply, State};
+    {noreply, State, hibernate};
 handle_cast({build_serdes, Schemas}, State) ->
     do_build_serdes(Schemas),
-    {noreply, State};
+    {noreply, State, hibernate};
 handle_cast(_Cast, State) ->
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 terminate(_Reason, _State) ->
     ok.

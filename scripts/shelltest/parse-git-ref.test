@@ -14,71 +14,71 @@ Unrecognized tag: refs/tags/v5.2.0-rc.1
 >>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.1.0
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
+>>>2
+Unrecognized tag: refs/tags/e5.1.0
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.1.5-build.1
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
+>>>2
+Unrecognized tag: refs/tags/e5.1.5-build.1
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.2.0-alpha.1
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
+>>>2
+Unrecognized tag: refs/tags/e5.2.0-alpha.1
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.3.0-alpha.1
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
+>>>2
+Unrecognized tag: refs/tags/e5.3.0-alpha.1
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.2.0-beta.1
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
+>>>2
+Unrecognized tag: refs/tags/e5.2.0-beta.1
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.3.0-beta.1
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
+>>>2
+Unrecognized tag: refs/tags/e5.3.0-beta.1
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.2.0-rc.1
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
+>>>2
+Unrecognized tag: refs/tags/e5.2.0-rc.1
+>>>= 1
 
 ./parse-git-ref.sh refs/tags/e5.3.0-rc.1
+>>>2
+Unrecognized tag: refs/tags/e5.3.0-rc.1
+>>>= 1
+
+./parse-git-ref.sh refs/tags/6.0.0-M1.202507
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
 
-./parse-git-ref.sh refs/tags/e6.0.0-M1.202507
+./parse-git-ref.sh refs/tags/6.0.0-M1.202507-alpha.1
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
 
-./parse-git-ref.sh refs/tags/e6.0.0-M1.202507-alpha.1
+./parse-git-ref.sh refs/tags/6.0.0-M1.202507-beta.1
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
 
-./parse-git-ref.sh refs/tags/e6.0.0-M1.202507-beta.1
+./parse-git-ref.sh refs/tags/6.0.0-M1.202507-rc.1
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
 
-./parse-git-ref.sh refs/tags/e6.0.0-M1.202507-rc.1
+./parse-git-ref.sh refs/tags/6.1.0-M2.202508
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
 
-./parse-git-ref.sh refs/tags/e6.1.0-M2.202508
->>>
-{"profile": "emqx-enterprise", "release": true, "latest": false}
->>>= 0
-
-./parse-git-ref.sh refs/tags/e6.1.0-M2.202508-alpha.2
+./parse-git-ref.sh refs/tags/6.1.0-M2.202508-alpha.2
 >>>
 {"profile": "emqx-enterprise", "release": true, "latest": false}
 >>>= 0
@@ -89,19 +89,19 @@ Unrecognized tag: refs/tags/v5.2.0-rc.1
 >>>= 0
 
 ./parse-git-ref.sh refs/heads/release-51
->>>
-{"profile": "emqx-enterprise", "release": false, "latest": false}
->>>= 0
+>>>2
+Unrecognized git ref: refs/heads/release-51
+>>>= 1
 
 ./parse-git-ref.sh refs/heads/release-52
->>>
-{"profile": "emqx-enterprise", "release": false, "latest": false}
->>>= 0
+>>>2
+Unrecognized git ref: refs/heads/release-52
+>>>= 1
 
 ./parse-git-ref.sh refs/heads/release-53
->>>
-{"profile": "emqx-enterprise", "release": false, "latest": false}
->>>= 0
+>>>2
+Unrecognized git ref: refs/heads/release-53
+>>>= 1
 
 ./parse-git-ref.sh refs/heads/ci/foobar
 >>>

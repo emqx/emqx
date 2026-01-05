@@ -43,6 +43,13 @@ emqx_ds_schema {
         Configuration of the durable storage containing Message Queue messages."""
   }
 
+  streams_messages {
+      label: "Message Stream messages"
+      desc:
+        """~
+        Configuration of the durable storage containing Message Stream messages."""
+  }
+
   // Backends types:
 
   backend_type {

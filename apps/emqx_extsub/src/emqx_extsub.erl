@@ -33,8 +33,15 @@ The module:
     on_client_handle_info/3
 ]).
 
+-export([
+    set_max_unacked/1,
+    max_unacked/0
+]).
+
 -define(ST_PD_KEY, extsub_st).
 -define(CAN_RECEIVE_ACKS_PD_KEY, extsub_can_receive_acks).
+
+-define(MAX_UNACKED_PT_KEY, extsub_max_unacked).
 
 -record(st, {
     registry :: emqx_extsub_handler_registry:t(),
@@ -280,6 +287,13 @@ do_handle_info(St0, #{chan_info_fn := ChanInfoFn} = _HookContext, HandlerRef, In
             {try_deliver, St1}
     end.
 
+set_max_unacked(MaxUnacked) ->
+    _ = persistent_term:put(?MAX_UNACKED_PT_KEY, MaxUnacked),
+    ok.
+
+max_unacked() ->
+    persistent_term:get(?MAX_UNACKED_PT_KEY, ?EXTSUB_MAX_UNACKED).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -404,9 +418,10 @@ deliver_count(SessionInfoFn, UnackedCnt) ->
     ?tp_debug(extsub_deliver_count_calc, #{
         inflight_max => InflightMax, inflight_cnt => InflightCnt, unacked_cnt => UnackedCnt
     }),
+    MaxUnacked = max_unacked(),
     case InflightMax of
-        0 -> ?EXTSUB_MAX_UNACKED - UnackedCnt;
-        _ -> max(?EXTSUB_MAX_UNACKED - UnackedCnt, InflightMax - InflightCnt)
+        0 -> MaxUnacked - UnackedCnt;
+        _ -> max(MaxUnacked - UnackedCnt, InflightMax - InflightCnt)
     end.
 
 subscribe_ctx(ClientInfo) ->
