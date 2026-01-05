@@ -15,6 +15,12 @@ scopes.desc:
 name_var.desc:
 """A template to map OIDC user information to a Dashboard name, its default value is `${sub}`."""
 
+name_var_source.desc:
+"""~From which source to extract information to construct the Dashboard username.  Defaults to `userinfo`.
+
+- `userinfo`: Utilizes the response from the `/userinfo` endpoint.
+- `id_token`: Utilizes the claims contained in the access token.~"""
+
 dashboard_addr.desc:
 """The address of the EMQX Dashboard."""
 
