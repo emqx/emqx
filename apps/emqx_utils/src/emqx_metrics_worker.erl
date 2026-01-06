@@ -135,7 +135,7 @@
 -define(WINSIZE_5M, (?SECS_5M div ?SAMPLING)).
 %% Respective ɑ of EWMA approximating simple moving average with this window size:
 %% * https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.ewm.html
--define(WINSPAN_5M_EWMA_ALPHA, 2.0 / (1 + ?WINSIZE_5M)).
+-define(WINSPAN_5M_EWMA_ALPHA, (2.0 / (1 + ?WINSIZE_5M))).
 
 -define(GAUGE_TABLE(NAME),
     list_to_atom(atom_to_list(?MODULE) ++ "_" ++ atom_to_list(NAME) ++ "_gauge")
