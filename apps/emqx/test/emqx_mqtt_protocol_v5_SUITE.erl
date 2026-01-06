@@ -1279,3 +1279,31 @@ t_PUBLISH_packet_too_large(Config) ->
             )
     end,
     ok.
+
+t_deliver_packet_too_large(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"TopicA">>,
+    MaxSize = 1024,
+    {ok, ClientPid} = emqtt:start_link([
+        {proto_ver, v5},
+        {clean_start, true},
+        {properties, #{'Maximum-Packet-Size' => MaxSize}}
+        | Config
+    ]),
+    {ok, _} = emqtt:ConnFun(ClientPid),
+    %% Delivery larger than 1 KiB should be silently discarded:
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(ClientPid, Topic, ?QOS_1),
+    Payload = lists:duplicate(MaxSize, $X),
+    Message = emqx_message:make(<<?MODULE_STRING>>, ?QOS_1, Topic, Payload),
+    ?assertMatch([{_, _, {ok, 1}}], emqx_broker:publish(Message)),
+    ?assertNotReceive({publish, #{topic := Topic}}),
+    %% Verify stats were updated:
+    ClientId = proplists:get_value(clientid, emqtt:info(ClientPid)),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    ConnMod = emqx_cm:do_get_chann_conn_mod(ClientId, ChanPid),
+    ?assertMatch(
+        #{'send_msg.dropped.too_large' := 1},
+        maps:from_list(ConnMod:stats(ChanPid))
+    ),
+    %% Cleanup:
+    ok = emqtt:disconnect(ClientPid).
