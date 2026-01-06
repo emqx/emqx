@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_scram_restapi_SUITE).
@@ -15,7 +15,6 @@
 
 -define(PATH, [authentication]).
 
--define(HTTP_PORT, 34333).
 -define(HTTP_PATH, "/user/[...]").
 -define(ALGORITHM, sha512).
 -define(ALGORITHM_STR, <<"sha512">>).
@@ -32,41 +31,42 @@ all() ->
         ee -> emqx_common_test_helpers:all(?MODULE)
     end.
 
-init_per_suite(Config) ->
+init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
-        work_dir => ?config(priv_dir, Config)
+        work_dir => ?config(priv_dir, TCConfig)
     }),
 
     IdleTimeout = emqx_config:get([mqtt, idle_timeout]),
-    [{apps, Apps}, {idle_timeout, IdleTimeout} | Config].
+    [{apps, Apps}, {idle_timeout, IdleTimeout} | TCConfig].
 
-end_per_suite(Config) ->
-    ok = emqx_config:put([mqtt, idle_timeout], ?config(idle_timeout, Config)),
+end_per_suite(TCConfig) ->
+    ok = emqx_config:put([mqtt, idle_timeout], ?config(idle_timeout, TCConfig)),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok = emqx_cth_suite:stop(?config(apps, TCConfig)),
     ok.
 
-init_per_testcase(_Case, Config) ->
+init_per_testcase(_Case, TCConfig) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
+    HTTPPort = emqx_common_test_helpers:select_free_port(tcp),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = emqx_authn_scram_restapi_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
-    Config.
+    {ok, _} = emqx_authn_scram_restapi_test_server:start_link(HTTPPort, ?HTTP_PATH),
+    [{http_port, HTTPPort} | TCConfig].
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(_Case, _TCConfig) ->
     ok = emqx_authn_scram_restapi_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_create(_Config) ->
-    AuthConfig = raw_config(),
+t_create(TCConfig) ->
+    AuthConfig = raw_config(TCConfig),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -77,8 +77,8 @@ t_create(_Config) ->
         ?GLOBAL
     ).
 
-t_create_invalid(_Config) ->
-    AuthConfig = raw_config(),
+t_create_invalid(TCConfig) ->
+    AuthConfig = raw_config(TCConfig),
 
     InvalidConfigs =
         [
@@ -92,13 +92,13 @@ t_create_invalid(_Config) ->
         ],
 
     lists:foreach(
-        fun(Config) ->
-            ct:pal("creating authenticator with invalid config: ~p", [Config]),
+        fun(AuthConf) ->
+            ct:pal("creating authenticator with invalid config: ~p", [AuthConf]),
             {error, _} =
                 try
                     emqx:update_config(
                         ?PATH,
-                        {create_authenticator, ?GLOBAL, Config}
+                        {create_authenticator, ?GLOBAL, AuthConf}
                     )
                 catch
                     throw:Error ->
@@ -112,24 +112,24 @@ t_create_invalid(_Config) ->
         InvalidConfigs
     ).
 
-t_authenticate(_Config) ->
+t_authenticate(TCConfig) ->
     Username = <<"u">>,
     Password = <<"p">>,
 
     set_user_handler(Username, Password),
-    init_auth(),
+    init_auth(TCConfig),
 
     ok = emqx_config:put([mqtt, idle_timeout], 500),
 
     {ok, Pid} = create_connection(Username, Password),
     emqx_mqtt_test_client:stop(Pid).
 
-t_authenticate_bad_props(_Config) ->
+t_authenticate_bad_props(TCConfig) ->
     Username = <<"u">>,
     Password = <<"p">>,
 
     set_user_handler(Username, Password),
-    init_auth(),
+    init_auth(TCConfig),
 
     {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
@@ -146,12 +146,12 @@ t_authenticate_bad_props(_Config) ->
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
-t_authenticate_bad_username(_Config) ->
+t_authenticate_bad_username(TCConfig) ->
     Username = <<"u">>,
     Password = <<"p">>,
 
     set_user_handler(Username, Password),
-    init_auth(),
+    init_auth(TCConfig),
 
     {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
@@ -171,12 +171,12 @@ t_authenticate_bad_username(_Config) ->
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
-t_authenticate_bad_password(_Config) ->
+t_authenticate_bad_password(TCConfig) ->
     Username = <<"u">>,
     Password = <<"p">>,
 
     set_user_handler(Username, Password),
-    init_auth(),
+    init_auth(TCConfig),
 
     {ok, Pid} = emqx_mqtt_test_client:start_link("127.0.0.1", 1883),
 
@@ -221,12 +221,12 @@ t_authenticate_bad_password(_Config) ->
 
     ?CONNACK_PACKET(?RC_NOT_AUTHORIZED) = receive_packet().
 
-t_destroy(_Config) ->
+t_destroy(TCConfig) ->
     Username = <<"u">>,
     Password = <<"p">>,
 
     set_user_handler(Username, Password),
-    init_auth(),
+    init_auth(TCConfig),
 
     ok = emqx_config:put([mqtt, idle_timeout], 500),
 
@@ -266,8 +266,8 @@ t_destroy(_Config) ->
         _
     ) = receive_packet().
 
-t_acl(_Config) ->
-    init_auth(),
+t_acl(TCConfig) ->
+    init_auth(TCConfig),
 
     ACL = emqx_authn_http_SUITE:acl_rules(),
     set_user_handler(?T_ACL_USERNAME, ?T_ACL_PASSWORD, #{acl => ACL}),
@@ -290,8 +290,8 @@ t_acl(_Config) ->
         ok = emqx_mqtt_test_client:stop(Pid)
     end.
 
-t_auth_expire(_Config) ->
-    init_auth(),
+t_auth_expire(TCConfig) ->
+    init_auth(TCConfig),
 
     ExpireSec = 3,
     WaitTime = timer:seconds(ExpireSec + 1),
@@ -307,8 +307,8 @@ t_auth_expire(_Config) ->
     timer:sleep(WaitTime),
     ?assertEqual(false, erlang:is_process_alive(Pid)).
 
-t_is_superuser() ->
-    State = init_auth(),
+t_is_superuser(TCConfig) ->
+    State = init_auth(TCConfig),
     ok = test_is_superuser(State, false),
     ok = test_is_superuser(State, true),
     ok = test_is_superuser(State, false).
@@ -324,6 +324,7 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
     {continue, ServerFirstMessage, ServerCache} =
         emqx_authn_scram_restapi:authenticate(
             #{
+                username => undefined,
                 auth_method => <<"SCRAM-SHA-512">>,
                 auth_data => ClientFirstMessage,
                 auth_cache => #{}
@@ -361,14 +362,15 @@ test_is_superuser(State, ExpectedIsSuperuser) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
-raw_config() ->
+raw_config(TCConfig) ->
+    PortBin = integer_to_binary(?config(http_port, TCConfig)),
     #{
         <<"mechanism">> => <<"scram">>,
         <<"backend">> => <<"http">>,
         <<"enable">> => <<"true">>,
         <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
-        <<"url">> => <<"http://127.0.0.1:34333/user">>,
+        <<"url">> => <<"http://127.0.0.1:", PortBin/binary, "/user">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>},
         <<"algorithm">> => ?ALGORITHM_STR,
@@ -397,13 +399,13 @@ set_user_handler(Username, Password, Extra0) ->
     end,
     ok = emqx_authn_scram_restapi_test_server:set_handler(Handler).
 
-init_auth() ->
-    init_auth(raw_config()).
+init_auth(TCConfig) ->
+    do_init_auth(raw_config(TCConfig)).
 
-init_auth(Config) ->
+do_init_auth(AuthConfig) ->
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config}
+        {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
     {ok, [#{state := State}]} = emqx_authn_chains:list_authenticators(?GLOBAL),
