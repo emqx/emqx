@@ -17,6 +17,8 @@ echo "Version check compare base: $latest_release"
 bad_app_count=0
 
 no_comment_re='(^[^\s?%])'
+# For .proto files: exclude comment lines starting with // (after optional whitespace)
+proto_no_comment_re='(^[^/\s]|^[[:space:]]+[^/\s])'
 ## TODO: c source code comments re (in $app_path/c_src dirs)
 
 parse_semver() {
@@ -54,13 +56,22 @@ for app in ${APPS}; do
         echo "IGNORE: $src_file is newly added"
         true
     elif [ "$old_app_version" = "$now_app_version" ]; then
+        # Check for changes excluding .proto files
         changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
                              -- ":(exclude)"$app_path/src/*.appup.src"" \
+                             -- ":(exclude)"$app_path/priv/*.proto"" \
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" | wc -l ) "
-        if [ "$changed_lines" -gt 0 ]; then
+        # Check .proto files separately with regex that ignores comment lines
+        proto_changed_lines=0
+        if find "$app_path/priv" -name "*.proto" -type f 2>/dev/null | grep -q .; then
+            proto_changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$proto_no_comment_re" \
+                                 $(find "$app_path/priv" -name "*.proto" -type f 2>/dev/null) | wc -l ) "
+        fi
+        total_changed=$((changed_lines + proto_changed_lines))
+        if [ "$total_changed" -gt 0 ]; then
             log_red "ERROR: $src_file needs a vsn bump"
             bad_app_count=$(( bad_app_count + 1))
         fi
