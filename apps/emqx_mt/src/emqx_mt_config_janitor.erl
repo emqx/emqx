@@ -162,6 +162,7 @@ do_clean_up(Namespace) ->
         end,
         OtherRootKeys
     ),
+    ok = delete_managed_certs_bundles(Namespace),
     ok = unregister_namespace_metrics(Namespace),
     ok = emqx_hooks:run('namespace.delete', [Namespace]),
     AnyFailed = get(?cleanup_failed),
@@ -207,6 +208,37 @@ unregister_namespace_metrics(Namespace) ->
             }),
             put(?cleanup_failed, true),
             ok
+    end.
+
+delete_managed_certs_bundles(Namespace) ->
+    case emqx_managed_certs:list_bundles(Namespace) of
+        {ok, Bundles} ->
+            delete_managed_certs_files(Namespace, Bundles);
+        {error, enoent} ->
+            ok;
+        {error, Reason} ->
+            ?tp(error, "mt_failed_to_cleanup_managed_certs", #{
+                namespace => Namespace,
+                reason => Reason
+            }),
+            put(?cleanup_failed, true),
+            ok
+    end.
+
+delete_managed_certs_files(_Namespace, _Bundles = []) ->
+    ok;
+delete_managed_certs_files(Namespace, [BundleName | Rest]) ->
+    case emqx_managed_certs:delete_bundle(Namespace, BundleName) of
+        ok ->
+            delete_managed_certs_files(Namespace, Rest);
+        {error, Details} ->
+            ?tp(error, "mt_failed_to_cleanup_managed_certs_files", #{
+                namespace => Namespace,
+                bundle_name => BundleName,
+                details => Details
+            }),
+            put(?cleanup_failed, true),
+            delete_managed_certs_files(Namespace, Rest)
     end.
 
 execute_side_effects(SideEffects) ->

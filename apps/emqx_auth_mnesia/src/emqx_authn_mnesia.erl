@@ -57,7 +57,7 @@
 
 -export_type([user_group/0, user_id/0]).
 
--type user_group() :: binary().
+-type user_group() :: atom() | binary().
 -type user_id() :: binary().
 
 -record(user_info, {
@@ -151,7 +151,7 @@ authenticate(
 ) ->
     Namespace = get_namespace(Credential),
     UserId = get_user_identity(Credential, Type),
-    case do_lookup_user(Namespace, UserGroup, UserId) of
+    case lookup_user_with_fallback(Namespace, UserGroup, UserId) of
         error ->
             ?TRACE_AUTHN_PROVIDER("user_not_found"),
             ignore;
@@ -705,6 +705,16 @@ boostrap_user_from_file(Config, State) ->
             end
     end.
 
+lookup_user_with_fallback(?global_ns, UserGroup, UserId) ->
+    do_lookup_user(?global_ns, UserGroup, UserId);
+lookup_user_with_fallback(Namespace, UserGroup, UserId) when is_binary(Namespace) ->
+    maybe
+        error ?= do_lookup_user(Namespace, UserGroup, UserId),
+        %% We only fall back to global if there are no records for the whole namespace.
+        true ?= is_namespace_empty(Namespace) orelse error,
+        do_lookup_user(?global_ns, UserGroup, UserId)
+    end.
+
 do_lookup_user(?global_ns, UserGroup, UserId) ->
     case mnesia:dirty_read(?TAB, {UserGroup, UserId}) of
         [] ->
@@ -724,6 +734,17 @@ do_lookup_by_rec_txn(#user_info{user_id = Key}) ->
     mnesia:read(?TAB, Key, write);
 do_lookup_by_rec_txn(#?AUTHN_NS_TAB{user_id = Key}) ->
     mnesia:read(?AUTHN_NS_TAB, Key, write).
+
+is_namespace_empty(Namespace) when is_binary(Namespace) ->
+    %% `[]` is `<` than any (binary) user id or group
+    %% `0` is `<` than any (atom) group (user group is an atom, despite what the original
+    %% typespec said...)
+    case mnesia:dirty_next(?AUTHN_NS_TAB, ?AUTHN_NS_KEY(Namespace, 0, [])) of
+        ?AUTHN_NS_KEY(Namespace, _, _) ->
+            false;
+        _ ->
+            true
+    end.
 
 rec_to_map(#user_info{} = Rec) ->
     #user_info{

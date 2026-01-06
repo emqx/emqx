@@ -5,7 +5,7 @@ defmodule EMQXDurableTimer.MixProject do
   def project do
     [
       app: :emqx_durable_timer,
-      version: "6.0.2",
+      version: "6.1.0",
       build_path: "../../_build",
       # config_path: "../../config/config.exs",
       erlc_options: UMP.strict_erlc_options(),

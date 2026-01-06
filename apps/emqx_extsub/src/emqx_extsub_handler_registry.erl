@@ -6,7 +6,6 @@
 
 -moduledoc """
 Collection of handlers for the external message sources.
-Primarily, allows to access the handlers both by the handler unique reference or by topic filter.
 """.
 
 -include("emqx_extsub_internal.hrl").
@@ -29,16 +28,15 @@ Primarily, allows to access the handlers both by the handler unique reference or
 
 -record(extsub, {
     handler :: emqx_extsub_handler:t(),
-    %% TODO
-    %% Use set
-    topic_filters :: [emqx_extsub_types:topic_filter()]
+    topic_filters :: sets:set(emqx_extsub_types:topic_filter())
 }).
 
 -record(registry, {
-    by_ref :: #{emqx_extsub_types:handler_ref() => #extsub{}},
-    by_topic_cbm :: #{
+    by_ref = #{} :: #{emqx_extsub_types:handler_ref() => #extsub{}},
+    by_topic_cbm = #{} :: #{
         {module(), emqx_extsub_types:topic_filter()} => emqx_extsub_types:handler_ref()
-    }
+    },
+    generic_message_handlers = [] :: [emqx_extsub_types:handler_ref()]
 }).
 
 -type t() :: #registry{}.
@@ -78,7 +76,7 @@ unregister(CBM) ->
 
 -spec new() -> t().
 new() ->
-    #registry{by_ref = #{}, by_topic_cbm = #{}}.
+    #registry{by_ref = #{}, by_topic_cbm = #{}, generic_message_handlers = []}.
 
 -spec subscribe(
     t(),
@@ -159,51 +157,32 @@ recreate(
             subscribe(RegistryAcc, resume, SubscribeCtx, {Module, Options}, TopicFilter)
         end,
         Registry,
-        TopicFilters
+        sets:to_list(TopicFilters)
     ).
 
 -spec generic_message_handlers(t()) -> [emqx_extsub_types:handler_ref()].
-generic_message_handlers(#registry{by_ref = ByRef}) ->
-    %% TODO
-    %% May precache the result
-    maps:fold(
-        fun(HandlerRef, #extsub{handler = Handler}, Acc) ->
-            case emqx_extsub_handler:get_option(handle_generic_messages, Handler, false) of
-                true -> [HandlerRef | Acc];
-                false -> Acc
-            end
-        end,
-        [],
-        ByRef
-    ).
+generic_message_handlers(#registry{generic_message_handlers = GenericMessageHandlers}) ->
+    GenericMessageHandlers.
 
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
 subscribe(
-    #registry{by_ref = ByRef, by_topic_cbm = ByTopicCBM} = Registry,
+    #registry{
+        by_ref = ByRef, by_topic_cbm = ByTopicCBM, generic_message_handlers = GenericMessageHandlers
+    } = Registry,
     SubscribeType,
     SubscribeCtx0,
     {Module, #{multi_topic := true} = Options},
     TopicFilter
 ) ->
-    ?tp_debug(extsub_handler_registry_subscribe_multi_topic, #{
-        module => Module, options => Options, topic_filter => TopicFilter
-    }),
     case ByTopicCBM of
         #{{Module, TopicFilter} := _HandlerRef} ->
-            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_already_subscribed, #{
-                module => Module, options => Options, topic_filter => TopicFilter
-            }),
             Registry;
         _ ->
-            ModuleHandlerRefs = [
-                HandlerRef
-             || {{Mod, _TF}, HandlerRef} <- maps:to_list(ByTopicCBM), Mod =:= Module
-            ],
-            case ModuleHandlerRefs of
-                [HandlerRef] ->
+            case find_module_handler_ref(Registry, Module) of
+                {ok, HandlerRef} ->
                     #extsub{handler = Handler0, topic_filters = TopicFilters} = maps:get(
                         HandlerRef, ByRef
                     ),
@@ -214,25 +193,19 @@ subscribe(
                         )
                     of
                         {ok, Handler} ->
-                            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_subscribed, #{
-                                module => Module, options => Options, topic_filter => TopicFilter
-                            }),
                             Registry#registry{
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
                                         handler = Handler,
-                                        topic_filters = [TopicFilter | TopicFilters]
+                                        topic_filters = sets:add_element(TopicFilter, TopicFilters)
                                     }
                                 },
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
                             };
                         ignore ->
-                            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_ignore, #{
-                                module => Module, options => Options, topic_filter => TopicFilter
-                            }),
                             Registry
                     end;
-                [] ->
+                not_found ->
                     HandlerRef = make_ref(),
                     SubscribeCtx = create_subscribe_ctx(HandlerRef, SubscribeCtx0),
                     case
@@ -241,39 +214,32 @@ subscribe(
                         )
                     of
                         {ok, Handler} ->
-                            ?tp_debug(
-                                extsub_handler_registry_subscribe_multi_topic_subscribed_new, #{
-                                    module => Module,
-                                    options => Options,
-                                    topic_filter => TopicFilter
-                                }
-                            ),
                             Registry#registry{
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
-                                        handler = Handler, topic_filters = [TopicFilter]
+                                        handler = Handler,
+                                        topic_filters = sets:from_list([TopicFilter], [{version, 2}])
                                     }
                                 },
-                                by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
+                                by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef},
+                                generic_message_handlers = add_to_generic_message_handlers(
+                                    GenericMessageHandlers, HandlerRef, Options
+                                )
                             };
                         ignore ->
-                            ?tp_debug(extsub_handler_registry_subscribe_multi_topic_ignore_new, #{
-                                module => Module, options => Options, topic_filter => TopicFilter
-                            }),
                             Registry
                     end
             end
     end;
 subscribe(
-    #registry{by_ref = ByRef, by_topic_cbm = ByTopicCBM} = Registry,
+    #registry{
+        by_ref = ByRef, by_topic_cbm = ByTopicCBM, generic_message_handlers = GenericMessageHandlers
+    } = Registry,
     InitType,
     InitCtx0,
     {Module, #{multi_topic := false} = Options},
     TopicFilter
 ) ->
-    ?tp_debug(extsub_handler_registry_subscribe_single_topic, #{
-        module => Module, options => Options, topic_filter => TopicFilter
-    }),
     case ByTopicCBM of
         #{{Module, TopicFilter} := _HandlerRef} ->
             Registry;
@@ -286,17 +252,37 @@ subscribe(
                 {ok, Handler} ->
                     Registry#registry{
                         by_ref = ByRef#{
-                            HandlerRef => #extsub{handler = Handler, topic_filters = [TopicFilter]}
+                            HandlerRef => #extsub{
+                                handler = Handler,
+                                topic_filters = sets:from_list([TopicFilter], [{version, 2}])
+                            }
                         },
-                        by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
+                        by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef},
+                        generic_message_handlers = add_to_generic_message_handlers(
+                            GenericMessageHandlers, HandlerRef, Options
+                        )
                     };
                 ignore ->
                     Registry
             end
     end.
 
+find_module_handler_ref(#registry{by_topic_cbm = ByTopicCBM}, Module) ->
+    do_find_module_handler_ref(maps:to_list(ByTopicCBM), Module).
+
+do_find_module_handler_ref([], _Module) ->
+    not_found;
+do_find_module_handler_ref([{{Module, _TopicFilter}, HandlerRef} | _Rest], Module) ->
+    {ok, HandlerRef};
+do_find_module_handler_ref([_ | Rest], Module) ->
+    do_find_module_handler_ref(Rest, Module).
+
 unsubscribe(
-    #registry{by_ref = ByRef0, by_topic_cbm = ByTopicCBM0} = Registry,
+    #registry{
+        by_ref = ByRef0,
+        by_topic_cbm = ByTopicCBM0,
+        generic_message_handlers = GenericMessageHandlers
+    } = Registry,
     UnsubscribeType,
     Module,
     TopicFilter,
@@ -306,10 +292,10 @@ unsubscribe(
         HandlerRef, ByRef0
     ),
     Handler = emqx_extsub_handler:unsubscribe(UnsubscribeType, Handler0, TopicFilter),
-    HandlerTopicFilters = lists:delete(TopicFilter, HandlerTopicFilters0),
+    HandlerTopicFilters = sets:del_element(TopicFilter, HandlerTopicFilters0),
     ByRef =
-        case HandlerTopicFilters of
-            [] ->
+        case sets:size(HandlerTopicFilters) of
+            0 ->
                 ok = emqx_extsub_handler:terminate(Handler),
                 maps:remove(HandlerRef, ByRef0);
             _ ->
@@ -318,25 +304,40 @@ unsubscribe(
                 }
         end,
     ByTopicCBM = maps:remove({Module, TopicFilter}, ByTopicCBM0),
-    Registry#registry{by_ref = ByRef, by_topic_cbm = ByTopicCBM}.
+    Registry#registry{
+        by_ref = ByRef,
+        by_topic_cbm = ByTopicCBM,
+        generic_message_handlers = remove_from_generic_message_handlers(
+            GenericMessageHandlers, HandlerRef
+        )
+    }.
 
 cbms() ->
     ets:tab2list(?TAB).
 
+add_to_generic_message_handlers(
+    GenericMessageHandlers, HandlerRef, #{handle_generic_messages := true} = _Options
+) ->
+    case lists:member(HandlerRef, GenericMessageHandlers) of
+        true ->
+            GenericMessageHandlers;
+        false ->
+            [HandlerRef | GenericMessageHandlers]
+    end;
+add_to_generic_message_handlers(GenericMessageHandlers, _HandlerRef, _Options) ->
+    GenericMessageHandlers.
+
+remove_from_generic_message_handlers(GenericMessageHandlers, HandlerRef) ->
+    lists:delete(HandlerRef, GenericMessageHandlers).
+
 create_subscribe_ctx(Ref, Ctx) ->
-    ?tp_debug(extsub_handler_registry_create_subscribe_ctx, #{ref => Ref, ctx => Ctx}),
     Pid = self(),
     SendAfter = fun(Interval, Info) ->
-        ?tp_debug(extsub_handler_registry_create_subscribe_ctx_send_after, #{
-            to => Pid, interval => Interval, info => Info
-        }),
-        _ = erlang:send_after(Interval, Pid, #info_to_extsub{
+        erlang:send_after(Interval, Pid, #info_to_extsub{
             handler_ref = Ref, info = Info
-        }),
-        ok
+        })
     end,
     Send = fun(Info) ->
-        ?tp_debug(extsub_handler_registry_create_subscribe_ctx_send, #{to => Pid, info => Info}),
         _ = erlang:send(Pid, #info_to_extsub{
             handler_ref = Ref, info = Info
         }),

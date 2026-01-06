@@ -4079,7 +4079,12 @@ mqtt_general() ->
                     desc => ?DESC("clientid_override"),
                     converter => fun compile_variform_allow_disabled/2
                 }
-            )}
+            )},
+        {"namespace_as_mountpoint",
+            sc(boolean(), #{
+                default => false,
+                desc => ?DESC("namespace_as_mountpoint")
+            })}
     ].
 %% All session's importance should be lower than general part to organize document.
 mqtt_session() ->

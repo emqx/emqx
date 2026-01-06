@@ -60,6 +60,8 @@
     worker_loop/0
 ]).
 
+-export_type([name/0]).
+
 -type name() :: binary() | atom().
 -type details() :: map() | list().
 

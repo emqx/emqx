@@ -77,7 +77,7 @@ fields("server_configs") ->
                 #{
                     default => cluster_shareload,
                     desc => ?DESC("mode"),
-                    deprecated => {since, "v5.1.0 & e5.1.0"}
+                    deprecated => {since, "5.1.0"}
                 }
             )},
         {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MQTT_HOST_OPTS)},
@@ -92,7 +92,7 @@ fields("server_configs") ->
                     validator => fun static_clientid_validator/1
                 }
             )},
-        {reconnect_interval, mk(string(), #{deprecated => {since, "v5.0.16"}})},
+        {reconnect_interval, mk(string(), #{deprecated => {since, "5.0.16"}})},
         {proto_ver,
             mk(
                 hoconsc:enum([v3, v4, v5]),

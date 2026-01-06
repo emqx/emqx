@@ -1078,13 +1078,14 @@ handle_simple_query_result(Id, Query, Result, HasBeenSent) ->
 %% the caller until one of those final results above happen.
 -spec handle_query_result_pure(id(), term(), HasBeenSent :: boolean(), TraceCtx :: map()) ->
     query_result_pure().
-handle_query_result_pure(_Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCtx) ->
+handle_query_result_pure(Id, ?RESOURCE_ERROR_M(exception, Msg), _HasBeenSent, TraceCtx) ->
     PostFn = fun(_ResultContext) ->
-        ?TRACE(
+        ?TRACE_THROTTLE(
             error,
+            Id,
             "ERROR",
-            "resource_exception",
-            TraceCtx#{info => emqx_utils:redact(Msg)}
+            resource_exception,
+            TraceCtx#{info => emqx_utils:redact(map_resource_exception(Msg))}
         ),
         ok
     end,
@@ -2733,6 +2734,14 @@ infer_namespace_from_id(Id) ->
         throw:{invalid_id, _} ->
             ?global_ns
     end.
+
+%% We remove the arglist to avoid logging huge terms
+map_resource_exception(#{error := {exit, {Reason, {gen_server, call, _ArgList}}}} = Msg0) ->
+    Msg0#{error := {exit, Reason}};
+map_resource_exception(#{error := {exit, {Reason, {gen_statem, call, _ArgList}}}} = Msg0) ->
+    Msg0#{error := {exit, Reason}};
+map_resource_exception(Msg) ->
+    Msg.
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").

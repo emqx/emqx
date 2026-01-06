@@ -157,6 +157,49 @@ t_client_attr_as_mountpoint(_Config) ->
     emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
     ok.
 
+t_namespace_as_mountpoint_existing_mountpoint(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    Namespace = <<"n1">>,
+    ExistingMountpoint = <<"existing/">>,
+    ListenerConf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"mountpoint">> => ExistingMountpoint
+    },
+    {ok, Compiled} = emqx_variform:compile("user_property.namespace"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"tns">>
+        }
+    ]),
+    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], true),
+    with_listener(tcp, namespace_as_mountpoint_existing, ListenerConf, fun() ->
+        {ok, Client} = emqtt:start_link(#{
+            hosts => [{"127.0.0.1", Port}],
+            clientid => <<"test-client">>,
+            proto_ver => v5,
+            properties => #{'User-Property' => [{<<"namespace">>, Namespace}]}
+        }),
+        unlink(Client),
+        {ok, _} = emqtt:connect(Client),
+        ClientId = <<"test-client">>,
+        %% Existing mountpoint should be preserved, not overridden
+        ?assertMatch(
+            #{mountpoint := ExistingMountpoint},
+            maps:get(clientinfo, emqx_cm:get_chan_info(ClientId))
+        ),
+        TopicPrefix = atom_to_binary(?FUNCTION_NAME),
+        SubTopic = <<TopicPrefix/binary, "/#">>,
+        %% Topic should use existing mountpoint, not namespace-based one
+        MatchTopic = <<ExistingMountpoint/binary, TopicPrefix/binary, "/1">>,
+        {ok, _, [1]} = emqtt:subscribe(Client, SubTopic, 1),
+        ?assertMatch([_], emqx_router:match_routes(MatchTopic)),
+        emqtt:stop(Client)
+    end),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], []),
+    emqx_config:put_zone_conf(default, [mqtt, namespace_as_mountpoint], false),
+    ok.
+
 t_current_conns_tcp(_Config) ->
     Port = emqx_common_test_helpers:select_free_port(tcp),
     Conf = #{

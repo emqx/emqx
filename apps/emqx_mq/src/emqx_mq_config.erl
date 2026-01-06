@@ -85,7 +85,8 @@ pre_config_update(?MQ_CONFIG_PATH, NewConf, _OldConf) ->
 post_config_update(?MQ_CONFIG_PATH, _Request, NewConf, OldConf, _AppEnvs) ->
     maybe
         ok ?= validate_auto_create(NewConf),
-        ok ?= maybe_enable(NewConf, OldConf)
+        ok ?= maybe_enable(NewConf, OldConf),
+        ok ?= maybe_reschedule_gc(NewConf, OldConf)
     end.
 
 %%------------------------------------------------------------------------------
@@ -107,6 +108,15 @@ maybe_enable(#{enable := false} = _NewConf, #{enable := true} = _OldConf) ->
     {error, #{reason => cannot_disable_mq_in_runtime}};
 maybe_enable(#{enable := true} = _NewConf, #{enable := false} = _OldConf) ->
     ok = emqx_mq_app:do_start().
+
+maybe_reschedule_gc(
+    #{gc_interval := GcInterval} = _NewConf, #{gc_interval := GcInterval} = _OldConf
+) ->
+    ok;
+maybe_reschedule_gc(#{enable := true, gc_interval := GcInterval} = _NewConf, _OldConf) ->
+    ok = emqx_mq_gc:reschedule(GcInterval);
+maybe_reschedule_gc(_NewConf, _OldConf) ->
+    ok.
 
 validate_auto_create(
     #{auto_create := #{regular := #{}, lastvalue := #{}}} = _NewConf

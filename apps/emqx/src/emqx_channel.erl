@@ -103,7 +103,7 @@
     %% Resume
     resuming :: false | _ReplayContext,
     %% Pending delivers when takeovering
-    pendings :: list()
+    pendings :: [emqx_types:deliver()]
 }).
 
 -opaque channel() :: #channel{}.
@@ -2154,9 +2154,19 @@ get_user_property_as_map(#mqtt_packet_connect{properties = #{'User-Property' := 
 get_user_property_as_map(_) ->
     #{}.
 
-fix_mountpoint(#{mountpoint := undefined} = ClientInfo) ->
-    ClientInfo;
-fix_mountpoint(ClientInfo = #{mountpoint := MountPoint}) ->
+fix_mountpoint(#{mountpoint := undefined, zone := Zone} = ClientInfo) ->
+    case get_mqtt_conf(Zone, namespace_as_mountpoint, false) of
+        true ->
+            case get_tenant_namespace(ClientInfo) of
+                undefined ->
+                    ClientInfo;
+                Tns ->
+                    ClientInfo#{mountpoint => iolist_to_binary([Tns, "/"])}
+            end;
+        false ->
+            ClientInfo
+    end;
+fix_mountpoint(#{mountpoint := MountPoint} = ClientInfo) ->
     MountPoint1 = emqx_mountpoint:replvar(MountPoint, ClientInfo),
     ClientInfo#{mountpoint := MountPoint1}.
 

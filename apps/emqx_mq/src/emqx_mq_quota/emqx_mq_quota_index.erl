@@ -97,8 +97,9 @@ that may make redundant data in the queue exceed the configured thresholds for s
 -type count_update() :: integer().
 -type update() :: ?QUOTA_INDEX_UPDATE(timestamp_us(), byte_update(), count_update()).
 -type opts() :: #{
-    bytes => #{max := pos_integer(), threshold := pos_integer()},
-    count => #{max := pos_integer(), threshold := pos_integer()}
+    bytes => pos_integer() | infinity,
+    count => pos_integer() | infinity,
+    threshold_percentage => pos_integer()
 }.
 
 -export_type([
@@ -164,7 +165,7 @@ apply_update(
         end,
         Index,
         %% update indices only for the configured kinds of limits: [bytes|count]
-        maps:keys(Opts)
+        configured_kinds(Opts)
     ).
 
 -doc """
@@ -181,7 +182,7 @@ deadline(#index{opts = Opts} = Index) ->
         fun(Kind) ->
             deadline(Kind, Index)
         end,
-        maps:keys(Opts)
+        configured_kinds(Opts)
     ),
     case Deadlines of
         [] ->
@@ -244,9 +245,9 @@ delete(Kind, Index, TsUs, Value) ->
     Records = compact_records(Records1, Threshold, Max, 0),
     set_index_records(Kind, Index, Records).
 
-deadline(bytes, #index{opts = #{bytes := #{max := Max}}, index = #'StorageIndex'{bytes = Bytes}}) ->
+deadline(bytes, #index{opts = #{bytes := Max}, index = #'StorageIndex'{bytes = Bytes}}) ->
     deadline_from_records(Bytes, Max, 0);
-deadline(count, #index{opts = #{count := #{max := Max}}, index = #'StorageIndex'{count = Count}}) ->
+deadline(count, #index{opts = #{count := Max}, index = #'StorageIndex'{count = Count}}) ->
     deadline_from_records(Count, Max, 0).
 
 deadline_from_records([], _Max, _Acc) ->
@@ -331,12 +332,11 @@ do_compact_records([], _Threshold, _Max, _Acc) ->
     [].
 
 max_total(Kind, #index{opts = Opts}) ->
-    #{max := Max} = maps:get(Kind, Opts),
-    Max.
+    maps:get(Kind, Opts).
 
-threshold(Kind, #index{opts = Opts}) ->
-    #{threshold := Threshold} = maps:get(Kind, Opts),
-    Threshold.
+threshold(Kind, #index{opts = #{threshold_percentage := ThresholdPercentage} = Opts}) ->
+    Max = maps:get(Kind, Opts),
+    max(1, ThresholdPercentage * Max div 100).
 
 update_max_ts(#index{index = #'StorageIndex'{maxTsUs = MaxTsUs} = StorageIndex} = Index, Ts) ->
     Index#index{index = StorageIndex#'StorageIndex'{maxTsUs = max(MaxTsUs, Ts)}}.
@@ -397,6 +397,23 @@ skip_leading_zeros([{0, _} | Rest]) when length(Rest) >= 1 ->
 skip_leading_zeros(List) ->
     List.
 
+configured_kinds(Opts) ->
+    lists:filtermap(
+        fun
+            (
+                {_, infinity}
+            ) ->
+                false;
+            ({bytes, _}) ->
+                {true, bytes};
+            ({count, _}) ->
+                {true, count};
+            (_) ->
+                false
+        end,
+        maps:to_list(Opts)
+    ).
+
 total(Records) ->
     lists:sum(lists:map(fun(#'StorageIndexRecord'{value = Value}) -> Value end, Records)).
 
@@ -410,19 +427,20 @@ consistency_test_() ->
 
 t_consistency() ->
     ?FORALL(
-        {Updates, BytesOpts, CountOpts},
-        {p_updates(), p_bytes_opts(), p_count_opts()},
-        t_consistency(Updates, BytesOpts, CountOpts)
+        {Updates, MaxBytes, MaxCount, ThresholdPercentage},
+        {p_updates(), p_max_bytes(), p_max_count(), p_threshold_percentage()},
+        t_consistency(Updates, MaxBytes, MaxCount, ThresholdPercentage)
     ).
 
 t_consistency(
-    {DurationMs, KeyCount, Updates}, {BytesMax, BytesThreshold}, {CountMax, CountThreshold}
+    {DurationMs, KeyCount, Updates}, MaxBytes, MaxCount, ThresholdPercentage
 ) ->
     DB0 = #{},
     Index0 = new(
         #{
-            bytes => #{max => BytesMax, threshold => BytesThreshold},
-            count => #{max => CountMax, threshold => CountThreshold}
+            bytes => MaxBytes,
+            count => MaxCount,
+            threshold_percentage => ThresholdPercentage
         },
         0
     ),
@@ -467,20 +485,6 @@ update_key({DB, Index}, {Key, Update}) ->
         apply_updates(Index, DelUpdate ++ InsertUpdate)
     }.
 
-p_bytes_opts() ->
-    ?LET(
-        {Max, ThresholdFraction},
-        {p_max_bytes(), p_threshold_fraction()},
-        {Max, max(1, round(Max * ThresholdFraction))}
-    ).
-
-p_count_opts() ->
-    ?LET(
-        {Max, ThresholdFraction},
-        {p_max_count(), p_threshold_fraction()},
-        {Max, max(1, round(Max * ThresholdFraction))}
-    ).
-
 -define(MAX_MAX_COUNT, 10000).
 -define(MAX_MAX_BYTES, (?MAX_MAX_COUNT * 1024)).
 
@@ -490,8 +494,8 @@ p_max_count() ->
 p_max_bytes() ->
     ?SUCHTHAT(Max, proper_types:pos_integer(), Max =< ?MAX_MAX_BYTES).
 
-p_threshold_fraction() ->
-    proper_types:oneof([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1]).
+p_threshold_percentage() ->
+    proper_types:oneof(lists:seq(1, 110)).
 
 p_updates() ->
     ?LET(

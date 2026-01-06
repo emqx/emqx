@@ -74,23 +74,23 @@ regenerate_dispatch_after_config_update(Listeners) ->
 %%--------------------------------------------------------------------
 
 init([]) ->
-    {ok, #{}}.
+    {ok, #{}, hibernate}.
 
 handle_call(#regenerate_dispatch{listeners = Listeners}, _From, State) ->
     ok = do_regenerate_dispatch(Listeners),
-    {reply, ok, State};
+    {reply, ok, State, hibernate};
 handle_call(_Request, _From, State) ->
-    {reply, {error, unknown_request}, State}.
+    {reply, {error, unknown_request}, State, hibernate}.
 
 handle_cast(#regenerate_dispatch_after_config_update{listeners = Listeners}, State) ->
     ok = wait_for_config_update(),
     ok = do_regenerate_dispatch(Listeners),
-    {noreply, State};
+    {noreply, State, hibernate};
 handle_cast(_Request, State) ->
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 handle_info(_Info, State) ->
-    {noreply, State}.
+    {noreply, State, hibernate}.
 
 %%--------------------------------------------------------------------
 %% Internal functions

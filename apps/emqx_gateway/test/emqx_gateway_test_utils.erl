@@ -142,7 +142,12 @@ request(get = Mth, Path) ->
 
 request(get = Mth, Path, Qs) ->
     do_request(Mth, req(Path, Qs));
-request(put = Mth, Path, Body) ->
+request(put = Mth, Path, Body0) ->
+    Body =
+        case Body0 of
+            undefined -> #{};
+            _ -> Body0
+        end,
     do_request(Mth, req(Path, [], Body));
 request(post = Mth, Path, Body) ->
     do_request(Mth, req(Path, [], Body)).

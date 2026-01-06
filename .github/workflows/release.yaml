@@ -42,26 +42,16 @@ jobs:
       - name: Detect profile
         id: profile
         run: |
-          if git describe --tags --match 'e*' --exact; then
-            REF=$(git describe --tags --match 'e*' --exact)
+          echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
+          echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
+          echo "ref_name=$(./pkg-vsn.sh emqx-enterprise)" >> "$GITHUB_ENV"
+          if [[ $ref_name =~ ^[6-9]+\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+.*$ ]]; then
+            echo "internal_release=true" >> $GITHUB_ENV
           else
-            echo "Only release tags matching 'e*' are supported"
-            exit 1
+            echo "internal_release=false" >> $GITHUB_ENV
           fi
-          case "$REF" in
-            e*)
-              echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
-              echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
-              echo "ref_name=e$(./pkg-vsn.sh emqx-enterprise)" >> "$GITHUB_ENV"
-              if [[ $ref_name =~ ^e[6-9]+\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+.*$ ]]; then
-                echo "internal_release=true" >> $GITHUB_ENV
-              else
-                echo "internal_release=false" >> $GITHUB_ENV
-              fi
-              echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
-              ;;
-          esac
-      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+          echo "s3dir=emqx-ee" >> $GITHUB_OUTPUT
+      - uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5.1.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
