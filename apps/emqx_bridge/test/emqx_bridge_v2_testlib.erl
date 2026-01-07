@@ -104,6 +104,14 @@ end_per_testcase(_Testcase, Config) ->
             ok
     end.
 
+delete_all_rules() ->
+    lists:foreach(
+        fun(#{id := Id}) ->
+            emqx_rule_engine:delete_rule(Id)
+        end,
+        emqx_rule_engine:get_rules()
+    ).
+
 delete_all_bridges_and_connectors() ->
     delete_all_bridges(),
     delete_all_connectors().
@@ -300,6 +308,9 @@ request(Method, Path, Params) ->
         Error ->
             Error
     end.
+
+simple_request(Params) ->
+    emqx_mgmt_api_test_util:simple_request(Params).
 
 simplify_result(Res) ->
     case Res of
@@ -533,13 +544,21 @@ update_bridge_api(Config, Overrides) ->
     Res.
 
 delete_kind_api(Kind, Type, Name) ->
+    delete_kind_api(Kind, Type, Name, _Opts = #{}).
+
+delete_kind_api(Kind, Type, Name, Opts) ->
     BridgeId = emqx_bridge_resource:bridge_id(Type, Name),
     PathRoot = api_path_root(Kind),
     Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId]),
     ct:pal("deleting bridge (~s, http)", [Kind]),
-    Res = request(delete, Path, _Params = []),
+    Res = simple_request(#{
+        auth_header => auth_header_lazy(Opts),
+        method => delete,
+        url => Path,
+        query_params => maps:get(query_params, Opts, #{})
+    }),
     ct:pal("delete bridge (~s, http) result:\n  ~p", [Kind, Res]),
-    simplify_result(Res).
+    Res.
 
 op_bridge_api(Op, BridgeType, BridgeName) ->
     op_bridge_api(_Kind = action, Op, BridgeType, BridgeName).
@@ -2089,8 +2108,14 @@ auth_header() ->
             emqx_mgmt_api_test_util:auth_header_()
     end.
 
-simple_request(Params) ->
-    emqx_mgmt_api_test_util:simple_request(Params).
+auth_header_lazy(TCConfig) when is_list(TCConfig) ->
+    auth_header_lazy(maps:from_list(TCConfig));
+auth_header_lazy(#{} = Opts) ->
+    emqx_utils_maps:get_lazy(
+        auth_header,
+        Opts,
+        fun auth_header/0
+    ).
 
 fmt(FmtStr, Context) ->
     Template = emqx_template:parse(FmtStr),
