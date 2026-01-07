@@ -1059,11 +1059,11 @@ init_render_acc(Driver = thrift, _WriteToTable = true, Channel) ->
     #{
         table => maps:get(device_id, Channel),
         measurements => [],
-        columnCategories => ColumnCategories,
+        'columnCategories' => ColumnCategories,
         data_types => DataTypes,
         timestamps => [],
         values => [],
-        isAligned => IsAligned
+        'isAligned' => IsAligned
     }.
 
 append_record(
