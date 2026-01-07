@@ -91,6 +91,9 @@ start_local(ShareTopic, Options) ->
     },
     supervisor:start_child(?MODULE, Spec).
 
+-doc """
+Stop local worker for the shared topic filter, regardless of its leadership state.
+""".
 -spec stop_local(emqx_types:share()) -> boolean().
 stop_local(Share) ->
     case supervisor:terminate_child(?MODULE, Share) of

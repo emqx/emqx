@@ -1554,7 +1554,7 @@ start_local(TestCase, Config0, UserOpts) ->
     DurableSessionsOpts = #{
         <<"enable">> => true,
         <<"shared_subs">> => #{
-            <<"heartbeat_interval">> => 10,
+            <<"heartbeat_interval">> => 1000,
             <<"realloc_interval">> => 1,
             <<"leader_timeout">> => 100,
             <<"revocation_timeout">> => 1000
