@@ -186,7 +186,7 @@ pop(Rec0) ->
                         pubcomp_queue = ipush(SeqNo, QComp)
                     },
                     {Payload, Rec};
-                _ ->
+                {_SeqNo, #message{}} ->
                     undefined
             end;
         _ ->
