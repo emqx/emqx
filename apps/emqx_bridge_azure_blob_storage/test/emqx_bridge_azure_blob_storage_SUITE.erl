@@ -482,6 +482,7 @@ t_aggreg_upload(Config) ->
             NodeString = atom_to_list(node()),
             %% Create a bridge with the sample configuration.
             ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge_api(Config)),
+            ActionResId = emqx_bridge_v2_testlib:resource_id(Config),
             {ok, _Rule} =
                 emqx_bridge_v2_testlib:create_rule_and_action_http(
                     ?ACTION_TYPE_BIN, <<"">>, Config, #{
@@ -523,6 +524,12 @@ t_aggreg_upload(Config) ->
                 ]},
                 erl_csv:decode(Content)
             ),
+            ?retry(
+                100,
+                5,
+                ?assertEqual(1, emqx_resource_metrics:aggregated_upload_success_get(ActionResId))
+            ),
+            ?assertEqual(0, emqx_resource_metrics:aggregated_upload_failure_get(ActionResId)),
             ok
         end,
         []
