@@ -723,7 +723,9 @@ handle_info1(
 -spec replay(clientinfo(), [], session()) ->
     {ok, replies(), session()}.
 replay(ClientInfo, [], Session0) ->
-    Session1 = emqx_persistent_session_ds_subs:on_session_restore(Session0),
+    Session1 = emqx_persistent_session_ds_shared_subs:on_session_restore(
+        emqx_persistent_session_ds_subs:on_session_restore(Session0)
+    ),
     #{s := S} = Session1,
     Streams = find_replay_streams(S),
     Session2 = async_checkpoint(Session1#{
@@ -1469,26 +1471,18 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
         emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_1), S0),
         emqx_persistent_session_ds_state:get_seqno(?committed(?QOS_2), S0)
     ),
-    %% Create or init shared subscription state:
-    case Lifetime of
-        new ->
-            S1 = S0,
-            SharedSubS = emqx_persistent_session_ds_shared_subs:new();
-        _ ->
-            {ok, S1, SharedSubS} = emqx_persistent_session_ds_shared_subs:open(S0)
-    end,
     %% Create durable timers for clean-up and will messages:
-    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S1),
+    SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S0),
     ok = emqx_persistent_session_ds_gc_timer:on_connect(ClientID, SessExpiryInterval),
     ok = emqx_durable_will:on_connect(
         ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg
     ),
-    S = emqx_persistent_session_ds_state:commit(S1, #{lifetime => Lifetime, sync => true}),
+    S = emqx_persistent_session_ds_state:commit(S0, #{lifetime => Lifetime, sync => true}),
     #{
         id => ClientID,
         dscli => DSCli,
         s => S,
-        shared_sub_s => SharedSubS,
+        shared_sub_s => emqx_persistent_session_ds_shared_subs:new(),
         buffer => Buffer,
         inflight => Inflight,
         props => Conf,
