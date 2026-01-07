@@ -282,8 +282,9 @@ unsubscribe(Topic) ->
     ?tp(?log_level, ?sessds_test_unsubscribe, #{topic => Topic}),
     emqtt:unsubscribe(client_pid(), Topic),
     case emqx_topic:parse(Topic) of
-        {#share{group = Gr, topic = TF}, _} ->
-            emqx_ds_shared_sub:destroy(Gr, TF),
+        {#share{group = Gr, topic = TF} = Share, _} ->
+            _ = emqx_ds_shared_sub_registry:stop_local(Share),
+            _ = emqx_ds_shared_sub:destroy(Gr, TF),
             ok;
         _ ->
             ok
@@ -379,6 +380,15 @@ cleanup() ->
     catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
     emqx_persistent_session_ds:destroy_session(?clientid),
+    cleanup_shared_subs().
+
+cleanup_shared_subs() ->
+    %% Stop all shared subs:
+    [
+        emqx_ds_shared_sub_registry:stop_local(Share)
+     || {Share, _Pid} <- emqx_ds_shared_sub_registry:list_local()
+    ],
+    %% Purge the persistent data, which should be now fully committed:
     emqx_ds_shared_sub_registry:purge().
 
 sut_state() ->
