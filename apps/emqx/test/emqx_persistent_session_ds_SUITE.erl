@@ -1552,7 +1552,13 @@ start_local(TC, Config) ->
 
 start_local(TestCase, Config0, UserOpts) ->
     DurableSessionsOpts = #{
-        <<"enable">> => true
+        <<"enable">> => true,
+        <<"shared_subs">> => #{
+            <<"heartbeat_interval">> => 10,
+            <<"realloc_interval">> => 1,
+            <<"leader_timeout">> => 100,
+            <<"revocation_timeout">> => 1000
+        }
     },
     DefaultOpts = #{
         durable_storage_opts =>

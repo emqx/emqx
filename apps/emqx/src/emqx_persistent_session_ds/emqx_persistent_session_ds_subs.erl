@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc This module encapsulates the data related to the client's
@@ -631,7 +631,7 @@ state_invariants(#{subs := ModelSubs}, #{s := S} = Rec) ->
     #{subscriptions := Subs} = S,
     assert_one_to_one(
         "model subs",
-        maps:keys(ModelSubs),
+        [element(1, emqx_topic:parse(I)) || I <- maps:keys(ModelSubs)],
         "subs stored in session state",
         maps:keys(Subs),
         #{s => S}
@@ -641,7 +641,8 @@ state_invariants(#{subs := ModelSubs}, #{s := S} = Rec) ->
 assert_state_sub_qos(ModelSubs, S) ->
     #{subscriptions := Subs, subscription_states := SStates} = S,
     maps:foreach(
-        fun(TopicFilter, #{qos := ExpectedQoS}) ->
+        fun(ModelTFBin, #{qos := ExpectedQoS}) ->
+            {TopicFilter, _} = emqx_topic:parse(ModelTFBin),
             ?defer_assert(
                 begin
                     #{TopicFilter := #{current_state := SSId}} = Subs,
@@ -693,15 +694,19 @@ assert_ds_client_subscriptions(ModelState, #{dscli := DSCli}) ->
         #{model => ModelState, client => DSCli}
     ).
 
-%% Return list of model subscriptions with QoS > 0
+%% Return list of model subscriptions that should use durable delivery
+%% path. Shared group is stripped.
 durable_model_subs(#{subs := ModelSubs}) ->
     maps:fold(
-        fun(TopicFilter, SubOpts = #{qos := QoS}, Acc) ->
-            case QoS of
-                ?QOS_0 ->
-                    Acc;
+        fun(TopicFilterBin, SubOpts = #{qos := QoS}, Acc) ->
+            {TopicFilter, _} = emqx_topic:parse(TopicFilterBin),
+            case TopicFilter of
+                #share{topic = TF} ->
+                    [TF | Acc];
+                TF when is_binary(TF), QoS >= ?QOS_1 ->
+                    [TF | Acc];
                 _ ->
-                    [TopicFilter | Acc]
+                    Acc
             end
         end,
         [],
@@ -711,9 +716,10 @@ durable_model_subs(#{subs := ModelSubs}) ->
 %% Return list of model subscriptions with QoS = 0
 direct_model_subs(#{subs := ModelSubs}) ->
     maps:fold(
-        fun(TopicFilter, #{qos := QoS}, Acc) ->
+        fun(TopicFilterBin, #{qos := QoS}, Acc) ->
+            {TopicFilter, _} = emqx_topic:parse(TopicFilterBin),
             case QoS of
-                ?QOS_0 ->
+                ?QOS_0 when is_binary(TopicFilter) ->
                     [TopicFilter | Acc];
                 _ ->
                     Acc
