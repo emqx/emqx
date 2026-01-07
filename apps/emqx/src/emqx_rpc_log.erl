@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% Log callback for gen_rpc 3.5 or newer.

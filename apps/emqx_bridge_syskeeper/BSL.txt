@@ -7,7 +7,7 @@ Licensed Work:        EMQX Enterprise Edition
 Additional Use Grant: Students and educators are granted right to copy,
                       modify, and create derivative work for research
                       or education.
-Change Date:          2029-01-01
+Change Date:          2030-01-06
 Change License:       Apache License, Version 2.0
 
 For information about alternative licensing arrangements for the Software,
