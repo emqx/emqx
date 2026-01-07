@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc This module
@@ -16,7 +16,7 @@
 
 -export([
     new/0,
-    open/1,
+    on_session_restore/1,
 
     on_subscribe/3,
     on_unsubscribe/2,
@@ -103,30 +103,26 @@ new() ->
         borrowers => #{}
     }.
 
--spec open(emqx_persistent_session_ds_state:t()) ->
-    {ok, emqx_persistent_session_ds_state:t(), t()}.
-open(S0) ->
-    SessionId = emqx_persistent_session_ds_state:get_id(S0),
-    ToOpen = fold_shared_subs(
-        fun(#share{} = ShareTopicFilter, Subscription, ToOpenAcc) ->
-            [{ShareTopicFilter, Subscription} | ToOpenAcc]
-        end,
-        [],
-        S0
-    ),
-    SharedSubS = lists:foldl(
-        fun({ShareTopicFilter, #{id := SubscriptionId}}, SharedSubSAcc) ->
-            ?tp(debug, ds_shared_sub_agent_open, #{
-                subscription_id => SubscriptionId,
-                topic_filter => ShareTopicFilter
-            }),
-            add_borrower(SessionId, SharedSubSAcc, SubscriptionId, ShareTopicFilter)
-        end,
-        new(),
-        ToOpen
-    ),
+-spec on_session_restore(emqx_persistent_session_ds:session()) ->
+    emqx_persistent_session_ds:session().
+on_session_restore(Session0 = #{s := S0}) ->
     S = terminate_streams(S0),
-    {ok, S, SharedSubS}.
+    Session1 = Session0#{s := S},
+    fold_shared_subs(
+        fun(#share{} = ShareTopicFilter, Subscription, Acc) ->
+            #{id := SubId, current_state := SSId} = Subscription,
+            #{subopts := SubOpts} = emqx_persistent_session_ds_state:get_subscription_state(
+                SSId, S
+            ),
+            ds_client_subscribe(
+                ShareTopicFilter,
+                SubId,
+                borrower_subscribe(SubId, ShareTopicFilter, SubOpts, Acc)
+            )
+        end,
+        Session1,
+        S
+    ).
 
 %%--------------------------------------------------------------------
 %% on_subscribe
