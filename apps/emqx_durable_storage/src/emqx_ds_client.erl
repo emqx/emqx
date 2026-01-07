@@ -384,10 +384,13 @@ attach_iterator(SubId, Stream, It, CS0, HS0) ->
 This function is used when `discover_streams` is `false`.
 """.
 -spec detach_iterator(sub_id(), emqx_ds:stream(), t(), HostState) ->
-    {t(), HostState}.
+    {ok, t(), HostState} | {error, no_subscription}.
 detach_iterator(SubId, Stream, CS0, HS0) ->
-    {CS, HS} = detach_iterator_(SubId, Stream, CS0, HS0),
-    execute(#cs.plan, CS, HS).
+    maybe
+        {ok, CS1, HS1} ?= detach_iterator_(SubId, Stream, CS0, HS0),
+        {CS, HS} = execute(#cs.plan, CS1, HS1),
+        {ok, CS, HS}
+    end.
 
 -doc """
 Pretty-print state of the client.
@@ -502,9 +505,19 @@ attach_iterator_(SubId, Stream, It, CS, HS) ->
     handle_add_iterator(Eff, CS, HS, It).
 
 -spec detach_iterator_(sub_id(), emqx_ds:stream(), t(), HostState) ->
-    {t(), HostState}.
+    {ok, t(), HostState} | {error, no_subscription}.
 detach_iterator_(SubId, Stream, CS0 = #cs{subs = Subs}, HS0) ->
-    #{SubId := #sub{db = DB}} = Subs,
+    case Subs of
+        #{SubId := Sub} ->
+            {CS, HS} = do_detach_iterator_(SubId, Sub, Stream, CS0, HS0),
+            {ok, CS, HS};
+        _ ->
+            {error, no_subscription}
+    end.
+
+-spec do_detach_iterator_(sub_id(), sub(), emqx_ds:stream(), t(), HostState) ->
+    {t(), HostState}.
+do_detach_iterator_(SubId, #sub{db = DB}, Stream, CS0, HS0) ->
     {ok, {Shard, Gen}} = emqx_ds:slab_of_stream(DB, Stream),
     %% 1. Remove pending resubscribe actions:
     CS1 = filter_effects(

@@ -607,9 +607,9 @@ add_stream_to_session(
             _SRS ->
                 false
         end,
-    {ok, {Shard, Generation}} = emqx_ds:slab_of_stream(?PERSISTENT_MESSAGE_DB, Stream),
     case NeedCreateStream of
         true ->
+            {ok, {Shard, Generation}} = emqx_ds:slab_of_stream(?PERSISTENT_MESSAGE_DB, Stream),
             NewSRS =
                 #srs{
                     rank_x = Shard,
@@ -637,13 +637,19 @@ handle_revoke_stream(
 ) ->
     S = terminate_stream(SubId, Stream, S0),
     Buf = emqx_persistent_session_ds_buffer:drop_stream({SubId, Stream}, Buf0),
-    {DSCli, Session} = emqx_ds_client:detach_iterator(
-        SubId,
-        Stream,
-        DSCli0,
-        Session0#{buffer := Buf, s := S}
-    ),
-    Session#{dscli := DSCli}.
+    case
+        emqx_ds_client:detach_iterator(
+            SubId,
+            Stream,
+            DSCli0,
+            Session0#{buffer := Buf, s := S}
+        )
+    of
+        {ok, DSCli, Session} ->
+            Session#{dscli := DSCli};
+        {error, no_subscription} ->
+            Session0
+    end.
 
 %%--------------------------------------------------------------------
 %% to_map
