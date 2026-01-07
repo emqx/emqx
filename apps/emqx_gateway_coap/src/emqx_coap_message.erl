@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% The contents of this file are subject to the Mozilla Public License
@@ -7,7 +7,7 @@
 %% compliance with the License. You may obtain a copy of the License at
 %% http://www.mozilla.org/MPL/
 %%
-%% Copyright (c) 2015 Petr Gotthard <petr.gotthard@centrum.cz>
+%% Copyright (c) 2015-2026 Petr Gotthard <petr.gotthard@centrum.cz>
 
 %% convenience functions for message construction
 -module(emqx_coap_message).
