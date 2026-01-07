@@ -11,7 +11,9 @@
 -export([
     get_leader_sync/2,
     leader_wanted/2,
-    start_local/2
+    start_local/2,
+    stop_local/1,
+    list_local/0
 ]).
 
 %% Internal exports:
@@ -80,7 +82,32 @@ ensure_local(ShareTopic, Options) ->
 -spec start_local(emqx_types:share(), emqx_ds_shared_sub:options()) ->
     supervisor:startchild_ret().
 start_local(ShareTopic, Options) ->
-    supervisor:start_child(?MODULE, [ShareTopic, Options]).
+    Spec = #{
+        id => ShareTopic,
+        start => {emqx_ds_shared_sub_leader, start_link, [ShareTopic, Options]},
+        type => worker,
+        restart => temporary,
+        shutdown => 5_000
+    },
+    supervisor:start_child(?MODULE, Spec).
+
+-spec stop_local(emqx_types:share()) -> boolean().
+stop_local(Share) ->
+    case supervisor:terminate_child(?MODULE, Share) of
+        ok ->
+            true;
+        {error, not_found} ->
+            false
+    end.
+
+-spec list_local() -> [{emqx_types:share(), pid() | restarting}].
+list_local() ->
+    lists:map(
+        fun({Share, Child, _, _}) ->
+            {Share, Child}
+        end,
+        supervisor:which_children(?MODULE)
+    ).
 
 %%------------------------------------------------------------------------------
 
@@ -111,17 +138,9 @@ purge() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    Children = [
-        #{
-            id => worker,
-            start => {emqx_ds_shared_sub_leader, start_link, []},
-            shutdown => 5_000,
-            type => worker,
-            restart => transient
-        }
-    ],
+    Children = [],
     SupFlags = #{
-        strategy => simple_one_for_one,
+        strategy => one_for_one,
         intensity => 100,
         period => 1
     },
