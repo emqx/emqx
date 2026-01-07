@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_persistent_session_ds_SUITE).
 
@@ -1465,48 +1465,42 @@ t_flow_control_no_wrap_around(_Config) ->
     %% Acking first message will trigger receiving of the large batch:
     ok = emqtt:puback(Sub, PacketId0),
     ct:sleep(1000),
-    %% Receive messages without ack. Flow control should pause
-    %% transmission at EpochSize - 2 to avoid packet id
-    %% overflow:
-    ?tp(notice, "test is receiving messages", #{}),
-    Received1 = emqx_common_test_helpers:wait_publishes(EpochSize - 2, 5_000),
-    ct:sleep(1000),
-    NReceived1 = length(Received1),
-    ?assertEqual(
-        EpochSize - 2,
-        NReceived1,
-        emqx_persistent_session_ds:print_session(ClientId)
-    ),
-    %% Ack and receive more messages:
-    _ = lists:foldl(
-        fun(#{packet_id := PID, payload := Payload}, Acc) ->
-            ok = emqtt:puback(Sub, PID),
-            MsgId = binary_to_integer(Payload),
-            ?assertEqual(Acc, MsgId),
-            Acc + 1
-        end,
-        1,
-        Received1
-    ),
-    Received2 = emqx_common_test_helpers:wait_publishes(EpochSize - 2, 5_000),
-    ct:sleep(1000),
-    NReceived2 = NReceived1 + length(Received2),
-    ?assertEqual(
-        EpochSize - 2,
-        NReceived2 - NReceived1,
-        emqx_persistent_session_ds:print_session(ClientId)
-    ),
-    %% Ack and receive the rest of the messages:
-    _ = lists:foldl(
-        fun(#{packet_id := PID, payload := Payload}, Acc) ->
-            ok = emqtt:puback(Sub, PID),
-            MsgId = binary_to_integer(Payload),
-            ?assertEqual(Acc, MsgId),
-            Acc + 1
-        end,
-        NReceived1 + 1,
-        Received2
-    ).
+    RecvLoop = fun
+        RecvLoop(NReceivedSoFar) when NReceivedSoFar < Nmsgs ->
+            %% Receive messages without ack. Flow control should pause
+            %% transmission at EpochSize - 2 to avoid packet id
+            %% overflow:
+            ?tp(notice, "test is receiving messages", #{n => NReceivedSoFar}),
+            ReceivedMsgs = emqx_common_test_helpers:wait_publishes(Nmsgs, 5_000),
+            NReceived = length(ReceivedMsgs),
+            %% Verify that the client doesn't receive more
+            %% messages than fit in the epoch size:
+            ?assert(
+                NReceived < EpochSize - 1,
+                {NReceived, '<', EpochSize - 1}
+            ),
+            %% Verify received payloads:
+            _ = lists:foldl(
+                fun(#{payload := Payload}, Acc) ->
+                    MsgId = binary_to_integer(Payload),
+                    ?assertEqual(Acc, MsgId, "Message payload"),
+                    Acc + 1
+                end,
+                NReceivedSoFar,
+                ReceivedMsgs
+            ),
+            %% Ack messages:
+            lists:foreach(
+                fun(#{packet_id := PID}) ->
+                    ok = emqtt:puback(Sub, PID)
+                end,
+                ReceivedMsgs
+            ),
+            RecvLoop(NReceivedSoFar + NReceived);
+        RecvLoop(_) ->
+            ok
+    end,
+    RecvLoop(1).
 
 %% Trace specifications:
 
