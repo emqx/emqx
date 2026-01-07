@@ -142,7 +142,7 @@ on_get_status(_InstId, #{client_config := Config}) ->
     {ok, state()} | {error, _Reason}.
 on_add_channel(_InstId, State = #{channels := Channels}, ChannelId, Config) ->
     maybe
-        {ok, ChannelState} ?= start_channel(State, Config),
+        {ok, ChannelState} ?= start_channel(State, ChannelId, Config),
         {ok, State#{channels => Channels#{ChannelId => ChannelState}}}
     end.
 
@@ -167,7 +167,7 @@ on_get_channel_status(_InstId, ChannelId, State = #{channels := Channels}) ->
             ?status_disconnected
     end.
 
-start_channel(_State, #{
+start_channel(_State, _ActionResId, #{
     bridge_type := ?BRIDGE_TYPE_UPLOAD,
     parameters := Parameters = #{
         mode := Mode = direct,
@@ -184,7 +184,7 @@ start_channel(_State, #{
         upload_options => upload_options(Parameters)
     },
     {ok, ChannelState};
-start_channel(State, #{
+start_channel(State, ActionResId, #{
     bridge_type := Type = ?BRIDGE_TYPE_UPLOAD,
     bridge_name := Name,
     parameters := Parameters = #{
@@ -202,7 +202,9 @@ start_channel(State, #{
     AggregOpts = #{
         time_interval => TimeInterval,
         max_records => MaxRecords,
-        work_dir => work_dir(Type, Name)
+        work_dir => work_dir(Type, Name),
+        delivery_finished_callback =>
+            emqx_connector_aggregator:mk_delivery_finished_callback_for_action(ActionResId)
     },
     Template = emqx_bridge_s3_upload:mk_key_template(Key),
     DeliveryOpts = #{
