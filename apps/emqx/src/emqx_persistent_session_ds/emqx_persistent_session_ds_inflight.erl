@@ -129,52 +129,66 @@ pop(Rec0) ->
         n_qos1 = NQos1,
         n_qos2 = NQos2
     } = Rec0,
-    case
-        (NInflightQoS1 + NInflightQoS2) < ReceiveMaximum andalso
-            %% Make sure number of inflight messages in each track is
-            %% less than the epoch size (see theorem
-            %% `seqno_reconstruct' in emqx_sessds_proofs.v). Note:
-            %% QoS1 track skips over sequence numbers producing
-            %% PacketId = 0, we account for that by reducing the
-            %% allowed number of inflight messages in this track by 1:
-            NInflightQoS1 < ?EPOCH_SIZE - 1 andalso
-            NInflightQoS2 < ?EPOCH_SIZE andalso
-            queue:out(Q0)
-    of
+    case queue:out(Q0) of
         {{value, Payload}, Q} ->
-            Rec =
-                case Payload of
-                    {other, _} ->
-                        Rec0#ds_inflight{
-                            queue = Q
-                        };
-                    {pubrel, SeqNo} ->
-                        Rec0#ds_inflight{
-                            queue = Q,
-                            pubcomp_queue = ipush(SeqNo, QComp)
-                        };
-                    {SeqNo, #message{qos = Qos}} ->
-                        case Qos of
-                            ?QOS_0 ->
-                                Rec0#ds_inflight{queue = Q, n_qos0 = NQos0 - 1};
-                            ?QOS_1 ->
-                                Rec0#ds_inflight{
-                                    queue = Q,
-                                    n_qos1 = NQos1 - 1,
-                                    n_inflight_qos1 = NInflightQoS1 + 1,
-                                    puback_queue = ipush(SeqNo, QAck)
-                                };
-                            ?QOS_2 ->
-                                Rec0#ds_inflight{
-                                    queue = Q,
-                                    n_qos2 = NQos2 - 1,
-                                    n_inflight_qos2 = NInflightQoS2 + 1,
-                                    pubrec_queue = ipush(SeqNo, QRec),
-                                    pubcomp_queue = ipush(SeqNo, QComp)
-                                }
-                        end
-                end,
-            {Payload, Rec};
+            %% Flow control: when we pop an MQTT message with QoS >= 1
+            %% we need to make sure number of inflight messages in the
+            %% track is less than the epoch size (see theorem
+            %% `seqno_reconstruct' in emqx_sessds_proofs.v).
+            %%
+            %% Note 1: NInflightQosX are numbers of messages _before_
+            %% the new one is added. We substract 1 to make sure the
+            %% inequality holds _after_ we add a message to the
+            %% inflight.
+            %%
+            %% Note 2: QoS1 track skips over sequence numbers
+            %% producing PacketId = 0, we account for that by reducing
+            %% the allowed number of inflight messages in this track
+            %% by 1:
+            case Payload of
+                {other, _} ->
+                    Rec = Rec0#ds_inflight{
+                        queue = Q
+                    },
+                    {Payload, Rec};
+                {pubrel, SeqNo} ->
+                    Rec = Rec0#ds_inflight{
+                        queue = Q,
+                        pubcomp_queue = ipush(SeqNo, QComp)
+                    },
+                    {Payload, Rec};
+                {_SeqNo, #message{qos = ?QOS_0}} ->
+                    Rec = Rec0#ds_inflight{
+                        queue = Q,
+                        n_qos0 = NQos0 - 1
+                    },
+                    {Payload, Rec};
+                {SeqNo, #message{qos = ?QOS_1}} when
+                    (NInflightQoS1 + NInflightQoS2) < ReceiveMaximum andalso
+                        NInflightQoS1 < ?EPOCH_SIZE - 2
+                ->
+                    Rec = Rec0#ds_inflight{
+                        queue = Q,
+                        n_qos1 = NQos1 - 1,
+                        n_inflight_qos1 = NInflightQoS1 + 1,
+                        puback_queue = ipush(SeqNo, QAck)
+                    },
+                    {Payload, Rec};
+                {SeqNo, #message{qos = ?QOS_2}} when
+                    (NInflightQoS1 + NInflightQoS2) < ReceiveMaximum andalso
+                        NInflightQoS2 < ?EPOCH_SIZE - 1
+                ->
+                    Rec = Rec0#ds_inflight{
+                        queue = Q,
+                        n_qos2 = NQos2 - 1,
+                        n_inflight_qos2 = NInflightQoS2 + 1,
+                        pubrec_queue = ipush(SeqNo, QRec),
+                        pubcomp_queue = ipush(SeqNo, QComp)
+                    },
+                    {Payload, Rec};
+                _ ->
+                    undefined
+            end;
         _ ->
             undefined
     end.
