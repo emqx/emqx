@@ -758,9 +758,9 @@ serialize_packet_and_inc_stats(Packet, Serialize) ->
     case emqx_frame:serialize_pkt(Packet, Serialize) of
         <<>> ->
             ?LOG(warning, #{
-                msg => "packet_discarded",
-                reason => "frame_too_large",
-                packet => Packet
+                msg => "packet_is_discarded",
+                reason => "frame_is_too_large",
+                packet => emqx_packet:format(Packet, hidden)
             }),
             _ = emqx_metrics:inc('delivery.dropped.too_large'),
             _ = emqx_metrics:inc('delivery.dropped'),
