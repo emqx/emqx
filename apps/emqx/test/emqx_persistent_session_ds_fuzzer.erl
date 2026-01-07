@@ -63,7 +63,7 @@
 -define(wait_publishes_time, 100).
 -define(stepdown_timeout, 1000).
 %% List of topics used in the test:
--define(topics, [<<"t1">>, <<"t2">>, <<"t3">>]).
+-define(topics, [<<"t1">>, <<"t2">>, <<"$share/g/t3">>, <<"$share/g/t4">>]).
 %% List of clientIDs of simulated publishers:
 -define(publishers, [<<"pub1">>, <<"pub2">>, <<"pub3">>]).
 
@@ -181,7 +181,7 @@ connect_(S) ->
 message(MsgSeqNo, #{subs := Subs}) ->
     %% Create bias towards topics that the session is subscribed to:
     TopicFreq = [{5, maps:keys(Subs)}, {1, ?topics}],
-    Topics = [{Freq, T} || {Freq, Topics} <- TopicFreq, T <- Topics],
+    Topics = [{Freq, strip_share_topic(T)} || {Freq, Topics} <- TopicFreq, T <- Topics],
     ?LET(
         {Topic, From, QoS},
         {frequency(Topics), oneof(?publishers), emqx_proper_types:qos()},
@@ -195,6 +195,14 @@ message(MsgSeqNo, #{subs := Subs}) ->
             payload = <<Topic/binary, " ", From/binary, " ", (integer_to_binary(MsgSeqNo))/binary>>
         }
     ).
+
+strip_share_topic(Bin) ->
+    case emqx_topic:parse(Bin) of
+        {#share{topic = Topic}, _} ->
+            Topic;
+        {Topic, _} ->
+            Topic
+    end.
 
 publish_(S = #{message_seqno := SeqNo}) ->
     ?LET(
@@ -272,7 +280,14 @@ subscribe(Topic, QoS) ->
 
 unsubscribe(Topic) ->
     ?tp(?log_level, ?sessds_test_unsubscribe, #{topic => Topic}),
-    emqtt:unsubscribe(client_pid(), Topic).
+    emqtt:unsubscribe(client_pid(), Topic),
+    case emqx_topic:parse(Topic) of
+        {#share{group = Gr, topic = TF}, _} ->
+            emqx_ds_shared_sub:destroy(Gr, TF),
+            ok;
+        _ ->
+            ok
+    end.
 
 consume(S = #{conninfo := #{client_pid := CPID, session_pid := SPID}}) ->
     %% Set up monitoring to detect crashes early:
@@ -363,7 +378,8 @@ sample(Size) ->
 cleanup() ->
     catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
-    emqx_persistent_session_ds:destroy_session(?clientid).
+    emqx_persistent_session_ds:destroy_session(?clientid),
+    emqx_ds_shared_sub_registry:purge().
 
 sut_state() ->
     emqx_persistent_session_ds:print_session(?clientid).
