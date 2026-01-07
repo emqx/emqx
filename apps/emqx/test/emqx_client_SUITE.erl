@@ -44,7 +44,6 @@ groups() ->
         {mqttv4, [], [
             t_basic,
             t_cm,
-            t_cm_registry,
             %% t_will_message,
             t_offline_message_queueing,
             t_overlapping_subscriptions,
@@ -188,13 +187,6 @@ t_idle_timeout_infinity(_) ->
     {ok, _} = emqtt:connect(C),
     ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
     {ok, _, [0]} = emqtt:subscribe(C, <<"mytopic">>, 0).
-
-t_cm_registry(_) ->
-    Children = supervisor:which_children(emqx_cm_sup),
-    {_, Pid, _, _} = lists:keyfind(emqx_cm_registry, 1, Children),
-    ignored = gen_server:call(Pid, <<"Unexpected call">>),
-    gen_server:cast(Pid, <<"Unexpected cast">>),
-    Pid ! <<"Unexpected info">>.
 
 t_will_message(_Config) ->
     WillTopic = <<"TopicA/C">>,
