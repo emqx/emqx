@@ -30,6 +30,8 @@
     terminate/2
 ]).
 
+-export([mk_delivery_finished_callback_for_action/1, on_delivery_finished/2]).
+
 %% For testing only
 -export([where/1]).
 
@@ -493,6 +495,21 @@ invoke_delivery_finished_callback(#st{delivery_finished_callback = Fn} = St, Res
                 stacktrace => Stacktrace
             }),
             ok
+    end.
+
+mk_delivery_finished_callback_for_action(ActionResId) ->
+    {?MODULE, on_delivery_finished, [ActionResId]}.
+
+-spec on_delivery_finished(ok | {skipped, _} | {error, _}, emqx_resource:action_resource_id()) ->
+    ok.
+on_delivery_finished(Result, ActionResId) ->
+    case Result of
+        ok ->
+            emqx_resource_metrics:aggregated_upload_success_inc(ActionResId);
+        {skipped, _} ->
+            ok;
+        {error, _} ->
+            emqx_resource_metrics:aggregated_upload_failure_inc(ActionResId)
     end.
 
 enqueue_status_error({upload_failed, Error}, St = #st{errors = QErrors}) ->

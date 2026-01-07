@@ -150,6 +150,9 @@
     query_kind/0,
     resource_query_mode/0,
     resource_id/0,
+    action_resource_id/0,
+    source_resource_id/0,
+    connector_resource_id/0,
     channel_id/0,
     resource_data/0,
     resource_status/0
@@ -825,7 +828,9 @@ metrics() ->
         'dropped.resource_not_found',
         'dropped.resource_stopped',
         'dropped.other',
-        'received'
+        'received',
+        'aggregated_upload_success',
+        'aggregated_upload_failure'
     ].
 
 rate_metrics() ->
