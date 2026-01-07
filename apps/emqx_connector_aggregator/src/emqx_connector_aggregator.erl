@@ -536,7 +536,7 @@ handle_take_error(St = #st{errors = QErrors0}) ->
 
 recover(St0 = #st{work_dir = WorkDir}) ->
     {ok, Filenames} = file:list_dir(WorkDir),
-    ExistingBuffers = lists:flatmap(fun(FN) -> read_existing_file(FN, St0) end, Filenames),
+    ExistingBuffers = lists:flatmap(fun(Fn) -> read_existing_file(Fn, St0) end, Filenames),
     case lists:reverse(lists:keysort(#buffer.since, ExistingBuffers)) of
         [Buffer | ClosedBuffers] ->
             St = lists:foldl(fun enqueue_delivery/2, St0, ClosedBuffers),
