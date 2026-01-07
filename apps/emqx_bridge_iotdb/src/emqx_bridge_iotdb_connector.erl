@@ -149,6 +149,22 @@ fields("connection_fields") ->
                     default => ?VSN_1_3_X
                 }
             )},
+        {sql_dialect,
+            mk(
+                hoconsc:enum([tree, table]),
+                #{
+                    desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
+                    default => tree
+                }
+            )},
+        {database,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(emqx_bridge_iotdb, "config_database"),
+                    required => false
+                }
+            )},
         {authentication,
             mk(
                 hoconsc:union([ref(?MODULE, authentication)]),
@@ -178,6 +194,22 @@ fields("config_thrift") ->
                     #{
                         desc => ?DESC("config_protocol_version"),
                         default => ?PROTOCOL_V3
+                    }
+                )},
+            {sql_dialect,
+                mk(
+                    hoconsc:enum([tree, table]),
+                    #{
+                        desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
+                        default => tree
+                    }
+                )},
+            {database,
+                mk(
+                    binary(),
+                    #{
+                        desc => ?DESC(emqx_bridge_iotdb, "config_database"),
+                        required => false
                     }
                 )},
             {'zoneId',
@@ -296,15 +328,17 @@ callback_mode(#{driver := thrift}) ->
 on_start(InstanceId, #{driver := restapi, iotdb_version := Version} = Config) ->
     %% [FIXME] The configuration passed in here is pre-processed and transformed
     %% in emqx_bridge_resource:parse_confs/2.
+    State0 = init_connector_state(Config),
     case emqx_bridge_http_connector:on_start(InstanceId, Config) of
-        {ok, State} ->
+        {ok, State1} ->
             ?SLOG(info, #{
                 msg => "iotdb_bridge_started",
                 instance_id => InstanceId,
-                request => emqx_utils:redact(maps:get(request, State, <<>>))
+                request => emqx_utils:redact(maps:get(request, State1, <<>>))
             }),
             ?tp(iotdb_bridge_started, #{driver => restapi, instance_id => InstanceId}),
-            {ok, State#{driver => restapi, iotdb_version => Version, channels => #{}}};
+            State2 = maps:merge(State0, State1),
+            {ok, State2#{driver => restapi, iotdb_version => Version, channels => #{}}};
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_to_start_iotdb_bridge",
@@ -324,7 +358,10 @@ on_start(
         ssl := SSL
     } = Config
 ) ->
+    State0 = init_connector_state(Config),
+
     IoTDBOpts0 = maps:with(['zoneId', username, password], Config),
+    IoTDBOpts1 = maps:merge(IoTDBOpts0, State0),
 
     Version =
         case ProtocolVsn of
@@ -357,7 +394,7 @@ on_start(
                 DriverOpts
         end,
 
-    IoTDBOpts = IoTDBOpts0#{
+    IoTDBOpts = IoTDBOpts1#{
         version => Version,
         addresses => Addresses,
         options => DriverOpts1
@@ -377,7 +414,7 @@ on_start(
 
             ?tp(iotdb_bridge_started, #{driver => thrift, instance_id => InstanceId}),
 
-            {ok, #{
+            {ok, State0#{
                 driver => thrift,
                 iotdb_version => ProtocolVsn,
                 channels => #{}
@@ -642,36 +679,41 @@ on_add_channel(
         parameters := #{data := Data} = Parameter
     }
 ) ->
-    case maps:is_key(ChannelId, Channels) of
-        true ->
-            {error, already_exists};
-        _ ->
-            %% update HTTP channel
-            case Version of
-                ?VSN_1_3_X ->
-                    Path = <<"rest/v2/insertRecords">>,
-                    HTTPReq = #{
-                        parameters => Parameter#{
-                            path => Path,
-                            method => <<"post">>
-                        }
-                    },
-
-                    {ok, OldState} = emqx_bridge_http_connector:on_add_channel(
-                        InstanceId, OldState0, ChannelId, HTTPReq
-                    ),
-
-                    %% update IoTDB channel
-                    DeviceId = maps:get(device_id, Parameter, <<>>),
-                    Channel = Parameter#{
-                        device_id => emqx_placeholder:preproc_tmpl(DeviceId),
-                        data := preproc_data_template(Data)
-                    },
-                    Channels2 = Channels#{ChannelId => Channel},
-                    {ok, OldState#{channels := Channels2}};
-                _ ->
-                    {error, <<"REST API only supports IoTDB 1.3.x and later">>}
-            end
+    maybe
+        WriteToTable = maps:get(write_to_table, Parameter, false),
+        SqlDialect = maps:get(sql_dialect, OldState0, tree),
+        DeviceId = maps:get(device_id, Parameter, <<>>),
+        ok ?= check_channel_exists(ChannelId, Channels),
+        ok ?= check_write_to_table(WriteToTable, SqlDialect),
+        ok ?= check_restapi_version(Version),
+        {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, DeviceId),
+        {ok, DataTemplate} ?= preproc_data_template(WriteToTable, Data),
+        Path =
+            case SqlDialect of
+                tree ->
+                    <<"rest/v2/insertRecords">>;
+                table ->
+                    <<"rest/table/v1/insertTablet">>
+            end,
+        HTTPReq = #{
+            parameters => Parameter#{
+                path => Path,
+                method => <<"post">>
+            }
+        },
+        {ok, OldState} = emqx_bridge_http_connector:on_add_channel(
+            InstanceId, OldState0, ChannelId, HTTPReq
+        ),
+        %% update IoTDB channel
+        Channel = Parameter#{
+            device_id => DeviceIdTemplate,
+            data := DataTemplate
+        },
+        Channels2 = Channels#{ChannelId => Channel},
+        {ok, OldState#{channels := Channels2}}
+    else
+        {error, Reason} ->
+            {error, Reason}
     end;
 on_add_channel(
     _InstanceId,
@@ -690,20 +732,26 @@ on_add_channel(
         parameters := #{data := Data} = Parameter
     }
 ) ->
-    case maps:is_key(ChannelId, Channels) of
-        true ->
-            {error, already_exists};
-        _ ->
-            %% update IoTDB channel
-            DeviceId = maps:get(device_id, Parameter, <<>>),
-            Channel = Parameter#{
-                device_id => emqx_placeholder:preproc_tmpl(DeviceId),
-                %% The template process will reverse the order of the values
-                %% so we can reverse the template here to reduce some runtime cost                                 %%
-                data := lists:reverse(preproc_data_template(Data))
-            },
-            Channels2 = Channels#{ChannelId => Channel},
-            {ok, OldState#{channels := Channels2}}
+    maybe
+        SqlDialect = maps:get(sql_dialect, OldState, tree),
+        WriteToTable = maps:get(write_to_table, Parameter, false),
+        ok ?= check_channel_exists(ChannelId, Channels),
+        ok ?= check_write_to_table(WriteToTable, SqlDialect),
+        DeviceId = maps:get(device_id, Parameter, <<>>),
+        {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, DeviceId),
+        {ok, DataTemplate} ?= preproc_data_template(WriteToTable, Data),
+        %% update IoTDB channel
+        Channel = Parameter#{
+            device_id => DeviceIdTemplate,
+            %% The template process will reverse the order of the values
+            %% so we can reverse the template here to reduce some runtime cost
+            data := lists:reverse(DataTemplate)
+        },
+        Channels2 = Channels#{ChannelId => Channel},
+        {ok, OldState#{channels := Channels2}}
+    else
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 on_remove_channel(InstanceId, #{driver := restapi, channels := Channels} = OldState0, ChannelId) ->
@@ -863,31 +911,80 @@ eval_response_body(Body, Resp) ->
         Reason -> {error, Reason}
     end.
 
-preproc_data_template(DataList) ->
-    Atom2Bin = fun
-        (Atom) when is_atom(Atom) ->
-            erlang:atom_to_binary(Atom);
-        (Bin) ->
-            Bin
-    end,
-    lists:map(
-        fun(
-            #{
-                timestamp := Timestamp,
-                measurement := Measurement,
-                data_type := DataType,
-                value := Value
-            }
-        ) ->
-            #{
-                timestamp => emqx_placeholder:preproc_tmpl(Atom2Bin(Timestamp)),
-                measurement => emqx_placeholder:preproc_tmpl(Measurement),
-                data_type => string:uppercase(Atom2Bin(DataType)),
-                value => emqx_placeholder:preproc_tmpl(Value)
-            }
+preproc_device_id(_WriteToTable = false, DeviceId) ->
+    emqx_placeholder:preproc_tmpl(DeviceId);
+preproc_device_id(_WriteToTable = true, <<>>) ->
+    throw(<<"Table name cannot be empty in table model">>);
+preproc_device_id(_WriteToTable = true, DeviceId) ->
+    HasVar = lists:any(
+        fun
+            ({var, _}) -> true;
+            (_) -> false
         end,
-        DataList
-    ).
+        emqx_placeholder:preproc_tmpl(DeviceId)
+    ),
+    case HasVar of
+        true ->
+            throw(<<"Table name cannot contain variables in table model">>);
+        false ->
+            {ok, DeviceId}
+    end.
+
+preproc_data_template(WriteToTable, DataList) ->
+    try
+        Templates = preproc_data_template(WriteToTable, DataList, []),
+        {ok, Templates}
+    catch
+        throw:Reason ->
+            {error, Reason}
+    end.
+
+preproc_data_template(_, [], Acc) ->
+    lists:reverse(Acc);
+preproc_data_template(
+    _WriteToTable = false,
+    [
+        #{
+            timestamp := Timestamp,
+            measurement := Measurement,
+            data_type := DataType,
+            value := Value
+        }
+        | T
+    ],
+    Acc
+) ->
+    Template = #{
+        timestamp => emqx_placeholder:preproc_tmpl(to_bin(Timestamp)),
+        measurement => emqx_placeholder:preproc_tmpl(Measurement),
+        data_type => string:uppercase(to_bin(DataType)),
+        value => emqx_placeholder:preproc_tmpl(Value)
+    },
+    preproc_data_template(tree, T, [Template | Acc]);
+preproc_data_template(
+    _WriteToTable = true,
+    [
+        #{
+            timestamp := Timestamp,
+            measurement := Measurement,
+            data_type := DataType,
+            column_category := ColumnCategory,
+            value := Value
+        }
+        | T
+    ],
+    Acc
+) ->
+    Template = #{
+        timestamp => emqx_placeholder:preproc_tmpl(to_bin(Timestamp)),
+        measurement => emqx_placeholder:preproc_tmpl(Measurement),
+        data_type => string:uppercase(to_bin(DataType)),
+        column_category => ColumnCategory,
+        value => emqx_placeholder:preproc_tmpl(Value)
+    },
+    preproc_data_template(table, T, [Template | Acc]);
+preproc_data_template(_, [_Data | _], _) ->
+    throw(<<"Invalid data template">>).
 
 do_on_query(InstanceId, ChannelId, Data, #{driver := restapi} = State) ->
     %% HTTP connector already calls `emqx_trace:rendered_action_template`.
@@ -921,33 +1018,136 @@ normalize_thrift_timeout(Timeouts) ->
 %%-------------------------------------------------------------------------------------
 %% batch
 %%-------------------------------------------------------------------------------------
+
 try_render_records([{ChannelId, _} | _] = Msgs, #{driver := Driver, channels := Channels}) ->
     case maps:find(ChannelId, Channels) of
-        {ok, #{is_aligned := IsAligned} = Channel} ->
-            EmptyRecords = #{
-                timestamps => [],
-                measurements_list => [],
-                data_types_list => [],
-                values_list => [],
-                devices => [],
-                is_aligned_name(Driver) => IsAligned
-            },
-            do_render_record(Msgs, Channel, EmptyRecords);
+        {ok, Channel} ->
+            WriteToTable = maps:get(write_to_table, Channel, false),
+            InitialAcc = init_render_acc(Driver, WriteToTable, Channel),
+            do_render_record(Msgs, Channel, Driver, InitialAcc);
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
     end.
 
-do_render_record([], _Channel, Acc) ->
+init_render_acc(Driver, _WriteToTable = false, Channel) ->
+    IsAligned = maps:get(is_aligned, Channel, false),
+    #{
+        timestamps => [],
+        measurements_list => [],
+        data_types_list => [],
+        values_list => [],
+        devices => [],
+        is_aligned_name(Driver) => IsAligned
+    };
+init_render_acc(Driver = restapi, _WriteToTable = true, Channel) ->
+    IsAligned = maps:get(is_aligned, Channel, false),
+    ColumnCategories = encode_column_categories(Driver, maps:get(data, Channel)),
+    DataTypes = encode_data_types(maps:get(data, Channel)),
+    #{
+        table => maps:get(device_id, Channel),
+        column_names => [],
+        column_categories => ColumnCategories,
+        data_types => DataTypes,
+        timestamps => [],
+        values => [],
+        is_aligned => IsAligned
+    };
+init_render_acc(Driver = thrift, _WriteToTable = true, Channel) ->
+    IsAligned = maps:get(is_aligned, Channel, false),
+    ColumnCategories = encode_column_categories(Driver, maps:get(data, Channel)),
+    DataTypes = encode_data_types(maps:get(data, Channel)),
+    #{
+        table => maps:get(device_id, Channel),
+        measurements => [],
+        columnCategories => ColumnCategories,
+        data_types => DataTypes,
+        timestamps => [],
+        values => [],
+        isAligned => IsAligned
+    }.
+
+append_record(
+    _Driver,
+    _WriteToTable = false,
+    #{
+        timestamp := Ts,
+        measurements := Measurements,
+        data_types := DataTypes,
+        values := Vals,
+        device_id := DeviceId
+    },
+    #{
+        timestamps := TsL,
+        measurements_list := MeasL,
+        data_types_list := DtL,
+        values_list := ValL,
+        devices := DevL
+    } = Records
+) ->
+    Records#{
+        timestamps := [Ts | TsL],
+        measurements_list := [Measurements | MeasL],
+        data_types_list := [DataTypes | DtL],
+        values_list := [Vals | ValL],
+        devices := [DeviceId | DevL]
+    };
+append_record(
+    _Driver = restapi,
+    _WriteToTable = true,
+    #{
+        timestamp := Ts,
+        measurements := Measurements,
+        values := Vals
+    },
+    #{
+        timestamps := TsL,
+        column_names := ColumnNamesL,
+        values_list := ValL
+    } = Records
+) ->
+    Records#{
+        timestamps := [Ts | TsL],
+        column_names := [Measurements | ColumnNamesL],
+        values_list := [Vals | ValL]
+    };
+append_record(
+    _Driver = thrift,
+    _WriteToTable = true,
+    #{
+        timestamp := Ts,
+        measurements := Measurements,
+        values := Vals
+    },
+    #{
+        timestamps := TsL,
+        measurements := MeasurementsL,
+        values := ValsL
+    } = Records
+) ->
+    Records#{
+        timestamps := [Ts | TsL],
+        measurements := [Measurements | MeasurementsL],
+        values := [Vals | ValsL]
+    }.
+
+is_aligned_name(restapi) ->
+    is_aligned;
+is_aligned_name(thrift) ->
+    'isAligned'.
+
+do_render_record([], _Channel, _Driver, Acc) ->
     {ok, Acc};
-do_render_record([{_, Msg} | Msgs], Channel, Acc) ->
+do_render_record([{_, Msg} | Msgs], Channel, Driver, Acc) ->
     case render_channel_record(Channel, Msg) of
         {ok, Record} ->
-            do_render_record(Msgs, Channel, append_record(Record, Acc));
+            WriteToTable = maps:get(write_to_table, Channel, false),
+            NewAcc = append_record(Driver, WriteToTable, Record, Acc),
+            do_render_record(Msgs, Channel, Driver, NewAcc);
         Error ->
             Error
     end.
 
-render_channel_record(#{data := DataTemplate} = Channel, Msg) ->
+render_channel_record(#{data := DataTemplate, write_to_table := false} = Channel, Msg) ->
     maybe
         {ok, Payload} ?= parse_payload(get_payload(Msg)),
         DeviceId = device_id(Msg, Payload, Channel),
@@ -980,6 +1180,32 @@ render_channel_record(#{data := DataTemplate} = Channel, Msg) ->
             {error, {invalid_data, <<"Can not find the device ID">>}};
         Error ->
             Error
+    end;
+render_channel_record(#{data := DataTemplate, write_to_table := true} = _Channel, Msg) ->
+    maybe
+        #{timestamp := TimestampTkn} = hd(DataTemplate),
+        NowNs = erlang:system_time(nanosecond),
+        Nows = #{
+            now_ms => erlang:convert_time_unit(NowNs, nanosecond, millisecond),
+            now_us => erlang:convert_time_unit(NowNs, nanosecond, microsecond),
+            now_ns => NowNs
+        },
+        {ok, MeasurementAcc, ValueAcc} ?=
+            proc_record_data_for_table(
+                DataTemplate,
+                Msg,
+                [],
+                []
+            ),
+        {ok, Timestamp} ?= iot_timestamp(TimestampTkn, Msg, Nows),
+        {ok, #{
+            timestamp => Timestamp,
+            measurements => MeasurementAcc,
+            values => ValueAcc
+        }}
+    else
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 proc_record_data(
@@ -1014,31 +1240,104 @@ proc_record_data(
 proc_record_data([], _Msg, MeasurementAcc, TypeAcc, ValueAcc) ->
     {ok, MeasurementAcc, TypeAcc, ValueAcc}.
 
-append_record(
-    #{
-        timestamp := Ts,
-        measurements := Measurements,
-        data_types := DataTypes,
-        values := Vals,
-        device_id := DeviceId
-    },
-    #{
-        timestamps := TsL,
-        measurements_list := MeasL,
-        data_types_list := DtL,
-        values_list := ValL,
-        devices := DevL
-    } = Records
+proc_record_data_for_table(
+    [
+        #{
+            data_type := DataType,
+            measurement := Measurement,
+            value := ValueTkn
+        }
+        | T
+    ],
+    Msg,
+    MeasurementAcc,
+    ValueAcc
 ) ->
-    Records#{
-        timestamps := [Ts | TsL],
-        measurements_list := [Measurements | MeasL],
-        data_types_list := [DataTypes | DtL],
-        values_list := [Vals | ValL],
-        devices := [DeviceId | DevL]
-    }.
+    try
+        proc_record_data_for_table(
+            T,
+            Msg,
+            [emqx_placeholder:proc_tmpl(Measurement, Msg) | MeasurementAcc],
+            [proc_value(DataType, ValueTkn, Msg) | ValueAcc]
+        )
+    catch
+        throw:Reason ->
+            {error, Reason};
+        Error:Reason ->
+            ?SLOG(debug, #{exception => Error, reason => Reason}),
+            {error, {invalid_data, Reason}}
+    end;
+proc_record_data_for_table([], _Msg, MeasurementAcc, ValueAcc) ->
+    {ok, MeasurementAcc, ValueAcc}.
 
-is_aligned_name(restapi) ->
-    is_aligned;
-is_aligned_name(thrift) ->
-    'isAligned'.
+init_connector_state(Config) ->
+    SqlDialect = maps:get(sql_dialect, Config, tree),
+    Database = maps:get(database, Config, <<>>),
+    case {SqlDialect, Database} of
+        {table, <<>>} ->
+            throw({failed_to_start_iotdb_bridge, "database is required when sql_dialect is table"});
+        {table, Database} when is_binary(Database) ->
+            #{sql_dialect => table, database => Database};
+        {tree, _} ->
+            #{sql_dialect => tree}
+    end.
+
+to_bin(Atom) when is_atom(Atom) ->
+    erlang:atom_to_binary(Atom);
+to_bin(Bin) when is_binary(Bin) ->
+    Bin.
+
+check_channel_exists(ChannelId, Channels) ->
+    case maps:is_key(ChannelId, Channels) of
+        true ->
+            ok;
+        false ->
+            {error, already_exists}
+    end.
+
+check_write_to_table(_WriteToTable = true, _SqlDialect = table) ->
+    ok;
+check_write_to_table(_WriteToTable = false, _SqlDialect = tree) ->
+    ok;
+check_write_to_table(WriteToTable, SqlDialect) ->
+    ErrMsg = <<
+        "The write_to_table=",
+        (to_bin(WriteToTable))/binary,
+        " in action parameters is not supported in this SQL dialect: ",
+        (to_bin(SqlDialect))/binary
+    >>,
+    {error, ErrMsg}.
+
+check_restapi_version(_Version = ?VSN_1_3_X) ->
+    ok;
+check_restapi_version(_Version) ->
+    {error, <<"REST API only supports IoTDB 1.3.x and later">>}.
+
+encode_column_categories(Driver, DataTemplate) when is_list(DataTemplate) ->
+    lists:map(
+        fun(#{column_category := ColumnCategory}) ->
+            encode_column_category(ColumnCategory, Driver)
+        end,
+        DataTemplate
+    ).
+
+encode_column_category(tag, _Driver = thrift) ->
+    0;
+encode_column_category(field, _Driver = thrift) ->
+    1;
+encode_column_category(attribute, _Driver = thrift) ->
+    2;
+encode_column_category(tag, _Driver = restapi) ->
+    <<"TAG">>;
+encode_column_category(field, _Driver = restapi) ->
+    <<"FIELD">>;
+encode_column_category(attribute, _Driver = restapi) ->
+    <<"ATTRIBUTE">>.
+
+encode_data_types(DataTemplate) when is_list(DataTemplate) ->
+    lists:map(
+        fun(#{data_type := DataType}) ->
+            string:uppercase(to_bin(DataType))
+        end,
+        DataTemplate
+    ).

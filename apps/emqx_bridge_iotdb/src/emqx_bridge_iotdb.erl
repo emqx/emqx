@@ -69,6 +69,14 @@ fields(action_resource_opts) ->
     emqx_bridge_v2_schema:action_resource_opts_fields();
 fields(action_parameters) ->
     [
+        {write_to_table,
+            mk(
+                boolean(),
+                #{
+                    desc => ?DESC("config_write_to_table"),
+                    default => false
+                }
+            )},
         {is_aligned,
             mk(
                 boolean(),
@@ -122,6 +130,14 @@ fields(action_parameters_data) ->
                 #{
                     required => true,
                     desc => ?DESC("config_parameters_data_type")
+                }
+            )},
+        {column_category,
+            mk(
+                enum([tag, field, attribute]),
+                #{
+                    required => false,
+                    desc => ?DESC(emqx_bridge_iotdb, "config_parameters_column_category")
                 }
             )},
         {value,
