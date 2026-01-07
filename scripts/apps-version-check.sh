@@ -68,7 +68,7 @@ for app in ${APPS}; do
         proto_changed_lines=0
         if find "$app_path/priv" -name "*.proto" -type f 2>/dev/null | grep -q .; then
             proto_changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$proto_no_comment_re" \
-                                 $(find "$app_path/priv" -name "*.proto" -type f 2>/dev/null) | wc -l ) "
+                                 "$(find "$app_path/priv" -name "*.proto" -type f 2>/dev/null)" | wc -l ) "
         fi
         total_changed=$((changed_lines + proto_changed_lines))
         if [ "$total_changed" -gt 0 ]; then
