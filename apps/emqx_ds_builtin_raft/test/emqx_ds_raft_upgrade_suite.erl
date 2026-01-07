@@ -165,25 +165,25 @@ verify_payloads(Prefix, Sessions) ->
         end,
         Sessions
     ),
-    %% %% Publish shared messages:
-    %% lists:foreach(
-    %%     fun(Sess) ->
-    %%         Payload = <<"hello from ", Sess/binary>>,
-    %%         Topic = <<"s/", Sess/binary>>,
-    %%         {ok, _} = emqtt:publish(
-    %%             binary_to_atom(Sess),
-    %%             Topic,
-    %%             Payload,
-    %%             2
-    %%         ),
-    %%         %% One client should receive:
-    %%         [_] = wait_messages(
-    %%             1,
-    %%             ?recv(#{payload := Payload, topic := Topic}, 5_000)
-    %%         )
-    %%     end,
-    %%     Sessions
-    %% ),
+    %% Publish shared messages:
+    lists:foreach(
+        fun(Sess) ->
+            Payload = <<"hello from ", Sess/binary>>,
+            Topic = <<"s/", Sess/binary>>,
+            {ok, _} = emqtt:publish(
+                binary_to_atom(Sess),
+                Topic,
+                Payload,
+                2
+            ),
+            %% One client should receive:
+            [_] = wait_messages(
+                1,
+                ?recv(#{payload := Payload, topic := Topic}, 5_000)
+            )
+        end,
+        Sessions
+    ),
     ok.
 
 init_per_group(Group, Config) ->
