@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_shared_sub_leader).
 -moduledoc """
@@ -677,7 +677,7 @@ drop_invalidate_borrower(HS0, BorrowerId, Reason) ->
 
 -spec invalidate_subscriber(hs(), emqx_ds_shared_sub_proto:borrower_id(), _Reason) -> ok.
 invalidate_subscriber(_, BorrowerId, Reason) ->
-    ?tp(debug, ds_shared_sub_leader_invalidate_sub, #{id => BorrowerId, reason => Reason}),
+    ?tp(notice, ds_shared_sub_leader_invalidate_sub, #{id => BorrowerId, reason => Reason}),
     ok = emqx_ds_shared_sub_proto:send_to_borrower(
         BorrowerId,
         ?leader_invalidate(leader())
