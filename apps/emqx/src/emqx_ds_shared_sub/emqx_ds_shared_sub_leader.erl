@@ -677,7 +677,7 @@ drop_invalidate_borrower(HS0, BorrowerId, Reason) ->
 
 -spec invalidate_subscriber(hs(), emqx_ds_shared_sub_proto:borrower_id(), _Reason) -> ok.
 invalidate_subscriber(_, BorrowerId, Reason) ->
-    ?tp(debug, ds_shared_sub_leader_invalidate_sub, #{id => BorrowerId, reason => Reason}),
+    ?tp(notice, ds_shared_sub_leader_invalidate_sub, #{id => BorrowerId, reason => Reason}),
     ok = emqx_ds_shared_sub_proto:send_to_borrower(
         BorrowerId,
         ?leader_invalidate(leader())

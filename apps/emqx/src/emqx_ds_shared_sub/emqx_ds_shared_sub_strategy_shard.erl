@@ -40,7 +40,6 @@ stream_reallocation_strategy(S, Borrowers, _Allocs) ->
         _ ->
             Shards = emqx_ds:list_shards(?PERSISTENT_MESSAGE_DB),
             BorrowerMap = assign_shards_to_borrowers(Borrowers, Shards),
-            %% Assign everything to one client:
             emqx_ds_shared_sub_dl:fold_stream_states(
                 fun
                     (_Slab, _Stream, #'StreamState'{iterator = end_of_stream}, Acc) ->
