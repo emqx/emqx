@@ -152,15 +152,7 @@ on_reconnect(ClientPid, ReconnectContext) ->
         ingress_config := IngressConfig,
         pool_size := PoolSize
     } = ReconnectContext,
-    EmqttInfo = emqtt:info(ClientPid),
-    IsSessionPresent = proplists:get_value(session_present, EmqttInfo) band 1 == 1,
-    Res =
-        case IsSessionPresent of
-            true ->
-                ok;
-            false ->
-                subscribe_channel_helper(ClientPid, WorkerName, IngressConfig, WorkerIdx, PoolSize)
-        end,
+    Res = subscribe_channel_helper(ClientPid, WorkerName, IngressConfig, WorkerIdx, PoolSize),
     ?tp(debug, "mqtt_source_reconnected", #{chan_res_id => _ChanResId}),
     Res.
 
