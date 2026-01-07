@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_shared_sub_strategy_shard).
 -moduledoc """
@@ -20,6 +20,7 @@ for one or few DS shards.
 -export([stream_reallocation_strategy/3]).
 
 -include("emqx_persistent_message.hrl").
+-include("../gen_src/DSSharedSub.hrl").
 
 %%================================================================================
 %% behavior callbacks
@@ -41,9 +42,12 @@ stream_reallocation_strategy(S, Borrowers, _Allocs) ->
             BorrowerMap = assign_shards_to_borrowers(Borrowers, Shards),
             %% Assign everything to one client:
             emqx_ds_shared_sub_dl:fold_stream_states(
-                fun(Slab = {Shard, _}, Stream, _, Acc) ->
-                    #{Shard := BorrowerId} = BorrowerMap,
-                    [{Slab, Stream, BorrowerId} | Acc]
+                fun
+                    (_Slab, _Stream, #'StreamState'{iterator = end_of_stream}, Acc) ->
+                        Acc;
+                    (Slab = {Shard, _}, Stream, _, Acc) ->
+                        #{Shard := BorrowerId} = BorrowerMap,
+                        [{Slab, Stream, BorrowerId} | Acc]
                 end,
                 [],
                 S
