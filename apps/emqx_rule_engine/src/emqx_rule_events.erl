@@ -1418,6 +1418,7 @@ hook_fun_name(HookPoint) ->
 
 %% return static function references to help static code checks
 hook_fun(?BRIDGE_HOOKPOINT(_)) -> fun ?MODULE:on_bridge_message_received/2;
+hook_fun(?SOURCE_HOOKPOINT(_)) -> fun ?MODULE:on_bridge_message_received/2;
 hook_fun('alarm.activated') -> fun ?MODULE:on_alarm_activated/2;
 hook_fun('alarm.deactivated') -> fun ?MODULE:on_alarm_deactivated/2;
 hook_fun('client.connected') -> fun ?MODULE:on_client_connected/3;
@@ -1457,6 +1458,7 @@ ntoa(IpOrIpPort) ->
     iolist_to_binary(emqx_utils:ntoa(IpOrIpPort)).
 
 event_name(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
+event_name(?SOURCE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_name(<<"$events/sys/alarm_activated">>) -> 'alarm.activated';
 event_name(<<"$events/sys/alarm_deactivated">>) -> 'alarm.deactivated';
 event_name(<<"$events/client_connected">>) -> 'client.connected';
@@ -1475,6 +1477,7 @@ event_name(<<"$events/delivery_dropped">>) -> 'delivery.dropped';
 event_name(_) -> 'message.publish'.
 
 event_topic(?BRIDGE_HOOKPOINT(_) = Bridge) -> Bridge;
+event_topic(?SOURCE_HOOKPOINT(_) = Bridge) -> Bridge;
 event_topic('alarm.activated') -> <<"$events/sys/alarm_activated">>;
 event_topic('alarm.deactivated') -> <<"$events/sys/alarm_deactivated">>;
 event_topic('client.connected') -> <<"$events/client_connected">>;
