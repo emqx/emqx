@@ -813,6 +813,7 @@ get_health_check_timeout(Opts) ->
 
 %% =================================================================================
 
+%% Update `emqx_bridge_v2_api:{format_metrics,empty_metrics}` when adding a new metric.
 metrics() ->
     [
         'matched',

@@ -10,8 +10,6 @@
 -include_lib("hocon/include/hocon.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
--include_lib("emqx_bridge/include/emqx_bridge_proto.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
@@ -777,6 +775,10 @@ fields("metrics") ->
         {"failed", mk(integer(), #{desc => ?DESC("metric_sent_failed")})},
         {"inflight", mk(integer(), #{desc => ?DESC("metric_inflight")})},
         {"success", mk(integer(), #{desc => ?DESC("metric_sent_success")})},
+        {"aggregated_upload_success",
+            mk(integer(), #{desc => ?DESC("metric_aggregated_upload_success")})},
+        {"aggregated_upload_failure",
+            mk(integer(), #{desc => ?DESC("metric_aggregated_upload_failure")})},
         {"rate", mk(float(), #{desc => ?DESC("metric_rate")})},
         {"rate_max", mk(float(), #{desc => ?DESC("metric_rate_max")})},
         {"rate_last5m",
@@ -1646,7 +1648,7 @@ format_resource(
 %% missing metrics:
 %% 'retried.success' and 'retried.failed'
 format_metrics(#{
-    counters := #{
+    counters := Counters = #{
         'dropped' := Dropped,
         'dropped.other' := DroppedOther,
         'dropped.expired' := DroppedExpired,
@@ -1668,53 +1670,61 @@ format_metrics(#{
     Queued = maps:get('queuing', Gauges, 0),
     QueuedBytes = maps:get('queuing_bytes', Gauges, 0),
     SentInflight = maps:get('inflight', Gauges, 0),
-    ?METRICS(
-        Dropped,
-        DroppedOther,
-        DroppedExpired,
-        DroppedQueueFull,
-        DroppedResourceNotFound,
-        DroppedResourceStopped,
-        Matched,
-        Queued,
-        QueuedBytes,
-        Retried,
-        LateReply,
-        SentFailed,
-        SentInflight,
-        SentSucc,
-        Rate,
-        Rate5m,
-        RateMax,
-        Rcvd
-    );
+    AggregUploadSuccess = maps:get('aggregated_upload_success', Counters, 0),
+    AggregUploadFailure = maps:get('aggregated_upload_failure', Counters, 0),
+    %% Update `empty_metrics/0` when adding a new metric.
+    #{
+        'dropped' => Dropped,
+        'dropped.other' => DroppedOther,
+        'dropped.expired' => DroppedExpired,
+        'dropped.queue_full' => DroppedQueueFull,
+        'dropped.resource_not_found' => DroppedResourceNotFound,
+        'dropped.resource_stopped' => DroppedResourceStopped,
+        'matched' => Matched,
+        'queuing' => Queued,
+        'queuing_bytes' => QueuedBytes,
+        'retried' => Retried,
+        'late_reply' => LateReply,
+        'failed' => SentFailed,
+        'inflight' => SentInflight,
+        'success' => SentSucc,
+        'aggregated_upload_success' => AggregUploadSuccess,
+        'aggregated_upload_failure' => AggregUploadFailure,
+        rate => Rate,
+        rate_last5m => Rate5m,
+        rate_max => RateMax,
+        received => Rcvd
+    };
 format_metrics(_Metrics) ->
     %% Empty metrics: can happen when a node joins another and a
     %% bridge is not yet replicated to it, so the counters map is
     %% empty.
     empty_metrics().
 
+%% Update `format_metrics/1` when adding a new metric.
 empty_metrics() ->
-    ?METRICS(
-        _Dropped = 0,
-        _DroppedOther = 0,
-        _DroppedExpired = 0,
-        _DroppedQueueFull = 0,
-        _DroppedResourceNotFound = 0,
-        _DroppedResourceStopped = 0,
-        _Matched = 0,
-        _Queued = 0,
-        _QueuedBytes = 0,
-        _Retried = 0,
-        _LateReply = 0,
-        _SentFailed = 0,
-        _SentInflight = 0,
-        _SentSucc = 0,
-        _Rate = 0,
-        _Rate5m = 0,
-        _RateMax = 0,
-        _Rcvd = 0
-    ).
+    #{
+        'dropped' => 0,
+        'dropped.other' => 0,
+        'dropped.expired' => 0,
+        'dropped.queue_full' => 0,
+        'dropped.resource_not_found' => 0,
+        'dropped.resource_stopped' => 0,
+        'matched' => 0,
+        'queuing' => 0,
+        'queuing_bytes' => 0,
+        'retried' => 0,
+        'late_reply' => 0,
+        'failed' => 0,
+        'inflight' => 0,
+        'success' => 0,
+        'aggregated_upload_success' => 0,
+        'aggregated_upload_failure' => 0,
+        rate => 0,
+        rate_last5m => 0,
+        rate_max => 0,
+        'received' => 0
+    }.
 
 format_bridge_metrics(Bridges) ->
     NodeMetrics = lists:filtermap(
@@ -1732,39 +1742,11 @@ format_bridge_metrics(Bridges) ->
     }.
 
 aggregate_metrics(AllMetrics) ->
-    InitMetrics = ?EMPTY_METRICS,
+    InitMetrics = empty_metrics(),
     lists:foldl(fun aggregate_metrics/2, InitMetrics, AllMetrics).
 
-aggregate_metrics(
-    #{
-        metrics := ?metrics(
-            M1, M2, M3, M4, M5, M6, M7, M8, M9, M10, M11, M12, M13, M14, M15, M16, M17, M18
-        )
-    },
-    ?metrics(
-        N1, N2, N3, N4, N5, N6, N7, N8, N9, N10, N11, N12, N13, N14, N15, N16, N17, N18
-    )
-) ->
-    ?METRICS(
-        M1 + N1,
-        M2 + N2,
-        M3 + N3,
-        M4 + N4,
-        M5 + N5,
-        M6 + N6,
-        M7 + N7,
-        M8 + N8,
-        M9 + N9,
-        M10 + N10,
-        M11 + N11,
-        M12 + N12,
-        M13 + N13,
-        M14 + N14,
-        M15 + N15,
-        M16 + N16,
-        M17 + N17,
-        M18 + N18
-    ).
+aggregate_metrics(#{metrics := Metrics}, Acc) ->
+    maps:merge_with(fun(_K, V1, V2) -> V1 + V2 end, Acc, Metrics).
 
 %% Called locally, not during RPC.
 enrich_fallback_actions_info(Namespace, Info) ->
