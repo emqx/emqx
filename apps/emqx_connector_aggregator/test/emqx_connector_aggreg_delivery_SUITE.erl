@@ -139,7 +139,7 @@ t_delivery_finished_callback(TCConfig) ->
         max_records => MaxRecords,
         time_interval => 120_000,
         work_dir => emqx_cth_suite:work_dir(TCConfig),
-        delivery_finished_callback => {?MODULE, delivery_finished_callback, [self(), Agent]}
+        delivery_finished_callback => {fun ?MODULE:delivery_finished_callback/3, [self(), Agent]}
     },
     ContainerOpts = #{type => noop},
     DeliveryOpts = #{

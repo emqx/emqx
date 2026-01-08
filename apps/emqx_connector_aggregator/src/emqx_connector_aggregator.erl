@@ -169,7 +169,7 @@ send_close_buffer(Name, Timestamp) ->
     interval :: emqx_schema:duration_s(),
     max_records :: pos_integer(),
     work_dir :: file:filename(),
-    delivery_finished_callback :: undefined | {module(), atom(), [term()]} | fun((term()) -> any())
+    delivery_finished_callback :: undefined | {function(), [term()]}
 }).
 
 -type state() :: #st{}.
@@ -468,24 +468,9 @@ handle_delivery_exit(Buffer, Error, St = #st{name = Name}) ->
 
 invoke_delivery_finished_callback(#st{delivery_finished_callback = undefined}, _Result) ->
     ok;
-invoke_delivery_finished_callback(#st{delivery_finished_callback = {M, F, Args}} = St, Result) ->
+invoke_delivery_finished_callback(#st{delivery_finished_callback = {Fn, Args}} = St, Result) ->
     try
-        _ = apply(M, F, [Result | Args]),
-        ok
-    catch
-        Kind:Error:Stacktrace ->
-            ?tp(warning, "aggregated_delivery_finish_callback_exception", #{
-                action => St#st.name,
-                error => {Kind, Error},
-                stacktrace => Stacktrace
-            }),
-            ok
-    end;
-invoke_delivery_finished_callback(#st{delivery_finished_callback = Fn} = St, Result) when
-    is_function(Fn, 1)
-->
-    try
-        _ = Fn(Result),
+        _ = apply(Fn, [Result | Args]),
         ok
     catch
         Kind:Error:Stacktrace ->
@@ -498,7 +483,7 @@ invoke_delivery_finished_callback(#st{delivery_finished_callback = Fn} = St, Res
     end.
 
 mk_delivery_finished_callback_for_action(ActionResId) ->
-    {?MODULE, on_delivery_finished, [ActionResId]}.
+    {fun ?MODULE:on_delivery_finished/2, [ActionResId]}.
 
 -spec on_delivery_finished(ok | {skipped, _} | {error, _}, emqx_resource:action_resource_id()) ->
     ok.
