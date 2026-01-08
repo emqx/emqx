@@ -476,7 +476,8 @@ invoke_delivery_finished_callback(#st{delivery_finished_callback = {Fn, Args}} =
         Kind:Error:Stacktrace ->
             ?tp(warning, "aggregated_delivery_finish_callback_exception", #{
                 action => St#st.name,
-                error => {Kind, Error},
+                exception => Kind,
+                cause => Error,
                 stacktrace => Stacktrace
             }),
             ok

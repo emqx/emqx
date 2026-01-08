@@ -218,9 +218,9 @@ handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
             inc_actions_executed(Metadata),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
         aggregated_upload_success ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload_success', Val);
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload.success', Val);
         aggregated_upload_failure ->
-            emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload_failure', Val);
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload.failure', Val);
         _ ->
             ok
     end.
@@ -498,7 +498,7 @@ aggregated_upload_success_inc(ID, Val) ->
     }).
 
 aggregated_upload_success_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload_success').
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload.success').
 
 %% @doc Count of aggregated uploads that have failed
 aggregated_upload_failure_inc(ID) ->
@@ -512,7 +512,7 @@ aggregated_upload_failure_inc(ID, Val) ->
     }).
 
 aggregated_upload_failure_get(ID) ->
-    emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload_failure').
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload.failure').
 
 inc_actions_executed(#{namespace := Namespace}) ->
     emqx_metrics:inc(Namespace, 'actions.executed');

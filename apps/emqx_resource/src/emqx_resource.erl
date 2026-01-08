@@ -830,8 +830,8 @@ metrics() ->
         'dropped.resource_stopped',
         'dropped.other',
         'received',
-        'aggregated_upload_success',
-        'aggregated_upload_failure'
+        'aggregated_upload.success',
+        'aggregated_upload.failure'
     ].
 
 rate_metrics() ->

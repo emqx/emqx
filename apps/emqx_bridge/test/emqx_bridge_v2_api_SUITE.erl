@@ -1857,15 +1857,15 @@ t_metrics(Config) ->
             {ok, 200, #{
                 <<"metrics">> := #{
                     <<"matched">> := 1,
-                    <<"aggregated_upload_success">> := 0,
-                    <<"aggregated_upload_failure">> := 0
+                    <<"aggregated_upload.success">> := 0,
+                    <<"aggregated_upload.failure">> := 0
                 },
                 <<"node_metrics">> := [
                     #{
                         <<"metrics">> := #{
                             <<"matched">> := 1,
-                            <<"aggregated_upload_success">> := 0,
-                            <<"aggregated_upload_failure">> := 0
+                            <<"aggregated_upload.success">> := 0,
+                            <<"aggregated_upload.failure">> := 0
                         }
                     }
                     | _
