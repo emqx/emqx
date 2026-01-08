@@ -3,7 +3,7 @@ emqx_ai_completion: none
 emqx_audit: all
 emqx_auth: all
 emqx_auth_cinfo: none
-emqx_auth_http: all
+emqx_auth_http: none
 emqx_auth_jwt: none
 emqx_auth_kerberos: none
 emqx_auth_ldap: none
