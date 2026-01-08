@@ -227,7 +227,11 @@
 %% Data encode and decode
 -export([
     base64_encode/1,
+    base64_encode/2,
+    base64_encode/3,
     base64_decode/1,
+    base64_decode/2,
+    base64_decode/3,
     json_decode/1,
     json_encode/1,
     term_decode/1,
@@ -1128,11 +1132,100 @@ zip_uncompress(S) when is_binary(S) ->
 %% Data encode and decode Funcs
 %%------------------------------------------------------------------------------
 
+-doc """
+Helper function to process base64 encoding/decoding options.
+
+Supported options:
+- `<<"no_padding">>` - Disable padding in base64 encoding/decoding
+- `<<"urlsafe">>` - Use URL-safe base64 encoding/decoding (replaces + with -, / with _)
+- Any other option - Returns Opts unchanged (no-op)
+""".
+base64_opts(Opts, <<"no_padding">>) ->
+    Opts#{padding => false};
+base64_opts(Opts, <<"urlsafe">>) ->
+    Opts#{mode => urlsafe};
+base64_opts(Opts, _) ->
+    Opts.
+
 base64_encode(Data) when is_binary(Data) ->
     base64:encode(Data).
 
+-doc """
+Encode binary data to base64 string with a single option.
+
+Options:
+- `<<"no_padding">>` - Encode without padding characters (=)
+- `<<"urlsafe">>` - Use URL-safe encoding (replaces + with -, / with _)
+
+Examples:
+  base64_encode(<<"hello">>, <<"no_padding">>)
+  base64_encode(<<"test">>, <<"urlsafe">>)
+""".
+base64_encode(Data, Opt) ->
+    Options = base64_opts(#{}, Opt),
+    base64:encode(Data, Options).
+
+-doc """
+Encode binary data to base64 string with two options.
+
+Options:
+- `<<"no_padding">>` - Encode without padding characters (=)
+- `<<"urlsafe">>` - Use URL-safe encoding (replaces + with -, / with _)
+
+Both options can be specified in any order. If the same option is specified twice,
+it will be applied once.
+
+Examples:
+  base64_encode(<<"hello">>, <<"no_padding">>, <<"urlsafe">>)
+  base64_encode(<<"test">>, <<"urlsafe">>, <<"no_padding">>)
+""".
+base64_encode(Data, Opt1, Opt2) ->
+    Options0 = base64_opts(#{}, Opt1),
+    Options = base64_opts(Options0, Opt2),
+    base64:encode(Data, Options).
+
 base64_decode(Data) when is_binary(Data) ->
     base64:decode(Data).
+
+-doc """
+Decode base64 string to binary data with a single option.
+
+By default, this function uses `#{padding => false}` option, which allows
+decoding both padded and unpadded base64 strings.
+
+Options:
+- `<<"no_padding">>` - Explicitly disable padding requirement (default behavior)
+- `<<"urlsafe">>` - Decode URL-safe base64 (handles - and _ characters)
+
+Examples:
+  base64_decode(<<"aGVsbG8=">>, <<"no_padding">>)
+  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>)
+""".
+base64_decode(Data, Opt) ->
+    Options = base64_opts(#{padding => false}, Opt),
+    base64:decode(Data, Options).
+
+-doc """
+Decode base64 string to binary data with two options.
+
+By default, this function uses `#{padding => false}` option, which allows
+decoding both padded and unpadded base64 strings.
+
+Options:
+- `<<"no_padding">>` - Explicitly disable padding requirement (default behavior)
+- `<<"urlsafe">>` - Decode URL-safe base64 (handles - and _ characters)
+
+Both options can be specified in any order. If the same option is specified twice,
+it will be applied once.
+
+Examples:
+  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>, <<"no_padding">>)
+  base64_decode(<<"aGVsbG8-">>, <<"no_padding">>, <<"urlsafe">>)
+""".
+base64_decode(Data, Opt1, Opt2) ->
+    Options0 = base64_opts(#{padding => false}, Opt1),
+    Options = base64_opts(Options0, Opt2),
+    base64:decode(Data, Options).
 
 json_encode(Data) ->
     emqx_utils_json:encode(Data).
