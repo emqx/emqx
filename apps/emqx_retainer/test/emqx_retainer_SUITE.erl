@@ -1095,7 +1095,7 @@ test_retain_while_reindexing(C, Deadline) ->
             ]),
             {ok, #{}, [0]} = emqtt:subscribe(C, Topic, [{qos, 0}, {rh, 0}]),
             Messages = receive_messages(10),
-            ?assertEqual(10, length(Messages)),
+            ?assertEqual(10, length(Messages), #{topic => Topic}),
             {ok, #{}, [0]} = emqtt:unsubscribe(C, Topic),
             test_retain_while_reindexing(C, Deadline)
     end.
@@ -1110,11 +1110,8 @@ receive_messages(0, Msgs) ->
 receive_messages(Count, Msgs) ->
     receive
         {publish, Msg} ->
-            ct:log("Msg: ~p ~n", [Msg]),
-            receive_messages(Count - 1, [Msg | Msgs]);
-        Other ->
-            ct:print("Other Msg: ~p~n", [Other]),
-            receive_messages(Count, Msgs)
+            ct:pal("Msg:\n  ~p", [Msg]),
+            receive_messages(Count - 1, [Msg | Msgs])
     after 2000 ->
         Msgs
     end.

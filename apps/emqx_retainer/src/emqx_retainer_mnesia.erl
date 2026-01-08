@@ -284,7 +284,14 @@ match_messages(State, Topic, undefined) ->
         BatchNum when is_integer(BatchNum) ->
             match_messages(State, Topic, {S, BatchNum})
     end;
-match_messages(_State, _Topic, {S0, BatchNum}) ->
+match_messages(_State, _Topic, {S0, BatchNum0}) ->
+    BatchNum =
+        case emqx_retainer:get_batch_read_number_pd() of
+            undefined ->
+                BatchNum0;
+            BatchNum1 ->
+                BatchNum1
+        end,
     case emqx_utils_stream:consume(BatchNum, S0) of
         {Rows, S1} ->
             {ok, Rows, {S1, BatchNum}};
@@ -606,10 +613,7 @@ indices(IndexRecords, Type) ->
     end.
 
 batch_read_number() ->
-    case emqx:get_config([retainer, flow_control, batch_read_number]) of
-        0 -> all_remaining;
-        BatchNum when is_integer(BatchNum) -> BatchNum
-    end.
+    emqx_retainer:batch_read_number().
 
 reindex(NewIndices, Force, StatusFun) when
     is_boolean(Force) andalso is_function(StatusFun, 1)

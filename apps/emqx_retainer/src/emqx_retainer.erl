@@ -23,7 +23,8 @@
     page_read/4,
     retained_count/0,
     is_enabled/0,
-    is_started/0
+    is_started/0,
+    batch_read_number/0
 ]).
 
 %% Hooks
@@ -43,7 +44,10 @@
     backend_state/1,
     context/0,
     with_backend/1,
-    with_backend/2
+    with_backend/2,
+    get_batch_read_number_pd/0,
+    set_batch_read_number_pd/1,
+    del_batch_read_number_pd/0
 ]).
 
 %% gen_server callbacks
@@ -85,6 +89,7 @@
 -type has_next() :: boolean().
 
 -define(CONTEXT_KEY, {?MODULE, context}).
+-define(BATCH_READ_NUM_PD_KEY, {?MODULE, batch_read_num}).
 
 -callback create(hocon:config()) -> backend_state().
 -callback update(backend_state(), hocon:config()) -> ok | need_recreate.
@@ -258,6 +263,35 @@ with_backend(Fun, Default) ->
 
 with_backend(Fun) ->
     with_backend(Fun, ok).
+
+batch_read_number() ->
+    case get_batch_read_number_pd() of
+        undefined ->
+            batch_read_number_from_config();
+        0 ->
+            all_remaining;
+        BatchNum when is_integer(BatchNum) ->
+            BatchNum
+    end.
+
+batch_read_number_from_config() ->
+    case emqx:get_config([retainer, flow_control, batch_read_number]) of
+        0 ->
+            all_remaining;
+        BatchNum when is_integer(BatchNum) ->
+            BatchNum
+    end.
+
+get_batch_read_number_pd() ->
+    get(?BATCH_READ_NUM_PD_KEY).
+
+set_batch_read_number_pd(N) ->
+    _ = put(?BATCH_READ_NUM_PD_KEY, N),
+    ok.
+
+del_batch_read_number_pd() ->
+    _ = erase(?BATCH_READ_NUM_PD_KEY),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -492,9 +526,12 @@ close_context() ->
 
 -spec load_hooks() -> ok.
 load_hooks() ->
-    ok = emqx_hooks:put(
-        'session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_RETAINER
-    ),
+    %% TODO: customize buffer size?
+    ok = emqx_extsub_handler_registry:register(emqx_retainer_extsub_handler, #{
+        handle_generic_messages => false,
+        multi_topic => false,
+        reinstall_when_repeated => true
+    }),
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
@@ -502,6 +539,6 @@ load_hooks() ->
 -spec unload_hooks() -> ok.
 unload_hooks() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
+    ok = emqx_extsub_handler_registry:unregister(emqx_retainer_extsub_handler),
     emqx_stats:cancel_update(emqx_retainer_stats),
     ok.
