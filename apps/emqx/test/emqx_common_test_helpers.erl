@@ -81,6 +81,7 @@
     on_exit/1,
     call_janitor/0,
     call_janitor/1,
+    run_cleanups/1,
     run_cleanups/2
 ]).
 
@@ -107,7 +108,6 @@
 %% DS test helpers
 -export([
     start_apps_ds/3,
-    stop_apps_ds/1,
     start_cluster_ds/3,
     stop_cluster_ds/1,
     restart_node_ds/2,
@@ -1391,9 +1391,21 @@ on_exit(Fun) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).
 
-run_cleanups(Config, Timeout) ->
-    _ = [Fun() || {cleanup, Fun} <- Config],
-    call_janitor(Timeout).
+run_cleanups(Config) ->
+    run_cleanups(Config, 15_000).
+
+run_cleanups(Config0, Timeout) ->
+    call_janitor(Timeout),
+    lists:filter(
+        fun
+            ({cleanup, Fun}) ->
+                Fun(),
+                false;
+            (_) ->
+                true
+        end,
+        Config0
+    ).
 
 %%-------------------------------------------------------------------------------
 %% Select a free transport port from the OS
@@ -1561,11 +1573,23 @@ ensure_loaded(Mod) ->
 %% DS Test Helpers
 %%------------------------------------------------------------------------------
 
-start_apps_ds(Config, ExtraApps, Opts) ->
+-spec start_apps_ds(
+    CTConfig,
+    [emqx_cth_suite:appname() | emqx_cth_suite:appspec()],
+    #{
+        durable_storage_opts => map(),
+        durable_sessions_opts => map(),
+        emqx_opts => map(),
+        work_dir => file:filename(),
+        start_emqx_conf => boolean()
+    }
+) -> CTConfig when
+    CTConfig :: proplists:proplist().
+start_apps_ds(Config0, ExtraApps, Opts) ->
     DurableStorageOpts = maps:get(durable_storage_opts, Opts, #{}),
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
-    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
+    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config0)),
     StartEMQXConf = maps:get(start_emqx_conf, Opts, true),
     DSConfig = durable_sessions_config(DurableSessionsOpts),
     Apps = emqx_cth_suite:start(
@@ -1587,7 +1611,13 @@ start_apps_ds(Config, ExtraApps, Opts) ->
         true ?= maps:get(<<"enable">>, DSConfig),
         ok = emqx_persistent_message:wait_readiness(15_000)
     end,
-    [{apps, Apps} | Config].
+    Config = [{apps, Apps} | Config0],
+    Cleanup =
+        fun() ->
+            ct:pal("Stopping ~p", [Apps]),
+            emqx_cth_suite:stop(Apps)
+        end,
+    [{cleanup, Cleanup} | Config].
 
 durable_sessions_config(Opts) ->
     emqx_utils_maps:deep_merge(
@@ -1596,9 +1626,6 @@ durable_sessions_config(Opts) ->
         },
         Opts
     ).
-
-stop_apps_ds(Config) ->
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
 
 -spec start_cluster_ds(
     CTConfig,

@@ -1575,15 +1575,8 @@ start_local(TestCase, Config0, UserOpts) ->
         start_emqx_conf => false,
         work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
     },
-    Config = emqx_common_test_helpers:start_apps_ds(
+    emqx_common_test_helpers:start_apps_ds(
         Config0,
         _ExtraApps = [],
         emqx_utils_maps:deep_merge(DefaultOpts, UserOpts)
-    ),
-    Cleanup =
-        fun() ->
-            ct:pal("Stopping apps ~p", [Config]),
-            emqx_common_test_helpers:stop_apps_ds(Config)
-        end,
-    ok = emqx_persistent_message:wait_readiness(5_000),
-    [{cleanup, Cleanup} | Config].
+    ).

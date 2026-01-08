@@ -106,12 +106,8 @@ init_per_group(common = Group, Config0) ->
     {ok, _} = emqx_common_test_http:create_default_app(),
     Config.
 
-end_per_group(persistent_sessions, Config) ->
-    emqx_common_test_helpers:run_cleanups(Config, 15_000),
-    ok;
-end_per_group(common, Config) ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
-    ok.
+end_per_group(_, Config) ->
+    emqx_common_test_helpers:run_cleanups(Config).
 
 init_per_testcase(TestCase, Config) ->
     try

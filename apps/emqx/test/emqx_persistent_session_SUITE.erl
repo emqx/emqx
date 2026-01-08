@@ -152,8 +152,7 @@ get_listener_port(Type, Name) ->
     end.
 
 end_per_group(Group, Config) when Group == tcp; Group == ws; Group == quic ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
-    ok;
+    emqx_common_test_helpers:run_cleanups(Config);
 end_per_group(_, _Config) ->
     catch emqx_ds:drop_db(?PERSISTENT_MESSAGE_DB),
     ok.
