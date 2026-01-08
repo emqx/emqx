@@ -49,8 +49,6 @@ init_per_testcase(TC, Config) ->
 
 end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
-    ok = emqx_ds_shared_sub_registry:purge(),
-    emqx_common_test_helpers:drop_all_ds_messages(),
     emqx_common_test_helpers:run_cleanups(
         emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config)
     ).
@@ -772,6 +770,104 @@ t_renew_lease_timeout(_Config) ->
         []
     ).
 
+t_leader_election(groups, _Groups) ->
+    [declare_implicit];
+t_leader_election('init', Config) ->
+    start_cluster(Config);
+t_leader_election('end', Config) ->
+    Config.
+
+t_leader_election(Config) ->
+    [N1, N2, N3] = proplists:get_value(cluster_nodes, Config),
+    ?check_trace(
+        #{timetrap => 20_000},
+        begin
+            ?tp(notice, test_start_clients, #{}),
+            C1 = emqtt_connect_sub(<<"client_shared1">>, [{port, get_mqtt_port(N1)}]),
+            C2 = emqtt_connect_sub(<<"client_shared2">>, [{port, get_mqtt_port(N2)}]),
+            C3 = emqtt_connect_sub(<<"client_shared3">>, [{port, get_mqtt_port(N3)}]),
+            %% 1. Subscribe clients sequentially. The first node
+            %% becomes the leader:
+            ?tp(notice, test_sub_1, #{}),
+            ?assertMatch(
+                {_, {ok, #{?snk_meta := #{node := N1}}}},
+                ?wait_async_action(
+                    emqtt:subscribe(C1, <<"$share/g1/t1">>, qos1),
+                    #{
+                        ?snk_kind := ds_shared_sub_become_leader,
+                        group := <<"g1">>,
+                        topic := <<"t1">>
+                    }
+                )
+            ),
+            ?assertMatch(
+                {_, {ok, #{?snk_meta := #{node := N2}}}},
+                ?wait_async_action(
+                    emqtt:subscribe(C2, <<"$share/g1/t1">>, qos1),
+                    #{
+                        ?snk_kind := ds_shared_sub_become_standby,
+                        group := <<"g1">>,
+                        topic := <<"t1">>
+                    }
+                )
+            ),
+            ?assertMatch(
+                {_, {ok, #{?snk_meta := #{node := N3}}}},
+                ?wait_async_action(
+                    emqtt:subscribe(C3, <<"$share/g1/t1">>, qos1),
+                    #{
+                        ?snk_kind := ds_shared_sub_become_standby,
+                        group := <<"g1">>,
+                        topic := <<"t1">>
+                    }
+                )
+            ),
+            %% 2. Subscribe simultaneously, creating a contention:
+            ?tp(notice, test_sub_2, #{}),
+            ?force_ordering(
+                #{?snk_kind := test_trigger_sub2},
+                #{?snk_kind := ds_shared_sub_become_candidate}
+            ),
+            %% Create candidates on all nodes:
+            _ = emqtt:subscribe(C1, <<"$share/g2/t2">>, qos1),
+            _ = emqtt:subscribe(C2, <<"$share/g2/t2">>, qos1),
+            _ = emqtt:subscribe(C3, <<"$share/g2/t2">>, qos1),
+            %% Let candidates compete for the leadership:
+            ?tp(notice, test_trigger_sub2, #{}),
+            ?block_until(
+                #{
+                    ?snk_kind := ds_shared_sub_become_leader,
+                    group := <<"g2">>,
+                    topic := <<"t2">>
+                }
+            ),
+            %% 3. Trigger re-election for "$share/g1/t1" by stopping
+            %% N1 (where we know the leader is located):
+            ?tp(notice, test_trigger_reelection, #{}),
+            unlink(C1),
+            ?wait_async_action(
+                emqx_cth_peer:stop(N1),
+                #{
+                    ?snk_kind := ds_shared_sub_become_leader,
+                    group := <<"g1">>,
+                    topic := <<"t1">>
+                }
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            %% Verify that leader election happen only when we expect:
+            ?strict_causality(
+                #{?snk_kind := K} when
+                    K =:= test_sub_1 orelse
+                        K =:= test_sub_2 orelse
+                        K =:= test_trigger_reelection,
+                #{?snk_kind := ds_shared_sub_become_leader},
+                Trace
+            )
+        end
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -800,6 +896,10 @@ emqtt_connect_pub(ClientId) ->
     ]),
     {ok, _} = emqtt:connect(C),
     C.
+
+get_mqtt_port(Node) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
 
 publish_n(_Conn, _Topics, From, To) when From > To ->
     ok;
@@ -863,4 +963,43 @@ start_local(Config) ->
                 <<"revocation_timeout">> => 1000
             }
     },
-    emqx_common_test_helpers:start_apps_ds(Config, [], #{durable_sessions_opts => SessionOpts}).
+    clean_local(
+        emqx_common_test_helpers:start_apps_ds(Config, [], #{durable_sessions_opts => SessionOpts})
+    ).
+
+clean_local(Config) ->
+    [
+        {cleanup, fun() ->
+            ok = emqx_ds_shared_sub_registry:purge(),
+            emqx_common_test_helpers:drop_all_ds_messages()
+        end}
+        | Config
+    ].
+
+start_cluster(Config) ->
+    Conf = #{
+        <<"durable_sessions">> => #{
+            <<"shared_subs">> =>
+                #{
+                    <<"heartbeat_interval">> => 100,
+                    <<"realloc_interval">> => 100,
+                    <<"leader_timeout">> => 100,
+                    <<"checkpoint_interval">> => 10,
+                    <<"revocation_timeout">> => 1000
+                }
+        },
+        <<"log">> => #{
+            <<"file">> => #{
+                <<"default">> => #{
+                    <<"enable">> => true,
+                    <<"level">> => info
+                }
+            }
+        }
+    },
+    NodeSpec = #{role => core, apps => []},
+    NodeSpecs = [{n1, NodeSpec}, {n2, NodeSpec}, {n3, NodeSpec}],
+    emqx_common_test_helpers:start_cluster_ds(Config, NodeSpecs, #{
+        emqx_conf => Conf,
+        keep_work_dir => false
+    }).

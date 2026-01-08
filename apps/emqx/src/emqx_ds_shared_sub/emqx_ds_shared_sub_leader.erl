@@ -195,7 +195,7 @@ wait_leader(Pid) ->
     try
         gen_statem:call(Pid, #call_get_leader{}, 5_000)
     catch
-        exit:timeout ->
+        exit:{timeout, _} ->
             {error, recoverable, timeout}
     end.
 
@@ -208,7 +208,7 @@ destroy(Pid) ->
     try
         gen_statem:call(Pid, #call_destroy{}, 5_000)
     catch
-        exit:timeout ->
+        exit:{timeout, _} ->
             {error, recoverable, timeout}
     end.
 
@@ -228,6 +228,15 @@ callback_mode() ->
 -spec init({emqx_types:share(), emqx_ds_shared_sub:options()}) -> {ok, state(), data()}.
 init({ShareTF, Options}) ->
     process_flag(trap_exit, true),
+    ?tp(
+        debug,
+        ds_shared_sub_leader_init,
+        #{
+            group => ShareTF#share.group,
+            topic => ShareTF#share.topic,
+            opts => Options
+        }
+    ),
     case global:whereis_name(?name(ShareTF)) of
         Pid when is_pid(Pid) ->
             {ok, st_standby(ShareTF, Pid), Options};
@@ -281,7 +290,15 @@ handle_event(enter, _, #st_candidate{gr = Group}, _Options) ->
 handle_event(state_timeout, #to_become{}, #st_candidate{gr = Group}, Options) ->
     try_become_leader(Group, Options);
 %% Standby:
-handle_event(enter, _, #st_standby{}, _) ->
+handle_event(enter, _, #st_standby{gr = Gr}, _) ->
+    ?tp(
+        debug,
+        ds_shared_sub_become_standby,
+        #{
+            group => Gr#share.group,
+            topic => Gr#share.topic
+        }
+    ),
     keep_state_and_data;
 handle_event({call, From}, #call_get_leader{}, #st_standby{gr = Gr}, _) ->
     {keep_state_and_data, handle_get_leader(From, Gr)};
@@ -878,7 +895,7 @@ handle_client_msg(Message, Group, Data = #ls{c = CS0, h = HS0}) ->
     end.
 
 enter_candidate(Group) ->
-    ?tp(debug, emqx_ds_shared_sub_become_candidate, #{group => Group}),
+    ?tp(debug, ds_shared_sub_become_candidate, #{group => Group}),
     Timeout = rand:uniform(1_000),
     {keep_state_and_data, {state_timeout, Timeout, #to_become{}}}.
 
