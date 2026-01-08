@@ -61,7 +61,10 @@
 %% Handler callbacks
 
 -callback handle_subscribe(
-    subscribe_type(), subscribe_ctx(), state() | undefined, emqx_extsub_types:topic_filter()
+    subscribe_type(),
+    subscribe_ctx(),
+    state() | undefined,
+    emqx_extsub_types:topic_filter()
 ) ->
     {ok, state()} | ignore.
 -callback handle_unsubscribe(unsubscribe_type(), state(), emqx_extsub_types:topic_filter()) ->

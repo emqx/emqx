@@ -28,7 +28,7 @@ Collection of handlers for the external message sources.
 
 -record(extsub, {
     handler :: emqx_extsub_handler:t(),
-    topic_filters :: sets:set(emqx_extsub_types:topic_filter())
+    topic_filters :: #{emqx_extsub_types:topic_filter() => emqx_types:subopts()}
 }).
 
 -record(registry, {
@@ -82,15 +82,19 @@ new() ->
     t(),
     emqx_extsub_handler:subscribe_type(),
     subscribe_init_ctx(),
-    [emqx_extsub_types:topic_filter()]
+    #{emqx_extsub_types:topic_filter() => emqx_types:subopts()}
 ) -> t().
-subscribe(Registry, SubscribeType, SubscribeCtx, TopicFilters) ->
+subscribe(Registry, SubscribeType, SubscribeCtx, TopicFiltersToSubOpts) ->
     lists:foldl(
-        fun({CBM, TopicFilter}, RegistryAcc) ->
-            subscribe(RegistryAcc, SubscribeType, SubscribeCtx, CBM, TopicFilter)
+        fun({CBM, TopicFilter, SubOpts}, RegistryAcc) ->
+            subscribe(RegistryAcc, SubscribeType, SubscribeCtx, CBM, TopicFilter, SubOpts)
         end,
         Registry,
-        [{CBM, TopicFilter} || CBM <- cbms(), TopicFilter <- TopicFilters]
+        [
+            {CBM, TopicFilter, SubOpts}
+         || CBM <- cbms(),
+            {TopicFilter, SubOpts} <- maps:to_list(TopicFiltersToSubOpts)
+        ]
     ).
 
 -spec unsubscribe(t(), emqx_extsub_handler:unsubscribe_type(), [emqx_extsub_types:topic_filter()]) ->
@@ -141,7 +145,9 @@ update(#registry{by_ref = ByRef} = Registry, HandlerRef, Handler) ->
 recreate(
     #registry{by_ref = ByRef0, by_topic_cbm = ByTopicCBM0} = Registry0, SubscribeCtx, HandlerRef
 ) ->
-    #extsub{topic_filters = TopicFilters, handler = Handler} = maps:get(HandlerRef, ByRef0),
+    #extsub{topic_filters = TopicFiltersToSubOpts, handler = Handler} = maps:get(
+        HandlerRef, ByRef0
+    ),
     Module = emqx_extsub_handler:get_module(Handler),
     Options = emqx_extsub_handler:get_options(Handler),
     ByTopicCBM = maps:filter(
@@ -152,12 +158,12 @@ recreate(
     ),
     ByRef = maps:remove(HandlerRef, ByRef0),
     Registry = Registry0#registry{by_ref = ByRef, by_topic_cbm = ByTopicCBM},
-    lists:foldl(
-        fun(TopicFilter, RegistryAcc) ->
-            subscribe(RegistryAcc, resume, SubscribeCtx, {Module, Options}, TopicFilter)
+    maps:fold(
+        fun(TopicFilter, SubOpts, RegistryAcc) ->
+            subscribe(RegistryAcc, resume, SubscribeCtx, {Module, Options}, TopicFilter, SubOpts)
         end,
         Registry,
-        sets:to_list(TopicFilters)
+        TopicFiltersToSubOpts
     ).
 
 -spec generic_message_handlers(t()) -> [emqx_extsub_types:handler_ref()].
@@ -175,7 +181,8 @@ subscribe(
     SubscribeType,
     SubscribeCtx0,
     {Module, #{multi_topic := true} = Options},
-    TopicFilter
+    TopicFilter,
+    SubOpts
 ) ->
     case ByTopicCBM of
         #{{Module, TopicFilter} := _HandlerRef} ->
@@ -183,10 +190,10 @@ subscribe(
         _ ->
             case find_module_handler_ref(Registry, Module) of
                 {ok, HandlerRef} ->
-                    #extsub{handler = Handler0, topic_filters = TopicFilters} = maps:get(
+                    #extsub{handler = Handler0, topic_filters = TopicFiltersToSubOpts} = maps:get(
                         HandlerRef, ByRef
                     ),
-                    SubscribeCtx = create_subscribe_ctx(HandlerRef, SubscribeCtx0),
+                    SubscribeCtx = create_subscribe_ctx(HandlerRef, SubOpts, SubscribeCtx0),
                     case
                         emqx_extsub_handler:subscribe(
                             SubscribeType, SubscribeCtx, Handler0, TopicFilter
@@ -197,7 +204,9 @@ subscribe(
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
                                         handler = Handler,
-                                        topic_filters = sets:add_element(TopicFilter, TopicFilters)
+                                        topic_filters = TopicFiltersToSubOpts#{
+                                            TopicFilter => SubOpts
+                                        }
                                     }
                                 },
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef}
@@ -207,7 +216,7 @@ subscribe(
                     end;
                 not_found ->
                     HandlerRef = make_ref(),
-                    SubscribeCtx = create_subscribe_ctx(HandlerRef, SubscribeCtx0),
+                    SubscribeCtx = create_subscribe_ctx(HandlerRef, SubOpts, SubscribeCtx0),
                     case
                         emqx_extsub_handler:subscribe_new(
                             SubscribeType, Module, Options, SubscribeCtx, TopicFilter
@@ -218,7 +227,7 @@ subscribe(
                                 by_ref = ByRef#{
                                     HandlerRef => #extsub{
                                         handler = Handler,
-                                        topic_filters = sets:from_list([TopicFilter], [{version, 2}])
+                                        topic_filters = #{TopicFilter => SubOpts}
                                     }
                                 },
                                 by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef},
@@ -238,14 +247,15 @@ subscribe(
     InitType,
     InitCtx0,
     {Module, #{multi_topic := false} = Options},
-    TopicFilter
+    TopicFilter,
+    SubOpts
 ) ->
     case ByTopicCBM of
         #{{Module, TopicFilter} := _HandlerRef} ->
             Registry;
         _ ->
             HandlerRef = make_ref(),
-            InitCtx = create_subscribe_ctx(HandlerRef, InitCtx0),
+            InitCtx = create_subscribe_ctx(HandlerRef, SubOpts, InitCtx0),
             case
                 emqx_extsub_handler:subscribe_new(InitType, Module, Options, InitCtx, TopicFilter)
             of
@@ -254,7 +264,7 @@ subscribe(
                         by_ref = ByRef#{
                             HandlerRef => #extsub{
                                 handler = Handler,
-                                topic_filters = sets:from_list([TopicFilter], [{version, 2}])
+                                topic_filters = #{TopicFilter => SubOpts}
                             }
                         },
                         by_topic_cbm = ByTopicCBM#{{Module, TopicFilter} => HandlerRef},
@@ -292,9 +302,9 @@ unsubscribe(
         HandlerRef, ByRef0
     ),
     Handler = emqx_extsub_handler:unsubscribe(UnsubscribeType, Handler0, TopicFilter),
-    HandlerTopicFilters = sets:del_element(TopicFilter, HandlerTopicFilters0),
+    HandlerTopicFilters = maps:remove(TopicFilter, HandlerTopicFilters0),
     ByRef =
-        case sets:size(HandlerTopicFilters) of
+        case map_size(HandlerTopicFilters) of
             0 ->
                 ok = emqx_extsub_handler:terminate(Handler),
                 maps:remove(HandlerRef, ByRef0);
@@ -330,7 +340,7 @@ add_to_generic_message_handlers(GenericMessageHandlers, _HandlerRef, _Options) -
 remove_from_generic_message_handlers(GenericMessageHandlers, HandlerRef) ->
     lists:delete(HandlerRef, GenericMessageHandlers).
 
-create_subscribe_ctx(Ref, Ctx) ->
+create_subscribe_ctx(Ref, SubOpts, Ctx) ->
     Pid = self(),
     SendAfter = fun(Interval, Info) ->
         erlang:send_after(Interval, Pid, #info_to_extsub{
@@ -344,6 +354,7 @@ create_subscribe_ctx(Ref, Ctx) ->
         ok
     end,
     Ctx#{
+        subopts => SubOpts,
         send_after => SendAfter,
         send => Send
     }.
