@@ -831,6 +831,7 @@ delete_kind_api(Kind, Type, Name, Opts) ->
     Path = emqx_mgmt_api_test_util:api_path([PathRoot, BridgeId]),
     ct:pal("deleting bridge (~s, http)", [Kind]),
     Res = simple_request(#{
+        auth_header => auth_header_lazy(Opts),
         method => delete,
         url => Path,
         query_params => maps:get(query_params, Opts, #{})
@@ -1129,12 +1130,14 @@ do_source_simple_create_rule_api(Hookpoint, Opts, _TCConfig) ->
             SQL0 when is_binary(SQL0) -> SQL0
         end,
     RepublishOverrides = maps:get(republish_overrides, Opts, #{}),
+    UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
+    RepublishTopic0 = <<"republish/topic/", UniqueNum/binary>>,
     RepublishParams = #{
         <<"function">> => <<"republish">>,
         <<"args">> =>
             maps:merge(
                 #{
-                    <<"topic">> => <<"republish/topic">>,
+                    <<"topic">> => RepublishTopic0,
                     <<"payload">> => <<"${.}">>,
                     <<"qos">> => 2,
                     <<"retain">> => false,
