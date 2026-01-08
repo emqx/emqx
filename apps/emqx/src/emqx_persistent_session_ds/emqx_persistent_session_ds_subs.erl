@@ -617,7 +617,7 @@ subscription_mode(#{qos := _QoS12}) ->
 runtime_state_invariants(ModelState, State) ->
     state_invariants(ModelState, State) and
         assert_ds_client_subscriptions(ModelState, State) and
-        assert_direct_routes(ModelState).
+        assert_direct_routes(ModelState, State).
 
 -spec offline_state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
     boolean().
@@ -655,6 +655,16 @@ assert_state_sub_qos(ModelSubs, S) ->
     ),
     true.
 
+assert_direct_routes(ModelState, #{'_alive' := {true, Pid}}) ->
+    {Routes, _} = lists:unzip(emqx:subscriptions(Pid)),
+    assert_one_to_one(
+        "direct model subscriptions",
+        direct_model_subs(ModelState),
+        "direct routes",
+        Routes,
+        #{model => ModelState}
+    ).
+
 %% This function verifies that for each model subscription with QoS >
 %% 0 there's a durable route.
 assert_durable_routes(ModelState) ->
@@ -671,10 +681,6 @@ assert_durable_routes(ModelState) ->
         Routes,
         #{model => ModelState}
     ).
-
-assert_direct_routes(_) ->
-    %% TODO
-    true.
 
 %% Verify that the DS client of the session is subscribed to all
 %% durable model subs.
