@@ -12,15 +12,11 @@ permissions:
 
 jobs:
   spellcheck:
-    strategy:
-      matrix:
-        profile:
-        - emqx-enterprise
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: "${{ matrix.profile }}-schema-dump"
+          name: "emqx-enterprise-schema-dump"
       - name: Run spellcheck
         run: |
-          bash scripts/spellcheck/spellcheck.sh _build/docgen/${{ matrix.profile }}/schema-en.json
+          bash scripts/spellcheck/spellcheck.sh _build/docgen/emqx-enterprise/schema-en.json
