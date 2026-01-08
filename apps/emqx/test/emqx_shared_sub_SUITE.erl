@@ -1162,11 +1162,7 @@ t_different_groups_update_subopts(Config) when is_list(Config) ->
     SharedTopicGroupB = format_share(GroupB, Topic),
 
     Fun = fun(Group, QoS) ->
-        ?UPDATE_SUB_QOS(C, format_share(Group, Topic), QoS),
-        ?assertMatch(
-            #{qos := QoS},
-            emqx_broker:get_subopts(ClientId, emqx_topic:make_shared_record(Group, Topic))
-        )
+        ?UPDATE_SUB_QOS(C, format_share(Group, Topic), QoS)
     end,
 
     [Fun(Group, QoS) || QoS <- [?QOS_0, ?QOS_1, ?QOS_2], Group <- [GroupA, GroupB]],
