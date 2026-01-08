@@ -146,7 +146,7 @@ end_per_group(general, Config) ->
 end_per_group(Group, Config) when
     Group =:= persistence_enabled
 ->
-    emqx_common_test_helpers:stop_cluster_ds(Config),
+    emqx_common_test_helpers:run_cleanups(Config, 15_000),
     ok;
 end_per_group(Group, Config) when
     Group =:= persistence_disabled_cluster

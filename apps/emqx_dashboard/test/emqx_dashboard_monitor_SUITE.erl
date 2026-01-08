@@ -105,7 +105,7 @@ init_per_group(common = Group, Config0) ->
     Config.
 
 end_per_group(persistent_sessions, Config) ->
-    emqx_common_test_helpers:stop_cluster_ds(Config),
+    emqx_common_test_helpers:run_cleanups(Config, 15_000),
     ok;
 end_per_group(common, Config) ->
     emqx_common_test_helpers:stop_apps_ds(Config),

@@ -80,7 +80,8 @@
 -export([
     on_exit/1,
     call_janitor/0,
-    call_janitor/1
+    call_janitor/1,
+    run_cleanups/2
 ]).
 
 %% Toxiproxy API
@@ -1360,6 +1361,7 @@ create_file(Filename, Fmt, Args) ->
         file:close(F)
     end,
     ok.
+
 %%-------------------------------------------------------------------------------
 %% Testcase teardown utilities
 %%-------------------------------------------------------------------------------
@@ -1388,6 +1390,10 @@ get_or_spawn_janitor() ->
 on_exit(Fun) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).
+
+run_cleanups(Config, Timeout) ->
+    _ = [Fun() || {cleanup, Fun} <- Config],
+    call_janitor(Timeout).
 
 %%-------------------------------------------------------------------------------
 %% Select a free transport port from the OS
@@ -1594,8 +1600,19 @@ durable_sessions_config(Opts) ->
         Opts
     ).
 
-start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
-    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
+-spec start_cluster_ds(
+    CTConfig,
+    [emqx_cth_cluster:nodespec()],
+    #{
+        work_dir => file:filename(),
+        durable_sessions_opts => map(),
+        emqx_opts => map(),
+        start_timeout => timeout()
+    }
+) -> CTConfig when
+    CTConfig :: proplists:proplist().
+start_cluster_ds(Config0, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
+    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config0)),
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
     BaseApps = [
@@ -1627,8 +1644,16 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
     Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
     ExpectedOk = lists:duplicate(length(Nodes), {ok, ok}),
-    ExpectedOk = erpc:multicall(Nodes, emqx_persistent_message, wait_readiness, [15_000], infinity),
-    [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config].
+    Timeout = maps:get(start_timeout, Opts, 15_000),
+    ExpectedOk = erpc:multicall(
+        Nodes, emqx_persistent_message, wait_readiness, [Timeout], infinity
+    ),
+    Config = [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config0],
+    Cleanup =
+        fun() ->
+            emqx_common_test_helpers:stop_cluster_ds(Config)
+        end,
+    [{cleanup, Cleanup} | Config].
 
 stop_cluster_ds(Config) ->
     emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)),

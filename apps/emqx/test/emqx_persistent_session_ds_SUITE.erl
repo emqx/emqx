@@ -48,8 +48,7 @@ init_per_testcase(TestCase, Config) ->
 
 end_per_testcase(TestCase, Config) ->
     snabbkaffe:stop(),
-    _ = [Fun() || {cleanup, Fun} <- Config],
-    emqx_common_test_helpers:call_janitor(60_000),
+    emqx_common_test_helpers:run_cleanups(Config, 60_000),
     emqx_cth_suite:clean_work_dir(emqx_cth_suite:work_dir(TestCase, Config)),
     ok.
 
@@ -1540,12 +1539,7 @@ start_cluster(TestCase, Config0, ClusterOpts) ->
         work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
     }),
     ClusterSpec = cluster(Opts),
-    Config = emqx_common_test_helpers:start_cluster_ds(Config0, ClusterSpec, Opts),
-    Cleanup =
-        fun() ->
-            emqx_common_test_helpers:stop_cluster_ds(Config)
-        end,
-    [{cleanup, Cleanup} | Config].
+    emqx_common_test_helpers:start_cluster_ds(Config0, ClusterSpec, Opts).
 
 start_local(TC, Config) ->
     start_local(TC, Config, #{}).
