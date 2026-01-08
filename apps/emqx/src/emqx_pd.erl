@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc The utility functions for erlang process dictionary.
