@@ -614,7 +614,7 @@ subscription_mode(#{qos := _QoS12}) ->
     s := map(), dscli := _
 }) ->
     boolean().
-runtime_state_invariants(ModelState = #{subs := ModelSubs}, State) ->
+runtime_state_invariants(ModelState, State) ->
     state_invariants(ModelState, State) and
         assert_ds_client_subscriptions(ModelState, State) and
         assert_direct_routes(ModelState).
@@ -627,7 +627,7 @@ offline_state_invariants(ModelState = #{subs := _ModelSubs}, State) ->
 
 -spec state_invariants(emqx_persistent_session_ds_fuzzer:model_state(), #{s := map()}) ->
     boolean().
-state_invariants(#{subs := ModelSubs}, #{s := S} = Rec) ->
+state_invariants(#{subs := ModelSubs}, #{s := S}) ->
     #{subscriptions := Subs} = S,
     assert_one_to_one(
         "model subs",
@@ -698,7 +698,7 @@ assert_ds_client_subscriptions(ModelState, #{dscli := DSCli}) ->
 %% path. Shared group is stripped.
 durable_model_subs(#{subs := ModelSubs}) ->
     maps:fold(
-        fun(TopicFilterBin, SubOpts = #{qos := QoS}, Acc) ->
+        fun(TopicFilterBin, #{qos := QoS}, Acc) ->
             {TopicFilter, _} = emqx_topic:parse(TopicFilterBin),
             case TopicFilter of
                 #share{topic = TF} ->
