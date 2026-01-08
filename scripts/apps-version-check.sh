@@ -60,8 +60,8 @@ for app in ${APPS}; do
         changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
-                             -- ":(exclude)"$app_path/src/*.appup.src"" \
-                             -- ":(exclude)"$app_path/priv/*.proto"" \
+                             -- ":(exclude)$app_path/src/*.appup.src" \
+                             -- ":(exclude)$app_path/priv/*.proto" \
                              -- "$app_path/priv" \
                              -- "$app_path/c_src" | wc -l ) "
         # Check .proto files separately with regex that ignores comment lines
