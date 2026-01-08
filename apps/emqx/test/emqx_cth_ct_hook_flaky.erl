@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_cth_ct_hook_flaky).
 

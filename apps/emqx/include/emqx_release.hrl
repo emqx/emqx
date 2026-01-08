@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% NOTE: this is the release version which is not always the same

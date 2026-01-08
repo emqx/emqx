@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -ifndef(RESOURCE_BUFFER_WORKER_INTERNAL_HRL).
 -define(RESOURCE_BUFFER_WORKER_INTERNAL_HRL, true).

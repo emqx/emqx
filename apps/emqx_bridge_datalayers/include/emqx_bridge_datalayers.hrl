@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -define(DATALAYERS_DEFAULT_ARROW_PORT, 8360).

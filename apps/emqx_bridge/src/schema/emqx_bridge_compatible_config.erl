@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc This module was created to convert old version (from v5.0.0 to v5.0.11)
