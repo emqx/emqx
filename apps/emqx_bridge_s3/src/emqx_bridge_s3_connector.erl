@@ -204,7 +204,7 @@ start_channel(State, ActionResId, #{
         max_records => MaxRecords,
         work_dir => work_dir(Type, Name),
         delivery_finished_callback =>
-            emqx_connector_aggregator:mk_delivery_finished_callback_for_action(ActionResId)
+            emqx_resource_metrics:mk_delivery_finished_callback_for_action(ActionResId)
     },
     Template = emqx_bridge_s3_upload:mk_key_template(Key),
     DeliveryOpts = #{

@@ -754,7 +754,7 @@ start_aggregator(ConnResId, ActionResId, ActionConfig, ActionState0) ->
         time_interval => TimeInterval,
         work_dir => WorkDir,
         delivery_finished_callback =>
-            emqx_connector_aggregator:mk_delivery_finished_callback_for_action(ActionResId)
+            emqx_resource_metrics:mk_delivery_finished_callback_for_action(ActionResId)
     },
     TransferOpts = #{
         action => Name,

@@ -532,7 +532,7 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ActionResI
         time_interval => TimeInterval,
         work_dir => work_dir(Type, Name),
         delivery_finished_callback =>
-            emqx_connector_aggregator:mk_delivery_finished_callback_for_action(ActionResId)
+            emqx_resource_metrics:mk_delivery_finished_callback_for_action(ActionResId)
     },
     ContentType = content_type(ContainerType),
     TransferOpts = #{

@@ -75,6 +75,8 @@
     aggregated_upload_failure_get/1
 ]).
 
+-export([mk_delivery_finished_callback_for_action/1, on_delivery_finished/2]).
+
 -define(TELEMETRY_PREFIX, emqx, resource).
 
 -spec events() -> [telemetry:event_name()].
@@ -513,6 +515,27 @@ aggregated_upload_failure_inc(ID, Val) ->
 
 aggregated_upload_failure_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload.failure').
+
+-doc """
+Helper for aggregated actions to add a callback to bump their metrics.
+""".
+mk_delivery_finished_callback_for_action(ActionResId) ->
+    {fun ?MODULE:on_delivery_finished/2, [ActionResId]}.
+
+-doc """
+Callback handler for aggregated actions to bump their metrics when delivery finishes.
+""".
+-spec on_delivery_finished(ok | {skipped, _} | {error, _}, emqx_resource:action_resource_id()) ->
+    ok.
+on_delivery_finished(Result, ActionResId) ->
+    case Result of
+        ok ->
+            emqx_resource_metrics:aggregated_upload_success_inc(ActionResId);
+        {skipped, _} ->
+            ok;
+        {error, _} ->
+            emqx_resource_metrics:aggregated_upload_failure_inc(ActionResId)
+    end.
 
 inc_actions_executed(#{namespace := Namespace}) ->
     emqx_metrics:inc(Namespace, 'actions.executed');
