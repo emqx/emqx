@@ -73,3 +73,10 @@ t_cleanup_channels_node_down(_) ->
     ct:sleep(100),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId)),
     ?assertEqual([], emqx_cm_registry:lookup_channels(ClientId2)).
+
+t_cm_registry(_) ->
+    Children = supervisor:which_children(emqx_cm_sup),
+    {_, Pid, _, _} = lists:keyfind(emqx_cm_registry, 1, Children),
+    ignored = gen_server:call(Pid, <<"Unexpected call">>),
+    gen_server:cast(Pid, <<"Unexpected cast">>),
+    Pid ! <<"Unexpected info">>.
