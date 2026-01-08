@@ -201,7 +201,7 @@ on_get_status(_ConnResId, #{driver_state := DriverState}) ->
     {ok, connector_state()}.
 on_add_channel(_ConnResId, ConnState0, ActionResId, ActionConfig) ->
     maybe
-        {ok, ActionState} ?= install_action(ActionConfig, ConnState0),
+        {ok, ActionState} ?= install_action(ActionConfig, ActionResId, ConnState0),
         ConnState = emqx_utils_maps:deep_put(
             [installed_actions, ActionResId],
             ConnState0,
@@ -484,8 +484,9 @@ mk_fs_safe_string(String) ->
 %% Internal fns
 %%------------------------------------------------------------------------------
 
--spec install_action(action_config(), connector_state()) -> {ok, action_state()} | {error, term()}.
-install_action(#{parameters := #{mode := direct}} = ActionConfig, _ConnState) ->
+-spec install_action(action_config(), action_resource_id(), connector_state()) ->
+    {ok, action_state()} | {error, term()}.
+install_action(#{parameters := #{mode := direct}} = ActionConfig, _ActionResId, _ConnState) ->
     #{
         parameters := #{
             mode := Mode = direct,
@@ -506,7 +507,7 @@ install_action(#{parameters := #{mode := direct}} = ActionConfig, _ConnState) ->
         max_block_size => MaxBlockSize
     },
     {ok, ActionState};
-install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState) ->
+install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ActionResId, ConnState) ->
     #{driver_state := DriverState} = ConnState,
     #{
         bridge_name := Name,
@@ -529,7 +530,9 @@ install_action(#{parameters := #{mode := aggregated}} = ActionConfig, ConnState)
     AggregOpts = #{
         max_records => MaxRecords,
         time_interval => TimeInterval,
-        work_dir => work_dir(Type, Name)
+        work_dir => work_dir(Type, Name),
+        delivery_finished_callback =>
+            emqx_resource_metrics:mk_delivery_finished_callback_for_action(ActionResId)
     },
     ContentType = content_type(ContainerType),
     TransferOpts = #{

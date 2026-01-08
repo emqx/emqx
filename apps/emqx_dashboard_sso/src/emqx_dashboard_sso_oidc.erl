@@ -79,6 +79,11 @@ fields(oidc) ->
                     binary(),
                     #{desc => ?DESC(name_var), default => <<"${sub}">>}
                 )},
+            {name_var_source,
+                ?HOCON(
+                    hoconsc:enum([userinfo, id_token]),
+                    #{desc => ?DESC(name_var_source), default => <<"userinfo">>}
+                )},
             {dashboard_addr,
                 ?HOCON(binary(), #{
                     desc => ?DESC(dashboard_addr),
@@ -167,7 +172,7 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(#{name_var := NameVar} = Config) ->
+create(#{name_var := NameVar, name_var_source := NameVarSource} = Config) ->
     case
         emqx_dashboard_sso_oidc_session:start(
             ?PROVIDER_SVR_NAME,
@@ -185,7 +190,8 @@ create(#{name_var := NameVar} = Config) ->
                 name => ?PROVIDER_SVR_NAME,
                 config => Config,
                 client_jwks => ClientJwks,
-                name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
+                name_tokens => emqx_placeholder:preproc_tmpl(NameVar),
+                name_var_source => NameVarSource
             }}
     end.
 

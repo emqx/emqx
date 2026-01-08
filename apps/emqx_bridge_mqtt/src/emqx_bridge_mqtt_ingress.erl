@@ -18,13 +18,24 @@
     config/3
 ]).
 
+%% `ecpool` API helpers
+-export([
+    add_reconnect_callback/2,
+    remove_reconnect_callback/2
+]).
+%% `ecpool` API
+-export([
+    on_reconnect/2,
+    get_reconnect_callback_signature/1
+]).
+
 -export([handle_publish/3]).
 
-subscribe_channel(PoolName, ChannelConfig) ->
+subscribe_channel(PoolName, IngressConfig) ->
     Workers = ecpool:workers(PoolName),
     PoolSize = length(Workers),
     Results = [
-        subscribe_channel(Pid, Name, ChannelConfig, Idx, PoolSize)
+        subscribe_channel(Pid, Name, IngressConfig, Idx, PoolSize)
      || {{Name, Idx}, Pid} <- Workers
     ],
     case proplists:get_value(error, Results, ok) of
@@ -34,16 +45,16 @@ subscribe_channel(PoolName, ChannelConfig) ->
             Error
     end.
 
-subscribe_channel(WorkerPid, Name, Ingress, WorkerIdx, PoolSize) ->
+subscribe_channel(WorkerPid, Name, IngressConfig, WorkerIdx, PoolSize) ->
     case ecpool_worker:client(WorkerPid) of
         {ok, Client} ->
-            subscribe_channel_helper(Client, Name, Ingress, WorkerIdx, PoolSize);
+            subscribe_channel_helper(Client, Name, IngressConfig, WorkerIdx, PoolSize);
         {error, Reason} ->
             error({client_not_found, Reason})
     end.
 
-subscribe_channel_helper(Client, Name, Ingress, WorkerIdx, PoolSize) ->
-    IngressList = maps:get(ingress_list, Ingress, []),
+subscribe_channel_helper(Client, Name, IngressConfig, WorkerIdx, PoolSize) ->
+    IngressList = maps:get(ingress_list, IngressConfig, []),
     SubscribeResults = subscribe_remote_topics(
         Client, IngressList, WorkerIdx, PoolSize, Name
     ),
@@ -54,7 +65,7 @@ subscribe_channel_helper(Client, Name, Ingress, WorkerIdx, PoolSize) ->
         {error, Reason} = Error ->
             ?SLOG(error, #{
                 msg => "ingress_client_subscribe_failed",
-                ingress => Ingress,
+                ingress => IngressConfig,
                 name => Name,
                 reason => Reason
             }),
@@ -103,29 +114,67 @@ should_subscribe(RemoteTopic, WorkerIdx, PoolSize, Name, LogWarn) ->
             IsFirstWorker
     end.
 
-unsubscribe_channel(PoolName, ChannelConfig, ChannelId, TopicToHandlerIndex) ->
+add_reconnect_callback(PoolName, ReconnectContext0) ->
+    lists:foreach(
+        fun({{WorkerName, WorkerIdx}, Pid}) ->
+            ReconnectContext = ReconnectContext0#{
+                worker_name => WorkerName, worker_idx => WorkerIdx
+            },
+            ecpool_worker:add_reconnect_callback(Pid, {?MODULE, on_reconnect, [ReconnectContext]})
+        end,
+        ecpool:workers(PoolName)
+    ).
+
+remove_reconnect_callback(PoolName, ChannelId) ->
+    lists:foreach(
+        fun({_, Pid}) ->
+            ok = ecpool_worker:remove_reconnect_callback_by_signature(Pid, ChannelId)
+        end,
+        ecpool:workers(PoolName)
+    ).
+
+%% `ecpool` callback
+on_reconnect(ClientPid, ReconnectContext) ->
+    #{
+        chan_res_id := _ChanResId,
+        worker_name := WorkerName,
+        worker_idx := WorkerIdx,
+        ingress_config := IngressConfig,
+        pool_size := PoolSize
+    } = ReconnectContext,
+    Res = subscribe_channel_helper(ClientPid, WorkerName, IngressConfig, WorkerIdx, PoolSize),
+    ?tp(debug, "mqtt_source_reconnected", #{chan_res_id => _ChanResId}),
+    Res.
+
+%% `ecpool` callback
+get_reconnect_callback_signature([#{chan_res_id := ChanResId}] = _ReconnectContext) ->
+    ChanResId.
+
+unsubscribe_channel(PoolName, IngressConfig, ChannelId, TopicToHandlerIndex) ->
     Workers = ecpool:workers(PoolName),
     PoolSize = length(Workers),
     _ = [
-        unsubscribe_channel(Pid, Name, ChannelConfig, Idx, PoolSize, ChannelId, TopicToHandlerIndex)
+        unsubscribe_channel(Pid, Name, IngressConfig, Idx, PoolSize, ChannelId, TopicToHandlerIndex)
      || {{Name, Idx}, Pid} <- Workers
     ],
     ok.
 
-unsubscribe_channel(WorkerPid, Name, Ingress, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex) ->
+unsubscribe_channel(
+    WorkerPid, Name, IngressConfig, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+) ->
     case ecpool_worker:client(WorkerPid) of
         {ok, Client} ->
             unsubscribe_channel_helper(
-                Client, Name, Ingress, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+                Client, Name, IngressConfig, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
             );
         {error, Reason} ->
             error({client_not_found, Reason})
     end.
 
 unsubscribe_channel_helper(
-    Client, Name, Ingress, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
+    Client, Name, IngressConfig, WorkerIdx, PoolSize, ChannelId, TopicToHandlerIndex
 ) ->
-    IngressList = maps:get(ingress_list, Ingress, []),
+    IngressList = maps:get(ingress_list, IngressConfig, []),
     unsubscribe_remote_topics(
         Client, IngressList, WorkerIdx, PoolSize, Name, ChannelId, TopicToHandlerIndex
     ).

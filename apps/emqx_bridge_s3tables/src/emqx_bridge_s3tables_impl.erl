@@ -324,7 +324,9 @@ create_channel(ChanResId, ActionConfig, ConnState) ->
     AggregOpts = #{
         max_records => MaxRecords,
         time_interval => TimeInterval,
-        work_dir => WorkDir
+        work_dir => WorkDir,
+        delivery_finished_callback =>
+            emqx_resource_metrics:mk_delivery_finished_callback_for_action(ChanResId)
     },
     TransferOpts = #{
         action => Name,

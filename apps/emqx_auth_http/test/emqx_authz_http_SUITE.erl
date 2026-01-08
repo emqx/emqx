@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_http_SUITE).
@@ -13,7 +13,6 @@
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(HTTP_PORT, 33333).
 -define(HTTP_PATH, "/authz/[...]").
 
 -define(AUTHZ_HTTP_RESP(Result, Req),
@@ -28,7 +27,7 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Config) ->
+init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
@@ -36,30 +35,31 @@ init_per_suite(Config) ->
             emqx_auth,
             emqx_auth_http
         ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+        #{work_dir => emqx_cth_suite:work_dir(TCConfig)}
     ),
-    [{suite_apps, Apps} | Config].
+    [{suite_apps, Apps} | TCConfig].
 
-end_per_suite(_Config) ->
+end_per_suite(_TCConfig) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
-    emqx_cth_suite:stop(?config(suite_apps, _Config)).
+    emqx_cth_suite:stop(?config(suite_apps, _TCConfig)).
 
-init_per_testcase(t_bad_response = TestCase, Config) ->
+init_per_testcase(t_bad_response = TestCase, TCConfig) ->
     TCApps = emqx_cth_suite:start_apps(
         [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, TCConfig)}
     ),
-    init_per_testcase(common, [{tc_apps, TCApps} | Config]);
-init_per_testcase(_TestCase, Config) ->
+    init_per_testcase(common, [{tc_apps, TCApps} | TCConfig]);
+init_per_testcase(_TestCase, TCConfig) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
-    {ok, _} = emqx_utils_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
-    Config.
+    HTTPPort = emqx_common_test_helpers:select_free_port(tcp),
+    {ok, _} = emqx_utils_http_test_server:start_link(HTTPPort, ?HTTP_PATH),
+    [{http_port, HTTPPort} | TCConfig].
 
-end_per_testcase(t_bad_response, Config) ->
-    TCApps = ?config(tc_apps, Config),
+end_per_testcase(t_bad_response, TCConfig) ->
+    TCApps = ?config(tc_apps, TCConfig),
     emqx_cth_suite:stop_apps(TCApps),
-    end_per_testcase(common, Config);
-end_per_testcase(_TestCase, _Config) ->
+    end_per_testcase(common, TCConfig);
+end_per_testcase(_TestCase, _TCConfig) ->
     ok = emqx_authz_test_lib:enable_node_cache(false),
     try
         ok = emqx_utils_http_test_server:stop()
@@ -74,7 +74,7 @@ end_per_testcase(_TestCase, _Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_response_handling(_Config) ->
+t_response_handling(TCConfig) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         username => <<"username">>,
@@ -85,6 +85,7 @@ t_response_handling(_Config) ->
 
     %% OK, get, body & headers
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
         end,
@@ -98,6 +99,7 @@ t_response_handling(_Config) ->
 
     %% Not OK, get, no body
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             Req = cowboy_req:reply(200, Req0),
             {ok, Req, State}
@@ -109,6 +111,7 @@ t_response_handling(_Config) ->
 
     %% OK, get, 204
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             Req = cowboy_req:reply(204, Req0),
             {ok, Req, State}
@@ -123,6 +126,7 @@ t_response_handling(_Config) ->
 
     %% Not OK, get, 400
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             Req = cowboy_req:reply(400, Req0),
             {ok, Req, State}
@@ -137,6 +141,7 @@ t_response_handling(_Config) ->
 
     %% Not OK, get, 400 + body & headers
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             Req = cowboy_req:reply(
                 400,
@@ -186,8 +191,9 @@ t_response_handling(_Config) ->
 
     ok.
 
-t_query_params(_Config) ->
+t_query_params(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             #{
                 username := <<"user name">>,
@@ -219,7 +225,9 @@ t_query_params(_Config) ->
         end,
         #{
             <<"url">> => <<
-                "http://127.0.0.1:33333/authz/users/?"
+                "http://127.0.0.1:",
+                (http_port_bin(TCConfig))/binary,
+                "/authz/users/?"
                 "username=${username}&"
                 "clientid=${clientid}&"
                 "peerhost=${peerhost}&"
@@ -249,8 +257,9 @@ t_query_params(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
     ).
 
-t_path(_Config) ->
+t_path(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             ?assertEqual(
                 <<
@@ -272,7 +281,9 @@ t_path(_Config) ->
         end,
         #{
             <<"url">> => <<
-                "http://127.0.0.1:33333/authz/use+rs/"
+                "http://127.0.0.1:",
+                (http_port_bin(TCConfig))/binary,
+                "/authz/use+rs/"
                 "${username}/"
                 "${clientid}/"
                 "${peerhost}/"
@@ -302,8 +313,9 @@ t_path(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t/1">>)
     ).
 
-t_json_body(_Config) ->
+t_json_body(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             ?assertEqual(
                 <<"/authz/users/">>,
@@ -361,8 +373,9 @@ t_json_body(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH(1, false), <<"t">>)
     ).
 
-t_placeholder_and_body(_Config) ->
+t_placeholder_and_body(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             ?assertEqual(
                 <<"/authz/users/">>,
@@ -433,8 +446,9 @@ t_placeholder_and_body(_Config) ->
     ).
 
 %% Checks that we don't crash when receiving an unsupported content-type back.
-t_bad_response_content_type(_Config) ->
+t_bad_response_content_type(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             ?assertEqual(
                 <<"/authz/users/">>,
@@ -499,8 +513,9 @@ t_bad_response_content_type(_Config) ->
     ).
 
 %% Checks that we bump the correct metrics when we receive an error response
-t_bad_response(_Config) ->
+t_bad_response(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             ?assertEqual(
                 <<"/authz/users/">>,
@@ -583,8 +598,9 @@ t_bad_response(_Config) ->
     ),
     ok.
 
-t_no_value_for_placeholder(_Config) ->
+t_no_value_for_placeholder(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             ?assertEqual(
                 <<"/authz/users/">>,
@@ -623,8 +639,9 @@ t_no_value_for_placeholder(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
-t_node_cache(_Config) ->
+t_node_cache(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(#{path := Path} = Req, State) ->
             case {Path, cowboy_req:match_qs([username, cn], Req)} of
                 {<<"/authz/clientid">>, #{username := <<"username">>, cn := <<"cn">>}} ->
@@ -635,7 +652,9 @@ t_node_cache(_Config) ->
         end,
         #{
             <<"method">> => <<"get">>,
-            <<"url">> => <<"http://127.0.0.1:33333/authz/${clientid}?username=${username}">>,
+            <<"url">> =>
+                <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                    "/authz/${clientid}?username=${username}">>,
             <<"body">> => #{<<"cn">> => <<"${cert_common_name}">>}
         }
     ),
@@ -686,8 +705,9 @@ t_node_cache(_Config) ->
         emqx_auth_cache:metrics(?AUTHZ_CACHE)
     ).
 
-t_disallowed_placeholders_preserved(_Config) ->
+t_disallowed_placeholders_preserved(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             {ok, Body, Req1} = cowboy_req:read_body(Req0),
             ?assertMatch(
@@ -722,13 +742,15 @@ t_disallowed_placeholders_preserved(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
-t_disallowed_placeholders_path(_Config) ->
+t_disallowed_placeholders_path(TCConfig) ->
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req, State) ->
             {ok, ?AUTHZ_HTTP_RESP(allow, Req), State}
         end,
         #{
-            <<"url">> => <<"http://127.0.0.1:33333/authz/use+rs/${typo}">>
+            <<"url">> =>
+                <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary, "/authz/use+rs/${typo}">>
         }
     ),
 
@@ -747,7 +769,7 @@ t_disallowed_placeholders_path(_Config) ->
         emqx_access_control:authorize(ClientInfo, ?AUTHZ_PUBLISH, <<"t">>)
     ).
 
-t_create_replace(_Config) ->
+t_create_replace(TCConfig) ->
     ClientInfo = #{
         clientid => <<"clientid">>,
         username => <<"username">>,
@@ -756,16 +778,18 @@ t_create_replace(_Config) ->
         listener => 'tcp:default'
     },
 
-    ValidConfig = raw_http_authz_config(),
+    ValidConfig = raw_http_authz_config(TCConfig),
 
     %% Create with valid URL
     ok = setup_handler_and_config(
+        TCConfig,
         fun(Req0, State) ->
             {ok, ?AUTHZ_HTTP_RESP(allow, Req0), State}
         end,
         #{
             <<"url">> =>
-                <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>
+                <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                    "/authz/users/?topic=${topic}&action=${action}">>
         }
     ),
 
@@ -777,7 +801,8 @@ t_create_replace(_Config) ->
     %% Changing to valid config
     OkConfig = ValidConfig#{
         <<"url">> =>
-            <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>
+            <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                "/authz/users/?topic=${topic}&action=${action}">>
     },
 
     ?assertMatch(
@@ -808,12 +833,13 @@ t_create_replace(_Config) ->
         {error, _},
         emqx_authz:update({?CMD_REPLACE, http}, ValidConfig#{
             <<"url">> =>
-                <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}#fragment">>
+                <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                    "/authz/users/?topic=${topic}&action=${action}#fragment">>
         })
     ).
 
-t_resource_status(_Config) ->
-    EnabledConfig = raw_http_authz_config(),
+t_resource_status(TCConfig) ->
+    EnabledConfig = raw_http_authz_config(TCConfig),
     DisabledConfig =
         EnabledConfig#{<<"enable">> => false},
 
@@ -843,12 +869,13 @@ t_resource_status(_Config) ->
     %% Cleanup
     emqx_authz_test_lib:reset_authorizers().
 
-t_uri_normalization(_Config) ->
+t_uri_normalization(TCConfig) ->
     ok = emqx_authz_test_lib:setup_config(
-        raw_http_authz_config(),
+        raw_http_authz_config(TCConfig),
         #{
             <<"url">> =>
-                <<"http://127.0.0.1:33333?topic=${topic}&action=${action}">>
+                <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                    "?topic=${topic}&action=${action}">>
         }
     ).
 
@@ -856,20 +883,22 @@ t_uri_normalization(_Config) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
-raw_http_authz_config() ->
+raw_http_authz_config(TCConfig) ->
     #{
         <<"enable">> => <<"true">>,
         <<"type">> => <<"http">>,
         <<"max_inactive">> => <<"10s">>,
         <<"method">> => <<"get">>,
-        <<"url">> => <<"http://127.0.0.1:33333/authz/users/?topic=${topic}&action=${action}">>,
+        <<"url">> =>
+            <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                "/authz/users/?topic=${topic}&action=${action}">>,
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
 
-setup_handler_and_config(Handler, Config) ->
+setup_handler_and_config(TCConfig, Handler, Config) ->
     ok = emqx_utils_http_test_server:set_handler(Handler),
     ok = emqx_authz_test_lib:setup_config(
-        raw_http_authz_config(),
+        raw_http_authz_config(TCConfig),
         Config
     ).
 
@@ -895,3 +924,6 @@ get_status_api() ->
     Res0 = emqx_mgmt_api_test_util:request_api(get, Path, _QParams = [], Auth, _Body = [], Opts),
     {Status, RawBody} = emqx_mgmt_api_test_util:simplify_result(Res0),
     {Status, emqx_utils_json:decode(RawBody)}.
+
+http_port_bin(TCConfig) ->
+    integer_to_binary(?config(http_port, TCConfig)).

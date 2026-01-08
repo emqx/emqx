@@ -256,6 +256,7 @@ oidc_provider_params() ->
         <<"dashboard_addr">> => <<"http://emqx_lb:18083">>,
         <<"fallback_methods">> => [<<"RS256">>],
         <<"name_var">> => <<"${sub}">>,
+        <<"name_var_source">> => <<"userinfo">>,
         <<"preferred_auth_methods">> => [
             <<"client_secret_post">>,
             <<"client_secret_basic">>,
@@ -286,6 +287,15 @@ t_smoke_three_nodes(TCConfig) ->
     Opts = #{n => 3, repeat => 5},
     do_smoke_tests(?FUNCTION_NAME, Opts, TCConfig).
 
+%% Smoke test for using the id token as the username source.
+t_smoke_name_var_source_id_token(TCConfig) ->
+    Opts = #{
+        n => 1,
+        repeat => 1,
+        oidc_provider_param_overrides => #{<<"name_var_source">> => <<"id_token">>}
+    },
+    do_smoke_tests(?FUNCTION_NAME, Opts, TCConfig).
+
 do_smoke_tests(TestCase, Opts, TCConfig) ->
     #{n := NumNodes} = Opts,
     Repeat = maps:get(repeat, Opts, 1),
@@ -302,14 +312,16 @@ do_smoke_tests(TestCase, Opts, TCConfig) ->
     set_auth_header_getter(fun() -> AuthHeader end),
     lists:foreach(
         fun(_) ->
-            do_smoke_tests1(Node, LoginNode, FinalReqNode, TCConfig)
+            do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, TCConfig)
         end,
         lists:seq(1, Repeat)
     ).
 
-do_smoke_tests1(Node, LoginNode, FinalReqNode, _TCConfig) ->
+do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, _TCConfig) ->
     %% Create the provider
-    ProviderParams = oidc_provider_params(),
+    ProviderParams0 = oidc_provider_params(),
+    ProviderParams1 = maps:get(oidc_provider_param_overrides, Opts, #{}),
+    ProviderParams = emqx_utils_maps:deep_merge(ProviderParams0, ProviderParams1),
     ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
     ?assertMatch(
         {200, [

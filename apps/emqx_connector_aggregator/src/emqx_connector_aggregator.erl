@@ -166,7 +166,8 @@ send_close_buffer(Name, Timestamp) ->
     errors = queue:new() :: queue:queue(_Error),
     interval :: emqx_schema:duration_s(),
     max_records :: pos_integer(),
-    work_dir :: file:filename()
+    work_dir :: file:filename(),
+    delivery_finished_callback :: undefined | {function(), [term()]}
 }).
 
 -type state() :: #st{}.
@@ -175,12 +176,14 @@ mk_state(Name, Opts) ->
     Interval = maps:get(time_interval, Opts),
     MaxRecords = maps:get(max_records, Opts),
     WorkDir = maps:get(work_dir, Opts),
+    DeliveryFinishedCallback = maps:get(delivery_finished_callback, Opts, undefined),
     ok = ensure_workdir(WorkDir),
     #st{
         name = Name,
         interval = Interval,
         max_records = MaxRecords,
-        work_dir = WorkDir
+        work_dir = WorkDir,
+        delivery_finished_callback = DeliveryFinishedCallback
     }.
 
 ensure_workdir(WorkDir) ->
@@ -439,6 +442,7 @@ handle_delivery_exit(Buffer, Normal, St = #st{name = Name}) when
         buffer => Buffer#buffer.filename
     }),
     ok = discard_buffer(Buffer),
+    invoke_delivery_finished_callback(St, ok),
     St;
 handle_delivery_exit(Buffer, {shutdown, {skipped, Reason}}, St = #st{name = Name}) ->
     ?tp(info, "aggregated_buffer_delivery_skipped", #{
@@ -447,6 +451,7 @@ handle_delivery_exit(Buffer, {shutdown, {skipped, Reason}}, St = #st{name = Name
         reason => Reason
     }),
     ok = discard_buffer(Buffer),
+    invoke_delivery_finished_callback(St, {skipped, Reason}),
     St;
 handle_delivery_exit(Buffer, Error, St = #st{name = Name}) ->
     ?tp(error, "aggregated_buffer_delivery_failed", #{
@@ -456,7 +461,25 @@ handle_delivery_exit(Buffer, Error, St = #st{name = Name}) ->
         reason => Error
     }),
     %% TODO: Retries?
+    invoke_delivery_finished_callback(St, {error, Error}),
     enqueue_status_error(Error, St).
+
+invoke_delivery_finished_callback(#st{delivery_finished_callback = undefined}, _Result) ->
+    ok;
+invoke_delivery_finished_callback(#st{delivery_finished_callback = {Fn, Args}} = St, Result) ->
+    try
+        _ = apply(Fn, [Result | Args]),
+        ok
+    catch
+        Kind:Error:Stacktrace ->
+            ?tp(warning, "aggregated_delivery_finish_callback_exception", #{
+                action => St#st.name,
+                exception => Kind,
+                cause => Error,
+                stacktrace => Stacktrace
+            }),
+            ok
+    end.
 
 enqueue_status_error({upload_failed, Error}, St = #st{errors = QErrors}) ->
     %% TODO
@@ -482,7 +505,7 @@ handle_take_error(St = #st{errors = QErrors0}) ->
 
 recover(St0 = #st{work_dir = WorkDir}) ->
     {ok, Filenames} = file:list_dir(WorkDir),
-    ExistingBuffers = lists:flatmap(fun(FN) -> read_existing_file(FN, St0) end, Filenames),
+    ExistingBuffers = lists:flatmap(fun(Fn) -> read_existing_file(Fn, St0) end, Filenames),
     case lists:reverse(lists:keysort(#buffer.since, ExistingBuffers)) of
         [Buffer | ClosedBuffers] ->
             St = lists:foldl(fun enqueue_delivery/2, St0, ClosedBuffers),

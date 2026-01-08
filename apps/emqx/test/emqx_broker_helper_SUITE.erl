@@ -28,27 +28,85 @@ end_per_suite(Config) ->
 
 t_lookup_subid(_) ->
     ?assertEqual(undefined, emqx_broker_helper:lookup_subid(self())),
-    emqx_broker_helper:register_sub(self(), <<"clientid">>),
+    emqx_broker_helper:register_sub(self(), <<"clientid">>, monitor),
     ct:sleep(10),
-    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(self())).
+    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(self())),
+    emqx_broker_helper:clean_down(self()),
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subid(self())),
+    emqx_broker_helper:register_sub(self(), <<"clientid">>, no_monitor),
+    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(self())),
+    emqx_broker_helper:clean_down(self()),
+    ok.
 
 t_lookup_subpid(_) ->
     ?assertEqual(undefined, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
-    emqx_broker_helper:register_sub(self(), <<"clientid">>),
+    emqx_broker_helper:register_sub(self(), <<"clientid">>, monitor),
     ct:sleep(10),
-    ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
+    ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    emqx_broker_helper:clean_down(self()),
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    emqx_broker_helper:register_sub(self(), <<"clientid">>, no_monitor),
+    ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    emqx_broker_helper:clean_down(self()),
+    ok.
 
 t_register_sub(_) ->
-    ok = emqx_broker_helper:register_sub(self(), <<"clientid">>),
+    ok = emqx_broker_helper:register_sub(self(), <<"clientid">>, monitor),
     ct:sleep(10),
-    ok = emqx_broker_helper:register_sub(self(), <<"clientid">>),
-    try emqx_broker_helper:register_sub(self(), <<"clientid2">>) of
+    ok = emqx_broker_helper:register_sub(self(), <<"clientid">>, monitor),
+    try emqx_broker_helper:register_sub(self(), <<"clientid2">>, monitor) of
         _ -> ct:fail(should_throw_error)
     catch
         error:Reason ->
             ?assertEqual(Reason, subid_conflict)
     end,
     ?assertEqual(self(), emqx_broker_helper:lookup_subpid(<<"clientid">>)).
+
+t_clean_down_by_monitor(_) ->
+    Pid = spawn(fun() ->
+        receive
+            _ -> ok
+        end
+    end),
+    ok = emqx_broker_helper:register_sub(Pid, <<"clientid">>, monitor),
+    ct:sleep(10),
+    ?assertEqual(Pid, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(Pid)),
+    exit(Pid, kill),
+    ct:sleep(10),
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subid(Pid)),
+    ok.
+
+%% If the client ID is taken by a new pid,
+%% then the old pid goes down, the old pid is expected to be cleaned up,
+%% but it should not affect the mapping from/to client ID to the new pid.
+t_clean_down_after_clientid_reassigned(_) ->
+    Pid1 = spawn(fun() ->
+        receive
+            _ -> ok
+        end
+    end),
+    Pid2 = spawn(fun() ->
+        receive
+            _ -> ok
+        end
+    end),
+    ok = emqx_broker_helper:register_sub(Pid1, <<"clientid">>, monitor),
+    ok = emqx_broker_helper:register_sub(Pid2, <<"clientid">>, monitor),
+    ?assertEqual(ignored, gen_server:call(emqx_broker_helper, dummy, infinity)),
+    ?assertEqual(Pid2, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(Pid2)),
+    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(Pid1)),
+    exit(Pid1, kill),
+    ct:sleep(10),
+    ?assertEqual(ignored, gen_server:call(emqx_broker_helper, dummy, infinity)),
+    ?assertEqual(Pid2, emqx_broker_helper:lookup_subpid(<<"clientid">>)),
+    ?assertEqual(<<"clientid">>, emqx_broker_helper:lookup_subid(Pid2)),
+    ?assertEqual(undefined, emqx_broker_helper:lookup_subid(Pid1)),
+    ?assertNot(ets:member(emqx_submon, Pid1)),
+    ?assert(ets:member(emqx_submon, Pid2)),
+    ok.
 
 t_uncovered_func(_) ->
     gen_server:call(emqx_broker_helper, test),

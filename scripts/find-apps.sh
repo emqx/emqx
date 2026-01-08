@@ -72,7 +72,6 @@ END
 
 matrix() {
     local runner
-    local profile
     local entries=()
     for app in ${APPS_ALL}; do
         if [ -f "${app}/docker-ct" ]; then
@@ -82,11 +81,13 @@ matrix() {
         fi
         case "${app}" in
             apps/emqx)
-                entries+=("$(format_app_entry "$app" 8 emqx-enterprise "$runner")")
+                entries+=("$(format_app_entry "$app" 10 emqx-enterprise "$runner")")
+                ;;
+            apps/emqx_management)
+                entries+=("$(format_app_entry "$app" 2 emqx-enterprise "$runner")")
                 ;;
             apps/*)
-                profile='emqx-enterprise'
-                entries+=("$(format_app_entry "$app" 1 "$profile" "$runner")")
+                entries+=("$(format_app_entry "$app" 1 emqx-enterprise "$runner")")
                 ;;
             *)
                 echo "unknown app: $app"
