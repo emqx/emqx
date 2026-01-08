@@ -176,7 +176,7 @@ jobs:
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
 
-  build_docker_emqx_enterprise:
+  build_docker:
     needs:
       - init
       - sanity-checks
@@ -212,12 +212,12 @@ jobs:
   run_docker_tests:
     needs:
       - sanity-checks
-      - build_docker_emqx_enterprise
+      - build_docker
     uses: ./.github/workflows/run_docker_tests.yaml
 
   run_helm_tests:
     needs:
       - sanity-checks
-      - build_docker_emqx_enterprise
+      - build_docker
     uses: ./.github/workflows/run_helm_tests.yaml
     secrets: inherit
