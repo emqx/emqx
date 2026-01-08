@@ -538,9 +538,9 @@ on_query(
     }),
 
     case try_render_records([Req], State) of
-        {ok, Records} ->
+        {ok, WriteToTable, Records} ->
             handle_response(
-                do_on_query(InstanceId, ChannelId, Records, State)
+                do_on_query(InstanceId, ChannelId, WriteToTable, Records, State)
             );
         Error ->
             Error
@@ -562,7 +562,7 @@ on_query_async(
         state => emqx_utils:redact(State)
     }),
     case try_render_records([Req], State) of
-        {ok, Records} ->
+        {ok, _WriteToTable, Records} ->
             ReplyFunAndArgs =
                 {
                     fun(Result) ->
@@ -606,7 +606,7 @@ on_batch_query_async(
         state => emqx_utils:redact(State)
     }),
     case try_render_records(Requests, State) of
-        {ok, Records} ->
+        {ok, _WriteToTable, Records} ->
             ReplyFunAndArgs =
                 {
                     fun(Result) ->
@@ -651,9 +651,9 @@ on_batch_query(
     }),
 
     case try_render_records(Requests, State) of
-        {ok, Records} ->
+        {ok, WriteToTable, Records} ->
             handle_response(
-                do_on_query(InstId, ChannelId, Records, State)
+                do_on_query(InstId, ChannelId, WriteToTable, Records, State)
             );
         Error ->
             Error
@@ -743,9 +743,7 @@ on_add_channel(
         %% update IoTDB channel
         Channel = Parameter#{
             device_id => DeviceIdTemplate,
-            %% The template process will reverse the order of the values
-            %% so we can reverse the template here to reduce some runtime cost
-            data := lists:reverse(DataTemplate)
+            data := DataTemplate
         },
         Channels2 = Channels#{ChannelId => Channel},
         {ok, OldState#{channels := Channels2}}
@@ -942,7 +940,7 @@ preproc_data_template(WriteToTable, DataList) ->
 preproc_data_template(_, [], Acc) ->
     lists:reverse(Acc);
 preproc_data_template(
-    _WriteToTable = false,
+    WriteToTable = false,
     [
         #{
             timestamp := Timestamp,
@@ -960,9 +958,9 @@ preproc_data_template(
         data_type => string:uppercase(to_bin(DataType)),
         value => emqx_placeholder:preproc_tmpl(Value)
     },
-    preproc_data_template(tree, T, [Template | Acc]);
+    preproc_data_template(WriteToTable, T, [Template | Acc]);
 preproc_data_template(
-    _WriteToTable = true,
+    WriteToTable = true,
     [
         #{
             timestamp := Timestamp,
@@ -982,16 +980,19 @@ preproc_data_template(
         column_category => ColumnCategory,
         value => emqx_placeholder:preproc_tmpl(Value)
     },
-    preproc_data_template(table, T, [Template | Acc]);
+    preproc_data_template(WriteToTable, T, [Template | Acc]);
 preproc_data_template(_, [_Data | _], _) ->
     throw(<<"Invalid data template">>).
 
-do_on_query(InstanceId, ChannelId, Data, #{driver := restapi} = State) ->
+do_on_query(InstanceId, ChannelId, _WriteToTable, Data, #{driver := restapi} = State) ->
     %% HTTP connector already calls `emqx_trace:rendered_action_template`.
     emqx_bridge_http_connector:on_query(InstanceId, {ChannelId, Data}, State);
-do_on_query(InstanceId, ChannelId, Data, #{driver := thrift} = _State) ->
+do_on_query(InstanceId, ChannelId, _WriteToTable = false, Data, #{driver := thrift} = _State) ->
     emqx_trace:rendered_action_template(ChannelId, #{records => Data}),
-    ecpool:pick_and_do(InstanceId, {iotdb, insert_records, [Data]}, no_handover).
+    ecpool:pick_and_do(InstanceId, {iotdb, insert_records, [Data]}, no_handover);
+do_on_query(InstanceId, ChannelId, _WriteToTable = true, Data, #{driver := thrift} = _State) ->
+    emqx_trace:rendered_action_template(ChannelId, #{records => Data}),
+    ecpool:pick_and_do(InstanceId, {iotdb, insert_tablet, [Data]}, no_handover).
 
 %% 1. The default timeout in Thrift is `infinity`, but it may cause stuck
 %% 2. The schema of `timeout` accepts a zero value, but the Thrift driver not
@@ -1024,9 +1025,42 @@ try_render_records([{ChannelId, _} | _] = Msgs, #{driver := Driver, channels := 
         {ok, Channel} ->
             WriteToTable = maps:get(write_to_table, Channel, false),
             InitialAcc = init_render_acc(Driver, WriteToTable, Channel),
-            do_render_record(Msgs, Channel, Driver, InitialAcc);
+            case do_render_record(Msgs, Channel, Driver, InitialAcc) of
+                {ok, Acc} ->
+                    case WriteToTable of
+                        true ->
+                            %% Due to the measurements are variables,
+                            %% we need to validate the consistency in multiple records.
+                            Acc1 = validate_measurements_consistency(Acc),
+                            {ok, WriteToTable, Acc1};
+                        false ->
+                            {ok, WriteToTable, Acc}
+                    end;
+                Error ->
+                    Error
+            end;
         _ ->
             {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
+    end.
+
+validate_measurements_consistency(#{measurements := [Used | More]} = Acc) ->
+    do_validate_measurements_consistency(Used, More),
+    Acc#{measurements => Used};
+validate_measurements_consistency(#{column_names := [Used | More]} = Acc) ->
+    do_validate_measurements_consistency(Used, More),
+    Acc#{column_names => Used}.
+
+do_validate_measurements_consistency(Used, More) ->
+    case lists:all(fun(M) -> M =:= Used end, More) of
+        false ->
+            ?SLOG(warning, #{
+                msg => "ignore_inconsistent_column_names_in_batch",
+                hint => "Use the first record's column names to insert into the table",
+                ignored => More,
+                used => Used
+            });
+        true ->
+            ok
     end.
 
 init_render_acc(Driver, _WriteToTable = false, Channel) ->
@@ -1049,7 +1083,7 @@ init_render_acc(Driver = restapi, _WriteToTable = true, Channel) ->
         column_categories => ColumnCategories,
         data_types => DataTypes,
         timestamps => [],
-        values => [],
+        values => lists:duplicate(length(DataTypes), []),
         is_aligned => IsAligned
     };
 init_render_acc(Driver = thrift, _WriteToTable = true, Channel) ->
@@ -1057,13 +1091,14 @@ init_render_acc(Driver = thrift, _WriteToTable = true, Channel) ->
     ColumnCategories = encode_column_categories(Driver, maps:get(data, Channel)),
     DataTypes = encode_data_types(maps:get(data, Channel)),
     #{
-        table => maps:get(device_id, Channel),
+        'deviceId' => maps:get(device_id, Channel),
         measurements => [],
         'columnCategories' => ColumnCategories,
-        data_types => DataTypes,
+        dtypes => DataTypes,
         timestamps => [],
-        values => [],
-        'isAligned' => IsAligned
+        values => lists:duplicate(length(DataTypes), []),
+        'isAligned' => IsAligned,
+        'writeToTable' => true
     }.
 
 append_record(
@@ -1102,13 +1137,13 @@ append_record(
     #{
         timestamps := TsL,
         column_names := ColumnNamesL,
-        values_list := ValL
+        values := ValL
     } = Records
 ) ->
     Records#{
         timestamps := [Ts | TsL],
         column_names := [Measurements | ColumnNamesL],
-        values_list := [Vals | ValL]
+        values := append_value(Vals, ValL)
     };
 append_record(
     _Driver = thrift,
@@ -1127,8 +1162,18 @@ append_record(
     Records#{
         timestamps := [Ts | TsL],
         measurements := [Measurements | MeasurementsL],
-        values := [Vals | ValsL]
+        values := append_value(Vals, ValsL)
     }.
+
+append_value(Vals, ValsL) ->
+    LengthVals = length(Vals),
+    LengthValsL = length(ValsL),
+    case LengthVals =:= LengthValsL of
+        true ->
+            lists:zipwith(fun(Val, ValL) -> lists:reverse([Val | ValL]) end, Vals, ValsL);
+        false ->
+            throw(<<"The values are not consistent in the batch">>)
+    end.
 
 is_aligned_name(restapi) ->
     is_aligned;
@@ -1238,7 +1283,7 @@ proc_record_data(
             {error, {invalid_data, Reason}}
     end;
 proc_record_data([], _Msg, MeasurementAcc, TypeAcc, ValueAcc) ->
-    {ok, MeasurementAcc, TypeAcc, ValueAcc}.
+    {ok, lists:reverse(MeasurementAcc), lists:reverse(TypeAcc), lists:reverse(ValueAcc)}.
 
 proc_record_data_for_table(
     [
@@ -1268,7 +1313,7 @@ proc_record_data_for_table(
             {error, {invalid_data, Reason}}
     end;
 proc_record_data_for_table([], _Msg, MeasurementAcc, ValueAcc) ->
-    {ok, MeasurementAcc, ValueAcc}.
+    {ok, lists:reverse(MeasurementAcc), lists:reverse(ValueAcc)}.
 
 init_connector_state(Config) ->
     SqlDialect = maps:get(sql_dialect, Config, tree),
@@ -1290,9 +1335,9 @@ to_bin(Bin) when is_binary(Bin) ->
 check_channel_exists(ChannelId, Channels) ->
     case maps:is_key(ChannelId, Channels) of
         true ->
-            ok;
+            {error, already_exists};
         false ->
-            {error, already_exists}
+            ok
     end.
 
 check_write_to_table(_WriteToTable = true, _SqlDialect = table) ->
