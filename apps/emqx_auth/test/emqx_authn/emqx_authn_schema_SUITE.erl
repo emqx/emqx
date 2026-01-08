@@ -1,3 +1,7 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
 -module(emqx_authn_schema_SUITE).
 
 -compile(export_all).
