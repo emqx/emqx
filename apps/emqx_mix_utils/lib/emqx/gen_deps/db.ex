@@ -91,8 +91,8 @@ defmodule Emqx.GenDeps.DB do
   defp define_common_edges() do
     apps = Mix.Dep.Umbrella.cached()
     app_names = apps |> Enum.map(fn app -> app.app end)
-    # Set emqx and emqx_conf to be used by all apps
-    common = [:emqx, :emqx_conf]
+    # Force `emqx` to be considered dependency of each app
+    common = [:emqx]
     edges = for app <- common, dep <- app_names, do: {dep, app}
     define_set("CommE", edges)
   end
