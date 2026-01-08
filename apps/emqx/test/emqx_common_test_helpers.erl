@@ -1392,6 +1392,7 @@ on_exit(Fun) ->
     ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).
 
 run_cleanups(Config) ->
+    process_flag(trap_exit, true),
     run_cleanups(Config, 15_000).
 
 run_cleanups(Config0, Timeout) ->
@@ -1399,7 +1400,12 @@ run_cleanups(Config0, Timeout) ->
     lists:filter(
         fun
             ({cleanup, Fun}) ->
-                Fun(),
+                try
+                    Fun()
+                catch
+                    EC:Err:Stack ->
+                        ct:pal("~p during cleanup: ~p~n~p", [EC, Err, Stack])
+                end,
                 false;
             (_) ->
                 true
@@ -1638,6 +1644,7 @@ durable_sessions_config(Opts) ->
     [emqx_cth_cluster:nodespec()],
     #{
         work_dir => file:filename(),
+        keep_work_dir => boolean(),
         emqx_conf => map(),
         start_timeout => timeout()
     }
@@ -1681,20 +1688,19 @@ start_cluster_ds(Config0, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
         Nodes, emqx_persistent_message, wait_readiness, [Timeout], infinity
     ),
     Config = [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config0],
-    Cleanup =
+    StopCluster =
         fun() ->
             emqx_common_test_helpers:stop_cluster_ds(Config)
         end,
-    [{cleanup, Cleanup} | Config].
+    CleanWorkDir =
+        fun() ->
+            Clean = not maps:get(keep_work_dir, Opts, false),
+            Clean andalso emqx_cth_suite:clean_work_dir(WorkDir)
+        end,
+    [{cleanup, StopCluster}, {cleanup, CleanWorkDir}, {work_dir, WorkDir} | Config].
 
 stop_cluster_ds(Config) ->
-    emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)),
-    case proplists:get_value(work_dir, Config) of
-        undefined ->
-            ok;
-        WorkDir ->
-            emqx_cth_suite:clean_work_dir(WorkDir)
-    end.
+    emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)).
 
 restart_node_ds(Node, NodeSpec) ->
     emqx_cth_cluster:restart(NodeSpec),
