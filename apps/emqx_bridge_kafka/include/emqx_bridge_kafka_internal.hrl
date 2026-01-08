@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -ifndef(EMQX_BRIDGE_KAFKA_INTERNAL_HRL).
 -define(EMQX_BRIDGE_KAFKA_INTERNAL_HRL, true).
