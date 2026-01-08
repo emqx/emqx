@@ -73,14 +73,7 @@ defmodule Emqx.GenDeps.DB do
   end
 
   defp define_include_edges() do
-    deps = find_include_dependencies()
-
-    if deps != [] do
-      query("IE := #{as_set(deps)}")
-    else
-      # Define as empty set:
-      query("IE := (AE - AE)")
-    end
+    define_set("IE", find_include_dependencies())
   end
 
   defp define_mixdeps_edges() do
@@ -92,7 +85,7 @@ defmodule Emqx.GenDeps.DB do
         {app.app, dep.app}
       end
 
-    query("MDE := #{as_set(mix_deps)}")
+    define_set("MDE", mix_deps)
   end
 
   defp define_common_edges() do
@@ -101,7 +94,16 @@ defmodule Emqx.GenDeps.DB do
     # Set emqx and emqx_conf to be used by all apps
     common = [:emqx, :emqx_conf]
     edges = for app <- common, dep <- app_names, do: {dep, app}
-    query("CommE := #{as_set(edges)}")
+    define_set("CommE", edges)
+  end
+
+  defp define_set(name, edges) do
+    if edges != [] do
+      query("#{name} := #{as_set(edges)}")
+    else
+      # Forcefully define as empty set:
+      query("#{name} := (AE - AE)")
+    end
   end
 
   defp as_set(elems) do
