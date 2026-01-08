@@ -4,7 +4,6 @@
 -module(emqx_mgmt_auth).
 
 -include_lib("stdlib/include/ms_transform.hrl").
--include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
