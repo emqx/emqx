@@ -758,17 +758,17 @@ serialize_packet_and_inc_stats(Packet, Serialize) ->
     case emqx_frame:serialize_pkt(Packet, Serialize) of
         <<>> ->
             ?LOG(warning, #{
-                msg => "packet_discarded",
-                reason => "frame_too_large",
-                packet => Packet
+                msg => "packet_is_discarded",
+                reason => "frame_is_too_large",
+                packet => emqx_packet:format(Packet, hidden)
             }),
-            ok = emqx_metrics:inc('delivery.dropped.too_large'),
-            ok = emqx_metrics:inc('delivery.dropped'),
-            ok = inc_outgoing_stats({error, message_too_large}),
+            _ = emqx_metrics:inc('delivery.dropped.too_large'),
+            _ = emqx_metrics:inc('delivery.dropped'),
+            _ = inc_outgoing_stats({error, message_too_large}),
             <<>>;
         Data ->
             ?TRACE("WS-MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            ok = inc_outgoing_stats(Packet),
+            _ = inc_outgoing_stats(Packet),
             Data
     end.
 
