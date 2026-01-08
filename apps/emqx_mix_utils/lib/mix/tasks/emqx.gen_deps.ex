@@ -76,7 +76,7 @@ defmodule Mix.Tasks.Emqx.GenDeps do
         used_by == [] ->
           ["#{app}: none\n" | acc]
 
-        true ->
+        :otherwise ->
           used_by_str = used_by |> Enum.sort() |> Enum.map(&to_string/1) |> Enum.join(" ")
           ["#{app}: #{used_by_str}\n" | acc]
       end
