@@ -1190,29 +1190,31 @@ base64_decode(Data) when is_binary(Data) ->
 -doc """
 Decode base64 string to binary data with a single option.
 
-By default, this function uses `#{padding => false}` option, which allows
-decoding both padded and unpadded base64 strings.
+By default, this function requires padding. Use `<<"no_padding">>` to decode
+strings without padding.
 
 Options:
-- `<<"no_padding">>` - Explicitly disable padding requirement (default behavior)
+- `<<"no_padding">>` - Allow decoding without padding characters (=)
 - `<<"urlsafe">>` - Decode URL-safe base64 (handles - and _ characters)
 
 Examples:
-  base64_decode(<<"aGVsbG8=">>, <<"no_padding">>)
-  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>)
+  base64_decode(<<"aGVsbG8=">>) - Decode padded string (default)
+  base64_decode(<<"aGVsbG8">>, <<"no_padding">>) - Decode unpadded string
+  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>) - Decode padded URL-safe string
+  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>, <<"no_padding">>) - Decode unpadded URL-safe string
 """.
 base64_decode(Data, Opt) ->
-    Options = base64_opts(#{padding => false}, Opt),
+    Options = base64_opts(#{}, Opt),
     base64:decode(Data, Options).
 
 -doc """
 Decode base64 string to binary data with two options.
 
-By default, this function uses `#{padding => false}` option, which allows
-decoding both padded and unpadded base64 strings.
+By default, this function requires padding. Use `<<"no_padding">>` to decode
+strings without padding.
 
 Options:
-- `<<"no_padding">>` - Explicitly disable padding requirement (default behavior)
+- `<<"no_padding">>` - Allow decoding without padding characters (=)
 - `<<"urlsafe">>` - Decode URL-safe base64 (handles - and _ characters)
 
 Both options can be specified in any order. If the same option is specified twice,
@@ -1223,7 +1225,7 @@ Examples:
   base64_decode(<<"aGVsbG8-">>, <<"no_padding">>, <<"urlsafe">>)
 """.
 base64_decode(Data, Opt1, Opt2) ->
-    Options0 = base64_opts(#{padding => false}, Opt1),
+    Options0 = base64_opts(#{}, Opt1),
     Options = base64_opts(Options0, Opt2),
     base64:decode(Data, Options).
 
