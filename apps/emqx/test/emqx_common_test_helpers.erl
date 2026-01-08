@@ -1683,7 +1683,7 @@ start_cluster_ds(Config0, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
     Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
     ExpectedOk = lists:duplicate(length(Nodes), {ok, ok}),
-    Timeout = maps:get(start_timeout, Opts, 15_000),
+    Timeout = maps:get(start_timeout, Opts, 30_000),
     ExpectedOk = erpc:multicall(
         Nodes, emqx_persistent_message, wait_readiness, [Timeout], infinity
     ),

@@ -895,7 +895,14 @@ handle_client_msg(Message, Group, Data = #ls{c = CS0, h = HS0}) ->
     end.
 
 enter_candidate(Group) ->
-    ?tp(debug, ds_shared_sub_become_candidate, #{group => Group}),
+    ?tp(
+        debug,
+        ds_shared_sub_become_candidate,
+        #{
+            group => Group#share.group,
+            topic => Group#share.topic
+        }
+    ),
     Timeout = rand:uniform(1_000),
     {keep_state_and_data, {state_timeout, Timeout, #to_become{}}}.
 

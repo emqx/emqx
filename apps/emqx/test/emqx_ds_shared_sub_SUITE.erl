@@ -778,9 +778,9 @@ t_leader_election('end', Config) ->
     Config.
 
 t_leader_election(Config) ->
-    [N1, N2, N3] = proplists:get_value(cluster_nodes, Config),
+    [N1, N2, N3] = Nodes = proplists:get_value(cluster_nodes, Config),
     ?check_trace(
-        #{timetrap => 20_000},
+        #{timetrap => 60_000},
         begin
             ?tp(notice, test_start_clients, #{}),
             C1 = emqtt_connect_sub(<<"client_shared1">>, [{port, get_mqtt_port(N1)}]),
@@ -828,8 +828,8 @@ t_leader_election(Config) ->
                 #{?snk_kind := test_trigger_sub2},
                 #{?snk_kind := ds_shared_sub_become_candidate}
             ),
-            %% Create candidates on all nodes:
-            _ = emqtt:subscribe(C1, <<"$share/g2/t2">>, qos1),
+            %% Create candidates on all nodes except N1, which will be
+            %% killed later. We ignore it here to simplify trace specs:
             _ = emqtt:subscribe(C2, <<"$share/g2/t2">>, qos1),
             _ = emqtt:subscribe(C3, <<"$share/g2/t2">>, qos1),
             %% Let candidates compete for the leadership:
@@ -853,19 +853,63 @@ t_leader_election(Config) ->
                     topic := <<"t1">>
                 }
             ),
-            ok
+            %% Sleep some more to catch unexpected events in the trace:
+            ct:sleep(5000),
+            Nodes
         end,
-        fun(Trace) ->
-            %% Verify that leader election happen only when we expect:
-            ?strict_causality(
-                #{?snk_kind := K} when
-                    K =:= test_sub_1 orelse
-                        K =:= test_sub_2 orelse
-                        K =:= test_trigger_reelection,
-                #{?snk_kind := ds_shared_sub_become_leader},
-                Trace
-            )
-        end
+        [
+            {"leader election for g1 happens only when we expect", fun(Trace) ->
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := K} when K =:= test_sub_1; K =:= test_trigger_reelection,
+                        #{?snk_kind := ds_shared_sub_become_leader, group := <<"g1">>},
+                        Trace
+                    )
+                )
+            end},
+            {"leader election for g2 happens only when we expect", fun(Trace) ->
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := test_trigger_sub2},
+                        #{?snk_kind := ds_shared_sub_become_leader, group := <<"g2">>},
+                        Trace
+                    )
+                )
+            end},
+            {"g2 leader election happens on all nodes", fun([_, N2, N3], Trace) ->
+                ?assertEqual(
+                    [N2, N3],
+                    lists:usort([
+                        Node
+                     || #{
+                            ?snk_kind := ds_shared_sub_become_candidate,
+                            group := <<"g2">>,
+                            ?snk_meta := #{node := Node}
+                        } <- Trace
+                    ])
+                )
+            end},
+            {"state transitions during g2 election", fun(Trace) ->
+                %% Note: here we ignore N1, since we kill it during the test
+                ?assert(
+                    ?strict_causality(
+                        #{
+                            ?snk_kind := ds_shared_sub_become_candidate,
+                            group := <<"g2">>,
+                            ?snk_meta := #{node := N}
+                        },
+                        #{
+                            ?snk_kind := K,
+                            group := <<"g2">>,
+                            ?snk_meta := #{node := N}
+                        } when
+                            K =:= ds_shared_sub_become_leader orelse
+                                K =:= ds_shared_sub_become_standby,
+                        Trace
+                    )
+                )
+            end}
+        ]
     ).
 
 %%--------------------------------------------------------------------
@@ -985,7 +1029,10 @@ start_cluster(Config) ->
                     <<"realloc_interval">> => 100,
                     <<"leader_timeout">> => 100,
                     <<"checkpoint_interval">> => 10,
-                    <<"revocation_timeout">> => 1000
+                    <<"revocation_timeout">> => 1000,
+                    <<"commit_retries">> => 10,
+                    <<"commit_retry_interval">> => 100,
+                    <<"commit_timeout">> => 1000
                 }
         },
         <<"log">> => #{
