@@ -388,7 +388,7 @@ cleanup_shared_subs() ->
         emqx_ds_shared_sub_registry:stop_local(Share)
      || {Share, _Pid} <- emqx_ds_shared_sub_registry:list_local()
     ],
-    %% Purge the persistent data, which should be now fully committed:
+    %% Purge the persistent data, which now should be fully committed:
     emqx_ds_shared_sub_registry:purge().
 
 sut_state() ->
