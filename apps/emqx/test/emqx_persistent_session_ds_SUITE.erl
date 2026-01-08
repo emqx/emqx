@@ -46,11 +46,9 @@ end_per_suite(_Config) ->
 init_per_testcase(TestCase, Config) ->
     ?MODULE:TestCase(init, Config).
 
-end_per_testcase(TestCase, Config) ->
+end_per_testcase(_TestCase, Config) ->
     snabbkaffe:stop(),
-    emqx_common_test_helpers:run_cleanups(Config, 60_000),
-    emqx_cth_suite:clean_work_dir(emqx_cth_suite:work_dir(TestCase, Config)),
-    ok.
+    emqx_common_test_helpers:run_cleanups(Config, 60_000).
 
 %%------------------------------------------------------------------------------
 %% Setup module callbacks

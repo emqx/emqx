@@ -37,36 +37,10 @@ groups_per_testcase(TC, Groups) ->
         error:_ -> Groups
     end.
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx, """
-            rpc.port_discovery = manual
-            durable_sessions {
-              enable = true
-              shared_subs = {
-                heartbeat_interval = 100
-                realloc_interval = 100
-                leader_timeout = 100
-                checkpoint_interval = 10
-                revocation_timeout = 1000
-              }
-            }
-            """}
-        ],
-        #{work_dir => ?config(priv_dir, Config)}
-    ),
-    ok = emqx_persistent_message:wait_readiness(5_000),
-    [{apps, Apps} | Config].
-
 init_per_group(GroupName, Config) ->
     [{queue_need_declare, GroupName =:= declare_explicit} | Config].
 
 end_per_group(_GroupName, _Config) ->
-    ok.
-
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 init_per_testcase(TC, Config) ->
@@ -77,7 +51,9 @@ end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
     ok = emqx_ds_shared_sub_registry:purge(),
     emqx_common_test_helpers:drop_all_ds_messages(),
-    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
+    emqx_common_test_helpers:run_cleanups(
+        emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config)
+    ).
 
 declare_group_if_needed(Group, Topic, Config) ->
     case proplists:get_value(queue_need_declare, Config) of
@@ -103,7 +79,7 @@ destroy_group(Config) ->
     end.
 
 t_lease_initial('init', Config) ->
-    declare_group_if_needed(<<"gr1">>, <<"topic1/#">>, Config);
+    declare_group_if_needed(<<"gr1">>, <<"topic1/#">>, start_local(Config));
 t_lease_initial('end', Config) ->
     destroy_group(Config).
 t_lease_initial(_Config) ->
@@ -125,7 +101,7 @@ t_lease_initial(_Config) ->
 t_declare_triggers_persistence(groups, _Groups) ->
     [declare_explicit];
 t_declare_triggers_persistence('init', Config) ->
-    declare_group(<<"dtp">>, <<"topic1/#">>, Config);
+    declare_group(<<"dtp">>, <<"topic1/#">>, start_local(Config));
 t_declare_triggers_persistence('end', Config) ->
     destroy_group(Config).
 
@@ -153,7 +129,7 @@ t_declare_triggers_persistence(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_destroy_queue_live_clients('init', Config) ->
-    declare_group_if_needed(<<"dqlc">>, <<"t/#">>, Config);
+    declare_group_if_needed(<<"dqlc">>, <<"t/#">>, start_local(Config));
 t_destroy_queue_live_clients('end', Config) ->
     destroy_group(Config).
 
@@ -187,7 +163,7 @@ t_destroy_queue_live_clients(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_two_clients('init', Config) ->
-    declare_group_if_needed(<<"gr4">>, <<"topic4/#">>, Config);
+    declare_group_if_needed(<<"gr4">>, <<"topic4/#">>, start_local(Config));
 t_two_clients('end', Config) ->
     destroy_group(Config).
 
@@ -216,7 +192,7 @@ t_two_clients(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_client_loss('init', Config) ->
-    declare_group_if_needed(<<"gr5">>, <<"topic5/#">>, Config);
+    declare_group_if_needed(<<"gr5">>, <<"topic5/#">>, start_local(Config));
 t_client_loss('end', Config) ->
     destroy_group(Config).
 
@@ -252,7 +228,7 @@ t_client_loss(_Config) ->
     ).
 
 t_stream_revoke('init', Config) ->
-    declare_group_if_needed(<<"gr6">>, <<"topic6/#">>, Config);
+    declare_group_if_needed(<<"gr6">>, <<"topic6/#">>, start_local(Config));
 t_stream_revoke('end', Config) ->
     destroy_group(Config).
 
@@ -320,7 +296,7 @@ t_stream_revoke(_Config) ->
     ).
 
 t_graceful_disconnect('init', Config) ->
-    declare_group_if_needed(<<"gr4">>, <<"topic7/#">>, Config);
+    declare_group_if_needed(<<"gr4">>, <<"topic7/#">>, start_local(Config));
 t_graceful_disconnect('end', Config) ->
     destroy_group(Config).
 
@@ -365,7 +341,7 @@ t_graceful_disconnect(_Config) ->
     ).
 
 t_intensive_reassign('init', Config) ->
-    declare_group_if_needed(<<"gr8">>, <<"topic8/#">>, Config);
+    declare_group_if_needed(<<"gr8">>, <<"topic8/#">>, start_local(Config));
 t_intensive_reassign('end', Config) ->
     destroy_group(Config).
 
@@ -432,7 +408,8 @@ t_intensive_reassign(_Config) ->
 
 t_multiple_groups(groups, _Groups) ->
     [declare_explicit];
-t_multiple_groups('init', Config) ->
+t_multiple_groups('init', Config0) ->
+    Config = start_local(Config0),
     NQueues = 50,
     Group = <<"multi">>,
     Topics = [emqx_utils:format("t/mg/~p", [I]) || I <- lists:seq(1, NQueues)],
@@ -506,7 +483,7 @@ wildcard(Topic) ->
     emqx_topic:join([Topic, '#']).
 
 t_unsubscribe('init', Config) ->
-    declare_group_if_needed(<<"gr9">>, <<"topic9/#">>, Config);
+    declare_group_if_needed(<<"gr9">>, <<"topic9/#">>, start_local(Config));
 t_unsubscribe('end', Config) ->
     destroy_group(Config).
 
@@ -564,7 +541,7 @@ t_unsubscribe(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_quick_resubscribe('init', Config) ->
-    declare_group_if_needed(<<"gr10">>, <<"topic10/#">>, Config);
+    declare_group_if_needed(<<"gr10">>, <<"topic10/#">>, start_local(Config));
 t_quick_resubscribe('end', Config) ->
     destroy_group(Config).
 
@@ -629,7 +606,7 @@ t_quick_resubscribe(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_disconnect_no_double_replay1('init', Config) ->
-    declare_group_if_needed(<<"gr11">>, <<"topic11/#">>, Config);
+    declare_group_if_needed(<<"gr11">>, <<"topic11/#">>, start_local(Config));
 t_disconnect_no_double_replay1('end', Config) ->
     destroy_group(Config).
 
@@ -682,7 +659,7 @@ t_disconnect_no_double_replay1(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_disconnect_no_double_replay2('init', Config) ->
-    declare_group_if_needed(<<"gr12">>, <<"topic12/#">>, Config);
+    declare_group_if_needed(<<"gr12">>, <<"topic12/#">>, start_local(Config));
 t_disconnect_no_double_replay2('end', Config) ->
     destroy_group(Config).
 
@@ -719,7 +696,7 @@ t_disconnect_no_double_replay2(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_lease_reconnect('init', Config) ->
-    declare_group_if_needed(<<"gr2">>, <<"topic2/#">>, Config);
+    declare_group_if_needed(<<"gr2">>, <<"topic2/#">>, start_local(Config));
 t_lease_reconnect('end', Config) ->
     meck:unload(),
     destroy_group(Config).
@@ -763,7 +740,7 @@ t_lease_reconnect(_Config) ->
     ).
 
 t_renew_lease_timeout('init', Config) ->
-    declare_group_if_needed(<<"gr3">>, <<"topic3/#">>, Config);
+    declare_group_if_needed(<<"gr3">>, <<"topic3/#">>, start_local(Config));
 t_renew_lease_timeout('end', Config) ->
     destroy_group(Config).
 
@@ -874,3 +851,16 @@ verify_received_pubs(Pubs, NPubs, ClientByBid) ->
     ),
 
     {Missing, Duplicate}.
+
+start_local(Config) ->
+    SessionOpts = #{
+        <<"shared_subs">> =>
+            #{
+                <<"heartbeat_interval">> => 100,
+                <<"realloc_interval">> => 100,
+                <<"leader_timeout">> => 100,
+                <<"checkpoint_interval">> => 10,
+                <<"revocation_timeout">> => 1000
+            }
+    },
+    emqx_common_test_helpers:start_apps_ds(Config, [], #{durable_sessions_opts => SessionOpts}).

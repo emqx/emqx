@@ -1581,6 +1581,7 @@ ensure_loaded(Mod) ->
         durable_sessions_opts => map(),
         emqx_opts => map(),
         work_dir => file:filename(),
+        keep_work_dir => boolean(),
         start_emqx_conf => boolean()
     }
 ) -> CTConfig when
@@ -1612,12 +1613,17 @@ start_apps_ds(Config0, ExtraApps, Opts) ->
         ok = emqx_persistent_message:wait_readiness(15_000)
     end,
     Config = [{apps, Apps} | Config0],
-    Cleanup =
+    StopApps =
         fun() ->
             ct:pal("Stopping ~p", [Apps]),
             emqx_cth_suite:stop(Apps)
         end,
-    [{cleanup, Cleanup} | Config].
+    CleanWorkDir =
+        fun() ->
+            Clean = not maps:get(keep_work_dir, Opts, false),
+            Clean andalso emqx_cth_suite:clean_work_dir(WorkDir)
+        end,
+    [{cleanup, StopApps}, {cleanup, CleanWorkDir} | Config].
 
 durable_sessions_config(Opts) ->
     emqx_utils_maps:deep_merge(
