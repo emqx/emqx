@@ -147,7 +147,6 @@ def format_app_entry(app: str, groups: int, runner: str) -> List[dict]:
             "app": app,
             "suitegroup": f"{group}_{groups}",
             "runner": runner,
-            # TODO: drop profile
             "profile": "emqx-enterprise",
             "prefix": prefix
         })
