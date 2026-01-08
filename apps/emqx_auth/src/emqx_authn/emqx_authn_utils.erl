@@ -4,8 +4,7 @@
 
 -module(emqx_authn_utils).
 
--include_lib("emqx_authn.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
+-include("emqx_authn.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([

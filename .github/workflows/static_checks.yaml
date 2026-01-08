@@ -43,5 +43,25 @@ jobs:
           key: rebar3-dialyzer-plt-${{ matrix.profile }}-${{ hashFiles('rebar.*', 'apps/*/rebar.*') }}
           restore-keys: |
             rebar3-dialyzer-plt-${{ matrix.profile }}-
+      - name: check deps.txt is up to date
+        run: |
+          # Install Hex non-interactively (required for mix commands)
+          mix local.hex --force --if-missing
+          # Make a copy of current deps.txt for comparison
+          cp deps.txt deps.txt.orig
+          # Ensure emqx_mix_utils is compiled (needed for the gen_deps task)
+          MIX_ENV=emqx-enterprise mix compile emqx_mix_utils || true
+          # Run mix task to regenerate deps.txt
+          mix emqx.gen_deps
+          # Compare the original and newly generated deps.txt
+          if ! cmp -s deps.txt.orig deps.txt; then
+            echo "Error: deps.txt is out of date. Please run 'mix emqx.gen_deps' and commit the changes."
+            echo "Diff:"
+            diff -u deps.txt.orig deps.txt || true
+            rm -f deps.txt.orig
+            exit 1
+          fi
+          echo "deps.txt is up to date"
+          rm -f deps.txt.orig
       - name: run static checks
         run: make static_checks

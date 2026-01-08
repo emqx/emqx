@@ -4,8 +4,6 @@
 
 -module(emqx_auth_app).
 
--include("emqx_authn.hrl").
-
 -behaviour(application).
 
 %% Application callbacks
@@ -13,8 +11,6 @@
     start/2,
     stop/1
 ]).
-
--include_lib("emqx_authn_chains.hrl").
 
 -dialyzer({nowarn_function, [start/2]}).
 
