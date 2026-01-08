@@ -1529,13 +1529,15 @@ no_abnormal_worker_terminate(Trace) ->
 %% Init/cleanup
 
 start_cluster(TestCase, Config0, ClusterOpts) ->
-    %% N.B.: some of the tests start a single-node cluster, so it's fine to test them with the
-    %% `builtin_local' backend.
-    DurableSessionsOpts = #{
-        <<"checkpoint_interval">> => <<"500ms">>
+    EMQXConf = #{
+        <<"durable_sessions">> =>
+            #{
+                <<"checkpoint_interval">> => <<"500ms">>
+            }
     },
     Opts = emqx_utils_maps:deep_merge(ClusterOpts, #{
-        durable_sessions_opts => DurableSessionsOpts,
+        start_timeout => 60_000,
+        emqx_conf => EMQXConf,
         work_dir => emqx_cth_suite:work_dir(TestCase, Config0)
     }),
     ClusterSpec = cluster(Opts),

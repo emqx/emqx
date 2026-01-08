@@ -94,12 +94,15 @@ init_per_group(general, Config) ->
         | Config
     ];
 init_per_group(persistence_enabled, Config0) ->
-    DurableSessionsOpts = #{
-        <<"enable">> => true,
-        <<"disconnected_session_count_refresh_interval">> => <<"100ms">>,
-        <<"checkpoint_interval">> => 0
-    },
-    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    EMQXConf =
+        #{
+            <<"durable_sessions">> =>
+                #{
+                    <<"disconnected_session_count_refresh_interval">> => <<"100ms">>,
+                    <<"checkpoint_interval">> => 0
+                }
+        },
+    Opts = #{emqx_conf => EMQXConf},
     AppSpecs = [emqx_management],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
     ClusterSpecs = [

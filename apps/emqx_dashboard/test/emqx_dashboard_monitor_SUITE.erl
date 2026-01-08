@@ -76,12 +76,14 @@ init_per_group(persistent_sessions, Config) ->
         {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
         {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
     ],
-    DurableSessionsOpts = #{
-        <<"enable">> => true,
-        <<"subscription_count_refresh_interval">> => <<"500ms">>,
-        <<"checkpoint_interval">> => <<"1s">>
+    EMQXConf = #{
+        <<"durable_sessions">> =>
+            #{
+                <<"subscription_count_refresh_interval">> => <<"500ms">>,
+                <<"checkpoint_interval">> => <<"1s">>
+            }
     },
-    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    Opts = #{emqx_conf => EMQXConf},
     emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
 init_per_group(common = Group, Config0) ->
     DurableSessionsOpts = #{<<"enable">> => false},

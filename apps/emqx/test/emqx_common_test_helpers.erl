@@ -1589,9 +1589,6 @@ start_apps_ds(Config, ExtraApps, Opts) ->
     end,
     [{apps, Apps} | Config].
 
-stop_apps_ds(Config) ->
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
-
 durable_sessions_config(Opts) ->
     emqx_utils_maps:deep_merge(
         #{
@@ -1600,21 +1597,22 @@ durable_sessions_config(Opts) ->
         Opts
     ).
 
+stop_apps_ds(Config) ->
+    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+
 -spec start_cluster_ds(
     CTConfig,
     [emqx_cth_cluster:nodespec()],
     #{
         work_dir => file:filename(),
-        durable_sessions_opts => map(),
-        emqx_opts => map(),
+        emqx_conf => map(),
         start_timeout => timeout()
     }
 ) -> CTConfig when
     CTConfig :: proplists:proplist().
 start_cluster_ds(Config0, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config0)),
-    DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
-    EMQXOpts = maps:get(emqx_opts, Opts, #{}),
+    EMQXOpts = maps:get(emqx_conf, Opts, #{}),
     BaseApps = [
         emqx_conf,
         {emqx_durable_timer, #{
@@ -1625,12 +1623,13 @@ start_cluster_ds(Config0, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
                 ]
         }},
         {emqx, #{
-            config => maps:merge(EMQXOpts, #{
-                <<"durable_storage">> => #{<<"n_sites">> => length(ClusterSpec0)},
-                <<"durable_sessions">> => durable_sessions_config(
-                    DurableSessionsOpts
-                )
-            })
+            config => emqx_utils_maps:deep_merge(
+                #{
+                    <<"durable_sessions">> => #{<<"enable">> => true},
+                    <<"durable_storage">> => #{<<"n_sites">> => length(ClusterSpec0)}
+                },
+                EMQXOpts
+            )
         }}
     ],
     ClusterSpec =
