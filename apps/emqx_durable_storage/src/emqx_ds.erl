@@ -398,7 +398,8 @@ Options for the `subscribe` API.
     timeout => timeout(),
     sync => boolean(),
     retry_interval => non_neg_integer(),
-    max_mql => pos_integer() | infinity
+    max_mql => pos_integer() | infinity,
+    _ => _
 }.
 
 -type transaction_result(Ret) ::
@@ -429,7 +430,8 @@ Options for the `subscribe` API.
         errors => crash | report | ignore,
         batch_size => pos_integer(),
         start_time => time(),
-        end_time => time() | infinity
+        end_time => time() | infinity,
+        _ => _
     }.
 
 -type tx_fold_options() ::
