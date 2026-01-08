@@ -27,7 +27,7 @@ jobs:
 
     steps:
     - name: Checkout tf-emqx-performance-test
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         repository: emqx/tf-emqx-performance-test
         ref: v0.4.2
@@ -49,7 +49,7 @@ jobs:
       run: |
         wget "${{ github.event.inputs.download_url }}"
 
-    - uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5.1.0
+    - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -65,7 +65,7 @@ jobs:
 
     - name: Generate GitHub App token
       id: app-token
-      uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+      uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
       with:
         app-id: ${{ vars.AUTH_APP_ID }}
         private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
@@ -104,7 +104,7 @@ jobs:
         aws s3 cp s3://$AWS_S3_BUCKET/emqx-ee/e${version}/emqx-enterprise-${version}-ubuntu22.04-amd64.deb .
 
     - name: Configure AWS Credentials for performance test infra
-      uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5.1.0
+      uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_PERF_TEST }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PERF_TEST }}
@@ -132,7 +132,7 @@ jobs:
         set -e
         echo "ssh_key_path=$(terraform output -raw ssh_key_path)" >> $GITHUB_OUTPUT
 
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+    - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       if: success()
       with:
         name: ssh_private_key
@@ -254,7 +254,7 @@ jobs:
 
         exit $success
 
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+    - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
       if: failure()
       with:
         name: terraform

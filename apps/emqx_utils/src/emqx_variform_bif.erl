@@ -70,7 +70,11 @@
     hexstr2bin/1,
     int2hexstr/1,
     base64_encode/1,
-    base64_decode/1
+    base64_encode/2,
+    base64_encode/3,
+    base64_decode/1,
+    base64_decode/2,
+    base64_decode/3
 ]).
 
 %% Hash functions
@@ -577,13 +581,102 @@ bin2hexstr(Bin) when is_bitstring(Bin) ->
 hexstr2bin(Str) when is_binary(Str) ->
     emqx_utils:hexstr_to_bin(Str).
 
-%% @doc Encode any bytes to base64.
-base64_encode(Bin) ->
-    base64:encode(Bin).
+-doc """
+Helper function to process base64 encoding/decoding options.
 
-%% @doc Decode base64 encoded string.
-base64_decode(Bin) ->
-    base64:decode(Bin).
+Supported options:
+- `<<"no_padding">>` - Disable padding in base64 encoding/decoding
+- `<<"urlsafe">>` - Use URL-safe base64 encoding/decoding (replaces + with -, / with _)
+- Any other option - Returns Opts unchanged (no-op)
+""".
+base64_opts(Opts, <<"no_padding">>) ->
+    Opts#{padding => false};
+base64_opts(Opts, <<"urlsafe">>) ->
+    Opts#{mode => urlsafe};
+base64_opts(Opts, _) ->
+    Opts.
+
+base64_encode(Data) when is_binary(Data) ->
+    base64:encode(Data).
+
+-doc """
+Encode binary data to base64 string with a single option.
+
+Options:
+- `<<"no_padding">>` - Encode without padding characters (=)
+- `<<"urlsafe">>` - Use URL-safe encoding (replaces + with -, / with _)
+
+Examples:
+  base64_encode(<<"hello">>, <<"no_padding">>)
+  base64_encode(<<"test">>, <<"urlsafe">>)
+""".
+base64_encode(Data, Opt) ->
+    Options = base64_opts(#{}, Opt),
+    base64:encode(Data, Options).
+
+-doc """
+Encode binary data to base64 string with two options.
+
+Options:
+- `<<"no_padding">>` - Encode without padding characters (=)
+- `<<"urlsafe">>` - Use URL-safe encoding (replaces + with -, / with _)
+
+Both options can be specified in any order. If the same option is specified twice,
+it will be applied once.
+
+Examples:
+  base64_encode(<<"hello">>, <<"no_padding">>, <<"urlsafe">>)
+  base64_encode(<<"test">>, <<"urlsafe">>, <<"no_padding">>)
+""".
+base64_encode(Data, Opt1, Opt2) ->
+    Options0 = base64_opts(#{}, Opt1),
+    Options = base64_opts(Options0, Opt2),
+    base64:encode(Data, Options).
+
+base64_decode(Data) when is_binary(Data) ->
+    base64:decode(Data).
+
+-doc """
+Decode base64 string to binary data with a single option.
+
+By default, this function requires padding. Use `<<"no_padding">>` to decode
+strings without padding.
+
+Options:
+- `<<"no_padding">>` - Allow decoding without padding characters (=)
+- `<<"urlsafe">>` - Decode URL-safe base64 (handles - and _ characters)
+
+Examples:
+  base64_decode(<<"aGVsbG8=">>) - Decode padded string (default)
+  base64_decode(<<"aGVsbG8">>, <<"no_padding">>) - Decode unpadded string
+  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>) - Decode padded URL-safe string
+  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>, <<"no_padding">>) - Decode unpadded URL-safe string
+""".
+base64_decode(Data, Opt) ->
+    Options = base64_opts(#{}, Opt),
+    base64:decode(Data, Options).
+
+-doc """
+Decode base64 string to binary data with two options.
+
+By default, this function requires padding. Use `<<"no_padding">>` to decode
+strings without padding.
+
+Options:
+- `<<"no_padding">>` - Allow decoding without padding characters (=)
+- `<<"urlsafe">>` - Decode URL-safe base64 (handles - and _ characters)
+
+Both options can be specified in any order. If the same option is specified twice,
+it will be applied once.
+
+Examples:
+  base64_decode(<<"aGVsbG8-">>, <<"urlsafe">>, <<"no_padding">>)
+  base64_decode(<<"aGVsbG8-">>, <<"no_padding">>, <<"urlsafe">>)
+""".
+base64_decode(Data, Opt1, Opt2) ->
+    Options0 = base64_opts(#{}, Opt1),
+    Options = base64_opts(Options0, Opt2),
+    base64:decode(Data, Options).
 
 %%------------------------------------------------------------------------------
 %% Hash functions

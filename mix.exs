@@ -241,7 +241,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
 
   def common_dep(:rocksdb),
-    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "1.8.0-emqx-10", override: true}
+    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "9.10.0-emqx-1", override: true}
 
   def common_dep(:emqx_http_lib),
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
@@ -304,7 +304,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:optvar, override: true, git: "https://github.com/emqx/optvar", tag: "1.0.5"}
 
   def common_dep(:parquer),
-    do: {:parquer, github: "emqx/parquer", tag: "0.1.5", manager: :rebar3}
+    do: {:parquer, github: "emqx/parquer", tag: "0.1.7", manager: :rebar3}
 
   def common_dep(:greptimedb),
     do: {:greptimedb, github: "emqx/greptimedb-ingester-erl", tag: "v0.2.3-emqx.1"}

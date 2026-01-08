@@ -1,0 +1,25 @@
+# Configuration file for EMQX OpenRC init script
+#
+# This file should be placed at /etc/conf.d/emqx
+
+# User and group to run EMQX as
+# Make sure this user exists and has appropriate permissions
+EMQX_USER="emqx"
+EMQX_GROUP="emqx"
+
+# EMQX installation directory
+EMQX_HOME="/usr/lib/emqx"
+
+# EMQX binary location
+EMQX_BIN="/usr/bin/emqx"
+
+# PID file location
+EMQX_PIDFILE="/var/run/emqx/emqx.pid"
+
+# Log directory
+EMQX_LOG_DIR="/var/log/emqx"
+
+# Additional options can be set via environment variables
+# For example:
+# export EMQX_NODE_NAME="emqx@127.0.0.1"
+# export EMQX_NODE_COOKIE="emqxsecretcookie"
