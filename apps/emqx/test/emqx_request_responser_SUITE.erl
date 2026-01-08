@@ -1,5 +1,5 @@
 %%------------------------------------------------------------------------
-%% Copyright (c) 2013-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2013-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%------------------------------------------------------------------------
 
 -module(emqx_request_responser_SUITE).
