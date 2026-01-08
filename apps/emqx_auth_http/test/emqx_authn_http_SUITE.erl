@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_http_SUITE).
@@ -18,7 +18,6 @@
 
 -define(PATH, [?CONF_NS_ATOM]).
 
--define(HTTP_PORT, 32333).
 -define(HTTP_PATH, "/auth/[...]").
 -define(CREDENTIALS, #{
     clientid => <<"clienta">>,
@@ -78,37 +77,39 @@ all() ->
 groups() ->
     emqx_common_test_helpers:groups_with_matrix(?MODULE).
 
-init_per_suite(Config) ->
+init_per_suite(TCConfig) ->
     emqx_utils:interactive_load(emqx_variform_bif),
     Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
-        work_dir => ?config(priv_dir, Config)
+        work_dir => ?config(priv_dir, TCConfig)
     }),
-    [{apps, Apps} | Config].
+    [{apps, Apps} | TCConfig].
 
-end_per_suite(Config) ->
+end_per_suite(TCConfig) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok = emqx_cth_suite:stop(?config(apps, TCConfig)),
     ok.
 
-init_per_testcase(Case, Config) ->
+init_per_testcase(Case, TCConfig0) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = emqx_utils_http_test_server:start_link(?HTTP_PORT, ?HTTP_PATH),
+    HTTPPort = emqx_common_test_helpers:select_free_port(tcp),
+    {ok, _} = emqx_utils_http_test_server:start_link(HTTPPort, ?HTTP_PATH),
+    TCConfig = [{http_port, HTTPPort} | TCConfig0],
     try
-        ?MODULE:Case(init, Config)
+        ?MODULE:Case(init, TCConfig)
     catch
         error:undef ->
-            Config
+            TCConfig
     end.
 
-end_per_testcase(Case, Config) ->
+end_per_testcase(Case, TCConfig) ->
     try
-        ?MODULE:Case('end', Config)
+        ?MODULE:Case('end', TCConfig)
     catch
         error:undef ->
             ok
@@ -123,8 +124,8 @@ end_per_testcase(Case, Config) ->
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_create(_Config) ->
-    AuthConfig = raw_http_auth_config(),
+t_create(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -133,8 +134,8 @@ t_create(_Config) ->
 
     {ok, [#{provider := emqx_authn_http}]} = emqx_authn_chains:list_authenticators(?GLOBAL).
 
-t_create_invalid(_Config) ->
-    AuthConfig = raw_http_auth_config(),
+t_create_invalid(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
 
     InvalidConfigs =
         [
@@ -148,13 +149,13 @@ t_create_invalid(_Config) ->
         ],
 
     lists:foreach(
-        fun(Config) ->
-            ct:pal("creating authenticator with invalid config: ~p", [Config]),
+        fun(AuthConf) ->
+            ct:pal("creating authenticator with invalid config: ~p", [AuthConf]),
             {error, _} =
                 try
                     emqx:update_config(
                         ?PATH,
-                        {create_authenticator, ?GLOBAL, Config}
+                        {create_authenticator, ?GLOBAL, AuthConf}
                     )
                 catch
                     throw:Error ->
@@ -168,17 +169,18 @@ t_create_invalid(_Config) ->
         InvalidConfigs
     ).
 
-t_authenticate(_Config) ->
+t_authenticate(TCConfig) ->
     ok = emqx_logger:set_primary_log_level(debug),
     ok = lists:foreach(
         fun(Sample) ->
             ct:pal("test_user_auth sample: ~p", [Sample]),
-            test_user_auth(Sample)
+            test_user_auth(TCConfig, Sample)
         end,
         samples()
     ).
 
 test_user_auth(
+    TCConfig,
     #{
         handler := Handler,
         config_params := SpecificConfgParams,
@@ -186,11 +188,11 @@ test_user_auth(
     } = Sample
 ) ->
     Credentials = maps:merge(?CREDENTIALS, maps:get(credentials, Sample, #{})),
-    Result = perform_user_auth(SpecificConfgParams, Handler, Credentials),
+    Result = perform_user_auth(TCConfig, SpecificConfgParams, Handler, Credentials),
     ?assertEqual(Expect, Result).
 
-perform_user_auth(SpecificConfgParams, Handler, Credentials) ->
-    AuthConfig = maps:merge(raw_http_auth_config(), SpecificConfgParams),
+perform_user_auth(TCConfig, SpecificConfgParams, Handler, Credentials) ->
+    AuthConfig = maps:merge(raw_http_auth_config(TCConfig), SpecificConfgParams),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -208,7 +210,7 @@ perform_user_auth(SpecificConfgParams, Handler, Credentials) ->
 
     Result.
 
-t_authenticate_path_placeholders(_Config) ->
+t_authenticate_path_placeholders(TCConfig) ->
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
             Req =
@@ -233,9 +235,11 @@ t_authenticate_path_placeholders(_Config) ->
     }),
 
     AuthConfig = maps:merge(
-        raw_http_auth_config(),
+        raw_http_auth_config(TCConfig),
         #{
-            <<"url">> => <<"http://127.0.0.1:32333/auth/p%20ath//${username}/auth//">>,
+            <<"url">> =>
+                <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                    "/auth/p%20ath//${username}/auth//">>,
             <<"body">> => #{}
         }
     ),
@@ -254,7 +258,7 @@ t_authenticate_path_placeholders(_Config) ->
         ?GLOBAL
     ).
 
-t_no_value_for_placeholder(_Config) ->
+t_no_value_for_placeholder(TCConfig) ->
     Handler = fun(Req0, State) ->
         {ok, RawBody, Req1} = cowboy_req:read_body(Req0),
         #{
@@ -281,7 +285,7 @@ t_no_value_for_placeholder(_Config) ->
         }
     },
 
-    AuthConfig = maps:merge(raw_http_auth_config(), SpecificConfgParams),
+    AuthConfig = maps:merge(raw_http_auth_config(TCConfig), SpecificConfgParams),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -299,8 +303,8 @@ t_no_value_for_placeholder(_Config) ->
         ?GLOBAL
     ).
 
-t_disallowed_placeholders_preserved(_Config) ->
-    Config = #{
+t_disallowed_placeholders_preserved(TCConfig) ->
+    AuthConfig = #{
         <<"method">> => <<"post">>,
         <<"headers">> => #{<<"content-type">> => <<"application/json">>},
         <<"body">> => #{
@@ -324,16 +328,17 @@ t_disallowed_placeholders_preserved(_Config) ->
         ),
         {ok, Req, State}
     end,
-    ?assertMatch({ok, _}, perform_user_auth(Config, Handler, ?CREDENTIALS)),
+    ?assertMatch({ok, _}, perform_user_auth(TCConfig, AuthConfig, Handler, ?CREDENTIALS)),
 
     % NOTE: disallowed placeholder left intact, which makes the URL invalid
-    ConfigUrl = Config#{
-        <<"url">> => <<"http://127.0.0.1:32333/auth/${whatisthis}">>
+    AuthConfigUrl = AuthConfig#{
+        <<"url">> =>
+            <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary, "/auth/${whatisthis}">>
     },
-    ?assertMatch({error, _}, perform_user_auth(ConfigUrl, Handler, ?CREDENTIALS)).
+    ?assertMatch({error, _}, perform_user_auth(TCConfig, AuthConfigUrl, Handler, ?CREDENTIALS)).
 
-t_destroy(_Config) ->
-    AuthConfig = raw_http_auth_config(),
+t_destroy(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -377,10 +382,12 @@ t_destroy(_Config) ->
         )
     ).
 
-t_update(_Config) ->
-    CorrectConfig = raw_http_auth_config(),
+t_update(TCConfig) ->
+    CorrectConfig = raw_http_auth_config(TCConfig),
     IncorrectConfig =
-        CorrectConfig#{<<"url">> => <<"http://127.0.0.1:32333/invalid">>},
+        CorrectConfig#{
+            <<"url">> => <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary, "/invalid">>
+        },
 
     {ok, _} = emqx:update_config(
         ?PATH,
@@ -413,8 +420,8 @@ t_update(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
-t_resource_status(_Config) ->
-    EnabledConfig = raw_http_auth_config(),
+t_resource_status(TCConfig) ->
+    EnabledConfig = raw_http_auth_config(TCConfig),
     DisabledConfig =
         EnabledConfig#{<<"enable">> => false},
 
@@ -462,7 +469,7 @@ t_resource_status(_Config) ->
         ?GLOBAL
     ).
 
-t_update_precondition(_Config) ->
+t_update_precondition(TCConfig) ->
     %% always allow
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
@@ -476,7 +483,7 @@ t_update_precondition(_Config) ->
         end
     ),
 
-    CorrectConfig = raw_http_auth_config(),
+    CorrectConfig = raw_http_auth_config(TCConfig),
     {ok, _} = emqx:update_config(
         ?PATH,
         {create_authenticator, ?GLOBAL, CorrectConfig}
@@ -535,18 +542,20 @@ t_update_precondition(_Config) ->
     ?assertMatch({error, {unauthorized_client, _}}, Connect(<<"c2-123">>)),
     ok.
 
-t_node_cache(_Config) ->
-    Config = maps:merge(
-        raw_http_auth_config(),
+t_node_cache(TCConfig) ->
+    AuthConfig = maps:merge(
+        raw_http_auth_config(TCConfig),
         #{
             <<"method">> => <<"get">>,
-            <<"url">> => <<"http://127.0.0.1:32333/auth/${clientid}?username=${username}">>,
+            <<"url">> =>
+                <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary,
+                    "/auth/${clientid}?username=${username}">>,
             <<"body">> => #{<<"password">> => <<"${password}">>}
         }
     ),
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config}
+        {create_authenticator, ?GLOBAL, AuthConfig}
     ),
     ok = emqx_authn_test_lib:enable_node_cache(true),
     Handler = fun(#{path := Path} = Req0, State) ->
@@ -598,11 +607,11 @@ t_node_cache(_Config) ->
         emqx_auth_cache:metrics(?AUTHN_CACHE)
     ).
 
-t_is_superuser(_Config) ->
-    Config = raw_http_auth_config(),
+t_is_superuser(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config}
+        {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
     Checks = [
@@ -675,11 +684,11 @@ test_is_superuser({Kind, ExpectedValue, ServerResponse}) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
-t_ignore_allow_deny(_Config) ->
-    Config = raw_http_auth_config(),
+t_ignore_allow_deny(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config}
+        {create_authenticator, ?GLOBAL, AuthConfig}
     ),
 
     Checks = [
@@ -723,12 +732,12 @@ test_ignore_allow_deny({ExpectedValue, ServerResponse}) ->
             )
     end.
 
-t_acl(_Config) ->
+t_acl(TCConfig) ->
     ACL = acl_rules(),
-    Config = raw_http_auth_config(),
+    AuthConfig = raw_http_auth_config(TCConfig),
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config}
+        {create_authenticator, ?GLOBAL, AuthConfig}
     ),
     ok = emqx_utils_http_test_server:set_handler(
         fun(Req0, State) ->
@@ -767,12 +776,12 @@ t_acl(_Config) ->
         ok = emqtt:disconnect(C)
     end.
 
-t_auth_expire(_Config) ->
+t_auth_expire(TCConfig) ->
     ACL = acl_rules(),
-    Config = raw_http_auth_config(),
+    AuthConfig = raw_http_auth_config(TCConfig),
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config}
+        {create_authenticator, ?GLOBAL, AuthConfig}
     ),
     ExpireSec = 3,
     ExpireMSec = timer:seconds(ExpireSec),
@@ -846,15 +855,15 @@ test_acl({deny, Topic}, C) ->
         emqtt:subscribe(C, Topic)
     ).
 
-t_precondition_check_listener_id(_Config) ->
-    Config = raw_http_auth_config(),
-    Config1 = Config#{
+t_precondition_check_listener_id(CTConfig) ->
+    AuthConfig = raw_http_auth_config(CTConfig),
+    AuthConfig1 = AuthConfig#{
         <<"precondition">> => <<"str_eq(listener, 'tcp:default')">>
     },
 
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config1}
+        {create_authenticator, ?GLOBAL, AuthConfig1}
     ),
 
     ok = emqx_utils_http_test_server:set_handler(
@@ -903,7 +912,7 @@ t_precondition_check_listener_id(_Config) ->
     end,
     ok.
 
-t_precondition_check_cert_cn(init, Config) ->
+t_precondition_check_cert_cn(init, TCConfig) ->
     %% Change the listener SSL configuration: require peer certificate.
     {ok, _} = emqx:update_config(
         [listeners, ssl, default],
@@ -914,8 +923,8 @@ t_precondition_check_cert_cn(init, Config) ->
             }
         }}
     ),
-    Config;
-t_precondition_check_cert_cn('end', _Config) ->
+    TCConfig;
+t_precondition_check_cert_cn('end', _TCConfig) ->
     %% Restore the listener SSL configuration to default.
     {ok, _} = emqx:update_config(
         [listeners, ssl, default],
@@ -928,16 +937,16 @@ t_precondition_check_cert_cn('end', _Config) ->
     ),
     ok.
 
-t_precondition_check_cert_cn(_Config) ->
-    Config = raw_http_auth_config(),
+t_precondition_check_cert_cn(TCConfig) ->
+    AuthConfig = raw_http_auth_config(TCConfig),
     %% if cert_common_name is empty, the client will be denied
-    Config1 = Config#{
+    AuthConfig1 = AuthConfig#{
         <<"precondition">> => <<"not(is_empty_val(cert_common_name))">>
     },
 
     {ok, _} = emqx:update_config(
         ?PATH,
-        {create_authenticator, ?GLOBAL, Config1}
+        {create_authenticator, ?GLOBAL, AuthConfig1}
     ),
 
     ok = emqx_utils_http_test_server:set_handler(
@@ -993,9 +1002,9 @@ t_precondition_check_cert_cn(_Config) ->
 Checks that, if an authentication backend returns the `clientid_override` attribute, it's
 used to override.
 """.
-t_clientid_override(TCConfig) when is_list(TCConfig) ->
+t_clientid_override(TCConfig) ->
     OverriddenClientId = <<"overridden_clientid">>,
-    MkConfigFn = fun raw_http_auth_config/0,
+    MkConfigFn = fun() -> raw_http_auth_config(TCConfig) end,
     PostConfigFn = fun() ->
         ok = emqx_utils_http_test_server:set_handler(
             fun(Req0, State) ->
@@ -1028,7 +1037,7 @@ t_zone_override() ->
     [{matrix, true}].
 t_zone_override(matrix) ->
     [[tcp], [socket], [ws], [quic]];
-t_zone_override(TCConfig) when is_list(TCConfig) ->
+t_zone_override(TCConfig) ->
     GroupPath = emqx_common_test_helpers:group_path(TCConfig, [tcp]),
     maybe
         [socket | _] ?= GroupPath,
@@ -1087,7 +1096,7 @@ t_zone_override(TCConfig) when is_list(TCConfig) ->
                 #{}
         end,
     OverriddenZone = new_zone,
-    MkConfigFn = fun raw_http_auth_config/0,
+    MkConfigFn = fun() -> raw_http_auth_config(TCConfig) end,
     PostConfigFn = fun() ->
         ok = emqx_utils_http_test_server:set_handler(
             fun(Req0, State) ->
@@ -1120,7 +1129,7 @@ cert_path(FileName) ->
     Dir = code:lib_dir(emqx),
     filename:join([Dir, <<"etc/certs">>, FileName]).
 
-raw_http_auth_config() ->
+raw_http_auth_config(TCConfig) ->
     #{
         <<"mechanism">> => <<"password_based">>,
         <<"enable">> => <<"true">>,
@@ -1128,7 +1137,7 @@ raw_http_auth_config() ->
         <<"backend">> => <<"http">>,
         <<"method">> => <<"get">>,
         <<"max_inactive">> => <<"10s">>,
-        <<"url">> => <<"http://127.0.0.1:32333/auth">>,
+        <<"url">> => <<"http://127.0.0.1:", (http_port_bin(TCConfig))/binary, "/auth">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>}
     }.
@@ -1505,3 +1514,6 @@ acl_rules() ->
             <<"topics">> => [<<"#">>]
         }
     ].
+
+http_port_bin(TCConfig) ->
+    integer_to_binary(?config(http_port, TCConfig)).
