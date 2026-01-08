@@ -910,6 +910,14 @@ t_rule_action(Config) when is_list(Config) ->
                 )
         end,
 
+        ActionResId = emqx_bridge_v2_testlib:resource_id(Config),
+        ?retry(
+            100,
+            5,
+            ?assertEqual(1, emqx_resource_metrics:aggregated_upload_success_get(ActionResId))
+        ),
+        ?assertEqual(0, emqx_resource_metrics:aggregated_upload_failure_get(ActionResId)),
+
         ok
     end,
     CreateBridgeFn = fun() ->
@@ -1710,6 +1718,13 @@ do_t_upload_data_file_failure(S3UploadFnName, Config) ->
                 health_check(Config)
             )
     end,
+    ActionResId = emqx_bridge_v2_testlib:resource_id(Config),
+    ?retry(
+        100,
+        5,
+        ?assertEqual(0, emqx_resource_metrics:aggregated_upload_success_get(ActionResId))
+    ),
+    ?assertEqual(1, emqx_resource_metrics:aggregated_upload_failure_get(ActionResId)),
     ok.
 
 t_bad_arn(Config) ->

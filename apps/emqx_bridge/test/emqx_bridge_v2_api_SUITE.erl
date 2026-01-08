@@ -1855,8 +1855,21 @@ t_metrics(Config) ->
         _Retries0 = 20,
         ?assertMatch(
             {ok, 200, #{
-                <<"metrics">> := #{<<"matched">> := 1},
-                <<"node_metrics">> := [#{<<"metrics">> := #{<<"matched">> := 1}} | _]
+                <<"metrics">> := #{
+                    <<"matched">> := 1,
+                    <<"aggregated_upload.success">> := 0,
+                    <<"aggregated_upload.failure">> := 0
+                },
+                <<"node_metrics">> := [
+                    #{
+                        <<"metrics">> := #{
+                            <<"matched">> := 1,
+                            <<"aggregated_upload.success">> := 0,
+                            <<"aggregated_upload.failure">> := 0
+                        }
+                    }
+                    | _
+                ]
             }},
             request_json(get, uri([?ACTIONS_ROOT, ActionID, "metrics"]), Config)
         )
