@@ -1163,7 +1163,6 @@ fields("listener_ssl_opts") ->
     server_ssl_opts_schema(
         #{
             depth => 10,
-            reuse_sessions => true,
             versions => tls_all_available,
             ciphers => tls_all_available
         },
@@ -1173,7 +1172,6 @@ fields("listener_wss_opts") ->
     server_ssl_opts_schema(
         #{
             depth => 10,
-            reuse_sessions => true,
             versions => tls_all_available,
             ciphers => tls_all_available
         },
@@ -2401,7 +2399,8 @@ common_ssl_opts_schema(Defaults, Type) ->
                 boolean(),
                 #{
                     default => Df(reuse_sessions, true),
-                    desc => ?DESC(common_ssl_opts_schema_reuse_sessions)
+                    desc => ?DESC(common_ssl_opts_schema_reuse_sessions),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"depth",
@@ -2531,7 +2530,16 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         required => false,
                         converter => fun ?MODULE:user_lookup_fun_tr/2,
                         importance => ?IMPORTANCE_HIDDEN,
-                        desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
+                        desc => ?DESC("server_ssl_opts_schema_user_lookup_fun")
+                    }
+                )},
+            {"session_tickets",
+                sc(
+                    hoconsc:enum([disabled, stateless, stateless_with_cert]),
+                    #{
+                        default => disabled,
+                        importance => ?IMPORTANCE_LOW,
+                        desc => ?DESC("server_ssl_opts_schema_session_tickets")
                     }
                 )},
             {"managed_certs",

@@ -174,6 +174,8 @@ t_cm(_) ->
     {ok, _} = emqtt:connect(C),
     ?WAIT(#{clientinfo := #{clientid := ClientId}} = emqx_cm:get_chan_info(ClientId), 2),
     emqtt:subscribe(C, <<"mytopic">>, 0),
+    ?assert(emqx:subscribed(ClientId, <<"mytopic">>)),
+    ?assertNot(emqx:subscribed(<<"dummy">>, <<"mytopic">>)),
     ?WAIT(
         begin
             Stats = emqx_cm:get_chan_stats(ClientId),

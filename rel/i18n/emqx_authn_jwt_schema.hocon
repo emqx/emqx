@@ -141,7 +141,14 @@ Values can use the following placeholders:
 - <code>${username}</code>: Will be replaced at runtime with <code>Username</code> used by the client when connecting
 - <code>${clientid}</code>: Will be replaced at runtime with <code>Client ID</code> used by the client when connecting
 
-Authentication will verify that the value of claims in the JWT (taken from the Password field) matches what is required in <code>verify_claims</code>."""
+Authentication will verify that the value of claims in the JWT (taken from the Password field) matches what is required in <code>verify_claims</code>.
+
+Special handling for <code>aud</code> (audience) claim:
+The <code>aud</code> claim supports both string and array formats in the JWT token:
+- If <code>aud</code> is a string, it must exactly match the expected value.
+- If <code>aud</code> is an array, at least one element in the array must match the expected value.
+- Empty string or empty array will fail verification.
+- When <code>aud</code> is configured in <code>verify_claims</code>, the JWT token must include a valid <code>aud</code> claim."""
 
 verify_claims.label:
 """Verify Claims"""

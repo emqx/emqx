@@ -439,7 +439,6 @@ t_subscribe_with_qos_opt(_) ->
         timer:sleep(100),
         [SubPid] = emqx:subscribers(Topic),
         ?assert(is_pid(SubPid)),
-        ?assertEqual(Qos, maps:get(qos, emqx_broker:get_subopts(SubPid, Topic))),
         %% publish a message
         emqx:publish(emqx_message:make(Topic, Payload)),
         {ok, content, Notify} = with_response(Channel),

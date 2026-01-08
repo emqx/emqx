@@ -21,7 +21,8 @@
 -export([
     subscribe/1,
     subscribe/2,
-    subscribe/3
+    subscribe/3,
+    subscribe/4
 ]).
 
 -export([unsubscribe/1]).
@@ -54,11 +55,6 @@
 %% Folds
 -export([
     foldl_topics/2
-]).
-
--export([
-    get_subopts/2,
-    set_subopts/2
 ]).
 
 -export([topics/0]).
@@ -160,14 +156,28 @@ subscribe(Topic, SubOpts) when ?IS_TOPIC(Topic), is_map(SubOpts) ->
 
 -spec subscribe(emqx_types:topic() | emqx_types:share(), emqx_types:subid(), emqx_types:subopts()) ->
     ok.
-subscribe(Topic, SubId, SubOpts0) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts0) ->
+subscribe(Topic, SubId, SubOpts) when ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts) ->
+    subscribe(Topic, SubId, SubOpts, monitor).
+
+%% This API is called by MQTT session process with `no_monitor`.
+%% MQTT session is already monitored by emqx_cm, so there is no need to monitor again.
+-spec subscribe(
+    emqx_types:topic() | emqx_types:share(),
+    emqx_types:subid(),
+    emqx_types:subopts(),
+    monitor | no_monitor
+) ->
+    ok.
+subscribe(Topic, SubId, SubOpts0, Monitor) when
+    ?IS_TOPIC(Topic), ?IS_SUBID(SubId), is_map(SubOpts0)
+->
     SubOpts = maps:merge(?DEFAULT_SUBOPTS, SubOpts0),
     _ = emqx_trace:subscribe(Topic, SubId, SubOpts),
     SubPid = self(),
     case subscribed(SubPid, Topic) of
         %% New
         false ->
-            ok = emqx_broker_helper:register_sub(SubPid, SubId),
+            ok = emqx_broker_helper:register_sub(SubPid, SubId, Monitor),
             true = ets:insert(?SUBSCRIPTION, {SubPid, Topic}),
             do_subscribe(Topic, SubPid, with_subid(SubId, SubOpts));
         %% Existed
@@ -586,29 +596,9 @@ subscriptions_via_topic(Topic) ->
     MatchSpec = [{{{Topic, '_'}, '_'}, [], ['$_']}],
     ets:select(?SUBOPTION, MatchSpec).
 
--spec subscribed(
-    pid() | emqx_types:subid(), emqx_types:topic() | emqx_types:share()
-) -> boolean().
+-spec subscribed(pid(), emqx_types:topic() | emqx_types:share()) -> boolean().
 subscribed(SubPid, Topic) when is_pid(SubPid) ->
-    ets:member(?SUBOPTION, {Topic, SubPid});
-subscribed(SubId, Topic) when ?IS_SUBID(SubId) ->
-    SubPid = emqx_broker_helper:lookup_subpid(SubId),
     ets:member(?SUBOPTION, {Topic, SubPid}).
-
--spec get_subopts(pid(), emqx_types:topic() | emqx_types:share()) -> option(emqx_types:subopts()).
-get_subopts(SubPid, Topic) when is_pid(SubPid), ?IS_TOPIC(Topic) ->
-    lookup_value(?SUBOPTION, {Topic, SubPid});
-get_subopts(SubId, Topic) when ?IS_SUBID(SubId) ->
-    case emqx_broker_helper:lookup_subpid(SubId) of
-        SubPid when is_pid(SubPid) ->
-            get_subopts(SubPid, Topic);
-        undefined ->
-            undefined
-    end.
-
--spec set_subopts(emqx_types:topic() | emqx_types:share(), emqx_types:subopts()) -> boolean().
-set_subopts(Topic, NewOpts) when is_binary(Topic), is_map(NewOpts) ->
-    set_subopts(self(), Topic, NewOpts).
 
 %% @private
 set_subopts(SubPid, Topic, NewOpts) ->

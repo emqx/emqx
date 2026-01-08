@@ -769,6 +769,145 @@ t_verify_claim_clientid(_) ->
         {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential1, State)
     ).
 
+t_verify_claim_aud(_) ->
+    Secret = <<"abcdef">>,
+    Config = #{
+        mechanism => jwt,
+        from => password,
+        acl_claim_name => <<"acl">>,
+        use_jwks => false,
+        algorithm => 'hmac-based',
+        secret => Secret,
+        secret_base64_encoded => false,
+        verify_claims => [{<<"aud">>, <<"myapp">>}],
+        disconnect_after_expire => false,
+        enable => true
+    },
+    {ok, State} = emqx_authn_jwt:create(?AUTHN_ID, Config),
+
+    %% Test: aud as string matching expected value
+    Payload0 = #{
+        <<"aud">> => <<"myapp">>,
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS0 = generate_jws('hmac-based', Payload0, Secret),
+    Credential0 = #{
+        username => <<"myuser">>,
+        password => JWS0
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential0, State)),
+
+    %% Test: aud as string not matching expected value
+    Payload1 = #{
+        <<"aud">> => <<"otherapp">>,
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS1 = generate_jws('hmac-based', Payload1, Secret),
+    Credential1 = #{
+        username => <<"myuser">>,
+        password => JWS1
+    },
+    ?assertMatch(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential1, State)
+    ),
+
+    %% Test: aud as array with matching value
+    Payload2 = #{
+        <<"aud">> => [<<"myapp">>, <<"otherapp">>],
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS2 = generate_jws('hmac-based', Payload2, Secret),
+    Credential2 = #{
+        username => <<"myuser">>,
+        password => JWS2
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential2, State)),
+
+    %% Test: aud as array without matching value
+    Payload3 = #{
+        <<"aud">> => [<<"app1">>, <<"app2">>],
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS3 = generate_jws('hmac-based', Payload3, Secret),
+    Credential3 = #{
+        username => <<"myuser">>,
+        password => JWS3
+    },
+    ?assertMatch(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential3, State)
+    ),
+
+    %% Test: aud as empty string (should fail verification)
+    Payload4 = #{
+        <<"aud">> => <<>>,
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS4 = generate_jws('hmac-based', Payload4, Secret),
+    Credential4 = #{
+        username => <<"myuser">>,
+        password => JWS4
+    },
+    ?assertMatch(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential4, State)
+    ),
+
+    %% Test: aud as empty array (should fail verification)
+    Payload5 = #{
+        <<"aud">> => [],
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS5 = generate_jws('hmac-based', Payload5, Secret),
+    Credential5 = #{
+        username => <<"myuser">>,
+        password => JWS5
+    },
+    ?assertMatch(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential5, State)
+    ),
+
+    %% Test: missing aud claim (should fail verification)
+    Payload6 = #{
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS6 = generate_jws('hmac-based', Payload6, Secret),
+    Credential6 = #{
+        username => <<"myuser">>,
+        password => JWS6
+    },
+    ?assertMatch(
+        {error, bad_username_or_password}, emqx_authn_jwt:authenticate(Credential6, State)
+    ),
+
+    %% Test: aud with template variable
+    Config2 = Config#{
+        verify_claims => [{<<"aud">>, <<"${username}">>}]
+    },
+    {ok, State2} = emqx_authn_jwt:update(Config2, State),
+    Payload7 = #{
+        <<"aud">> => <<"myuser">>,
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS7 = generate_jws('hmac-based', Payload7, Secret),
+    Credential7 = #{
+        username => <<"myuser">>,
+        password => JWS7
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential7, State2)),
+
+    Payload8 = #{
+        <<"aud">> => [<<"myuser">>, <<"otheruser">>],
+        <<"exp">> => erlang:system_time(second) + 60
+    },
+    JWS8 = generate_jws('hmac-based', Payload8, Secret),
+    Credential8 = #{
+        username => <<"myuser">>,
+        password => JWS8
+    },
+    ?assertMatch({ok, #{is_superuser := false}}, emqx_authn_jwt:authenticate(Credential8, State2)),
+
+    ?assertEqual(ok, emqx_authn_jwt:destroy(State2)),
+    ok.
+
 t_jwt_not_allow_empty_claim_name(_) ->
     Request = #{
         <<"use_jwks">> => false,

@@ -383,7 +383,7 @@ t_add_user(matrix) ->
     [[?global], [?ns]];
 t_add_user(TCConfig) ->
     Config = config(),
-    {ok, State} = emqx_authn_scram_mnesia:create(<<"id">>, Config),
+    {ok, State} = emqx_authn_scram_mnesia:create(<<"authn-id">>, Config),
 
     User = maybe_add_ns(#{user_id => <<"u">>, password => <<"p">>}, TCConfig),
     {ok, _} = emqx_authn_scram_mnesia:add_user(User, State),
