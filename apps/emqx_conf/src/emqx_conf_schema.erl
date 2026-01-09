@@ -588,7 +588,7 @@ fields("node") ->
                 emqx_schema:timeout_duration_s(),
                 #{
                     mapping => "vm_args.-kernel net_ticktime",
-                    default => <<"2m">>,
+                    default => <<"60s">>,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_dist_net_ticktime)

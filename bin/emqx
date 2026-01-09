@@ -603,7 +603,7 @@ get_boot_config() {
 
 EPMD_ARGS="${EPMD_ARGS:-"-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"}"
 PROTO_DIST="$(get_boot_config 'cluster.proto_dist' || true)"
-TICKTIME="$(get_boot_config 'node.dist_net_ticktime' || echo '120')"
+TICKTIME="$(get_boot_config 'node.dist_net_ticktime' || echo '60')"
 # this environment variable is required by ekka_dist module
 # because proto_dist is overriden to ekka, and there is a lack of ekka_tls module
 export EKKA_PROTO_DIST_MOD="${PROTO_DIST:-inet_tcp}"
