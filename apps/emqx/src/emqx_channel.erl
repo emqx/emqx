@@ -2005,9 +2005,16 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
             {ok, ClientInfo};
         Inits ->
             UserProperty = get_user_property_as_map(ConnPkt),
-            ClientInfo1 = initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty}),
-            {ok, maps:remove(user_property, ClientInfo1)}
+            Password = get_connect_password(ConnPkt),
+            ClientInfo1 = initialize_client_attrs(
+                Inits,
+                ClientInfo#{user_property => UserProperty, password => Password}
+            ),
+            {ok, maps:without([user_property, password], ClientInfo1)}
     end.
+
+get_connect_password(#mqtt_packet_connect{password = Password}) ->
+    Password.
 
 initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
     lists:foldl(
