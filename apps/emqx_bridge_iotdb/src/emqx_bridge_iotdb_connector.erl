@@ -711,9 +711,6 @@ on_add_channel(
         },
         Channels2 = Channels#{ChannelId => Channel},
         {ok, OldState#{channels := Channels2}}
-    else
-        {error, Reason} ->
-            {error, Reason}
     end;
 on_add_channel(
     _InstanceId,
@@ -747,9 +744,6 @@ on_add_channel(
         },
         Channels2 = Channels#{ChannelId => Channel},
         {ok, OldState#{channels := Channels2}}
-    else
-        {error, Reason} ->
-            {error, Reason}
     end.
 
 on_remove_channel(InstanceId, #{driver := restapi, channels := Channels} = OldState0, ChannelId) ->
@@ -910,7 +904,7 @@ eval_response_body(Body, Resp) ->
     end.
 
 preproc_device_id(_WriteToTable = false, DeviceId) ->
-    emqx_placeholder:preproc_tmpl(DeviceId);
+    {ok, emqx_placeholder:preproc_tmpl(DeviceId)};
 preproc_device_id(_WriteToTable = true, <<>>) ->
     throw(<<"Table name cannot be empty in table model">>);
 preproc_device_id(_WriteToTable = true, DeviceId) ->
@@ -1248,9 +1242,6 @@ render_channel_record(#{data := DataTemplate, write_to_table := true} = _Channel
             measurements => MeasurementAcc,
             values => ValueAcc
         }}
-    else
-        {error, Reason} ->
-            {error, Reason}
     end.
 
 proc_record_data(
