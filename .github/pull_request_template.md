@@ -1,11 +1,11 @@
 Fixes <issue-or-jira-number>
 
 <!--
-5.8.9
-5.9.3
+5.8.10
 5.10.3
 6.0.2
-6.1.0
+6.1.1
+6.2.0
 -->
 Release version:
 
