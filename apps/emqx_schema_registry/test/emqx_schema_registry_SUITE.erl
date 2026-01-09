@@ -480,11 +480,7 @@ sparkplug_example_data() ->
     }.
 
 wait_for_sparkplug_schema_registered() ->
-    ?retry(
-        100,
-        100,
-        [_] = ets:lookup(?SERDE_TAB, ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME)
-    ).
+    emqx_schema_registry_testlib:wait_for_sparkplug_schema_registered().
 
 proto_file_path(File) ->
     Base = code:lib_dir(emqx_schema_registry),
