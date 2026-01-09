@@ -341,20 +341,22 @@ drop_shard(Shard) ->
 -spec store_global(dbshard(), _KVs :: #{binary() => binary()}, #{durable => boolean()}) ->
     ok | emqx_ds:error(_).
 store_global(ShardId, KVs, Options) ->
-    #{db := DB} = get_schema_runtime(ShardId),
-    {ok, Batch} = rocksdb:batch(),
-    try
-        ok = maps:foreach(fun(K, V) -> rocksdb:batch_put(Batch, ?GLOBAL(K), V) end, KVs),
-        WriteOpts = [{disable_wal, not maps:get(durable, Options, true)}],
-        Result = rocksdb:write_batch(DB, Batch, WriteOpts),
-        case Result of
-            ok ->
-                ok;
-            {error, {error, Reason}} ->
-                {error, unrecoverable, {rocksdb, Reason}}
+    maybe
+        #{db := DB} ?= get_schema_runtime(ShardId),
+        {ok, Batch} = rocksdb:batch(),
+        try
+            ok = maps:foreach(fun(K, V) -> rocksdb:batch_put(Batch, ?GLOBAL(K), V) end, KVs),
+            WriteOpts = [{disable_wal, not maps:get(durable, Options, true)}],
+            Result = rocksdb:write_batch(DB, Batch, WriteOpts),
+            case Result of
+                ok ->
+                    ok;
+                {error, {error, Reason}} ->
+                    {error, unrecoverable, {rocksdb, Reason}}
+            end
+        after
+            rocksdb:release_batch(Batch)
         end
-    after
-        rocksdb:release_batch(Batch)
     end.
 
 %% @doc Retrieve a value for a single key from the storage written there previously by
@@ -362,15 +364,17 @@ store_global(ShardId, KVs, Options) ->
 -spec fetch_global(dbshard(), _Key :: binary()) ->
     {ok, _Value :: binary()} | not_found | emqx_ds:error(_).
 fetch_global(ShardId, K) ->
-    #{db := DB} = get_schema_runtime(ShardId),
-    Result = rocksdb:get(DB, ?GLOBAL(K), _ReadOpts = []),
-    case Result of
-        {ok, _} ->
-            Result;
-        not_found ->
-            Result;
-        {error, Reason} ->
-            {error, unrecoverable, {rocksdb, Reason}}
+    maybe
+        #{db := DB} ?= get_schema_runtime(ShardId),
+        Result = rocksdb:get(DB, ?GLOBAL(K), _ReadOpts = []),
+        case Result of
+            {ok, _} ->
+                Result;
+            not_found ->
+                Result;
+            {error, Reason} ->
+                {error, unrecoverable, {rocksdb, Reason}}
+        end
     end.
 
 -spec update_config(dbshard(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
@@ -404,10 +408,9 @@ find_generation(ShardId, AtTime) ->
 
 -spec shard_info(dbshard(), status) -> running | down.
 shard_info(ShardId, status) ->
-    try get_schema_runtime(ShardId) of
-        #{} -> running
-    catch
-        error:badarg -> down
+    case get_schema_runtime(ShardId) of
+        #{} -> running;
+        ?err_rec(_) -> down
     end.
 
 -spec flush(dbshard() | emqx_ds:db()) -> ok | {error, _}.
@@ -1074,10 +1077,12 @@ generation_get(Shard, GenId) ->
             not_found
     end.
 
--spec generations_since(dbshard(), emqx_ds:time()) -> [gen_id()].
+-spec generations_since(dbshard(), emqx_ds:time()) -> {ok, [gen_id()]} | emqx_ds:error(_).
 generations_since(Shard, Since) ->
-    Schema = #{current_generation := Current} = get_schema_runtime(Shard),
-    list_generations_since(Schema, Current, Since).
+    maybe
+        Schema = #{current_generation := Current} ?= get_schema_runtime(Shard),
+        {ok, list_generations_since(Schema, Current, Since)}
+    end.
 
 list_generations_since(Schema, GenId, Since) ->
     case Schema of
@@ -1108,9 +1113,9 @@ format_state(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, 
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
--spec get_schema_runtime(dbshard()) -> shard().
+-spec get_schema_runtime(dbshard()) -> shard() | emqx_ds:error(_).
 get_schema_runtime(Shard = {_, _}) ->
-    persistent_term:get(?PERSISTENT_TERM(Shard)).
+    persistent_term:get(?PERSISTENT_TERM(Shard), ?err_rec(shard_unavailable)).
 
 -spec get_gvars(dbshard()) -> ets:tid().
 get_gvars(DBShard) ->

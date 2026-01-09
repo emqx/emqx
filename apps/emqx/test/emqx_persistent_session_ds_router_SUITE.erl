@@ -30,8 +30,7 @@ init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
 
 end_per_suite(Config) ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
-    ok.
+    emqx_common_test_helpers:run_cleanups(Config).
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),
