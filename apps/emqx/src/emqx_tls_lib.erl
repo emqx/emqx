@@ -777,15 +777,7 @@ mk_managed_certs_sni_fun([_ | _] = ManagedCertOpts, Opts) ->
         true ->
             [];
         false ->
-            SNIFn = fun(ServerName) ->
-                case maps:find(ServerName, PerSNIOpts) of
-                    {ok, SNIOpts} ->
-                        SNIOpts;
-                    error ->
-                        %% Fallback to default opts
-                        undefined
-                end
-            end,
+            SNIFn = emqx_const_v1:make_managed_certs_sni_fun(PerSNIOpts),
             [{sni_fun, SNIFn}]
     end.
 
