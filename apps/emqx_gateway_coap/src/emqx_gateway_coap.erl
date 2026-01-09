@@ -97,11 +97,14 @@ on_gateway_unload(
     emqx_gateway_utils:stop_listeners(ListenerConfigs).
 
 mod_cfg(#{connection_required := true}) ->
-    maps:merge(?DEFAULT_MOD_CFG, #{
-        connection_mod => esockd_udp_proxy,
-        esockd_proxy_opts => #{
-            connection_mod => emqx_coap_proxy_conn
-        }
-    });
+    #{
+        udp => maps:merge(?DEFAULT_MOD_CFG, #{
+            connection_mod => esockd_udp_proxy,
+            esockd_proxy_opts => #{
+                connection_mod => emqx_coap_proxy_conn
+            }
+        }),
+        default => ?DEFAULT_MOD_CFG
+    };
 mod_cfg(#{connection_required := false}) ->
     ?DEFAULT_MOD_CFG.
