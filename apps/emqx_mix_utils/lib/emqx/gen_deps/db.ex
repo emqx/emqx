@@ -131,14 +131,16 @@ defmodule Emqx.GenDeps.DB do
     erl_files = Path.wildcard(Path.join([app_path, "src", "**", "*.erl"]))
     hrl_files = Path.wildcard(Path.join([app_path, "{include,src}", "**", "*.hrl"]))
 
+    shell = Mix.shell()
+
     Enum.reduce(erl_files ++ hrl_files, [], fn file_path, acc ->
       case find_include_directives(file_path, %{app: app, file: file_path}) do
         {:ok, deps, warn} ->
-          Enum.each(warn, &Mix.shell().info/1)
+          Enum.each(warn, &shell.info/1)
           deps ++ acc
 
         {:error, error} ->
-          Mix.shell().error("#{app.app}: #{inspect(error)}")
+          shell.error("#{app.app}: #{inspect(error)}")
           acc
       end
     end)
