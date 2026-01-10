@@ -170,7 +170,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.2", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.3", override: true}
 
   def common_dep(:esockd),
     do: {:esockd, github: "emqx/esockd", tag: "5.15.0", override: true}
