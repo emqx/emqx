@@ -705,6 +705,74 @@ node_role_conf(Role0) ->
     {ok, ConfMap} = hocon:binary(Hocon, #{format => map}),
     ConfMap.
 
+validate_cookie_test_() ->
+    [
+        {"cookie too long", fun() ->
+            LongCookie = lists:duplicate(255, $a),
+            Conf = io_lib:format("node {cookie = \"~s\", data_dir = \".\"}", [LongCookie]),
+            with_file(
+                "emqx-conf-cookie-long.hocon",
+                Conf,
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot be more than 255 bytes"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-long.hocon")
+                    )
+                end
+            )
+        end},
+        {"cookie with backslash", fun() ->
+            with_file(
+                "emqx-conf-cookie-backslash.hocon",
+                "node {cookie = \"my\\\\cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: backslash (\\)"}},
+                        emqx_hocon:load_and_check(
+                            emqx_conf_schema, "emqx-conf-cookie-backslash.hocon"
+                        )
+                    )
+                end
+            )
+        end},
+        {"cookie with single quote", fun() ->
+            with_file(
+                "emqx-conf-cookie-squote.hocon",
+                "node {cookie = \"my'cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: single quote (')"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-squote.hocon")
+                    )
+                end
+            )
+        end},
+        {"cookie with double quote", fun() ->
+            with_file(
+                "emqx-conf-cookie-dquote.hocon",
+                "node {cookie = \"my\\\"cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: double quote (\")"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-dquote.hocon")
+                    )
+                end
+            )
+        end},
+        {"cookie with space", fun() ->
+            with_file(
+                "emqx-conf-cookie-space.hocon",
+                "node {cookie = \"my cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: space"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-space.hocon")
+                    )
+                end
+            )
+        end}
+    ].
+
 fix_log_dir_path_test() ->
     ?assertEqual(
         "/opt/emqx/log/a.log",
