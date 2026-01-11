@@ -773,6 +773,30 @@ validate_cookie_test_() ->
         end}
     ].
 
+validate_tls_stateless_tickets_seed_test_() ->
+    [
+        {"empty seed is ok", fun() ->
+            ?assertEqual(ok, emqx_conf_schema:validate_tls_stateless_tickets_seed(<<>>))
+        end},
+        {"seed with 16+ bytes is ok", fun() ->
+            ?assertEqual(
+                ok, emqx_conf_schema:validate_tls_stateless_tickets_seed(<<"1234567890123456">>)
+            )
+        end},
+        {"seed too short", fun() ->
+            ?assertMatch(
+                {error, "tls_stateless_tickets_seed must be at least 16 bytes" ++ _},
+                emqx_conf_schema:validate_tls_stateless_tickets_seed(<<"short">>)
+            )
+        end},
+        {"seed must be string", fun() ->
+            ?assertEqual(
+                {error, "tls_stateless_tickets_seed must be a string value"},
+                emqx_conf_schema:validate_tls_stateless_tickets_seed(12345)
+            )
+        end}
+    ].
+
 fix_log_dir_path_test() ->
     ?assertEqual(
         "/opt/emqx/log/a.log",

@@ -37,6 +37,9 @@
     log_handler_common_confs/2
 ]).
 
+%% exported for testing
+-export([validate_tls_stateless_tickets_seed/1]).
+
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
 %% Static apps which merge their configs into the merged emqx.conf
