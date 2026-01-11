@@ -707,6 +707,18 @@ node_role_conf(Role0) ->
 
 validate_cookie_test_() ->
     [
+        {"empty cookie", fun() ->
+            with_file(
+                "emqx-conf-cookie-empty.hocon",
+                "node {cookie = \"\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie must be non-empty string"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-empty.hocon")
+                    )
+                end
+            )
+        end},
         {"cookie too long", fun() ->
             LongCookie = lists:duplicate(255, $a),
             Conf = io_lib:format("node {cookie = \"~s\", data_dir = \".\"}", [LongCookie]),
