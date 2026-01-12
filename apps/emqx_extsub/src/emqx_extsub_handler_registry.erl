@@ -97,18 +97,21 @@ subscribe(Registry, SubscribeType, SubscribeCtx, TopicFiltersToSubOpts) ->
         ]
     ).
 
--spec unsubscribe(t(), emqx_extsub_handler:unsubscribe_type(), [emqx_extsub_types:topic_filter()]) ->
+-spec unsubscribe(t(), emqx_extsub_handler:unsubscribe_type(), #{
+    emqx_extsub_types:topic_filter() => emqx_types:subopts()
+}) ->
     t().
 unsubscribe(
-    #registry{by_topic_cbm = ByTopicCBM} = Registry, TerminateType, TopicFilters
+    #registry{by_topic_cbm = ByTopicCBM} = Registry, TerminateType, Subs
 ) ->
-    TopicFilterSet = sets:from_list(TopicFilters, [{version, 2}]),
     maps:fold(
         fun({Module, TopicFilter}, HandlerRef, RegistryAcc) ->
-            case sets:is_element(TopicFilter, TopicFilterSet) of
-                true ->
-                    unsubscribe(RegistryAcc, TerminateType, Module, TopicFilter, HandlerRef);
-                false ->
+            case Subs of
+                #{TopicFilter := SubOpts} ->
+                    unsubscribe(
+                        RegistryAcc, TerminateType, SubOpts, Module, TopicFilter, HandlerRef
+                    );
+                _ ->
                     RegistryAcc
             end
         end,
@@ -294,6 +297,7 @@ unsubscribe(
         generic_message_handlers = GenericMessageHandlers
     } = Registry,
     UnsubscribeType,
+    SubOpts,
     Module,
     TopicFilter,
     HandlerRef
@@ -301,7 +305,10 @@ unsubscribe(
     #extsub{handler = Handler0, topic_filters = HandlerTopicFilters0} = maps:get(
         HandlerRef, ByRef0
     ),
-    Handler = emqx_extsub_handler:unsubscribe(UnsubscribeType, Handler0, TopicFilter),
+    UnsubscribeCtx = create_unsubscribe_ctx(SubOpts),
+    Handler = emqx_extsub_handler:unsubscribe(
+        UnsubscribeType, UnsubscribeCtx, Handler0, TopicFilter
+    ),
     HandlerTopicFilters = maps:remove(TopicFilter, HandlerTopicFilters0),
     ByRef =
         case map_size(HandlerTopicFilters) of
@@ -339,6 +346,11 @@ add_to_generic_message_handlers(GenericMessageHandlers, _HandlerRef, _Options) -
 
 remove_from_generic_message_handlers(GenericMessageHandlers, HandlerRef) ->
     lists:delete(HandlerRef, GenericMessageHandlers).
+
+create_unsubscribe_ctx(SubOpts) ->
+    #{
+        subopts => SubOpts
+    }.
 
 create_subscribe_ctx(Ref, SubOpts, Ctx) ->
     Pid = self(),

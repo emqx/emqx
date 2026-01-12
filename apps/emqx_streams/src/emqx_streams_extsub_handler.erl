@@ -38,7 +38,7 @@ DS streams are explicity called `DS streams' here.
 
 -export([
     handle_subscribe/4,
-    handle_unsubscribe/3,
+    handle_unsubscribe/4,
     handle_terminate/1,
     handle_delivered/4,
     handle_info/3
@@ -78,7 +78,8 @@ DS streams are explicity called `DS streams' here.
 -record(subscribe_params, {
     partition :: binary(),
     start_from :: binary(),
-    topic_filter :: binary()
+    topic_filter :: binary(),
+    full_topic_filter :: binary()
 }).
 
 -type subscribe_params() :: #subscribe_params{}.
@@ -97,7 +98,9 @@ DS streams are explicity called `DS streams' here.
     progress :: #{emqx_ds:shard() => shard_progress()},
     shard_by_dsstream :: #{emqx_ds:stream() => emqx_ds:shard()},
     ds_sub_id :: ds_sub_id(),
-    status :: stream_status()
+    status :: stream_status(),
+    %% Stream may disappear, we need to store the subscribe params to be able to re-subscribe
+    subscribe_params :: subscribe_params()
 }).
 
 -type stream_state() :: #stream_state{}.
@@ -115,7 +118,7 @@ DS streams are explicity called `DS streams' here.
     by_topic_filter :: #{emqx_types:topic() => ds_sub_id()},
     %% Topics that correspond to unknown or deleted streams
     %% We always hope that the streams will be created eventually
-    unknown_topic_filters :: sets:set(subscribe_params()),
+    unknown_topic_filters :: #{emqx_types:topic() => subscribe_params()},
     check_stream_status_tref :: reference() | undefined
 }).
 
@@ -136,6 +139,8 @@ DS streams are explicity called `DS streams' here.
     slab :: emqx_ds:slab(),
     ds_stream :: emqx_ds:stream()
 }).
+
+-define(START_FROM_USER_PROP, <<"start_from">>).
 
 %%------------------------------------------------------------------------------------
 %% ExtSub Handler callbacks
@@ -181,40 +186,27 @@ handle_subscribe(
             ignore
     end.
 
-handle_unsubscribe(_UnsubscribeType, Handler, TopicFilter) ->
-    case check_stream_subscribe_topic_filter(#{}, TopicFilter) of
-        {ok, SubscribeParams} ->
-            unsubscribe(Handler, SubscribeParams);
-        ?err_unrec(Reason) ->
-            ?tp(error, streams_extsub_handler_unsubscribe_error, #{
-                reason => Reason,
-                topic_filter => TopicFilter,
-                recoverable => false
-            }),
-            Handler
-    end.
-
-unsubscribe(
+handle_unsubscribe(
+    _UnsubscribeType,
+    _UnsubscribeCtx,
     #h{
         state =
             #state{by_topic_filter = ByTopicFilter, unknown_topic_filters = UnknownTopicFilters} =
                 State0
     } = Handler,
-    SubscribeParams
+    FullTopicFilter
 ) ->
     case ByTopicFilter of
-        #{SubscribeParams := DSSubId} ->
-            unsubscribe(Handler, SubscribeParams, DSSubId);
+        #{FullTopicFilter := DSSubId} ->
+            unsubscribe(Handler, FullTopicFilter, DSSubId);
         _ ->
-            case sets:is_element(SubscribeParams, UnknownTopicFilters) of
-                true ->
+            case UnknownTopicFilters of
+                #{FullTopicFilter := _} ->
                     State = State0#state{
-                        unknown_topic_filters = sets:del_element(
-                            SubscribeParams, UnknownTopicFilters
-                        )
+                        unknown_topic_filters = maps:remove(FullTopicFilter, UnknownTopicFilters)
                     },
                     Handler#h{state = State};
-                false ->
+                _ ->
                     Handler
             end
     end.
@@ -329,7 +321,12 @@ on_subscription_down(DSSubId, Slab, _DSStream, #state{ds_subs = DSSubs} = State)
 
 subscribe(
     Handler,
-    #subscribe_params{topic_filter = TopicFilter, partition = Partition, start_from = StartFromBin} =
+    #subscribe_params{
+        topic_filter = TopicFilter,
+        partition = Partition,
+        start_from = StartFromBin,
+        full_topic_filter = FullTopicFilter
+    } =
         SubscribeParams
 ) ->
     maybe
@@ -351,10 +348,11 @@ subscribe(
             progress = Progress,
             shard_by_dsstream = #{},
             ds_sub_id = DSSubId,
-            status = #stream_status_unblocked{}
+            status = #stream_status_unblocked{},
+            subscribe_params = SubscribeParams
         },
         State1 = State0#state{
-            by_topic_filter = ByTopicFilter#{SubscribeParams => DSSubId},
+            by_topic_filter = ByTopicFilter#{FullTopicFilter => DSSubId},
             ds_subs = DSSubs#{DSSubId => StreamState}
         },
         {ok, DSClient, State} = emqx_streams_message_db:subscribe(
@@ -365,18 +363,18 @@ subscribe(
 
 unsubscribe(
     #h{
-        state = #state{ds_subs = DSSubs} = State0,
+        state = State0,
         ds_client = DSClient0
     } =
         Handler,
-    SubscribeParams,
+    FullTopicFilter,
     DSSubId
 ) ->
     {ok, DSClient, #state{by_topic_filter = ByTopicFilter, ds_subs = DSSubs} = State1} = emqx_ds_client:unsubscribe(
         DSClient0, DSSubId, State0
     ),
     State = State1#state{
-        by_topic_filter = maps:remove(SubscribeParams, ByTopicFilter),
+        by_topic_filter = maps:remove(FullTopicFilter, ByTopicFilter),
         ds_subs = maps:remove(DSSubId, DSSubs)
     },
     Handler#h{state = State, ds_client = DSClient}.
@@ -622,14 +620,16 @@ parse_offset(OffsetBin) ->
     end.
 
 validate_new_topic_filter(
-    #h{state = #state{by_topic_filter = TopicFilters, unknown_topic_filters = UnknownTopicFilters}},
-    SubscribeParams
+    #h{
+        state = #state{by_topic_filter = ByTopicFilter, unknown_topic_filters = UnknownTopicFilters}
+    },
+    #subscribe_params{full_topic_filter = FullTopicFilter}
 ) ->
     case
-        maps:is_key(SubscribeParams, TopicFilters) or
-            sets:is_element(SubscribeParams, UnknownTopicFilters)
+        maps:is_key(FullTopicFilter, ByTopicFilter) or
+            maps:is_key(FullTopicFilter, UnknownTopicFilters)
     of
-        true -> ?err_unrec({topic_filter_already_present, #{topic_filter => SubscribeParams}});
+        true -> ?err_unrec({topic_filter_already_present, #{topic_filter => FullTopicFilter}});
         false -> ok
     end.
 
@@ -705,7 +705,7 @@ init_handler(undefined, #{send_after := SendAfterFn, send := SendFn} = _Ctx) ->
         status = #status_unblocked{},
         ds_subs = #{},
         by_topic_filter = #{},
-        unknown_topic_filters = sets:new([{version, 2}]),
+        unknown_topic_filters = #{},
         check_stream_status_tref = undefined
     },
     DSClient = emqx_streams_message_db:create_client(?MODULE),
@@ -769,9 +769,9 @@ inc_received_message_stat(#ds_sub_reply{}) ->
 
 add_unknown_stream(
     #h{state = #state{unknown_topic_filters = UnknownTopicFilters0} = State0} = Handler,
-    SubscribeParams
+    #subscribe_params{full_topic_filter = FullTopicFilter} = SubscribeParams
 ) ->
-    UnknownTopicFilters = sets:add_element(SubscribeParams, UnknownTopicFilters0),
+    UnknownTopicFilters = UnknownTopicFilters0#{FullTopicFilter => SubscribeParams},
     State = State0#state{unknown_topic_filters = UnknownTopicFilters},
     Handler#h{state = State}.
 
@@ -780,7 +780,7 @@ schedule_check_stream_status(#h{state = State} = Handler) ->
 schedule_check_stream_status(
     #state{unknown_topic_filters = UnknownTopicFilters, by_topic_filter = ByTopicFilter} = State
 ) ->
-    schedule_check_stream_status(State, sets:size(UnknownTopicFilters) + maps:size(ByTopicFilter)).
+    schedule_check_stream_status(State, maps:size(UnknownTopicFilters) + maps:size(ByTopicFilter)).
 
 schedule_check_stream_status(#state{check_stream_status_tref = TRef} = State, 0) ->
     _ = emqx_utils:cancel_timer(TRef),
@@ -807,16 +807,16 @@ check_unknown_stream_status(
 ) ->
     %% Set unknown topic filters to empty to avoid `topic_filter_already_present' errors
     %% when trying to subscribe
-    Handler1 = Handler0#h{state = State0#state{unknown_topic_filters = sets:new([{version, 2}])}},
-    {Handler, UnknownTopicFilters} = lists:foldl(
-        fun(SubscribeParams, {HandlerAcc0, UnknownTopicFiltersAcc}) ->
+    Handler1 = Handler0#h{state = State0#state{unknown_topic_filters = #{}}},
+    {Handler, UnknownTopicFilters} = maps:fold(
+        fun(FullTopicFilter, SubscribeParams, {HandlerAcc0, UnknownTopicFiltersAcc}) ->
             case subscribe(HandlerAcc0, SubscribeParams) of
                 {ok, HandlerAcc} ->
                     {HandlerAcc, UnknownTopicFiltersAcc};
                 ?err_unrec(Reason) ->
                     ?tp(error, streams_extsub_handler_delayed_subscribe_error, #{
                         reason => Reason,
-                        topic_filter => SubscribeParams,
+                        topic_filter => FullTopicFilter,
                         recoverable => false
                     }),
                     %% Should never happen, however, do not retry on unrecoverable error
@@ -824,14 +824,14 @@ check_unknown_stream_status(
                 ?err_rec(Reason) ->
                     ?tp(info, streams_extsub_handler_delayed_subscribe_error, #{
                         reason => Reason,
-                        topic_filter => SubscribeParams,
+                        topic_filter => FullTopicFilter,
                         recoverable => true
                     }),
-                    {HandlerAcc0, sets:add_element(SubscribeParams, UnknownTopicFiltersAcc)}
+                    {HandlerAcc0, UnknownTopicFiltersAcc#{FullTopicFilter => SubscribeParams}}
             end
         end,
-        {Handler1, sets:new([{version, 2}])},
-        sets:to_list(UnknownTopicFilters0)
+        {Handler1, #{}},
+        UnknownTopicFilters0
     ),
     #h{state = State} = Handler,
     Handler#h{state = State#state{unknown_topic_filters = UnknownTopicFilters}}.
@@ -844,15 +844,18 @@ check_active_streams_status(
     } = Handler0
 ) ->
     {Handler, UnknownTopicFilters} = maps:fold(
-        fun(SubscribeTopicFilter, DSSubId, {HandlerAcc0, UnknownTopicFiltersAcc}) ->
+        fun(FullTopicFilter, DSSubId, {HandlerAcc0, UnknownTopicFiltersAcc}) ->
             #h{state = #state{ds_subs = DSSubs}} = HandlerAcc0,
-            #stream_state{stream = #{id := Id} = Stream} = maps:get(DSSubId, DSSubs),
+            #stream_state{
+                stream = #{id := Id} = Stream,
+                subscribe_params = SubscribeParams
+            } = maps:get(DSSubId, DSSubs),
             case emqx_streams_registry:find(emqx_streams_prop:topic_filter(Stream)) of
                 {ok, #{id := Id}} ->
                     {HandlerAcc0, UnknownTopicFiltersAcc};
                 _ ->
-                    HandlerAcc = unsubscribe(HandlerAcc0, SubscribeTopicFilter, DSSubId),
-                    {HandlerAcc, sets:add_element(SubscribeTopicFilter, UnknownTopicFiltersAcc)}
+                    HandlerAcc = unsubscribe(HandlerAcc0, FullTopicFilter, DSSubId),
+                    {HandlerAcc, UnknownTopicFiltersAcc#{FullTopicFilter => SubscribeParams}}
             end
         end,
         {Handler0, UnknownTopicFilters0},
@@ -861,43 +864,52 @@ check_active_streams_status(
     #h{state = State} = Handler,
     Handler#h{state = State#state{unknown_topic_filters = UnknownTopicFilters}}.
 
-check_stream_subscribe_topic_filter(_SubscribeCtx, <<"$s/", TopicFilter0/binary>>) ->
+check_stream_subscribe_topic_filter(_Ctx, <<"$s/", TopicFilter0/binary>> = FullTopicFilter) ->
     maybe
         {ok, StartFrom, TopicFilter} ?= split_topic_filter(TopicFilter0),
         {ok, #subscribe_params{
             partition = <<"all">>,
             start_from = StartFrom,
-            topic_filter = TopicFilter
+            topic_filter = TopicFilter,
+            full_topic_filter = FullTopicFilter
         }}
     end;
-check_stream_subscribe_topic_filter(_SubscribeCtx, <<"$stream/", TopicFilter/binary>>) ->
+check_stream_subscribe_topic_filter(Ctx, <<"$stream/", TopicFilter/binary>> = FullTopicFilter) ->
+    SubOpts = maps:get(subopts, Ctx, #{}),
+    SubProps = maps:get(sub_props, SubOpts, #{}),
+    UserProperties = maps:get('User-Property', SubProps, []),
+    StartFrom = proplists:get_value(?START_FROM_USER_PROP, UserProperties, <<"earliest">>),
     maybe
         {ok, #subscribe_params{
             partition = <<"all">>,
-            start_from = <<"earliest">>,
-            topic_filter = TopicFilter
+            start_from = StartFrom,
+            topic_filter = TopicFilter,
+            full_topic_filter = FullTopicFilter
         }}
     end;
-check_stream_subscribe_topic_filter(SubscribeCtx, <<"$sp/", _/binary>> = TopicFilter) ->
-    check_stream_subscribe_topic_filter_partition(SubscribeCtx, TopicFilter).
+check_stream_subscribe_topic_filter(Ctx, <<"$sp/", _/binary>> = FullTopicFilter) ->
+    check_stream_subscribe_topic_filter_with_partition(Ctx, FullTopicFilter).
 
 %% Hide partitions from the user for now
 -ifdef(TEST).
 
-check_stream_subscribe_topic_filter_partition(_SubscribeCtx, <<"$sp/", TopicFilter0/binary>>) ->
+check_stream_subscribe_topic_filter_with_partition(
+    _Ctx, <<"$sp/", TopicFilter0/binary>> = FullTopicFilter
+) ->
     maybe
         {ok, Partition, Rest1} ?= split_topic_filter(TopicFilter0),
         {ok, StartFrom, TopicFilter} ?= split_topic_filter(Rest1),
         {ok, #subscribe_params{
             partition = Partition,
             start_from = StartFrom,
-            topic_filter = TopicFilter
+            topic_filter = TopicFilter,
+            full_topic_filter = FullTopicFilter
         }}
     end.
 
 -else.
 
-check_stream_subscribe_topic_filter_partition(_SubscribeCtx, _TopicFilter) ->
+check_stream_subscribe_topic_filter_with_partition(_Ctx, _TopicFilter) ->
     ?err_unrec(invalid_topic_filter).
 
 -endif.

@@ -175,19 +175,19 @@ on_subscribed(SubscribeType, ClientInfo, TopicFiltersToSubOpts) ->
         }}
     end).
 
-on_session_unsubscribed(_ClientInfo, TopicFilter, _SubOpts) ->
-    ?tp_debug(extsub_on_session_unsubscribed, #{topic_filter => TopicFilter}),
-    on_unsubscribed(unsubscribe, [TopicFilter]).
+on_session_unsubscribed(_ClientInfo, TopicFilter, SubOpts) ->
+    ?tp_debug(extsub_on_session_unsubscribed, #{topic_filter => TopicFilter, sub_opts => SubOpts}),
+    on_unsubscribed(unsubscribe, #{TopicFilter => SubOpts}).
 
 on_session_disconnected(_ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ?tp_debug(extsub_on_session_disconnected, #{subscriptions => Subs}),
-    on_unsubscribed(disconnect, maps:keys(Subs)).
+    on_unsubscribed(disconnect, Subs).
 
-on_unsubscribed(UnsubscribeType, TopicFilters) ->
+on_unsubscribed(UnsubscribeType, Subs) ->
     with_st(fun(#st{registry = HandlerRegistry} = St) ->
         {ok, St#st{
             registry = emqx_extsub_handler_registry:unsubscribe(
-                HandlerRegistry, UnsubscribeType, TopicFilters
+                HandlerRegistry, UnsubscribeType, Subs
             )
         }}
     end).
