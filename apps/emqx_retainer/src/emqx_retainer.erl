@@ -29,7 +29,6 @@
 
 %% Hooks
 -export([
-    on_session_subscribed/3,
     on_message_publish/1,
     post_config_update/5,
     on_config_zones_updated/2
@@ -62,7 +61,8 @@
 -export_type([
     deadline/0,
     cursor/0,
-    context/0
+    context/0,
+    index_incarnation/0
 ]).
 
 %% exported for `emqx_telemetry'
@@ -87,6 +87,7 @@
 -type deadline() :: emqx_utils_calendar:epoch_millisecond().
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
+-type index_incarnation() :: integer().
 
 -define(CONTEXT_KEY, {?MODULE, context}).
 -define(BATCH_READ_NUM_PD_KEY, {?MODULE, batch_read_num}).
@@ -109,19 +110,11 @@
 -callback delete_cursor(backend_state(), cursor()) -> ok.
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
+-callback current_index_incarnation(backend_state()) -> index_incarnation().
 
 %%------------------------------------------------------------------------------
 %% Hook API
 %%------------------------------------------------------------------------------
--spec on_session_subscribed(_, _, emqx_types:subopts()) -> any().
-on_session_subscribed(_, #share{} = _Topic, _SubOpts) ->
-    ok;
-on_session_subscribed(_, Topic, #{rh := Rh} = Opts) ->
-    IsNew = maps:get(is_new, Opts, true),
-    case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
-        true -> emqx_retainer_dispatcher:dispatch(Topic);
-        _ -> ok
-    end.
 
 %% RETAIN flag set to 1 and payload containing zero bytes
 on_message_publish(

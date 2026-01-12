@@ -171,13 +171,17 @@ get_limiter() ->
     LimiterId = {?RETAINER_LIMITER_GROUP, ?DISPATCHER_LIMITER_NAME},
     emqx_limiter:connect(LimiterId).
 
-next_cursor(?no_cursor, _NumFetchedMessages) ->
+next_cursor(?no_cursor = Cursor, _NumFetchedMessages, Handler) ->
+    #h{mod = Mod, state = State} = Handler,
+    _ = Mod:delete_cursor(State, Cursor),
     ?done;
-next_cursor(_Cursor, 0 = _NumFetchedMessages) ->
+next_cursor(?no_wildcard, _NumFetchedMessages, _Handler) ->
     ?done;
-next_cursor(?no_wildcard, _NumFetchedMessages) ->
+next_cursor(Cursor, 0 = _NumFetchedMessages, Handler) ->
+    #h{mod = Mod, state = State} = Handler,
+    _ = Mod:delete_cursor(State, Cursor),
     ?done;
-next_cursor(Cursor, _NumFetchedMessages) ->
+next_cursor(Cursor, _NumFetchedMessages, _Handler) ->
     ?cursor(Cursor).
 
 try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
@@ -192,7 +196,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Surplus = max(0, N - NumFetchedMessages),
             Limiter = emqx_limiter_client:put_back(Limiter1, Surplus),
             Messages = filter_delivery(Messages0),
-            Cursor = next_cursor(InnerCursor, NumFetchedMessages),
+            Cursor = next_cursor(InnerCursor, NumFetchedMessages, Handler0),
             Handler = Handler0#h{limiter = Limiter, cursor = Cursor},
             {ok, Handler, Messages};
         {error, Limiter1, Reason} ->
