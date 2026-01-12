@@ -1776,7 +1776,7 @@ validate_tls_stateless_tickets_seed(_) ->
 validate_cookie("") ->
     throw("Cookie must be non-empty string");
 validate_cookie(Cookie) when is_list(Cookie) ->
-    case length(Cookie) >= 255 of
+    case length(Cookie) > 255 of
         true ->
             throw("Cookie cannot be more than 255 bytes");
         false ->

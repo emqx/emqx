@@ -720,7 +720,7 @@ validate_cookie_test_() ->
             )
         end},
         {"cookie too long", fun() ->
-            LongCookie = lists:duplicate(255, $a),
+            LongCookie = lists:duplicate(256, $a),
             Conf = io_lib:format("node {cookie = \"~s\", data_dir = \".\"}", [LongCookie]),
             with_file(
                 "emqx-conf-cookie-long.hocon",
