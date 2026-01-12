@@ -101,11 +101,11 @@ on_gateway_unload(
         name := GwName,
         config := Config
     },
-    _GwState = #{ctx := Ctx}
+    _GwState
 ) ->
     ok = clear_predefined_topics(Config),
-    ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(GwName, Config, ?MOD_CFG, Ctx),
-    emqx_gateway_utils:stop_listeners(ListenerConfigs).
+    ListenerIds = emqx_gateway_utils_conf:to_rt_listener_ids(GwName, Config),
+    emqx_gateway_utils:stop_listeners(ListenerIds).
 
 %%--------------------------------------------------------------------
 %% Internal functions

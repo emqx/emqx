@@ -93,7 +93,7 @@ on_gateway_unload(
         name := GwName,
         config := Config
     },
-    _GwState = #{registry := _RegPid, ctx := Ctx}
+    _GwState = #{registry := _RegPid}
 ) ->
     try
         emqx_lwm2m_xml_object_db:stop()
@@ -106,5 +106,5 @@ on_gateway_unload(
                 gateway => GwName
             })
     end,
-    ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(GwName, Config, ?MOD_CFG, Ctx),
-    emqx_gateway_utils:stop_listeners(ListenerConfigs).
+    ListenerIds = emqx_gateway_utils_conf:to_rt_listener_ids(GwName, Config),
+    emqx_gateway_utils:stop_listeners(ListenerIds).

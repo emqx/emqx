@@ -124,6 +124,9 @@ find_sup_child(Sup, ChildId) ->
         {_Id, Pid, _Type, _Mods} -> {ok, Pid}
     end.
 
+-doc """
+    Start listeners of a gateway using runtime listener configurations.
+""".
 -spec start_listeners(list(listener_runtime_config())) ->
     {ok, [pid()]}
     | {error, {_Reason :: term(), listener_runtime_config()}}.
@@ -210,7 +213,7 @@ do_start_listener(#{
     cowboy:start_tls(ListenerId, RanchOpts, WsOpts).
 
 -doc """
-    Stop specified listeners of a gateway.
+    Stop specified listeners of a gateway using runtime listener configurations or runtime listener ids.
 """.
 -spec stop_listeners(list(listener_runtime_config() | listener_runtime_id())) -> ok.
 stop_listeners(ListenerConfigs) ->
