@@ -72,6 +72,11 @@ Note: When it's true, the connector must also have "SQL Dialect" set to "table".
 config_write_to_table.label:
 """Write To Table"""
 
+config_table_name.desc:
+"""The name of the IoTDB table to which the data will be written. This parameter is required when SQL Dialect is set to "Table"."""
+config_table_name.label:
+"""Table"""
+
 config_max_retries.desc:
 """HTTP request max retry times if failed."""
 

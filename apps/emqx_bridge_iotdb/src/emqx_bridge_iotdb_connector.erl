@@ -151,18 +151,10 @@ fields("connection_fields") ->
             )},
         {sql_dialect,
             mk(
-                hoconsc:enum([tree, table]),
+                hoconsc:union([tree, ref(?MODULE, sql_dialect_table)]),
                 #{
                     desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
                     default => tree
-                }
-            )},
-        {database,
-            mk(
-                binary(),
-                #{
-                    desc => ?DESC(emqx_bridge_iotdb, "config_database"),
-                    required => false
                 }
             )},
         {authentication,
@@ -170,6 +162,17 @@ fields("connection_fields") ->
                 hoconsc:union([ref(?MODULE, authentication)]),
                 #{
                     default => auth_basic, desc => ?DESC("config_authentication")
+                }
+            )}
+    ];
+fields(sql_dialect_table) ->
+    [
+        {database,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC(emqx_bridge_iotdb, "config_database"),
+                    required => false
                 }
             )}
     ];
@@ -198,18 +201,10 @@ fields("config_thrift") ->
                 )},
             {sql_dialect,
                 mk(
-                    hoconsc:enum([tree, table]),
+                    hoconsc:union([tree, ref(?MODULE, sql_dialect_table)]),
                     #{
                         desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
                         default => tree
-                    }
-                )},
-            {database,
-                mk(
-                    binary(),
-                    #{
-                        desc => ?DESC(emqx_bridge_iotdb, "config_database"),
-                        required => false
                     }
                 )},
             {'zoneId',
@@ -268,6 +263,8 @@ desc(authentication) ->
     ?DESC("config_authentication");
 desc(connector_resource_opts) ->
     "Connector resource options";
+desc(sql_dialect_table) ->
+    ?DESC(emqx_bridge_iotdb, "config_sql_dialect");
 desc(Struct) when is_list(Struct) ->
     case string:split(Struct, "_") of
         ["config", _] ->
@@ -682,7 +679,13 @@ on_add_channel(
     maybe
         WriteToTable = maps:get(write_to_table, Parameter, false),
         SqlDialect = maps:get(sql_dialect, OldState0, tree),
-        DeviceId = maps:get(device_id, Parameter, <<>>),
+        DeviceId =
+            case WriteToTable of
+                true ->
+                    maps:get(table, Parameter, <<>>);
+                false ->
+                    maps:get(device_id, Parameter, <<>>)
+            end,
         ok ?= check_channel_exists(ChannelId, Channels),
         ok ?= check_write_to_table(WriteToTable, SqlDialect),
         ok ?= check_restapi_version(Version),
@@ -734,7 +737,13 @@ on_add_channel(
         WriteToTable = maps:get(write_to_table, Parameter, false),
         ok ?= check_channel_exists(ChannelId, Channels),
         ok ?= check_write_to_table(WriteToTable, SqlDialect),
-        DeviceId = maps:get(device_id, Parameter, <<>>),
+        DeviceId =
+            case WriteToTable of
+                true ->
+                    maps:get(table, Parameter, <<>>);
+                false ->
+                    maps:get(device_id, Parameter, <<>>)
+            end,
         {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, DeviceId),
         {ok, DataTemplate} ?= preproc_data_template(WriteToTable, Data),
         %% update IoTDB channel
@@ -1309,9 +1318,7 @@ proc_record_data_for_table([], _Msg, MeasurementAcc, ValueAcc) ->
     {ok, lists:reverse(MeasurementAcc), lists:reverse(ValueAcc)}.
 
 init_connector_state(Config) ->
-    SqlDialect = maps:get(sql_dialect, Config, tree),
-    Database = maps:get(database, Config, <<>>),
-    case {SqlDialect, Database} of
+    case parse_sql_dialect(maps:get(sql_dialect, Config, tree)) of
         {table, <<>>} ->
             throw({failed_to_start_iotdb_bridge, "database is required when sql_dialect is table"});
         {table, Database} when is_binary(Database) ->
@@ -1319,6 +1326,11 @@ init_connector_state(Config) ->
         {tree, _} ->
             #{sql_dialect => tree}
     end.
+
+parse_sql_dialect(#{database := Database}) ->
+    {table, Database};
+parse_sql_dialect(SqlDialect) when SqlDialect =:= tree orelse SqlDialect =:= undefined ->
+    {tree, <<>>}.
 
 to_bin(Atom) when is_atom(Atom) ->
     erlang:atom_to_binary(Atom);
