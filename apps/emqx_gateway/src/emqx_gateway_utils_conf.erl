@@ -95,8 +95,6 @@
 -type listener_type() :: esockd_type() | cowboy_type().
 
 -type esockd_opts() :: #{
-    %% TODO
-    %% rename to protocol
     type => esockd_type(),
     socket_opts => socket_opts(),
     mfa => {atom(), atom(), list()}
@@ -118,7 +116,7 @@
 }.
 
 %% Minimal runtime information about a listener.
-%% Listeners may be stopped/queried by this information.
+%% Listeners may be stopped/queried by this id.
 -type listener_runtime_id() :: #{
     listener_id := listener_id(),
     listen_on := listen_on(),
@@ -168,6 +166,13 @@
 %% Public API
 %%--------------------------------------------------------------------
 
+-doc """
+    Convert
+    * configuration from config
+    * callback module configuration
+    * runtime context
+    into a list of runtime listener configurations (ready to pass to the transport module esockd/cowboy)
+""".
 -spec to_rt_listener_configs(gw_name(), map(), map(), term()) -> list(listener_runtime_config()).
 to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
     GwConfig1 = maps:without([listeners], GwConfig0),
@@ -230,6 +235,9 @@ to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
         ListenerConfigList
     ).
 
+-doc """
+    Get plain list of all listener configurations from configuration map.
+""".
 -spec listener_configs(map()) -> list({listener_type(), listener_name(), map()}).
 listener_configs(GwConfig) ->
     ListenerConfigMap = maps:get(listeners, GwConfig, #{}),
@@ -239,6 +247,9 @@ listener_configs(GwConfig) ->
         {Name, ListenerConfig} <- maps:to_list(TypeListeners)
     ].
 
+-doc """
+    Diff two lists of runtime listener configurations and return the listeners to stop, update, and start.
+""".
 -spec diff_rt_listener_configs(list(listener_runtime_config()), list(listener_runtime_config())) ->
     #{
         stop => list(listener_runtime_config()),
@@ -279,6 +290,11 @@ diff_rt_listener_configs(OldListenerConfigs, NewListenerConfigs) ->
     ),
     #{stop => Stop, update => Update, start => Start}.
 
+-doc """
+    Convert a gateway configuration to a list of runtime listener ids,
+    i.e. identifiers of running listeners that are sufficient to address them
+    via transport modules (esockd/cowboy).
+""".
 to_rt_listener_ids(GwName, GwConfig0) ->
     %% Get plain list of all listener configurations of all types
     ListenerConfigList = listener_configs(GwConfig0),
