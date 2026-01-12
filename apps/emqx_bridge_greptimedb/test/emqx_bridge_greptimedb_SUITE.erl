@@ -116,7 +116,7 @@ init_per_testcase(TestCase, TCConfig) ->
             <<"query_mode">> => get_config(query_mode, TCConfig, <<"sync">>)
         }
     }),
-    clear_table(TCConfig),
+    drop_table(TCConfig),
     snabbkaffe:start_trace(),
     [
         {bridge_kind, action},
@@ -132,7 +132,7 @@ init_per_testcase(TestCase, TCConfig) ->
 end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
     reset_proxy(),
-    clear_table(TCConfig),
+    drop_table(TCConfig),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
@@ -223,6 +223,9 @@ start_ehttpc_pool(EHttpcPoolName) ->
     ok.
 
 clear_table(TCConfig) ->
+    query_by_sql(<<"delete from mqtt">>, TCConfig).
+
+drop_table(TCConfig) ->
     query_by_sql(<<"drop table mqtt">>, TCConfig).
 
 query_by_clientid(ClientId, TCConfig) ->
@@ -517,6 +520,7 @@ t_boolean_variants(TCConfig) ->
     },
     maps:foreach(
         fun(BoolVariant, Translation) ->
+            ct:pal("testing ~p -> ~p", [BoolVariant, Translation]),
             Payload = json_encode(#{
                 int_key => -123,
                 bool => BoolVariant,
@@ -534,7 +538,8 @@ t_boolean_variants(TCConfig) ->
                     #{variant => {BoolVariant, Translation}}
                 )
             ),
-            clear_table(TCConfig)
+            clear_table(TCConfig),
+            ct:sleep(100)
         end,
         BoolVariants
     ),
