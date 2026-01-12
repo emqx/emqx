@@ -96,7 +96,6 @@ DS streams are explicity called `DS streams' here.
     shard :: emqx_ds:shard() | ?all_shards,
     start_time_us :: emqx_ds:time(),
     progress :: #{emqx_ds:shard() => shard_progress()},
-    shard_by_dsstream :: #{emqx_ds:stream() => emqx_ds:shard()},
     ds_sub_id :: ds_sub_id(),
     status :: stream_status(),
     %% Stream may disappear, we need to store the subscribe params to be able to re-subscribe
@@ -282,7 +281,7 @@ on_new_iterator(
         #{DSSubId := #stream_state{shard = SubShard}} when
             SubShard =:= Shard orelse SubShard =:= ?all_shards
         ->
-            {subscribe, add_dsstream_to_index(State, DSSubId, DSStream, Shard)};
+            {subscribe, State};
         #{DSSubId := _} ->
             SendFn(#complete_stream{
                 ds_sub_id = DSSubId, slab = Slab, ds_stream = DSStream
@@ -346,7 +345,6 @@ subscribe(
             shard = SubShard,
             start_time_us = StartTimeUs,
             progress = Progress,
-            shard_by_dsstream = #{},
             ds_sub_id = DSSubId,
             status = #stream_status_unblocked{},
             subscribe_params = SubscribeParams
@@ -504,38 +502,21 @@ unblock_stream(Handler, UnblockFns) ->
 
 %% Managament of DS streams in Stream states.
 
-remove_dsstream_from_index(#state{} = State, DSSubId, DSStream) ->
-    #stream_state{shard_by_dsstream = ShardByDSStream} =
-        StreamState0 = get_stream_state(DSSubId, State),
-    StreamState = StreamState0#stream_state{
-        shard_by_dsstream = maps:remove(DSStream, ShardByDSStream)
-    },
-    update_stream_state(State, DSSubId, StreamState).
-
 complete_skipped_dsstream(
     #h{state = State0, ds_client = DSClient0} = Handler, DSSubId, Slab, DSStream
 ) ->
-    {DSClient, State1} = emqx_ds_client:complete_stream(DSClient0, DSSubId, Slab, DSStream, State0),
-    State = remove_dsstream_from_index(State1, DSSubId, DSStream),
+    {DSClient, State} = emqx_ds_client:complete_stream(DSClient0, DSSubId, Slab, DSStream, State0),
     Handler#h{ds_client = DSClient, state = State}.
 
 complete_subscribed_dsstream(
-    #h{state = State0, ds_client = DSClient0} = Handler, DSSubId, SubRef, DSStream
+    #h{state = State0, ds_client = DSClient0} = Handler, _DSSubId, SubRef, _DSStream
 ) ->
-    {DSClient, State1} = emqx_ds_client:complete_stream(DSClient0, SubRef, State0),
-    State = remove_dsstream_from_index(State1, DSSubId, DSStream),
+    {DSClient, State} = emqx_ds_client:complete_stream(DSClient0, SubRef, State0),
     Handler#h{ds_client = DSClient, state = State}.
 
-add_dsstream_to_index(#state{} = State, DSSubId, DSStream, Shard) ->
-    #stream_state{shard_by_dsstream = ShardByDSStream} =
-        StreamState0 = get_stream_state(DSSubId, State),
-    StreamState = StreamState0#stream_state{
-        shard_by_dsstream = ShardByDSStream#{DSStream => Shard}
-    },
-    update_stream_state(State, DSSubId, StreamState).
-
-get_shard_by_dsstream(#stream_state{shard_by_dsstream = ShardByDSStream}, DSStream) ->
-    maps:get(DSStream, ShardByDSStream).
+get_shard_by_dsstream(#stream_state{stream = Stream}, DSStream) ->
+    {ok, {Shard, _Generation}} = emqx_streams_message_db:slab_of_dsstream(Stream, DSStream),
+    Shard.
 
 advance_shard_generation(
     #stream_state{shard = SubShard, start_time_us = StartTimeUs, progress = Progress0} =
@@ -717,9 +698,6 @@ update_stream_state(#h{state = State} = Handler, DSSubId, StreamState) ->
     Handler#h{state = update_stream_state(State, DSSubId, StreamState)};
 update_stream_state(#state{ds_subs = DSSubs} = State, DSSubId, StreamState) ->
     State#state{ds_subs = DSSubs#{DSSubId => StreamState}}.
-
-get_stream_state(DSSubId, #state{ds_subs = DSSubs}) ->
-    maps:get(DSSubId, DSSubs).
 
 decode_message(_Shard, ?STREAMS_MESSAGE_DB_TOPIC(_TF, _StreamId, Key), Time, Payload) ->
     Message = emqx_streams_message_db:decode_message(Payload),
