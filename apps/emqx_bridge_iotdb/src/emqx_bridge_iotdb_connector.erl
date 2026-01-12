@@ -1079,7 +1079,7 @@ init_render_acc(Driver = restapi, _WriteToTable = true, Database, Channel) ->
         column_catogories => ColumnCategories,
         data_types => DataTypes,
         timestamps => [],
-        values => lists:duplicate(length(DataTypes), []),
+        values => [],
         is_aligned => IsAligned
     };
 init_render_acc(Driver = thrift, _WriteToTable = true, _Database, Channel) ->
@@ -1139,7 +1139,7 @@ append_record(
     Records#{
         timestamps := [Ts | TsL],
         column_names := [Measurements | ColumnNamesL],
-        values := append_value(Vals, ValL)
+        values := [Vals | ValL]
     };
 append_record(
     _Driver = thrift,
