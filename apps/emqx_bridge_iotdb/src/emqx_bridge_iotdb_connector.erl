@@ -1076,7 +1076,7 @@ init_render_acc(Driver = restapi, _WriteToTable = true, Database, Channel) ->
         database => Database,
         table => maps:get(device_id, Channel),
         column_names => [],
-        column_categories => ColumnCategories,
+        column_catogories => ColumnCategories,
         data_types => DataTypes,
         timestamps => [],
         values => lists:duplicate(length(DataTypes), []),
