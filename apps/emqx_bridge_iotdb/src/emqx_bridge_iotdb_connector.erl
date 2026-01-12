@@ -1014,11 +1014,12 @@ normalize_thrift_timeout(Timeouts) ->
 %% batch
 %%-------------------------------------------------------------------------------------
 
-try_render_records([{ChannelId, _} | _] = Msgs, #{driver := Driver, channels := Channels}) ->
+try_render_records([{ChannelId, _} | _] = Msgs, #{driver := Driver, channels := Channels} = State) ->
     case maps:find(ChannelId, Channels) of
         {ok, Channel} ->
+            Database = maps:get(database, State, <<>>),
             WriteToTable = maps:get(write_to_table, Channel, false),
-            InitialAcc = init_render_acc(Driver, WriteToTable, Channel),
+            InitialAcc = init_render_acc(Driver, WriteToTable, Database, Channel),
             case do_render_record(Msgs, Channel, Driver, InitialAcc) of
                 {ok, Acc} ->
                     case WriteToTable of
@@ -1057,7 +1058,7 @@ do_validate_measurements_consistency(Used, More) ->
             ok
     end.
 
-init_render_acc(Driver, _WriteToTable = false, Channel) ->
+init_render_acc(Driver, _WriteToTable = false, _Database, Channel) ->
     IsAligned = maps:get(is_aligned, Channel, false),
     #{
         timestamps => [],
@@ -1067,11 +1068,12 @@ init_render_acc(Driver, _WriteToTable = false, Channel) ->
         devices => [],
         is_aligned_name(Driver) => IsAligned
     };
-init_render_acc(Driver = restapi, _WriteToTable = true, Channel) ->
+init_render_acc(Driver = restapi, _WriteToTable = true, Database, Channel) ->
     IsAligned = maps:get(is_aligned, Channel, false),
     ColumnCategories = encode_column_categories(Driver, maps:get(data, Channel)),
     DataTypes = encode_data_types(maps:get(data, Channel)),
     #{
+        database => Database,
         table => maps:get(device_id, Channel),
         column_names => [],
         column_categories => ColumnCategories,
@@ -1080,7 +1082,7 @@ init_render_acc(Driver = restapi, _WriteToTable = true, Channel) ->
         values => lists:duplicate(length(DataTypes), []),
         is_aligned => IsAligned
     };
-init_render_acc(Driver = thrift, _WriteToTable = true, Channel) ->
+init_render_acc(Driver = thrift, _WriteToTable = true, _Database, Channel) ->
     IsAligned = maps:get(is_aligned, Channel, false),
     ColumnCategories = encode_column_categories(Driver, maps:get(data, Channel)),
     DataTypes = encode_data_types(maps:get(data, Channel)),
