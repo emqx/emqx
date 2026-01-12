@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ai_completion_api_SUITE).
@@ -19,6 +19,9 @@
         uri/1
     ]
 ).
+
+-define(PORT(Config), ?config(port, Config)).
+-define(BIN_PORT(Config), (integer_to_binary(?PORT(Config))) / binary).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -42,7 +45,8 @@ end_per_suite(Config) ->
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
     ok = emqx_ai_completion_test_helpers:clean_providers(),
-    Config.
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    [{port, Port} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
@@ -334,7 +338,7 @@ t_api_key_redact(_Config) ->
         emqx_ai_completion_config:get_providers_raw()
     ).
 
-t_models(_Config) ->
+t_models(Config) ->
     %% Create provider
     ?assertMatch(
         {ok, 204},
@@ -342,12 +346,12 @@ t_models(_Config) ->
             name => <<"test-provider">>,
             type => <<"openai">>,
             api_key => <<"test-api-key">>,
-            base_url => <<"http://localhost:33330/v1">>
+            base_url => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         })
     ),
 
     %% Setup mock
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), openai_models),
 
     %% Succeed to fetch models of the provider
     ?assertMatch(
@@ -361,9 +365,9 @@ t_models(_Config) ->
         api_get([ai, providers, <<"non-existent-provider">>, models])
     ).
 
-t_models_no_provider(_Config) ->
+t_models_no_provider(Config) ->
     %% Setup mock
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), openai_models),
 
     %% Succeed to fetch models of the test provider
     ?assertMatch(
@@ -371,7 +375,7 @@ t_models_no_provider(_Config) ->
         api_post([ai, models], #{
             type => <<"openai">>,
             api_key => <<"test-api-key">>,
-            base_url => <<"http://localhost:33330/v1">>
+            base_url => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         })
     ),
 
@@ -382,13 +386,14 @@ t_models_no_provider(_Config) ->
             xxx => <<"test-provider">>
         })
     ),
+    InvalidPort = ?PORT(Config) + 1,
     ?assertMatch(
         {ok, 503, _},
         api_post([ai, models], #{
             type => <<"openai">>,
             api_key => <<"test-api-key">>,
             %% invalid port
-            base_url => <<"http://localhost:33333/v1">>
+            base_url => <<"http://localhost:", (integer_to_binary(InvalidPort))/binary, "/v1">>
         })
     ).
 
