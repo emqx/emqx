@@ -15,6 +15,9 @@
     delete_all_mappings_in_pd/0
 ]).
 
+%% Internal exports (for schema registry application)
+-export([cleanup_entries_for/1]).
+
 %% Debug/test only
 -export([all_mappings/0]).
 
@@ -30,6 +33,7 @@
 -define(TAB, emqx_schema_registry_spb_state).
 -define(CURR_MAPPING_PD_KEY, {?MODULE, alias_mapping}).
 -define(ALL_MAPPINGS_PD_KEY, {?MODULE, all_alias_mappings}).
+-define(ENTRY(KEY, MAPPING, PID), {KEY, MAPPING, PID}).
 
 -type spb_message() :: spb_birth_message() | spb_data_message().
 -type spb_birth_message() :: #nbirth{} | #dbirth{}.
@@ -99,7 +103,6 @@ register_aliases(#message{payload = Payload}, BirthMsg) ->
             ok
     catch
         Kind:Error:Stacktrace ->
-            %% TODO: log
             ?SLOG(warning, #{
                 msg => "bad_spb_birth_message",
                 exception => Kind,
@@ -129,7 +132,19 @@ get_current_alias_mapping() ->
 delete_all_mappings_in_pd() ->
     Keys = maps:keys(get_known_mapping_keys_pd()),
     lists:foreach(fun delete_alias_mapping/1, Keys),
+    emqx_schema_registry_spb_gc:unregister_client(self()),
     ?tp("sr_mappings_deleted", #{keys => Keys}),
+    ok.
+
+%%------------------------------------------------------------------------------
+%% Internal exports (for schema registry application)
+%%------------------------------------------------------------------------------
+
+-spec cleanup_entries_for(pid()) -> ok.
+cleanup_entries_for(Pid) ->
+    MS = [{?ENTRY('_', '_', Pid), [], [true]}],
+    N = ets:select_delete(?TAB, MS),
+    ?tp("sr_mappings_deleted", #{pid => Pid, num_deleted => N}),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -155,8 +170,10 @@ gather_aliases(Metrics) ->
         Metrics
     ).
 
+%% Called in channel process context.
 insert_alias_mapping(Key, Mapping) ->
-    ets:insert(?TAB, {Key, Mapping}).
+    emqx_schema_registry_spb_gc:register_client(self()),
+    ets:insert(?TAB, ?ENTRY(Key, Mapping, self())).
 
 lookup_alias_mapping(Key) ->
     emqx_utils_ets:lookup_value(?TAB, Key, undefined).

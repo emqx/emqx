@@ -89,7 +89,10 @@ drain_publishes(Acc) ->
 fmt(FmtStr, Context) -> emqx_bridge_v2_testlib:fmt(FmtStr, Context).
 
 start_client() ->
-    {ok, C} = emqtt:start_link(#{}),
+    start_client(_Opts = #{}).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
     {ok, _} = emqtt:connect(C),
     C.
 
@@ -649,4 +652,29 @@ t_disabled(_TCConfig) ->
         not is_map_key(<<"name">>, M),
         #{data_topic => NDataTopic}
     ),
+    ok.
+
+-doc """
+Checks that we cleanup ETS entries after a client is forcefully killed.
+""".
+t_client_killed(_TCConfig) ->
+    ClientId = <<"client_will_die">>,
+    C = start_client(#{clientid => ClientId}),
+    NDataTopic = ndata_topic(),
+    #{republish_topic := RepublishTopic} = create_rule(NDataTopic),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopic, [{qos, 1}]),
+    publish_nbirth(C, sample_birth_payload1()),
+    publish_ndata(C, sample_data_payload1()),
+    ?assertReceivePublish(#{}, #{data_topic => NDataTopic}),
+    %% Should have mappings stored before ending the session.
+    ?assertMatch([_ | _], emqx_schema_registry_spb_state:all_mappings()),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+    unlink(C),
+    {_, {ok, _}} =
+        ?wait_async_action(
+            exit(ChanPid, kill),
+            #{?snk_kind := "sr_mappings_deleted"},
+            1_000
+        ),
+    ?assertEqual([], emqx_schema_registry_spb_state:all_mappings()),
     ok.
