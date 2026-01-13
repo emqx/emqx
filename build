@@ -190,7 +190,7 @@ make_elixir_rel() {
     export_elixir_release_vars "$PROFILE"
     # False positive: shellcheck thinks this `do` is a bash keyword...
     # shellcheck disable=SC1010
-    mix do deps.get, release --overwrite
+    mix do deps.get + release --overwrite
 }
 
 ## TODO: adjust for mix

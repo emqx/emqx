@@ -139,7 +139,7 @@ DS streams are explicity called `DS streams' here.
     ds_stream :: emqx_ds:stream()
 }).
 
--define(START_FROM_USER_PROP, <<"start_from">>).
+-define(START_FROM_USER_PROP, <<"$stream.start-from">>).
 
 %%------------------------------------------------------------------------------------
 %% ExtSub Handler callbacks
@@ -177,7 +177,7 @@ handle_subscribe(
                     {ok, schedule_check_stream_status(Handler)}
             end;
         ?err_unrec(Reason) ->
-            ?tp(error, streams_extsub_handler_subscribe_error, #{
+            ?tp(warning, streams_extsub_handler_subscribe_error, #{
                 reason => Reason,
                 topic_filter => TopicFilter,
                 recoverable => false

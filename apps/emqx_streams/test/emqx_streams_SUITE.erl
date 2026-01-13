@@ -141,7 +141,7 @@ t_read_earliest(Config) ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
                 [<<"$stream/t/#">>],
-                [{<<"start_from">>, <<"earliest">>}]
+                [{<<"$stream.start-from">>, <<"earliest">>}]
             )
     end,
 
@@ -192,7 +192,7 @@ t_read_latest(Config) ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
                 [<<"$stream/t/#">>],
-                [{<<"start_from">>, <<"latest">>}]
+                [{<<"dummy-prop">>, <<"latest">>}, {<<"$stream.start-from">>, <<"latest">>}]
             )
     end,
 
@@ -240,7 +240,7 @@ t_read_timestamp(Config) ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
                 [<<"$stream/t/#">>],
-                [{<<"start_from">>, OffsetBin}]
+                [{<<"$stream.start-from">>, OffsetBin}]
             )
     end,
 
@@ -285,7 +285,7 @@ t_publish_and_consume_regular_many_generations(Config) ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
                 [<<"$stream/t/#">>],
-                [{<<"start_from">>, <<"earliest">>}]
+                [{<<"$stream.Start-from">>, <<"earliest">>}]
             )
     end,
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 5000),
@@ -339,7 +339,7 @@ t_publish_and_consume_lastvalue(Config) ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
                 [<<"$stream/t/#">>],
-                [{<<"start_from">>, <<"earliest">>}]
+                [{<<"$stream.start-from">>, <<"earliest">>}]
             )
     end,
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
