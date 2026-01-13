@@ -278,6 +278,200 @@ h_graceful_retry_on_actor_error(
 h_graceful_retry_on_actor_error(_Msg) ->
     ok.
 
+%% Network issues do not result in route replication inconsistencies.
+t_consistency_under_unstable_connectivity('init', Config) ->
+    HSt = mk_hookst(),
+    ok = snabbkaffe:start_trace(),
+    ok = emqx_hooks:add(
+        'message.publish',
+        {?MODULE, h_consistency_under_unstable_connectivity, [HSt]},
+        ?HP_HIGHEST
+    ),
+    [{hook_st, HSt} | Config];
+t_consistency_under_unstable_connectivity('end', _Config) ->
+    ok = emqx_hooks:del(
+        'message.publish',
+        {?MODULE, h_consistency_under_unstable_connectivity}
+    ),
+    snabbkaffe:stop().
+
+t_consistency_under_unstable_connectivity(Config) ->
+    Actor = ?FUNCTION_NAME,
+    ActorIn = atom_to_binary(Actor),
+    TargetCluster = <<"connunstable">>,
+    ActorMF = fun
+        (incarnation) -> erlang:system_time(millisecond);
+        (marker) -> TargetCluster
+    end,
+    Link = mk_self_link(TargetCluster, [<<"#">>]),
+    HSt = ?config(hook_st, Config),
+    ?check_trace(
+        #{timetrap => 20_000},
+        begin
+            %% Start route replication:
+            {ok, RouteRepl} = emqx_cluster_link_routerepl:start_link(Actor, ActorMF, Link),
+            ?block_until(#{?snk_kind := "cluster_link_routerepl_online", actor := Actor}),
+            %% Start test workers filling up routing tables:
+            ok = emqx_cluster_link_routerepl:push(TargetCluster, Actor, add, <<"#">>, tc),
+            ok = emqx_cluster_link_routerepl:push(TargetCluster, Actor, delete, <<"#">>, tc),
+            Workers = [
+                spawn_link(fun() -> route_worker_init(TargetCluster, Actor, Scenario) end)
+             || Scenario <- [
+                    {fixed, <<"t0/#">>},
+                    {seq, <<"t1/sub">>, 1, 3},
+                    {seq, <<"t1/sub">>, 2, 5}
+                ]
+            ],
+            %% Simulate several abrupt routerepl connection failures:
+            lists:foreach(
+                fun(Interval) ->
+                    ok = timer:sleep(Interval),
+                    [{_Actor, ConnPid}] = hookst_all(HSt),
+                    erlang:exit(ConnPid, kill),
+                    ?block_until(
+                        #{?snk_kind := test_actor_init_ack, actor := ActorIn},
+                        infinity,
+                        0
+                    )
+                end,
+                _Intervals = [1_000, 1, 2_000]
+            ),
+            %% Stop workers, receive their view of replication progress:
+            lists:foreach(fun(Pid) -> Pid ! {stop, self()} end, Workers),
+            WorkerStates = [
+                WorkerSt
+             || _Pid <- Workers,
+                {_Done, WorkerSt} <- [?assertReceive({routing_worker_done, _})]
+            ],
+            %% Wait replication is idle:
+            ok = timer:sleep(1_000),
+            %% Stop the route replication:
+            true = erlang:unlink(RouteRepl),
+            ok = gen:stop(RouteRepl, shutdown, infinity),
+            %% Feed reported state into the check stage:
+            squash_worker_states(WorkerStates)
+        end,
+        [
+            {"Replicated routing state is consistent", fun(WorkerSt, Trace) ->
+                Updates = ?of_kind(test_actor_route_updates, Trace),
+                ?assertEqual(
+                    #{},
+                    state_diff(WorkerSt, squash_route_updates(Updates))
+                )
+            end}
+        ]
+    ).
+
+squash_worker_states(States) ->
+    maps:map(
+        fun(_, RouteIDs) -> mk_list(RouteIDs) end,
+        lists:foldl(fun squash_worker_state/2, #{}, States)
+    ).
+
+squash_worker_state(WorkerSt, AccIn) ->
+    maps:merge_with(
+        fun(_Topic, RouteID, Acc) -> ordsets:add_element(RouteID, mk_list(Acc)) end,
+        WorkerSt,
+        AccIn
+    ).
+
+squash_route_updates(Updates) ->
+    St = lists:foldl(fun apply_route_update/2, #{}, Updates),
+    maps:filter(fun(_, RouteIDs) -> RouteIDs =/= [] end, St).
+
+apply_route_update(#{ops := Ops}, Acc) ->
+    lists:foldl(fun apply_route_op/2, Acc, Ops).
+
+apply_route_op({Op, {Topic, RouteID}}, Acc) ->
+    RouteIDs = maps:get(Topic, Acc, []),
+    SetF = maps:get(Op, #{add => fun ordsets:add_element/2, delete => fun ordsets:del_element/2}),
+    maps:put(Topic, SetF(RouteID, RouteIDs), Acc).
+
+route_worker_init(Target, Actor, Scenario) ->
+    route_worker_loop(
+        Scenario,
+        fun(Op, Topic, RouteID) ->
+            emqx_cluster_link_routerepl:push(Target, Actor, Op, Topic, RouteID)
+        end,
+        1,
+        #{}
+    ).
+
+route_worker_loop({fixed, Topic} = Scenario, PushF, N, St) ->
+    case maps:get(Topic, St, none) of
+        none ->
+            Op = add,
+            RouteID = {self(), N},
+            NSt = maps:put(Topic, RouteID, St);
+        RouteID ->
+            Op = delete,
+            NSt = maps:remove(Topic, St)
+    end,
+    ok = PushF(Op, Topic, RouteID),
+    routing_worker_next(Scenario, PushF, N, NSt);
+route_worker_loop({seq, Prefix, AddEach, DeleteEach} = Scenario, PushF, N, St0) ->
+    St1 = route_worker_seq_add(Prefix, AddEach, PushF, N, St0),
+    St2 = route_worker_seq_del(Prefix, DeleteEach, PushF, N, St1),
+    routing_worker_next(Scenario, PushF, N, St2).
+
+route_worker_seq_add(Prefix, AddEach, PushF, N, St) when N rem AddEach =:= 0 ->
+    Topic = emqx_topic:join([Prefix, integer_to_binary(N div AddEach)]),
+    RouteID = {self(), N},
+    false = maps:is_key(Topic, St),
+    ok = PushF(add, Topic, RouteID),
+    maps:put(Topic, RouteID, St);
+route_worker_seq_add(_Prefix, _AddEach, _PushF, _, St) ->
+    St.
+
+route_worker_seq_del(Prefix, DeleteEach, PushF, N, St) when N rem DeleteEach =:= 0 ->
+    Topic = emqx_topic:join([Prefix, integer_to_binary(N div DeleteEach)]),
+    case maps:find(Topic, St) of
+        {ok, RouteID} ->
+            ok = PushF(delete, Topic, RouteID),
+            maps:remove(Topic, St);
+        error ->
+            St
+    end;
+route_worker_seq_del(_Prefix, _DeleteEach, _PushF, _, St) ->
+    St.
+
+routing_worker_next(Scenario, PushF, N, St) ->
+    receive
+        {stop, TCPid} ->
+            TCPid ! {routing_worker_done, St}
+    after _Interval = 10 ->
+        route_worker_loop(Scenario, PushF, N + 1, St)
+    end.
+
+h_consistency_under_unstable_connectivity(
+    Msg = #message{
+        topic = <<?ROUTE_TOPIC_PREFIX, Cluster/binary>>,
+        payload = Payload
+    },
+    HSt
+) ->
+    ?assertEqual(<<"rrtest">>, Cluster),
+    RouteOp = emqx_cluster_link_mqtt:decode_route_op(Payload),
+    case RouteOp of
+        {actor_init, #{actor := Actor} = ActorInfo, _Info} ->
+            ?tp(test_actor_init, ActorInfo),
+            %% Accept the handshake:
+            PidPrev = hookst_get(ActorInfo, HSt),
+            MsgResp = emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, not is_pid(PidPrev), Msg),
+            emqx_broker:publish(MsgResp),
+            hookst_put(ActorInfo, self(), HSt),
+            ?tp(test_actor_init_ack, ActorInfo),
+            {stop, Msg};
+        {route_updates, ActorInfo, Ops} ->
+            ?tp(test_actor_route_updates, ActorInfo#{ops => Ops}),
+            {stop, Msg};
+        {heartbeat, ActorInfo} ->
+            ?tp(test_actor_heartbeat, ActorInfo),
+            {stop, Msg}
+    end;
+h_consistency_under_unstable_connectivity(_Msg, _HSt) ->
+    ok.
+
 %%
 
 mk_self_link(TargetCluster, Topics) ->
@@ -300,3 +494,17 @@ hookst_put(K, V, HSt) ->
 hookst_all(HSt) ->
     ets:tab2list(HSt).
 
+mk_list(X) when is_list(X) -> X;
+mk_list(X) -> [X].
+
+state_diff(St1, St2) ->
+    maps:filter(
+        fun(_, DS) -> DS =/= [] end,
+        maps:merge_with(
+            fun(_, S1, S2) ->
+                [DS || DS = {_, [_ | _]} <- [{'+', S1 -- S2}, {'-', S2 -- S1}]]
+            end,
+            St1,
+            St2
+        )
+    ).
