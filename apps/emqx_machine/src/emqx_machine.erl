@@ -105,13 +105,8 @@ set_mnesia_extra_diagnostic_checks() ->
     mria_config:set_extra_mnesia_diagnostic_checks(Checks),
     ok.
 
--if(?EMQX_RELEASE_EDITION == ee).
 configure_otel_deps() ->
     emqx_otel_app:configure_otel_deps().
--else.
-configure_otel_deps() ->
-    ok.
--endif.
 
 -define(PORT_PROBE_TIMEOUT, 10_000).
 open_ports_check() ->
