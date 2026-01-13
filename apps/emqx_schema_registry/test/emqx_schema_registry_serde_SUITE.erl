@@ -30,7 +30,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
-            emqx_schema_registry,
+            emqx_schema_registry_testlib:emqx_schema_registry_app_spec(),
             emqx_rule_engine
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
