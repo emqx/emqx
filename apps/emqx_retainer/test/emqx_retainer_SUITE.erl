@@ -267,7 +267,7 @@ t_wildcard_subscription(Config) ->
     emqtt:publish(C1, <<"/x/y/z">>, <<"">>, [{qos, 0}, {retain, true}]),
     ok = emqtt:disconnect(C1).
 
-'t_wildcard_no_$_prefix'(_Config) ->
+t_wildcard_no_dollar_sign_prefix(_Config) ->
     {ok, C0} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C0),
     emqtt:publish(
