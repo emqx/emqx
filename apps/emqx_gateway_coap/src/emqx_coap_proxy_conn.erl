@@ -35,7 +35,9 @@ get_connection_id(_Transport, _Peer, State, Data) ->
                 _ ->
                     ErrMsg = <<"Missing token or clientid in connection mode">>,
                     Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-                    Bin = emqx_coap_frame:serialize_pkt(Reply, emqx_coap_frame:serialize_opts()),
+                    Bin = emqx_coap_frame:serialize_pkt(
+                        Reply, emqx_coap_frame:serialize_opts()
+                    ),
                     {error, Bin}
             end;
         _Error ->

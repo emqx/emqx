@@ -930,8 +930,8 @@ global_chain(jt808) ->
     'jt808:global';
 global_chain(nats) ->
     'nats:global';
-global_chain(_) ->
-    error(invalid_protocol_name).
+global_chain(GwName) ->
+    error({invalid_protocol_name, GwName}).
 
 hook() ->
     ok = emqx_hooks:put('client.authenticate', {?MODULE, authenticate, []}, ?HP_AUTHN).
