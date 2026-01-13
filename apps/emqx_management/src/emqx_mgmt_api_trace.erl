@@ -485,11 +485,6 @@ trace(post, #{body := Params} = Req) ->
                 code => 'DUPLICATE_CONDITION',
                 message => ?TO_BIN([Name, " Duplication Condition"])
             }};
-        {error, {bad_type, _}} ->
-            {409, #{
-                code => 'BAD_TYPE',
-                message => <<"Rolling upgrade in progress, create failed">>
-            }};
         {error, {max_limit_reached, Limit}} ->
             {400, #{
                 code => ?EXCEED_LIMIT,

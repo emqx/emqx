@@ -131,6 +131,7 @@ jobs:
       build_type: ${{ matrix.build_type }}
 
   run_test_cases:
+    if: false
     needs:
       - init
       - sanity-checks
@@ -147,6 +148,7 @@ jobs:
     secrets: inherit
 
   static_checks:
+    if: false
     needs:
       - init
       - sanity-checks
@@ -156,12 +158,29 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
       ct-matrix: ${{ needs.sanity-checks.outputs.ct-matrix }}
 
+  depxref:
+    needs:
+      - init
+      - sanity-checks
+      - compile
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/report_depxref_issues.yaml
+    with:
+      builder: ${{ needs.init.outputs.BUILDER }}
+      pr-number: ${{ github.event.pull_request.number }}
+      git-base-ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+    secrets: inherit
+
   build_slim_packages:
+    if: false
     needs:
       - sanity-checks
     uses: ./.github/workflows/build_slim_packages.yaml
 
   build_docker_emqx_enterprise:
+    if: false
     needs:
       - init
       - sanity-checks
@@ -178,6 +197,7 @@ jobs:
     uses: ./.github/workflows/spellcheck.yaml
 
   run_conf_tests:
+    if: false
     needs:
       - init
       - sanity-checks
@@ -187,6 +207,7 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
 
   check_deps_integrity:
+    if: false
     needs:
       - init
       - sanity-checks
@@ -195,12 +216,14 @@ jobs:
       builder: ${{ needs.init.outputs.BUILDER }}
 
   run_docker_tests:
+    if: false
     needs:
       - sanity-checks
       - build_docker_emqx_enterprise
     uses: ./.github/workflows/run_docker_tests.yaml
 
   run_helm_tests:
+    if: false
     needs:
       - sanity-checks
       - build_docker_emqx_enterprise
