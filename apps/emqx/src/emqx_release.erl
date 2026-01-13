@@ -31,7 +31,7 @@
 
 -define(EMQX_REL_NAME, <<"Enterprise">>).
 
--define(EMQX_REL_VSNS, ?EMQX_RELEASE_EE).
+-define(EMQX_REL_VSNS, ?EMQX_RELEASE_VSN).
 
 -define(EMQX_REL_VSN_PREFIX, "e").
 
@@ -83,9 +83,9 @@ build_vsn() ->
 %% return 'newer' 'older' or 'same'.
 vsn_compare("v" ++ Vsn) ->
     %% this clause is kept in case one wants to rolling-upgrade from ce to ee
-    vsn_compare(?EMQX_RELEASE_EE, Vsn);
+    vsn_compare(?EMQX_RELEASE_VSN, Vsn);
 vsn_compare("e" ++ Vsn) ->
-    vsn_compare(?EMQX_RELEASE_EE, Vsn).
+    vsn_compare(?EMQX_RELEASE_VSN, Vsn).
 
 %% @private Compare the second argument with the first argument, return
 %% 'newer' 'older' or 'same' semver comparison result.

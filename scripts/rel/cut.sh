@@ -171,7 +171,7 @@ bump_vsn() {
     local chart_file_path="deploy/charts/emqx-enterprise/Chart.yaml"
 
     # don't use -i since it has different syntax in GNU and BSD versions
-    sed "s/-define(EMQX_RELEASE_EE, \"[^\"]*\")\./-define(EMQX_RELEASE_EE, \"$new_version\")./g" "$emqx_release_file_path" > "${emqx_release_file_path}.tmp"
+    sed "s/-define(EMQX_RELEASE_VSN, \"[^\"]*\")\./-define(EMQX_RELEASE_VSN, \"$new_version\")./g" "$emqx_release_file_path" > "${emqx_release_file_path}.tmp"
     mv "${emqx_release_file_path}.tmp" "$emqx_release_file_path"
 
     sed "s/^version: [0-9][0-9.]*[a-zA-Z0-9.-]*$/version: $new_version/g; s/^appVersion: [0-9][0-9.]*[a-zA-Z0-9.-]*$/appVersion: $new_version/g" "$chart_file_path" > "${chart_file_path}.tmp"

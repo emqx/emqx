@@ -328,8 +328,6 @@ defmodule EMQXUmbrella.MixProject do
     [
       :debug_info,
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
-      # TODO: remove
-      {:d, :EMQX_RELEASE_EDITION, :ee},
       {:d, :EMQX_ELIXIR},
       {:d, :EMQX_FLAVOR, get_emqx_flavor()},
       {:d, :snk_kind, :msg}
@@ -1171,10 +1169,9 @@ defmodule EMQXUmbrella.MixProject do
   end
 
   defp do_pkg_vsn() do
-    %{edition_type: edition_type} = check_profile!()
     basedir = Path.dirname(__ENV__.file)
     script = Path.join(basedir, "pkg-vsn.sh")
-    os_cmd(script, [Atom.to_string(edition_type)])
+    os_cmd(script, [])
   end
 
   defp os_cmd(script, args) do
