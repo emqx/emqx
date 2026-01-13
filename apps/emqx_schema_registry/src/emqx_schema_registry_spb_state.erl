@@ -99,7 +99,6 @@ register_aliases(#message{payload = Payload}, BirthMsg) ->
             ok
     catch
         Kind:Error:Stacktrace ->
-            %% TODO: log
             ?SLOG(warning, #{
                 msg => "bad_spb_birth_message",
                 exception => Kind,
