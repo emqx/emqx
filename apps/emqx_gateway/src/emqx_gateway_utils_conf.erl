@@ -5,67 +5,67 @@
 -module(emqx_gateway_utils_conf).
 
 -moduledoc """
-    Utility functions for EMQX gateway configuration management.
+Utility functions for EMQX gateway configuration management.
 
-    Each gateway is configured from three sources.
+Each gateway is configured from three sources.
 
-    * User-defined configuration map. This comes from the EMQX config and has the following
-      general structure:
-      ```erlang
-      #{
-          ... some general configuration for the gateway ...
-          listeners => #{
-              dtls => #{
-                  default => #{
-                    ... listener configuration for dtls listener named "default" ...
-                  }
-              },
-              udp => #{
-                  default => #{
-                    ... listener configuration for udp listener named "default" ...
-                  }
-              },
-              ...
-          }
-      }
-      ```
-
-    * Gateway-specific static configuration (called "ModConf" in the code).
-      This configuration defines which modules/callbacks to use
-      to serve the gateway (some keys are required, some are optional),
-      ```erlang
-        #{
+* User-defined configuration map. This comes from the EMQX config and has the following
+    general structure:
+    ```erlang
+    #{
+        ... some general configuration for the gateway ...
+        listeners => #{
             dtls => #{
-                frame_mod => emqx_frame_mod,
-                chann_mod => emqx_channel_mod,
-                connection_mod => ...
-                esockd_proxy_opts => #{
-                    connection_mod => ...
+                default => #{
+                ... listener configuration for dtls listener named "default" ...
                 }
-                ...
             },
-            ....
+            udp => #{
+                default => #{
+                ... listener configuration for udp listener named "default" ...
+                }
+            },
+            ...
         }
-      ```
-      This static configuration may be different for different listener types.
+    }
+    ```
 
-    * Context. This configuration is passed to the callback modules as the `ctx` argument.
-      Context holds runtime data. Callback modules (channel implementations) use `ctx` for
-      accessing authentication, channel_manager, etc.
+* Gateway-specific static configuration (called "ModConf" in the code).
+    This configuration defines which modules/callbacks to use
+    to serve the gateway (some keys are required, some are optional),
+    ```erlang
+    #{
+        dtls => #{
+            frame_mod => emqx_frame_mod,
+            chann_mod => emqx_channel_mod,
+            connection_mod => ...
+            esockd_proxy_opts => #{
+                connection_mod => ...
+            }
+            ...
+        },
+        ....
+    }
+    ```
+    This static configuration may be different for different listener types.
 
-    In the runtime, the data is organized differently.
+* Context. This configuration is passed to the callback modules as the `ctx` argument.
+    Context holds runtime data. Callback modules (channel implementations) use `ctx` for
+    accessing authentication, channel_manager, etc.
 
-    We have several supervised TCP/UDP/DTLS/etc listeners, each of which receives its own configuration, like:
-    * name
-    * transport address to listen on
-    * transport configuration (socket options, etc.)
-    * transport callbacks and their arguments (application-level gateway handling)
+In the runtime, the data is organized differently.
 
-    One can see that runtime configuration is merged and inversed:
-    Listener configurations become top-level, while gateway general configuration becomes duplicated
-    and nested into listener callbacks arguments.
+We have several supervised TCP/UDP/DTLS/etc listeners, each of which receives its own configuration, like:
+* name
+* transport address to listen on
+* transport configuration (socket options, etc.)
+* transport callbacks and their arguments (application-level gateway handling)
 
-    This module provides functions make such transformations.
+One can see that runtime configuration is merged and inversed:
+Listener configurations become top-level, while gateway general configuration becomes duplicated
+and nested into listener callbacks arguments.
+
+This module provides functions make such transformations.
 """.
 
 -export([
@@ -167,11 +167,7 @@
 %%--------------------------------------------------------------------
 
 -doc """
-    Convert
-    * configuration from config
-    * callback module configuration
-    * runtime context
-    into a list of runtime listener configurations (ready to pass to the transport module esockd/cowboy)
+Transform gateway config + module config + runtime context into runtime listener configs suitable for esockd/cowboy.
 """.
 -spec to_rt_listener_configs(gw_name(), map(), map(), term()) -> list(listener_runtime_config()).
 to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
@@ -236,7 +232,7 @@ to_rt_listener_configs(GwName, GwConfig0, ModConfig0, Ctx) ->
     ).
 
 -doc """
-    Get plain list of all listener configurations from configuration map.
+Get plain list of all listener configurations from configuration map.
 """.
 -spec listener_configs(map()) -> list({listener_type(), listener_name(), map()}).
 listener_configs(GwConfig) ->
@@ -248,7 +244,7 @@ listener_configs(GwConfig) ->
     ].
 
 -doc """
-    Diff two lists of runtime listener configurations and return the listeners to stop, update, and start.
+Diff two lists of runtime listener configurations and return the listeners to stop, update, and start.
 """.
 -spec diff_rt_listener_configs(list(listener_runtime_config()), list(listener_runtime_config())) ->
     #{
@@ -291,9 +287,9 @@ diff_rt_listener_configs(OldListenerConfigs, NewListenerConfigs) ->
     #{stop => Stop, update => Update, start => Start}.
 
 -doc """
-    Convert a gateway configuration to a list of runtime listener ids,
-    i.e. identifiers of running listeners that are sufficient to address them
-    via transport modules (esockd/cowboy).
+Convert a gateway configuration to a list of runtime listener ids,
+i.e. identifiers of running listeners that are sufficient to address them
+via transport modules (esockd/cowboy).
 """.
 to_rt_listener_ids(GwName, GwConfig0) ->
     %% Get plain list of all listener configurations of all types
@@ -321,7 +317,7 @@ to_rt_listener_ids(GwName, GwConfig0) ->
     ).
 
 -doc """
-    Convert a listener id and raw configuration to a runtime id.
+Convert a listener id and raw configuration to a runtime id.
 """.
 -spec rt_listener_id(listener_id(), map()) ->
     listener_runtime_id().
@@ -342,7 +338,7 @@ rt_listener_id(ListenerId, ListenerRawConfig) ->
     }.
 
 -doc """
-    Convert a listener runtime configuration to a runtime id.
+Convert a listener runtime configuration to a runtime id.
 """.
 -spec rt_listener_id(listener_runtime_config()) -> listener_runtime_id().
 rt_listener_id(#{

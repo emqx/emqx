@@ -2,8 +2,11 @@
 %% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Utils funcs for emqx-gateway
 -module(emqx_gateway_utils).
+
+-moduledoc """
+Utility functions for EMQX gateway.
+""".
 
 -include("emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
@@ -125,7 +128,7 @@ find_sup_child(Sup, ChildId) ->
     end.
 
 -doc """
-    Start listeners of a gateway using runtime listener configurations.
+Start listeners of a gateway using runtime listener configurations.
 """.
 -spec start_listeners(list(listener_runtime_config())) ->
     {ok, [pid()]}
@@ -152,7 +155,7 @@ start_listeners([ListenerConfig | ListenerConfigs], Acc) ->
     end.
 
 -doc """
-    Start a single listener.
+Start a single listener.
 """.
 -spec start_listener(listener_runtime_config()) -> {ok, pid()} | {error, term()}.
 start_listener(ListenerConfig) ->
@@ -213,14 +216,14 @@ do_start_listener(#{
     cowboy:start_tls(ListenerId, RanchOpts, WsOpts).
 
 -doc """
-    Stop specified listeners of a gateway using runtime listener configurations or runtime listener ids.
+Stop specified listeners of a gateway using runtime listener configurations or runtime listener ids.
 """.
 -spec stop_listeners(list(listener_runtime_config() | listener_runtime_id())) -> ok.
 stop_listeners(ListenerConfigs) ->
     lists:foreach(fun stop_listener/1, ListenerConfigs).
 
 -doc """
-    Stop a single listener of a gateway.
+Stop a single listener of a gateway.
 """.
 -spec stop_listener(listener_runtime_config() | listener_runtime_id()) -> ok.
 stop_listener(#{listener_opts := _} = ListenerConfig) ->
@@ -335,9 +338,9 @@ update_gateway_listeners(GwName, OldListenerConfigs, NewListenerConfigs) ->
     end.
 
 -doc """
-    Update listeners of a gateway.
-    In case of error, the newly started listeners will be stopped.
-    However, updated listeners will not be rolled back.
+Update listeners of a gateway.
+In case of error, the newly started listeners will be stopped.
+However, updated listeners will not be rolled back.
 """.
 -spec update_listeners(#{
     stop := list(listener_runtime_config()),
