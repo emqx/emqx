@@ -192,16 +192,12 @@ handle_route_op_msg(
         ?MODULE:do_handle_route_op_msg(Msg)
     catch
         K:E:Stacktrace ->
-            MyClusterName = emqx_cluster_link_config:cluster(),
-            ?SLOG(error, #{
-                msg => "cluster_link_routesync_protocol_error",
+            ?tp(error, "cluster_link_routerepl_protocol_error", #{
                 kind => K,
                 reason => E,
                 stacktrace => Stacktrace,
-                %% How this cluster names itself
-                local_name => MyClusterName,
-                %% How the remote cluster names itself
-                received_from => ClusterName
+                local_cluster => emqx_cluster_link_config:cluster(),
+                from_cluster => ClusterName
             }),
             error
     end.
@@ -219,9 +215,10 @@ actor_init(
         #{enable := true} when MyClusterName =:= TargetCluster ->
             _Created = actor_init(ClusterName, Actor);
         undefined ->
-            ?SLOG(error, #{
-                msg => "init_link_request_from_unknown_cluster",
-                link_name => ClusterName
+            ?SLOG(warning, #{
+                msg => "cluster_link_actor_init_rejected",
+                reason => "unknown_cluster",
+                from_cluster => ClusterName
             }),
             %% Avoid atom error reasons, since they can be sent to the remote cluster,
             %% which will use safe binary_to_term decoding
@@ -229,17 +226,23 @@ actor_init(
             {error, <<"unknown_cluster">>};
         #{enable := true} ->
             %% The remote cluster uses a different name to refer to this cluster
-            ?SLOG(error, #{
-                msg => "misconfigured_cluster_link_name",
+            ?SLOG(warning, #{
+                msg => "cluster_link_actor_init_rejected",
+                reason => "misconfigured_name",
                 %% How this cluster names itself
-                local_name => MyClusterName,
-                %% How the remote cluster names this local cluster
-                remote_name => TargetCluster,
+                local_cluster => MyClusterName,
                 %% How the remote cluster names itself
-                received_from => ClusterName
+                from_cluster => ClusterName,
+                %% How the remote cluster names this local cluster
+                local_known_as => TargetCluster
             }),
             {error, <<"bad_remote_cluster_link_name">>};
         #{enable := false} ->
+            ?SLOG(warning, #{
+                msg => "cluster_link_actor_init_rejected",
+                reason => "link_disabled",
+                from_cluster => ClusterName
+            }),
             {error, <<"cluster_link_disabled">>}
     end.
 

@@ -8,8 +8,8 @@
 -module(emqx_cluster_link_routerepl).
 
 -include("emqx_cluster_link.hrl").
+-include("emqx_cluster_link_internal.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("snabbkaffe/include/trace.hrl").
 
 %% Router API
 -export([push/5]).
@@ -256,7 +256,7 @@ callback_mode() ->
     [state_functions].
 
 init_manager(St = #st{}) ->
-    ?tp("cluster_link_actor_init", #{actor => St#st.actor}),
+    ?tp_routerepl("init", #{actor => St#st.actor}),
     _ = erlang:process_flag(trap_exit, true),
     {ok, connecting, St, {next_event, internal, connect}}.
 
@@ -276,7 +276,7 @@ connecting(
             ok = announce_client(TargetCluster, Actor, ClientPid),
             enter_handshaking(St#st{client = ClientPid});
         {error, Reason} ->
-            ?tp(error, "cluster_link_connection_failed", #{
+            ?tp_routerepl(error, "connection_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -307,7 +307,7 @@ handshaking(
             Timeout = ?RECONNECT_TIMEOUT,
             {keep_state, St, {state_timeout, Timeout, abandon}};
         {error, Reason} ->
-            ?tp(error, "cluster_link_handshake_failed", #{
+            ?tp_routerepl(error, "handshake_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -333,7 +333,7 @@ handshaking(
             ok = start_syncer(TargetCluster, Actor, Incarnation),
             enter_bootstrap(NeedBootstrap, St);
         #{result := Error} ->
-            ?tp(error, "cluster_link_handshake_rejected", #{
+            ?tp_routerepl(error, "handshake_rejected", #{
                 reason => error_reason(Error),
                 target_cluster => TargetCluster,
                 actor => Actor,
@@ -344,7 +344,7 @@ handshaking(
             keep_state_and_data
     end;
 handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
-    ?tp(error, "cluster_link_handshake_timeout", #{
+    ?tp_routerepl(error, "handshake_timeout", #{
         target_cluster => target_cluster(St),
         actor => Actor
     }),
@@ -371,7 +371,7 @@ enter_bootstrapped(St = #st{actor = Actor}) ->
     enter_online(St#st{bootstrapped = true}).
 
 enter_online(St = #st{actor = Actor, incarnation = Incarnation}) ->
-    ?tp(info, "cluster_link_routerepl_online", #{
+    ?tp_routerepl(info, "online", #{
         target_cluster => target_cluster(St),
         actor => Actor,
         incarnation => Incarnation
@@ -406,7 +406,7 @@ heartbeat(#st{client = ClientPid, actor = Actor, incarnation = Incarnation}) ->
     publish_heartbeat(ClientPid, Actor, Incarnation).
 
 handle_disconnect(RC, St = #st{actor = Actor}) ->
-    ?tp(info, "cluster_link_connection_disconnect", #{
+    ?tp_routerepl(info, "disconnected", #{
         reason => emqx_reason_codes:name(RC),
         target_cluster => target_cluster(St),
         actor => Actor
@@ -423,7 +423,7 @@ enter_disconnected(Reason, St0 = #st{actor = Actor, reconnect_at = ReconnectAt})
         %% Otherwise info message since interruptions are expected.
         _ -> Level = info
     end,
-    ?tp(Level, "cluster_link_connection_down", #{
+    ?tp_routerepl(Level, "connection_down", #{
         reason => Reason,
         target_cluster => target_cluster(St0),
         actor => Actor,
@@ -450,10 +450,7 @@ handle_event(info, {disconnected, RC, _}, St) ->
     %% MQTT disconnect packet.
     handle_disconnect(RC, St);
 handle_event(Event, Payload, _St) ->
-    ?tp(warning, "cluster_link_routerepl_unexpected_event", #{
-        event => Event,
-        payload => Payload
-    }),
+    ?tp_routerepl(warning, "unexpected_event", #{event => Event, payload => Payload}),
     keep_state_and_data.
 
 terminate(_Reason, _St) ->
@@ -484,7 +481,7 @@ bootstrap(Bootstrap, HeartbeatTs, St = #st{actor = Actor, incarnation = Incarnat
     TargetCluster = target_cluster(St),
     case emqx_cluster_link_router_bootstrap:next_batch(Bootstrap) of
         done ->
-            ?tp(info, "cluster_link_bootstrap_complete", #{
+            ?tp_routerepl(info, "bootstrap_complete", #{
                 target_cluster => TargetCluster,
                 actor => Actor,
                 incarnation => Incarnation
@@ -497,7 +494,7 @@ bootstrap(Bootstrap, HeartbeatTs, St = #st{actor = Actor, incarnation = Incarnat
                     NHeartbeatTs = ensure_bootstrap_heartbeat(HeartbeatTs, St),
                     bootstrap(NBootstrap, NHeartbeatTs, St);
                 {error, Reason} ->
-                    ?tp(error, "cluster_link_bootstrap_failed", #{
+                    ?tp_routerepl(warning, "bootstrap_failed", #{
                         reason => Reason,
                         target_cluster => TargetCluster,
                         actor => Actor
@@ -545,7 +542,7 @@ start_link_client(Actor, ClientMarker, Link) ->
             try
                 case emqtt:connect(Pid) of
                     {ok, _Props} ->
-                        ?tp("cluster_link_actor_connected", #{actor => Actor}),
+                        ?tp_routerepl("connected", #{actor => Actor}),
                         Topic = ?RESP_TOPIC(local_cluster(), Actor),
                         {ok, _, _} = emqtt:subscribe(Pid, Topic, ?QOS_1),
                         {ok, Pid};
@@ -568,7 +565,7 @@ start_link_client(Actor, ClientMarker, Link) ->
 
 stop_link_client(#st{client = ClientPid}) when is_pid(ClientPid) ->
     %% Stop the client, tolerate if it's dead / stopping right now.
-    ?tp("cluster_link_stop_link_client", #{}),
+    ?tp_routerepl("stop_client", #{}),
     try
         emqtt:stop(ClientPid)
     catch

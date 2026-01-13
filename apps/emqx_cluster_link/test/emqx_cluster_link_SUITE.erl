@@ -194,11 +194,11 @@ t_message_forwarding(Config) ->
             %% Start cluster link, existing routes should be replicated.
             _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
             {ok, _} = ?block_until(#{
-                ?snk_kind := "cluster_link_bootstrap_complete",
+                ?snk_kind := "cluster_link_routerepl_bootstrap_complete",
                 ?snk_meta := #{node := TargetNode1}
             }),
             {ok, _} = ?block_until(#{
-                ?snk_kind := "cluster_link_bootstrap_complete",
+                ?snk_kind := "cluster_link_routerepl_bootstrap_complete",
                 ?snk_meta := #{node := TargetNode2}
             }),
             %% Publish a message to the source cluster.
@@ -286,14 +286,14 @@ t_target_extrouting_gc(Config) ->
             %% would stay down and stop replicating messages.
             {ok, _} = ?wait_async_action(
                 emqx_cth_cluster:stop_node(TargetNode2),
-                #{?snk_kind := clink_extrouter_actor_cleaned, cluster := <<"cl.target">>}
+                #{?snk_kind := "cluster_link_extrouter_actor_cleaned", cluster := <<"cl.target">>}
             ),
             {ok, _} = emqtt:publish(SourceC1, <<"t/4/ext">>, <<"HELLO4">>, qos1),
             {ok, _} = emqtt:publish(SourceC1, <<"t/5">>, <<"HELLO5">>, qos1),
             Pubs2 = [M || {publish, M} <- ?drainMailbox(1_000)],
             {ok, _} = ?wait_async_action(
                 emqx_cth_cluster:stop_node(TargetNode1),
-                #{?snk_kind := clink_extrouter_actor_cleaned, cluster := <<"cl.target">>}
+                #{?snk_kind := "cluster_link_extrouter_actor_cleaned", cluster := <<"cl.target">>}
             ),
             ok = emqtt:stop(SourceC1),
             %% Verify that extrouter table eventually becomes empty.
