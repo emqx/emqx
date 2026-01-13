@@ -85,8 +85,8 @@ init_per_group(local = _Group, Config) ->
     [{suite_apps, Apps}, {auth, Auth} | Config];
 init_per_group(cluster = Group, Config) ->
     ok = emqx_cth_suite:stop_apps([emqx_dashboard]),
-    SourceClusterSpec = emqx_cluster_link_SUITE:mk_source_cluster(Group, Config),
-    TargetClusterSpec = emqx_cluster_link_SUITE:mk_target_cluster(Group, Config),
+    SourceClusterSpec = emqx_cluster_link_SUITE:mk_source_cluster(Group, 2, Config),
+    TargetClusterSpec = emqx_cluster_link_SUITE:mk_target_cluster(Group, 2, Config),
     SourceNodes = [SN1 | _] = emqx_cth_cluster:start(SourceClusterSpec),
     TargetNodes = [TN1 | _] = emqx_cth_cluster:start(TargetClusterSpec),
     emqx_cluster_link_SUITE:start_cluster_link(SourceNodes ++ TargetNodes, Config),
