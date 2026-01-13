@@ -9,7 +9,7 @@
 
     Each gateway is configured from three sources.
 
-    * User-defined configuration map. This comes from the EMQX config and hash the following
+    * User-defined configuration map. This comes from the EMQX config and has the following
       general structure:
       ```erlang
       #{
