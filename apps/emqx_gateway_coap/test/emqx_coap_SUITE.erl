@@ -274,9 +274,7 @@ t_connection_optional_params(_) ->
     do(ClientIdIsRequired).
 
 t_connection_with_authn_failed(_) ->
-    ChId = {{127, 0, 0, 1}, 5683},
-    {ok, Sock} = er_coap_udp_socket:start_link(),
-    {ok, Channel} = er_coap_udp_socket:get_channel(Sock, ChId),
+    {ok, _Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     URI =
         ?MQTT_PREFIX ++
             "/connection?clientid=client1&username=admin&password=public",
@@ -291,9 +289,7 @@ t_connection_with_authn_failed(_) ->
     ok.
 
 t_connection_with_expire(_) ->
-    ChId = {{127, 0, 0, 1}, 5683},
-    {ok, Sock} = er_coap_udp_socket:start_link(),
-    {ok, Channel} = er_coap_udp_socket:get_channel(Sock, ChId),
+    {ok, _Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
 
     URI = ?MQTT_PREFIX ++ "/connection?clientid=client1",
 
@@ -782,9 +778,7 @@ return_response({error, Code}, Message) ->
     {error, Code, er_coap_message:get_content(Message)}.
 
 do(Fun) ->
-    ChId = {{127, 0, 0, 1}, 5683},
-    {ok, Sock} = er_coap_udp_socket:start_link(),
-    {ok, Channel} = er_coap_udp_socket:get_channel(Sock, ChId),
+    {ok, Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     %% send and receive
     Res = Fun(Channel),
     %% terminate the processes

@@ -66,7 +66,7 @@ end_per_testcase(_CaseName, _Config) ->
 t_connection(_Config) ->
     emqx_gateway_test_utils:meck_emqx_hook_calls(),
 
-    {ok, Sock, Channel} = emqx_coap_dtls_client_socket:connect({127, 0, 0, 1}, 5684, [
+    {ok, Sock, Channel} = er_coap_dtls_socket:connect({127, 0, 0, 1}, 5684, [
         {verify, verify_none}
     ]),
 
@@ -103,4 +103,4 @@ t_connection(_Config) ->
     {ok, changed, _} = emqx_coap_SUITE:do_request(Channel, URI1, Req1),
 
     er_coap_channel:close(Channel),
-    emqx_coap_dtls_client_socket:close(Sock).
+    er_coap_dtls_socket:close(Sock).
