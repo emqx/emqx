@@ -11,7 +11,7 @@
 
 -export([
     handle_subscribe/4,
-    handle_unsubscribe/3,
+    handle_unsubscribe/4,
     handle_terminate/1,
     handle_delivered/4,
     handle_info/3
@@ -64,7 +64,7 @@ handle_subscribe(
 handle_subscribe(_SubscribeType, _SubscribeCtx, _State, _TopicFilter) ->
     ignore.
 
-handle_unsubscribe(_UnsubscribeType, State, _TopicFilter) ->
+handle_unsubscribe(_UnsubscribeType, _UnsubscribeCtx, State, _TopicFilter) ->
     ?tp(debug, handle_terminate, #{state => State, topic_filter => _TopicFilter}),
     State.
 
