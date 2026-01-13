@@ -74,7 +74,9 @@
     base64_encode/3,
     base64_decode/1,
     base64_decode/2,
-    base64_decode/3
+    base64_decode/3,
+    json_value/2,
+    jwt_value/2
 ]).
 
 %% Hash functions
@@ -677,6 +679,107 @@ base64_decode(Data, Opt1, Opt2) ->
     Options0 = base64_opts(#{}, Opt1),
     Options = base64_opts(Options0, Opt2),
     base64:decode(Data, Options).
+
+-doc """
+Extract a value from a JSON binary using a dot-separated key path.
+
+This function decodes a JSON binary string and extracts a value using a
+dot-separated path to navigate nested structures.
+
+Args:
+  JsonBin: A binary containing JSON data (e.g., <<"{\"sub\":\"123\",\"name\":\"John\"}">>)
+  KeyPath: A dot-separated binary path to the value (e.g., "sub", "user.name", "user.profile.age")
+
+Returns:
+  The extracted value from the JSON, or undefined if the path is not found or JSON is invalid.
+
+Examples:
+  json_value(<<"{\"sub\":\"123\",\"name\":\"John\"}">>, <<"sub">>)
+  json_value(JsonBin, <<"user.name">>)
+  json_value(JsonBin, <<"user.profile.age">>)
+""".
+-spec json_value(null() | binary(), binary()) ->
+    term() | undefined.
+json_value(NULL, _) when ?IS_NULL(NULL) ->
+    ?BADARG();
+json_value(_, <<"">>) ->
+    ?BADARG();
+json_value(JsonBin, KeyPath) when is_binary(JsonBin), is_binary(KeyPath) ->
+    try
+        JsonMap = emqx_utils_json:decode(JsonBin, [return_maps]),
+        KeyPathList = split_keypath(KeyPath),
+        json_get_value(KeyPathList, JsonMap)
+    catch
+        _:_ ->
+            undefined
+    end;
+json_value(_JsonBin, _KeyPath) ->
+    undefined.
+
+-doc """
+Extract a claim value from a JWT token using a dot-separated key path.
+
+This function decodes the JWT token payload and extracts a value using a dot-separated
+path to navigate nested JSON structures. The token should be a valid JWT string with
+three parts separated by dots (header.payload.signature).
+
+Args:
+  Token: A binary containing the JWT token
+  KeyPath: A dot-separated binary path to the claim value (e.g., "sub", "user.name", "user.profile.age")
+
+Returns:
+  The extracted value from the JWT payload, or undefined if the path is not found.
+
+Examples:
+  jwt_value(<<"xxx.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.xxx">>, <<"sub">>)
+  jwt_value(Token, <<"user.name">>)
+  jwt_value(Token, <<"user.profile.age">>)
+""".
+-spec jwt_value(null() | binary(), binary()) ->
+    term() | undefined.
+jwt_value(NULL, _) when ?IS_NULL(NULL) ->
+    ?BADARG();
+jwt_value(_, <<"">>) ->
+    ?BADARG();
+jwt_value(Token, KeyPath) when is_binary(Token), is_binary(KeyPath) ->
+    try
+        %% Split JWT token into parts (header.payload.signature)
+        Parts = binary:split(Token, <<".">>, [global]),
+        case Parts of
+            [_, Payload, _] ->
+                PayloadBin = base64:decode(Payload, #{mode => urlsafe, padding => false}),
+                %% Decode JSON payload and extract value using json_value
+                json_value(PayloadBin, KeyPath);
+            _ ->
+                throw(#{reason => invalid_jwt_token, function => ?FUNCTION_NAME})
+        end
+    catch
+        throw:#{reason := invalid_jwt_token} = Error ->
+            %% Re-throw invalid_jwt_token without wrapping
+            throw(Error);
+        Exception:Cause ->
+            throw(#{
+                reason => jwt_decode_error,
+                function => ?FUNCTION_NAME,
+                cause => Cause,
+                exception => Exception
+            })
+    end.
+
+%% Helper function to split dot-separated keypath into a list
+split_keypath(KeyPath) when is_binary(KeyPath) ->
+    binary:split(KeyPath, <<".">>, [global]).
+
+%% Helper function to get value using deep_get
+json_get_value(KeyPath, Map) when is_map(Map) ->
+    try
+        emqx_utils_maps:deep_get(KeyPath, Map)
+    catch
+        error:{config_not_found, _} ->
+            undefined
+    end;
+json_get_value(_KeyPath, _Value) ->
+    undefined.
 
 %%------------------------------------------------------------------------------
 %% Hash functions

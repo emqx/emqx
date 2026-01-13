@@ -72,10 +72,6 @@ while [ "$#" -gt 0 ]; do
             usage
             exit 0
             ;;
-        --skip-appup)
-            shift
-            SKIP_APPUP='yes'
-            ;;
         --dryrun)
             shift
             DRYRUN='yes'
@@ -208,14 +204,6 @@ SYNC_REMOTES_ARGS=
 
 ## Check if app versions are bumped
 ./scripts/apps-version-check.exs
-
-## Ensure appup files are updated
-if [ "$SKIP_APPUP" = 'no' ]; then
-    logmsg "Checking appups"
-    ./scripts/update-appup.sh "$PROFILE" --check
-else
-    logmsg "Skipped checking appup updates"
-fi
 
 ## Ensure relup paths are updated
 ## TODO: add relup path db

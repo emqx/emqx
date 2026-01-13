@@ -173,7 +173,10 @@ null_badarg_test_() ->
         ?ASSERT_BADARG(emqx_variform_bif:hash_to_range(null, 1, 2)),
         ?ASSERT_BADARG(emqx_variform_bif:map_to_range(undefined, 1, 10)),
         ?ASSERT_BADARG(emqx_variform_bif:map_to_range(null, 1, 10)),
-        ?ASSERT_BADARG(emqx_variform_bif:hash(<<"sha1">>, null))
+        ?ASSERT_BADARG(emqx_variform_bif:hash(<<"sha1">>, null)),
+        ?ASSERT_BADARG(emqx_variform_bif:jwt_value(undefined, <<"sub">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:jwt_value(null, <<"sub">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:jwt_value(<<"token">>, <<"">>))
     ].
 
 invalid_hash_algorithm_test() ->
@@ -229,4 +232,148 @@ atom_input_test_() ->
         ?_assert(is_integer(emqx_variform_bif:map_to_range(sha, 1, 10))),
         ?_assertEqual(<<"atom ">>, emqx_variform_bif:pad('atom', 5)),
         ?_assertEqual(<<"atom  ">>, emqx_variform_bif:pad('atom', 6))
+    ].
+
+%% Helper function to create a JWT token from payload
+create_jwt_token(PayloadMap) ->
+    Header = base64url_encode(<<"{\"alg\":\"none\",\"typ\":\"JWT\"}">>),
+    Payload = base64url_encode(emqx_utils_json:encode(PayloadMap)),
+    Signature = <<"signature">>,
+    <<Header/binary, ".", Payload/binary, ".", Signature/binary>>.
+
+base64url_encode(Bin) ->
+    %% Simple base64url encoding (replace + with -, / with _, remove padding)
+    Base64 = base64:encode(Bin),
+    Base64Url = binary:replace(
+        binary:replace(Base64, <<"+">>, <<"-">>, [global]),
+        <<"/">>,
+        <<"_">>,
+        [global]
+    ),
+    %% Remove padding
+    binary:replace(Base64Url, <<"=">>, <<>>, [global]).
+
+jwt_value_test_() ->
+    %% Simple JWT with basic claims
+    SimplePayload = #{
+        <<"sub">> => <<"1234567890">>,
+        <<"name">> => <<"John Doe">>,
+        <<"iat">> => 1516239022
+    },
+    SimpleToken = create_jwt_token(SimplePayload),
+
+    %% Nested JWT with nested objects
+    NestedPayload = #{
+        <<"sub">> => <<"user123">>,
+        <<"user">> => #{
+            <<"name">> => <<"Alice">>,
+            <<"email">> => <<"alice@example.com">>,
+            <<"profile">> => #{
+                <<"age">> => 30,
+                <<"city">> => <<"New York">>
+            }
+        }
+    },
+    NestedToken = create_jwt_token(NestedPayload),
+
+    [
+        %% Simple claim access
+        ?_assertEqual(<<"1234567890">>, emqx_variform_bif:jwt_value(SimpleToken, <<"sub">>)),
+        ?_assertEqual(<<"John Doe">>, emqx_variform_bif:jwt_value(SimpleToken, <<"name">>)),
+        ?_assertEqual(1516239022, emqx_variform_bif:jwt_value(SimpleToken, <<"iat">>)),
+
+        %% Nested claim access
+        ?_assertEqual(<<"user123">>, emqx_variform_bif:jwt_value(NestedToken, <<"sub">>)),
+        ?_assertEqual(<<"Alice">>, emqx_variform_bif:jwt_value(NestedToken, <<"user.name">>)),
+        ?_assertEqual(
+            <<"alice@example.com">>,
+            emqx_variform_bif:jwt_value(NestedToken, <<"user.email">>)
+        ),
+        ?_assertEqual(30, emqx_variform_bif:jwt_value(NestedToken, <<"user.profile.age">>)),
+        ?_assertEqual(
+            <<"New York">>,
+            emqx_variform_bif:jwt_value(NestedToken, <<"user.profile.city">>)
+        ),
+
+        %% Non-existent paths return undefined
+        ?_assertEqual(undefined, emqx_variform_bif:jwt_value(SimpleToken, <<"nonexistent">>)),
+        ?_assertEqual(
+            undefined,
+            emqx_variform_bif:jwt_value(NestedToken, <<"user.nonexistent">>)
+        ),
+        ?_assertEqual(
+            undefined,
+            emqx_variform_bif:jwt_value(NestedToken, <<"user.profile.nonexistent">>)
+        ),
+
+        %% Invalid token format
+        ?_assertThrow(
+            #{reason := invalid_jwt_token},
+            emqx_variform_bif:jwt_value(<<"invalid.token">>, <<"sub">>)
+        ),
+        ?_assertThrow(
+            #{reason := invalid_jwt_token},
+            emqx_variform_bif:jwt_value(<<"not.a.valid.jwt.token">>, <<"sub">>)
+        )
+    ].
+
+json_value_test_() ->
+    %% Simple JSON binary
+    SimpleJson = emqx_utils_json:encode(#{
+        <<"sub">> => <<"1234567890">>,
+        <<"name">> => <<"John Doe">>,
+        <<"iat">> => 1516239022
+    }),
+
+    %% Nested JSON binary
+    NestedJson = emqx_utils_json:encode(#{
+        <<"sub">> => <<"user123">>,
+        <<"user">> => #{
+            <<"name">> => <<"Alice">>,
+            <<"email">> => <<"alice@example.com">>,
+            <<"profile">> => #{
+                <<"age">> => 30,
+                <<"city">> => <<"New York">>
+            }
+        }
+    }),
+
+    [
+        %% Simple value access
+        ?_assertEqual(<<"1234567890">>, emqx_variform_bif:json_value(SimpleJson, <<"sub">>)),
+        ?_assertEqual(<<"John Doe">>, emqx_variform_bif:json_value(SimpleJson, <<"name">>)),
+        ?_assertEqual(1516239022, emqx_variform_bif:json_value(SimpleJson, <<"iat">>)),
+
+        %% Nested value access
+        ?_assertEqual(<<"user123">>, emqx_variform_bif:json_value(NestedJson, <<"sub">>)),
+        ?_assertEqual(<<"Alice">>, emqx_variform_bif:json_value(NestedJson, <<"user.name">>)),
+        ?_assertEqual(
+            <<"alice@example.com">>,
+            emqx_variform_bif:json_value(NestedJson, <<"user.email">>)
+        ),
+        ?_assertEqual(30, emqx_variform_bif:json_value(NestedJson, <<"user.profile.age">>)),
+        ?_assertEqual(
+            <<"New York">>,
+            emqx_variform_bif:json_value(NestedJson, <<"user.profile.city">>)
+        ),
+
+        %% Non-existent paths return undefined
+        ?_assertEqual(undefined, emqx_variform_bif:json_value(SimpleJson, <<"nonexistent">>)),
+        ?_assertEqual(
+            undefined,
+            emqx_variform_bif:json_value(NestedJson, <<"user.nonexistent">>)
+        ),
+        ?_assertEqual(
+            undefined,
+            emqx_variform_bif:json_value(NestedJson, <<"user.profile.nonexistent">>)
+        ),
+
+        %% Null/undefined inputs throw badarg
+        ?ASSERT_BADARG(emqx_variform_bif:json_value(undefined, <<"sub">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:json_value(null, <<"sub">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:json_value(SimpleJson, <<"">>)),
+
+        %% Invalid JSON returns undefined
+        ?_assertEqual(undefined, emqx_variform_bif:json_value(<<"not valid json">>, <<"key">>)),
+        ?_assertEqual(undefined, emqx_variform_bif:json_value(<<"{invalid json}">>, <<"key">>))
     ].
