@@ -200,6 +200,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Handler = Handler0#h{limiter = Limiter, cursor = Cursor},
             {ok, Handler, Messages};
         {error, Limiter1, Reason} ->
+            ?tp(retained_fetch_rate_limit_exceeded, #{topic => TopicFilter}),
             ?SLOG_THROTTLE(
                 warning,
                 #{
