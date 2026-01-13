@@ -6,7 +6,7 @@ cd -P -- "$(dirname -- "$0")/../.."
 # shellcheck disable=SC1091
 source ./env.sh
 
-PROFILE="${PROFILE:-emqx}"
+PROFILE="${PROFILE:-emqx-enterprise}"
 EMQX_ROOT="${EMQX_ROOT:-_build/$PROFILE/rel/emqx}"
 EMQX_WAIT_FOR_START="${EMQX_WAIT_FOR_START:-30}"
 export EMQX_WAIT_FOR_START
@@ -31,14 +31,11 @@ start_emqx_with_conf() {
     "$EMQX_ROOT"/bin/emqx stop
 }
 
-PKG_VSN=${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}
+PKG_VSN=${PKG_VSN:-$(./pkg-vsn.sh)}
 MAJOR_VSN=$(echo "$PKG_VSN" | cut -d- -f1 | cut -d. -f1)
 
-if [ "$PROFILE" = "emqx" ]; then
-  PREFIX="v"
-else
-  PREFIX="e"
-fi
+# TODO rename the conf test files, delete version prefix
+PREFIX="e"
 
 FILES=$(find ./scripts/conf-test/old-confs/ -name "${PREFIX}${MAJOR_VSN}*")
 

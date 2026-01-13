@@ -13,7 +13,7 @@ EMQX_NAME=$(subst -pkg,,$(EMQX_BUILD))
 TAR_PKG_DIR ?= _build/$(EMQX_BUILD)/rel/emqx
 TAR_PKG     := $(EMQX_REL)/$(TAR_PKG_DIR)/emqx-$(PKG_VSN).tar.gz
 SOURCE_PKG  := emqx-$(RPM_VSN).$(shell uname -m)
-TARGET_PKG  := $(EMQX_NAME)-$(shell $(EMQX_REL)/pkg-vsn.sh $(EMQX_NAME) --long)
+TARGET_PKG  := $(EMQX_NAME)-$(shell $(EMQX_REL)/pkg-vsn.sh --long)
 
 # Not $(PWD) as it does not work for make -C
 CURDIR := $(shell pwd)

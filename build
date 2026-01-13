@@ -59,7 +59,7 @@ export PROFILE
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
+PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh)}"
 export PKG_VSN
 
 SYSTEM="$(./scripts/get-distro.sh)"
@@ -175,7 +175,7 @@ assert_no_excluded_deps() {
 }
 
 just_compile_elixir() {
-    ./scripts/pre-compile.sh "$PROFILE"
+    ./scripts/pre-compile.sh
     rm -f rebar.lock
     mix local.rebar --if-missing --force
     mix local.rebar rebar3 "${PWD}/rebar3" --if-missing --force
@@ -186,7 +186,7 @@ just_compile_elixir() {
 }
 
 make_elixir_rel() {
-    ./scripts/pre-compile.sh "$PROFILE"
+    ./scripts/pre-compile.sh
     export_elixir_release_vars "$PROFILE"
     # False positive: shellcheck thinks this `do` is a bash keyword...
     # shellcheck disable=SC1010
@@ -201,7 +201,7 @@ make_relup() {
           exit 0
           ;;
     esac
-    RELUP_TARGET_VSN="$(./pkg-vsn.sh "$PROFILE" --long)"
+    RELUP_TARGET_VSN="$(./pkg-vsn.sh --long)"
     export RELUP_TARGET_VSN
     ./rebar3 emqx relup_gen --relup-dir=./rel/relup
     make rel -C _build/default/plugins/emqx_relup
@@ -235,7 +235,7 @@ make_tgz() {
     ELIXIR_MAKE_TAR=yes make_elixir_rel
 
     local relpath="_build/${PROFILE}"
-    full_vsn="$(./pkg-vsn.sh "$PROFILE" --long)"
+    full_vsn="$(./pkg-vsn.sh --long)"
 
     case "$SYSTEM" in
         macos*)

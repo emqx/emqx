@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-## cut a new 5.x release for EMQX (opensource or enterprise).
+## cut a new release for EMQX.
 
 set -euo pipefail
 
@@ -51,16 +51,13 @@ logmsg() {
 
 TAG="${1:-}"
 
-case "$TAG" in
-    -h|--help)
-        usage
-        exit 0
-        ;;
-    *)
-        TAG_PREFIX='e'
-        PROFILE='emqx-enterprise'
-        ;;
-esac
+if [ "$TAG" = "-h" ] || [ "$TAG" = "--help" ]; then
+    usage
+    exit 0
+fi
+
+TAG_PREFIX='e'
+PROFILE='emqx-enterprise'
 
 shift 1
 
@@ -189,7 +186,7 @@ bump_vsn() {
     fi
 }
 
-RELEASE_VSN=$(./pkg-vsn.sh "$PROFILE" --release)
+RELEASE_VSN=$(./pkg-vsn.sh --release)
 
 ## Assert package version is updated to the tag which is being created
 assert_release_version() {
@@ -210,7 +207,7 @@ SYNC_REMOTES_ARGS=
 ./scripts/rel/sync-remotes.sh $SYNC_REMOTES_ARGS
 
 ## Check if the Chart versions are in sync
-./scripts/rel/check-chart-vsn.sh "$PROFILE"
+./scripts/rel/check-chart-vsn.sh
 
 ## Check if app versions are bumped
 ./scripts/apps-version-check.exs
@@ -219,7 +216,7 @@ SYNC_REMOTES_ARGS=
 ## TODO: add relup path db
 #./scripts/relup-base-vsns.escript check-vsn-db "$RELEASE_VSN" "$RELUP_PATHS"
 
-## Run some additional checks (e.g. some for enterprise edition only)
+## Run some additional checks
 CHECKS_DIR="./scripts/rel/checks"
 if [ -d "${CHECKS_DIR}" ]; then
     CHECKS="$(find "${CHECKS_DIR}" -name "*.sh" -print0 2>/dev/null | xargs -0)"

@@ -83,10 +83,7 @@ section() {
     done
 }
 
-changes_dir=("$top_dir/changes/ce")
-if [ "$PROFILE" == "emqx-enterprise" ]; then
-    changes_dir+=("$top_dir/changes/ee")
-fi
+changes_dir=("$top_dir/changes/ce" "$top_dir/changes/ee")
 
 while read -r file; do
    PRS+=("$file")

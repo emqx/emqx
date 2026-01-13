@@ -8,10 +8,7 @@ cd -P -- "$(dirname -- "$0")"
 
 help() {
     echo
-    echo "$0 [PROFILE] [options]"
-    echo
-    echo "PROFILE is accepted for backward compatibility but ignored"
-    echo "(there is only one edition now: enterprise)"
+    echo "$0 [options]"
     echo
     echo "-h|--help:       To display this usage information"
     echo "--release:       Print release version from emqx_release.hrl"
@@ -40,13 +37,10 @@ while [ "$#" -gt 0 ]; do
         IS_MATCHER='yes'
         shift 1
         ;;
-    -*)
-      echo "WARN: Unknown arg (ignored): $1"
-      exit 1
-      ;;
     *)
-      # Ignore positional arguments (e.g., profile) for backward compatibility
-      shift 1
+      echo "ERROR: Unknown arg: $1"
+      help
+      exit 1
       ;;
   esac
 done

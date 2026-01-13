@@ -5,18 +5,7 @@ set -x
 
 MAKE_TARGET="${1:-}"
 
-case "${MAKE_TARGET}" in
-    emqx-enterprise-*)
-        EMQX_NAME='emqx-enterprise'
-        ;;
-    emqx-*)
-        EMQX_NAME='emqx'
-        ;;
-    *)
-        echo "Usage $0 <PKG_TARGET>"
-        exit 1
-        ;;
-esac
+EMQX_NAME='emqx-enterprise'
 
 case "${MAKE_TARGET}" in
     *-tgz)
@@ -26,8 +15,8 @@ case "${MAKE_TARGET}" in
         PACKAGE_TYPE='pkg'
         ;;
     *)
-        echo "Unknown package type ${1}"
-        exit 2
+        echo "Usage $0 <PKG_TARGET> (e.g., emqx-enterprise-tgz or emqx-enterprise-pkg)"
+        exit 1
         ;;
 esac
 
@@ -53,8 +42,8 @@ else
             ;;
     esac
 fi
-PACKAGE_VERSION="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}")"
-PACKAGE_VERSION_LONG="$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}" --long)"
+PACKAGE_VERSION="$("$CODE_PATH"/pkg-vsn.sh)"
+PACKAGE_VERSION_LONG="$("$CODE_PATH"/pkg-vsn.sh --long)"
 PACKAGE_NAME="${EMQX_NAME}-${PACKAGE_VERSION_LONG}"
 PACKAGE_FILE_NAME="${PACKAGE_FILE_NAME:-${PACKAGE_NAME}.${PKG_SUFFIX}}"
 
@@ -237,7 +226,7 @@ relup_test(){
     fi
     cd "${RELUP_PACKAGE_PATH}"
     local pattern
-    pattern="$EMQX_NAME-$("$CODE_PATH"/pkg-vsn.sh "${EMQX_NAME}" --long --vsn_matcher)"
+    pattern="$EMQX_NAME-$("$CODE_PATH"/pkg-vsn.sh --long --vsn_matcher)"
     while read -r pkg; do
         packagename=$(basename "${pkg}")
         mkdir -p emqx
