@@ -22,7 +22,8 @@
     id_example/0,
     default_max_conn/0,
     shutdown_count/2,
-    tcp_opts/1
+    tcp_opts/1,
+    ip_port/1
 ]).
 
 -export([
@@ -33,7 +34,7 @@
     restart_listener/1,
     restart_listener/3,
     has_enabled_listener_conf_by_type/1,
-    wait_listener_stopped/1
+    wait_cowboy_listener_stopped/1
 ]).
 
 -export([
@@ -382,7 +383,7 @@ do_stop_listener(Type, Id, #{bind := ListenOn}) when ?ESOCKD_LISTENER(Type) ->
 do_stop_listener(Type, Id, #{bind := ListenOn}) when ?COWBOY_LISTENER(Type) ->
     case cowboy:stop_listener(Id) of
         ok ->
-            _ = wait_listener_stopped(ListenOn),
+            _ = wait_cowboy_listener_stopped(ListenOn),
             ok;
         Error ->
             Error
@@ -390,10 +391,10 @@ do_stop_listener(Type, Id, #{bind := ListenOn}) when ?COWBOY_LISTENER(Type) ->
 do_stop_listener(quic, Id, _Conf) ->
     quicer:terminate_listener(Id).
 
-wait_listener_stopped(ListenOn) ->
-    wait_listener_stopped(ListenOn, 0).
+wait_cowboy_listener_stopped(ListenOn) ->
+    wait_cowboy_listener_stopped(ListenOn, 0).
 
-wait_listener_stopped(ListenOn, 3) ->
+wait_cowboy_listener_stopped(ListenOn, 3) ->
     Log = #{
         msg => "port_not_released_after_listener_stopped",
         explain => "Expecting the operating system to release the port soon.",
@@ -402,7 +403,7 @@ wait_listener_stopped(ListenOn, 3) ->
     },
     ?SLOG(warning, Log),
     timeout;
-wait_listener_stopped(ListenOn, RetryCount) ->
+wait_cowboy_listener_stopped(ListenOn, RetryCount) ->
     % NOTE
     % `cowboy:stop_listener/1` will not close the listening socket explicitly,
     % it will be closed by the runtime system **only after** the process exits.
@@ -425,10 +426,10 @@ wait_listener_stopped(ListenOn, RetryCount) ->
             case gen_tcp:recv(Socket, 0, 3000) of
                 {ok, _} ->
                     _ = gen_tcp:close(Socket),
-                    wait_listener_stopped(ListenOn, RetryCount + 1);
+                    wait_cowboy_listener_stopped(ListenOn, RetryCount + 1);
                 {error, timeout} ->
                     _ = gen_tcp:close(Socket),
-                    wait_listener_stopped(ListenOn, RetryCount + 1);
+                    wait_cowboy_listener_stopped(ListenOn, RetryCount + 1);
                 {error, _} ->
                     _ = gen_tcp:close(Socket),
                     ok
