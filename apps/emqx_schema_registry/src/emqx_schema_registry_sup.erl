@@ -80,7 +80,6 @@ init(?root) ->
         worker_spec(emqx_schema_registry),
         external_sup_spec()
     ],
-    ok = emqx_schema_registry_spb_state:ensure_table(),
     {ok, {SupFlags, ChildSpecs}};
 init(?external) ->
     SupFlags = #{
