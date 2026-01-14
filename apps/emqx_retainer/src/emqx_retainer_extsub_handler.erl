@@ -32,7 +32,8 @@
 -define(no_cursor, undefined).
 -define(no_wildcard, no_wildcard).
 
--define(RATE_LIMIT_DELAY_MS, 300).
+-define(MIN_RATE_LIMIT_DELAY_MS, 300).
+-define(MAX_RATE_LIMIT_DELAY_MS, 10_000).
 -define(DEFAULT_BATCH_SIZE, 100).
 
 -record(h, {
@@ -44,7 +45,8 @@
     state,
     limiter,
     cursor,
-    nudge_enqueued = false
+    nudge_enqueued = false,
+    times_throttled = 0
 }).
 
 %% Events
@@ -133,7 +135,7 @@ handle_next(#h{cursor = ?no_wildcard} = Handler0, _N) ->
         {ok, Handler, Messages} ->
             {ok, Handler, Messages};
         {error, Handler1} ->
-            Handler = enqueue_nudge(Handler1, 1, ?RATE_LIMIT_DELAY_MS),
+            Handler = enqueue_nudge(Handler1, 1, delay),
             {ok, Handler}
     end;
 handle_next(#h{cursor = ?cursor(_)} = Handler0, N) ->
@@ -148,7 +150,7 @@ handle_next(#h{cursor = ?cursor(_)} = Handler0, N) ->
                 end,
             {ok, Handler, Messages};
         {error, Handler1} ->
-            Handler = enqueue_nudge(Handler1, N, ?RATE_LIMIT_DELAY_MS),
+            Handler = enqueue_nudge(Handler1, N, delay),
             {ok, Handler}
     end.
 
@@ -187,7 +189,8 @@ next_cursor(Cursor, _NumFetchedMessages, _Handler) ->
 try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
     #h{
         topic_filter = TopicFilter,
-        limiter = Limiter0
+        limiter = Limiter0,
+        times_throttled = TimesThrottled0
     } = Handler0,
     case do_try_consume_at_most(Limiter0, N0) of
         {ok, N, Limiter1} ->
@@ -197,7 +200,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Limiter = emqx_limiter_client:put_back(Limiter1, Surplus),
             Messages = filter_delivery(Messages0),
             Cursor = next_cursor(InnerCursor, NumFetchedMessages, Handler0),
-            Handler = Handler0#h{limiter = Limiter, cursor = Cursor},
+            Handler = Handler0#h{limiter = Limiter, cursor = Cursor, times_throttled = 0},
             {ok, Handler, Messages};
         {error, Limiter1, Reason} ->
             ?tp(retained_fetch_rate_limit_exceeded, #{topic => TopicFilter}),
@@ -211,7 +214,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
                 },
                 #{tag => "RETAINER"}
             ),
-            Handler = Handler0#h{limiter = Limiter1},
+            Handler = Handler0#h{limiter = Limiter1, times_throttled = TimesThrottled0 + 1},
             {error, Handler}
     end.
 
@@ -252,11 +255,14 @@ do_fetch(#h{cursor = ?cursor(Cursor0)} = Handler, N) ->
 
 enqueue_nudge(#h{nudge_enqueued = true} = Handler0, _N, _Delay) ->
     Handler0;
-enqueue_nudge(#h{} = Handler0, N, now = _Delay) ->
+enqueue_nudge(#h{} = Handler0, N, now) ->
     #h{send_fn = SendFn} = Handler0,
     SendFn(#next{n = N}),
     Handler0#h{nudge_enqueued = true};
-enqueue_nudge(#h{} = Handler0, N, Delay) ->
-    #h{send_after_fn = SendAfterFn} = Handler0,
+enqueue_nudge(#h{} = Handler0, N, delay) ->
+    #h{send_after_fn = SendAfterFn, times_throttled = TimesThrottled} = Handler0,
+    Delay = min(
+        ?MAX_RATE_LIMIT_DELAY_MS, max(?MIN_RATE_LIMIT_DELAY_MS, (1 bsl TimesThrottled) * 100)
+    ),
     SendAfterFn(Delay, #next{n = N}),
     Handler0#h{nudge_enqueued = true}.
