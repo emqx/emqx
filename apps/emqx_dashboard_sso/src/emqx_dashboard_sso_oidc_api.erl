@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_sso_oidc_api).
@@ -7,6 +7,7 @@
 -behaviour(minirest_api).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("oidcc/include/oidcc_token.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 
@@ -173,7 +174,8 @@ retrieve_userinfo(
         name := Name,
         client_jwks := ClientJwks,
         config := #{clientid := ClientId, secret := Secret},
-        name_tokens := NameTks
+        name_tokens := NameTks,
+        name_var_source := NameVarSource
     } = Cfg
 ) ->
     case
@@ -190,11 +192,21 @@ retrieve_userinfo(
                 msg => "sso_oidc_login_user_info",
                 user_info => UserInfo
             }),
-            Username = emqx_placeholder:proc_tmpl(NameTks, UserInfo),
+            Username = render_username(NameVarSource, Token, UserInfo, NameTks),
             minirest_handler:update_log_meta(#{log_source => Username}),
             ensure_user_exists(Cfg, Username);
         {error, _Reason} = Error ->
             Error
+    end.
+
+render_username(userinfo, _Token, UserInfo, Template) ->
+    emqx_placeholder:proc_tmpl(Template, UserInfo);
+render_username(id_token, Token, _UserInfo, Template) ->
+    case Token of
+        #oidcc_token{id = #oidcc_token_id{claims = #{} = Claims}} ->
+            emqx_placeholder:proc_tmpl(Template, Claims);
+        _ ->
+            emqx_placeholder:proc_tmpl(Template, #{})
     end.
 
 ensure_user_exists(_Cfg, <<>>) ->

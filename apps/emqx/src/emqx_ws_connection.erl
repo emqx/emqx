@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% MQTT/WS|WSS Connection
@@ -728,17 +728,17 @@ serialize_packet_and_inc_stats(Packet, Serialize, State) ->
     case emqx_frame:serialize_pkt(Packet, Serialize) of
         <<>> ->
             ?LOG(warning, #{
-                msg => "packet_discarded",
-                reason => "frame_too_large",
-                packet => Packet
+                msg => "packet_is_discarded",
+                reason => "frame_is_too_large",
+                packet => emqx_packet:format(Packet, hidden)
             }),
-            ok = emqx_metrics:inc_global('delivery.dropped.too_large'),
-            ok = emqx_metrics:inc_global('delivery.dropped'),
-            ok = inc_outgoing_stats({error, message_too_large}, State),
+            _ = emqx_metrics:inc_global('delivery.dropped.too_large'),
+            _ = emqx_metrics:inc_global('delivery.dropped'),
+            _ = inc_outgoing_stats({error, message_too_large}, State),
             <<>>;
         Data ->
             ?TRACE("WS-MQTT", "mqtt_packet_sent", #{packet => Packet}),
-            ok = inc_outgoing_stats(Packet, State),
+            _ = inc_outgoing_stats(Packet, State),
             Data
     end.
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_persistent_messages_SUITE).
@@ -84,13 +84,10 @@ common_init_per_testcase(TestCase, Config, Opts0) ->
         work_dir => emqx_cth_suite:work_dir(TestCase, Config),
         start_emqx_conf => true
     },
-    Result = emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts),
-    ok = emqx_persistent_message:wait_readiness(5_000),
-    Result.
+    emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
 
 end_per_testcase(_TestCase, Config) ->
-    emqx_common_test_helpers:call_janitor(60_000),
-    ok = emqx_common_test_helpers:stop_apps_ds(Config).
+    emqx_common_test_helpers:run_cleanups(Config, 60_000).
 
 t_messages_persisted(_Config) ->
     C1 = connect(<<?MODULE_STRING "1">>, true, 30),

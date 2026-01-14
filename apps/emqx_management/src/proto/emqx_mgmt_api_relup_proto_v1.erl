@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_relup_proto_v1).
 

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_client_tests).
 
@@ -149,6 +149,7 @@ get_iterator(SubId, _Slab, Stream, #test_host_state{iterators = Its}) ->
 
 %% Model state (updated by proper command generator):
 -record(model_state, {
+    complete_via_sref,
     %% Counter for creating unique IDs:
     counter = 0 :: integer(),
     current_generation = #{} :: #{emqx_ds:shard() => emqx_ds:generation()},
@@ -268,7 +269,9 @@ gen_ds_sub_payloads(MS) ->
 %%------------------------------------------------------------------------------
 
 initial_state() ->
-    #model_state{}.
+    #model_state{
+        complete_via_sref = {var, complete_via_sref}
+    }.
 
 command(MS = #model_state{exists = false}) ->
     gen_new(MS);
@@ -372,11 +375,12 @@ proper_test_() ->
         fun(Fake) ->
             emqx_ds_fake:unload(Fake)
         end,
-        fun(_) ->
-            {timeout, 120, [fun run_proper/0]}
-        end}.
+        [
+            {timeout, 300, ?_test(run_proper(true))},
+            {timeout, 300, ?_test(run_proper(false))}
+        ]}.
 
-run_proper() ->
+run_proper(CompleteViaSRef) ->
     ProperOpts = [
         {numtests, 200},
         {max_size, 100},
@@ -393,7 +397,11 @@ run_proper() ->
                 ),
                 try
                     emqx_ds_fake:new(?fake_shards),
-                    {_History, _State, Result} = proper_statem:run_commands(?MODULE, Cmds),
+                    {_Hist, _State, Result} = proper_statem:run_commands(
+                        ?MODULE,
+                        Cmds,
+                        [{complete_via_sref, CompleteViaSRef}]
+                    ),
                     ?assertMatch(ok, Result),
                     aggregate(command_names(Cmds), true)
                 after
@@ -788,10 +796,10 @@ wrapper(MS0, Fun, Args) ->
         #cs{ref = Ref} ->
             %% Emulate retry timer firing:
             self() ! #emqx_ds_client_retry{ref = Ref},
-            dispatch_messages(RS)
+            dispatch_messages(MS#model_state.complete_via_sref, RS)
     end.
 
-dispatch_messages({CS0, HS0}) ->
+dispatch_messages(CompleteViaSRef, {CS0, HS0}) ->
     receive
         Message ->
             ?tp(test_client_message, #{
@@ -803,17 +811,24 @@ dispatch_messages({CS0, HS0}) ->
             prop_dispatch_result(Message, CS0, Result),
             case Result of
                 ignore ->
-                    dispatch_messages({CS0, HS0});
+                    dispatch_messages(CompleteViaSRef, {CS0, HS0});
                 {data, SubId, Stream, _Handle, Reply} ->
                     case Reply of
                         #ds_sub_reply{ref = Ref, payload = {ok, end_of_stream}} ->
                             HS1 = host_move_to_complete(SubId, Stream, HS0),
-                            dispatch_messages(emqx_ds_client:complete_stream(CS0, Ref, HS1));
+                            CS =
+                                case CompleteViaSRef of
+                                    true ->
+                                        emqx_ds_client:complete_stream(CS0, Ref, HS1);
+                                    false ->
+                                        emqx_ds_client:complete_stream(CS0, SubId, ?DB, Stream, HS1)
+                                end,
+                            dispatch_messages(CompleteViaSRef, CS);
                         #ds_sub_reply{} ->
-                            dispatch_messages({CS0, HS0})
+                            dispatch_messages(CompleteViaSRef, {CS0, HS0})
                     end;
                 {CS, HS} ->
-                    dispatch_messages({CS, HS})
+                    dispatch_messages(CompleteViaSRef, {CS, HS})
             end
     after 0 -> {CS0, HS0}
     end.

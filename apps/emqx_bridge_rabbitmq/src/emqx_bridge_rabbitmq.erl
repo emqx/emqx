@@ -1,9 +1,8 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_rabbitmq).
 
--include_lib("emqx_bridge/include/emqx_bridge.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").

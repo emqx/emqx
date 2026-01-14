@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2019-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2019-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% MQTT Channel
@@ -2817,7 +2817,7 @@ do_enrich_subscribe(Properties, TopicFilters, Channel) ->
             %% TODO: do try catch with reason code here
             fun(TFs, _) -> parse_raw_topic_filters(TFs) end,
             fun enrich_subopts_subid/2,
-            fun enrich_subopts_porps/2,
+            fun enrich_subopts_props/2,
             fun enrich_subopts_flags/2
         ],
         TopicFilters,
@@ -2829,7 +2829,7 @@ enrich_subopts_subid(TopicFilters, #{sub_props := #{'Subscription-Identifier' :=
 enrich_subopts_subid(TopicFilters, _State) ->
     TopicFilters.
 
-enrich_subopts_porps(TopicFilters, #{sub_props := SubProps}) ->
+enrich_subopts_props(TopicFilters, #{sub_props := SubProps}) ->
     [{Topic, SubOpts#{sub_props => SubProps}} || {Topic, SubOpts} <- TopicFilters].
 
 enrich_subopts_flags(TopicFilters, #{channel := Channel}) ->

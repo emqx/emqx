@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_bridge_s3_aggreg_upload_SUITE).
@@ -432,6 +432,7 @@ t_aggreg_upload(Config) ->
     NodeString = atom_to_list(node()),
     %% Create a bridge with the sample configuration.
     ?assertMatch({ok, _Bridge}, emqx_bridge_v2_testlib:create_bridge(Config)),
+    ActionResId = emqx_bridge_v2_testlib:resource_id(Config),
     %% Prepare some sample messages that look like Rule SQL productions.
     MessageEvents = lists:map(fun mk_message_event/1, [
         {<<"C1">>, T1 = <<"a/b/c">>, P1 = <<"{\"hello\":\"world\"}">>},
@@ -461,7 +462,14 @@ t_aggreg_upload(Config) ->
             [_TS3, <<"C3">>, T3, P3, <<>> | _]
         ]},
         erl_csv:decode(Content)
-    ).
+    ),
+    ?retry(
+        100,
+        5,
+        ?assertEqual(1, emqx_resource_metrics:aggregated_upload_success_get(ActionResId))
+    ),
+    ?assertEqual(0, emqx_resource_metrics:aggregated_upload_failure_get(ActionResId)),
+    ok.
 
 %% Smoke test for using JSON Lines container type.
 t_aggreg_upload_json_lines(Config0) ->

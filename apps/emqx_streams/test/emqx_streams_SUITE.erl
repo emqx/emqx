@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_streams_SUITE).
@@ -40,12 +40,12 @@ groups() ->
     emqx_common_test_helpers:nested_groups([
         [pub_and_consume],
         [limited, unlimited],
-        [subscribe_all, subscribe_shard],
+        [pc_subscribe_all, pc_subscribe_shard, pc_subscribe_all_stream],
         ?PUBLISH_AND_CONSUME_CASES
     ]) ++
         emqx_common_test_helpers:nested_groups([
             [read],
-            [subscribe_all, subscribe_shard],
+            [read_subscribe_all, read_subscribe_shard, read_subscribe_all_stream],
             ?READ_CASES
         ]).
 
@@ -72,10 +72,18 @@ init_per_group(unlimited, Config) ->
         {limits, #{max_shard_message_bytes => infinity, max_shard_message_count => infinity}}
         | Config
     ];
-init_per_group(subscribe_all, Config) ->
+init_per_group(pc_subscribe_all, Config) ->
     [{subscribe, all} | Config];
-init_per_group(subscribe_shard, Config) ->
+init_per_group(pc_subscribe_shard, Config) ->
     [{subscribe, shard} | Config];
+init_per_group(pc_subscribe_all_stream, Config) ->
+    [{subscribe, all_stream} | Config];
+init_per_group(read_subscribe_all, Config) ->
+    [{subscribe, all} | Config];
+init_per_group(read_subscribe_shard, Config) ->
+    [{subscribe, shard} | Config];
+init_per_group(read_subscribe_all_stream, Config) ->
+    [{subscribe, all_stream} | Config];
 init_per_group(_Group, Config) ->
     Config.
 
@@ -128,18 +136,40 @@ t_read_earliest(Config) ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
                 [<<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>]
+            );
+        all_stream ->
+            emqx_streams_test_utils:emqtt_sub(
+                CSub,
+                [<<"$stream/t/#">>],
+                [{<<"$stream.start-from">>, <<"earliest">>}]
             )
     end,
 
     %% Drain the messages from the stream and verify that they are received.
-    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout1 = 500),
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 50, _Timeout0 = 500),
     ok = validate_headers(Msgs0),
 
     %% Publish more messages while the clients are still subscribed.
-    %% We should receive all the messages.
+    %% We should receive all the messages
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
     {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 50, _Timeout1 = 500),
     ok = validate_headers(Msgs1),
+
+    %% Now, unsubscribe from the stream
+    case ?config(subscribe, Config) of
+        all ->
+            emqtt:unsubscribe(CSub, <<"$s/earliest/t/#">>);
+        shard ->
+            emqtt:unsubscribe(CSub, [<<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>]);
+        all_stream ->
+            emqtt:unsubscribe(CSub, <<"$stream/t/#">>)
+    end,
+
+    %% Publish more messages, we should not receive any
+    ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
+    {ok, []} = emqx_streams_test_utils:emqtt_drain(_MinMsg2 = 0, _Timeout2 = 1000),
+
+    %% Clean up
     ok = emqtt:disconnect(CSub).
 
 %% Verify reading stream messages from the latest timestamp.
@@ -157,6 +187,12 @@ t_read_latest(Config) ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
                 [<<"$sp/0/latest/t/#">>, <<"$sp/1/latest/t/#">>]
+            );
+        all_stream ->
+            emqx_streams_test_utils:emqtt_sub(
+                CSub,
+                [<<"$stream/t/#">>],
+                [{<<"dummy-prop">>, <<"latest">>}, {<<"$stream.start-from">>, <<"latest">>}]
             )
     end,
 
@@ -184,7 +220,8 @@ t_read_timestamp(Config) ->
     %% Get the last message timestamp
     AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
     ?assertEqual(50, length(AllMessages)),
-    {_, Offset, _} = lists:last(AllMessages),
+    Offsets = [Offset || {_, Offset, _} <- AllMessages],
+    Offset = lists:max(Offsets),
 
     %% Publish 2nd portion of messages to the stream
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
@@ -198,7 +235,13 @@ t_read_timestamp(Config) ->
         shard ->
             emqx_streams_test_utils:emqtt_sub(CSub, [
                 <<"$sp/0/", OffsetBin/binary, "/t/#">>, <<"$sp/1/", OffsetBin/binary, "/t/#">>
-            ])
+            ]);
+        all_stream ->
+            emqx_streams_test_utils:emqtt_sub(
+                CSub,
+                [<<"$stream/t/#">>],
+                [{<<"$stream.start-from">>, OffsetBin}]
+            )
     end,
 
     %% Drain the messages from the stream and verify that we receive the messages from
@@ -237,7 +280,13 @@ t_publish_and_consume_regular_many_generations(Config) ->
         shard ->
             emqx_streams_test_utils:emqtt_sub(CSub, [
                 <<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>
-            ])
+            ]);
+        all_stream ->
+            emqx_streams_test_utils:emqtt_sub(
+                CSub,
+                [<<"$stream/t/#">>],
+                [{<<"$stream.Start-from">>, <<"earliest">>}]
+            )
     end,
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 5000),
 
@@ -285,7 +334,13 @@ t_publish_and_consume_lastvalue(Config) ->
         shard ->
             emqx_streams_test_utils:emqtt_sub(CSub, [
                 <<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>
-            ])
+            ]);
+        all_stream ->
+            emqx_streams_test_utils:emqtt_sub(
+                CSub,
+                [<<"$stream/t/#">>],
+                [{<<"$stream.start-from">>, <<"earliest">>}]
+            )
     end,
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
     ok = emqtt:disconnect(CSub),

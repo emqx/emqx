@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_sso_oidc).
@@ -12,7 +12,8 @@
 -export([
     namespace/0,
     fields/1,
-    desc/1
+    desc/1,
+    validate_issuer_url/1
 ]).
 
 -export([
@@ -53,11 +54,12 @@ fields(oidc) ->
         [
             {issuer,
                 ?HOCON(
-                    emqx_schema:url(),
+                    binary(),
                     #{
                         desc => ?DESC(issuer),
                         required => true,
-                        example => <<"https://issuer.com">>
+                        example => <<"https://issuer.com">>,
+                        validator => fun ?MODULE:validate_issuer_url/1
                     }
                 )},
             {clientid,
@@ -78,6 +80,11 @@ fields(oidc) ->
                 ?HOCON(
                     binary(),
                     #{desc => ?DESC(name_var), default => <<"${sub}">>}
+                )},
+            {name_var_source,
+                ?HOCON(
+                    hoconsc:enum([userinfo, id_token]),
+                    #{desc => ?DESC(name_var_source), default => <<"userinfo">>}
                 )},
             {dashboard_addr,
                 ?HOCON(binary(), #{
@@ -167,7 +174,7 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(#{name_var := NameVar} = Config) ->
+create(#{name_var := NameVar, name_var_source := NameVarSource} = Config) ->
     case
         emqx_dashboard_sso_oidc_session:start(
             ?PROVIDER_SVR_NAME,
@@ -185,7 +192,8 @@ create(#{name_var := NameVar} = Config) ->
                 name => ?PROVIDER_SVR_NAME,
                 config => Config,
                 client_jwks => ClientJwks,
-                name_tokens => emqx_placeholder:preproc_tmpl(NameVar)
+                name_tokens => emqx_placeholder:preproc_tmpl(NameVar),
+                name_var_source => NameVarSource
             }}
     end.
 
@@ -270,6 +278,16 @@ convert_certs(_Dir, Conf) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+validate_issuer_url(Value) ->
+    maybe
+        #{scheme := Scheme, host := _Host} ?= uri_string:parse(Value),
+        true ?= (Scheme =:= <<"http">> orelse Scheme =:= <<"https">>),
+        ok
+    else
+        _ ->
+            throw(invalid_issuer_url)
+    end.
 
 save_jwks_file(Dir, Content) ->
     case filelib:is_file(Content) of

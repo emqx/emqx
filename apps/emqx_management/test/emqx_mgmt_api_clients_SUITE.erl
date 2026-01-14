@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_clients_SUITE).
 -compile(export_all).
@@ -94,12 +94,15 @@ init_per_group(general, Config) ->
         | Config
     ];
 init_per_group(persistence_enabled, Config0) ->
-    DurableSessionsOpts = #{
-        <<"enable">> => true,
-        <<"disconnected_session_count_refresh_interval">> => <<"100ms">>,
-        <<"checkpoint_interval">> => 0
-    },
-    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    EMQXConf =
+        #{
+            <<"durable_sessions">> =>
+                #{
+                    <<"disconnected_session_count_refresh_interval">> => <<"100ms">>,
+                    <<"checkpoint_interval">> => 0
+                }
+        },
+    Opts = #{emqx_conf => EMQXConf},
     AppSpecs = [emqx_management],
     Dashboard = emqx_mgmt_api_test_util:emqx_dashboard(),
     ClusterSpecs = [
@@ -146,8 +149,7 @@ end_per_group(general, Config) ->
 end_per_group(Group, Config) when
     Group =:= persistence_enabled
 ->
-    emqx_common_test_helpers:stop_cluster_ds(Config),
-    ok;
+    emqx_common_test_helpers:run_cleanups(Config);
 end_per_group(Group, Config) when
     Group =:= persistence_disabled_cluster
 ->

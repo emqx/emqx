@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_SUITE).
@@ -47,14 +47,11 @@ t_emqx_pubsub_api(_) ->
         ],
         emqx:subscriptions(self())
     ),
-    ?assertEqual(true, emqx:subscribed(self(), Topic)),
-    ?assertEqual(true, emqx:subscribed(ClientId, Topic)),
-    ?assertEqual(true, emqx:subscribed(self(), Topic1)),
-    ?assertEqual(true, emqx:subscribed(ClientId, Topic1)),
-    ?assertEqual(true, emqx:subscribed(self(), Topic2)),
-    ?assertEqual(true, emqx:subscribed(ClientId, Topic2)),
-    ?assertEqual(false, emqx:subscribed(self(), Topic3)),
-    ?assertEqual(false, emqx:subscribed(ClientId, Topic3)),
+    SubscribedTopics = [Topic, Topic1, Topic2],
+    ?assert(lists:all(fun(T) -> emqx:subscribed(self(), T) end, SubscribedTopics)),
+    ?assertNot(emqx:subscribed(self(), Topic3)),
+    %% These emqx_broker_helper do not track client IDs from emqx:subscribe/2 calls
+    ?assertNot(lists:any(fun(T) -> emqx:subscribed(ClientId, T) end, [Topic3 | SubscribedTopics])),
     emqx:publish(emqx_message:make(Topic, Payload)),
     receive
         {deliver, Topic, #message{payload = Payload}} ->

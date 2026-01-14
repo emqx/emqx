@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_streams_message_db).
@@ -31,7 +31,8 @@ Facade for all operations with the message database.
     drop/1,
     partitions/1,
     find_generations/2,
-    find_generation/3
+    find_generation/3,
+    slab_of_dsstream/2
 ]).
 
 -export([
@@ -437,6 +438,11 @@ dirty_read_all(Stream) ->
     [emqx_streams_types:partition()].
 partitions(Stream) ->
     emqx_ds:list_shards(db(Stream)).
+
+-spec slab_of_dsstream(emqx_streams_types:stream(), emqx_ds:stream()) ->
+    {ok, emqx_ds:slab()} | emqx_ds:error(_).
+slab_of_dsstream(Stream, DSStream) ->
+    emqx_ds:slab_of_stream(db(Stream), DSStream).
 
 %%--------------------------------------------------------------------
 %% QuotaBuffer CBM callbacks

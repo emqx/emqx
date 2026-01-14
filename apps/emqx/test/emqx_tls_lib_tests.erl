@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_tls_lib_tests).
@@ -1051,6 +1051,89 @@ to_server_opts_managed_certs_test_() ->
                 end)}
         ]
     end}.
+
+session_tickets_integrity_test_() ->
+    {foreach, fun setup_meck/0, fun cleanup_meck/1, [
+        {"session_tickets disabled, seed empty - seed should not be added",
+            fun test_session_tickets_disabled_seed_empty/0},
+        {"session_tickets enabled, seed empty - session_tickets should be removed",
+            fun test_session_tickets_enabled_seed_empty/0},
+        {"session_tickets enabled, seed configured - both should be present",
+            fun test_session_tickets_enabled_seed_configured/0},
+        {"session_tickets not configured, seed configured - seed should be removed",
+            fun test_session_tickets_not_configured_seed_configured/0},
+        {"session_tickets disabled, seed configured - seed should be removed",
+            fun test_session_tickets_disabled_seed_configured/0}
+    ]}.
+
+setup_meck() ->
+    meck:new(emqx_config, [passthrough, no_history, no_link]),
+    ok.
+
+cleanup_meck(_) ->
+    meck:unload(emqx_config).
+
+test_session_tickets_disabled_seed_empty() ->
+    meck:expect(emqx_config, get, fun([node, tls_stateless_tickets_seed], _) -> <<>> end),
+    Options = #{
+        versions => ['tlsv1.3'],
+        session_tickets => disabled
+    },
+    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+    ?assertNot(lists:keyfind(stateless_tickets_seed, 1, ServerOpts)),
+    ?assertNot(lists:keyfind(session_tickets, 1, ServerOpts)).
+
+test_session_tickets_enabled_seed_empty() ->
+    meck:expect(emqx_config, get, fun([node, tls_stateless_tickets_seed], _) -> <<>> end),
+    Options = #{
+        versions => ['tlsv1.3'],
+        session_tickets => stateless
+    },
+    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+    %% session_tickets should be removed because seed is empty
+    ?assertNot(lists:keyfind(session_tickets, 1, ServerOpts)),
+    ?assertNot(lists:keyfind(stateless_tickets_seed, 1, ServerOpts)).
+
+test_session_tickets_enabled_seed_configured() ->
+    %% 32 bytes
+    Seed = <<"0123456789abcdef0123456789abcdef">>,
+    meck:expect(emqx_config, get, fun([node, tls_stateless_tickets_seed], _) -> Seed end),
+    Options = #{
+        versions => ['tlsv1.3'],
+        session_tickets => stateless
+    },
+    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+    %% Both should be present
+    ?assertNotEqual(false, lists:keyfind(session_tickets, 1, ServerOpts)),
+    ?assertNotEqual(false, lists:keyfind(stateless_tickets_seed, 1, ServerOpts)),
+    {_, FoundSeed} = lists:keyfind(stateless_tickets_seed, 1, ServerOpts),
+    ?assertEqual(Seed, FoundSeed).
+
+test_session_tickets_not_configured_seed_configured() ->
+    %% 32 bytes
+    Seed = <<"0123456789abcdef0123456789abcdef">>,
+    meck:expect(emqx_config, get, fun([node, tls_stateless_tickets_seed], _) -> Seed end),
+    Options = #{
+        %% session_tickets not configured - omitted intentionally
+        versions => ['tlsv1.3']
+    },
+    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+    %% seed should be removed because session_tickets is not configured
+    ?assertNot(lists:keyfind(stateless_tickets_seed, 1, ServerOpts)),
+    ?assertNot(lists:keyfind(session_tickets, 1, ServerOpts)).
+
+test_session_tickets_disabled_seed_configured() ->
+    %% 32 bytes
+    Seed = <<"0123456789abcdef0123456789abcdef">>,
+    meck:expect(emqx_config, get, fun([node, tls_stateless_tickets_seed], _) -> Seed end),
+    Options = #{
+        versions => ['tlsv1.3'],
+        session_tickets => disabled
+    },
+    ServerOpts = emqx_tls_lib:to_server_opts(tls, Options),
+    %% seed should be removed because session_tickets is disabled
+    ?assertNot(lists:keyfind(stateless_tickets_seed, 1, ServerOpts)),
+    ?assertNot(lists:keyfind(session_tickets, 1, ServerOpts)).
 
 bin(X) -> iolist_to_binary(X).
 str(X) -> emqx_utils_conv:str(X).

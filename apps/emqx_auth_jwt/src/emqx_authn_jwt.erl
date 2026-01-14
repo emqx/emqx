@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_jwt).
@@ -319,16 +319,61 @@ do_verify(JWT, [JWK | More], VerifyClaims) ->
 
 verify_claims(Claims, VerifyClaims0) ->
     Now = erlang:system_time(seconds),
-    VerifyClaims =
-        [
-            {<<"exp">>, fun(ExpireTime) ->
-                is_number(ExpireTime) andalso Now < ExpireTime
-            end},
-            {<<"nbf">>, fun(NotBefore) ->
-                is_number(NotBefore) andalso NotBefore =< Now
-            end}
-        ] ++ VerifyClaims0,
-    do_verify_claims(Claims, VerifyClaims).
+    {ExpectedAud, VerifyClaimsWithoutAud} = extract_aud_claim(VerifyClaims0),
+    %% Verify aud claim first if it's required
+    maybe
+        ok ?= verify_aud_if_required(ExpectedAud, Claims),
+        VerifyClaims =
+            [
+                {<<"exp">>, fun(ExpireTime) ->
+                    is_number(ExpireTime) andalso Now < ExpireTime
+                end},
+                {<<"nbf">>, fun(NotBefore) ->
+                    is_number(NotBefore) andalso NotBefore =< Now
+                end}
+            ] ++ VerifyClaimsWithoutAud,
+        do_verify_claims(Claims, VerifyClaims)
+    end.
+
+verify_aud_if_required(undefined, _Claims) ->
+    ok;
+verify_aud_if_required(ExpectedAud, Claims) ->
+    case maps:find(<<"aud">>, Claims) of
+        error ->
+            {error, {missing_claim, <<"aud">>}};
+        {ok, AudValue} ->
+            case verify_aud_claim(AudValue, ExpectedAud) of
+                true -> ok;
+                false -> {error, {claims, {<<"aud">>, AudValue}}}
+            end
+    end.
+
+extract_aud_claim(VerifyClaims0) ->
+    case lists:keytake(<<"aud">>, 1, VerifyClaims0) of
+        {value, {<<"aud">>, ExpectedAud}, Rest} ->
+            {ExpectedAud, Rest};
+        false ->
+            {undefined, VerifyClaims0}
+    end.
+
+verify_aud_claim(AudValue, ExpectedAud) when is_binary(AudValue) ->
+    %% If aud is empty string, fail verification
+    case AudValue of
+        <<>> -> false;
+        _ -> AudValue =:= ExpectedAud
+    end;
+verify_aud_claim(AudValue, ExpectedAud) when is_list(AudValue) ->
+    %% If aud is empty array, fail verification
+    case AudValue of
+        [] ->
+            false;
+        _ ->
+            %% Check if ExpectedAud matches any value in the array
+            lists:member(ExpectedAud, AudValue)
+    end;
+verify_aud_claim(_AudValue, _ExpectedAud) ->
+    %% Invalid type, fail verification
+    false.
 
 try_convert_to_num(Claims, [Name | Names]) ->
     case Claims of

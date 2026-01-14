@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_http_api_SUITE).
 
@@ -59,7 +59,7 @@ init_per_suite(Config) ->
             emqx,
             emqx_conf,
             emqx_rule_engine,
-            emqx_schema_registry,
+            emqx_schema_registry_testlib:emqx_schema_registry_app_spec(),
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],

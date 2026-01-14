@@ -889,4 +889,36 @@ durable_timer_batch_size.desc:
 """~
 Specifies the batch size used for reading `timers` durable storage."""
 
+node_tls_server_session_tickets_amount.desc:
+"""Number of session tickets sent by the server after a successful handshake or resumption. It must be greater than 0. Defaults to 1.
+
+EMQX only supports stateless session tickets. Configuring a larger number increases resource usage,
+especially network bandwidth usage when <code>stateless_with_cert</code> is enabled in the listener SSL options,
+as each ticket includes certificate information."""
+
+node_tls_server_session_tickets_amount.label:
+"""TLS Server Session Tickets Amount"""
+
+node_tls_server_session_ticket_lifetime.desc:
+"""Lifetime of session tickets sent by the server in seconds.
+Servers must not use any value greater than 604800 seconds (7 days).
+Defaults to 7200 seconds (2 hours)."""
+
+node_tls_server_session_ticket_lifetime.label:
+"""TLS Server Session Ticket Lifetime"""
+
+node_tls_stateless_tickets_seed.desc:
+"""Secret key seed for generating TLS 1.3 stateless session tickets. This must be a string no less than 16 bytes.
+
+If set to an empty string (default), no session tickets will be generated regardless of the <code>session_tickets</code> setting in listener SSL options.
+
+Important:
+
+- This configuration cannot be changed at runtime. A node restart is required to make config take effect after any change.
+- The same key must be configured for all nodes in the cluster to ensure session tickets work correctly across the cluster.
+- The key should be kept secret and secure, as it is used to encrypt session tickets."""
+
+node_tls_stateless_tickets_seed.label:
+"""TLS Stateless Tickets Seed"""
+
 }

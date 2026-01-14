@@ -32,7 +32,7 @@ env:
 jobs:
   eunit_and_proper:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
-    name: "eunit_and_proper (${{ matrix.profile }})"
+    name: "eunit_and_proper"
     strategy:
       fail-fast: false
       matrix:
@@ -73,7 +73,7 @@ jobs:
 
   ct_docker:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
-    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }}"
     strategy:
       fail-fast: false
       matrix:
@@ -141,7 +141,7 @@ jobs:
 
   ct:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
-    name: "${{ matrix.app }}-${{ matrix.suitegroup }} (${{ matrix.profile }})"
+    name: "${{ matrix.app }}-${{ matrix.suitegroup }}"
     strategy:
       fail-fast: false
       matrix:
@@ -192,7 +192,7 @@ jobs:
 
   pytest_boot_tests:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
-    name: "pytest_boot_tests (${{ matrix.profile }})"
+    name: "pytest_boot_tests"
     strategy:
       fail-fast: false
       matrix:

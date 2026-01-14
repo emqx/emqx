@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2018-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2018-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_broker_helper).
@@ -17,7 +17,7 @@
 
 %% APIs
 -export([
-    register_sub/2,
+    register_sub/3,
     lookup_subid/1,
     lookup_subpid/1,
     assign_sub_shard/1,
@@ -39,7 +39,6 @@
     code_change/3
 ]).
 
-%% Internal APIs
 -export([clean_down/1]).
 
 -ifdef(TEST).
@@ -60,17 +59,23 @@
 start_link() ->
     gen_server:start_link({local, ?HELPER}, ?MODULE, [], []).
 
--spec register_sub(pid(), emqx_types:subid()) -> ok.
-register_sub(SubPid, SubId) when is_pid(SubPid) ->
-    case ets:lookup(?SUBMON, SubPid) of
-        [] ->
+-spec register_sub(pid(), emqx_types:subid(), monitor | no_monitor) -> ok.
+register_sub(SubPid, SubId, Monitor) when is_pid(SubPid) ->
+    case lookup_pid_to_id(SubPid) of
+        [] when Monitor =:= monitor ->
             _ = erlang:send(?HELPER, {register_sub, SubPid, SubId}),
+            ok;
+        [] when Monitor =:= no_monitor ->
+            true = insert_tables(SubId, SubPid),
             ok;
         [{_, SubId}] ->
             ok;
         _Other ->
             error(subid_conflict)
     end.
+
+lookup_pid_to_id(Pid) ->
+    ets:lookup(?SUBMON, Pid).
 
 -spec lookup_subid(pid()) -> option(emqx_types:subid()).
 lookup_subid(SubPid) when is_pid(SubPid) ->
@@ -268,7 +273,7 @@ collect_messages(Reg, Down) ->
 %% There is no other message sent to this process, so the
 %% 'receive' should not have to scan the mailbox.
 collect_messages(Reg, Down, 0) ->
-    {Reg, Down};
+    {lists:reverse(Reg), lists:reverse(Down)};
 collect_messages(Reg, Down, N) ->
     receive
         {register_sub, Pid, Id} ->
@@ -276,28 +281,36 @@ collect_messages(Reg, Down, N) ->
         {'DOWN', _MRef, process, Pid, _Reason} ->
             collect_messages(Reg, [Pid | Down], N - 1)
     after 0 ->
-        {Reg, Down}
+        {lists:reverse(Reg), lists:reverse(Down)}
     end.
 
 handle_registrations(Regs) ->
     lists:foreach(fun handle_register/1, Regs).
 
 handle_register({SubId, SubPid}) ->
-    record_subscription(SubId, SubPid),
-    monitor_subscriber(SubId, SubPid).
+    ok = monitor_subscriber(SubPid),
+    insert_tables(SubId, SubPid).
 
-record_subscription(undefined, _) ->
+insert_tables(SubId, SubPid) ->
+    %% Must insert pid to ID first to ensure no leak
+    true = insert_pid_to_id(SubId, SubPid),
+    true = insert_id_to_pid(SubId, SubPid).
+
+insert_id_to_pid(undefined, _) ->
     true;
-record_subscription(SubId, SubPid) ->
+insert_id_to_pid(SubId, SubPid) ->
     ets:insert(?SUBID, {SubId, SubPid}).
 
-monitor_subscriber(SubId, SubPid) ->
+insert_pid_to_id(SubId, SubPid) ->
+    ets:insert(?SUBMON, {SubPid, SubId}).
+
+monitor_subscriber(SubPid) ->
     case ets:member(?SUBMON, SubPid) of
         false ->
-            _MRef = erlang:monitor(process, SubPid),
-            ets:insert(?SUBMON, {SubPid, SubId});
+            _ = erlang:monitor(process, SubPid),
+            ok;
         true ->
-            true
+            ok
     end.
 
 handle_down(SubPids) ->
@@ -305,6 +318,7 @@ handle_down(SubPids) ->
         fun lists:foreach/2, [fun ?MODULE:clean_down/1, SubPids]
     ).
 
+-spec clean_down(pid()) -> ok.
 clean_down(SubPid) ->
     try
         case ets:lookup(?SUBMON, SubPid) of
@@ -313,7 +327,8 @@ clean_down(SubPid) ->
                 true =
                     (SubId =:= undefined) orelse
                         ets:delete_object(?SUBID, {SubId, SubPid}),
-                emqx_broker:subscriber_down(SubPid);
+                emqx_broker:subscriber_down(SubPid),
+                ok;
             [] ->
                 ok
         end

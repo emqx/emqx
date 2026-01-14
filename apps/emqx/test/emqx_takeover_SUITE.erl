@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_takeover_SUITE).
@@ -99,7 +99,7 @@ init_per_group(mqttv5, Config) ->
 end_per_group(Group, Config) when
     Group =:= persistence_enabled
 ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
+    emqx_common_test_helpers:run_cleanups(Config),
     ok;
 end_per_group(Group, Config) when
     Group =:= persistence_disabled

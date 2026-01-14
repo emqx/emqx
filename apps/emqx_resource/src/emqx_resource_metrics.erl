@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_resource_metrics).
@@ -66,8 +66,16 @@
     success_inc/1,
     success_inc/2,
     success_inc/3,
-    success_get/1
+    success_get/1,
+    aggregated_upload_success_inc/1,
+    aggregated_upload_success_inc/2,
+    aggregated_upload_success_get/1,
+    aggregated_upload_failure_inc/1,
+    aggregated_upload_failure_inc/2,
+    aggregated_upload_failure_get/1
 ]).
+
+-export([mk_delivery_finished_callback_for_action/1, on_delivery_finished/2]).
 
 -define(TELEMETRY_PREFIX, emqx, resource).
 
@@ -90,7 +98,9 @@ events() ->
             received,
             retried_failed,
             retried_success,
-            success
+            success,
+            aggregated_upload_success,
+            aggregated_upload_failure
         ]
     ].
 
@@ -209,6 +219,10 @@ handle_counter_telemetry_event(Event, ID, Val, Metadata) ->
         success ->
             inc_actions_executed(Metadata),
             emqx_metrics_worker:inc(?RES_METRICS, ID, 'success', Val);
+        aggregated_upload_success ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload.success', Val);
+        aggregated_upload_failure ->
+            emqx_metrics_worker:inc(?RES_METRICS, ID, 'aggregated_upload.failure', Val);
         _ ->
             ok
     end.
@@ -473,6 +487,55 @@ success_inc(ID, Val, ExtraMeta) ->
 
 success_get(ID) ->
     emqx_metrics_worker:get(?RES_METRICS, ID, 'success').
+
+%% @doc Count of aggregated uploads that have been sent successfully
+aggregated_upload_success_inc(ID) ->
+    aggregated_upload_success_inc(ID, 1).
+
+aggregated_upload_success_inc(_ID, 0) ->
+    ok;
+aggregated_upload_success_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, aggregated_upload_success], #{counter_inc => Val}, #{
+        resource_id => ID
+    }).
+
+aggregated_upload_success_get(ID) ->
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload.success').
+
+%% @doc Count of aggregated uploads that have failed
+aggregated_upload_failure_inc(ID) ->
+    aggregated_upload_failure_inc(ID, 1).
+
+aggregated_upload_failure_inc(_ID, 0) ->
+    ok;
+aggregated_upload_failure_inc(ID, Val) ->
+    telemetry:execute([?TELEMETRY_PREFIX, aggregated_upload_failure], #{counter_inc => Val}, #{
+        resource_id => ID
+    }).
+
+aggregated_upload_failure_get(ID) ->
+    emqx_metrics_worker:get(?RES_METRICS, ID, 'aggregated_upload.failure').
+
+-doc """
+Helper for aggregated actions to add a callback to bump their metrics.
+""".
+mk_delivery_finished_callback_for_action(ActionResId) ->
+    {fun ?MODULE:on_delivery_finished/2, [ActionResId]}.
+
+-doc """
+Callback handler for aggregated actions to bump their metrics when delivery finishes.
+""".
+-spec on_delivery_finished(ok | {skipped, _} | {error, _}, emqx_resource:action_resource_id()) ->
+    ok.
+on_delivery_finished(Result, ActionResId) ->
+    case Result of
+        ok ->
+            emqx_resource_metrics:aggregated_upload_success_inc(ActionResId);
+        {skipped, _} ->
+            ok;
+        {error, _} ->
+            emqx_resource_metrics:aggregated_upload_failure_inc(ActionResId)
+    end.
 
 inc_actions_executed(#{namespace := Namespace}) ->
     emqx_metrics:inc(Namespace, 'actions.executed');

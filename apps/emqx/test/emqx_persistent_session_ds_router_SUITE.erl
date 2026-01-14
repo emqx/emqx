@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_persistent_session_ds_router_SUITE).
@@ -30,8 +30,7 @@ init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps_ds(Config, _ExtraApps = [], Opts).
 
 end_per_suite(Config) ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
-    ok.
+    emqx_common_test_helpers:run_cleanups(Config).
 
 init_per_testcase(_TestCase, Config) ->
     clear_tables(),

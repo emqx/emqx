@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_rule_funcs_SUITE).
@@ -1184,6 +1184,311 @@ prop_base64_encode() ->
             Bin = iolist_to_binary(S),
             Bin == base64:decode(apply_func(base64_encode, [Bin]))
         end
+    ).
+
+t_base64_encode_no_padding(_) ->
+    ?PROPTEST(prop_base64_encode_no_padding).
+
+prop_base64_encode_no_padding() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            Encoded = apply_func(base64_encode, [Bin, <<"no_padding">>]),
+            %% Verify roundtrip decoding works
+            Bin == base64:decode(Encoded, #{padding => false})
+        end
+    ).
+
+t_base64_encode_urlsafe(_) ->
+    ?PROPTEST(prop_base64_encode_urlsafe).
+
+prop_base64_encode_urlsafe() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            Encoded = apply_func(base64_encode, [Bin, <<"urlsafe">>]),
+            %% Verify urlsafe encoding (no + or / characters)
+            case binary:match(Encoded, [<<"+">>, <<"/">>]) of
+                nomatch -> true;
+                _ -> false
+            end andalso
+                Bin == base64:decode(Encoded, #{mode => urlsafe})
+        end
+    ).
+
+t_base64_encode_no_padding_urlsafe(_) ->
+    ?PROPTEST(prop_base64_encode_no_padding_urlsafe).
+
+prop_base64_encode_no_padding_urlsafe() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            Encoded = apply_func(base64_encode, [Bin, <<"no_padding">>, <<"urlsafe">>]),
+            %% Verify roundtrip decoding works
+            Bin == base64:decode(Encoded, #{padding => false, mode => urlsafe})
+        end
+    ).
+
+t_base64_decode(_) ->
+    ?PROPTEST(prop_base64_decode_with_padding),
+    ?PROPTEST(prop_base64_decode_no_padding).
+
+prop_base64_decode_with_padding() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            %% Encode with padding
+            Encoded = base64:encode(Bin),
+            %% Decode should work (default behavior)
+            Bin == apply_func(base64_decode, [Encoded])
+        end
+    ).
+
+prop_base64_decode_no_padding() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            %% Encode without padding
+            Encoded = base64:encode(Bin, #{padding => false}),
+            %% Decode should work with no_padding option
+            Bin == apply_func(base64_decode, [Encoded, <<"no_padding">>])
+        end
+    ).
+
+t_base64_decode_with_opts(_) ->
+    ?PROPTEST(prop_base64_decode_urlsafe_opt),
+    ?PROPTEST(prop_base64_decode_no_padding_opt),
+    ?PROPTEST(prop_base64_decode_urlsafe_no_padding_opts).
+
+prop_base64_decode_urlsafe_opt() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            %% Encode with urlsafe mode (produces padded string by default)
+            Encoded = base64:encode(Bin, #{mode => urlsafe}),
+            %% Decode with urlsafe option (padding required by default, so this works)
+            Bin == apply_func(base64_decode, [Encoded, <<"urlsafe">>])
+        end
+    ).
+
+prop_base64_decode_no_padding_opt() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            %% Encode without padding
+            Encoded = base64:encode(Bin, #{padding => false}),
+            %% Decode with no_padding option (required for unpadded strings)
+            Bin == apply_func(base64_decode, [Encoded, <<"no_padding">>])
+        end
+    ).
+
+prop_base64_decode_urlsafe_no_padding_opts() ->
+    ?FORALL(
+        S,
+        list(range(0, 255)),
+        begin
+            Bin = iolist_to_binary(S),
+            %% Encode without padding and urlsafe
+            Encoded = base64:encode(Bin, #{padding => false, mode => urlsafe}),
+            %% Decode with both options
+            Bin == apply_func(base64_decode, [Encoded, <<"urlsafe">>, <<"no_padding">>])
+        end
+    ).
+
+t_base64_encode_decode_roundtrip(_) ->
+    %% Test roundtrip with various options
+    TestData = [
+        <<"hello">>,
+        <<"test data">>,
+        <<"a">>,
+        <<"ab">>,
+        <<"abc">>,
+        <<"abcd">>,
+        <<"test+data">>,
+        <<"test/data">>,
+        <<"test=data">>
+    ],
+    lists:foreach(
+        fun(Data) ->
+            %% Standard encode/decode
+            ?assertEqual(Data, apply_func(base64_decode, [apply_func(base64_encode, [Data])])),
+            %% No padding encode/decode
+            ?assertEqual(
+                Data,
+                apply_func(base64_decode, [
+                    apply_func(base64_encode, [Data, <<"no_padding">>]), <<"no_padding">>
+                ])
+            ),
+            %% Urlsafe encode/decode (using decode/2 with option)
+            ?assertEqual(
+                Data,
+                apply_func(base64_decode, [
+                    apply_func(base64_encode, [Data, <<"urlsafe">>]), <<"urlsafe">>
+                ])
+            ),
+            %% No padding + urlsafe encode/decode (using decode/3 with options)
+            ?assertEqual(
+                Data,
+                apply_func(
+                    base64_decode,
+                    [
+                        apply_func(base64_encode, [Data, <<"no_padding">>, <<"urlsafe">>]),
+                        <<"urlsafe">>,
+                        <<"no_padding">>
+                    ]
+                )
+            )
+        end,
+        TestData
+    ).
+
+t_base64_encode_format_checks(_) ->
+    %% Test that no_padding option actually removes padding
+    Data1 = <<"a">>,
+    Encoded1 = apply_func(base64_encode, [Data1]),
+    Encoded1NoPad = apply_func(base64_encode, [Data1, <<"no_padding">>]),
+    %% Standard encoding should have padding
+    ?assert(binary:match(Encoded1, <<"=">>) =/= nomatch),
+    %% No padding encoding should not have padding
+    ?assertEqual(nomatch, binary:match(Encoded1NoPad, <<"=">>)),
+    %% Test that urlsafe option uses - and _ instead of + and /
+    %% Use data that will definitely produce + or / in standard base64
+    %% <<255, 255, 255>> produces "////" (has /)
+    %% <<251, 239>> produces "++8=" (has +)
+    Data2WithSlash = <<255, 255, 255>>,
+    Data2WithPlus = <<251, 239>>,
+    Encoded2Slash = apply_func(base64_encode, [Data2WithSlash]),
+    Encoded2Plus = apply_func(base64_encode, [Data2WithPlus]),
+    Encoded2SlashUrlSafe = apply_func(base64_encode, [Data2WithSlash, <<"urlsafe">>]),
+    Encoded2PlusUrlSafe = apply_func(base64_encode, [Data2WithPlus, <<"urlsafe">>]),
+    %% Standard encoding should have + or /
+    ?assert(binary:match(Encoded2Slash, <<"/">>) =/= nomatch),
+    ?assert(binary:match(Encoded2Plus, <<"+">>) =/= nomatch),
+    %% Urlsafe encoding should not have + or /
+    ?assertEqual(nomatch, binary:match(Encoded2SlashUrlSafe, <<"+">>)),
+    ?assertEqual(nomatch, binary:match(Encoded2SlashUrlSafe, <<"/">>)),
+    ?assertEqual(nomatch, binary:match(Encoded2PlusUrlSafe, <<"+">>)),
+    ?assertEqual(nomatch, binary:match(Encoded2PlusUrlSafe, <<"/">>)),
+    %% But should have - or _ where + and / would be
+    ?assert(
+        (binary:match(Encoded2SlashUrlSafe, <<"-">>) =/= nomatch) orelse
+            (binary:match(Encoded2SlashUrlSafe, <<"_">>) =/= nomatch)
+    ),
+    ?assert(
+        (binary:match(Encoded2PlusUrlSafe, <<"-">>) =/= nomatch) orelse
+            (binary:match(Encoded2PlusUrlSafe, <<"_">>) =/= nomatch)
+    ).
+
+t_base64_encode_decode_comprehensive(_) ->
+    %% Test base64_encode/3 with reverse order of options
+    TestData = <<"test data">>,
+    Encoded1 = apply_func(base64_encode, [TestData, <<"no_padding">>, <<"urlsafe">>]),
+    Encoded2 = apply_func(base64_encode, [TestData, <<"urlsafe">>, <<"no_padding">>]),
+    %% Both should produce the same result (order shouldn't matter)
+    ?assertEqual(Encoded1, Encoded2),
+    %% Both should decode correctly
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [Encoded1, <<"urlsafe">>, <<"no_padding">>])
+    ),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [Encoded2, <<"no_padding">>, <<"urlsafe">>])
+    ),
+    %% Test base64_encode/2 with unknown option (should work like default encode)
+    Encoded3 = apply_func(base64_encode, [TestData, <<"unknown_option">>]),
+    EncodedDefault = apply_func(base64_encode, [TestData]),
+    ?assertEqual(EncodedDefault, Encoded3),
+    %% Verify it decodes correctly
+    ?assertEqual(TestData, apply_func(base64_decode, [Encoded3])),
+    %% Test base64_encode/3 with unknown options
+    Encoded4 = apply_func(base64_encode, [TestData, <<"unknown1">>, <<"unknown2">>]),
+    ?assertEqual(EncodedDefault, Encoded4),
+    ?assertEqual(TestData, apply_func(base64_decode, [Encoded4])),
+    %% Test base64_encode/3 with one known and one unknown option
+    Encoded5 = apply_func(base64_encode, [TestData, <<"no_padding">>, <<"unknown">>]),
+    EncodedNoPad = apply_func(base64_encode, [TestData, <<"no_padding">>]),
+    ?assertEqual(EncodedNoPad, Encoded5),
+    Encoded6 = apply_func(base64_encode, [TestData, <<"unknown">>, <<"urlsafe">>]),
+    EncodedUrlSafe = apply_func(base64_encode, [TestData, <<"urlsafe">>]),
+    ?assertEqual(EncodedUrlSafe, Encoded6),
+    %% Test base64_decode/2 with unknown option on unpadded data (requires no_padding)
+    EncodedNoPad2 = apply_func(base64_encode, [TestData, <<"no_padding">>]),
+    %% Unknown option doesn't set no_padding, so this will fail - need to add no_padding explicitly
+    %% Actually, unknown option should be ignored, so we still need no_padding
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedNoPad2, <<"no_padding">>])
+    ),
+    %% Test base64_decode/2 with unknown option on padded data (should also work)
+    EncodedPadded = apply_func(base64_encode, [TestData]),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedPadded, <<"unknown_option">>])
+    ),
+    %% Test base64_decode/3 with reverse order
+    EncodedBoth = apply_func(base64_encode, [TestData, <<"no_padding">>, <<"urlsafe">>]),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedBoth, <<"no_padding">>, <<"urlsafe">>])
+    ),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedBoth, <<"urlsafe">>, <<"no_padding">>])
+    ),
+    %% Test base64_decode/3 with unknown options on unpadded data (requires no_padding)
+    EncodedNoPad3 = apply_func(base64_encode, [TestData, <<"no_padding">>]),
+    %% Unknown options don't set no_padding, so we need to add no_padding explicitly
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedNoPad3, <<"no_padding">>, <<"unknown1">>])
+    ),
+    %% Test base64_decode/3 with one known and one unknown option
+    %% Test with padded URL-safe string (should work since padding is required by default)
+    EncodedUrlSafe2 = apply_func(base64_encode, [TestData, <<"urlsafe">>]),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedUrlSafe2, <<"urlsafe">>, <<"unknown">>])
+    ),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedUrlSafe2, <<"unknown">>, <<"urlsafe">>])
+    ),
+    %% Test base64_decode/3 with both unknown options on padded data
+    EncodedPadded2 = apply_func(base64_encode, [TestData]),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedPadded2, <<"unknown1">>, <<"unknown2">>])
+    ),
+    %% Test base64_encode/3 with duplicate options (should work correctly)
+    Encoded7 = apply_func(base64_encode, [TestData, <<"no_padding">>, <<"no_padding">>]),
+    ?assertEqual(EncodedNoPad, Encoded7),
+    Encoded8 = apply_func(base64_encode, [TestData, <<"urlsafe">>, <<"urlsafe">>]),
+    ?assertEqual(EncodedUrlSafe, Encoded8),
+    %% Test base64_decode/3 with duplicate options
+    EncodedNoPad4 = apply_func(base64_encode, [TestData, <<"no_padding">>]),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedNoPad4, <<"no_padding">>, <<"no_padding">>])
+    ),
+    EncodedUrlSafe3 = apply_func(base64_encode, [TestData, <<"urlsafe">>]),
+    ?assertEqual(
+        TestData,
+        apply_func(base64_decode, [EncodedUrlSafe3, <<"urlsafe">>, <<"urlsafe">>])
     ).
 
 %%--------------------------------------------------------------------

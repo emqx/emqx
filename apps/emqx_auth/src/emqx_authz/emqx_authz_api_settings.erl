@@ -1,12 +1,11 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_api_settings).
 
 -behaviour(minirest_api).
 
--include_lib("emqx_authz.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 

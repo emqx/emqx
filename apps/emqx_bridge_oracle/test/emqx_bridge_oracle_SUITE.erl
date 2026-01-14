@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_oracle_SUITE).
 
@@ -258,7 +258,10 @@ probe_action_api(TCConfig, Overrides) ->
     ).
 
 create_connector_api(Config, Overrides) ->
-    emqx_bridge_v2_testlib:create_connector_api2(Config, Overrides).
+    Result = emqx_bridge_v2_testlib:create_connector_api2(Config, Overrides),
+    %% Add wait for connection pool initialization
+    timer:sleep(1000),
+    Result.
 
 create_action_api(Config, Overrides) ->
     emqx_bridge_v2_testlib:create_action_api2(Config, Overrides).

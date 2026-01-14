@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_config_SUITE).
@@ -550,7 +550,10 @@ zone_global_defaults() ->
                         checkpoint_interval => 15000,
                         realloc_interval => 100,
                         revocation_timeout => 10000,
-                        max_idle_time => 30000
+                        max_idle_time => 30000,
+                        commit_timeout => 5000,
+                        commit_retry_interval => 1000,
+                        commit_retries => 10
                     }
             }
     }.

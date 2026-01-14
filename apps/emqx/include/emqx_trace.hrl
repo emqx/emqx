@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -ifndef(EMQX_TRACE_HRL).
 -define(EMQX_TRACE_HRL, true).

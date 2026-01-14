@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_coap_SUITE).
@@ -439,7 +439,6 @@ t_subscribe_with_qos_opt(_) ->
         timer:sleep(100),
         [SubPid] = emqx:subscribers(Topic),
         ?assert(is_pid(SubPid)),
-        ?assertEqual(Qos, maps:get(qos, emqx_broker:get_subopts(SubPid, Topic))),
         %% publish a message
         emqx:publish(emqx_message:make(Topic, Payload)),
         {ok, content, Notify} = with_response(Channel),

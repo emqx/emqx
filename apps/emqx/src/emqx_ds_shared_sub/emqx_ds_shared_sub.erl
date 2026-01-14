@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub).
@@ -23,6 +23,10 @@
 
 -include("emqx_mqtt.hrl").
 
+%%--------------------------------------------------------------------
+%% Type declarations
+%%--------------------------------------------------------------------
+
 -type id() :: emqx_ds_shared_sub_dl:id().
 
 -type options() :: #{
@@ -40,7 +44,9 @@
 
 -type strategy() :: shard.
 
-%%
+%%--------------------------------------------------------------------
+%% API
+%%--------------------------------------------------------------------
 
 -spec declare(emqx_types:group(), emqx_types:topic(), options()) -> {ok, info()} | emqx_ds:error(_).
 declare(Group, Topic, Options = #{}) when

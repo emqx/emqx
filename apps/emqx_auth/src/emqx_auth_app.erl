@@ -1,10 +1,8 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_auth_app).
-
--include("emqx_authn.hrl").
 
 -behaviour(application).
 
@@ -13,8 +11,6 @@
     start/2,
     stop/1
 ]).
-
--include_lib("emqx_authn_chains.hrl").
 
 -dialyzer({nowarn_function, [start/2]}).
 
