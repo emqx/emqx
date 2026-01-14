@@ -44,6 +44,26 @@
     terminate/2
 ]).
 
+-export_type([
+    actor/0,
+    routeid/0
+]).
+
+%% Name of the target cluster for route replication:
+-type cluster() :: emqx_cluster_link_schema:cluster().
+
+%% Replication actor:
+%% * `node()` for regular routes.
+%% * `'ps-routes-v1'` for persistent routes.
+%% See also: `emqx_cluster_link_extrouter`.
+-type actor() :: atom().
+
+%% Route ID:
+%% A pair of {Topic, Route ID} uniquely identifies a single actor's route.
+%% This is needed for example to disambiguate different local routes that intersect
+%% to the same topic filter for a partical link, according to configured link filters.
+-type routeid() :: binary().
+
 -define(REF(NAME), {via, gproc, NAME}).
 -define(NAME(CLUSTER, ACTOR), {n, l, {?MODULE, CLUSTER, ACTOR}}).
 -define(NAME(CLUSTER, ACTOR, WHAT), {n, l, {?MODULE, CLUSTER, ACTOR, WHAT}}).
@@ -75,6 +95,8 @@
 
 %% @doc Replicate a route addition or removal, where route is annotated with unique
 %% route ID.
+-spec push(_Target :: cluster(), actor(), add | delete, emqx_types:topic(), routeid()) ->
+    ok | dropped.
 push(TargetCluster, Actor, OpName, Topic, ID) ->
     push_to(?SYNCER_NAME(TargetCluster, Actor), OpName, Topic, ID).
 
@@ -99,6 +121,12 @@ push_to(SyncerName, OpName, Topic, ID) ->
 %%    Replication protocol, and basic error handling.
 %% Configured with a "Route Replication Actor" identifier, an MFA supplying actor and
 %% protocol details (e.g. "Incarnation"), and a Cluster Link.
+-spec start_link(actor(), ActorMF, emqx_cluster_link_schema:link()) ->
+    {ok, pid()} | {error, _Reason}
+when
+    ActorMF ::
+        {module(), atom(), [_Arg]}
+        | fun((incarnation | marker) -> _).
 start_link(Actor, ActorMF, #{name := TargetCluster} = LinkConf) ->
     SupName = ?NAME(TargetCluster, Actor),
     supervisor:start_link(?REF(SupName), ?MODULE, {sup, Actor, ActorMF, LinkConf}).
