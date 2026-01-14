@@ -469,6 +469,24 @@ def filter_and_enrich_spdx_sbom(
     with open(sbom_path, 'r') as f:
         sbom = json.load(f)
 
+    # Ensure creationInfo has document_namespace (required by spdx-tools)
+    # Also ensure top-level documentNamespace exists for compatibility
+    doc_name = sbom.get('name', 'unknown')
+    import uuid
+
+    # Get or generate namespace
+    if 'documentNamespace' in sbom:
+        doc_namespace = sbom['documentNamespace']
+    else:
+        namespace_uuid = str(uuid.uuid4())
+        doc_namespace = f"https://spdx.org/spdxdocs/{doc_name}-{namespace_uuid}"
+        sbom['documentNamespace'] = doc_namespace
+
+    # Ensure creationInfo has document_namespace (required by spdx-tools parser)
+    if 'creationInfo' in sbom:
+        if 'document_namespace' not in sbom['creationInfo']:
+            sbom['creationInfo']['document_namespace'] = doc_namespace
+
     original_count = len(sbom.get('packages', []))
 
     # Filter packages - match by name field

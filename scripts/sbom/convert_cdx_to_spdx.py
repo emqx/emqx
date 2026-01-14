@@ -259,6 +259,11 @@ def convert_cyclonedx_to_spdx(cdx_path: Path, output_path: Path = None) -> Dict[
     relationships = convert_relationships(components, root_component, bom_ref_to_spdx_id, packages)
 
     # Build SPDX document
+    # Note: documentNamespace is required by spdx-tools parser
+    # It needs to be in creationInfo as document_namespace (snake_case for JSON)
+    namespace_uuid = str(uuid.uuid4())
+    doc_namespace = f"https://spdx.org/spdxdocs/{doc_name}-{namespace_uuid}"
+
     spdx_doc = {
         "SPDXID": "SPDXRef-DOCUMENT",
         "spdxVersion": "SPDX-2.3",
@@ -266,11 +271,12 @@ def convert_cyclonedx_to_spdx(cdx_path: Path, output_path: Path = None) -> Dict[
             "comment": "This SPDX document has been converted from CycloneDX format.",
             "created": timestamp,
             "creators": creators,
-            "licenseListVersion": "3.23"
+            "licenseListVersion": "3.23",
+            "document_namespace": doc_namespace
         },
         "name": doc_name,
         "dataLicense": "CC0-1.0",
-        # documentNamespace is optional and removed as it's not a reachable link
+        "documentNamespace": doc_namespace,  # Also include at top level for compatibility
         "packages": packages
     }
 

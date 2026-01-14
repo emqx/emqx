@@ -137,8 +137,7 @@ defmodule EMQXUmbrella.MixProject do
   def extra_release_apps() do
     [
       common_dep(:redbug),
-      common_dep(:observer_cli),
-      common_dep(:sbom)
+      common_dep(:observer_cli)
     ]
   end
 
@@ -1297,8 +1296,7 @@ defmodule EMQXUmbrella.MixProject do
       cover: "emqx.cover",
       eunit: "emqx.eunit",
       proper: "emqx.proper",
-      dialyzer: "emqx.dialyzer",
-      sbom: "sbom.cyclonedx"
+      dialyzer: "emqx.dialyzer"
     ]
   end
 
