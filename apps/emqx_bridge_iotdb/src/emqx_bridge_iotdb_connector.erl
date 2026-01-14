@@ -822,6 +822,14 @@ iot_timestamp(Timestamp, _) when is_binary(Timestamp) ->
             {error, {invalid_data, <<"Timestamp is undefined or not a integer">>}}
     end.
 
+proc_measurement(MeasurementTkn, Msg) ->
+    case emqx_placeholder:proc_tmpl(MeasurementTkn, Msg) of
+        <<"undefined">> ->
+            throw(<<"Rendered measurement is undefined">>);
+        Val ->
+            Val
+    end.
+
 proc_value(<<"TEXT">>, ValueTkn, Msg) ->
     case emqx_placeholder:proc_tmpl(ValueTkn, Msg) of
         <<"undefined">> -> null;
@@ -834,7 +842,7 @@ proc_value(Int, ValueTkn, Msg) when Int =:= <<"INT32">>; Int =:= <<"INT64">> ->
 proc_value(Int, ValueTkn, Msg) when Int =:= <<"FLOAT">>; Int =:= <<"DOUBLE">> ->
     convert_float(replace_var(ValueTkn, Msg));
 proc_value(Type, _, _) ->
-    throw(#{reason => invalid_type, type => Type}).
+    throw(<<"Unsupported data type: ", Type/binary>>).
 
 replace_var(Tokens, Data) when is_list(Tokens) ->
     [Val] = emqx_placeholder:proc_tmpl(Tokens, Data, #{return => rawlist}),
@@ -1273,13 +1281,11 @@ proc_record_data(
         proc_record_data(
             T,
             Msg,
-            [emqx_placeholder:proc_tmpl(Measurement, Msg) | MeasurementAcc],
+            [proc_measurement(Measurement, Msg) | MeasurementAcc],
             [DataType | TypeAcc],
             [proc_value(DataType, ValueTkn, Msg) | ValueAcc]
         )
     catch
-        throw:Reason ->
-            {error, Reason};
         Error:Reason ->
             ?SLOG(debug, #{exception => Error, reason => Reason}),
             {error, {invalid_data, Reason}}
@@ -1304,12 +1310,10 @@ proc_record_data_for_table(
         proc_record_data_for_table(
             T,
             Msg,
-            [emqx_placeholder:proc_tmpl(Measurement, Msg) | MeasurementAcc],
+            [proc_measurement(Measurement, Msg) | MeasurementAcc],
             [proc_value(DataType, ValueTkn, Msg) | ValueAcc]
         )
     catch
-        throw:Reason ->
-            {error, Reason};
         Error:Reason ->
             ?SLOG(debug, #{exception => Error, reason => Reason}),
             {error, {invalid_data, Reason}}
