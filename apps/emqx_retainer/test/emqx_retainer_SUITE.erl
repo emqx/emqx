@@ -1171,8 +1171,6 @@ t_compatibility_for_deliver_rate(_) ->
             <<"retainer">> :=
                 #{
                     <<"flow_control">> := #{
-                        <<"batch_deliver_number">> := 0,
-                        <<"batch_read_number">> := 0,
                         <<"batch_deliver_limiter">> := infinity
                     }
                 }
@@ -1186,8 +1184,6 @@ t_compatibility_for_deliver_rate(_) ->
             <<"retainer">> :=
                 #{
                     <<"flow_control">> := #{
-                        <<"batch_deliver_number">> := 1000,
-                        <<"batch_read_number">> := 1000,
                         <<"batch_deliver_limiter">> := {1000, 1000}
                     }
                 }
@@ -1201,8 +1197,6 @@ t_compatibility_for_deliver_rate(_) ->
             <<"retainer">> :=
                 #{
                     <<"flow_control">> := #{
-                        <<"batch_deliver_number">> := 0,
-                        <<"batch_read_number">> := 0,
                         <<"batch_deliver_limiter">> := infinity
                     }
                 }
