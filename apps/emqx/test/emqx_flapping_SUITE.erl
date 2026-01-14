@@ -81,6 +81,32 @@ t_detect_subsequent(_) ->
     %% Process is fine:
     _ = sys:get_state(Pid).
 
+t_no_detect_rare(_) ->
+    ClientInfo = #{
+        zone => default,
+        listener => 'tcp:default',
+        clientid => atom_to_binary(?FUNCTION_NAME),
+        peerhost => {127, 0, 0, 1}
+    },
+    false = emqx_banned:check(ClientInfo),
+    N = emqx_utils:foldl_while(
+        fun(I, _) ->
+            case emqx_flapping:detect(ClientInfo) of
+                false ->
+                    timer:sleep(60),
+                    {cont, I};
+                true ->
+                    {halt, I}
+            end
+        end,
+        0,
+        lists:seq(1, 20)
+    ),
+    N < 20 orelse ct:comment("flapping was not observed"),
+    %% Still not banned:
+    timer:sleep(50),
+    false = emqx_banned:check(ClientInfo).
+
 t_rogue_messages(_) ->
     [Pid] = [P || {emqx_flapping, P, _, _} <- supervisor:which_children(emqx_cm_sup)],
     gen_server:call(Pid, unexpected_msg),
@@ -100,26 +126,14 @@ t_expired_detecting(_) ->
         peerhost => {127, 0, 0, 1}
     },
     false = emqx_flapping:detect(ClientInfo),
-    ?assertEqual(
-        true,
-        lists:any(
-            fun
-                ({flapping, <<"client008">>, _, _, _}) -> true;
-                (_) -> false
-            end,
-            ets:tab2list(emqx_flapping)
-        )
+    ?assertMatch(
+        [_],
+        [X || X = {flapping, <<"client008">>, _, _, _} <- ets:tab2list(emqx_flapping)]
     ),
     timer:sleep(200),
-    ?assertEqual(
-        true,
-        lists:all(
-            fun
-                ({flapping, <<"client008">>, _, _, _}) -> false;
-                (_) -> true
-            end,
-            ets:tab2list(emqx_flapping)
-        )
+    ?assertMatch(
+        [],
+        [X || X = {flapping, <<"client008">>, _, _, _} <- ets:tab2list(emqx_flapping)]
     ).
 
 t_conf_update(_) ->

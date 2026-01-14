@@ -147,16 +147,7 @@ handle_cast(
                 #{clientid => ClientId}
             );
         false ->
-            ?SLOG(
-                warning,
-                #{
-                    msg => "client_disconnected",
-                    peer_host => fmt_host(PeerHost),
-                    detect_cnt => DetectCnt,
-                    interval => Interval
-                },
-                #{clientid => ClientId}
-            )
+            ok
     end,
     {noreply, State};
 handle_cast(update_config, State) ->
