@@ -30,6 +30,7 @@
 ]).
 
 -define(KEY(Topic, QoS, Retain), {?MODULE, Topic, QoS, Retain}).
+-define(KEY_PAT, {?MODULE, _, _, _}).
 -type authz_result() :: allow | deny.
 -type system_time() :: integer().
 -type retain_flag() :: 0 | 1.
@@ -174,7 +175,7 @@ map_authz_cache(Fun) ->
 map_authz_cache(Fun, Dict) ->
     [
         Fun(R)
-     || R = {{?MODULE, _T, _QoS, _Retain}, _Authz} <- Dict
+     || R = {?KEY_PAT, _Authz} <- Dict
     ].
 
 foreach_authz_cache(Fun) ->
