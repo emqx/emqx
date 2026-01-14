@@ -141,7 +141,7 @@ init(
         #{
             zone => default,
             listener => ListenerId,
-            protocol => 'mqtt-sn',
+            protocol => emqx_gateway_utils:protocol(mqttsn),
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,

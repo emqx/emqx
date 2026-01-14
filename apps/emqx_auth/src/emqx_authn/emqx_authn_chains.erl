@@ -85,7 +85,7 @@
 ]).
 
 %% utility functions
--export([authenticator_id/1, metrics_id/2]).
+-export([authenticator_id/1, metrics_id/2, global_chain/1]).
 
 -export_type([
     authenticator_id/0,

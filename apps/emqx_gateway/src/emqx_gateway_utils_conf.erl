@@ -466,13 +466,9 @@ cowboy_ws_opts(ListenerConfig, CallbackModule, CallbackConfig) ->
     ProxyProto = maps:get(proxy_protocol, ListenerConfig, false),
     #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
 
-ip_port(Port) when is_integer(Port) ->
-    [{port, Port}];
-ip_port({Addr, Port}) ->
-    [{ip, Addr}, {port, Port}].
+ip_port(Port) -> emqx_listeners:ip_port(Port).
 
-tcp_opts(Opts) ->
-    emqx_listeners:tcp_opts(Opts).
+tcp_opts(Opts) -> emqx_listeners:tcp_opts(Opts).
 
 tcp_opts_with_defaults(Opts) ->
     emqx_utils:merge_opts(default_tcp_options(), tcp_opts(Opts)).

@@ -113,7 +113,7 @@ init(
         #{
             zone => default,
             listener => ListenerId,
-            protocol => nats,
+            protocol => emqx_gateway_utils:protocol(nats),
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,

@@ -177,7 +177,7 @@ init(
         #{
             zone => default,
             listener => ListenerId,
-            protocol => jt808,
+            protocol => emqx_gateway_utils:protocol(jt808),
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,

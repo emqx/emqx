@@ -47,6 +47,7 @@ Utility functions for EMQX gateway.
     listener_id/3,
     listener_name_from_id/1,
     parse_listener_id/1,
+    protocol/1,
     global_chain/1,
     listener_chain/3,
     find_gateway_definitions/0,
@@ -253,7 +254,7 @@ do_stop_listener(#{listener_id := ListenerId, listen_on := ListenOn, listener_ty
 do_stop_listener(#{listener_id := ListenerId, listen_on := ListenOn, listener_type := {cowboy, _}}) ->
     case cowboy:stop_listener(ListenerId) of
         ok ->
-            wait_listener_stopped(ListenOn);
+            wait_cowboy_listener_stopped(ListenOn);
         Error ->
             Error
     end.
@@ -280,29 +281,8 @@ is_listener_running(#{listener_id := ListenerId, listener_type := {cowboy, _}}) 
             false
     end.
 
-wait_listener_stopped(ListenOn) ->
-    % NOTE
-    % `cowboy:stop_listener/1` will not close the listening socket explicitly,
-    % it will be closed by the runtime system **only after** the process exits.
-    Endpoint = maps:from_list(emqx_gateway_utils_conf:ip_port(ListenOn)),
-    case
-        gen_tcp:connect(
-            maps:get(ip, Endpoint, loopback),
-            maps:get(port, Endpoint),
-            [{active, false}]
-        )
-    of
-        {error, _EConnrefused} ->
-            %% NOTE
-            %% We should get `econnrefused` here because acceptors are already dead
-            %% but don't want to crash if not, because this doesn't make any difference.
-            ok;
-        {ok, Socket} ->
-            %% NOTE
-            %% Tiny chance to get a connected socket here, when some other process
-            %% concurrently binds to the same port.
-            gen_tcp:close(Socket)
-    end.
+wait_cowboy_listener_stopped(ListenOn) ->
+    emqx_listeners:wait_cowboy_listener_stopped(ListenOn).
 
 -spec update_gateway_listeners(
     gw_name(), list(listener_runtime_config()), list(listener_runtime_config())
@@ -379,7 +359,7 @@ update_listener(#{
     ok = ranch:set_protocol_options(ListenerId, WsOpts),
     %% NOTE: ranch:suspend_listener/1 will close the listening socket,
     %% so we need to wait for the listener to be stopped.
-    ok = emqx_listeners:wait_listener_stopped(ListenOn),
+    ok = wait_cowboy_listener_stopped(ListenOn),
     ranch:resume_listener(ListenerId).
 
 apply({M, F, A}, A2) when
@@ -437,28 +417,21 @@ parse_listener_id(Id) ->
         _:_ -> error({invalid_listener_id, Id})
     end.
 
-%% same with emqx_authn_chains:global_chain/1
--spec global_chain(GatewayName :: atom()) -> atom().
-global_chain(stomp) ->
-    'stomp:global';
-global_chain('mqttsn') ->
-    'mqtt-sn:global';
-global_chain(coap) ->
-    'coap:global';
-global_chain(lwm2m) ->
-    'lwm2m:global';
-global_chain(exproto) ->
-    'exproto:global';
-global_chain(jt808) ->
-    'jt808:global';
-global_chain(gbt32960) ->
-    'gbt32960:global';
-global_chain(ocpp) ->
-    'ocpp:global';
-global_chain(nats) ->
-    'nats:global';
+-spec protocol(gw_name()) -> atom().
+protocol(stomp) -> stomp;
+protocol(mqttsn) -> 'mqtt-sn';
+protocol(coap) -> coap;
+protocol(lwm2m) -> lwm2m;
+protocol(exproto) -> exproto;
+protocol(jt808) -> jt808;
+protocol(gbt32960) -> gbt32960;
+protocol(ocpp) -> ocpp;
+protocol(nats) -> nats;
+protocol(GwName) -> error({invalid_protocol_name, GwName}).
+
+-spec global_chain(gw_name()) -> atom().
 global_chain(GwName) ->
-    error({invalid_protocol_name, GwName}).
+    emqx_authn_chains:global_chain(protocol(GwName)).
 
 listener_chain(GwName, Type, LisName) ->
     listener_id(GwName, Type, LisName).
