@@ -23,8 +23,6 @@
 %% |
 %% +-- emqx_schema_registry(1)  % registry process controlling local schemas
 %% |
-%% +-- emqx_schema_registry_spb_gc(1)  % garbage collection process for sparkplugb state
-%% |
 %% +-- emqx_schema_registry_external_sup(1)  % supervisor for external registry workers
 %%     |
 %%     +-- emqx_schema_registry_external(1) % for managing external registry context and cache
@@ -80,10 +78,8 @@ init(?root) ->
     },
     ChildSpecs = [
         worker_spec(emqx_schema_registry),
-        worker_spec(emqx_schema_registry_spb_gc),
         external_sup_spec()
     ],
-    ok = emqx_schema_registry_spb_state:ensure_table(),
     {ok, {SupFlags, ChildSpecs}};
 init(?external) ->
     SupFlags = #{
