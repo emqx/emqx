@@ -131,9 +131,13 @@ do_escape_frame(<<>>, Acc) ->
 parse_message(Binary, Opts) ->
     case parse_message_header(Binary) of
         {ok, Header = #{<<"msg_id">> := MsgId}, RestBinary} ->
+            %% 2013 & 2019 JT/T 808 message parsing
+            %% 0 means unknown proto ver (should be 2013 format, no proto ver field)
+            %% 1 means 2019 format
+            ProtoVer = maps:get(<<"proto_ver">>, Header, 0),
             Body =
                 try
-                    parse_message_body(MsgId, RestBinary)
+                    parse_message_body(MsgId, RestBinary, ProtoVer)
                 catch
                     error:unknown_message_id ->
                         case maps:get(parse_unknown_message, Opts, true) of
@@ -155,26 +159,62 @@ parse_message(Binary, Opts) ->
     end.
 
 parse_message_header(
-    <<MsgId:?WORD, _:2, ?NO_FRAGMENT:1, Encypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
-        Rest/binary>>
+    <<MsgId:?WORD, _:1, 1:1, ?NO_FRAGMENT:1, Encrypt:3, Length:10, ProtoVer:?BYTE,
+        PhoneBCD:10/binary, MsgSn:?WORD, Rest/binary>>
 ) ->
+    %% 2019 format: bit 14 (version identifier) = 1
+    %% Header: 17 bytes without fragmentation
     {ok,
         #{
             <<"msg_id">> => MsgId,
-            <<"encrypt">> => Encypt,
+            <<"encrypt">> => Encrypt,
+            <<"len">> => Length,
+            <<"proto_ver">> => ProtoVer,
+            <<"phone">> => from_bcd(PhoneBCD, []),
+            <<"msg_sn">> => MsgSn
+        },
+        Rest};
+parse_message_header(
+    <<MsgId:?WORD, _:1, 1:1, ?HAS_FRAGMENT:1, Encrypt:3, Length:10, ProtoVer:?BYTE,
+        PhoneBCD:10/binary, MsgSn:?WORD, FragTotal:?WORD, FragSeq:?WORD, Rest/binary>>
+) ->
+    %% 2019 format with fragmentation: 21 bytes header
+    {ok,
+        #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => Encrypt,
+            <<"len">> => Length,
+            <<"proto_ver">> => ProtoVer,
+            <<"phone">> => from_bcd(PhoneBCD, []),
+            <<"msg_sn">> => MsgSn,
+            <<"frag_total">> => FragTotal,
+            <<"frag_sn">> => FragSeq
+        },
+        Rest};
+parse_message_header(
+    <<MsgId:?WORD, _:2, ?NO_FRAGMENT:1, Encrypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
+        Rest/binary>>
+) ->
+    %% 2013 format: bit 14 = 0 (reserved)
+    %% Header: 12 bytes without fragmentation
+    {ok,
+        #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => Encrypt,
             <<"len">> => Length,
             <<"phone">> => from_bcd(PhoneBCD, []),
             <<"msg_sn">> => MsgSn
         },
         Rest};
 parse_message_header(
-    <<MsgId:?WORD, _:2, ?HAS_FRAGMENT:1, Encypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
+    <<MsgId:?WORD, _:2, ?HAS_FRAGMENT:1, Encrypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
         FragTotal:?WORD, FragSeq:?WORD, Rest/binary>>
 ) ->
+    %% 2013 format with fragmentation: 16 bytes header
     {ok,
         #{
             <<"msg_id">> => MsgId,
-            <<"encrypt">> => Encypt,
+            <<"encrypt">> => Encrypt,
             <<"len">> => Length,
             <<"phone">> => from_bcd(PhoneBCD, []),
             <<"msg_sn">> => MsgSn,
@@ -185,15 +225,42 @@ parse_message_header(
 parse_message_header(_) ->
     invalid_message.
 
-parse_message_body(?MC_GENERAL_RESPONSE, <<Seq:?WORD, Id:?WORD, Result:?BYTE>>) ->
+parse_message_body(?MC_GENERAL_RESPONSE, <<Seq:?WORD, Id:?WORD, Result:?BYTE>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"id">> => Id, <<"result">> => Result};
-parse_message_body(?MC_HEARTBEAT, <<>>) ->
+parse_message_body(?MC_HEARTBEAT, <<>>, _ProtoVer) ->
     #{};
+parse_message_body(?MC_DEREGISTER, <<>>, _ProtoVer) ->
+    #{};
+parse_message_body(?MC_QUERY_SERVER_TIME, <<>>, _ProtoVer) ->
+    %% 2019: Query server time request - empty body
+    #{};
+parse_message_body(?MC_REQUEST_FRAGMENT, <<Seq:?WORD, Count:?WORD, Rest/binary>>, _ProtoVer) ->
+    %% 2019: Terminal packet retransmission request
+    {Ids, _} = word_array(Count, Rest, []),
+    #{<<"seq">> => Seq, <<"count">> => Count, <<"ids">> => Ids};
+parse_message_body(
+    ?MC_REGISTER,
+    <<Province:?WORD, City:?WORD, Manufacturer:11/binary, Model:30/binary, DevId:30/binary,
+        Color:?BYTE, LicNumber/binary>>,
+    ProtoVer
+) when ProtoVer >= 1 ->
+    %% 2019 format: 11-byte manufacturer, 30-byte model, 30-byte device ID
+    #{
+        <<"province">> => Province,
+        <<"city">> => City,
+        <<"manufacturer">> => remove_tail_zero(Manufacturer),
+        <<"model">> => remove_tail_zero(Model),
+        <<"dev_id">> => remove_tail_zero(DevId),
+        <<"color">> => Color,
+        <<"license_number">> => LicNumber
+    };
 parse_message_body(
     ?MC_REGISTER,
     <<Province:?WORD, City:?WORD, Manufacturer:5/binary, Model:20/binary, DevId:7/binary,
-        Color:?BYTE, LicNumber/binary>>
+        Color:?BYTE, LicNumber/binary>>,
+    _ProtoVer
 ) ->
+    %% 2013 format: 5-byte manufacturer, 20-byte model, 7-byte device ID
     #{
         <<"province">> => Province,
         <<"city">> => City,
@@ -203,18 +270,27 @@ parse_message_body(
         <<"color">> => Color,
         <<"license_number">> => LicNumber
     };
-parse_message_body(?MC_DEREGISTER, <<>>) ->
-    #{};
-parse_message_body(?MC_AUTH, Binary) ->
+parse_message_body(?MC_AUTH, <<CodeLen:?BYTE, Rest/binary>>, ProtoVer) when ProtoVer >= 1 ->
+    %% 2019 format: length prefix + code + IMEI + software version
+    <<Code:CodeLen/binary, IMEI:15/binary, SoftwareVersion:20/binary>> = Rest,
+    #{
+        <<"code">> => Code,
+        <<"imei">> => remove_tail_zero(IMEI),
+        <<"software_version">> => remove_tail_zero(SoftwareVersion)
+    };
+parse_message_body(?MC_AUTH, Binary, _ProtoVer) ->
+    %% 2013 format: raw auth code
     #{<<"code">> => Binary};
-parse_message_body(?MC_QUERY_PARAM_ACK, <<Seq:?WORD, Rest/binary>>) ->
+parse_message_body(?MC_QUERY_PARAM_ACK, <<Seq:?WORD, Rest/binary>>, _ProtoVer) ->
     {Length, Params} = parse_client_params(Rest),
     #{<<"seq">> => Seq, <<"length">> => Length, <<"params">> => Params};
 parse_message_body(
     ?MC_QUERY_ATTRIB_ACK,
-    <<Type:?WORD, Manufacturer:5/binary, Model:20/binary, Id:7/binary, ICCID:10/binary, HVLen:?BYTE,
-        Rest/binary>>
-) ->
+    <<Type:?WORD, Manufacturer:5/binary, Model:30/binary, Id:30/binary, ICCID:10/binary,
+        HVLen:?BYTE, Rest/binary>>,
+    ProtoVer
+) when ProtoVer >= 1 ->
+    %% 2019 format: 30-byte model, 30-byte ID
     <<HV:HVLen/binary, FVLen:?BYTE, Rest2/binary>> = Rest,
     <<FV:FVLen/binary, GNSSProp:?BYTE, CommProp:?BYTE>> = Rest2,
     #{
@@ -228,28 +304,52 @@ parse_message_body(
         <<"gnss_prop">> => GNSSProp,
         <<"comm_prop">> => CommProp
     };
-parse_message_body(?MC_OTA_ACK, <<Type:?BYTE, Result:?BYTE>>) ->
+parse_message_body(
+    ?MC_QUERY_ATTRIB_ACK,
+    <<Type:?WORD, Manufacturer:5/binary, Model:20/binary, Id:7/binary, ICCID:10/binary, HVLen:?BYTE,
+        Rest/binary>>,
+    _ProtoVer
+) ->
+    %% 2013 format: 20-byte model, 7-byte ID
+    <<HV:HVLen/binary, FVLen:?BYTE, Rest2/binary>> = Rest,
+    <<FV:FVLen/binary, GNSSProp:?BYTE, CommProp:?BYTE>> = Rest2,
+    #{
+        <<"type">> => Type,
+        <<"manufacturer">> => Manufacturer,
+        <<"model">> => remove_tail_zero(Model),
+        <<"id">> => remove_tail_zero(Id),
+        <<"iccid">> => from_bcd(ICCID, []),
+        <<"hardware_version">> => HV,
+        <<"firmware_version">> => FV,
+        <<"gnss_prop">> => GNSSProp,
+        <<"comm_prop">> => CommProp
+    };
+parse_message_body(?MC_OTA_ACK, <<Type:?BYTE, Result:?BYTE>>, _ProtoVer) ->
     #{<<"type">> => Type, <<"result">> => Result};
-parse_message_body(?MC_LOCATION_REPORT, Binary) ->
+parse_message_body(?MC_LOCATION_REPORT, Binary, _ProtoVer) ->
     parse_location_report(Binary);
-parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>) ->
+parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>, _ProtoVer) ->
     Params = parse_location_report(Rest),
     #{<<"seq">> => Seq, <<"params">> => Params};
-parse_message_body(?MC_EVENT_REPORT, <<Id:?BYTE>>) ->
+parse_message_body(?MC_EVENT_REPORT, <<Id:?BYTE>>, _ProtoVer) ->
     #{<<"id">> => Id};
-parse_message_body(?MC_QUESTION_ACK, <<Seq:?WORD, Id:?BYTE>>) ->
+parse_message_body(?MC_QUESTION_ACK, <<Seq:?WORD, Id:?BYTE>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"id">> => Id};
-parse_message_body(?MC_INFO_REQ_CANCEL, <<Id:?BYTE, Flag:?BYTE>>) ->
+parse_message_body(?MC_INFO_REQ_CANCEL, <<Id:?BYTE, Flag:?BYTE>>, _ProtoVer) ->
     #{<<"id">> => Id, <<"flag">> => Flag};
-parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>) ->
+parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"location">> => parse_location_report(Location)};
-parse_message_body(?MC_DRIVE_RECORD_REPORT, <<Seq:?WORD, Command:?BYTE, Data/binary>>) ->
+parse_message_body(?MC_QUERY_AREA_ROUTE_ACK, <<Type:?BYTE, Count:?DWORD, Rest/binary>>, _ProtoVer) ->
+    %% 2019: Query area/route data response
+    #{<<"type">> => Type, <<"count">> => Count, <<"data">> => base64:encode(Rest)};
+parse_message_body(?MC_DRIVE_RECORD_REPORT, <<Seq:?WORD, Command:?BYTE, Data/binary>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"command">> => Command, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>) ->
+parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>, _ProtoVer) ->
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
 parse_message_body(
     ?MC_DRIVER_ID_REPORT,
-    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>
+    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>,
+    _ProtoVer
 ) ->
     <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest2/binary>> = Rest,
     <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary>> = Rest2,
@@ -262,17 +362,19 @@ parse_message_body(
         <<"organization">> => Orgnization,
         <<"cert_expiry">> => from_bcd(CertExpiryBCD, [])
     };
-parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>) ->
+parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>, _ProtoVer) ->
     #{
         <<"type">> => Type,
         <<"length">> => Count,
         <<"location">> => parse_bulk_location_report(Count, Rest, [])
     };
-parse_message_body(?MC_CAN_BUS_REPORT, <<Count:?WORD, TimeBCD:5/binary, Rest/binary>>) ->
+parse_message_body(?MC_CAN_BUS_REPORT, <<Count:?WORD, TimeBCD:5/binary, Rest/binary>>, _ProtoVer) ->
     CanData = parse_can_data(Count, Rest, []),
     #{<<"length">> => Count, <<"time">> => from_bcd(TimeBCD, []), <<"can_data">> => CanData};
 parse_message_body(
-    ?MC_MULTIMEDIA_EVENT_REPORT, <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE>>
+    ?MC_MULTIMEDIA_EVENT_REPORT,
+    <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE>>,
+    _ProtoVer
 ) ->
     #{
         <<"id">> => Id,
@@ -284,7 +386,8 @@ parse_message_body(
 parse_message_body(
     ?MC_MULTIMEDIA_DATA_REPORT,
     <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE, Location:28/binary,
-        Multimedia/binary>>
+        Multimedia/binary>>,
+    _ProtoVer
 ) ->
     #{
         <<"id">> => Id,
@@ -295,28 +398,30 @@ parse_message_body(
         <<"location">> => parse_location_report(Location),
         <<"multimedia">> => base64:encode(Multimedia)
     };
-parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE, Count:?WORD, Rest/binary>>) when
+parse_message_body(
+    ?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE, Count:?WORD, Rest/binary>>, _ProtoVer
+) when
     Result =:= 0
 ->
     %% if Result is 0, means suceeded, "length" & "ids" present
     {Array, _} = dword_array(Count, Rest, []),
     #{<<"seq">> => Seq, <<"result">> => Result, <<"length">> => Count, <<"ids">> => Array};
-parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE>>) ->
+parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE>>, _ProtoVer) ->
     %% if Result is not 0, means failed, no "length" & "ids"
     #{<<"seq">> => Seq, <<"result">> => Result};
-parse_message_body(?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>) ->
+parse_message_body(?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>, _ProtoVer) ->
     #{
         <<"seq">> => Seq,
         <<"length">> => Count,
         <<"result">> => parse_multimedia_search_result(Count, Rest, [])
     };
-parse_message_body(?MC_SEND_TRANSPARENT_DATA, <<Type:?BYTE, Data/binary>>) ->
+parse_message_body(?MC_SEND_TRANSPARENT_DATA, <<Type:?BYTE, Data/binary>>, _ProtoVer) ->
     #{<<"type">> => Type, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>) ->
+parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>, _ProtoVer) ->
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>) ->
+parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>, _ProtoVer) ->
     #{<<"e">> => E, <<"n">> => base64:encode(N)};
-parse_message_body(_, _) ->
+parse_message_body(_, _, _ProtoVer) ->
     error(unknown_message_id).
 
 parse_client_params(<<Count:?BYTE, Rest/binary>>) ->
@@ -387,6 +492,16 @@ parse_location_report_extra(
     <<?CP_POS_EXTRA_ALARM_ID:?BYTE, 2:?BYTE, AlarmID:?WORD, Rest/binary>>, Acc
 ) ->
     parse_location_report_extra(Rest, Acc#{<<"alarm_id">> => AlarmID});
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_TIRE_PRESSURE:?BYTE, 30:?BYTE, TirePressure:30/binary, Rest/binary>>, Acc
+) ->
+    %% 2019: Tire pressure, 30 bytes, unit: Pa
+    parse_location_report_extra(Rest, Acc#{<<"tire_pressure">> => base64:encode(TirePressure)});
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_CARRIAGE_TEMP:?BYTE, 2:?BYTE, Temp:16/signed-big, Rest/binary>>, Acc
+) ->
+    %% 2019: Carriage temperature, 2 bytes, unit: Celsius, range: -32767 ~ +32767
+    parse_location_report_extra(Rest, Acc#{<<"carriage_temp">> => Temp});
 parse_location_report_extra(
     <<?CP_POS_EXTRA_OVERSPEED_ALARM:?BYTE, Length:?BYTE, Rest/binary>>, Acc
 ) ->
@@ -503,6 +618,11 @@ parse_can_data(
         | Acc
     ]).
 
+word_array(0, Binary, Acc) ->
+    {lists:reverse(Acc), Binary};
+word_array(Count, <<Value:?WORD, Rest/binary>>, Acc) ->
+    word_array(Count - 1, Rest, [Value | Acc]).
+
 dword_array(0, Binary, Acc) ->
     {lists:reverse(Acc), Binary};
 dword_array(Count, <<Value:?DWORD, Rest/binary>>, Acc) ->
@@ -548,9 +668,34 @@ serialize_header(
         <<"encrypt">> := Encrypt,
         <<"len">> := Length,
         <<"phone">> := Phone,
+        <<"msg_sn">> := MsgSn,
+        <<"proto_ver">> := ProtoVer
+    }
+) ->
+    %% 2019 format: proto_ver present, use BCD[10] phone, set bit 14 = 1
+    PhoneBCD = to_bcd(Phone, 10),
+    {Fragment, Total, Seq} =
+        case maps:is_key(<<"frag_total">>, Header) of
+            true -> {1, maps:get(<<"frag_total">>, Header), maps:get(<<"frag_sn">>, Header)};
+            false -> {0, 0, 0}
+        end,
+    Binary =
+        <<MsgId:?WORD, 0:1, 1:1, Fragment:1, Encrypt:3, Length:10/integer-big, ProtoVer:?BYTE,
+            PhoneBCD:10/binary, MsgSn:?WORD>>,
+    case Fragment of
+        0 -> Binary;
+        1 -> <<Binary/binary, Total:?WORD, Seq:?WORD>>
+    end;
+serialize_header(
+    Header = #{
+        <<"msg_id">> := MsgId,
+        <<"encrypt">> := Encrypt,
+        <<"len">> := Length,
+        <<"phone">> := Phone,
         <<"msg_sn">> := MsgSn
     }
 ) ->
+    %% 2013 format: no proto_ver, use BCD[6] phone, bit 14 = 0
     PhoneBCD = to_bcd(Phone, 6),
     {Fragment, Total, Seq} =
         case maps:is_key(<<"frag_total">>, Header) of
@@ -576,6 +721,11 @@ serialize_body(?MS_REQUEST_FRAGMENT, Body) ->
     Ids = maps:get(<<"ids">>, Body),
     LastStream = encode_word_array(Length, Ids, <<>>),
     <<Seq:?WORD, Length:?BYTE, LastStream/binary>>;
+serialize_body(?MS_SERVER_TIME_ACK, Body) ->
+    %% 2019: Server time response - BCD[6] UTC time
+    Time = maps:get(<<"time">>, Body),
+    TimeBCD = to_bcd(Time, 6),
+    TimeBCD;
 serialize_body(?MS_REGISTER_ACK, Body) ->
     Seq = maps:get(<<"seq">>, Body),
     %% XXX: replaced by maroc?
@@ -623,6 +773,9 @@ serialize_body(?MS_CONFIRM_ALARM, Body) ->
     Seq = maps:get(<<"seq">>, Body),
     Type = maps:get(<<"type">>, Body),
     <<Seq:?WORD, Type:?DWORD>>;
+serialize_body(?MS_LINK_DETECT, _Body) ->
+    %% 2019: Link detection - empty body
+    <<>>;
 serialize_body(?MS_SEND_TEXT, Body) ->
     Flag = maps:get(<<"flag">>, Body),
     Text = maps:get(<<"text">>, Body),
@@ -717,6 +870,17 @@ serialize_body(?MS_DEL_PATH, Body) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
+serialize_body(?MS_QUERY_AREA_ROUTE, Body) ->
+    %% 2019: Query area/route data
+    Type = maps:get(<<"type">>, Body),
+    Count = maps:get(<<"count">>, Body),
+    case Count of
+        0 ->
+            <<Type:?BYTE, Count:?DWORD>>;
+        _ ->
+            Ids = maps:get(<<"ids">>, Body),
+            encode_dword_array(Count, Ids, <<Type:?BYTE, Count:?DWORD>>)
+    end;
 serialize_body(?MS_DRIVE_RECORD_CAPTURE, Body) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
