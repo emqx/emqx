@@ -293,15 +293,15 @@ def parse_license_file(license_file: Path) -> Optional[str]:
         return None
 
 
-def find_package_source_directory(package_name: str, lib_dir: Path, deps_dir: Path) -> Optional[Path]:
+def find_package_source_directory(package_name: str, deps_dir: Path) -> Optional[Path]:
     """
     Find the source directory for a package.
 
     Tries multiple strategies:
     1. Check deps/APPNAME/apps/APPNAME/ (for umbrella projects like opentelemetry)
-    2. Check deps/APPNAME/deps/APPNAME/ (for nested dependency structures like amqp_client)
-    3. Check deps/ directory
-    4. Check release lib directory and follow ebin symlinks if present
+    2. Check deps/APPNAME/ with LICENSE file (prefer root LICENSE files)
+    3. Check deps/APPNAME/deps/APPNAME/ (for nested dependency structures like amqp_client)
+    4. Fall back to root deps/APPNAME/ directory
     """
     # Strategy 1: Check deps/APPNAME/apps/APPNAME/ (for umbrella projects)
     # This handles cases like opentelemetry where the actual app is in apps/opentelemetry/
@@ -333,30 +333,6 @@ def find_package_source_directory(package_name: str, lib_dir: Path, deps_dir: Pa
     if deps_path.exists() and deps_path.is_dir():
         return deps_path
 
-    # Strategy 3: Check release lib directory
-    if lib_dir.exists():
-        # Find package directory in lib (e.g., package-name-version)
-        for entry in lib_dir.iterdir():
-            if entry.is_dir() and entry.name.startswith(f"{package_name}-"):
-                # Check if ebin is a symlink
-                ebin_path = entry / "ebin"
-                if ebin_path.exists():
-                    if ebin_path.is_symlink():
-                        # Follow symlink to find source
-                        try:
-                            ebin_target = ebin_path.resolve()
-                            source_dir = ebin_target.parent
-                            if source_dir.exists():
-                                return source_dir
-                        except Exception:
-                            pass
-                    else:
-                        # ebin is not a symlink, check the lib directory itself
-                        # Look for LICENSE files in the lib directory
-                        license_file = find_license_file(entry)
-                        if license_file:
-                            return entry.parent  # Return parent to check deps
-
     return None
 
 
@@ -376,7 +352,7 @@ def enrich_package_license(package: Dict, lib_dir: Path, deps_dir: Path) -> bool
         return False
 
     # Find package source directory
-    source_dir = find_package_source_directory(package_name, lib_dir, deps_dir)
+    source_dir = find_package_source_directory(package_name, deps_dir)
     if not source_dir:
         return False
 
