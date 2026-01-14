@@ -15,13 +15,17 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     Apps = emqx_cth_suite:start(
         [
-            {emqx,
-                "flapping_detect {"
-                "\n enable = true"
-                "\n max_count = 3"
-                "\n window_time = 100ms"
-                "\n ban_time = 2s"
-                "\n }"}
+            %% NOTE:
+            %% Ban time should be > 1s as it's second-level precision. Otherwise
+            %% test cases will be flaky.
+            {emqx, """
+                flapping_detect {
+                    enable = true
+                    max_count = 3
+                    window_time = 100ms
+                    ban_time = 2s
+                }
+            """}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -48,14 +52,45 @@ t_detect_check(_) ->
         erlang:system_time(second)
     ]),
     true = emqx_banned:check(ClientInfo),
-    timer:sleep(3000),
+    timer:sleep(2500),
+    false = emqx_banned:check(ClientInfo).
+
+t_detect_subsequent(_) ->
+    ClientInfo = #{
+        zone => default,
+        listener => 'tcp:default',
+        clientid => atom_to_binary(?FUNCTION_NAME),
+        peerhost => {127, 0, 0, 1}
+    },
+    [Pid] = [P || {emqx_flapping, P, _, _} <- supervisor:which_children(emqx_cm_sup)],
     false = emqx_banned:check(ClientInfo),
-    Children = supervisor:which_children(emqx_cm_sup),
-    {emqx_flapping, Pid, _, _} = lists:keyfind(emqx_flapping, 1, Children),
+    %% First time:
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:detect(ClientInfo),
+    true = emqx_flapping:detect(ClientInfo),
+    %% Has been banned:
+    timer:sleep(50),
+    true = emqx_banned:check(ClientInfo),
+    %% Second time:
+    false = emqx_flapping:detect(ClientInfo),
+    false = emqx_flapping:detect(ClientInfo),
+    true = emqx_flapping:detect(ClientInfo),
+    %% Still banned:
+    timer:sleep(50),
+    true = emqx_banned:check(ClientInfo),
+    %% Process is fine:
+    _ = sys:get_state(Pid).
+
+t_rogue_messages(_) ->
+    [Pid] = [P || {emqx_flapping, P, _, _} <- supervisor:which_children(emqx_cm_sup)],
     gen_server:call(Pid, unexpected_msg),
     gen_server:cast(Pid, unexpected_msg),
     Pid ! test,
-    ok = emqx_flapping:stop().
+    timer:sleep(50),
+    ?assertEqual(
+        [Pid],
+        [P || {emqx_flapping, P, _, _} <- supervisor:which_children(emqx_cm_sup)]
+    ).
 
 t_expired_detecting(_) ->
     ClientInfo = #{
