@@ -89,7 +89,10 @@ drain_publishes(Acc) ->
 fmt(FmtStr, Context) -> emqx_bridge_v2_testlib:fmt(FmtStr, Context).
 
 start_client() ->
-    {ok, C} = emqtt:start_link(#{}),
+    start_client(_Opts = #{}).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
     {ok, _} = emqtt:connect(C),
     C.
 
@@ -346,15 +349,6 @@ t_eon_node_aliases(_TCConfig) ->
         },
         #{data_topic => NDataTopic}
     ),
-    %% Should have mappings stored before ending the session.
-    ?assertMatch([_ | _], emqx_schema_registry_spb_state:all_mappings()),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqtt:stop(C),
-            #{?snk_kind := "sr_mappings_deleted"},
-            1_000
-        ),
-    ?assertEqual([], emqx_schema_registry_spb_state:all_mappings()),
     ok.
 
 -doc """
@@ -392,15 +386,6 @@ t_device_aliases(_TCConfig) ->
         },
         #{data_topic => DDataTopic}
     ),
-    %% Should have mappings stored before ending the session.
-    ?assertMatch([_ | _], emqx_schema_registry_spb_state:all_mappings()),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqtt:stop(C),
-            #{?snk_kind := "sr_mappings_deleted"},
-            1_000
-        ),
-    ?assertEqual([], emqx_schema_registry_spb_state:all_mappings()),
     ok.
 
 -doc """
@@ -545,9 +530,10 @@ t_independent_mappings_clients(_TCConfig) ->
     ok.
 
 -doc """
-Checks that fallback actions have access to the mapping.
+Asserts that fallback actions do not have access to the mapping if they republish to a
+NDATA/DDATA topic.
 """.
-t_fallback_actions(_TCConfig) ->
+t_fallback_actions_republish_to_data_topic(_TCConfig) ->
     NDataTopic = ndata_topic(),
     BridgeConfig = [
         {connector_type, mqtt},
@@ -583,7 +569,8 @@ t_fallback_actions(_TCConfig) ->
 
     %% First rule: only triggers action, that will fail and fallback will republish to
     %% different rule.
-    #{topic := ActionRuleTopic} = emqx_bridge_v2_testlib:simple_create_rule_api(BridgeConfig),
+    SQL = <<"select spb_decode(payload) as decoded, * from \"${t}\" ">>,
+    #{topic := ActionRuleTopic} = emqx_bridge_v2_testlib:simple_create_rule_api(SQL, BridgeConfig),
 
     %% Second rule: will be triggered by fallback action, and call `spb_decode`.  Note
     %% that this happens in a different process than the original client's, so it must
@@ -604,10 +591,81 @@ t_fallback_actions(_TCConfig) ->
         #{
             payload := #{
                 <<"decoded">> := #{
-                    <<"metrics">> := [#{<<"name">> := Name}]
+                    %% Note: we do not support alias mappings if a fallback action
+                    %% publishes to a data topic.
+                    <<"metrics">> := [#{} = M]
                 }
             },
             topic := RepublishTopic
+        },
+        not is_map_key(<<"name">>, M),
+        #{data_topic => NDataTopic}
+    ),
+
+    ok.
+
+-doc """
+Asserts that fallback actions do not need access to mapping if already decoded by original rule.
+""".
+t_fallback_actions_republish_already_decoded(_TCConfig) ->
+    FBRepublishTopic = <<"fallback/republish">>,
+    BridgeConfig = [
+        {connector_type, mqtt},
+        {connector_name, <<"a">>},
+        {connector_config, emqx_bridge_schema_testlib:mqtt_connector_config(#{})},
+        {bridge_kind, action},
+        {action_type, mqtt},
+        {action_name, <<"a">>},
+        {action_config,
+            emqx_bridge_schema_testlib:mqtt_action_config(#{
+                <<"connector">> => <<"a">>,
+                <<"fallback_actions">> => [
+                    #{
+                        <<"kind">> => <<"republish">>,
+                        <<"args">> => #{
+                            <<"topic">> => FBRepublishTopic,
+                            <<"qos">> => 1,
+                            <<"retain">> => false,
+                            <<"payload">> => <<"${.}">>
+                        }
+                    }
+                ],
+                %% Simple way to make the requests fail: make the buffer overflow
+                <<"resource_opts">> => #{
+                    <<"max_buffer_bytes">> => <<"0B">>,
+                    <<"buffer_seg_bytes">> => <<"0B">>
+                }
+            })}
+    ],
+    on_exit(fun emqx_bridge_v2_testlib:delete_all_bridges_and_connectors/0),
+    {201, _} = create_connector_api(BridgeConfig, #{}),
+    {201, _} = create_action_api(BridgeConfig, #{}),
+
+    %% Original rule: decodes and triggers action with result, that will fail and fallback
+    %% will republish it unmodified.
+    NDataTopic = ndata_topic(),
+    SQL = fmt(<<"select spb_decode(payload) as decoded, * from \"${t}\" ">>, #{t => NDataTopic}),
+    emqx_bridge_v2_testlib:simple_create_rule_api(SQL, BridgeConfig),
+
+    C = start_client(),
+    {ok, _, _} = emqtt:subscribe(C, FBRepublishTopic, 1),
+
+    Name = <<"name">>,
+    Alias = 1,
+    publish_nbirth(C, singleton_aliased_metric(Name, Alias)),
+
+    publish_ndata(C, singleton_aliased_metric(no_name, Alias)),
+
+    ?assertReceivePublish(
+        #{
+            payload := #{
+                <<"decoded">> := #{
+                    %% Note: we do not support alias mappings if a fallback action
+                    %% publishes to a data topic.
+                    <<"metrics">> := [#{<<"name">> := Name}]
+                }
+            },
+            topic := FBRepublishTopic
         },
         #{data_topic => NDataTopic}
     ),

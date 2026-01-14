@@ -5,18 +5,12 @@
 
 %% API
 -export([
-    ensure_table/0,
-
     parse_spb_topic/1,
     register_aliases/2,
     load_aliases/1,
 
-    get_current_alias_mapping/0,
-    delete_all_mappings_in_pd/0
+    get_current_alias_mapping/0
 ]).
-
-%% Debug/test only
--export([all_mappings/0]).
 
 %%------------------------------------------------------------------------------
 %% Type definitions
@@ -27,9 +21,9 @@
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(TAB, emqx_schema_registry_spb_state).
 -define(CURR_MAPPING_PD_KEY, {?MODULE, alias_mapping}).
 -define(ALL_MAPPINGS_PD_KEY, {?MODULE, all_alias_mappings}).
+-define(ENTRY(KEY, MAPPING, PID), {KEY, MAPPING, PID}).
 
 -type spb_message() :: spb_birth_message() | spb_data_message().
 -type spb_birth_message() :: #nbirth{} | #dbirth{}.
@@ -38,12 +32,6 @@
 %%------------------------------------------------------------------------------
 %% API
 %%------------------------------------------------------------------------------
-
--spec ensure_table() -> ok.
-ensure_table() ->
-    emqx_utils_ets:new(?TAB, [
-        public, ordered_set, {write_concurrency, auto}, {read_concurrency, true}
-    ]).
 
 %% Note: only message types of interest for this module are parsed, not necessarily all
 %% SpB types.
@@ -88,18 +76,15 @@ register_aliases(#message{payload = Payload}, BirthMsg) ->
             Key = key(BirthMsg),
             case map_size(Mapping) > 0 of
                 true ->
-                    register_mapping_key_pd(Key),
                     insert_alias_mapping(Key, Mapping);
                 false ->
-                    delete_alias_mapping(Key)
-            end,
-            ok;
+                    ok
+            end;
         _ ->
             %% No `metrics` field?
             ok
     catch
         Kind:Error:Stacktrace ->
-            %% TODO: log
             ?SLOG(warning, #{
                 msg => "bad_spb_birth_message",
                 exception => Kind,
@@ -113,11 +98,11 @@ register_aliases(#message{payload = Payload}, BirthMsg) ->
 -spec load_aliases(spb_data_message()) -> ok.
 load_aliases(DataMsg) ->
     Key = key(DataMsg),
-    case lookup_alias_mapping(Key) of
-        undefined ->
-            ok;
-        #{} = Mapping ->
-            put_current_mapping_pd(Mapping)
+    case get_known_mappings_pd() of
+        #{Key := Mapping} ->
+            put_current_mapping_pd(Mapping);
+        _ ->
+            ok
     end.
 
 get_current_alias_mapping() ->
@@ -125,19 +110,6 @@ get_current_alias_mapping() ->
         undefined -> #{};
         Mapping -> Mapping
     end.
-
-delete_all_mappings_in_pd() ->
-    Keys = maps:keys(get_known_mapping_keys_pd()),
-    lists:foreach(fun delete_alias_mapping/1, Keys),
-    ?tp("sr_mappings_deleted", #{keys => Keys}),
-    ok.
-
-%%------------------------------------------------------------------------------
-%% Debug/test only
-%%------------------------------------------------------------------------------
-
-all_mappings() ->
-    ets:tab2list(?TAB).
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -155,14 +127,11 @@ gather_aliases(Metrics) ->
         Metrics
     ).
 
+%% Called in channel process context.
 insert_alias_mapping(Key, Mapping) ->
-    ets:insert(?TAB, {Key, Mapping}).
-
-lookup_alias_mapping(Key) ->
-    emqx_utils_ets:lookup_value(?TAB, Key, undefined).
-
-delete_alias_mapping(Key) ->
-    ets:delete(?TAB, Key).
+    Mappings0 = get_known_mappings_pd(),
+    Mappings = Mappings0#{Key => Mapping},
+    put_known_mappings_pd(Mappings).
 
 key(#nbirth{namespace = Namespace, group_id = GroupId, edge_node_id = EdgeNodeId}) ->
     {Namespace, GroupId, EdgeNodeId};
@@ -183,7 +152,7 @@ put_current_mapping_pd(Mapping) ->
 get_current_mapping_pd() ->
     get(?CURR_MAPPING_PD_KEY).
 
-get_known_mapping_keys_pd() ->
+get_known_mappings_pd() ->
     case get(?ALL_MAPPINGS_PD_KEY) of
         undefined ->
             #{};
@@ -191,11 +160,6 @@ get_known_mapping_keys_pd() ->
             Keys
     end.
 
-put_known_mapping_keys_pd(Keys) ->
-    put(?ALL_MAPPINGS_PD_KEY, Keys).
-
-register_mapping_key_pd(Key) ->
-    Keys0 = get_known_mapping_keys_pd(),
-    Keys = Keys0#{Key => true},
-    put_known_mapping_keys_pd(Keys),
+put_known_mappings_pd(Mappings) ->
+    _ = put(?ALL_MAPPINGS_PD_KEY, Mappings),
     ok.
