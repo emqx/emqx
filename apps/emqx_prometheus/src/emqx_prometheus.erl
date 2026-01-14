@@ -971,8 +971,6 @@ emqx_metrics_olp_meta(false) ->
 %% License
 %%========================================
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 maybe_license_add_collect_family(Callback, RawData) ->
     ok = add_collect_family(Callback, license_metric_meta(), ?MG(license_data, RawData)),
     ok.
@@ -991,19 +989,6 @@ license_metric_meta() ->
 
 license_data() ->
     #{emqx_license_expiry_at => emqx_license_checker:expiry_epoch()}.
-
--else.
-
-maybe_license_add_collect_family(_, _) ->
-    ok.
-
-maybe_license_fetch_data() ->
-    #{}.
-
-maybe_license_collect_json_data(_RawData) ->
-    #{}.
-
--endif.
 
 %%========================================
 %% Certs

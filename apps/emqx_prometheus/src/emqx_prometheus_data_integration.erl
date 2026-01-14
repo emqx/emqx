@@ -291,8 +291,6 @@ actions_ov_data(Rules) ->
 %%====================
 %% Schema Registry
 
--if(?EMQX_RELEASE_EDITION == ee).
-
 maybe_collect_family_schema_registry(Callback) ->
     ok = add_collect_family(Callback, schema_registry_metric_meta(), schema_registry_data()),
     ok.
@@ -309,16 +307,6 @@ schema_registry_data() ->
 
 maybe_collect_schema_registry() ->
     schema_registry_data().
-
--else.
-
-maybe_collect_family_schema_registry(_) ->
-    ok.
-
-maybe_collect_schema_registry() ->
-    #{}.
-
--endif.
 
 %%====================
 %% Connectors

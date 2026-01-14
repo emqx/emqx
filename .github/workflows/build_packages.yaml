@@ -254,7 +254,7 @@ jobs:
           --builder $BUILDER \
           --pkgtype tgz
 
-        export EMQX_VERSION="$(./pkg-vsn.sh $PROFILE)"
+        export EMQX_VERSION="$(./pkg-vsn.sh)"
         export PACKAGE_SOURCE="_packages/${PROFILE}/${PROFILE}-${EMQX_VERSION}-ubuntu22.04-$ARCH.tar.gz"
         # ensure package version length is capped at 32 characters (enforced by snap)
         export EMQX_VERSION="${EMQX_VERSION:0:32}"

@@ -31,7 +31,7 @@
 
 -define(EMQX_REL_NAME, <<"Enterprise">>).
 
--define(EMQX_REL_VSNS, ?EMQX_RELEASE_EE).
+-define(EMQX_REL_VSNS, ?EMQX_RELEASE_VSN).
 
 -define(EMQX_REL_VSN_PREFIX, "e").
 
@@ -47,7 +47,7 @@ edition() ->
 edition_vsn_prefix() ->
     ?EMQX_REL_VSN_PREFIX.
 
-%% @doc Return EMQX edition name, ee => Enterprise ce => Opensource.
+%% @doc Return EMQX edition name (Enterprise).
 edition_longstr() -> ?EMQX_REL_NAME.
 
 %% @doc Return the release version with prefix.
@@ -83,9 +83,9 @@ build_vsn() ->
 %% return 'newer' 'older' or 'same'.
 vsn_compare("v" ++ Vsn) ->
     %% this clause is kept in case one wants to rolling-upgrade from ce to ee
-    vsn_compare(?EMQX_RELEASE_EE, Vsn);
+    vsn_compare(?EMQX_RELEASE_VSN, Vsn);
 vsn_compare("e" ++ Vsn) ->
-    vsn_compare(?EMQX_RELEASE_EE, Vsn).
+    vsn_compare(?EMQX_RELEASE_VSN, Vsn).
 
 %% @private Compare the second argument with the first argument, return
 %% 'newer' 'older' or 'same' semver comparison result.

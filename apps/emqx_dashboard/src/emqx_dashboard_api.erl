@@ -233,8 +233,8 @@ field(license) ->
     {license, [
         {edition,
             mk(
-                enum([opensource, enterprise]),
-                #{desc => ?DESC(license), example => opensource}
+                enum([enterprise]),
+                #{desc => ?DESC(license), example => enterprise}
             )}
     ]};
 field(version) ->

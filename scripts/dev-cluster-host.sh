@@ -7,7 +7,7 @@ set -euo pipefail
 ## The number in node name is used as an offset for ekka to avoid clashing (see ekka_dist:offset/1).
 ## Nodes are started on loopback addresses starting from 127.0.0.1.
 ## The script uses sudo to add loopback aliases.
-## The boot script is ./_build/emqx/rel/emqx/bin/emqx.
+## The boot script is ./_build/emqx-enterprise/rel/emqx/bin/emqx.
 ## The data and log directories are configured to use ./tmp/
 
 # ensure dir
@@ -20,7 +20,7 @@ help() {
     echo "-h|--help: To display this usage info"
     echo "-n|--nodes: total number of nodes to start (default: 2)"
     echo "-c|--cores: number of core nodes to start (default: 2)"
-    echo "-b|--boot: boot script (default: ./_build/emqx/rel/emqx/bin/emqx)"
+    echo "-b|--boot: boot script (default: ./_build/emqx-enterprise/rel/emqx/bin/emqx)"
     echo "-i|--interface: Network interface (default: lo0)"
     echo "--no-cluster: don't create a cluster, just start separate nodes"
 }
@@ -34,7 +34,7 @@ CMD="$1"
 shift || true
 
 export EMQX_NODE__COOKIE=test
-PROFILE=${PROFILE:-emqx}
+PROFILE=${PROFILE:-emqx-enterprise}
 BOOT_SCRIPT="./_build/${PROFILE}/rel/emqx/bin/emqx"
 NODES=2
 CORE_NODES=2

@@ -8,8 +8,7 @@ fi
 # ensure dir
 cd -P -- "$(dirname -- "$0")/../.."
 
-PROFILE="$1"
-CHART_FILE="deploy/charts/${PROFILE}/Chart.yaml"
+CHART_FILE="deploy/charts/emqx-enterprise/Chart.yaml"
 
 if [ ! -f "$CHART_FILE" ]; then
     echo "Chart file $CHART_FILE is not found"
@@ -25,7 +24,7 @@ if [ "$CHART_VSN" != "$APP_VSN" ]; then
     exit 2
 fi
 
-RELEASE_VSN="$(./pkg-vsn.sh "$PROFILE" --release)"
+RELEASE_VSN="$(./pkg-vsn.sh --release)"
 
 if [ "$CHART_VSN" != "$RELEASE_VSN" ]; then
     echo "Chart version in $CHART_FILE is not in sync with release version."

@@ -221,8 +221,8 @@ fields(node_info) ->
             )},
         {edition,
             mk(
-                enum(['Opensource', 'Enterprise']),
-                #{desc => ?DESC("release_edition"), example => "Opensource"}
+                enum(['Enterprise']),
+                #{desc => ?DESC("release_edition"), example => "Enterprise"}
             )},
         {sys_path,
             mk(

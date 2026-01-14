@@ -30,7 +30,7 @@ jobs:
         id: profile
         run: |
           echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
-          echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
+          echo "version=$(./pkg-vsn.sh)" >> $GITHUB_OUTPUT
       - uses: emqx/push-helm-action@5ca37070f42cf874fc843a0e0c7c10ac76de5255 # v1.1
         if: github.event_name == 'release' && !github.event.release.prerelease
         with:

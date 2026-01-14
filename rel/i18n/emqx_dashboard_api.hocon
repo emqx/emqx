@@ -21,7 +21,7 @@ delete_user_api.label:
 """Delete dashboard user"""
 
 license.desc:
-"""EMQX License. opensource or enterprise"""
+"""EMQX License edition"""
 
 list_users_api.desc:
 """Dashboard list users"""

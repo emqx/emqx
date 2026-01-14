@@ -5,7 +5,7 @@
 %% NOTE: this is the release version which is not always the same
 %% as the emqx app version defined in emqx.app.src
 %% App (plugin) versions are bumped independently.
-%% e.g. EMQX_RELEASE_EE being 5.9.0 does not always imply emqx app
+%% e.g. EMQX_RELEASE_VSN being 5.9.0 does not always imply emqx app
 %% should be 5.9.0, as it might be the case that only one of the
 %% plugins had a bug to fix. So for a hot beam upgrade, only the app
 %% with beam files changed needs an upgrade.
@@ -19,4 +19,4 @@
 %% NOTE: Also make sure to follow the instructions in end of
 %% `apps/emqx/src/bpapi/README.md'
 
--define(EMQX_RELEASE_EE, "6.0.2-beta.2").
+-define(EMQX_RELEASE_VSN, "6.0.2-beta.2").

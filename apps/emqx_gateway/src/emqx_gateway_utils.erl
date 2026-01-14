@@ -889,13 +889,8 @@ gateways(
             []
     end.
 
--if(?EMQX_RELEASE_EDITION == ee).
 check_gateway_edition(_Defination) ->
     true.
--else.
-check_gateway_edition(Defination) ->
-    ce == maps:get(edition, Defination, ce).
--endif.
 
 find_attrs(AppMod, Def) ->
     [

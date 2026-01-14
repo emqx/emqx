@@ -8,7 +8,7 @@ cd -P -- "$(dirname -- "$0")"
 
 help() {
     echo
-    echo "$0 PROFILE [options]"
+    echo "$0 [options]"
     echo
     echo "-h|--help:       To display this usage information"
     echo "--release:       Print release version from emqx_release.hrl"
@@ -18,14 +18,6 @@ help() {
     echo "--vsn_matcher:   For --long option, replace the EMQX version with '*'"
     echo "                 so it can be used in find commands"
 }
-
-PROFILE="${1:-}"
-if [ -z "$PROFILE" ]; then
-    echo "ERROR: missing profile"
-    help
-    exit 1
-fi
-shift
 
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -46,7 +38,8 @@ while [ "$#" -gt 0 ]; do
         shift 1
         ;;
     *)
-      echo "WARN: Unknown arg (ignored): $1"
+      echo "ERROR: Unknown arg: $1"
+      help
       exit 1
       ;;
   esac
@@ -58,10 +51,8 @@ if [[ "${PKG_VSN:-novalue}" != novalue && "${LONG_VERSION:-novalue}" != 'yes' ]]
     exit 0
 fi
 
-RELEASE_EDITION="EMQX_RELEASE_EE"
-
 ## emqx_release.hrl is the single source of truth for release version
-RELEASE="$(grep -E "define.+${RELEASE_EDITION}" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
+RELEASE="$(grep -E "define.+EMQX_RELEASE_VSN" apps/emqx/include/emqx_release.hrl | cut -d '"' -f2)"
 
 if [ "${RELEASE_VERSION:-}" = 'yes' ]; then
     echo "$RELEASE"

@@ -43,8 +43,8 @@ jobs:
         id: profile
         run: |
           echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
-          echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
-          echo "ref_name=e$(./pkg-vsn.sh emqx-enterprise)" >> "$GITHUB_ENV"
+          echo "version=$(./pkg-vsn.sh)" >> $GITHUB_OUTPUT
+          echo "ref_name=e$(./pkg-vsn.sh)" >> "$GITHUB_ENV"
           if [[ $ref_name =~ ^[6-9]+\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+.*$ ]]; then
             echo "internal_release=true" >> $GITHUB_ENV
           else
