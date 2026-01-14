@@ -30,6 +30,8 @@ t_cache_exclude(_) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"nocache/+/#">>, 0),
     emqtt:publish(Client, <<"nocache/1">>, <<"{\"x\":1}">>, 0),
+    %% wait for async publish to be processed
+    ct:sleep(100),
     Caches = list_cache(ClientId),
     ?assertEqual([], Caches),
     emqtt:stop(Client).
@@ -40,6 +42,8 @@ t_clean_authz_cache(_) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
+    %% wait for async publish to be processed and cached
+    ct:sleep(100),
     ClientPid = find_client_pid(ClientId),
     Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
@@ -54,6 +58,8 @@ t_drain_authz_cache(_) ->
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
+    %% wait for async publish to be processed and cached
+    ct:sleep(100),
     ClientPid = find_client_pid(ClientId),
     Caches = list_cache(ClientPid),
     ct:log("authz caches: ~p", [Caches]),
@@ -61,7 +67,9 @@ t_drain_authz_cache(_) ->
     emqx_authz_cache:drain_cache(),
     ?assertEqual([], list_cache(ClientPid)),
     ct:sleep(100),
-    {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
+    %% subscribe is not cached, so we publish to verify cache works after drain
+    emqtt:publish(Client, <<"t1">>, <<"{\"x\":2}">>, 0),
+    ct:sleep(100),
     ?assert(length(list_cache(ClientPid)) > 0),
     emqtt:stop(Client).
 

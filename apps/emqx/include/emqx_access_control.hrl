@@ -25,7 +25,6 @@
 
 -define(authz_action(PUBSUB, QOS), #{action_type := PUBSUB, qos := QOS}).
 -define(authz_action(PUBSUB), ?authz_action(PUBSUB, _)).
--define(authz_action, ?authz_action(_)).
 
 -define(AUTHN_TRACE_TAG, "AUTHN").
 
