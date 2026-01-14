@@ -137,7 +137,8 @@ defmodule EMQXUmbrella.MixProject do
   def extra_release_apps() do
     [
       common_dep(:redbug),
-      common_dep(:observer_cli)
+      common_dep(:observer_cli),
+      common_dep(:sbom)
     ]
   end
 
@@ -311,6 +312,8 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:greptimedb_rs),
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.2"}
+
+  def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
@@ -1294,7 +1297,8 @@ defmodule EMQXUmbrella.MixProject do
       cover: "emqx.cover",
       eunit: "emqx.eunit",
       proper: "emqx.proper",
-      dialyzer: "emqx.dialyzer"
+      dialyzer: "emqx.dialyzer",
+      sbom: "sbom.cyclonedx"
     ]
   end
 
