@@ -312,6 +312,8 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:greptimedb_rs),
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.2"}
 
+  def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
+
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}
 
