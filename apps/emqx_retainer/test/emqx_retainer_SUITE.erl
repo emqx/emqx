@@ -46,8 +46,7 @@ retainer {
   delivery_rate = \"1000/s\"
   max_publish_rate = \"100000/s\"
   flow_control {
-    batch_read_number = 0
-    batch_deliver_number = 0
+    batch_read_number = 1000
   }
   backend {
     type = built_in_database
@@ -697,12 +696,7 @@ topic.
 """.
 t_dispatch_rate_limit_non_wildcard(_) ->
     %% Setup tight dispatch rates
-    update_retainer_config(#{
-        <<"delivery_rate">> => <<"1/2s">>,
-        %% First, with batches, even though it'll deliver a single one, for code path
-        %% coverage.
-        <<"flow_control">> => #{<<"batch_deliver_number">> => 2}
-    }),
+    update_retainer_config(#{<<"delivery_rate">> => <<"1/2s">>}),
 
     %% Prepare a retained message
     QoS = 1,
@@ -732,30 +726,7 @@ t_dispatch_rate_limit_non_wildcard(_) ->
     ?assertMatch([_], Msgs1),
     ok = emqtt:stop(C1),
 
-    %% Same test, now without delivery batches, for coverage.
-    update_retainer_config(#{
-        <<"delivery_rate">> => <<"1/2s">>,
-        %% Now, without batches
-        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
-    }),
-
-    {ok, C2} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
-    {ok, _} = emqtt:connect(C2),
-    hit_delivery_rate_limit(),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqtt:subscribe(C2, Topic, 1),
-            #{?snk_kind := retained_fetch_rate_limit_exceeded},
-            5_000
-        ),
-    Msgs2 = receive_messages(1, 5_000),
-    ?assertMatch([_], Msgs2),
-    ok = emqtt:stop(C2),
-
-    update_retainer_config(#{
-        <<"delivery_rate">> => <<"1000/1s">>,
-        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
-    }),
+    update_retainer_config(#{<<"delivery_rate">> => <<"1000/1s">>}),
 
     ok.
 
@@ -764,11 +735,7 @@ Checks that, even if we hit the dispatch rate limit while subscribing to a wildc
 """.
 t_dispatch_rate_limit_wildcard(_) ->
     %% Setup tight dispatch rates
-    update_retainer_config(#{
-        <<"delivery_rate">> => <<"10/1s">>,
-        %% First, with batches
-        <<"flow_control">> => #{<<"batch_deliver_number">> => 2}
-    }),
+    update_retainer_config(#{<<"delivery_rate">> => <<"10/1s">>}),
 
     %% Prepare a bunch of retained messages to hit dispatch limit.
     NumMsgs = 20,
@@ -801,29 +768,7 @@ t_dispatch_rate_limit_wildcard(_) ->
     ?assertEqual(NumMsgs, length(Msgs1), #{received => Msgs1}),
     ok = emqtt:stop(C1),
 
-    %% Same test, now without delivery batches.
-    update_retainer_config(#{
-        <<"delivery_rate">> => <<"10/1s">>,
-        %% Now, without batches
-        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
-    }),
-
-    {ok, C2} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
-    {ok, _} = emqtt:connect(C2),
-    {_, {ok, _}} =
-        ?wait_async_action(
-            emqtt:subscribe(C2, <<"t/+">>, 1),
-            #{?snk_kind := retained_fetch_rate_limit_exceeded},
-            5_000
-        ),
-    Msgs2 = receive_messages(NumMsgs),
-    ?assertEqual(NumMsgs, length(Msgs2), #{received => Msgs2}),
-    ok = emqtt:stop(C2),
-
-    update_retainer_config(#{
-        <<"delivery_rate">> => <<"1000/1s">>,
-        <<"flow_control">> => #{<<"batch_deliver_number">> => 0}
-    }),
+    update_retainer_config(#{<<"delivery_rate">> => <<"1000/1s">>}),
     emqx_retainer:clean(),
 
     ok.
@@ -1171,6 +1116,7 @@ t_compatibility_for_deliver_rate(_) ->
             <<"retainer">> :=
                 #{
                     <<"flow_control">> := #{
+                        <<"batch_read_number">> := 0,
                         <<"batch_deliver_limiter">> := infinity
                     }
                 }
@@ -1184,6 +1130,7 @@ t_compatibility_for_deliver_rate(_) ->
             <<"retainer">> :=
                 #{
                     <<"flow_control">> := #{
+                        <<"batch_read_number">> := 1000,
                         <<"batch_deliver_limiter">> := {1000, 1000}
                     }
                 }
@@ -1197,6 +1144,7 @@ t_compatibility_for_deliver_rate(_) ->
             <<"retainer">> :=
                 #{
                     <<"flow_control">> := #{
+                        <<"batch_read_number">> := 0,
                         <<"batch_deliver_limiter">> := infinity
                     }
                 }
@@ -1303,8 +1251,7 @@ reset_rates_to_default() ->
         <<"max_publish_rate">> => <<"100000/s">>,
         <<"flow_control">> =>
             #{
-                <<"batch_read_number">> => 0,
-                <<"batch_deliver_number">> => 0
+                <<"batch_read_number">> => 0
             }
     }).
 

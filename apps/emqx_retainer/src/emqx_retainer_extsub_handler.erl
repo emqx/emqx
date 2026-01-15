@@ -34,7 +34,7 @@
 
 -define(MIN_RATE_LIMIT_DELAY_MS, 300).
 -define(MAX_RATE_LIMIT_DELAY_MS, 10_000).
--define(DEFAULT_BATCH_SIZE, 100).
+-define(DEFAULT_BATCH_SIZE, 1_000).
 
 -record(h, {
     send_fn,
@@ -81,7 +81,7 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
 handle_delivered(Handler, #{desired_message_count := DesiredMsgCount}, _Msg, _Ack) ->
     case DesiredMsgCount > 0 of
         true ->
-            enqueue_nudge(Handler, DesiredMsgCount, now);
+            enqueue_nudge(Handler, batch_read_num(), now);
         false ->
             Handler
     end.
@@ -112,7 +112,7 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter) ->
         limiter = Limiter,
         cursor = ?init
     },
-    Handler = enqueue_nudge(Handler0, ?DEFAULT_BATCH_SIZE, now),
+    Handler = enqueue_nudge(Handler0, batch_read_num(), now),
     {ok, Handler};
 subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter) ->
     {ok, Handler}.
@@ -144,13 +144,13 @@ handle_next(#h{cursor = ?cursor(_)} = Handler0, N) ->
             Handler =
                 case Handler1#h.cursor of
                     ?cursor(_) ->
-                        enqueue_nudge(Handler1, N, now);
+                        enqueue_nudge(Handler1, batch_read_num(), now);
                     _ ->
                         Handler1
                 end,
             {ok, Handler, Messages};
         {error, Handler1} ->
-            Handler = enqueue_nudge(Handler1, N, delay),
+            Handler = enqueue_nudge(Handler1, batch_read_num(), delay),
             {ok, Handler}
     end.
 
@@ -266,3 +266,11 @@ enqueue_nudge(#h{} = Handler0, N, delay) ->
     ),
     SendAfterFn(Delay, #next{n = N}),
     Handler0#h{nudge_enqueued = true}.
+
+batch_read_num() ->
+    case emqx_retainer:batch_read_number() of
+        all_remaining ->
+            ?DEFAULT_BATCH_SIZE;
+        N when is_integer(N) ->
+            N
+    end.
