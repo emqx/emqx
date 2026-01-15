@@ -477,7 +477,7 @@ t_device_id(Config) ->
 t_template(Config) ->
     %% Create without data  configured
     ?assertMatch(
-        {error, #{reason := matched_no_union_member}},
+        {error, #{reason := empty_array_not_allowed}},
         emqx_bridge_v2_testlib:create_bridge(
             Config,
             #{<<"parameters">> => #{<<"data">> => []}}

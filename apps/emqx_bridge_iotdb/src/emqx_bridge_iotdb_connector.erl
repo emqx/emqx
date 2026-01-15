@@ -151,7 +151,7 @@ fields("connection_fields") ->
             )},
         {sql_dialect,
             mk(
-                hoconsc:union([tree, ref(?MODULE, sql_dialect_table)]),
+                hoconsc:union(fun sql_dialect_union_selector/1),
                 #{
                     desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
                     default => tree
@@ -172,7 +172,8 @@ fields(sql_dialect_table) ->
                 binary(),
                 #{
                     desc => ?DESC(emqx_bridge_iotdb, "config_database"),
-                    required => false
+                    required => true,
+                    validator => fun emqx_schema:non_empty_string/1
                 }
             )}
     ];
@@ -201,7 +202,7 @@ fields("config_thrift") ->
                 )},
             {sql_dialect,
                 mk(
-                    hoconsc:union([tree, ref(?MODULE, sql_dialect_table)]),
+                    hoconsc:union(fun sql_dialect_union_selector/1),
                     #{
                         desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
                         default => tree
@@ -246,6 +247,16 @@ fields("put_" ++ Driver) ->
     fields("config_" ++ Driver);
 fields("get_" ++ Driver) ->
     emqx_bridge_schema:status_fields() ++ fields("post_" ++ Driver).
+
+sql_dialect_union_selector(all_union_members) ->
+    [tree, ref(?MODULE, sql_dialect_table)];
+sql_dialect_union_selector({value, Value}) ->
+    case is_map(Value) of
+        true ->
+            [ref(?MODULE, sql_dialect_table)];
+        _ ->
+            [tree]
+    end.
 
 common_fields(Driver) ->
     [
@@ -679,17 +690,9 @@ on_add_channel(
     maybe
         WriteToTable = maps:get(write_to_table, Parameter, false),
         SqlDialect = maps:get(sql_dialect, OldState0, tree),
-        DeviceId =
-            case WriteToTable of
-                true ->
-                    maps:get(table, Parameter, <<>>);
-                false ->
-                    maps:get(device_id, Parameter, <<>>)
-            end,
-        ok ?= check_channel_exists(ChannelId, Channels),
         ok ?= check_write_to_table(WriteToTable, SqlDialect),
         ok ?= check_restapi_version(Version),
-        {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, DeviceId),
+        {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, Parameter),
         {ok, DataTemplate} ?= preproc_data_template(WriteToTable, Data),
         Path =
             case SqlDialect of
@@ -735,16 +738,8 @@ on_add_channel(
     maybe
         SqlDialect = maps:get(sql_dialect, OldState, tree),
         WriteToTable = maps:get(write_to_table, Parameter, false),
-        ok ?= check_channel_exists(ChannelId, Channels),
         ok ?= check_write_to_table(WriteToTable, SqlDialect),
-        DeviceId =
-            case WriteToTable of
-                true ->
-                    maps:get(table, Parameter, <<>>);
-                false ->
-                    maps:get(device_id, Parameter, <<>>)
-            end,
-        {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, DeviceId),
+        {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, Parameter),
         {ok, DataTemplate} ?= preproc_data_template(WriteToTable, Data),
         %% update IoTDB channel
         Channel = Parameter#{
@@ -920,24 +915,12 @@ eval_response_body(Body, Resp) ->
         Reason -> {error, Reason}
     end.
 
-preproc_device_id(_WriteToTable = false, DeviceId) ->
+preproc_device_id(_WriteToTable = false, Parameter) ->
+    %% The empty device_id is allowed in tree model, it will be replaced by the payload.device_id.
+    DeviceId = maps:get(device_id, Parameter, <<>>),
     {ok, emqx_placeholder:preproc_tmpl(DeviceId)};
-preproc_device_id(_WriteToTable = true, <<>>) ->
-    throw(<<"Table name cannot be empty in table model">>);
-preproc_device_id(_WriteToTable = true, DeviceId) ->
-    HasVar = lists:any(
-        fun
-            ({var, _}) -> true;
-            (_) -> false
-        end,
-        emqx_placeholder:preproc_tmpl(DeviceId)
-    ),
-    case HasVar of
-        true ->
-            throw(<<"Table name cannot contain variables in table model">>);
-        false ->
-            {ok, DeviceId}
-    end.
+preproc_device_id(_WriteToTable = true, Parameter) ->
+    {ok, maps:get(table, Parameter)}.
 
 preproc_data_template(WriteToTable, DataList) ->
     try
@@ -1043,7 +1026,7 @@ try_render_records([{ChannelId, _} | _] = Msgs, #{driver := Driver, channels := 
                         true ->
                             %% Due to the measurements are variables,
                             %% we need to validate the consistency in multiple records.
-                            Acc1 = validate_measurements_consistency(Acc),
+                            Acc1 = validate_measurements_consistency(Acc, ChannelId),
                             {ok, WriteToTable, Acc1};
                         false ->
                             {ok, WriteToTable, Acc}
@@ -1055,22 +1038,24 @@ try_render_records([{ChannelId, _} | _] = Msgs, #{driver := Driver, channels := 
             {error, {unrecoverable_error, {invalid_channel_id, ChannelId}}}
     end.
 
-validate_measurements_consistency(#{measurements := [Used | More]} = Acc) ->
-    do_validate_measurements_consistency(Used, More),
+validate_measurements_consistency(#{measurements := [Used | More]} = Acc, ChannelId) ->
+    do_validate_measurements_consistency(Used, More, ChannelId),
     Acc#{measurements => Used};
-validate_measurements_consistency(#{column_names := [Used | More]} = Acc) ->
-    do_validate_measurements_consistency(Used, More),
+validate_measurements_consistency(#{column_names := [Used | More]} = Acc, ChannelId) ->
+    do_validate_measurements_consistency(Used, More, ChannelId),
     Acc#{column_names => Used}.
 
-do_validate_measurements_consistency(Used, More) ->
+do_validate_measurements_consistency(Used, More, ChannelId) ->
     case lists:all(fun(M) -> M =:= Used end, More) of
         false ->
-            ?SLOG(warning, #{
-                msg => "ignore_inconsistent_column_names_in_batch",
-                hint => "Use the first record's column names to insert into the table",
-                ignored => More,
-                used => Used
-            });
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => ignore_inconsistent_column_names_in_batch,
+                    hint => <<"Use the first record's column names to insert into the table">>
+                },
+                #{ignored => More, used => Used, channel_id => ChannelId}
+            );
         true ->
             ok
     end.
@@ -1322,32 +1307,17 @@ proc_record_data_for_table([], _Msg, MeasurementAcc, ValueAcc) ->
     {ok, lists:reverse(MeasurementAcc), lists:reverse(ValueAcc)}.
 
 init_connector_state(Config) ->
-    case parse_sql_dialect(maps:get(sql_dialect, Config, tree)) of
-        {table, <<>>} ->
-            throw({failed_to_start_iotdb_bridge, "database is required when sql_dialect is table"});
-        {table, Database} when is_binary(Database) ->
+    case maps:get(sql_dialect, Config, tree) of
+        #{database := Database} when is_binary(Database) ->
             #{sql_dialect => table, database => Database};
-        {tree, _} ->
+        _ ->
             #{sql_dialect => tree}
     end.
-
-parse_sql_dialect(#{database := Database}) ->
-    {table, Database};
-parse_sql_dialect(SqlDialect) when SqlDialect =:= tree orelse SqlDialect =:= undefined ->
-    {tree, <<>>}.
 
 to_bin(Atom) when is_atom(Atom) ->
     erlang:atom_to_binary(Atom);
 to_bin(Bin) when is_binary(Bin) ->
     Bin.
-
-check_channel_exists(ChannelId, Channels) ->
-    case maps:is_key(ChannelId, Channels) of
-        true ->
-            {error, already_exists};
-        false ->
-            ok
-    end.
 
 check_write_to_table(_WriteToTable = true, _SqlDialect = table) ->
     ok;

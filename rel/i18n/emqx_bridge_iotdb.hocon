@@ -62,7 +62,7 @@ config_sql_dialect.label:
 """SQL Dialect"""
 
 config_database.desc:
-"""The name of the IoTDB database to connect to. This setting is only applicable when SQL Dialect is set to "Table"."""
+"""The name of the IoTDB database to connect to."""
 config_database.label:
 """Database"""
 
@@ -73,7 +73,7 @@ config_write_to_table.label:
 """Write To Table"""
 
 config_table_name.desc:
-"""The name of the IoTDB table to which the data will be written. This parameter is required when SQL Dialect is set to "Table"."""
+"""The name of the IoTDB table to which the data will be written."""
 config_table_name.label:
 """Table"""
 

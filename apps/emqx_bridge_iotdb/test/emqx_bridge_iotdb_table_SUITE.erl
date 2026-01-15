@@ -389,7 +389,7 @@ t_on_get_status(Config) ->
 t_template(Config) ->
     %% Create without data configured
     ?assertMatch(
-        {error, #{reason := matched_no_union_member}},
+        {error, #{reason := empty_array_not_allowed}},
         emqx_bridge_v2_testlib:create_bridge(
             Config,
             #{<<"parameters">> => #{<<"data">> => []}}
@@ -487,6 +487,65 @@ t_rule_test_trace(Config) ->
     end,
     Opts = #{payload_fn => PayloadFn},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
+t_sql_dialect_database_required(Config) ->
+    ConnectorConfig = ?config(connector_config, Config),
+    BadConnectorConfig = ConnectorConfig#{<<"sql_dialect">> => #{<<"database">> => <<>>}},
+    Config1 = lists:keyreplace(connector_config, 1, Config, {connector_config, BadConnectorConfig}),
+    {error, {_StatusCode, _Headers, Body}} = emqx_bridge_v2_testlib:create_connector_api(Config1),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{
+                <<"reason">> := <<"empty_string_not_allowed">>,
+                <<"path">> := <<"root.sql_dialect.database">>,
+                <<"value">> := <<>>
+            }
+        },
+        Body
+    ),
+    ok.
+
+t_table_name_configuration_validation(Config) ->
+    ActionConfig = ?config(action_config, Config),
+    Parameters = maps:get(<<"parameters">>, ActionConfig),
+    BadActionConfig1 = ActionConfig#{<<"parameters">> => Parameters#{<<"table">> => <<>>}},
+    BadActionConfig2 = ActionConfig#{
+        <<"parameters">> => Parameters#{<<"table">> => <<"${payload.table}">>}
+    },
+
+    BadConfig1 = lists:keyreplace(action_config, 1, Config, {action_config, BadActionConfig1}),
+    BadConfig2 = lists:keyreplace(action_config, 1, Config, {action_config, BadActionConfig2}),
+
+    {error, {_, _, Body1}} = emqx_bridge_v2_testlib:create_bridge_api(BadConfig1),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+
+    {error, {_, _, Body2}} = emqx_bridge_v2_testlib:create_bridge_api(BadConfig2),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{
+                <<"reason">> := <<"Table name cannot be empty in table model">>,
+                <<"path">> := <<"root.parameters.table">>,
+                <<"value">> := <<>>
+            }
+        },
+        Body1
+    ),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{
+                <<"reason">> := <<"Table name cannot contain variables in table model">>,
+                <<"path">> := <<"root.parameters.table">>,
+                <<"value">> := <<"${payload.table}">>
+            }
+        },
+        Body2
+    ),
+    ok.
 
 is_empty(null) -> true;
 is_empty([]) -> true;
