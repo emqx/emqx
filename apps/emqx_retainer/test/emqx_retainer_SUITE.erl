@@ -37,14 +37,14 @@ index_related_tests() ->
         [t_reindex, t_disable_then_start, t_disabled, t_start_stop_on_setting_change].
 
 %% erlfmt-ignore
--define(BASE_CONF, <<"
+-define(BASE_CONF, ~'
 retainer {
   enable = true
   msg_clear_interval = 0s
   msg_expiry_interval = 0s
   max_payload_size = 1MB
-  delivery_rate = \"1000/s\"
-  max_publish_rate = \"100000/s\"
+  delivery_rate = "1000/s"
+  max_publish_rate = "100000/s"
   flow_control {
     batch_read_number = 1000
   }
@@ -54,14 +54,14 @@ retainer {
     max_retained_messages = 0
   }
 }
-">>).
+').
 
 %% erlfmt-ignore
--define(DISABLED_CONF, <<"
+-define(DISABLED_CONF, ~b'
 mqtt {
   retain_available = false
 }
-">>).
+').
 
 %%--------------------------------------------------------------------
 %% Setups
