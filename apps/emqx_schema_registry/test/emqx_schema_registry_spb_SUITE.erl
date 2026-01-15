@@ -71,6 +71,7 @@ init_per_testcase(_TestCase, TCConfig) ->
 
 end_per_testcase(_TestCase, _TCConfig) ->
     ok = snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
