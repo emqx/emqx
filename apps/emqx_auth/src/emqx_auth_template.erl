@@ -15,7 +15,6 @@
     cache_key_template/1,
     cache_key/2,
     cache_key/3,
-    placeholder_vars_from_str/1,
     render_deep_for_json/2,
     render_deep_for_url/2,
     render_deep_for_raw/2,
@@ -64,14 +63,14 @@ parse_str(Template, AllowedVars) ->
         emqx_template_sql:row_template()
     }.
 parse_sql(Template, ReplaceWith, AllowedVars) ->
-    {Statement, Result} = emqx_template_sql:parse_prepstmt(
+    {Statement, RowTemplate} = emqx_template_sql:parse_prepstmt(
         Template,
         #{parameters => ReplaceWith, strip_double_quote => true}
     ),
-    {UsedVars, TemplateWithAllowedVars} = handle_disallowed_placeholders(
-        Result, AllowedVars, {string, Template}
+    {UsedVars, RowTemplateWithAllowedVars} = handle_disallowed_placeholders(
+        RowTemplate, AllowedVars, {deep, Template}
     ),
-    {UsedVars, Statement, TemplateWithAllowedVars}.
+    {UsedVars, Statement, RowTemplateWithAllowedVars}.
 
 %% @doc Create a unique template from a list of variables.
 %% The terms rendered from the templates will be the same if and only if
@@ -111,10 +110,6 @@ cache_key(Values, #cache_key_template{id = TemplateId, vars = KeyVars}, ExtraKey
         Key1 = crypto:hash(sha256, [TemplateId, Key0]),
         [CacheKeyId, Key1 | ExtraKeyParts]
     end.
-
--spec placeholder_vars_from_str(unicode:chardata()) -> [var()].
-placeholder_vars_from_str(Str) ->
-    emqx_template:placeholders(emqx_template:parse(Str)).
 
 -spec escape_disallowed_placeholders_str(unicode:chardata(), allowed_vars()) -> term().
 escape_disallowed_placeholders_str(Template, AllowedVars) ->
@@ -173,8 +168,8 @@ prerender_disallowed_placeholders(Template, AllowedVars) ->
             % Rendering disallowed placeholders in escaped form, which will then
             % parse as a literal string.
             case lists:member(Name, AllowedVars) of
-                true -> "${" ++ Name ++ "}";
-                false -> "${$}{" ++ Name ++ "}"
+                true -> list_to_binary("${" ++ Name ++ "}");
+                false -> list_to_binary("${$}{" ++ Name ++ "}")
             end
         end
     }),
