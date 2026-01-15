@@ -43,10 +43,7 @@
     backend_state/1,
     context/0,
     with_backend/1,
-    with_backend/2,
-    get_batch_read_number_pd/0,
-    set_batch_read_number_pd/1,
-    del_batch_read_number_pd/0
+    with_backend/2
 ]).
 
 %% gen_server callbacks
@@ -88,6 +85,7 @@
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
 -type index_incarnation() :: integer().
+-type match_opts() :: map().
 
 -define(CONTEXT_KEY, {?MODULE, context}).
 -define(BATCH_READ_NUM_PD_KEY, {?MODULE, batch_read_num}).
@@ -106,7 +104,8 @@
 ) ->
     {ok, has_next(), list(message())}.
 -callback read_message(backend_state(), topic()) -> {ok, list(message())}.
--callback match_messages(backend_state(), topic(), cursor()) -> {ok, list(message()), cursor()}.
+-callback match_messages(backend_state(), topic(), cursor(), match_opts()) ->
+    {ok, list(message()), cursor()}.
 -callback delete_cursor(backend_state(), cursor()) -> ok.
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
@@ -258,33 +257,12 @@ with_backend(Fun) ->
     with_backend(Fun, ok).
 
 batch_read_number() ->
-    case get_batch_read_number_pd() of
-        undefined ->
-            batch_read_number_from_config();
-        0 ->
-            all_remaining;
-        BatchNum when is_integer(BatchNum) ->
-            BatchNum
-    end.
-
-batch_read_number_from_config() ->
     case emqx:get_config([retainer, flow_control, batch_read_number]) of
         0 ->
             all_remaining;
         BatchNum when is_integer(BatchNum) ->
             BatchNum
     end.
-
-get_batch_read_number_pd() ->
-    get(?BATCH_READ_NUM_PD_KEY).
-
-set_batch_read_number_pd(N) ->
-    _ = put(?BATCH_READ_NUM_PD_KEY, N),
-    ok.
-
-del_batch_read_number_pd() ->
-    _ = erase(?BATCH_READ_NUM_PD_KEY),
-    ok.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks

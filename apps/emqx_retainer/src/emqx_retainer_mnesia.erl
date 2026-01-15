@@ -20,7 +20,7 @@
     store_retained/2,
     read_message/2,
     page_read/5,
-    match_messages/3,
+    match_messages/4,
     delete_cursor/2,
     clean/1,
     size/1,
@@ -276,24 +276,18 @@ delete_message(_State, Topic) ->
 read_message(_State, Topic) ->
     {ok, read_messages(Topic)}.
 
-match_messages(State, Topic, undefined) ->
+match_messages(State, Topic, undefined, Opts) ->
     Tokens = topic_to_tokens(Topic),
     Now = erlang:system_time(millisecond),
     S = msg_stream(search_stream(Tokens, Now)),
-    case batch_read_number() of
+    case batch_read_number(Opts) of
         all_remaining ->
             {ok, emqx_utils_stream:consume(S), undefined};
         BatchNum when is_integer(BatchNum) ->
-            match_messages(State, Topic, {S, BatchNum})
+            match_messages(State, Topic, {S, BatchNum}, Opts)
     end;
-match_messages(_State, _Topic, {S0, BatchNum0}) ->
-    BatchNum =
-        case emqx_retainer:get_batch_read_number_pd() of
-            undefined ->
-                BatchNum0;
-            BatchNum1 ->
-                BatchNum1
-        end,
+match_messages(_State, _Topic, {S0, BatchNum0}, Opts) ->
+    BatchNum = batch_read_number(Opts, BatchNum0),
     case emqx_utils_stream:consume(BatchNum, S0) of
         {Rows, S1} ->
             {ok, Rows, {S1, BatchNum}};
@@ -629,8 +623,15 @@ indices(IndexRecords, Type) ->
             {[], 0}
     end.
 
-batch_read_number() ->
+batch_read_number(#{batch_read_number := N}) ->
+    N;
+batch_read_number(_Opts) ->
     emqx_retainer:batch_read_number().
+
+batch_read_number(#{batch_read_number := N}, _Default) ->
+    N;
+batch_read_number(_Opts, Default) ->
+    Default.
 
 reindex(NewIndices, Force, StatusFun) when
     is_boolean(Force) andalso is_function(StatusFun, 1)

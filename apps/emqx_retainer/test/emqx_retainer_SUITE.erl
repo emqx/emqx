@@ -735,7 +735,10 @@ Checks that, even if we hit the dispatch rate limit while subscribing to a wildc
 """.
 t_dispatch_rate_limit_wildcard(_) ->
     %% Setup tight dispatch rates
-    update_retainer_config(#{<<"delivery_rate">> => <<"10/1s">>}),
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"10/1s">>,
+        <<"flow_control">> => #{<<"batch_read_number">> => 1}
+    }),
 
     %% Prepare a bunch of retained messages to hit dispatch limit.
     NumMsgs = 20,
@@ -768,7 +771,10 @@ t_dispatch_rate_limit_wildcard(_) ->
     ?assertEqual(NumMsgs, length(Msgs1), #{received => Msgs1}),
     ok = emqtt:stop(C1),
 
-    update_retainer_config(#{<<"delivery_rate">> => <<"1000/1s">>}),
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1000/1s">>,
+        <<"flow_control">> => #{<<"batch_read_number">> => 1_000}
+    }),
     emqx_retainer:clean(),
 
     ok.

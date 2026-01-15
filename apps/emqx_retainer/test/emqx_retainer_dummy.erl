@@ -18,7 +18,7 @@
     store_retained/2,
     read_message/2,
     page_read/5,
-    match_messages/3,
+    match_messages/4,
     delete_cursor/2,
     clear_expired/3,
     clean/1,
@@ -52,7 +52,7 @@ read_message(_Context, _Topic) -> {ok, []}.
 
 page_read(_Context, _Topic, _Deadline, _Offset, _Limit) -> {ok, false, []}.
 
-match_messages(_Context, _Topic, _Cursor) -> {ok, [], 0}.
+match_messages(_Context, _Topic, _Cursor, _Opts) -> {ok, [], 0}.
 
 delete_cursor(_Context, _Cursor) -> ok.
 

@@ -244,14 +244,10 @@ do_fetch(#h{cursor = ?cursor(Cursor0)} = Handler, N) ->
         mod = Mod,
         state = State
     } = Handler,
-    try
-        emqx_retainer:set_batch_read_number_pd(N),
-        %% TODO: how could this fail?
-        {ok, Messages0, Cursor} = Mod:match_messages(State, TopicFilter, Cursor0),
-        {Messages0, Cursor}
-    after
-        emqx_retainer:del_batch_read_number_pd()
-    end.
+    Opts = #{batch_read_number => N},
+    %% TODO: how could this fail?
+    {ok, Messages0, Cursor} = Mod:match_messages(State, TopicFilter, Cursor0, Opts),
+    {Messages0, Cursor}.
 
 enqueue_nudge(#h{nudge_enqueued = true} = Handler0, _N, _Delay) ->
     Handler0;
