@@ -633,17 +633,19 @@ user_seeds() ->
 
 init_seeds() ->
     ok = drop_seeds(),
-    {ok, _, _} = q(
-        "CREATE TABLE users(\n"
-        "                       username varchar(255),\n"
-        "                       password_hash varchar(255),\n"
-        "                       salt varchar(255),\n"
-        "                       cert_subject varchar(255),\n"
-        "                       cert_common_name varchar(255),\n"
-        "                       is_superuser_str varchar(255),\n"
-        "                       is_superuser_int smallint,\n"
-        "                       is_superuser_bool boolean)"
-    ),
+    {ok, _, _} = q("""
+        CREATE TABLE users(
+            username varchar(255),
+            password_hash varchar(255),
+            salt varchar(255),
+            cert_subject varchar(255),
+            cert_common_name varchar(255),
+            is_superuser_str varchar(255),
+            is_superuser_int smallint,
+            is_superuser_bool boolean,
+            topic_filter varchar(255)
+        )
+    """),
 
     lists:foreach(
         fun(#{data := Values}) ->
@@ -661,13 +663,14 @@ create_user(Values) ->
         cert_common_name,
         is_superuser_str,
         is_superuser_int,
-        is_superuser_bool
+        is_superuser_bool,
+        topic_filter
     ],
 
     InsertQuery =
         "INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name, "
-        "is_superuser_str, is_superuser_int, is_superuser_bool) "
-        "VALUES($1, $2, $3, $4, $5, $6, $7, $8)",
+        "is_superuser_str, is_superuser_int, is_superuser_bool, topic_filter) "
+        "VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)",
 
     Params = [maps:get(F, Values, null) || F <- Fields],
     {ok, 1} = q(InsertQuery, Params),

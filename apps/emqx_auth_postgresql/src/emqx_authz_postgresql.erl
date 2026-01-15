@@ -52,6 +52,7 @@ authorize(
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderedParams = emqx_auth_template:render_sql_params(Placeholders, Vars),
+    ?SLOG(warning, #{msg => "authorize", rendered_params => RenderedParams}),
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
@@ -76,8 +77,14 @@ authorize(
 
 new_state(ResourceId, #{query := SQL} = Source0) ->
     {Vars, SQLTemplate, Placeholders} = emqx_auth_template:parse_sql(SQL, '$n', ?ALLOWED_VARS),
+    ?SLOG(warning, #{
+        msg => "postgresql_prepare_statement",
+        sql => SQLTemplate,
+        vars => Vars,
+        placeholders => Placeholders
+    }),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Source = Source0#{prepare_statement => #{ResourceId => SQLTemplate}},
+    Source = Source0#{prepare_statement => #{ResourceId => {parsed, {SQLTemplate, Placeholders}}}},
     ResourceConfig = emqx_authz_utils:cleanup_resource_config(
         [query], Source
     ),

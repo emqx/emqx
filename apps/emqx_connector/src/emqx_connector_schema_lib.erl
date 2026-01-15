@@ -10,16 +10,18 @@
 -export([
     pool_size/1,
     relational_db_fields/0,
+    relational_db_fields/1,
     ssl_fields/0,
     ssl_fields/1,
     prepare_statement_fields/0,
     password_field/0,
-    password_field/1
+    password_field/1,
+    username_field/0,
+    username_field/1
 ]).
 
 -export([
     database/1,
-    username/1,
     auto_reconnect/1
 ]).
 
@@ -46,12 +48,22 @@ ssl_fields(EnableByDefault) ->
     ].
 
 relational_db_fields() ->
+    relational_db_fields(#{}).
+
+relational_db_fields(Opts) ->
+    UsernameField =
+        case Opts of
+            #{default_username := DefaultUsername} ->
+                username_field(#{default => DefaultUsername});
+            _ ->
+                username_field()
+        end,
     [
         {database, fun database/1},
-        %% TODO: The `pool_size` for drivers will be deprecated. Ues `worker_pool_size` for emqx_resource
+        %% TODO: The `pool_size` for drivers will be deprecated. Use `worker_pool_size` for emqx_resource
         %% See emqx_resource.hrl
         {pool_size, fun pool_size/1},
-        {username, fun username/1},
+        {username, UsernameField},
         {password, password_field()},
         {auto_reconnect, fun auto_reconnect/1}
     ].
@@ -85,10 +97,20 @@ pool_size(default) -> 8;
 pool_size(validator) -> [?MIN(1)];
 pool_size(_) -> undefined.
 
-username(type) -> binary();
-username(desc) -> ?DESC("username");
-username(required) -> false;
-username(_) -> undefined.
+username_field() ->
+    username_field(#{}).
+
+username_field(Opts) ->
+    hoconsc:mk(
+        binary(),
+        maps:merge(
+            #{
+                desc => ?DESC("username"),
+                required => false
+            },
+            Opts
+        )
+    ).
 
 auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");

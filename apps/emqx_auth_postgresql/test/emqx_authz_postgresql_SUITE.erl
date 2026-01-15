@@ -82,9 +82,13 @@ t_node_cache(_Config) ->
     Case = #{
         name => cache_publish,
         setup => [
-            "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
-            "permission VARCHAR(255), action VARCHAR(255))",
-            "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'allow', 'publish')"
+            """
+            CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+            permission VARCHAR(255), action VARCHAR(255))
+            """,
+            """
+            INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'allow', 'publish')
+            """
         ],
         query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
         client_info => #{username => <<"username">>},
@@ -129,8 +133,10 @@ cases() ->
         #{
             name => base_publish,
             setup => [
-                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
-                "permission VARCHAR(255), action VARCHAR(255))",
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255))
+                """,
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'allow', 'publish')",
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'b', 'allow', 'subscribe')"
             ],
@@ -144,19 +150,54 @@ cases() ->
             ]
         },
         #{
+            name => publish_many_and_unknown_query_params,
+            setup => [
+                """
+                CREATE TABLE acl(username VARCHAR(255), clientid VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255))
+                """,
+                """
+                INSERT INTO acl(username, clientid, topic, permission, action)
+                VALUES('username', 'clientid', 'a', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(username, clientid, topic, permission, action)
+                VALUES('username', 'clientid', 'b', 'allow', 'subscribe')
+                """
+            ],
+            query => """
+            SELECT permission, action, topic FROM acl
+            WHERE username = ${username}
+            AND clientid = ${clientid}
+            AND ${topic}::text = '${$}{topic}'
+            """,
+            client_info => #{username => <<"username">>, clientid => <<"clientid">>},
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"a">>},
+                {deny, ?AUTHZ_PUBLISH, <<"b">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"a">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"b">>}
+            ]
+        },
+        #{
             name => rule_by_clientid_cn_dn_peerhost,
             setup => [
-                "CREATE TABLE acl(clientid VARCHAR(255), cn VARCHAR(255), dn VARCHAR(255),"
-                " peerhost VARCHAR(255), topic VARCHAR(255),"
-                " permission VARCHAR(255), action VARCHAR(255))",
-
-                "INSERT INTO acl(clientid, cn, dn, peerhost, topic, permission, action)"
-                " VALUES('clientid', 'cn', 'dn', '127.0.0.1', 'a', 'allow', 'publish')"
+                """
+                CREATE TABLE acl(clientid VARCHAR(255), cn VARCHAR(255), dn VARCHAR(255),
+                peerhost VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255))
+                """,
+                """
+                INSERT INTO acl(clientid, cn, dn, peerhost, topic, permission, action)
+                 VALUES('clientid', 'cn', 'dn', '127.0.0.1', 'a', 'allow', 'publish')
+                """
             ],
             query =>
-                "SELECT permission, action, topic FROM acl WHERE"
-                " clientid = ${clientid} AND cn = ${cert_common_name}"
-                " AND dn = ${cert_subject} AND peerhost = ${peerhost}",
+                """
+                SELECT permission, action, topic FROM acl WHERE
+                clientid = ${clientid} AND cn = ${cert_common_name}
+                AND dn = ${cert_subject} AND peerhost = ${peerhost}
+                """,
             client_info => #{
                 clientid => <<"clientid">>,
                 cn => <<"cn">>,
@@ -171,22 +212,30 @@ cases() ->
         #{
             name => topics_literal_wildcard_variable,
             setup => [
-                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
-                "permission VARCHAR(255), action VARCHAR(255))",
-                "INSERT INTO acl(username, topic, permission, action) "
-                "VALUES('username', 't/${username}', 'allow', 'publish')",
-
-                "INSERT INTO acl(username, topic, permission, action) "
-                "VALUES('username', 't/${clientid}', 'allow', 'publish')",
-
-                "INSERT INTO acl(username, topic, permission, action) "
-                "VALUES('username', 'eq t/${username}', 'allow', 'publish')",
-
-                "INSERT INTO acl(username, topic, permission, action) "
-                "VALUES('username', 't/#', 'allow', 'publish')",
-
-                "INSERT INTO acl(username, topic, permission, action) "
-                "VALUES('username', 't1/+', 'allow', 'publish')"
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255))
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action)
+                VALUES('username', 't/${username}', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action)
+                VALUES('username', 't/${clientid}', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action)
+                VALUES('username', 'eq t/${username}', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action)
+                VALUES('username', 't/#', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action)
+                VALUES('username', 't1/+', 'allow', 'publish')
+                """
             ],
             query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
             client_info => #{
@@ -206,28 +255,37 @@ cases() ->
         #{
             name => qos_retain_in_query_result,
             setup => [
-                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
-                "permission VARCHAR(255), action VARCHAR(255),"
-                "qos_s VARCHAR(255), retain_s VARCHAR(255))",
-
-                "INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)"
-                " VALUES('username', 't1', 'allow', 'publish', '1', 'true')",
-
-                "INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)"
-                " VALUES('username', 't2', 'allow', 'publish', '2', 'false')",
-
-                "INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)"
-                " VALUES('username', 't3', 'allow', 'publish', '0,1,2', 'all')",
-
-                "INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)"
-                " VALUES('username', 't4', 'allow', 'subscribe', '1', null)",
-
-                "INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)"
-                " VALUES('username', 't5', 'allow', 'subscribe', '0,1,2', null)"
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255),
+                qos_s VARCHAR(255), retain_s VARCHAR(255))
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)
+                 VALUES('username', 't1', 'allow', 'publish', '1', 'true')
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)
+                 VALUES('username', 't2', 'allow', 'publish', '2', 'false')
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)
+                 VALUES('username', 't3', 'allow', 'publish', '0,1,2', 'all')
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)
+                 VALUES('username', 't4', 'allow', 'subscribe', '1', null)
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, qos_s, retain_s)
+                 VALUES('username', 't5', 'allow', 'subscribe', '0,1,2', null)
+                """
             ],
             query =>
-                "SELECT permission, action, topic, qos_s as qos, retain_s as retain"
-                " FROM acl WHERE username = ${username}",
+                """
+                SELECT permission, action, topic, qos_s as qos, retain_s as retain
+                FROM acl WHERE username = ${username}
+                """,
             client_info => #{
                 username => <<"username">>
             },
@@ -256,16 +314,21 @@ cases() ->
         #{
             name => qos_retain_in_query_result_as_integer,
             setup => [
-                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
-                "permission VARCHAR(255), action VARCHAR(255),"
-                "qos_i VARCHAR(255), retain_i VARCHAR(255))",
-
-                "INSERT INTO acl(username, topic, permission, action, qos_i, retain_i)"
-                " VALUES('username', 't1', 'allow', 'publish', 1, 1)"
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255),
+                qos_i VARCHAR(255), retain_i VARCHAR(255))
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, qos_i, retain_i)
+                 VALUES('username', 't1', 'allow', 'publish', 1, 1)
+                """
             ],
             query =>
-                "SELECT permission, action, topic, qos_i as qos, retain_i as retain"
-                " FROM acl WHERE username = ${username}",
+                """
+                SELECT permission, action, topic, qos_i as qos, retain_i as retain
+                FROM acl WHERE username = ${username}
+                """,
             client_info => #{
                 username => <<"username">>
             },
@@ -278,18 +341,24 @@ cases() ->
         #{
             name => retain_in_query_result_as_boolean,
             setup => [
-                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255),"
-                " action VARCHAR(255), retain_b BOOLEAN)",
-
-                "INSERT INTO acl(username, topic, permission, action, retain_b)"
-                " VALUES('username', 't1', 'allow', 'publish', true)",
-
-                "INSERT INTO acl(username, topic, permission, action, retain_b)"
-                " VALUES('username', 't2', 'allow', 'publish', false)"
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255),
+                 action VARCHAR(255), retain_b BOOLEAN)
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, retain_b)
+                 VALUES('username', 't1', 'allow', 'publish', true)
+                """,
+                """
+                INSERT INTO acl(username, topic, permission, action, retain_b)
+                 VALUES('username', 't2', 'allow', 'publish', false)
+                """
             ],
             query =>
-                "SELECT permission, action, topic, retain_b as retain"
-                " FROM acl WHERE username = ${username}",
+                """
+                SELECT permission, action, topic, retain_b as retain
+                FROM acl WHERE username = ${username}
+                """,
             client_info => #{
                 username => <<"username">>
             },
@@ -303,18 +372,24 @@ cases() ->
         #{
             name => nonbin_values_in_client_info,
             setup => [
-                "CREATE TABLE acl(who VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255),"
-                " action VARCHAR(255))",
-
-                "INSERT INTO acl(who, topic, permission, action)"
-                " VALUES('username', 't/${username}', 'allow', 'publish')",
-
-                "INSERT INTO acl(who, topic, permission, action)"
-                " VALUES('clientid', 't/${clientid}', 'allow', 'publish')"
+                """
+                CREATE TABLE acl(who VARCHAR(255), topic VARCHAR(255), permission VARCHAR(255),
+                 action VARCHAR(255))
+                """,
+                """
+                INSERT INTO acl(who, topic, permission, action)
+                VALUES('username', 't/${username}', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(who, topic, permission, action)
+                VALUES('clientid', 't/${clientid}', 'allow', 'publish')
+                """
             ],
             query =>
-                "SELECT permission, action, topic"
-                " FROM acl WHERE who = ${username} OR who = ${clientid}",
+                """
+                SELECT permission, action, topic
+                FROM acl WHERE who = ${username} OR who = ${clientid}
+                """,
             client_info => #{
                 %% string, not a binary
                 username => "username",
@@ -330,14 +405,18 @@ cases() ->
         #{
             name => array_null_qos,
             setup => [
-                "CREATE TABLE acl(qos INTEGER[], "
-                " topic VARCHAR(255), permission VARCHAR(255), action VARCHAR(255))",
-
-                "INSERT INTO acl(qos, topic, permission, action)"
-                " VALUES('{1,2}', 'tp', 'allow', 'publish')",
-
-                "INSERT INTO acl(qos, topic, permission, action)"
-                " VALUES(NULL, 'ts', 'allow', 'subscribe')"
+                """
+                CREATE TABLE acl(qos INTEGER[],
+                 topic VARCHAR(255), permission VARCHAR(255), action VARCHAR(255))
+                """,
+                """
+                INSERT INTO acl(qos, topic, permission, action)
+                VALUES('{1,2}', 'tp', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(qos, topic, permission, action)
+                VALUES(NULL, 'ts', 'allow', 'subscribe')
+                """
             ],
             query =>
                 "SELECT permission, action, topic, qos FROM acl",
@@ -353,8 +432,10 @@ cases() ->
         #{
             name => strip_double_quote,
             setup => [
-                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
-                "permission VARCHAR(255), action VARCHAR(255))",
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255))
+                """,
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'allow', 'publish')"
             ],
             query => "SELECT permission, action, topic FROM acl WHERE username = \"${username}\"",
@@ -382,8 +463,10 @@ cases() ->
         #{
             name => invalid_rule,
             setup => [
-                "CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255), "
-                "permission VARCHAR(255), action VARCHAR(255))",
+                """
+                CREATE TABLE acl(username VARCHAR(255), topic VARCHAR(255),
+                permission VARCHAR(255), action VARCHAR(255))
+                """,
                 %% 'permit' is invalid value for action
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'permit', 'publish')"
             ],

@@ -31,7 +31,7 @@ create(Config0) ->
         {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
         ok ?=
             emqx_authn_utils:create_resource(
-                emqx_mysql,
+                emqx_auth_mysql_connector,
                 ResourceConfig,
                 State,
                 ?AUTHN_MECHANISM_BIN,
@@ -45,7 +45,7 @@ update(Config0, #{resource_id := ResourceId} = _State) ->
         {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
         ok ?=
             emqx_authn_utils:update_resource(
-                emqx_mysql,
+                emqx_auth_mysql_connector,
                 ResourceConfig,
                 State,
                 ?AUTHN_MECHANISM_BIN,
@@ -65,17 +65,17 @@ authenticate(#{password := undefined}, _) ->
 authenticate(
     #{password := Password} = Credential,
     #{
-        tmpl_token := TmplToken,
+        args_template := ArgsTemplate,
         query_timeout := Timeout,
         resource_id := ResourceId,
         password_hash_algorithm := Algorithm,
         cache_key_template := CacheKeyTemplate
     }
 ) ->
-    Params = emqx_auth_template:render_sql_params(TmplToken, Credential),
+    RenderedArgs = emqx_auth_template:render_sql_params(ArgsTemplate, Credential),
     CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
     Result = emqx_authn_utils:cached_simple_sync_query(
-        CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, Params, Timeout}
+        CacheKey, ResourceId, {execute, ?PREPARE_KEY, RenderedArgs, #{timeout => Timeout}}
     ),
     case Result of
         {ok, _Columns, []} ->
@@ -95,8 +95,8 @@ authenticate(
         {error, Reason} ->
             ?TRACE_AUTHN_PROVIDER(error, "mysql_query_failed", #{
                 resource => ResourceId,
-                tmpl_token => TmplToken,
-                params => Params,
+                args_template => ArgsTemplate,
+                params => RenderedArgs,
                 timeout => Timeout,
                 reason => Reason
             }),
@@ -112,11 +112,11 @@ create_state(
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
-    {Vars, PrepareSql, TmplToken} = emqx_authn_utils:parse_sql(Query0, '?'),
+    {Vars, SQL, ArgsTemplate} = emqx_authn_utils:parse_sql(Query0, '?'),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     State = emqx_authn_utils:init_state(Config, #{
         password_hash_algorithm => Algorithm,
-        tmpl_token => TmplToken,
+        args_template => ArgsTemplate,
         query_timeout => QueryTimeout,
         cache_key_template => CacheKeyTemplate,
         resource_id => ResourceId
@@ -124,7 +124,7 @@ create_state(
     ResourceConfig = emqx_authn_utils:cleanup_resource_config(
         [query, query_timeout, password_hash_algorithm], Config
     ),
-    {ok, ResourceConfig#{prepare_statement => #{?PREPARE_KEY => PrepareSql}}, State}.
+    {ok, ResourceConfig#{prepare_statements => #{?PREPARE_KEY => SQL}}, State}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

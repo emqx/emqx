@@ -47,7 +47,7 @@ init_per_suite(Config) ->
             {ok, _} = emqx_resource:create_local(
                 ?MYSQL_RESOURCE,
                 ?AUTHN_RESOURCE_GROUP,
-                emqx_mysql,
+                emqx_auth_mysql_connector,
                 mysql_config(),
                 #{}
             ),
@@ -316,10 +316,10 @@ raw_mysql_auth_config() ->
         <<"password">> => <<"public">>,
 
         <<"query">> =>
-            <<
-                "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
-                "                      FROM users where username = ${username} LIMIT 1"
-            >>,
+            """
+            SELECT password_hash, salt, is_superuser_str as is_superuser
+            FROM users where username = ${username} LIMIT 1
+            """,
         <<"server">> => mysql_server()
     }.
 
@@ -373,10 +373,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${clientid} LIMIT 1"
-                    >>,
+                    """
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${clientid} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -399,10 +399,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = \"${username}\" LIMIT 1"
-                    >>,
+                    """
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = "${username}" LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -428,11 +428,11 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "   FROM users where cert_subject = ${cert_subject} AND \n"
-                        "                    cert_common_name = ${cert_common_name} LIMIT 1"
-                    >>,
+                    """
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where cert_subject = ${cert_subject} AND
+                    cert_common_name = ${cert_common_name} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -454,10 +454,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${username} LIMIT 1"
-                    >>,
+                    """
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${username} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {ok, #{is_superuser => false}}
@@ -475,10 +475,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${username} LIMIT 1"
-                    >>,
+                    """
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${username} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {ok, #{is_superuser => false}}
@@ -498,10 +498,10 @@ user_seeds() ->
             config_params => #{
                 % clientid variable & username credentials
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${clientid} LIMIT 1"
-                    >>,
+                    """
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${clientid} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
@@ -521,10 +521,10 @@ user_seeds() ->
             config_params => #{
                 % Bad keys in query
                 <<"query">> =>
-                    <<
-                        "SELECT 1 AS unknown_field\n"
-                        "                            FROM users where username = ${username} LIMIT 1"
-                    >>,
+                    """
+                    SELECT 1 AS unknown_field
+                    FROM users where username = ${username} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
@@ -552,14 +552,16 @@ user_seeds() ->
 init_seeds() ->
     ok = drop_seeds(),
     ok = q(
-        "CREATE TABLE users(\n"
-        "                       username VARCHAR(255),\n"
-        "                       password_hash VARCHAR(255),\n"
-        "                       salt VARCHAR(255),\n"
-        "                       cert_subject VARCHAR(255),\n"
-        "                       cert_common_name VARCHAR(255),\n"
-        "                       is_superuser_str VARCHAR(255),\n"
-        "                       is_superuser_int TINYINT)"
+        """
+        CREATE TABLE users(
+        username VARCHAR(255),
+        password_hash VARCHAR(255),
+        salt VARCHAR(255),
+        cert_subject VARCHAR(255),
+        cert_common_name VARCHAR(255),
+        is_superuser_str VARCHAR(255),
+        is_superuser_int TINYINT)
+        """
     ),
 
     lists:foreach(
@@ -580,21 +582,23 @@ create_user(Values) ->
         is_superuser_int
     ],
     InsertQuery =
-        "INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name,"
-        " is_superuser_str, is_superuser_int) VALUES(?, ?, ?, ?, ?, ?, ?)",
+        """
+        INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name,
+        is_superuser_str, is_superuser_int) VALUES(?, ?, ?, ?, ?, ?, ?)
+        """,
     Params = [maps:get(F, Values, null) || F <- Fields],
     ok = q(InsertQuery, Params).
 
 q(Sql) ->
     emqx_resource:simple_sync_query(
         ?MYSQL_RESOURCE,
-        {sql, Sql}
+        {query, Sql}
     ).
 
 q(Sql, Params) ->
     emqx_resource:simple_sync_query(
         ?MYSQL_RESOURCE,
-        {sql, Sql, Params}
+        {query, Sql, Params}
     ).
 
 drop_seeds() ->
