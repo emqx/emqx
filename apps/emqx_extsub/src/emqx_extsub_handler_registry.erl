@@ -187,9 +187,9 @@ subscribe(
     TopicFilter,
     SubOpts
 ) ->
-    ReinstallWhenRepeated = maps:get(reinstall_when_repeated, Options, false),
+    IgnoreResubscribe = maps:get(ignore_resubscribe, Options, true),
     case ByTopicCBM of
-        #{{Module, TopicFilter} := _HandlerRef} when not ReinstallWhenRepeated ->
+        #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
             %% Should be parameterizable?
@@ -261,9 +261,9 @@ subscribe(
     TopicFilter,
     SubOpts
 ) ->
-    ReinstallWhenRepeated = maps:get(reinstall_when_repeated, Options, false),
+    IgnoreResubscribe = maps:get(ignore_resubscribe, Options, true),
     case ByTopicCBM of
-        #{{Module, TopicFilter} := _HandlerRef} when not ReinstallWhenRepeated ->
+        #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
         #{{Module, TopicFilter} := HandlerRef} ->
             %% Should be parameterizable?

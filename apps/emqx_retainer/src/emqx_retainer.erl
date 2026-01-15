@@ -523,7 +523,7 @@ load_hooks() ->
     ok = emqx_extsub_handler_registry:register(emqx_retainer_extsub_handler, #{
         handle_generic_messages => false,
         multi_topic => false,
-        reinstall_when_repeated => true
+        ignore_resubscribe => false
     }),
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),

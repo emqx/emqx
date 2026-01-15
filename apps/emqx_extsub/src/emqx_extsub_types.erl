@@ -20,7 +20,8 @@ The module contains basic types for the External Subscription application.
     buffer_size => pos_integer(),
     handle_generic_messages => boolean(),
     multi_topic => boolean(),
-    reinstall_when_repeated => boolean(),
+    %% Default: true
+    ignore_resubscribe => boolean(),
     _ => _
 }.
 
