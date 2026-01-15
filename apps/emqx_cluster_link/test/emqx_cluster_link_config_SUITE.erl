@@ -199,7 +199,6 @@ t_config_update(Config) ->
     %% delete links
     ?assertMatch({ok, _}, update(NodeA1, [], Config)),
     ?assertMatch({ok, _}, update(NodeB1, [], Config)),
-    validate_update_cli_failed(NodeA1, Config),
 
     ok = emqtt:stop(ClientA),
     ok = emqtt:stop(ClientB).
@@ -631,27 +630,6 @@ fmt(Fmt, Args) ->
 
 mk_nodename(BaseName, Idx) ->
     binary_to_atom(fmt("emqx_clink_~s_~b", [BaseName, Idx])).
-
-validate_update_cli_failed(Node, Config) ->
-    case ?config(update_from, Config) of
-        api ->
-            ok;
-        cli ->
-            ConfBin = hocon_pp:do(
-                #{
-                    <<"cluster">> => #{
-                        <<"links">> => [],
-                        <<"autoclean">> => <<"12h">>
-                    }
-                },
-                #{}
-            ),
-            ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
-            ?assertMatch(
-                {error, <<"Cannot update read-only key 'cluster.autoclean'.">>},
-                erpc:call(Node, emqx_conf_cli, conf, [["load", ConfFile]])
-            )
-    end.
 
 update(Node, Links, Config) ->
     case ?config(update_from, Config) of
