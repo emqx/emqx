@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_doris_SUITE).
 
@@ -197,7 +197,7 @@ create_table_ddl() ->
         "create table if not exists t_mqtt_msg "
         "(msgid varchar, topic string, qos tinyint, "
         "payload string, arrived datetime) "
-        "properties (replication_num = 1)"
+        "properties (\"replication_num\" = \"1\")"
     >>.
 
 action_sql() ->

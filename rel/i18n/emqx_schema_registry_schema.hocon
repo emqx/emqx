@@ -144,4 +144,17 @@ confluent_schema_registry_auth_basic_password.label:
 confluent_schema_registry_auth_basic_password.desc:
 """Password for basic authentication method."""
 
+  sparkplugb {
+    label: "Sparkplug B"
+    desc: """Configurations related to Sparkplug B encoding/decoding."""
+  }
+
+  sparkplugb_enable_alias_mapping {
+    label: "Enable alias mapping"
+    desc: """~
+      Whether to analyze `NBIRTH` and `DBIRTH` messages to track alias-name mappings.
+
+      Note: any `NBIRTH` and `DBIRTH` messages received while alias-name mapping is disabled will not take effect after this config is later enabled.~"""
+  }
+
 }

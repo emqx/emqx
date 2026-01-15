@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc This file lists snabbkaffe trace point kinds
@@ -25,24 +25,16 @@
 
 -define(sessds_update_srs_ssid, sessds_update_srs_ssid).
 -define(sessds_do_enqueue, sessds_do_enqueue).
--define(sessds_poll_reply, sessds_poll_reply).
+-define(sessds_dssub_reply, sessds_dssub_reply).
 
--define(sessds_stream_state_trans, sessds_stream_state_trans).
+-define(sessds_new_stream, sessds_new_stream).
+-define(sessds_del_stream, sessds_del_stream).
 -define(sessds_unblock_stream, sessds_unblock_stream).
 -define(sessds_unexpected_stream_notification, sessds_unexpected_stream_notification).
--define(sessds_sched_new_stream_event, sessds_sched_new_stream_event).
--define(sessds_retry_renew_streams, sessds_retry_renew_streams).
--define(sessds_sched_watch_streams, sessds_sched_watch_streams).
--define(sessds_sched_unwatch_streams, sessds_sched_unwatch_streams).
--define(sessds_sched_renew_streams, sessds_sched_renew_streams).
--define(sessds_sched_renew_streams_result, sessds_sched_renew_streams_result).
 -define(sessds_advance_generation, sessds_advance_generation).
 
 -define(sessds_put_seqno, sessds_put_seqno).
 
--define(sessds_sched_subscribe, sessds_sched_subscribe).
--define(sessds_sched_subscribe_fail, sessds_sched_subscribe_fail).
--define(sessds_sched_unsubscribe, sessds_sched_unsubscribe).
 -define(sessds_unexpected_ds_batch, sessds_unexpected_ds_batch).
 -define(sessds_sub_down, sessds_sub_down).
 

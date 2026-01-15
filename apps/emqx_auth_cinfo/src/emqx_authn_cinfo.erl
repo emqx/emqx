@@ -1,13 +1,10 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_cinfo).
 
--include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/logger.hrl").
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("jose/include/jose_jwk.hrl").
 
 -export([
     create/2,

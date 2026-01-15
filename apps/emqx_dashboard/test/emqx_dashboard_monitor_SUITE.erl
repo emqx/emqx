@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_dashboard_monitor_SUITE).
@@ -76,12 +76,14 @@ init_per_group(persistent_sessions, Config) ->
         {dashboard_monitor1, #{apps => cluster_node_appspec(true, Port)}},
         {dashboard_monitor2, #{apps => cluster_node_appspec(false, Port)}}
     ],
-    DurableSessionsOpts = #{
-        <<"enable">> => true,
-        <<"subscription_count_refresh_interval">> => <<"500ms">>,
-        <<"checkpoint_interval">> => <<"1s">>
+    EMQXConf = #{
+        <<"durable_sessions">> =>
+            #{
+                <<"subscription_count_refresh_interval">> => <<"500ms">>,
+                <<"checkpoint_interval">> => <<"1s">>
+            }
     },
-    Opts = #{durable_sessions_opts => DurableSessionsOpts},
+    Opts = #{emqx_conf => EMQXConf},
     emqx_common_test_helpers:start_cluster_ds(Config, ClusterSpecs, Opts);
 init_per_group(common = Group, Config0) ->
     DurableSessionsOpts = #{<<"enable">> => false},
@@ -104,12 +106,8 @@ init_per_group(common = Group, Config0) ->
     {ok, _} = emqx_common_test_http:create_default_app(),
     Config.
 
-end_per_group(persistent_sessions, Config) ->
-    emqx_common_test_helpers:stop_cluster_ds(Config),
-    ok;
-end_per_group(common, Config) ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
-    ok.
+end_per_group(_, Config) ->
+    emqx_common_test_helpers:run_cleanups(Config).
 
 init_per_testcase(TestCase, Config) ->
     try

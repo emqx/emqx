@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc An alternative storage layer interface that works with
@@ -312,30 +312,31 @@ dispatch_events(_, [], _) ->
 -spec get_streams(
     emqx_ds_storage_layer:dbshard(), emqx_ds:topic_filter(), emqx_ds:time(), emqx_ds:generation()
 ) ->
-    [stream()].
+    {ok, [stream()]} | emqx_ds:error(_).
 get_streams(DBShard = {_DB, Shard}, TopicFilter, StartTime, MinGeneration) ->
-    Gens = emqx_ds_storage_layer:generations_since(DBShard, StartTime),
-    ?tp(get_streams_all_gens, #{gens => Gens}),
-    lists:flatmap(
-        fun
-            (GenId) when GenId >= MinGeneration ->
-                ?tp(get_streams_get_gen, #{gen_id => GenId}),
-                case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
-                    #{module := Mod, data := GenData} ->
-                        Streams = Mod:get_streams(DBShard, GenData, TopicFilter, StartTime),
-                        [
-                            #'Stream'{shard = Shard, generation = GenId, inner = InnerStream}
-                         || InnerStream <- Streams
-                        ];
-                    not_found ->
-                        %% race condition: generation was dropped before getting its streams?
-                        []
-                end;
-            (_) ->
-                []
-        end,
-        Gens
-    ).
+    maybe
+        {ok, Gens} ?= emqx_ds_storage_layer:generations_since(DBShard, StartTime),
+        Result = lists:flatmap(
+            fun
+                (GenId) when GenId >= MinGeneration ->
+                    case emqx_ds_storage_layer:generation_get(DBShard, GenId) of
+                        #{module := Mod, data := GenData} ->
+                            Streams = Mod:get_streams(DBShard, GenData, TopicFilter, StartTime),
+                            [
+                                #'Stream'{shard = Shard, generation = GenId, inner = InnerStream}
+                             || InnerStream <- Streams
+                            ];
+                        not_found ->
+                            %% race condition: generation was dropped before getting its streams?
+                            []
+                    end;
+                (_) ->
+                    []
+            end,
+            Gens
+        ),
+        {ok, Result}
+    end.
 
 -spec make_iterator(emqx_ds:db(), stream(), emqx_ds:topic_filter(), emqx_ds:time()) ->
     emqx_ds:make_iterator_result(iterator()).

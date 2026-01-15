@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_serde).
 
@@ -400,6 +400,7 @@ map_sparkplug_to_encode(Term) ->
     Term.
 
 map_decoded_sparkplug(#{} = Result) ->
+    Mapping = emqx_schema_registry_spb_state:get_current_alias_mapping(),
     emqx_utils_maps:update_if_present(
         <<"metrics">>,
         fun(Ms) ->
@@ -407,15 +408,25 @@ map_decoded_sparkplug(#{} = Result) ->
                 fun
                     (#{<<"bytes_value">> := RawBytes} = M) ->
                         Bytes64 = base64:encode(RawBytes),
-                        M#{<<"bytes_value">> := Bytes64};
+                        add_aliased_name(M#{<<"bytes_value">> := Bytes64}, Mapping);
                     (M) ->
-                        M
+                        add_aliased_name(M, Mapping)
                 end,
                 Ms
             )
         end,
         Result
     ).
+
+add_aliased_name(#{<<"alias">> := Alias} = Metric, Mapping) ->
+    case maps:find(Alias, Mapping) of
+        {ok, Name} ->
+            Metric#{<<"name">> => Name};
+        error ->
+            Metric
+    end;
+add_aliased_name(Metric, _Mapping) ->
+    Metric.
 
 -spec make_protobuf_serde_mod(schema_name(), schema_source()) -> {protobuf_cache_key(), module()}.
 make_protobuf_serde_mod(Name, Source) ->

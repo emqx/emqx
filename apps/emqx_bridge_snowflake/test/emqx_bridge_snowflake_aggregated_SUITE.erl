@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_snowflake_aggregated_SUITE).
 
@@ -716,7 +716,11 @@ t_aggreg_upload(Config) when is_list(Config) ->
                         publish_messages(Messages2),
                         ?tpal("published second batch")
                     end,
-                    #{?snk_kind := connector_aggreg_delivery_completed, action := AggregId}
+                    #{
+                        ?snk_kind := connector_aggreg_delivery_completed,
+                        action := AggregId,
+                        transfer := T
+                    } when T /= empty
                 ),
             ?tpal("second batch delivered"),
             %% Check the uploaded objects.
@@ -778,6 +782,12 @@ t_aggreg_upload(Config) when is_list(Config) ->
                 ],
                 Rows
             ),
+            ?retry(
+                100,
+                5,
+                ?assertEqual(2, emqx_resource_metrics:aggregated_upload_success_get(ActionResId))
+            ),
+            ?assertEqual(0, emqx_resource_metrics:aggregated_upload_failure_get(ActionResId)),
             ok
         end,
         fun(Trace) ->
@@ -1312,8 +1322,8 @@ t_aggreg_failed_delivery(Config) ->
             ),
 
             ?assertEqual(3, emqx_resource_metrics:matched_get(ActionResId)),
-            %% Currently, failure metrics are not bumped when aggregated uploads fail
             ?assertEqual(0, emqx_resource_metrics:failed_get(ActionResId)),
+            ?assertEqual(1, emqx_resource_metrics:aggregated_upload_failure_get(ActionResId)),
 
             ok
         end,

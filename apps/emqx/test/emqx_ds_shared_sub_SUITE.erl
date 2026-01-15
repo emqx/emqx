@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds_shared_sub_SUITE).
@@ -37,35 +37,10 @@ groups_per_testcase(TC, Groups) ->
         error:_ -> Groups
     end.
 
-init_per_suite(Config) ->
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx, """
-            rpc.port_discovery = manual
-            durable_sessions {
-              enable = true
-              shared_subs = {
-                heartbeat_interval = 100
-                realloc_interval = 100
-                leader_timeout = 100
-                checkpoint_interval = 10
-              }
-            }
-            """}
-        ],
-        #{work_dir => ?config(priv_dir, Config)}
-    ),
-    ok = emqx_persistent_message:wait_readiness(5_000),
-    [{apps, Apps} | Config].
-
 init_per_group(GroupName, Config) ->
     [{queue_need_declare, GroupName =:= declare_explicit} | Config].
 
 end_per_group(_GroupName, _Config) ->
-    ok.
-
-end_per_suite(Config) ->
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
     ok.
 
 init_per_testcase(TC, Config) ->
@@ -74,9 +49,9 @@ init_per_testcase(TC, Config) ->
 
 end_per_testcase(TC, Config) ->
     ok = snabbkaffe:stop(),
-    ok = emqx_ds_shared_sub_registry:purge(),
-    emqx_common_test_helpers:drop_all_ds_messages(),
-    emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config).
+    emqx_common_test_helpers:run_cleanups(
+        emqx_common_test_helpers:end_per_testcase(?MODULE, TC, Config)
+    ).
 
 declare_group_if_needed(Group, Topic, Config) ->
     case proplists:get_value(queue_need_declare, Config) of
@@ -102,7 +77,7 @@ destroy_group(Config) ->
     end.
 
 t_lease_initial('init', Config) ->
-    declare_group_if_needed(<<"gr1">>, <<"topic1/#">>, Config);
+    declare_group_if_needed(<<"gr1">>, <<"topic1/#">>, start_local(Config));
 t_lease_initial('end', Config) ->
     destroy_group(Config).
 t_lease_initial(_Config) ->
@@ -124,7 +99,7 @@ t_lease_initial(_Config) ->
 t_declare_triggers_persistence(groups, _Groups) ->
     [declare_explicit];
 t_declare_triggers_persistence('init', Config) ->
-    declare_group(<<"dtp">>, <<"topic1/#">>, Config);
+    declare_group(<<"dtp">>, <<"topic1/#">>, start_local(Config));
 t_declare_triggers_persistence('end', Config) ->
     destroy_group(Config).
 
@@ -152,7 +127,7 @@ t_declare_triggers_persistence(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_destroy_queue_live_clients('init', Config) ->
-    declare_group_if_needed(<<"dqlc">>, <<"t/#">>, Config);
+    declare_group_if_needed(<<"dqlc">>, <<"t/#">>, start_local(Config));
 t_destroy_queue_live_clients('end', Config) ->
     destroy_group(Config).
 
@@ -186,7 +161,7 @@ t_destroy_queue_live_clients(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_two_clients('init', Config) ->
-    declare_group_if_needed(<<"gr4">>, <<"topic4/#">>, Config);
+    declare_group_if_needed(<<"gr4">>, <<"topic4/#">>, start_local(Config));
 t_two_clients('end', Config) ->
     destroy_group(Config).
 
@@ -215,7 +190,7 @@ t_two_clients(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_client_loss('init', Config) ->
-    declare_group_if_needed(<<"gr5">>, <<"topic5/#">>, Config);
+    declare_group_if_needed(<<"gr5">>, <<"topic5/#">>, start_local(Config));
 t_client_loss('end', Config) ->
     destroy_group(Config).
 
@@ -251,7 +226,7 @@ t_client_loss(_Config) ->
     ).
 
 t_stream_revoke('init', Config) ->
-    declare_group_if_needed(<<"gr6">>, <<"topic6/#">>, Config);
+    declare_group_if_needed(<<"gr6">>, <<"topic6/#">>, start_local(Config));
 t_stream_revoke('end', Config) ->
     destroy_group(Config).
 
@@ -319,7 +294,7 @@ t_stream_revoke(_Config) ->
     ).
 
 t_graceful_disconnect('init', Config) ->
-    declare_group_if_needed(<<"gr4">>, <<"topic7/#">>, Config);
+    declare_group_if_needed(<<"gr4">>, <<"topic7/#">>, start_local(Config));
 t_graceful_disconnect('end', Config) ->
     destroy_group(Config).
 
@@ -364,7 +339,7 @@ t_graceful_disconnect(_Config) ->
     ).
 
 t_intensive_reassign('init', Config) ->
-    declare_group_if_needed(<<"gr8">>, <<"topic8/#">>, Config);
+    declare_group_if_needed(<<"gr8">>, <<"topic8/#">>, start_local(Config));
 t_intensive_reassign('end', Config) ->
     destroy_group(Config).
 
@@ -431,7 +406,8 @@ t_intensive_reassign(_Config) ->
 
 t_multiple_groups(groups, _Groups) ->
     [declare_explicit];
-t_multiple_groups('init', Config) ->
+t_multiple_groups('init', Config0) ->
+    Config = start_local(Config0),
     NQueues = 50,
     Group = <<"multi">>,
     Topics = [emqx_utils:format("t/mg/~p", [I]) || I <- lists:seq(1, NQueues)],
@@ -505,7 +481,7 @@ wildcard(Topic) ->
     emqx_topic:join([Topic, '#']).
 
 t_unsubscribe('init', Config) ->
-    declare_group_if_needed(<<"gr9">>, <<"topic9/#">>, Config);
+    declare_group_if_needed(<<"gr9">>, <<"topic9/#">>, start_local(Config));
 t_unsubscribe('end', Config) ->
     destroy_group(Config).
 
@@ -563,7 +539,7 @@ t_unsubscribe(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_quick_resubscribe('init', Config) ->
-    declare_group_if_needed(<<"gr10">>, <<"topic10/#">>, Config);
+    declare_group_if_needed(<<"gr10">>, <<"topic10/#">>, start_local(Config));
 t_quick_resubscribe('end', Config) ->
     destroy_group(Config).
 
@@ -628,7 +604,7 @@ t_quick_resubscribe(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_disconnect_no_double_replay1('init', Config) ->
-    declare_group_if_needed(<<"gr11">>, <<"topic11/#">>, Config);
+    declare_group_if_needed(<<"gr11">>, <<"topic11/#">>, start_local(Config));
 t_disconnect_no_double_replay1('end', Config) ->
     destroy_group(Config).
 
@@ -681,7 +657,7 @@ t_disconnect_no_double_replay1(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_disconnect_no_double_replay2('init', Config) ->
-    declare_group_if_needed(<<"gr12">>, <<"topic12/#">>, Config);
+    declare_group_if_needed(<<"gr12">>, <<"topic12/#">>, start_local(Config));
 t_disconnect_no_double_replay2('end', Config) ->
     destroy_group(Config).
 
@@ -718,7 +694,7 @@ t_disconnect_no_double_replay2(_Config) ->
     ok = emqtt:disconnect(ConnPub).
 
 t_lease_reconnect('init', Config) ->
-    declare_group_if_needed(<<"gr2">>, <<"topic2/#">>, Config);
+    declare_group_if_needed(<<"gr2">>, <<"topic2/#">>, start_local(Config));
 t_lease_reconnect('end', Config) ->
     meck:unload(),
     destroy_group(Config).
@@ -762,7 +738,7 @@ t_lease_reconnect(_Config) ->
     ).
 
 t_renew_lease_timeout('init', Config) ->
-    declare_group_if_needed(<<"gr3">>, <<"topic3/#">>, Config);
+    declare_group_if_needed(<<"gr3">>, <<"topic3/#">>, start_local(Config));
 t_renew_lease_timeout('end', Config) ->
     destroy_group(Config).
 
@@ -794,6 +770,148 @@ t_renew_lease_timeout(_Config) ->
         []
     ).
 
+t_leader_election(groups, _Groups) ->
+    [declare_implicit];
+t_leader_election('init', Config) ->
+    start_cluster(Config);
+t_leader_election('end', Config) ->
+    Config.
+
+t_leader_election(Config) ->
+    [N1, N2, N3] = Nodes = proplists:get_value(cluster_nodes, Config),
+    ?check_trace(
+        #{timetrap => 60_000},
+        begin
+            ?tp(notice, test_start_clients, #{}),
+            C1 = emqtt_connect_sub(<<"client_shared1">>, [{port, get_mqtt_port(N1)}]),
+            C2 = emqtt_connect_sub(<<"client_shared2">>, [{port, get_mqtt_port(N2)}]),
+            C3 = emqtt_connect_sub(<<"client_shared3">>, [{port, get_mqtt_port(N3)}]),
+            %% 1. Subscribe clients sequentially. The first node
+            %% becomes the leader:
+            ?tp(notice, test_sub_1, #{}),
+            ?assertMatch(
+                {_, {ok, #{?snk_meta := #{node := N1}}}},
+                ?wait_async_action(
+                    emqtt:subscribe(C1, <<"$share/g1/t1">>, qos1),
+                    #{
+                        ?snk_kind := ds_shared_sub_become_leader,
+                        group := <<"g1">>,
+                        topic := <<"t1">>
+                    }
+                )
+            ),
+            ?assertMatch(
+                {_, {ok, #{?snk_meta := #{node := N2}}}},
+                ?wait_async_action(
+                    emqtt:subscribe(C2, <<"$share/g1/t1">>, qos1),
+                    #{
+                        ?snk_kind := ds_shared_sub_become_standby,
+                        group := <<"g1">>,
+                        topic := <<"t1">>
+                    }
+                )
+            ),
+            ?assertMatch(
+                {_, {ok, #{?snk_meta := #{node := N3}}}},
+                ?wait_async_action(
+                    emqtt:subscribe(C3, <<"$share/g1/t1">>, qos1),
+                    #{
+                        ?snk_kind := ds_shared_sub_become_standby,
+                        group := <<"g1">>,
+                        topic := <<"t1">>
+                    }
+                )
+            ),
+            %% 2. Subscribe simultaneously, creating a contention:
+            ?tp(notice, test_sub_2, #{}),
+            ?force_ordering(
+                #{?snk_kind := test_trigger_sub2},
+                #{?snk_kind := ds_shared_sub_become_candidate}
+            ),
+            %% Create candidates on all nodes except N1, which will be
+            %% killed later. We ignore it here to simplify trace specs:
+            _ = emqtt:subscribe(C2, <<"$share/g2/t2">>, qos1),
+            _ = emqtt:subscribe(C3, <<"$share/g2/t2">>, qos1),
+            %% Let candidates compete for the leadership:
+            ?tp(notice, test_trigger_sub2, #{}),
+            ?block_until(
+                #{
+                    ?snk_kind := ds_shared_sub_become_leader,
+                    group := <<"g2">>,
+                    topic := <<"t2">>
+                }
+            ),
+            %% 3. Trigger re-election for "$share/g1/t1" by stopping
+            %% N1 (where we know the leader is located):
+            ?tp(notice, test_trigger_reelection, #{}),
+            unlink(C1),
+            ?wait_async_action(
+                emqx_cth_peer:stop(N1),
+                #{
+                    ?snk_kind := ds_shared_sub_become_leader,
+                    group := <<"g1">>,
+                    topic := <<"t1">>
+                }
+            ),
+            %% Sleep some more to catch unexpected events in the trace:
+            ct:sleep(5000),
+            Nodes
+        end,
+        [
+            {"leader election for g1 happens only when we expect", fun(Trace) ->
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := K} when K =:= test_sub_1; K =:= test_trigger_reelection,
+                        #{?snk_kind := ds_shared_sub_become_leader, group := <<"g1">>},
+                        Trace
+                    )
+                )
+            end},
+            {"leader election for g2 happens only when we expect", fun(Trace) ->
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := test_trigger_sub2},
+                        #{?snk_kind := ds_shared_sub_become_leader, group := <<"g2">>},
+                        Trace
+                    )
+                )
+            end},
+            {"g2 leader election happens on all nodes", fun([_, N2, N3], Trace) ->
+                ?assertEqual(
+                    [N2, N3],
+                    lists:usort([
+                        Node
+                     || #{
+                            ?snk_kind := ds_shared_sub_become_candidate,
+                            group := <<"g2">>,
+                            ?snk_meta := #{node := Node}
+                        } <- Trace
+                    ])
+                )
+            end},
+            {"state transitions during g2 election", fun(Trace) ->
+                %% Note: here we ignore N1, since we kill it during the test
+                ?assert(
+                    ?strict_causality(
+                        #{
+                            ?snk_kind := ds_shared_sub_become_candidate,
+                            group := <<"g2">>,
+                            ?snk_meta := #{node := N}
+                        },
+                        #{
+                            ?snk_kind := K,
+                            group := <<"g2">>,
+                            ?snk_meta := #{node := N}
+                        } when
+                            K =:= ds_shared_sub_become_leader orelse
+                                K =:= ds_shared_sub_become_standby,
+                        Trace
+                    )
+                )
+            end}
+        ]
+    ).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -802,6 +920,7 @@ emqtt_connect_sub(ClientId) ->
     emqtt_connect_sub(ClientId, []).
 
 emqtt_connect_sub(ClientId, Options) ->
+    ?tp(test_connect_client, #{clientid => ClientId}),
     {ok, C} = emqtt:start_link(
         [
             {clientid, ClientId},
@@ -821,6 +940,10 @@ emqtt_connect_pub(ClientId) ->
     ]),
     {ok, _} = emqtt:connect(C),
     C.
+
+get_mqtt_port(Node) ->
+    {_IP, Port} = erpc:call(Node, emqx_config, get, [[listeners, tcp, default, bind]]),
+    Port.
 
 publish_n(_Conn, _Topics, From, To) when From > To ->
     ok;
@@ -872,3 +995,58 @@ verify_received_pubs(Pubs, NPubs, ClientByBid) ->
     ),
 
     {Missing, Duplicate}.
+
+start_local(Config) ->
+    SessionOpts = #{
+        <<"shared_subs">> =>
+            #{
+                <<"heartbeat_interval">> => 100,
+                <<"realloc_interval">> => 100,
+                <<"leader_timeout">> => 100,
+                <<"checkpoint_interval">> => 10,
+                <<"revocation_timeout">> => 1000
+            }
+    },
+    clean_local(
+        emqx_common_test_helpers:start_apps_ds(Config, [], #{durable_sessions_opts => SessionOpts})
+    ).
+
+clean_local(Config) ->
+    [
+        {cleanup, fun() ->
+            ok = emqx_ds_shared_sub_registry:purge(),
+            emqx_common_test_helpers:drop_all_ds_messages()
+        end}
+        | Config
+    ].
+
+start_cluster(Config) ->
+    Conf = #{
+        <<"durable_sessions">> => #{
+            <<"shared_subs">> =>
+                #{
+                    <<"heartbeat_interval">> => 100,
+                    <<"realloc_interval">> => 100,
+                    <<"leader_timeout">> => 100,
+                    <<"checkpoint_interval">> => 10,
+                    <<"revocation_timeout">> => 1000,
+                    <<"commit_retries">> => 10,
+                    <<"commit_retry_interval">> => 100,
+                    <<"commit_timeout">> => 1000
+                }
+        },
+        <<"log">> => #{
+            <<"file">> => #{
+                <<"default">> => #{
+                    <<"enable">> => true,
+                    <<"level">> => info
+                }
+            }
+        }
+    },
+    NodeSpec = #{role => core, apps => []},
+    NodeSpecs = [{n1, NodeSpec}, {n2, NodeSpec}, {n3, NodeSpec}],
+    emqx_common_test_helpers:start_cluster_ds(Config, NodeSpecs, #{
+        emqx_conf => Conf,
+        keep_work_dir => false
+    }).

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_rule_funcs).
@@ -227,7 +227,11 @@
 %% Data encode and decode
 -export([
     base64_encode/1,
+    base64_encode/2,
+    base64_encode/3,
     base64_decode/1,
+    base64_decode/2,
+    base64_decode/3,
     json_decode/1,
     json_encode/1,
     term_decode/1,
@@ -1129,10 +1133,22 @@ zip_uncompress(S) when is_binary(S) ->
 %%------------------------------------------------------------------------------
 
 base64_encode(Data) when is_binary(Data) ->
-    base64:encode(Data).
+    emqx_variform_bif:base64_encode(Data).
+
+base64_encode(Data, Opt) when is_binary(Data) ->
+    emqx_variform_bif:base64_encode(Data, Opt).
+
+base64_encode(Data, Opt1, Opt2) when is_binary(Data) ->
+    emqx_variform_bif:base64_encode(Data, Opt1, Opt2).
 
 base64_decode(Data) when is_binary(Data) ->
-    base64:decode(Data).
+    emqx_variform_bif:base64_decode(Data).
+
+base64_decode(Data, Opt) when is_binary(Data) ->
+    emqx_variform_bif:base64_decode(Data, Opt).
+
+base64_decode(Data, Opt1, Opt2) ->
+    emqx_variform_bif:base64_decode(Data, Opt1, Opt2).
 
 json_encode(Data) ->
     emqx_utils_json:encode(Data).

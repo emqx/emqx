@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_schema_registry_schema).
@@ -101,7 +101,16 @@ fields(?CONF_KEY_ROOT) ->
                     desc => ?DESC("schema_registry_schemas"),
                     validator => fun validate_name/1
                 }
-            )}
+            )},
+        {sparkplugb, mk(ref(sparkplugb), #{default => #{}, desc => ?DESC("sparkplugb")})}
+    ];
+fields(sparkplugb) ->
+    [
+        {enable_alias_mapping,
+            mk(boolean(), #{
+                default => true,
+                desc => ?DESC("sparkplugb_enable_alias_mapping")
+            })}
     ];
 fields(avro) ->
     [
@@ -295,6 +304,8 @@ desc(confluent_schema_registry_auth_basic) ->
     ?DESC("confluent_schema_registry_auth");
 desc(protobuf_bundle_source) ->
     ?DESC("protobuf_source_bundle_type");
+desc(sparkplugb) ->
+    ?DESC("sparkplugb");
 desc(_) ->
     undefined.
 

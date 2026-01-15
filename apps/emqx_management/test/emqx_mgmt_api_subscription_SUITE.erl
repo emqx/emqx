@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_subscription_SUITE).
 
@@ -62,7 +62,7 @@ init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts).
 
 end_per_suite(Config) ->
-    emqx_common_test_helpers:stop_apps_ds(Config).
+    emqx_common_test_helpers:run_cleanups(Config).
 
 init_per_group(persistence_enabled, Config) ->
     ClientConfig = #{

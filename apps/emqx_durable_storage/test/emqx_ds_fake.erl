@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_fake).
 
@@ -86,6 +86,7 @@ load() ->
     meck:expect(emqx_ds, make_iterator, fun make_iterator/4),
     meck:expect(emqx_ds, subscribe, fun subscribe/3),
     meck:expect(emqx_ds, unsubscribe, fun unsubscribe/2),
+    meck:expect(emqx_ds, slab_of_stream, fun slab_of_stream/2),
     {ok, Started} = application:ensure_all_started(gproc),
     Started.
 
@@ -283,6 +284,9 @@ unsubscribe(_DB, Handle) ->
             lists:keydelete(Handle, #test_ds_sub.handle, Subs)
         }
     end).
+
+slab_of_stream(_DB, #fake_stream{shard = Shard, gen = Gen}) ->
+    {ok, {Shard, Gen}}.
 
 publish_payloads(BatchSize, SeqNoError, Graceful) ->
     #fake_ds{ds_subs = DSSubs0, errors = Err} = get(?fake_ds),

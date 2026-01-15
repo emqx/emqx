@@ -1,13 +1,12 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authz_utils).
 
 -feature(maybe_expr, enable).
 
--include_lib("emqx/include/emqx_placeholder.hrl").
--include_lib("emqx_authz.hrl").
+-include("emqx_authz.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -export([

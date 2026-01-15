@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% @doc This module implements a storage layout based on the
@@ -448,9 +448,6 @@ make_internal_iterator(
     TopicFilter,
     StartPos
 ) ->
-    ?tp_ignore_side_effects_in_prod(emqx_ds_storage_skipstream_lts_make_blob_iterator, #{
-        static_index => StaticIdx, topic_filter => TopicFilter, start_pos => StartPos
-    }),
     maybe
         {ok, CompressedTF} ?= compress_tf(Trie, StaticIdx, TopicFilter),
         LastSK = <<StartPos:(TSB * 8)>>,

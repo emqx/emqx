@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_test_helpers).
 
@@ -228,7 +228,7 @@ storage_consume(DBShard, TopicFilter) ->
     storage_consume(DBShard, TopicFilter, 0).
 
 storage_consume(DBShard, TopicFilter, StartTime) ->
-    Streams = emqx_ds_storage_layer_ttv:get_streams(DBShard, TopicFilter, StartTime, 0),
+    {ok, Streams} = emqx_ds_storage_layer_ttv:get_streams(DBShard, TopicFilter, StartTime, 0),
     lists:flatmap(
         fun(Stream) ->
             storage_consume_stream(DBShard, Stream, TopicFilter, StartTime)

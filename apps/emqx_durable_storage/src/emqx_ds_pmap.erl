@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_pmap).
 -moduledoc """
@@ -180,7 +180,7 @@ lts_threshold_cb(0, _Parent) ->
     infinity;
 lts_threshold_cb(_, ?top_guard) ->
     %% Always create a unified stream for session guards, since
-    %% iteration over guards is used e.g. to enumerate sessions:
+    %% iteration over guards can be used to enumerate collections:
     0;
 lts_threshold_cb(N, ?top_data) ->
     %% [<<"d">>, CollectionId, PmapName, PmapKey]

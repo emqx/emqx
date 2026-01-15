@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_mqtt_connector).
 
@@ -62,6 +62,7 @@
 -type channel_resource_id() :: action_resource_id() | source_resource_id().
 -type connector_state() :: #{
     pool_name := connector_resource_id(),
+    pool_size := pos_integer(),
     installed_channels := #{channel_resource_id() => channel_state()},
     clean_start := boolean(),
     ?available_clientid_info := [clientid_info()],
@@ -155,6 +156,7 @@ on_add_channel(
     #{
         installed_channels := InstalledChannels,
         pool_name := PoolName,
+        pool_size := PoolSize,
         topic_to_handler_index := TopicToHandlerIndex,
         server := Server
     } = OldState,
@@ -173,6 +175,12 @@ on_add_channel(
     },
     ChannelState1 = mk_ingress_config(ChannelId, ChannelState0, TopicToHandlerIndex),
     ok = emqx_bridge_mqtt_ingress:subscribe_channel(PoolName, ChannelState1),
+    ReconnectContext = #{
+        chan_res_id => ChannelId,
+        ingress_config => ChannelState1,
+        pool_size => PoolSize
+    },
+    ok = emqx_bridge_mqtt_ingress:add_reconnect_callback(PoolName, ReconnectContext),
     NewInstalledChannels = maps:put(ChannelId, ChannelState1, InstalledChannels),
     NewState = OldState#{installed_channels => NewInstalledChannels},
     {ok, NewState}.
@@ -193,6 +201,7 @@ on_remove_channel(
         {ok, ChannelState} ->
             case ChannelState of
                 #{config_root := sources} ->
+                    ok = emqx_bridge_mqtt_ingress:remove_reconnect_callback(PoolName, ChannelId),
                     ok = emqx_bridge_mqtt_ingress:unsubscribe_channel(
                         PoolName, ChannelState, ChannelId, TopicToHandlerIndex
                     );
@@ -262,7 +271,11 @@ start_mqtt_clients(ResourceId, StartConf, ClientOpts) ->
     ok = emqx_resource:allocate_resource(ResourceId, ?MODULE, pool_name, PoolName),
     case emqx_resource_pool:start(PoolName, ?MODULE, Options) of
         ok ->
-            {ok, #{pool_name => PoolName, ?available_clientid_info => AvailableClientidInfo}};
+            {ok, #{
+                pool_name => PoolName,
+                pool_size => PoolSize,
+                ?available_clientid_info => AvailableClientidInfo
+            }};
         {error, {start_pool_failed, _, Reason}} ->
             {error, Reason}
     end.

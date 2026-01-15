@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 %% Definitions for Hook Priorities
@@ -13,6 +13,7 @@
 -define(HP_AUTHN, 970).
 -define(HP_AUTHZ, 960).
 -define(HP_SYS_MSGS, 950).
+-define(HP_SCHEMA_REGISTRY_SPB, 947).
 -define(HP_SCHEMA_VALIDATION, 945).
 -define(HP_MESSAGE_TRANSFORMATION, 943).
 -define(HP_TOPIC_METRICS, 940).

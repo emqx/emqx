@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_kafka_impl_producer).
 
@@ -86,10 +86,14 @@ on_start(InstId, Config) ->
     }),
     C = fun(Key) -> check_config(Key, Config) end,
     Hosts = C(bootstrap_hosts),
+    MetadataRequestTimeout = C(metadata_request_timeout),
     ClientConfig = #{
         min_metadata_refresh_interval => C(min_metadata_refresh_interval),
         connect_timeout => C(connect_timeout),
-        request_timeout => C(metadata_request_timeout),
+        metadata_request_timeout => MetadataRequestTimeout,
+        %% Request timeout is the max age limit for a pending reply from Kafka
+        %% once reached, wolff_client will force reconnect
+        request_timeout => max(MetadataRequestTimeout * 2, timer:seconds(30)),
         extra_sock_opts => C(socket_opts),
         sasl => C(authentication),
         ssl => C(ssl),

@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_resource).
@@ -150,6 +150,9 @@
     query_kind/0,
     resource_query_mode/0,
     resource_id/0,
+    action_resource_id/0,
+    source_resource_id/0,
+    connector_resource_id/0,
     channel_id/0,
     resource_data/0,
     resource_status/0
@@ -810,6 +813,7 @@ get_health_check_timeout(Opts) ->
 
 %% =================================================================================
 
+%% Update `emqx_bridge_v2_api:{format_metrics,empty_metrics}` when adding a new metric.
 metrics() ->
     [
         'matched',
@@ -825,7 +829,9 @@ metrics() ->
         'dropped.resource_not_found',
         'dropped.resource_stopped',
         'dropped.other',
-        'received'
+        'received',
+        'aggregated_upload.success',
+        'aggregated_upload.failure'
     ].
 
 rate_metrics() ->

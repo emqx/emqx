@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2017-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2017-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_schema).
@@ -16,7 +16,7 @@
 -include("emqx_access_control.hrl").
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("logger.hrl").
+-include("logger.hrl").
 
 -define(KB, 1024).
 -define(MB, 1024 * ?KB).
@@ -1163,7 +1163,6 @@ fields("listener_ssl_opts") ->
     server_ssl_opts_schema(
         #{
             depth => 10,
-            reuse_sessions => true,
             versions => tls_all_available,
             ciphers => tls_all_available
         },
@@ -1173,7 +1172,6 @@ fields("listener_wss_opts") ->
     server_ssl_opts_schema(
         #{
             depth => 10,
-            reuse_sessions => true,
             versions => tls_all_available,
             ciphers => tls_all_available
         },
@@ -1920,6 +1918,31 @@ fields(durable_shared_subs) ->
                     default => <<"30s">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {commit_timeout,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(session_ds_commit_timeout),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {commit_retry_interval,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"1s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {commit_retries,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 10,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields(durable_storage) ->
@@ -2401,7 +2424,8 @@ common_ssl_opts_schema(Defaults, Type) ->
                 boolean(),
                 #{
                     default => Df(reuse_sessions, true),
-                    desc => ?DESC(common_ssl_opts_schema_reuse_sessions)
+                    desc => ?DESC(common_ssl_opts_schema_reuse_sessions),
+                    importance => ?IMPORTANCE_LOW
                 }
             )},
         {"depth",
@@ -2531,7 +2555,16 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         required => false,
                         converter => fun ?MODULE:user_lookup_fun_tr/2,
                         importance => ?IMPORTANCE_HIDDEN,
-                        desc => ?DESC(common_ssl_opts_schema_user_lookup_fun)
+                        desc => ?DESC("server_ssl_opts_schema_user_lookup_fun")
+                    }
+                )},
+            {"session_tickets",
+                sc(
+                    hoconsc:enum([disabled, stateless, stateless_with_cert]),
+                    #{
+                        default => disabled,
+                        importance => ?IMPORTANCE_LOW,
+                        desc => ?DESC("server_ssl_opts_schema_session_tickets")
                     }
                 )},
             {"managed_certs",

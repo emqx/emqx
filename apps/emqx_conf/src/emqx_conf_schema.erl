@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2021-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_conf_schema).
@@ -229,12 +229,11 @@ fields("cluster") ->
             )},
         {"autoclean",
             sc(
-                emqx_schema:duration(),
+                emqx_schema:duration_s(),
                 #{
                     mapping => "mria.cluster_autoclean",
                     default => <<"24h">>,
-                    desc => ?DESC(cluster_autoclean),
-                    'readOnly' => true
+                    desc => ?DESC(cluster_autoclean)
                 }
             )},
         {"autoheal",
@@ -738,6 +737,35 @@ fields("node") ->
                     importance => ?IMPORTANCE_HIDDEN,
                     default => 100_000,
                     desc => ?DESC(node_channel_cleanup_batch_size)
+                }
+            )},
+        {"tls_server_session_tickets_amount",
+            sc(
+                pos_integer(),
+                #{
+                    mapping => "ssl.server_session_tickets_amount",
+                    default => 1,
+                    desc => ?DESC("node_tls_server_session_tickets_amount")
+                }
+            )},
+        {"tls_server_session_ticket_lifetime",
+            sc(
+                range(1, 604800),
+                #{
+                    mapping => "ssl.server_session_ticket_lifetime",
+                    default => 7200,
+                    desc => ?DESC("node_tls_server_session_ticket_lifetime")
+                }
+            )},
+        {"tls_stateless_tickets_seed",
+            sc(
+                binary(),
+                #{
+                    default => <<>>,
+                    'readOnly' => true,
+                    sensitive => true,
+                    desc => ?DESC("node_tls_stateless_tickets_seed"),
+                    validator => fun validate_tls_stateless_tickets_seed/1
                 }
             )}
     ];
@@ -1729,3 +1757,17 @@ validate_node_role(Role) ->
         false ->
             throw("Invalid node role: " ++ atom_to_list(Role))
     end.
+
+validate_tls_stateless_tickets_seed(<<>>) ->
+    ok;
+validate_tls_stateless_tickets_seed(Seed) when is_binary(Seed) ->
+    case byte_size(Seed) >= 16 of
+        true ->
+            ok;
+        false ->
+            {error,
+                "tls_stateless_tickets_seed must be at least 16 bytes, got " ++
+                    integer_to_list(byte_size(Seed)) ++ " bytes"}
+    end;
+validate_tls_stateless_tickets_seed(_) ->
+    {error, "tls_stateless_tickets_seed must be a string value"}.

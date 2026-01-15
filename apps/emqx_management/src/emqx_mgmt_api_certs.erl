@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_api_certs).
 
@@ -105,7 +105,7 @@ schema("/certs/global/name/:name") ->
         delete => #{
             tags => ?TAGS,
             description => ?DESC("global_bundle_delete"),
-            parameters => [param_path_bundle_name(), param_qs_file_kind()],
+            parameters => [param_path_bundle_name(), param_qs_file_kind(), param_qs_force_delete()],
             responses =>
                 #{
                     204 => <<"">>,
@@ -164,7 +164,12 @@ schema("/certs/ns/:namespace/name/:name") ->
         delete => #{
             tags => ?TAGS,
             description => ?DESC("ns_bundle_delete"),
-            parameters => [param_path_ns(), param_path_bundle_name(), param_qs_file_kind()],
+            parameters => [
+                param_path_ns(),
+                param_path_bundle_name(),
+                param_qs_file_kind(),
+                param_qs_force_delete()
+            ],
             responses =>
                 #{
                     204 => <<"">>,
@@ -232,6 +237,9 @@ param_qs_file_kind() ->
             }
         )}.
 
+param_qs_force_delete() ->
+    {force_delete, mk(boolean(), #{in => query, default => false, required => false})}.
+
 upload_files_request_body() ->
     hoconsc:mk(ref(files_in), #{
         converter => fun upload_files_request_body_converter/2,
@@ -283,9 +291,9 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
     #{query_string := QueryParams} = Req,
     case QueryParams of
         #{<<"kind">> := Kind} ->
-            handle_delete_file(?global_ns, BundleName, Kind);
+            handle_delete_file(?global_ns, BundleName, Kind, QueryParams);
         _ ->
-            handle_delete_bundle(?global_ns, BundleName)
+            handle_delete_bundle(?global_ns, BundleName, QueryParams)
     end.
 
 '/certs/ns/:namespace/list'(get, #{bindings := #{namespace := Namespace}} = _Req) ->
@@ -305,9 +313,9 @@ internal_error(Desc) -> emqx_dashboard_swagger:error_codes([?INTERNAL_ERROR], De
     } = Req,
     case QueryParams of
         #{<<"kind">> := Kind} ->
-            handle_delete_file(Namespace, BundleName, Kind);
+            handle_delete_file(Namespace, BundleName, Kind, QueryParams);
         _ ->
-            handle_delete_bundle(Namespace, BundleName)
+            handle_delete_bundle(Namespace, BundleName, QueryParams)
     end.
 
 %%-------------------------------------------------------------------------------------------------
@@ -363,7 +371,15 @@ handle_list_files(Namespace, BundleName) ->
             ?INTERNAL_ERROR(emqx_utils:explain_posix(Reason))
     end.
 
-handle_delete_bundle(Namespace, BundleName) ->
+handle_delete_bundle(Namespace, BundleName, QueryParams) ->
+    case validate_no_dependencies(QueryParams, Namespace, BundleName) of
+        ok ->
+            do_handle_delete_bundle(Namespace, BundleName);
+        {error, Return} ->
+            Return
+    end.
+
+do_handle_delete_bundle(Namespace, BundleName) ->
     case emqx_managed_certs:delete_bundle(Namespace, BundleName) of
         ok ->
             ?NO_CONTENT;
@@ -371,12 +387,42 @@ handle_delete_bundle(Namespace, BundleName) ->
             ?INTERNAL_ERROR(Errors)
     end.
 
-handle_delete_file(Namespace, BundleName, Kind) ->
+handle_delete_file(Namespace, BundleName, Kind, QueryParams) ->
+    case validate_no_dependencies(QueryParams, Namespace, BundleName) of
+        ok ->
+            do_handle_delete_file(Namespace, BundleName, Kind);
+        {error, Return} ->
+            Return
+    end.
+
+do_handle_delete_file(Namespace, BundleName, Kind) ->
     case emqx_managed_certs:delete_managed_file(Namespace, BundleName, Kind) of
         ok ->
             ?NO_CONTENT;
         {error, Errors} ->
             ?INTERNAL_ERROR(Errors)
+    end.
+
+validate_no_dependencies(#{<<"force_delete">> := true}, _Namespace, _BundleName) ->
+    ok;
+validate_no_dependencies(_QueryParams, Namespace, BundleName) ->
+    case emqx_managed_certs:find_references(Namespace, BundleName) of
+        [] ->
+            ok;
+        [_ | _] = Refs ->
+            Msg0 = ?ERROR_MSG(
+                ?BAD_REQUEST,
+                <<"Cannot delete file or bundle while configurations are depending on it">>
+            ),
+            RefsByNs = lists:foldl(
+                fun({Ns, Path}, Acc) ->
+                    maps:update_with(Ns, fun(Ps) -> [Path | Ps] end, [Path], Acc)
+                end,
+                #{},
+                Refs
+            ),
+            Msg = Msg0#{referencing_configs => RefsByNs},
+            {error, {400, Msg}}
     end.
 
 handle_upload_files(Namespace, BundleName, Files) ->

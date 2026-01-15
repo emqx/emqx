@@ -1,10 +1,9 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_auth).
 
 -include_lib("stdlib/include/ms_transform.hrl").
--include_lib("emqx_mgmt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").

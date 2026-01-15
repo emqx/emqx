@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ai_completion_SUITE).
@@ -12,6 +12,9 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(RULE_ID, <<"emqx_ai_completion_rule">>).
+
+-define(PORT(Config), ?config(port, Config)).
+-define(BIN_PORT(Config), (integer_to_binary(?PORT(Config))) / binary).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -34,7 +37,8 @@ end_per_suite(Config) ->
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_ai_completion_test_helpers:clean_completion_profiles(),
     ok = emqx_ai_completion_test_helpers:clean_providers(),
-    Config.
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    [{port, Port} | Config].
 
 end_per_testcase(_TestCase, _Config) ->
     ok = emqx_bridge_v2_testlib:delete_all_rules(),
@@ -46,14 +50,14 @@ end_per_testcase(_TestCase, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
-t_openai_chat_completions_completion(_Config) ->
+t_openai_chat_completions_completion(Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"openai">>,
             <<"name">> => <<"openai-chat-completions-provider">>,
             <<"api_key">> => <<"sk-proj-1234567890">>,
-            <<"base_url">> => <<"http://localhost:33330/v1">>
+            <<"base_url">> => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         }}
     ),
     ok = emqx_ai_completion_config:update_completion_profiles_raw(
@@ -65,7 +69,7 @@ t_openai_chat_completions_completion(_Config) ->
             <<"system_prompt">> => <<"pls do something">>
         }}
     ),
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_chat_completions),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), openai_chat_completions),
     %% Setup republish rule
     RepublishTopic = <<"republish/ai_completion">>,
     Params = #{
@@ -104,14 +108,14 @@ t_openai_chat_completions_completion(_Config) ->
         <<"some completion-some completion">>
     ).
 
-t_openai_response_completion(_Config) ->
+t_openai_response_completion(Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"openai_response">>,
             <<"name">> => <<"openai-provider">>,
             <<"api_key">> => <<"sk-proj-1234567890">>,
-            <<"base_url">> => <<"http://localhost:33330/v1">>
+            <<"base_url">> => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         }}
     ),
     ok = emqx_ai_completion_config:update_completion_profiles_raw(
@@ -123,7 +127,7 @@ t_openai_response_completion(_Config) ->
             <<"system_prompt">> => <<"pls do something">>
         }}
     ),
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_responses),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), openai_responses),
     %% Setup republish rule
     RepublishTopic = <<"republish/ai_completion">>,
     Params = #{
@@ -162,14 +166,14 @@ t_openai_response_completion(_Config) ->
         <<"some completion-some completion">>
     ).
 
-t_anthropic_completion(_Config) ->
+t_anthropic_completion(Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"anthropic">>,
             <<"name">> => <<"anthropic-provider">>,
             <<"api_key">> => <<"sk-ant-api03-1234567890">>,
-            <<"base_url">> => <<"http://localhost:33330/v1">>
+            <<"base_url">> => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         }}
     ),
     ok = emqx_ai_completion_config:update_completion_profiles_raw(
@@ -181,7 +185,7 @@ t_anthropic_completion(_Config) ->
             <<"system_prompt">> => <<"pls do something else">>
         }}
     ),
-    ok = emqx_ai_completion_provider_mock:start_link(33330, anthropic_messages),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), anthropic_messages),
 
     %% Setup republish rule
     RepublishTopic = <<"republish/ai_completion">>,
@@ -221,12 +225,12 @@ t_anthropic_completion(_Config) ->
         <<"some completion-some completion">>
     ).
 
-t_hackney_pool_config(_Config) ->
+t_hackney_pool_config(Config) ->
     ProviderRaw0 = #{
         <<"type">> => <<"openai">>,
         <<"name">> => <<"openai-provider">>,
         <<"api_key">> => <<"sk-proj-1234567890">>,
-        <<"base_url">> => <<"http://localhost:33330/v1">>,
+        <<"base_url">> => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>,
         <<"transport_options">> => #{
             <<"max_connections">> => 10
         }
@@ -247,49 +251,49 @@ t_hackney_pool_config(_Config) ->
         hackney_pool:max_connections(Pool)
     ).
 
-t_openai_models(_Config) ->
+t_openai_models(Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"openai">>,
             <<"name">> => <<"openai-provider">>,
             <<"api_key">> => <<"sk-proj-1234567890">>,
-            <<"base_url">> => <<"http://localhost:33330/v1">>
+            <<"base_url">> => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         }}
     ),
-    ok = emqx_ai_completion_provider_mock:start_link(33330, openai_models),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), openai_models),
     ?assertEqual(
         {ok, [<<"gpt-4-0613">>, <<"gpt-4">>, <<"gpt-3.5-turbo">>]},
         emqx_ai_completion:list_models(<<"openai-provider">>)
     ).
 
-t_anthropic_models(_Config) ->
+t_anthropic_models(Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"anthropic">>,
             <<"name">> => <<"anthropic-provider">>,
             <<"api_key">> => <<"sk-ant-api03-1234567890">>,
-            <<"base_url">> => <<"http://localhost:33330/v1">>
+            <<"base_url">> => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         }}
     ),
-    ok = emqx_ai_completion_provider_mock:start_link(33330, anthropic_models),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), anthropic_models),
     ?assertEqual(
         {ok, [<<"claude-opus-4-20250514">>, <<"claude-3-opus-20240229">>]},
         emqx_ai_completion:list_models(<<"anthropic-provider">>)
     ).
 
-t_anthropic_models_paginated(_Config) ->
+t_anthropic_models_paginated(Config) ->
     %% Setup completion profiles
     ok = emqx_ai_completion_config:update_providers_raw(
         {add, #{
             <<"type">> => <<"anthropic">>,
             <<"name">> => <<"anthropic-provider">>,
             <<"api_key">> => <<"sk-ant-api03-1234567890">>,
-            <<"base_url">> => <<"http://localhost:33330/v1">>
+            <<"base_url">> => <<"http://localhost:", ?BIN_PORT(Config), "/v1">>
         }}
     ),
-    ok = emqx_ai_completion_provider_mock:start_link(33330, anthropic_models_paginated),
+    ok = emqx_ai_completion_provider_mock:start_link(?PORT(Config), anthropic_models_paginated),
     ?assertEqual(
         {ok, [<<"claude-opus-4-20250514">>, <<"claude-3-opus-20240229">>]},
         emqx_ai_completion:list_models(<<"anthropic-provider">>)

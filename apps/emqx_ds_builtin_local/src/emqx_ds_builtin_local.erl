@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_ds_builtin_local).
 
@@ -36,6 +36,7 @@
     suback/3,
     subscription_info/2,
 
+    slab_of_stream/2,
     stream_to_binary/2,
     binary_to_stream/2,
     iterator_to_binary/2,
@@ -327,19 +328,28 @@ get_streams(DB, TopicFilter, StartTime, Opts) ->
                 emqx_ds_builtin_local_meta:shards(DB)
         end,
     MinGeneration = maps:get(generation_min, Opts, 0),
-    Results = lists:flatmap(
-        fun(Shard) ->
-            Streams = emqx_ds_storage_layer_ttv:get_streams(
-                {DB, Shard}, TopicFilter, StartTime, MinGeneration
-            ),
-            [
-                {{Shard, Stream#'Stream'.generation}, Stream}
-             || Stream <- Streams
-            ]
+    lists:foldl(
+        fun(Shard, {AccStreams, AccErrors}) ->
+            case
+                emqx_ds_storage_layer_ttv:get_streams(
+                    {DB, Shard}, TopicFilter, StartTime, MinGeneration
+                )
+            of
+                {ok, Streams} ->
+                    L = [
+                        {{Shard, Stream#'Stream'.generation}, Stream}
+                     || Stream <- Streams
+                    ],
+                    {
+                        L ++ AccStreams, AccErrors
+                    };
+                {error, _, _} = Err ->
+                    {AccStreams, [{Shard, Err} | AccErrors]}
+            end
         end,
+        {[], []},
         Shards
-    ),
-    {Results, []}.
+    ).
 
 -spec make_iterator(
     emqx_ds:db(), emqx_ds:ds_specific_stream(), emqx_ds:topic_filter(), emqx_ds:time()
@@ -498,6 +508,12 @@ otx_check_soft_quota(DBGroup) ->
     emqx_ds_storage_layer:check_soft_quota(DBGroup).
 
 %% Metadata API:
+-spec slab_of_stream(emqx_ds:db(), stream()) -> {ok, emqx_ds:slab()} | emqx_ds:error(_).
+slab_of_stream(_, #'Stream'{shard = Shard, generation = Gen}) ->
+    {ok, {Shard, Gen}};
+slab_of_stream(_, _) ->
+    ?err_unrec(badarg).
+
 -spec stream_to_binary(emqx_ds:db(), stream()) -> {ok, binary()} | {error, _}.
 stream_to_binary(_DB, Stream = #'Stream'{}) ->
     'DSBuiltinMetadata':encode('Stream', Stream).

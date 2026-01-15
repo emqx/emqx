@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2020-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2020-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_authn_https_SUITE).
@@ -14,7 +14,6 @@
 
 -define(PATH, [?CONF_NS_ATOM]).
 
--define(HTTPS_PORT, 32334).
 -define(HTTPS_PATH, "/auth").
 -define(CREDENTIALS, #{
     username => <<"plain">>,
@@ -26,39 +25,41 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
-init_per_suite(Config) ->
+init_per_suite(TCConfig) ->
     Apps = emqx_cth_suite:start([cowboy, emqx, emqx_conf, emqx_auth, emqx_auth_http], #{
-        work_dir => ?config(priv_dir, Config)
+        work_dir => ?config(priv_dir, TCConfig)
     }),
-    [{apps, Apps} | Config].
+    [{apps, Apps} | TCConfig].
 
-end_per_suite(Config) ->
+end_per_suite(TCConfig) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    ok = emqx_cth_suite:stop(?config(apps, Config)),
+    ok = emqx_cth_suite:stop(?config(apps, TCConfig)),
     ok.
 
-init_per_testcase(_Case, Config) ->
+init_per_testcase(_Case, TCConfig) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
     ),
-    {ok, _} = emqx_utils_http_test_server:start_link(?HTTPS_PORT, ?HTTPS_PATH, server_ssl_opts()),
+    HTTPSPort = emqx_common_test_helpers:select_free_port(tcp),
+    {ok, _} = emqx_utils_http_test_server:start_link(HTTPSPort, ?HTTPS_PATH, server_ssl_opts()),
     ok = emqx_utils_http_test_server:set_handler(fun cowboy_handler/2),
-    Config.
+    [{https_port, HTTPSPort} | TCConfig].
 
-end_per_testcase(_Case, _Config) ->
+end_per_testcase(_Case, _TCConfig) ->
     ok = emqx_utils_http_test_server:stop().
 
 %%------------------------------------------------------------------------------
 %% Tests
 %%------------------------------------------------------------------------------
 
-t_create(_Config) ->
+t_create(TCConfig) ->
     {ok, _} = create_https_auth_with_ssl_opts(
+        TCConfig,
         #{
             <<"server_name_indication">> => <<"authn-server">>,
             <<"verify">> => <<"verify_peer">>,
@@ -72,8 +73,9 @@ t_create(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
-t_create_invalid_domain(_Config) ->
+t_create_invalid_domain(TCConfig) ->
     {ok, _} = create_https_auth_with_ssl_opts(
+        TCConfig,
         #{
             <<"server_name_indication">> => <<"authn-server-unknown-host">>,
             <<"verify">> => <<"verify_peer">>,
@@ -87,8 +89,9 @@ t_create_invalid_domain(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
-t_create_invalid_version(_Config) ->
+t_create_invalid_version(TCConfig) ->
     {ok, _} = create_https_auth_with_ssl_opts(
+        TCConfig,
         #{
             <<"server_name_indication">> => <<"authn-server">>,
             <<"verify">> => <<"verify_peer">>,
@@ -101,8 +104,9 @@ t_create_invalid_version(_Config) ->
         emqx_access_control:authenticate(?CREDENTIALS)
     ).
 
-t_create_invalid_ciphers(_Config) ->
+t_create_invalid_ciphers(TCConfig) ->
     {ok, _} = create_https_auth_with_ssl_opts(
+        TCConfig,
         #{
             <<"server_name_indication">> => <<"authn-server">>,
             <<"verify">> => <<"verify_peer">>,
@@ -120,22 +124,23 @@ t_create_invalid_ciphers(_Config) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
-create_https_auth_with_ssl_opts(SpecificSSLOpts) ->
-    AuthConfig = raw_https_auth_config(SpecificSSLOpts),
+create_https_auth_with_ssl_opts(TCConfig, SpecificSSLOpts) ->
+    AuthConfig = raw_https_auth_config(TCConfig, SpecificSSLOpts),
     emqx:update_config(?PATH, {create_authenticator, ?GLOBAL, AuthConfig}).
 
-raw_https_auth_config(SpecificSSLOpts) ->
+raw_https_auth_config(TCConfig, SpecificSSLOpts) ->
     SSLOpts = maps:merge(
         emqx_authn_test_lib:client_ssl_cert_opts(),
         #{<<"enable">> => <<"true">>}
     ),
+    HTTPSPortBin = integer_to_binary(?config(https_port, TCConfig)),
     #{
         <<"mechanism">> => <<"password_based">>,
         <<"enable">> => <<"true">>,
 
         <<"backend">> => <<"http">>,
         <<"method">> => <<"get">>,
-        <<"url">> => <<"https://127.0.0.1:32334/auth">>,
+        <<"url">> => <<"https://127.0.0.1:", HTTPSPortBin/binary, "/auth">>,
         <<"body">> => #{<<"username">> => ?PH_USERNAME, <<"password">> => ?PH_PASSWORD},
         <<"headers">> => #{<<"X-Test-Header">> => <<"Test Value">>},
         <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)

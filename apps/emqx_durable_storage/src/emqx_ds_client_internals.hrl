@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2025-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -ifndef(EMQX_DS_CLIENT_INTERNALS_HRL).
 -define(EMQX_DS_CLIENT_INTERNALS_HRL, true).
@@ -10,7 +10,8 @@
     topic :: emqx_ds:topic_filter(),
     start_time :: emqx_ds:time(),
     ds_sub_opts :: emqx_ds:sub_opts(),
-    is_new = true :: boolean()
+    is_new = true :: boolean(),
+    passive = false :: boolean()
 }).
 
 %% Atomic indexes:

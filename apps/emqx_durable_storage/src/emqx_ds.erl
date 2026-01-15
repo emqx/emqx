@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2023-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
 -module(emqx_ds).
@@ -72,8 +72,9 @@ It takes care of forwarding calls to the underlying DBMS.
     tx_on_success/1
 ]).
 
-%% Metadata serialization API:
+%% Metadata serialization API and misc. helpers:
 -export([
+    slab_of_stream/2,
     stream_to_binary/2,
     binary_to_stream/2,
     iterator_to_binary/2,
@@ -397,7 +398,8 @@ Options for the `subscribe` API.
     timeout => timeout(),
     sync => boolean(),
     retry_interval => non_neg_integer(),
-    max_mql => pos_integer() | infinity
+    max_mql => pos_integer() | infinity,
+    _ => _
 }.
 
 -type transaction_result(Ret) ::
@@ -428,7 +430,8 @@ Options for the `subscribe` API.
         errors => crash | report | ignore,
         batch_size => pos_integer(),
         start_time => time(),
-        end_time => time() | infinity
+        end_time => time() | infinity,
+        _ => _
     }.
 
 -type tx_fold_options() ::
@@ -598,6 +601,7 @@ must not assume the default values.
 -callback subscription_info(db(), subscription_handle()) -> sub_info() | undefined.
 
 %% Metadata API:
+-callback slab_of_stream(db(), ds_specific_stream()) -> {ok, slab()} | {error, _}.
 -callback stream_to_binary(db(), ds_specific_stream()) -> {ok, binary()} | {error, _}.
 -callback iterator_to_binary(db(), ds_specific_iterator()) -> {ok, binary()} | {error, _}.
 
@@ -1486,6 +1490,16 @@ Therefore, `tx_commit_outcome/3` MUST be called in the same process.
 -spec tx_on_success(fun(() -> _)) -> ok.
 tx_on_success(Fun) ->
     tx_push_op(?tx_ops_side_effect, Fun).
+
+-doc "Get ID of the slab that the stream belongs to.".
+-doc #{title => <<"Metadata">>, since => <<"6.1.0">>}.
+-spec slab_of_stream(db(), stream()) -> {ok, slab()} | error(_).
+slab_of_stream(DB, Stream) ->
+    ?with_dsch(
+        DB,
+        #{cbm := Mod},
+        Mod:slab_of_stream(DB, Stream)
+    ).
 
 -doc "Serialize stream to a compact binary representation.".
 -doc #{title => <<"Metadata">>, since => <<"6.0.0">>}.

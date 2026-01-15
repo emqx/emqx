@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2022-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2022-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_mgmt_SUITE).
 
@@ -57,8 +57,7 @@ init_per_group(cm_registry_disabled, Config) ->
     [{emqx_config, "broker.enable_session_registry = false"} | Config].
 
 end_per_group(persistence_enabled, Config) ->
-    emqx_common_test_helpers:stop_apps_ds(Config),
-    ok;
+    emqx_common_test_helpers:run_cleanups(Config);
 end_per_group(_Grp, Config) ->
     case ?config(apps, Config) of
         undefined -> ok;

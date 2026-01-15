@@ -1,5 +1,5 @@
 %%--------------------------------------------------------------------
-%% Copyright (c) 2024-2025 EMQ Technologies Co., Ltd. All Rights Reserved.
+%% Copyright (c) 2024-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 -module(emqx_schema_registry_config).
 
@@ -17,7 +17,9 @@
     lookup_external_registry_raw/1,
 
     upsert_external_registry/2,
-    delete_external_registry/1
+    delete_external_registry/1,
+
+    is_alias_mapping_enabled/0
 ]).
 
 %% Internal exports for application
@@ -114,6 +116,10 @@ delete_external_registry(Name) ->
         {error, _} = Error ->
             Error
     end.
+
+-spec is_alias_mapping_enabled() -> boolean().
+is_alias_mapping_enabled() ->
+    emqx_config:get([?CONF_KEY_ROOT, sparkplugb, enable_alias_mapping], true).
 
 %%------------------------------------------------------------------------------
 %% `emqx_config_handler' API
