@@ -192,7 +192,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
         limiter = Limiter0,
         times_throttled = TimesThrottled0
     } = Handler0,
-    case do_try_consume_at_most(Limiter0, N0) of
+    case try_consume_at_most(Limiter0, N0) of
         {ok, N, Limiter1} ->
             {Messages0, InnerCursor} = do_fetch(Handler0, N),
             NumFetchedMessages = length(Messages0),
@@ -202,7 +202,7 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Cursor = next_cursor(InnerCursor, NumFetchedMessages, Handler0),
             Handler = Handler0#h{limiter = Limiter, cursor = Cursor, times_throttled = 0},
             {ok, Handler, Messages};
-        {error, Limiter1, Reason} ->
+        {error, N, Limiter1, Reason} ->
             ?tp(retained_fetch_rate_limit_exceeded, #{topic => TopicFilter}),
             ?SLOG_THROTTLE(
                 warning,
@@ -210,7 +210,8 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
                     msg => retained_fetch_rate_limit_exceeded,
                     reason => Reason,
                     topic => TopicFilter,
-                    attempted_to_fetch_count => N0
+                    initially_attempted_count => N0,
+                    attempted_to_fetch_count => N
                 },
                 #{tag => "RETAINER"}
             ),
@@ -218,15 +219,34 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             {error, Handler}
     end.
 
-do_try_consume_at_most(Limiter0, N0) ->
-    case emqx_limiter_client:try_consume(Limiter0, N0) of
+try_consume_at_most(Limiter, N) ->
+    MinBatch = min_batch_backoff(N),
+    do_try_consume_at_most(Limiter, N, MinBatch).
+
+do_try_consume_at_most(Limiter0, CurrN, MinBatch) ->
+    case emqx_limiter_client:try_consume(Limiter0, CurrN) of
         {true, Limiter1} ->
-            {ok, N0, Limiter1};
-        {false, Limiter1, _Reason} when N0 > 1 ->
-            N1 = N0 div 2,
-            do_try_consume_at_most(Limiter1, N1);
+            {ok, CurrN, Limiter1};
+        {false, Limiter1, _Reason} when CurrN > MinBatch ->
+            N1 = CurrN div 2,
+            do_try_consume_at_most(Limiter1, N1, MinBatch);
         {false, Limiter1, Reason} ->
-            {error, Limiter1, Reason}
+            {error, CurrN, Limiter1, Reason}
+    end.
+
+%% When progressively reducing batch size after hitting rate limit, we want a minimum
+%% batch size to avoid several clients fetching messages one-by-one when retainer is
+%% busy.  We take it to be 20 % of requested size.  This is only a simple heuristic.
+%%
+%% Note that we must take the rate limiter into account, otherwise a large enough read
+%% number and a low enough rate limit might otherwise lead to a situation where the
+%% minimum batch size would be larger than the maximum capacity of the limiter.
+min_batch_backoff(N) ->
+    case emqx_config:get([retainer, flow_control, batch_deliver_limiter]) of
+        infinity ->
+            max(1, floor(0.2 * N));
+        {Capacity, _Interval} ->
+            min(Capacity, max(1, floor(0.2 * N)))
     end.
 
 do_fetch(#h{cursor = ?no_wildcard} = Handler, _N) ->
