@@ -44,7 +44,7 @@ jobs:
         run: |
           echo "profile=emqx-enterprise" >> $GITHUB_OUTPUT
           echo "version=$(./pkg-vsn.sh emqx-enterprise)" >> $GITHUB_OUTPUT
-          echo "ref_name=e$(./pkg-vsn.sh emqx-enterprise)" >> "$GITHUB_ENV"
+          echo "ref_name=$(./pkg-vsn.sh emqx-enterprise)" >> "$GITHUB_ENV"
           if [[ $ref_name =~ ^[6-9]+\.[0-9]+\.[0-9]+-M[0-9]+\.[0-9]+.*$ ]]; then
             echo "internal_release=true" >> $GITHUB_ENV
           else
@@ -60,7 +60,8 @@ jobs:
         run: |
           BUCKET=${{ secrets.AWS_S3_BUCKET }}
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
-          aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
+          S3_DIR_NAME=e${{ env.ref_name }}
+          aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/$S3_DIR_NAME packages
       - uses: emqx/upload-assets@974befcf0e72a1811360a81c798855efb66b0551 # 0.5.2
         env:
           GITHUB_TOKEN: ${{ github.token }}
