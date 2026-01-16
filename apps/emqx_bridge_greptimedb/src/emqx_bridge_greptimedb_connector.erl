@@ -405,7 +405,7 @@ client_config(
         end,
     TsColumn ++
         [
-            {endpoints, [{http, str(Host), Port}]},
+            {endpoints, [{scheme(Config), str(Host), Port}]},
             {pool_size, erlang:system_info(schedulers)},
             {pool, InstId},
             {pool_type, random},
@@ -432,9 +432,13 @@ ssl_config(#{enable := false}) ->
 ssl_config(SSL = #{enable := true}) ->
     [
         {https_enabled, true},
-        {transport, ssl},
-        {transport_opts, emqx_tls_lib:to_client_opts(SSL)}
+        {ssl_opts, emqx_tls_lib:to_client_opts(SSL)}
     ].
+
+scheme(#{ssl := #{enable := true}}) ->
+    https;
+scheme(#{ssl := #{enable := false}}) ->
+    http.
 
 auth(#{username := Username, password := Password}) ->
     [
