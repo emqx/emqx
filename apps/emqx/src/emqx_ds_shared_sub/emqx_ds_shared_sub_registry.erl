@@ -11,7 +11,9 @@
 -export([
     get_leader_sync/2,
     leader_wanted/2,
-    start_local/2
+    start_local/2,
+    stop_local/1,
+    list_local/0
 ]).
 
 %% Internal exports:
@@ -41,21 +43,31 @@ start_link() ->
 get_leader_sync(ShareTopic, Options) ->
     emqx_ds_shared_sub_leader:wait_leader(ensure_local(ShareTopic, Options)).
 
--spec get_leader_nowait(emqx_types:share()) -> {ok, pid()} | undefined.
-get_leader_nowait(Share) ->
-    emqx_ds_shared_sub_leader:whereis_leader(Share).
+-doc """
+If the leader is already present, send it a borrower connect request,
+otherwise trigger leader election. In the latter case the message is
+NOT sent, and borrower should retry.
 
+Note: delivery is async, so the borrower should not treat return value
+`ok` as a delivery guarantee.
+""".
 -spec leader_wanted(
     emqx_ds_shared_sub_proto:borrower_id(),
     emqx_types:share()
-) -> ok | emqx_ds:error(_).
+) -> ok | retry.
 leader_wanted(BorrowerId, ShareTopic) ->
+    %% Ensure at least one local candidate is running, which should
+    %% eventually create the leader:
+    _ = ensure_local(ShareTopic, #{}),
     maybe
-        %% FIXME: do it async. Tests should expect that though
-        {ok, Pid} ?= get_leader_nowait(ShareTopic),
-        emqx_ds_shared_sub_proto:send_to_leader(Pid, ?borrower_connect(BorrowerId, ShareTopic))
-    end,
-    ok.
+        {ok, Leader} ?= emqx_ds_shared_sub_leader:whereis_leader(ShareTopic),
+        %% If the leader is already running send it the connect request:
+        emqx_ds_shared_sub_proto:send_to_leader(Leader, ?borrower_connect(BorrowerId, ShareTopic)),
+        ok
+    else
+        _ ->
+            retry
+    end.
 
 -spec ensure_local(emqx_types:share(), emqx_ds_shared_sub:options()) ->
     pid().
@@ -70,7 +82,35 @@ ensure_local(ShareTopic, Options) ->
 -spec start_local(emqx_types:share(), emqx_ds_shared_sub:options()) ->
     supervisor:startchild_ret().
 start_local(ShareTopic, Options) ->
-    supervisor:start_child(?MODULE, [ShareTopic, Options]).
+    Spec = #{
+        id => ShareTopic,
+        start => {emqx_ds_shared_sub_leader, start_link, [ShareTopic, Options]},
+        type => worker,
+        restart => temporary,
+        shutdown => 5_000
+    },
+    supervisor:start_child(?MODULE, Spec).
+
+-doc """
+Stop local worker for the shared topic filter, regardless of its leadership state.
+""".
+-spec stop_local(emqx_types:share()) -> boolean().
+stop_local(Share) ->
+    case supervisor:terminate_child(?MODULE, Share) of
+        ok ->
+            true;
+        {error, not_found} ->
+            false
+    end.
+
+-spec list_local() -> [{emqx_types:share(), pid() | restarting}].
+list_local() ->
+    lists:map(
+        fun({Share, Child, _, _}) ->
+            {Share, Child}
+        end,
+        supervisor:which_children(?MODULE)
+    ).
 
 %%------------------------------------------------------------------------------
 
@@ -101,17 +141,9 @@ purge() ->
 %%------------------------------------------------------------------------------
 
 init([]) ->
-    Children = [
-        #{
-            id => worker,
-            start => {emqx_ds_shared_sub_leader, start_link, []},
-            shutdown => 5_000,
-            type => worker,
-            restart => transient
-        }
-    ],
+    Children = [],
     SupFlags = #{
-        strategy => simple_one_for_one,
+        strategy => one_for_one,
         intensity => 100,
         period => 1
     },

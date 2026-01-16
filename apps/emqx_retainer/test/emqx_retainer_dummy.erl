@@ -18,11 +18,12 @@
     store_retained/2,
     read_message/2,
     page_read/5,
-    match_messages/3,
+    match_messages/4,
     delete_cursor/2,
     clear_expired/3,
     clean/1,
-    size/1
+    size/1,
+    current_index_incarnation/1
 ]).
 
 -behaviour(emqx_schema_hooks).
@@ -51,7 +52,7 @@ read_message(_Context, _Topic) -> {ok, []}.
 
 page_read(_Context, _Topic, _Deadline, _Offset, _Limit) -> {ok, false, []}.
 
-match_messages(_Context, _Topic, _Cursor) -> {ok, [], 0}.
+match_messages(_Context, _Topic, _Cursor, _Opts) -> {ok, [], 0}.
 
 delete_cursor(_Context, _Cursor) -> ok.
 
@@ -60,6 +61,8 @@ clear_expired(_Context, _Deadline, _Limit) -> {true, 0}.
 clean(_Context) -> ok.
 
 size(_Context) -> 0.
+
+current_index_incarnation(_Context) -> 0.
 
 external_backend_fields() ->
     [

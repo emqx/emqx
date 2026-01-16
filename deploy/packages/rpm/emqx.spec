@@ -23,12 +23,16 @@ Requires: libatomic procps which findutils ncurses
 
 %if 0%{?rhel} == 7 && "%{_arch}" == "x86_64"
 Requires: openssl11
-%elif "%{?dist}" == ".amzn2023"
-Requires: util-linux shadow-utils
-%elif 0%{?rhel} == 9
+%else
+%if 0%{?rhel} == 9
 Requires: openssl >= 1:3.5.1
 %else
 Requires: openssl
+%endif
+%endif
+
+%if "%{?dist}" == ".amzn2023"
+Requires: util-linux shadow-utils
 %endif
 
 %description

@@ -58,8 +58,6 @@ case "$TAG" in
         exit 0
         ;;
     *)
-        #TODO change to no when we are ready to support hot-upgrade
-        SKIP_APPUP='yes'
         ;;
 esac
 
@@ -71,10 +69,6 @@ while [ "$#" -gt 0 ]; do
         -h|--help)
             usage
             exit 0
-            ;;
-        --skip-appup)
-            shift
-            SKIP_APPUP='yes'
             ;;
         --dryrun)
             shift
@@ -208,14 +202,6 @@ SYNC_REMOTES_ARGS=
 
 ## Check if app versions are bumped
 ./scripts/apps-version-check.exs
-
-## Ensure appup files are updated
-if [ "$SKIP_APPUP" = 'no' ]; then
-    logmsg "Checking appups"
-    ./scripts/update-appup.sh "$PROFILE" --check
-else
-    logmsg "Skipped checking appup updates"
-fi
 
 ## Ensure relup paths are updated
 ## TODO: add relup path db

@@ -75,7 +75,7 @@ emqx_durable_timer: all
 emqx_enterprise: none
 emqx_eviction_agent: emqx_node_rebalance
 emqx_exhook: all
-emqx_extsub: emqx_streams
+emqx_extsub: all
 emqx_ft: none
 emqx_gateway: all
 emqx_gateway_coap: emqx_gateway_lwm2m

@@ -27,7 +27,8 @@
 
 -export_type([
     t/0,
-    options/0
+    options/0,
+    to_agent_events/0
 ]).
 
 -type options() :: #{
@@ -160,7 +161,7 @@ new(#{
         streams => #{},
         timers => #{}
     },
-    ok = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
+    _ = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
     ensure_timer(St, ?find_leader_timer).
 
 %%-----------------------------------------------------------------------
@@ -188,7 +189,7 @@ on_info(#{id := Id, share_topic_filter := ShareTopicFilter} = St, ?find_leader_t
         borrower_id => ?format_borrower_id(Id),
         share_topic_filter => ShareTopicFilter
     }),
-    ok = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
+    _ = emqx_ds_shared_sub_registry:leader_wanted(Id, ShareTopicFilter),
     {ok, [], ensure_timer(St, ?find_leader_timer)};
 on_info(St, ?find_leader_timer) when ?is_connected(St) ->
     %% Handle late delivery of the timer.

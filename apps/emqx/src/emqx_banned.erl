@@ -23,6 +23,7 @@
     check/1,
     check_clientid/1,
     create/1,
+    ensure/1,
     look_up/1,
     delete/1,
     info/1,
@@ -192,6 +193,12 @@ create(Banned = #banned{who = Who}) ->
                     {ok, Banned}
             end
     end.
+
+-spec ensure(emqx_types:banned()) ->
+    ok.
+ensure(Banned = #banned{who = Who}) ->
+    insert_banned(table(Who), Banned),
+    ok.
 
 -spec look_up(emqx_types:banned_who() | map()) -> [emqx_types:banned()].
 look_up(Who) when is_map(Who) ->
