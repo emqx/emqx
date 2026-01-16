@@ -14,10 +14,14 @@
     ssl_fields/0,
     ssl_fields/1,
     prepare_statement_fields/0,
+    prepare_statement_field/0,
+    prepare_statement_field/1,
     password_field/0,
     password_field/1,
     username_field/0,
-    username_field/1
+    username_field/1,
+    connect_timeout_field/0,
+    connect_timeout_field/1
 ]).
 
 -export([
@@ -78,12 +82,19 @@ password_field(Overrides) ->
     emqx_schema_secret:mk(maps:merge(Base, Overrides)).
 
 prepare_statement_fields() ->
-    [{prepare_statement, fun prepare_statement/1}].
+    [{prepare_statement, prepare_statement_field()}].
 
-prepare_statement(type) -> map();
-prepare_statement(desc) -> ?DESC("prepare_statement");
-prepare_statement(required) -> false;
-prepare_statement(_) -> undefined.
+prepare_statement_field() ->
+    prepare_statement_field(#{}).
+
+prepare_statement_field(Opts) ->
+    hoconsc:mk(
+        map(),
+        maps:merge(
+            #{desc => ?DESC("prepare_statement"), required => false},
+            Opts
+        )
+    ).
 
 database(type) -> binary();
 database(desc) -> ?DESC("database_desc");
@@ -117,3 +128,19 @@ auto_reconnect(desc) -> ?DESC("auto_reconnect");
 auto_reconnect(default) -> true;
 auto_reconnect(deprecated) -> {since, "5.0.15"};
 auto_reconnect(_) -> undefined.
+
+connect_timeout_field() ->
+    connect_timeout_field(#{}).
+
+connect_timeout_field(Opts) ->
+    hoconsc:mk(
+        emqx_schema:timeout_duration_ms(),
+        maps:merge(
+            #{
+                required => false,
+                desc => ?DESC("connection_timeout"),
+                default => <<"15s">>
+            },
+            Opts
+        )
+    ).

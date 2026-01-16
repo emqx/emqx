@@ -31,15 +31,10 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mysql], #{
-                work_dir => ?config(priv_dir, Config)
-            }),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_mysql_tls}
-    end.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mysql], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(

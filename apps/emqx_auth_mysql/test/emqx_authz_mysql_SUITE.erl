@@ -16,38 +16,42 @@
 -define(MYSQL_HOST, "mysql").
 -define(MYSQL_RESOURCE, <<"emqx_authz_mysql_SUITE">>).
 
+-define(TABLE_TESTS, [t_run_case, t_run_case_with_disable_prepared_statements]).
+
 all() ->
-    emqx_authz_test_lib:all_with_table_case(?MODULE, t_run_case, cases()).
+    TableTests = [t_run_case, t_run_case_with_disable_prepared_statements],
+    (emqx_common_test_helpers:all(?MODULE) -- TableTests) ++ [{group, table_tests}].
 
 groups() ->
-    emqx_authz_test_lib:table_groups(t_run_case, cases()).
+    emqx_common_test_helpers:nested_groups([
+        [table_tests],
+        emqx_authz_test_lib:case_names(cases()),
+        ?TABLE_TESTS
+    ]).
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start(
-                [
-                    emqx,
-                    {emqx_conf,
-                        "authorization.no_match = deny, authorization.cache.enable = false"},
-                    emqx_auth,
-                    emqx_auth_mysql
-                ],
-                #{work_dir => ?config(priv_dir, Config)}
-            ),
-            ok = create_mysql_resource(),
-            [{suite_apps, Apps} | Config];
-        false ->
-            {skip, no_mysql}
-    end.
+    Apps = emqx_cth_suite:start(
+        [
+            emqx,
+            {emqx_conf, "authorization.no_match = deny, authorization.cache.enable = false"},
+            emqx_auth,
+            emqx_auth_mysql
+        ],
+        #{work_dir => ?config(priv_dir, Config)}
+    ),
+    ok = create_mysql_resource(),
+    [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     ok = emqx_resource:remove_local(?MYSQL_RESOURCE),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
 
-init_per_group(Group, Config) ->
-    [{test_case, emqx_authz_test_lib:get_case(Group, cases())} | Config].
+init_per_group(table_tests, Config) ->
+    Config;
+init_per_group(TableCaseName, Config) ->
+    [{test_case, emqx_authz_test_lib:get_case(TableCaseName, cases())} | Config].
+
 end_per_group(_Group, _Config) ->
     ok.
 
@@ -66,7 +70,13 @@ end_per_testcase(_TestCase, _Config) ->
 t_run_case(Config) ->
     Case = ?config(test_case, Config),
     ok = setup_source_data(Case),
-    ok = setup_authz_source(Case),
+    ok = setup_authz_source(Case, #{}),
+    ok = emqx_authz_test_lib:run_checks(Case).
+
+t_run_case_with_disable_prepared_statements(Config) ->
+    Case = ?config(test_case, Config),
+    ok = setup_source_data(Case),
+    ok = setup_authz_source(Case, #{<<"disable_prepared_statements">> => true}),
     ok = emqx_authz_test_lib:run_checks(Case).
 
 t_create_invalid(_Config) ->
@@ -97,7 +107,7 @@ t_node_cache(_Config) ->
         checks => []
     },
     ok = setup_source_data(Case),
-    ok = setup_authz_source(Case),
+    ok = setup_authz_source(Case, #{}),
     ok = emqx_authz_test_lib:enable_node_cache(true),
 
     %% Subscribe to twice, should hit cache the second time
@@ -509,9 +519,9 @@ setup_source_data(#{setup := Queries}) ->
         Queries
     ).
 
-setup_authz_source(#{query := Query}) ->
+setup_authz_source(#{query := Query}, SpecialParams) ->
     setup_config(
-        #{
+        SpecialParams#{
             <<"query">> => Query
         }
     ).

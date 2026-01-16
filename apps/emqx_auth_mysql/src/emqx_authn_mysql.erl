@@ -75,7 +75,7 @@ authenticate(
     RenderedArgs = emqx_auth_template:render_sql_params(ArgsTemplate, Credential),
     CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
     Result = emqx_authn_utils:cached_simple_sync_query(
-        CacheKey, ResourceId, {execute, ?PREPARE_KEY, RenderedArgs, #{timeout => Timeout}}
+        CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, RenderedArgs, #{timeout => Timeout}}
     ),
     case Result of
         {ok, _Columns, []} ->
@@ -108,7 +108,8 @@ create_state(
     #{
         password_hash_algorithm := Algorithm,
         query := Query0,
-        query_timeout := QueryTimeout
+        query_timeout := QueryTimeout,
+        disable_prepared_statements := DisablePreparedStatements
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
@@ -122,9 +123,14 @@ create_state(
         resource_id => ResourceId
     }),
     ResourceConfig = emqx_authn_utils:cleanup_resource_config(
-        [query, query_timeout, password_hash_algorithm], Config
+        [query, query_timeout, password_hash_algorithm, disable_prepared_statements], Config
     ),
-    {ok, ResourceConfig#{prepare_statements => #{?PREPARE_KEY => SQL}}, State}.
+    {ok,
+        ResourceConfig#{
+            prepare_statements => #{?PREPARE_KEY => SQL},
+            emulate_prepared_statements => DisablePreparedStatements
+        },
+        State}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

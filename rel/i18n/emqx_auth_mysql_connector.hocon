@@ -1,0 +1,11 @@
+emqx_mysql {
+
+server.desc:
+"""The IPv4 or IPv6 address or the hostname to connect to.<br/>
+A host entry has the following form: `Host[:Port]`.<br/>
+The MySQL default port 3306 is used if `[:Port]` is not specified."""
+
+server.label:
+"""Server Host"""
+
+}

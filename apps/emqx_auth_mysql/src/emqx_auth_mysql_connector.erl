@@ -34,6 +34,8 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
+-define(DEFAULT_CONNECT_TIMEOUT, 15000).
+
 -type prepare_statement_key() :: atom().
 -type prepare_statement_sql() :: unicode:chardata().
 
@@ -52,8 +54,11 @@ roots() ->
     [{config, #{type => hoconsc:ref(?MODULE, config)}}].
 
 fields(config) ->
-    [{server, server()}] ++
-        emqx_connector_schema_lib:relational_db_fields(#{default_username => <<"root">>}) ++
+    [
+        {server, server()},
+        {connect_timeout, emqx_connector_schema_lib:connect_timeout_field()}
+    ] ++
+        emqx_connector_schema_lib:relational_db_fields(#{username => #{default => <<"root">>}}) ++
         emqx_connector_schema_lib:ssl_fields().
 
 server() ->
@@ -92,7 +97,14 @@ on_start(
         end,
     Password = maps:get(password, Config, undefined),
     BasicCapabilities = maps:get(basic_capabilities, Config, #{}),
+    EmulatePreparedStatements = maps:get(emulate_prepared_statements, Config, false),
     PrepareStatements = maps:get(prepare_statements, Config, #{}),
+    PrepareOpt =
+        case EmulatePreparedStatements of
+            true -> [];
+            false -> [{prepare, maps:to_list(PrepareStatements)}]
+        end,
+    ConnectTimeout = maps:get(connect_timeout, Config, ?DEFAULT_CONNECT_TIMEOUT),
     Options =
         lists:flatten([
             [{password, Password} || Password /= undefined],
@@ -102,12 +114,17 @@ on_start(
             {user, Username},
             {database, DB},
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
+            {connect_timeout, ConnectTimeout},
             {pool_size, PoolSize},
-            {prepare, maps:to_list(PrepareStatements)}
+            {try_kill_slow_query, false}
         ]),
-    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ SslOpts) of
+    case emqx_resource_pool:start(InstId, ?MODULE, Options ++ PrepareOpt ++ SslOpts) of
         ok ->
-            {ok, #{pool_name => InstId, prepare_statements => PrepareStatements}};
+            {ok, #{
+                pool_name => InstId,
+                prepare_statements => PrepareStatements,
+                emulate_prepared_statements => EmulatePreparedStatements
+            }};
         {error, Reason} ->
             ?tp(
                 mysql_connector_start_failed,
@@ -136,17 +153,36 @@ on_query(InstId, {query, SQL, Params, Opts} = Request, State) ->
     end,
     do_on_query(Fun, LogInfo, State);
 %% execute (prepared request)
-on_query(InstId, {execute, Key}, State) ->
-    on_query(InstId, {execute, Key, [], #{}}, State);
-on_query(InstId, {execute, Key, Params}, State) ->
-    on_query(InstId, {execute, Key, Params, #{}}, State);
-on_query(InstId, {execute, Key, Params, Opts} = Request, State) ->
-    Timeout = maps:get(timeout, Opts, default_timeout),
+on_query(InstId, {prepared_query, Key}, State) ->
+    on_query(InstId, {prepared_query, Key, [], #{}}, State);
+on_query(InstId, {prepared_query, Key, Params}, State) ->
+    on_query(InstId, {prepared_query, Key, Params, #{}}, State);
+on_query(
+    InstId,
+    {prepared_query, Key, Params, Opts} = Request,
+    #{
+        prepare_statements := PrepareStatements,
+        emulate_prepared_statements := EmulatePreparedStatements
+    } = State
+) ->
     LogInfo = #{connector => InstId, request => Request, state => State},
-    Fun = fun(Conn) ->
-        mysql:execute(Conn, Key, Params, Timeout)
-    end,
-    do_on_query(Fun, LogInfo, State).
+    case PrepareStatements of
+        #{Key := SQL} ->
+            Timeout = maps:get(timeout, Opts, default_timeout),
+            case EmulatePreparedStatements of
+                true ->
+                    Fun = fun(Conn) ->
+                        mysql:query(Conn, SQL, Params, Timeout)
+                    end;
+                false ->
+                    Fun = fun(Conn) ->
+                        mysql:execute(Conn, Key, Params, Timeout)
+                    end
+            end,
+            do_on_query(Fun, LogInfo, State);
+        _ ->
+            {error, {unrecoverable_error, {prepared_statement_not_found, Key}}}
+    end.
 
 on_get_status(_InstId, #{pool_name := PoolName} = State) ->
     Opts = #{
@@ -158,6 +194,25 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
         on_success_fn => fun() -> do_on_get_status_prepares(State) end
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
+
+connect(Options) ->
+    NOptions = init_connect_opts(Options),
+    mysql:start_link(NOptions).
+
+%%------------------------------------------------------------------------------
+%% Helper Functions
+%%------------------------------------------------------------------------------
+
+init_connect_opts(Options) ->
+    case lists:keytake(password, 1, Options) of
+        {value, {password, Secret}, Rest} ->
+            [{password, emqx_secret:unwrap(Secret)} | Rest];
+        false ->
+            Options
+    end.
+
+pool_workers(PoolName) ->
+    lists:map(fun({_Name, Worker}) -> Worker end, ecpool:workers(PoolName)).
 
 do_get_status(Conn) ->
     mysql:query(Conn, <<"SELECT count(1) AS T">>).
@@ -200,23 +255,6 @@ do_check_prepares(
         ConnsSQLs
     ).
 
-%% ===================================================================
-
-connect(Options) ->
-    NOptions = init_connect_opts(Options),
-    mysql:start_link(NOptions).
-
-init_connect_opts(Options) ->
-    case lists:keytake(password, 1, Options) of
-        {value, {password, Secret}, Rest} ->
-            [{password, emqx_secret:unwrap(Secret)} | Rest];
-        false ->
-            Options
-    end.
-
-pool_workers(PoolName) ->
-    lists:map(fun({_Name, Worker}) -> Worker end, ecpool:workers(PoolName)).
-
 do_on_query(Fun, LogInfo, #{pool_name := PoolName} = _State) ->
     ?TRACE("QUERY", "mysql_auth_connector_do_on_query", LogInfo),
     Worker = ecpool:get_client(PoolName),
@@ -237,5 +275,5 @@ do_on_query(Fun, LogInfo, #{pool_name := PoolName} = _State) ->
             end;
         {error, disconnected} ->
             ?tp(warning, "mysql_auth_connector_query_failed", LogInfo#{reason => disconnected}),
-            {error, {recoverable_error, disconnected}}
+            {error, {unrecoverable_error, disconnected}}
     end.

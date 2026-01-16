@@ -429,9 +429,6 @@ parse_prepare_sql(Key, Config) ->
 
 parse_prepare_sql(Key, Query, Acc) ->
     Template = emqx_template_sql:parse_prepstmt(Query, #{parameters => '?'}),
-    ?SLOG(warning, #{
-        msg => "parse_prepare_sql", key => Key, query => Query, result_template => Template
-    }),
     AccNext = Acc#{{Key, prepstmt} => Template},
     parse_batch_sql(Key, Query, AccNext).
 

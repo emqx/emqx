@@ -39,22 +39,17 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mysql], #{
-                work_dir => ?config(priv_dir, Config)
-            }),
-            {ok, _} = emqx_resource:create_local(
-                ?MYSQL_RESOURCE,
-                ?AUTHN_RESOURCE_GROUP,
-                emqx_auth_mysql_connector,
-                mysql_config(),
-                #{}
-            ),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_mysql}
-    end.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mysql], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    {ok, _} = emqx_resource:create_local(
+        ?MYSQL_RESOURCE,
+        ?AUTHN_RESOURCE_GROUP,
+        emqx_auth_mysql_connector,
+        mysql_config(),
+        #{}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(

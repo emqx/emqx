@@ -6,8 +6,6 @@
 
 -behaviour(emqx_authz_source).
 
--define(PREPARE_KEY, ?MODULE).
-
 %% AuthZ Callbacks
 -export([
     create/1,
@@ -25,6 +23,7 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PREPARE_KEY, ?MODULE).
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(Source) ->
@@ -58,7 +57,9 @@ authorize(
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
-            CacheKey, ResourceId, {execute, ?PREPARE_KEY, RenderedArgs, #{timeout => QueryTimeout}}
+            CacheKey,
+            ResourceId,
+            {prepared_query, ?PREPARE_KEY, RenderedArgs, #{timeout => QueryTimeout}}
         )
     of
         {ok, ColumnNames, Rows} ->
@@ -78,10 +79,20 @@ authorize(
 %% Internal functions
 %%--------------------------------------------------------------------
 
-new_state(ResourceId, #{query := SQLTemplate, query_timeout := QueryTimeout} = Source0) ->
+new_state(
+    ResourceId,
+    #{
+        query := SQLTemplate,
+        query_timeout := QueryTimeout,
+        disable_prepared_statements := DisablePreparedStatements
+    } = Source0
+) ->
     {Vars, SQL, ArgsTemplate} = emqx_auth_template:parse_sql(SQLTemplate, '?', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Source = Source0#{prepare_statements => #{?PREPARE_KEY => SQL}},
+    Source = Source0#{
+        prepare_statements => #{?PREPARE_KEY => SQL},
+        emulate_prepared_statements => DisablePreparedStatements
+    },
     ResourceConfig = emqx_authz_utils:cleanup_resource_config(
         [query], Source
     ),
