@@ -75,7 +75,7 @@ config_write_to_table.label:
 config_table_name.desc:
 """The name of the IoTDB table to which the data will be written."""
 config_table_name.label:
-"""Table"""
+"""Table Name"""
 
 config_max_retries.desc:
 """HTTP request max retry times if failed."""

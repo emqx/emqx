@@ -281,7 +281,7 @@ action_parameters(table) ->
                 #{
                     desc => ?DESC("config_table_name"),
                     required => true,
-                    validator => fun validate_table_name/1
+                    validator => fun emqx_schema:non_empty_string/1
                 }
             )},
         {data,
@@ -347,23 +347,6 @@ action_parameters_data_common() ->
                 }
             )}
     ].
-
-validate_table_name(<<>>) ->
-    {error, <<"Table name cannot be empty in table model">>};
-validate_table_name(TableName) ->
-    HasVar = lists:any(
-        fun
-            ({var, _}) -> true;
-            (_) -> false
-        end,
-        emqx_placeholder:preproc_tmpl(TableName)
-    ),
-    case HasVar of
-        true ->
-            {error, <<"Table name cannot contain variables in table model">>};
-        false ->
-            ok
-    end.
 
 %%-------------------------------------------------------------------------------------------------
 %% v2 examples

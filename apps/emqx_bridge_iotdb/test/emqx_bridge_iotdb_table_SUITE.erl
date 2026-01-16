@@ -510,40 +510,18 @@ t_table_name_configuration_validation(Config) ->
     ActionConfig = ?config(action_config, Config),
     Parameters = maps:get(<<"parameters">>, ActionConfig),
     BadActionConfig1 = ActionConfig#{<<"parameters">> => Parameters#{<<"table">> => <<>>}},
-    BadActionConfig2 = ActionConfig#{
-        <<"parameters">> => Parameters#{<<"table">> => <<"${payload.table}">>}
-    },
-
     BadConfig1 = lists:keyreplace(action_config, 1, Config, {action_config, BadActionConfig1}),
-    BadConfig2 = lists:keyreplace(action_config, 1, Config, {action_config, BadActionConfig2}),
-
     {error, {_, _, Body1}} = emqx_bridge_v2_testlib:create_bridge_api(BadConfig1),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-
-    {error, {_, _, Body2}} = emqx_bridge_v2_testlib:create_bridge_api(BadConfig2),
-    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
-
     ?assertMatch(
         #{
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> := #{
-                <<"reason">> := <<"Table name cannot be empty in table model">>,
                 <<"path">> := <<"root.parameters.table">>,
                 <<"value">> := <<>>
             }
         },
         Body1
-    ),
-    ?assertMatch(
-        #{
-            <<"code">> := <<"BAD_REQUEST">>,
-            <<"message">> := #{
-                <<"reason">> := <<"Table name cannot contain variables in table model">>,
-                <<"path">> := <<"root.parameters.table">>,
-                <<"value">> := <<"${payload.table}">>
-            }
-        },
-        Body2
     ),
     ok.
 
