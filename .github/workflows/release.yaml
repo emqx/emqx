@@ -60,7 +60,7 @@ jobs:
         run: |
           BUCKET=${{ secrets.AWS_S3_BUCKET }}
           OUTPUT_DIR=${{ steps.profile.outputs.s3dir }}
-          aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }}/packages
+          aws s3 cp --recursive s3://$BUCKET/$OUTPUT_DIR/${{ env.ref_name }} packages
       - uses: emqx/upload-assets@974befcf0e72a1811360a81c798855efb66b0551 # 0.5.2
         env:
           GITHUB_TOKEN: ${{ github.token }}
