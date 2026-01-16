@@ -42,8 +42,8 @@ t_config_update('init', Config) ->
     TCName = ?config(tc_name, Config),
     NameA = fmt("~s_~s", [TCName, "a"]),
     NameB = fmt("~s_~s", [TCName, "b"]),
-    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, 2, conf_log(), Config)),
-    ClusterB = emqx_cth_cluster:start(mk_cluster(2, NameB, 2, conf_log(), Config)),
+    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, 2, Config)),
+    ClusterB = emqx_cth_cluster:start(mk_cluster(2, NameB, 2, Config)),
     ok = snabbkaffe:start_trace(),
     [
         {cluster_a, ClusterA},
@@ -167,8 +167,8 @@ update(Via, Node, Links, Config) ->
 t_config_validations('init', Config) ->
     NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
     NameB = fmt("~s_~s", [?FUNCTION_NAME, "b"]),
-    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, 1, conf_log(), Config)),
-    ClusterB = emqx_cth_cluster:start(mk_cluster(2, NameB, 1, conf_log(), Config)),
+    ClusterA = emqx_cth_cluster:start(mk_cluster(1, NameA, 1, Config)),
+    ClusterB = emqx_cth_cluster:start(mk_cluster(2, NameB, 1, Config)),
     ok = snabbkaffe:start_trace(),
     [
         {cluster_a, ClusterA},
@@ -388,8 +388,8 @@ t_config_update_ds(Config) ->
 t_misconfigured_links('init', Config) ->
     NameA = fmt("~s_~s", [?FUNCTION_NAME, "a"]),
     NameB = fmt("~s_~s", [?FUNCTION_NAME, "b"]),
-    NodesA = mk_cluster(1, NameA, [#{role => replicant}, #{role => core}], conf_log(), Config),
-    NodesB = mk_cluster(2, NameB, [#{role => core}], conf_log(), Config),
+    NodesA = mk_cluster(1, NameA, [#{role => replicant}, #{role => core}], Config),
+    NodesB = mk_cluster(2, NameB, [#{role => core}], Config),
     ClusterA = emqx_cth_cluster:start(NodesA),
     ClusterB = emqx_cth_cluster:start(NodesB),
     ok = snabbkaffe:start_trace(),
@@ -525,8 +525,8 @@ tc_conf_file(TC, Config) ->
 
 %%
 
-mk_cluster(N, ClusterName, Size, ExtraConf, CTConfig) ->
-    emqx_cluster_link_cth:mk_cluster(N, ClusterName, Size, ExtraConf, CTConfig).
+mk_cluster(N, ClusterName, Size, CTConfig) ->
+    emqx_cluster_link_cth:mk_cluster(N, ClusterName, Size, CTConfig).
 
 mk_link_conf_to(Cluster, Overrides) ->
     emqx_cluster_link_cth:mk_link_conf_to(Cluster, Overrides).
