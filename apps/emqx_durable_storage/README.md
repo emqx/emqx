@@ -47,9 +47,7 @@ Messages are organized in the following hierarchy:
    Each database can be used for a different type of payload or a different tenant.
 
 2. **Shard**.
-   (The concept of shard is specific to the builtin backend)
-   The builtin backend separates different messages into shards.
-   Sharding can be performed by `clientId` or the topic of the message.
+   Databases are sharded e.g. by `clientId` or the topic of the message.
 
 3. **Generation**.
    Each shard is additionally split into partitions called generations, each one covering a particular period of time.

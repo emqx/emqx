@@ -60,9 +60,10 @@
 -define(clientid, <<?MODULE_STRING>>).
 
 %% Configuration for the generators:
--define(wait_publishes_time, 1000).
+-define(wait_publishes_time, 100).
+-define(stepdown_timeout, 1000).
 %% List of topics used in the test:
--define(topics, [<<"t1">>, <<"t2">>, <<"t3">>]).
+-define(topics, [<<"t1">>, <<"t2">>, <<"$share/g/t3">>, <<"$share/g/t4">>]).
 %% List of clientIDs of simulated publishers:
 -define(publishers, [<<"pub1">>, <<"pub2">>, <<"pub3">>]).
 
@@ -123,7 +124,7 @@
 -define(sessds_test_out_pubrec, sessds_test_out_pubrec).
 -define(sessds_test_out_pubcomp, sessds_test_out_pubcomp).
 
-%% Traces for messages recieved from the SUT:
+%% Traces for messages received from the SUT:
 -define(sessds_test_in_publish, sessds_test_in_publish).
 -define(sessds_test_in_pubrel, sessds_test_in_pubrel).
 -define(sessds_test_in_garbage, sessds_test_in_garbage).
@@ -180,7 +181,7 @@ connect_(S) ->
 message(MsgSeqNo, #{subs := Subs}) ->
     %% Create bias towards topics that the session is subscribed to:
     TopicFreq = [{5, maps:keys(Subs)}, {1, ?topics}],
-    Topics = [{Freq, T} || {Freq, Topics} <- TopicFreq, T <- Topics],
+    Topics = [{Freq, strip_share_topic(T)} || {Freq, Topics} <- TopicFreq, T <- Topics],
     ?LET(
         {Topic, From, QoS},
         {frequency(Topics), oneof(?publishers), emqx_proper_types:qos()},
@@ -194,6 +195,14 @@ message(MsgSeqNo, #{subs := Subs}) ->
             payload = <<Topic/binary, " ", From/binary, " ", (integer_to_binary(MsgSeqNo))/binary>>
         }
     ).
+
+strip_share_topic(Bin) ->
+    case emqx_topic:parse(Bin) of
+        {#share{topic = Topic}, _} ->
+            Topic;
+        {Topic, _} ->
+            Topic
+    end.
 
 publish_(S = #{message_seqno := SeqNo}) ->
     ?LET(
@@ -271,7 +280,15 @@ subscribe(Topic, QoS) ->
 
 unsubscribe(Topic) ->
     ?tp(?log_level, ?sessds_test_unsubscribe, #{topic => Topic}),
-    emqtt:unsubscribe(client_pid(), Topic).
+    emqtt:unsubscribe(client_pid(), Topic),
+    case emqx_topic:parse(Topic) of
+        {#share{group = Gr, topic = TF} = Share, _} ->
+            _ = emqx_ds_shared_sub_registry:stop_local(Share),
+            _ = emqx_ds_shared_sub:destroy(Gr, TF),
+            ok;
+        _ ->
+            ok
+    end.
 
 consume(S = #{conninfo := #{client_pid := CPID, session_pid := SPID}}) ->
     %% Set up monitoring to detect crashes early:
@@ -362,7 +379,17 @@ sample(Size) ->
 cleanup() ->
     catch emqtt:stop(client_pid()),
     emqx_cm:kick_session(?clientid),
-    emqx_persistent_session_ds:destroy_session(?clientid).
+    emqx_persistent_session_ds:destroy_session(?clientid),
+    cleanup_shared_subs().
+
+cleanup_shared_subs() ->
+    %% Stop all shared subs:
+    [
+        emqx_ds_shared_sub_registry:stop_local(Share)
+     || {Share, _Pid} <- emqx_ds_shared_sub_registry:list_local()
+    ],
+    %% Purge the persistent data, which now should be fully committed:
+    emqx_ds_shared_sub_registry:purge().
 
 sut_state() ->
     emqx_persistent_session_ds:print_session(?clientid).
@@ -696,7 +723,7 @@ wait_stepdown(#{session_pid := SessionPid}) ->
     receive
         {'DOWN', CMRef, process, _, _} ->
             ok
-    after 5_000 ->
+    after ?stepdown_timeout ->
         error(timeout_waiting_for_client_down)
     end,
     wait_channel_disappear(?clientid, SessionPid, 100).
@@ -723,3 +750,11 @@ flush_client_messages(CPid) ->
     after 0 ->
         ok
     end.
+
+debug_state(Msg) ->
+    logger:notice(
+        #{
+            msg => Msg,
+            s => emqx_persistent_session_ds:print_session(?clientid)
+        }
+    ).

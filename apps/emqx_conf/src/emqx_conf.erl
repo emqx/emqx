@@ -124,7 +124,7 @@ dump_schema(Dir, SchemaModule) ->
     lists:foreach(
         fun(LibPath) ->
             Lib = list_to_atom(lists:last(filename:split(LibPath))),
-            load(SchemaModule, Lib)
+            load(Lib)
         end,
         string:lexemes(os:getenv("ERL_LIBS"), ":;")
     ),
@@ -136,10 +136,17 @@ dump_schema(Dir, SchemaModule) ->
         ["en", "zh"]
     ).
 
-load(_, Lib) ->
+load(Lib) ->
     case application:load(Lib) of
-        ok -> ok;
-        {error, {already_loaded, _}} -> ok
+        ok ->
+            ok;
+        {error, {already_loaded, _}} ->
+            ok;
+        {error, {"no such file or directory", Dep}} ->
+            io:format(user, "===< Warning: ignored app ~p due to dependent app ~p not found~n", [
+                Lib, Dep
+            ]),
+            ok
     end.
 
 %% for scripts/spellcheck.

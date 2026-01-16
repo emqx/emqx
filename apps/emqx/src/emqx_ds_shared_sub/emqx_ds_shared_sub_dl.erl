@@ -431,7 +431,10 @@ trans_opts(Id) ->
     #{
         db => ?DB,
         shard => emqx_ds:shard_of(?DB, Id),
-        generation => 1
+        generation => 1,
+        timeout => emqx_config:get([durable_sessions, shared_subs, commit_timeout]),
+        retries => emqx_config:get([durable_sessions, shared_subs, commit_retries]),
+        retry_interval => emqx_config:get([durable_sessions, shared_subs, commit_retry_interval])
     }.
 
 it2cursor('$end_of_table' = EOT) ->

@@ -1,0 +1,12 @@
+# Python dependencies for SBOM generation scripts
+#
+# Install with: pip install -r scripts/sbom/requirements.txt
+#
+# These scripts are used to:
+# - Convert CycloneDX SBOM to SPDX format (convert_cdx_to_spdx.py)
+# - Filter and enrich SPDX SBOM with license information (filter_and_enrich.py)
+# - Generate human-readable text reports (generate_text_report.py)
+
+# SPDX tools for parsing and writing SPDX documents
+# Version 0.8.3 was tested and works with the scripts
+spdx-tools==0.8.3

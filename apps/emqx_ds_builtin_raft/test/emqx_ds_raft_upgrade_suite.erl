@@ -161,30 +161,44 @@ verify_payloads(Prefix, Sessions) ->
                 2
             ),
             %% All clients should receive the message:
-            _ = wait_messages(N, ?recv(#{payload := Payload, topic := Topic}))
+            verify_prefix(
+                Prefix,
+                wait_messages(N, ?recv(#{payload := Payload, topic := Topic}))
+            )
         end,
         Sessions
     ),
-    %% %% Publish shared messages:
-    %% lists:foreach(
-    %%     fun(Sess) ->
-    %%         Payload = <<"hello from ", Sess/binary>>,
-    %%         Topic = <<"s/", Sess/binary>>,
-    %%         {ok, _} = emqtt:publish(
-    %%             binary_to_atom(Sess),
-    %%             Topic,
-    %%             Payload,
-    %%             2
-    %%         ),
-    %%         %% One client should receive:
-    %%         [_] = wait_messages(
-    %%             1,
-    %%             ?recv(#{payload := Payload, topic := Topic}, 5_000)
-    %%         )
-    %%     end,
-    %%     Sessions
-    %% ),
+    %% Publish shared messages:
+    lists:foreach(
+        fun(Sess) ->
+            Payload = <<Prefix/binary, Sess/binary>>,
+            Topic = <<"s/", Sess/binary>>,
+            {ok, _} = emqtt:publish(
+                binary_to_atom(Sess),
+                Topic,
+                Payload,
+                2
+            ),
+            %% One client should receive:
+            verify_prefix(
+                Prefix,
+                wait_messages(
+                    1,
+                    ?recv(#{payload := Payload, topic := Topic}, 15_000)
+                )
+            )
+        end,
+        Sessions
+    ),
     ok.
+
+verify_prefix(Prefix, L) ->
+    lists:foreach(
+        fun(#{payload := P}) ->
+            ?assertMatch(Prefix, binary:part(P, 0, size(Prefix)))
+        end,
+        L
+    ).
 
 init_per_group(Group, Config) ->
     Releases =

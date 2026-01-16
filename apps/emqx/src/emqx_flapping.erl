@@ -120,43 +120,34 @@ handle_cast(
             started_at = StartedAt,
             detect_cnt = DetectCnt
         },
-        #{window_time := WindTime, ban_time := Interval}},
+        #{window_time := WindowTime, ban_time := Interval}},
     State
 ) ->
-    case now_diff(StartedAt) < WindTime of
+    case now_diff(StartedAt) < WindowTime of
         %% Flapping happened:(
         true ->
+            Now = erlang:system_time(second),
+            Until = Now + (Interval div 1000),
+            ok = emqx_banned:ensure(#banned{
+                who = emqx_banned:who(clientid, ClientId),
+                by = <<"flapping detector">>,
+                reason = <<"flapping is detected">>,
+                at = Now,
+                until = Until
+            }),
             ?SLOG(
                 warning,
                 #{
                     msg => "flapping_detected",
                     peer_host => fmt_host(PeerHost),
                     detect_cnt => DetectCnt,
-                    wind_time_in_ms => WindTime
+                    window_time_ms => WindowTime,
+                    banned_until => emqx_utils_calendar:epoch_to_rfc3339(Until, second)
                 },
                 #{clientid => ClientId}
-            ),
-            Now = erlang:system_time(second),
-            Banned = #banned{
-                who = emqx_banned:who(clientid, ClientId),
-                by = <<"flapping detector">>,
-                reason = <<"flapping is detected">>,
-                at = Now,
-                until = Now + (Interval div 1000)
-            },
-            {ok, _} = emqx_banned:create(Banned),
-            ok;
+            );
         false ->
-            ?SLOG(
-                warning,
-                #{
-                    msg => "client_disconnected",
-                    peer_host => fmt_host(PeerHost),
-                    detect_cnt => DetectCnt,
-                    interval => Interval
-                },
-                #{clientid => ClientId}
-            )
+            ok
     end,
     {noreply, State};
 handle_cast(update_config, State) ->

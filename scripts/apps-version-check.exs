@@ -211,7 +211,7 @@ defmodule AppsVersionCheck do
         log("IGNORE: #{src_file}: old app version did not follow the convention #{convention}")
         true
 
-      current_app_version.patch != old_app_version.patch + 1 ->
+      current_app_version.patch != old_app_version.patch + 1 && has_changes? ->
         log_err([
           "#{src_file} non-strict semver version bump from ",
           "#{old_app_version} to #{current_app_version}"

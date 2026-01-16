@@ -26,7 +26,7 @@ init_per_suite(Config0) ->
 
 end_per_suite(Config) ->
     _ = emqx_common_test_helpers:stop_peer(?config(peer, Config)),
-    emqx_common_test_helpers:stop_apps_ds(Config).
+    emqx_common_test_helpers:run_cleanups(Config).
 
 t_nodes_api(Config) ->
     Node = atom_to_binary(node(), utf8),

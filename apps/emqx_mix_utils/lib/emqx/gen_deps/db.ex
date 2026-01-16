@@ -134,7 +134,8 @@ defmodule Emqx.GenDeps.DB do
     Enum.reduce(erl_files ++ hrl_files, [], fn file_path, acc ->
       case find_include_directives(file_path, %{app: app, file: file_path}) do
         {:ok, deps, warn} ->
-          Enum.each(warn, &Mix.shell().info/1)
+          shell = Mix.shell()
+          Enum.each(warn, &shell.info/1)
           deps ++ acc
 
         {:error, error} ->

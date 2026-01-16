@@ -168,7 +168,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.2", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.3", override: true}
 
   def common_dep(:esockd),
     do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
@@ -269,7 +269,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.15", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.1.3"}
+  def common_dep(:wolff), do: {:wolff, "4.1.6"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
@@ -311,6 +311,8 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:greptimedb_rs),
     do: {:greptimedb_rs, github: "emqx/greptimedb-ingester-erlnif", tag: "0.1.2"}
+
+  def common_dep(:sbom), do: {:sbom, "~> 0.8", runtime: false}
 
   def emqx_app_system_env() do
     k = {__MODULE__, :emqx_app_system_env}

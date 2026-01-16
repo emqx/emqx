@@ -322,6 +322,8 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, _TCConfig) ->
     ProviderParams0 = oidc_provider_params(),
     ProviderParams1 = maps:get(oidc_provider_param_overrides, Opts, #{}),
     ProviderParams = emqx_utils_maps:deep_merge(ProviderParams0, ProviderParams1),
+    BadParams = ProviderParams#{<<"issuer">> => <<"httpx://authn-server">>},
+    ?assertMatch({400, _}, create_backend(Node, BadParams, #{})),
     ?assertMatch({200, _}, create_backend(Node, ProviderParams, #{})),
     ?assertMatch(
         {200, [

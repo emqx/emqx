@@ -23,7 +23,7 @@ For example, it is good to have <code>[2, 4]</code> index to optimize
 <code>+/X/+/Y/...</code> topic wildcard subscriptions."""
 
 batch_deliver_limiter.desc:
-"""The rate limiter name for retained messages' delivery.
+"""(Deprecated) The rate limiter name for retained messages' delivery.
 Limiter helps to avoid delivering too many messages to the client at once, which may cause the client to block or crash, or drop messages due to exceeding the size of the message queue.
 The names of the available rate limiters are taken from the existing rate limiters under `limiter.batch`.
 If this field is empty, limiter is not used."""
@@ -32,7 +32,7 @@ batch_deliver_number.desc:
 """The number of retained messages can be delivered per batch."""
 
 batch_read_number.desc:
-"""Size of the batch when reading messages from storage. 0 means no limit."""
+"""Size of the batch when reading messages from storage. Setting it to 0 has the same effect of setting it to 1000."""
 
 enable.desc:
 """Enable retainer feature"""

@@ -80,7 +80,9 @@
 -export([
     on_exit/1,
     call_janitor/0,
-    call_janitor/1
+    call_janitor/1,
+    run_cleanups/1,
+    run_cleanups/2
 ]).
 
 %% Toxiproxy API
@@ -106,7 +108,6 @@
 %% DS test helpers
 -export([
     start_apps_ds/3,
-    stop_apps_ds/1,
     start_cluster_ds/3,
     stop_cluster_ds/1,
     restart_node_ds/2,
@@ -1360,6 +1361,7 @@ create_file(Filename, Fmt, Args) ->
         file:close(F)
     end,
     ok.
+
 %%-------------------------------------------------------------------------------
 %% Testcase teardown utilities
 %%-------------------------------------------------------------------------------
@@ -1388,6 +1390,28 @@ get_or_spawn_janitor() ->
 on_exit(Fun) ->
     Janitor = get_or_spawn_janitor(),
     ok = emqx_test_janitor:push_on_exit_callback(Janitor, Fun).
+
+run_cleanups(Config) ->
+    process_flag(trap_exit, true),
+    run_cleanups(Config, 15_000).
+
+run_cleanups(Config0, Timeout) ->
+    call_janitor(Timeout),
+    lists:filter(
+        fun
+            ({cleanup, Fun}) ->
+                try
+                    Fun()
+                catch
+                    EC:Err:Stack ->
+                        ct:pal("~p during cleanup: ~p~n~p", [EC, Err, Stack])
+                end,
+                false;
+            (_) ->
+                true
+        end,
+        Config0
+    ).
 
 %%-------------------------------------------------------------------------------
 %% Select a free transport port from the OS
@@ -1555,11 +1579,24 @@ ensure_loaded(Mod) ->
 %% DS Test Helpers
 %%------------------------------------------------------------------------------
 
-start_apps_ds(Config, ExtraApps, Opts) ->
+-spec start_apps_ds(
+    CTConfig,
+    [emqx_cth_suite:appname() | emqx_cth_suite:appspec()],
+    #{
+        durable_storage_opts => map(),
+        durable_sessions_opts => map(),
+        emqx_opts => map(),
+        work_dir => file:filename(),
+        keep_work_dir => boolean(),
+        start_emqx_conf => boolean()
+    }
+) -> CTConfig when
+    CTConfig :: proplists:proplist().
+start_apps_ds(Config0, ExtraApps, Opts) ->
     DurableStorageOpts = maps:get(durable_storage_opts, Opts, #{}),
     DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
     EMQXOpts = maps:get(emqx_opts, Opts, #{}),
-    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
+    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config0)),
     StartEMQXConf = maps:get(start_emqx_conf, Opts, true),
     DSConfig = durable_sessions_config(DurableSessionsOpts),
     Apps = emqx_cth_suite:start(
@@ -1581,10 +1618,18 @@ start_apps_ds(Config, ExtraApps, Opts) ->
         true ?= maps:get(<<"enable">>, DSConfig),
         ok = emqx_persistent_message:wait_readiness(15_000)
     end,
-    [{apps, Apps} | Config].
-
-stop_apps_ds(Config) ->
-    emqx_cth_suite:stop(proplists:get_value(apps, Config)).
+    Config = [{apps, Apps} | Config0],
+    StopApps =
+        fun() ->
+            ct:pal("Stopping ~p", [Apps]),
+            emqx_cth_suite:stop(Apps)
+        end,
+    CleanWorkDir =
+        fun() ->
+            Clean = not maps:get(keep_work_dir, Opts, false),
+            Clean andalso emqx_cth_suite:clean_work_dir(WorkDir)
+        end,
+    [{cleanup, StopApps}, {cleanup, CleanWorkDir} | Config].
 
 durable_sessions_config(Opts) ->
     emqx_utils_maps:deep_merge(
@@ -1594,10 +1639,20 @@ durable_sessions_config(Opts) ->
         Opts
     ).
 
-start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
-    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config)),
-    DurableSessionsOpts = maps:get(durable_sessions_opts, Opts, #{}),
-    EMQXOpts = maps:get(emqx_opts, Opts, #{}),
+-spec start_cluster_ds(
+    CTConfig,
+    [emqx_cth_cluster:nodespec()],
+    #{
+        work_dir => file:filename(),
+        keep_work_dir => boolean(),
+        emqx_conf => map(),
+        start_timeout => timeout()
+    }
+) -> CTConfig when
+    CTConfig :: proplists:proplist().
+start_cluster_ds(Config0, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
+    WorkDir = maps:get(work_dir, Opts, emqx_cth_suite:work_dir(Config0)),
+    EMQXOpts = maps:get(emqx_conf, Opts, #{}),
     BaseApps = [
         emqx_conf,
         {emqx_durable_timer, #{
@@ -1608,12 +1663,13 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
                 ]
         }},
         {emqx, #{
-            config => maps:merge(EMQXOpts, #{
-                <<"durable_storage">> => #{<<"n_sites">> => length(ClusterSpec0)},
-                <<"durable_sessions">> => durable_sessions_config(
-                    DurableSessionsOpts
-                )
-            })
+            config => emqx_utils_maps:deep_merge(
+                #{
+                    <<"durable_sessions">> => #{<<"enable">> => true},
+                    <<"durable_storage">> => #{<<"n_sites">> => length(ClusterSpec0)}
+                },
+                EMQXOpts
+            )
         }}
     ],
     ClusterSpec =
@@ -1627,17 +1683,24 @@ start_cluster_ds(Config, ClusterSpec0, Opts) when is_list(ClusterSpec0) ->
     NodeSpecs = emqx_cth_cluster:mk_nodespecs(ClusterSpec, ClusterOpts),
     Nodes = emqx_cth_cluster:start(ClusterSpec, ClusterOpts),
     ExpectedOk = lists:duplicate(length(Nodes), {ok, ok}),
-    ExpectedOk = erpc:multicall(Nodes, emqx_persistent_message, wait_readiness, [15_000], infinity),
-    [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config].
+    Timeout = maps:get(start_timeout, Opts, 30_000),
+    ExpectedOk = erpc:multicall(
+        Nodes, emqx_persistent_message, wait_readiness, [Timeout], infinity
+    ),
+    Config = [{cluster_nodes, Nodes}, {node_specs, NodeSpecs}, {work_dir, WorkDir} | Config0],
+    StopCluster =
+        fun() ->
+            emqx_common_test_helpers:stop_cluster_ds(Config)
+        end,
+    CleanWorkDir =
+        fun() ->
+            Clean = not maps:get(keep_work_dir, Opts, false),
+            Clean andalso emqx_cth_suite:clean_work_dir(WorkDir)
+        end,
+    [{cleanup, StopCluster}, {cleanup, CleanWorkDir}, {work_dir, WorkDir} | Config].
 
 stop_cluster_ds(Config) ->
-    emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)),
-    case proplists:get_value(work_dir, Config) of
-        undefined ->
-            ok;
-        WorkDir ->
-            emqx_cth_suite:clean_work_dir(WorkDir)
-    end.
+    emqx_cth_cluster:stop(proplists:get_value(cluster_nodes, Config)).
 
 restart_node_ds(Node, NodeSpec) ->
     emqx_cth_cluster:restart(NodeSpec),

@@ -1918,6 +1918,31 @@ fields(durable_shared_subs) ->
                     default => <<"30s">>,
                     importance => ?IMPORTANCE_HIDDEN
                 }
+            )},
+        {commit_timeout,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"5s">>,
+                    desc => ?DESC(session_ds_commit_timeout),
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {commit_retry_interval,
+            sc(
+                timeout_duration(),
+                #{
+                    default => <<"1s">>,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
+            )},
+        {commit_retries,
+            sc(
+                non_neg_integer(),
+                #{
+                    default => 10,
+                    importance => ?IMPORTANCE_HIDDEN
+                }
             )}
     ];
 fields(durable_storage) ->
