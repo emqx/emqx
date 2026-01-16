@@ -304,7 +304,7 @@ connecting(
             ok = announce_client(TargetCluster, Actor, ClientPid),
             enter_handshaking(St#st{client = ClientPid});
         {error, Reason} ->
-            ?tp_routerepl(error, "connection_failed", #{
+            ?tp_routerepl(warning, "connection_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -335,7 +335,7 @@ handshaking(
             Timeout = reconnect_timeout(),
             {keep_state, St, {state_timeout, Timeout, abandon}};
         {error, Reason} ->
-            ?tp_routerepl(error, "handshake_failed", #{
+            ?tp_routerepl(warning, "handshake_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -361,7 +361,7 @@ handshaking(
             ok = start_syncer(TargetCluster, Actor, Incarnation),
             enter_bootstrap(NeedBootstrap, St);
         #{result := Error} ->
-            ?tp_routerepl(error, "handshake_rejected", #{
+            ?tp_routerepl(warning, "handshake_rejected", #{
                 reason => error_reason(Error),
                 target_cluster => TargetCluster,
                 actor => Actor,
@@ -372,7 +372,7 @@ handshaking(
             keep_state_and_data
     end;
 handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
-    ?tp_routerepl(error, "handshake_timeout", #{
+    ?tp_routerepl(warning, "handshake_timeout", #{
         target_cluster => target_cluster(St),
         actor => Actor
     }),
