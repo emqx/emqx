@@ -6,7 +6,7 @@
 
 -behaviour(application).
 
--export([start/2, prep_stop/1, stop/1]).
+-export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
     ok = mria:wait_for_tables(emqx_cluster_link_extrouter:create_tables()),
@@ -24,13 +24,10 @@ start(_StartType, _StartArgs) ->
     ok = create_metrics(LinksConf),
     {ok, Sup}.
 
-prep_stop(State) ->
-    ok = emqx_cluster_link_config:unload(),
-    State.
-
 stop(_State) ->
     _ = emqx_cluster_link:delete_hook(),
     _ = emqx_cluster_link:unregister_external_broker(),
+    ok = emqx_cluster_link_config:unload(),
     _ = remove_msg_fwd_resources(emqx_cluster_link_config:get_links()),
     ok.
 

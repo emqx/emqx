@@ -37,93 +37,41 @@ end_per_testcase(TCName, Config) ->
 
 %%
 
-mk_source_cluster(BaseName, NumNodes, Config) ->
-    SourceConf = """
-        cluster {
-            name = cl.source
-            links = [
-              { enable = true
-                name = cl.target
-                server = "localhost:31883"
-                clientid = client.source
-                topics = []
-              }
-            ]
-        }
-    """,
-    ExtraConf = proplists:get_value(extra_conf, Config, ""),
-    emqx_cth_cluster:mk_nodespecs(
-        [
-            {mk_nodename(BaseName, s, N), #{
-                apps => [
-                    {emqx_conf, combine([SourceConf, conf_log()])},
-                    {emqx, combine([conf_mqtt_listener(41883) || N =:= 1] ++ [ExtraConf])},
-                    {emqx_auth, #{}}
-                ]
-            }}
-         || N <- lists:seq(1, NumNodes)
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ).
+mk_interlinked_clusters(BaseName, NSource, NTarget, Config) ->
+    SourceName = fmt("~p_~p", [BaseName, s]),
+    TargetName = fmt("~p_~p", [BaseName, t]),
+    SourceLink = emqx_cluster_link_cth:mk_link_conf(2, TargetName, #{<<"topics">> => []}),
+    TargetLink = emqx_cluster_link_cth:mk_link_conf(1, SourceName, #{<<"topics">> => [<<"#">>]}),
+    SourceSpec = #{
+        apps => [
+            {emqx_conf, merge_conf(#{cluster => #{links => [SourceLink]}}, conf_log())}
+        ]
+    },
+    TargetSpec = #{
+        apps => [
+            {emqx_conf, merge_conf(#{cluster => #{links => [TargetLink]}}, conf_log())}
+        ]
+    },
+    {
+        emqx_cluster_link_cth:mk_cluster(1, SourceName, {NSource, SourceSpec}, Config),
+        emqx_cluster_link_cth:mk_cluster(2, TargetName, {NTarget, TargetSpec}, Config)
+    }.
 
-mk_target_cluster(BaseName, NumNodes, Config) ->
-    TargetConf = """
-        cluster {
-            name = cl.target
-            links = [
-              { enable = true
-                name = cl.source
-                server = "localhost:41883"
-                clientid = client.target
-                topics = ["#"]
-              }
-            ]
-        }
-    """,
-    ExtraConf = proplists:get_value(extra_conf, Config, ""),
-    emqx_cth_cluster:mk_nodespecs(
-        [
-            {mk_nodename(BaseName, t, N), #{
-                apps => [
-                    {emqx_conf, combine([TargetConf, conf_log()])},
-                    {emqx, combine([conf_mqtt_listener(31883) || N =:= 1] ++ [ExtraConf])},
-                    {emqx_auth, #{}}
-                ],
-                base_port => 20000 + 100 * N
-            }}
-         || N <- lists:seq(1, NumNodes)
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ).
-
-mk_nodename(BaseName, Suffix, N) ->
-    binary_to_atom(fmt("emqx_clink_~s_~s~p", [BaseName, Suffix, N])).
-
-conf_mqtt_listener(LPort) when is_integer(LPort) ->
-    fmt("listeners.tcp.clink { bind = ~p }", [LPort]);
-conf_mqtt_listener(_) ->
-    "".
+merge_conf(C1, C2) ->
+    emqx_cth_suite:merge_config(C1, C2).
 
 conf_log() ->
     "log.file { enable = true, level = info, path = node.log }".
 
-combine([Entry | Rest]) ->
-    lists:foldl(fun emqx_cth_suite:merge_config/2, Entry, Rest).
-
-start_cluster_link(Nodes, Config) ->
-    Results = lists:usort(
-        erpc:multicall(Nodes, emqx_cth_suite, start_apps, [
-            [emqx_cluster_link],
-            #{work_dir => emqx_cth_suite:work_dir(Config)}
-        ])
-    ),
-    lists:flatmap(fun({ok, Apps}) -> Apps end, Results).
-
-stop_cluster_link(Config) ->
-    Apps = ?config(tc_apps, Config),
-    Nodes = nodes_all(Config),
-    [{ok, ok}] = lists:usort(
-        erpc:multicall(Nodes, emqx_cth_suite, stop_apps, [Apps])
+wait_link_online_on(Nodes) ->
+    lists:foreach(
+        fun(N) ->
+            {ok, _} = ?block_until(
+                #{?snk_kind := "cluster_link_routerepl_online", ?snk_meta := #{node := N}},
+                5000
+            )
+        end,
+        Nodes
     ).
 
 %%
@@ -156,9 +104,11 @@ t_message_forwarding_sharesub(Config) ->
     test_message_forwarding(shared, Config).
 
 test_message_forwarding_init(TCName, Config) ->
-    SourceNodes = emqx_cth_cluster:start(mk_source_cluster(TCName, 2, Config)),
-    TargetNodes = emqx_cth_cluster:start(mk_target_cluster(TCName, 2, Config)),
     ok = snabbkaffe:start_trace(),
+    {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(TCName, 2, 2, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
     [
         {source_nodes, SourceNodes},
         {target_nodes, TargetNodes}
@@ -171,14 +121,15 @@ test_message_forwarding_end(_, Config) ->
     ok = emqx_cth_cluster:stop(?config(target_nodes, Config)).
 
 test_message_forwarding(SubType, Config) ->
-    SourceNodes = [SourceNode1 | _] = nodes_source(Config),
-    TargetNodes = [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    [SourceNode1 | _] = nodes_source(Config),
+    [TargetNode1, TargetNode2 | _] = nodes_target(Config),
     %% Connect client to the target cluster.
     TargetC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding1", TargetNode1),
     TargetC2 = emqx_cluster_link_cth:connect_client("t_message_forwarding2", TargetNode2),
     %% Connect a client to the source cluster.
     SourceC1 = emqx_cluster_link_cth:connect_client("t_message_forwarding", SourceNode1),
     ?check_trace(
+        #{timetrap => 30_000},
         try
             %% Subscribe both to different topics.
             T11 = mk_topic(SubType, <<"t1/+">>),
@@ -186,13 +137,12 @@ test_message_forwarding(SubType, Config) ->
             {ok, _, _} = emqtt:subscribe(TargetC1, T11, qos1),
             {ok, _, _} = emqtt:subscribe(TargetC2, T12, qos1),
             %% Start cluster link, existing routes should be replicated.
-            _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
             {ok, _} = ?block_until(#{
-                ?snk_kind := "cluster_link_routerepl_bootstrap_complete",
+                ?snk_kind := "cluster_link_route_sync_complete",
                 ?snk_meta := #{node := TargetNode1}
             }),
             {ok, _} = ?block_until(#{
-                ?snk_kind := "cluster_link_routerepl_bootstrap_complete",
+                ?snk_kind := "cluster_link_route_sync_complete",
                 ?snk_meta := #{node := TargetNode2}
             }),
             %% Publish a message to the source cluster.
@@ -209,9 +159,13 @@ test_message_forwarding(SubType, Config) ->
             %% Subscribe both clients to another pair of topics while cluster link is active.
             T21 = mk_topic(SubType, <<"t2/#">>),
             T22 = mk_topic(SubType, <<"t2/+/+">>),
-            {ok, _, _} = emqtt:subscribe(TargetC1, T21, qos1),
-            {ok, _, _} = emqtt:subscribe(TargetC2, T22, qos1),
-            {ok, _} = ?block_until(#{?snk_kind := "cluster_link_route_sync_complete"}),
+            ?wait_async_action(
+                begin
+                    {ok, _, _} = emqtt:subscribe(TargetC1, T21, qos1),
+                    {ok, _, _} = emqtt:subscribe(TargetC2, T22, qos1)
+                end,
+                #{?snk_kind := "cluster_link_route_sync_complete"}
+            ),
             %% Publish another message.
             {ok, _} = emqtt:publish(SourceC1, <<"t2/3/4">>, <<"heh">>, qos1),
             ?assertReceive(
@@ -229,20 +183,17 @@ test_message_forwarding(SubType, Config) ->
             ok = emqtt:stop(TargetC1),
             ok = emqtt:stop(TargetC2)
         end,
-        fun(_) -> ok end
+        []
     ).
 
 t_target_extrouting_gc('init', Config) ->
-    SourceCluster = mk_source_cluster(?FUNCTION_NAME, 1, Config),
-    SourceNodes = emqx_cth_cluster:start(SourceCluster),
-    TargetCluster = mk_target_cluster(?FUNCTION_NAME, 2, Config),
-    TargetNodes = emqx_cth_cluster:start(TargetCluster),
-    _Apps = start_cluster_link(SourceNodes ++ TargetNodes, Config),
     ok = snabbkaffe:start_trace(),
+    {SourceClusterSpec, TargetClusterSpec} = mk_interlinked_clusters(?FUNCTION_NAME, 1, 2, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    ok = wait_link_online_on(SourceNodes ++ TargetNodes),
     [
-        {source_cluster, SourceCluster},
         {source_nodes, SourceNodes},
-        {target_cluster, TargetCluster},
         {target_nodes, TargetNodes}
         | Config
     ];
@@ -254,10 +205,12 @@ t_target_extrouting_gc('end', Config) ->
 t_target_extrouting_gc(Config) ->
     [SourceNode1 | _] = nodes_source(Config),
     [TargetNode1, TargetNode2 | _] = nodes_target(Config),
+    TargetName = atom_to_binary(emqx_cluster_link_cth:cluster_name(TargetNode1)),
     SourceC1 = emqx_cluster_link_cth:connect_client("t_target_extrouting_gc", SourceNode1),
     TargetC1 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc1", TargetNode1),
     TargetC2 = emqx_cluster_link_cth:connect_client_unlink("t_target_extrouting_gc2", TargetNode2),
     ?check_trace(
+        #{timetrap => 30_000},
         begin
             TopicFilter1 = <<"t/+">>,
             TopicFilter2 = <<"t/#">>,
@@ -279,14 +232,14 @@ t_target_extrouting_gc(Config) ->
             %% would stay down and stop replicating messages.
             {ok, _} = ?wait_async_action(
                 emqx_cth_cluster:stop_node(TargetNode2),
-                #{?snk_kind := "cluster_link_extrouter_actor_cleaned", cluster := <<"cl.target">>}
+                #{?snk_kind := "cluster_link_extrouter_actor_cleaned", cluster := TargetName}
             ),
             {ok, _} = emqtt:publish(SourceC1, <<"t/4/ext">>, <<"HELLO4">>, qos1),
             {ok, _} = emqtt:publish(SourceC1, <<"t/5">>, <<"HELLO5">>, qos1),
             Pubs2 = [M || {publish, M} <- ?drainMailbox(1_000)],
             {ok, _} = ?wait_async_action(
                 emqx_cth_cluster:stop_node(TargetNode1),
-                #{?snk_kind := "cluster_link_extrouter_actor_cleaned", cluster := <<"cl.target">>}
+                #{?snk_kind := "cluster_link_extrouter_actor_cleaned", cluster := TargetName}
             ),
             ok = emqtt:stop(SourceC1),
             %% Verify that extrouter table eventually becomes empty.
