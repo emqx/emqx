@@ -17,6 +17,10 @@
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
+%% See `DataType` in `priv/sparkplug_b.proto`.
+-define(uint32_type, 7).
+-define(string_type, 12).
+
 -define(assertReceivePublish(EXPR, GUARD, EXTRA, TIMEOUT),
     (fun() ->
         lists:foreach(
@@ -186,8 +190,9 @@ spb_topic(NodeOrDevice, MsgType, Opts) ->
 create_rule(RuleTopic) ->
     create_rule(RuleTopic, _Opts = #{}).
 
-create_rule(RuleTopic, _Opts) ->
-    SQL = <<"select topic, spb_decode(payload) as decoded from \"${t}\" ">>,
+create_rule(RuleTopic, Opts) ->
+    DefaultSQL = <<"select topic, spb_decode(payload) as decoded from \"${t}\" ">>,
+    SQL = maps:get(sql, Opts, DefaultSQL),
     UniqueNum = integer_to_binary(erlang:unique_integer([positive])),
     RepublishTopic = <<"repub/", UniqueNum/binary>>,
     {201, _} = emqx_bridge_v2_testlib:create_rule_api2(#{
@@ -298,6 +303,68 @@ singleton_aliased_metric(Name, Alias) ->
         <<"metrics">> => [Point],
         <<"seq">> => 88,
         <<"timestamp">> => 1678094561521
+    }.
+
+payload_with_nested_property_sets() ->
+    #{
+        <<"metrics">> => [
+            %% Property sets in `properties`
+            #{
+                <<"properties">> => #{
+                    <<"keys">> => [
+                        <<"leaf">>,
+                        <<"nested_prop">>,
+                        <<"nested_prop_list">>
+                    ],
+                    <<"values">> => [
+                        #{<<"int_value">> => 99},
+                        #{
+                            <<"propertyset_value">> =>
+                                #{
+                                    <<"keys">> => [<<"inner">>],
+                                    <<"values">> => [#{<<"int_value">> => 999}]
+                                }
+                        },
+                        #{
+                            <<"propertysets_value">> =>
+                                #{
+                                    <<"propertyset">> => [
+                                        #{
+                                            <<"keys">> => [<<"inner1">>],
+                                            <<"values">> => [#{<<"int_value">> => 1}]
+                                        },
+                                        #{
+                                            <<"keys">> => [<<"inner2">>],
+                                            <<"values">> => [#{<<"int_value">> => 2}]
+                                        }
+                                    ]
+                                }
+                        }
+                    ]
+                }
+            },
+            %% Property sets in `dataset_value`
+            #{
+                <<"dataset_value">> => #{
+                    <<"columns">> => [<<"col1">>, <<"col2">>],
+                    <<"types">> => [?uint32_type, ?string_type],
+                    <<"rows">> => [
+                        #{
+                            <<"elements">> => [
+                                #{<<"int_value">> => 3},
+                                #{<<"string_value">> => <<"3">>}
+                            ]
+                        },
+                        #{
+                            <<"elements">> => [
+                                #{<<"int_value">> => 4},
+                                #{<<"string_value">> => <<"4">>}
+                            ]
+                        }
+                    ]
+                }
+            }
+        ]
     }.
 
 create_connector_api(TCConfig, Overrides) ->
@@ -708,4 +775,114 @@ t_disabled(_TCConfig) ->
         not is_map_key(<<"name">>, M),
         #{data_topic => NDataTopic}
     ),
+    ok.
+
+-doc """
+Tests the behavior of the `spb_zip_propsets` Rule SQL function.
+
+- Expects a valid, decoded sparkplugb message.
+
+- `properties` (and any nested `PropertySet` values) have their `keys` and `values` fields
+  removed and have a `_kvs` key added, whose value is the values of the two former fields
+  zipped together (_à la_ `maps:from_list(lists:zip(Keys, Values))`).  Values that have
+  the `PropertySet` or `PropertySetList` types are recursively transformed like this.
+
+- Values of `PropertySetList` type have their `propertyset` field removed, and a new
+  `_kvs` field is added with the already zipped `PropertySets` from its value, following
+  the above item's description.
+
+- If present, `dataset_value` field is transformed in a similar fashion: its `columns` and
+  `rows` fields are removed and their values zipped together in an object under a new
+  `_kvs` field.
+
+- Other values/fields are untouched.
+
+""".
+t_property_sets(_TCConfig) ->
+    NDataTopic = ndata_topic(),
+    SQL = <<"select spb_zip_propsets(spb_decode(payload)) as decoded from \"${t}\" ">>,
+    #{republish_topic := RepublishTopic} = create_rule(NDataTopic, #{sql => SQL}),
+    C = start_client(),
+    {ok, _, _} = emqtt:subscribe(C, RepublishTopic, 1),
+    publish_ndata(C, payload_with_nested_property_sets()),
+
+    #{
+        payload := #{
+            <<"decoded">> := #{
+                <<"metrics">> := [
+                    #{<<"properties">> := M1Props},
+                    #{<<"dataset_value">> := M2DV}
+                ]
+            }
+        }
+    } =
+        ?assertReceivePublish(
+            #{
+                payload := #{
+                    <<"decoded">> := #{
+                        <<"metrics">> := [
+                            #{<<"properties">> := _},
+                            #{<<"dataset_value">> := _}
+                        ]
+                    }
+                }
+            },
+            #{data_topic => NDataTopic}
+        ),
+    ?assertMatch(
+        #{
+            <<"_kvs">> :=
+                #{
+                    <<"leaf">> := #{<<"int_value">> := 99},
+                    <<"nested_prop">> := #{
+                        <<"propertyset_value">> :=
+                            #{<<"_kvs">> := #{<<"inner">> := #{<<"int_value">> := 999}}}
+                    },
+                    <<"nested_prop_list">> :=
+                        #{
+                            <<"propertysets_value">> :=
+                                #{
+                                    <<"_kvs">> :=
+                                        [
+                                            #{
+                                                <<"_kvs">> :=
+                                                    #{<<"inner1">> := #{<<"int_value">> := 1}}
+                                            },
+                                            #{
+                                                <<"_kvs">> :=
+                                                    #{<<"inner2">> := #{<<"int_value">> := 2}}
+                                            }
+                                        ]
+                                }
+                        }
+                }
+        },
+        M1Props
+    ),
+    ?assertMatch(
+        #{
+            <<"_kvs">> :=
+                #{
+                    <<"col1">> :=
+                        #{
+                            <<"elements">> :=
+                                [
+                                    #{<<"int_value">> := 3},
+                                    #{<<"string_value">> := <<"3">>}
+                                ]
+                        },
+                    <<"col2">> :=
+                        #{
+                            <<"elements">> :=
+                                [
+                                    #{<<"int_value">> := 4},
+                                    #{<<"string_value">> := <<"4">>}
+                                ]
+                        }
+                },
+            <<"types">> := [?uint32_type, ?string_type]
+        },
+        M2DV
+    ),
+
     ok.
