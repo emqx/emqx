@@ -94,7 +94,7 @@
     resource_exception,
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
-    retained_dispatch_failed_for_rate_exceeded_limit,
+    retained_fetch_rate_limit_exceeded,
     retained_delete_failed_for_rate_exceeded_limit,
     socket_receive_paused_by_rate_limit,
     streams_message_db_key_expression_error,
