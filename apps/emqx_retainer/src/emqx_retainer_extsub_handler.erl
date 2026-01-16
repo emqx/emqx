@@ -24,6 +24,7 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
 
 -define(init, init).
@@ -60,6 +61,8 @@
 %% `emqx_extsub_handler' API
 %%------------------------------------------------------------------------------
 
+handle_subscribe(_SubscribeType, _SubscribeCtx, _Handler, #share{}) ->
+    ignore;
 handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
     IsNew =
         case {SubscribeType, SubscribeCtx} of

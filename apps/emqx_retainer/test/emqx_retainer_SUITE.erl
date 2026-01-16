@@ -779,6 +779,41 @@ t_dispatch_rate_limit_wildcard(_) ->
 
     ok.
 
+-doc """
+Smoke test for subscribing to a topic containing a retained message using shared
+subscriptions:
+
+> No Retained Messages are sent to the Session when it first subscribes. It will be sent
+  other matching messages as they are published.
+""".
+t_shared_subscription(_TCConfig) ->
+    QoS = 1,
+    Payload = <<"I shouldn't be delivered...">>,
+    Topic = <<"smoke/shared_sub">>,
+    Msg = emqx_message:make(<<"sender">>, QoS, Topic, Payload, #{retain => true}, #{}),
+    emqx:publish(Msg),
+
+    {ok, C} = emqtt:start_link(#{clean_start => true, proto_ver => v5}),
+    {ok, _} = emqtt:connect(C),
+
+    %% Non-wildcard subscription
+    {ok, _, _} = emqtt:subscribe(C, <<"$share/g_retained/", Topic/binary>>),
+    ?assertNotReceive({publish, _}),
+
+    %% Using wildcard
+    {ok, _, _} = emqtt:subscribe(C, <<"$share/g_retained/+/shared_sub">>),
+    ?assertNotReceive({publish, _}),
+
+    %% Queue topics (special shared subs)
+    {ok, _, _} = emqtt:subscribe(C, <<"$queue/", Topic/binary>>),
+    ?assertNotReceive({publish, _}),
+
+    {ok, _, _} = emqtt:subscribe(C, <<"$queue/+/shared_sub">>),
+    ?assertNotReceive({publish, _}),
+
+    emqtt:stop(C),
+    ok.
+
 t_clear_expired(Config) ->
     ConfMod = fun(Conf) ->
         Conf#{
