@@ -705,6 +705,110 @@ node_role_conf(Role0) ->
     {ok, ConfMap} = hocon:binary(Hocon, #{format => map}),
     ConfMap.
 
+validate_cookie_test_() ->
+    [
+        {"empty cookie", fun() ->
+            with_file(
+                "emqx-conf-cookie-empty.hocon",
+                "node {cookie = \"\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie must be non-empty string"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-empty.hocon")
+                    )
+                end
+            )
+        end},
+        {"cookie too long", fun() ->
+            LongCookie = lists:duplicate(256, $a),
+            Conf = io_lib:format("node {cookie = \"~s\", data_dir = \".\"}", [LongCookie]),
+            with_file(
+                "emqx-conf-cookie-long.hocon",
+                Conf,
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot be more than 255 bytes"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-long.hocon")
+                    )
+                end
+            )
+        end},
+        {"cookie with backslash", fun() ->
+            with_file(
+                "emqx-conf-cookie-backslash.hocon",
+                "node {cookie = \"my\\\\cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: backslash (\\)"}},
+                        emqx_hocon:load_and_check(
+                            emqx_conf_schema, "emqx-conf-cookie-backslash.hocon"
+                        )
+                    )
+                end
+            )
+        end},
+        {"cookie with single quote", fun() ->
+            with_file(
+                "emqx-conf-cookie-squote.hocon",
+                "node {cookie = \"my'cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: single quote (')"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-squote.hocon")
+                    )
+                end
+            )
+        end},
+        {"cookie with double quote", fun() ->
+            with_file(
+                "emqx-conf-cookie-dquote.hocon",
+                "node {cookie = \"my\\\"cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: double quote (\")"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-dquote.hocon")
+                    )
+                end
+            )
+        end},
+        {"cookie with space", fun() ->
+            with_file(
+                "emqx-conf-cookie-space.hocon",
+                "node {cookie = \"my cookie\", data_dir = \".\"}",
+                fun() ->
+                    ?assertMatch(
+                        {error, #{reason := "Cookie cannot contain character: space"}},
+                        emqx_hocon:load_and_check(emqx_conf_schema, "emqx-conf-cookie-space.hocon")
+                    )
+                end
+            )
+        end}
+    ].
+
+validate_tls_stateless_tickets_seed_test_() ->
+    [
+        {"empty seed is ok", fun() ->
+            ?assertEqual(ok, emqx_conf_schema:validate_tls_stateless_tickets_seed(<<>>))
+        end},
+        {"seed with 16+ bytes is ok", fun() ->
+            ?assertEqual(
+                ok, emqx_conf_schema:validate_tls_stateless_tickets_seed(<<"1234567890123456">>)
+            )
+        end},
+        {"seed too short", fun() ->
+            ?assertMatch(
+                {error, "tls_stateless_tickets_seed must be at least 16 bytes" ++ _},
+                emqx_conf_schema:validate_tls_stateless_tickets_seed(<<"short">>)
+            )
+        end},
+        {"seed must be string", fun() ->
+            ?assertEqual(
+                {error, "tls_stateless_tickets_seed must be a string value"},
+                emqx_conf_schema:validate_tls_stateless_tickets_seed(12345)
+            )
+        end}
+    ].
+
 fix_log_dir_path_test() ->
     ?assertEqual(
         "/opt/emqx/log/a.log",
