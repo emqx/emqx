@@ -14,16 +14,47 @@
 -define(GREPTIMEDB_RESOURCE_MOD, emqx_bridge_greptimedb_connector).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, tcp},
+        {group, tls}
+    ].
 
 groups() ->
-    [].
+    TCs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {tcp, TCs},
+        {tls, TCs}
+    ].
 
 init_per_suite(Config) ->
-    GreptimedbTCPHost = os:getenv("GREPTIMEDB_GRPCV1_TCP_HOST", "toxiproxy"),
-    GreptimedbTCPPort = list_to_integer(os:getenv("GREPTIMEDB_GRPCV1_TCP_PORT", "4001")),
-    Servers = [{GreptimedbTCPHost, GreptimedbTCPPort}],
-    case emqx_common_test_helpers:is_all_tcp_servers_available(Servers) of
+    Config.
+
+end_per_suite(_Config) ->
+    ok.
+
+init_per_group(tcp, Config) ->
+    GreptimedbHost = os:getenv("GREPTIMEDB_GRPCV1_TCP_HOST", "toxiproxy"),
+    GreptimedbPort = list_to_integer(os:getenv("GREPTIMEDB_GRPCV1_TCP_PORT", "4001")),
+    common_init_per_group(
+        GreptimedbHost,
+        GreptimedbPort,
+        _EnableTLS = false,
+        Config
+    );
+init_per_group(tls, Config) ->
+    GreptimedbHost = os:getenv("GREPTIMEDB_GRPCV1_TLS_HOST", "toxiproxy"),
+    GreptimedbPort = list_to_integer(os:getenv("GREPTIMEDB_GRPCV1_TLS_PORT", "4101")),
+    common_init_per_group(
+        GreptimedbHost,
+        GreptimedbPort,
+        _EnableTLS = true,
+        Config
+    );
+init_per_group(_Group, Config) ->
+    Config.
+
+common_init_per_group(GreptimedbHost, GreptimedbPort, EnableTLS, Config) ->
+    case emqx_common_test_helpers:is_tcp_server_available(GreptimedbHost, GreptimedbPort) of
         true ->
             Apps = emqx_cth_suite:start(
                 [
@@ -36,8 +67,9 @@ init_per_suite(Config) ->
             ),
             [
                 {apps, Apps},
-                {greptimedb_tcp_host, GreptimedbTCPHost},
-                {greptimedb_tcp_port, GreptimedbTCPPort}
+                {greptimedb_host, GreptimedbHost},
+                {greptimedb_port, GreptimedbPort},
+                {enable_tls, EnableTLS}
                 | Config
             ];
         false ->
@@ -49,9 +81,11 @@ init_per_suite(Config) ->
             end
     end.
 
-end_per_suite(Config) ->
+end_per_group(Group, Config) when Group =:= tcp; Group =:= tls ->
     Apps = ?config(apps, Config),
     emqx_cth_suite:stop(Apps),
+    ok;
+end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(_, Config) ->
@@ -65,11 +99,12 @@ end_per_testcase(_, _Config) ->
 % %%------------------------------------------------------------------------------
 
 t_lifecycle(Config) ->
-    Host = ?config(greptimedb_tcp_host, Config),
-    Port = ?config(greptimedb_tcp_port, Config),
+    Host = ?config(greptimedb_host, Config),
+    Port = ?config(greptimedb_port, Config),
+    EnableTLS = ?config(enable_tls, Config),
     perform_lifecycle_check(
         <<"emqx_bridge_greptimedb_connector_SUITE">>,
-        greptimedb_connector_config(Host, Port)
+        greptimedb_connector_config(Host, Port, EnableTLS)
     ).
 
 perform_lifecycle_check(PoolName, InitialConfig) ->
@@ -138,13 +173,17 @@ perform_lifecycle_check(PoolName, InitialConfig) ->
 % %% Helpers
 % %%------------------------------------------------------------------------------
 
-greptimedb_connector_config(Host, Port) ->
+greptimedb_connector_config(Host, Port, EnableTLS) ->
     Server = list_to_binary(io_lib:format("~s:~b", [Host, Port])),
     ResourceConfig = #{
         <<"dbname">> => <<"public">>,
         <<"server">> => Server,
         <<"username">> => <<"greptime_user">>,
-        <<"password">> => <<"greptime_pwd">>
+        <<"password">> => <<"greptime_pwd">>,
+        <<"ssl">> => #{
+            <<"enable">> => EnableTLS,
+            <<"verify">> => <<"verify_none">>
+        }
     },
     #{<<"config">> => ResourceConfig}.
 

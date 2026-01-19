@@ -44,17 +44,15 @@ groups() ->
             {group, async_query}
         ]},
         {sync_query, [
-            {group, grpcv1_tcp}
-            %% uncomment tls when we are ready
-            %% {group, grpcv1_tls}
+            {group, grpcv1_tcp},
+            {group, grpcv1_tls}
         ]},
         {async_query, [
-            {group, grpcv1_tcp}
-            %% uncomment tls when we are ready
-            %% {group, grpcv1_tls}
+            {group, grpcv1_tcp},
+            {group, grpcv1_tls}
         ]},
-        {grpcv1_tcp, TCs}
-        %%{grpcv1_tls, TCs}
+        {grpcv1_tcp, TCs},
+        {grpcv1_tls, TCs}
     ].
 
 init_per_suite(Config) ->
@@ -89,10 +87,10 @@ init_per_group(GreptimedbType, Config0) when
             grpcv1_tls ->
                 #{
                     host => os:getenv("GREPTIMEDB_GRPCV1_TLS_HOST", "toxiproxy"),
-                    port => list_to_integer(os:getenv("GREPTIMEDB_GRPCV1_TLS_PORT", "4001")),
-                    http_port => list_to_integer(os:getenv("GREPTIMEDB_HTTP_PORT", "4000")),
+                    port => list_to_integer(os:getenv("GREPTIMEDB_GRPCV1_TLS_PORT", "4101")),
+                    http_port => list_to_integer(os:getenv("GREPTIMEDB_HTTP_TLS_PORT", "4100")),
                     use_tls => true,
-                    proxy_name => "greptimedb_tls"
+                    proxy_name => "greptimedb_grpc_tls"
                 }
         end,
     case emqx_common_test_helpers:is_tcp_server_available(GreptimedbHost, GreptimedbHttpPort) of
@@ -115,17 +113,14 @@ init_per_group(GreptimedbType, Config0) when
             ),
             EHttpcPoolNameBin = <<(atom_to_binary(?MODULE))/binary, "_http">>,
             EHttpcPoolName = binary_to_atom(EHttpcPoolNameBin),
-            {EHttpcTransport, EHttpcTransportOpts} =
-                case UseTLS of
-                    true -> {tls, [{verify, verify_none}]};
-                    false -> {tcp, []}
-                end,
+            %% HTTP is always plain TCP (no TLS) - only gRPC uses TLS
+            %% HTTP is only used for test verification queries
             EHttpcPoolOpts = [
                 {host, GreptimedbHost},
                 {port, GreptimedbHttpPort},
                 {pool_size, 1},
-                {transport, EHttpcTransport},
-                {transport_opts, EHttpcTransportOpts}
+                {transport, tcp},
+                {transport_opts, []}
             ],
             {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
             [
@@ -377,15 +372,10 @@ query_by_sql(SQL, Config) ->
     GreptimedbHost = ?config(greptimedb_host, Config),
     GreptimedbPort = ?config(greptimedb_http_port, Config),
     EHttpcPoolName = ?config(ehttpc_pool_name, Config),
-    UseTLS = ?config(use_tls, Config),
     Path = <<"/v1/sql?db=public">>,
-    Scheme =
-        case UseTLS of
-            true -> <<"https://">>;
-            false -> <<"http://">>
-        end,
+    %% HTTP is always plain (no TLS) - only gRPC uses TLS for the bridge
     URI = iolist_to_binary([
-        Scheme,
+        <<"http://">>,
         list_to_binary(GreptimedbHost),
         ":",
         integer_to_binary(GreptimedbPort),
@@ -794,14 +784,27 @@ t_const_timestamp(Config) ->
 %% formed options.
 t_ts_column(TCConfig) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    GreptimedbHost = ?config(greptimedb_host, TCConfig),
+    GreptimedbPort = ?config(greptimedb_port, TCConfig),
+    UseTLS = ?config(use_tls, TCConfig),
+    Server = iolist_to_binary([GreptimedbHost, ":", integer_to_binary(GreptimedbPort)]),
+    SSLOpts =
+        case UseTLS of
+            true -> #{<<"ssl">> => #{<<"enable">> => true, <<"verify">> => <<"verify_none">>}};
+            false -> #{}
+        end,
+    ConnectorOverrides = maps:merge(
+        #{
+            <<"server">> => Server,
+            <<"ts_column">> => <<"event_time">>
+        },
+        SSLOpts
+    ),
     Config = [
         {bridge_kind, action},
         {connector_type, ?CONNECTOR_TYPE},
         {connector_name, Name},
-        {connector_config,
-            connector_config(#{
-                <<"ts_column">> => <<"event_time">>
-            })},
+        {connector_config, connector_config(ConnectorOverrides)},
         {action_type, ?ACTION_TYPE},
         {action_name, Name},
         {action_config,
