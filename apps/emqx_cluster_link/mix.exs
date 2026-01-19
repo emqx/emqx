@@ -5,7 +5,7 @@ defmodule EMQXClusterLink.MixProject do
   def project do
     [
       app: :emqx_cluster_link,
-      version: "6.0.2",
+      version: "6.0.3",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -18,7 +18,13 @@ defmodule EMQXClusterLink.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_cluster_link_app, []}]
+    [
+      extra_applications: UMP.extra_applications(),
+      mod: {:emqx_cluster_link_app, []},
+      env: [
+        routerepl_actor_reconnect_timeout: 5000
+      ]
+    ]
   end
 
   def deps() do
