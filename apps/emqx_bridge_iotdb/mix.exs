@@ -5,7 +5,7 @@ defmodule EMQXBridgeIotdb.MixProject do
   def project do
     [
       app: :emqx_bridge_iotdb,
-      version: "6.0.2",
+      version: "6.0.3",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -29,7 +29,7 @@ defmodule EMQXBridgeIotdb.MixProject do
 
   def deps() do
     UMP.deps([
-      {:iotdb, github: "emqx/iotdb-client-erl", tag: "0.2.1"},
+      {:iotdb, github: "emqx/iotdb-client-erl", tag: "0.2.2"},
       {:emqx_connector, in_umbrella: true, runtime: false},
       {:emqx_resource, in_umbrella: true},
       {:emqx_bridge, in_umbrella: true, runtime: false},

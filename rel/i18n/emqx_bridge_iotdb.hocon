@@ -53,6 +53,17 @@ config_iotdb_version.desc:
 config_iotdb_version.label:
 """IoTDB Version"""
 
+config_write_to_table.desc:
+"""Whether to write the data to IoTDB table or timeseries.
+Note: When it's true, the connector must also have "SQL Dialect" set to "table"."""
+config_write_to_table.label:
+"""Write To Table"""
+
+config_table_name.desc:
+"""The name of the IoTDB table to which the data will be written."""
+config_table_name.label:
+"""Table Name"""
+
 config_max_retries.desc:
 """HTTP request max retry times if failed."""
 
@@ -102,6 +113,14 @@ config_parameters_data_type.desc:
 
 config_parameters_data_type.label:
 """Data type"""
+
+config_parameters_column_category.desc:
+"""Column type. Only valid in table mode. Optional values are:
+- <code>tag</code>
+- <code>field</code>
+- <code>attribute</code>"""
+config_parameters_column_category.label:
+"""Column Category"""
 
 config_parameters_value.desc:
 """Value. Placeholders in format of ${var} is supported"""
