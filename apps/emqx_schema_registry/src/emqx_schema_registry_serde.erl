@@ -171,17 +171,18 @@ rsf_schema_decode_tagged([RegistryName, Data | Args]) ->
 - Expects a valid, decoded sparkplugb message.
 
 - `properties` (and any nested `PropertySet` values) have their `keys` and `values` fields
-  removed and have a `_kvs` key added, whose value is the values of the two former fields
-  zipped together (_à la_ `maps:from_list(lists:zip(Keys, Values))`).  Values that have
-  the `PropertySet` or `PropertySetList` types are recursively transformed like this.
+  removed and the values of the two former fields zipped together (_à la_
+  `maps:from_list(lists:zip(Keys, Values))`) and merged with the original map.  Values
+  that have the `PropertySet` or `PropertySetList` types are recursively transformed like
+  this.
 
-- Values of `PropertySetList` type have their `propertyset` field removed, and a new
-  `_kvs` field is added with the already zipped `PropertySets` from its value, following
-  the above item's description.
+- Values of `PropertySetList` type have their `propertyset` field removed and replaced by
+  an array of `PropertySet`s, transformed following the above item's description.
 
-- `dataset_value` field is zipped in a similar fashion:
+- `dataset_value` field is zipped in a similar fashion.
 
-- Other values/fields are untouched.
+- Other standard values/fields are untouched.  Extensions that are not present in our SpB
+  schema are already silently ignored, so they won't appear in the output.
 """.
 rsf_spb_zip_propsets([#{} = Data0]) ->
     emqx_utils_maps:update_if_present(
@@ -877,20 +878,18 @@ do_zip_property_set(#{<<"keys">> := Keys, <<"values">> := Values} = PS0) when
                 lists:zip(Keys, Values)
             ),
             PS = maps:without([<<"keys">>, <<"values">>], PS0),
-            PS#{<<"_kvs">> => Zipped}
+            maps:merge(PS, Zipped)
     end;
 do_zip_property_set(#{<<"propertyset_value">> := PSV0} = PS0) ->
     PS0#{<<"propertyset_value">> := do_zip_property_set(PSV0)};
 do_zip_property_set(
-    #{<<"propertysets_value">> := #{<<"propertyset">> := PropertySets} = PSLV0} = PSL0
+    #{<<"propertysets_value">> := #{<<"propertyset">> := PropertySets}} = PSL0
 ) when
     is_list(PropertySets)
 ->
     %% `PropertySetList`
     Zipped = lists:map(fun do_zip_property_set/1, PropertySets),
-    PSLV1 = maps:remove(<<"propertyset">>, PSLV0),
-    PSLV = PSLV1#{<<"_kvs">> => Zipped},
-    PSL0#{<<"propertysets_value">> := PSLV};
+    PSL0#{<<"propertysets_value">> := Zipped};
 do_zip_property_set(X) ->
     %% Not a (valid) property set or property set list.
     X.
@@ -912,7 +911,7 @@ do_zip_dataset(#{<<"columns">> := Columns, <<"rows">> := Rows} = DS0) when
                 lists:zip(Columns, Rows)
             ),
             DS = maps:without([<<"columns">>, <<"rows">>], DS0),
-            DS#{<<"_kvs">> => Zipped}
+            maps:merge(DS, Zipped)
     end;
 do_zip_dataset(X) ->
     %% Not a valid data set.

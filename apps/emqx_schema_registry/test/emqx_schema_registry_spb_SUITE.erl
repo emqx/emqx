@@ -831,54 +831,37 @@ t_property_sets(_TCConfig) ->
         ),
     ?assertMatch(
         #{
-            <<"_kvs">> :=
+            <<"leaf">> := #{<<"int_value">> := 99},
+            <<"nested_prop">> := #{
+                <<"propertyset_value">> := #{<<"inner">> := #{<<"int_value">> := 999}}
+            },
+            <<"nested_prop_list">> :=
                 #{
-                    <<"leaf">> := #{<<"int_value">> := 99},
-                    <<"nested_prop">> := #{
-                        <<"propertyset_value">> :=
-                            #{<<"_kvs">> := #{<<"inner">> := #{<<"int_value">> := 999}}}
-                    },
-                    <<"nested_prop_list">> :=
-                        #{
-                            <<"propertysets_value">> :=
-                                #{
-                                    <<"_kvs">> :=
-                                        [
-                                            #{
-                                                <<"_kvs">> :=
-                                                    #{<<"inner1">> := #{<<"int_value">> := 1}}
-                                            },
-                                            #{
-                                                <<"_kvs">> :=
-                                                    #{<<"inner2">> := #{<<"int_value">> := 2}}
-                                            }
-                                        ]
-                                }
-                        }
+                    <<"propertysets_value">> := [
+                        #{<<"inner1">> := #{<<"int_value">> := 1}},
+                        #{<<"inner2">> := #{<<"int_value">> := 2}}
+                    ]
                 }
         },
         M1Props
     ),
     ?assertMatch(
         #{
-            <<"_kvs">> :=
+            <<"col1">> :=
                 #{
-                    <<"col1">> :=
-                        #{
-                            <<"elements">> :=
-                                [
-                                    #{<<"int_value">> := 3},
-                                    #{<<"string_value">> := <<"3">>}
-                                ]
-                        },
-                    <<"col2">> :=
-                        #{
-                            <<"elements">> :=
-                                [
-                                    #{<<"int_value">> := 4},
-                                    #{<<"string_value">> := <<"4">>}
-                                ]
-                        }
+                    <<"elements">> :=
+                        [
+                            #{<<"int_value">> := 3},
+                            #{<<"string_value">> := <<"3">>}
+                        ]
+                },
+            <<"col2">> :=
+                #{
+                    <<"elements">> :=
+                        [
+                            #{<<"int_value">> := 4},
+                            #{<<"string_value">> := <<"4">>}
+                        ]
                 },
             <<"types">> := [?uint32_type, ?string_type]
         },
