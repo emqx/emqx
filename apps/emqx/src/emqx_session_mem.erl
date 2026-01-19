@@ -212,7 +212,7 @@ open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
             Session0 = resume(ClientInfo, SessionRemote),
             Session1 = resize_inflight(ConnInfo, Session0),
             Session2 = apply_conf(Conf, Session1),
-            Session = fliter_remote_session(Session2),
+            Session = filter_remote_session(Session2),
             {true, Session, TakeoverState};
         none ->
             false
@@ -232,7 +232,7 @@ apply_conf(Conf, Session = #session{}) ->
         await_rel_timeout = maps:get(await_rel_timeout, Conf)
     }.
 
-fliter_remote_session(Session = #session{mqueue = Q}) ->
+filter_remote_session(Session = #session{mqueue = Q}) ->
     Q1 = emqx_mqueue:filter(fun emqx_session:should_keep/1, Q),
     Session#session{mqueue = Q1}.
 
