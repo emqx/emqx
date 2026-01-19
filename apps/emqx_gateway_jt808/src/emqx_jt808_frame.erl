@@ -656,7 +656,9 @@ serialize(Json) ->
             true -> maps:get(<<"body">>, Json);
             false -> <<>>
         end,
-    BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body),
+    %% Extract proto_ver for version-aware body serialization (0 for 2013, >=1 for 2019)
+    ProtoVer = maps:get(<<"proto_ver">>, Header, 0),
+    BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body, ProtoVer),
     %% TODO: encrypt body here
     Header2 = maps:put(<<"len">>, size(BodyStream), Header),
     HeaderStream = serialize_header(Header2),
@@ -710,23 +712,31 @@ serialize_header(
         1 -> <<Binary/binary, Total:?WORD, Seq:?WORD>>
     end.
 
-serialize_body(?MS_GENERAL_RESPONSE, Body) ->
+serialize_body(?MS_GENERAL_RESPONSE, Body, _ProtoVer) ->
     Seq = maps:get(<<"seq">>, Body),
     Id = maps:get(<<"id">>, Body),
     Result = maps:get(<<"result">>, Body),
     <<Seq:?WORD, Id:?WORD, Result:?BYTE>>;
-serialize_body(?MS_REQUEST_FRAGMENT, Body) ->
+serialize_body(?MS_REQUEST_FRAGMENT, Body, ProtoVer) when ProtoVer >= 1 ->
+    %% 2019 format: Length is WORD (changed from BYTE in 2013)
+    Seq = maps:get(<<"seq">>, Body),
+    Length = maps:get(<<"length">>, Body),
+    Ids = maps:get(<<"ids">>, Body),
+    LastStream = encode_word_array(Length, Ids, <<>>),
+    <<Seq:?WORD, Length:?WORD, LastStream/binary>>;
+serialize_body(?MS_REQUEST_FRAGMENT, Body, _ProtoVer) ->
+    %% 2013 format: Length is BYTE
     Seq = maps:get(<<"seq">>, Body),
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     LastStream = encode_word_array(Length, Ids, <<>>),
     <<Seq:?WORD, Length:?BYTE, LastStream/binary>>;
-serialize_body(?MS_SERVER_TIME_ACK, Body) ->
+serialize_body(?MS_SERVER_TIME_ACK, Body, _ProtoVer) ->
     %% 2019: Server time response - BCD[6] UTC time
     Time = maps:get(<<"time">>, Body),
     TimeBCD = to_bcd(Time, 6),
     TimeBCD;
-serialize_body(?MS_REGISTER_ACK, Body) ->
+serialize_body(?MS_REGISTER_ACK, Body, _ProtoVer) ->
     Seq = maps:get(<<"seq">>, Body),
     %% XXX: replaced by maroc?
     Result = maps:get(<<"result">>, Body),
@@ -738,23 +748,23 @@ serialize_body(?MS_REGISTER_ACK, Body) ->
             %% If the terminal regiter failed, it don't contain auth code
             <<Seq:?WORD, Result:?BYTE>>
     end;
-serialize_body(?MS_SET_CLIENT_PARAM, Body) ->
+serialize_body(?MS_SET_CLIENT_PARAM, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     ParamList = maps:get(<<"params">>, Body),
     serialize_client_param(<<Length:?BYTE>>, ParamList);
-serialize_body(?MS_QUERY_CLIENT_ALL_PARAM, _Body) ->
+serialize_body(?MS_QUERY_CLIENT_ALL_PARAM, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_QUERY_CLIENT_PARAM, Body) ->
+serialize_body(?MS_QUERY_CLIENT_PARAM, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     List = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, List, <<Length:?BYTE>>);
-serialize_body(?MS_CLIENT_CONTROL, Body) ->
+serialize_body(?MS_CLIENT_CONTROL, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     <<Command:?BYTE, Param/binary>>;
-serialize_body(?MS_QUERY_CLIENT_ATTRIB, _Body) ->
+serialize_body(?MS_QUERY_CLIENT_ATTRIB, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_OTA, Body) ->
+serialize_body(?MS_OTA, Body, _ProtoVer) ->
     %% TODO: OTA in this way?
     Type = maps:get(<<"type">>, Body),
     Manuf = maps:get(<<"manufacturer">>, Body),
@@ -763,77 +773,90 @@ serialize_body(?MS_OTA, Body) ->
     FwLen = maps:get(<<"fw_len">>, Body),
     Firmware = maps:get(<<"firmware">>, Body),
     <<Type:?BYTE, Manuf:5/binary, VerLength:?BYTE, Version/binary, FwLen:?DWORD, Firmware/binary>>;
-serialize_body(?MS_QUERY_LOCATION, _Body) ->
+serialize_body(?MS_QUERY_LOCATION, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_TRACE_LOCATION, Body) ->
+serialize_body(?MS_TRACE_LOCATION, Body, _ProtoVer) ->
     Period = maps:get(<<"period">>, Body),
     Expiry = maps:get(<<"expiry">>, Body),
     <<Period:?WORD, Expiry:?DWORD>>;
-serialize_body(?MS_CONFIRM_ALARM, Body) ->
+serialize_body(?MS_CONFIRM_ALARM, Body, _ProtoVer) ->
     Seq = maps:get(<<"seq">>, Body),
     Type = maps:get(<<"type">>, Body),
     <<Seq:?WORD, Type:?DWORD>>;
-serialize_body(?MS_LINK_DETECT, _Body) ->
+serialize_body(?MS_LINK_DETECT, _Body, _ProtoVer) ->
     %% 2019: Link detection - empty body
     <<>>;
-serialize_body(?MS_SEND_TEXT, Body) ->
+serialize_body(?MS_SEND_TEXT, Body, ProtoVer) when ProtoVer >= 1 ->
+    %% 2019 format: Flag + Type + Text
+    Flag = maps:get(<<"flag">>, Body),
+    TextType = maps:get(<<"text_type">>, Body, 1),
+    Text = maps:get(<<"text">>, Body),
+    <<Flag:?BYTE, TextType:?BYTE, Text/binary>>;
+serialize_body(?MS_SEND_TEXT, Body, _ProtoVer) ->
+    %% 2013 format: Flag + Text (no type field)
     Flag = maps:get(<<"flag">>, Body),
     Text = maps:get(<<"text">>, Body),
     <<Flag:?BYTE, Text/binary>>;
-serialize_body(?MS_SET_EVENT, Body) ->
+serialize_body(?MS_SET_EVENT, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     %% FIXME: If the type is 0, the length and events is empty
     Length = maps:get(<<"length">>, Body),
     Events = maps:get(<<"events">>, Body),
     serialize_events(Events, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_SEND_QUESTION, Body) ->
+serialize_body(?MS_SEND_QUESTION, Body, _ProtoVer) ->
     Flag = maps:get(<<"flag">>, Body),
     Length = maps:get(<<"length">>, Body),
     Question = maps:get(<<"question">>, Body),
     Answers = maps:get(<<"answers">>, Body),
     serialize_candidate_answers(Answers, <<Flag:?BYTE, Length:?BYTE, Question/binary>>);
-serialize_body(?MS_SET_MENU, Body) ->
+serialize_body(?MS_SET_MENU, Body, _ProtoVer) ->
     %% XXX: If the tpye is delete all menu, the remaining bytes should be drop?
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Menus = maps:get(<<"menus">>, Body),
     serialize_menus(Menus, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_INFO_CONTENT, Body) ->
+serialize_body(?MS_INFO_CONTENT, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Info = maps:get(<<"info">>, Body),
     <<Type:?BYTE, Length:?WORD, Info/binary>>;
-serialize_body(?MS_PHONE_CALLBACK, Body) ->
+serialize_body(?MS_PHONE_CALLBACK, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Phone = maps:get(<<"phone">>, Body),
     <<Type:?BYTE, Phone/binary>>;
-serialize_body(?MS_SET_PHONE_NUMBER, Body) ->
+serialize_body(?MS_SET_PHONE_NUMBER, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Contacts = maps:get(<<"contacts">>, Body),
     serialize_contacts(Contacts, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_VEHICLE_CONTROL, Body) ->
+serialize_body(?MS_VEHICLE_CONTROL, Body, ProtoVer) when ProtoVer >= 1 ->
+    %% 2019 format: Control type list
+    Count = maps:get(<<"count">>, Body, 0),
+    Controls = maps:get(<<"controls">>, Body, []),
+    serialize_control_types(Controls, <<Count:?WORD>>);
+serialize_body(?MS_VEHICLE_CONTROL, Body, _ProtoVer) ->
+    %% 2013 format: Single flag byte
     Flag = maps:get(<<"flag">>, Body),
     <<Flag:?BYTE>>;
-serialize_body(?MS_SET_CIRCLE_AREA, Body) ->
+serialize_body(?MS_SET_CIRCLE_AREA, Body, ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Areas = maps:get(<<"areas">>, Body),
-    serialize_circle_area(Areas, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_DEL_CIRCLE_AREA, Body) ->
+    serialize_circle_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer);
+serialize_body(?MS_DEL_CIRCLE_AREA, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_RECT_AREA, Body) ->
+serialize_body(?MS_SET_RECT_AREA, Body, ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Areas = maps:get(<<"areas">>, Body),
-    serialize_rect_area(Areas, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_DEL_RECT_AREA, Body) ->
+    serialize_rect_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer);
+serialize_body(?MS_DEL_RECT_AREA, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_POLY_AREA, Body) ->
+serialize_body(?MS_SET_POLY_AREA, Body, ProtoVer) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     StartTime = maps:get(<<"start_time">>, Body),
@@ -844,17 +867,27 @@ serialize_body(?MS_SET_POLY_AREA, Body) ->
     Points = maps:get(<<"points">>, Body),
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
-    serialize_poly_point(
+    PointsStream = serialize_poly_point(
         Length,
         Points,
         <<Id:?DWORD, Flag:?WORD, StartBCD:6/binary, EndBCD:6/binary, MaxSpeed:?WORD,
             Overspeed:?BYTE, Length:?WORD>>
-    );
-serialize_body(?MS_DEL_POLY_AREA, Body) ->
+    ),
+    %% 2019 adds night_max_speed and name after points
+    case ProtoVer >= 1 of
+        true ->
+            NightMaxSpeed = maps:get(<<"night_max_speed">>, Body, 0),
+            Name = maps:get(<<"name">>, Body, <<>>),
+            NameLen = byte_size(Name),
+            <<PointsStream/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+        false ->
+            PointsStream
+    end;
+serialize_body(?MS_DEL_POLY_AREA, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_PATH, Body) ->
+serialize_body(?MS_SET_PATH, Body, ProtoVer) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     StartTime = maps:get(<<"start_time">>, Body),
@@ -863,14 +896,23 @@ serialize_body(?MS_SET_PATH, Body) ->
     Points = maps:get(<<"points">>, Body),
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
-    serialize_corner_point(
+    PointsStream = serialize_corner_point(
         Length, Points, <<Id:?DWORD, Flag:?WORD, StartBCD:6/binary, EndBCD:6/binary, Length:?WORD>>
-    );
-serialize_body(?MS_DEL_PATH, Body) ->
+    ),
+    %% 2019 adds name_length and name after corner points
+    case ProtoVer >= 1 of
+        true ->
+            Name = maps:get(<<"name">>, Body, <<>>),
+            NameLen = byte_size(Name),
+            <<PointsStream/binary, NameLen:?WORD, Name/binary>>;
+        false ->
+            PointsStream
+    end;
+serialize_body(?MS_DEL_PATH, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_QUERY_AREA_ROUTE, Body) ->
+serialize_body(?MS_QUERY_AREA_ROUTE, Body, _ProtoVer) ->
     %% 2019: Query area/route data
     Type = maps:get(<<"type">>, Body),
     Count = maps:get(<<"count">>, Body),
@@ -881,24 +923,24 @@ serialize_body(?MS_QUERY_AREA_ROUTE, Body) ->
             Ids = maps:get(<<"ids">>, Body),
             encode_dword_array(Count, Ids, <<Type:?BYTE, Count:?DWORD>>)
     end;
-serialize_body(?MS_DRIVE_RECORD_CAPTURE, Body) ->
+serialize_body(?MS_DRIVE_RECORD_CAPTURE, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     RawParam = base64:decode(Param),
     <<Command:?BYTE, RawParam/binary>>;
-serialize_body(?MS_DRIVE_REC_PARAM_SEND, Body) ->
+serialize_body(?MS_DRIVE_REC_PARAM_SEND, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     RawParam = base64:decode(Param),
     <<Command:?BYTE, RawParam/binary>>;
-serialize_body(?MS_REQ_DRIVER_ID, _Body) ->
+serialize_body(?MS_REQ_DRIVER_ID, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_MULTIMEDIA_DATA_ACK, Body) ->
+serialize_body(?MS_MULTIMEDIA_DATA_ACK, Body, _ProtoVer) ->
     MmId = maps:get(<<"mm_id">>, Body),
     Length = maps:get(<<"length">>, Body),
     RetxIds = maps:get(<<"retx_ids">>, Body),
     encode_word_array(Length, RetxIds, <<MmId:?DWORD, Length:?BYTE>>);
-serialize_body(?MS_CAMERA_SHOT, Body) ->
+serialize_body(?MS_CAMERA_SHOT, Body, _ProtoVer) ->
     ChId = maps:get(<<"channel_id">>, Body),
     Command = maps:get(<<"command">>, Body),
     Period = maps:get(<<"period">>, Body),
@@ -911,7 +953,7 @@ serialize_body(?MS_CAMERA_SHOT, Body) ->
     Chromaticity = maps:get(<<"chromaticity">>, Body),
     <<ChId:?BYTE, Command:?WORD, Period:?WORD, Save:?BYTE, Resolution:?BYTE, Quality:?BYTE,
         Bright:?BYTE, Contrast:?BYTE, Saturate:?BYTE, Chromaticity:?BYTE>>;
-serialize_body(?MS_MM_DATA_SEARCH, Body) ->
+serialize_body(?MS_MM_DATA_SEARCH, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Channel = maps:get(<<"channel">>, Body),
     Event = maps:get(<<"event">>, Body),
@@ -920,7 +962,7 @@ serialize_body(?MS_MM_DATA_SEARCH, Body) ->
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
     <<Type:?BYTE, Channel:?BYTE, Event:?BYTE, StartBCD:6/binary, EndBCD:6/binary>>;
-serialize_body(?MS_MM_DATA_UPLOAD, Body) ->
+serialize_body(?MS_MM_DATA_UPLOAD, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     ChId = maps:get(<<"channel">>, Body),
     Event = maps:get(<<"event">>, Body),
@@ -930,27 +972,33 @@ serialize_body(?MS_MM_DATA_UPLOAD, Body) ->
     StartBCD = to_bcd(Start, 6),
     EndBCD = to_bcd(End, 6),
     <<Type:?BYTE, ChId:?BYTE, Event:?BYTE, StartBCD:6/binary, EndBCD:6/binary, Delete:?BYTE>>;
-serialize_body(?MS_VOICE_RECORD, Body) ->
+serialize_body(?MS_VOICE_RECORD, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Time = maps:get(<<"time">>, Body),
     Save = maps:get(<<"save">>, Body),
     Rate = maps:get(<<"rate">>, Body),
     <<Command:?BYTE, Time:?WORD, Save:?BYTE, Rate:?BYTE>>;
-serialize_body(?MS_SINGLE_MM_DATA_CTRL, Body) ->
+serialize_body(?MS_SINGLE_MM_DATA_CTRL, Body, _ProtoVer) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     <<Id:?DWORD, Flag:?BYTE>>;
-serialize_body(?MS_SEND_TRANSPARENT_DATA, Body) ->
+serialize_body(?MS_SEND_TRANSPARENT_DATA, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     DataBase64 = maps:get(<<"data">>, Body),
     Data = base64:decode(DataBase64),
     <<Type:?BYTE, Data/binary>>;
-serialize_body(?MS_RSA_KEY, Body) ->
+serialize_body(?MS_RSA_KEY, Body, _ProtoVer) ->
     E = maps:get(<<"e">>, Body),
     N = maps:get(<<"n">>, Body),
     <<E:?DWORD, N:128/binary>>;
-serialize_body(_UnkonwnMsgId, _Body) ->
+serialize_body(_UnkonwnMsgId, _Body, _ProtoVer) ->
     error(invalid_input).
+
+%% Helper for 2019 vehicle control type list
+serialize_control_types([], Acc) ->
+    Acc;
+serialize_control_types([#{<<"id">> := Id, <<"param">> := Param} | T], Acc) ->
+    serialize_control_types(T, <<Acc/binary, Id:?WORD, Param/binary>>).
 
 serialize_corner_point(0, [], Acc) ->
     Acc;
@@ -985,11 +1033,11 @@ serialize_poly_point(0, _, Acc) ->
 serialize_poly_point(Count, [#{<<"lat">> := Lat, <<"lng">> := Lng} | T], Acc) ->
     serialize_poly_point(Count - 1, T, <<Acc/binary, Lat:?DWORD, Lng:?DWORD>>).
 
-serialize_rect_area([], Acc) ->
+serialize_rect_area([], Acc, _ProtoVer) ->
     Acc;
 serialize_rect_area(
     [
-        #{
+        H = #{
             <<"id">> := Id,
             <<"flag">> := Flag,
             <<"lt_lat">> := LtLatitude,
@@ -1003,18 +1051,29 @@ serialize_rect_area(
         }
         | T
     ],
-    Acc
+    Acc,
+    ProtoVer
 ) ->
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
-    serialize_rect_area(
-        T,
+    Base =
         <<Acc/binary, Id:?DWORD, Flag:?WORD, LtLatitude:?DWORD, LtLongitude:?DWORD,
             RbLatitude:?DWORD, RbLongitude:?DWORD, StartBCD:6/binary, EndBCD:6/binary,
-            MaxSpeed:?WORD, Overspeed:?BYTE>>
-    ).
+            MaxSpeed:?WORD, Overspeed:?BYTE>>,
+    %% 2019 adds night_max_speed and name fields
+    NewAcc =
+        case ProtoVer >= 1 of
+            true ->
+                NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
+                Name = maps:get(<<"name">>, H, <<>>),
+                NameLen = byte_size(Name),
+                <<Base/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+            false ->
+                Base
+        end,
+    serialize_rect_area(T, NewAcc, ProtoVer).
 
-serialize_circle_area([], Acc) ->
+serialize_circle_area([], Acc, _ProtoVer) ->
     Acc;
 serialize_circle_area(
     [
@@ -1027,7 +1086,8 @@ serialize_circle_area(
         }
         | T
     ],
-    Acc
+    Acc,
+    ProtoVer
 ) ->
     First = <<Acc/binary, Id:?DWORD, Flag:?WORD, Latitude:?DWORD, Longitude:?DWORD, Radius:?DWORD>>,
     Second =
@@ -1048,7 +1108,18 @@ serialize_circle_area(
             false ->
                 Second
         end,
-    serialize_circle_area(T, Third).
+    %% 2019 adds night_max_speed and name fields (only if max_speed is present)
+    Fourth =
+        case ProtoVer >= 1 andalso maps:is_key(<<"max_speed">>, H) of
+            true ->
+                NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
+                Name = maps:get(<<"name">>, H, <<>>),
+                NameLen = byte_size(Name),
+                <<Third/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+            false ->
+                Third
+        end,
+    serialize_circle_area(T, Fourth, ProtoVer).
 
 serialize_contacts([], Acc) ->
     Acc;
