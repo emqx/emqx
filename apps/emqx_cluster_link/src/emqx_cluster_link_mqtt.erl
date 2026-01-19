@@ -4,6 +4,7 @@
 -module(emqx_cluster_link_mqtt).
 
 -include("emqx_cluster_link.hrl").
+-include("emqx_cluster_link_internal.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
@@ -197,7 +198,7 @@ on_query(_ResourceId, FwdMsg, #{pool_name := PoolName, topic := LinkTopic} = _St
         end,
         no_handover
     ),
-    ?tp_ignore_side_effects_in_prod(clink_message_forwarded, #{
+    ?tp_debug("cluster_link_message_forwarded", #{
         pool => PoolName,
         message => FwdMsg,
         pub_result => PubResult
@@ -217,7 +218,7 @@ on_query_async(
             Payload = encode_payload(FwdMsg),
             %% TODO: check override QOS requirements (if any)
             PubResult = emqtt:publish_async(ConnPid, LinkTopic, Payload, QoS, Callback),
-            ?tp_ignore_side_effects_in_prod(clink_message_forwarded, #{
+            ?tp_debug("cluster_link_message_forwarded", #{
                 pool => PoolName,
                 message => FwdMsg,
                 pub_result => PubResult
@@ -330,7 +331,7 @@ connect(Options) ->
             end;
         {error, Reason} = Error ->
             ?SLOG(error, #{
-                msg => "client_start_failed",
+                msg => "cluster_link_forwarding_client_start_failed",
                 config => emqx_utils:redact(ClientOpts),
                 reason => Reason
             }),

@@ -359,7 +359,7 @@ mnesia_actor_heartbeat(ActorID, Incarnation, TS) ->
 clean_incarnation(Rec = #actor{id = {Cluster, Actor}}) ->
     case transaction(fun ?MODULE:mnesia_clean_incarnation/1, [Rec]) of
         ok ->
-            ?tp(debug, clink_extrouter_actor_cleaned, #{
+            ?tp(debug, "cluster_link_extrouter_actor_cleaned", #{
                 cluster => Cluster,
                 actor => Actor
             });

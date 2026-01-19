@@ -21,10 +21,15 @@
     desc/1
 ]).
 
--export_type([link/0]).
+-export_type([
+    cluster/0,
+    link/0
+]).
+
+-type cluster() :: binary().
 
 -type link() :: #{
-    name := binary(),
+    name := cluster(),
     enable := boolean(),
     server := binary(),
     topics := [emqx_types:topic()],
