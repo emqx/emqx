@@ -179,7 +179,8 @@ rsf_schema_decode_tagged([RegistryName, Data | Args]) ->
 - Values of `PropertySetList` type have their `propertyset` field removed and replaced by
   an array of `PropertySet`s, transformed following the above item's description.
 
-- `dataset_value` field is zipped in a similar fashion.
+- `dataset_value` field is zipped in a similar fashion, with the difference that only the
+  zipped values are output.  `types` and `num_of_columns` fields are removed from output.
 
 - Other standard values/fields are untouched.  Extensions that are not present in our SpB
   schema are already silently ignored, so they won't appear in the output.
@@ -905,13 +906,11 @@ do_zip_dataset(#{<<"columns">> := Columns, <<"rows">> := Rows} = DS0) when
             DS0;
         true ->
             %% Data sets are not recursive like property sets.
-            Zipped = lists:foldl(
+            lists:foldl(
                 fun({Col, Row}, Acc) -> Acc#{Col => Row} end,
                 #{},
                 lists:zip(Columns, Rows)
-            ),
-            DS = maps:without([<<"columns">>, <<"rows">>], DS0),
-            maps:merge(DS, Zipped)
+            )
     end;
 do_zip_dataset(X) ->
     %% Not a valid data set.

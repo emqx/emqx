@@ -346,6 +346,7 @@ payload_with_nested_property_sets() ->
             %% Property sets in `dataset_value`
             #{
                 <<"dataset_value">> => #{
+                    <<"num_of_columns">> => 2,
                     <<"columns">> => [<<"col1">>, <<"col2">>],
                     <<"types">> => [?uint32_type, ?string_type],
                     <<"rows">> => [
@@ -862,10 +863,10 @@ t_property_sets(_TCConfig) ->
                             #{<<"int_value">> := 4},
                             #{<<"string_value">> := <<"4">>}
                         ]
-                },
-            <<"types">> := [?uint32_type, ?string_type]
+                }
         },
         M2DV
     ),
+    ?assertEqual(#{}, maps:with([<<"num_of_columns">>, <<"types">>], M2DV)),
 
     ok.
