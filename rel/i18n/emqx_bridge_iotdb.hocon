@@ -53,19 +53,6 @@ config_iotdb_version.desc:
 config_iotdb_version.label:
 """IoTDB Version"""
 
-config_sql_dialect.desc:
-"""IoTDB supports two time-series data models (SQL dialects),
-both managing devices and measurement points.
-- Tree: Manages data in a hierarchical path manner, where one path corresponds to one measurement point of a device.
-- Table: Manages data in a relational table manner, where one table corresponds to a category of devices."""
-config_sql_dialect.label:
-"""SQL Dialect"""
-
-config_database.desc:
-"""The name of the IoTDB database to connect to."""
-config_database.label:
-"""Database"""
-
 config_write_to_table.desc:
 """Whether to write the data to IoTDB table or timeseries.
 Note: When it's true, the connector must also have "SQL Dialect" set to "table"."""

@@ -293,7 +293,8 @@ connector_config(TestCase, Name, Config) ->
                     "password = \"root\"\n"
                     "zoneId = \"Asia/Shanghai\"\n"
                     "ssl.enable = false\n"
-                    "sql_dialect = {\n"
+                    "sql = {\n"
+                    "   dialect = \"table\"\n"
                     "   database = \"~s\"\n"
                     "}\n",
                     [
@@ -312,7 +313,8 @@ connector_config(TestCase, Name, Config) ->
                     "  username = \"root\"\n"
                     "  password = \"root\"\n"
                     "}\n"
-                    "sql_dialect = {\n"
+                    "sql = {\n"
+                    "   dialect = \"table\"\n"
                     "   database = \"~s\"\n"
                     "}\n",
                     [
@@ -490,7 +492,9 @@ t_rule_test_trace(Config) ->
 
 t_sql_dialect_database_required(Config) ->
     ConnectorConfig = ?config(connector_config, Config),
-    BadConnectorConfig = ConnectorConfig#{<<"sql_dialect">> => #{<<"database">> => <<>>}},
+    BadConnectorConfig = ConnectorConfig#{
+        <<"sql">> => #{<<"dialect">> => <<"table">>, <<"database">> => <<>>}
+    },
     Config1 = lists:keyreplace(connector_config, 1, Config, {connector_config, BadConnectorConfig}),
     {error, {_StatusCode, _Headers, Body}} = emqx_bridge_v2_testlib:create_connector_api(Config1),
     ?assertMatch(
@@ -498,7 +502,7 @@ t_sql_dialect_database_required(Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> := #{
                 <<"reason">> := <<"empty_string_not_allowed">>,
-                <<"path">> := <<"root.sql_dialect.database">>,
+                <<"path">> := <<"root.sql.database">>,
                 <<"value">> := <<>>
             }
         },

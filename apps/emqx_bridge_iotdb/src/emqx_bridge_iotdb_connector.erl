@@ -61,6 +61,7 @@
         pool_size := pos_integer(),
         iotdb_version => atom(),
         protocol_version => atom(),
+        sql := #{dialect := tree | table, database => binary()},
         request => undefined | map(),
         atom() => _
     }.
@@ -70,6 +71,8 @@
         driver := driver(),
         channels := map(),
         iotdb_version := atom(),
+        sql_dialect := tree | table,
+        database => binary(),
         atom() => _
     }.
 
@@ -149,12 +152,11 @@ fields("connection_fields") ->
                     default => ?VSN_1_3_X
                 }
             )},
-        {sql_dialect,
+        {sql,
             mk(
-                hoconsc:union(fun sql_dialect_union_selector/1),
+                hoconsc:union(fun sql_union_selector/1),
                 #{
-                    desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
-                    default => tree
+                    desc => ?DESC("config_sql_dialect")
                 }
             )},
         {authentication,
@@ -165,13 +167,34 @@ fields("connection_fields") ->
                 }
             )}
     ];
+fields(sql_dialect_tree) ->
+    [
+        {dialect,
+            mk(
+                tree,
+                #{
+                    desc => ?DESC("config_sql_dialect"),
+                    required => true,
+                    default => tree
+                }
+            )}
+    ];
 fields(sql_dialect_table) ->
     [
+        {dialect,
+            mk(
+                table,
+                #{
+                    desc => ?DESC("config_sql_dialect"),
+                    required => true,
+                    default => table
+                }
+            )},
         {database,
             mk(
                 binary(),
                 #{
-                    desc => ?DESC(emqx_bridge_iotdb, "config_database"),
+                    desc => ?DESC("config_database"),
                     required => true,
                     validator => fun emqx_schema:non_empty_string/1
                 }
@@ -200,12 +223,11 @@ fields("config_thrift") ->
                         default => ?PROTOCOL_V3
                     }
                 )},
-            {sql_dialect,
+            {sql,
                 mk(
-                    hoconsc:union(fun sql_dialect_union_selector/1),
+                    hoconsc:union(fun sql_union_selector/1),
                     #{
-                        desc => ?DESC(emqx_bridge_iotdb, "config_sql_dialect"),
-                        default => tree
+                        desc => ?DESC("config_sql_dialect")
                     }
                 )},
             {'zoneId',
@@ -248,14 +270,14 @@ fields("put_" ++ Driver) ->
 fields("get_" ++ Driver) ->
     emqx_bridge_schema:status_fields() ++ fields("post_" ++ Driver).
 
-sql_dialect_union_selector(all_union_members) ->
-    [tree, ref(?MODULE, sql_dialect_table)];
-sql_dialect_union_selector({value, Value}) ->
-    case is_map(Value) of
-        true ->
-            [ref(?MODULE, sql_dialect_table)];
-        _ ->
-            [tree]
+sql_union_selector(all_union_members) ->
+    [ref(?MODULE, sql_dialect_tree), ref(?MODULE, sql_dialect_table)];
+sql_union_selector({value, Value}) ->
+    case maps:get(<<"dialect">>, Value, <<"tree">>) of
+        <<"tree">> ->
+            [ref(?MODULE, sql_dialect_tree)];
+        <<"table">> ->
+            [ref(?MODULE, sql_dialect_table)]
     end.
 
 common_fields(Driver) ->
@@ -274,8 +296,10 @@ desc(authentication) ->
     ?DESC("config_authentication");
 desc(connector_resource_opts) ->
     "Connector resource options";
+desc(sql_dialect_tree) ->
+    ?DESC("config_sql_dialect");
 desc(sql_dialect_table) ->
-    ?DESC(emqx_bridge_iotdb, "config_sql_dialect");
+    ?DESC("config_sql_dialect");
 desc(Struct) when is_list(Struct) ->
     case string:split(Struct, "_") of
         ["config", _] ->
@@ -1307,10 +1331,10 @@ proc_record_data_for_table([], _Msg, MeasurementAcc, ValueAcc) ->
     {ok, lists:reverse(MeasurementAcc), lists:reverse(ValueAcc)}.
 
 init_connector_state(Config) ->
-    case maps:get(sql_dialect, Config, tree) of
-        #{database := Database} when is_binary(Database) ->
+    case maps:get(sql, Config, #{dialect => tree}) of
+        #{dialect := table, database := Database} when is_binary(Database) ->
             #{sql_dialect => table, database => Database};
-        _ ->
+        #{dialect := tree} ->
             #{sql_dialect => tree}
     end.
 
