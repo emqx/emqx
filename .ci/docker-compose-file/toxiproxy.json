@@ -223,6 +223,18 @@
     "enabled": true
   },
   {
+    "name": "greptimedb_http_tls",
+    "listen": "0.0.0.0:4100",
+    "upstream": "greptimedb_tls:4000",
+    "enabled": true
+  },
+  {
+    "name": "greptimedb_grpc_tls",
+    "listen": "0.0.0.0:4101",
+    "upstream": "greptimedb_tls:4001",
+    "enabled": true
+  },
+  {
     "name": "kinesis",
     "listen": "0.0.0.0:4566",
     "upstream": "kinesis:4566",
