@@ -203,7 +203,8 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-kinesis.yaml' )
             ;;
         greptimedb)
-            FILES+=( '.ci/docker-compose-file/docker-compose-greptimedb.yaml' )
+            FILES+=( '.ci/docker-compose-file/docker-compose-greptimedb.yaml'
+                     '.ci/docker-compose-file/docker-compose-greptimedb-tls.yaml' )
             ;;
         ldap)
             FILES+=( '.ci/docker-compose-file/docker-compose-ldap.yaml' )
