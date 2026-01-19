@@ -31,7 +31,7 @@
     rsf_avro_decode/1,
     rsf_schema_encode_and_tag/1,
     rsf_schema_decode_tagged/1,
-    rsf_spb_zip_propsets/1
+    rsf_spb_zip_kvs/1
 ]).
 
 %% Tests
@@ -185,18 +185,18 @@ rsf_schema_decode_tagged([RegistryName, Data | Args]) ->
 - Other standard values/fields are untouched.  Extensions that are not present in our SpB
   schema are already silently ignored, so they won't appear in the output.
 """.
-rsf_spb_zip_propsets([#{} = Data0]) ->
+rsf_spb_zip_kvs([#{} = Data0]) ->
     emqx_utils_maps:update_if_present(
         <<"metrics">>,
         fun(Metrics) ->
-            lists:map(fun do_spb_zip_propsets/1, Metrics)
+            lists:map(fun do_spb_zip_kvs/1, Metrics)
         end,
         Data0
     );
-rsf_spb_zip_propsets([BadData]) ->
-    error({badarg, {spb_zip_propsets, BadData}});
-rsf_spb_zip_propsets(Args) ->
-    error({args_count_error, {spb_zip_propsets, Args}}).
+rsf_spb_zip_kvs([BadData]) ->
+    error({badarg, {spb_zip_kvs, BadData}});
+rsf_spb_zip_kvs(Args) ->
+    error({args_count_error, {spb_zip_kvs, Args}}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -850,7 +850,7 @@ append_query(Path, <<"">>) ->
 append_query(Path, Query) ->
     [Path, $?, Query].
 
-do_spb_zip_propsets(#{} = Metric0) ->
+do_spb_zip_kvs(#{} = Metric0) ->
     Metric1 = emqx_utils_maps:update_if_present(
         <<"properties">>,
         fun do_zip_property_set/1,

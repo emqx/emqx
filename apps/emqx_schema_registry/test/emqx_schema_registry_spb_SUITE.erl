@@ -779,7 +779,7 @@ t_disabled(_TCConfig) ->
     ok.
 
 -doc """
-Tests the behavior of the `spb_zip_propsets` Rule SQL function.
+Tests the behavior of the `spb_zip_kvs` Rule SQL function.
 
 - Expects a valid, decoded sparkplugb message.
 
@@ -801,7 +801,7 @@ Tests the behavior of the `spb_zip_propsets` Rule SQL function.
 """.
 t_property_sets(_TCConfig) ->
     NDataTopic = ndata_topic(),
-    SQL = <<"select spb_zip_propsets(spb_decode(payload)) as decoded from \"${t}\" ">>,
+    SQL = <<"select spb_zip_kvs(spb_decode(payload)) as decoded from \"${t}\" ">>,
     #{republish_topic := RepublishTopic} = create_rule(NDataTopic, #{sql => SQL}),
     C = start_client(),
     {ok, _, _} = emqtt:subscribe(C, RepublishTopic, 1),
