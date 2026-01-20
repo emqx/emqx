@@ -24,17 +24,18 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PREPARE_KEY, <<"authz:postgresql">>).
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     State = new_state(ResourceId, Source),
-    ok = emqx_authz_utils:create_resource(emqx_postgresql, State),
+    ok = emqx_authz_utils:create_resource(emqx_auth_postgresql_connector, State),
     State.
 
 update(#{resource_id := ResourceId} = _State, Source) ->
     State = new_state(ResourceId, Source),
-    ok = emqx_authz_utils:update_resource(emqx_postgresql, State),
+    ok = emqx_authz_utils:update_resource(emqx_auth_postgresql_connector, State),
     State.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -56,7 +57,7 @@ authorize(
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
-            CacheKey, ResourceId, {prepared_query, ResourceId, RenderedParams}
+            CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, RenderedParams}
         )
     of
         {ok, Columns, Rows} ->
@@ -75,7 +76,9 @@ authorize(
 %% Internal functions
 %%--------------------------------------------------------------------
 
-new_state(ResourceId, #{query := SQL} = Source0) ->
+new_state(
+    ResourceId, #{query := SQL, disable_prepared_statements := DisablePreparedStatements} = Source0
+) ->
     {Vars, SQLTemplate, Placeholders} = emqx_auth_template:parse_sql(SQL, '$n', ?ALLOWED_VARS),
     ?SLOG(warning, #{
         msg => "postgresql_prepare_statement",
@@ -84,9 +87,12 @@ new_state(ResourceId, #{query := SQL} = Source0) ->
         placeholders => Placeholders
     }),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Source = Source0#{prepare_statement => #{ResourceId => {parsed, {SQLTemplate, Placeholders}}}},
+    Source = Source0#{
+        prepare_statements => #{?PREPARE_KEY => SQLTemplate},
+        emulate_prepared_statements => DisablePreparedStatements
+    },
     ResourceConfig = emqx_authz_utils:cleanup_resource_config(
-        [query], Source
+        [query, disable_prepared_statements], Source
     ),
     emqx_authz_utils:init_state(Source, #{
         resource_config => ResourceConfig,

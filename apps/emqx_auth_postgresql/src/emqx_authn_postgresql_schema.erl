@@ -38,10 +38,11 @@ fields(postgresql) ->
         {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM)},
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
         {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1},
-        {query, fun query/1}
+        {query, fun query/1},
+        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
         emqx_authn_schema:common_fields() ++
-        proplists:delete(prepare_statement, emqx_postgresql:fields(config)).
+        emqx_auth_postgresql_connector:fields(config).
 
 desc(postgresql) ->
     ?DESC(postgresql);

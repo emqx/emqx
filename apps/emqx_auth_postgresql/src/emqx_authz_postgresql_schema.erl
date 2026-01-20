@@ -23,9 +23,12 @@ namespace() -> "authz".
 type() -> ?AUTHZ_TYPE.
 
 fields(postgresql) ->
-    emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_postgresql:fields(config) ++
-        [{query, query()}].
+    [
+        {query, query()},
+        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
+    ] ++
+        emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
+        emqx_auth_postgresql_connector:fields(config).
 
 desc(postgresql) ->
     ?DESC(postgresql);
