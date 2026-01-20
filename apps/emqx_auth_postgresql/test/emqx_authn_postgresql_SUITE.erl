@@ -205,10 +205,10 @@ t_update(_Config) ->
     IncorrectConfig =
         CorrectConfig#{
             <<"query">> =>
-                <<
-                    "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
-                    "                          FROM users where username = ${username} LIMIT 0"
-                >>
+                ~b"""
+                SELECT password_hash, salt, is_superuser_str as is_superuser
+                FROM users where username = ${username} LIMIT 0
+                """
         },
 
     {ok, _} = emqx:update_config(
@@ -248,19 +248,19 @@ t_is_superuser(_Config) ->
     ),
 
     Checks = [
-        % {is_superuser_str, "0", false},
-        % {is_superuser_str, "", false},
-        % {is_superuser_str, null, false},
-        % {is_superuser_str, "1", true},
-        % {is_superuser_str, "val", false},
+        {is_superuser_str, "0", false},
+        {is_superuser_str, "", false},
+        {is_superuser_str, null, false},
+        {is_superuser_str, "1", true},
+        {is_superuser_str, "val", false},
 
-        % {is_superuser_int, 0, false},
-        % {is_superuser_int, null, false},
-        % {is_superuser_int, 1, true},
-        % {is_superuser_int, 123, true},
+        {is_superuser_int, 0, false},
+        {is_superuser_int, null, false},
+        {is_superuser_int, 1, true},
+        {is_superuser_int, 123, true},
 
-        % {is_superuser_bool, false, false},
-        % {is_superuser_bool, null, false},
+        {is_superuser_bool, false, false},
+        {is_superuser_bool, null, false},
         {is_superuser_bool, true, true}
     ],
 
@@ -405,10 +405,10 @@ raw_pgsql_auth_config() ->
         <<"password">> => <<"public">>,
 
         <<"query">> =>
-            <<
-                "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
-                "                      FROM users where username = ${username} LIMIT 1"
-            >>,
+            ~b"""
+            SELECT password_hash, salt, is_superuser_str as is_superuser
+            FROM users where username = ${username} LIMIT 1
+            """,
         <<"server">> => pgsql_server()
     }.
 
@@ -462,10 +462,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${clientid} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${clientid} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -488,10 +488,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = \"${username}\" LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = \"${username}\" LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -517,11 +517,11 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "      FROM users where cert_subject = ${cert_subject} AND \n"
-                        "                       cert_common_name = ${cert_common_name} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where cert_subject = ${cert_subject} AND
+                    cert_common_name = ${cert_common_name} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -543,10 +543,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${username} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${username} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {ok, #{is_superuser => false}}
@@ -566,10 +566,10 @@ user_seeds() ->
             config_params => #{
                 % clientid variable & username credentials
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${clientid} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${clientid} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
@@ -589,10 +589,10 @@ user_seeds() ->
             config_params => #{
                 % Bad keys in query
                 <<"query">> =>
-                    <<
-                        "SELECT 1 AS unknown_field\n"
-                        "                            FROM users where username = ${username} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT 1 AS unknown_field
+                    FROM users where username = ${username} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
@@ -654,7 +654,7 @@ create_user(Values) ->
     ],
 
     InsertQuery =
-        """
+        ~b"""
         INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name,
         is_superuser_str, is_superuser_int, is_superuser_bool, topic_filter)
         VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)

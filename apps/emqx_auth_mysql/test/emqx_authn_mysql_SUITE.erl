@@ -174,10 +174,10 @@ t_update(_Config) ->
     IncorrectConfig =
         CorrectConfig#{
             <<"query">> =>
-                <<
-                    "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
-                    "                          FROM wrong_table where username = ${username} LIMIT 1"
-                >>
+                ~b"""
+                SELECT password_hash, salt, is_superuser_str as is_superuser
+                FROM wrong_table where username = ${username} LIMIT 1
+                """
         },
 
     {ok, _} = emqx:update_config(
@@ -311,7 +311,7 @@ raw_mysql_auth_config() ->
         <<"password">> => <<"public">>,
 
         <<"query">> =>
-            """
+            ~b"""
             SELECT password_hash, salt, is_superuser_str as is_superuser
             FROM users where username = ${username} LIMIT 1
             """,
@@ -368,7 +368,7 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    """
+                    ~b"""
                     SELECT password_hash, salt, is_superuser_int as is_superuser
                     FROM users where username = ${clientid} LIMIT 1
                     """,
@@ -394,7 +394,7 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    """
+                    ~b"""
                     SELECT password_hash, salt, is_superuser_int as is_superuser
                     FROM users where username = "${username}" LIMIT 1
                     """,
@@ -423,7 +423,7 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    """
+                    ~b"""
                     SELECT password_hash, salt, is_superuser_int as is_superuser
                     FROM users where cert_subject = ${cert_subject} AND
                     cert_common_name = ${cert_common_name} LIMIT 1
@@ -449,7 +449,7 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    """
+                    ~b"""
                     SELECT password_hash, salt, is_superuser_int as is_superuser
                     FROM users where username = ${username} LIMIT 1
                     """,
@@ -470,7 +470,7 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    """
+                    ~b"""
                     SELECT password_hash, salt, is_superuser_int as is_superuser
                     FROM users where username = ${username} LIMIT 1
                     """,
@@ -493,7 +493,7 @@ user_seeds() ->
             config_params => #{
                 % clientid variable & username credentials
                 <<"query">> =>
-                    """
+                    ~b"""
                     SELECT password_hash, salt, is_superuser_int as is_superuser
                     FROM users where username = ${clientid} LIMIT 1
                     """,
@@ -516,7 +516,7 @@ user_seeds() ->
             config_params => #{
                 % Bad keys in query
                 <<"query">> =>
-                    """
+                    ~b"""
                     SELECT 1 AS unknown_field
                     FROM users where username = ${username} LIMIT 1
                     """,
@@ -547,7 +547,7 @@ user_seeds() ->
 init_seeds() ->
     ok = drop_seeds(),
     ok = q(
-        """
+        ~b"""
         CREATE TABLE users(
         username VARCHAR(255),
         password_hash VARCHAR(255),
@@ -577,7 +577,7 @@ create_user(Values) ->
         is_superuser_int
     ],
     InsertQuery =
-        """
+        ~b"""
         INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name,
         is_superuser_str, is_superuser_int) VALUES(?, ?, ?, ?, ?, ?, ?)
         """,

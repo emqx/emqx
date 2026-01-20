@@ -179,7 +179,8 @@ cases() ->
                 VALUES('username', 'clientid', 'b', 'allow', 'subscribe')
                 """
             ],
-            query => """
+            query =>
+                ~b"""
             SELECT permission, action, topic FROM acl
             WHERE username = ${username}
             AND clientid = ${clientid}
@@ -207,7 +208,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic FROM acl WHERE
                 clientid = ${clientid} AND cn = ${cert_common_name}
                 AND dn = ${cert_subject} AND peerhost = ${peerhost}
@@ -296,7 +297,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic, qos_s as qos, retain_s as retain
                 FROM acl WHERE username = ${username}
                 """,
@@ -339,7 +340,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic, qos_i as qos, retain_i as retain
                 FROM acl WHERE username = ${username}
                 """,
@@ -369,7 +370,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic, retain_b as retain
                 FROM acl WHERE username = ${username}
                 """,
@@ -400,7 +401,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic
                 FROM acl WHERE who = ${username} OR who = ${clientid}
                 """,
@@ -433,7 +434,7 @@ cases() ->
                 """
             ],
             query =>
-                "SELECT permission, action, topic, qos FROM acl",
+                <<"SELECT permission, action, topic, qos FROM acl">>,
             checks => [
                 {allow, ?AUTHZ_PUBLISH(1, false), <<"tp">>},
                 {allow, ?AUTHZ_PUBLISH(2, false), <<"tp">>},
@@ -452,7 +453,8 @@ cases() ->
                 """,
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'allow', 'publish')"
             ],
-            query => "SELECT permission, action, topic FROM acl WHERE username = \"${username}\"",
+            query =>
+                <<"SELECT permission, action, topic FROM acl WHERE username = \"${username}\"">>,
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>}
             ]
@@ -460,7 +462,7 @@ cases() ->
         #{
             name => invalid_query,
             setup => [],
-            query => "SELECT permission, action, topic FROM acl WHER",
+            query => <<"SELECT permission, action, topic FROM acl WHER">>,
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
             ]
@@ -469,7 +471,7 @@ cases() ->
             name => pgsql_error,
             setup => [],
             query =>
-                "SELECT permission, action, topic FROM table_not_exists WHERE username = ${username}",
+                <<"SELECT permission, action, topic FROM table_not_exists WHERE username = ${username}">>,
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"t">>}
             ]
@@ -484,7 +486,7 @@ cases() ->
                 %% 'permit' is invalid value for action
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'permit', 'publish')"
             ],
-            query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
+            query => <<"SELECT permission, action, topic FROM acl WHERE username = ${username}">>,
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
             ]
@@ -520,10 +522,11 @@ raw_pgsql_authz_config() ->
         <<"username">> => <<"root">>,
         <<"password">> => <<"public">>,
 
-        <<"query">> => <<
-            "SELECT permission, action, topic "
-            "FROM acl WHERE username = ${username}"
-        >>,
+        <<"query">> =>
+            ~b"""
+            SELECT permission, action, topic
+            FROM acl WHERE username = ${username}
+            """,
         <<"server">> => <<?PGSQL_HOST>>
     }.
 

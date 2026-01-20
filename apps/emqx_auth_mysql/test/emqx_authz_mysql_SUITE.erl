@@ -168,15 +168,22 @@ cases() ->
                 CREATE TABLE acl(username VARCHAR(255), clientid VARCHAR(255), topic VARCHAR(255),
                 permission VARCHAR(255), action VARCHAR(255))
                 """,
-                "INSERT INTO acl(username, clientid, topic, permission, action) VALUES('username', 'clientid', 'a', 'allow', 'publish')",
-                "INSERT INTO acl(username, clientid, topic, permission, action) VALUES('username', 'clientid', 'b', 'allow', 'subscribe')"
+                """
+                INSERT INTO acl(username, clientid, topic, permission, action)
+                VALUES('username', 'clientid', 'a', 'allow', 'publish')
+                """,
+                """
+                INSERT INTO acl(username, clientid, topic, permission, action)
+                VALUES('username', 'clientid', 'b', 'allow', 'subscribe')
+                """
             ],
-            query => """
-            SELECT permission, action, topic FROM acl
-            WHERE username = ${username}
-            AND clientid = ${clientid}
-            AND ${topic} = '${$}{topic}'
-            """,
+            query =>
+                ~b"""
+                SELECT permission, action, topic FROM acl
+                WHERE username = ${username}
+                AND clientid = ${clientid}
+                AND ${topic} = '${$}{topic}'
+                """,
             client_info => #{username => <<"username">>, clientid => <<"clientid">>},
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>},
@@ -198,7 +205,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic FROM acl WHERE
                 clientid = ${clientid} AND cn = ${cert_common_name}
                 AND dn = ${cert_subject} AND peerhost = ${peerhost}
@@ -247,7 +254,7 @@ cases() ->
                 VALUES('username', 't1/+', 'allow', 'publish')
                 """
             ],
-            query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
+            query => <<"SELECT permission, action, topic FROM acl WHERE username = ${username}">>,
             client_info => #{
                 username => <<"username">>
             },
@@ -297,7 +304,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic, qos_s as qos, retain_s as retain
                 FROM acl WHERE username = ${username}
                 """,
@@ -341,7 +348,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic, qos_i as qos, retain_i as retain
                 FROM acl WHERE username = ${username}
                 """,
@@ -373,7 +380,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic, retain_b as retain
                 FROM acl WHERE username = ${username}
                 """,
@@ -406,7 +413,7 @@ cases() ->
                 """
             ],
             query =>
-                """
+                ~b"""
                 SELECT permission, action, topic
                 FROM acl WHERE who = ${username} OR who = ${clientid}
                 """,
@@ -436,7 +443,7 @@ cases() ->
                 """
             ],
             query =>
-                "SELECT permission, action, topic, qos FROM acl",
+                <<"SELECT permission, action, topic, qos FROM acl">>,
             checks => [
                 {allow, ?AUTHZ_PUBLISH(0, false), <<"tp">>},
                 {allow, ?AUTHZ_PUBLISH(1, false), <<"tp">>},
@@ -454,7 +461,8 @@ cases() ->
                 """,
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'allow', 'publish')"
             ],
-            query => "SELECT permission, action, topic FROM acl WHERE username = \"${username}\"",
+            query =>
+                <<"SELECT permission, action, topic FROM acl WHERE username = \"${username}\"">>,
             checks => [
                 {allow, ?AUTHZ_PUBLISH, <<"a">>}
             ]
@@ -467,7 +475,7 @@ cases() ->
                 permission VARCHAR(255), action VARCHAR(255))
                 """
             ],
-            query => "SELECT permission, action, topic FRO",
+            query => <<"SELECT permission, action, topic FRO">>,
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
             ]
@@ -481,7 +489,7 @@ cases() ->
                 """
             ],
             query =>
-                "SELECT permission, action, topic FROM acl WHERE username = ${username}",
+                <<"SELECT permission, action, topic FROM acl WHERE username = ${username}">>,
             checks => [
                 fun() ->
                     _ = q("DROP TABLE IF EXISTS acl"),
@@ -499,7 +507,7 @@ cases() ->
                 %% 'permit' is invalid value for action
                 "INSERT INTO acl(username, topic, permission, action) VALUES('username', 'a', 'permit', 'publish')"
             ],
-            query => "SELECT permission, action, topic FROM acl WHERE username = ${username}",
+            query => <<"SELECT permission, action, topic FROM acl WHERE username = ${username}">>,
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
             ]
@@ -536,7 +544,7 @@ raw_mysql_authz_config() ->
         <<"password">> => <<"public">>,
 
         <<"query">> =>
-            """
+            ~b"""
             SELECT permission, action, topic
             FROM acl WHERE username = ${username}
             """,
