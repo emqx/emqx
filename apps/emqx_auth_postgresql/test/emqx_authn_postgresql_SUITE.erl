@@ -388,8 +388,6 @@ t_clientid_override(TCConfig) when is_list(TCConfig) ->
 %% Helpers
 %%------------------------------------------------------------------------------
 
-% make SUITE=apps/emqx_auth_postgresql/test/emqx_authn_postgresql_SUITE.erl ct-suite
-
 raw_pgsql_auth_config() ->
     #{
         <<"mechanism">> => <<"password_based">>,

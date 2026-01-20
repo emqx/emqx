@@ -86,12 +86,12 @@ t_prepared_query_arguments(_Config) ->
         emqx_resource:simple_sync_query(?PGSQL_RESOURCE, {prepared_query, test, [123]})
     ).
 
-t_emulate_prepared_statements(_Config) ->
+t_disable_prepared_statements(_Config) ->
     {ok, _} = create_resource(
         ?PGSQL_RESOURCE,
         pgsql_config(#{
             prepare_statements => #{test => <<"SELECT $1::int">>},
-            emulate_prepared_statements => true
+            disable_prepared_statements => true
         })
     ),
     ?assertMatch(
@@ -201,11 +201,12 @@ t_cannot_start_due_to_invalid_prepare_statement(_Config) ->
         emqx_resource:health_check(?PGSQL_RESOURCE)
     ).
 
-t_autoprepare_statements(_Config) ->
+t_fallback_prepared_to_regular_query(_Config) ->
     {ok, _} = create_resource(
         ?PGSQL_RESOURCE,
         pgsql_config(#{
-            prepare_statements => #{test => <<"SELECT 123">>}, emulate_prepared_statements => false
+            prepare_statements => #{<<"test">> => <<"SELECT 123">>},
+            disable_prepared_statements => false
         })
     ),
     Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(?PGSQL_RESOURCE)],

@@ -41,12 +41,11 @@ fields(mysql) ->
     [
         {mechanism, emqx_authn_schema:mechanism(?AUTHN_MECHANISM)},
         {backend, emqx_authn_schema:backend(?AUTHN_BACKEND)},
-        {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1},
-        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
+        {password_hash_algorithm, fun emqx_authn_password_hashing:type_ro/1}
     ] ++
         query_fields() ++
         emqx_authn_schema:common_fields() ++
-        emqx_auth_mysql_connector:fields(config).
+        emqx_auth_mysql_connector:config_fields().
 
 desc(mysql) ->
     ?DESC(mysql);

@@ -77,7 +77,7 @@ authorize(
 %%--------------------------------------------------------------------
 
 new_state(
-    ResourceId, #{query := SQL, disable_prepared_statements := DisablePreparedStatements} = Source0
+    ResourceId, #{query := SQL} = Source0
 ) ->
     {Vars, SQLTemplate, Placeholders} = emqx_auth_template:parse_sql(SQL, '$n', ?ALLOWED_VARS),
     ?SLOG(warning, #{
@@ -88,11 +88,10 @@ new_state(
     }),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     Source = Source0#{
-        prepare_statements => #{?PREPARE_KEY => SQLTemplate},
-        emulate_prepared_statements => DisablePreparedStatements
+        prepare_statements => #{?PREPARE_KEY => SQLTemplate}
     },
     ResourceConfig = emqx_authz_utils:cleanup_resource_config(
-        [query, disable_prepared_statements], Source
+        [query], Source
     ),
     emqx_authz_utils:init_state(Source, #{
         resource_config => ResourceConfig,

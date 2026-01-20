@@ -83,18 +83,14 @@ new_state(
     ResourceId,
     #{
         query := SQLTemplate,
-        query_timeout := QueryTimeout,
-        disable_prepared_statements := DisablePreparedStatements
+        query_timeout := QueryTimeout
     } = Source0
 ) ->
     {Vars, SQL, ArgsTemplate} = emqx_auth_template:parse_sql(SQLTemplate, '?', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Source = Source0#{
-        prepare_statements => #{?PREPARE_KEY => SQL},
-        emulate_prepared_statements => DisablePreparedStatements
-    },
+    Source = Source0#{prepare_statements => #{?PREPARE_KEY => SQL}},
     ResourceConfig = emqx_authz_utils:cleanup_resource_config(
-        [query], Source
+        [query, query_timeout], Source
     ),
     emqx_authz_utils:init_state(Source, #{
         resource_config => ResourceConfig,

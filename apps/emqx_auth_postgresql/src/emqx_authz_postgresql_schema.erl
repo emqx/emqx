@@ -24,11 +24,10 @@ type() -> ?AUTHZ_TYPE.
 
 fields(postgresql) ->
     [
-        {query, query()},
-        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
+        {query, query()}
     ] ++
         emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_auth_postgresql_connector:fields(config).
+        emqx_auth_postgresql_connector:config_fields().
 
 desc(postgresql) ->
     ?DESC(postgresql);

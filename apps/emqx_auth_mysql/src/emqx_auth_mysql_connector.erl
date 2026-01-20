@@ -23,10 +23,11 @@
     on_get_status/2
 ]).
 
-%% ecpool connect
+%% ecpool callback
 -export([connect/1]).
 
--export([roots/0, fields/1, namespace/0]).
+%% hocon schema helpers
+-export([config_fields/0]).
 
 -export([do_get_status/1]).
 
@@ -45,27 +46,22 @@
         prepare_statements := #{prepare_statement_key() => prepare_statement_sql()}
     }.
 
-%%=====================================================================
-%% Hocon schema
+%%------------------------------------------------------------------------------
+%% Hocon schema helpers
+%%------------------------------------------------------------------------------
 
-namespace() -> mysql.
-
-roots() ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
-
-fields(config) ->
+config_fields() ->
     [
-        {server, server()},
-        {connect_timeout, emqx_connector_schema_lib:connect_timeout_field()}
+        {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?MYSQL_HOST_OPTIONS)},
+        {connect_timeout, emqx_connector_schema_lib:connect_timeout_field()},
+        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
         emqx_connector_schema_lib:relational_db_fields(#{username => #{default => <<"root">>}}) ++
         emqx_connector_schema_lib:ssl_fields().
 
-server() ->
-    Meta = #{desc => ?DESC("server")},
-    emqx_schema:servers_sc(Meta, ?MYSQL_HOST_OPTIONS).
-
-%% ===================================================================
+%%------------------------------------------------------------------------------
+%% emqx_resource callbacks
+%%------------------------------------------------------------------------------
 
 resource_type() -> auth_mysql.
 
@@ -97,13 +93,14 @@ on_start(
         end,
     Password = maps:get(password, Config, undefined),
     BasicCapabilities = maps:get(basic_capabilities, Config, #{}),
-    EmulatePreparedStatements = maps:get(emulate_prepared_statements, Config, false),
+    DisablePreparedStatements = maps:get(disable_prepared_statements, Config, false),
     PrepareStatements = maps:get(prepare_statements, Config, #{}),
     PrepareOpt =
-        case EmulatePreparedStatements of
+        case DisablePreparedStatements of
             true -> [];
             false -> [{prepare, maps:to_list(PrepareStatements)}]
         end,
+    ct:print("PrepareOpt: ~p~n", [PrepareOpt]),
     ConnectTimeout = maps:get(connect_timeout, Config, ?DEFAULT_CONNECT_TIMEOUT),
     Options =
         lists:flatten([
@@ -123,7 +120,7 @@ on_start(
             {ok, #{
                 pool_name => InstId,
                 prepare_statements => PrepareStatements,
-                emulate_prepared_statements => EmulatePreparedStatements
+                disable_prepared_statements => DisablePreparedStatements
             }};
         {error, Reason} ->
             ?tp(
@@ -162,14 +159,14 @@ on_query(
     {prepared_query, Key, Params, Opts} = Request,
     #{
         prepare_statements := PrepareStatements,
-        emulate_prepared_statements := EmulatePreparedStatements
+        disable_prepared_statements := DisablePreparedStatements
     } = State
 ) ->
     LogInfo = #{connector => InstId, request => Request, state => State},
     case PrepareStatements of
         #{Key := SQL} ->
             Timeout = maps:get(timeout, Opts, default_timeout),
-            case EmulatePreparedStatements of
+            case DisablePreparedStatements of
                 true ->
                     Fun = fun(Conn) ->
                         mysql:query(Conn, SQL, Params, Timeout)
@@ -194,6 +191,10 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
         on_success_fn => fun() -> do_on_get_status_prepares(State) end
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
+
+%%------------------------------------------------------------------------------
+%% ecpool callback
+%%------------------------------------------------------------------------------
 
 connect(Options) ->
     NOptions = init_connect_opts(Options),

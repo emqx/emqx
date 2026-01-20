@@ -24,10 +24,11 @@
     on_get_status/2
 ]).
 
-%% ecpool connect
+%% ecpool callback
 -export([connect/1]).
 
--export([roots/0, fields/1, namespace/0]).
+%% hocon schema helpers
+-export([config_fields/0]).
 
 -define(PGSQL_DEFAULT_PORT, 5432).
 -define(PGSQL_HOST_OPTIONS, #{
@@ -41,30 +42,25 @@
     #{
         pool_name := binary(),
         prepare_statements := #{prepare_statement_key() => prepare_statement_sql()},
-        emulate_prepared_statements := boolean()
+        disable_prepared_statements := boolean()
     }.
 
-%%=====================================================================
-%% Hocon schema
+%%------------------------------------------------------------------------------
+%% Hocon schema helpers
+%%------------------------------------------------------------------------------
 
-namespace() -> postgres.
-
-roots() ->
-    [{config, #{type => hoconsc:ref(?MODULE, config)}}].
-
-fields(config) ->
+config_fields() ->
     [
-        {server, server()},
-        {connect_timeout, emqx_connector_schema_lib:connect_timeout_field()}
+        {server, emqx_schema:servers_sc(#{desc => ?DESC("server")}, ?PGSQL_HOST_OPTIONS)},
+        {connect_timeout, emqx_connector_schema_lib:connect_timeout_field()},
+        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
         emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
         emqx_connector_schema_lib:ssl_fields().
 
-server() ->
-    Meta = #{desc => ?DESC("server")},
-    emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
-
-%% ===================================================================
+%%------------------------------------------------------------------------------
+%% emqx_resource callbacks
+%%------------------------------------------------------------------------------
 
 resource_type() -> auth_pgsql.
 
@@ -100,12 +96,13 @@ on_start(
         end,
     Password = maps:get(password, Config, emqx_secret:wrap("")),
     PrepareStatements = emqx_utils_maps:binary_key_map(maps:get(prepare_statements, Config, #{})),
-    EmulatePreparedStatements = maps:get(emulate_prepared_statements, Config, false),
+    DisablePreparedStatements = maps:get(disable_prepared_statements, Config, false),
     PrepareOpt =
-        case EmulatePreparedStatements of
+        case DisablePreparedStatements of
             true -> [];
             false -> [{prepare, maps:to_list(PrepareStatements)}]
         end,
+    ct:print("PrepareOpt: ~p~n", [PrepareOpt]),
     Options = [
         {host, Host},
         {port, Port},
@@ -121,7 +118,7 @@ on_start(
             {ok, #{
                 pool_name => InstId,
                 prepare_statements => PrepareStatements,
-                emulate_prepared_statements => EmulatePreparedStatements
+                disable_prepared_statements => DisablePreparedStatements
             }};
         {error, Reason} ->
             ?tp(
@@ -140,27 +137,6 @@ on_stop(InstId, State) ->
     close_connections(State),
     emqx_resource_pool:stop(InstId).
 
-close_connections(#{pool_name := PoolName} = _State) ->
-    WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
-    close_connections_with_worker_pids(WorkerPids),
-    ok;
-close_connections(_) ->
-    ok.
-
-close_connections_with_worker_pids([WorkerPid | Rest]) ->
-    try ecpool_worker:client(WorkerPid) of
-        {ok, Conn} ->
-            _ = epgsql:close(Conn),
-            close_connections_with_worker_pids(Rest);
-        _ ->
-            close_connections_with_worker_pids(Rest)
-    catch
-        _:_ ->
-            close_connections_with_worker_pids(Rest)
-    end;
-close_connections_with_worker_pids([]) ->
-    ok.
-
 %% query (SQL request)
 on_query(InstId, {query, SQL}, State) ->
     on_query(InstId, {query, SQL, []}, State);
@@ -176,7 +152,7 @@ on_query(
     {prepared_query, Key0, Params} = Request,
     #{
         pool_name := PoolName,
-        emulate_prepared_statements := EmulatePreparedStatements,
+        disable_prepared_statements := DisablePreparedStatements,
         prepare_statements := PrepareStatements
     } = State
 ) ->
@@ -186,7 +162,7 @@ on_query(
     case PrepareStatements of
         #{Key := SQL} ->
             QueryFun =
-                case EmulatePreparedStatements of
+                case DisablePreparedStatements of
                     true ->
                         fun(Conn) -> query(Conn, SQL, Params) end;
                     false ->
@@ -211,6 +187,10 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
     },
     emqx_resource_pool:common_health_check_workers(PoolName, Opts).
 
+%%------------------------------------------------------------------------------
+%% ecpool callbacks
+%%------------------------------------------------------------------------------
+
 connect(Opts) ->
     Host = proplists:get_value(host, Opts),
     Username = proplists:get_value(username, Opts),
@@ -234,6 +214,27 @@ connect(Opts) ->
 %%------------------------------------------------------------------------------
 %% Helper Functions
 %%------------------------------------------------------------------------------
+
+close_connections(#{pool_name := PoolName} = _State) ->
+    WorkerPids = [Worker || {_WorkerName, Worker} <- ecpool:workers(PoolName)],
+    close_connections_with_worker_pids(WorkerPids),
+    ok;
+close_connections(_) ->
+    ok.
+
+close_connections_with_worker_pids([WorkerPid | Rest]) ->
+    try ecpool_worker:client(WorkerPid) of
+        {ok, Conn} ->
+            _ = epgsql:close(Conn),
+            close_connections_with_worker_pids(Rest);
+        _ ->
+            close_connections_with_worker_pids(Rest)
+    catch
+        _:_ ->
+            close_connections_with_worker_pids(Rest)
+    end;
+close_connections_with_worker_pids([]) ->
+    ok.
 
 pool_workers(PoolName) ->
     lists:map(fun({_Name, Worker}) -> Worker end, ecpool:workers(PoolName)).

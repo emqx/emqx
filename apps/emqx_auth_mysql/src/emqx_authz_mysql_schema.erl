@@ -26,12 +26,11 @@ fields(mysql) ->
     [
         %% We do not need and never used this field for authz
         {prepare_statement,
-            emqx_connector_schema_lib:prepare_statement_field(#{deprecated => {since, "6.2.0"}})},
-        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
+            emqx_connector_schema_lib:prepare_statement_field(#{deprecated => {since, "6.2.0"}})}
     ] ++
         query_fields() ++
         emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_auth_mysql_connector:fields(config).
+        emqx_auth_mysql_connector:config_fields().
 
 desc(mysql) ->
     ?DESC(mysql);

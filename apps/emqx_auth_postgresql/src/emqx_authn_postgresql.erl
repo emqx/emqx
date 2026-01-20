@@ -112,8 +112,7 @@ create_state(
     ResourceId,
     #{
         query := Query0,
-        password_hash_algorithm := Algorithm,
-        disable_prepared_statements := DisablePreparedStatements
+        password_hash_algorithm := Algorithm
     } = Config
 ) ->
     ok = emqx_authn_password_hashing:init(Algorithm),
@@ -126,14 +125,9 @@ create_state(
         resource_id => ResourceId
     }),
     ResourceConfig = emqx_authn_utils:cleanup_resource_config(
-        [query, password_hash_algorithm, disable_prepared_statements], Config
+        [query, password_hash_algorithm], Config
     ),
-    {ok,
-        ResourceConfig#{
-            prepare_statements => #{?PREPARE_KEY => Query},
-            emulate_prepared_statements => DisablePreparedStatements
-        },
-        State}.
+    {ok, ResourceConfig#{prepare_statements => #{?PREPARE_KEY => Query}}, State}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

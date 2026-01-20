@@ -105,11 +105,11 @@ t_execute_key_not_found(_Config) ->
         emqx_resource:simple_sync_query(?MYSQL_RESOURCE, {prepared_query, nonexistent})
     ).
 
-t_emulate_prepared_statements(_Config) ->
+t_disable_prepared_statements(_Config) ->
     {ok, _} = create_resource(
         ?MYSQL_RESOURCE,
         mysql_config(#{
-            prepare_statements => #{test => <<"SELECT 123">>}, emulate_prepared_statements => true
+            prepare_statements => #{test => <<"SELECT 123">>}, disable_prepared_statements => true
         })
     ),
     ?assertMatch(
