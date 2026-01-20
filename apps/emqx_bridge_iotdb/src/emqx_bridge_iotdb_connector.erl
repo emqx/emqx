@@ -277,7 +277,9 @@ sql_union_selector({value, Value}) ->
         <<"tree">> ->
             [ref(?MODULE, sql_dialect_tree)];
         <<"table">> ->
-            [ref(?MODULE, sql_dialect_table)]
+            [ref(?MODULE, sql_dialect_table)];
+        Atom when is_atom(Atom) ->
+            sql_union_selector({value, Value#{<<"dialect">> => atom_to_binary(Atom)}})
     end.
 
 common_fields(Driver) ->
