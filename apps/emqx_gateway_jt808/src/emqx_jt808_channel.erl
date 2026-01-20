@@ -871,16 +871,22 @@ get_msg_ack(?MC_DRIVER_ID_REPORT, _MsgSn) ->
 get_msg_ack(MsgId, MsgSn) ->
     error({invalid_message_type, MsgId, MsgSn}).
 
-build_frame_header(MsgId, #channel{clientinfo = #{phone := Phone}, msg_sn = TxMsgSn}) ->
-    build_frame_header(MsgId, 0, Phone, TxMsgSn).
+build_frame_header(MsgId, #channel{clientinfo = ClientInfo, msg_sn = TxMsgSn}) ->
+    #{phone := Phone} = ClientInfo,
+    ProtoVer = maps:get(proto_ver, ClientInfo, ?PROTO_VER_2013),
+    build_frame_header(MsgId, 0, Phone, TxMsgSn, ProtoVer).
 
-build_frame_header(MsgId, Encrypt, Phone, TxMsgSn) ->
-    #{
+build_frame_header(MsgId, Encrypt, Phone, TxMsgSn, ProtoVer) ->
+    Header = #{
         <<"msg_id">> => MsgId,
         <<"encrypt">> => Encrypt,
         <<"phone">> => Phone,
         <<"msg_sn">> => TxMsgSn
-    }.
+    },
+    case ProtoVer >= ?PROTO_VER_2019 of
+        true -> Header#{<<"proto_ver">> => ProtoVer};
+        false -> Header
+    end.
 
 seq(#{<<"body">> := #{<<"seq">> := MsgSn}}) -> MsgSn;
 seq(#{}) -> 0.
@@ -990,7 +996,7 @@ run_conn_hooks(
 %% Register
 enrich_clientinfo(
     #{
-        <<"header">> := #{<<"phone">> := Phone},
+        <<"header">> := Header = #{<<"phone">> := Phone},
         <<"body">> := #{
             <<"manufacturer">> := Manu,
             <<"dev_id">> := DevId
@@ -998,21 +1004,25 @@ enrich_clientinfo(
     },
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
+    ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
     NClientInfo = maybe_fix_mountpoint(ClientInfo#{
         phone => Phone,
         clientid => Phone,
         manufacturer => Manu,
-        terminal_id => DevId
+        terminal_id => DevId,
+        proto_ver => ProtoVer
     }),
     {ok, Channel#channel{clientinfo = NClientInfo}};
 %% Auth
 enrich_clientinfo(
-    #{<<"header">> := #{<<"phone">> := Phone}},
+    #{<<"header">> := Header = #{<<"phone">> := Phone}},
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
+    ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
     NClientInfo = ClientInfo#{
         phone => Phone,
-        clientid => Phone
+        clientid => Phone,
+        proto_ver => ProtoVer
     },
     {ok, Channel#channel{clientinfo = NClientInfo}}.
 
