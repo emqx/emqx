@@ -100,7 +100,6 @@ on_start(
             true -> [];
             false -> [{prepare, maps:to_list(PrepareStatements)}]
         end,
-    ct:print("PrepareOpt: ~p~n", [PrepareOpt]),
     ConnectTimeout = maps:get(connect_timeout, Config, ?DEFAULT_CONNECT_TIMEOUT),
     Options =
         lists:flatten([

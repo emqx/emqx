@@ -102,7 +102,6 @@ on_start(
             true -> [];
             false -> [{prepare, maps:to_list(PrepareStatements)}]
         end,
-    ct:print("PrepareOpt: ~p~n", [PrepareOpt]),
     Options = [
         {host, Host},
         {port, Port},

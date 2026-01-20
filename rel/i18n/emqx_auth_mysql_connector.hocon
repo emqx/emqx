@@ -1,4 +1,4 @@
-emqx_mysql {
+emqx_auth_mysql_connector {
 
 server.desc:
 """The IPv4 or IPv6 address or the hostname to connect to.<br/>

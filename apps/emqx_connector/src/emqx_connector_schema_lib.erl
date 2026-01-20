@@ -132,7 +132,7 @@ connect_timeout_field(Opts) ->
         maps:merge(
             #{
                 required => false,
-                desc => ?DESC("connection_timeout"),
+                desc => ?DESC("connect_timeout"),
                 default => <<"15s">>
             },
             Opts
