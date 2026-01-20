@@ -750,6 +750,12 @@ unknown_message_packet() ->
 %% 2019 header format macros
 -define(VERSION_BIT_2019, 1).
 
+%% BCD[10] phone: 00000000000123456789 (same phone "000123456789" as 2013, with leading zeros)
+-define(JT808_PHONE_BCD_2019,
+    <<16#00, 16#00, 16#00, 16#00, 16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>
+).
+-define(JT808_PHONE_STR_2019, <<"00000000000123456789">>).
+
 t_2019_register_parse(_Config) ->
     %% Test 2019 register message with larger field sizes
     Parser = emqx_jt808_frame:initial_parse_state(#{}),
@@ -770,8 +776,8 @@ t_2019_register_parse(_Config) ->
         <<58:?word, 59:?word, ManufPadded/binary, ModelPadded/binary, DevIdPadded/binary, Color,
             Plate/binary>>,
     MsgId = 16#0100,
-    %% 2019: BCD[10] phone number
-    PhoneBCD = <<16#00, 16#00, 16#01, 16#23, 16#45, 16#67, 16#89, 16#01, 16#23, 16#45>>,
+    %% 2019: BCD[10] phone number with leading zeros
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
     MsgSn = 78,
     ProtoVer = ?PROTO_VER_2019,
     Size = size(RegisterPacket),
@@ -787,7 +793,7 @@ t_2019_register_parse(_Config) ->
             <<"header">> := #{
                 <<"msg_id">> := MsgId,
                 <<"encrypt">> := ?NO_ENCRYPT,
-                <<"phone">> := <<"00000123456789012345">>,
+                <<"phone">> := ?JT808_PHONE_STR_2019,
                 <<"len">> := Size,
                 <<"msg_sn">> := MsgSn,
                 <<"proto_ver">> := ProtoVer
@@ -822,7 +828,7 @@ t_2019_auth_parse(_Config) ->
     AuthPacket =
         <<AuthLen:8, AuthCode/binary, IMEI/binary, SoftwareVersionPadded/binary>>,
     MsgId = 16#0102,
-    PhoneBCD = <<16#00, 16#00, 16#01, 16#23, 16#45, 16#67, 16#89, 16#01, 16#23, 16#45>>,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
     MsgSn = 99,
     ProtoVer = ?PROTO_VER_2019,
     Size = size(AuthPacket),
