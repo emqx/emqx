@@ -91,7 +91,12 @@ query_mode(_Config) -> no_queries.
     {ok, connector_state()} | {error, term()}.
 on_start(ConnectorResId, Config0) ->
     Config1 = maps:update_with(
-        service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
+        service_account_json,
+        fun(X) ->
+            JsonBin = emqx_secret:unwrap(X),
+            emqx_utils_json:decode(JsonBin)
+        end,
+        Config0
     ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
