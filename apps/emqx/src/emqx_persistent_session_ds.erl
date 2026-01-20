@@ -296,7 +296,7 @@ create(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     create_session(new, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf).
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
-    {_IsPresent :: true, session(), []} | false.
+    {_IsPresent :: true, session(), [], map()} | false.
 open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     %% NOTE
     %% The fact that we need to concern about discarding all live channels here
@@ -309,10 +309,11 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
         false ->
             false;
         State ->
-            Session = create_session(
+            Session0 = create_session(
                 takeover, ClientID, State, ClientInfo, ConnInfo, MaybeWillMsg, Conf
             ),
-            {true, do_expire(ClientInfo, Session), []}
+            {RuntimeData, Session} = pop_runtime_data(Session0),
+            {true, do_expire(ClientInfo, Session), [], RuntimeData}
     end.
 
 -spec destroy(session() | clientinfo()) -> ok.
@@ -2167,8 +2168,9 @@ async_checkpoint(Session) ->
 
 commit(Session0 = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0, opts => Opts}),
-    S1 = emqx_persistent_session_ds_subs:gc(streams_gc(S0)),
-    S = emqx_persistent_session_ds_state:commit(S1, Opts),
+    S1 = maybe_snapshot_runtime_data(S0, Opts),
+    S2 = emqx_persistent_session_ds_subs:gc(streams_gc(S1)),
+    S = emqx_persistent_session_ds_state:commit(S2, Opts),
     Session = Session0#{s := S},
     cancel_state_commit_timer(Session).
 
@@ -2194,6 +2196,22 @@ dscli_retry_interval() ->
 dscli_retry_interval() ->
     100.
 -endif.
+
+maybe_snapshot_runtime_data(S0, #{lifetime := terminate}) ->
+    PreTerminateCtx = #{},
+    PreTerminateState = emqx_hooks:run_fold('session.pre_terminate', [PreTerminateCtx], #{}),
+    emqx_persistent_session_ds_state:put_runtime_data(PreTerminateState, S0);
+maybe_snapshot_runtime_data(S, _Opts) ->
+    S.
+
+pop_runtime_data(#{s := S0} = Session0) ->
+    RuntimeData =
+        case emqx_persistent_session_ds_state:get_runtime_data(S0) of
+            undefined -> #{};
+            Data -> Data
+        end,
+    S = emqx_persistent_session_ds_state:put_runtime_data(#{}, S0),
+    {RuntimeData, Session0#{s := S}}.
 
 %%--------------------------------------------------------------------
 %% Tests

@@ -27,6 +27,8 @@ The module:
     on_session_unsubscribed/3,
     on_session_resumed/2,
     on_session_disconnected/2,
+    on_session_pre_terminate/2,
+    on_session_post_resume/1,
     on_delivery_completed/2,
     on_message_delivered/2,
     on_message_nack/2,
@@ -38,8 +40,12 @@ The module:
     max_unacked/0
 ]).
 
+%% Context stashing (internal to `emqx_extsub` app)
+-export([pop_context/2]).
+
 -define(ST_PD_KEY, extsub_st).
 -define(CAN_RECEIVE_ACKS_PD_KEY, extsub_can_receive_acks).
+-define(PRE_TERMINATE_CTX_PD_KEY, {?MODULE, pre_terminate_ctx}).
 
 -define(MAX_UNACKED_PT_KEY, extsub_max_unacked).
 
@@ -65,6 +71,12 @@ register_hooks() ->
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add(
+        'session.pre_terminate', {?MODULE, on_session_pre_terminate, []}, ?HP_LOWEST
+    ),
+    ok = emqx_hooks:add(
+        'session.post_resume', {?MODULE, on_session_post_resume, []}, ?HP_LOWEST
+    ),
     ok = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
 
@@ -77,6 +89,8 @@ unregister_hooks() ->
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     emqx_hooks:del('session.disconnected', {?MODULE, on_session_disconnected}),
+    emqx_hooks:del('session.pre_terminate', {?MODULE, on_session_pre_terminate}),
+    emqx_hooks:del('session.post_resume', {?MODULE, on_session_post_resume}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
 
@@ -182,6 +196,24 @@ on_session_unsubscribed(_ClientInfo, TopicFilter, SubOpts) ->
 on_session_disconnected(_ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ?tp_debug(extsub_on_session_disconnected, #{subscriptions => Subs}),
     on_unsubscribed(disconnect, Subs).
+
+on_session_pre_terminate(PreTerminateCtx, Acc) ->
+    ?tp_debug(extsub_on_session_pre_terminate, #{ctx => PreTerminateCtx}),
+    with_st(
+        fun(#st{registry = HandlerRegistry0} = St0) ->
+            {Out, HandlerRegistry} =
+                emqx_extsub_handler_registry:pre_terminate(HandlerRegistry0, PreTerminateCtx),
+            AccOut = Acc#{?MODULE => Out},
+            {ok, St0#st{registry = HandlerRegistry}, {ok, AccOut}}
+        end,
+        {ok, Acc}
+    ).
+
+on_session_post_resume(#{?MODULE := PreTakeoverCtx}) ->
+    ok = stash_context(PreTakeoverCtx),
+    ok;
+on_session_post_resume(_PostTakeoverCtx) ->
+    ok.
 
 on_unsubscribed(UnsubscribeType, Subs) ->
     with_st(fun(#st{registry = HandlerRegistry} = St) ->
@@ -293,6 +325,32 @@ set_max_unacked(MaxUnacked) ->
 
 max_unacked() ->
     persistent_term:get(?MAX_UNACKED_PT_KEY, ?EXTSUB_MAX_UNACKED).
+
+%%--------------------------------------------------------------------
+%% Context stashing
+%%--------------------------------------------------------------------
+
+pop_context(CBM, TopicFilter) ->
+    case get(?PRE_TERMINATE_CTX_PD_KEY) of
+        #{CBM := #{TopicFilter := Val} = InnerCtx0} = Ctx0 ->
+            InnerCtx = maps:remove(TopicFilter, InnerCtx0),
+            Ctx =
+                case map_size(InnerCtx) == 0 of
+                    true ->
+                        maps:remove(CBM, Ctx0);
+                    false ->
+                        Ctx0#{CBM := InnerCtx}
+                end,
+            case map_size(InnerCtx) == 0 of
+                true ->
+                    unstash_context();
+                false ->
+                    stash_context(Ctx)
+            end,
+            {ok, Val};
+        _ ->
+            error
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -507,3 +565,11 @@ can_receive_acks() ->
         CanReceiveAcks ->
             CanReceiveAcks
     end.
+
+stash_context(PreTakeoverCtx) ->
+    _ = put(?PRE_TERMINATE_CTX_PD_KEY, PreTakeoverCtx),
+    ok.
+
+unstash_context() ->
+    _ = erase(?PRE_TERMINATE_CTX_PD_KEY),
+    ok.

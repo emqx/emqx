@@ -18,5 +18,9 @@
 -define(streams, streams).
 -define(ranks, ranks).
 -define(awaiting_rel, awaiting_rel).
+-define(misc, misc).
+
+%% Fixed keys in pmaps:
+-define(runtime_data, runtime_data).
 
 -endif.

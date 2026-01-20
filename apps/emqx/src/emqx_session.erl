@@ -255,7 +255,7 @@ create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     Session.
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
-    {_IsPresent :: true, t(), _ReplayContext} | {_IsPresent :: false, t()}.
+    {_IsPresent :: true, t(), _ReplayContext, _RemoteContext :: map()} | {_IsPresent :: false, t()}.
 open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     Conf = get_session_conf(ClientInfo),
     Mods = [Default | _] = choose_impl_candidates(ClientInfo, ConnInfo),
@@ -263,9 +263,10 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     %% Try to look the existing session up in session stores corresponding to the given
     %% `Mods` in order, starting from the last one.
     case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
-        {_IsPresent = true, Session, _} = Present ->
+        {_IsPresent = true, Session, _, RemoteCtx} = Present ->
             ok = emqx_metrics:inc_global('session.resumed'),
             ok = emqx_hooks:run('session.resumed', [ClientInfo, info(Session)]),
+            ok = emqx_hooks:run('session.post_resume', [RemoteCtx]),
             Present;
         false ->
             %% NOTE
@@ -275,7 +276,7 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
 
 try_open([Mod | Rest], ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     case try_open(Rest, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
-        {_IsPresent = true, _, _} = Present ->
+        {_IsPresent = true, _, _, _} = Present ->
             Present;
         false ->
             Mod:open(ClientInfo, ConnInfo, MaybeWillMsg, Conf)

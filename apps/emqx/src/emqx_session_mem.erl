@@ -205,15 +205,22 @@ destroy(_Session) ->
 %%--------------------------------------------------------------------
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message()), emqx_session:conf()) ->
-    {_IsPresent :: true, session(), replayctx()} | _IsPresent :: false.
+    {_IsPresent :: true, session(), replayctx(), map()} | _IsPresent :: false.
 open(ClientInfo = #{clientid := ClientId}, ConnInfo, _MaybeWillMsg, Conf) ->
     case emqx_cm:takeover_session_begin(ClientId) of
-        {ok, SessionRemote, TakeoverState} ->
+        {ok, RemoteCtx0} ->
+            #{
+                session := SessionRemote,
+                conn_mod := ConnMod,
+                chan_pid := ChanPid
+            } = RemoteCtx0,
+            PreTerminateState = maps:get(pre_terminate_state, RemoteCtx0, #{}),
+            TakeoverState = {ConnMod, ChanPid},
             Session0 = resume(ClientInfo, SessionRemote),
             Session1 = resize_inflight(ConnInfo, Session0),
             Session2 = apply_conf(Conf, Session1),
             Session = filter_remote_session(Session2),
-            {true, Session, TakeoverState};
+            {true, Session, TakeoverState, PreTerminateState};
         none ->
             false
     end.

@@ -20,6 +20,7 @@ all() ->
         {group, mnesia_with_indices},
         {group, mnesia_reindex},
         {group, index_agnostic},
+        {group, index_agnostic_ds},
         {group, disabled}
     ].
 
@@ -28,13 +29,26 @@ groups() ->
         {mnesia_without_indices, [sequence], index_related_tests()},
         {mnesia_with_indices, [sequence], index_related_tests()},
         {mnesia_reindex, [sequence], [t_reindex]},
-        {index_agnostic, [sequence], [t_disable_then_start, t_start_stop_on_setting_change]},
+        {index_agnostic, [sequence], [
+            t_disable_then_start,
+            t_start_stop_on_setting_change,
+            t_takeover,
+            t_resume
+        ]},
+        {index_agnostic_ds, [sequence], [t_takeover, t_resume]},
         {disabled, [t_disabled]}
     ].
 
 index_related_tests() ->
     emqx_common_test_helpers:all(?MODULE) --
-        [t_reindex, t_disable_then_start, t_disabled, t_start_stop_on_setting_change].
+        [
+            t_reindex,
+            t_disable_then_start,
+            t_disabled,
+            t_start_stop_on_setting_change,
+            t_takeover,
+            t_resume
+        ].
 
 %% erlfmt-ignore
 -define(BASE_CONF, ~'
@@ -72,10 +86,10 @@ init_per_group(mnesia_without_indices = Group, Config) ->
 init_per_group(Group, Config) ->
     start_apps(Group, Config).
 
-end_per_group(_Group, Config) ->
+end_per_group(Group, Config) ->
     emqx_retainer_mnesia:populate_index_meta(),
-    stop_apps(Config),
-    Config.
+    stop_apps(Group, Config),
+    ok.
 
 init_per_testcase(t_disabled, Config) ->
     snabbkaffe:start_trace(),
@@ -108,6 +122,9 @@ emqx_conf_app_spec(disabled) ->
 emqx_conf_app_spec(_) ->
     emqx_conf.
 
+start_apps(index_agnostic_ds = _Group, Config) ->
+    ExtraApps = [emqx_retainer_app_spec()],
+    emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, #{});
 start_apps(Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -119,7 +136,9 @@ start_apps(Group, Config) ->
     ),
     [{suite_apps, Apps} | Config].
 
-stop_apps(Config) ->
+stop_apps(index_agnostic_ds, Config) ->
+    emqx_common_test_helpers:run_cleanups(Config);
+stop_apps(_Group, Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 %%--------------------------------------------------------------------
@@ -1204,6 +1223,73 @@ t_update_config(_) ->
     NewConf = emqx_utils_maps:deep_put([<<"backend">>, <<"storage_type">>], OldConf, <<"disc">>),
     update_retainer_config(NewConf).
 
+t_takeover(TCConfig) ->
+    test_takeover_or_resume(takeover, TCConfig).
+
+t_resume(TCConfig) ->
+    test_takeover_or_resume(takeover, TCConfig).
+
+test_takeover_or_resume(Kind, _TCConfig) ->
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"5/1s">>,
+        <<"flow_control">> => #{<<"batch_read_number">> => 1}
+    }),
+    NumRetained = 15,
+    lists:foreach(
+        fun(N) ->
+            Num = integer_to_binary(N),
+            Message = emqx_message:make(<<"retained/", Num/binary>>, <<"payload">>),
+            ok = emqx_retainer_publisher:store_retained(Message)
+        end,
+        lists:seq(1, NumRetained)
+    ),
+    ?check_trace(
+        begin
+            ClientId = <<"takeover">>,
+            Opts = #{
+                clientid => ClientId,
+                clean_start => false,
+                proto_ver => v5,
+                properties => #{'Session-Expiry-Interval' => 30}
+            },
+            {ok, C0} = emqtt:start_link(Opts#{clean_start := true}),
+            {ok, _} = emqtt:connect(C0),
+
+            {ok, C1} = emqtt:start_link(Opts),
+
+            %% Receive messages until rate limit is hit.
+            {ok, _, _} = emqtt:subscribe(C0, <<"retained/+">>, 1),
+            Msgs0 = receive_messages(5),
+
+            %% Now take over/resume
+            case Kind of
+                takeover ->
+                    unlink(C0);
+                resume ->
+                    emqtt:stop(C0)
+            end,
+            {ok, _} = emqtt:connect(C1),
+            Msgs1 = receive_messages(10),
+
+            %% Should have received everything without duplication.
+            Msgs = Msgs0 ++ Msgs1,
+            NumReceived = length(Msgs),
+            Duplicated0 = maps:groups_from_list(fun(#{topic := T}) -> T end, Msgs),
+            Duplicated = maps:filter(fun(_T, Ms) -> length(Ms) > 1 end, Duplicated0),
+            Ctx = #{received_so_far => Msgs, num_received => NumReceived, duplicated => Duplicated},
+
+            ?assertNotReceive({publish, _}, 1_000, Ctx),
+            ?assertEqual(NumRetained, NumReceived, Ctx),
+            ?assertEqual(#{}, Duplicated, Ctx),
+
+            ok = emqtt:stop(C1),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -1298,7 +1384,7 @@ reset_rates_to_default() ->
         <<"max_publish_rate">> => <<"100000/s">>,
         <<"flow_control">> =>
             #{
-                <<"batch_read_number">> => 0
+                <<"batch_read_number">> => 1_000
             }
     }).
 

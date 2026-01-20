@@ -123,6 +123,18 @@ handle_call(
     ok = emqx_cm:unregister_channel(ClientId),
     {reply, Session, Channel#{takeover => true}};
 handle_call(
+    {takeover, begin_with_context},
+    _From,
+    #{
+        session := Session,
+        clientinfo := #{clientid := ClientId}
+    } = Channel
+) ->
+    ok = emqx_cm:unregister_channel(ClientId),
+    PreTerminateCtx = #{},
+    PreTerminateState = emqx_hooks:run_fold('session.pre_terminate', [PreTerminateCtx], #{}),
+    {reply, {Session, PreTerminateState}, Channel#{takeover => true}};
+handle_call(
     {takeover, 'end'},
     _From,
     #{
@@ -157,7 +169,7 @@ handle_call(Req, _From, Channel) ->
     ),
     {reply, ignored, Channel}.
 
-handle_info(Deliver = {deliver, _Topic, _Msg}, Channel) ->
+handle_info(Deliver = #deliver{topic = _Topic, message = _Msg}, Channel) ->
     Delivers = [Deliver | emqx_utils:drain_deliver()],
     {noreply, handle_deliver(Delivers, Channel)};
 handle_info(expire_session, Channel) ->
@@ -245,7 +257,7 @@ open_session(ConnInfo, #{clientid := ClientId} = ClientInfo, MaybeWillMsg) ->
                 }
             ),
             {error, no_session};
-        {ok, #{session := Session, present := true, replay := RCtx}} ->
+        {ok, #{session := Session, present := true, replay := RCtx} = SessionInfo} ->
             ?SLOG(
                 info,
                 #{

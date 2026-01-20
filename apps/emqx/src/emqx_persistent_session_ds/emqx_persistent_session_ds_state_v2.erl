@@ -101,6 +101,7 @@
 -define(top_streams, <<"st">>).
 -define(top_ranks, <<"rnk">>).
 -define(top_awaiting_rel, <<"arl">>).
+-define(top_misc, <<"msc">>).
 
 -type session_iterator() :: emqx_ds:multi_iterator().
 -type subscription_iterator() :: emqx_ds:multi_iterator().
@@ -186,7 +187,8 @@ commit(
         ?streams := Streams,
         ?seqnos := SeqNos,
         ?ranks := Ranks,
-        ?awaiting_rel := AwaitingRels
+        ?awaiting_rel := AwaitingRels,
+        ?misc := Misc
     },
     #{lifetime := Lifetime, sync := Sync}
 ) ->
@@ -223,6 +225,7 @@ commit(
                     ?seqnos := emqx_ds_pmap:tx_commit(ClientId, SeqNos),
                     ?ranks := emqx_ds_pmap:tx_commit(ClientId, Ranks),
                     ?awaiting_rel := emqx_ds_pmap:tx_commit(ClientId, AwaitingRels),
+                    ?misc := emqx_ds_pmap:tx_commit(ClientId, Misc),
                     ?unset_dirty
                 }
             end
@@ -349,6 +352,7 @@ tx_del_session_data(ClientId) ->
     emqx_ds_pmap:tx_destroy(ClientId, ?top_streams),
     emqx_ds_pmap:tx_destroy(ClientId, ?top_ranks),
     emqx_ds_pmap:tx_destroy(ClientId, ?top_awaiting_rel),
+    emqx_ds_pmap:tx_destroy(ClientId, ?top_misc),
     emqx_ds:tx_del_topic([?top_offline_info, ClientId]).
 
 %% @doc LTS trie wildcard threshold function
@@ -435,7 +439,8 @@ open_tx(ClientId) ->
                 ?seqnos => emqx_ds_pmap:tx_restore(?MODULE, ?top_seqnos, ClientId),
                 ?streams => emqx_ds_pmap:tx_restore(?MODULE, ?top_streams, ClientId),
                 ?ranks => emqx_ds_pmap:tx_restore(?MODULE, ?top_ranks, ClientId),
-                ?awaiting_rel => emqx_ds_pmap:tx_restore(?MODULE, ?top_awaiting_rel, ClientId)
+                ?awaiting_rel => emqx_ds_pmap:tx_restore(?MODULE, ?top_awaiting_rel, ClientId),
+                ?misc => emqx_ds_pmap:tx_restore(?MODULE, ?top_misc, ClientId)
             },
             {ok, Ret}
     end.
@@ -692,5 +697,6 @@ pmap_name(Pmap) ->
         ?seqnos -> ?top_seqnos;
         ?streams -> ?top_streams;
         ?ranks -> ?top_ranks;
-        ?awaiting_rel -> ?top_awaiting_rel
+        ?awaiting_rel -> ?top_awaiting_rel;
+        ?misc -> ?top_misc
     end.

@@ -214,7 +214,7 @@ session_open(Node, ClientId) ->
         retry_interval => 10,
         await_rel_timeout => infinity
     },
-    {_, Sess, _} = erpc:call(
+    {_, Sess, _, _} = erpc:call(
         Node,
         emqx_persistent_session_ds,
         open,

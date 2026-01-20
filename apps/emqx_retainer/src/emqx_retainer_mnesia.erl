@@ -279,7 +279,9 @@ read_message(_State, Topic) ->
 match_messages(State, Topic, undefined, Opts) ->
     Tokens = topic_to_tokens(Topic),
     Now = erlang:system_time(millisecond),
-    S = msg_stream(search_stream(Tokens, Now)),
+    S0 = msg_stream(search_stream(Tokens, Now)),
+    Skip = maps:get(skip, Opts, 0),
+    S = emqx_utils_stream:drop(Skip, S0),
     case batch_read_number(Opts) of
         all_remaining ->
             {ok, emqx_utils_stream:consume(S), undefined};

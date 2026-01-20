@@ -49,6 +49,8 @@
     'session.discarded',
     'session.takenover',
     'session.terminated',
+    'session.pre_terminate',
+    'session.post_resume',
     'message.publish',
     'message.puback',
     'message.dropped',
@@ -204,6 +206,30 @@ when
 -callback 'session.terminated'(
     emqx_types:clientinfo(), _Reason :: atom(), _SessionInfo :: emqx_types:infos()
 ) -> callback_result().
+
+-doc """
+Called just before the session is terminated on a node.
+
+This is mainly a mechanism to transfer dynamic runtime data between session incarnations.
+
+Due to historical reasons, depending on session implementation, it must be called at
+different moments.
+
+  - In-memory sessions must call this when receiving the takeover RPC call, so they may
+    hand over the result to the new channel.
+
+  - DS sessions must call this during its terminate callback, so they may persist the
+    result.
+""".
+-callback 'session.pre_terminate'(map()) -> fold_callback_result(map()).
+
+-doc """
+Called just after a session is opened and is not a fresh session.
+
+Used mainly to get the result of `session.pre_terminate` (if any) and hand it over to the
+modules that generated it, so they may (partially) restore state of interest.
+""".
+-callback 'session.post_resume'(map()) -> callback_result().
 
 -callback 'message.publish'(Msg) ->
     fold_callback_result(Msg)

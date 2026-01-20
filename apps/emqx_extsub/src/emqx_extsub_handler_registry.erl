@@ -23,6 +23,7 @@ Collection of handlers for the external message sources.
     find/2,
     update/3,
     recreate/3,
+    pre_terminate/2,
     generic_message_handlers/1
 ]).
 
@@ -167,6 +168,36 @@ recreate(
         end,
         Registry,
         TopicFiltersToSubOpts
+    ).
+
+pre_terminate(#registry{by_ref = ByRef} = Registry, PreTerminateCtx) ->
+    maps:fold(
+        fun(HandlerRef, ExtSub0, {OutAcc0, RegAcc0}) ->
+            #registry{by_ref = ByRef0} = RegAcc0,
+            #extsub{handler = Handler0, topic_filters = TopicFiltersToSubOpts} = ExtSub0,
+            CBM = emqx_extsub_handler:get_module(Handler0),
+            case
+                emqx_extsub_handler:pre_terminate(
+                    Handler0, PreTerminateCtx, TopicFiltersToSubOpts
+                )
+            of
+                {ok, Handler} ->
+                    RegAcc = RegAcc0#registry{by_ref = ByRef0#{HandlerRef := Handler}},
+                    {OutAcc0, RegAcc};
+                {ok, Handler, Out0} ->
+                    RegAcc = RegAcc0#registry{by_ref = ByRef0#{HandlerRef := Handler}},
+                    Out = maps:map(fun(_TopicFilter, _SubOpts) -> Out0 end, TopicFiltersToSubOpts),
+                    OutAcc = maps:update_with(
+                        CBM,
+                        fun(Out1) -> maps:merge(Out1, Out) end,
+                        Out,
+                        OutAcc0
+                    ),
+                    {OutAcc, RegAcc}
+            end
+        end,
+        {#{}, Registry},
+        ByRef
     ).
 
 -spec generic_message_handlers(t()) -> [emqx_extsub_types:handler_ref()].

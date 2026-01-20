@@ -69,6 +69,7 @@
     fold_awaiting_rel/3,
     n_awaiting_rel/1
 ]).
+-export([get_runtime_data/1, put_runtime_data/2]).
 
 %% Iterating storage:
 -export([make_session_iterator/0, session_iterator_next/2]).
@@ -146,7 +147,8 @@
     %% stream scheduler module.
     ?streams := emqx_ds_pmap:pmap(emqx_ds:stream(), emqx_persistent_session_ds:srs()),
     ?ranks := emqx_ds_pmap:pmap(term(), integer()),
-    ?awaiting_rel := emqx_ds_pmap:pmap(emqx_types:packet_id(), _Timestamp :: integer())
+    ?awaiting_rel := emqx_ds_pmap:pmap(emqx_types:packet_id(), _Timestamp :: integer()),
+    ?misc := emqx_ds_pmap:pmap(?runtime_data | any(), term())
 }.
 
 -type lifetime() ::
@@ -280,7 +282,8 @@ create_new(SessionId) ->
         ?seqnos => emqx_persistent_session_ds_state_v2:new_pmap(?seqnos),
         ?streams => emqx_persistent_session_ds_state_v2:new_pmap(?streams),
         ?ranks => emqx_persistent_session_ds_state_v2:new_pmap(?ranks),
-        ?awaiting_rel => emqx_persistent_session_ds_state_v2:new_pmap(?awaiting_rel)
+        ?awaiting_rel => emqx_persistent_session_ds_state_v2:new_pmap(?awaiting_rel),
+        ?misc => emqx_persistent_session_ds_state_v2:new_pmap(?misc)
     }.
 
 -spec is_dirty(t()) -> boolean().
@@ -577,6 +580,14 @@ fold_awaiting_rel(Fun, Acc, Rec) ->
 -spec n_awaiting_rel(t()) -> non_neg_integer().
 n_awaiting_rel(Rec) ->
     emqx_ds_pmap:collection_size(?awaiting_rel, Rec).
+
+%%
+
+get_runtime_data(Rec) ->
+    emqx_ds_pmap:collection_get(?misc, ?runtime_data, Rec).
+
+put_runtime_data(Val, Rec) ->
+    emqx_ds_pmap:collection_put(?misc, ?runtime_data, Val, Rec).
 
 %%
 

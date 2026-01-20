@@ -14,6 +14,7 @@
 {emqx_cm,1}.
 {emqx_cm,2}.
 {emqx_cm,3}.
+{emqx_cm,4}.
 {emqx_conf,1}.
 {emqx_conf,2}.
 {emqx_conf,3}.

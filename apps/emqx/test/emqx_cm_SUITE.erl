@@ -313,6 +313,7 @@ test_stepdown_session(Action, Reason) ->
                     A =:= kick orelse
                         A =:= discard orelse
                         A =:= {takeover, 'begin'} orelse
+                        A =:= {takeover, begin_with_context} orelse
                         A =:= {takeover, 'end'}
                 ->
                     case Reason of
@@ -396,8 +397,8 @@ t_takeover_session(_) ->
         ok = emqx_cm:register_channel(ClientId, self(), ConnInfo),
         Parent ! registered,
         receive
-            {'$gen_call', From1, {takeover, 'begin'}} ->
-                gen_server:reply(From1, test),
+            {'$gen_call', From1, {takeover, begin_with_context}} ->
+                gen_server:reply(From1, {test, #{}}),
                 receive
                     {'$gen_call', From2, {takeover, 'end'}} ->
                         gen_server:reply(From2, _Pendings = [])
@@ -407,7 +408,9 @@ t_takeover_session(_) ->
     receive
         registered -> ok
     end,
-    {ok, test, State = {emqx_connection, ChanPid}} = emqx_cm:takeover_session_begin(ClientId),
+    {ok, #{session := test, conn_mod := emqx_connection = ConnMod, chan_pid := ChanPid}} =
+        emqx_cm:takeover_session_begin(ClientId),
+    State = {ConnMod, ChanPid},
     {ok, []} = emqx_cm:takeover_session_end(State),
     emqx_cm:unregister_channel(ClientId).
 
@@ -423,7 +426,7 @@ t_takeover_session_process_gone(_) ->
         emqx_connection,
         call,
         fun
-            (Pid, {takeover, 'begin'}, _) ->
+            (Pid, {takeover, begin_with_context}, _) ->
                 exit({noproc, {gen_server, call, [Pid, takeover_session]}});
             (Pid, What, Args) ->
                 meck:passthrough([Pid, What, Args])
@@ -435,7 +438,7 @@ t_takeover_session_process_gone(_) ->
         emqx_connection,
         call,
         fun
-            (_Pid, {takeover, 'begin'}, _) ->
+            (_Pid, {takeover, begin_with_context}, _) ->
                 exit(noproc);
             (Pid, What, Args) ->
                 meck:passthrough([Pid, What, Args])
@@ -447,7 +450,7 @@ t_takeover_session_process_gone(_) ->
         emqx_connection,
         call,
         fun
-            (Pid, {takeover, 'begin'}, _) ->
+            (Pid, {takeover, begin_with_context}, _) ->
                 exit({noproc, {gen_server, call, [Pid, takeover_session]}});
             (Pid, What, Args) ->
                 meck:passthrough([Pid, What, Args])

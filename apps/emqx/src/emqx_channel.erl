@@ -1505,6 +1505,7 @@ handle_call(
         clientinfo = #{clientid := ClientId}
     }
 ) ->
+    %% RPC Called by `emqx_cm_proto_v{1..3}`, only when using in-memory sessions
     %% NOTE
     %% Ensure channel has enough time left to react to takeover end call. At the same
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
@@ -1512,6 +1513,23 @@ handle_call(
     NChannel = reset_timer(expire_session, Interval, Channel),
     ok = emqx_cm:unregister_channel(ClientId),
     reply(Session, NChannel#channel{takeover = true});
+handle_call(
+    {takeover, begin_with_context},
+    Channel = #channel{
+        session = Session,
+        clientinfo = #{clientid := ClientId}
+    }
+) ->
+    %% RPC Called by `emqx_cm_proto_v4`, only when using in-memory sessions
+    %% NOTE
+    %% Ensure channel has enough time left to react to takeover end call. At the same
+    %% time ensure that channel dies off reasonably quickly if no call will arrive.
+    Interval = interval(expire_takeover, Channel),
+    NChannel = reset_timer(expire_session, Interval, Channel),
+    ok = emqx_cm:unregister_channel(ClientId),
+    PreTerminateCtx = #{},
+    PreTerminateState = emqx_hooks:run_fold('session.pre_terminate', [PreTerminateCtx], #{}),
+    reply({Session, PreTerminateState}, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
     Channel = #channel{

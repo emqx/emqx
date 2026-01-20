@@ -46,7 +46,8 @@
     kick_session/1,
     kick_session/2,
     try_kick_session/1,
-    takeover_kick/1
+    takeover_kick/1,
+    takeover_session_with_context/2
 ]).
 
 -export([
@@ -98,12 +99,14 @@
     do_takeover_kick_session_v3/2,
     do_get_chan_info/2,
     do_get_chan_stats/2,
-    do_get_chann_conn_mod/2
+    do_get_chann_conn_mod/2,
+    takeover_session_with_context_v4/2
 ]).
 
 -export_type([
     channel_info/0,
-    chan_pid/0
+    chan_pid/0,
+    remote_ctx/0
 ]).
 
 -type chan_pid() :: pid().
@@ -115,6 +118,14 @@
 }.
 
 -type takeover_state() :: {_ConnMod :: module(), _ChanPid :: pid()}.
+
+-type remote_ctx() :: #{
+    conn_mod := module(),
+    chan_pid := pid(),
+    session := emqx_session:t(),
+    pre_terminate_state => map(),
+    any() => term()
+}.
 
 -define(BPAPI_NAME, emqx_cm).
 
@@ -337,8 +348,13 @@ do_open_session(_CleanStart = true, ClientInfo = #{clientid := ClientId}, ConnIn
 do_open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnInfo, MaybeWillMsg) ->
     emqx_cm_locker:trans(ClientId, fun(_) ->
         case emqx_session:open(ClientInfo, ConnInfo, MaybeWillMsg) of
-            {true, Session, ReplayContext} ->
-                {ok, #{session => Session, present => true, replay => ReplayContext}};
+            {true, Session, ReplayContext, RemoteCtx} ->
+                {ok, #{
+                    session => Session,
+                    present => true,
+                    replay => ReplayContext,
+                    remote_ctx => RemoteCtx
+                }};
             {false, Session} ->
                 {ok, #{session => Session, present => false}}
         end
@@ -346,14 +362,14 @@ do_open_session(_CleanStart = false, ClientInfo = #{clientid := ClientId}, ConnI
 
 %% @doc Try to takeover a session from existing channel.
 -spec takeover_session_begin(emqx_types:clientid()) ->
-    {ok, emqx_session_mem:session(), takeover_state()} | none.
+    {ok, remote_ctx()} | none.
 takeover_session_begin(ClientId) ->
     takeover_session_begin(ClientId, pick_channel(ClientId)).
 
 takeover_session_begin(ClientId, ChanPid) when is_pid(ChanPid) ->
-    case takeover_session(ClientId, ChanPid) of
-        {living, ConnMod, ChanPid, Session} ->
-            {ok, Session, {ConnMod, ChanPid}};
+    case takeover_session_with_context(ClientId, ChanPid) of
+        {living, RemoteCtx} ->
+            {ok, RemoteCtx};
         _ ->
             none
     end;
@@ -454,6 +470,61 @@ do_takeover_begin(ClientId, ChanPid) when node(ChanPid) == node() ->
 do_takeover_begin(ClientId, ChanPid) ->
     emqx_cm_proto_v3:takeover_session(ClientId, ChanPid).
 
+takeover_session_with_context(ClientId, ChanPid) ->
+    Node = node(ChanPid),
+    case emqx_bpapi:supported_version(Node, ?BPAPI_NAME) of
+        undefined ->
+            %% Race: node (re)starting? Assume v3 or older.
+            map_old_takeover_begin_to_ctx(takeover_session(ClientId, ChanPid));
+        Vsn when Vsn =< 3 ->
+            map_old_takeover_begin_to_ctx(takeover_session(ClientId, ChanPid));
+        _Vsn ->
+            takeover_session_with_context_v4(ClientId, ChanPid)
+    end.
+
+map_old_takeover_begin_to_ctx(none) ->
+    none;
+map_old_takeover_begin_to_ctx({living, ConnMod, ChanPid, Session}) ->
+    {living, #{conn_mod => ConnMod, chan_pid => ChanPid, session => Session}};
+map_old_takeover_begin_to_ctx(_) ->
+    %% Older version; treat as absent session, like `takeover_session_begin` does.
+    none.
+
+%% RPC target @ `emqx_cm_proto_v4:takeover_session_with_context`
+-doc #{since => <<"6.1.1">>}.
+-spec takeover_session_with_context_v4(emqx_types:clientid(), emqx_cm:chan_pid()) ->
+    none | {living, remote_ctx()}.
+takeover_session_with_context_v4(ClientId, ChanPid) when node(ChanPid) == node() ->
+    try
+        do_takeover_session_with_context_v4(ClientId, ChanPid)
+    catch
+        %% request_stepdown/3
+        error:R when R == noproc; R == timeout; R == unexpected_exception ->
+            none;
+        error:{erpc, _} ->
+            none
+    end;
+takeover_session_with_context_v4(ClientId, ChanPid) ->
+    emqx_cm_proto_v4:takeover_session_with_context(ClientId, ChanPid, 2 * ?T_TAKEOVER).
+
+do_takeover_session_with_context_v4(ClientId, ChanPid) ->
+    case do_get_chann_conn_mod(ClientId, ChanPid) of
+        undefined ->
+            none;
+        ConnMod when is_atom(ConnMod) ->
+            case request_stepdown({takeover, begin_with_context}, ConnMod, ChanPid, ?T_TAKEOVER) of
+                {ok, {Session, PreTerminateState}} ->
+                    {living, #{
+                        conn_mod => ConnMod,
+                        chan_pid => ChanPid,
+                        session => Session,
+                        pre_terminate_state => PreTerminateState
+                    }};
+                {error, Reason} ->
+                    error(Reason)
+            end
+    end.
+
 %% @doc Discard all the sessions identified by the ClientId.
 -spec discard_session(emqx_types:clientid()) -> ok.
 discard_session(ClientId) when is_binary(ClientId) ->
@@ -468,10 +539,16 @@ discard_session(ClientId) when is_binary(ClientId) ->
 %% benefits nobody.
 -spec request_stepdown(Action, module(), pid(), timeout()) ->
     ok
-    | {ok, emqx_session:t() | _ReplayContext}
+    | {ok, emqx_session:t() | remote_ctx() | _ReplayContext}
     | {error, term()}
 when
-    Action :: kick | discard | {takeover, 'begin'} | {takeover, 'end'} | takeover_kick.
+    Action ::
+        kick
+        | discard
+        | {takeover, 'begin'}
+        | {takeover, begin_with_context}
+        | {takeover, 'end'}
+        | takeover_kick.
 request_stepdown(Action, ConnMod, Pid, Timeout) ->
     try apply(ConnMod, call, [Pid, Action, Timeout]) of
         ok -> ok;

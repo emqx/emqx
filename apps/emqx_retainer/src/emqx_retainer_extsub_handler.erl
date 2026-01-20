@@ -12,7 +12,8 @@
 -export([
     handle_subscribe/4,
     handle_delivered/4,
-    handle_info/3
+    handle_info/3,
+    handle_pre_terminate/3
 ]).
 
 %% This module is `emqx_retainer` companion
@@ -47,7 +48,9 @@
     limiter,
     cursor,
     nudge_enqueued = false,
-    times_throttled = 0
+    times_throttled = 0,
+    taking_over = false,
+    delivered = 0
 }).
 
 %% Events
@@ -73,7 +76,15 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
             {subscribe, #{subopts := #{}}} ->
                 true
         end,
-    #{subopts := #{rh := RH}} = SubscribeCtx,
+    RH =
+        case SubscribeCtx of
+            #{subopts := #{subopts := #{rh := RH0}}} ->
+                %% DS session
+                RH0;
+            #{subopts := #{rh := RH0}} ->
+                %% In-memory session
+                RH0
+        end,
     case RH == 0 orelse (RH == 1 andalso IsNew) of
         true ->
             subscribe(Handler, SubscribeCtx, TopicFilter);
@@ -81,7 +92,8 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
             ignore
     end.
 
-handle_delivered(Handler, #{desired_message_count := DesiredMsgCount}, _Msg, _Ack) ->
+handle_delivered(Handler0, #{desired_message_count := DesiredMsgCount}, _Msg, _Ack) ->
+    Handler = Handler0#h{delivered = Handler0#h.delivered + 1},
     case DesiredMsgCount > 0 of
         true ->
             enqueue_nudge(Handler, batch_read_num(), now);
@@ -94,6 +106,10 @@ handle_info(Handler0, _InfoCtx, #next{n = N}) ->
     handle_next(Handler, N);
 handle_info(Handler, _InfoCtx, _Info) ->
     {ok, Handler}.
+
+handle_pre_terminate(Handler0, _PreTerminateCtx, _TopicFiltersToSubOpts) ->
+    Handler = Handler0#h{taking_over = true},
+    {ok, Handler, #{delivered => Handler#h.delivered}}.
 
 %%------------------------------------------------------------------------------
 %% Internal fns
@@ -120,6 +136,9 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter) ->
 subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter) ->
     {ok, Handler}.
 
+handle_next(#h{taking_over = true} = Handler0, _N) ->
+    %% Stop iterating if takeover is underway.
+    {ok, Handler0};
 handle_next(#h{cursor = ?done} = Handler0, _N) ->
     %% Impossible?
     {ok, Handler0};
@@ -267,7 +286,14 @@ do_fetch(#h{cursor = ?cursor(Cursor0)} = Handler, N) ->
         mod = Mod,
         state = State
     } = Handler,
-    Opts = #{batch_read_number => N},
+    Opts0 = #{batch_read_number => N},
+    Opts =
+        case Cursor0 == ?no_cursor andalso emqx_extsub:pop_context(?MODULE, TopicFilter) of
+            {ok, #{delivered := Skip}} when Skip > 0 ->
+                Opts0#{skip => Skip};
+            _ ->
+                Opts0
+        end,
     %% TODO: how could this fail?
     {ok, Messages0, Cursor} = Mod:match_messages(State, TopicFilter, Cursor0, Opts),
     {Messages0, Cursor}.

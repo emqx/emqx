@@ -13,6 +13,7 @@
     terminate/1,
     delivered/4,
     info/3,
+    pre_terminate/3,
     get_options/1,
     get_option/2,
     get_option/3,
@@ -197,4 +198,19 @@ info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
             {ok, Handler#handler{st = State}, Messages};
         recreate ->
             recreate
+    end.
+
+pre_terminate(
+    #handler{cbm = CBM, st = State0} = Handler0, PreTerminateCtx, TopicFiltersToSubOpts
+) ->
+    case erlang:function_exported(CBM, handle_pre_terminate, 3) of
+        true ->
+            case CBM:handle_pre_terminate(State0, PreTerminateCtx, TopicFiltersToSubOpts) of
+                {ok, State} ->
+                    {ok, Handler0#handler{st = State}};
+                {ok, State, Out} ->
+                    {ok, Handler0#handler{st = State}, Out}
+            end;
+        false ->
+            {ok, Handler0}
     end.
