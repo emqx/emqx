@@ -229,7 +229,9 @@ jobs:
           venv/bin/pip install pytest
       - name: run pytest boot tests
         run: |
-          venv/bin/pytest scripts/test/test_emqx_boot.py -v
+          useradd -m testuser
+          chown -R testuser:testuser .
+          su testuser -c "venv/bin/pytest scripts/test/test_emqx_boot.py -v"
       - name: print test output
         if: failure()
         run: |
