@@ -678,18 +678,11 @@ serialize_header(
 ) ->
     %% 2019 format: proto_ver present, use BCD[10] phone, set bit 14 = 1
     PhoneBCD = to_bcd(Phone, 10),
-    {Fragment, Total, Seq} =
-        case maps:is_key(<<"frag_total">>, Header) of
-            true -> {1, maps:get(<<"frag_total">>, Header), maps:get(<<"frag_sn">>, Header)};
-            false -> {0, 0, 0}
-        end,
+    {Fragment, Total, Seq} = extract_fragment_info(Header),
     Binary =
         <<MsgId:?WORD, 0:1, 1:1, Fragment:1, Encrypt:3, Length:10/integer-big, ProtoVer:?BYTE,
             PhoneBCD:10/binary, MsgSn:?WORD>>,
-    case Fragment of
-        0 -> Binary;
-        1 -> <<Binary/binary, Total:?WORD, Seq:?WORD>>
-    end;
+    maybe_append_fragment(Binary, Fragment, Total, Seq);
 serialize_header(
     Header = #{
         <<"msg_id">> := MsgId,
@@ -701,18 +694,11 @@ serialize_header(
 ) ->
     %% 2013 format: no proto_ver, use BCD[6] phone, bit 14 = 0
     PhoneBCD = to_bcd(Phone, 6),
-    {Fragment, Total, Seq} =
-        case maps:is_key(<<"frag_total">>, Header) of
-            true -> {1, maps:get(<<"frag_total">>, Header), maps:get(<<"frag_sn">>, Header)};
-            false -> {0, 0, 0}
-        end,
+    {Fragment, Total, Seq} = extract_fragment_info(Header),
     Binary =
         <<MsgId:?WORD, 0:2, Fragment:1, Encrypt:3, Length:10/integer-big, PhoneBCD:6/binary,
             MsgSn:?WORD>>,
-    case Fragment of
-        0 -> Binary;
-        1 -> <<Binary/binary, Total:?WORD, Seq:?WORD>>
-    end.
+    maybe_append_fragment(Binary, Fragment, Total, Seq).
 
 serialize_body(?MS_GENERAL_RESPONSE, Body, _ProtoVer) ->
     Seq = maps:get(<<"seq">>, Body),
@@ -1329,6 +1315,19 @@ encode_bcd(<<>>, Acc) ->
 encode_bcd(<<H:8, Rest/binary>>, Acc) ->
     C = H - $0,
     encode_bcd(Rest, <<Acc/bitstring, C:4>>).
+
+%% Extract fragment info from header
+extract_fragment_info(Header) ->
+    case maps:is_key(<<"frag_total">>, Header) of
+        true -> {1, maps:get(<<"frag_total">>, Header), maps:get(<<"frag_sn">>, Header)};
+        false -> {0, 0, 0}
+    end.
+
+%% Append fragment info to binary if fragmented
+maybe_append_fragment(Binary, 0, _Total, _Seq) ->
+    Binary;
+maybe_append_fragment(Binary, 1, Total, Seq) ->
+    <<Binary/binary, Total:?WORD, Seq:?WORD>>.
 
 check(Bin) ->
     case check(Bin, undefined) of
