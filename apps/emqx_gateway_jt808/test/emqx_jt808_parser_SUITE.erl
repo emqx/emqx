@@ -756,13 +756,13 @@ t_2019_register_parse(_Config) ->
     Parser = emqx_jt808_frame:initial_parse_state(#{}),
     %% 2019 format: manufacturer[11], model[30], dev_id[30]
 
-    %% 11 bytes (padded)
+    %% 11 bytes (padded with trailing zeros)
     Manuf = <<"MANUFACTURER">>,
     ManufPadded = pad_binary(Manuf, 11),
-    %% 30 bytes (padded)
+    %% 30 bytes - spec says "位数不足的前补 0x00" (pad with leading zeros)
     Model = <<"MODEL_2019_TEST_DEVICE">>,
-    ModelPadded = pad_binary(Model, 30),
-    %% 30 bytes (padded)
+    ModelPadded = pad_binary_leading(Model, 30),
+    %% 30 bytes (padded with trailing zeros per spec for dev_id)
     DevId = <<"DEVICE_ID_2019_TEST">>,
     DevIdPadded = pad_binary(DevId, 30),
     Color = 3,
@@ -992,9 +992,16 @@ t_2013_send_text_serialize(_Config) ->
     ?assert(byte_size(Stream) > 0),
     ok.
 
-%% Helper to pad binary to specified length with nulls
+%% Helper to pad binary to specified length with trailing nulls
 pad_binary(Bin, TargetLen) when byte_size(Bin) >= TargetLen ->
     binary:part(Bin, 0, TargetLen);
 pad_binary(Bin, TargetLen) ->
     PadLen = TargetLen - byte_size(Bin),
     <<Bin/binary, 0:(PadLen * 8)>>.
+
+%% Helper to pad binary to specified length with leading nulls
+pad_binary_leading(Bin, TargetLen) when byte_size(Bin) >= TargetLen ->
+    binary:part(Bin, 0, TargetLen);
+pad_binary_leading(Bin, TargetLen) ->
+    PadLen = TargetLen - byte_size(Bin),
+    <<0:(PadLen * 8), Bin/binary>>.
