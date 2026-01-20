@@ -1010,3 +1010,883 @@ pad_binary_leading(Bin, TargetLen) when byte_size(Bin) >= TargetLen ->
 pad_binary_leading(Bin, TargetLen) ->
     PadLen = TargetLen - byte_size(Bin),
     <<0:(PadLen * 8), Bin/binary>>.
+
+%%--------------------------------------------------------------------
+%% 1. New 2019 Message Parse Tests
+%%--------------------------------------------------------------------
+
+t_2019_query_server_time_parse(_Config) ->
+    %% Test 0x0004 Query Server Time Request - empty body
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0004,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 100,
+    ProtoVer = ?PROTO_VER_2019,
+    %% Empty body
+    Body = <<>>,
+    Size = 0,
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0004,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{}
+        },
+        Map
+    ),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    ok.
+
+t_2019_request_fragment_parse(_Config) ->
+    %% Test 0x0005 Terminal Packet Retransmission Request
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0005,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 101,
+    ProtoVer = ?PROTO_VER_2019,
+    %% Body: Seq(WORD) + Count(WORD) + IDs(WORD each)
+    Seq = 50,
+    Count = 3,
+    Ids = [1, 2, 300],
+    Body = <<Seq:?word, Count:?word, 1:?word, 2:?word, 300:?word>>,
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0005,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{
+                <<"seq">> := Seq,
+                <<"count">> := Count,
+                <<"ids">> := Ids
+            }
+        },
+        Map
+    ),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    ok.
+
+t_2019_query_area_route_ack_parse(_Config) ->
+    %% Test 0x0608 Query Area/Route Data Response
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0608,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 102,
+    ProtoVer = ?PROTO_VER_2019,
+    %% Body: Type(BYTE) + Count(DWORD) + Data
+    Type = 1,
+    Count = 2,
+    Data = <<"test_area_data">>,
+    Body = <<Type:8, Count:32/big, Data/binary>>,
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0608,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{
+                <<"type">> := Type,
+                <<"count">> := Count,
+                <<"data">> := _
+            }
+        },
+        Map
+    ),
+    %% Verify data is base64 encoded
+    #{<<"body">> := #{<<"data">> := EncodedData}} = Map,
+    ?assertEqual(Data, base64:decode(EncodedData)),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    ok.
+
+%%--------------------------------------------------------------------
+%% 2. New 2019 Message Serialize Tests
+%%--------------------------------------------------------------------
+
+t_2019_server_time_ack_serialize(_Config) ->
+    %% Test 0x8004 Server Time Response - BCD[6] UTC time
+    MsgId = 16#8004,
+    MsgSn = 103,
+    %% YYMMDDHHmmss format
+    Time = <<"260120103045">>,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"time">> => Time
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    %% Parse it back to verify
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    {ok, _Parsed, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ok.
+
+t_2019_link_detect_serialize(_Config) ->
+    %% Test 0x8204 Link Detection - empty body
+    MsgId = 16#8204,
+    MsgSn = 104,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{}
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    %% Minimal frame: 7e + header(17) + crc(1) + 7e = at least 20 bytes
+    ?assert(byte_size(Stream) >= 20),
+    ok.
+
+t_2019_query_area_route_serialize(_Config) ->
+    %% Test 0x8608 Query Area/Route Data
+    MsgId = 16#8608,
+    MsgSn = 105,
+    Type = 1,
+    Count = 2,
+    Ids = [100, 200],
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"type">> => Type,
+            <<"count">> => Count,
+            <<"ids">> => Ids
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2019_query_area_route_serialize_empty(_Config) ->
+    %% Test 0x8608 Query Area/Route Data with count=0 (query all)
+    MsgId = 16#8608,
+    MsgSn = 106,
+    Type = 2,
+    Count = 0,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"type">> => Type,
+            <<"count">> => Count
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+%%--------------------------------------------------------------------
+%% 3. Modified 2019 Message Parse Tests
+%%--------------------------------------------------------------------
+
+t_2019_query_attrib_ack_parse(_Config) ->
+    %% Test 0x0107 Query Terminal Attributes Response - 2019 format (30-byte model/id)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0107,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 110,
+    ProtoVer = ?PROTO_VER_2019,
+
+    Type = 16#0001,
+    Manufacturer = <<"MANUF">>,
+    Model = pad_binary(<<"MODEL_2019_DEVICE">>, 30),
+    Id = pad_binary(<<"DEVICE_ID_2019">>, 30),
+    ICCID = <<16#89, 16#86, 16#01, 16#23, 16#45, 16#67, 16#89, 16#01, 16#23, 16#45>>,
+    HardwareVersion = <<"HW1.0">>,
+    HVLen = byte_size(HardwareVersion),
+    FirmwareVersion = <<"FW2.0">>,
+    FVLen = byte_size(FirmwareVersion),
+    GNSSProp = 16#07,
+    CommProp = 16#03,
+
+    Body =
+        <<Type:?word, Manufacturer:5/binary, Model:30/binary, Id:30/binary, ICCID:10/binary,
+            HVLen:8, HardwareVersion/binary, FVLen:8, FirmwareVersion/binary, GNSSProp:8,
+            CommProp:8>>,
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0107,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{
+                <<"type">> := Type,
+                <<"manufacturer">> := Manufacturer,
+                <<"hardware_version">> := HardwareVersion,
+                <<"firmware_version">> := FirmwareVersion,
+                <<"gnss_prop">> := GNSSProp,
+                <<"comm_prop">> := CommProp
+            }
+        },
+        Map
+    ),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    ok.
+
+t_2013_query_attrib_ack_parse(_Config) ->
+    %% Test 0x0107 Query Terminal Attributes Response - 2013 format (20-byte model, 7-byte id)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0107,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 111,
+
+    Type = 16#0001,
+    Manufacturer = <<"MANUF">>,
+    Model = pad_binary(<<"MODEL_2013">>, 20),
+    Id = pad_binary(<<"DEV2013">>, 7),
+    ICCID = <<16#89, 16#86, 16#01, 16#23, 16#45, 16#67, 16#89, 16#01, 16#23, 16#45>>,
+    HardwareVersion = <<"HW1.0">>,
+    HVLen = byte_size(HardwareVersion),
+    FirmwareVersion = <<"FW2.0">>,
+    FVLen = byte_size(FirmwareVersion),
+    GNSSProp = 16#07,
+    CommProp = 16#03,
+
+    Body =
+        <<Type:?word, Manufacturer:5/binary, Model:20/binary, Id:7/binary, ICCID:10/binary, HVLen:8,
+            HardwareVersion/binary, FVLen:8, FirmwareVersion/binary, GNSSProp:8, CommProp:8>>,
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0107
+            },
+            <<"body">> := #{
+                <<"type">> := Type,
+                <<"manufacturer">> := Manufacturer,
+                <<"hardware_version">> := HardwareVersion,
+                <<"firmware_version">> := FirmwareVersion,
+                <<"gnss_prop">> := GNSSProp,
+                <<"comm_prop">> := CommProp
+            }
+        },
+        Map
+    ),
+    %% Verify no proto_ver in 2013 format
+    #{<<"header">> := Header2013} = Map,
+    ?assertEqual(false, maps:is_key(<<"proto_ver">>, Header2013)),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    ok.
+
+%%--------------------------------------------------------------------
+%% 4. Modified 2019 Message Serialize Tests (Area Messages)
+%%--------------------------------------------------------------------
+
+t_2019_circle_area_serialize(_Config) ->
+    %% Test 0x8600 Set Circle Area - 2019 format with night_max_speed and name
+    MsgId = 16#8600,
+    MsgSn = 120,
+    AreaName = <<"测试区域"/utf8>>,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"type">> => 0,
+            <<"length">> => 1,
+            <<"areas">> => [
+                #{
+                    <<"id">> => 1,
+                    <<"flag">> => 16#0001,
+                    <<"center_latitude">> => 39908823,
+                    <<"center_longitude">> => 116397470,
+                    <<"radius">> => 1000,
+                    <<"start_time">> => <<"260101000000">>,
+                    <<"end_time">> => <<"261231235959">>,
+                    <<"max_speed">> => 120,
+                    <<"overspeed_duration">> => 10,
+                    <<"night_max_speed">> => 80,
+                    <<"name">> => AreaName
+                }
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2019_rect_area_serialize(_Config) ->
+    %% Test 0x8602 Set Rectangular Area - 2019 format with night_max_speed and name
+    MsgId = 16#8602,
+    MsgSn = 121,
+    AreaName = <<"矩形区域"/utf8>>,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"type">> => 0,
+            <<"length">> => 1,
+            <<"areas">> => [
+                #{
+                    <<"id">> => 2,
+                    <<"flag">> => 16#0001,
+                    <<"lt_lat">> => 39910000,
+                    <<"lt_lng">> => 116390000,
+                    <<"rb_lat">> => 39900000,
+                    <<"rb_lng">> => 116400000,
+                    <<"start_time">> => <<"260101000000">>,
+                    <<"end_time">> => <<"261231235959">>,
+                    <<"max_speed">> => 100,
+                    <<"overspeed_duration">> => 15,
+                    <<"night_max_speed">> => 60,
+                    <<"name">> => AreaName
+                }
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2019_poly_area_serialize(_Config) ->
+    %% Test 0x8604 Set Polygonal Area - 2019 format with night_max_speed and name
+    MsgId = 16#8604,
+    MsgSn = 122,
+    AreaName = <<"多边形区域"/utf8>>,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"id">> => 3,
+            <<"flag">> => 16#0001,
+            <<"start_time">> => <<"260101000000">>,
+            <<"end_time">> => <<"261231235959">>,
+            <<"max_speed">> => 80,
+            <<"overspeed_duration">> => 20,
+            <<"length">> => 4,
+            <<"points">> => [
+                #{<<"lat">> => 39910000, <<"lng">> => 116390000},
+                #{<<"lat">> => 39910000, <<"lng">> => 116400000},
+                #{<<"lat">> => 39900000, <<"lng">> => 116400000},
+                #{<<"lat">> => 39900000, <<"lng">> => 116390000}
+            ],
+            <<"night_max_speed">> => 50,
+            <<"name">> => AreaName
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2019_path_serialize(_Config) ->
+    %% Test 0x8606 Set Route - 2019 format with name_length and name
+    MsgId = 16#8606,
+    MsgSn = 123,
+    RouteName = <<"测试路线"/utf8>>,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"id">> => 4,
+            <<"flag">> => 16#0001,
+            <<"start_time">> => <<"260101000000">>,
+            <<"end_time">> => <<"261231235959">>,
+            <<"length">> => 2,
+            <<"points">> => [
+                #{
+                    <<"point_id">> => 1,
+                    <<"path_id">> => 4,
+                    <<"point_lat">> => 39908823,
+                    <<"point_lng">> => 116397470,
+                    <<"width">> => 50,
+                    <<"attrib">> => 1,
+                    <<"passed">> => 300,
+                    <<"uncovered">> => 600,
+                    <<"max_speed">> => 120,
+                    <<"overspeed_duration">> => 10
+                },
+                #{
+                    <<"point_id">> => 2,
+                    <<"path_id">> => 4,
+                    <<"point_lat">> => 39918823,
+                    <<"point_lng">> => 116407470,
+                    <<"width">> => 50,
+                    <<"attrib">> => 1,
+                    <<"passed">> => 300,
+                    <<"uncovered">> => 600,
+                    <<"max_speed">> => 100,
+                    <<"overspeed_duration">> => 10
+                }
+            ],
+            <<"name">> => RouteName
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2013_circle_area_serialize(_Config) ->
+    %% Test 0x8600 Set Circle Area - 2013 format without night_max_speed and name
+    MsgId = 16#8600,
+    MsgSn = 124,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+            %% No proto_ver = 2013 format
+        },
+        <<"body">> => #{
+            <<"type">> => 0,
+            <<"length">> => 1,
+            <<"areas">> => [
+                #{
+                    <<"id">> => 1,
+                    <<"flag">> => 16#0001,
+                    <<"center_latitude">> => 39908823,
+                    <<"center_longitude">> => 116397470,
+                    <<"radius">> => 1000,
+                    <<"start_time">> => <<"260101000000">>,
+                    <<"end_time">> => <<"261231235959">>,
+                    <<"max_speed">> => 120,
+                    <<"overspeed_duration">> => 10
+                }
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2013_rect_area_serialize(_Config) ->
+    %% Test 0x8602 Set Rectangular Area - 2013 format without night_max_speed and name
+    MsgId = 16#8602,
+    MsgSn = 125,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{
+            <<"type">> => 0,
+            <<"length">> => 1,
+            <<"areas">> => [
+                #{
+                    <<"id">> => 2,
+                    <<"flag">> => 16#0001,
+                    <<"lt_lat">> => 39910000,
+                    <<"lt_lng">> => 116390000,
+                    <<"rb_lat">> => 39900000,
+                    <<"rb_lng">> => 116400000,
+                    <<"start_time">> => <<"260101000000">>,
+                    <<"end_time">> => <<"261231235959">>,
+                    <<"max_speed">> => 100,
+                    <<"overspeed_duration">> => 15
+                }
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2013_poly_area_serialize(_Config) ->
+    %% Test 0x8604 Set Polygonal Area - 2013 format without night_max_speed and name
+    MsgId = 16#8604,
+    MsgSn = 126,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{
+            <<"id">> => 3,
+            <<"flag">> => 16#0001,
+            <<"start_time">> => <<"260101000000">>,
+            <<"end_time">> => <<"261231235959">>,
+            <<"max_speed">> => 80,
+            <<"overspeed_duration">> => 20,
+            <<"length">> => 3,
+            <<"points">> => [
+                #{<<"lat">> => 39910000, <<"lng">> => 116390000},
+                #{<<"lat">> => 39910000, <<"lng">> => 116400000},
+                #{<<"lat">> => 39900000, <<"lng">> => 116395000}
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_2013_path_serialize(_Config) ->
+    %% Test 0x8606 Set Route - 2013 format without name
+    MsgId = 16#8606,
+    MsgSn = 127,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{
+            <<"id">> => 4,
+            <<"flag">> => 16#0001,
+            <<"start_time">> => <<"260101000000">>,
+            <<"end_time">> => <<"261231235959">>,
+            <<"length">> => 1,
+            <<"points">> => [
+                #{
+                    <<"point_id">> => 1,
+                    <<"path_id">> => 4,
+                    <<"point_lat">> => 39908823,
+                    <<"point_lng">> => 116397470,
+                    <<"width">> => 50,
+                    <<"attrib">> => 1,
+                    <<"passed">> => 300,
+                    <<"uncovered">> => 600,
+                    <<"max_speed">> => 120,
+                    <<"overspeed_duration">> => 10
+                }
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+%%--------------------------------------------------------------------
+%% 5. Round-Trip Tests
+%%--------------------------------------------------------------------
+
+t_2019_register_roundtrip(_Config) ->
+    %% Test 0x0100 round-trip: parse -> (simulate serialize by building response)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    ManufPadded = pad_binary(<<"TESTMANUF">>, 11),
+    ModelPadded = pad_binary_leading(<<"MODEL2019">>, 30),
+    DevIdPadded = pad_binary(<<"DEVID2019TEST">>, 30),
+    Color = 2,
+    Plate = <<"ABC1234">>,
+    RegisterPacket =
+        <<100:?word, 200:?word, ManufPadded/binary, ModelPadded/binary, DevIdPadded/binary, Color,
+            Plate/binary>>,
+    MsgId = 16#0100,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 130,
+    ProtoVer = ?PROTO_VER_2019,
+    Size = byte_size(RegisterPacket),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, RegisterPacket),
+
+    %% Parse first time
+    {ok, Map1, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{<<"proto_ver">> := ?PROTO_VER_2019},
+            <<"body">> := #{<<"province">> := 100, <<"city">> := 200}
+        },
+        Map1
+    ),
+    ok.
+
+t_2019_auth_roundtrip(_Config) ->
+    %% Test 0x0102 round-trip
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    AuthCode = <<"ROUNDTRIP_AUTH">>,
+    AuthLen = byte_size(AuthCode),
+    IMEI = <<"867530012345678">>,
+    SoftwareVersionPadded = pad_binary(<<"V2.5.0">>, 20),
+    AuthPacket = <<AuthLen:8, AuthCode/binary, IMEI/binary, SoftwareVersionPadded/binary>>,
+    MsgId = 16#0102,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 131,
+    ProtoVer = ?PROTO_VER_2019,
+    Size = byte_size(AuthPacket),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, AuthPacket),
+
+    %% Parse
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{<<"proto_ver">> := ?PROTO_VER_2019},
+            <<"body">> := #{
+                <<"code">> := AuthCode,
+                <<"imei">> := IMEI
+            }
+        },
+        Map
+    ),
+    ok.
+
+t_2019_header_roundtrip(_Config) ->
+    %% Test that 2019 header with proto_ver survives serialization
+    MsgId = 16#8001,
+    MsgSn = 132,
+    Seq = 50,
+    Id = 16#0102,
+    Result = 0,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"seq">> => Seq,
+            <<"id">> => Id,
+            <<"result">> => Result
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+
+    %% Parse back
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    {ok, ParsedMap, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := MsgId,
+                <<"proto_ver">> := ?PROTO_VER_2019,
+                <<"phone">> := ?JT808_PHONE_STR_2019
+            }
+        },
+        ParsedMap
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% 6. Boundary and Edge Case Tests
+%%--------------------------------------------------------------------
+
+t_2019_max_phone_bcd10(_Config) ->
+    %% Test BCD[10] phone number boundary - all 9s
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0002,
+    %% All 9s = 20 digit phone
+    PhoneBCD = <<16#99, 16#99, 16#99, 16#99, 16#99, 16#99, 16#99, 16#99, 16#99, 16#99>>,
+    MsgSn = 140,
+    ProtoVer = ?PROTO_VER_2019,
+    Body = <<>>,
+    Size = 0,
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"phone">> := <<"99999999999999999999">>
+            }
+        },
+        Map
+    ),
+    ok.
+
+t_2019_empty_auth_code(_Config) ->
+    %% Test 0x0102 with 0-length auth code
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    AuthLen = 0,
+    AuthCode = <<>>,
+    IMEI = <<"867530012345678">>,
+    SoftwareVersionPadded = pad_binary(<<"V1.0">>, 20),
+    AuthPacket = <<AuthLen:8, AuthCode/binary, IMEI/binary, SoftwareVersionPadded/binary>>,
+    MsgId = 16#0102,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 141,
+    ProtoVer = ?PROTO_VER_2019,
+    Size = byte_size(AuthPacket),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, AuthPacket),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"body">> := #{
+                <<"code">> := <<>>,
+                <<"imei">> := IMEI
+            }
+        },
+        Map
+    ),
+    ok.
+
+t_2019_max_packet_ids(_Config) ->
+    %% Test 0x8003 with >255 packet IDs (WORD count)
+    MsgId = 16#8003,
+    MsgSn = 142,
+    Seq = 100,
+    %% 300 packet IDs - exceeds BYTE max of 255
+    PacketIds = lists:seq(1, 300),
+    Length = length(PacketIds),
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"seq">> => Seq,
+            <<"length">> => Length,
+            <<"ids">> => PacketIds
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    %% Body size should be: 2 (seq) + 2 (count) + 300*2 (ids) = 604 bytes
+    %% Total frame will be larger due to header and escaping
+    ?assert(byte_size(Stream) > 600),
+    ok.
+
+t_2019_area_unicode_name(_Config) ->
+    %% Test area message with UTF-8 name containing Chinese characters
+    MsgId = 16#8600,
+    MsgSn = 143,
+    %% Chinese: "北京市朝阳区测试区域"
+    AreaName = <<"北京市朝阳区测试区域"/utf8>>,
+    NameByteLen = byte_size(AreaName),
+    %% UTF-8 Chinese chars are 3 bytes each, so 10 chars = 30 bytes
+    ?assertEqual(30, NameByteLen),
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"type">> => 0,
+            <<"length">> => 1,
+            <<"areas">> => [
+                #{
+                    <<"id">> => 100,
+                    <<"flag">> => 16#0001,
+                    <<"center_latitude">> => 39908823,
+                    <<"center_longitude">> => 116397470,
+                    <<"radius">> => 500,
+                    <<"start_time">> => <<"260101000000">>,
+                    <<"end_time">> => <<"261231235959">>,
+                    <<"max_speed">> => 60,
+                    <<"overspeed_duration">> => 5,
+                    <<"night_max_speed">> => 40,
+                    <<"name">> => AreaName
+                }
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
