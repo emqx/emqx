@@ -37,9 +37,9 @@ roots() ->
 fields("connection_fields") ->
     [
         {server, server()},
-        emqx_postgresql:disable_prepared_statements()
+        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
-        adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
+        emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
         emqx_connector_schema_lib:ssl_fields();
 fields("config_connector") ->
     fields("connection_fields") ++
@@ -86,18 +86,6 @@ fields({Field, Type}) when
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
-
-adjust_fields(Fields) ->
-    lists:map(
-        fun
-            ({username, Sc}) ->
-                Override = #{required => true},
-                {username, hocon_schema:override(Sc, Override)};
-            (Field) ->
-                Field
-        end,
-        Fields
-    ).
 
 %% Examples
 connector_examples(Method) ->

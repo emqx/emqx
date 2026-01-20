@@ -62,7 +62,7 @@ roots() ->
 
 fields(config) ->
     [{server, server()}] ++
-        emqx_connector_schema_lib:relational_db_fields(#{default_username => <<"root">>}) ++
+        emqx_connector_schema_lib:relational_db_fields(#{username => #{default => <<"root">>}}) ++
         emqx_connector_schema_lib:ssl_fields().
 
 server() ->

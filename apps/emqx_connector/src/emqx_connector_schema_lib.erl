@@ -21,7 +21,8 @@
     username_field/0,
     username_field/1,
     connect_timeout_field/0,
-    connect_timeout_field/1
+    connect_timeout_field/1,
+    disable_prepared_statements_field/0
 ]).
 
 -export([
@@ -54,21 +55,14 @@ ssl_fields(EnableByDefault) ->
 relational_db_fields() ->
     relational_db_fields(#{}).
 
-relational_db_fields(Opts) ->
-    UsernameField =
-        case Opts of
-            #{default_username := DefaultUsername} ->
-                username_field(#{default => DefaultUsername});
-            _ ->
-                username_field()
-        end,
+relational_db_fields(Overrides) ->
     [
         {database, fun database/1},
         %% TODO: The `pool_size` for drivers will be deprecated. Use `worker_pool_size` for emqx_resource
         %% See emqx_resource.hrl
         {pool_size, fun pool_size/1},
-        {username, UsernameField},
-        {password, password_field()},
+        {username, username_field(maps:get(username, Overrides, #{}))},
+        {password, password_field(maps:get(password, Overrides, #{}))},
         {auto_reconnect, fun auto_reconnect/1}
     ].
 
@@ -143,4 +137,14 @@ connect_timeout_field(Opts) ->
             },
             Opts
         )
+    ).
+
+disable_prepared_statements_field() ->
+    hoconsc:mk(
+        boolean(),
+        #{
+            default => false,
+            required => false,
+            desc => ?DESC("disable_prepared_statements")
+        }
     ).
