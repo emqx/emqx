@@ -17,6 +17,10 @@ on:
         description: 'Dashboard version'
         type: string
         required: true
+      emqx-version:
+        description: 'EMQX release version Major.Minor, e.g. 6.2'
+        type: string
+        required: true
 
 permissions:
   contents: read
@@ -25,7 +29,6 @@ jobs:
   bump-dashboard-version:
     runs-on: ubuntu-latest
     env:
-      EMQX_NAME: ${{ github.event.inputs.emqx-name }}
       DASHBOARD_VERSION: ${{ github.event.inputs.version }}
     permissions:
       contents: write
@@ -55,24 +58,18 @@ jobs:
       - name: Create PR to update dashboard version in Makefile
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          EMQX_VERSION: ${{ github.event.inputs.emqx-version }}
         run: |
           set -euxo pipefail
           git fetch origin
-          BASE_BRANCH="$(git branch --remotes --list 'origin/release-[0-9]*' | cut -d/ -f2 | \
-            awk -F- '{
-              version=$2;
-              if (version !~ /\./) {
-                version = substr(version, 1, 1) "." substr(version, 2)
-              }
-              print version, $0
-            }' | sort -rV -k1,1 | head -n 1 | cut -d' ' -f2-)"
-          NEW_BRANCH="bump-${EMQX_NAME}-dashboard-version-$(date +"%Y%m%d-%H%M%S")"
+          BASE_BRANCH="release-$(echo ${EMQX_VERSION} | tr -d '.')"
+          NEW_BRANCH="bump-${EMQX_VERSION}-dashboard-version-$(date +"%Y%m%d-%H%M%S")"
           git checkout -b ${NEW_BRANCH} --track origin/${BASE_BRANCH}
           sed -i "s|EMQX_DASHBOARD_VERSION ?= .*|EMQX_DASHBOARD_VERSION ?= ${DASHBOARD_VERSION}|" Makefile
           git add Makefile
           git commit -m "chore: bump dashboard version"
           git push origin ${NEW_BRANCH}:${NEW_BRANCH}
-          for pr in $(gh pr list --state open --base ${BASE_BRANCH} --label bump-dashboard-version --search "bump ${EMQX_NAME} dashboard version in:title" --repo ${{ github.repository }} --json number --jq '.[] | .number'); do
+          for pr in $(gh pr list --state open --base ${BASE_BRANCH} --label bump-dashboard-version --search "bump ${EMQX_VERSION} dashboard version in:title" --repo ${{ github.repository }} --json number --jq '.[] | .number'); do
             gh pr close $pr --repo ${{ github.repository }} --delete-branch || true
           done
-          gh pr create --title "bump ${EMQX_NAME} dashboard version" --body '' --base ${BASE_BRANCH} --head ${NEW_BRANCH} --label bump-dashboard-version --repo ${{ github.repository }}
+          gh pr create --title "bump ${EMQX_VERSION} dashboard version" --body '' --base ${BASE_BRANCH} --head ${NEW_BRANCH} --label bump-dashboard-version --repo ${{ github.repository }}
