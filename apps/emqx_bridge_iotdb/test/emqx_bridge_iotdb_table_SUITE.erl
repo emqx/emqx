@@ -385,6 +385,12 @@ t_create_via_http(Config) ->
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, iotdb_bridge_stopped).
 
+t_probe_connector_api(Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge_v2_testlib:probe_connector_api(Config)
+    ).
+
 t_on_get_status(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config).
 
