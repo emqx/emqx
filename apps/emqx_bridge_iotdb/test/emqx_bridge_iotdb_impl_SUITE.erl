@@ -24,7 +24,8 @@ all() ->
     ].
 
 groups() ->
-    AllTCs = emqx_common_test_helpers:all(?MODULE) -- [t_thrift_auto_recon],
+    ThriftOnlyTCs = [t_thrift_auto_recon, t_thrift_protocol_version_1_or_2_is_deprecated],
+    AllTCs = emqx_common_test_helpers:all(?MODULE) -- ThriftOnlyTCs,
     Async = [
         t_async_device_id_missing,
         t_async_query,
@@ -32,7 +33,7 @@ groups() ->
     ],
     [
         {iotdb130, AllTCs},
-        {thrift, (AllTCs -- Async) ++ [t_thrift_auto_recon]}
+        {thrift, (AllTCs -- Async) ++ ThriftOnlyTCs}
     ].
 
 init_per_suite(Config) ->
@@ -417,6 +418,12 @@ t_create_via_http(Config) ->
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, iotdb_bridge_stopped).
 
+t_probe_connector_api(Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge_v2_testlib:probe_connector_api(Config)
+    ).
+
 t_on_get_status(Config) ->
     emqx_bridge_v2_testlib:t_on_get_status(Config).
 
@@ -622,6 +629,22 @@ t_rule_test_trace(Config) ->
     end,
     Opts = #{payload_fn => PayloadFn},
     emqx_bridge_v2_testlib:t_rule_test_trace(Config, Opts).
+
+t_thrift_protocol_version_1_or_2_is_deprecated(Config) ->
+    ConnectorConfig = ?config(connector_config, Config),
+    BadConnectorConfig = ConnectorConfig#{
+        <<"protocol_version">> => atom_to_binary(?PROTOCOL_V1)
+    },
+    Config1 = lists:keyreplace(connector_config, 1, Config, {connector_config, BadConnectorConfig}),
+    {error, {_StatusCode, _Headers, Body}} = emqx_bridge_v2_testlib:create_connector_api(Config1),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{<<"reason">> := <<"Thrift protocol version 1 or 2 is deprecated">>}
+        },
+        Body
+    ),
+    ok.
 
 is_empty(null) -> true;
 is_empty([]) -> true;
