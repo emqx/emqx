@@ -201,6 +201,26 @@ t_cannot_start_due_to_invalid_prepare_statement(_Config) ->
         emqx_resource:health_check(?PGSQL_RESOURCE)
     ).
 
+t_autoprepare_statements(_Config) ->
+    {ok, _} = create_resource(
+        ?PGSQL_RESOURCE,
+        pgsql_config(#{
+            prepare_statements => #{test => <<"SELECT 123">>}, emulate_prepared_statements => false
+        })
+    ),
+    Workers = [Worker || {_WorkerName, Worker} <- ecpool:workers(?PGSQL_RESOURCE)],
+    Conns = [Conn || {ok, Conn} <- [ecpool_worker:client(Worker) || Worker <- Workers]],
+    lists:foreach(
+        fun(Conn) ->
+            ok = epgsql:close(Conn, statement, <<"test">>)
+        end,
+        Conns
+    ),
+    ?assertMatch(
+        {ok, _, [{123}]},
+        emqx_resource:simple_sync_query(?PGSQL_RESOURCE, {prepared_query, test, []})
+    ).
+
 %%------------------------------------------------------------------------------
 %% Helper Functions
 %%------------------------------------------------------------------------------

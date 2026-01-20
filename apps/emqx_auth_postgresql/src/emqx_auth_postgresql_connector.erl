@@ -301,8 +301,21 @@ do_on_query(PoolName, Fun, LogInfo) ->
 query(Conn, SQL, Params) ->
     epgsql:equery(Conn, SQL, Params).
 
-prepared_query(Conn, Name, _SQL, Params) ->
-    epgsql:prepared_query2(Conn, Name, Params).
+prepared_query(Conn, Name, SQL, Params) ->
+    case epgsql:prepared_query2(Conn, Name, Params) of
+        {error, #error{codename = invalid_sql_statement_name}} ->
+            ?SLOG(warning, #{
+                msg => "postgresql_auth_invalid_sql_statement_name",
+                name => Name,
+                hint =>
+                    "If using a PostgreSQL proxy like pgBouncer, "
+                    "make sure it is configured to support prepared statements "
+                    "or disable the use of prepared statements in EMQX configuration."
+            }),
+            query(Conn, SQL, Params);
+        Result ->
+            Result
+    end.
 
 conn_opts(Opts) ->
     conn_opts(Opts, []).
