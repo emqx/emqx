@@ -748,7 +748,6 @@ unknown_message_packet() ->
 %%--------------------------------------------------------------------
 
 %% 2019 header format macros
--define(PROTO_VER_2019, 1).
 -define(VERSION_BIT_2019, 1).
 
 t_2019_register_parse(_Config) ->
