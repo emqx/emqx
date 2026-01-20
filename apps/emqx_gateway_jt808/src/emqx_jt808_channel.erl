@@ -951,12 +951,14 @@ authenticate(
     InCode == AuthCode.
 
 enrich_conninfo(
-    #{<<"header">> := #{<<"phone">> := Phone}},
+    #{<<"header">> := Header = #{<<"phone">> := Phone}},
     Channel = #channel{conninfo = ConnInfo}
 ) ->
+    ProtoVerInt = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
+    ProtoVerStr = proto_ver_to_string(ProtoVerInt),
     NConnInfo = ConnInfo#{
         proto_name => <<"jt808">>,
-        proto_ver => <<"2013">>,
+        proto_ver => ProtoVerStr,
         clean_start => true,
         clientid => Phone,
         username => undefined,
@@ -968,6 +970,9 @@ enrich_conninfo(
         expiry_interval => 0
     },
     {ok, Channel#channel{conninfo = NConnInfo}}.
+
+proto_ver_to_string(Ver) when Ver >= ?PROTO_VER_2019 -> <<"2019">>;
+proto_ver_to_string(_) -> <<"2013">>.
 
 run_conn_hooks(
     Input,

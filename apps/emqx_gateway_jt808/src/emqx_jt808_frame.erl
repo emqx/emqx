@@ -134,7 +134,7 @@ parse_message(Binary, Opts) ->
             %% 2013 & 2019 JT/T 808 message parsing
             %% 0 means unknown proto ver (should be 2013 format, no proto ver field)
             %% 1 means 2019 format
-            ProtoVer = maps:get(<<"proto_ver">>, Header, 0),
+            ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
             Body =
                 try
                     parse_message_body(MsgId, RestBinary, ProtoVer)
@@ -243,7 +243,7 @@ parse_message_body(
     <<Province:?WORD, City:?WORD, Manufacturer:11/binary, Model:30/binary, DevId:30/binary,
         Color:?BYTE, LicNumber/binary>>,
     ProtoVer
-) when ProtoVer >= 1 ->
+) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: 11-byte manufacturer, 30-byte model, 30-byte device ID
     #{
         <<"province">> => Province,
@@ -270,7 +270,9 @@ parse_message_body(
         <<"color">> => Color,
         <<"license_number">> => LicNumber
     };
-parse_message_body(?MC_AUTH, <<CodeLen:?BYTE, Rest/binary>>, ProtoVer) when ProtoVer >= 1 ->
+parse_message_body(?MC_AUTH, <<CodeLen:?BYTE, Rest/binary>>, ProtoVer) when
+    ProtoVer >= ?PROTO_VER_2019
+->
     %% 2019 format: length prefix + code + IMEI + software version
     <<Code:CodeLen/binary, IMEI:15/binary, SoftwareVersion:20/binary>> = Rest,
     #{
@@ -289,7 +291,7 @@ parse_message_body(
     <<Type:?WORD, Manufacturer:5/binary, Model:30/binary, Id:30/binary, ICCID:10/binary,
         HVLen:?BYTE, Rest/binary>>,
     ProtoVer
-) when ProtoVer >= 1 ->
+) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: 30-byte model, 30-byte ID
     <<HV:HVLen/binary, FVLen:?BYTE, Rest2/binary>> = Rest,
     <<FV:FVLen/binary, GNSSProp:?BYTE, CommProp:?BYTE>> = Rest2,
@@ -657,7 +659,7 @@ serialize(Json) ->
             false -> <<>>
         end,
     %% Extract proto_ver for version-aware body serialization (0 for 2013, >=1 for 2019)
-    ProtoVer = maps:get(<<"proto_ver">>, Header, 0),
+    ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
     BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body, ProtoVer),
     %% TODO: encrypt body here
     Header2 = maps:put(<<"len">>, size(BodyStream), Header),
@@ -717,7 +719,7 @@ serialize_body(?MS_GENERAL_RESPONSE, Body, _ProtoVer) ->
     Id = maps:get(<<"id">>, Body),
     Result = maps:get(<<"result">>, Body),
     <<Seq:?WORD, Id:?WORD, Result:?BYTE>>;
-serialize_body(?MS_REQUEST_FRAGMENT, Body, ProtoVer) when ProtoVer >= 1 ->
+serialize_body(?MS_REQUEST_FRAGMENT, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: Length is WORD (changed from BYTE in 2013)
     Seq = maps:get(<<"seq">>, Body),
     Length = maps:get(<<"length">>, Body),
@@ -786,7 +788,7 @@ serialize_body(?MS_CONFIRM_ALARM, Body, _ProtoVer) ->
 serialize_body(?MS_LINK_DETECT, _Body, _ProtoVer) ->
     %% 2019: Link detection - empty body
     <<>>;
-serialize_body(?MS_SEND_TEXT, Body, ProtoVer) when ProtoVer >= 1 ->
+serialize_body(?MS_SEND_TEXT, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: Flag + Type + Text
     Flag = maps:get(<<"flag">>, Body),
     TextType = maps:get(<<"text_type">>, Body, 1),
@@ -829,7 +831,7 @@ serialize_body(?MS_SET_PHONE_NUMBER, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Contacts = maps:get(<<"contacts">>, Body),
     serialize_contacts(Contacts, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_VEHICLE_CONTROL, Body, ProtoVer) when ProtoVer >= 1 ->
+serialize_body(?MS_VEHICLE_CONTROL, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: Control type list
     Count = maps:get(<<"count">>, Body, 0),
     Controls = maps:get(<<"controls">>, Body, []),
@@ -874,7 +876,7 @@ serialize_body(?MS_SET_POLY_AREA, Body, ProtoVer) ->
             Overspeed:?BYTE, Length:?WORD>>
     ),
     %% 2019 adds night_max_speed and name after points
-    case ProtoVer >= 1 of
+    case ProtoVer >= ?PROTO_VER_2019 of
         true ->
             NightMaxSpeed = maps:get(<<"night_max_speed">>, Body, 0),
             Name = maps:get(<<"name">>, Body, <<>>),
@@ -900,7 +902,7 @@ serialize_body(?MS_SET_PATH, Body, ProtoVer) ->
         Length, Points, <<Id:?DWORD, Flag:?WORD, StartBCD:6/binary, EndBCD:6/binary, Length:?WORD>>
     ),
     %% 2019 adds name_length and name after corner points
-    case ProtoVer >= 1 of
+    case ProtoVer >= ?PROTO_VER_2019 of
         true ->
             Name = maps:get(<<"name">>, Body, <<>>),
             NameLen = byte_size(Name),
@@ -1062,7 +1064,7 @@ serialize_rect_area(
             MaxSpeed:?WORD, Overspeed:?BYTE>>,
     %% 2019 adds night_max_speed and name fields
     NewAcc =
-        case ProtoVer >= 1 of
+        case ProtoVer >= ?PROTO_VER_2019 of
             true ->
                 NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
                 Name = maps:get(<<"name">>, H, <<>>),
@@ -1110,7 +1112,7 @@ serialize_circle_area(
         end,
     %% 2019 adds night_max_speed and name fields (only if max_speed is present)
     Fourth =
-        case ProtoVer >= 1 andalso maps:is_key(<<"max_speed">>, H) of
+        case ProtoVer >= ?PROTO_VER_2019 andalso maps:is_key(<<"max_speed">>, H) of
             true ->
                 NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
                 Name = maps:get(<<"name">>, H, <<>>),
