@@ -26,10 +26,11 @@ all() ->
     ].
 
 groups() ->
+    RestAPIOnlyTCs = [t_table_model_only_supports_iotdb_2_0_x_and_later],
     AllTCs = emqx_common_test_helpers:all(?MODULE),
     [
         {restapi, AllTCs},
-        {thrift, AllTCs -- [t_async_query]}
+        {thrift, (AllTCs -- [t_async_query]) -- RestAPIOnlyTCs}
     ].
 
 init_per_suite(Config) ->
@@ -52,7 +53,7 @@ end_per_suite(Config) ->
 
 init_per_group(restapi = Type, Config0) ->
     Host = os:getenv("IOTDB_PLAIN_HOST", "toxiproxy.emqx.net"),
-    IotDbVersion = ?VSN_1_3_X,
+    IotDbVersion = ?VSN_2_0_X,
     DefaultPort = "58080",
     Port = list_to_integer(os:getenv("IOTDB_PLAIN_PORT", DefaultPort)),
     case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
@@ -532,6 +533,24 @@ t_table_name_configuration_validation(Config) ->
             }
         },
         Body1
+    ),
+    ok.
+
+t_table_model_only_supports_iotdb_2_0_x_and_later(Config) ->
+    ConnectorConfig = ?config(connector_config, Config),
+    BadConnectorConfig = ConnectorConfig#{
+        <<"iotdb_version">> => atom_to_binary(?VSN_1_3_X)
+    },
+    Config1 = lists:keyreplace(connector_config, 1, Config, {connector_config, BadConnectorConfig}),
+    {error, {_StatusCode, _Headers, Body}} = emqx_bridge_v2_testlib:create_connector_api(Config1),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{
+                <<"reason">> := <<"Table model only supports IoTDB 2.0.x and later">>
+            }
+        },
+        Body
     ),
     ok.
 

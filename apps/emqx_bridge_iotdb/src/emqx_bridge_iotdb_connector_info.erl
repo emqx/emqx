@@ -6,6 +6,8 @@
 
 -behaviour(emqx_connector_info).
 
+-include("emqx_bridge_iotdb.hrl").
+
 -export([
     type_name/0,
     bridge_types/0,
@@ -38,7 +40,8 @@ config_schema() ->
             hoconsc:map(name, hoconsc:union(fun driver_union_selector/1)),
             #{
                 desc => <<"IoTDB Connector Config">>,
-                required => false
+                required => false,
+                validator => fun validate_iotdb_vsn/1
             }
         )}.
 
@@ -82,3 +85,30 @@ mk_api_union_selector(Method) ->
 ref(Driver, Field) ->
     Name = Field ++ "_" ++ Driver,
     hoconsc:ref(?CONNECTOR, Name).
+
+validate_iotdb_vsn(Config) ->
+    do_validate_iotdb_vsn(emqx_utils_maps:binary_key_map(Config)).
+
+do_validate_iotdb_vsn(#{<<"driver">> := restapi, <<"iotdb_version">> := Version} = Config) ->
+    case Version of
+        ?VSN_2_0_X ->
+            ok;
+        ?VSN_1_3_X ->
+            case maps:get(<<"sql">>, Config, undefined) of
+                #{<<"dialect">> := table} ->
+                    {error, <<"Table model only supports IoTDB 2.0.x and later">>};
+                _ ->
+                    ok
+            end;
+        _ ->
+            {error, <<"REST API only supports IoTDB 1.3.x and later">>}
+    end;
+do_validate_iotdb_vsn(#{<<"driver">> := thrift, <<"protocol_version">> := Version}) ->
+    case Version of
+        ?PROTOCOL_V3 ->
+            ok;
+        _ ->
+            {error, <<"Thrift protocol version 1 or 2 is deprecated">>}
+    end;
+do_validate_iotdb_vsn(_) ->
+    ok.

@@ -146,7 +146,7 @@ fields("connection_fields") ->
             )},
         {iotdb_version,
             mk(
-                hoconsc:enum([?VSN_1_3_X, ?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
+                hoconsc:enum([?VSN_2_0_X, ?VSN_1_3_X, ?VSN_1_1_X, ?VSN_1_0_X, ?VSN_0_13_X]),
                 #{
                     desc => ?DESC(emqx_bridge_iotdb, "config_iotdb_version"),
                     default => ?VSN_1_3_X
@@ -712,7 +712,7 @@ on_add_channel(
     {error, <<"The data template cannot be empty">>};
 on_add_channel(
     InstanceId,
-    #{driver := restapi, iotdb_version := Version, channels := Channels} = OldState0,
+    #{driver := restapi, channels := Channels} = OldState0,
     ChannelId,
     #{
         parameters := #{data := Data} = Parameter
@@ -722,7 +722,6 @@ on_add_channel(
         WriteToTable = maps:get(write_to_table, Parameter, false),
         SqlDialect = maps:get(sql_dialect, OldState0, tree),
         ok ?= check_write_to_table(WriteToTable, SqlDialect),
-        ok ?= check_restapi_version(Version),
         {ok, DeviceIdTemplate} ?= preproc_device_id(WriteToTable, Parameter),
         {ok, DataTemplate} ?= preproc_data_template(WriteToTable, Data),
         Path =
@@ -1362,11 +1361,6 @@ check_write_to_table(WriteToTable, SqlDialect) ->
         (to_bin(SqlDialect))/binary
     >>,
     {error, ErrMsg}.
-
-check_restapi_version(_Version = ?VSN_1_3_X) ->
-    ok;
-check_restapi_version(_Version) ->
-    {error, <<"REST API only supports IoTDB 1.3.x and later">>}.
 
 encode_column_categories(Driver, DataTemplate) when is_list(DataTemplate) ->
     lists:map(
