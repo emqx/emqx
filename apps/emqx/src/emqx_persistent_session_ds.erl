@@ -712,7 +712,7 @@ handle_info1(
             exit(commit_failure);
         ignore ->
             %% Unknown message:
-            ?tp(warning, ?sessds_unknown_message, #{message => Info}),
+            ?tp(debug, ?sessds_unknown_message, #{message => Info}),
             Session
     end.
 
