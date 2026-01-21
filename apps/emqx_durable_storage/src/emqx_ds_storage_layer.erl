@@ -34,9 +34,7 @@
     accept_snapshot/1,
 
     %% Custom events
-    handle_event/3,
-    %% Misc:
-    rid_of_dskeys/1
+    handle_event/3
 ]).
 
 %% gen_server
@@ -1013,12 +1011,6 @@ handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
 
--spec rid_of_dskeys([{K, V}]) -> [V] when
-    K :: emqx_ds:message_key(),
-    V :: emqx_ds:payload().
-rid_of_dskeys(L) ->
-    [P || {_, P} <- L].
-
 filter_layout_db_opts(Options) ->
     maps:with(?STORAGE_LAYOUT_DB_OPTS, Options).
 
@@ -1036,13 +1028,6 @@ cf_ref(Name, CFRefs) ->
 -spec cf_handle(_Name :: string(), cf_refs()) -> rocksdb:cf_handle().
 cf_handle(Name, CFRefs) ->
     element(2, cf_ref(Name, CFRefs)).
-
-%%--------------------------------------------------------------------------------
-%% Metadata serialization
-%%--------------------------------------------------------------------------------
-
--define(meta_generic, 0:8).
--define(meta_lts_v1, 1:8).
 
 %%--------------------------------------------------------------------------------
 %% Schema access
