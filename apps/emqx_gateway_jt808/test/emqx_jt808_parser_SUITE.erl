@@ -882,12 +882,15 @@ t_2019_request_fragment_serialize(_Config) ->
     },
     Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
 
-    %% Verify the serialized stream contains the body with WORD length
-    %% Body should be: Seq(WORD) + Length(WORD) + IDs(WORD each)
-    ExpectedBody = <<Seq:?word, Length:?word, 1:?word, 2:?word, 3:?word, 256:?word, 257:?word>>,
     ?assert(is_binary(Stream)),
-    %% Just verify it doesn't crash and produces output
-    ?assert(byte_size(Stream) > 0),
+    %% Frame structure:
+    %%   - Frame start marker: 1 byte (0x7E)
+    %%   - 2019 header: 17 bytes
+    %%   - Body: 14 bytes (Seq:2 + Length:2 + IDs:5*2)
+    %%   - CRC: 1 byte
+    %%   - Frame end marker: 1 byte (0x7E)
+    %% Total: 1 + 17 + 14 + 1 + 1 = 34 bytes
+    ?assertEqual(34, byte_size(Stream)),
     ok.
 
 t_2019_send_text_serialize(_Config) ->
