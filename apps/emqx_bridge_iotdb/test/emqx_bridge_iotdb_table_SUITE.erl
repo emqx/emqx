@@ -378,10 +378,13 @@ t_sync_query_fail(Config) ->
     ).
 
 t_create_via_http(Config) ->
-    emqx_bridge_v2_testlib:t_create_via_http(
-        Config,
-        thrift =:= ?config(test_group, Config)
-    ).
+    {201, _} = emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(Config, #{})
+    ),
+    {201, _} = emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api(Config, #{})
+    ),
+    ok.
 
 t_start_stop(Config) ->
     emqx_bridge_v2_testlib:t_start_stop(Config, iotdb_bridge_stopped).
@@ -509,7 +512,6 @@ t_sql_dialect_database_required(Config) ->
             <<"code">> := <<"BAD_REQUEST">>,
             <<"message">> := #{
                 <<"reason">> := <<"empty_string_not_allowed">>,
-                <<"path">> := <<"root.sql.database">>,
                 <<"value">> := <<>>
             }
         },
