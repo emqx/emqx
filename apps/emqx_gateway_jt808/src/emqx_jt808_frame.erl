@@ -625,7 +625,7 @@ parse_location_report_extra(<<CustomeId:?BYTE, Size:?BYTE, Rest/binary>>, ProtoV
     parse_location_report_extra(
         Rest2,
         ProtoVer,
-        Acc#{<<"custome">> => maps:put(NCustomeId, base64:encode(Data), Custome)}
+        Acc#{<<"custome">> => Custome#{NCustomeId => base64:encode(Data)}}
     );
 parse_location_report_extra(<<ReservedId0:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc) ->
     <<Data:Size/binary, Rest2/binary>> = Rest,
@@ -707,8 +707,7 @@ serialize(Json) ->
     ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
     BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body, ProtoVer),
     %% TODO: encrypt body here
-    Header2 = maps:put(<<"len">>, size(BodyStream), Header),
-    HeaderStream = serialize_header(Header2),
+    HeaderStream = serialize_header(Header#{<<"len">> => size(BodyStream)}),
     packet(<<HeaderStream/binary, BodyStream/binary>>).
 
 serialize_header(
