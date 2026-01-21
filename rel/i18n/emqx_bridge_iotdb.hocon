@@ -115,7 +115,7 @@ config_parameters_data_type.label:
 """Data type"""
 
 config_parameters_column_category.desc:
-"""Column type. Only valid in table mode. Optional values are:
+"""Column category, required to construct an insert request to an IoTDB table. Valid values include:
 - <code>tag</code>
 - <code>field</code>
 - <code>attribute</code>"""

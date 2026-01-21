@@ -554,6 +554,31 @@ t_table_model_only_supports_iotdb_2_0_x_and_later(Config) ->
     ),
     ok.
 
+t_column_category_required(Config) ->
+    ActionConfig = ?config(action_config, Config),
+    Parameters = maps:get(<<"parameters">>, ActionConfig),
+    DataTemplate = maps:get(<<"data">>, Parameters),
+
+    BadDataTemplate = lists:map(
+        fun(Item) -> maps:remove(<<"column_category">>, Item) end, DataTemplate
+    ),
+
+    BadActionConfig1 = ActionConfig#{
+        <<"parameters">> => Parameters#{<<"data">> => BadDataTemplate}
+    },
+    BadConfig1 = lists:keyreplace(action_config, 1, Config, {action_config, BadActionConfig1}),
+    {error, {_, _, Body}} = emqx_bridge_v2_testlib:create_bridge_api(BadConfig1),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{
+                <<"reason">> := <<"required_field">>
+            }
+        },
+        Body
+    ),
+    ok.
+
 is_empty(null) -> true;
 is_empty([]) -> true;
 is_empty([[]]) -> true;
