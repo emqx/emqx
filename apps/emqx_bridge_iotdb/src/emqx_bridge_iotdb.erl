@@ -78,7 +78,7 @@ fields(action_parameters_data_table) ->
             mk(
                 enum([tag, field, attribute]),
                 #{
-                    required => false,
+                    required => true,
                     desc => ?DESC(emqx_bridge_iotdb, "config_parameters_column_category")
                 }
             )}
