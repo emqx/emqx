@@ -1890,3 +1890,321 @@ t_2019_area_unicode_name(_Config) ->
     ?assert(is_binary(Stream)),
     ?assert(byte_size(Stream) > 0),
     ok.
+
+%%--------------------------------------------------------------------
+%% 7. Location Report and Location Extra Tests (2019 vs 2013)
+%%--------------------------------------------------------------------
+
+t_2019_location_report_with_tire_pressure_and_carriage_temp(_Config) ->
+    %% Test 0x0200 Location Report with 2019 extras: tire_pressure (0x05) and carriage_temp (0x06)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0200,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 200,
+    ProtoVer = ?PROTO_VER_2019,
+
+    %% Basic location data (28 bytes)
+    Alarm = 16#00000000,
+    Status = 16#00040000,
+    Latitude = 20019815,
+    Longitude = 110323793,
+    Altitude = 14,
+    Speed = 50,
+    Direction = 39,
+    TimeBCD = <<16#26, 16#01, 16#21, 16#10, 16#30, 16#45>>,
+
+    %% 2019 extras: tire_pressure (0x05) and carriage_temp (0x06)
+    TirePressure = <<100, 101, 102, 103, 104, 105>>,
+    TirePressureLen = byte_size(TirePressure),
+    CarriageTemp = 25,
+
+    LocationBody = <<
+        Alarm:32/big,
+        Status:32/big,
+        Latitude:32/big,
+        Longitude:32/big,
+        Altitude:16/big,
+        Speed:16/big,
+        Direction:16/big,
+        TimeBCD/binary,
+        %% Extra 0x05: tire_pressure
+        16#05:8,
+        TirePressureLen:8,
+        TirePressure/binary,
+        %% Extra 0x06: carriage_temp (signed 16-bit)
+        16#06:8,
+        2:8,
+        CarriageTemp:16/signed-big
+    >>,
+    Size = byte_size(LocationBody),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, LocationBody),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0200,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{
+                <<"alarm">> := Alarm,
+                <<"status">> := Status,
+                <<"latitude">> := Latitude,
+                <<"longitude">> := Longitude,
+                <<"extra">> := #{
+                    <<"tire_pressure">> := _,
+                    <<"carriage_temp">> := CarriageTemp
+                }
+            }
+        },
+        Map
+    ),
+    %% Verify tire_pressure is base64 encoded
+    #{<<"body">> := #{<<"extra">> := #{<<"tire_pressure">> := EncodedTirePressure}}} = Map,
+    ?assertEqual(TirePressure, base64:decode(EncodedTirePressure)),
+    ok.
+
+t_2013_location_report_without_2019_extras(_Config) ->
+    %% Test 0x0200 Location Report in 2013 mode - extras 0x05 and 0x06 should be
+    %% treated as reserved/unknown (base64 encoded) instead of tire_pressure/carriage_temp
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0200,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 201,
+
+    %% Basic location data (28 bytes)
+    Alarm = 16#00000000,
+    Status = 16#00040000,
+    Latitude = 20019815,
+    Longitude = 110323793,
+    Altitude = 14,
+    Speed = 50,
+    Direction = 39,
+    TimeBCD = <<16#17, 16#10, 16#19, 16#19, 16#35, 16#38>>,
+
+    %% In 2013, 0x05 and 0x06 are reserved IDs - should be stored as base64
+    ReservedData05 = <<100, 101, 102>>,
+    ReservedData06 = <<0, 25>>,
+
+    LocationBody = <<
+        Alarm:32/big,
+        Status:32/big,
+        Latitude:32/big,
+        Longitude:32/big,
+        Altitude:16/big,
+        Speed:16/big,
+        Direction:16/big,
+        TimeBCD/binary,
+        %% Reserved ID 0x05
+        16#05:8,
+        3:8,
+        ReservedData05/binary,
+        %% Reserved ID 0x06
+        16#06:8,
+        2:8,
+        ReservedData06/binary
+    >>,
+    Size = byte_size(LocationBody),
+    %% 2013 header format (no version bit, BCD[6] phone)
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, LocationBody),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+
+    %% Verify there's no proto_ver in header (2013 format)
+    #{<<"header">> := Header2013} = Map,
+    ?assertEqual(false, maps:is_key(<<"proto_ver">>, Header2013)),
+
+    %% Verify extras are stored as reserved IDs (base64 encoded), not as tire_pressure/carriage_temp
+    #{<<"body">> := #{<<"extra">> := Extra}} = Map,
+    ?assertEqual(false, maps:is_key(<<"tire_pressure">>, Extra)),
+    ?assertEqual(false, maps:is_key(<<"carriage_temp">>, Extra)),
+    %% Reserved IDs are stored as binary keys "5" and "6"
+    ?assert(maps:is_key(<<"5">>, Extra)),
+    ?assert(maps:is_key(<<"6">>, Extra)),
+    ?assertEqual(ReservedData05, base64:decode(maps:get(<<"5">>, Extra))),
+    ?assertEqual(ReservedData06, base64:decode(maps:get(<<"6">>, Extra))),
+    ok.
+
+t_2019_location_report_negative_carriage_temp(_Config) ->
+    %% Test carriage_temp with negative value (signed 16-bit)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0200,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 202,
+    ProtoVer = ?PROTO_VER_2019,
+
+    Alarm = 16#00000000,
+    Status = 16#00040000,
+    Latitude = 20019815,
+    Longitude = 110323793,
+    Altitude = 14,
+    Speed = 0,
+    Direction = 0,
+    TimeBCD = <<16#26, 16#01, 16#21, 16#10, 16#30, 16#45>>,
+
+    %% Negative temperature: -20 degrees Celsius
+    CarriageTemp = -20,
+
+    LocationBody = <<
+        Alarm:32/big,
+        Status:32/big,
+        Latitude:32/big,
+        Longitude:32/big,
+        Altitude:16/big,
+        Speed:16/big,
+        Direction:16/big,
+        TimeBCD/binary,
+        %% Extra 0x06: carriage_temp (signed 16-bit negative value)
+        16#06:8,
+        2:8,
+        CarriageTemp:16/signed-big
+    >>,
+    Size = byte_size(LocationBody),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, LocationBody),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"body">> := #{
+                <<"extra">> := #{
+                    <<"carriage_temp">> := -20
+                }
+            }
+        },
+        Map
+    ),
+    ok.
+
+%%--------------------------------------------------------------------
+%% 8. Driver ID Report Tests (0x0702) - 2019 vs 2013
+%%--------------------------------------------------------------------
+
+t_2019_driver_id_report_with_id_card(_Config) ->
+    %% Test 0x0702 Driver ID Report - 2019 format with id_card field
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0702,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 210,
+    ProtoVer = ?PROTO_VER_2019,
+
+    Status = 1,
+    TimeBCD = <<16#26, 16#01, 16#21, 16#10, 16#30, 16#45>>,
+    IcResult = 0,
+    DriverName = <<"张三"/utf8>>,
+    NameLength = byte_size(DriverName),
+    Certificate = pad_binary(<<"CERT123456789">>, 20),
+    Organization = <<"北京交通"/utf8>>,
+    OrgLength = byte_size(Organization),
+    CertExpiryBCD = <<16#28, 16#12, 16#31, 16#00>>,
+    %% 2019 new field: id_card (20 bytes)
+    IdCard = pad_binary(<<"11010219840406970X">>, 20),
+
+    Body = <<
+        Status:8,
+        TimeBCD/binary,
+        IcResult:8,
+        NameLength:8,
+        DriverName/binary,
+        Certificate/binary,
+        OrgLength:8,
+        Organization/binary,
+        CertExpiryBCD/binary,
+        IdCard/binary
+    >>,
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0702,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{
+                <<"status">> := Status,
+                <<"ic_result">> := IcResult,
+                <<"driver_name">> := DriverName,
+                <<"id_card">> := _
+            }
+        },
+        Map
+    ),
+    %% Verify id_card is present and correctly parsed (trailing zeros removed)
+    #{<<"body">> := #{<<"id_card">> := ParsedIdCard}} = Map,
+    ?assertEqual(<<"11010219840406970X">>, ParsedIdCard),
+    ok.
+
+t_2013_driver_id_report_without_id_card(_Config) ->
+    %% Test 0x0702 Driver ID Report - 2013 format without id_card field
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0702,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 211,
+
+    Status = 1,
+    TimeBCD = <<16#17, 16#10, 16#19, 16#10, 16#30, 16#45>>,
+    IcResult = 0,
+    DriverName = <<"李四"/utf8>>,
+    NameLength = byte_size(DriverName),
+    Certificate = pad_binary(<<"CERT987654321">>, 20),
+    Organization = <<"上海交通"/utf8>>,
+    OrgLength = byte_size(Organization),
+    CertExpiryBCD = <<16#25, 16#06, 16#30, 16#00>>,
+    %% 2013 format: NO id_card field
+
+    Body = <<
+        Status:8,
+        TimeBCD/binary,
+        IcResult:8,
+        NameLength:8,
+        DriverName/binary,
+        Certificate/binary,
+        OrgLength:8,
+        Organization/binary,
+        CertExpiryBCD/binary
+    >>,
+    Size = byte_size(Body),
+    %% 2013 header format
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0702
+            },
+            <<"body">> := #{
+                <<"status">> := Status,
+                <<"ic_result">> := IcResult,
+                <<"driver_name">> := DriverName
+            }
+        },
+        Map
+    ),
+    %% Verify no proto_ver in header (2013 format)
+    #{<<"header">> := Header2013} = Map,
+    ?assertEqual(false, maps:is_key(<<"proto_ver">>, Header2013)),
+    %% Verify no id_card field in body (2013 format)
+    #{<<"body">> := Body2013} = Map,
+    ?assertEqual(false, maps:is_key(<<"id_card">>, Body2013)),
+    ok.
