@@ -617,7 +617,7 @@ parse_location_report_extra(
     <<Data:Size/binary, _Rest2/binary>> = Rest,
     parse_location_report_extra(Rest, ProtoVer, Acc#{<<"custome">> => base64:encode(Data)});
 parse_location_report_extra(<<CustomeId:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc) when
-    CustomeId >= 16#E0, CustomeId =< 16#FF
+    CustomeId > ?CP_POS_EXTRA_CUSTOME andalso CustomeId =< ?CP_POS_EXTRA_MAX
 ->
     <<Data:Size/binary, Rest2/binary>> = Rest,
     Custome = maps:get(<<"custome">>, Acc, #{}),

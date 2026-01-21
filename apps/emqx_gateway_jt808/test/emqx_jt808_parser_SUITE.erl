@@ -2211,3 +2211,124 @@ t_2013_driver_id_report_without_id_card(_Config) ->
     #{<<"body">> := Body2013} = Map,
     ?assertEqual(false, maps:is_key(<<"id_card">>, Body2013)),
     ok.
+
+t_location_report_with_custom_extras(_Config) ->
+    %% Test 0x0200 Location Report with custom vendor-specific extras (0xE1-0xF1)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0200,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 300,
+    ProtoVer = ?PROTO_VER_2019,
+
+    %% Basic location data (28 bytes)
+    Alarm = 16#00000000,
+    Status = 16#00040000,
+    Latitude = 20019815,
+    Longitude = 110323793,
+    Altitude = 14,
+    Speed = 50,
+    Direction = 39,
+    TimeBCD = <<16#26, 16#01, 16#21, 16#10, 16#30, 16#45>>,
+
+    %% Custom extras data
+
+    %% 0xE1: 4 bytes
+    E1Data = <<1, 2, 3, 4>>,
+    %% 0xE2: 2 bytes
+    E2Data = <<5, 6>>,
+    %% 0xE3: 6 bytes
+    E3Data = <<7, 8, 9, 10, 11, 12>>,
+    %% 0xE4: 1 byte
+    E4Data = <<13>>,
+    %% 0xE5: 10 bytes
+    E5Data = <<14, 15, 16, 17, 18, 19, 20, 21, 22, 23>>,
+    %% 0xE6: 2 bytes
+    E6Data = <<24, 25>>,
+    %% 0xEF: 14 bytes
+    EFData = <<26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39>>,
+    %% 0xF1: 2 bytes
+    F1Data = <<40, 41>>,
+
+    LocationBody = <<
+        Alarm:32/big,
+        Status:32/big,
+        Latitude:32/big,
+        Longitude:32/big,
+        Altitude:16/big,
+        Speed:16/big,
+        Direction:16/big,
+        TimeBCD/binary,
+        %% Custom extras
+        16#E1:8,
+        4:8,
+        E1Data/binary,
+        16#E2:8,
+        2:8,
+        E2Data/binary,
+        16#E3:8,
+        6:8,
+        E3Data/binary,
+        16#E4:8,
+        1:8,
+        E4Data/binary,
+        16#E5:8,
+        10:8,
+        E5Data/binary,
+        16#E6:8,
+        2:8,
+        E6Data/binary,
+        16#EF:8,
+        14:8,
+        EFData/binary,
+        16#F1:8,
+        2:8,
+        F1Data/binary
+    >>,
+    Size = byte_size(LocationBody),
+    Header =
+        <<MsgId:?word, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?word>>,
+    Stream = encode(Header, LocationBody),
+
+    {ok, Map, Rest, State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0200,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{
+                <<"alarm">> := Alarm,
+                <<"status">> := Status,
+                <<"latitude">> := Latitude,
+                <<"longitude">> := Longitude,
+                <<"extra">> := #{
+                    <<"custome">> := _
+                }
+            }
+        },
+        Map
+    ),
+    %% Verify all custom extras are correctly parsed and base64 encoded
+    #{<<"body">> := #{<<"extra">> := #{<<"custome">> := Custome}}} = Map,
+    %% Custom IDs are stored as binary strings of the integer value
+
+    %% 0xE1 = 225
+    ?assertEqual(E1Data, base64:decode(maps:get(<<"225">>, Custome))),
+    %% 0xE2 = 226
+    ?assertEqual(E2Data, base64:decode(maps:get(<<"226">>, Custome))),
+    %% 0xE3 = 227
+    ?assertEqual(E3Data, base64:decode(maps:get(<<"227">>, Custome))),
+    %% 0xE4 = 228
+    ?assertEqual(E4Data, base64:decode(maps:get(<<"228">>, Custome))),
+    %% 0xE5 = 229
+    ?assertEqual(E5Data, base64:decode(maps:get(<<"229">>, Custome))),
+    %% 0xE6 = 230
+    ?assertEqual(E6Data, base64:decode(maps:get(<<"230">>, Custome))),
+    %% 0xEF = 239
+    ?assertEqual(EFData, base64:decode(maps:get(<<"239">>, Custome))),
+    %% 0xF1 = 241
+    ?assertEqual(F1Data, base64:decode(maps:get(<<"241">>, Custome))),
+    ok.

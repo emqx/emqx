@@ -189,6 +189,7 @@
 -define(CP_POS_EXTRA_RSSI, 16#30).
 -define(CP_POS_EXTRA_GNSS_SAT_NUM, 16#31).
 -define(CP_POS_EXTRA_CUSTOME, 16#E0).
+-define(CP_POS_EXTRA_MAX, 16#FF).
 
 %% Default Configs
 -define(DEFAULT_MOUNTPOINT, <<"jt808/${clientid}/">>).
