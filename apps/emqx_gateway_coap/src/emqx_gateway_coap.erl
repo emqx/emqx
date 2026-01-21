@@ -108,11 +108,26 @@ on_gateway_unload(
     stop_listeners(GwName, Listeners).
 
 connection_opts(#{connection_required := false}) ->
-    #{};
+    #{
+        connection_opts => fun(_) ->
+            #{
+                connection_mod => emqx_gateway_conn
+            }
+        end
+    };
 connection_opts(_) ->
     #{
-        connection_mod => esockd_udp_proxy,
-        esockd_proxy_opts => #{
-            connection_mod => emqx_coap_proxy_conn
-        }
+        connection_opts => fun
+            (dtls) ->
+                #{
+                    connection_mod => emqx_gateway_conn
+                };
+            (udp) ->
+                #{
+                    connection_mod => esockd_udp_proxy,
+                    esockd_proxy_opts => #{
+                        connection_mod => emqx_coap_proxy_conn
+                    }
+                }
+        end
     }.
