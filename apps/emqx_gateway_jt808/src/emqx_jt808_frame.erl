@@ -328,10 +328,10 @@ parse_message_body(
     };
 parse_message_body(?MC_OTA_ACK, <<Type:?BYTE, Result:?BYTE>>, _ProtoVer) ->
     #{<<"type">> => Type, <<"result">> => Result};
-parse_message_body(?MC_LOCATION_REPORT, Binary, _ProtoVer) ->
-    parse_location_report(Binary);
-parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>, _ProtoVer) ->
-    Params = parse_location_report(Rest),
+parse_message_body(?MC_LOCATION_REPORT, Binary, ProtoVer) ->
+    parse_location_report(Binary, ProtoVer);
+parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>, ProtoVer) ->
+    Params = parse_location_report(Rest, ProtoVer),
     #{<<"seq">> => Seq, <<"params">> => Params};
 parse_message_body(?MC_EVENT_REPORT, <<Id:?BYTE>>, _ProtoVer) ->
     #{<<"id">> => Id};
@@ -339,8 +339,8 @@ parse_message_body(?MC_QUESTION_ACK, <<Seq:?WORD, Id:?BYTE>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"id">> => Id};
 parse_message_body(?MC_INFO_REQ_CANCEL, <<Id:?BYTE, Flag:?BYTE>>, _ProtoVer) ->
     #{<<"id">> => Id, <<"flag">> => Flag};
-parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>, _ProtoVer) ->
-    #{<<"seq">> => Seq, <<"location">> => parse_location_report(Location)};
+parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>, ProtoVer) ->
+    #{<<"seq">> => Seq, <<"location">> => parse_location_report(Location, ProtoVer)};
 parse_message_body(?MC_QUERY_AREA_ROUTE_ACK, <<Type:?BYTE, Count:?DWORD, Rest/binary>>, _ProtoVer) ->
     %% 2019: Query area/route data response
     #{<<"type">> => Type, <<"count">> => Count, <<"data">> => base64:encode(Rest)};
@@ -351,8 +351,27 @@ parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>, _ProtoVer
 parse_message_body(
     ?MC_DRIVER_ID_REPORT,
     <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>,
+    ProtoVer
+) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019 format: includes id_card field (20 bytes) at the end
+    <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest2/binary>> = Rest,
+    <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary, IdCard:20/binary>> = Rest2,
+    #{
+        <<"status">> => Status,
+        <<"time">> => from_bcd(TimeBCD, []),
+        <<"ic_result">> => IcResult,
+        <<"driver_name">> => Name,
+        <<"certificate">> => Certificate,
+        <<"organization">> => Orgnization,
+        <<"cert_expiry">> => from_bcd(CertExpiryBCD, []),
+        <<"id_card">> => remove_tail_zero(IdCard)
+    };
+parse_message_body(
+    ?MC_DRIVER_ID_REPORT,
+    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>,
     _ProtoVer
 ) ->
+    %% 2013 format: no id_card field
     <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest2/binary>> = Rest,
     <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary>> = Rest2,
     #{
@@ -364,11 +383,11 @@ parse_message_body(
         <<"organization">> => Orgnization,
         <<"cert_expiry">> => from_bcd(CertExpiryBCD, [])
     };
-parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>, _ProtoVer) ->
+parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>, ProtoVer) ->
     #{
         <<"type">> => Type,
         <<"length">> => Count,
-        <<"location">> => parse_bulk_location_report(Count, Rest, [])
+        <<"location">> => parse_bulk_location_report(Count, Rest, ProtoVer, [])
     };
 parse_message_body(?MC_CAN_BUS_REPORT, <<Count:?WORD, TimeBCD:5/binary, Rest/binary>>, _ProtoVer) ->
     CanData = parse_can_data(Count, Rest, []),
@@ -389,7 +408,7 @@ parse_message_body(
     ?MC_MULTIMEDIA_DATA_REPORT,
     <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE, Location:28/binary,
         Multimedia/binary>>,
-    _ProtoVer
+    ProtoVer
 ) ->
     #{
         <<"id">> => Id,
@@ -397,7 +416,7 @@ parse_message_body(
         <<"format">> => Format,
         <<"event">> => Event,
         <<"channel">> => Channel,
-        <<"location">> => parse_location_report(Location),
+        <<"location">> => parse_location_report(Location, ProtoVer),
         <<"multimedia">> => base64:encode(Multimedia)
     };
 parse_message_body(
@@ -411,11 +430,11 @@ parse_message_body(
 parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE>>, _ProtoVer) ->
     %% if Result is not 0, means failed, no "length" & "ids"
     #{<<"seq">> => Seq, <<"result">> => Result};
-parse_message_body(?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>, _ProtoVer) ->
+parse_message_body(?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>, ProtoVer) ->
     #{
         <<"seq">> => Seq,
         <<"length">> => Count,
-        <<"result">> => parse_multimedia_search_result(Count, Rest, [])
+        <<"result">> => parse_multimedia_search_result(Count, Rest, ProtoVer, [])
     };
 parse_message_body(?MC_SEND_TRANSPARENT_DATA, <<Type:?BYTE, Data/binary>>, _ProtoVer) ->
     #{<<"type">> => Type, <<"data">> => base64:encode(Data)};
@@ -461,7 +480,8 @@ decode_cp_reserved(Length, Binary) ->
 
 parse_location_report(
     <<Alarm:?DWORD, Status:?DWORD, Latitude:?DWORD, Longitude:?DWORD, Altitude:?WORD, Speed:?WORD,
-        Direction:?WORD, TimeBCD:6/binary, Rest/binary>>
+        Direction:?WORD, TimeBCD:6/binary, Rest/binary>>,
+    ProtoVer
 ) ->
     Ret = #{
         <<"alarm">> => Alarm,
@@ -475,71 +495,81 @@ parse_location_report(
     },
     case Rest of
         <<>> -> Ret;
-        _ -> Ret#{<<"extra">> => parse_location_report_extra(Rest, #{})}
+        _ -> Ret#{<<"extra">> => parse_location_report_extra(Rest, ProtoVer, #{})}
     end.
 
-parse_location_report_extra(<<>>, Acc) ->
+parse_location_report_extra(<<>>, _ProtoVer, Acc) ->
     Acc;
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_MILEAGE:?BYTE, 4:?BYTE, MileAge:?DWORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_MILEAGE:?BYTE, 4:?BYTE, MileAge:?DWORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"mileage">> => MileAge});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"mileage">> => MileAge});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_FUEL_METER:?BYTE, 2:?BYTE, FuelMeter:?WORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_FUEL_METER:?BYTE, 2:?BYTE, FuelMeter:?WORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"fuel_meter">> => FuelMeter});
-parse_location_report_extra(<<?CP_POS_EXTRA_SPEED:?BYTE, 2:?BYTE, Speed:?WORD, Rest/binary>>, Acc) ->
-    parse_location_report_extra(Rest, Acc#{<<"speed">> => Speed});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"fuel_meter">> => FuelMeter});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_ALARM_ID:?BYTE, 2:?BYTE, AlarmID:?WORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_SPEED:?BYTE, 2:?BYTE, Speed:?WORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"alarm_id">> => AlarmID});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"speed">> => Speed});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_TIRE_PRESSURE:?BYTE, 30:?BYTE, TirePressure:30/binary, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_ALARM_ID:?BYTE, 2:?BYTE, AlarmID:?WORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    %% 2019: Tire pressure, 30 bytes, unit: Pa
-    parse_location_report_extra(Rest, Acc#{<<"tire_pressure">> => base64:encode(TirePressure)});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"alarm_id">> => AlarmID});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_CARRIAGE_TEMP:?BYTE, 2:?BYTE, Temp:16/signed-big, Rest/binary>>, Acc
-) ->
+    <<?CP_POS_EXTRA_TIRE_PRESSURE:?BYTE, Length:?BYTE, TirePressure:Length/binary, Rest/binary>>,
+    ProtoVer,
+    Acc
+) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019: Tire pressure, variable length, unit: Pa
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
+        <<"tire_pressure">> => base64:encode(TirePressure)
+    });
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_CARRIAGE_TEMP:?BYTE, 2:?BYTE, Temp:16/signed-big, Rest/binary>>, ProtoVer, Acc
+) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019: Carriage temperature, 2 bytes, unit: Celsius, range: -32767 ~ +32767
-    parse_location_report_extra(Rest, Acc#{<<"carriage_temp">> => Temp});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"carriage_temp">> => Temp});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_OVERSPEED_ALARM:?BYTE, Length:?BYTE, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_OVERSPEED_ALARM:?BYTE, Length:?BYTE, Rest/binary>>, ProtoVer, Acc
 ) ->
     case Length of
         1 ->
             <<Type:?BYTE, Rest2/binary>> = Rest,
-            parse_location_report_extra(Rest2, Acc#{<<"overspeed_alarm">> => #{<<"type">> => Type}});
+            parse_location_report_extra(Rest2, ProtoVer, Acc#{
+                <<"overspeed_alarm">> => #{<<"type">> => Type}
+            });
         5 ->
             <<Type:?BYTE, Id:?DWORD, Rest2/binary>> = Rest,
-            parse_location_report_extra(Rest2, Acc#{
+            parse_location_report_extra(Rest2, ProtoVer, Acc#{
                 <<"overspeed_alarm">> => #{<<"type">> => Type, <<"id">> => Id}
             })
     end;
 parse_location_report_extra(
     <<?CP_POS_EXTRA_IN_OUT_ALARM:?BYTE, 6:?BYTE, Type:?BYTE, Id:?DWORD, Direction:?BYTE,
         Rest/binary>>,
+    ProtoVer,
     Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"in_out_alarm">> => #{<<"type">> => Type, <<"id">> => Id, <<"direction">> => Direction}
     });
 parse_location_report_extra(
     <<?CP_POS_EXTRA_PATH_TIME_ALARM:?BYTE, 7:?BYTE, Id:?DWORD, Time:?WORD, Result:?BYTE,
         Rest/binary>>,
+    ProtoVer,
     Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"path_time_alarm">> => #{<<"id">> => Id, <<"time">> => Time, <<"result">> => Result}
     });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_EXPANDED_SIGNAL:?BYTE, 4:?BYTE, Signal:4/binary, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_EXPANDED_SIGNAL:?BYTE, 4:?BYTE, Signal:4/binary, Rest/binary>>, ProtoVer, Acc
 ) ->
     <<LowBeam:1, HighBeam:1, RightTurnSignal:1, LeftTurnSignal:1, Brake:1, Reverse:1, Fog:1,
         SideMarker:1, Horn:1, AirConditioner:1, Neutral:1, Retarder:1, ABS:1, Heater:1, Cluth:1,
         _:17>> = Signal,
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"signal">> => #{
             <<"low_beam">> => LowBeam,
             <<"high_beam">> => HighBeam,
@@ -559,26 +589,34 @@ parse_location_report_extra(
         }
     });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_IO_STATUS:?BYTE, 2:?BYTE, DeepSleep:1, Sleep:1, _:14, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_IO_STATUS:?BYTE, 2:?BYTE, DeepSleep:1, Sleep:1, _:14, Rest/binary>>,
+    ProtoVer,
+    Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"io_status">> => #{<<"deep_sleep">> => DeepSleep, <<"sleep">> => Sleep}
     });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_ANALOG:?BYTE, 4:?BYTE, AD1:?WORD, AD0:?WORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_ANALOG:?BYTE, 4:?BYTE, AD1:?WORD, AD0:?WORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"analog">> => #{<<"ad0">> => AD0, <<"ad1">> => AD1}});
-parse_location_report_extra(<<?CP_POS_EXTRA_RSSI:?BYTE, 1:?BYTE, Rssi:?BYTE, Rest/binary>>, Acc) ->
-    parse_location_report_extra(Rest, Acc#{<<"rssi">> => Rssi});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
+        <<"analog">> => #{<<"ad0">> => AD0, <<"ad1">> => AD1}
+    });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_GNSS_SAT_NUM:?BYTE, 1:?BYTE, SatNum:?BYTE, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_RSSI:?BYTE, 1:?BYTE, Rssi:?BYTE, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"gnss_sat_num">> => SatNum});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"rssi">> => Rssi});
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_GNSS_SAT_NUM:?BYTE, 1:?BYTE, SatNum:?BYTE, Rest/binary>>, ProtoVer, Acc
+) ->
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"gnss_sat_num">> => SatNum});
 %% TODO: ensure custom data
-parse_location_report_extra(<<?CP_POS_EXTRA_CUSTOME:?BYTE, Size:?BYTE, Rest/binary>>, Acc) ->
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_CUSTOME:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc
+) ->
     <<Data:Size/binary, _Rest2/binary>> = Rest,
-    parse_location_report_extra(Rest, Acc#{<<"custome">> => base64:encode(Data)});
-parse_location_report_extra(<<CustomeId:?BYTE, Size:?BYTE, Rest/binary>>, Acc) when
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"custome">> => base64:encode(Data)});
+parse_location_report_extra(<<CustomeId:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc) when
     CustomeId >= 16#E0, CustomeId =< 16#FF
 ->
     <<Data:Size/binary, Rest2/binary>> = Rest,
@@ -586,21 +624,25 @@ parse_location_report_extra(<<CustomeId:?BYTE, Size:?BYTE, Rest/binary>>, Acc) w
     NCustomeId = integer_to_binary(CustomeId),
     parse_location_report_extra(
         Rest2,
+        ProtoVer,
         Acc#{<<"custome">> => maps:put(NCustomeId, base64:encode(Data), Custome)}
     );
-parse_location_report_extra(<<ReservedId0:?BYTE, Size:?BYTE, Rest/binary>>, Acc) ->
+parse_location_report_extra(<<ReservedId0:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc) ->
     <<Data:Size/binary, Rest2/binary>> = Rest,
     ReservedId = integer_to_binary(ReservedId0),
     parse_location_report_extra(
         Rest2,
+        ProtoVer,
         Acc#{ReservedId => base64:encode(Data)}
     ).
 
-parse_bulk_location_report(0, _Binary, Acc) ->
+parse_bulk_location_report(0, _Binary, _ProtoVer, Acc) ->
     lists:reverse(Acc);
-parse_bulk_location_report(Count, <<Length:?WORD, Rest/binary>>, Acc) ->
+parse_bulk_location_report(Count, <<Length:?WORD, Rest/binary>>, ProtoVer, Acc) ->
     <<Data:Length/binary, Rest2/binary>> = Rest,
-    parse_bulk_location_report(Count - 1, Rest2, [parse_location_report(Data) | Acc]).
+    parse_bulk_location_report(Count - 1, Rest2, ProtoVer, [
+        parse_location_report(Data, ProtoVer) | Acc
+    ]).
 
 parse_can_data(0, _, Acc) ->
     lists:reverse(Acc);
@@ -630,20 +672,23 @@ dword_array(0, Binary, Acc) ->
 dword_array(Count, <<Value:?DWORD, Rest/binary>>, Acc) ->
     dword_array(Count - 1, Rest, [Value | Acc]).
 
-parse_multimedia_search_result(0, _, Acc) ->
+parse_multimedia_search_result(0, _, _ProtoVer, Acc) ->
     lists:reverse(Acc);
 parse_multimedia_search_result(
     Count,
     <<Id:?DWORD, Type:?BYTE, Channel:?BYTE, Event:?BYTE, Location:28/binary, Rest/binary>>,
+    ProtoVer,
     Acc
 ) ->
-    parse_multimedia_search_result(Count - 1, Rest, [
+    %% Location is 28 bytes (basic location info) for both 2013 and 2019
+    %% ProtoVer is passed to parse_location_report for version-aware interpretation
+    parse_multimedia_search_result(Count - 1, Rest, ProtoVer, [
         #{
             <<"id">> => Id,
             <<"type">> => Type,
             <<"channel">> => Channel,
             <<"event">> => Event,
-            <<"location">> => parse_location_report(Location)
+            <<"location">> => parse_location_report(Location, ProtoVer)
         }
         | Acc
     ]).
