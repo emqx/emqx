@@ -313,11 +313,11 @@ add_generation(DB) ->
 -spec update_db_config(emqx_ds:db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
     ok | {error, _}.
 update_db_config(DB, NewSchema, NewRTConf) ->
-    %% TODO: broadcast to the peers
+    %% Note: configuration changes are propagated to the replicas via
+    %% `handle_schema_event' and `handle_db_config_change' callbacks.
     maybe
         ok ?= emqx_dsch:update_db_schema(DB, NewSchema),
-        ok ?= emqx_dsch:update_db_config(DB, NewRTConf),
-        emqx_ds_optimistic_tx:config_change(DB)
+        ok ?= emqx_dsch:update_db_config(DB, NewRTConf)
     end.
 
 -spec list_slabs(emqx_ds:db(), emqx_ds:list_slabs_opts()) -> emqx_ds:list_slabs_result().
@@ -640,9 +640,8 @@ db_info(_) ->
     {ok, ""}.
 
 -spec handle_db_config_change(emqx_ds:db(), db_runtime_config()) -> ok.
-handle_db_config_change(_, _) ->
-    %% FIXME:
-    ok.
+handle_db_config_change(DB, _Conf) ->
+    emqx_ds_optimistic_tx:config_change(DB).
 
 -spec handle_schema_event(emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:pending()) -> ok.
 handle_schema_event(DB, PendingId, Pending) ->
@@ -924,7 +923,16 @@ update_shards_schema(DB, PendingId, Site, _OldSchema, NewSchema) ->
     foreach_shard(
         DB,
         fun(Shard) ->
-            ra_command(DB, Shard, Command, ra_retries(DB))
+            %% As a way to treat potential configuration
+            %% inconsistencies between nodes and avoid duplication
+            %% of updates, configuration changes are only applied
+            %% to the shards where the current node is the leader:
+            case leader_node(DB, Shard) of
+                {ok, Node} when Node =:= node() ->
+                    ok = ra_command(DB, Shard, Command, ra_retries(DB));
+                _ ->
+                    ok
+            end
         end
     ).
 
