@@ -152,9 +152,9 @@ on_message_nack(Msg, false) ->
 on_message_nack(_Msg, true) ->
     ok.
 
-on_session_subscribed(ClientInfo, TopicFilter, _SubOpts) ->
+on_session_subscribed(ClientInfo, TopicFilter, SubOpts) ->
     ?tp_debug(extsub_on_session_subscribed, #{topic_filter => TopicFilter}),
-    on_subscribed(subscribe, ClientInfo, [TopicFilter]).
+    on_subscribed(subscribe, ClientInfo, #{TopicFilter => SubOpts}).
 
 on_session_created(_ClientInfo, SessionInfo) ->
     ?tp_debug(extsub_on_session_created, #{session_info => SessionInfo}),
@@ -163,31 +163,31 @@ on_session_created(_ClientInfo, SessionInfo) ->
 on_session_resumed(ClientInfo, #{subscriptions := Subs} = SessionInfo) ->
     ?tp_debug(extsub_on_session_resumed, #{client_info => ClientInfo, subscriptions => Subs}),
     ok = set_can_receive_acks(SessionInfo),
-    on_subscribed(resume, ClientInfo, maps:keys(Subs)).
+    on_subscribed(resume, ClientInfo, Subs).
 
-on_subscribed(SubscribeType, ClientInfo, TopicFilters) ->
+on_subscribed(SubscribeType, ClientInfo, TopicFiltersToSubOpts) ->
     SubscribeCtx = subscribe_ctx(ClientInfo),
     with_st(fun(#st{registry = HandlerRegistry} = St) ->
         {ok, St#st{
             registry = emqx_extsub_handler_registry:subscribe(
-                HandlerRegistry, SubscribeType, SubscribeCtx, TopicFilters
+                HandlerRegistry, SubscribeType, SubscribeCtx, TopicFiltersToSubOpts
             )
         }}
     end).
 
-on_session_unsubscribed(_ClientInfo, TopicFilter, _SubOpts) ->
-    ?tp_debug(extsub_on_session_unsubscribed, #{topic_filter => TopicFilter}),
-    on_unsubscribed(unsubscribe, [TopicFilter]).
+on_session_unsubscribed(_ClientInfo, TopicFilter, SubOpts) ->
+    ?tp_debug(extsub_on_session_unsubscribed, #{topic_filter => TopicFilter, sub_opts => SubOpts}),
+    on_unsubscribed(unsubscribe, #{TopicFilter => SubOpts}).
 
 on_session_disconnected(_ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ?tp_debug(extsub_on_session_disconnected, #{subscriptions => Subs}),
-    on_unsubscribed(disconnect, maps:keys(Subs)).
+    on_unsubscribed(disconnect, Subs).
 
-on_unsubscribed(UnsubscribeType, TopicFilters) ->
+on_unsubscribed(UnsubscribeType, Subs) ->
     with_st(fun(#st{registry = HandlerRegistry} = St) ->
         {ok, St#st{
             registry = emqx_extsub_handler_registry:unsubscribe(
-                HandlerRegistry, UnsubscribeType, TopicFilters
+                HandlerRegistry, UnsubscribeType, Subs
             )
         }}
     end).

@@ -275,6 +275,7 @@ Snowpipe
 sn
 sndbuf
 sockname
+Sparkplug
 sql
 src
 ssl

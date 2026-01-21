@@ -12,7 +12,8 @@
 -export([
     namespace/0,
     fields/1,
-    desc/1
+    desc/1,
+    validate_issuer_url/1
 ]).
 
 -export([
@@ -53,11 +54,12 @@ fields(oidc) ->
         [
             {issuer,
                 ?HOCON(
-                    emqx_schema:url(),
+                    binary(),
                     #{
                         desc => ?DESC(issuer),
                         required => true,
-                        example => <<"https://issuer.com">>
+                        example => <<"https://issuer.com">>,
+                        validator => fun ?MODULE:validate_issuer_url/1
                     }
                 )},
             {clientid,
@@ -276,6 +278,16 @@ convert_certs(_Dir, Conf) ->
 %%------------------------------------------------------------------------------
 %% Internal functions
 %%------------------------------------------------------------------------------
+
+validate_issuer_url(Value) ->
+    maybe
+        #{scheme := Scheme, host := _Host} ?= uri_string:parse(Value),
+        true ?= (Scheme =:= <<"http">> orelse Scheme =:= <<"https">>),
+        ok
+    else
+        _ ->
+            throw(invalid_issuer_url)
+    end.
 
 save_jwks_file(Dir, Content) ->
     case filelib:is_file(Content) of
