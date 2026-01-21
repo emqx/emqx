@@ -5,6 +5,8 @@
 %% @doc The gateway configuration management module
 -module(emqx_gateway_conf).
 
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
+
 -behaviour(emqx_config_handler).
 -behaviour(emqx_config_backup).
 
@@ -208,13 +210,14 @@ listener(ListenerId) ->
     ),
     try
         Path = [<<"gateway">>, GwName, <<"listeners">>, Type, LName],
-        LConf = emqx_utils_maps:deep_get(Path, RootConf),
-        Running = emqx_gateway_utils:is_running(
-            binary_to_existing_atom(ListenerId), LConf
+        ListenerRawConfWithDefaults = emqx_utils_maps:deep_get(Path, RootConf),
+        ListenerRuntimeId = emqx_gateway_utils_conf:rt_listener_id(
+            ListenerId, ListenerRawConfWithDefaults
         ),
+        Running = emqx_gateway_utils:is_listener_running(ListenerRuntimeId),
         {ok,
             emqx_utils_maps:jsonable_map(
-                LConf#{
+                ListenerRawConfWithDefaults#{
                     id => ListenerId,
                     type => Type,
                     name => LName,

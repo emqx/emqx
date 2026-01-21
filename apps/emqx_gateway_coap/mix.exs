@@ -5,7 +5,7 @@ defmodule EMQXGatewayCoap.MixProject do
   def project do
     [
       app: :emqx_gateway_coap,
-      version: "6.0.2",
+      version: "6.0.3",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -34,7 +34,7 @@ defmodule EMQXGatewayCoap.MixProject do
   defp test_deps() do
     if UMP.test_env?() do
       [
-        {:er_coap_client, github: "emqx/er_coap_client", tag: "v1.0.5"}
+        {:er_coap_client, github: "emqx/er_coap_client", tag: "v1.1.0"}
       ]
     else
       []

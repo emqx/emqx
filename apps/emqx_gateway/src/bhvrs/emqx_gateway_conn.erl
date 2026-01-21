@@ -281,6 +281,9 @@ init(Parent, WrappedSock, Peername0, Options, FrameMod, ChannMod) ->
                 )
             );
         {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => gateway_conn_init_error, reason => Reason, wrapped_sock => WrappedSock
+            }),
             ok = esockd_close(WrappedSock),
             exit_on_sock_error(Reason)
     end.
