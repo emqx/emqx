@@ -364,6 +364,13 @@ Json 结构示例
 |:------------------:|:-------------:|:----------:|:------------------:|
 | 位置附加信息项列表 | extra         | -          | map                |
 
+##### JT/T 808-2019 变更
+
+- **报警标志新增**: bit15（违规行驶报警）、bit16（胎压预警）、bit17（右转盲区异常报警）
+- **报警标志变更**: bit29（碰撞预警→碰撞侧翻报警）、bit31（非法开门报警→保留）
+- **状态位新增**: bit6（紧急刹车系统采集的前撞预警）、bit7（车道偏移预警）、bit22（车辆处于行驶状态）
+- **附加信息新增**: 0x05（胎压）、0x06（车厢温度）
+
 <!-- TODO: refine alarm mroe details -->
 
 - 位置附加信息项列表, 在 `extra` 中
@@ -374,6 +381,8 @@ Json 结构示例
 | 油量                              | fuel_meter      | word       | integer                |
 | 行驶记录功能获取的速度            | speed           | word       | integer                |
 | 需要人工确认报警事件的 ID         | alarm_id        | word       | integer                |
+| 胎压 (2019 新增)                  | tire_pressure   | -          | string(base64 encoded) |
+| 车厢温度 (2019 新增)              | carriage_temp   | word       | integer                |
 | 超速报警附加信息(长度1或5)        | overspeed_alarm | -          | map                    |
 | 进出区域/路线报警附加信息         | in_out_alarm    | -          | map                    |
 | 路段行驶时间不足/过长报警附加信息 | path_time_alarm | -          | map                    |
