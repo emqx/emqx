@@ -336,6 +336,16 @@ t_start_stop(matrix) ->
 t_start_stop(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_start_stop(TCConfig, iotdb_bridge_stopped).
 
+t_probe_connector_api() ->
+    [{matrix, true}].
+t_probe_connector_api(matrix) ->
+    [[?iotdb130], [?thrift]];
+t_probe_connector_api(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_bridge_v2_testlib:probe_connector_api(TCConfig)
+    ).
+
 t_on_get_status() ->
     [{matrix, true}].
 t_on_get_status(matrix) ->
@@ -587,6 +597,28 @@ t_thrift_auto_recon(TCConfig) ->
     ConnectorOverrides = #{<<"server">> => <<"127.0.0.1:9999,toxiproxy:46667">>},
     Opts = #{connector_overrides => ConnectorOverrides},
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig, Opts).
+
+t_thrift_protocol_version_1_or_2_is_deprecated() ->
+    [{matrix, true}].
+t_thrift_protocol_version_1_or_2_is_deprecated(matrix) ->
+    [[?thrift]];
+t_thrift_protocol_version_1_or_2_is_deprecated(TCConfig) ->
+    ConnectorConfig = ?config(connector_config, TCConfig),
+    BadConnectorConfig = ConnectorConfig#{
+        <<"protocol_version">> => atom_to_binary(?PROTOCOL_V1)
+    },
+    TCConfig1 = lists:keyreplace(
+        connector_config, 1, TCConfig, {connector_config, BadConnectorConfig}
+    ),
+    {error, {_StatusCode, _Headers, Body}} = emqx_bridge_v2_testlib:create_connector_api(TCConfig1),
+    ?assertMatch(
+        #{
+            <<"code">> := <<"BAD_REQUEST">>,
+            <<"message">> := #{<<"reason">> := <<"Thrift protocol version 1 or 2 is deprecated">>}
+        },
+        Body
+    ),
+    ok.
 
 t_sync_query_with_lowercase(TCConfig) ->
     DeviceId = ?device_id(),
