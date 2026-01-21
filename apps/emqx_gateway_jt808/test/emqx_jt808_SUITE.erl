@@ -3007,3 +3007,599 @@ unsupported_frame_packet() ->
         56, 57, 56, 54, 49, 49, 50, 52, 50, 51, 51, 48, 56, 49, 51, 49, 53, 55, 57, 53, 0, 0, 76,
         67, 48, 68, 55, 52, 67, 52, 49, 80, 48, 50, 49, 49, 50, 54, 48, 4, 20, 164, 132, 0, 0, 0, 0,
         66, 126>>.
+
+%%--------------------------------------------------------------------
+%% JT/T 808-2019 Protocol Integration Tests
+%%--------------------------------------------------------------------
+
+%% 2019 header format macros
+-define(VERSION_BIT_2019, 1).
+
+%% 2019 format uses BCD[10] phone (20 chars), padded with leading zeros
+%% Same phone "000123456789" as 2013, but padded to 20 digits with leading zeros
+-define(JT808_PHONE_2019, "00000000000123456789").
+-define(JT808_MOUNTPOINT_2019, "jt808/" ?JT808_PHONE_2019 "/").
+-define(JT808_UP_TOPIC_2019, <<?JT808_MOUNTPOINT_2019, ?JT808_PHONE_2019, "/up">>).
+-define(JT808_DN_TOPIC_2019, <<?JT808_MOUNTPOINT_2019, ?JT808_PHONE_2019, "/dn">>).
+
+%% BCD[10] phone: 00000000000123456789 (leading zeros padded)
+-define(JT808_PHONE_BCD_2019,
+    <<16#00, 16#00, 16#00, 16#00, 16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>
+).
+
+%% Helper to pad binary with trailing nulls
+pad_binary(Bin, TargetLen) when byte_size(Bin) >= TargetLen ->
+    binary:part(Bin, 0, TargetLen);
+pad_binary(Bin, TargetLen) ->
+    PadLen = TargetLen - byte_size(Bin),
+    <<Bin/binary, 0:(PadLen * 8)>>.
+
+%% Helper to pad binary with leading nulls
+pad_binary_leading(Bin, TargetLen) when byte_size(Bin) >= TargetLen ->
+    binary:part(Bin, 0, TargetLen);
+pad_binary_leading(Bin, TargetLen) ->
+    PadLen = TargetLen - byte_size(Bin),
+    <<0:(PadLen * 8), Bin/binary>>.
+
+%% Generate packet with 2019 header format
+gen_packet_2019(Header, Body) ->
+    S1 = <<Header/binary, Body/binary>>,
+    Crc = make_crc(S1, undefined),
+    S2 = do_escape(<<S1/binary, Crc:8>>),
+    Stream = <<16#7e:8, S2/binary, 16#7e:8>>,
+    ?LOGT("encode a 2019 packet=~p", [binary_to_hex_string(Stream)]),
+    Stream.
+
+%% 2019 registration procedure with larger field sizes
+client_regi_procedure_2019(Socket) ->
+    client_regi_procedure_2019(Socket, <<"123456">>).
+
+client_regi_procedure_2019(Socket, ExpectedAuthCode) ->
+    %% 2019 format: manufacturer[11], model[30], dev_id[30]
+    Manuf = <<"MANUFACTURER">>,
+    ManufPadded = pad_binary(Manuf, 11),
+    %% 30 bytes - spec says pad with leading zeros
+    Model = <<"MODEL_2019">>,
+    ModelPadded = pad_binary_leading(Model, 30),
+    %% 30 bytes (padded with trailing zeros per spec for dev_id)
+    DevId = <<"DEVICE_ID_2019">>,
+    DevIdPadded = pad_binary(DevId, 30),
+    Color = 3,
+    Plate = <<"TEST123">>,
+    RegisterPacket =
+        <<58:?WORD, 59:?WORD, ManufPadded/binary, ModelPadded/binary, DevIdPadded/binary, Color,
+            Plate/binary>>,
+
+    MsgId = ?MC_REGISTER,
+    %% 2019: BCD[10] phone number with leading zeros
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgSn = 78,
+    Size = size(RegisterPacket),
+    %% 2019 header: bit 14 = 1 (version identifier), proto_ver byte
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, RegisterPacket),
+
+    ok = gen_tcp:send(Socket, S1),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    %% Response should be in 2019 format as well
+    AckPacket = <<MsgSn:?WORD, 0, ExpectedAuthCode/binary>>,
+    Size2 = size(AckPacket),
+    MsgId2 = ?MS_REGISTER_ACK,
+    MsgSn2 = 0,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size2), ProtoVer:8, PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet_2019(Header2, AckPacket),
+    ?LOGT("2019 S2=~p", [binary_to_hex_string(S2)]),
+    ?LOGT("2019 Packet=~p", [binary_to_hex_string(Packet)]),
+    ?assertEqual(S2, Packet),
+    {ok, ExpectedAuthCode}.
+
+%% 2019 authentication procedure with IMEI and software version
+client_auth_procedure_2019(Socket, AuthCode) ->
+    ?LOGT("start 2019 auth procedure", []),
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_AUTH,
+    MsgSn = 78,
+
+    %% 2019 format: length prefix + code + IMEI[15] + software_version[20]
+    CodeLen = byte_size(AuthCode),
+    IMEI = pad_binary(<<"123456789012345">>, 15),
+    SoftwareVersion = pad_binary(<<"V1.0.0">>, 20),
+    AuthBody = <<CodeLen:8, AuthCode/binary, IMEI/binary, SoftwareVersion/binary>>,
+
+    Size = size(AuthBody),
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, AuthBody),
+    ?LOGT("2019 auth S1=~p", [S1]),
+
+    ok = gen_tcp:send(Socket, S1),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    %% receive general response in 2019 format
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket),
+    MsgId2 = ?MS_GENERAL_RESPONSE,
+    MsgSn2 = 1,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size2), ProtoVer:8, PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet_2019(Header2, GenAckPacket),
+    ?assertEqual(S2, Packet),
+    ?assert(lists:member(?JT808_DN_TOPIC_2019, emqx:topics())),
+
+    ?LOGT("============= 2019 auth procedure success ===============", []).
+
+%% Test: 2019 terminal registration flow
+t_case_2019_register(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, _AuthCode} = client_regi_procedure_2019(Socket),
+    ok = gen_tcp:close(Socket).
+
+%% Test: 2019 authentication with IMEI and software version
+t_case_2019_auth(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+    ok = gen_tcp:close(Socket).
+
+%% Test: 2019 client sends heartbeat after authentication
+t_case_2019_heartbeat(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    %% Send heartbeat in 2019 format
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_HEARTBEAT,
+    MsgSn = 79,
+    Size = 0,
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, <<>>),
+
+    ok = gen_tcp:send(Socket, S1),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+
+    %% Receive general response in 2019 format
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket),
+    MsgId2 = ?MS_GENERAL_RESPONSE,
+    MsgSn2 = 2,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size2), ProtoVer:8, PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet_2019(Header2, GenAckPacket),
+    ?assertEqual(S2, Packet),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Mixed 2013/2019 clients can coexist
+t_case_mixed_2013_2019_clients(_Config) ->
+    %% Connect 2013 client
+    {ok, Socket2013} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode2013} = client_regi_procedure(Socket2013),
+    ok = client_auth_procedure(Socket2013, AuthCode2013),
+
+    %% Connect 2019 client
+    {ok, Socket2019} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode2019} = client_regi_procedure_2019(Socket2019),
+    ok = client_auth_procedure_2019(Socket2019, AuthCode2019),
+
+    %% Both clients should be connected
+    ?assert(lists:member(?JT808_DN_TOPIC, emqx:topics())),
+    ?assert(lists:member(?JT808_DN_TOPIC_2019, emqx:topics())),
+
+    %% Send heartbeat from 2013 client
+    PhoneBCD2013 = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MC_HEARTBEAT,
+    MsgSn = 80,
+    Size = 0,
+    Header2013 =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD2013/binary, MsgSn:?WORD>>,
+    S1_2013 = gen_packet(Header2013, <<>>),
+    ok = gen_tcp:send(Socket2013, S1_2013),
+    {ok, _Packet2013} = gen_tcp:recv(Socket2013, 0, 500),
+
+    %% Send heartbeat from 2019 client
+    PhoneBCD2019 = ?JT808_PHONE_BCD_2019,
+    ProtoVer = ?PROTO_VER_2019,
+    Header2019 =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD2019/binary, MsgSn:?WORD>>,
+    S1_2019 = gen_packet_2019(Header2019, <<>>),
+    ok = gen_tcp:send(Socket2019, S1_2019),
+    {ok, _Packet2019} = gen_tcp:recv(Socket2019, 0, 500),
+
+    ok = gen_tcp:close(Socket2013),
+    ok = gen_tcp:close(Socket2019).
+
+%% Test: 2019 location report
+t_case_2019_location_report(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    %% Subscribe to upstream topic
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Send location report in 2019 format
+    {LocationBinary, _LocationJson} = location_report_28bytes(),
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_LOCATION_REPORT,
+    MsgSn = 79,
+    Size = size(LocationBinary),
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, LocationBinary),
+
+    ok = gen_tcp:send(Socket, S1),
+
+    %% Receive MQTT message with location data
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := ?MC_LOCATION_REPORT,
+                <<"proto_ver">> := ?PROTO_VER_2019
+            },
+            <<"body">> := #{
+                <<"alarm">> := _,
+                <<"status">> := _,
+                <<"latitude">> := _,
+                <<"longitude">> := _
+            }
+        },
+        DecodedPayload
+    ),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Backward compatibility - 2013 clients still work
+t_case_2013_backward_compatibility(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    %% Subscribe to upstream topic
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+
+    %% Send location report in 2013 format
+    {LocationBinary, _LocationJson} = location_report_28bytes(),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MC_LOCATION_REPORT,
+    MsgSn = 79,
+    Size = size(LocationBinary),
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S1 = gen_packet(Header, LocationBinary),
+
+    ok = gen_tcp:send(Socket, S1),
+
+    %% Receive MQTT message with location data
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := ?MC_LOCATION_REPORT
+            },
+            <<"body">> := #{
+                <<"alarm">> := _,
+                <<"status">> := _,
+                <<"latitude">> := _,
+                <<"longitude">> := _
+            }
+        },
+        DecodedPayload
+    ),
+
+    ok = gen_tcp:close(Socket).
+
+%%--------------------------------------------------------------------
+%% JT/T 808-2019 Integration Tests (JT808 Frame <-> MQTT Message)
+%% These tests verify that 2019-format messages are correctly published
+%% to MQTT with all relevant fields preserved.
+%%--------------------------------------------------------------------
+
+%% Test: 2019 Register - verify subsequent MQTT messages have correct 2019 header fields
+%% Note: Register itself is not published to MQTT (session establishment message)
+%% but we verify that after 2019 registration, subsequent messages have proto_ver=1
+t_case_2019_register_mqtt_fields(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    %% Subscribe to upstream topic
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Send heartbeat to generate an MQTT publish with 2019 header
+    %% Heartbeat response is from server, but location report will be published
+    {LocationBinary, _LocationJson} = location_report_28bytes(),
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_LOCATION_REPORT,
+    MsgSn = 100,
+    Size = size(LocationBinary),
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, LocationBinary),
+
+    ok = gen_tcp:send(Socket, S1),
+    timer:sleep(100),
+
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+
+    %% Verify 2019 header fields after registration
+    ?assertEqual(
+        #{
+            <<"msg_id">> => ?MC_LOCATION_REPORT,
+            <<"encrypt">> => 0,
+            <<"phone">> => <<"00000000000123456789">>,
+            <<"len">> => Size,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        maps:get(<<"header">>, DecodedPayload)
+    ),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: 2019 Auth - verify MQTT messages have auth-related fields preserved
+%% Note: Auth itself is not published to MQTT, but we verify that the
+%% 2019 auth procedure establishes correct session state for subsequent messages
+t_case_2019_auth_mqtt_fields(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    %% Subscribe to upstream topic
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Send an event report to verify session is in 2019 mode with correct proto_ver
+    EventReportId = 5,
+    EventBody = <<EventReportId:8>>,
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_EVENT_REPORT,
+    MsgSn = 101,
+    Size = size(EventBody),
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, EventBody),
+
+    ok = gen_tcp:send(Socket, S1),
+    timer:sleep(100),
+
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+
+    %% Verify 2019 format is preserved in MQTT publish
+    ?assertEqual(
+        ?PROTO_VER_2019, maps:get(<<"proto_ver">>, maps:get(<<"header">>, DecodedPayload))
+    ),
+    ?assertEqual(
+        <<"00000000000123456789">>, maps:get(<<"phone">>, maps:get(<<"header">>, DecodedPayload))
+    ),
+    ?assertEqual(#{<<"id">> => EventReportId}, maps:get(<<"body">>, DecodedPayload)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: 2019 Query Terminal Attributes Response (0x0107) with 30-byte model/id
+t_case_2019_query_attrib_mqtt_fields(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Server sends query command
+    DlCommand = #{<<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_ATTRIB}},
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC_2019, emqx_utils_json:encode(DlCommand))),
+
+    %% Client receives downlink command
+    timer:sleep(100),
+    {ok, _Packet3} = gen_tcp:recv(Socket, 0, 500),
+
+    %% Client sends 0x0107 response in 2019 format (30-byte model, 30-byte id)
+    Model2019 = <<"MODEL_2019_TERMINAL_DEVICE">>,
+    ModelPadded = pad_binary(Model2019, 30),
+    Id2019 = <<"DEVICE_ID_2019_SERIAL">>,
+    IdPadded = pad_binary(Id2019, 30),
+    %% Manufacturer is 5 bytes in 0x0107 (same for 2013 and 2019)
+    Manufacturer = <<"MNF19">>,
+    ICCID = <<16#12, 16#34, 16#56, 16#78, 16#90, 16#12, 16#34, 16#56, 16#78, 16#90>>,
+    HwVerLen = 6,
+    HwVer = <<"v3.0.0">>,
+    FwVerLen = 5,
+    FwVer = <<"v2.19">>,
+    GnssProp = 200,
+    CommProp = 201,
+
+    UlPacket =
+        <<12:?WORD, Manufacturer/binary, ModelPadded/binary, IdPadded/binary, ICCID/binary,
+            HwVerLen:8, HwVer/binary, FwVerLen:8, FwVer/binary, GnssProp:8, CommProp:8>>,
+    Size = size(UlPacket),
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_QUERY_ATTRIB_ACK,
+    MsgSn = 2,
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, UlPacket),
+
+    ok = gen_tcp:send(Socket, S1),
+    timer:sleep(100),
+
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+
+    %% Verify all 2019 fields in MQTT message
+    Header_Decoded = maps:get(<<"header">>, DecodedPayload),
+    Body_Decoded = maps:get(<<"body">>, DecodedPayload),
+
+    %% Header assertions
+    ?assertEqual(?MC_QUERY_ATTRIB_ACK, maps:get(<<"msg_id">>, Header_Decoded)),
+    ?assertEqual(?PROTO_VER_2019, maps:get(<<"proto_ver">>, Header_Decoded)),
+    ?assertEqual(<<"00000000000123456789">>, maps:get(<<"phone">>, Header_Decoded)),
+
+    %% Body assertions - verify 30-byte model and 30-byte id fields
+    ?assertEqual(12, maps:get(<<"type">>, Body_Decoded)),
+    ?assertEqual(Model2019, maps:get(<<"model">>, Body_Decoded)),
+    ?assertEqual(Id2019, maps:get(<<"id">>, Body_Decoded)),
+    ?assertEqual(<<"MNF19">>, maps:get(<<"manufacturer">>, Body_Decoded)),
+    ?assertEqual(<<"12345678901234567890">>, maps:get(<<"iccid">>, Body_Decoded)),
+    ?assertEqual(<<"v3.0.0">>, maps:get(<<"hardware_version">>, Body_Decoded)),
+    ?assertEqual(<<"v2.19">>, maps:get(<<"firmware_version">>, Body_Decoded)),
+    ?assertEqual(GnssProp, maps:get(<<"gnss_prop">>, Body_Decoded)),
+    ?assertEqual(CommProp, maps:get(<<"comm_prop">>, Body_Decoded)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: 2019 Query Server Time (0x0004) - verify empty body and server response
+t_case_2019_query_server_time_mqtt(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Client sends 0x0004 Query Server Time (empty body)
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_QUERY_SERVER_TIME,
+    MsgSn = 102,
+    Size = 0,
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, <<>>),
+
+    ok = gen_tcp:send(Socket, S1),
+    timer:sleep(100),
+
+    %% Verify MQTT publish contains empty body
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+
+    Header_Decoded = maps:get(<<"header">>, DecodedPayload),
+    Body_Decoded = maps:get(<<"body">>, DecodedPayload),
+
+    ?assertEqual(?MC_QUERY_SERVER_TIME, maps:get(<<"msg_id">>, Header_Decoded)),
+    ?assertEqual(?PROTO_VER_2019, maps:get(<<"proto_ver">>, Header_Decoded)),
+    ?assertEqual(0, maps:get(<<"len">>, Header_Decoded)),
+    ?assertEqual(#{}, Body_Decoded),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: 2019 Terminal Request Fragment (0x0005) - verify WORD count and packet IDs
+t_case_2019_request_fragment_mqtt(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Client sends 0x0005 Request Fragment
+    %% Body format: Seq(WORD) + Count(WORD) + IDs(WORD each)
+    Seq = 1234,
+    Count = 3,
+    Id1 = 100,
+    Id2 = 200,
+    Id3 = 300,
+    Body = <<Seq:?WORD, Count:?WORD, Id1:?WORD, Id2:?WORD, Id3:?WORD>>,
+
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_REQUEST_FRAGMENT,
+    MsgSn = 103,
+    Size = size(Body),
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, Body),
+
+    ok = gen_tcp:send(Socket, S1),
+    timer:sleep(100),
+
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+
+    Header_Decoded = maps:get(<<"header">>, DecodedPayload),
+    Body_Decoded = maps:get(<<"body">>, DecodedPayload),
+
+    %% Header assertions
+    ?assertEqual(?MC_REQUEST_FRAGMENT, maps:get(<<"msg_id">>, Header_Decoded)),
+    ?assertEqual(?PROTO_VER_2019, maps:get(<<"proto_ver">>, Header_Decoded)),
+
+    %% Body assertions - verify seq, count (WORD), and ids list
+    ?assertEqual(Seq, maps:get(<<"seq">>, Body_Decoded)),
+    ?assertEqual(Count, maps:get(<<"count">>, Body_Decoded)),
+    ?assertEqual([Id1, Id2, Id3], maps:get(<<"ids">>, Body_Decoded)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: 2019 Query Area/Route Response (0x0608) - verify type, count (DWORD), and data
+t_case_2019_query_area_route_mqtt(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Client sends 0x0608 Query Area/Route Response
+    %% Body format: Type(BYTE) + Count(DWORD) + Data(variable)
+
+    %% 1 = circle area
+    Type = 1,
+    Count = 2,
+    AreaData = <<"test_area_data_binary">>,
+    Body = <<Type:8, Count:?DWORD, AreaData/binary>>,
+
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    MsgId = ?MC_QUERY_AREA_ROUTE_ACK,
+    MsgSn = 104,
+    Size = size(Body),
+    ProtoVer = ?PROTO_VER_2019,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size), ProtoVer:8, PhoneBCD/binary, MsgSn:?WORD>>,
+    S1 = gen_packet_2019(Header, Body),
+
+    ok = gen_tcp:send(Socket, S1),
+    timer:sleep(100),
+
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+
+    Header_Decoded = maps:get(<<"header">>, DecodedPayload),
+    Body_Decoded = maps:get(<<"body">>, DecodedPayload),
+
+    %% Header assertions
+    ?assertEqual(?MC_QUERY_AREA_ROUTE_ACK, maps:get(<<"msg_id">>, Header_Decoded)),
+    ?assertEqual(?PROTO_VER_2019, maps:get(<<"proto_ver">>, Header_Decoded)),
+
+    %% Body assertions - verify type, count (DWORD), and base64-encoded data
+    ?assertEqual(Type, maps:get(<<"type">>, Body_Decoded)),
+    ?assertEqual(Count, maps:get(<<"count">>, Body_Decoded)),
+    ?assertEqual(base64:encode(AreaData), maps:get(<<"data">>, Body_Decoded)),
+
+    ok = gen_tcp:close(Socket).

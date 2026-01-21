@@ -6,14 +6,22 @@
 -define(EMQX_JT808_HRL, true).
 
 %%--------------------------------------------------------------------
+%% Protocol Versions
+%%--------------------------------------------------------------------
+-define(PROTO_VER_2013, 0).
+-define(PROTO_VER_2019, 1).
+
+%%--------------------------------------------------------------------
 %% Message Ids
 %%--------------------------------------------------------------------
 
 %% Message Ids of client to server
 -define(MC_GENERAL_RESPONSE, 16#0001).
 -define(MC_HEARTBEAT, 16#0002).
--define(MC_REGISTER, 16#0100).
 -define(MC_DEREGISTER, 16#0003).
+-define(MC_QUERY_SERVER_TIME, 16#0004).
+-define(MC_REQUEST_FRAGMENT, 16#0005).
+-define(MC_REGISTER, 16#0100).
 -define(MC_AUTH, 16#0102).
 -define(MC_QUERY_PARAM_ACK, 16#0104).
 -define(MC_QUERY_ATTRIB_ACK, 16#0107).
@@ -24,6 +32,7 @@
 -define(MC_QUESTION_ACK, 16#0302).
 -define(MC_INFO_REQ_CANCEL, 16#0303).
 -define(MC_VEHICLE_CTRL_ACK, 16#0500).
+-define(MC_QUERY_AREA_ROUTE_ACK, 16#0608).
 -define(MC_DRIVE_RECORD_REPORT, 16#0700).
 -define(MC_WAYBILL_REPORT, 16#0701).
 -define(MC_DRIVER_ID_REPORT, 16#0702).
@@ -40,6 +49,7 @@
 %% Message Ids of server to client
 -define(MS_GENERAL_RESPONSE, 16#8001).
 -define(MS_REQUEST_FRAGMENT, 16#8003).
+-define(MS_SERVER_TIME_ACK, 16#8004).
 -define(MS_REGISTER_ACK, 16#8100).
 -define(MS_SET_CLIENT_PARAM, 16#8103).
 -define(MS_QUERY_CLIENT_ALL_PARAM, 16#8104).
@@ -50,6 +60,7 @@
 -define(MS_QUERY_LOCATION, 16#8201).
 -define(MS_TRACE_LOCATION, 16#8202).
 -define(MS_CONFIRM_ALARM, 16#8203).
+-define(MS_LINK_DETECT, 16#8204).
 -define(MS_SEND_TEXT, 16#8300).
 -define(MS_SET_EVENT, 16#8301).
 -define(MS_SEND_QUESTION, 16#8302).
@@ -66,6 +77,7 @@
 -define(MS_DEL_POLY_AREA, 16#8605).
 -define(MS_SET_PATH, 16#8606).
 -define(MS_DEL_PATH, 16#8607).
+-define(MS_QUERY_AREA_ROUTE, 16#8608).
 -define(MS_DRIVE_RECORD_CAPTURE, 16#8700).
 -define(MS_DRIVE_REC_PARAM_SEND, 16#8701).
 -define(MS_REQ_DRIVER_ID, 16#8702).
@@ -166,6 +178,8 @@
 -define(CP_POS_EXTRA_FUEL_METER, 16#02).
 -define(CP_POS_EXTRA_SPEED, 16#03).
 -define(CP_POS_EXTRA_ALARM_ID, 16#04).
+-define(CP_POS_EXTRA_TIRE_PRESSURE, 16#05).
+-define(CP_POS_EXTRA_CARRIAGE_TEMP, 16#06).
 -define(CP_POS_EXTRA_OVERSPEED_ALARM, 16#11).
 -define(CP_POS_EXTRA_IN_OUT_ALARM, 16#12).
 -define(CP_POS_EXTRA_PATH_TIME_ALARM, 16#13).
@@ -175,6 +189,7 @@
 -define(CP_POS_EXTRA_RSSI, 16#30).
 -define(CP_POS_EXTRA_GNSS_SAT_NUM, 16#31).
 -define(CP_POS_EXTRA_CUSTOME, 16#E0).
+-define(CP_POS_EXTRA_MAX, 16#FF).
 
 %% Default Configs
 -define(DEFAULT_MOUNTPOINT, <<"jt808/${clientid}/">>).

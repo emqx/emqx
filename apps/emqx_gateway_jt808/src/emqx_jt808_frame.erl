@@ -131,9 +131,13 @@ do_escape_frame(<<>>, Acc) ->
 parse_message(Binary, Opts) ->
     case parse_message_header(Binary) of
         {ok, Header = #{<<"msg_id">> := MsgId}, RestBinary} ->
+            %% 2013 & 2019 JT/T 808 message parsing
+            %% 0 means unknown proto ver (should be 2013 format, no proto ver field)
+            %% 1 means 2019 format
+            ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
             Body =
                 try
-                    parse_message_body(MsgId, RestBinary)
+                    parse_message_body(MsgId, RestBinary, ProtoVer)
                 catch
                     error:unknown_message_id ->
                         case maps:get(parse_unknown_message, Opts, true) of
@@ -155,26 +159,62 @@ parse_message(Binary, Opts) ->
     end.
 
 parse_message_header(
-    <<MsgId:?WORD, _:2, ?NO_FRAGMENT:1, Encypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
-        Rest/binary>>
+    <<MsgId:?WORD, _:1, 1:1, ?NO_FRAGMENT:1, Encrypt:3, Length:10, ProtoVer:?BYTE,
+        PhoneBCD:10/binary, MsgSn:?WORD, Rest/binary>>
 ) ->
+    %% 2019 format: bit 14 (version identifier) = 1
+    %% Header: 17 bytes without fragmentation
     {ok,
         #{
             <<"msg_id">> => MsgId,
-            <<"encrypt">> => Encypt,
+            <<"encrypt">> => Encrypt,
+            <<"len">> => Length,
+            <<"proto_ver">> => ProtoVer,
+            <<"phone">> => from_bcd(PhoneBCD, []),
+            <<"msg_sn">> => MsgSn
+        },
+        Rest};
+parse_message_header(
+    <<MsgId:?WORD, _:1, 1:1, ?HAS_FRAGMENT:1, Encrypt:3, Length:10, ProtoVer:?BYTE,
+        PhoneBCD:10/binary, MsgSn:?WORD, FragTotal:?WORD, FragSeq:?WORD, Rest/binary>>
+) ->
+    %% 2019 format with fragmentation: 21 bytes header
+    {ok,
+        #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => Encrypt,
+            <<"len">> => Length,
+            <<"proto_ver">> => ProtoVer,
+            <<"phone">> => from_bcd(PhoneBCD, []),
+            <<"msg_sn">> => MsgSn,
+            <<"frag_total">> => FragTotal,
+            <<"frag_sn">> => FragSeq
+        },
+        Rest};
+parse_message_header(
+    <<MsgId:?WORD, _:2, ?NO_FRAGMENT:1, Encrypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
+        Rest/binary>>
+) ->
+    %% 2013 format: bit 14 = 0 (reserved)
+    %% Header: 12 bytes without fragmentation
+    {ok,
+        #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => Encrypt,
             <<"len">> => Length,
             <<"phone">> => from_bcd(PhoneBCD, []),
             <<"msg_sn">> => MsgSn
         },
         Rest};
 parse_message_header(
-    <<MsgId:?WORD, _:2, ?HAS_FRAGMENT:1, Encypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
+    <<MsgId:?WORD, _:2, ?HAS_FRAGMENT:1, Encrypt:3, Length:10, PhoneBCD:6/binary, MsgSn:?WORD,
         FragTotal:?WORD, FragSeq:?WORD, Rest/binary>>
 ) ->
+    %% 2013 format with fragmentation: 16 bytes header
     {ok,
         #{
             <<"msg_id">> => MsgId,
-            <<"encrypt">> => Encypt,
+            <<"encrypt">> => Encrypt,
             <<"len">> => Length,
             <<"phone">> => from_bcd(PhoneBCD, []),
             <<"msg_sn">> => MsgSn,
@@ -185,15 +225,42 @@ parse_message_header(
 parse_message_header(_) ->
     invalid_message.
 
-parse_message_body(?MC_GENERAL_RESPONSE, <<Seq:?WORD, Id:?WORD, Result:?BYTE>>) ->
+parse_message_body(?MC_GENERAL_RESPONSE, <<Seq:?WORD, Id:?WORD, Result:?BYTE>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"id">> => Id, <<"result">> => Result};
-parse_message_body(?MC_HEARTBEAT, <<>>) ->
+parse_message_body(?MC_HEARTBEAT, <<>>, _ProtoVer) ->
     #{};
+parse_message_body(?MC_DEREGISTER, <<>>, _ProtoVer) ->
+    #{};
+parse_message_body(?MC_QUERY_SERVER_TIME, <<>>, _ProtoVer) ->
+    %% 2019: Query server time request - empty body
+    #{};
+parse_message_body(?MC_REQUEST_FRAGMENT, <<Seq:?WORD, Count:?WORD, Rest/binary>>, _ProtoVer) ->
+    %% 2019: Terminal packet retransmission request
+    {Ids, _} = word_array(Count, Rest, []),
+    #{<<"seq">> => Seq, <<"count">> => Count, <<"ids">> => Ids};
+parse_message_body(
+    ?MC_REGISTER,
+    <<Province:?WORD, City:?WORD, Manufacturer:11/binary, Model:30/binary, DevId:30/binary,
+        Color:?BYTE, LicNumber/binary>>,
+    ProtoVer
+) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019 format: 11-byte manufacturer, 30-byte model, 30-byte device ID
+    #{
+        <<"province">> => Province,
+        <<"city">> => City,
+        <<"manufacturer">> => remove_tail_zero(Manufacturer),
+        <<"model">> => remove_tail_zero(Model),
+        <<"dev_id">> => remove_tail_zero(DevId),
+        <<"color">> => Color,
+        <<"license_number">> => LicNumber
+    };
 parse_message_body(
     ?MC_REGISTER,
     <<Province:?WORD, City:?WORD, Manufacturer:5/binary, Model:20/binary, DevId:7/binary,
-        Color:?BYTE, LicNumber/binary>>
+        Color:?BYTE, LicNumber/binary>>,
+    _ProtoVer
 ) ->
+    %% 2013 format: 5-byte manufacturer, 20-byte model, 7-byte device ID
     #{
         <<"province">> => Province,
         <<"city">> => City,
@@ -203,18 +270,29 @@ parse_message_body(
         <<"color">> => Color,
         <<"license_number">> => LicNumber
     };
-parse_message_body(?MC_DEREGISTER, <<>>) ->
-    #{};
-parse_message_body(?MC_AUTH, Binary) ->
+parse_message_body(?MC_AUTH, <<CodeLen:?BYTE, Rest/binary>>, ProtoVer) when
+    ProtoVer >= ?PROTO_VER_2019
+->
+    %% 2019 format: length prefix + code + IMEI + software version
+    <<Code:CodeLen/binary, IMEI:15/binary, SoftwareVersion:20/binary>> = Rest,
+    #{
+        <<"code">> => Code,
+        <<"imei">> => remove_tail_zero(IMEI),
+        <<"software_version">> => remove_tail_zero(SoftwareVersion)
+    };
+parse_message_body(?MC_AUTH, Binary, _ProtoVer) ->
+    %% 2013 format: raw auth code
     #{<<"code">> => Binary};
-parse_message_body(?MC_QUERY_PARAM_ACK, <<Seq:?WORD, Rest/binary>>) ->
+parse_message_body(?MC_QUERY_PARAM_ACK, <<Seq:?WORD, Rest/binary>>, _ProtoVer) ->
     {Length, Params} = parse_client_params(Rest),
     #{<<"seq">> => Seq, <<"length">> => Length, <<"params">> => Params};
 parse_message_body(
     ?MC_QUERY_ATTRIB_ACK,
-    <<Type:?WORD, Manufacturer:5/binary, Model:20/binary, Id:7/binary, ICCID:10/binary, HVLen:?BYTE,
-        Rest/binary>>
-) ->
+    <<Type:?WORD, Manufacturer:5/binary, Model:30/binary, Id:30/binary, ICCID:10/binary,
+        HVLen:?BYTE, Rest/binary>>,
+    ProtoVer
+) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019 format: 30-byte model, 30-byte ID
     <<HV:HVLen/binary, FVLen:?BYTE, Rest2/binary>> = Rest,
     <<FV:FVLen/binary, GNSSProp:?BYTE, CommProp:?BYTE>> = Rest2,
     #{
@@ -228,29 +306,72 @@ parse_message_body(
         <<"gnss_prop">> => GNSSProp,
         <<"comm_prop">> => CommProp
     };
-parse_message_body(?MC_OTA_ACK, <<Type:?BYTE, Result:?BYTE>>) ->
+parse_message_body(
+    ?MC_QUERY_ATTRIB_ACK,
+    <<Type:?WORD, Manufacturer:5/binary, Model:20/binary, Id:7/binary, ICCID:10/binary, HVLen:?BYTE,
+        Rest/binary>>,
+    _ProtoVer
+) ->
+    %% 2013 format: 20-byte model, 7-byte ID
+    <<HV:HVLen/binary, FVLen:?BYTE, Rest2/binary>> = Rest,
+    <<FV:FVLen/binary, GNSSProp:?BYTE, CommProp:?BYTE>> = Rest2,
+    #{
+        <<"type">> => Type,
+        <<"manufacturer">> => Manufacturer,
+        <<"model">> => remove_tail_zero(Model),
+        <<"id">> => remove_tail_zero(Id),
+        <<"iccid">> => from_bcd(ICCID, []),
+        <<"hardware_version">> => HV,
+        <<"firmware_version">> => FV,
+        <<"gnss_prop">> => GNSSProp,
+        <<"comm_prop">> => CommProp
+    };
+parse_message_body(?MC_OTA_ACK, <<Type:?BYTE, Result:?BYTE>>, _ProtoVer) ->
     #{<<"type">> => Type, <<"result">> => Result};
-parse_message_body(?MC_LOCATION_REPORT, Binary) ->
-    parse_location_report(Binary);
-parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>) ->
-    Params = parse_location_report(Rest),
+parse_message_body(?MC_LOCATION_REPORT, Binary, ProtoVer) ->
+    parse_location_report(Binary, ProtoVer);
+parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>, ProtoVer) ->
+    Params = parse_location_report(Rest, ProtoVer),
     #{<<"seq">> => Seq, <<"params">> => Params};
-parse_message_body(?MC_EVENT_REPORT, <<Id:?BYTE>>) ->
+parse_message_body(?MC_EVENT_REPORT, <<Id:?BYTE>>, _ProtoVer) ->
     #{<<"id">> => Id};
-parse_message_body(?MC_QUESTION_ACK, <<Seq:?WORD, Id:?BYTE>>) ->
+parse_message_body(?MC_QUESTION_ACK, <<Seq:?WORD, Id:?BYTE>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"id">> => Id};
-parse_message_body(?MC_INFO_REQ_CANCEL, <<Id:?BYTE, Flag:?BYTE>>) ->
+parse_message_body(?MC_INFO_REQ_CANCEL, <<Id:?BYTE, Flag:?BYTE>>, _ProtoVer) ->
     #{<<"id">> => Id, <<"flag">> => Flag};
-parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>) ->
-    #{<<"seq">> => Seq, <<"location">> => parse_location_report(Location)};
-parse_message_body(?MC_DRIVE_RECORD_REPORT, <<Seq:?WORD, Command:?BYTE, Data/binary>>) ->
+parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>, ProtoVer) ->
+    #{<<"seq">> => Seq, <<"location">> => parse_location_report(Location, ProtoVer)};
+parse_message_body(?MC_QUERY_AREA_ROUTE_ACK, <<Type:?BYTE, Count:?DWORD, Rest/binary>>, _ProtoVer) ->
+    %% 2019: Query area/route data response
+    #{<<"type">> => Type, <<"count">> => Count, <<"data">> => base64:encode(Rest)};
+parse_message_body(?MC_DRIVE_RECORD_REPORT, <<Seq:?WORD, Command:?BYTE, Data/binary>>, _ProtoVer) ->
     #{<<"seq">> => Seq, <<"command">> => Command, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>) ->
+parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>, _ProtoVer) ->
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
 parse_message_body(
     ?MC_DRIVER_ID_REPORT,
-    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>
+    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>,
+    ProtoVer
+) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019 format: includes id_card field (20 bytes) at the end
+    <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest2/binary>> = Rest,
+    <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary, IdCard:20/binary>> = Rest2,
+    #{
+        <<"status">> => Status,
+        <<"time">> => from_bcd(TimeBCD, []),
+        <<"ic_result">> => IcResult,
+        <<"driver_name">> => Name,
+        <<"certificate">> => Certificate,
+        <<"organization">> => Orgnization,
+        <<"cert_expiry">> => from_bcd(CertExpiryBCD, []),
+        <<"id_card">> => remove_tail_zero(IdCard)
+    };
+parse_message_body(
+    ?MC_DRIVER_ID_REPORT,
+    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>,
+    _ProtoVer
 ) ->
+    %% 2013 format: no id_card field
     <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest2/binary>> = Rest,
     <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary>> = Rest2,
     #{
@@ -262,17 +383,19 @@ parse_message_body(
         <<"organization">> => Orgnization,
         <<"cert_expiry">> => from_bcd(CertExpiryBCD, [])
     };
-parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>) ->
+parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>, ProtoVer) ->
     #{
         <<"type">> => Type,
         <<"length">> => Count,
-        <<"location">> => parse_bulk_location_report(Count, Rest, [])
+        <<"location">> => parse_bulk_location_report(Count, Rest, ProtoVer, [])
     };
-parse_message_body(?MC_CAN_BUS_REPORT, <<Count:?WORD, TimeBCD:5/binary, Rest/binary>>) ->
+parse_message_body(?MC_CAN_BUS_REPORT, <<Count:?WORD, TimeBCD:5/binary, Rest/binary>>, _ProtoVer) ->
     CanData = parse_can_data(Count, Rest, []),
     #{<<"length">> => Count, <<"time">> => from_bcd(TimeBCD, []), <<"can_data">> => CanData};
 parse_message_body(
-    ?MC_MULTIMEDIA_EVENT_REPORT, <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE>>
+    ?MC_MULTIMEDIA_EVENT_REPORT,
+    <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE>>,
+    _ProtoVer
 ) ->
     #{
         <<"id">> => Id,
@@ -284,7 +407,8 @@ parse_message_body(
 parse_message_body(
     ?MC_MULTIMEDIA_DATA_REPORT,
     <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE, Location:28/binary,
-        Multimedia/binary>>
+        Multimedia/binary>>,
+    ProtoVer
 ) ->
     #{
         <<"id">> => Id,
@@ -292,31 +416,33 @@ parse_message_body(
         <<"format">> => Format,
         <<"event">> => Event,
         <<"channel">> => Channel,
-        <<"location">> => parse_location_report(Location),
+        <<"location">> => parse_location_report(Location, ProtoVer),
         <<"multimedia">> => base64:encode(Multimedia)
     };
-parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE, Count:?WORD, Rest/binary>>) when
+parse_message_body(
+    ?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE, Count:?WORD, Rest/binary>>, _ProtoVer
+) when
     Result =:= 0
 ->
     %% if Result is 0, means suceeded, "length" & "ids" present
     {Array, _} = dword_array(Count, Rest, []),
     #{<<"seq">> => Seq, <<"result">> => Result, <<"length">> => Count, <<"ids">> => Array};
-parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE>>) ->
+parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE>>, _ProtoVer) ->
     %% if Result is not 0, means failed, no "length" & "ids"
     #{<<"seq">> => Seq, <<"result">> => Result};
-parse_message_body(?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>) ->
+parse_message_body(?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>, ProtoVer) ->
     #{
         <<"seq">> => Seq,
         <<"length">> => Count,
-        <<"result">> => parse_multimedia_search_result(Count, Rest, [])
+        <<"result">> => parse_multimedia_search_result(Count, Rest, ProtoVer, [])
     };
-parse_message_body(?MC_SEND_TRANSPARENT_DATA, <<Type:?BYTE, Data/binary>>) ->
+parse_message_body(?MC_SEND_TRANSPARENT_DATA, <<Type:?BYTE, Data/binary>>, _ProtoVer) ->
     #{<<"type">> => Type, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>) ->
+parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>, _ProtoVer) ->
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>) ->
+parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>, _ProtoVer) ->
     #{<<"e">> => E, <<"n">> => base64:encode(N)};
-parse_message_body(_, _) ->
+parse_message_body(_, _, _ProtoVer) ->
     error(unknown_message_id).
 
 parse_client_params(<<Count:?BYTE, Rest/binary>>) ->
@@ -354,7 +480,8 @@ decode_cp_reserved(Length, Binary) ->
 
 parse_location_report(
     <<Alarm:?DWORD, Status:?DWORD, Latitude:?DWORD, Longitude:?DWORD, Altitude:?WORD, Speed:?WORD,
-        Direction:?WORD, TimeBCD:6/binary, Rest/binary>>
+        Direction:?WORD, TimeBCD:6/binary, Rest/binary>>,
+    ProtoVer
 ) ->
     Ret = #{
         <<"alarm">> => Alarm,
@@ -368,61 +495,81 @@ parse_location_report(
     },
     case Rest of
         <<>> -> Ret;
-        _ -> Ret#{<<"extra">> => parse_location_report_extra(Rest, #{})}
+        _ -> Ret#{<<"extra">> => parse_location_report_extra(Rest, ProtoVer, #{})}
     end.
 
-parse_location_report_extra(<<>>, Acc) ->
+parse_location_report_extra(<<>>, _ProtoVer, Acc) ->
     Acc;
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_MILEAGE:?BYTE, 4:?BYTE, MileAge:?DWORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_MILEAGE:?BYTE, 4:?BYTE, MileAge:?DWORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"mileage">> => MileAge});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"mileage">> => MileAge});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_FUEL_METER:?BYTE, 2:?BYTE, FuelMeter:?WORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_FUEL_METER:?BYTE, 2:?BYTE, FuelMeter:?WORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"fuel_meter">> => FuelMeter});
-parse_location_report_extra(<<?CP_POS_EXTRA_SPEED:?BYTE, 2:?BYTE, Speed:?WORD, Rest/binary>>, Acc) ->
-    parse_location_report_extra(Rest, Acc#{<<"speed">> => Speed});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"fuel_meter">> => FuelMeter});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_ALARM_ID:?BYTE, 2:?BYTE, AlarmID:?WORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_SPEED:?BYTE, 2:?BYTE, Speed:?WORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"alarm_id">> => AlarmID});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"speed">> => Speed});
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_OVERSPEED_ALARM:?BYTE, Length:?BYTE, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_ALARM_ID:?BYTE, 2:?BYTE, AlarmID:?WORD, Rest/binary>>, ProtoVer, Acc
+) ->
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"alarm_id">> => AlarmID});
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_TIRE_PRESSURE:?BYTE, Length:?BYTE, TirePressure:Length/binary, Rest/binary>>,
+    ProtoVer,
+    Acc
+) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019: Tire pressure, variable length, unit: Pa
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
+        <<"tire_pressure">> => base64:encode(TirePressure)
+    });
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_CARRIAGE_TEMP:?BYTE, 2:?BYTE, Temp:16/signed-big, Rest/binary>>, ProtoVer, Acc
+) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019: Carriage temperature, 2 bytes, unit: Celsius, range: -32767 ~ +32767
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"carriage_temp">> => Temp});
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_OVERSPEED_ALARM:?BYTE, Length:?BYTE, Rest/binary>>, ProtoVer, Acc
 ) ->
     case Length of
         1 ->
             <<Type:?BYTE, Rest2/binary>> = Rest,
-            parse_location_report_extra(Rest2, Acc#{<<"overspeed_alarm">> => #{<<"type">> => Type}});
+            parse_location_report_extra(Rest2, ProtoVer, Acc#{
+                <<"overspeed_alarm">> => #{<<"type">> => Type}
+            });
         5 ->
             <<Type:?BYTE, Id:?DWORD, Rest2/binary>> = Rest,
-            parse_location_report_extra(Rest2, Acc#{
+            parse_location_report_extra(Rest2, ProtoVer, Acc#{
                 <<"overspeed_alarm">> => #{<<"type">> => Type, <<"id">> => Id}
             })
     end;
 parse_location_report_extra(
     <<?CP_POS_EXTRA_IN_OUT_ALARM:?BYTE, 6:?BYTE, Type:?BYTE, Id:?DWORD, Direction:?BYTE,
         Rest/binary>>,
+    ProtoVer,
     Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"in_out_alarm">> => #{<<"type">> => Type, <<"id">> => Id, <<"direction">> => Direction}
     });
 parse_location_report_extra(
     <<?CP_POS_EXTRA_PATH_TIME_ALARM:?BYTE, 7:?BYTE, Id:?DWORD, Time:?WORD, Result:?BYTE,
         Rest/binary>>,
+    ProtoVer,
     Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"path_time_alarm">> => #{<<"id">> => Id, <<"time">> => Time, <<"result">> => Result}
     });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_EXPANDED_SIGNAL:?BYTE, 4:?BYTE, Signal:4/binary, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_EXPANDED_SIGNAL:?BYTE, 4:?BYTE, Signal:4/binary, Rest/binary>>, ProtoVer, Acc
 ) ->
     <<LowBeam:1, HighBeam:1, RightTurnSignal:1, LeftTurnSignal:1, Brake:1, Reverse:1, Fog:1,
         SideMarker:1, Horn:1, AirConditioner:1, Neutral:1, Retarder:1, ABS:1, Heater:1, Cluth:1,
         _:17>> = Signal,
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"signal">> => #{
             <<"low_beam">> => LowBeam,
             <<"high_beam">> => HighBeam,
@@ -442,48 +589,60 @@ parse_location_report_extra(
         }
     });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_IO_STATUS:?BYTE, 2:?BYTE, DeepSleep:1, Sleep:1, _:14, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_IO_STATUS:?BYTE, 2:?BYTE, DeepSleep:1, Sleep:1, _:14, Rest/binary>>,
+    ProtoVer,
+    Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
         <<"io_status">> => #{<<"deep_sleep">> => DeepSleep, <<"sleep">> => Sleep}
     });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_ANALOG:?BYTE, 4:?BYTE, AD1:?WORD, AD0:?WORD, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_ANALOG:?BYTE, 4:?BYTE, AD1:?WORD, AD0:?WORD, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"analog">> => #{<<"ad0">> => AD0, <<"ad1">> => AD1}});
-parse_location_report_extra(<<?CP_POS_EXTRA_RSSI:?BYTE, 1:?BYTE, Rssi:?BYTE, Rest/binary>>, Acc) ->
-    parse_location_report_extra(Rest, Acc#{<<"rssi">> => Rssi});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{
+        <<"analog">> => #{<<"ad0">> => AD0, <<"ad1">> => AD1}
+    });
 parse_location_report_extra(
-    <<?CP_POS_EXTRA_GNSS_SAT_NUM:?BYTE, 1:?BYTE, SatNum:?BYTE, Rest/binary>>, Acc
+    <<?CP_POS_EXTRA_RSSI:?BYTE, 1:?BYTE, Rssi:?BYTE, Rest/binary>>, ProtoVer, Acc
 ) ->
-    parse_location_report_extra(Rest, Acc#{<<"gnss_sat_num">> => SatNum});
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"rssi">> => Rssi});
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_GNSS_SAT_NUM:?BYTE, 1:?BYTE, SatNum:?BYTE, Rest/binary>>, ProtoVer, Acc
+) ->
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"gnss_sat_num">> => SatNum});
 %% TODO: ensure custom data
-parse_location_report_extra(<<?CP_POS_EXTRA_CUSTOME:?BYTE, Size:?BYTE, Rest/binary>>, Acc) ->
+parse_location_report_extra(
+    <<?CP_POS_EXTRA_CUSTOME:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc
+) ->
     <<Data:Size/binary, _Rest2/binary>> = Rest,
-    parse_location_report_extra(Rest, Acc#{<<"custome">> => base64:encode(Data)});
-parse_location_report_extra(<<CustomeId:?BYTE, Size:?BYTE, Rest/binary>>, Acc) when
-    CustomeId >= 16#E0, CustomeId =< 16#FF
+    parse_location_report_extra(Rest, ProtoVer, Acc#{<<"custome">> => base64:encode(Data)});
+parse_location_report_extra(<<CustomeId:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc) when
+    CustomeId > ?CP_POS_EXTRA_CUSTOME andalso CustomeId =< ?CP_POS_EXTRA_MAX
 ->
     <<Data:Size/binary, Rest2/binary>> = Rest,
     Custome = maps:get(<<"custome">>, Acc, #{}),
     NCustomeId = integer_to_binary(CustomeId),
     parse_location_report_extra(
         Rest2,
-        Acc#{<<"custome">> => maps:put(NCustomeId, base64:encode(Data), Custome)}
+        ProtoVer,
+        Acc#{<<"custome">> => Custome#{NCustomeId => base64:encode(Data)}}
     );
-parse_location_report_extra(<<ReservedId0:?BYTE, Size:?BYTE, Rest/binary>>, Acc) ->
+parse_location_report_extra(<<ReservedId0:?BYTE, Size:?BYTE, Rest/binary>>, ProtoVer, Acc) ->
     <<Data:Size/binary, Rest2/binary>> = Rest,
     ReservedId = integer_to_binary(ReservedId0),
     parse_location_report_extra(
         Rest2,
+        ProtoVer,
         Acc#{ReservedId => base64:encode(Data)}
     ).
 
-parse_bulk_location_report(0, _Binary, Acc) ->
+parse_bulk_location_report(0, _Binary, _ProtoVer, Acc) ->
     lists:reverse(Acc);
-parse_bulk_location_report(Count, <<Length:?WORD, Rest/binary>>, Acc) ->
+parse_bulk_location_report(Count, <<Length:?WORD, Rest/binary>>, ProtoVer, Acc) ->
     <<Data:Length/binary, Rest2/binary>> = Rest,
-    parse_bulk_location_report(Count - 1, Rest2, [parse_location_report(Data) | Acc]).
+    parse_bulk_location_report(Count - 1, Rest2, ProtoVer, [
+        parse_location_report(Data, ProtoVer) | Acc
+    ]).
 
 parse_can_data(0, _, Acc) ->
     lists:reverse(Acc);
@@ -503,25 +662,33 @@ parse_can_data(
         | Acc
     ]).
 
+word_array(0, Binary, Acc) ->
+    {lists:reverse(Acc), Binary};
+word_array(Count, <<Value:?WORD, Rest/binary>>, Acc) ->
+    word_array(Count - 1, Rest, [Value | Acc]).
+
 dword_array(0, Binary, Acc) ->
     {lists:reverse(Acc), Binary};
 dword_array(Count, <<Value:?DWORD, Rest/binary>>, Acc) ->
     dword_array(Count - 1, Rest, [Value | Acc]).
 
-parse_multimedia_search_result(0, _, Acc) ->
+parse_multimedia_search_result(0, _, _ProtoVer, Acc) ->
     lists:reverse(Acc);
 parse_multimedia_search_result(
     Count,
     <<Id:?DWORD, Type:?BYTE, Channel:?BYTE, Event:?BYTE, Location:28/binary, Rest/binary>>,
+    ProtoVer,
     Acc
 ) ->
-    parse_multimedia_search_result(Count - 1, Rest, [
+    %% Location is 28 bytes (basic location info) for both 2013 and 2019
+    %% ProtoVer is passed to parse_location_report for version-aware interpretation
+    parse_multimedia_search_result(Count - 1, Rest, ProtoVer, [
         #{
             <<"id">> => Id,
             <<"type">> => Type,
             <<"channel">> => Channel,
             <<"event">> => Event,
-            <<"location">> => parse_location_report(Location)
+            <<"location">> => parse_location_report(Location, ProtoVer)
         }
         | Acc
     ]).
@@ -536,12 +703,30 @@ serialize(Json) ->
             true -> maps:get(<<"body">>, Json);
             false -> <<>>
         end,
-    BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body),
+    %% Extract proto_ver for version-aware body serialization (0 for 2013, >=1 for 2019)
+    ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
+    BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body, ProtoVer),
     %% TODO: encrypt body here
-    Header2 = maps:put(<<"len">>, size(BodyStream), Header),
-    HeaderStream = serialize_header(Header2),
+    HeaderStream = serialize_header(Header#{<<"len">> => size(BodyStream)}),
     packet(<<HeaderStream/binary, BodyStream/binary>>).
 
+serialize_header(
+    Header = #{
+        <<"msg_id">> := MsgId,
+        <<"encrypt">> := Encrypt,
+        <<"len">> := Length,
+        <<"phone">> := Phone,
+        <<"msg_sn">> := MsgSn,
+        <<"proto_ver">> := ProtoVer
+    }
+) ->
+    %% 2019 format: proto_ver present, use BCD[10] phone, set bit 14 = 1
+    PhoneBCD = to_bcd(Phone, 10),
+    {Fragment, Total, Seq} = extract_fragment_info(Header),
+    Binary =
+        <<MsgId:?WORD, 0:1, 1:1, Fragment:1, Encrypt:3, Length:10/integer-big, ProtoVer:?BYTE,
+            PhoneBCD:10/binary, MsgSn:?WORD>>,
+    maybe_append_fragment(Binary, Fragment, Total, Seq);
 serialize_header(
     Header = #{
         <<"msg_id">> := MsgId,
@@ -551,32 +736,39 @@ serialize_header(
         <<"msg_sn">> := MsgSn
     }
 ) ->
+    %% 2013 format: no proto_ver, use BCD[6] phone, bit 14 = 0
     PhoneBCD = to_bcd(Phone, 6),
-    {Fragment, Total, Seq} =
-        case maps:is_key(<<"frag_total">>, Header) of
-            true -> {1, maps:get(<<"frag_total">>, Header), maps:get(<<"frag_sn">>, Header)};
-            false -> {0, 0, 0}
-        end,
+    {Fragment, Total, Seq} = extract_fragment_info(Header),
     Binary =
         <<MsgId:?WORD, 0:2, Fragment:1, Encrypt:3, Length:10/integer-big, PhoneBCD:6/binary,
             MsgSn:?WORD>>,
-    case Fragment of
-        0 -> Binary;
-        1 -> <<Binary/binary, Total:?WORD, Seq:?WORD>>
-    end.
+    maybe_append_fragment(Binary, Fragment, Total, Seq).
 
-serialize_body(?MS_GENERAL_RESPONSE, Body) ->
+serialize_body(?MS_GENERAL_RESPONSE, Body, _ProtoVer) ->
     Seq = maps:get(<<"seq">>, Body),
     Id = maps:get(<<"id">>, Body),
     Result = maps:get(<<"result">>, Body),
     <<Seq:?WORD, Id:?WORD, Result:?BYTE>>;
-serialize_body(?MS_REQUEST_FRAGMENT, Body) ->
+serialize_body(?MS_REQUEST_FRAGMENT, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019 format: Length is WORD (changed from BYTE in 2013)
+    Seq = maps:get(<<"seq">>, Body),
+    Length = maps:get(<<"length">>, Body),
+    Ids = maps:get(<<"ids">>, Body),
+    LastStream = encode_word_array(Length, Ids, <<>>),
+    <<Seq:?WORD, Length:?WORD, LastStream/binary>>;
+serialize_body(?MS_REQUEST_FRAGMENT, Body, _ProtoVer) ->
+    %% 2013 format: Length is BYTE
     Seq = maps:get(<<"seq">>, Body),
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     LastStream = encode_word_array(Length, Ids, <<>>),
     <<Seq:?WORD, Length:?BYTE, LastStream/binary>>;
-serialize_body(?MS_REGISTER_ACK, Body) ->
+serialize_body(?MS_SERVER_TIME_ACK, Body, _ProtoVer) ->
+    %% 2019: Server time response - BCD[6] UTC time
+    Time = maps:get(<<"time">>, Body),
+    TimeBCD = to_bcd(Time, 6),
+    TimeBCD;
+serialize_body(?MS_REGISTER_ACK, Body, _ProtoVer) ->
     Seq = maps:get(<<"seq">>, Body),
     %% XXX: replaced by maroc?
     Result = maps:get(<<"result">>, Body),
@@ -588,23 +780,23 @@ serialize_body(?MS_REGISTER_ACK, Body) ->
             %% If the terminal regiter failed, it don't contain auth code
             <<Seq:?WORD, Result:?BYTE>>
     end;
-serialize_body(?MS_SET_CLIENT_PARAM, Body) ->
+serialize_body(?MS_SET_CLIENT_PARAM, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     ParamList = maps:get(<<"params">>, Body),
     serialize_client_param(<<Length:?BYTE>>, ParamList);
-serialize_body(?MS_QUERY_CLIENT_ALL_PARAM, _Body) ->
+serialize_body(?MS_QUERY_CLIENT_ALL_PARAM, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_QUERY_CLIENT_PARAM, Body) ->
+serialize_body(?MS_QUERY_CLIENT_PARAM, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     List = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, List, <<Length:?BYTE>>);
-serialize_body(?MS_CLIENT_CONTROL, Body) ->
+serialize_body(?MS_CLIENT_CONTROL, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     <<Command:?BYTE, Param/binary>>;
-serialize_body(?MS_QUERY_CLIENT_ATTRIB, _Body) ->
+serialize_body(?MS_QUERY_CLIENT_ATTRIB, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_OTA, Body) ->
+serialize_body(?MS_OTA, Body, _ProtoVer) ->
     %% TODO: OTA in this way?
     Type = maps:get(<<"type">>, Body),
     Manuf = maps:get(<<"manufacturer">>, Body),
@@ -613,74 +805,90 @@ serialize_body(?MS_OTA, Body) ->
     FwLen = maps:get(<<"fw_len">>, Body),
     Firmware = maps:get(<<"firmware">>, Body),
     <<Type:?BYTE, Manuf:5/binary, VerLength:?BYTE, Version/binary, FwLen:?DWORD, Firmware/binary>>;
-serialize_body(?MS_QUERY_LOCATION, _Body) ->
+serialize_body(?MS_QUERY_LOCATION, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_TRACE_LOCATION, Body) ->
+serialize_body(?MS_TRACE_LOCATION, Body, _ProtoVer) ->
     Period = maps:get(<<"period">>, Body),
     Expiry = maps:get(<<"expiry">>, Body),
     <<Period:?WORD, Expiry:?DWORD>>;
-serialize_body(?MS_CONFIRM_ALARM, Body) ->
+serialize_body(?MS_CONFIRM_ALARM, Body, _ProtoVer) ->
     Seq = maps:get(<<"seq">>, Body),
     Type = maps:get(<<"type">>, Body),
     <<Seq:?WORD, Type:?DWORD>>;
-serialize_body(?MS_SEND_TEXT, Body) ->
+serialize_body(?MS_LINK_DETECT, _Body, _ProtoVer) ->
+    %% 2019: Link detection - empty body
+    <<>>;
+serialize_body(?MS_SEND_TEXT, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019 format: Flag + Type + Text
+    Flag = maps:get(<<"flag">>, Body),
+    TextType = maps:get(<<"text_type">>, Body, 1),
+    Text = maps:get(<<"text">>, Body),
+    <<Flag:?BYTE, TextType:?BYTE, Text/binary>>;
+serialize_body(?MS_SEND_TEXT, Body, _ProtoVer) ->
+    %% 2013 format: Flag + Text (no type field)
     Flag = maps:get(<<"flag">>, Body),
     Text = maps:get(<<"text">>, Body),
     <<Flag:?BYTE, Text/binary>>;
-serialize_body(?MS_SET_EVENT, Body) ->
+serialize_body(?MS_SET_EVENT, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     %% FIXME: If the type is 0, the length and events is empty
     Length = maps:get(<<"length">>, Body),
     Events = maps:get(<<"events">>, Body),
     serialize_events(Events, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_SEND_QUESTION, Body) ->
+serialize_body(?MS_SEND_QUESTION, Body, _ProtoVer) ->
     Flag = maps:get(<<"flag">>, Body),
     Length = maps:get(<<"length">>, Body),
     Question = maps:get(<<"question">>, Body),
     Answers = maps:get(<<"answers">>, Body),
     serialize_candidate_answers(Answers, <<Flag:?BYTE, Length:?BYTE, Question/binary>>);
-serialize_body(?MS_SET_MENU, Body) ->
+serialize_body(?MS_SET_MENU, Body, _ProtoVer) ->
     %% XXX: If the tpye is delete all menu, the remaining bytes should be drop?
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Menus = maps:get(<<"menus">>, Body),
     serialize_menus(Menus, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_INFO_CONTENT, Body) ->
+serialize_body(?MS_INFO_CONTENT, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Info = maps:get(<<"info">>, Body),
     <<Type:?BYTE, Length:?WORD, Info/binary>>;
-serialize_body(?MS_PHONE_CALLBACK, Body) ->
+serialize_body(?MS_PHONE_CALLBACK, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Phone = maps:get(<<"phone">>, Body),
     <<Type:?BYTE, Phone/binary>>;
-serialize_body(?MS_SET_PHONE_NUMBER, Body) ->
+serialize_body(?MS_SET_PHONE_NUMBER, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Contacts = maps:get(<<"contacts">>, Body),
     serialize_contacts(Contacts, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_VEHICLE_CONTROL, Body) ->
+serialize_body(?MS_VEHICLE_CONTROL, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
+    %% 2019 format: Control type list
+    Count = maps:get(<<"count">>, Body, 0),
+    Controls = maps:get(<<"controls">>, Body, []),
+    serialize_control_types(Controls, <<Count:?WORD>>);
+serialize_body(?MS_VEHICLE_CONTROL, Body, _ProtoVer) ->
+    %% 2013 format: Single flag byte
     Flag = maps:get(<<"flag">>, Body),
     <<Flag:?BYTE>>;
-serialize_body(?MS_SET_CIRCLE_AREA, Body) ->
+serialize_body(?MS_SET_CIRCLE_AREA, Body, ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Areas = maps:get(<<"areas">>, Body),
-    serialize_circle_area(Areas, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_DEL_CIRCLE_AREA, Body) ->
+    serialize_circle_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer);
+serialize_body(?MS_DEL_CIRCLE_AREA, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_RECT_AREA, Body) ->
+serialize_body(?MS_SET_RECT_AREA, Body, ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Areas = maps:get(<<"areas">>, Body),
-    serialize_rect_area(Areas, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_DEL_RECT_AREA, Body) ->
+    serialize_rect_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer);
+serialize_body(?MS_DEL_RECT_AREA, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_POLY_AREA, Body) ->
+serialize_body(?MS_SET_POLY_AREA, Body, ProtoVer) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     StartTime = maps:get(<<"start_time">>, Body),
@@ -691,17 +899,27 @@ serialize_body(?MS_SET_POLY_AREA, Body) ->
     Points = maps:get(<<"points">>, Body),
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
-    serialize_poly_point(
+    PointsStream = serialize_poly_point(
         Length,
         Points,
         <<Id:?DWORD, Flag:?WORD, StartBCD:6/binary, EndBCD:6/binary, MaxSpeed:?WORD,
             Overspeed:?BYTE, Length:?WORD>>
-    );
-serialize_body(?MS_DEL_POLY_AREA, Body) ->
+    ),
+    %% 2019 adds night_max_speed and name after points
+    case ProtoVer >= ?PROTO_VER_2019 of
+        true ->
+            NightMaxSpeed = maps:get(<<"night_max_speed">>, Body, 0),
+            Name = maps:get(<<"name">>, Body, <<>>),
+            NameLen = byte_size(Name),
+            <<PointsStream/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+        false ->
+            PointsStream
+    end;
+serialize_body(?MS_DEL_POLY_AREA, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_PATH, Body) ->
+serialize_body(?MS_SET_PATH, Body, ProtoVer) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     StartTime = maps:get(<<"start_time">>, Body),
@@ -710,31 +928,51 @@ serialize_body(?MS_SET_PATH, Body) ->
     Points = maps:get(<<"points">>, Body),
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
-    serialize_corner_point(
+    PointsStream = serialize_corner_point(
         Length, Points, <<Id:?DWORD, Flag:?WORD, StartBCD:6/binary, EndBCD:6/binary, Length:?WORD>>
-    );
-serialize_body(?MS_DEL_PATH, Body) ->
+    ),
+    %% 2019 adds name_length and name after corner points
+    case ProtoVer >= ?PROTO_VER_2019 of
+        true ->
+            Name = maps:get(<<"name">>, Body, <<>>),
+            NameLen = byte_size(Name),
+            <<PointsStream/binary, NameLen:?WORD, Name/binary>>;
+        false ->
+            PointsStream
+    end;
+serialize_body(?MS_DEL_PATH, Body, _ProtoVer) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_DRIVE_RECORD_CAPTURE, Body) ->
+serialize_body(?MS_QUERY_AREA_ROUTE, Body, _ProtoVer) ->
+    %% 2019: Query area/route data
+    Type = maps:get(<<"type">>, Body),
+    Count = maps:get(<<"count">>, Body),
+    case Count of
+        0 ->
+            <<Type:?BYTE, Count:?DWORD>>;
+        _ ->
+            Ids = maps:get(<<"ids">>, Body),
+            encode_dword_array(Count, Ids, <<Type:?BYTE, Count:?DWORD>>)
+    end;
+serialize_body(?MS_DRIVE_RECORD_CAPTURE, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     RawParam = base64:decode(Param),
     <<Command:?BYTE, RawParam/binary>>;
-serialize_body(?MS_DRIVE_REC_PARAM_SEND, Body) ->
+serialize_body(?MS_DRIVE_REC_PARAM_SEND, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     RawParam = base64:decode(Param),
     <<Command:?BYTE, RawParam/binary>>;
-serialize_body(?MS_REQ_DRIVER_ID, _Body) ->
+serialize_body(?MS_REQ_DRIVER_ID, _Body, _ProtoVer) ->
     <<>>;
-serialize_body(?MS_MULTIMEDIA_DATA_ACK, Body) ->
+serialize_body(?MS_MULTIMEDIA_DATA_ACK, Body, _ProtoVer) ->
     MmId = maps:get(<<"mm_id">>, Body),
     Length = maps:get(<<"length">>, Body),
     RetxIds = maps:get(<<"retx_ids">>, Body),
     encode_word_array(Length, RetxIds, <<MmId:?DWORD, Length:?BYTE>>);
-serialize_body(?MS_CAMERA_SHOT, Body) ->
+serialize_body(?MS_CAMERA_SHOT, Body, _ProtoVer) ->
     ChId = maps:get(<<"channel_id">>, Body),
     Command = maps:get(<<"command">>, Body),
     Period = maps:get(<<"period">>, Body),
@@ -747,7 +985,7 @@ serialize_body(?MS_CAMERA_SHOT, Body) ->
     Chromaticity = maps:get(<<"chromaticity">>, Body),
     <<ChId:?BYTE, Command:?WORD, Period:?WORD, Save:?BYTE, Resolution:?BYTE, Quality:?BYTE,
         Bright:?BYTE, Contrast:?BYTE, Saturate:?BYTE, Chromaticity:?BYTE>>;
-serialize_body(?MS_MM_DATA_SEARCH, Body) ->
+serialize_body(?MS_MM_DATA_SEARCH, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     Channel = maps:get(<<"channel">>, Body),
     Event = maps:get(<<"event">>, Body),
@@ -756,7 +994,7 @@ serialize_body(?MS_MM_DATA_SEARCH, Body) ->
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
     <<Type:?BYTE, Channel:?BYTE, Event:?BYTE, StartBCD:6/binary, EndBCD:6/binary>>;
-serialize_body(?MS_MM_DATA_UPLOAD, Body) ->
+serialize_body(?MS_MM_DATA_UPLOAD, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     ChId = maps:get(<<"channel">>, Body),
     Event = maps:get(<<"event">>, Body),
@@ -766,27 +1004,33 @@ serialize_body(?MS_MM_DATA_UPLOAD, Body) ->
     StartBCD = to_bcd(Start, 6),
     EndBCD = to_bcd(End, 6),
     <<Type:?BYTE, ChId:?BYTE, Event:?BYTE, StartBCD:6/binary, EndBCD:6/binary, Delete:?BYTE>>;
-serialize_body(?MS_VOICE_RECORD, Body) ->
+serialize_body(?MS_VOICE_RECORD, Body, _ProtoVer) ->
     Command = maps:get(<<"command">>, Body),
     Time = maps:get(<<"time">>, Body),
     Save = maps:get(<<"save">>, Body),
     Rate = maps:get(<<"rate">>, Body),
     <<Command:?BYTE, Time:?WORD, Save:?BYTE, Rate:?BYTE>>;
-serialize_body(?MS_SINGLE_MM_DATA_CTRL, Body) ->
+serialize_body(?MS_SINGLE_MM_DATA_CTRL, Body, _ProtoVer) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     <<Id:?DWORD, Flag:?BYTE>>;
-serialize_body(?MS_SEND_TRANSPARENT_DATA, Body) ->
+serialize_body(?MS_SEND_TRANSPARENT_DATA, Body, _ProtoVer) ->
     Type = maps:get(<<"type">>, Body),
     DataBase64 = maps:get(<<"data">>, Body),
     Data = base64:decode(DataBase64),
     <<Type:?BYTE, Data/binary>>;
-serialize_body(?MS_RSA_KEY, Body) ->
+serialize_body(?MS_RSA_KEY, Body, _ProtoVer) ->
     E = maps:get(<<"e">>, Body),
     N = maps:get(<<"n">>, Body),
     <<E:?DWORD, N:128/binary>>;
-serialize_body(_UnkonwnMsgId, _Body) ->
+serialize_body(_UnkonwnMsgId, _Body, _ProtoVer) ->
     error(invalid_input).
+
+%% Helper for 2019 vehicle control type list
+serialize_control_types([], Acc) ->
+    Acc;
+serialize_control_types([#{<<"id">> := Id, <<"param">> := Param} | T], Acc) ->
+    serialize_control_types(T, <<Acc/binary, Id:?WORD, Param/binary>>).
 
 serialize_corner_point(0, [], Acc) ->
     Acc;
@@ -821,11 +1065,11 @@ serialize_poly_point(0, _, Acc) ->
 serialize_poly_point(Count, [#{<<"lat">> := Lat, <<"lng">> := Lng} | T], Acc) ->
     serialize_poly_point(Count - 1, T, <<Acc/binary, Lat:?DWORD, Lng:?DWORD>>).
 
-serialize_rect_area([], Acc) ->
+serialize_rect_area([], Acc, _ProtoVer) ->
     Acc;
 serialize_rect_area(
     [
-        #{
+        H = #{
             <<"id">> := Id,
             <<"flag">> := Flag,
             <<"lt_lat">> := LtLatitude,
@@ -839,18 +1083,29 @@ serialize_rect_area(
         }
         | T
     ],
-    Acc
+    Acc,
+    ProtoVer
 ) ->
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
-    serialize_rect_area(
-        T,
+    Base =
         <<Acc/binary, Id:?DWORD, Flag:?WORD, LtLatitude:?DWORD, LtLongitude:?DWORD,
             RbLatitude:?DWORD, RbLongitude:?DWORD, StartBCD:6/binary, EndBCD:6/binary,
-            MaxSpeed:?WORD, Overspeed:?BYTE>>
-    ).
+            MaxSpeed:?WORD, Overspeed:?BYTE>>,
+    %% 2019 adds night_max_speed and name fields
+    NewAcc =
+        case ProtoVer >= ?PROTO_VER_2019 of
+            true ->
+                NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
+                Name = maps:get(<<"name">>, H, <<>>),
+                NameLen = byte_size(Name),
+                <<Base/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+            false ->
+                Base
+        end,
+    serialize_rect_area(T, NewAcc, ProtoVer).
 
-serialize_circle_area([], Acc) ->
+serialize_circle_area([], Acc, _ProtoVer) ->
     Acc;
 serialize_circle_area(
     [
@@ -863,7 +1118,8 @@ serialize_circle_area(
         }
         | T
     ],
-    Acc
+    Acc,
+    ProtoVer
 ) ->
     First = <<Acc/binary, Id:?DWORD, Flag:?WORD, Latitude:?DWORD, Longitude:?DWORD, Radius:?DWORD>>,
     Second =
@@ -884,7 +1140,18 @@ serialize_circle_area(
             false ->
                 Second
         end,
-    serialize_circle_area(T, Third).
+    %% 2019 adds night_max_speed and name fields (only if max_speed is present)
+    Fourth =
+        case ProtoVer >= ?PROTO_VER_2019 andalso maps:is_key(<<"max_speed">>, H) of
+            true ->
+                NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
+                Name = maps:get(<<"name">>, H, <<>>),
+                NameLen = byte_size(Name),
+                <<Third/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+            false ->
+                Third
+        end,
+    serialize_circle_area(T, Fourth, ProtoVer).
 
 serialize_contacts([], Acc) ->
     Acc;
@@ -1092,6 +1359,19 @@ encode_bcd(<<>>, Acc) ->
 encode_bcd(<<H:8, Rest/binary>>, Acc) ->
     C = H - $0,
     encode_bcd(Rest, <<Acc/bitstring, C:4>>).
+
+%% Extract fragment info from header
+extract_fragment_info(Header) ->
+    case maps:is_key(<<"frag_total">>, Header) of
+        true -> {1, maps:get(<<"frag_total">>, Header), maps:get(<<"frag_sn">>, Header)};
+        false -> {0, 0, 0}
+    end.
+
+%% Append fragment info to binary if fragmented
+maybe_append_fragment(Binary, 0, _Total, _Seq) ->
+    Binary;
+maybe_append_fragment(Binary, 1, Total, Seq) ->
+    <<Binary/binary, Total:?WORD, Seq:?WORD>>.
 
 check(Bin) ->
     case check(Bin, undefined) of
