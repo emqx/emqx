@@ -69,8 +69,6 @@ mqtt {
 
 init_per_group(mnesia_without_indices = Group, Config) ->
     start_apps(Group, [{index, false} | Config]);
-init_per_group(mnesia_reindex = Group, Config) ->
-    start_apps(Group, Config);
 init_per_group(Group, Config) ->
     start_apps(Group, Config).
 
@@ -1088,6 +1086,14 @@ t_start_stop_on_setting_change(_Config) ->
         5000
     ),
     ?assertNot(is_retainer_started()),
+
+    %% Restore config for other test cases
+    ?assertWaitEvent(
+        set_retain_available_for_zone(default, true),
+        #{?snk_kind := retainer_status_updated},
+        5000
+    ),
+    ?assert(is_retainer_started()),
     ok.
 
 t_disabled(_Config) ->
