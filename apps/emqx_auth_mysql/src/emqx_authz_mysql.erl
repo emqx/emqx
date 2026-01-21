@@ -53,7 +53,6 @@ authorize(
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
     RenderedArgs = emqx_auth_template:render_sql_params(ArgsTemplate, Vars),
-    ?SLOG(warning, #{msg => "authorize", rendered_args => RenderedArgs}),
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
