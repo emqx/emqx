@@ -17,7 +17,7 @@ help() {
     echo '--only-up:              Only start the testbed but do not run CT'
     echo '--keep-up:              Keep the testbed running after CT'
     echo '--ci:                   Set this flag in GitHub action to enforce no tests are skipped'
-    echo '--:                     If any, all args after '--' are passed to rebar3 ct'
+    echo '--:                     If any, all args is a conmand to be executed in the Erlang container'
     echo '                        otherwise it runs the entire app'\''s CT by mix'
     # shellcheck disable=SC2016
     echo '                        (will run `make ${WHICH_APP}-ct`)'
@@ -81,7 +81,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --)
             shift 1
-            REBAR3CT="$*"
+            COMMAND="$*"
             shift $#
             ;;
         *)
@@ -340,7 +340,7 @@ elif [ "$ATTACH" = 'yes' ]; then
 elif [ "$CONSOLE" = 'yes' ]; then
     docker exec -e PROFILE="$PROFILE" -i $TTY "$ERLANG_CONTAINER" bash -c "make run"
 else
-    if [ -z "${REBAR3CT:-}" ]; then
+    if [ -z "${COMMAND:-}" ]; then
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
                     -e SUITEGROUP="${SUITEGROUP:-}" \
@@ -353,7 +353,7 @@ else
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
                     -i $TTY "$ERLANG_CONTAINER" \
-                    bash -c "./rebar3 ct $REBAR3CT"
+                    bash -c "$COMMAND"
     fi
     RESULT=$?
     if [ "$RESULT" -ne 0 ]; then

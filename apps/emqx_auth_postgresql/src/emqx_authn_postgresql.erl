@@ -22,6 +22,8 @@
 -include_lib("epgsql/include/epgsql.hrl").
 -include("emqx_auth_postgresql.hrl").
 
+-define(PREPARE_KEY, <<"authn:postgresql">>).
+
 %%------------------------------------------------------------------------------
 %% APIs
 %%------------------------------------------------------------------------------
@@ -35,7 +37,7 @@ create(Config0) ->
         {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
         ok ?=
             emqx_authn_utils:create_resource(
-                emqx_postgresql,
+                emqx_auth_postgresql_connector,
                 ResourceConfig,
                 State,
                 ?AUTHN_MECHANISM_BIN,
@@ -49,7 +51,7 @@ update(Config0, #{resource_id := ResourceId} = _State) ->
         {ok, ResourceConfig, State} ?= create_state(ResourceId, Config0),
         ok ?=
             emqx_authn_utils:update_resource(
-                emqx_postgresql,
+                emqx_auth_postgresql_connector,
                 ResourceConfig,
                 State,
                 ?AUTHN_MECHANISM_BIN,
@@ -79,7 +81,7 @@ authenticate(
     CacheKey = emqx_auth_template:cache_key(Credential, CacheKeyTemplate),
     case
         emqx_authn_utils:cached_simple_sync_query(
-            CacheKey, ResourceId, {prepared_query, ResourceId, Params}
+            CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, Params}
         )
     of
         {ok, _Columns, []} ->
@@ -125,7 +127,7 @@ create_state(
     ResourceConfig = emqx_authn_utils:cleanup_resource_config(
         [query, password_hash_algorithm], Config
     ),
-    {ok, ResourceConfig#{prepare_statement => #{ResourceId => Query}}, State}.
+    {ok, ResourceConfig#{prepare_statements => #{?PREPARE_KEY => Query}}, State}.
 
 %%------------------------------------------------------------------------------
 %% Internal functions

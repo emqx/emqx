@@ -79,7 +79,7 @@ table_groups(TableCase, Cases) ->
     [{Name, [], [TableCase]} || Name <- case_names(Cases)].
 
 case_names(Cases) ->
-    lists:map(fun(Case) -> maps:get(name, Case) end, Cases).
+    lists:map(fun(#{name := Name}) -> Name end, Cases).
 
 get_case(Name, Cases) ->
     [Case] = [C || C <- Cases, maps:get(name, C) =:= Name],

@@ -6,8 +6,6 @@
 
 -behaviour(emqx_authz_source).
 
--define(PREPARE_KEY, ?MODULE).
-
 %% AuthZ Callbacks
 -export([
     create/1,
@@ -25,17 +23,18 @@
 -compile(nowarn_export_all).
 -endif.
 
+-define(PREPARE_KEY, ?MODULE).
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
 
 create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
     State = new_state(ResourceId, Source),
-    ok = emqx_authz_utils:create_resource(emqx_mysql, State),
+    ok = emqx_authz_utils:create_resource(emqx_auth_mysql_connector, State),
     State.
 
 update(#{resource_id := ResourceId} = _State, Source) ->
     State = new_state(ResourceId, Source),
-    ok = emqx_authz_utils:update_resource(emqx_mysql, State),
+    ok = emqx_authz_utils:update_resource(emqx_auth_mysql_connector, State),
     State.
 
 destroy(#{resource_id := ResourceId}) ->
@@ -47,16 +46,20 @@ authorize(
     Topic,
     #{
         resource_id := ResourceId,
-        tmpl_token := TmplToken,
+        args_template := ArgsTemplate,
+        query_timeout := QueryTimeout,
         cache_key_template := CacheKeyTemplate
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
-    RenderParams = emqx_auth_template:render_sql_params(TmplToken, Vars),
+    RenderedArgs = emqx_auth_template:render_sql_params(ArgsTemplate, Vars),
+    ?SLOG(warning, #{msg => "authorize", rendered_args => RenderedArgs}),
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case
         emqx_authz_utils:cached_simple_sync_query(
-            CacheKey, ResourceId, {prepared_query, ?PREPARE_KEY, RenderParams}
+            CacheKey,
+            ResourceId,
+            {prepared_query, ?PREPARE_KEY, RenderedArgs, #{timeout => QueryTimeout}}
         )
     of
         {ok, ColumnNames, Rows} ->
@@ -65,8 +68,8 @@ authorize(
             ?SLOG(error, #{
                 msg => "query_mysql_error",
                 reason => Reason,
-                tmpl_token => TmplToken,
-                params => RenderParams,
+                args_template => ArgsTemplate,
+                params => RenderedArgs,
                 resource_id => ResourceId
             }),
             nomatch
@@ -76,17 +79,24 @@ authorize(
 %% Internal functions
 %%--------------------------------------------------------------------
 
-new_state(ResourceId, #{query := SQL} = Source0) ->
-    {Vars, PrepareSQL, TmplToken} = emqx_auth_template:parse_sql(SQL, '?', ?ALLOWED_VARS),
+new_state(
+    ResourceId,
+    #{
+        query := SQLTemplate,
+        query_timeout := QueryTimeout
+    } = Source0
+) ->
+    {Vars, SQL, ArgsTemplate} = emqx_auth_template:parse_sql(SQLTemplate, '?', ?ALLOWED_VARS),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
-    Source = Source0#{prepare_statement => #{?PREPARE_KEY => PrepareSQL}},
+    Source = Source0#{prepare_statements => #{?PREPARE_KEY => SQL}},
     ResourceConfig = emqx_authz_utils:cleanup_resource_config(
-        [query], Source
+        [query, query_timeout], Source
     ),
     emqx_authz_utils:init_state(Source, #{
         resource_config => ResourceConfig,
         resource_id => ResourceId,
-        tmpl_token => TmplToken,
+        args_template => ArgsTemplate,
+        query_timeout => QueryTimeout,
         cache_key_template => CacheKeyTemplate
     }).
 

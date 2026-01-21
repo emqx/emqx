@@ -29,7 +29,7 @@ fields(config) ->
             {service_name, fun service_name/1},
             {role, fun role/1}
         ] ++
-            adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
+            emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
             emqx_connector_schema_lib:prepare_statement_fields(),
     proplists:delete(database, Fields).
 
@@ -52,15 +52,3 @@ role(default) -> normal;
 role(desc) -> ?DESC(?REF_MODULE, "role");
 role(required) -> false;
 role(_) -> undefined.
-
-adjust_fields(Fields) ->
-    lists:map(
-        fun
-            ({username, Sc}) ->
-                Override = #{required => true},
-                {username, hocon_schema:override(Sc, Override)};
-            (Field) ->
-                Field
-        end,
-        Fields
-    ).
