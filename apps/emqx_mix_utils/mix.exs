@@ -23,7 +23,8 @@ defmodule EMQXMixUtils.MixProject do
   def deps() do
     UMP.deps([
       :gpb,
-      :proper
+      :proper,
+      :sbom
     ])
   end
 end

@@ -195,6 +195,7 @@ fields(flow_control) ->
                 non_neg_integer(),
                 #{
                     desc => ?DESC(batch_deliver_number),
+                    deprecated => {since, "6.1.1"},
                     default => 0
                 }
             )},

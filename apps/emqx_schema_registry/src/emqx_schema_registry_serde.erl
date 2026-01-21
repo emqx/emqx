@@ -30,7 +30,8 @@
     rsf_avro_encode/1,
     rsf_avro_decode/1,
     rsf_schema_encode_and_tag/1,
-    rsf_schema_decode_tagged/1
+    rsf_schema_decode_tagged/1,
+    rsf_spb_zip_kvs/1
 ]).
 
 %% Tests
@@ -165,6 +166,37 @@ rsf_schema_decode_tagged([RegistryName, Data | Args]) ->
         {error, Reason} ->
             error(Reason)
     end.
+
+-doc """
+- Expects a valid, decoded sparkplugb message.
+
+- `properties` (and any nested `PropertySet` values) have their `keys` and `values` fields
+  removed and the values of the two former fields zipped together (_à la_
+  `maps:from_list(lists:zip(Keys, Values))`) and merged with the original map.  Values
+  that have the `PropertySet` or `PropertySetList` types are recursively transformed like
+  this.
+
+- Values of `PropertySetList` type have their `propertyset` field removed and replaced by
+  an array of `PropertySet`s, transformed following the above item's description.
+
+- `dataset_value` field is zipped in a similar fashion, with the difference that only the
+  zipped values are output.  `types` and `num_of_columns` fields are removed from output.
+
+- Other standard values/fields are untouched.  Extensions that are not present in our SpB
+  schema are already silently ignored, so they won't appear in the output.
+""".
+rsf_spb_zip_kvs([#{} = Data0]) ->
+    emqx_utils_maps:update_if_present(
+        <<"metrics">>,
+        fun(Metrics) ->
+            lists:map(fun do_spb_zip_kvs/1, Metrics)
+        end,
+        Data0
+    );
+rsf_spb_zip_kvs([BadData]) ->
+    error({badarg, {spb_zip_kvs, BadData}});
+rsf_spb_zip_kvs(Args) ->
+    error({args_count_error, {spb_zip_kvs, Args}}).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -400,6 +432,7 @@ map_sparkplug_to_encode(Term) ->
     Term.
 
 map_decoded_sparkplug(#{} = Result) ->
+    Mapping = emqx_schema_registry_spb_state:get_current_alias_mapping(),
     emqx_utils_maps:update_if_present(
         <<"metrics">>,
         fun(Ms) ->
@@ -407,15 +440,25 @@ map_decoded_sparkplug(#{} = Result) ->
                 fun
                     (#{<<"bytes_value">> := RawBytes} = M) ->
                         Bytes64 = base64:encode(RawBytes),
-                        M#{<<"bytes_value">> := Bytes64};
+                        add_aliased_name(M#{<<"bytes_value">> := Bytes64}, Mapping);
                     (M) ->
-                        M
+                        add_aliased_name(M, Mapping)
                 end,
                 Ms
             )
         end,
         Result
     ).
+
+add_aliased_name(#{<<"alias">> := Alias} = Metric, Mapping) ->
+    case maps:find(Alias, Mapping) of
+        {ok, Name} ->
+            Metric#{<<"name">> => Name};
+        error ->
+            Metric
+    end;
+add_aliased_name(Metric, _Mapping) ->
+    Metric.
 
 -spec make_protobuf_serde_mod(schema_name(), schema_source()) -> {protobuf_cache_key(), module()}.
 make_protobuf_serde_mod(Name, Source) ->
@@ -806,5 +849,71 @@ append_query(Path, <<"">>) ->
     Path;
 append_query(Path, Query) ->
     [Path, $?, Query].
+
+do_spb_zip_kvs(#{} = Metric0) ->
+    Metric1 = emqx_utils_maps:update_if_present(
+        <<"properties">>,
+        fun do_zip_property_set/1,
+        Metric0
+    ),
+    emqx_utils_maps:update_if_present(
+        <<"dataset_value">>,
+        fun do_zip_dataset/1,
+        Metric1
+    ).
+
+do_zip_property_set(#{<<"keys">> := Keys, <<"values">> := Values} = PS0) when
+    is_list(Keys), is_list(Values)
+->
+    %% `PropertySet`
+    NKeys = length(Keys),
+    NValues = length(Values),
+    case NKeys == NValues of
+        false ->
+            %% Not a valid property set.
+            PS0;
+        true ->
+            Zipped = lists:foldl(
+                fun({K, V}, Acc) -> Acc#{K => do_zip_property_set(V)} end,
+                #{},
+                lists:zip(Keys, Values)
+            ),
+            PS = maps:without([<<"keys">>, <<"values">>], PS0),
+            maps:merge(PS, Zipped)
+    end;
+do_zip_property_set(#{<<"propertyset_value">> := PSV0} = PS0) ->
+    PS0#{<<"propertyset_value">> := do_zip_property_set(PSV0)};
+do_zip_property_set(
+    #{<<"propertysets_value">> := #{<<"propertyset">> := PropertySets}} = PSL0
+) when
+    is_list(PropertySets)
+->
+    %% `PropertySetList`
+    Zipped = lists:map(fun do_zip_property_set/1, PropertySets),
+    PSL0#{<<"propertysets_value">> := Zipped};
+do_zip_property_set(X) ->
+    %% Not a (valid) property set or property set list.
+    X.
+
+do_zip_dataset(#{<<"columns">> := Columns, <<"rows">> := Rows} = DS0) when
+    is_list(Columns), is_list(Rows)
+->
+    NColumns = length(Columns),
+    NRows = length(Rows),
+    case NColumns == NRows of
+        false ->
+            %% Not a valid data set.
+            DS0;
+        true ->
+            %% Data sets are not recursive like property sets.
+            lists:foldl(
+                fun({Col, Row}, Acc) -> Acc#{Col => Row} end,
+                #{},
+                lists:zip(Columns, Rows)
+            )
+    end;
+do_zip_dataset(X) ->
+    %% Not a valid data set.
+    X.
 
 str(X) -> emqx_utils_conv:str(X).

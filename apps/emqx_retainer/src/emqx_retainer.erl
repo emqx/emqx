@@ -23,12 +23,12 @@
     page_read/4,
     retained_count/0,
     is_enabled/0,
-    is_started/0
+    is_started/0,
+    batch_read_number/0
 ]).
 
 %% Hooks
 -export([
-    on_session_subscribed/3,
     on_message_publish/1,
     post_config_update/5,
     on_config_zones_updated/2
@@ -58,7 +58,8 @@
 -export_type([
     deadline/0,
     cursor/0,
-    context/0
+    context/0,
+    index_incarnation/0
 ]).
 
 %% exported for `emqx_telemetry'
@@ -83,8 +84,11 @@
 -type deadline() :: emqx_utils_calendar:epoch_millisecond().
 -type cursor() :: undefined | term().
 -type has_next() :: boolean().
+-type index_incarnation() :: integer().
+-type match_opts() :: map().
 
 -define(CONTEXT_KEY, {?MODULE, context}).
+-define(BATCH_READ_NUM_PD_KEY, {?MODULE, batch_read_num}).
 
 -callback create(hocon:config()) -> backend_state().
 -callback update(backend_state(), hocon:config()) -> ok | need_recreate.
@@ -100,23 +104,16 @@
 ) ->
     {ok, has_next(), list(message())}.
 -callback read_message(backend_state(), topic()) -> {ok, list(message())}.
--callback match_messages(backend_state(), topic(), cursor()) -> {ok, list(message()), cursor()}.
+-callback match_messages(backend_state(), topic(), cursor(), match_opts()) ->
+    {ok, list(message()), cursor()}.
 -callback delete_cursor(backend_state(), cursor()) -> ok.
 -callback clean(backend_state()) -> ok.
 -callback size(backend_state()) -> non_neg_integer().
+-callback current_index_incarnation(backend_state()) -> index_incarnation().
 
 %%------------------------------------------------------------------------------
 %% Hook API
 %%------------------------------------------------------------------------------
--spec on_session_subscribed(_, _, emqx_types:subopts()) -> any().
-on_session_subscribed(_, #share{} = _Topic, _SubOpts) ->
-    ok;
-on_session_subscribed(_, Topic, #{rh := Rh} = Opts) ->
-    IsNew = maps:get(is_new, Opts, true),
-    case Rh =:= 0 orelse (Rh =:= 1 andalso IsNew) of
-        true -> emqx_retainer_dispatcher:dispatch(Topic);
-        _ -> ok
-    end.
 
 %% RETAIN flag set to 1 and payload containing zero bytes
 on_message_publish(
@@ -258,6 +255,14 @@ with_backend(Fun, Default) ->
 
 with_backend(Fun) ->
     with_backend(Fun, ok).
+
+batch_read_number() ->
+    case emqx:get_config([retainer, flow_control, batch_read_number]) of
+        0 ->
+            all_remaining;
+        BatchNum when is_integer(BatchNum) ->
+            BatchNum
+    end.
 
 %%------------------------------------------------------------------------------
 %% gen_server callbacks
@@ -492,9 +497,12 @@ close_context() ->
 
 -spec load_hooks() -> ok.
 load_hooks() ->
-    ok = emqx_hooks:put(
-        'session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_RETAINER
-    ),
+    %% TODO: customize buffer size?
+    ok = emqx_extsub_handler_registry:register(emqx_retainer_extsub_handler, #{
+        handle_generic_messages => false,
+        multi_topic => false,
+        ignore_resubscribe => false
+    }),
     ok = emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER),
     emqx_stats:update_interval(emqx_retainer_stats, fun ?MODULE:stats_fun/0),
     ok.
@@ -502,6 +510,6 @@ load_hooks() ->
 -spec unload_hooks() -> ok.
 unload_hooks() ->
     ok = emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok = emqx_hooks:del('session.subscribed', {?MODULE, on_session_subscribed}),
+    ok = emqx_extsub_handler_registry:unregister(emqx_retainer_extsub_handler),
     emqx_stats:cancel_update(emqx_retainer_stats),
     ok.

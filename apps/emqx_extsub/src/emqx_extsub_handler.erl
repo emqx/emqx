@@ -9,7 +9,7 @@
 -export([
     subscribe/4,
     subscribe_new/5,
-    unsubscribe/3,
+    unsubscribe/4,
     terminate/1,
     delivered/4,
     info/3,
@@ -26,9 +26,15 @@
 
 -type subscribe_ctx() :: #{
     clientinfo := emqx_types:clientinfo(),
+    subopts := emqx_types:subopts(),
     send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
     send := fun((term()) -> ok),
-    can_receive_acks := boolean()
+    can_receive_acks := boolean(),
+    subopts := emqx_types:infos()
+}.
+
+-type unsubscribe_ctx() :: #{
+    subopts := emqx_types:subopts()
 }.
 
 -type info_ctx() :: #{
@@ -61,10 +67,15 @@
 %% Handler callbacks
 
 -callback handle_subscribe(
-    subscribe_type(), subscribe_ctx(), state() | undefined, emqx_extsub_types:topic_filter()
+    subscribe_type(),
+    subscribe_ctx(),
+    state() | undefined,
+    emqx_extsub_types:topic_filter()
 ) ->
     {ok, state()} | ignore.
--callback handle_unsubscribe(unsubscribe_type(), state(), emqx_extsub_types:topic_filter()) ->
+-callback handle_unsubscribe(
+    unsubscribe_type(), unsubscribe_ctx(), state(), emqx_extsub_types:topic_filter()
+) ->
     state().
 -callback handle_terminate(state()) -> ok.
 -callback handle_delivered(
@@ -79,7 +90,7 @@
     | recreate.
 
 -optional_callbacks([
-    handle_unsubscribe/3,
+    handle_unsubscribe/4,
     handle_terminate/1
 ]).
 
@@ -146,11 +157,14 @@ subscribe(SubscribeType, SubscribeCtx, #handler{cbm = CBM, st = State0} = Handle
             {ok, Handler#handler{st = State}}
     end.
 
--spec unsubscribe(unsubscribe_type(), t(), emqx_extsub_types:topic_filter()) -> t().
-unsubscribe(UnsubscribeType, #handler{cbm = CBM, st = State0} = Handler, TopicFilter) ->
-    case erlang:function_exported(CBM, handle_unsubscribe, 3) of
+-spec unsubscribe(unsubscribe_type(), unsubscribe_ctx(), t(), emqx_extsub_types:topic_filter()) ->
+    t().
+unsubscribe(
+    UnsubscribeType, UnsubscribeCtx, #handler{cbm = CBM, st = State0} = Handler, TopicFilter
+) ->
+    case erlang:function_exported(CBM, handle_unsubscribe, 4) of
         true ->
-            State = CBM:handle_unsubscribe(UnsubscribeType, State0, TopicFilter),
+            State = CBM:handle_unsubscribe(UnsubscribeType, UnsubscribeCtx, State0, TopicFilter),
             Handler#handler{st = State};
         false ->
             Handler

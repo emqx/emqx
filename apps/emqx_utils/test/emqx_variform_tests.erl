@@ -353,3 +353,164 @@ iif_test_() ->
         ?_assertEqual({ok, <<"">>}, render(Expr1, #{clientid => <<"a">>})),
         ?_assertEqual({ok, <<"suffix/#">>}, render(Expr1, #{clientid => <<"a-suffix">>}))
     ].
+
+json_value_test_() ->
+    SimpleJson = emqx_utils_json:encode(#{
+        <<"sub">> => <<"user123">>,
+        <<"name">> => <<"John Doe">>,
+        <<"age">> => 30
+    }),
+    NestedJson = emqx_utils_json:encode(#{
+        <<"user">> => #{
+            <<"profile">> => #{
+                <<"name">> => <<"Alice">>,
+                <<"email">> => <<"alice@example.com">>
+            }
+        }
+    }),
+    [
+        {"simple key", fun() ->
+            ?assertEqual(
+                {ok, <<"user123">>},
+                render("json_value(json, 'sub')", #{json => SimpleJson})
+            )
+        end},
+        {"nested key", fun() ->
+            ?assertEqual(
+                {ok, <<"Alice">>},
+                render("json_value(json, 'user.profile.name')", #{json => NestedJson})
+            )
+        end},
+        {"nested key email", fun() ->
+            ?assertEqual(
+                {ok, <<"alice@example.com">>},
+                render("json_value(json, 'user.profile.email')", #{json => NestedJson})
+            )
+        end},
+        {"numeric value", fun() ->
+            ?assertEqual(
+                {ok, <<"30">>},
+                render("json_value(json, 'age')", #{json => SimpleJson})
+            )
+        end},
+        {"non-existent key", fun() ->
+            ?assertEqual(
+                {ok, <<>>},
+                render("json_value(json, 'nonexistent')", #{json => SimpleJson})
+            )
+        end},
+        {"non-existent nested key", fun() ->
+            ?_assertEqual(
+                {ok, <<>>},
+                render("json_value(json, 'user.profile.missing')", #{json => NestedJson})
+            )
+        end},
+        {"invalid JSON", fun() ->
+            ?assertEqual(
+                {ok, <<>>},
+                render("json_value(json, 'key')", #{json => <<"invalid json">>})
+            )
+        end},
+        {"empty JSON", fun() ->
+            ?assertEqual(
+                {ok, <<>>},
+                render("json_value(json, 'key')", #{json => <<"{}">>})
+            )
+        end},
+        {"direct JSON string", fun() ->
+            JsonStr = emqx_utils_json:encode(#{<<"test">> => <<"value">>}),
+            ?assertEqual(
+                {ok, <<"value">>},
+                render("json_value('" ++ binary_to_list(JsonStr) ++ "', 'test')", #{})
+            )
+        end}
+    ].
+
+jwt_value_test_() ->
+    %% Create valid JWT tokens for testing
+    SimplePayload = #{
+        <<"sub">> => <<"user123">>,
+        <<"name">> => <<"John Doe">>,
+        <<"iat">> => 1516239022
+    },
+    SimpleToken = create_jwt_token(SimplePayload),
+    NestedPayload = #{
+        <<"user">> => #{
+            <<"name">> => <<"Alice">>,
+            <<"email">> => <<"alice@example.com">>,
+            <<"profile">> => #{
+                <<"age">> => 30,
+                <<"city">> => <<"New York">>
+            }
+        }
+    },
+    NestedToken = create_jwt_token(NestedPayload),
+    [
+        {"simple claim", fun() ->
+            ?assertEqual(
+                {ok, <<"user123">>},
+                render("jwt_value(token, 'sub')", #{token => SimpleToken})
+            )
+        end},
+        {"nested claim", fun() ->
+            ?assertEqual(
+                {ok, <<"Alice">>},
+                render("jwt_value(token, 'user.name')", #{token => NestedToken})
+            )
+        end},
+        {"deeply nested claim", fun() ->
+            ?assertEqual(
+                {ok, <<"New York">>},
+                render("jwt_value(token, 'user.profile.city')", #{token => NestedToken})
+            )
+        end},
+        {"numeric claim", fun() ->
+            ?assertEqual(
+                {ok, <<"30">>},
+                render("jwt_value(token, 'user.profile.age')", #{token => NestedToken})
+            )
+        end},
+        {"non-existent claim", fun() ->
+            ?assertEqual(
+                {ok, <<>>},
+                render("jwt_value(token, 'nonexistent')", #{token => SimpleToken})
+            )
+        end},
+        {"invalid token format", fun() ->
+            ?assertMatch(
+                {error, #{reason := _}},
+                render("jwt_value(token, 'sub')", #{token => <<"invalid.token">>})
+            )
+        end},
+        {"token with wrong parts", fun() ->
+            ?assertMatch(
+                {error, #{reason := _}},
+                render("jwt_value(token, 'sub')", #{token => <<"not.a.valid.jwt.token.format">>})
+            )
+        end},
+        {"direct token string", fun() ->
+            ?assertEqual(
+                {ok, <<"user123">>},
+                render("jwt_value('" ++ binary_to_list(SimpleToken) ++ "', 'sub')", #{})
+            )
+        end}
+    ].
+
+%% Helper function to create a JWT token from payload (same as in emqx_variform_bif_tests.erl)
+create_jwt_token(PayloadMap) ->
+    Header = base64url_encode(<<"{\"alg\":\"none\",\"typ\":\"JWT\"}">>),
+    Payload = base64url_encode(emqx_utils_json:encode(PayloadMap)),
+    Signature = <<"signature">>,
+    <<Header/binary, ".", Payload/binary, ".", Signature/binary>>.
+
+base64url_encode(Bin) ->
+    %% Simple base64url encoding (replace + with -, / with _, remove padding)
+    Base64 = base64:encode(Bin),
+    Base64Url = binary:replace(
+        binary:replace(Base64, <<"+">>, <<"-">>, [global]),
+        <<"/">>,
+        <<"_">>,
+        [global]
+    ),
+    %% Remove padding
+    binary:replace(Base64Url, <<"=">>, <<>>, [global]).

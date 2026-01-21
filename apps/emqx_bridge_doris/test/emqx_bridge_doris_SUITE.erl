@@ -197,7 +197,7 @@ create_table_ddl() ->
         "create table if not exists t_mqtt_msg "
         "(msgid varchar, topic string, qos tinyint, "
         "payload string, arrived datetime) "
-        "properties (replication_num = 1)"
+        "properties (\"replication_num\" = \"1\")"
     >>.
 
 action_sql() ->
