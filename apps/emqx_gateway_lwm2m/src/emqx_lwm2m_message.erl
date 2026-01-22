@@ -12,6 +12,10 @@
     translate_json/1
 ]).
 
+-ifdef(TEST).
+-export([insert/3]).
+-endif.
+
 -include("emqx_lwm2m.hrl").
 
 tlv_to_json(BaseName, TlvData) ->
@@ -204,6 +208,15 @@ element_loop_level4([H | T], Acc) ->
     NewAcc = insert(resource, H, Acc),
     element_loop_level4(T, NewAcc).
 
+insert(
+    resource,
+    #{<<"path">> := EleName, <<"type">> := Type, <<"value">> := Value},
+    [#{tlv_multiple_resource := _ResId, value := List} = Resource]
+) ->
+    BinaryValue = value_ex(Type, Value),
+    Path = split_path(EleName),
+    NewList = insert_resource_instance_into_resource(hd(Path), BinaryValue, List),
+    [Resource#{value => NewList}];
 insert(Level, #{<<"path">> := EleName, <<"type">> := Type, <<"value">> := Value}, Acc) ->
     BinaryValue = value_ex(Type, Value),
     Path = split_path(EleName),
@@ -322,8 +335,8 @@ text_value(Text, ResourceId, ObjDefinition) ->
         "Boolean" ->
             B =
                 case Text of
-                    <<"true">> -> false;
-                    <<"false">> -> true
+                    <<"true">> -> true;
+                    <<"false">> -> false
                 end,
             B;
         "Opaque" ->
