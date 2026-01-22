@@ -2332,3 +2332,176 @@ t_location_report_with_custom_extras(_Config) ->
     %% 0xF1 = 241
     ?assertEqual(F1Data, base64:decode(maps:get(<<"241">>, Custome))),
     ok.
+
+%%--------------------------------------------------------------------
+%% Client Parameter Tests (0x8103 / 0x0104) - BYTE8 Type for CAN Bus ID
+%% These tests apply to both JT808-2013 and JT808-2019 protocols
+%%--------------------------------------------------------------------
+
+t_set_client_param_serialize_with_byte8(_Config) ->
+    %% Test 0x8103 (MS_SET_CLIENT_PARAM) serialization with different parameter types
+    %% including byte8 type for CAN bus ID params (0x0110~0x01FF)
+    MsgId = 16#8103,
+    MsgSn = 100,
+
+    %% Test data for different parameter types:
+    %% - DWORD: 0x0001 (heartbeat duration)
+    %% - STRING: 0x0010 (server APN)
+    %% - BYTE8: 0x0110 (CAN bus ID param) - base64 encoded
+    Byte8Data = <<1, 2, 3, 4, 5, 6, 7, 8>>,
+    Byte8Base64 = base64:encode(Byte8Data),
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{
+            <<"length">> => 3,
+            <<"params">> => [
+                %% DWORD type (0x0001)
+                #{<<"id">> => 16#0001, <<"value">> => 60},
+                %% STRING type (0x0010)
+                #{<<"id">> => 16#0010, <<"value">> => <<"cmnet">>},
+                %% BYTE8 type (0x0110) - base64 encoded
+                #{<<"id">> => 16#0110, <<"value">> => Byte8Base64}
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+
+    %% Parse the serialized stream back to verify round-trip
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    {ok, _Map, <<>>, _State} = emqx_jt808_frame:parse(Stream, Parser),
+    ok.
+
+t_set_client_param_serialize_byte8_range(_Config) ->
+    %% Test 0x8103 serialization with multiple CAN bus ID params (0x0110~0x01FF range)
+    MsgId = 16#8103,
+    MsgSn = 101,
+
+    %% Different params within the 0x0110~0x01FF range
+    Byte8Data1 = <<16#AA, 16#BB, 16#CC, 16#DD, 16#EE, 16#FF, 16#00, 16#11>>,
+    Byte8Data2 = <<16#11, 16#22, 16#33, 16#44, 16#55, 16#66, 16#77, 16#88>>,
+
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{
+            <<"length">> => 2,
+            <<"params">> => [
+                %% 0x0110 - first in range
+                #{<<"id">> => 16#0110, <<"value">> => base64:encode(Byte8Data1)},
+                %% 0x01FF - last in range
+                #{<<"id">> => 16#01FF, <<"value">> => base64:encode(Byte8Data2)}
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{}),
+    ?assert(is_binary(Stream)),
+    ?assert(byte_size(Stream) > 0),
+    ok.
+
+t_query_client_param_ack_parse_with_byte8(_Config) ->
+    %% Test 0x0104 (MC_QUERY_PARAM_ACK) parsing with different parameter types
+    %% including byte8 type for CAN bus ID params (0x0110~0x01FF)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0104,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 102,
+    ResponseSeq = 50,
+
+    %% Test data
+    HeartbeatValue = 60,
+    ApnValue = <<"cmnet">>,
+    ApnLen = byte_size(ApnValue),
+    Byte8Data = <<1, 2, 3, 4, 5, 6, 7, 8>>,
+
+    %% Build response body:
+    %% - seq (WORD)
+    %% - count (BYTE)
+    %% - params: [id(DWORD) + len(BYTE) + value(...)]
+    ParamsBody = <<
+        %% Param 1: DWORD (0x0001 heartbeat)
+        16#0001:32/big,
+        4:8,
+        HeartbeatValue:32/big,
+        %% Param 2: STRING (0x0010 APN)
+        16#0010:32/big,
+        ApnLen:8,
+        ApnValue/binary,
+        %% Param 3: BYTE8 (0x0110 CAN bus ID)
+        16#0110:32/big,
+        8:8,
+        Byte8Data/binary
+    >>,
+    Body = <<ResponseSeq:16/big, 3:8, ParamsBody/binary>>,
+
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, <<>>, _State} = emqx_jt808_frame:parse(Stream, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{<<"msg_id">> := 16#0104},
+            <<"body">> := #{
+                <<"seq">> := ResponseSeq,
+                <<"length">> := 3,
+                <<"params">> := _
+            }
+        },
+        Map
+    ),
+
+    %% Verify params are correctly parsed
+    #{<<"body">> := #{<<"params">> := Params}} = Map,
+    ?assertEqual(3, length(Params)),
+
+    %% Find and verify each param
+    [Param1, Param2, Param3] = Params,
+    ?assertEqual(16#0001, maps:get(<<"id">>, Param1)),
+    ?assertEqual(HeartbeatValue, maps:get(<<"value">>, Param1)),
+    ?assertEqual(16#0010, maps:get(<<"id">>, Param2)),
+    ?assertEqual(ApnValue, maps:get(<<"value">>, Param2)),
+    ?assertEqual(16#0110, maps:get(<<"id">>, Param3)),
+    %% BYTE8 value should be base64 encoded
+    ?assertEqual(Byte8Data, base64:decode(maps:get(<<"value">>, Param3))),
+    ok.
+
+t_query_client_param_ack_parse_reserved_param(_Config) ->
+    %% Test 0x0104 parsing with reserved/unknown parameter (fallback to base64)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    MsgId = 16#0104,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 103,
+    ResponseSeq = 51,
+
+    %% Unknown param ID outside known ranges
+    UnknownParamId = 16#F000,
+    UnknownData = <<16#DE, 16#AD, 16#BE, 16#EF, 16#CA, 16#FE>>,
+    UnknownLen = byte_size(UnknownData),
+
+    Body = <<ResponseSeq:16/big, 1:8, UnknownParamId:32/big, UnknownLen:8, UnknownData/binary>>,
+
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, <<>>, _State} = emqx_jt808_frame:parse(Stream, Parser),
+    #{<<"body">> := #{<<"params">> := [Param]}} = Map,
+    ?assertEqual(UnknownParamId, maps:get(<<"id">>, Param)),
+    %% Reserved/unknown params should be base64 encoded
+    ?assertEqual(UnknownData, base64:decode(maps:get(<<"value">>, Param))),
+    ok.
