@@ -316,6 +316,14 @@ do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
     end;
 do_handle_in(Frame = ?MSG(?MC_HEARTBEAT), Channel) ->
     handle_out({?MS_GENERAL_RESPONSE, 0, ?MC_HEARTBEAT}, msgsn(Frame), Channel);
+do_handle_in(?MSG(?MC_QUERY_SERVER_TIME), Channel) ->
+    %% 2019: Client requests server time, respond with 0x8004 (Server Time ACK)
+    %% Time format: BCD[6] UTC time as YYMMDDHHMMSS
+    Response = #{
+        <<"header">> => build_frame_header(?MS_SERVER_TIME_ACK, Channel),
+        <<"body">> => #{<<"time">> => current_utc_time()}
+    },
+    {ok, [{outgoing, Response}], state_inc_sn(Channel)};
 do_handle_in(?MSG(?MC_RSA_KEY), Channel = #channel{rsa_key = [E, N]}) ->
     Response = #{
         <<"header">> => build_frame_header(?MS_RSA_KEY, Channel),
@@ -908,6 +916,18 @@ state_inc_sn(Channel = #channel{msg_sn = Sn}) ->
 
 next_msg_sn(16#FFFF) -> 0;
 next_msg_sn(Sn) -> Sn + 1.
+
+%% @doc Returns current UTC time as binary string in YYMMDDHHMMSS format
+%% Used for 0x8004 (Server Time ACK) response
+current_utc_time() ->
+    {{Year, Month, Day}, {Hour, Min, Sec}} = calendar:universal_time(),
+    YY = Year rem 100,
+    iolist_to_binary(
+        io_lib:format(
+            "~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
+            [YY, Month, Day, Hour, Min, Sec]
+        )
+    ).
 
 is_general_response_needed(?MC_EVENT_REPORT) -> true;
 is_general_response_needed(?MC_LOCATION_REPORT) -> true;
