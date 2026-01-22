@@ -81,9 +81,28 @@ do_parse(Packet, State) ->
 escape_head_hex7e(<<16#7e, Rest/binary>>, State = #{phase := searching_head_hex7e}) ->
     %% 0x7e is start of a valid message
     escape_frame(Rest, State);
-escape_head_hex7e(<<_C, Rest/binary>>, State = #{phase := searching_head_hex7e}) ->
-    %% discard char other than 0x7e which is the start flag
-    escape_head_hex7e(Rest, State);
+escape_head_hex7e(Packet, State = #{phase := searching_head_hex7e}) ->
+    %% First byte is not 0x7e, find and discard bytes until 0x7e or end of data
+    case find_head_hex7e(Packet, <<>>) of
+        {found, Discarded, Rest} ->
+            %% Log discarded bytes as warning
+            ?SLOG(warning, #{
+                msg => discarded_invalid_data,
+                reason => missing_frame_header,
+                discarded_bytes => byte_size(Discarded),
+                discarded_data => Discarded
+            }),
+            escape_frame(Rest, State);
+        {not_found, Discarded} ->
+            %% No 0x7e found, log and wait for more data
+            ?SLOG(warning, #{
+                msg => discarded_invalid_data,
+                reason => missing_frame_header,
+                discarded_bytes => byte_size(Discarded),
+                discarded_data => Discarded
+            }),
+            {more, State}
+    end;
 escape_head_hex7e(<<16#02, Rest/binary>>, State = #{data := Acc, phase := escaping_hex7d}) ->
     %% corner case: 0x7d has been received in the end of last frame segment
     escape_frame(Rest, State#{data => <<Acc/binary, 16#7e>>});
@@ -93,6 +112,14 @@ escape_head_hex7e(<<16#01, Rest/binary>>, State = #{data := Acc, phase := escapi
 escape_head_hex7e(Rest, State = #{data := _Acc, phase := escaping_hex7d}) ->
     %% continue parsing to escape 0x7d
     escape_frame(Rest, State).
+
+%% @doc Find the first 0x7E byte in the packet, collecting discarded bytes
+find_head_hex7e(<<>>, Discarded) ->
+    {not_found, Discarded};
+find_head_hex7e(<<16#7e, Rest/binary>>, Discarded) ->
+    {found, Discarded, Rest};
+find_head_hex7e(<<Byte:8, Rest/binary>>, Discarded) ->
+    find_head_hex7e(Rest, <<Discarded/binary, Byte>>).
 
 escape_frame(Rest, State = #{data := Acc}) ->
     Opts = maps:get(opts, State, #{}),
