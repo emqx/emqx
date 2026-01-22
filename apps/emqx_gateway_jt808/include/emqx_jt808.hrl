@@ -172,6 +172,9 @@
 -define(CP_CAN_BUS_CH2_SAMPLING, 16#0102).
 -define(CP_CAN_BUS_CH2_UPLOAD, 16#0103).
 -define(CP_SET_CAN_BUS_ID_PARAM, 16#0110).
+%% 0x0110~0x01FF: CAN bus ID individual collection settings, BYTE[8]
+-define(CP_CAN_BUS_ID_PARAM_START, ?CP_SET_CAN_BUS_ID_PARAM).
+-define(CP_CAN_BUS_ID_PARAM_END, 16#01FF).
 
 %% Extra info types in Position Report
 -define(CP_POS_EXTRA_MILEAGE, 16#01).
