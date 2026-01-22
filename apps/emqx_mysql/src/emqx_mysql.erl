@@ -43,6 +43,9 @@
     default_port => ?MYSQL_DEFAULT_PORT
 }).
 
+-define(DEFAULT_QUERY_TIMEOUT, 30_000).
+-define(HEALTH_CHECK_QUERY_TIMEOUT, 5_000).
+
 -type template() :: {unicode:chardata(), emqx_template:str()}.
 -type state() ::
     #{
@@ -121,6 +124,9 @@ on_start(
             {user, Username},
             {database, DB},
             {auto_reconnect, ?AUTO_RECONNECT_INTERVAL},
+            {try_kill_slow_query, false},
+            {query_timeout, ?DEFAULT_QUERY_TIMEOUT},
+            {log_slow_queries, true},
             {pool_size, PoolSize}
         ]),
     State = parse_prepare_sql(Config),
@@ -230,10 +236,27 @@ on_get_status(_InstId, #{pool_name := PoolName} = State) ->
         end,
         on_success_fn => fun() -> do_on_get_status_prepares(State) end
     },
-    emqx_resource_pool:common_health_check_workers(PoolName, Opts).
+    HealthCheckResult = emqx_resource_pool:common_health_check_workers(PoolName, Opts),
+    log_health_check_result(State, HealthCheckResult),
+    HealthCheckResult.
+
+log_health_check_result(_State, ?status_connected) ->
+    ok;
+log_health_check_result(#{pool_name := PoolName} = _State, HealthCheckResult) ->
+    WorkerStat = lists:map(
+        fun({WorkerName, Pid}) ->
+            {WorkerName, erlang:process_info(Pid, message_queue_len)}
+        end,
+        ecpool:workers(PoolName)
+    ),
+    ?SLOG(error, #{
+        msg => "mysql_health_check_failed",
+        health_check_result => HealthCheckResult,
+        worker_stat => WorkerStat
+    }).
 
 do_get_status(Conn) ->
-    mysql:query(Conn, <<"SELECT count(1) AS T">>).
+    mysql:query(Conn, <<"SELECT count(1) AS T">>, ?HEALTH_CHECK_QUERY_TIMEOUT).
 
 do_on_get_status_prepares(State) ->
     case do_check_prepares(State) of
