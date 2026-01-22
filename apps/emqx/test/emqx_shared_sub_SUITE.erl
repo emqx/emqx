@@ -1191,68 +1191,6 @@ t_different_groups_update_subopts(Config) when is_list(Config) ->
 
     ok.
 
-t_queue_subscription({init, Config}) ->
-    TestName = atom_to_binary(?FUNCTION_NAME),
-    ClientId = <<TestName/binary, (integer_to_binary(erlang:unique_integer()))/binary>>,
-
-    {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C),
-
-    [{client, C}, {clientid, ClientId} | Config];
-t_queue_subscription({'end', Config}) ->
-    C = ?config(client, Config),
-    emqtt:stop(C),
-    ok;
-t_queue_subscription(Config) when is_list(Config) ->
-    C = ?config(client, Config),
-    ClientId = ?config(clientid, Config),
-    %% Subscribe and unsubscribe to both $queue share and $share/<group> with same topic
-    Topic = <<"t/1">>,
-    QueueTopic = <<"$queue/", Topic/binary>>,
-    SharedTopic = <<"$share/aa/", Topic/binary>>,
-
-    ?UPDATE_SUB_QOS(C, QueueTopic, ?QOS_2),
-    ?UPDATE_SUB_QOS(C, SharedTopic, ?QOS_2),
-
-    ?retry(
-        _Sleep0 = 100,
-        _Attempts0 = 50,
-        begin
-            ?assertEqual(2, length(emqx_router:match_routes(Topic)))
-        end
-    ),
-
-    %% now publish to the underlying topic
-    Message0 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hi">>),
-    emqx:publish(Message0),
-    ?assertMatch(
-        [
-            {publish, #{payload := <<"hi">>}},
-            {publish, #{payload := <<"hi">>}}
-        ],
-        collect_msgs(5_000),
-        #{routes => ets:tab2list(emqx_route)}
-    ),
-
-    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, QueueTopic),
-    {ok, _, [?RC_SUCCESS]} = emqtt:unsubscribe(C, SharedTopic),
-
-    ?retry(
-        _Sleep0 = 100,
-        _Attempts0 = 50,
-        begin
-            ?assertEqual(0, length(emqx_router:match_routes(Topic)))
-        end
-    ),
-    ct:sleep(500),
-
-    Message1 = emqx_message:make(ClientId, _QoS = 2, Topic, <<"hello">>),
-    emqx:publish(Message1),
-    %% we should *not* receive any messages.
-    ?assertEqual([], collect_msgs(1_000), #{routes => ets:tab2list(emqx_route)}),
-
-    ok.
-
 %%--------------------------------------------------------------------
 %% help functions
 %%--------------------------------------------------------------------

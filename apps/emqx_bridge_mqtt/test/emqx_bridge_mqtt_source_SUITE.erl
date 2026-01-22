@@ -709,7 +709,7 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     {201, #{<<"status">> := <<"connected">>}} =
         create_source_api(TCConfigA, #{
             <<"parameters">> => #{
-                <<"topic">> => iolist_to_binary(["$queue/t/#"]),
+                <<"topic">> => iolist_to_binary(["$share/queue/t/#"]),
                 <<"qos">> => 1
             },
             <<"resource_opts">> => #{<<"health_check_interval">> => <<"10m">>}
