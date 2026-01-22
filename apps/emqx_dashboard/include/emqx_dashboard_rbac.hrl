@@ -13,6 +13,8 @@
 -define(ROLE_SUPERUSER, <<"administrator">>).
 -define(ROLE_DEFAULT, ?ROLE_SUPERUSER).
 
+-define(IS_VALID_ROLE(ROLE), ((ROLE == ?ROLE_VIEWER) orelse (ROLE == ?ROLE_SUPERUSER))).
+
 -define(ROLE_API_VIEWER, <<"viewer">>).
 -define(ROLE_API_SUPERUSER, <<"administrator">>).
 -define(ROLE_API_PUBLISHER, <<"publisher">>).

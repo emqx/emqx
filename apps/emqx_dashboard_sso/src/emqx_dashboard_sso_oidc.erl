@@ -86,6 +86,26 @@ fields(oidc) ->
                     hoconsc:enum([userinfo, id_token]),
                     #{desc => ?DESC(name_var_source), default => <<"userinfo">>}
                 )},
+            {role_source,
+                ?HOCON(
+                    hoconsc:enum([userinfo, id_token]),
+                    #{desc => ?DESC(role_source), default => <<"userinfo">>}
+                )},
+            {role_expr,
+                ?HOCON(
+                    binary(),
+                    #{desc => ?DESC(role_expr), default => <<"\"viewer\"">>}
+                )},
+            {namespace_source,
+                ?HOCON(
+                    hoconsc:enum([userinfo, id_token]),
+                    #{desc => ?DESC(namespace_source), default => <<"userinfo">>}
+                )},
+            {namespace_expr,
+                ?HOCON(
+                    binary(),
+                    #{desc => ?DESC(namespace_expr), default => <<"null">>}
+                )},
             {dashboard_addr,
                 ?HOCON(binary(), #{
                     desc => ?DESC(dashboard_addr),
@@ -174,7 +194,15 @@ desc(_) ->
 %% APIs
 %%------------------------------------------------------------------------------
 
-create(#{name_var := NameVar, name_var_source := NameVarSource} = Config) ->
+create(#{} = Config) ->
+    #{
+        name_var := NameVar,
+        name_var_source := NameVarSource,
+        role_source := RoleSource,
+        role_expr := RoleExpr,
+        namespace_source := NamespaceSource,
+        namespace_expr := NamespaceExpr
+    } = Config,
     case
         emqx_dashboard_sso_oidc_session:start(
             ?PROVIDER_SVR_NAME,
@@ -193,7 +221,11 @@ create(#{name_var := NameVar, name_var_source := NameVarSource} = Config) ->
                 config => Config,
                 client_jwks => ClientJwks,
                 name_tokens => emqx_placeholder:preproc_tmpl(NameVar),
-                name_var_source => NameVarSource
+                name_var_source => NameVarSource,
+                role_source => RoleSource,
+                role_expr => RoleExpr,
+                namespace_source => NamespaceSource,
+                namespace_expr => NamespaceExpr
             }}
     end.
 

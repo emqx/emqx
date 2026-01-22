@@ -56,7 +56,7 @@
     default_username/0
 ]).
 
--export([role/1, namespace_of/1]).
+-export([role/1, namespace_of/1, serialize_role/1]).
 
 -export([backup_tables/0]).
 
@@ -135,9 +135,7 @@ add_user(Username, Password, Role0, Desc) when is_binary(Username), is_binary(Pa
         {ok, ParsedRole} ?= parse_role(Role0),
         #{?role := Role} = ParsedRole,
         Extra = parsed_role_to_extra(ParsedRole),
-        ActorProps = Extra#{
-            ?role => Role
-        },
+        ActorProps = Extra#{?role => Role},
         ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
         do_add_user(Username, Password, Role, Desc, Extra)
     end.
@@ -786,6 +784,9 @@ ensure_role(Role) when is_binary(Role) ->
 parse_role(Role) ->
     emqx_dashboard_rbac:parse_dashboard_role(Role).
 
+serialize_role(Opts) ->
+    emqx_dashboard_rbac:serialize_role(Opts).
+
 %% For compatibility
 role(#?ADMIN{role = undefined}) ->
     ?ROLE_SUPERUSER;
@@ -815,13 +816,13 @@ flatten_username(#{username := Username} = Data) when is_binary(Username) ->
 -spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
 add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
-    case parse_role(Role0) of
-        {ok, #{?role := Role} = ParsedRole} ->
-            Username = ?SSO_USERNAME(Backend, Username0),
-            Extra = parsed_role_to_extra(ParsedRole),
-            do_add_user(Username, <<>>, Role, Desc, Extra);
-        {error, _} = Error ->
-            Error
+    maybe
+        {ok, #{?role := Role} = ParsedRole} ?= parse_role(Role0),
+        Extra = parsed_role_to_extra(ParsedRole),
+        ActorProps = Extra#{?role => Role},
+        ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
+        Username = ?SSO_USERNAME(Backend, Username0),
+        do_add_user(Username, <<>>, Role, Desc, Extra)
     end.
 
 -spec lookup_user(dashboard_sso_backend(), binary()) -> [emqx_admin()].

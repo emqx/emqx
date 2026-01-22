@@ -9,6 +9,9 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -273,6 +276,79 @@ oidc_provider_params() ->
         }
     }.
 
+login_flow(InitiatorNode, LoginNode) ->
+    maybe
+        ct:pal("initial sso login in emqx"),
+        {Status1, Headers1, Resp1} ?= login_sso(InitiatorNode, #{}),
+        ct:pal("returned headers1:\n  ~p\nbody:\n  ~p\n", [Headers1, Resp1]),
+        true ?= Status1 == 302 orelse {error, login_sso_emqx, #{code => Status1}},
+        {"location", OIDCURL1} = lists:keyfind("location", 1, Headers1),
+        ct:pal("redirected to oidc server"),
+        #{query := QueryParams1} = uri_string:parse(OIDCURL1),
+        {Status2, Headers2, Resp2} = oidc_mock_server_auth_req(QueryParams1),
+        ct:pal("returned headers2:\n  ~p\nbody:\n  ~p\n", [Headers2, Resp2]),
+        true ?= Status2 == 302 orelse {error, mock_server_auth_req, #{code => Status2}},
+        {"location", OIDCURL2} = lists:keyfind("location", 1, Headers2),
+        ct:pal("redirected again to oidc server (from itself)"),
+        #{query := QueryParams2} = uri_string:parse(OIDCURL2),
+        {Status3, Headers3, Resp3} = oidc_callback_req(QueryParams2),
+        ct:pal("returned headers3:\n  ~p\nbody:\n  ~p\n", [Headers3, Resp3]),
+        true ?= Status3 == 303 orelse {error, oidc_callback_req, #{code => Status3}},
+        {"location", OIDCURL3} = lists:keyfind("location", 1, Headers3),
+        ct:pal("approve login request on oidc server"),
+        #{query := QueryParams3} = uri_string:parse(OIDCURL3),
+        {Status4, Headers4, Resp4} = oidc_approve_req(QueryParams3),
+        ct:pal("returned headers4:\n  ~p\nbody:\n  ~p\n", [Headers4, Resp4]),
+        true ?= Status4 == 303 orelse {error, oidc_callback_req, #{code => Status4}},
+        {"location", LoginURL1} = lists:keyfind("location", 1, Headers4),
+        ct:pal("redirected back to emqx with token"),
+        %% Ensure callback falls onto login node
+        CallbackURI = uri_string:parse(LoginURL1),
+        LoginNodePort = get_http_dashboard_port(LoginNode),
+        LoginURL1B = uri_string:recompose(CallbackURI#{
+            host := "127.0.0.1",
+            port := LoginNodePort
+        }),
+        {Status5, Headers5, Resp5} = simple_login_get(LoginURL1B),
+        ct:pal("returned headers5:\n  ~p\nbody:\n  ~p\n", [Headers5, Resp5]),
+        true ?= Status5 == 302 orelse
+            {error, callback_response_to_emqx, #{
+                code => Status5,
+                resp_body => Resp5
+            }},
+        {"location", LoginURL2} = lists:keyfind("location", 1, Headers5),
+        ct:pal("parsing final results"),
+        #{query := QueryParams4} = uri_string:parse(LoginURL2),
+        #{"login_meta" := Token0} = maps:from_list(uri_string:dissect_query(QueryParams4)),
+        ct:pal("token0: ~s", [Token0]),
+        #{<<"token">> := Token1} = emqx_utils_json:decode(base64:decode(Token0)),
+        {ok, #{
+            final_token => Token1,
+            emqx_redirect_login_url => LoginURL1B
+        }}
+    end.
+
+get_new_dashboard_users(Node) ->
+    DefaultUser = <<"admin">>,
+    ?ON(
+        Node,
+        lists:filter(
+            fun(#{username := Username}) -> Username /= DefaultUser end,
+            emqx_dashboard_admin:all_users()
+        )
+    ).
+
+on_api_actor_pre_create(#{?namespace := Ns} = APIActor, Acc, Agent) ->
+    KnownNSs = emqx_utils_agent:get(Agent),
+    case KnownNSs of
+        #{Ns := true} ->
+            ct:pal("namespace check ok: ~p", [APIActor]),
+            Acc;
+        _ ->
+            ct:pal("namespace check failed: ~p", [APIActor]),
+            {stop, {error, unknown_namespace}}
+    end.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -336,44 +412,8 @@ do_smoke_tests1(Node, LoginNode, FinalReqNode, Opts, _TCConfig) ->
     ),
 
     %% Login
-    {302, Headers1, Resp1} = login_sso(Node, #{}),
-    ct:pal("returned headers1:\n  ~p\nbody:\n  ~p\n", [Headers1, Resp1]),
-    {"location", OIDCURL1} = lists:keyfind("location", 1, Headers1),
-
-    #{query := QueryParams1} = uri_string:parse(OIDCURL1),
-    {302, Headers2, Resp2} = oidc_mock_server_auth_req(QueryParams1),
-    ct:pal("returned headers2:\n  ~p\nbody:\n  ~p\n", [Headers2, Resp2]),
-    {"location", OIDCURL2} = lists:keyfind("location", 1, Headers2),
-
-    #{query := QueryParams2} = uri_string:parse(OIDCURL2),
-    {303, Headers3, Resp3} = oidc_callback_req(QueryParams2),
-    ct:pal("returned headers3:\n  ~p\nbody:\n  ~p\n", [Headers3, Resp3]),
-    {"location", OIDCURL3} = lists:keyfind("location", 1, Headers3),
-
-    #{query := QueryParams3} = uri_string:parse(OIDCURL3),
-    {303, Headers4, Resp4} = oidc_approve_req(QueryParams3),
-    ct:pal("returned headers4:\n  ~p\nbody:\n  ~p\n", [Headers4, Resp4]),
-    {"location", LoginURL1} = lists:keyfind("location", 1, Headers4),
-
-    %% Ensure callback falls onto login node
-    CallbackURI = uri_string:parse(LoginURL1),
-    LoginNodePort = get_http_dashboard_port(LoginNode),
-    LoginURL1B = uri_string:recompose(CallbackURI#{
-        host := "127.0.0.1",
-        port := LoginNodePort
-    }),
-    {302, Headers5, Resp5} = ?retry(100, 10, begin
-        Res5 = simple_login_get(LoginURL1B),
-        ct:pal("callback response:\n  ~p", [Res5]),
-        {302, _, _} = Res5
-    end),
-    ct:pal("returned headers5:\n  ~p\nbody:\n  ~p\n", [Headers5, Resp5]),
-    {"location", LoginURL2} = lists:keyfind("location", 1, Headers5),
-
-    #{query := QueryParams4} = uri_string:parse(LoginURL2),
-    #{"login_meta" := Token0} = maps:from_list(uri_string:dissect_query(QueryParams4)),
-    ct:pal("token0: ~s", [Token0]),
-    #{<<"token">> := Token1} = emqx_utils_json:decode(base64:decode(Token0)),
+    {ok, #{final_token := Token1, emqx_redirect_login_url := LoginURL1B}} =
+        login_flow(Node, LoginNode),
 
     %% Finally, can now perform actions in the API
     FinalAuthHeader = {"Authorization", "Bearer " ++ binary_to_list(Token1)},
@@ -414,5 +454,193 @@ t_stop_cleanup(TCConfig) ->
     %% Delete; should stop workers.
     ?assertMatch({204, _}, delete_backend(N, #{})),
     ?assertEqual([], supervisor:which_children(emqx_dashboard_sso_oidc_sup)),
+
+    ok.
+
+-doc """
+Smoke test that checks that we can use a `jq` expression to extract the desired role from
+the OIDC response data.
+""".
+t_role_expr(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    SetupBackend = fun(Overrides) ->
+        Params = emqx_utils_maps:deep_merge(oidc_provider_params(), Overrides),
+        ?assertMatch({200, _}, create_backend(N, Params, #{}))
+    end,
+
+    SetupBackend(#{
+        <<"role_source">> => <<"id_token">>,
+        <<"role_expr">> => <<" \"administrator\" ">>
+    }),
+
+    {ok, _} = login_flow(N, N),
+
+    ?assertMatch(
+        [#{role := ?ROLE_SUPERUSER, namespace := ?global_ns}],
+        get_new_dashboard_users(N)
+    ),
+
+    ok.
+
+-doc """
+Verifies that, whenever the role expression returns anything but a single valid role,
+access is denied.
+""".
+t_bad_role_expr(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    AssertFailure = fun(Label, Overrides) ->
+        ct:pal(Label),
+        Params = emqx_utils_maps:deep_merge(oidc_provider_params(), Overrides),
+        ?assertMatch({200, _}, create_backend(N, Params, #{})),
+        ?assertMatch(
+            {error, callback_response_to_emqx, #{
+                code := 401,
+                resp_body := #{
+                    <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
+                    <<"message">> := <<"role expression returned an invalid result; access denied">>
+                }
+            }},
+            login_flow(N, N)
+        ),
+        ?assertMatch([], get_new_dashboard_users(N)),
+        ok
+    end,
+
+    lists:foreach(
+        fun({Label, Overrides}) ->
+            AssertFailure(Label, Overrides)
+        end,
+        [
+            {"produces no results", #{
+                <<"role_source">> => <<"id_token">>,
+                <<"role_expr">> => <<"empty">>
+            }},
+            {"produces more than 1 result", #{
+                <<"role_source">> => <<"id_token">>,
+                <<"role_expr">> => <<"[1,2]">>
+            }},
+            {"bad type", #{
+                <<"role_source">> => <<"id_token">>,
+                <<"role_expr">> => <<"1">>
+            }},
+            {"bad role", #{
+                <<"role_source">> => <<"id_token">>,
+                <<"role_expr">> => <<"\"mega_admin\"">>
+            }}
+        ]
+    ),
+
+    ok.
+
+-doc """
+Smoke test that checks that we can use a `jq` expression to extract the desired namespace
+from the OIDC response data.
+""".
+t_namespace_expr(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    on_exit(fun() ->
+        emqx_hooks:del('api_actor.pre_create', {?MODULE, on_api_actor_pre_create})
+    end),
+    Ns = <<"some_ns">>,
+    {ok, Agent} = emqx_utils_agent:start_link(#{Ns => true}),
+    ok = emqx_hooks:add(
+        'api_actor.pre_create', {?MODULE, on_api_actor_pre_create, [Agent]}, ?HP_LOWEST
+    ),
+
+    SetupBackend = fun(Overrides) ->
+        Params = emqx_utils_maps:deep_merge(oidc_provider_params(), Overrides),
+        ?assertMatch({200, _}, create_backend(N, Params, #{}))
+    end,
+
+    SetupBackend(#{
+        <<"namespace_source">> => <<"userinfo">>,
+        <<"namespace_expr">> => emqx_utils_json:encode(Ns)
+    }),
+
+    {ok, _} = login_flow(N, N),
+
+    ?assertMatch(
+        [#{role := ?ROLE_VIEWER, namespace := Ns}],
+        get_new_dashboard_users(N)
+    ),
+
+    ok.
+
+-doc """
+Verifies that, whenever the namespace expression returns anything but a single valid role,
+access is denied.
+""".
+t_bad_namespace_expr(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    on_exit(fun() ->
+        emqx_hooks:del('api_actor.pre_create', {?MODULE, on_api_actor_pre_create})
+    end),
+    {ok, Agent} = emqx_utils_agent:start_link(#{}),
+    ok = emqx_hooks:add(
+        'api_actor.pre_create', {?MODULE, on_api_actor_pre_create, [Agent]}, ?HP_LOWEST
+    ),
+
+    AssertFailure = fun(Label, Overrides, Opts) ->
+        ct:pal(Label),
+        Params = emqx_utils_maps:deep_merge(oidc_provider_params(), Overrides),
+        ?assertMatch({200, _}, create_backend(N, Params, #{})),
+        ExpectedErrorMsg = maps:get(
+            expected_error_msg,
+            Opts,
+            <<"namespace expression returned an invalid result; access denied">>
+        ),
+        ?assertMatch(
+            {error, callback_response_to_emqx, #{
+                code := 401,
+                resp_body := #{
+                    <<"code">> := <<"BAD_USERNAME_OR_PWD">>,
+                    <<"message">> := ExpectedErrorMsg
+                }
+            }},
+            login_flow(N, N)
+        ),
+        ?assertMatch([], get_new_dashboard_users(N)),
+        ok
+    end,
+
+    lists:foreach(
+        fun({Label, Overrides, Opts}) ->
+            AssertFailure(Label, Overrides, Opts)
+        end,
+        [
+            {"produces no results",
+                #{
+                    <<"namespace_source">> => <<"id_token">>,
+                    <<"namespace_expr">> => <<"empty">>
+                },
+                #{}},
+            {"produces more than 1 result",
+                #{
+                    <<"namespace_source">> => <<"userinfo">>,
+                    <<"namespace_expr">> => <<"[1,2]">>
+                },
+                #{}},
+            {"bad type",
+                #{
+                    <<"namespace_source">> => <<"id_token">>,
+                    <<"namespace_expr">> => <<"1">>
+                },
+                #{}},
+            {"unknown namespace",
+                #{
+                    <<"namespace_source">> => <<"id_token">>,
+                    <<"namespace_expr">> => <<"\"unknown_ns\"">>
+                },
+                #{expected_error_msg => <<"unknown_namespace">>}}
+        ]
+    ),
 
     ok.
