@@ -3342,7 +3342,6 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
 
--if(?EMQX_RELEASE_EDITION == ee).
 connect_attrs(Packet, Channel) ->
     emqx_external_trace:connect_attrs(Packet, Channel).
 
@@ -3360,7 +3359,6 @@ sub_authz_attrs(AuthzResult) ->
 
 disconnect_attrs(Reason, Channel) ->
     emqx_external_trace:disconnect_attrs(Reason, Channel).
--endif.
 
 %%--------------------------------------------------------------------
 %% For CT tests
