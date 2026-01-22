@@ -175,30 +175,6 @@ t_shared_topics(_Configs) ->
 
     ok = emqtt:stop(Client).
 
-t_queue_topics(_Configs) ->
-    Node = atom_to_binary(node(), utf8),
-    RealTopic = <<"t/+">>,
-    Topic = <<"$queue/", RealTopic/binary>>,
-
-    Client = client(?FUNCTION_NAME),
-    {ok, _, _} = emqtt:subscribe(Client, Topic),
-    {ok, _, _} = emqtt:subscribe(Client, RealTopic),
-
-    %% exact match with shared topic
-    MatchData = request_json(get, ["topics"], [
-        {"topic", Topic},
-        {"node", atom_to_list(node())}
-    ]),
-    ?assertMatch(
-        #{
-            <<"data">> := [#{<<"topic">> := Topic, <<"node">> := Node}],
-            <<"meta">> := #{<<"page">> := 1, <<"limit">> := 100, <<"count">> := 1}
-        },
-        MatchData
-    ),
-
-    ok = emqtt:stop(Client).
-
 t_shared_topics_invalid(_Config) ->
     %% no real topic
     InvalidShareTopicFilter = <<"$share/group">>,

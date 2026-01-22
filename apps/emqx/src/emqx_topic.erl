@@ -369,23 +369,18 @@ parse({TopicFilter, Options}) when ?IS_TOPIC(TopicFilter) ->
     parse(TopicFilter, Options).
 
 -spec parse(topic() | share(), map()) -> {topic() | share(), map()}.
-%% <<"$queue/[real_topic_filter]>">> equivalent to <<"$share/$queue/[real_topic_filter]">>
-%% So the head of `real_topic_filter` MUST NOT be `<<$queue>>` or `<<$share>>`
-parse(#share{topic = Topic = <<?QUEUE, "/", _/binary>>}, _Options) ->
-    error({invalid_topic_filter, Topic});
+%% The head of `real_topic_filter` MUST NOT be `<<$share>>`
 parse(#share{topic = Topic = <<?SHARE, "/", _/binary>>}, _Options) ->
     error({invalid_topic_filter, Topic});
 parse(#share{} = T, #{nl := 1} = _Options) ->
     %% Protocol Error and Should Disconnect
     %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
     error({invalid_subopts_nl, maybe_format_share(T)});
-parse(<<?QUEUE, "/", Topic/binary>>, Options) ->
-    parse(#share{group = <<?QUEUE>>, topic = Topic}, Options);
 parse(TopicFilter = <<?SHARE, "/", Rest/binary>>, Options) ->
     case binary:split(Rest, <<"/">>) of
         [_Any] ->
             error({invalid_topic_filter, TopicFilter});
-        %% `Group` could be `$share` or `$queue`
+        %% `Group` could be any except wildcard
         [Group, Topic] ->
             case binary:match(Group, [<<"+">>, <<"#">>]) of
                 nomatch -> parse(#share{group = Group, topic = Topic}, Options);
@@ -412,8 +407,6 @@ get_shared_real_topic(TopicFilter) when is_binary(TopicFilter) ->
 make_shared_record(Group, Topic) ->
     #share{group = Group, topic = Topic}.
 
-maybe_format_share(#share{group = <<?QUEUE>>, topic = Topic}) ->
-    join([<<?QUEUE>>, Topic]);
 maybe_format_share(#share{group = Group, topic = Topic}) ->
     join([<<?SHARE>>, Group, Topic]);
 maybe_format_share(Topic) ->
