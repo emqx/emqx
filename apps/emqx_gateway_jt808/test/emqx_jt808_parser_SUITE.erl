@@ -1894,6 +1894,74 @@ t_2019_area_unicode_name(_Config) ->
     ?assert(byte_size(Stream) > 0),
     ok.
 
+t_malformed_frame_no_header(_Config) ->
+    %% Test malformed frame without 0x7E header
+    %% Parser should discard invalid data and return {more, State}
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+
+    %% Malformed data without 0x7E header
+    MalformedData = <<16#FF, 16#FF, 16#00, 16#04, 16#74, 16#65, 16#73, 16#74, 16#18>>,
+
+    %% Parser should return {more, State} after discarding invalid data
+    {more, State} = emqx_jt808_frame:parse(MalformedData, Parser),
+    ?assertMatch(#{phase := searching_head_hex7e}, State),
+    ok.
+
+t_malformed_frame_garbage_before_valid(_Config) ->
+    %% Test garbage data followed by valid 0x7E frame
+    %% Parser should discard garbage and parse the valid frame
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+
+    %% Garbage data
+    GarbageData = <<16#FF, 16#FF, 16#00, 16#04>>,
+
+    %% Valid heartbeat frame (0x0002)
+    MsgId = 16#0002,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 100,
+    Body = <<>>,
+    Size = 0,
+    Header = <<MsgId:16/big, 0:2, 0:1, 0:3, Size:10/big, PhoneBCD/binary, MsgSn:16/big>>,
+    ValidFrame = encode(Header, Body),
+
+    %% Combine garbage + valid frame
+    CombinedData = <<GarbageData/binary, ValidFrame/binary>>,
+
+    %% Parser should discard garbage and parse valid frame
+    {ok, Map, <<>>, _State} = emqx_jt808_frame:parse(CombinedData, Parser),
+    ?assertMatch(
+        #{
+            <<"header">> := #{
+                <<"msg_id">> := 16#0002,
+                <<"msg_sn">> := 100
+            }
+        },
+        Map
+    ),
+    ok.
+
+t_malformed_frame_empty_data(_Config) ->
+    %% Test empty data
+    %% Parser should return {more, State}
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+
+    %% Empty data
+    {more, State} = emqx_jt808_frame:parse(<<>>, Parser),
+    ?assertMatch(#{phase := searching_head_hex7e}, State),
+    ok.
+
+t_malformed_frame_only_garbage(_Config) ->
+    %% Test only garbage data (no 0x7E at all)
+    %% Parser should discard all and return {more, State}
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+
+    %% All garbage, no 0x7E
+    GarbageOnly = <<16#01, 16#02, 16#03, 16#04, 16#05, 16#FF, 16#FE, 16#FD>>,
+
+    {more, State} = emqx_jt808_frame:parse(GarbageOnly, Parser),
+    ?assertMatch(#{phase := searching_head_hex7e}, State),
+    ok.
+
 %%--------------------------------------------------------------------
 %% 7. Location Report and Location Extra Tests (2019 vs 2013)
 %%--------------------------------------------------------------------
