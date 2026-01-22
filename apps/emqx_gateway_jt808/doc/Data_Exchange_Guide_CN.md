@@ -246,9 +246,37 @@ Json 结构示例
 | 参数总数   | length        | byte       | integer                                                |
 | 参数项列表 | params        | list       | list of id and value. `[{"id":ID, "value": VAL}, ...]` |
 | 参数项     | id            | dword      | integer                                                |
-| 参数值     | value         | byte       | integer                                                |
+| 参数值     | value         | 见下表     | 见下表                                                 |
 
 参数 ID 说明见协议规定.
+
+##### 参数值类型对照表
+
+参数值的 JSON 类型根据参数 ID 对应的数据类型决定:
+
+| 参数 ID 范围    | 数据类型 | Value Type in Json     | 说明                                    |
+|-----------------|----------|------------------------|-----------------------------------------|
+| BYTE 类型参数   | byte     | integer                | 如 0x0084, 0x0090~0x0095                |
+| WORD 类型参数   | word     | integer                | 如 0x0031, 0x0081~0x0082                |
+| DWORD 类型参数  | dword    | integer                | 如 0x0001~0x0007, 0x0018~0x001C         |
+| STRING 类型参数 | string   | string                 | 如 0x0010~0x0017, 0x0040~0x0049, 0x0083 |
+| 0x0110~0x01FF   | byte[8]  | string(base64 encoded) | CAN 总线 ID 单独采集设置参数            |
+| 其他未知参数    | byte[n]  | string(base64 encoded) | 保留参数或厂商自定义参数                |
+
+示例:
+```json
+{
+  "header": { "msg_id": 33027, ... },
+  "body": {
+    "length": 3,
+    "params": [
+      {"id": 1, "value": 60},
+      {"id": 16, "value": "cmnet"},
+      {"id": 272, "value": "AQIDBAUG"}
+    ]
+  }
+}
+```
 
 
 #### 查询终端参数 `"msg_id": 33028` 0x8104
@@ -274,9 +302,7 @@ Json 结构示例
 | 应答参数个数 | length        | byte       | integer                                                |
 | 参数项列表   | params        | list       | list of id and value. `[{"id":ID, "value": VAL}, ...]` |
 | 参数项       | id            | dword      | integer                                                |
-| 参数值       | value         | byte       | integer                                                |
-
-参数 ID 说明见协议规定.
+| 参数值       | value         | --         | 见 [0x8103 消息参数值类型对照表](#参数值类型对照表)    |
 
 
 #### 终端控制 `"msg_id": 33029 ` 0x8105
