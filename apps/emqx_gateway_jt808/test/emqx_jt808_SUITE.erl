@@ -804,7 +804,128 @@ t_case09_dl_0x8103_set_client_param(_Config) ->
 
     ok = gen_tcp:close(Socket).
 
-t_case10_dl_0x8104_query_client_all_param(_Config) ->
+t_case09_dl_0x8103_set_client_param_byte8(_Config) ->
+    %% Test 0x8103 with BYTE8 type params (0x0110~0x01FF range)
+    %% This tests the MQTT -> JT808 frame serialization for CAN bus ID params
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    %% BYTE[8] data for CAN bus ID param (0x0110)
+    Byte8Data = <<16#AA, 16#BB, 16#CC, 16#DD, 16#EE, 16#FF, 16#00, 16#11>>,
+    Byte8Base64 = base64:encode(Byte8Data),
+
+    Length = 3,
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_SET_CLIENT_PARAM},
+        <<"body">> => #{
+            <<"length">> => Length,
+            <<"params">> => [
+                %% DWORD type (0x0001 heartbeat)
+                #{<<"id">> => 16#0001, <<"value">> => 60},
+                %% STRING type (0x0010 APN)
+                #{<<"id">> => 16#0010, <<"value">> => <<"cmnet">>},
+                %% BYTE8 type (0x0110 CAN bus ID) - base64 encoded
+                #{<<"id">> => 16#0110, <<"value">> => Byte8Base64}
+            ]
+        }
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% client get downlink "set client param"
+    %% Body format: length(1) + [id(4) + len(1) + value(...)]
+    MsgBody3 =
+        <<Length:8, 16#0001:?DWORD, 4:8, 60:?DWORD, 16#0010:?DWORD, 5:8, <<"cmnet">>/binary,
+            16#0110:?DWORD, 8:8, Byte8Data/binary>>,
+    MsgId3 = ?MS_SET_CLIENT_PARAM,
+    MsgSn3 = 2,
+    Size3 = size(MsgBody3),
+    Header3 =
+        <<MsgId3:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+            PhoneBCD/binary, MsgSn3:?WORD>>,
+    S3 = gen_packet(Header3, MsgBody3),
+
+    timer:sleep(600),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("     S3=~p", [binary_to_hex_string(S3)]),
+    ?LOGT("Packet3=~p", [binary_to_hex_string(Packet3)]),
+    ?assertEqual(S3, Packet3),
+
+    ?LOGT("client receive command from server ~p", [S3]),
+
+    % client send "general response"
+    client_send_general_response(Socket, MsgId3, MsgSn3, PhoneBCD),
+
+    % no retrasmition of 0x8103
+    {error, timeout} = gen_tcp:recv(Socket, 0, 500),
+
+    ok = gen_tcp:close(Socket).
+
+t_case11_ul_0x0104_query_param_ack_byte8(_Config) ->
+    %% Test 0x0104 with BYTE8 type params (0x0110~0x01FF range)
+    %% This tests the JT808 frame -> MQTT parsing for CAN bus ID params
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+
+    %% First send a query command to get a valid seq number
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_PARAM},
+        <<"body">> => #{<<"length">> => 1, <<"ids">> => [16#0110]}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the query command
+    {ok, _Packet3} = gen_tcp:recv(Socket, 0, 500),
+    MsgSn3 = 2,
+
+    %% Client sends 0x0104 response with BYTE8 param
+    Byte8Data = <<16#11, 16#22, 16#33, 16#44, 16#55, 16#66, 16#77, 16#88>>,
+    UlPacket4 = <<MsgSn3:?WORD, 1:8, 16#0110:?DWORD, 8:8, Byte8Data/binary>>,
+    Size4 = size(UlPacket4),
+    MsgId4 = ?MC_QUERY_PARAM_ACK,
+    MsgSn4 = 2,
+    Header4 =
+        <<MsgId4:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size4),
+            PhoneBCD/binary, MsgSn4:?WORD>>,
+    S4 = gen_packet(Header4, UlPacket4),
+    ?LOGT("S4 = ~p", [S4]),
+
+    ok = gen_tcp:send(Socket, S4),
+    timer:sleep(100),
+
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    ?assertEqual(
+        #{
+            <<"header">> => #{
+                <<"encrypt">> => 0,
+                <<"len">> => Size4,
+                <<"msg_id">> => ?MC_QUERY_PARAM_ACK,
+                <<"msg_sn">> => 2,
+                <<"phone">> => <<"000123456789">>
+            },
+            <<"body">> => #{
+                <<"seq">> => MsgSn3,
+                <<"length">> => 1,
+                <<"params">> => [
+                    #{<<"id">> => 16#0110, <<"value">> => base64:encode(Byte8Data)}
+                ]
+            }
+        },
+        DecodedPayload
+    ),
+
+    % no retrasmition of downlink message
+    {error, timeout} = gen_tcp:recv(Socket, 0, 500),
+
+    ok = gen_tcp:close(Socket).
+
+t_case10_dl_0x8105_client_control(_Config) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
     ok = client_auth_procedure(Socket, AuthCode),
