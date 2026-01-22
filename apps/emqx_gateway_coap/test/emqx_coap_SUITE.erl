@@ -95,6 +95,20 @@ init_per_testcase(t_heartbeat, Config) ->
         {new_heartbeat, NewHeartbeat}
         | Config
     ];
+init_per_testcase(t_connection_hooks_error, Config) ->
+    ok = meck:new(emqx_access_control, [passthrough]),
+    ok = meck:new(emqx_hooks, [passthrough]),
+    ok = meck:expect(emqx_hooks, run_fold, fun(_, _, _) -> {error, hook_failed} end),
+    Config;
+init_per_testcase(t_connection_open_session_error, Config) ->
+    ok = meck:new(emqx_access_control, [passthrough]),
+    ok = meck:new(emqx_gateway_ctx, [passthrough]),
+    ok = meck:expect(
+        emqx_gateway_ctx,
+        open_session,
+        fun(_, _, _, _, _, _) -> {error, session_error} end
+    ),
+    Config;
 init_per_testcase(_, Config) ->
     ok = meck:new(emqx_access_control, [passthrough]),
     Config.
@@ -106,6 +120,14 @@ end_per_testcase(t_heartbeat, Config) ->
 end_per_testcase(t_connection_with_expire, Config) ->
     snabbkaffe:stop(),
     meck:unload(emqx_access_control),
+    Config;
+end_per_testcase(t_connection_hooks_error, Config) ->
+    ok = meck:unload(emqx_hooks),
+    ok = meck:unload(emqx_access_control),
+    Config;
+end_per_testcase(t_connection_open_session_error, Config) ->
+    ok = meck:unload(emqx_gateway_ctx),
+    ok = meck:unload(emqx_access_control),
     Config;
 end_per_testcase(_, Config) ->
     ok = meck:unload(emqx_access_control),
@@ -319,6 +341,310 @@ t_update_not_restart_listener(_) ->
         true
     end).
 
+t_duplicate_connection(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        URI =
+            ?MQTT_PREFIX ++
+                "/connection?clientid=client1&username=admin&password=public",
+        Req = make_req(post),
+        {error, bad_request, _} = do_request(Channel, URI, Req),
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_connection_missing_clientid(_) ->
+    Action = fun(Channel) ->
+        Prefix = ?MQTT_PREFIX ++ "/connection",
+        Queries = #{
+            "username" => <<"admin">>,
+            "password" => <<"public">>
+        },
+        URI = compose_uri(Prefix, Queries, false),
+        Req = make_req(post),
+        case do_request(Channel, URI, Req) of
+            {error, bad_request, _} -> ok;
+            {error, bad_request} -> ok
+        end
+    end,
+    do(Action).
+
+t_connection_hooks_error(_) ->
+    Action = fun(Channel) ->
+        Prefix = ?MQTT_PREFIX ++ "/connection",
+        Queries = #{
+            "clientid" => <<"client1">>,
+            "username" => <<"admin">>,
+            "password" => <<"public">>
+        },
+        URI = compose_uri(Prefix, Queries, false),
+        Req = make_req(post),
+        case do_request(Channel, URI, Req) of
+            {error, bad_request, _} -> ok;
+            {error, bad_request} -> ok
+        end
+    end,
+    do(Action).
+
+t_connection_open_session_error(_) ->
+    Action = fun(Channel) ->
+        Prefix = ?MQTT_PREFIX ++ "/connection",
+        Queries = #{
+            "clientid" => <<"client1">>,
+            "username" => <<"admin">>,
+            "password" => <<"public">>
+        },
+        URI = compose_uri(Prefix, Queries, false),
+        Req = make_req(post),
+        case do_request(Channel, URI, Req) of
+            {error, bad_request, _} -> ok;
+            {error, bad_request} -> ok
+        end
+    end,
+    do(Action).
+
+t_duplicate_connection_other_clientid(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        Prefix = ?MQTT_PREFIX ++ "/connection",
+        Queries = #{
+            "clientid" => <<"client2">>,
+            "username" => <<"admin">>,
+            "password" => <<"public">>
+        },
+        URI = compose_uri(Prefix, Queries, false),
+        Req = make_req(post),
+        {error, bad_request, _} = do_request(Channel, URI, Req),
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_duplicate_connection_invalid_queries(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        Prefix = ?MQTT_PREFIX ++ "/connection",
+        Queries = #{
+            "username" => <<"admin">>,
+            "password" => <<"public">>
+        },
+        URI = compose_uri(Prefix, Queries, false),
+        Req = make_req(post),
+        {error, bad_request, _} = do_request(Channel, URI, Req),
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_request_with_token_no_connection(_) ->
+    Action = fun(Channel) ->
+        URI = pubsub_uri("no_connection", "tok"),
+        Req = make_req(get, <<>>, [{observe, 0}]),
+        {error, bad_request, _} = do_request(Channel, URI, Req)
+    end,
+    do(Action).
+
+t_delete_without_connection(_) ->
+    Action = fun(Channel) ->
+        URI =
+            ?MQTT_PREFIX ++
+                "/connection?clientid=client1&token=badtoken",
+        Req = make_req(delete),
+        {ok, deleted, _} = do_request(Channel, URI, Req)
+    end,
+    do(Action).
+
+t_delete_connection_missing_clientid(_) ->
+    update_coap_with_connection_mode(false),
+    Action = fun(Channel) ->
+        URI = ?MQTT_PREFIX ++ "/connection",
+        Req = make_req(delete),
+        {ok, deleted, _} = do_request(Channel, URI, Req)
+    end,
+    do(Action),
+    update_coap_with_connection_mode(true).
+
+t_request_without_token_times_out(_) ->
+    Action = fun(Channel) ->
+        URI = ?PS_PREFIX ++ "/no_token_topic",
+        Req = make_req(get, <<>>, [{observe, 0}]),
+        case do_request(Channel, URI, Req) of
+            {error, bad_request} -> ok;
+            {error, bad_request, _} -> ok
+        end
+    end,
+    do(Action).
+
+t_unknown_path_bad_request(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        Prefix = "coap://127.0.0.1/unknown",
+        Queries = #{
+            "clientid" => <<"client1">>,
+            "token" => list_to_binary(Token)
+        },
+        URI = compose_uri(Prefix, Queries, false),
+        Req = make_req(get),
+        case do_request(Channel, URI, Req) of
+            {error, bad_request, _} -> ok;
+            {error, bad_request} -> ok
+        end,
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_invalid_token_request(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        URI = pubsub_uri("abc", "badtoken"),
+        Req = make_req(get, <<>>, [{observe, 0}]),
+        {error, bad_request, _} = do_request(Channel, URI, Req),
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_mqtt_handler_errors(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        URI1 = ?MQTT_PREFIX ++ "/invalid?clientid=client1&token=" ++ Token,
+        Req1 = make_req(get),
+        case do_request(Channel, URI1, Req1) of
+            {error, bad_request, _} -> ok;
+            {error, bad_request} -> ok
+        end,
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_pubsub_handler_errors(_) ->
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        URI1 = ?PS_PREFIX ++ "?clientid=client1&token=" ++ Token,
+        Req1 = make_req(get),
+        {error, bad_request, _} = do_request(Channel, URI1, Req1),
+        URI2 = pubsub_uri("abc", Token),
+        Req2 = make_req(get, <<>>, [{observe, 2}]),
+        {error, bad_request, _} = do_request(Channel, URI2, Req2),
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_pubsub_unauthorized(_) ->
+    _ = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    Action = fun(Channel) ->
+        Token = connection(Channel),
+        URI = pubsub_uri("deny", Token),
+        Req1 = make_req(post, <<"payload">>),
+        case do_request(Channel, URI, Req1) of
+            {error, uauthorized} -> ok;
+            {error, uauthorized, _} -> ok;
+            {error, unauthorized, _} -> ok;
+            {error, unauthorized} -> ok
+        end,
+        Req2 = make_req(get, <<>>, [{observe, 0}]),
+        case do_request(Channel, URI, Req2) of
+            {error, uauthorized} -> ok;
+            {error, uauthorized, _} -> ok;
+            {error, unauthorized, _} -> ok;
+            {error, unauthorized} -> ok
+        end,
+        disconnection(Channel, Token)
+    end,
+    do(Action).
+
+t_subscribe_opts_nl_rh(_) ->
+    Fun = fun(Channel, Token) ->
+        Topic = <<"nlrh">>,
+        URI = pubsub_uri(binary_to_list(Topic), Token) ++ "&nl=1&rh=2",
+        Req = make_req(get, <<>>, [{observe, 0}]),
+        {ok, content, _} = do_request(Channel, URI, Req),
+        timer:sleep(100),
+        [SubPid] = emqx:subscribers(Topic),
+        {_, SubOpts} = lists:keyfind(Topic, 1, emqx_broker:subscriptions(SubPid)),
+        ?assertEqual(1, maps:get(nl, SubOpts)),
+        ?assertEqual(2, maps:get(rh, SubOpts)),
+        UnReq = make_req(get, <<>>, [{observe, 1}]),
+        {ok, nocontent, _} = do_request(Channel, URI, UnReq),
+        true
+    end,
+    with_connection(Fun).
+
+t_subscribe_qos_from_config(_) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    Fun = fun(Channel, Token) ->
+        Cases = [
+            {qos0, con, 0},
+            {qos1, con, 1},
+            {qos2, con, 2},
+            {coap, non, 0},
+            {coap, con, 1}
+        ],
+        lists:foreach(
+            fun({CfgType, ReqType, ExpectQos}) ->
+                {ok, _} =
+                    emqx_gateway_conf:update_gateway(
+                        coap,
+                        OldConf#{<<"subscribe_qos">> => atom_to_binary(CfgType)}
+                    ),
+                Topic = list_to_binary(io_lib:format("cfg/sub/~p", [CfgType])),
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                Req = make_req_type(ReqType, get, <<>>, [{observe, 0}]),
+                {ok, content, _} = do_request(Channel, URI, Req),
+                timer:sleep(100),
+                [SubPid] = emqx:subscribers(Topic),
+                {_, SubOpts} =
+                    lists:keyfind(Topic, 1, emqx_broker:subscriptions(SubPid)),
+                ?assertEqual(ExpectQos, maps:get(qos, SubOpts)),
+                UnReq = make_req_type(ReqType, get, <<>>, [{observe, 1}]),
+                {ok, nocontent, _} = do_request(Channel, URI, UnReq)
+            end,
+            Cases
+        ),
+        true
+    end,
+    try
+        with_connection(Fun)
+    after
+        _ = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
+t_publish_qos_from_config(_) ->
+    OldConf = emqx:get_raw_config([gateway, coap]),
+    Fun = fun(Channel, Token) ->
+        Cases = [
+            {qos0, con, 0},
+            {qos1, con, 1},
+            {qos2, con, 2},
+            {coap, non, 0},
+            {coap, con, 1}
+        ],
+        lists:foreach(
+            fun({CfgType, ReqType, ExpectQos}) ->
+                {ok, _} =
+                    emqx_gateway_conf:update_gateway(
+                        coap,
+                        OldConf#{<<"publish_qos">> => atom_to_binary(CfgType)}
+                    ),
+                Topic = list_to_binary(io_lib:format("cfg/pub/~p", [CfgType])),
+                URI = pubsub_uri(binary_to_list(Topic), Token),
+                emqx:subscribe(Topic),
+                Req = make_req_type(ReqType, post, <<"qos">>, []),
+                {ok, changed, _} = do_request(Channel, URI, Req),
+                receive
+                    {deliver, Topic, Msg} ->
+                        ?assertEqual(ExpectQos, Msg#message.qos)
+                after 500 ->
+                    ?assert(false)
+                end
+            end,
+            Cases
+        ),
+        true
+    end,
+    try
+        with_connection(Fun)
+    after
+        _ = emqx_gateway_conf:update_gateway(coap, OldConf)
+    end.
+
 t_publish(_) ->
     %% can publish to a normal topic
     Topics = [
@@ -370,7 +696,9 @@ t_publish_with_retain_qos_expiry(_) ->
         receive
             {deliver, Topic, Msg} ->
                 ?assertEqual(Topic, Msg#message.topic),
-                ?assertEqual(Payload, Msg#message.payload)
+                ?assertEqual(Payload, Msg#message.payload),
+                Props = emqx_message:get_header(properties, Msg, #{}),
+                ?assertEqual(60, maps:get('Message-Expiry-Interval', Props))
         after 500 ->
             ?assert(false)
         end,
@@ -663,6 +991,96 @@ t_connectionless_pubsub(_) ->
     do(Fun),
     update_coap_with_connection_mode(true).
 
+t_frame_encode_decode_options(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_encode_decode_options(Config).
+
+t_frame_encode_extended_values(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_encode_extended_values(Config).
+
+t_frame_empty_reset_and_undefined_option(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_empty_reset_and_undefined_option(Config).
+
+t_frame_decode_extended_values(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_decode_extended_values(Config).
+
+t_frame_parse_codes(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_parse_codes(Config).
+
+t_frame_query_and_truncated_option(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_query_and_truncated_option(Config).
+
+t_frame_block_roundtrip(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_block_roundtrip(Config).
+
+t_frame_misc_helpers(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_misc_helpers(Config).
+
+t_message_helpers(Config) ->
+    emqx_coap_protocol_SUITE:t_message_helpers(Config).
+
+t_medium_helpers(Config) ->
+    emqx_coap_protocol_SUITE:t_medium_helpers(Config).
+
+t_observe_manager(Config) ->
+    emqx_coap_protocol_SUITE:t_observe_manager(Config).
+
+t_session_info_and_deliver(Config) ->
+    emqx_coap_protocol_SUITE:t_session_info_and_deliver(Config).
+
+t_session_notify_qos_types(Config) ->
+    emqx_coap_protocol_SUITE:t_session_notify_qos_types(Config).
+
+t_transport_paths(Config) ->
+    emqx_coap_protocol_SUITE:t_transport_paths(Config).
+
+t_tm_paths(Config) ->
+    emqx_coap_protocol_SUITE:t_tm_paths(Config).
+
+t_tm_timer_cleanup(Config) ->
+    emqx_coap_protocol_SUITE:t_tm_timer_cleanup(Config).
+
+t_pubsub_handler_direct(Config) ->
+    emqx_coap_protocol_SUITE:t_pubsub_handler_direct(Config).
+
+t_mqtt_handler_direct(Config) ->
+    emqx_coap_protocol_SUITE:t_mqtt_handler_direct(Config).
+
+t_api_namespace(Config) ->
+    emqx_coap_protocol_SUITE:t_api_namespace(Config).
+
+t_channel_direct(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_direct(Config).
+
+t_channel_connection_success(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_connection_success(Config).
+
+t_channel_connection_no_expire(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_connection_no_expire(Config).
+
+t_channel_connection_missing_clientid_direct(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_connection_missing_clientid_direct(Config).
+
+t_channel_connection_hooks_error_direct(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_connection_hooks_error_direct(Config).
+
+t_channel_connection_auth_error_direct(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_connection_auth_error_direct(Config).
+
+t_channel_connection_open_session_error_direct(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_connection_open_session_error_direct(Config).
+
+t_channel_check_token_paths(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_check_token_paths(Config).
+
+t_channel_connected_invalid_queries(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_connected_invalid_queries(Config).
+
+t_proxy_conn_paths(Config) ->
+    emqx_coap_protocol_SUITE:t_proxy_conn_paths(Config).
+
+t_schema_and_gateway_paths(Config) ->
+    emqx_coap_protocol_SUITE:t_schema_and_gateway_paths(Config).
+
 %%--------------------------------------------------------------------
 %% helpers
 
@@ -754,6 +1172,9 @@ make_req(Method, Payload) ->
 
 make_req(Method, Payload, Opts) ->
     er_coap_message:request(con, Method, Payload, Opts).
+
+make_req_type(Type, Method, Payload, Opts) ->
+    er_coap_message:request(Type, Method, Payload, Opts).
 
 do_request(Channel, URI, #coap_message{options = Opts} = Req) ->
     {_, _, Path, Query} = er_coap_client:resolve_uri(URI),

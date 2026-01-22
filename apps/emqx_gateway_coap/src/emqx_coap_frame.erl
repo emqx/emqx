@@ -194,28 +194,23 @@ encode_option(block2, OptVal) ->
     {?OPTION_BLOCK2, encode_block(OptVal)};
 encode_option(block1, OptVal) ->
     {?OPTION_BLOCK1, encode_block(OptVal)};
-%% unknown opton
+encode_option(OptNum, OptVal) when is_integer(OptNum), OptNum >= 0 ->
+    {OptNum, OptVal};
 encode_option(Option, Value) ->
     erlang:throw({bad_option, Option, Value}).
 
 encode_block({Num, More, Size}) ->
     encode_block1(
         Num,
-        if
+        (if
             More -> 1;
             true -> 0
-        end,
+        end),
         trunc(math:log2(Size)) - 4
     ).
-
-encode_block1(Num, M, SizEx) when Num < 16 ->
-    <<Num:4, M:1, SizEx:3>>;
-encode_block1(Num, M, SizEx) when Num < 4096 ->
-    <<Num:12, M:1, SizEx:3>>;
-encode_block1(Num, M, SizEx) ->
-    <<Num:28, M:1, SizEx:3>>.
-
--spec content_format_to_code(binary()) -> non_neg_integer().
+encode_block1(Num, M, SizEx) when Num < 16 -> <<Num:4, M:1, SizEx:3>>;
+encode_block1(Num, M, SizEx) when Num < 4096 -> <<Num:12, M:1, SizEx:3>>;
+encode_block1(Num, M, SizEx) -> <<Num:28, M:1, SizEx:3>>.
 content_format_to_code(<<"text/plain">>) -> 0;
 content_format_to_code(<<"application/link-format">>) -> 40;
 content_format_to_code(<<"application/xml">>) -> 41;
@@ -225,9 +220,7 @@ content_format_to_code(<<"application/json">>) -> 50;
 content_format_to_code(<<"application/cbor">>) -> 60;
 content_format_to_code(<<"application/vnd.oma.lwm2m+tlv">>) -> 11542;
 content_format_to_code(<<"application/vnd.oma.lwm2m+json">>) -> 11543;
-%% use octet-stream as default
 content_format_to_code(_) -> 42.
-
 method_to_class_code(get) -> {0, 01};
 method_to_class_code(post) -> {0, 02};
 method_to_class_code(put) -> {0, 03};
@@ -265,24 +258,13 @@ method_to_class_code(Method) -> erlang:throw({bad_method, Method}).
 -spec parse(binary(), emqx_gateway_frame:parse_state()) ->
     emqx_gateway_frame:parse_result().
 parse(<<?VERSION:2, Type:2, 0:4, 0:3, 0:5, MsgId:16>>, ParseState) ->
-    {ok,
-        #coap_message{
-            type = decode_type(Type),
-            id = MsgId
-        },
-        <<>>, ParseState};
+    {ok, #coap_message{type = decode_type(Type), id = MsgId}, <<>>, ParseState};
 parse(
     <<?VERSION:2, Type:2, TKL:4, Class:3, Code:5, MsgId:16, Token:TKL/binary, Tail/binary>>,
     ParseState
 ) ->
     {Options, Payload} = decode_option_list(Tail),
-    Options2 = maps:fold(
-        fun(K, V, Acc) ->
-            Acc#{K => get_option_val(K, V)}
-        end,
-        #{},
-        Options
-    ),
+    Options2 = maps:fold(fun(K, V, Acc) -> Acc#{K => get_option_val(K, V)} end, #{}, Options),
     {ok,
         #coap_message{
             type = decode_type(Type),
@@ -295,29 +277,20 @@ parse(
         <<>>, ParseState}.
 
 get_option_val(uri_query, V) ->
-    KVList = lists:foldl(
-        fun(E, Acc) ->
-            case re:split(E, "=") of
-                [Key, Val] ->
-                    [{Key, Val} | Acc];
-                _ ->
-                    Acc
-            end
-        end,
-        [],
-        V
-    ),
+    KVList = lists:foldl(fun split_uri_query/2, [], V),
     maps:from_list(KVList);
 get_option_val(K, V) ->
     case is_repeatable_option(K) of
-        true ->
-            lists:reverse(V);
-        _ ->
-            V
+        true -> lists:reverse(V);
+        _ -> V
+    end.
+split_uri_query(Entry, Acc) ->
+    case re:split(Entry, "=") of
+        [Key, Val] -> [{Key, Val} | Acc];
+        _ -> Acc
     end.
 
--spec decode_type(X) -> message_type() when
-    X :: 0..3.
+-spec decode_type(0..3) -> message_type().
 decode_type(0) -> con;
 decode_type(1) -> non;
 decode_type(2) -> ack;
@@ -333,8 +306,7 @@ decode_option_list(<<16#FF, Payload/binary>>, _OptNum, OptMap) ->
     {OptMap, Payload};
 decode_option_list(<<Delta:4, Len:4, Bin/binary>>, OptNum, OptMap) ->
     case Delta of
-        Any when Any < 13 ->
-            decode_option_len(Bin, OptNum + Delta, Len, OptMap);
+        Any when Any < 13 -> decode_option_len(Bin, OptNum + Delta, Len, OptMap);
         13 ->
             <<ExtOptNum, NewBin/binary>> = Bin,
             decode_option_len(NewBin, OptNum + ExtOptNum + 13, Len, OptMap);
@@ -343,17 +315,12 @@ decode_option_list(<<Delta:4, Len:4, Bin/binary>>, OptNum, OptMap) ->
             decode_option_len(NewBin, OptNum + ExtOptNum + 269, Len, OptMap)
     end.
 
-decode_option_len(<<Bin/binary>>, OptNum, Len, OptMap) ->
-    case Len of
-        Any when Any < 13 ->
-            decode_option_value(Bin, OptNum, Len, OptMap);
-        13 ->
-            <<ExtOptLen, NewBin/binary>> = Bin,
-            decode_option_value(NewBin, OptNum, ExtOptLen + 13, OptMap);
-        14 ->
-            <<ExtOptLen:16, NewBin/binary>> = Bin,
-            decode_option_value(NewBin, OptNum, ExtOptLen + 269, OptMap)
-    end.
+decode_option_len(Bin, OptNum, Len, OptMap) when Len < 13 ->
+    decode_option_value(Bin, OptNum, Len, OptMap);
+decode_option_len(<<ExtOptLen, NewBin/binary>>, OptNum, 13, OptMap) ->
+    decode_option_value(NewBin, OptNum, ExtOptLen + 13, OptMap);
+decode_option_len(<<ExtOptLen:16, NewBin/binary>>, OptNum, 14, OptMap) ->
+    decode_option_value(NewBin, OptNum, ExtOptLen + 269, OptMap).
 
 decode_option_value(<<Bin/binary>>, OptNum, OptLen, OptMap) ->
     case Bin of
@@ -366,18 +333,15 @@ decode_option_value(<<Bin/binary>>, OptNum, OptLen, OptMap) ->
 append_option(OptNum, RawOptVal, OptMap) ->
     {OptId, OptVal} = decode_option(OptNum, RawOptVal),
     case is_repeatable_option(OptId) of
-        false ->
-            OptMap#{OptId => OptVal};
-        _ ->
-            case maps:get(OptId, OptMap, undefined) of
-                undefined ->
-                    OptMap#{OptId => [OptVal]};
-                OptVals ->
-                    OptMap#{OptId => [OptVal | OptVals]}
-            end
+        false -> OptMap#{OptId => OptVal};
+        true -> add_repeatable_option(OptId, OptVal, OptMap)
+    end.
+add_repeatable_option(OptId, OptVal, OptMap) ->
+    case maps:get(OptId, OptMap, undefined) of
+        undefined -> OptMap#{OptId => [OptVal]};
+        OptVals -> OptMap#{OptId => [OptVal | OptVals]}
     end.
 
-%% RFC 7252
 decode_option(?OPTION_IF_MATCH, OptVal) ->
     {if_match, OptVal};
 decode_option(?OPTION_URI_HOST, OptVal) ->
@@ -409,26 +373,18 @@ decode_option(?OPTION_PROXY_SCHEME, OptVal) ->
     {proxy_scheme, OptVal};
 decode_option(?OPTION_SIZE1, OptVal) ->
     {size1, binary:decode_unsigned(OptVal)};
-%% draft-ietf-core-observe-16
 decode_option(?OPTION_OBSERVE, OptVal) ->
     {observe, binary:decode_unsigned(OptVal)};
-%% draft-ietf-core-block-17
 decode_option(?OPTION_BLOCK2, OptVal) ->
     {block2, decode_block(OptVal)};
 decode_option(?OPTION_BLOCK1, OptVal) ->
     {block1, decode_block(OptVal)};
-%% unknown option
 decode_option(OptNum, OptVal) ->
     {OptNum, OptVal}.
-
 decode_block(<<Num:4, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
 decode_block(<<Num:12, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
 decode_block(<<Num:28, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx).
-
-decode_block1(Num, M, SizEx) ->
-    {Num, M =/= 0, trunc(math:pow(2, SizEx + 4))}.
-
--spec content_code_to_format(non_neg_integer()) -> binary().
+decode_block1(Num, M, SizEx) -> {Num, M =/= 0, trunc(math:pow(2, SizEx + 4))}.
 content_code_to_format(0) -> <<"text/plain">>;
 content_code_to_format(40) -> <<"application/link-format">>;
 content_code_to_format(41) -> <<"application/xml">>;
@@ -438,25 +394,18 @@ content_code_to_format(50) -> <<"application/json">>;
 content_code_to_format(60) -> <<"application/cbor">>;
 content_code_to_format(11542) -> <<"application/vnd.oma.lwm2m+tlv">>;
 content_code_to_format(11543) -> <<"application/vnd.oma.lwm2m+json">>;
-%% use octet as default
 content_code_to_format(_) -> <<"application/octet-stream">>.
-
-%% RFC 7252
-%% atom indicate a request
 class_code_to_method({0, 01}) -> get;
 class_code_to_method({0, 02}) -> post;
 class_code_to_method({0, 03}) -> put;
 class_code_to_method({0, 04}) -> delete;
-%% success is a tuple {ok, ...}
 class_code_to_method({2, 01}) -> {ok, created};
 class_code_to_method({2, 02}) -> {ok, deleted};
 class_code_to_method({2, 03}) -> {ok, valid};
 class_code_to_method({2, 04}) -> {ok, changed};
 class_code_to_method({2, 05}) -> {ok, content};
 class_code_to_method({2, 07}) -> {ok, nocontent};
-% block
 class_code_to_method({2, 31}) -> {ok, continue};
-%% error is a tuple {error, ...}
 class_code_to_method({4, 00}) -> {error, bad_request};
 class_code_to_method({4, 01}) -> {error, unauthorized};
 class_code_to_method({4, 02}) -> {error, bad_option};
@@ -464,7 +413,6 @@ class_code_to_method({4, 03}) -> {error, forbidden};
 class_code_to_method({4, 04}) -> {error, not_found};
 class_code_to_method({4, 05}) -> {error, method_not_allowed};
 class_code_to_method({4, 06}) -> {error, not_acceptable};
-% block
 class_code_to_method({4, 08}) -> {error, request_entity_incomplete};
 class_code_to_method({4, 12}) -> {error, precondition_failed};
 class_code_to_method({4, 13}) -> {error, request_entity_too_large};
@@ -477,21 +425,12 @@ class_code_to_method({5, 04}) -> {error, gateway_timeout};
 class_code_to_method({5, 05}) -> {error, proxying_not_supported};
 class_code_to_method(_) -> undefined.
 
-format(Msg) ->
-    io_lib:format("~p", [Msg]).
+format(Msg) -> io_lib:format("~p", [Msg]).
 
-type(_) ->
-    coap.
+type(_) -> coap.
 
-is_message(#coap_message{}) ->
-    true;
-is_message(_) ->
-    false.
-
-%%--------------------------------------------------------------------
-%% Internal functions
-%%--------------------------------------------------------------------
--spec is_repeatable_option(message_option_name()) -> boolean().
+is_message(#coap_message{}) -> true;
+is_message(_) -> false.
 is_repeatable_option(if_match) -> true;
 is_repeatable_option(etag) -> true;
 is_repeatable_option(location_path) -> true;
