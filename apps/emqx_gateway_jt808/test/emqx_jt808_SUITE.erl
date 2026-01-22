@@ -349,6 +349,20 @@ location_report_28bytes() ->
 binary_to_hex_string(Data) ->
     lists:flatten([io_lib:format("~2.16.0B ", [X]) || <<X:8>> <= Data]).
 
+%% Unescape JT808 packet (reverse of escape encoding)
+%% 7D 02 -> 7E, 7D 01 -> 7D
+unescape_packet(Packet) ->
+    unescape_packet(Packet, <<>>).
+
+unescape_packet(<<>>, Acc) ->
+    Acc;
+unescape_packet(<<16#7D, 16#02, Rest/binary>>, Acc) ->
+    unescape_packet(Rest, <<Acc/binary, 16#7E>>);
+unescape_packet(<<16#7D, 16#01, Rest/binary>>, Acc) ->
+    unescape_packet(Rest, <<Acc/binary, 16#7D>>);
+unescape_packet(<<Byte:8, Rest/binary>>, Acc) ->
+    unescape_packet(Rest, <<Acc/binary, Byte>>).
+
 receive_msg() ->
     receive
         {deliver, Topic, #message{payload = Payload}} ->
@@ -3595,13 +3609,14 @@ t_case_2019_query_attrib_mqtt_fields(_Config) ->
 
     ok = gen_tcp:close(Socket).
 
-%% Test: 2019 Query Server Time (0x0004) - verify empty body and server response
+%% Test: 2019 Query Server Time (0x0004) - verify server response (0x8004) with BCD[6] time
 t_case_2019_query_server_time_mqtt(_Config) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure_2019(Socket),
     ok = client_auth_procedure_2019(Socket, AuthCode),
 
-    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+    %% Capture UTC time before request (for comparison)
+    {{Year, Month, Day}, {Hour, Min, _Sec}} = calendar:universal_time(),
 
     %% Client sends 0x0004 Query Server Time (empty body)
     PhoneBCD = ?JT808_PHONE_BCD_2019,
@@ -3615,19 +3630,49 @@ t_case_2019_query_server_time_mqtt(_Config) ->
     S1 = gen_packet_2019(Header, <<>>),
 
     ok = gen_tcp:send(Socket, S1),
-    timer:sleep(100),
 
-    %% Verify MQTT publish contains empty body
-    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
-    DecodedPayload = emqx_utils_json:decode(Payload),
+    %% Receive server response 0x8004 (Server Time ACK)
+    {ok, ResponsePacket} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("Server Time ACK Response=~p", [binary_to_hex_string(ResponsePacket)]),
 
-    Header_Decoded = maps:get(<<"header">>, DecodedPayload),
-    Body_Decoded = maps:get(<<"body">>, DecodedPayload),
+    %% Parse response - should be 0x8004 with BCD[6] time
+    %% After unescaping, packet structure:
+    %% 7E | MsgId(2) | Attrs(2) | ProtoVer(1) | Phone(10) | MsgSn(2) | Body(6) | Checksum(1) | 7E
+    UnescapedPacket = unescape_packet(ResponsePacket),
+    <<16#7E, MsgId2:16/big, _Attrs:16/big, _ProtoVer2:8, _Phone:10/binary, _RespMsgSn:16/big,
+        TimeBCD:6/binary, _Checksum:8, 16#7E>> = UnescapedPacket,
 
-    ?assertEqual(?MC_QUERY_SERVER_TIME, maps:get(<<"msg_id">>, Header_Decoded)),
-    ?assertEqual(?PROTO_VER_2019, maps:get(<<"proto_ver">>, Header_Decoded)),
-    ?assertEqual(0, maps:get(<<"len">>, Header_Decoded)),
-    ?assertEqual(#{}, Body_Decoded),
+    %% Verify message ID is 0x8004 (Server Time ACK)
+    ?assertEqual(?MS_SERVER_TIME_ACK, MsgId2),
+
+    %% Parse BCD[6] time: YYMMDDHHMMSS
+    <<YY1:4, YY2:4, MM1:4, MM2:4, DD1:4, DD2:4, HH1:4, HH2:4, Mi1:4, Mi2:4, SS1:4, SS2:4>> =
+        TimeBCD,
+    RecvYY = YY1 * 10 + YY2,
+    RecvMM = MM1 * 10 + MM2,
+    RecvDD = DD1 * 10 + DD2,
+    RecvHH = HH1 * 10 + HH2,
+    RecvMi = Mi1 * 10 + Mi2,
+    RecvSS = SS1 * 10 + SS2,
+
+    ?LOGT(
+        "Received time: 20~2.10.0B-~2.10.0B-~2.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [RecvYY, RecvMM, RecvDD, RecvHH, RecvMi, RecvSS]
+    ),
+
+    %% Verify time components are within valid ranges
+    ExpectedYY = Year rem 100,
+    ?assertEqual(ExpectedYY, RecvYY),
+    ?assertEqual(Month, RecvMM),
+    ?assertEqual(Day, RecvDD),
+    ?assertEqual(Hour, RecvHH),
+    %% Allow 1 minute tolerance for minute (in case of minute boundary crossing)
+    ?assert(
+        abs(RecvMi - Min) =< 1 orelse (Min == 59 andalso RecvMi == 0) orelse
+            (Min == 0 andalso RecvMi == 59)
+    ),
+    %% Seconds should be valid (0-59)
+    ?assert(RecvSS >= 0 andalso RecvSS =< 59),
 
     ok = gen_tcp:close(Socket).
 
