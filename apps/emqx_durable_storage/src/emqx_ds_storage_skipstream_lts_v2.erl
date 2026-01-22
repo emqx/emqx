@@ -427,11 +427,23 @@ message_match_context(#s{trie = Trie}, Stream, _, {Topic, TS, _Value}) ->
         {ok, {CT, TS}}
     end.
 
-iterator_match_context(#s{ts_bytes = TSB}, ItStaticBin, ItPos) ->
+iterator_match_context(#s{ts_bytes = TSBytes}, ItStaticBin, ItPos) ->
     {_Static, CompressedTF} = decode_ext_it_static(ItStaticBin),
-    <<ItTS:(TSB * 8), _/binary>> = ItPos,
+    TSBits = TSBytes * 8,
+    case ItPos of
+        <<ItTS:TSBits>> ->
+            %% Start stream key doesn't have the `VaryingBin' suffix.
+            %% It means the key comes from a freshly created iterator.
+            %% Batch must include message with ItTS, no adjustment:
+            ok;
+        <<ItTS0:TSBits, _, _/binary>> ->
+            %% Start key has the `VaryingBin' suffix. It means the
+            %% iterator has been through next or scan stream. It must
+            %% skip over the message with TS = ItTS:
+            ItTS = ItTS0 + 1
+    end,
     fun({CompressedTopic, TS}) ->
-        TS > ItTS andalso emqx_topic:match(CompressedTopic, CompressedTF)
+        TS >= ItTS andalso emqx_topic:match(CompressedTopic, CompressedTF)
     end.
 
 %%================================================================================
