@@ -328,8 +328,6 @@ defmodule EMQXUmbrella.MixProject do
     [
       :debug_info,
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
-      # TODO: remove
-      {:d, :EMQX_RELEASE_EDITION, :ee},
       {:d, :EMQX_ELIXIR},
       {:d, :EMQX_FLAVOR, get_emqx_flavor()},
       {:d, :snk_kind, :msg}

@@ -359,14 +359,10 @@ route(Routes, Delivery = #delivery{message = _Msg}, PersistRes) ->
         [Delivery]
     ).
 
--if(?EMQX_RELEASE_EDITION == ee).
 route_result({TF, Node}) when is_atom(Node) ->
     #{node => Node, route => TF};
 route_result({TF, Group}) ->
     #{group => Group, route => TF}.
-
--else.
--endif.
 
 -spec do_route([emqx_types:route_entry()], emqx_types:delivery(), nil() | [persisted]) ->
     emqx_types:publish_result().

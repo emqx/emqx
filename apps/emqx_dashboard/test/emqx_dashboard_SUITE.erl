@@ -446,13 +446,5 @@ assert_same_dispatch([{'_', [], BaseRoutes}], Name, Tag) ->
     [{'_', [], NewRoutes}] = persistent_term:get(Name, Tag),
     snabbkaffe_diff:assert_lists_eq(BaseRoutes, NewRoutes, #{comment => Tag}).
 
--if(?EMQX_RELEASE_EDITION == ee).
 filter_req(Req) ->
     Req.
-
--else.
-
-filter_req(Req) ->
-    maps:without([role, <<"role">>, backend, <<"backend">>], Req).
-
--endif.

@@ -58,18 +58,11 @@ paths() ->
         "/prometheus/data_integration"
     ] ++ paths_ee().
 
--if(?EMQX_RELEASE_EDITION == ee).
 paths_ee() ->
     [
         "/prometheus/schema_validation",
         "/prometheus/message_transformation"
     ].
-%% ELSE if(?EMQX_RELEASE_EDITION == ee).
--else.
-paths_ee() ->
-    [].
-%% END if(?EMQX_RELEASE_EDITION == ee).
--endif.
 
 schema("/prometheus") ->
     #{
