@@ -851,6 +851,8 @@ set_msg_ack(?MS_SINGLE_MM_DATA_CTRL, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 set_msg_ack(?MS_SEND_TRANSPARENT_DATA, MsgSn) ->
     {?MC_GENERAL_RESPONSE, {?MS_SEND_TRANSPARENT_DATA, MsgSn}};
+set_msg_ack(?MS_QUERY_AREA_ROUTE, MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, MsgSn};
 set_msg_ack(MsgId, Param) ->
     error({invalid_message_type, MsgId, Param}).
 
@@ -876,6 +878,8 @@ get_msg_ack(?MC_MM_DATA_SEARCH_ACK, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 get_msg_ack(?MC_DRIVER_ID_REPORT, _MsgSn) ->
     {?MC_DRIVER_ID_REPORT, none};
+get_msg_ack(?MC_QUERY_AREA_ROUTE_ACK, MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, MsgSn};
 get_msg_ack(MsgId, MsgSn) ->
     error({invalid_message_type, MsgId, MsgSn}).
 
@@ -938,6 +942,7 @@ is_general_response_needed(?MC_CAN_BUS_REPORT) -> true;
 is_general_response_needed(?MC_MULTIMEDIA_EVENT_REPORT) -> true;
 is_general_response_needed(?MC_SEND_TRANSPARENT_DATA) -> true;
 is_general_response_needed(?MC_SEND_ZIP_DATA) -> true;
+is_general_response_needed(?MC_REQUEST_FRAGMENT) -> true;
 is_general_response_needed(_) -> false.
 
 is_driver_id_req_exist(#channel{inflight = Inflight}) ->

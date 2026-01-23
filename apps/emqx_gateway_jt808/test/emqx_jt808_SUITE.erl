@@ -3704,7 +3704,18 @@ t_case_2019_request_fragment_mqtt(_Config) ->
     S1 = gen_packet_2019(Header, Body),
 
     ok = gen_tcp:send(Socket, S1),
-    timer:sleep(100),
+
+    %% Receive general response (0x8001) from server
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket),
+    MsgId2 = ?MS_GENERAL_RESPONSE,
+    MsgSn2 = 2,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size2), ProtoVer:8, PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet_2019(Header2, GenAckPacket),
+    ?assertEqual(S2, Packet),
 
     {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
     DecodedPayload = emqx_utils_json:decode(Payload),
@@ -3720,6 +3731,90 @@ t_case_2019_request_fragment_mqtt(_Config) ->
     ?assertEqual(Seq, maps:get(<<"seq">>, Body_Decoded)),
     ?assertEqual(Count, maps:get(<<"count">>, Body_Decoded)),
     ?assertEqual([Id1, Id2, Id3], maps:get(<<"ids">>, Body_Decoded)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: 0x8608 Query Area/Route -> 0x0608 Response (2019 new message)
+t_case26_dl_0x8608_query_area_route(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    ProtoVer = ?PROTO_VER_2019,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Server sends 0x8608 Query Area/Route command
+    %% Body: type (BYTE) + count (DWORD) + ids (DWORD list, optional)
+
+    %% 1=circle, 2=rect, 3=poly, 4=path
+    QueryType = 1,
+    %% 0 = query all
+    QueryCount = 0,
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_QUERY_AREA_ROUTE},
+        <<"body">> => #{<<"type">> => QueryType, <<"count">> => QueryCount}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC_2019, emqx_utils_json:encode(DlCommand))),
+
+    %% Client receives downlink 0x8608
+    MsgBody3 = <<QueryType:8, QueryCount:?DWORD>>,
+    MsgId3 = ?MS_QUERY_AREA_ROUTE,
+    MsgSn3 = 2,
+    Size3 = size(MsgBody3),
+    Header3 =
+        <<MsgId3:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size3), ProtoVer:8, PhoneBCD/binary, MsgSn3:?WORD>>,
+    S3 = gen_packet_2019(Header3, MsgBody3),
+
+    timer:sleep(300),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("     S3=~p", [binary_to_hex_string(S3)]),
+    ?LOGT("Packet3=~p", [binary_to_hex_string(Packet3)]),
+    ?assertEqual(S3, Packet3),
+
+    %% Client sends 0x0608 Query Area/Route Response
+    %% Body: type (BYTE) + count (DWORD) + data (variable)
+    RespType = QueryType,
+    RespCount = 2,
+    AreaData = <<"test_area_data">>,
+    UlBody = <<RespType:8, RespCount:?DWORD, AreaData/binary>>,
+    Size4 = size(UlBody),
+    MsgId4 = ?MC_QUERY_AREA_ROUTE_ACK,
+    MsgSn4 = 2,
+    Header4 =
+        <<MsgId4:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size4), ProtoVer:8, PhoneBCD/binary, MsgSn4:?WORD>>,
+    S4 = gen_packet_2019(Header4, UlBody),
+
+    ok = gen_tcp:send(Socket, S4),
+    timer:sleep(100),
+
+    %% Verify response published to MQTT uplink
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    ?assertEqual(
+        #{
+            <<"header">> => #{
+                <<"encrypt">> => 0,
+                <<"len">> => Size4,
+                <<"msg_id">> => ?MC_QUERY_AREA_ROUTE_ACK,
+                <<"msg_sn">> => MsgSn4,
+                <<"phone">> => <<"00000000000123456789">>,
+                <<"proto_ver">> => ProtoVer
+            },
+            <<"body">> => #{
+                <<"type">> => RespType,
+                <<"count">> => RespCount,
+                <<"data">> => base64:encode(AreaData)
+            }
+        },
+        DecodedPayload
+    ),
+
+    %% No retransmission of downlink message (ACK clears inflight)
+    {error, timeout} = gen_tcp:recv(Socket, 0, 500),
 
     ok = gen_tcp:close(Socket).
 
