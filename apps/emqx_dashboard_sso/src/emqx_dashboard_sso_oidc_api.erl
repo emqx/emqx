@@ -200,11 +200,10 @@ retrieve_userinfo(
         Username = render_username(NameVarData, NameTks),
         minirest_handler:update_log_meta(#{log_source => Username}),
         RoleData = select_data_source(RoleSource, Token, UserInfo),
-        {ok, Role} ?= parse_role(RoleData, RoleExpr),
+        {ok, MaybeRole} ?= parse_role(RoleData, RoleExpr),
         NamespaceData = select_data_source(NamespaceSource, Token, UserInfo),
-        {ok, Namespace} ?= parse_namespace(NamespaceData, NamespaceExpr),
-        RoleBin = emqx_dashboard_admin:serialize_role(#{?role => Role, ?namespace => Namespace}),
-        ensure_user_exists(Cfg, Username, RoleBin)
+        {ok, MaybeNamespace} ?= parse_namespace(NamespaceData, NamespaceExpr),
+        ensure_user_exists(Cfg, Username, MaybeRole, MaybeNamespace)
     end.
 
 render_username(Data, Template) ->
@@ -220,6 +219,9 @@ select_data_source(id_token, Token, _UserInfo) ->
             #{}
     end.
 
+parse_role(_Data, undefined = _RoleExpr) ->
+    %% Will later use default, if user does not exist.
+    {ok, undefined};
 parse_role(Data, RoleExpr) ->
     case eval_jq_single_output(RoleExpr, Data, role_expr) of
         {ok, Role} when ?IS_VALID_ROLE(Role) ->
@@ -232,6 +234,9 @@ parse_role(Data, RoleExpr) ->
             {error, Reason}
     end.
 
+parse_namespace(_Data, undefined = _NamespaceExpr) ->
+    %% Will later use default, if user does not exist.
+    {ok, undefined};
 parse_namespace(Data, NamespaceExpr) ->
     case eval_jq_single_output(NamespaceExpr, Data, namespace_expr) of
         {ok, null} ->
@@ -259,22 +264,20 @@ eval_jq_single_output(Program, Input, ErrorTag) ->
             {error, {ErrorTag, Reason}}
     end.
 
-ensure_user_exists(_Cfg, <<>>, _RoleBin) ->
+ensure_user_exists(_Cfg, <<>>, _MaybeRole, _MaybeNamespace) ->
     {error, <<"Username can not be empty">>};
-ensure_user_exists(_Cfg, <<"undefined">>, _RoleBin) ->
+ensure_user_exists(_Cfg, <<"undefined">>, _MaybeRole, _MaybeNamespace) ->
     {error, <<"Username can not be undefined">>};
-ensure_user_exists(Cfg, Username, RoleBin) ->
-    case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
-        [User] ->
-            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
-            {ok, login_redirect_target(Cfg, Username, Role, Token)};
-        [] ->
-            case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, RoleBin, <<>>) of
-                {ok, _} ->
-                    ensure_user_exists(Cfg, Username, RoleBin);
-                Error ->
-                    Error
-            end
+ensure_user_exists(Cfg, Username, MaybeRole, MaybeNamespace) ->
+    Desc = <<"">>,
+    maybe
+        {ok, #{user_record := UserRec}} ?=
+            emqx_dashboard_admin:upsert_sso_user(
+                ?BACKEND, Username, MaybeRole, MaybeNamespace, Desc
+            ),
+        %% Cannot fail, but returns `ok` tuple?
+        {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(UserRec),
+        {ok, login_redirect_target(Cfg, Username, Role, Token)}
     end.
 
 make_callback_url(#{config := #{dashboard_addr := Addr}}) ->

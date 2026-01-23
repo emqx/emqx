@@ -96,7 +96,7 @@ fields(oidc) ->
                     binary(),
                     #{
                         desc => ?DESC(role_expr),
-                        default => <<"\"viewer\"">>,
+                        required => false,
                         validator => fun jq_expr_validator/1
                     }
                 )},
@@ -110,7 +110,7 @@ fields(oidc) ->
                     binary(),
                     #{
                         desc => ?DESC(namespace_expr),
-                        default => <<"null">>,
+                        required => false,
                         validator => fun jq_expr_validator/1
                     }
                 )},
@@ -207,10 +207,10 @@ create(#{} = Config) ->
         name_var := NameVar,
         name_var_source := NameVarSource,
         role_source := RoleSource,
-        role_expr := RoleExpr,
-        namespace_source := NamespaceSource,
-        namespace_expr := NamespaceExpr
+        namespace_source := NamespaceSource
     } = Config,
+    RoleExpr = maps:get(role_expr, Config, undefined),
+    NamespaceExpr = maps:get(namespace_expr, Config, undefined),
     case
         emqx_dashboard_sso_oidc_session:start(
             ?PROVIDER_SVR_NAME,
@@ -382,6 +382,8 @@ init_client_jwks(#{client_jwks := #{type := file, file := File}}) ->
 init_client_jwks(_) ->
     none.
 
+jq_expr_validator(undefined) ->
+    ok;
 jq_expr_validator(Program) ->
     case jq:process_json(Program, <<"{}">>) of
         {error, {jq_err_compile, Msg}} ->

@@ -649,8 +649,9 @@ t_bad_namespace_expr(TCConfig) ->
 
 -doc """
 Verifies that, if the username already exists in EMQX and its backend is the same, their
-role and namespace are not touched, even if the role and namespace expressions resolve to
-different values.
+role and namespace are updated to the new role and namespace **only if there is a defined
+expression**, even if the role and namespace expressions resolve to different values.  If
+there is no extraction expression, the old value should be retained.
 """.
 t_existing_user(TCConfig) ->
     start_apps(?FUNCTION_NAME, TCConfig),
@@ -666,12 +667,7 @@ t_existing_user(TCConfig) ->
     ),
 
     %% This makes all users resolve to the global namespace and be viewers.
-    Params1 = emqx_utils_maps:deep_merge(oidc_provider_params(), #{
-        <<"namespace_source">> => <<"userinfo">>,
-        <<"namespace_expr">> => <<"null">>,
-        <<"role_source">> => <<"userinfo">>,
-        <<"role_expr">> => emqx_utils_json:encode(?ROLE_VIEWER)
-    }),
+    Params1 = emqx_utils_maps:deep_merge(oidc_provider_params(), #{}),
     ?assertMatch({200, _}, create_backend(N, Params1, #{})),
 
     %% Now we attempt the sso login flow.
@@ -690,10 +686,20 @@ t_existing_user(TCConfig) ->
     }),
     ?assertMatch({200, _}, create_backend(N, Params2, #{})),
 
-    %% Role and namespace do not change since the user already exists.
+    %% Role and namespace change to the new values
     {ok, _} = login_flow(N, N),
     ?assertMatch(
-        [#{role := ?ROLE_VIEWER, namespace := ?global_ns}],
+        [#{role := ?ROLE_SUPERUSER, namespace := Ns}],
+        get_new_dashboard_users(N)
+    ),
+
+    %% Now, we change back to no expressions defined.  If the user logs in again, it
+    %% should retain the existing role and namespace.
+    ?assertMatch({200, _}, create_backend(N, Params1, #{})),
+
+    {ok, _} = login_flow(N, N),
+    ?assertMatch(
+        [#{role := ?ROLE_SUPERUSER, namespace := Ns}],
         get_new_dashboard_users(N)
     ),
 
