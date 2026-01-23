@@ -18,7 +18,7 @@
     shard_info/2,
 
     %% Generations
-    update_config/3,
+    update_config_v0/3,
     add_generation/2,
     add_generation/3,
     list_slabs/1,
@@ -207,7 +207,8 @@
 -type shard(GenData) :: #{
     %% ID of the current generation (where the new data is written):
     current_generation := gen_id(),
-    %% This data is used to create new generation:
+    %% This data WAS used to create new generation in raft
+    %% machine ver.0:
     prototype := prototype(),
     ptrans := emqx_ds_payload_transform:schema(),
     %% Generations:
@@ -314,7 +315,7 @@ check_soft_quota(#db_group{sst_file_mgr = SSTFM, conf = #{storage_quota := Quota
 
 %% Note: we specify gen_server requests as records to make use of Dialyzer:
 -record(call_add_generation, {since :: emqx_ds:time(), prototype :: prototype() | undefined}).
--record(call_update_config, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
+-record(call_update_config_v0, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
 -record(call_list_generations_with_lifetimes, {}).
 -record(call_drop_generation, {gen_id :: gen_id()}).
 -record(call_flush, {}).
@@ -377,10 +378,11 @@ fetch_global(ShardId, K) ->
         end
     end.
 
--spec update_config(dbshard(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
+%% Deprecated. Kept for compatibility with ra machine version 0.
+-spec update_config_v0(dbshard(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
     ok | {error, overlaps_existing_generations}.
-update_config(ShardId, Since, Options) ->
-    Call = #call_update_config{since = Since, options = Options},
+update_config_v0(ShardId, Since, Options) ->
+    Call = #call_update_config_v0{since = Since, options = Options},
     gen_server:call(?REF(ShardId), Call, infinity).
 
 -spec add_generation(dbshard(), emqx_ds:time(), prototype()) ->
@@ -564,8 +566,8 @@ format_status(Status) ->
         Status
     ).
 
-handle_call(#call_update_config{since = Since, options = Options}, _From, S0) ->
-    case handle_update_config(S0, Since, Options) of
+handle_call(#call_update_config_v0{since = Since, options = Options}, _From, S0) ->
+    case handle_update_config_v0(S0, Since, Options) of
         S = #s{} ->
             commit_metadata(S),
             {reply, ok, S};
@@ -692,9 +694,9 @@ handle_add_generation(
             {error, Reason}
     end.
 
--spec handle_update_config(server_state(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
+-spec handle_update_config_v0(server_state(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
     server_state() | {error, overlaps_existing_generations}.
-handle_update_config(S0 = #s{schema = Schema}, Since, Options) ->
+handle_update_config_v0(S0 = #s{schema = Schema}, Since, Options) ->
     Prototype = maps:get(storage, Options),
     S = S0#s{schema = Schema#{prototype := Prototype}},
     handle_add_generation(S, Since, undefined).
