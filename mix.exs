@@ -287,7 +287,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:kafka_protocol),
     do: {:kafka_protocol, "4.3.2", override: true}
 
-  def common_dep(:brod), do: {:brod, "4.5.1"}
+  def common_dep(:brod), do: {:brod, "4.5.2"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
