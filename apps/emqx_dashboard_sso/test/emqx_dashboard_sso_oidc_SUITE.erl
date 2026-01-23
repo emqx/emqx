@@ -698,3 +698,40 @@ t_existing_user(TCConfig) ->
     ),
 
     ok.
+
+-doc """
+Checks that we attempt to parse the provided role and namespace expressions for syntax errors.
+""".
+t_role_namespace_expr_validation(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    Params1 = emqx_utils_maps:deep_merge(oidc_provider_params(), #{
+        <<"namespace_source">> => <<"userinfo">>,
+        <<"namespace_expr">> => <<". .">>
+    }),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"jq: error: syntax error,", _/binary>>
+            }
+        }},
+        create_backend(N, Params1, #{})
+    ),
+
+    Params2 = emqx_utils_maps:deep_merge(oidc_provider_params(), #{
+        <<"role_source">> => <<"userinfo">>,
+        <<"role_expr">> => <<". .">>
+    }),
+    ?assertMatch(
+        {400, #{
+            <<"message">> := #{
+                <<"kind">> := <<"validation_error">>,
+                <<"reason">> := <<"jq: error: syntax error,", _/binary>>
+            }
+        }},
+        create_backend(N, Params2, #{})
+    ),
+
+    ok.

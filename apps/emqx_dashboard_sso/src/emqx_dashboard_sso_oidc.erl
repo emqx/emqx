@@ -94,7 +94,11 @@ fields(oidc) ->
             {role_expr,
                 ?HOCON(
                     binary(),
-                    #{desc => ?DESC(role_expr), default => <<"\"viewer\"">>}
+                    #{
+                        desc => ?DESC(role_expr),
+                        default => <<"\"viewer\"">>,
+                        validator => fun jq_expr_validator/1
+                    }
                 )},
             {namespace_source,
                 ?HOCON(
@@ -104,7 +108,11 @@ fields(oidc) ->
             {namespace_expr,
                 ?HOCON(
                     binary(),
-                    #{desc => ?DESC(namespace_expr), default => <<"null">>}
+                    #{
+                        desc => ?DESC(namespace_expr),
+                        default => <<"null">>,
+                        validator => fun jq_expr_validator/1
+                    }
                 )},
             {dashboard_addr,
                 ?HOCON(binary(), #{
@@ -373,3 +381,11 @@ init_client_jwks(#{client_jwks := #{type := file, file := File}}) ->
     end;
 init_client_jwks(_) ->
     none.
+
+jq_expr_validator(Program) ->
+    case jq:process_json(Program, <<"{}">>) of
+        {error, {jq_err_compile, Msg}} ->
+            {error, Msg};
+        _ ->
+            ok
+    end.
