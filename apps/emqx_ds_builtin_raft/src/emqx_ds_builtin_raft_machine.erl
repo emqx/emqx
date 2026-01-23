@@ -51,6 +51,8 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 
 %% behavior callbacks:
 -export([
+    version/0,
+    which_module/1,
     init/1,
     apply/3,
     tick/2,
@@ -171,6 +173,29 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 %% API functions
 %%================================================================================
 
+-doc """
+# Version history
+
+## 0 (e6.0.0)
+Initial version. Removed backward-compatibility with 5.* data.
+
+## 1 (e6.1.1)
+
+- Changed behavior of `emqx_ds_storage_layer:update_config'.
+  Previously it attempted to automatically add a generation, and the
+  implementation contained a bug that didn't actually apply schema
+  updates to the runtime state.
+
+- Changed behavior of `emqx_ds_storage_layer:add_generation'. Now it
+  takes storage prototype as an explicit argument instead of reading
+  it from its own builtin metadata.
+""".
+version() ->
+    1.
+
+which_module(0) -> ?MODULE;
+which_module(1) -> ?MODULE.
+
 -spec add_generation(emqx_ds:time()) -> cmd_add_generation().
 add_generation(Since) when is_integer(Since) ->
     #{?tag => add_generation, since => Since}.
@@ -280,12 +305,11 @@ apply(
             Result = ?err_unrec({not_the_leader, #{got => From, expect => Leader}}),
             Effects = []
     end,
-    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
-    RaftMeta,
+    RaftMeta = #{machine_version := Vsn},
     #{?tag := add_generation, since := Since},
-    #{db_shard := DBShard} = State
+    #{db_shard := DBShard, schema := #{storage := Prototype}} = State
 ) ->
     ?tp(
         info,
@@ -295,14 +319,16 @@ apply(
             since => Since
         }
     ),
-    Result = emqx_ds_storage_layer:add_generation(DBShard, Since),
+    Result =
+        case Vsn of
+            0 -> emqx_ds_storage_layer:add_generation(DBShard, Since);
+            1 -> emqx_ds_storage_layer:add_generation(DBShard, Since, Prototype)
+        end,
     emqx_ds_beamformer:generation_event(DBShard),
     Effect = release_log(RaftMeta, State),
-    Effect =/= {release_cursor, 0, State} andalso
-        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
     {State, Result, [Effect]};
 apply(
-    RaftMeta,
+    RaftMeta = #{machine_version := Vsn},
     #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
     #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest} = State0
 ) ->
@@ -323,12 +349,15 @@ apply(
                 %% it:
                 State0;
             #{} ->
-                ok = emqx_ds_storage_layer:update_config(DBShard, Latest, Schema),
+                case Vsn of
+                    0 ->
+                        ok = emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema);
+                    _ ->
+                        ok
+                end,
                 State0#{schema := Schema, last_schema_changes := LSC#{Site => PendingId}}
         end,
     Effect = release_log(RaftMeta, State),
-    Effect =/= {release_cursor, 0, State} andalso
-        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
     {State, ok, [Effect]};
 apply(
     _RaftMeta,
@@ -355,7 +384,13 @@ apply(
 ) ->
     set_otx_leader(DBShard, Pid),
     Reply = {Serial, Timestamp},
-    {State#{otx_leader_pid => Pid}, Reply}.
+    {State#{otx_leader_pid => Pid}, Reply};
+apply(
+    _RaftMeta,
+    {machine_version, 0, 1},
+    State
+) ->
+    {State, ok}.
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(_TimeMs, #{db_shard := _DBShard}) ->
