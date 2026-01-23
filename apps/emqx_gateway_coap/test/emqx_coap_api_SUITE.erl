@@ -11,22 +11,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.coap {\n"
-    "  idle_timeout = 30s\n"
-    "  enable_stats = false\n"
-    "  mountpoint = \"\"\n"
-    "  notify_type = qos\n"
-    "  connection_required = true\n"
-    "  subscribe_qos = qos1\n"
-    "  publish_qos = qos1\n"
-    "  listeners.udp.default {\n"
-    "    bind = 5683\n"
-    "  }\n"
-    "}\n"
->>).
-
 -define(HOST, "127.0.0.1").
 -define(PORT, 5683).
 -define(CONN_URI,
@@ -44,23 +28,15 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_gateway_coap),
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx_conf, ?CONF_DEFAULT},
-            emqx_gateway,
-            emqx_auth,
-            emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    Config1 = emqx_coap_test_helpers:start_gateway(
+        Config,
+        emqx_coap_test_helpers:default_conf()
     ),
     _ = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    Config1.
 
 end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(suite_apps, Config)),
-    emqx_config:delete_override_conf_files().
+    emqx_coap_test_helpers:stop_gateway(Config).
 
 %%--------------------------------------------------------------------
 %% Cases

@@ -21,23 +21,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.coap\n"
-    "{\n"
-    "    idle_timeout = 30s\n"
-    "    enable_stats = false\n"
-    "    mountpoint = \"\"\n"
-    "    notify_type = qos\n"
-    "    connection_required = true\n"
-    "    subscribe_qos = qos1\n"
-    "    publish_qos = qos1\n"
-    "\n"
-    "    listeners.udp.default\n"
-    "    {bind = 5683}\n"
-    "}\n"
->>).
-
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
 -define(PS_PREFIX, "coap://127.0.0.1/ps").
 -define(MQTT_PREFIX, "coap://127.0.0.1/mqtt").
@@ -45,24 +28,12 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_gateway_coap),
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx_conf, ?CONF_DEFAULT},
-            emqx_gateway,
-            emqx_auth,
-            emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
-    ),
+    Config1 = emqx_coap_test_helpers:start_gateway(Config),
     emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    Config1.
 
 end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(suite_apps, Config)),
-    emqx_config:delete_override_conf_files(),
-    ok.
+    emqx_coap_test_helpers:stop_gateway(Config).
 
 init_per_testcase(t_connection_with_authn_failed, Config) ->
     ok = meck:new(emqx_access_control, [passthrough]),
@@ -134,7 +105,7 @@ end_per_testcase(_, Config) ->
     Config.
 
 default_config() ->
-    ?CONF_DEFAULT.
+    emqx_coap_test_helpers:default_conf().
 
 mqtt_prefix() ->
     ?MQTT_PREFIX.
@@ -991,83 +962,6 @@ t_connectionless_pubsub(_) ->
     do(Fun),
     update_coap_with_connection_mode(true).
 
-t_frame_encode_decode_options(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_encode_decode_options(Config).
-
-t_frame_encode_extended_values(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_encode_extended_values(Config).
-
-t_frame_empty_reset_and_undefined_option(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_empty_reset_and_undefined_option(Config).
-
-t_frame_decode_extended_values(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_decode_extended_values(Config).
-
-t_frame_parse_codes(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_parse_codes(Config).
-
-t_frame_query_and_truncated_option(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_query_and_truncated_option(Config).
-
-t_frame_block_roundtrip(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_block_roundtrip(Config).
-
-t_frame_parse_incomplete_more(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_parse_incomplete_more(Config).
-
-t_frame_empty_message_with_data(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_empty_message_with_data(Config).
-
-t_frame_truncated_token(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_truncated_token(Config).
-
-t_frame_reserved_class_format_error(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_reserved_class_format_error(Config).
-
-t_frame_option_delta_len_reserved(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_option_delta_len_reserved(Config).
-
-t_frame_option_ext_delta_truncated(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_option_ext_delta_truncated(Config).
-
-t_frame_option_ext_len_truncated(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_option_ext_len_truncated(Config).
-
-t_frame_unknown_elective_option(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_unknown_elective_option(Config).
-
-t_frame_duplicate_critical_option(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_duplicate_critical_option(Config).
-
-t_frame_duplicate_elective_option(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_duplicate_elective_option(Config).
-
-t_frame_invalid_if_none_match(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_invalid_if_none_match(Config).
-
-t_frame_block_option_empty(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_block_option_empty(Config).
-
-t_frame_block_option_invalid_len(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_block_option_invalid_len(Config).
-
-t_frame_format_error_on_response_option(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_format_error_on_response_option(Config).
-
-t_frame_unknown_response_code_ignore(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_unknown_response_code_ignore(Config).
-
-t_serialize_invalid_token_length(Config) ->
-    emqx_coap_protocol_SUITE:t_serialize_invalid_token_length(Config).
-
-t_serialize_invalid_block_size(Config) ->
-    emqx_coap_protocol_SUITE:t_serialize_invalid_block_size(Config).
-
-t_serialize_invalid_block_size_type(Config) ->
-    emqx_coap_protocol_SUITE:t_serialize_invalid_block_size_type(Config).
-
-t_frame_type_error_variants(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_type_error_variants(Config).
 
 t_ignore_unknown_version(_) ->
     Packet = <<2:2, 0:2, 0:4, 0:3, 1:5, 16#2000:16>>,
@@ -1163,83 +1057,6 @@ t_invalid_if_none_match_bad_option(_) ->
     ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
     ok.
 
-t_frame_misc_helpers(Config) ->
-    emqx_coap_protocol_SUITE:t_frame_misc_helpers(Config).
-
-t_message_helpers(Config) ->
-    emqx_coap_protocol_SUITE:t_message_helpers(Config).
-
-t_medium_helpers(Config) ->
-    emqx_coap_protocol_SUITE:t_medium_helpers(Config).
-
-t_observe_manager(Config) ->
-    emqx_coap_protocol_SUITE:t_observe_manager(Config).
-
-t_session_info_and_deliver(Config) ->
-    emqx_coap_protocol_SUITE:t_session_info_and_deliver(Config).
-
-t_session_notify_qos_types(Config) ->
-    emqx_coap_protocol_SUITE:t_session_notify_qos_types(Config).
-
-t_transport_paths(Config) ->
-    emqx_coap_protocol_SUITE:t_transport_paths(Config).
-
-t_transport_retry_interval_initial(Config) ->
-    emqx_coap_protocol_SUITE:t_transport_retry_interval_initial(Config).
-
-t_transport_observe_retransmit_update(Config) ->
-    emqx_coap_protocol_SUITE:t_transport_observe_retransmit_update(Config).
-
-t_tm_paths(Config) ->
-    emqx_coap_protocol_SUITE:t_tm_paths(Config).
-
-t_tm_timer_cleanup(Config) ->
-    emqx_coap_protocol_SUITE:t_tm_timer_cleanup(Config).
-
-t_pubsub_handler_direct(Config) ->
-    emqx_coap_protocol_SUITE:t_pubsub_handler_direct(Config).
-
-t_mqtt_handler_direct(Config) ->
-    emqx_coap_protocol_SUITE:t_mqtt_handler_direct(Config).
-
-t_api_namespace(Config) ->
-    emqx_coap_protocol_SUITE:t_api_namespace(Config).
-
-t_channel_direct(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_direct(Config).
-
-t_channel_frame_error_handling(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_frame_error_handling(Config).
-
-t_channel_connection_success(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_connection_success(Config).
-
-t_channel_connection_no_expire(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_connection_no_expire(Config).
-
-t_channel_connection_missing_clientid_direct(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_connection_missing_clientid_direct(Config).
-
-t_channel_connection_hooks_error_direct(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_connection_hooks_error_direct(Config).
-
-t_channel_connection_auth_error_direct(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_connection_auth_error_direct(Config).
-
-t_channel_connection_open_session_error_direct(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_connection_open_session_error_direct(Config).
-
-t_channel_check_token_paths(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_check_token_paths(Config).
-
-t_channel_connected_invalid_queries(Config) ->
-    emqx_coap_protocol_SUITE:t_channel_connected_invalid_queries(Config).
-
-t_proxy_conn_paths(Config) ->
-    emqx_coap_protocol_SUITE:t_proxy_conn_paths(Config).
-
-t_schema_and_gateway_paths(Config) ->
-    emqx_coap_protocol_SUITE:t_schema_and_gateway_paths(Config).
 
 %%--------------------------------------------------------------------
 %% helpers
@@ -1363,27 +1180,10 @@ return_response({error, Code}, Message) ->
     {error, Code, er_coap_message:get_content(Message)}.
 
 do(Fun) ->
-    ChId = {{127, 0, 0, 1}, 5683},
-    {ok, Sock} = er_coap_udp_socket:start_link(),
-    {ok, Channel} = er_coap_udp_socket:get_channel(Sock, ChId),
-    %% send and receive
-    Res = Fun(Channel),
-    %% terminate the processes
-    er_coap_channel:close(Channel),
-    er_coap_udp_socket:close(Sock),
-    Res.
+    emqx_coap_test_helpers:with_udp_channel(Fun).
 
 send_raw(Packet, Timeout) ->
-    {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
-    ok = gen_udp:send(Sock, {127, 0, 0, 1}, 5683, Packet),
-    Res = gen_udp:recv(Sock, 0, Timeout),
-    ok = gen_udp:close(Sock),
-    case Res of
-        {ok, {_Addr, _Port, Data}} ->
-            {ok, Data};
-        {error, Reason} ->
-            {error, Reason}
-    end.
+    emqx_coap_test_helpers:send_raw(Packet, Timeout).
 
 with_connection(Action) ->
     Fun = fun(Channel) ->
