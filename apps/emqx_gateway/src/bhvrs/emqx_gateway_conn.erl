@@ -862,7 +862,7 @@ send(
         msg => "send_data",
         size => iolist_size(IoData),
         type => "hex",
-        bin => binary_to_list(binary:encode_hex(IoData))
+        iodata => IoData
     }),
     Ctx = ChannMod:info(ctx, Channel),
     Oct = iolist_size(IoData),
