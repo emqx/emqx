@@ -111,7 +111,8 @@ idle(out, Msg, Transport) ->
     Timeout = ?ACK_TIMEOUT + rand:uniform(?ACK_RANDOM_FACTOR),
     out(Msg, #{
         next => wait_ack,
-        transport => Transport#transport{cache = Msg},
+        %% RFC 7252 Section 4.2: initialize retransmission timeout for ACK handling.
+        transport => Transport#transport{cache = Msg, retry_interval = Timeout},
         timeouts => [
             {state_timeout, Timeout, ack_timeout},
             {stop_timeout, ?EXCHANGE_LIFETIME}
@@ -190,11 +191,14 @@ wait_ack(
 ) ->
     case Count < ?MAX_RETRANSMIT of
         true ->
+            %% RFC 7641 Section 4.4: update Observe value on retransmission.
+            Msg2 = maybe_update_observe(Msg),
             Timeout2 = Timeout * 2,
             out(
-                Msg,
+                Msg2,
                 #{
                     transport => Transport#transport{
+                        cache = Msg2,
                         retry_interval = Timeout2,
                         retry_count = Count + 1
                     },
@@ -255,4 +259,14 @@ on_response(
             );
         true ->
             emqx_coap_message:reset(Message)
+    end.
+
+maybe_update_observe(Msg) ->
+    %% RFC 7641 Section 4.4: Observe value must be current at transmission time.
+    case emqx_coap_message:get_option(observe, Msg, undefined) of
+        undefined ->
+            Msg;
+        _ ->
+            NewObserve = emqx_coap_observe_res:current_value(),
+            emqx_coap_message:set(observe, NewObserve, Msg)
     end.

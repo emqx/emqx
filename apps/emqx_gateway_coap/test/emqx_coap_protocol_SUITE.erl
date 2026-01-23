@@ -302,18 +302,18 @@ t_frame_empty_reset_and_undefined_option(_) ->
 t_frame_decode_extended_values(_) ->
     OptVal13 = binary:copy(<<"x">>, 13),
     Header13 = <<1:2, 0:2, 0:4, 0:3, 1:5, 2:16>>,
-    Opt13 = <<13:4, 13:4, 0:8, 0:8, OptVal13/binary>>,
+    Opt13 = <<13:4, 13:4, 13:8, 0:8, OptVal13/binary>>,
     Packet13 = <<Header13/binary, Opt13/binary>>,
     {ok, Decoded13, <<>>, _} = emqx_coap_frame:parse(Packet13, #{}),
     Opts13 = Decoded13#coap_message.options,
-    ?assertEqual(OptVal13, maps:get(13, Opts13)),
+    ?assertEqual(false, maps:is_key(26, Opts13)),
     OptVal = binary:copy(<<"z">>, 269),
     Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 1:16>>,
-    Opt = <<14:4, 14:4, 0:16, 0:16, OptVal/binary>>,
+    Opt = <<14:4, 14:4, 1:16, 0:16, OptVal/binary>>,
     Packet = <<Header/binary, Opt/binary>>,
     {ok, Decoded, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
     Opts = Decoded#coap_message.options,
-    ?assertEqual(OptVal, maps:get(269, Opts)),
+    ?assertEqual(false, maps:is_key(270, Opts)),
     ok.
 
 t_frame_parse_codes(_) ->
@@ -342,8 +342,7 @@ t_frame_parse_codes(_) ->
         {5, 2, {error, bad_gateway}},
         {5, 3, {error, service_unavailable}},
         {5, 4, {error, gateway_timeout}},
-        {5, 5, {error, proxying_not_supported}},
-        {1, 0, undefined}
+        {5, 5, {error, proxying_not_supported}}
     ],
     lists:foreach(
         fun({Class, Code, Expected}) ->
@@ -353,6 +352,26 @@ t_frame_parse_codes(_) ->
         end,
         Codes
     ),
+    ok.
+
+t_frame_parse_incomplete_more(_) ->
+    ParseState = #{},
+    ?assertEqual({more, ParseState}, emqx_coap_frame:parse(<<1>>, ParseState)),
+    ok.
+
+t_frame_empty_message_with_data(_) ->
+    Packet = <<1:2, 0:2, 0:4, 0:3, 0:5, 120:16, 16#FF>>,
+    {ok, {coap_format_error, con, 120, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_truncated_token(_) ->
+    Packet = <<1:2, 0:2, 1:4, 0:3, 1:5, 121:16>>,
+    {ok, {coap_format_error, con, 121, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_reserved_class_format_error(_) ->
+    Packet = <<1:2, 0:2, 0:4, 1:3, 0:5, 12:16>>,
+    {ok, {coap_format_error, con, 12, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
     ok.
 
 t_frame_query_and_truncated_option(_) ->
@@ -368,8 +387,187 @@ t_frame_query_and_truncated_option(_) ->
     Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 31:16>>,
     Opt = <<0:4, 1:4>>,
     Packet = <<Header/binary, Opt/binary>>,
-    {ok, TruncatedDecoded, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
-    ?assertEqual(<<>>, maps:get(0, TruncatedDecoded#coap_message.options)),
+    {ok, {coap_format_error, con, 31, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_unknown_version_ignore(_) ->
+    Packet = <<2:2, 0:2, 0:4, 0:3, 1:5, 99:16>>,
+    {ok, {coap_ignore, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_invalid_tkl(_) ->
+    Packet = <<1:2, 0:2, 9:4, 0:3, 1:5, 100:16>>,
+    {ok, {coap_format_error, con, 100, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_payload_marker_empty_error(_) ->
+    Packet = <<1:2, 0:2, 0:4, 0:3, 1:5, 101:16, 16#FF>>,
+    {ok, {coap_format_error, con, 101, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_option_delta_len_reserved(_) ->
+    Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 102:16>>,
+    Delta15 = <<15:4, 0:4>>,
+    Len15 = <<0:4, 15:4>>,
+    {ok, {coap_format_error, con, 102, _}, <<>>, _} =
+        emqx_coap_frame:parse(<<Header/binary, Delta15/binary>>, #{}),
+    {ok, {coap_format_error, con, 102, _}, <<>>, _} =
+        emqx_coap_frame:parse(<<Header/binary, Len15/binary>>, #{}),
+    ok.
+
+t_frame_option_ext_delta_truncated(_) ->
+    Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 113:16>>,
+    Delta13 = <<13:4, 0:4>>,
+    Delta14 = <<14:4, 0:4>>,
+    {ok, {coap_format_error, con, 113, _}, <<>>, _} =
+        emqx_coap_frame:parse(<<Header/binary, Delta13/binary>>, #{}),
+    {ok, {coap_format_error, con, 113, _}, <<>>, _} =
+        emqx_coap_frame:parse(<<Header/binary, Delta14/binary>>, #{}),
+    ok.
+
+t_frame_option_ext_len_truncated(_) ->
+    Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 114:16>>,
+    Len13 = <<0:4, 13:4>>,
+    {ok, {coap_format_error, con, 114, _}, <<>>, _} =
+        emqx_coap_frame:parse(<<Header/binary, Len13/binary>>, #{}),
+    ok.
+
+t_frame_unknown_critical_option(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 103,
+        token = <<"t">>,
+        options = #{uri_path => [<<"ps">>], 9 => <<1>>}
+    },
+    Bin = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
+    {ok, {coap_request_error, #coap_message{id = 103}, {error, bad_option}}, <<>>, _} =
+        emqx_coap_frame:parse(Bin, #{}),
+    ok.
+
+t_frame_unknown_elective_option(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 111,
+        options = #{10 => <<1>>}
+    },
+    Bin = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
+    {ok, Decoded, <<>>, _} = emqx_coap_frame:parse(Bin, #{}),
+    ?assertEqual(false, maps:is_key(10, Decoded#coap_message.options)),
+    ok.
+
+t_frame_duplicate_critical_option(_) ->
+    Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 104:16>>,
+    Opt1 = <<3:4, 1:4, "a">>,
+    Opt2 = <<0:4, 1:4, "b">>,
+    Packet = <<Header/binary, Opt1/binary, Opt2/binary>>,
+    {ok, {coap_request_error, #coap_message{id = 104}, {error, bad_option}}, <<>>, _} =
+        emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_duplicate_elective_option(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 105,
+        options = #{content_format => 0, 12 => <<0>>}
+    },
+    Bin = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
+    {ok, Decoded, <<>>, _} = emqx_coap_frame:parse(Bin, #{}),
+    ?assertEqual(<<"text/plain">>, maps:get(content_format, Decoded#coap_message.options)),
+    ok.
+
+t_frame_invalid_if_none_match(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 106,
+        options = #{5 => <<1>>}
+    },
+    Bin = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
+    {ok, {coap_request_error, #coap_message{id = 106}, {error, bad_option}}, <<>>, _} =
+        emqx_coap_frame:parse(Bin, #{}),
+    ok.
+
+t_frame_invalid_block_szx(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 107,
+        options = #{23 => <<7>>}
+    },
+    Bin = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
+    {ok, {coap_request_error, #coap_message{id = 107}, {error, bad_request}}, <<>>, _} =
+        emqx_coap_frame:parse(Bin, #{}),
+    ok.
+
+t_frame_block_option_empty(_) ->
+    Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 115:16>>,
+    Opt = <<13:4, 0:4, 14>>,
+    Packet = <<Header/binary, Opt/binary>>,
+    {ok, Msg, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ?assertEqual({0, false, 16}, maps:get(block1, Msg#coap_message.options)),
+    ok.
+
+t_frame_block_option_invalid_len(_) ->
+    Header = <<1:2, 0:2, 0:4, 0:3, 1:5, 116:16>>,
+    Opt = <<13:4, 5:4, 14, 0:40>>,
+    Packet = <<Header/binary, Opt/binary>>,
+    {ok, {coap_request_error, #coap_message{id = 116}, {error, bad_request}}, <<>>, _} =
+        emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_unknown_method_code(_) ->
+    Packet = <<1:2, 0:2, 1:4, 0:3, 31:5, 108:16, 1>>,
+    {ok, {coap_request_error, #coap_message{id = 108}, {error, method_not_allowed}}, <<>>, _} =
+        emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_format_error_on_response_option(_) ->
+    Header = <<1:2, 0:2, 0:4, 2:3, 5:5, 117:16>>,
+    Delta15 = <<15:4, 0:4>>,
+    Packet = <<Header/binary, Delta15/binary>>,
+    {ok, {coap_format_error, con, 117, _}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_frame_unknown_response_code_ignore(_) ->
+    Packet = <<1:2, 0:2, 0:4, 2:3, 30:5, 112:16>>,
+    {ok, {coap_ignore, {unknown_response, 2, 30}}, <<>>, _} = emqx_coap_frame:parse(Packet, #{}),
+    ok.
+
+t_serialize_invalid_token_length(_) ->
+    Msg = #coap_message{type = con, method = get, id = 109, token = <<0:72>>},
+    ?assertThrow(
+        {bad_token, token_too_long},
+        emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts())
+    ),
+    ok.
+
+t_serialize_invalid_block_size(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 110,
+        options = #{block2 => {0, false, 2048}}
+    },
+    ?assertThrow(
+        {bad_block, invalid_size},
+        emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts())
+    ),
+    ok.
+
+t_serialize_invalid_block_size_type(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 111,
+        options = #{block2 => {0, false, <<"bad">>}}
+    },
+    ?assertThrow(
+        {bad_block, invalid_size},
+        emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts())
+    ),
     ok.
 
 t_frame_block_roundtrip(_) ->
@@ -394,6 +592,16 @@ t_frame_misc_helpers(_) ->
     _ = emqx_coap_frame:format(Msg),
     ?assert(emqx_coap_frame:is_message(Msg)),
     ?assertEqual(false, emqx_coap_frame:is_message(#{bad => msg})),
+    ok.
+
+t_frame_type_error_variants(_) ->
+    ?assertEqual(undefined, emqx_coap_frame:type({coap_ignore, ignore})),
+    ?assertEqual(undefined, emqx_coap_frame:type({coap_format_error, con, 1, bad})),
+    ?assertEqual(
+        undefined,
+        emqx_coap_frame:type({coap_request_error, #coap_message{id = 1}, {error, bad_option}})
+    ),
+    ?assertEqual(coap, emqx_coap_frame:type(#{bad => msg})),
     ok.
 
 t_message_helpers(_) ->
@@ -444,7 +652,11 @@ t_observe_manager(_) ->
     Manager3 = #{
         <<"wrap">> => #{token => <<"t">>, seq_id => 16777215, subopts => #{qos => 0}}
     },
-    {_, 1, _} = emqx_coap_observe_res:res_changed(<<"wrap">>, Manager3),
+    {_, SeqIdWrap, _} = emqx_coap_observe_res:res_changed(<<"wrap">>, Manager3),
+    ?assert(SeqIdWrap >= 16777216),
+    SeqVal = emqx_coap_observe_res:current_value(),
+    ?assert(SeqVal >= 0 andalso SeqVal =< 16#FFFFFF),
+    ?assertEqual(SeqIdWrap band 16#FFFFFF, emqx_coap_observe_res:observe_value(SeqIdWrap)),
     ok = emqx_coap_observe_res:foreach(fun(_, _) -> ok end, Manager2),
     _ = emqx_coap_observe_res:subscriptions(Manager2),
     ok.
@@ -548,6 +760,33 @@ t_transport_paths(_) ->
         in, #coap_message{type = con, method = get}, Transport0
     ),
     _ = emqx_coap_transport:until_stop(in, Msg3, Transport0),
+    ok.
+
+t_transport_retry_interval_initial(_) ->
+    Msg = #coap_message{type = con, method = get, id = 200},
+    #{transport := Transport, timeouts := Timeouts} =
+        emqx_coap_transport:idle(out, Msg, emqx_coap_transport:new()),
+    {state_timeout, Timeout, ack_timeout} = lists:keyfind(state_timeout, 1, Timeouts),
+    ?assertEqual(Timeout, Transport#transport.retry_interval),
+    ok.
+
+t_transport_observe_retransmit_update(_) ->
+    ok = meck:new(emqx_coap_observe_res, [passthrough]),
+    ok = meck:expect(emqx_coap_observe_res, current_value, fun() -> 77 end),
+    try
+        Msg = #coap_message{
+            type = con,
+            method = {ok, content},
+            id = 201,
+            options = #{observe => 1}
+        },
+        Transport = #transport{cache = Msg, retry_interval = 1, retry_count = 0},
+        #{out := [OutMsg]} =
+            emqx_coap_transport:wait_ack(state_timeout, ack_timeout, Transport),
+        ?assertEqual(77, emqx_coap_message:get_option(observe, OutMsg))
+    after
+        ok = meck:unload(emqx_coap_observe_res)
+    end,
     ok.
 
 t_tm_paths(_) ->
@@ -720,6 +959,63 @@ t_channel_direct(_) ->
         Channel2
     ),
     meck:unload(esockd_peercert),
+    ok.
+
+t_channel_frame_error_handling(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    Channel0 = emqx_coap_channel:init(ConnInfo, #{ctx => #{gwname => coap, cm => self()}}),
+    {ok, Channel1} = emqx_coap_channel:handle_in({coap_ignore, ignore}, Channel0),
+    {ok, [{outgoing, Reset}], Channel2} = emqx_coap_channel:handle_in(
+        {coap_format_error, con, 300, bad_format},
+        Channel1
+    ),
+    ?assertMatch(#coap_message{type = reset, id = 300}, Reset),
+    {ok, Channel3} = emqx_coap_channel:handle_in(
+        {coap_format_error, non, 301, bad_format},
+        Channel2
+    ),
+    {ok, [{outgoing, ErrReply}], _} = emqx_coap_channel:handle_in(
+        {coap_request_error, #coap_message{type = con, id = 302, token = <<>>}, {error, bad_option}},
+        Channel3
+    ),
+    ?assertMatch(#coap_message{method = {error, bad_option}}, ErrReply),
+    ok.
+
+t_proxy_conn_format_error_con(_) ->
+    State = emqx_coap_proxy_conn:initialize([]),
+    Packet = <<1:2, 0:2, 9:4, 0:3, 1:5, 400:16>>,
+    {ok, {peer, _}, [{coap_format_error, con, 400, _}], _} =
+        emqx_coap_proxy_conn:get_connection_id(undefined, {{127, 0, 0, 1}, 5683}, State, Packet),
+    ok.
+
+t_proxy_conn_format_error_non(_) ->
+    State = emqx_coap_proxy_conn:initialize([]),
+    Packet = <<1:2, 1:2, 9:4, 0:3, 1:5, 401:16>>,
+    {ok, {peer, _}, [{coap_format_error, non, 401, _}], _} =
+        emqx_coap_proxy_conn:get_connection_id(undefined, {{127, 0, 0, 1}, 5683}, State, Packet),
+    ok.
+
+t_proxy_conn_request_error(_) ->
+    State = emqx_coap_proxy_conn:initialize([]),
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 402,
+        options = #{9 => <<1>>}
+    },
+    Packet = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
+    {ok, {peer, _}, [{coap_request_error, #coap_message{id = 402}, {error, bad_option}}], _} =
+        emqx_coap_proxy_conn:get_connection_id(undefined, {{127, 0, 0, 1}, 5683}, State, Packet),
+    ok.
+
+t_proxy_conn_ignore(_) ->
+    State = emqx_coap_proxy_conn:initialize([]),
+    Packet = <<2:2, 0:2, 0:4, 0:3, 1:5, 403:16>>,
+    {ok, {peer, _}, [{coap_ignore, _}], _} =
+        emqx_coap_proxy_conn:get_connection_id(undefined, {{127, 0, 0, 1}, 5683}, State, Packet),
     ok.
 
 t_channel_connection_success(_) ->
@@ -1041,8 +1337,8 @@ t_proxy_conn_paths(_) ->
         options = #{uri_path => [<<"mqtt">>, <<"connection">>]}
     },
     Bin = emqx_coap_frame:serialize_pkt(Msg, emqx_coap_frame:serialize_opts()),
-    {error, ErrBin} = emqx_coap_proxy_conn:get_connection_id(dummy, dummy, State, Bin),
-    ?assert(is_binary(ErrBin)),
+    {ok, {peer, _}, [#coap_message{type = con, method = post, id = 1}], _} =
+        emqx_coap_proxy_conn:get_connection_id(dummy, dummy, State, Bin),
     ok.
 
 t_schema_and_gateway_paths(_) ->

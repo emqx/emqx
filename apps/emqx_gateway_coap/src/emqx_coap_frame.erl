@@ -75,6 +75,11 @@ serialize_pkt(
     _Opts
 ) ->
     TKL = byte_size(Token),
+    %% RFC 7252 Section 3: Token Length (0-8). 9-15 MUST NOT be sent.
+    case TKL > 8 of
+        true -> erlang:throw({bad_token, token_too_long});
+        false -> ok
+    end,
     {Class, Code} = method_to_class_code(Method),
     Head =
         <<?VERSION:2, (encode_type(Type)):2, TKL:4, Class:3, Code:5, MsgId:16, Token:TKL/binary>>,
@@ -200,17 +205,28 @@ encode_option(Option, Value) ->
     erlang:throw({bad_option, Option, Value}).
 
 encode_block({Num, More, Size}) ->
-    encode_block1(
-        Num,
-        (if
-            More -> 1;
-            true -> 0
-        end),
-        trunc(math:log2(Size)) - 4
-    ).
+    %% RFC 7959 Section 2: SZX MUST be 0..6 (block size 16..1024).
+    case is_valid_block_size(Size) of
+        true ->
+            encode_block1(
+                Num,
+                (if
+                    More -> 1;
+                    true -> 0
+                end),
+                trunc(math:log2(Size)) - 4
+            );
+        false ->
+            erlang:throw({bad_block, invalid_size})
+    end.
 encode_block1(Num, M, SizEx) when Num < 16 -> <<Num:4, M:1, SizEx:3>>;
 encode_block1(Num, M, SizEx) when Num < 4096 -> <<Num:12, M:1, SizEx:3>>;
 encode_block1(Num, M, SizEx) -> <<Num:28, M:1, SizEx:3>>.
+
+is_valid_block_size(Size) when is_integer(Size) ->
+    Size >= 16 andalso Size =< 1024 andalso (Size band (Size - 1)) =:= 0;
+is_valid_block_size(_) ->
+    false.
 content_format_to_code(<<"text/plain">>) -> 0;
 content_format_to_code(<<"application/link-format">>) -> 40;
 content_format_to_code(<<"application/xml">>) -> 41;
@@ -257,24 +273,93 @@ method_to_class_code(Method) -> erlang:throw({bad_method, Method}).
 
 -spec parse(binary(), emqx_gateway_frame:parse_state()) ->
     emqx_gateway_frame:parse_result().
-parse(<<?VERSION:2, Type:2, 0:4, 0:3, 0:5, MsgId:16>>, ParseState) ->
-    {ok, #coap_message{type = decode_type(Type), id = MsgId}, <<>>, ParseState};
-parse(
-    <<?VERSION:2, Type:2, TKL:4, Class:3, Code:5, MsgId:16, Token:TKL/binary, Tail/binary>>,
-    ParseState
-) ->
-    {Options, Payload} = decode_option_list(Tail),
-    Options2 = maps:fold(fun(K, V, Acc) -> Acc#{K => get_option_val(K, V)} end, #{}, Options),
-    {ok,
-        #coap_message{
-            type = decode_type(Type),
-            method = class_code_to_method({Class, Code}),
-            id = MsgId,
-            token = Token,
-            options = Options2,
-            payload = Payload
-        },
-        <<>>, ParseState}.
+parse(<<Ver:2, TypeBits:2, TKL:4, Class:3, Code:5, MsgId:16, Rest/binary>>, ParseState) ->
+    case Ver of
+        ?VERSION ->
+            parse_v1(TypeBits, TKL, Class, Code, MsgId, Rest, ParseState);
+        _ ->
+            %% RFC 7252 Section 3: unknown version MUST be silently ignored.
+            {ok, {coap_ignore, {unknown_version, Ver}}, <<>>, ParseState}
+    end;
+parse(_, ParseState) ->
+    {more, ParseState}.
+
+parse_v1(TypeBits, TKL, Class, Code, MsgId, Rest, ParseState) ->
+    Type = decode_type(TypeBits),
+    case {Class, Code} of
+        {0, 0} ->
+            %% RFC 7252 Section 4.2: empty message must have no token/options/payload.
+            case TKL =:= 0 andalso Rest =:= <<>> of
+                true ->
+                    {ok, #coap_message{type = Type, id = MsgId}, <<>>, ParseState};
+                false ->
+                    {ok, {coap_format_error, Type, MsgId, empty_message_with_data}, <<>>, ParseState}
+            end;
+        _ ->
+            parse_non_empty(Type, TKL, Class, Code, MsgId, Rest, ParseState)
+    end.
+
+parse_non_empty(Type, TKL, Class, Code, MsgId, Rest, ParseState) ->
+    case is_supported_class(Class) of
+        false ->
+            %% RFC 7252 Section 4.2: reserved class is a message format error.
+            {ok, {coap_format_error, Type, MsgId, reserved_class}, <<>>, ParseState};
+        true ->
+            case TKL > 8 of
+                true ->
+                    %% RFC 7252 Section 3: Token Length 9-15 is a format error.
+                    {ok, {coap_format_error, Type, MsgId, invalid_tkl}, <<>>, ParseState};
+                false ->
+                    parse_token(Type, Class, Code, MsgId, Rest, TKL, ParseState)
+            end
+    end.
+
+parse_token(Type, Class, Code, MsgId, Rest, TKL, ParseState) ->
+    case Rest of
+        <<Token:TKL/binary, Tail/binary>> ->
+            parse_options(Type, Class, Code, MsgId, Token, Tail, ParseState);
+        _ ->
+            {ok, {coap_format_error, Type, MsgId, truncated_token}, <<>>, ParseState}
+    end.
+
+parse_options(Type, Class, Code, MsgId, Token, Tail, ParseState) ->
+    case decode_option_list(Tail) of
+        {ok, Options, Payload} ->
+            parse_method(Type, Class, Code, MsgId, Token, Options, Payload, ParseState);
+        {error, Reason} ->
+            parse_option_error(Type, Class, MsgId, Token, Reason, ParseState)
+    end.
+
+parse_method(Type, Class, Code, MsgId, Token, Options, Payload, ParseState) ->
+    case class_code_to_method_result(Class, Code) of
+        {ok, Method} ->
+            Options2 = maps:fold(fun(K, V, Acc) -> Acc#{K => get_option_val(K, V)} end, #{}, Options),
+            {ok,
+                #coap_message{
+                    type = Type,
+                    method = Method,
+                    id = MsgId,
+                    token = Token,
+                    options = Options2,
+                    payload = Payload
+                },
+                <<>>, ParseState};
+        {error, bad_method} ->
+            %% RFC 7252 Section 5.8: unknown request method -> 4.05.
+            Req = #coap_message{type = Type, id = MsgId, token = Token},
+            {ok, {coap_request_error, Req, {error, method_not_allowed}}, <<>>, ParseState};
+        {error, unknown_response} ->
+            {ok, {coap_ignore, {unknown_response, Class, Code}}, <<>>, ParseState}
+    end.
+
+parse_option_error(Type, Class, MsgId, Token, Reason, ParseState) ->
+    case classify_option_error(Reason, Class) of
+        {request_error, ErrorCode} ->
+            Req = #coap_message{type = Type, id = MsgId, token = Token},
+            {ok, {coap_request_error, Req, {error, ErrorCode}}, <<>>, ParseState};
+        format_error ->
+            {ok, {coap_format_error, Type, MsgId, Reason}, <<>>, ParseState}
+    end.
 
 get_option_val(uri_query, V) ->
     KVList = lists:foldl(fun split_uri_query/2, [], V),
@@ -296,23 +381,39 @@ decode_type(1) -> non;
 decode_type(2) -> ack;
 decode_type(3) -> reset.
 
--spec decode_option_list(binary()) -> {message_options(), binary()}.
+-spec decode_option_list(binary()) ->
+    {ok, message_options(), binary()} | {error, term()}.
 decode_option_list(Bin) ->
     decode_option_list(Bin, 0, #{}).
 
 decode_option_list(<<>>, _OptNum, OptMap) ->
-    {OptMap, <<>>};
+    {ok, OptMap, <<>>};
 decode_option_list(<<16#FF, Payload/binary>>, _OptNum, OptMap) ->
-    {OptMap, Payload};
+    %% RFC 7252 Section 3: payload marker with empty payload is a format error.
+    case Payload of
+        <<>> -> {error, payload_marker_empty};
+        _ -> {ok, OptMap, Payload}
+    end;
 decode_option_list(<<Delta:4, Len:4, Bin/binary>>, OptNum, OptMap) ->
     case Delta of
+        15 ->
+            %% RFC 7252 Section 3.1: delta 15 is reserved.
+            {error, option_delta_reserved};
         Any when Any < 13 -> decode_option_len(Bin, OptNum + Delta, Len, OptMap);
         13 ->
-            <<ExtOptNum, NewBin/binary>> = Bin,
-            decode_option_len(NewBin, OptNum + ExtOptNum + 13, Len, OptMap);
+            case Bin of
+                <<ExtOptNum, NewBin/binary>> ->
+                    decode_option_len(NewBin, OptNum + ExtOptNum + 13, Len, OptMap);
+                _ ->
+                    {error, option_ext_delta_truncated}
+            end;
         14 ->
-            <<ExtOptNum:16, NewBin/binary>> = Bin,
-            decode_option_len(NewBin, OptNum + ExtOptNum + 269, Len, OptMap)
+            case Bin of
+                <<ExtOptNum:16, NewBin/binary>> ->
+                    decode_option_len(NewBin, OptNum + ExtOptNum + 269, Len, OptMap);
+                _ ->
+                    {error, option_ext_delta_truncated}
+            end
     end.
 
 decode_option_len(Bin, OptNum, Len, OptMap) when Len < 13 ->
@@ -320,21 +421,44 @@ decode_option_len(Bin, OptNum, Len, OptMap) when Len < 13 ->
 decode_option_len(<<ExtOptLen, NewBin/binary>>, OptNum, 13, OptMap) ->
     decode_option_value(NewBin, OptNum, ExtOptLen + 13, OptMap);
 decode_option_len(<<ExtOptLen:16, NewBin/binary>>, OptNum, 14, OptMap) ->
-    decode_option_value(NewBin, OptNum, ExtOptLen + 269, OptMap).
+    decode_option_value(NewBin, OptNum, ExtOptLen + 269, OptMap);
+decode_option_len(_, _OptNum, 15, _OptMap) ->
+    %% RFC 7252 Section 3.1: length 15 is reserved.
+    {error, option_length_reserved};
+decode_option_len(_, _OptNum, _, _OptMap) ->
+    {error, option_ext_len_truncated}.
 
 decode_option_value(<<Bin/binary>>, OptNum, OptLen, OptMap) ->
     case Bin of
         <<OptVal:OptLen/binary, NewBin/binary>> ->
-            decode_option_list(NewBin, OptNum, append_option(OptNum, OptVal, OptMap));
-        <<>> ->
-            decode_option_list(<<>>, OptNum, append_option(OptNum, <<>>, OptMap))
+            case append_option(OptNum, OptVal, OptMap) of
+                {ok, OptMap2} -> decode_option_list(NewBin, OptNum, OptMap2);
+                {error, Reason} -> {error, Reason}
+            end;
+        _ ->
+            {error, option_value_truncated}
     end.
 
 append_option(OptNum, RawOptVal, OptMap) ->
-    {OptId, OptVal} = decode_option(OptNum, RawOptVal),
-    case is_repeatable_option(OptId) of
-        false -> OptMap#{OptId => OptVal};
-        true -> add_repeatable_option(OptId, OptVal, OptMap)
+    case decode_option(OptNum, RawOptVal) of
+        {ok, OptId, OptVal} ->
+            case is_repeatable_option(OptId) of
+                false ->
+                    case maps:is_key(OptId, OptMap) of
+                        false -> {ok, OptMap#{OptId => OptVal}};
+                        true ->
+                            case is_critical_option(OptNum) of
+                                true -> {error, duplicate_critical_option};
+                                false -> {ok, OptMap}
+                            end
+                    end;
+                true ->
+                    {ok, add_repeatable_option(OptId, OptVal, OptMap)}
+            end;
+        {ignore, _OptNum} ->
+            {ok, OptMap};
+        {error, Reason} ->
+            {error, Reason}
     end.
 add_repeatable_option(OptId, OptVal, OptMap) ->
     case maps:get(OptId, OptMap, undefined) of
@@ -343,48 +467,73 @@ add_repeatable_option(OptId, OptVal, OptMap) ->
     end.
 
 decode_option(?OPTION_IF_MATCH, OptVal) ->
-    {if_match, OptVal};
+    {ok, if_match, OptVal};
 decode_option(?OPTION_URI_HOST, OptVal) ->
-    {uri_host, OptVal};
+    {ok, uri_host, OptVal};
 decode_option(?OPTION_ETAG, OptVal) ->
-    {etag, OptVal};
+    {ok, etag, OptVal};
 decode_option(?OPTION_IF_NONE_MATCH, <<>>) ->
-    {if_none_match, true};
+    {ok, if_none_match, true};
+decode_option(?OPTION_IF_NONE_MATCH, _OptVal) ->
+    %% RFC 7252 Section 5.10.8.2: If-None-Match MUST be empty.
+    {error, invalid_if_none_match};
 decode_option(?OPTION_URI_PORT, OptVal) ->
-    {uri_port, binary:decode_unsigned(OptVal)};
+    {ok, uri_port, binary:decode_unsigned(OptVal)};
 decode_option(?OPTION_LOCATION_PATH, OptVal) ->
-    {location_path, OptVal};
+    {ok, location_path, OptVal};
 decode_option(?OPTION_URI_PATH, OptVal) ->
-    {uri_path, OptVal};
+    {ok, uri_path, OptVal};
 decode_option(?OPTION_CONTENT_FORMAT, OptVal) ->
     Num = binary:decode_unsigned(OptVal),
-    {content_format, content_code_to_format(Num)};
+    {ok, content_format, content_code_to_format(Num)};
 decode_option(?OPTION_MAX_AGE, OptVal) ->
-    {max_age, binary:decode_unsigned(OptVal)};
+    {ok, max_age, binary:decode_unsigned(OptVal)};
 decode_option(?OPTION_URI_QUERY, OptVal) ->
-    {uri_query, OptVal};
+    {ok, uri_query, OptVal};
 decode_option(?OPTION_ACCEPT, OptVal) ->
-    {'accept', binary:decode_unsigned(OptVal)};
+    {ok, 'accept', binary:decode_unsigned(OptVal)};
 decode_option(?OPTION_LOCATION_QUERY, OptVal) ->
-    {location_query, OptVal};
+    {ok, location_query, OptVal};
 decode_option(?OPTION_PROXY_URI, OptVal) ->
-    {proxy_uri, OptVal};
+    {ok, proxy_uri, OptVal};
 decode_option(?OPTION_PROXY_SCHEME, OptVal) ->
-    {proxy_scheme, OptVal};
+    {ok, proxy_scheme, OptVal};
 decode_option(?OPTION_SIZE1, OptVal) ->
-    {size1, binary:decode_unsigned(OptVal)};
+    {ok, size1, binary:decode_unsigned(OptVal)};
 decode_option(?OPTION_OBSERVE, OptVal) ->
-    {observe, binary:decode_unsigned(OptVal)};
+    {ok, observe, binary:decode_unsigned(OptVal)};
 decode_option(?OPTION_BLOCK2, OptVal) ->
-    {block2, decode_block(OptVal)};
+    decode_block_option(block2, OptVal);
 decode_option(?OPTION_BLOCK1, OptVal) ->
-    {block1, decode_block(OptVal)};
-decode_option(OptNum, OptVal) ->
-    {OptNum, OptVal}.
+    decode_block_option(block1, OptVal);
+decode_option(OptNum, _OptVal) when is_integer(OptNum) ->
+    case is_critical_option(OptNum) of
+        true ->
+            %% RFC 7252 Section 5.4.1: unknown critical options -> 4.02.
+            {error, unknown_critical_option};
+        false ->
+            %% RFC 7252 Section 5.4.1: unknown elective options MUST be ignored.
+            {ignore, OptNum}
+    end.
+
+decode_block_option(Name, OptVal) ->
+    case decode_block(OptVal) of
+        {ok, Block} -> {ok, Name, Block};
+        {error, Reason} -> {error, Reason}
+    end.
+
+decode_block(<<>>) ->
+    decode_block1(0, 0, 0);
 decode_block(<<Num:4, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
 decode_block(<<Num:12, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
-decode_block(<<Num:28, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx).
-decode_block1(Num, M, SizEx) -> {Num, M =/= 0, trunc(math:pow(2, SizEx + 4))}.
+decode_block(<<Num:28, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
+decode_block(_) ->
+    {error, invalid_block_size}.
+decode_block1(_Num, _M, 7) ->
+    %% RFC 7959 Section 2: SZX=7 is reserved and must be rejected.
+    {error, invalid_block_size};
+decode_block1(Num, M, SizEx) ->
+    {ok, {Num, M =/= 0, 1 bsl (SizEx + 4)}}.
 content_code_to_format(0) -> <<"text/plain">>;
 content_code_to_format(40) -> <<"application/link-format">>;
 content_code_to_format(41) -> <<"application/xml">>;
@@ -427,6 +576,10 @@ class_code_to_method(_) -> undefined.
 
 format(Msg) -> io_lib:format("~p", [Msg]).
 
+type(#coap_message{}) -> coap;
+type({coap_ignore, _}) -> undefined;
+type({coap_format_error, _, _, _}) -> undefined;
+type({coap_request_error, _, _}) -> undefined;
 type(_) -> coap.
 
 is_message(#coap_message{}) -> true;
@@ -438,3 +591,38 @@ is_repeatable_option(uri_path) -> true;
 is_repeatable_option(uri_query) -> true;
 is_repeatable_option(location_query) -> true;
 is_repeatable_option(_) -> false.
+
+%% RFC 7252 Section 3: only classes 0,2,4,5 are defined; others are reserved.
+is_supported_class(0) -> true;
+is_supported_class(2) -> true;
+is_supported_class(4) -> true;
+is_supported_class(5) -> true;
+is_supported_class(_) -> false.
+
+%% RFC 7252 Section 5.8: unknown request methods are treated as 4.05.
+class_code_to_method_result(0, Code) ->
+    case class_code_to_method({0, Code}) of
+        undefined -> {error, bad_method};
+        Method -> {ok, Method}
+    end;
+class_code_to_method_result(Class, Code) when Class =:= 2; Class =:= 4; Class =:= 5 ->
+    case class_code_to_method({Class, Code}) of
+        undefined -> {error, unknown_response};
+        Method -> {ok, Method}
+    end.
+
+%% RFC 7252 Section 5.4.1: critical options are odd-numbered.
+is_critical_option(OptNum) when is_integer(OptNum) ->
+    (OptNum band 1) =:= 1.
+
+%% RFC 7252 Section 5.4.1/5.8: map option errors to request or format errors.
+classify_option_error(Reason, Class) when Class =:= 0 ->
+    case Reason of
+        unknown_critical_option -> {request_error, bad_option};
+        duplicate_critical_option -> {request_error, bad_option};
+        invalid_if_none_match -> {request_error, bad_option};
+        invalid_block_size -> {request_error, bad_request};
+        _ -> format_error
+    end;
+classify_option_error(_Reason, _Class) ->
+    format_error.

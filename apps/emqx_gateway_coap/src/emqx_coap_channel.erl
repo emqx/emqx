@@ -170,11 +170,29 @@ send_request(Channel, Request) ->
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_in(Msg, Channel0) ->
     Channel = ensure_keepalive_timer(Channel0),
-    case emqx_coap_message:is_request(Msg) of
-        true ->
-            check_auth_state(Msg, Channel);
+    case Msg of
+        {coap_ignore, _} ->
+            {ok, Channel};
+        {coap_format_error, Type, MsgId, _} ->
+            %% RFC 7252 Section 4.2: reject CON format errors with Reset, ignore others.
+            case Type of
+                con ->
+                    Reset = emqx_coap_message:reset(#coap_message{id = MsgId}),
+                    {ok, [{outgoing, Reset}], Channel};
+                _ ->
+                    {ok, Channel}
+            end;
+        {coap_request_error, Req, Error} ->
+            %% RFC 7252 Section 5.4.1/5.8: reply with a 4.xx error for bad requests.
+            Reply = emqx_coap_message:piggyback(Error, Req),
+            {ok, [{outgoing, Reply}], Channel};
         _ ->
-            call_session(handle_response, Msg, Channel)
+            case emqx_coap_message:is_request(Msg) of
+                true ->
+                    check_auth_state(Msg, Channel);
+                _ ->
+                    call_session(handle_response, Msg, Channel)
+            end
     end.
 
 handle_frame_error(Reason, Channel) ->
@@ -385,7 +403,11 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
             URIQuery = emqx_coap_message:extract_uri_query(Msg),
             case maps:get(<<"token">>, URIQuery, undefined) of
                 undefined ->
-                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg});
+                    %% Connection mode policy: reject requests without token/clientid.
+                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
+                    ErrMsg = <<"Missing token or clientid in connection mode">>,
+                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
+                    {ok, {outgoing, Reply}, Channel};
                 _ ->
                     check_token(Msg, Channel)
             end

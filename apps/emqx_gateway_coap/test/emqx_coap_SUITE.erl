@@ -1012,6 +1012,157 @@ t_frame_query_and_truncated_option(Config) ->
 t_frame_block_roundtrip(Config) ->
     emqx_coap_protocol_SUITE:t_frame_block_roundtrip(Config).
 
+t_frame_parse_incomplete_more(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_parse_incomplete_more(Config).
+
+t_frame_empty_message_with_data(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_empty_message_with_data(Config).
+
+t_frame_truncated_token(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_truncated_token(Config).
+
+t_frame_reserved_class_format_error(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_reserved_class_format_error(Config).
+
+t_frame_option_delta_len_reserved(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_option_delta_len_reserved(Config).
+
+t_frame_option_ext_delta_truncated(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_option_ext_delta_truncated(Config).
+
+t_frame_option_ext_len_truncated(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_option_ext_len_truncated(Config).
+
+t_frame_unknown_elective_option(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_unknown_elective_option(Config).
+
+t_frame_duplicate_critical_option(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_duplicate_critical_option(Config).
+
+t_frame_duplicate_elective_option(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_duplicate_elective_option(Config).
+
+t_frame_invalid_if_none_match(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_invalid_if_none_match(Config).
+
+t_frame_block_option_empty(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_block_option_empty(Config).
+
+t_frame_block_option_invalid_len(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_block_option_invalid_len(Config).
+
+t_frame_format_error_on_response_option(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_format_error_on_response_option(Config).
+
+t_frame_unknown_response_code_ignore(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_unknown_response_code_ignore(Config).
+
+t_serialize_invalid_token_length(Config) ->
+    emqx_coap_protocol_SUITE:t_serialize_invalid_token_length(Config).
+
+t_serialize_invalid_block_size(Config) ->
+    emqx_coap_protocol_SUITE:t_serialize_invalid_block_size(Config).
+
+t_serialize_invalid_block_size_type(Config) ->
+    emqx_coap_protocol_SUITE:t_serialize_invalid_block_size_type(Config).
+
+t_frame_type_error_variants(Config) ->
+    emqx_coap_protocol_SUITE:t_frame_type_error_variants(Config).
+
+t_ignore_unknown_version(_) ->
+    Packet = <<2:2, 0:2, 0:4, 0:3, 1:5, 16#2000:16>>,
+    ?assertEqual({error, timeout}, send_raw(Packet, 500)),
+    ok.
+
+t_invalid_tkl_reset(_) ->
+    Packet = <<1:2, 0:2, 9:4, 0:3, 1:5, 16#2001:16>>,
+    {ok, Bin} = send_raw(Packet, 1000),
+    Msg = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{type = reset, id = 16#2001}, Msg),
+    ok.
+
+t_payload_marker_empty_reset(_) ->
+    Packet = <<1:2, 0:2, 0:4, 0:3, 1:5, 16#2002:16, 16#FF>>,
+    {ok, Bin} = send_raw(Packet, 1000),
+    Msg = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{type = reset, id = 16#2002}, Msg),
+    ok.
+
+t_unknown_critical_option_bad_option(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 16#2003,
+        token = <<1>>,
+        options = [{uri_path, [<<"ps">>, <<"topic">>]}, {9, <<1>>}]
+    },
+    Packet = er_coap_message_parser:encode(Msg),
+    {ok, Bin} = send_raw(Packet, 1000),
+    Resp = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
+    ok.
+
+t_unknown_method_code_405(_) ->
+    Packet = <<1:2, 0:2, 1:4, 0:3, 31:5, 16#2004:16, 16#AA>>,
+    {ok, Bin} = send_raw(Packet, 1000),
+    Resp = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{method = {error, method_not_allowed}}, Resp),
+    ok.
+
+t_invalid_block_szx_400(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 16#2005,
+        token = <<2>>,
+        options = [{uri_path, [<<"ps">>, <<"topic">>]}, {23, <<7>>}]
+    },
+    Packet = er_coap_message_parser:encode(Msg),
+    {ok, Bin} = send_raw(Packet, 1000),
+    Resp = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{method = {error, bad_request}}, Resp),
+    ok.
+
+t_reserved_class_non_confirmable_ignored(_) ->
+    Packet = <<1:2, 1:2, 0:4, 1:3, 0:5, 16#2006:16>>,
+    ?assertEqual({error, timeout}, send_raw(Packet, 500)),
+    ok.
+
+t_empty_message_with_data_reset(_) ->
+    Packet = <<1:2, 0:2, 0:4, 0:3, 0:5, 16#2007:16, 16#FF>>,
+    {ok, Bin} = send_raw(Packet, 1000),
+    Msg = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{type = reset, id = 16#2007}, Msg),
+    ok.
+
+t_duplicate_critical_option_bad_option(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 16#2008,
+        token = <<3>>,
+        options = [{uri_host, <<"a.example">>}, {uri_host, <<"b.example">>}]
+    },
+    Packet = er_coap_message_parser:encode(Msg),
+    {ok, Bin} = send_raw(Packet, 1000),
+    Resp = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
+    ok.
+
+t_invalid_if_none_match_bad_option(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 16#2009,
+        token = <<4>>,
+        options = [{5, <<1>>}]
+    },
+    Packet = er_coap_message_parser:encode(Msg),
+    {ok, Bin} = send_raw(Packet, 1000),
+    Resp = er_coap_message_parser:decode(Bin),
+    ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
+    ok.
+
 t_frame_misc_helpers(Config) ->
     emqx_coap_protocol_SUITE:t_frame_misc_helpers(Config).
 
@@ -1033,6 +1184,12 @@ t_session_notify_qos_types(Config) ->
 t_transport_paths(Config) ->
     emqx_coap_protocol_SUITE:t_transport_paths(Config).
 
+t_transport_retry_interval_initial(Config) ->
+    emqx_coap_protocol_SUITE:t_transport_retry_interval_initial(Config).
+
+t_transport_observe_retransmit_update(Config) ->
+    emqx_coap_protocol_SUITE:t_transport_observe_retransmit_update(Config).
+
 t_tm_paths(Config) ->
     emqx_coap_protocol_SUITE:t_tm_paths(Config).
 
@@ -1050,6 +1207,9 @@ t_api_namespace(Config) ->
 
 t_channel_direct(Config) ->
     emqx_coap_protocol_SUITE:t_channel_direct(Config).
+
+t_channel_frame_error_handling(Config) ->
+    emqx_coap_protocol_SUITE:t_channel_frame_error_handling(Config).
 
 t_channel_connection_success(Config) ->
     emqx_coap_protocol_SUITE:t_channel_connection_success(Config).
@@ -1212,6 +1372,18 @@ do(Fun) ->
     er_coap_channel:close(Channel),
     er_coap_udp_socket:close(Sock),
     Res.
+
+send_raw(Packet, Timeout) ->
+    {ok, Sock} = gen_udp:open(0, [binary, {active, false}]),
+    ok = gen_udp:send(Sock, {127, 0, 0, 1}, 5683, Packet),
+    Res = gen_udp:recv(Sock, 0, Timeout),
+    ok = gen_udp:close(Sock),
+    case Res of
+        {ok, {_Addr, _Port, Data}} ->
+            {ok, Data};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 with_connection(Action) ->
     Fun = fun(Channel) ->
