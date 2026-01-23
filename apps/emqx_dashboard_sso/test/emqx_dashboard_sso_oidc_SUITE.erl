@@ -338,6 +338,8 @@ get_new_dashboard_users(Node) ->
         )
     ).
 
+on_api_actor_pre_create(#{?namespace := ?global_ns} = _APIActor, Acc, _Agent) ->
+    Acc;
 on_api_actor_pre_create(#{?namespace := Ns} = APIActor, Acc, Agent) ->
     KnownNSs = emqx_utils_agent:get(Agent),
     case KnownNSs of
@@ -641,6 +643,58 @@ t_bad_namespace_expr(TCConfig) ->
                 },
                 #{expected_error_msg => <<"unknown_namespace">>}}
         ]
+    ),
+
+    ok.
+
+-doc """
+Verifies that, if the username already exists in EMQX and its backend is the same, their
+role and namespace are not touched, even if the role and namespace expressions resolve to
+different values.
+""".
+t_existing_user(TCConfig) ->
+    start_apps(?FUNCTION_NAME, TCConfig),
+    N = node(),
+
+    on_exit(fun() ->
+        emqx_hooks:del('api_actor.pre_create', {?MODULE, on_api_actor_pre_create})
+    end),
+    Ns = <<"some_ns">>,
+    {ok, Agent} = emqx_utils_agent:start_link(#{Ns => true}),
+    ok = emqx_hooks:add(
+        'api_actor.pre_create', {?MODULE, on_api_actor_pre_create, [Agent]}, ?HP_LOWEST
+    ),
+
+    %% This makes all users resolve to the global namespace and be viewers.
+    Params1 = emqx_utils_maps:deep_merge(oidc_provider_params(), #{
+        <<"namespace_source">> => <<"userinfo">>,
+        <<"namespace_expr">> => <<"null">>,
+        <<"role_source">> => <<"userinfo">>,
+        <<"role_expr">> => emqx_utils_json:encode(?ROLE_VIEWER)
+    }),
+    ?assertMatch({200, _}, create_backend(N, Params1, #{})),
+
+    %% Now we attempt the sso login flow.
+    {ok, _} = login_flow(N, N),
+    ?assertMatch(
+        [#{role := ?ROLE_VIEWER, namespace := ?global_ns}],
+        get_new_dashboard_users(N)
+    ),
+
+    %% This makes all users resolve to the `Ns` namespace and be admins.
+    Params2 = emqx_utils_maps:deep_merge(oidc_provider_params(), #{
+        <<"namespace_source">> => <<"userinfo">>,
+        <<"namespace_expr">> => emqx_utils_json:encode(Ns),
+        <<"role_source">> => <<"userinfo">>,
+        <<"role_expr">> => emqx_utils_json:encode(?ROLE_SUPERUSER)
+    }),
+    ?assertMatch({200, _}, create_backend(N, Params2, #{})),
+
+    %% Role and namespace do not change since the user already exists.
+    {ok, _} = login_flow(N, N),
+    ?assertMatch(
+        [#{role := ?ROLE_VIEWER, namespace := ?global_ns}],
+        get_new_dashboard_users(N)
     ),
 
     ok.
