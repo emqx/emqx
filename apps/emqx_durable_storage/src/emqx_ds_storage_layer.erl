@@ -20,6 +20,7 @@
     %% Generations
     update_config/3,
     add_generation/2,
+    add_generation/3,
     list_slabs/1,
     drop_slab/2,
     find_generation/2,
@@ -312,7 +313,7 @@ check_soft_quota(#db_group{sst_file_mgr = SSTFM, conf = #{storage_quota := Quota
     Usage < Quota.
 
 %% Note: we specify gen_server requests as records to make use of Dialyzer:
--record(call_add_generation, {since :: emqx_ds:time()}).
+-record(call_add_generation, {since :: emqx_ds:time(), prototype :: prototype() | undefined}).
 -record(call_update_config, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
 -record(call_list_generations_with_lifetimes, {}).
 -record(call_drop_generation, {gen_id :: gen_id()}).
@@ -381,6 +382,15 @@ fetch_global(ShardId, K) ->
 update_config(ShardId, Since, Options) ->
     Call = #call_update_config{since = Since, options = Options},
     gen_server:call(?REF(ShardId), Call, infinity).
+
+-spec add_generation(dbshard(), emqx_ds:time(), prototype()) ->
+    ok | {error, overlaps_existing_generations}.
+add_generation(ShardId, Since, {_, _} = Prototype) ->
+    gen_server:call(
+        ?REF(ShardId),
+        #call_add_generation{since = Since, prototype = Prototype},
+        infinity
+    ).
 
 -spec add_generation(dbshard(), emqx_ds:time()) ->
     ok | {error, overlaps_existing_generations}.
@@ -562,8 +572,8 @@ handle_call(#call_update_config{since = Since, options = Options}, _From, S0) ->
         Error = {error, _} ->
             {reply, Error, S0}
     end;
-handle_call(#call_add_generation{since = Since}, _From, S0) ->
-    case handle_add_generation(S0, Since) of
+handle_call(#call_add_generation{since = Since, prototype = MaybePrototype}, _From, S0) ->
+    case handle_add_generation(S0, Since, MaybePrototype) of
         S = #s{} ->
             commit_metadata(S),
             {reply, ok, S};
@@ -647,7 +657,7 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
         gvars => ets:new(emqx_ds_storage_layer_gvars, [set, public, {read_concurrency, true}])
     }.
 
--spec handle_add_generation(server_state(), emqx_ds:time()) ->
+-spec handle_add_generation(server_state(), emqx_ds:time(), prototype() | undefined) ->
     server_state() | {error, overlaps_existing_generations}.
 handle_add_generation(
     S0 = #s{
@@ -658,14 +668,15 @@ handle_add_generation(
         shard = Shard0,
         cf_refs = CFRefs0
     },
-    Since
+    Since,
+    MaybePrototype
 ) ->
     Schema1 = update_last_until(Schema0, Since),
     Shard1 = update_last_until(Shard0, Since),
     case Schema1 of
         _Updated = #{} ->
             {GenId, Schema, NewCFRefs} =
-                new_generation(ShardId, DB, Schema1, Shard0, Since, DBOpts),
+                new_generation(ShardId, DB, Schema1, MaybePrototype, Shard0, Since, DBOpts),
             CFRefs = NewCFRefs ++ CFRefs0,
             Key = ?GEN_KEY(GenId),
             Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
@@ -686,7 +697,7 @@ handle_add_generation(
 handle_update_config(S0 = #s{schema = Schema}, Since, Options) ->
     Prototype = maps:get(storage, Options),
     S = S0#s{schema = Schema#{prototype := Prototype}},
-    handle_add_generation(S, Since).
+    handle_add_generation(S, Since, undefined).
 
 -spec handle_list_generations_with_lifetimes(server_state()) -> #{gen_id() => map()}.
 handle_list_generations_with_lifetimes(#s{schema = ShardSchema}) ->
@@ -783,20 +794,30 @@ create_new_shard_schema(
     },
     DBOpts = filter_layout_db_opts(Options),
     {_NewGenId, Schema, NewCFRefs} =
-        new_generation(ShardId, DB, Schema0, undefined, _Since = 0, DBOpts),
+        new_generation(ShardId, DB, Schema0, Prototype, undefined, _Since = 0, DBOpts),
     {Schema, NewCFRefs ++ CFRefs}.
 
 -spec new_generation(
     dbshard(),
     rocksdb:db_handle(),
     shard_schema(),
+    prototype() | undefined,
     shard() | undefined,
     emqx_ds:time(),
     emqx_ds:db_opts()
 ) ->
     {gen_id(), shard_schema(), cf_refs()}.
-new_generation(ShardId, DB, Schema0, Shard0, Since, DBOpts) ->
-    #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
+new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, DBOpts) ->
+    #{current_generation := PrevGenId, prototype := OldPrototype} = Schema0,
+    {Mod, ModConf} =
+        case MaybePrototype of
+            undefined ->
+                %% This behavior is kept for compatibility with
+                %% version 0 of raft state machine:
+                OldPrototype;
+            {_, _} ->
+                MaybePrototype
+        end,
     PTrans = maps:get(ptrans, Schema0, ?ds_pt_ttv),
     case Shard0 of
         #{?GEN_KEY(PrevGenId) := #{module := Mod} = PrevGen} ->
