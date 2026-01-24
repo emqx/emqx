@@ -177,7 +177,7 @@ handle_in(Msg, Channel0) ->
             %% RFC 7252 Section 4.2: reject CON format errors with Reset, ignore others.
             case Type of
                 con ->
-                    Reset = emqx_coap_message:reset(#coap_message{id = MsgId}),
+                    Reset = emqx_coap_message:reset(#coap_message{type = Type, id = MsgId}),
                     {ok, [{outgoing, Reset}], Channel};
                 _ ->
                     {ok, Channel}
