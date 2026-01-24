@@ -977,7 +977,6 @@ t_connectionless_pubsub(_) ->
     do(Fun),
     update_coap_with_connection_mode(true).
 
-
 t_ignore_unknown_version(_) ->
     Packet = <<2:2, 0:2, 0:4, 0:3, 1:5, 16#2000:16>>,
     ?assertEqual({error, timeout}, send_raw(Packet, 500)),
@@ -1071,7 +1070,6 @@ t_invalid_if_none_match_bad_option(_) ->
     Resp = er_coap_message_parser:decode(Bin),
     ?assertMatch(#coap_message{method = {error, bad_option}}, Resp),
     ok.
-
 
 %%--------------------------------------------------------------------
 %% helpers

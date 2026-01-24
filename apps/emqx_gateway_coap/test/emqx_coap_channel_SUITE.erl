@@ -116,7 +116,8 @@ t_channel_frame_error_handling(_) ->
         Channel2
     ),
     {ok, [{outgoing, ErrReply}], _} = emqx_coap_channel:handle_in(
-        {coap_request_error, #coap_message{type = con, id = 302, token = <<>>}, {error, bad_option}},
+        {coap_request_error, #coap_message{type = con, id = 302, token = <<>>},
+            {error, bad_option}},
         Channel3
     ),
     ?assertMatch(#coap_message{method = {error, bad_option}}, ErrReply),

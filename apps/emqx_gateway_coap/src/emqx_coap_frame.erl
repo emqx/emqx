@@ -293,7 +293,8 @@ parse_v1(TypeBits, TKL, Class, Code, MsgId, Rest, ParseState) ->
                 true ->
                     {ok, #coap_message{type = Type, id = MsgId}, <<>>, ParseState};
                 false ->
-                    {ok, {coap_format_error, Type, MsgId, empty_message_with_data}, <<>>, ParseState}
+                    {ok, {coap_format_error, Type, MsgId, empty_message_with_data}, <<>>,
+                        ParseState}
             end;
         _ ->
             parse_non_empty(Type, TKL, Class, Code, MsgId, Rest, ParseState)
@@ -333,7 +334,9 @@ parse_options(Type, Class, Code, MsgId, Token, Tail, ParseState) ->
 parse_method(Type, Class, Code, MsgId, Token, Options, Payload, ParseState) ->
     case class_code_to_method_result(Class, Code) of
         {ok, Method} ->
-            Options2 = maps:fold(fun(K, V, Acc) -> Acc#{K => get_option_val(K, V)} end, #{}, Options),
+            Options2 = maps:fold(
+                fun(K, V, Acc) -> Acc#{K => get_option_val(K, V)} end, #{}, Options
+            ),
             {ok,
                 #coap_message{
                     type = Type,
@@ -445,7 +448,8 @@ append_option(OptNum, RawOptVal, OptMap) ->
             case is_repeatable_option(OptId) of
                 false ->
                     case maps:is_key(OptId, OptMap) of
-                        false -> {ok, OptMap#{OptId => OptVal}};
+                        false ->
+                            {ok, OptMap#{OptId => OptVal}};
                         true ->
                             case is_critical_option(OptNum) of
                                 true -> {error, duplicate_critical_option};
@@ -524,9 +528,12 @@ decode_block_option(Name, OptVal) ->
 
 decode_block(<<>>) ->
     decode_block1(0, 0, 0);
-decode_block(<<Num:4, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
-decode_block(<<Num:12, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
-decode_block(<<Num:28, M:1, SizEx:3>>) -> decode_block1(Num, M, SizEx);
+decode_block(<<Num:4, M:1, SizEx:3>>) ->
+    decode_block1(Num, M, SizEx);
+decode_block(<<Num:12, M:1, SizEx:3>>) ->
+    decode_block1(Num, M, SizEx);
+decode_block(<<Num:28, M:1, SizEx:3>>) ->
+    decode_block1(Num, M, SizEx);
 decode_block(_) ->
     {error, invalid_block_size}.
 decode_block1(_Num, _M, 7) ->
