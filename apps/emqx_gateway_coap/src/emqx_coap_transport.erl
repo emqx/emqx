@@ -261,7 +261,7 @@ on_response(
             emqx_coap_message:reset(Message)
     end.
 
-maybe_update_observe(Msg) ->
+maybe_update_observe(#coap_message{method = {ok, _}} = Msg) ->
     %% RFC 7641 Section 4.4: Observe value must be current at transmission time.
     case emqx_coap_message:get_option(observe, Msg, undefined) of
         undefined ->
@@ -269,4 +269,6 @@ maybe_update_observe(Msg) ->
         _ ->
             NewObserve = emqx_coap_observe_res:current_value(),
             emqx_coap_message:set(observe, NewObserve, Msg)
-    end.
+    end;
+maybe_update_observe(Msg) ->
+    Msg.

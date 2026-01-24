@@ -101,6 +101,18 @@ t_transport_observe_retransmit_update(_) ->
     end,
     ok.
 
+t_transport_observe_retransmit_request_no_update(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = get,
+        id = 202,
+        options = #{observe => 1}
+    },
+    Transport = #transport{cache = Msg, retry_interval = 1, retry_count = 0},
+    #{out := [OutMsg]} = emqx_coap_transport:wait_ack(state_timeout, ack_timeout, Transport),
+    ?assertEqual(1, emqx_coap_message:get_option(observe, OutMsg)),
+    ok.
+
 t_tm_paths(_) ->
     TM0 = emqx_coap_tm:new(),
     Msg = #coap_message{type = con, method = get, token = <<"tok">>, id = 1},

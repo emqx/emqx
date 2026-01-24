@@ -199,8 +199,10 @@ encode_option(block2, OptVal) ->
     {?OPTION_BLOCK2, encode_block(OptVal)};
 encode_option(block1, OptVal) ->
     {?OPTION_BLOCK1, encode_block(OptVal)};
-encode_option(OptNum, OptVal) when is_integer(OptNum), OptNum >= 0 ->
+encode_option(OptNum, OptVal) when is_integer(OptNum), OptNum >= 0, is_binary(OptVal) ->
     {OptNum, OptVal};
+encode_option(OptNum, OptVal) when is_integer(OptNum), OptNum >= 0 ->
+    erlang:throw({bad_option, OptNum, OptVal});
 encode_option(Option, Value) ->
     erlang:throw({bad_option, Option, Value}).
 

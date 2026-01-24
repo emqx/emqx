@@ -149,6 +149,13 @@ t_frame_encode_extended_values(_) ->
             emqx_coap_frame:serialize_opts()
         )
     ),
+    ?assertThrow(
+        {bad_option, 300, 1},
+        emqx_coap_frame:serialize_pkt(
+            #coap_message{type = con, method = get, id = 124, options = #{300 => 1}},
+            emqx_coap_frame:serialize_opts()
+        )
+    ),
     MsgInt = #coap_message{
         type = con,
         method = get,
