@@ -81,9 +81,28 @@ do_parse(Packet, State) ->
 escape_head_hex7e(<<16#7e, Rest/binary>>, State = #{phase := searching_head_hex7e}) ->
     %% 0x7e is start of a valid message
     escape_frame(Rest, State);
-escape_head_hex7e(<<_C, Rest/binary>>, State = #{phase := searching_head_hex7e}) ->
-    %% discard char other than 0x7e which is the start flag
-    escape_head_hex7e(Rest, State);
+escape_head_hex7e(Packet, State = #{phase := searching_head_hex7e}) ->
+    %% First byte is not 0x7e, find and discard bytes until 0x7e or end of data
+    case find_head_hex7e(Packet, <<>>) of
+        {found, Discarded, Rest} ->
+            %% Log discarded bytes as warning
+            ?SLOG(warning, #{
+                msg => discarded_invalid_data,
+                reason => missing_frame_header,
+                discarded_bytes => byte_size(Discarded),
+                discarded_data => Discarded
+            }),
+            escape_frame(Rest, State);
+        {not_found, Discarded} ->
+            %% No 0x7e found, log and wait for more data
+            ?SLOG(warning, #{
+                msg => discarded_invalid_data,
+                reason => missing_frame_header,
+                discarded_bytes => byte_size(Discarded),
+                discarded_data => Discarded
+            }),
+            {more, State}
+    end;
 escape_head_hex7e(<<16#02, Rest/binary>>, State = #{data := Acc, phase := escaping_hex7d}) ->
     %% corner case: 0x7d has been received in the end of last frame segment
     escape_frame(Rest, State#{data => <<Acc/binary, 16#7e>>});
@@ -93,6 +112,14 @@ escape_head_hex7e(<<16#01, Rest/binary>>, State = #{data := Acc, phase := escapi
 escape_head_hex7e(Rest, State = #{data := _Acc, phase := escaping_hex7d}) ->
     %% continue parsing to escape 0x7d
     escape_frame(Rest, State).
+
+%% @doc Find the first 0x7E byte in the packet, collecting discarded bytes
+find_head_hex7e(<<>>, Discarded) ->
+    {not_found, Discarded};
+find_head_hex7e(<<16#7e, Rest/binary>>, Discarded) ->
+    {found, Discarded, Rest};
+find_head_hex7e(<<Byte:8, Rest/binary>>, Discarded) ->
+    find_head_hex7e(Rest, <<Discarded/binary, Byte>>).
 
 escape_frame(Rest, State = #{data := Acc}) ->
     Opts = maps:get(opts, State, #{}),
@@ -457,6 +484,7 @@ parse_client_params2(Count, <<Id:?DWORD, Length:?BYTE, Rest/binary>>, Acc) ->
             word -> decode_cp_word(Rest);
             byte -> decode_cp_byte(Rest);
             string -> decode_cp_string(Length, Rest);
+            byte8 -> decode_cp_byte8(Rest);
             reserved -> decode_cp_reserved(Length, Rest)
         end,
     parse_client_params2(Count - 1, Rest3, [#{<<"id">> => Id, <<"value">> => Value} | Acc]).
@@ -473,6 +501,9 @@ decode_cp_byte(<<Value:?BYTE, Rest/binary>>) ->
 decode_cp_string(Length, Binary) ->
     <<Value:Length/binary, Rest/binary>> = Binary,
     {Value, Rest}.
+
+decode_cp_byte8(<<Value:8/binary, Rest/binary>>) ->
+    {base64:encode(Value), Rest}.
 
 decode_cp_reserved(Length, Binary) ->
     <<Value:Length/binary, Rest/binary>> = Binary,
@@ -1199,91 +1230,177 @@ encode_client_param(Id, Value, Acc) ->
         word -> encode_cp_word(Id, Value, Acc);
         byte -> encode_cp_byte(Id, Value, Acc);
         string -> encode_cp_string(Id, Value, Acc);
+        byte8 -> encode_cp_byte8(Id, Value, Acc);
         reserved -> encode_cp_reserved(Id, Value, Acc)
     end.
 
-client_param_data_type(?CP_HEARTBEAT_DURATION) -> dword;
-client_param_data_type(?CP_TCP_TIMEOUT) -> dword;
-client_param_data_type(?CP_TCP_RETX) -> dword;
-client_param_data_type(?CP_UDP_TIMEOUT) -> dword;
-client_param_data_type(?CP_UDP_RETX) -> dword;
-client_param_data_type(?CP_SMS_TIMEOUT) -> dword;
-client_param_data_type(?CP_SMS_RETX) -> dword;
-client_param_data_type(?CP_SERVER_APN) -> string;
-client_param_data_type(?CP_DIAL_USERNAME) -> string;
-client_param_data_type(?CP_DIAL_PASSWORD) -> string;
-client_param_data_type(?CP_SERVER_ADDRESS) -> string;
-client_param_data_type(?CP_BACKUP_SERVER_APN) -> string;
-client_param_data_type(?CP_BACKUP_DIAL_USERNAME) -> string;
-client_param_data_type(?CP_BACKUP_DIAL_PASSWORD) -> string;
-client_param_data_type(?CP_BACKUP_SERVER_ADDRESS) -> string;
-client_param_data_type(?CP_SERVER_TCP_PORT) -> dword;
-client_param_data_type(?CP_SERVER_UDP_PORT) -> dword;
-client_param_data_type(?CP_IC_CARD_SERVER_ADDRESS) -> string;
-client_param_data_type(?CP_IC_CARD_SERVER_TCP_PORT) -> dword;
-client_param_data_type(?CP_IC_CARD_SERVER_UDP_PORT) -> dword;
-client_param_data_type(?CP_IC_CARD_BACKUP_SERVER_ADDRESS) -> string;
-client_param_data_type(?CP_POS_REPORT_POLICY) -> dword;
-client_param_data_type(?CP_POS_REPORT_CONTROL) -> dword;
-client_param_data_type(?CP_DRIVER_NLOGIN_REPORT_INTERVAL) -> dword;
-client_param_data_type(?CP_REPORT_INTERVAL_DURING_SLEEP) -> dword;
-client_param_data_type(?CP_EMERGENCY_ALARM_REPORT_INTERVAL) -> dword;
-client_param_data_type(?CP_DEFAULT_REPORT_INTERVAL) -> dword;
-client_param_data_type(?CP_DEFAULT_DISTANCE_INTERVAL) -> dword;
-client_param_data_type(?CP_DRIVER_NLOGIN_DISTANCE_INTERVAL) -> dword;
-client_param_data_type(?CP_DISTANCE_INTERVAL_DURING_SLEEP) -> dword;
-client_param_data_type(?CP_EMERGENCY_ALARM_DISTANCE_INTERVAL) -> dword;
-client_param_data_type(?CP_SET_TURN_ANGLE) -> dword;
-client_param_data_type(?CP_EFENCE_RADIUS) -> word;
-client_param_data_type(?CP_MONITOR_PHONE) -> string;
-client_param_data_type(?CP_RESETING_PHONE) -> string;
-client_param_data_type(?CP_RECOVERY_PHONE) -> string;
-client_param_data_type(?CP_SMS_MONITOR_PHONE) -> string;
-client_param_data_type(?CP_EMERGENCY_SMS_PHONE) -> string;
-client_param_data_type(?CP_ACCEPT_CALL_POLICY) -> dword;
-client_param_data_type(?CP_MAX_CALL_DURATION) -> dword;
-client_param_data_type(?CP_MAX_CALL_DURATION_OF_MONTH) -> dword;
-client_param_data_type(?CP_SPY_PHONE) -> string;
-client_param_data_type(?CP_PRIVILEGE_SMS_PHONE) -> string;
-client_param_data_type(?CP_ALARM_MASK) -> dword;
-client_param_data_type(?CP_ALARM_SEND_SMS_MASK) -> dword;
-client_param_data_type(?CP_ALARM_CAMERA_SHOT_MASK) -> dword;
-client_param_data_type(?CP_ALARM_PICTURE_SAVE_MASK) -> dword;
-client_param_data_type(?CP_ALARM_KEY_MASK) -> dword;
-client_param_data_type(?CP_MAX_SPEED) -> dword;
-client_param_data_type(?CP_OVERSPEED_ELAPSED) -> dword;
-client_param_data_type(?CP_CONT_DRIVE_THRESHOLD) -> dword;
-client_param_data_type(?CP_ACC_DRIVE_TIME_ONE_DAY_THRESHOLD) -> dword;
-client_param_data_type(?CP_MIN_BREAK_TIME) -> dword;
-client_param_data_type(?CP_MAX_PARK_TIME) -> dword;
-client_param_data_type(?CP_OVERSPEED_ALARM_DELTA) -> word;
-client_param_data_type(?CP_DRIVER_FATIGUE_ALARM_DELTA) -> word;
-client_param_data_type(?CP_SET_CRASH_ALARM_PARAM) -> word;
-client_param_data_type(?CP_SET_ROLLOVER_PARAM) -> word;
-client_param_data_type(?CP_TIME_CONTROLED_CAMERA) -> dword;
-client_param_data_type(?CP_DISTANCE_CONTROLED_CAMERA) -> dword;
-client_param_data_type(?CP_PICTURE_QUALITY) -> dword;
-client_param_data_type(?CP_PICTURE_BRIGHTNESS) -> dword;
-client_param_data_type(?CP_PICTURE_CONTRAST) -> dword;
-client_param_data_type(?CP_PICTURE_SATURATE) -> dword;
-client_param_data_type(?CP_PICTURE_CHROMATICITY) -> dword;
-client_param_data_type(?CP_ODOMETER) -> dword;
-client_param_data_type(?CP_REGISTERED_PROVINCE) -> word;
-client_param_data_type(?CP_REGISTERED_CITY) -> word;
-client_param_data_type(?CP_VEHICLE_LICENSE_NUMBER) -> string;
-client_param_data_type(?CP_VEHICLE_LICENSE_PLATE_COLOR) -> byte;
-client_param_data_type(?CP_GNSS_MODE) -> byte;
-client_param_data_type(?CP_GNSS_BAUDRATE) -> byte;
-client_param_data_type(?CP_GNSS_OUTPUT_RATE) -> byte;
-client_param_data_type(?CP_GNSS_SAMPLING_RATE) -> dword;
-client_param_data_type(?CP_GNSS_UPLOAD_MODE) -> byte;
-client_param_data_type(?CP_GNSS_UPLOAD_UNIT) -> dword;
-client_param_data_type(?CP_CAN_BUS_CH1_SAMPLING) -> dword;
-client_param_data_type(?CP_CAN_BUS_CH1_UPLOAD) -> word;
-client_param_data_type(?CP_CAN_BUS_CH2_SAMPLING) -> dword;
-client_param_data_type(?CP_CAN_BUS_CH2_UPLOAD) -> word;
-client_param_data_type(?CP_SET_CAN_BUS_ID_PARAM) -> string;
-client_param_data_type(_) -> reserved.
+client_param_data_type(?CP_HEARTBEAT_DURATION) ->
+    dword;
+client_param_data_type(?CP_TCP_TIMEOUT) ->
+    dword;
+client_param_data_type(?CP_TCP_RETX) ->
+    dword;
+client_param_data_type(?CP_UDP_TIMEOUT) ->
+    dword;
+client_param_data_type(?CP_UDP_RETX) ->
+    dword;
+client_param_data_type(?CP_SMS_TIMEOUT) ->
+    dword;
+client_param_data_type(?CP_SMS_RETX) ->
+    dword;
+client_param_data_type(?CP_SERVER_APN) ->
+    string;
+client_param_data_type(?CP_DIAL_USERNAME) ->
+    string;
+client_param_data_type(?CP_DIAL_PASSWORD) ->
+    string;
+client_param_data_type(?CP_SERVER_ADDRESS) ->
+    string;
+client_param_data_type(?CP_BACKUP_SERVER_APN) ->
+    string;
+client_param_data_type(?CP_BACKUP_DIAL_USERNAME) ->
+    string;
+client_param_data_type(?CP_BACKUP_DIAL_PASSWORD) ->
+    string;
+client_param_data_type(?CP_BACKUP_SERVER_ADDRESS) ->
+    string;
+client_param_data_type(?CP_SERVER_TCP_PORT) ->
+    dword;
+client_param_data_type(?CP_SERVER_UDP_PORT) ->
+    dword;
+client_param_data_type(?CP_IC_CARD_SERVER_ADDRESS) ->
+    string;
+client_param_data_type(?CP_IC_CARD_SERVER_TCP_PORT) ->
+    dword;
+client_param_data_type(?CP_IC_CARD_SERVER_UDP_PORT) ->
+    dword;
+client_param_data_type(?CP_IC_CARD_BACKUP_SERVER_ADDRESS) ->
+    string;
+client_param_data_type(?CP_POS_REPORT_POLICY) ->
+    dword;
+client_param_data_type(?CP_POS_REPORT_CONTROL) ->
+    dword;
+client_param_data_type(?CP_DRIVER_NLOGIN_REPORT_INTERVAL) ->
+    dword;
+client_param_data_type(?CP_REPORT_INTERVAL_DURING_SLEEP) ->
+    dword;
+client_param_data_type(?CP_EMERGENCY_ALARM_REPORT_INTERVAL) ->
+    dword;
+client_param_data_type(?CP_DEFAULT_REPORT_INTERVAL) ->
+    dword;
+client_param_data_type(?CP_DEFAULT_DISTANCE_INTERVAL) ->
+    dword;
+client_param_data_type(?CP_DRIVER_NLOGIN_DISTANCE_INTERVAL) ->
+    dword;
+client_param_data_type(?CP_DISTANCE_INTERVAL_DURING_SLEEP) ->
+    dword;
+client_param_data_type(?CP_EMERGENCY_ALARM_DISTANCE_INTERVAL) ->
+    dword;
+client_param_data_type(?CP_SET_TURN_ANGLE) ->
+    dword;
+client_param_data_type(?CP_EFENCE_RADIUS) ->
+    word;
+client_param_data_type(?CP_MONITOR_PHONE) ->
+    string;
+client_param_data_type(?CP_RESETING_PHONE) ->
+    string;
+client_param_data_type(?CP_RECOVERY_PHONE) ->
+    string;
+client_param_data_type(?CP_SMS_MONITOR_PHONE) ->
+    string;
+client_param_data_type(?CP_EMERGENCY_SMS_PHONE) ->
+    string;
+client_param_data_type(?CP_ACCEPT_CALL_POLICY) ->
+    dword;
+client_param_data_type(?CP_MAX_CALL_DURATION) ->
+    dword;
+client_param_data_type(?CP_MAX_CALL_DURATION_OF_MONTH) ->
+    dword;
+client_param_data_type(?CP_SPY_PHONE) ->
+    string;
+client_param_data_type(?CP_PRIVILEGE_SMS_PHONE) ->
+    string;
+client_param_data_type(?CP_ALARM_MASK) ->
+    dword;
+client_param_data_type(?CP_ALARM_SEND_SMS_MASK) ->
+    dword;
+client_param_data_type(?CP_ALARM_CAMERA_SHOT_MASK) ->
+    dword;
+client_param_data_type(?CP_ALARM_PICTURE_SAVE_MASK) ->
+    dword;
+client_param_data_type(?CP_ALARM_KEY_MASK) ->
+    dword;
+client_param_data_type(?CP_MAX_SPEED) ->
+    dword;
+client_param_data_type(?CP_OVERSPEED_ELAPSED) ->
+    dword;
+client_param_data_type(?CP_CONT_DRIVE_THRESHOLD) ->
+    dword;
+client_param_data_type(?CP_ACC_DRIVE_TIME_ONE_DAY_THRESHOLD) ->
+    dword;
+client_param_data_type(?CP_MIN_BREAK_TIME) ->
+    dword;
+client_param_data_type(?CP_MAX_PARK_TIME) ->
+    dword;
+client_param_data_type(?CP_OVERSPEED_ALARM_DELTA) ->
+    word;
+client_param_data_type(?CP_DRIVER_FATIGUE_ALARM_DELTA) ->
+    word;
+client_param_data_type(?CP_SET_CRASH_ALARM_PARAM) ->
+    word;
+client_param_data_type(?CP_SET_ROLLOVER_PARAM) ->
+    word;
+client_param_data_type(?CP_TIME_CONTROLED_CAMERA) ->
+    dword;
+client_param_data_type(?CP_DISTANCE_CONTROLED_CAMERA) ->
+    dword;
+client_param_data_type(?CP_PICTURE_QUALITY) ->
+    dword;
+client_param_data_type(?CP_PICTURE_BRIGHTNESS) ->
+    dword;
+client_param_data_type(?CP_PICTURE_CONTRAST) ->
+    dword;
+client_param_data_type(?CP_PICTURE_SATURATE) ->
+    dword;
+client_param_data_type(?CP_PICTURE_CHROMATICITY) ->
+    dword;
+client_param_data_type(?CP_ODOMETER) ->
+    dword;
+client_param_data_type(?CP_REGISTERED_PROVINCE) ->
+    word;
+client_param_data_type(?CP_REGISTERED_CITY) ->
+    word;
+client_param_data_type(?CP_VEHICLE_LICENSE_NUMBER) ->
+    string;
+client_param_data_type(?CP_VEHICLE_LICENSE_PLATE_COLOR) ->
+    byte;
+client_param_data_type(?CP_GNSS_MODE) ->
+    byte;
+client_param_data_type(?CP_GNSS_BAUDRATE) ->
+    byte;
+client_param_data_type(?CP_GNSS_OUTPUT_RATE) ->
+    byte;
+client_param_data_type(?CP_GNSS_SAMPLING_RATE) ->
+    dword;
+client_param_data_type(?CP_GNSS_UPLOAD_MODE) ->
+    byte;
+client_param_data_type(?CP_GNSS_UPLOAD_UNIT) ->
+    dword;
+client_param_data_type(?CP_CAN_BUS_CH1_SAMPLING) ->
+    dword;
+client_param_data_type(?CP_CAN_BUS_CH1_UPLOAD) ->
+    word;
+client_param_data_type(?CP_CAN_BUS_CH2_SAMPLING) ->
+    dword;
+client_param_data_type(?CP_CAN_BUS_CH2_UPLOAD) ->
+    word;
+%% 0x0110~0x01FF: CAN bus ID individual collection settings, BYTE[8]
+client_param_data_type(Id) when
+    Id >= ?CP_CAN_BUS_ID_PARAM_START andalso Id =< ?CP_CAN_BUS_ID_PARAM_END
+->
+    byte8;
+client_param_data_type(_) ->
+    reserved.
 
 -spec encode_cp_byte(integer(), integer(), binary()) -> binary().
 encode_cp_byte(Id, Value, Acc) ->
@@ -1301,6 +1418,11 @@ encode_cp_dword(Id, Value, Acc) ->
 encode_cp_string(Id, StringBinary, Acc) ->
     Length = size(StringBinary),
     <<Acc/binary, Id:?DWORD, Length:?BYTE, StringBinary/binary>>.
+
+-spec encode_cp_byte8(integer(), binary(), binary()) -> binary().
+encode_cp_byte8(Id, Base64Binary, Acc) ->
+    Binary = base64:decode(Base64Binary),
+    <<Acc/binary, Id:?DWORD, 8:?BYTE, Binary:8/binary>>.
 
 -spec encode_cp_reserved(integer(), binary(), binary()) -> binary().
 encode_cp_reserved(Id, Base64Binary0, Acc) ->

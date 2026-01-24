@@ -349,6 +349,20 @@ location_report_28bytes() ->
 binary_to_hex_string(Data) ->
     lists:flatten([io_lib:format("~2.16.0B ", [X]) || <<X:8>> <= Data]).
 
+%% Unescape JT808 packet (reverse of escape encoding)
+%% 7D 02 -> 7E, 7D 01 -> 7D
+unescape_packet(Packet) ->
+    unescape_packet(Packet, <<>>).
+
+unescape_packet(<<>>, Acc) ->
+    Acc;
+unescape_packet(<<16#7D, 16#02, Rest/binary>>, Acc) ->
+    unescape_packet(Rest, <<Acc/binary, 16#7E>>);
+unescape_packet(<<16#7D, 16#01, Rest/binary>>, Acc) ->
+    unescape_packet(Rest, <<Acc/binary, 16#7D>>);
+unescape_packet(<<Byte:8, Rest/binary>>, Acc) ->
+    unescape_packet(Rest, <<Acc/binary, Byte>>).
+
 receive_msg() ->
     receive
         {deliver, Topic, #message{payload = Payload}} ->
@@ -804,7 +818,128 @@ t_case09_dl_0x8103_set_client_param(_Config) ->
 
     ok = gen_tcp:close(Socket).
 
-t_case10_dl_0x8104_query_client_all_param(_Config) ->
+t_case09_dl_0x8103_set_client_param_byte8(_Config) ->
+    %% Test 0x8103 with BYTE8 type params (0x0110~0x01FF range)
+    %% This tests the MQTT -> JT808 frame serialization for CAN bus ID params
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    %% BYTE[8] data for CAN bus ID param (0x0110)
+    Byte8Data = <<16#AA, 16#BB, 16#CC, 16#DD, 16#EE, 16#FF, 16#00, 16#11>>,
+    Byte8Base64 = base64:encode(Byte8Data),
+
+    Length = 3,
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_SET_CLIENT_PARAM},
+        <<"body">> => #{
+            <<"length">> => Length,
+            <<"params">> => [
+                %% DWORD type (0x0001 heartbeat)
+                #{<<"id">> => 16#0001, <<"value">> => 60},
+                %% STRING type (0x0010 APN)
+                #{<<"id">> => 16#0010, <<"value">> => <<"cmnet">>},
+                %% BYTE8 type (0x0110 CAN bus ID) - base64 encoded
+                #{<<"id">> => 16#0110, <<"value">> => Byte8Base64}
+            ]
+        }
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% client get downlink "set client param"
+    %% Body format: length(1) + [id(4) + len(1) + value(...)]
+    MsgBody3 =
+        <<Length:8, 16#0001:?DWORD, 4:8, 60:?DWORD, 16#0010:?DWORD, 5:8, <<"cmnet">>/binary,
+            16#0110:?DWORD, 8:8, Byte8Data/binary>>,
+    MsgId3 = ?MS_SET_CLIENT_PARAM,
+    MsgSn3 = 2,
+    Size3 = size(MsgBody3),
+    Header3 =
+        <<MsgId3:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+            PhoneBCD/binary, MsgSn3:?WORD>>,
+    S3 = gen_packet(Header3, MsgBody3),
+
+    timer:sleep(600),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("     S3=~p", [binary_to_hex_string(S3)]),
+    ?LOGT("Packet3=~p", [binary_to_hex_string(Packet3)]),
+    ?assertEqual(S3, Packet3),
+
+    ?LOGT("client receive command from server ~p", [S3]),
+
+    % client send "general response"
+    client_send_general_response(Socket, MsgId3, MsgSn3, PhoneBCD),
+
+    % no retrasmition of 0x8103
+    {error, timeout} = gen_tcp:recv(Socket, 0, 500),
+
+    ok = gen_tcp:close(Socket).
+
+t_case11_ul_0x0104_query_param_ack_byte8(_Config) ->
+    %% Test 0x0104 with BYTE8 type params (0x0110~0x01FF range)
+    %% This tests the JT808 frame -> MQTT parsing for CAN bus ID params
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+
+    %% First send a query command to get a valid seq number
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_QUERY_CLIENT_PARAM},
+        <<"body">> => #{<<"length">> => 1, <<"ids">> => [16#0110]}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the query command
+    {ok, _Packet3} = gen_tcp:recv(Socket, 0, 500),
+    MsgSn3 = 2,
+
+    %% Client sends 0x0104 response with BYTE8 param
+    Byte8Data = <<16#11, 16#22, 16#33, 16#44, 16#55, 16#66, 16#77, 16#88>>,
+    UlPacket4 = <<MsgSn3:?WORD, 1:8, 16#0110:?DWORD, 8:8, Byte8Data/binary>>,
+    Size4 = size(UlPacket4),
+    MsgId4 = ?MC_QUERY_PARAM_ACK,
+    MsgSn4 = 2,
+    Header4 =
+        <<MsgId4:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size4),
+            PhoneBCD/binary, MsgSn4:?WORD>>,
+    S4 = gen_packet(Header4, UlPacket4),
+    ?LOGT("S4 = ~p", [S4]),
+
+    ok = gen_tcp:send(Socket, S4),
+    timer:sleep(100),
+
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    ?assertEqual(
+        #{
+            <<"header">> => #{
+                <<"encrypt">> => 0,
+                <<"len">> => Size4,
+                <<"msg_id">> => ?MC_QUERY_PARAM_ACK,
+                <<"msg_sn">> => 2,
+                <<"phone">> => <<"000123456789">>
+            },
+            <<"body">> => #{
+                <<"seq">> => MsgSn3,
+                <<"length">> => 1,
+                <<"params">> => [
+                    #{<<"id">> => 16#0110, <<"value">> => base64:encode(Byte8Data)}
+                ]
+            }
+        },
+        DecodedPayload
+    ),
+
+    % no retrasmition of downlink message
+    {error, timeout} = gen_tcp:recv(Socket, 0, 500),
+
+    ok = gen_tcp:close(Socket).
+
+t_case10_dl_0x8105_client_control(_Config) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure(Socket),
     ok = client_auth_procedure(Socket, AuthCode),
@@ -3474,13 +3609,14 @@ t_case_2019_query_attrib_mqtt_fields(_Config) ->
 
     ok = gen_tcp:close(Socket).
 
-%% Test: 2019 Query Server Time (0x0004) - verify empty body and server response
+%% Test: 2019 Query Server Time (0x0004) - verify server response (0x8004) with BCD[6] time
 t_case_2019_query_server_time_mqtt(_Config) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
     {ok, AuthCode} = client_regi_procedure_2019(Socket),
     ok = client_auth_procedure_2019(Socket, AuthCode),
 
-    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+    %% Capture UTC time before request (for comparison)
+    {{Year, Month, Day}, {Hour, Min, _Sec}} = calendar:universal_time(),
 
     %% Client sends 0x0004 Query Server Time (empty body)
     PhoneBCD = ?JT808_PHONE_BCD_2019,
@@ -3494,19 +3630,49 @@ t_case_2019_query_server_time_mqtt(_Config) ->
     S1 = gen_packet_2019(Header, <<>>),
 
     ok = gen_tcp:send(Socket, S1),
-    timer:sleep(100),
 
-    %% Verify MQTT publish contains empty body
-    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
-    DecodedPayload = emqx_utils_json:decode(Payload),
+    %% Receive server response 0x8004 (Server Time ACK)
+    {ok, ResponsePacket} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("Server Time ACK Response=~p", [binary_to_hex_string(ResponsePacket)]),
 
-    Header_Decoded = maps:get(<<"header">>, DecodedPayload),
-    Body_Decoded = maps:get(<<"body">>, DecodedPayload),
+    %% Parse response - should be 0x8004 with BCD[6] time
+    %% After unescaping, packet structure:
+    %% 7E | MsgId(2) | Attrs(2) | ProtoVer(1) | Phone(10) | MsgSn(2) | Body(6) | Checksum(1) | 7E
+    UnescapedPacket = unescape_packet(ResponsePacket),
+    <<16#7E, MsgId2:16/big, _Attrs:16/big, _ProtoVer2:8, _Phone:10/binary, _RespMsgSn:16/big,
+        TimeBCD:6/binary, _Checksum:8, 16#7E>> = UnescapedPacket,
 
-    ?assertEqual(?MC_QUERY_SERVER_TIME, maps:get(<<"msg_id">>, Header_Decoded)),
-    ?assertEqual(?PROTO_VER_2019, maps:get(<<"proto_ver">>, Header_Decoded)),
-    ?assertEqual(0, maps:get(<<"len">>, Header_Decoded)),
-    ?assertEqual(#{}, Body_Decoded),
+    %% Verify message ID is 0x8004 (Server Time ACK)
+    ?assertEqual(?MS_SERVER_TIME_ACK, MsgId2),
+
+    %% Parse BCD[6] time: YYMMDDHHMMSS
+    <<YY1:4, YY2:4, MM1:4, MM2:4, DD1:4, DD2:4, HH1:4, HH2:4, Mi1:4, Mi2:4, SS1:4, SS2:4>> =
+        TimeBCD,
+    RecvYY = YY1 * 10 + YY2,
+    RecvMM = MM1 * 10 + MM2,
+    RecvDD = DD1 * 10 + DD2,
+    RecvHH = HH1 * 10 + HH2,
+    RecvMi = Mi1 * 10 + Mi2,
+    RecvSS = SS1 * 10 + SS2,
+
+    ?LOGT(
+        "Received time: 20~2.10.0B-~2.10.0B-~2.10.0B ~2.10.0B:~2.10.0B:~2.10.0B",
+        [RecvYY, RecvMM, RecvDD, RecvHH, RecvMi, RecvSS]
+    ),
+
+    %% Verify time components are within valid ranges
+    ExpectedYY = Year rem 100,
+    ?assertEqual(ExpectedYY, RecvYY),
+    ?assertEqual(Month, RecvMM),
+    ?assertEqual(Day, RecvDD),
+    ?assertEqual(Hour, RecvHH),
+    %% Allow 1 minute tolerance for minute (in case of minute boundary crossing)
+    ?assert(
+        abs(RecvMi - Min) =< 1 orelse (Min == 59 andalso RecvMi == 0) orelse
+            (Min == 0 andalso RecvMi == 59)
+    ),
+    %% Seconds should be valid (0-59)
+    ?assert(RecvSS >= 0 andalso RecvSS =< 59),
 
     ok = gen_tcp:close(Socket).
 
@@ -3538,7 +3704,18 @@ t_case_2019_request_fragment_mqtt(_Config) ->
     S1 = gen_packet_2019(Header, Body),
 
     ok = gen_tcp:send(Socket, S1),
-    timer:sleep(100),
+
+    %% Receive general response (0x8001) from server
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket),
+    MsgId2 = ?MS_GENERAL_RESPONSE,
+    MsgSn2 = 2,
+    Header2 =
+        <<MsgId2:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size2), ProtoVer:8, PhoneBCD/binary, MsgSn2:?WORD>>,
+    S2 = gen_packet_2019(Header2, GenAckPacket),
+    ?assertEqual(S2, Packet),
 
     {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
     DecodedPayload = emqx_utils_json:decode(Payload),
@@ -3554,6 +3731,90 @@ t_case_2019_request_fragment_mqtt(_Config) ->
     ?assertEqual(Seq, maps:get(<<"seq">>, Body_Decoded)),
     ?assertEqual(Count, maps:get(<<"count">>, Body_Decoded)),
     ?assertEqual([Id1, Id2, Id3], maps:get(<<"ids">>, Body_Decoded)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: 0x8608 Query Area/Route -> 0x0608 Response (2019 new message)
+t_case26_dl_0x8608_query_area_route(_Config) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure_2019(Socket),
+    ok = client_auth_procedure_2019(Socket, AuthCode),
+
+    PhoneBCD = ?JT808_PHONE_BCD_2019,
+    ProtoVer = ?PROTO_VER_2019,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC_2019),
+
+    %% Server sends 0x8608 Query Area/Route command
+    %% Body: type (BYTE) + count (DWORD) + ids (DWORD list, optional)
+
+    %% 1=circle, 2=rect, 3=poly, 4=path
+    QueryType = 1,
+    %% 0 = query all
+    QueryCount = 0,
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_QUERY_AREA_ROUTE},
+        <<"body">> => #{<<"type">> => QueryType, <<"count">> => QueryCount}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC_2019, emqx_utils_json:encode(DlCommand))),
+
+    %% Client receives downlink 0x8608
+    MsgBody3 = <<QueryType:8, QueryCount:?DWORD>>,
+    MsgId3 = ?MS_QUERY_AREA_ROUTE,
+    MsgSn3 = 2,
+    Size3 = size(MsgBody3),
+    Header3 =
+        <<MsgId3:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size3), ProtoVer:8, PhoneBCD/binary, MsgSn3:?WORD>>,
+    S3 = gen_packet_2019(Header3, MsgBody3),
+
+    timer:sleep(300),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 500),
+    ?LOGT("     S3=~p", [binary_to_hex_string(S3)]),
+    ?LOGT("Packet3=~p", [binary_to_hex_string(Packet3)]),
+    ?assertEqual(S3, Packet3),
+
+    %% Client sends 0x0608 Query Area/Route Response
+    %% Body: type (BYTE) + count (DWORD) + data (variable)
+    RespType = QueryType,
+    RespCount = 2,
+    AreaData = <<"test_area_data">>,
+    UlBody = <<RespType:8, RespCount:?DWORD, AreaData/binary>>,
+    Size4 = size(UlBody),
+    MsgId4 = ?MC_QUERY_AREA_ROUTE_ACK,
+    MsgSn4 = 2,
+    Header4 =
+        <<MsgId4:?WORD, ?RESERVE:1, ?VERSION_BIT_2019:1, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+            ?MSG_SIZE(Size4), ProtoVer:8, PhoneBCD/binary, MsgSn4:?WORD>>,
+    S4 = gen_packet_2019(Header4, UlBody),
+
+    ok = gen_tcp:send(Socket, S4),
+    timer:sleep(100),
+
+    %% Verify response published to MQTT uplink
+    {?JT808_UP_TOPIC_2019, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    ?assertEqual(
+        #{
+            <<"header">> => #{
+                <<"encrypt">> => 0,
+                <<"len">> => Size4,
+                <<"msg_id">> => ?MC_QUERY_AREA_ROUTE_ACK,
+                <<"msg_sn">> => MsgSn4,
+                <<"phone">> => <<"00000000000123456789">>,
+                <<"proto_ver">> => ProtoVer
+            },
+            <<"body">> => #{
+                <<"type">> => RespType,
+                <<"count">> => RespCount,
+                <<"data">> => base64:encode(AreaData)
+            }
+        },
+        DecodedPayload
+    ),
+
+    %% No retransmission of downlink message (ACK clears inflight)
+    {error, timeout} = gen_tcp:recv(Socket, 0, 500),
 
     ok = gen_tcp:close(Socket).
 
