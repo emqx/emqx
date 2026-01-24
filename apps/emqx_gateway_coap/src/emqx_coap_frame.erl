@@ -445,24 +445,33 @@ decode_option_value(<<Bin/binary>>, OptNum, OptLen, OptMap) ->
 append_option(OptNum, RawOptVal, OptMap) ->
     case decode_option(OptNum, RawOptVal) of
         {ok, OptId, OptVal} ->
-            case is_repeatable_option(OptId) of
-                false ->
-                    case maps:is_key(OptId, OptMap) of
-                        false ->
-                            {ok, OptMap#{OptId => OptVal}};
-                        true ->
-                            case is_critical_option(OptNum) of
-                                true -> {error, duplicate_critical_option};
-                                false -> {ok, OptMap}
-                            end
-                    end;
-                true ->
-                    {ok, add_repeatable_option(OptId, OptVal, OptMap)}
-            end;
+            append_decoded_option(OptNum, OptId, OptVal, OptMap);
         {ignore, _OptNum} ->
             {ok, OptMap};
         {error, Reason} ->
             {error, Reason}
+    end.
+
+append_decoded_option(OptNum, OptId, OptVal, OptMap) ->
+    case is_repeatable_option(OptId) of
+        true ->
+            {ok, add_repeatable_option(OptId, OptVal, OptMap)};
+        false ->
+            append_non_repeatable_option(OptNum, OptId, OptVal, OptMap)
+    end.
+
+append_non_repeatable_option(OptNum, OptId, OptVal, OptMap) ->
+    case maps:is_key(OptId, OptMap) of
+        false ->
+            {ok, OptMap#{OptId => OptVal}};
+        true ->
+            handle_duplicate_option(OptNum, OptMap)
+    end.
+
+handle_duplicate_option(OptNum, OptMap) ->
+    case is_critical_option(OptNum) of
+        true -> {error, duplicate_critical_option};
+        false -> {ok, OptMap}
     end.
 add_repeatable_option(OptId, OptVal, OptMap) ->
     case maps:get(OptId, OptMap, undefined) of
