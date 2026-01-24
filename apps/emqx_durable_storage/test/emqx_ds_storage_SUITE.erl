@@ -11,6 +11,8 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 
+suite() -> [{timetrap, {minutes, 1}}].
+
 opts(Config) ->
     Group = proplists:get_value(db_group, Config),
     #{
