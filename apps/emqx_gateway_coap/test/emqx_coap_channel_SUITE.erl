@@ -46,13 +46,10 @@ t_mqtt_handler_direct(_) ->
     ok.
 
 t_channel_direct(_) ->
-    ok = meck:new(esockd_peercert, [passthrough, no_history, no_link]),
-    ok = meck:expect(esockd_peercert, subject, fun(_) -> <<"DN">> end),
-    ok = meck:expect(esockd_peercert, common_name, fun(_) -> <<"CN">> end),
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 9999},
         sockname => {{127, 0, 0, 1}, 5683},
-        peercert => dummy
+        peercert => [{pp2_ssl_cn, <<"CN">>}]
     },
     Channel0 = emqx_coap_channel:init(ConnInfo, #{ctx => #{gwname => coap, cm => self()}}),
     ChannelRequired =
@@ -100,7 +97,6 @@ t_channel_direct(_) ->
         #coap_message{type = reset, id = OutMsg#coap_message.id, token = OutMsg#coap_message.token},
         Channel2
     ),
-    meck:unload(esockd_peercert),
     ok.
 
 t_channel_frame_error_handling(_) ->
@@ -127,8 +123,9 @@ t_channel_frame_error_handling(_) ->
     ok.
 
 t_channel_connection_hooks_error_direct(_) ->
-    ok = meck:new(emqx_hooks, [passthrough]),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_, _, _) -> {error, hook_failed} end),
+    HookPoint = 'client.connect',
+    HookAction = {emqx_coap_test_helpers, hook_return_error, [hook_failed]},
+    ok = emqx_coap_test_helpers:add_test_hook(HookPoint, HookAction),
     try
         ConnInfo = #{
             peername => {{127, 0, 0, 1}, 9999},
@@ -150,7 +147,7 @@ t_channel_connection_hooks_error_direct(_) ->
         },
         {shutdown, normal, _, _} = emqx_coap_channel:handle_in(ConnReq, Channel0)
     after
-        ok = meck:unload(emqx_hooks)
+        ok = emqx_coap_test_helpers:del_test_hook(HookPoint, HookAction)
     end,
     ok.
 

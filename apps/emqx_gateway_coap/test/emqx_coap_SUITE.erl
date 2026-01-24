@@ -66,13 +66,7 @@ init_per_testcase(t_heartbeat, Config) ->
         {new_heartbeat, NewHeartbeat}
         | Config
     ];
-init_per_testcase(t_connection_hooks_error, Config) ->
-    ok = meck:new(emqx_access_control, [passthrough]),
-    ok = meck:new(emqx_hooks, [passthrough]),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_, _, _) -> {error, hook_failed} end),
-    Config;
 init_per_testcase(t_connection_open_session_error, Config) ->
-    ok = meck:new(emqx_access_control, [passthrough]),
     ok = meck:new(emqx_gateway_ctx, [passthrough]),
     ok = meck:expect(
         emqx_gateway_ctx,
@@ -80,8 +74,14 @@ init_per_testcase(t_connection_open_session_error, Config) ->
         fun(_, _, _, _, _, _) -> {error, session_error} end
     ),
     Config;
-init_per_testcase(_, Config) ->
+init_per_testcase(t_publish_with_retain_qos_expiry, Config) ->
     ok = meck:new(emqx_access_control, [passthrough]),
+    Config;
+init_per_testcase(t_pubsub_unauthorized, Config) ->
+    ok = meck:new(emqx_access_control, [passthrough]),
+    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
+    Config;
+init_per_testcase(_, Config) ->
     Config.
 
 end_per_testcase(t_heartbeat, Config) ->
@@ -92,16 +92,19 @@ end_per_testcase(t_connection_with_expire, Config) ->
     snabbkaffe:stop(),
     meck:unload(emqx_access_control),
     Config;
-end_per_testcase(t_connection_hooks_error, Config) ->
-    ok = meck:unload(emqx_hooks),
-    ok = meck:unload(emqx_access_control),
-    Config;
 end_per_testcase(t_connection_open_session_error, Config) ->
     ok = meck:unload(emqx_gateway_ctx),
+    Config;
+end_per_testcase(t_connection_with_authn_failed, Config) ->
+    ok = meck:unload(emqx_access_control),
+    Config;
+end_per_testcase(t_publish_with_retain_qos_expiry, Config) ->
+    ok = meck:unload(emqx_access_control),
+    Config;
+end_per_testcase(t_pubsub_unauthorized, Config) ->
     ok = meck:unload(emqx_access_control),
     Config;
 end_per_testcase(_, Config) ->
-    ok = meck:unload(emqx_access_control),
     Config.
 
 default_config() ->
@@ -133,32 +136,38 @@ update_coap_with_mountpoint(Mp) ->
 
 t_connection(_) ->
     Action = fun(Channel) ->
-        emqx_gateway_test_utils:meck_emqx_hook_calls(),
+        HookPoint = 'client.connect',
+        HookAction = {emqx_coap_test_helpers, hook_capture, [self(), HookPoint]},
+        ok = emqx_coap_test_helpers:add_test_hook(HookPoint, HookAction),
+        try
+            %% connection
+            Token = connection(Channel),
 
-        %% connection
-        Token = connection(Channel),
+            timer:sleep(100),
+            ?assertNotEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            ),
 
-        timer:sleep(100),
-        ?assertNotEqual(
-            [],
-            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-        ),
+            receive
+                {hook_call, 'client.connect'} -> ok
+            after 1000 ->
+                ct:fail({missing_hook_call, 'client.connect'})
+            end,
 
-        ?assertMatch(
-            ['client.connect' | _],
-            emqx_gateway_test_utils:collect_emqx_hooks_calls()
-        ),
+            %% heartbeat
+            {ok, changed, _} = send_heartbeat(Token),
 
-        %% heartbeat
-        {ok, changed, _} = send_heartbeat(Token),
+            disconnection(Channel, Token),
 
-        disconnection(Channel, Token),
-
-        timer:sleep(100),
-        ?assertEqual(
-            [],
-            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-        )
+            timer:sleep(100),
+            ?assertEqual(
+                [],
+                emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+            )
+        after
+            ok = emqx_coap_test_helpers:del_test_hook(HookPoint, HookAction)
+        end
     end,
     do(Action),
     ok.
@@ -341,6 +350,9 @@ t_connection_missing_clientid(_) ->
     do(Action).
 
 t_connection_hooks_error(_) ->
+    HookPoint = 'client.connect',
+    HookAction = {emqx_coap_test_helpers, hook_return_error, [hook_failed]},
+    ok = emqx_coap_test_helpers:add_test_hook(HookPoint, HookAction),
     Action = fun(Channel) ->
         Prefix = ?MQTT_PREFIX ++ "/connection",
         Queries = #{
@@ -355,7 +367,11 @@ t_connection_hooks_error(_) ->
             {error, bad_request} -> ok
         end
     end,
-    do(Action).
+    try
+        do(Action)
+    after
+        ok = emqx_coap_test_helpers:del_test_hook(HookPoint, HookAction)
+    end.
 
 t_connection_open_session_error(_) ->
     Action = fun(Channel) ->
@@ -499,7 +515,6 @@ t_pubsub_handler_errors(_) ->
     do(Action).
 
 t_pubsub_unauthorized(_) ->
-    _ = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
     Action = fun(Channel) ->
         Token = connection(Channel),
         URI = pubsub_uri("deny", Token),

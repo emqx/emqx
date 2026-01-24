@@ -12,7 +12,9 @@
     with_udp_channel/1,
     send_raw/2,
     add_test_hook/2,
-    del_test_hook/2
+    del_test_hook/2,
+    hook_capture/4,
+    hook_return_error/3
 ]).
 
 default_conf() ->
@@ -93,3 +95,10 @@ add_test_hook(HookPoint, Action) ->
 
 del_test_hook(HookPoint, Action) ->
     emqx_hooks:del(HookPoint, Action).
+
+hook_capture(_ConnInfo, ConnProps, Pid, HookPoint) ->
+    Pid ! {hook_call, HookPoint},
+    {ok, ConnProps}.
+
+hook_return_error(_ConnInfo, _ConnProps, Reason) ->
+    {ok, {error, Reason}}.

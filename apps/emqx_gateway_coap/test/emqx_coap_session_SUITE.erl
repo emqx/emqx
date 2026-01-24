@@ -40,8 +40,9 @@ t_session_info_and_deliver(_) ->
     ok.
 
 t_session_notify_qos_types(_) ->
-    ok = meck:new(emqx_conf, [passthrough]),
-    ok = meck:expect(emqx_conf, get, fun(_, _) -> qos end),
+    KeyPath = [gateway, coap, notify_qos],
+    OldValue = emqx_config:find(KeyPath),
+    ok = emqx_config:force_put(KeyPath, qos),
     try
         Session0 = emqx_coap_session:new(),
         SubData = #{topic => <<"tq">>, token => <<"tok">>, subopts => #{qos => 0}},
@@ -57,6 +58,11 @@ t_session_notify_qos_types(_) ->
         #{out := [Out1]} = emqx_coap_session:deliver([Deliver1], Ctx, Session2),
         ?assertEqual(con, Out1#coap_message.type)
     after
-        ok = meck:unload(emqx_conf)
+        case OldValue of
+            {ok, Val} ->
+                ok = emqx_config:force_put(KeyPath, Val);
+            _ ->
+                ok = emqx_config:force_put(KeyPath, non)
+        end
     end,
     ok.
