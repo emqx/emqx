@@ -396,13 +396,16 @@ apply(
 tick(_TimeMs, #{db_shard := _DBShard}) ->
     [].
 
+%% Called when the ra server changes state (e.g. leader -> follower).
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
-state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
+state_enter(MemberState, State = #{db_shard := DBShard, schema := Schema}) ->
+    {DB, Shard} = DBShard,
     ?tp(
-        debug,
+        info,
         ds_ra_state_enter,
-        State#{state => MemberState}
+        State#{member_state => MemberState}
     ),
+    ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
     emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
     set_cache(MemberState, State),
     _ =
