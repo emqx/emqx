@@ -449,7 +449,16 @@ update_listeners(NewListeners, OldListeners, GwName, Ctx, ModCfg) ->
         updated => UpdateListeners
     }.
 
-update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_ESOCKD_LISTENER(Type) ->
+update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg0) when
+    ?IS_ESOCKD_LISTENER(Type)
+->
+    ModCfg =
+        case ModCfg0 of
+            #{connection_opts := ConnectionOptsFun} ->
+                maps:without([connection_opts], maps:merge(ModCfg0, ConnectionOptsFun(Type)));
+            _ ->
+                ModCfg0
+        end,
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     SocketOpts = merge_default(Type, esockd_opts(Type, Cfg)),
     HighLevelCfgs0 = filter_out_low_level_opts(Type, Cfg),
