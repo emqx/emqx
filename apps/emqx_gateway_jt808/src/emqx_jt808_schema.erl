@@ -51,7 +51,8 @@ fields(jt808) ->
 fields(jt808_frame) ->
     [
         {max_length, fun jt808_frame_max_length/1},
-        {parse_unknown_message, fun parse_unknown_message/1}
+        {parse_unknown_message, fun parse_unknown_message/1},
+        {string_encoding, fun string_encoding/1}
     ];
 fields(jt808_proto) ->
     [
@@ -125,6 +126,12 @@ parse_unknown_message(desc) -> ?DESC(parse_unknown_message);
 parse_unknown_message(default) -> true;
 parse_unknown_message(required) -> false;
 parse_unknown_message(_) -> undefined.
+
+string_encoding(type) -> hoconsc:enum([utf8, gbk]);
+string_encoding(desc) -> ?DESC(string_encoding);
+string_encoding(default) -> utf8;
+string_encoding(required) -> false;
+string_encoding(_) -> undefined.
 
 up_topic(type) -> binary();
 up_topic(desc) -> ?DESC(jt808_up_topic);
