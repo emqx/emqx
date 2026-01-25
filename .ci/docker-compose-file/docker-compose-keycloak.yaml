@@ -1,0 +1,40 @@
+# Keycloak IDP for SAML SSO integration tests
+#
+# In CI: This file is included with other compose files that create the emqx_bridge network
+#
+# For local development, create the network first:
+#   docker network create emqx_bridge --subnet 172.100.239.0/24 --gateway 172.100.239.1
+#   docker compose -f .ci/docker-compose-file/docker-compose-keycloak.yaml up -d
+#
+# Or use with the main compose file:
+#   docker compose -f .ci/docker-compose-file/docker-compose.yaml \
+#                  -f .ci/docker-compose-file/docker-compose-keycloak.yaml up -d
+
+services:
+  keycloak:
+    container_name: keycloak
+    image: keycloak/keycloak:26.3
+    command:
+      - start-dev
+      - --import-realm
+      - --health-enabled=true
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+    volumes:
+      - ./keycloak/certs:/opt/keycloak/certs:ro
+      - ./keycloak/sp_certs:/opt/keycloak/sp_certs:ro
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    networks:
+      emqx_bridge:
+        ipv4_address: 172.100.239.120
+    healthcheck:
+      # Keycloak 26.3 minimal image doesn't have curl, use bash /dev/tcp
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
