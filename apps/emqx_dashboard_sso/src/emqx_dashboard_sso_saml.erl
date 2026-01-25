@@ -29,6 +29,11 @@
 
 -export([login/2, callback/2]).
 
+%% Export internal functions for testing
+-ifdef(TEST).
+-export([validate_signature_config/3, maybe_load_cert_or_key/2]).
+-endif.
+
 -dialyzer({nowarn_function, do_create/1}).
 
 -define(RESPHEADERS, #{
@@ -240,7 +245,7 @@ do_create(
             idp_signs_assertions = IdpSignsAssertions,
             trusted_fingerprints = TrustedFingerprints,
             consume_uri = BaseURL ++ "/sso/saml/acs",
-            metadata_uri = BaseURL ++ "/sso/saml/metadata",
+            metadata_uri = build_metadata_uri(BaseURL, Config),
             org = #esaml_org{
                 name = "EMQX",
                 displayname = "EMQX Dashboard",
@@ -260,6 +265,22 @@ do_create(
             ?SLOG(error, #{msg => failed_to_create_saml_sp, kind => Kind, error => Error}),
             {error, failed_to_load_metadata}
     end.
+
+%% @doc Build SP metadata URI (entity ID)
+%% In TEST mode, supports custom sp_entity_id for testing with different IDP clients
+-ifdef(TEST).
+-spec build_metadata_uri(string(), map()) -> string().
+build_metadata_uri(BaseURL, Config) ->
+    case maps:get(sp_entity_id, Config, undefined) of
+        undefined -> BaseURL ++ "/sso/saml/metadata";
+        EntityId when is_binary(EntityId) -> binary_to_list(EntityId);
+        EntityId when is_list(EntityId) -> EntityId
+    end.
+-else.
+-spec build_metadata_uri(string(), map()) -> string().
+build_metadata_uri(BaseURL, _Config) ->
+    BaseURL ++ "/sso/saml/metadata".
+-endif.
 
 %% @doc Load IdP metadata and extract certificate fingerprint for signature verification
 -spec load_and_validate_idp_metadata(binary()) -> {#esaml_idp_metadata{}, [binary()]}.
