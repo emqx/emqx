@@ -1,0 +1,196 @@
+{
+  "realm": "emqx",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "requiredCredentials": ["password"],
+  "users": [
+    {
+      "username": "testuser",
+      "email": "testuser@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "testpassword",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "admin_user",
+      "email": "admin@example.com",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "adminpassword",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "emqx-sp-default",
+      "name": "EMQX SP - Default (No SP Sign, Both IDP)",
+      "description": "SP doesn't sign requests, IDP signs both envelope and assertion",
+      "enabled": true,
+      "protocol": "saml",
+      "rootUrl": "http://172.100.239.1:18083",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://172.100.239.1:18083/api/v5/sso/saml/acs"
+      ],
+      "adminUrl": "",
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_assertion_consumer_url_post": "http://172.100.239.1:18083/api/v5/sso/saml/acs",
+        "saml_single_logout_service_url_redirect": "",
+        "saml_force_post_binding": "false",
+        "saml.signing.certificate": "",
+        "saml.client.signature": "false",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.authnstatement": "true",
+        "saml_name_id_format": "username",
+        "saml.server.signature": "true",
+        "saml.server.signature.keyinfo.ext": "false",
+        "saml.assertion.signature": "true",
+        "saml.encrypt": "false"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "emqx-sp-envelope-only",
+      "name": "EMQX SP - Envelope Only",
+      "description": "SP doesn't sign requests, IDP signs only envelope (not assertion)",
+      "enabled": true,
+      "protocol": "saml",
+      "rootUrl": "http://172.100.239.1:18083",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://172.100.239.1:18083/api/v5/sso/saml/acs"
+      ],
+      "adminUrl": "",
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_assertion_consumer_url_post": "http://172.100.239.1:18083/api/v5/sso/saml/acs",
+        "saml_single_logout_service_url_redirect": "",
+        "saml_force_post_binding": "false",
+        "saml.signing.certificate": "",
+        "saml.client.signature": "false",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.authnstatement": "true",
+        "saml_name_id_format": "username",
+        "saml.server.signature": "true",
+        "saml.server.signature.keyinfo.ext": "false",
+        "saml.assertion.signature": "false",
+        "saml.encrypt": "false"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "emqx-sp-assertion-only",
+      "name": "EMQX SP - Assertion Only",
+      "description": "SP doesn't sign requests, IDP signs only assertion (not envelope)",
+      "enabled": true,
+      "protocol": "saml",
+      "rootUrl": "http://172.100.239.1:18083",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://172.100.239.1:18083/api/v5/sso/saml/acs"
+      ],
+      "adminUrl": "",
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_assertion_consumer_url_post": "http://172.100.239.1:18083/api/v5/sso/saml/acs",
+        "saml_single_logout_service_url_redirect": "",
+        "saml_force_post_binding": "false",
+        "saml.signing.certificate": "",
+        "saml.client.signature": "false",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.authnstatement": "true",
+        "saml_name_id_format": "username",
+        "saml.server.signature": "false",
+        "saml.server.signature.keyinfo.ext": "false",
+        "saml.assertion.signature": "true",
+        "saml.encrypt": "false"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "emqx-sp-no-signatures",
+      "name": "EMQX SP - No Signatures (INSECURE)",
+      "description": "No signatures at all - for testing only",
+      "enabled": true,
+      "protocol": "saml",
+      "rootUrl": "http://172.100.239.1:18083",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://172.100.239.1:18083/api/v5/sso/saml/acs"
+      ],
+      "adminUrl": "",
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_assertion_consumer_url_post": "http://172.100.239.1:18083/api/v5/sso/saml/acs",
+        "saml_single_logout_service_url_redirect": "",
+        "saml_force_post_binding": "false",
+        "saml.signing.certificate": "",
+        "saml.client.signature": "false",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.authnstatement": "true",
+        "saml_name_id_format": "username",
+        "saml.server.signature": "false",
+        "saml.server.signature.keyinfo.ext": "false",
+        "saml.assertion.signature": "false",
+        "saml.encrypt": "false"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "emqx-sp-full-security",
+      "name": "EMQX SP - Full Security",
+      "description": "SP signs requests, IDP signs both envelope and assertion",
+      "enabled": true,
+      "protocol": "saml",
+      "rootUrl": "http://172.100.239.1:18083",
+      "baseUrl": "/",
+      "redirectUris": [
+        "http://172.100.239.1:18083/api/v5/sso/saml/acs"
+      ],
+      "adminUrl": "",
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_assertion_consumer_url_post": "http://172.100.239.1:18083/api/v5/sso/saml/acs",
+        "saml_single_logout_service_url_redirect": "",
+        "saml_force_post_binding": "false",
+        "saml.signing.certificate": "MIIDPTCCAiWgAwIBAgIUcsnQhlf7qzDn5dRlbfoeNLR5VSwwDQYJKoZIhvcNAQELBQAwLjEQMA4GA1UEAwwHZW1xeC1zcDENMAsGA1UECgwERU1RWDELMAkGA1UEBhMCQ04wHhcNMjYwMTI1MTUxODMzWhcNMjcwMTI1MTUxODMzWjAuMRAwDgYDVQQDDAdlbXF4LXNwMQ0wCwYDVQQKDARFTVFYMQswCQYDVQQGEwJDTjCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAMnnGQSW1184nvCZNneOFtzwyIrcWCXTmzrCcHYjxdkWiTlawHSeyuOWSFrMpztbjYFwMIQo+nZG4wl7UQv5k4Fe/5jXfRdvQjPD5Mp1fnOWvb8VXlElB7SssnULbX3nVWHTiXCgkqoVZPyt8kQgNoD/zYJNOtu77d61wvTxL4HA377LZ5Uar7vi0+0GgXxiwNE3KoNFVbTAVlChq4H79JsYYe182ctxTfuy5TprTd1c0YHAAouyWic+yTVt7V5+rYhOeKcP+AUfqjNEPRY9aTX0D8dBJc4vZ2ojoo6mLyQNkZwUnaHMwttqRgZaDgc7POJYn61clI/hynomr0dQIf0CAwEAAaNTMFEwHQYDVR0OBBYEFOllCi7nOF8CpvE7YmculO7mzVfVMB8GA1UdIwQYMBaAFOllCi7nOF8CpvE7YmculO7mzVfVMA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBABCUEh/lFwICawVqqcsdNh1GETUkq2bIjlP0K5Q9tIC8bw1n3lNsYyjLDPjgzw6Qw4ZW0BQB8yYV9yXgohmXtarBx1sZ2rqhkPxmOMWWYuu/9gvdGmhKmOoa6VMe2vz81KAY+ZbnwcreVxeKd5xfrUKaVN8uHEgmk4Ed8/i/edTDUUuyDQVDO1fK89SZKQ8CL7BbZxKo3NmiTKvvwP6d16+XOvJd+6izsMdH3IfV5SrMP8ie+VaGCR2bb1Ub4rolMog6nY067u9y5KKk/mJi/la2595iq2YnlvpHGoTKWxD7pMr1gKaPBxCW0qL1nQ4gd8NtxsMkxRY2TWDQ2kwLQxg=",
+        "saml.client.signature": "true",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml.authnstatement": "true",
+        "saml_name_id_format": "username",
+        "saml.server.signature": "true",
+        "saml.server.signature.keyinfo.ext": "false",
+        "saml.assertion.signature": "true",
+        "saml.encrypt": "false"
+      },
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [],
+      "optionalClientScopes": []
+    }
+  ]
+}

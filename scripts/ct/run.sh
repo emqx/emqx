@@ -213,6 +213,9 @@ for dep in ${CT_DEPS}; do
         dex)
             FILES+=( '.ci/docker-compose-file/docker-compose-dex-oidc.yaml' )
             ;;
+        keycloak)
+            FILES+=( '.ci/docker-compose-file/docker-compose-keycloak.yaml' )
+            ;;
         otel)
             FILES+=( '.ci/docker-compose-file/docker-compose-otel.yaml' )
             ;;
