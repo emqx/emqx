@@ -40,6 +40,12 @@
 
 -define(DIR, <<"saml_sp_certs">>).
 
+%% Internet Explorer has a maximum URL length of 2083 characters,
+%% with a maximum path length of 2048 characters.
+%% See: https://support.microsoft.com/en-us/topic/maximum-url-length
+%%             -is-2-083-characters-in-internet-explorer-174e7c8a-6666-f4e0-6fd6-908b53c12246
+-define(IE_MAX_URL_PATH_LENGTH, 2048).
+
 %%------------------------------------------------------------------------------
 %% Hocon Schema
 %%------------------------------------------------------------------------------
@@ -59,7 +65,9 @@ fields(saml) ->
             {idp_metadata_url, fun idp_metadata_url/1},
             {sp_sign_request, fun sp_sign_request/1},
             {sp_public_key, fun sp_public_key/1},
-            {sp_private_key, fun sp_private_key/1}
+            {sp_private_key, fun sp_private_key/1},
+            {idp_signs_envelopes, fun idp_signs_envelopes/1},
+            {idp_signs_assertions, fun idp_signs_assertions/1}
         ];
 fields(login) ->
     [
@@ -94,6 +102,16 @@ sp_private_key(required) -> false;
 sp_private_key(format) -> <<"password">>;
 sp_private_key(sensitive) -> true;
 sp_private_key(_) -> undefined.
+
+idp_signs_envelopes(type) -> boolean();
+idp_signs_envelopes(desc) -> ?DESC(idp_signs_envelopes);
+idp_signs_envelopes(default) -> true;
+idp_signs_envelopes(_) -> undefined.
+
+idp_signs_assertions(type) -> boolean();
+idp_signs_assertions(desc) -> ?DESC(idp_signs_assertions);
+idp_signs_assertions(default) -> true;
+idp_signs_assertions(_) -> undefined.
 
 desc(saml) ->
     "saml";
@@ -132,13 +150,27 @@ login(
     #{sp := SP, idp_meta := #esaml_idp_metadata{login_location = IDP}} = _State
 ) ->
     SignedXml = esaml_sp:generate_authn_request(IDP, SP),
-    Target = esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>),
-    Redirect =
-        case is_msie(Headers) of
+    %% Build redirect target
+    %% For HTTP-Redirect with signing: encode_http_redirect/5 strips XML signature
+    %% and adds SigAlg + Signature to URL params
+    Target =
+        case SP#esaml_sp.sp_sign_requests of
             true ->
+                esaml_binding:encode_http_redirect(
+                    IDP, SignedXml, <<>>, SP#esaml_sp.key, rsa_sha256
+                );
+            false ->
+                esaml_binding:encode_http_redirect(IDP, SignedXml, <<>>)
+        end,
+    %% Choose binding based on browser and URL length
+    Redirect =
+        case is_msie(Headers) andalso (byte_size(Target) > ?IE_MAX_URL_PATH_LENGTH) of
+            true ->
+                %% IE has URL length limits, use HTTP-POST binding (enveloped signature)
                 Html = esaml_binding:encode_http_post(IDP, SignedXml, <<>>),
                 {200, ?RESPHEADERS, Html};
             false ->
+                %% Use HTTP-Redirect binding
                 {302, maps:merge(?RESPHEADERS, #{<<"location">> => Target}), ?REDIRECT_BODY}
         end,
     {redirect, Redirect}.
@@ -187,38 +219,92 @@ do_create(
         idp_metadata_url := IDPMetadataURL,
         sp_sign_request := SpSignRequest,
         sp_private_key := KeyPath,
-        sp_public_key := CertPath
+        sp_public_key := CertPath,
+        idp_signs_envelopes := IdpSignsEnvelopes,
+        idp_signs_assertions := IdpSignsAssertions
     } = Config
 ) ->
     {ok, _} = application:ensure_all_started(esaml),
-    BaseURL = binary_to_list(DashboardAddr) ++ "/api/v5",
-    SP = esaml_sp:setup(#esaml_sp{
-        key = maybe_load_cert_or_key(KeyPath, fun esaml_util:load_private_key/1),
-        certificate = maybe_load_cert_or_key(CertPath, fun esaml_util:load_certificate/1),
-        sp_sign_requests = SpSignRequest,
-        trusted_fingerprints = [],
-        consume_uri = BaseURL ++ "/sso/saml/acs",
-        metadata_uri = BaseURL ++ "/sso/saml/metadata",
-        %% TODO: support conf org and contact
-        org = #esaml_org{
-            name = "EMQX",
-            displayname = "EMQX Dashboard",
-            url = DashboardAddr
-        },
-        tech = #esaml_contact{
-            name = "EMQX",
-            email = "contact@emqx.io"
-        }
-    }),
     try
-        IdpMeta = esaml_util:load_metadata(binary_to_list(IDPMetadataURL)),
+        %% Load IdP metadata and extract certificate fingerprint
+        {IdpMeta, TrustedFingerprints} = load_and_validate_idp_metadata(IDPMetadataURL),
+        %% Validate signature configuration
+        ok = validate_signature_config(IdpSignsEnvelopes, IdpSignsAssertions, TrustedFingerprints),
+        %% Setup Service Provider
+        BaseURL = binary_to_list(DashboardAddr) ++ "/api/v5",
+        SP = esaml_sp:setup(#esaml_sp{
+            key = maybe_load_cert_or_key(KeyPath, fun esaml_util:load_private_key/1),
+            certificate = maybe_load_cert_or_key(CertPath, fun esaml_util:load_certificate/1),
+            sp_sign_requests = SpSignRequest,
+            idp_signs_envelopes = IdpSignsEnvelopes,
+            idp_signs_assertions = IdpSignsAssertions,
+            trusted_fingerprints = TrustedFingerprints,
+            consume_uri = BaseURL ++ "/sso/saml/acs",
+            metadata_uri = BaseURL ++ "/sso/saml/metadata",
+            org = #esaml_org{
+                name = "EMQX",
+                displayname = "EMQX Dashboard",
+                url = DashboardAddr
+            },
+            tech = #esaml_contact{
+                name = "EMQX",
+                email = "contact@emqx.io"
+            }
+        }),
         State = Config,
         {ok, State#{idp_meta => IdpMeta, sp => SP}}
     catch
+        throw:{error, Reason} ->
+            {error, Reason};
         Kind:Error ->
-            Reason = failed_to_load_metadata,
-            ?SLOG(error, #{msg => Reason, kind => Kind, error => Error}),
-            {error, Reason}
+            ?SLOG(error, #{msg => failed_to_create_saml_sp, kind => Kind, error => Error}),
+            {error, failed_to_load_metadata}
+    end.
+
+%% @doc Load IdP metadata and extract certificate fingerprint for signature verification
+-spec load_and_validate_idp_metadata(binary()) -> {#esaml_idp_metadata{}, [binary()]}.
+load_and_validate_idp_metadata(IDPMetadataURL) ->
+    IdpMeta = esaml_util:load_metadata(binary_to_list(IDPMetadataURL)),
+    TrustedFingerprints =
+        case IdpMeta of
+            #esaml_idp_metadata{certificate = Cert} when is_binary(Cert), byte_size(Cert) > 0 ->
+                %% Compute SHA-1 fingerprint of IdP certificate
+                [crypto:hash(sha, Cert)];
+            _ ->
+                []
+        end,
+    {IdpMeta, TrustedFingerprints}.
+
+%% @doc Validate signature configuration consistency
+%% Returns ok or throws {error, Reason}
+-spec validate_signature_config(boolean(), boolean(), [binary()]) -> ok.
+validate_signature_config(IdpSignsEnvelopes, IdpSignsAssertions, TrustedFingerprints) ->
+    case {IdpSignsEnvelopes, IdpSignsAssertions, TrustedFingerprints} of
+        {true, _, []} ->
+            %% User wants envelope signature verification but no certificate available
+            ?SLOG(error, #{
+                msg => saml_missing_idp_certificate,
+                reason => "idp_signs_envelopes is true but no certificate found in IDP metadata"
+            }),
+            throw({error, missing_idp_certificate});
+        {_, true, []} ->
+            %% User wants assertion signature verification but no certificate available
+            ?SLOG(error, #{
+                msg => saml_missing_idp_certificate,
+                reason => "idp_signs_assertions is true but no certificate found in IDP metadata"
+            }),
+            throw({error, missing_idp_certificate});
+        {false, false, _} ->
+            %% User explicitly disabled all signature verification (insecure, for testing only)
+            ?SLOG(warning, #{
+                msg => saml_signature_verification_disabled,
+                reason =>
+                    "SAML signature verification is COMPLETELY DISABLED - this is insecure and should only be used for testing"
+            }),
+            ok;
+        _ ->
+            %% At least one signature type is required and certificate is available
+            ok
     end.
 
 do_validate_assertion(SP, DuplicateFun, Body) ->
@@ -267,7 +353,13 @@ ensure_user_exists(Username) ->
 
 maybe_load_cert_or_key(undefined, _) ->
     undefined;
-maybe_load_cert_or_key(Path, Func) ->
+maybe_load_cert_or_key(<<>>, _) ->
+    undefined;
+maybe_load_cert_or_key("", _) ->
+    undefined;
+maybe_load_cert_or_key(Path, Func) when is_binary(Path) ->
+    Func(binary_to_list(Path));
+maybe_load_cert_or_key(Path, Func) when is_list(Path) ->
     Func(Path).
 
 is_msie(Headers) ->
