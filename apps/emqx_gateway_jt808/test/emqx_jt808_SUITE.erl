@@ -1655,7 +1655,7 @@ t_case16_dl_0x8301_set_event(_Config) ->
             <<"events">> =>
                 [
                     #{<<"id">> => 56, <<"length">> => 3, <<"content">> => <<"111">>},
-                    #{<<"id">> => 7, <<"length">> => 5, <<"content">> => <<"nwKdmww">>}
+                    #{<<"id">> => 7, <<"length">> => 7, <<"content">> => <<"nwKdmww">>}
                 ]
         }
     },
@@ -1664,7 +1664,7 @@ t_case16_dl_0x8301_set_event(_Config) ->
     %
     % client get downlink command
     %
-    MsgBody3 = <<3:8, 2:8, 56:8, 3:8, <<"111">>/binary, 7:8, 5:8, <<"nwKdmww">>/binary>>,
+    MsgBody3 = <<3:8, 2:8, 56:8, 3:8, <<"111">>/binary, 7:8, 7:8, <<"nwKdmww">>/binary>>,
     MsgId3 = ?MS_SET_EVENT,
     MsgSn3 = 2,
     Size3 = size(MsgBody3),
@@ -1703,14 +1703,14 @@ t_case17_dl_0x8303_set_menu(_Config) ->
             <<"menus">> =>
                 [
                     #{<<"type">> => 56, <<"length">> => 3, <<"info">> => <<"111">>},
-                    #{<<"type">> => 7, <<"length">> => 5, <<"info">> => <<"nwKdmww">>}
+                    #{<<"type">> => 7, <<"length">> => 7, <<"info">> => <<"nwKdmww">>}
                 ]
         }
     },
     emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
 
     %% client get downlink command
-    MsgBody3 = <<3:8, 2:8, 56:8, 3:?WORD, <<"111">>/binary, 7:8, 5:?WORD, <<"nwKdmww">>/binary>>,
+    MsgBody3 = <<3:8, 2:8, 56:8, 3:?WORD, <<"111">>/binary, 7:8, 7:?WORD, <<"nwKdmww">>/binary>>,
     MsgId3 = ?MS_SET_MENU,
     MsgSn3 = 2,
     Size3 = size(MsgBody3),
