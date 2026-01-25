@@ -9,6 +9,8 @@
 -include("emqx_jt808.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-import(emqx_jt808_encoding, [maybe_decode_string/3, maybe_encode_string/3]).
+
 %% emqx_gateway_frame callbacks
 -export([
     initial_parse_state/1,
@@ -58,8 +60,8 @@ serialize_opts() ->
 parse(Bin, State) ->
     do_parse(Bin, State).
 
-serialize_pkt(Frame, _Opts) ->
-    serialize(Frame).
+serialize_pkt(Frame, Opts) ->
+    serialize(Frame, Opts).
 
 format(Msg) ->
     io_lib:format("~p", [Msg]).
@@ -164,7 +166,7 @@ parse_message(Binary, Opts) ->
             ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
             Body =
                 try
-                    parse_message_body(MsgId, RestBinary, ProtoVer)
+                    parse_message_body(MsgId, RestBinary, ProtoVer, Opts)
                 catch
                     error:unknown_message_id ->
                         case maps:get(parse_unknown_message, Opts, true) of
@@ -252,16 +254,16 @@ parse_message_header(
 parse_message_header(_) ->
     invalid_message.
 
-parse_message_body(?MC_GENERAL_RESPONSE, <<Seq:?WORD, Id:?WORD, Result:?BYTE>>, _ProtoVer) ->
+parse_message_body(?MC_GENERAL_RESPONSE, <<Seq:?WORD, Id:?WORD, Result:?BYTE>>, _ProtoVer, _Opts) ->
     #{<<"seq">> => Seq, <<"id">> => Id, <<"result">> => Result};
-parse_message_body(?MC_HEARTBEAT, <<>>, _ProtoVer) ->
+parse_message_body(?MC_HEARTBEAT, <<>>, _ProtoVer, _Opts) ->
     #{};
-parse_message_body(?MC_DEREGISTER, <<>>, _ProtoVer) ->
+parse_message_body(?MC_DEREGISTER, <<>>, _ProtoVer, _Opts) ->
     #{};
-parse_message_body(?MC_QUERY_SERVER_TIME, <<>>, _ProtoVer) ->
+parse_message_body(?MC_QUERY_SERVER_TIME, <<>>, _ProtoVer, _Opts) ->
     %% 2019: Query server time request - empty body
     #{};
-parse_message_body(?MC_REQUEST_FRAGMENT, <<Seq:?WORD, Count:?WORD, Rest/binary>>, _ProtoVer) ->
+parse_message_body(?MC_REQUEST_FRAGMENT, <<Seq:?WORD, Count:?WORD, Rest/binary>>, _ProtoVer, _Opts) ->
     %% 2019: Terminal packet retransmission request
     {Ids, _} = word_array(Count, Rest, []),
     #{<<"seq">> => Seq, <<"count">> => Count, <<"ids">> => Ids};
@@ -269,7 +271,8 @@ parse_message_body(
     ?MC_REGISTER,
     <<Province:?WORD, City:?WORD, Manufacturer:11/binary, Model:30/binary, DevId:30/binary,
         Color:?BYTE, LicNumber/binary>>,
-    ProtoVer
+    ProtoVer,
+    Opts
 ) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: 11-byte manufacturer, 30-byte model, 30-byte device ID
     #{
@@ -279,13 +282,14 @@ parse_message_body(
         <<"model">> => remove_tail_zero(Model),
         <<"dev_id">> => remove_tail_zero(DevId),
         <<"color">> => Color,
-        <<"license_number">> => LicNumber
+        <<"license_number">> => maybe_decode_string(LicNumber, license_number, Opts)
     };
 parse_message_body(
     ?MC_REGISTER,
     <<Province:?WORD, City:?WORD, Manufacturer:5/binary, Model:20/binary, DevId:7/binary,
         Color:?BYTE, LicNumber/binary>>,
-    _ProtoVer
+    _ProtoVer,
+    Opts
 ) ->
     %% 2013 format: 5-byte manufacturer, 20-byte model, 7-byte device ID
     #{
@@ -295,9 +299,9 @@ parse_message_body(
         <<"model">> => remove_tail_zero(Model),
         <<"dev_id">> => remove_tail_zero(DevId),
         <<"color">> => Color,
-        <<"license_number">> => LicNumber
+        <<"license_number">> => maybe_decode_string(LicNumber, license_number, Opts)
     };
-parse_message_body(?MC_AUTH, <<CodeLen:?BYTE, Rest/binary>>, ProtoVer) when
+parse_message_body(?MC_AUTH, <<CodeLen:?BYTE, Rest/binary>>, ProtoVer, _Opts) when
     ProtoVer >= ?PROTO_VER_2019
 ->
     %% 2019 format: length prefix + code + IMEI + software version
@@ -307,17 +311,18 @@ parse_message_body(?MC_AUTH, <<CodeLen:?BYTE, Rest/binary>>, ProtoVer) when
         <<"imei">> => remove_tail_zero(IMEI),
         <<"software_version">> => remove_tail_zero(SoftwareVersion)
     };
-parse_message_body(?MC_AUTH, Binary, _ProtoVer) ->
+parse_message_body(?MC_AUTH, Binary, _ProtoVer, _Opts) ->
     %% 2013 format: raw auth code
     #{<<"code">> => Binary};
-parse_message_body(?MC_QUERY_PARAM_ACK, <<Seq:?WORD, Rest/binary>>, _ProtoVer) ->
-    {Length, Params} = parse_client_params(Rest),
+parse_message_body(?MC_QUERY_PARAM_ACK, <<Seq:?WORD, Rest/binary>>, _ProtoVer, Opts) ->
+    {Length, Params} = parse_client_params(Rest, Opts),
     #{<<"seq">> => Seq, <<"length">> => Length, <<"params">> => Params};
 parse_message_body(
     ?MC_QUERY_ATTRIB_ACK,
     <<Type:?WORD, Manufacturer:5/binary, Model:30/binary, Id:30/binary, ICCID:10/binary,
         HVLen:?BYTE, Rest/binary>>,
-    ProtoVer
+    ProtoVer,
+    _Opts
 ) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: 30-byte model, 30-byte ID
     <<HV:HVLen/binary, FVLen:?BYTE, Rest2/binary>> = Rest,
@@ -337,7 +342,8 @@ parse_message_body(
     ?MC_QUERY_ATTRIB_ACK,
     <<Type:?WORD, Manufacturer:5/binary, Model:20/binary, Id:7/binary, ICCID:10/binary, HVLen:?BYTE,
         Rest/binary>>,
-    _ProtoVer
+    _ProtoVer,
+    _Opts
 ) ->
     %% 2013 format: 20-byte model, 7-byte ID
     <<HV:HVLen/binary, FVLen:?BYTE, Rest2/binary>> = Rest,
@@ -353,32 +359,37 @@ parse_message_body(
         <<"gnss_prop">> => GNSSProp,
         <<"comm_prop">> => CommProp
     };
-parse_message_body(?MC_OTA_ACK, <<Type:?BYTE, Result:?BYTE>>, _ProtoVer) ->
+parse_message_body(?MC_OTA_ACK, <<Type:?BYTE, Result:?BYTE>>, _ProtoVer, _Opts) ->
     #{<<"type">> => Type, <<"result">> => Result};
-parse_message_body(?MC_LOCATION_REPORT, Binary, ProtoVer) ->
+parse_message_body(?MC_LOCATION_REPORT, Binary, ProtoVer, _Opts) ->
     parse_location_report(Binary, ProtoVer);
-parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>, ProtoVer) ->
+parse_message_body(?MC_QUERY_LOCATION_ACK, <<Seq:?WORD, Rest/binary>>, ProtoVer, _Opts) ->
     Params = parse_location_report(Rest, ProtoVer),
     #{<<"seq">> => Seq, <<"params">> => Params};
-parse_message_body(?MC_EVENT_REPORT, <<Id:?BYTE>>, _ProtoVer) ->
+parse_message_body(?MC_EVENT_REPORT, <<Id:?BYTE>>, _ProtoVer, _Opts) ->
     #{<<"id">> => Id};
-parse_message_body(?MC_QUESTION_ACK, <<Seq:?WORD, Id:?BYTE>>, _ProtoVer) ->
+parse_message_body(?MC_QUESTION_ACK, <<Seq:?WORD, Id:?BYTE>>, _ProtoVer, _Opts) ->
     #{<<"seq">> => Seq, <<"id">> => Id};
-parse_message_body(?MC_INFO_REQ_CANCEL, <<Id:?BYTE, Flag:?BYTE>>, _ProtoVer) ->
+parse_message_body(?MC_INFO_REQ_CANCEL, <<Id:?BYTE, Flag:?BYTE>>, _ProtoVer, _Opts) ->
     #{<<"id">> => Id, <<"flag">> => Flag};
-parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>, ProtoVer) ->
+parse_message_body(?MC_VEHICLE_CTRL_ACK, <<Seq:?WORD, Location/binary>>, ProtoVer, _Opts) ->
     #{<<"seq">> => Seq, <<"location">> => parse_location_report(Location, ProtoVer)};
-parse_message_body(?MC_QUERY_AREA_ROUTE_ACK, <<Type:?BYTE, Count:?DWORD, Rest/binary>>, _ProtoVer) ->
+parse_message_body(
+    ?MC_QUERY_AREA_ROUTE_ACK, <<Type:?BYTE, Count:?DWORD, Rest/binary>>, _ProtoVer, _Opts
+) ->
     %% 2019: Query area/route data response
     #{<<"type">> => Type, <<"count">> => Count, <<"data">> => base64:encode(Rest)};
-parse_message_body(?MC_DRIVE_RECORD_REPORT, <<Seq:?WORD, Command:?BYTE, Data/binary>>, _ProtoVer) ->
+parse_message_body(
+    ?MC_DRIVE_RECORD_REPORT, <<Seq:?WORD, Command:?BYTE, Data/binary>>, _ProtoVer, _Opts
+) ->
     #{<<"seq">> => Seq, <<"command">> => Command, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>, _ProtoVer) ->
+parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>, _ProtoVer, _Opts) ->
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
 parse_message_body(
     ?MC_DRIVER_ID_REPORT,
     <<Status:?BYTE, TimeBCD:6/binary, Rest/binary>>,
-    ProtoVer
+    ProtoVer,
+    Opts
 ) ->
     Base = #{
         <<"status">> => Status,
@@ -395,9 +406,9 @@ parse_message_body(
                     <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary, Rest4/binary>> = Rest3,
                     Base1 = Base#{
                         <<"ic_result">> => IcResult,
-                        <<"driver_name">> => Name,
+                        <<"driver_name">> => maybe_decode_string(Name, driver_name, Opts),
                         <<"certificate">> => Certificate,
-                        <<"organization">> => Orgnization,
+                        <<"organization">> => maybe_decode_string(Orgnization, organization, Opts),
                         <<"cert_expiry">> => from_bcd(CertExpiryBCD, [])
                     },
                     case ProtoVer >= ?PROTO_VER_2019 of
@@ -415,19 +426,24 @@ parse_message_body(
         _ ->
             Base
     end;
-parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>, ProtoVer) ->
+parse_message_body(
+    ?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>, ProtoVer, _Opts
+) ->
     #{
         <<"type">> => Type,
         <<"length">> => Count,
         <<"location">> => parse_bulk_location_report(Count, Rest, ProtoVer, [])
     };
-parse_message_body(?MC_CAN_BUS_REPORT, <<Count:?WORD, TimeBCD:5/binary, Rest/binary>>, _ProtoVer) ->
+parse_message_body(
+    ?MC_CAN_BUS_REPORT, <<Count:?WORD, TimeBCD:5/binary, Rest/binary>>, _ProtoVer, _Opts
+) ->
     CanData = parse_can_data(Count, Rest, []),
     #{<<"length">> => Count, <<"time">> => from_bcd(TimeBCD, []), <<"can_data">> => CanData};
 parse_message_body(
     ?MC_MULTIMEDIA_EVENT_REPORT,
     <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE>>,
-    _ProtoVer
+    _ProtoVer,
+    _Opts
 ) ->
     #{
         <<"id">> => Id,
@@ -440,7 +456,8 @@ parse_message_body(
     ?MC_MULTIMEDIA_DATA_REPORT,
     <<Id:?DWORD, Type:?BYTE, Format:?BYTE, Event:?BYTE, Channel:?BYTE, Location:28/binary,
         Multimedia/binary>>,
-    ProtoVer
+    ProtoVer,
+    _Opts
 ) ->
     #{
         <<"id">> => Id,
@@ -452,47 +469,49 @@ parse_message_body(
         <<"multimedia">> => base64:encode(Multimedia)
     };
 parse_message_body(
-    ?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE, Count:?WORD, Rest/binary>>, _ProtoVer
+    ?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE, Count:?WORD, Rest/binary>>, _ProtoVer, _Opts
 ) when
     Result =:= 0
 ->
     %% if Result is 0, means suceeded, "length" & "ids" present
     {Array, _} = dword_array(Count, Rest, []),
     #{<<"seq">> => Seq, <<"result">> => Result, <<"length">> => Count, <<"ids">> => Array};
-parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE>>, _ProtoVer) ->
+parse_message_body(?MC_CAMERA_SHOT_ACK, <<Seq:?WORD, Result:?BYTE>>, _ProtoVer, _Opts) ->
     %% if Result is not 0, means failed, no "length" & "ids"
     #{<<"seq">> => Seq, <<"result">> => Result};
-parse_message_body(?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>, ProtoVer) ->
+parse_message_body(
+    ?MC_MM_DATA_SEARCH_ACK, <<Seq:?WORD, Count:?WORD, Rest/binary>>, ProtoVer, _Opts
+) ->
     #{
         <<"seq">> => Seq,
         <<"length">> => Count,
         <<"result">> => parse_multimedia_search_result(Count, Rest, ProtoVer, [])
     };
-parse_message_body(?MC_SEND_TRANSPARENT_DATA, <<Type:?BYTE, Data/binary>>, _ProtoVer) ->
+parse_message_body(?MC_SEND_TRANSPARENT_DATA, <<Type:?BYTE, Data/binary>>, _ProtoVer, _Opts) ->
     #{<<"type">> => Type, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>, _ProtoVer) ->
+parse_message_body(?MC_SEND_ZIP_DATA, <<Length:?DWORD, Data/binary>>, _ProtoVer, _Opts) ->
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
-parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>, _ProtoVer) ->
+parse_message_body(?MC_RSA_KEY, <<E:?DWORD, N:128/binary>>, _ProtoVer, _Opts) ->
     #{<<"e">> => E, <<"n">> => base64:encode(N)};
-parse_message_body(_, _, _ProtoVer) ->
+parse_message_body(_, _, _ProtoVer, _Opts) ->
     error(unknown_message_id).
 
-parse_client_params(<<Count:?BYTE, Rest/binary>>) ->
-    {Count, parse_client_params2(Count, Rest, [])}.
+parse_client_params(<<Count:?BYTE, Rest/binary>>, Opts) ->
+    {Count, parse_client_params2(Count, Rest, Opts, [])}.
 
-parse_client_params2(0, _Rest, Acc) ->
+parse_client_params2(0, _Rest, _Opts, Acc) ->
     lists:reverse(Acc);
-parse_client_params2(Count, <<Id:?DWORD, Length:?BYTE, Rest/binary>>, Acc) ->
+parse_client_params2(Count, <<Id:?DWORD, Length:?BYTE, Rest/binary>>, Opts, Acc) ->
     {Value, Rest3} =
         case client_param_data_type(Id) of
             dword -> decode_cp_dword(Rest);
             word -> decode_cp_word(Rest);
             byte -> decode_cp_byte(Rest);
-            string -> decode_cp_string(Length, Rest);
+            string -> decode_cp_string(Length, Rest, Id, Opts);
             byte8 -> decode_cp_byte8(Rest);
             reserved -> decode_cp_reserved(Length, Rest)
         end,
-    parse_client_params2(Count - 1, Rest3, [#{<<"id">> => Id, <<"value">> => Value} | Acc]).
+    parse_client_params2(Count - 1, Rest3, Opts, [#{<<"id">> => Id, <<"value">> => Value} | Acc]).
 
 decode_cp_dword(<<Value:?DWORD, Rest/binary>>) ->
     {Value, Rest}.
@@ -503,9 +522,10 @@ decode_cp_word(<<Value:?WORD, Rest/binary>>) ->
 decode_cp_byte(<<Value:?BYTE, Rest/binary>>) ->
     {Value, Rest}.
 
-decode_cp_string(Length, Binary) ->
+decode_cp_string(Length, Binary, ParamId, Opts) ->
     <<Value:Length/binary, Rest/binary>> = Binary,
-    {Value, Rest}.
+    FieldName = list_to_atom("client_param_" ++ integer_to_list(ParamId)),
+    {maybe_decode_string(Value, FieldName, Opts), Rest}.
 
 decode_cp_byte8(<<Value:8/binary, Rest/binary>>) ->
     {base64:encode(Value), Rest}.
@@ -732,7 +752,7 @@ parse_multimedia_search_result(
 %%--------------------------------------------------------------------
 %% Serialize JT808 Message
 %%--------------------------------------------------------------------
-serialize(Json) ->
+serialize(Json, Opts) ->
     Header = maps:get(<<"header">>, Json),
     Body =
         case maps:is_key(<<"body">>, Json) of
@@ -741,7 +761,7 @@ serialize(Json) ->
         end,
     %% Extract proto_ver for version-aware body serialization (0 for 2013, >=1 for 2019)
     ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
-    BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body, ProtoVer),
+    BodyStream = serialize_body(maps:get(<<"msg_id">>, Header), Body, ProtoVer, Opts),
     %% TODO: encrypt body here
     HeaderStream = serialize_header(Header#{<<"len">> => size(BodyStream)}),
     packet(<<HeaderStream/binary, BodyStream/binary>>).
@@ -780,31 +800,31 @@ serialize_header(
             MsgSn:?WORD>>,
     maybe_append_fragment(Binary, Fragment, Total, Seq).
 
-serialize_body(?MS_GENERAL_RESPONSE, Body, _ProtoVer) ->
+serialize_body(?MS_GENERAL_RESPONSE, Body, _ProtoVer, _Opts) ->
     Seq = maps:get(<<"seq">>, Body),
     Id = maps:get(<<"id">>, Body),
     Result = maps:get(<<"result">>, Body),
     <<Seq:?WORD, Id:?WORD, Result:?BYTE>>;
-serialize_body(?MS_REQUEST_FRAGMENT, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
+serialize_body(?MS_REQUEST_FRAGMENT, Body, ProtoVer, _Opts) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: Length is WORD (changed from BYTE in 2013)
     Seq = maps:get(<<"seq">>, Body),
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     LastStream = encode_word_array(Length, Ids, <<>>),
     <<Seq:?WORD, Length:?WORD, LastStream/binary>>;
-serialize_body(?MS_REQUEST_FRAGMENT, Body, _ProtoVer) ->
+serialize_body(?MS_REQUEST_FRAGMENT, Body, _ProtoVer, _Opts) ->
     %% 2013 format: Length is BYTE
     Seq = maps:get(<<"seq">>, Body),
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     LastStream = encode_word_array(Length, Ids, <<>>),
     <<Seq:?WORD, Length:?BYTE, LastStream/binary>>;
-serialize_body(?MS_SERVER_TIME_ACK, Body, _ProtoVer) ->
+serialize_body(?MS_SERVER_TIME_ACK, Body, _ProtoVer, _Opts) ->
     %% 2019: Server time response - BCD[6] UTC time
     Time = maps:get(<<"time">>, Body),
     TimeBCD = to_bcd(Time, 6),
     TimeBCD;
-serialize_body(?MS_REGISTER_ACK, Body, _ProtoVer) ->
+serialize_body(?MS_REGISTER_ACK, Body, _ProtoVer, _Opts) ->
     Seq = maps:get(<<"seq">>, Body),
     %% XXX: replaced by maroc?
     Result = maps:get(<<"result">>, Body),
@@ -816,23 +836,23 @@ serialize_body(?MS_REGISTER_ACK, Body, _ProtoVer) ->
             %% If the terminal regiter failed, it don't contain auth code
             <<Seq:?WORD, Result:?BYTE>>
     end;
-serialize_body(?MS_SET_CLIENT_PARAM, Body, _ProtoVer) ->
+serialize_body(?MS_SET_CLIENT_PARAM, Body, _ProtoVer, Opts) ->
     Length = maps:get(<<"length">>, Body),
     ParamList = maps:get(<<"params">>, Body),
-    serialize_client_param(<<Length:?BYTE>>, ParamList);
-serialize_body(?MS_QUERY_CLIENT_ALL_PARAM, _Body, _ProtoVer) ->
+    serialize_client_param(<<Length:?BYTE>>, ParamList, Opts);
+serialize_body(?MS_QUERY_CLIENT_ALL_PARAM, _Body, _ProtoVer, _Opts) ->
     <<>>;
-serialize_body(?MS_QUERY_CLIENT_PARAM, Body, _ProtoVer) ->
+serialize_body(?MS_QUERY_CLIENT_PARAM, Body, _ProtoVer, _Opts) ->
     Length = maps:get(<<"length">>, Body),
     List = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, List, <<Length:?BYTE>>);
-serialize_body(?MS_CLIENT_CONTROL, Body, _ProtoVer) ->
+serialize_body(?MS_CLIENT_CONTROL, Body, _ProtoVer, _Opts) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     <<Command:?BYTE, Param/binary>>;
-serialize_body(?MS_QUERY_CLIENT_ATTRIB, _Body, _ProtoVer) ->
+serialize_body(?MS_QUERY_CLIENT_ATTRIB, _Body, _ProtoVer, _Opts) ->
     <<>>;
-serialize_body(?MS_OTA, Body, _ProtoVer) ->
+serialize_body(?MS_OTA, Body, _ProtoVer, _Opts) ->
     %% TODO: OTA in this way?
     Type = maps:get(<<"type">>, Body),
     Manuf = maps:get(<<"manufacturer">>, Body),
@@ -841,90 +861,96 @@ serialize_body(?MS_OTA, Body, _ProtoVer) ->
     FwLen = maps:get(<<"fw_len">>, Body),
     Firmware = maps:get(<<"firmware">>, Body),
     <<Type:?BYTE, Manuf:5/binary, VerLength:?BYTE, Version/binary, FwLen:?DWORD, Firmware/binary>>;
-serialize_body(?MS_QUERY_LOCATION, _Body, _ProtoVer) ->
+serialize_body(?MS_QUERY_LOCATION, _Body, _ProtoVer, _Opts) ->
     <<>>;
-serialize_body(?MS_TRACE_LOCATION, Body, _ProtoVer) ->
+serialize_body(?MS_TRACE_LOCATION, Body, _ProtoVer, _Opts) ->
     Period = maps:get(<<"period">>, Body),
     Expiry = maps:get(<<"expiry">>, Body),
     <<Period:?WORD, Expiry:?DWORD>>;
-serialize_body(?MS_CONFIRM_ALARM, Body, _ProtoVer) ->
+serialize_body(?MS_CONFIRM_ALARM, Body, _ProtoVer, _Opts) ->
     Seq = maps:get(<<"seq">>, Body),
     Type = maps:get(<<"type">>, Body),
     <<Seq:?WORD, Type:?DWORD>>;
-serialize_body(?MS_LINK_DETECT, _Body, _ProtoVer) ->
+serialize_body(?MS_LINK_DETECT, _Body, _ProtoVer, _Opts) ->
     %% 2019: Link detection - empty body
     <<>>;
-serialize_body(?MS_SEND_TEXT, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
+serialize_body(?MS_SEND_TEXT, Body, ProtoVer, Opts) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: Flag + Type + Text
     Flag = maps:get(<<"flag">>, Body),
     TextType = maps:get(<<"text_type">>, Body, 1),
     Text = maps:get(<<"text">>, Body),
-    <<Flag:?BYTE, TextType:?BYTE, Text/binary>>;
-serialize_body(?MS_SEND_TEXT, Body, _ProtoVer) ->
+    EncodedText = maybe_encode_string(Text, text, Opts),
+    <<Flag:?BYTE, TextType:?BYTE, EncodedText/binary>>;
+serialize_body(?MS_SEND_TEXT, Body, _ProtoVer, Opts) ->
     %% 2013 format: Flag + Text (no type field)
     Flag = maps:get(<<"flag">>, Body),
     Text = maps:get(<<"text">>, Body),
-    <<Flag:?BYTE, Text/binary>>;
-serialize_body(?MS_SET_EVENT, Body, _ProtoVer) ->
+    EncodedText = maybe_encode_string(Text, text, Opts),
+    <<Flag:?BYTE, EncodedText/binary>>;
+serialize_body(?MS_SET_EVENT, Body, _ProtoVer, Opts) ->
     Type = maps:get(<<"type">>, Body),
     %% FIXME: If the type is 0, the length and events is empty
     Length = maps:get(<<"length">>, Body),
     Events = maps:get(<<"events">>, Body),
-    serialize_events(Events, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_SEND_QUESTION, Body, _ProtoVer) ->
+    serialize_events(Events, <<Type:?BYTE, Length:?BYTE>>, Opts);
+serialize_body(?MS_SEND_QUESTION, Body, _ProtoVer, Opts) ->
     Flag = maps:get(<<"flag">>, Body),
     Length = maps:get(<<"length">>, Body),
     Question = maps:get(<<"question">>, Body),
     Answers = maps:get(<<"answers">>, Body),
-    serialize_candidate_answers(Answers, <<Flag:?BYTE, Length:?BYTE, Question/binary>>);
-serialize_body(?MS_SET_MENU, Body, _ProtoVer) ->
+    EncodedQuestion = maybe_encode_string(Question, question, Opts),
+    serialize_candidate_answers(
+        Answers, <<Flag:?BYTE, Length:?BYTE, EncodedQuestion/binary>>, Opts
+    );
+serialize_body(?MS_SET_MENU, Body, _ProtoVer, Opts) ->
     %% XXX: If the tpye is delete all menu, the remaining bytes should be drop?
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Menus = maps:get(<<"menus">>, Body),
-    serialize_menus(Menus, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_INFO_CONTENT, Body, _ProtoVer) ->
+    serialize_menus(Menus, <<Type:?BYTE, Length:?BYTE>>, Opts);
+serialize_body(?MS_INFO_CONTENT, Body, _ProtoVer, Opts) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Info = maps:get(<<"info">>, Body),
-    <<Type:?BYTE, Length:?WORD, Info/binary>>;
-serialize_body(?MS_PHONE_CALLBACK, Body, _ProtoVer) ->
+    EncodedInfo = maybe_encode_string(Info, info, Opts),
+    <<Type:?BYTE, Length:?WORD, EncodedInfo/binary>>;
+serialize_body(?MS_PHONE_CALLBACK, Body, _ProtoVer, _Opts) ->
     Type = maps:get(<<"type">>, Body),
     Phone = maps:get(<<"phone">>, Body),
     <<Type:?BYTE, Phone/binary>>;
-serialize_body(?MS_SET_PHONE_NUMBER, Body, _ProtoVer) ->
+serialize_body(?MS_SET_PHONE_NUMBER, Body, _ProtoVer, Opts) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Contacts = maps:get(<<"contacts">>, Body),
-    serialize_contacts(Contacts, <<Type:?BYTE, Length:?BYTE>>);
-serialize_body(?MS_VEHICLE_CONTROL, Body, ProtoVer) when ProtoVer >= ?PROTO_VER_2019 ->
+    serialize_contacts(Contacts, <<Type:?BYTE, Length:?BYTE>>, Opts);
+serialize_body(?MS_VEHICLE_CONTROL, Body, ProtoVer, _Opts) when ProtoVer >= ?PROTO_VER_2019 ->
     %% 2019 format: Control type list
     Count = maps:get(<<"count">>, Body, 0),
     Controls = maps:get(<<"controls">>, Body, []),
     serialize_control_types(Controls, <<Count:?WORD>>);
-serialize_body(?MS_VEHICLE_CONTROL, Body, _ProtoVer) ->
+serialize_body(?MS_VEHICLE_CONTROL, Body, _ProtoVer, _Opts) ->
     %% 2013 format: Single flag byte
     Flag = maps:get(<<"flag">>, Body),
     <<Flag:?BYTE>>;
-serialize_body(?MS_SET_CIRCLE_AREA, Body, ProtoVer) ->
+serialize_body(?MS_SET_CIRCLE_AREA, Body, ProtoVer, Opts) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Areas = maps:get(<<"areas">>, Body),
-    serialize_circle_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer);
-serialize_body(?MS_DEL_CIRCLE_AREA, Body, _ProtoVer) ->
+    serialize_circle_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer, Opts);
+serialize_body(?MS_DEL_CIRCLE_AREA, Body, _ProtoVer, _Opts) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_RECT_AREA, Body, ProtoVer) ->
+serialize_body(?MS_SET_RECT_AREA, Body, ProtoVer, Opts) ->
     Type = maps:get(<<"type">>, Body),
     Length = maps:get(<<"length">>, Body),
     Areas = maps:get(<<"areas">>, Body),
-    serialize_rect_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer);
-serialize_body(?MS_DEL_RECT_AREA, Body, _ProtoVer) ->
+    serialize_rect_area(Areas, <<Type:?BYTE, Length:?BYTE>>, ProtoVer, Opts);
+serialize_body(?MS_DEL_RECT_AREA, Body, _ProtoVer, _Opts) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_POLY_AREA, Body, ProtoVer) ->
+serialize_body(?MS_SET_POLY_AREA, Body, ProtoVer, Opts) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     StartTime = maps:get(<<"start_time">>, Body),
@@ -946,16 +972,17 @@ serialize_body(?MS_SET_POLY_AREA, Body, ProtoVer) ->
         true ->
             NightMaxSpeed = maps:get(<<"night_max_speed">>, Body, 0),
             Name = maps:get(<<"name">>, Body, <<>>),
-            NameLen = byte_size(Name),
-            <<PointsStream/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+            EncodedName = maybe_encode_string(Name, poly_area_name, Opts),
+            NameLen = byte_size(EncodedName),
+            <<PointsStream/binary, NightMaxSpeed:?WORD, NameLen:?WORD, EncodedName/binary>>;
         false ->
             PointsStream
     end;
-serialize_body(?MS_DEL_POLY_AREA, Body, _ProtoVer) ->
+serialize_body(?MS_DEL_POLY_AREA, Body, _ProtoVer, _Opts) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_SET_PATH, Body, ProtoVer) ->
+serialize_body(?MS_SET_PATH, Body, ProtoVer, Opts) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     StartTime = maps:get(<<"start_time">>, Body),
@@ -971,16 +998,17 @@ serialize_body(?MS_SET_PATH, Body, ProtoVer) ->
     case ProtoVer >= ?PROTO_VER_2019 of
         true ->
             Name = maps:get(<<"name">>, Body, <<>>),
-            NameLen = byte_size(Name),
-            <<PointsStream/binary, NameLen:?WORD, Name/binary>>;
+            EncodedName = maybe_encode_string(Name, path_name, Opts),
+            NameLen = byte_size(EncodedName),
+            <<PointsStream/binary, NameLen:?WORD, EncodedName/binary>>;
         false ->
             PointsStream
     end;
-serialize_body(?MS_DEL_PATH, Body, _ProtoVer) ->
+serialize_body(?MS_DEL_PATH, Body, _ProtoVer, _Opts) ->
     Length = maps:get(<<"length">>, Body),
     Ids = maps:get(<<"ids">>, Body),
     encode_dword_array(Length, Ids, <<Length:?BYTE>>);
-serialize_body(?MS_QUERY_AREA_ROUTE, Body, _ProtoVer) ->
+serialize_body(?MS_QUERY_AREA_ROUTE, Body, _ProtoVer, _Opts) ->
     %% 2019: Query area/route data
     Type = maps:get(<<"type">>, Body),
     Count = maps:get(<<"count">>, Body),
@@ -991,24 +1019,24 @@ serialize_body(?MS_QUERY_AREA_ROUTE, Body, _ProtoVer) ->
             Ids = maps:get(<<"ids">>, Body),
             encode_dword_array(Count, Ids, <<Type:?BYTE, Count:?DWORD>>)
     end;
-serialize_body(?MS_DRIVE_RECORD_CAPTURE, Body, _ProtoVer) ->
+serialize_body(?MS_DRIVE_RECORD_CAPTURE, Body, _ProtoVer, _Opts) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     RawParam = base64:decode(Param),
     <<Command:?BYTE, RawParam/binary>>;
-serialize_body(?MS_DRIVE_REC_PARAM_SEND, Body, _ProtoVer) ->
+serialize_body(?MS_DRIVE_REC_PARAM_SEND, Body, _ProtoVer, _Opts) ->
     Command = maps:get(<<"command">>, Body),
     Param = maps:get(<<"param">>, Body),
     RawParam = base64:decode(Param),
     <<Command:?BYTE, RawParam/binary>>;
-serialize_body(?MS_REQ_DRIVER_ID, _Body, _ProtoVer) ->
+serialize_body(?MS_REQ_DRIVER_ID, _Body, _ProtoVer, _Opts) ->
     <<>>;
-serialize_body(?MS_MULTIMEDIA_DATA_ACK, Body, _ProtoVer) ->
+serialize_body(?MS_MULTIMEDIA_DATA_ACK, Body, _ProtoVer, _Opts) ->
     MmId = maps:get(<<"mm_id">>, Body),
     Length = maps:get(<<"length">>, Body),
     RetxIds = maps:get(<<"retx_ids">>, Body),
     encode_word_array(Length, RetxIds, <<MmId:?DWORD, Length:?BYTE>>);
-serialize_body(?MS_CAMERA_SHOT, Body, _ProtoVer) ->
+serialize_body(?MS_CAMERA_SHOT, Body, _ProtoVer, _Opts) ->
     ChId = maps:get(<<"channel_id">>, Body),
     Command = maps:get(<<"command">>, Body),
     Period = maps:get(<<"period">>, Body),
@@ -1021,7 +1049,7 @@ serialize_body(?MS_CAMERA_SHOT, Body, _ProtoVer) ->
     Chromaticity = maps:get(<<"chromaticity">>, Body),
     <<ChId:?BYTE, Command:?WORD, Period:?WORD, Save:?BYTE, Resolution:?BYTE, Quality:?BYTE,
         Bright:?BYTE, Contrast:?BYTE, Saturate:?BYTE, Chromaticity:?BYTE>>;
-serialize_body(?MS_MM_DATA_SEARCH, Body, _ProtoVer) ->
+serialize_body(?MS_MM_DATA_SEARCH, Body, _ProtoVer, _Opts) ->
     Type = maps:get(<<"type">>, Body),
     Channel = maps:get(<<"channel">>, Body),
     Event = maps:get(<<"event">>, Body),
@@ -1030,7 +1058,7 @@ serialize_body(?MS_MM_DATA_SEARCH, Body, _ProtoVer) ->
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
     <<Type:?BYTE, Channel:?BYTE, Event:?BYTE, StartBCD:6/binary, EndBCD:6/binary>>;
-serialize_body(?MS_MM_DATA_UPLOAD, Body, _ProtoVer) ->
+serialize_body(?MS_MM_DATA_UPLOAD, Body, _ProtoVer, _Opts) ->
     Type = maps:get(<<"type">>, Body),
     ChId = maps:get(<<"channel">>, Body),
     Event = maps:get(<<"event">>, Body),
@@ -1040,26 +1068,26 @@ serialize_body(?MS_MM_DATA_UPLOAD, Body, _ProtoVer) ->
     StartBCD = to_bcd(Start, 6),
     EndBCD = to_bcd(End, 6),
     <<Type:?BYTE, ChId:?BYTE, Event:?BYTE, StartBCD:6/binary, EndBCD:6/binary, Delete:?BYTE>>;
-serialize_body(?MS_VOICE_RECORD, Body, _ProtoVer) ->
+serialize_body(?MS_VOICE_RECORD, Body, _ProtoVer, _Opts) ->
     Command = maps:get(<<"command">>, Body),
     Time = maps:get(<<"time">>, Body),
     Save = maps:get(<<"save">>, Body),
     Rate = maps:get(<<"rate">>, Body),
     <<Command:?BYTE, Time:?WORD, Save:?BYTE, Rate:?BYTE>>;
-serialize_body(?MS_SINGLE_MM_DATA_CTRL, Body, _ProtoVer) ->
+serialize_body(?MS_SINGLE_MM_DATA_CTRL, Body, _ProtoVer, _Opts) ->
     Id = maps:get(<<"id">>, Body),
     Flag = maps:get(<<"flag">>, Body),
     <<Id:?DWORD, Flag:?BYTE>>;
-serialize_body(?MS_SEND_TRANSPARENT_DATA, Body, _ProtoVer) ->
+serialize_body(?MS_SEND_TRANSPARENT_DATA, Body, _ProtoVer, _Opts) ->
     Type = maps:get(<<"type">>, Body),
     DataBase64 = maps:get(<<"data">>, Body),
     Data = base64:decode(DataBase64),
     <<Type:?BYTE, Data/binary>>;
-serialize_body(?MS_RSA_KEY, Body, _ProtoVer) ->
+serialize_body(?MS_RSA_KEY, Body, _ProtoVer, _Opts) ->
     E = maps:get(<<"e">>, Body),
     N = maps:get(<<"n">>, Body),
     <<E:?DWORD, N:128/binary>>;
-serialize_body(_UnkonwnMsgId, _Body, _ProtoVer) ->
+serialize_body(_UnkonwnMsgId, _Body, _ProtoVer, _Opts) ->
     error(invalid_input).
 
 %% Helper for 2019 vehicle control type list
@@ -1101,7 +1129,7 @@ serialize_poly_point(0, _, Acc) ->
 serialize_poly_point(Count, [#{<<"lat">> := Lat, <<"lng">> := Lng} | T], Acc) ->
     serialize_poly_point(Count - 1, T, <<Acc/binary, Lat:?DWORD, Lng:?DWORD>>).
 
-serialize_rect_area([], Acc, _ProtoVer) ->
+serialize_rect_area([], Acc, _ProtoVer, _Opts) ->
     Acc;
 serialize_rect_area(
     [
@@ -1120,7 +1148,8 @@ serialize_rect_area(
         | T
     ],
     Acc,
-    ProtoVer
+    ProtoVer,
+    Opts
 ) ->
     StartBCD = to_bcd(StartTime, 6),
     EndBCD = to_bcd(EndTime, 6),
@@ -1134,14 +1163,15 @@ serialize_rect_area(
             true ->
                 NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
                 Name = maps:get(<<"name">>, H, <<>>),
-                NameLen = byte_size(Name),
-                <<Base/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+                EncodedName = maybe_encode_string(Name, rect_area_name, Opts),
+                NameLen = byte_size(EncodedName),
+                <<Base/binary, NightMaxSpeed:?WORD, NameLen:?WORD, EncodedName/binary>>;
             false ->
                 Base
         end,
-    serialize_rect_area(T, NewAcc, ProtoVer).
+    serialize_rect_area(T, NewAcc, ProtoVer, Opts).
 
-serialize_circle_area([], Acc, _ProtoVer) ->
+serialize_circle_area([], Acc, _ProtoVer, _Opts) ->
     Acc;
 serialize_circle_area(
     [
@@ -1155,7 +1185,8 @@ serialize_circle_area(
         | T
     ],
     Acc,
-    ProtoVer
+    ProtoVer,
+    Opts
 ) ->
     First = <<Acc/binary, Id:?DWORD, Flag:?WORD, Latitude:?DWORD, Longitude:?DWORD, Radius:?DWORD>>,
     Second =
@@ -1182,14 +1213,15 @@ serialize_circle_area(
             true ->
                 NightMaxSpeed = maps:get(<<"night_max_speed">>, H, 0),
                 Name = maps:get(<<"name">>, H, <<>>),
-                NameLen = byte_size(Name),
-                <<Third/binary, NightMaxSpeed:?WORD, NameLen:?WORD, Name/binary>>;
+                EncodedName = maybe_encode_string(Name, circle_area_name, Opts),
+                NameLen = byte_size(EncodedName),
+                <<Third/binary, NightMaxSpeed:?WORD, NameLen:?WORD, EncodedName/binary>>;
             false ->
                 Third
         end,
-    serialize_circle_area(T, Fourth, ProtoVer).
+    serialize_circle_area(T, Fourth, ProtoVer, Opts).
 
-serialize_contacts([], Acc) ->
+serialize_contacts([], Acc, _Opts) ->
     Acc;
 serialize_contacts(
     [
@@ -1197,44 +1229,64 @@ serialize_contacts(
             <<"type">> := Type,
             <<"phone_len">> := PhoneLen,
             <<"phone">> := Phone,
-            <<"name_len">> := NameLen,
+            <<"name_len">> := _NameLen,
             <<"name">> := Name
         }
         | T
     ],
-    Acc
+    Acc,
+    Opts
 ) ->
+    EncodedName = maybe_encode_string(Name, contact_name, Opts),
+    ActualNameLen = byte_size(EncodedName),
     serialize_contacts(
-        T, <<Acc/binary, Type:?BYTE, PhoneLen:?BYTE, Phone/binary, NameLen:?BYTE, Name/binary>>
+        T,
+        <<Acc/binary, Type:?BYTE, PhoneLen:?BYTE, Phone/binary, ActualNameLen:?BYTE,
+            EncodedName/binary>>,
+        Opts
     ).
 
-serialize_menus([], Acc) ->
+serialize_menus([], Acc, _Opts) ->
     Acc;
-serialize_menus([#{<<"type">> := Type, <<"length">> := Length, <<"info">> := Info} | T], Acc) ->
-    serialize_menus(T, <<Acc/binary, Type:?BYTE, Length:?WORD, Info/binary>>).
+serialize_menus(
+    [#{<<"type">> := Type, <<"length">> := _Length, <<"info">> := Info} | T], Acc, Opts
+) ->
+    EncodedInfo = maybe_encode_string(Info, menu_info, Opts),
+    ActualLength = byte_size(EncodedInfo),
+    serialize_menus(T, <<Acc/binary, Type:?BYTE, ActualLength:?WORD, EncodedInfo/binary>>, Opts).
 
-serialize_candidate_answers([], Acc) ->
+serialize_candidate_answers([], Acc, _Opts) ->
     Acc;
-serialize_candidate_answers([#{<<"id">> := Id, <<"len">> := Len, <<"answer">> := Answer} | T], Acc) ->
-    serialize_candidate_answers(T, <<Acc/binary, Id:?BYTE, Len:?WORD, Answer/binary>>).
+serialize_candidate_answers(
+    [#{<<"id">> := Id, <<"len">> := _Len, <<"answer">> := Answer} | T], Acc, Opts
+) ->
+    EncodedAnswer = maybe_encode_string(Answer, answer, Opts),
+    ActualLen = byte_size(EncodedAnswer),
+    serialize_candidate_answers(
+        T, <<Acc/binary, Id:?BYTE, ActualLen:?WORD, EncodedAnswer/binary>>, Opts
+    ).
 
-serialize_events([], Acc) ->
+serialize_events([], Acc, _Opts) ->
     Acc;
-serialize_events([#{<<"id">> := Id, <<"length">> := Len, <<"content">> := Content} | T], Acc) ->
-    serialize_events(T, <<Acc/binary, Id:?BYTE, Len:?BYTE, Content/binary>>).
+serialize_events(
+    [#{<<"id">> := Id, <<"length">> := _Len, <<"content">> := Content} | T], Acc, Opts
+) ->
+    EncodedContent = maybe_encode_string(Content, event_content, Opts),
+    ActualLen = byte_size(EncodedContent),
+    serialize_events(T, <<Acc/binary, Id:?BYTE, ActualLen:?BYTE, EncodedContent/binary>>, Opts).
 
-serialize_client_param(Acc, []) ->
+serialize_client_param(Acc, [], _Opts) ->
     Acc;
-serialize_client_param(Acc, [#{<<"id">> := Id, <<"value">> := Value} | T]) ->
-    NewAcc = encode_client_param(Id, Value, Acc),
-    serialize_client_param(NewAcc, T).
+serialize_client_param(Acc, [#{<<"id">> := Id, <<"value">> := Value} | T], Opts) ->
+    NewAcc = encode_client_param(Id, Value, Acc, Opts),
+    serialize_client_param(NewAcc, T, Opts).
 
-encode_client_param(Id, Value, Acc) ->
+encode_client_param(Id, Value, Acc, Opts) ->
     case client_param_data_type(Id) of
         dword -> encode_cp_dword(Id, Value, Acc);
         word -> encode_cp_word(Id, Value, Acc);
         byte -> encode_cp_byte(Id, Value, Acc);
-        string -> encode_cp_string(Id, Value, Acc);
+        string -> encode_cp_string(Id, Value, Acc, Opts);
         byte8 -> encode_cp_byte8(Id, Value, Acc);
         reserved -> encode_cp_reserved(Id, Value, Acc)
     end.
@@ -1419,10 +1471,12 @@ encode_cp_word(Id, Value, Acc) ->
 encode_cp_dword(Id, Value, Acc) ->
     <<Acc/binary, Id:?DWORD, 4:?BYTE, Value:?DWORD>>.
 
--spec encode_cp_string(integer(), binary(), binary()) -> binary().
-encode_cp_string(Id, StringBinary, Acc) ->
-    Length = size(StringBinary),
-    <<Acc/binary, Id:?DWORD, Length:?BYTE, StringBinary/binary>>.
+-spec encode_cp_string(integer(), binary(), binary(), map()) -> binary().
+encode_cp_string(Id, StringBinary, Acc, Opts) ->
+    FieldName = list_to_atom("client_param_" ++ integer_to_list(Id)),
+    EncodedString = maybe_encode_string(StringBinary, FieldName, Opts),
+    Length = size(EncodedString),
+    <<Acc/binary, Id:?DWORD, Length:?BYTE, EncodedString/binary>>.
 
 -spec encode_cp_byte8(integer(), binary(), binary()) -> binary().
 encode_cp_byte8(Id, Base64Binary, Acc) ->

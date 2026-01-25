@@ -3,7 +3,7 @@
     {description, "JT/T 808 Gateway"},
     {vsn, "0.1.7"},
     {registered, []},
-    {applications, [kernel, stdlib, emqx, emqx_gateway]},
+    {applications, [kernel, stdlib, emqx, emqx_gateway, egbk]},
     {env, []},
     {modules, []},
     {licenses, ["BSL"]},
