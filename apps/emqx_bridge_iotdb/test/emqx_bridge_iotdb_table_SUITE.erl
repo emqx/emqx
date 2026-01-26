@@ -357,7 +357,7 @@ t_async_query(Config) ->
     Payload = make_iotdb_payload("temp", "int32", "36"),
     MakeMessageFun = make_message_fun(iotdb_topic(Config), Payload),
     ok = emqx_bridge_v2_testlib:t_async_query(
-        Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_query_async
+        Config, MakeMessageFun, fun is_success_check/1, iotdb_bridge_on_batch_query_async
     ),
     Query = <<"select temp from ", ?TABLE/binary>>,
     {ok, {{_, 200, _}, _, IoTDBResult}} = iotdb_query(Config, Query),
