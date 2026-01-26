@@ -410,6 +410,9 @@ add_generation(ShardId, Since, {_, _} = Prototype) ->
         infinity
     ).
 
+-doc """
+Deprecated. Use add_generation/3 instead.
+""".
 -spec add_generation(dbshard(), emqx_ds:time()) ->
     ok
     | {error, overlaps_existing_generations | {no_schema, _}}.
