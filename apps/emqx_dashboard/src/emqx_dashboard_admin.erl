@@ -56,11 +56,11 @@
     default_username/0
 ]).
 
--export([role/1, namespace_of/1]).
+-export([role/1, namespace_of/1, serialize_role/1]).
 
 -export([backup_tables/0]).
 
--export([add_sso_user/4, lookup_user/2]).
+-export([add_sso_user/4, upsert_sso_user/5, lookup_user/2]).
 
 -export([remove_all_users_from_namespace/1]).
 
@@ -135,9 +135,7 @@ add_user(Username, Password, Role0, Desc) when is_binary(Username), is_binary(Pa
         {ok, ParsedRole} ?= parse_role(Role0),
         #{?role := Role} = ParsedRole,
         Extra = parsed_role_to_extra(ParsedRole),
-        ActorProps = Extra#{
-            ?role => Role
-        },
+        ActorProps = Extra#{?role => Role},
         ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
         do_add_user(Username, Password, Role, Desc, Extra)
     end.
@@ -344,6 +342,10 @@ force_add_user(Username, Password, Role, Desc, Extra) ->
 
 %% @private
 add_user_(Username, Password, Role, Desc, Extra) ->
+    #{flattened_user := FlattenedUser} = do_add_user_(Username, Password, Role, Desc, Extra),
+    FlattenedUser.
+
+do_add_user_(Username, Password, Role, Desc, Extra) ->
     Namespace = maps:get(?namespace, Extra, ?global_ns),
     case mnesia:wread({?ADMIN, Username}) of
         [] ->
@@ -361,12 +363,16 @@ add_user_(Username, Password, Role, Desc, Extra) ->
                 ?role => Role,
                 ?namespace => Namespace
             }),
-            flatten_username(#{
+            FlattenedUser = flatten_username(#{
                 username => Username,
                 ?role => Role,
                 description => Desc,
                 ?namespace => Namespace
-            });
+            }),
+            #{
+                flattened_user => FlattenedUser,
+                user_record => Admin
+            };
         [_] ->
             ?SLOG(info, #{
                 msg => "dashboard_sso_user_add_failed",
@@ -376,6 +382,68 @@ add_user_(Username, Password, Role, Desc, Extra) ->
                 ?namespace => Namespace
             }),
             mnesia:abort(?USERNAME_ALREADY_EXISTS_ERROR)
+    end.
+
+ensure_sso_user_tx(Backend, Username, MaybeRole, MaybeNamespace, Desc) ->
+    Password = <<"">>,
+    SSOUsername = ?SSO_USERNAME(Backend, Username),
+    case mnesia:wread({?ADMIN, SSOUsername}) of
+        [] ->
+            Role = emqx_maybe:define(MaybeRole, ?ROLE_VIEWER),
+            Namespace = emqx_maybe:define(MaybeNamespace, ?global_ns),
+            Extra = #{?namespace => Namespace},
+            ActorProps = Extra#{?role => Role},
+            case emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    mnesia:abort(Reason);
+                Error ->
+                    mnesia:abort(Error)
+            end,
+            do_add_user_(SSOUsername, Password, Role, Desc, Extra);
+        [User0] ->
+            #?ADMIN{
+                role = PrevRole,
+                extra = Extra0
+            } = User0,
+            PrevNamespace = maps:get(?namespace, Extra0, ?global_ns),
+            Role = emqx_maybe:define(MaybeRole, PrevRole),
+            Namespace = emqx_maybe:define(MaybeNamespace, PrevNamespace),
+            Extra = Extra0#{
+                ?namespace => Namespace,
+                password_ts => erlang:system_time(second)
+            },
+            ActorProps = Extra#{?role => Role},
+            case emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok) of
+                ok ->
+                    ok;
+                {error, Reason} ->
+                    mnesia:abort(Reason);
+                Error ->
+                    mnesia:abort(Error)
+            end,
+            User = User0#?ADMIN{
+                role = Role,
+                extra = Extra
+            },
+            mnesia:write(User),
+            ?SLOG(info, #{
+                msg => "dashboard_sso_user_updated",
+                username => SSOUsername,
+                ?role => Role,
+                ?namespace => Namespace
+            }),
+            FlattenedUser = flatten_username(#{
+                username => SSOUsername,
+                ?role => Role,
+                description => Desc,
+                ?namespace => Namespace
+            }),
+            #{
+                flattened_user => FlattenedUser,
+                user_record => User
+            }
     end.
 
 -spec remove_user(dashboard_username()) -> {ok, any()} | {error, any()}.
@@ -786,6 +854,9 @@ ensure_role(Role) when is_binary(Role) ->
 parse_role(Role) ->
     emqx_dashboard_rbac:parse_dashboard_role(Role).
 
+serialize_role(Opts) ->
+    emqx_dashboard_rbac:serialize_role(Opts).
+
 %% For compatibility
 role(#?ADMIN{role = undefined}) ->
     ?ROLE_SUPERUSER;
@@ -815,14 +886,22 @@ flatten_username(#{username := Username} = Data) when is_binary(Username) ->
 -spec add_sso_user(dashboard_sso_backend(), binary(), dashboard_user_role(), binary()) ->
     {ok, map()} | {error, any()}.
 add_sso_user(Backend, Username0, Role0, Desc) when is_binary(Username0) ->
-    case parse_role(Role0) of
-        {ok, #{?role := Role} = ParsedRole} ->
-            Username = ?SSO_USERNAME(Backend, Username0),
-            Extra = parsed_role_to_extra(ParsedRole),
-            do_add_user(Username, <<>>, Role, Desc, Extra);
-        {error, _} = Error ->
-            Error
+    maybe
+        {ok, #{?role := Role} = ParsedRole} ?= parse_role(Role0),
+        Extra = parsed_role_to_extra(ParsedRole),
+        ActorProps = Extra#{?role => Role},
+        ok ?= emqx_hooks:run_fold('api_actor.pre_create', [ActorProps], ok),
+        Username = ?SSO_USERNAME(Backend, Username0),
+        do_add_user(Username, <<>>, Role, Desc, Extra)
     end.
+
+upsert_sso_user(Backend, Username, MaybeRole, MaybeNamespace, Desc) ->
+    Res = mria:sync_transaction(
+        ?DASHBOARD_SHARD,
+        fun ensure_sso_user_tx/5,
+        [Backend, Username, MaybeRole, MaybeNamespace, Desc]
+    ),
+    return(Res).
 
 -spec lookup_user(dashboard_sso_backend(), binary()) -> [emqx_admin()].
 lookup_user(Backend, Username) when is_atom(Backend) ->

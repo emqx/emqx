@@ -10,6 +10,7 @@
 -include_lib("oidcc/include/oidcc_token.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -import(hoconsc, [
     mk/2,
@@ -175,56 +176,108 @@ retrieve_userinfo(
         client_jwks := ClientJwks,
         config := #{clientid := ClientId, secret := Secret},
         name_tokens := NameTks,
-        name_var_source := NameVarSource
+        name_var_source := NameVarSource,
+        role_source := RoleSource,
+        role_expr := RoleExpr,
+        namespace_source := NamespaceSource,
+        namespace_expr := NamespaceExpr
     } = Cfg
 ) ->
-    case
-        oidcc:retrieve_userinfo(
-            Token,
-            Name,
-            ClientId,
-            emqx_secret:unwrap(Secret),
-            #{client_jwks => ClientJwks}
-        )
-    of
-        {ok, UserInfo} ->
-            ?SLOG(debug, #{
-                msg => "sso_oidc_login_user_info",
-                user_info => UserInfo
-            }),
-            Username = render_username(NameVarSource, Token, UserInfo, NameTks),
-            minirest_handler:update_log_meta(#{log_source => Username}),
-            ensure_user_exists(Cfg, Username);
-        {error, _Reason} = Error ->
-            Error
+    maybe
+        {ok, UserInfo} ?=
+            oidcc:retrieve_userinfo(
+                Token,
+                Name,
+                ClientId,
+                emqx_secret:unwrap(Secret),
+                #{client_jwks => ClientJwks}
+            ),
+        ?SLOG(debug, #{
+            msg => "sso_oidc_login_user_info",
+            user_info => UserInfo
+        }),
+        NameVarData = select_data_source(NameVarSource, Token, UserInfo),
+        Username = render_username(NameVarData, NameTks),
+        minirest_handler:update_log_meta(#{log_source => Username}),
+        RoleData = select_data_source(RoleSource, Token, UserInfo),
+        {ok, MaybeRole} ?= parse_role(RoleData, RoleExpr),
+        NamespaceData = select_data_source(NamespaceSource, Token, UserInfo),
+        {ok, MaybeNamespace} ?= parse_namespace(NamespaceData, NamespaceExpr),
+        ensure_user_exists(Cfg, Username, MaybeRole, MaybeNamespace)
     end.
 
-render_username(userinfo, _Token, UserInfo, Template) ->
-    emqx_placeholder:proc_tmpl(Template, UserInfo);
-render_username(id_token, Token, _UserInfo, Template) ->
+render_username(Data, Template) ->
+    emqx_placeholder:proc_tmpl(Template, Data).
+
+select_data_source(userinfo, _Token, UserInfo) ->
+    UserInfo;
+select_data_source(id_token, Token, _UserInfo) ->
     case Token of
         #oidcc_token{id = #oidcc_token_id{claims = #{} = Claims}} ->
-            emqx_placeholder:proc_tmpl(Template, Claims);
+            Claims;
         _ ->
-            emqx_placeholder:proc_tmpl(Template, #{})
+            #{}
     end.
 
-ensure_user_exists(_Cfg, <<>>) ->
+parse_role(_Data, undefined = _RoleExpr) ->
+    %% Will later use default, if user does not exist.
+    {ok, undefined};
+parse_role(Data, RoleExpr) ->
+    case eval_jq_single_output(RoleExpr, Data, role_expr) of
+        {ok, Role} when ?IS_VALID_ROLE(Role) ->
+            {ok, Role};
+        {ok, _InvalidRole} ->
+            {error, <<"role expression returned an invalid result; access denied">>};
+        {error, multiple_or_no_output} ->
+            {error, <<"role expression returned an invalid result; access denied">>};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+parse_namespace(_Data, undefined = _NamespaceExpr) ->
+    %% Will later use default, if user does not exist.
+    {ok, undefined};
+parse_namespace(Data, NamespaceExpr) ->
+    case eval_jq_single_output(NamespaceExpr, Data, namespace_expr) of
+        {ok, null} ->
+            {ok, ?global_ns};
+        {ok, Namespace} when is_binary(Namespace) ->
+            %% Namespace existence is validated by hook in `emqx_dashboard_admin:add_sso_user/4`
+            {ok, Namespace};
+        {ok, _} ->
+            {error, <<"namespace expression returned an invalid result; access denied">>};
+        {error, multiple_or_no_output} ->
+            {error, <<"namespace expression returned an invalid result; access denied">>};
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+eval_jq_single_output(Program, Input, ErrorTag) ->
+    InputBin = emqx_utils_json:encode(Input),
+    case jq:process_json(Program, InputBin) of
+        {ok, [ResJSON]} ->
+            Res = emqx_utils_json:decode(ResJSON),
+            {ok, Res};
+        {ok, _ResJSON} ->
+            {error, multiple_or_no_output};
+        {error, Reason} ->
+            {error, {ErrorTag, Reason}}
+    end.
+
+ensure_user_exists(_Cfg, <<>>, _MaybeRole, _MaybeNamespace) ->
     {error, <<"Username can not be empty">>};
-ensure_user_exists(_Cfg, <<"undefined">>) ->
+ensure_user_exists(_Cfg, <<"undefined">>, _MaybeRole, _MaybeNamespace) ->
     {error, <<"Username can not be undefined">>};
-ensure_user_exists(Cfg, Username) ->
-    case emqx_dashboard_admin:lookup_user(?BACKEND, Username) of
-        [User] ->
-            {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(User),
-            {ok, login_redirect_target(Cfg, Username, Role, Token)};
-        [] ->
-            case emqx_dashboard_admin:add_sso_user(?BACKEND, Username, ?ROLE_VIEWER, <<>>) of
-                {ok, _} ->
-                    ensure_user_exists(Cfg, Username);
-                Error ->
-                    Error
-            end
+ensure_user_exists(Cfg, Username, MaybeRole, MaybeNamespace) ->
+    Desc = <<"">>,
+    maybe
+        {ok, #{user_record := UserRec}} ?=
+            emqx_dashboard_admin:upsert_sso_user(
+                ?BACKEND, Username, MaybeRole, MaybeNamespace, Desc
+            ),
+        %% Cannot fail, but returns `ok` tuple?
+        {ok, Role, Token, _Namespace} = emqx_dashboard_token:sign(UserRec),
+        {ok, login_redirect_target(Cfg, Username, Role, Token)}
     end.
 
 make_callback_url(#{config := #{dashboard_addr := Addr}}) ->

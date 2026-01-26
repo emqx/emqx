@@ -239,7 +239,29 @@ response_schema(404) ->
     emqx_dashboard_swagger:error_codes([?BACKEND_NOT_FOUND], ?DESC(backend_not_found)).
 
 backend_union() ->
-    hoconsc:union([emqx_dashboard_sso:hocon_ref(Mod) || Mod <- emqx_dashboard_sso:modules()]).
+    hoconsc:union(fun
+        (all_union_members) ->
+            lists:map(fun emqx_dashboard_sso:hocon_ref/1, emqx_dashboard_sso:modules());
+        ({value, V}) ->
+            case V of
+                #{<<"backend">> := <<"oidc">>} ->
+                    [emqx_dashboard_sso:hocon_ref(emqx_dashboard_sso_oidc)];
+                #{<<"backend">> := <<"saml">>} ->
+                    [emqx_dashboard_sso:hocon_ref(emqx_dashboard_sso_saml)];
+                #{<<"backend">> := <<"ldap">>} ->
+                    [emqx_dashboard_sso:hocon_ref(emqx_dashboard_sso_ldap)];
+                #{<<"backend">> := Backend} ->
+                    throw(#{
+                        reason => <<"unknown_sso_backend">>,
+                        backend => Backend
+                    });
+                _ ->
+                    throw(#{
+                        reason => <<"unknown_sso_backend">>,
+                        value => V
+                    })
+            end
+    end).
 
 login_union() ->
     hoconsc:union([emqx_dashboard_sso:login_ref(Mod) || Mod <- emqx_dashboard_sso:modules()]).
