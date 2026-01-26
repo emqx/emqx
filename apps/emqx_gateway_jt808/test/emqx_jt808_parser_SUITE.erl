@@ -24,6 +24,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:ensure_all_started(egbk),
     Config.
 
 end_per_suite(Config) ->
