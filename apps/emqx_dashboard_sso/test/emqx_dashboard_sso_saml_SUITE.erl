@@ -96,7 +96,8 @@ init_keycloak_group(Config) ->
         false ->
             ct:pal("Keycloak is not available, skipping integration tests"),
             {skip,
-                "Keycloak not available. Start with: docker-compose -f .ci/docker-compose-file/docker-compose-keycloak.yaml up -d"}
+                "Keycloak not available. Start with: "
+                "docker-compose -f .ci/docker-compose-file/docker-compose-keycloak.yaml up -d"}
     end.
 
 end_per_group(keycloak_integration, Config) ->

@@ -283,7 +283,7 @@ build_metadata_uri(BaseURL, _Config) ->
 -endif.
 
 %% @doc Load IdP metadata and extract certificate fingerprint for signature verification
--spec load_and_validate_idp_metadata(binary()) -> {#esaml_idp_metadata{}, [binary()]}.
+-spec load_and_validate_idp_metadata(binary()) -> {esaml:idp_metadata(), [binary()]}.
 load_and_validate_idp_metadata(IDPMetadataURL) ->
     IdpMeta = esaml_util:load_metadata(binary_to_list(IDPMetadataURL)),
     TrustedFingerprints =
@@ -320,7 +320,8 @@ validate_signature_config(IdpSignsEnvelopes, IdpSignsAssertions, TrustedFingerpr
             ?SLOG(warning, #{
                 msg => saml_signature_verification_disabled,
                 reason =>
-                    "SAML signature verification is COMPLETELY DISABLED - this is insecure and should only be used for testing"
+                    "SAML signature verification is COMPLETELY DISABLED"
+                    " - this is insecure and should only be used for testing"
             }),
             ok;
         _ ->
