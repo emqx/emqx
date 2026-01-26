@@ -211,6 +211,10 @@ jobs:
         run: |
           unzip -o -q ${{ matrix.profile }}-test.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: build release
+        run: |
+          make ${PROFILE}-rel
+          ls -la "_build/$PROFILE/rel/emqx/bin/"
       - name: install pytest
         run: |
           apt-get update && apt-get install -y python3-venv
@@ -220,12 +224,9 @@ jobs:
           pip install pytest
       - name: run pytest boot tests
         run: |
-          source venv/bin/activate
-          pytest scripts/test/test_emqx_boot.py -v
-      - name: print test output
-        if: failure()
-        run: |
-          echo "Pytest boot tests failed for profile ${{ matrix.profile }}"
+          useradd -m testuser
+          chown -R testuser:testuser .
+          su testuser -c "PROFILE=$PROFILE venv/bin/pytest scripts/test/test_emqx_boot.py -v -s"
 
   tests_passed:
     needs:
