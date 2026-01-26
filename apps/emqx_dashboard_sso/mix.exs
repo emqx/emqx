@@ -26,8 +26,8 @@ defmodule EMQXDashboardSso.MixProject do
       {:emqx_ctl, in_umbrella: true},
       {:emqx_ldap, in_umbrella: true},
       {:emqx_dashboard, in_umbrella: true},
-      {:esaml, github: "emqx/esaml", tag: "v1.1.3"},
-      {:oidcc, github: "emqx/oidcc", tag: "v3.2.0-1", manager: :rebar3},
+      {:esaml, github: "emqx/esaml", tag: "v1.1.4"},
+      {:oidcc, github: "emqx/oidcc", tag: "v3.2.0-1", manager: :rebar3}
     ]
   end
 end
