@@ -3865,3 +3865,113 @@ t_case_2019_query_area_route_mqtt(_Config) ->
     ?assertEqual(base64:encode(AreaData), maps:get(<<"data">>, Body_Decoded)),
 
     ok = gen_tcp:close(Socket).
+
+%% Test: Verify that multiple downlink messages get unique msg_sn values
+%% This tests the fix for the bug where two MQTT messages published quickly
+%% would get duplicate msg_sn values, causing {error,{key_exists,...}}
+t_case_downlink_msg_sn_unique(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    %% Publish two downlink messages in quick succession
+    Flag1 = 15,
+    Text1 = <<"first message">>,
+    DlCommand1 = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
+        <<"body">> => #{<<"flag">> => Flag1, <<"text">> => Text1}
+    },
+    Flag2 = 15,
+    Text2 = <<"second message">>,
+    DlCommand2 = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
+        <<"body">> => #{<<"flag">> => Flag2, <<"text">> => Text2}
+    },
+
+    %% Publish both messages without delay (to trigger the msg_sn duplication bug)
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+
+    %% Receive frames - they may arrive together or separately
+    timer:sleep(200),
+    {ok, RecvData} = gen_tcp:recv(Socket, 0, 2000),
+    ?LOGT("RecvData=~p", [RecvData]),
+
+    %% Split received data into individual frames (delimited by 0x7E)
+    Frames = split_jt808_frames(RecvData),
+    ?LOGT("Frames=~p", [Frames]),
+
+    %% We should have received at least 2 frames
+    ?assert(length(Frames) >= 2),
+
+    [Frame1, Frame2 | _] = Frames,
+
+    %% Parse msg_sn from both frames
+    MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
+    MsgSn2 = parse_msg_sn_from_frame(Frame2, PhoneBCD),
+    ?LOGT("MsgSn1=~p, MsgSn2=~p", [MsgSn1, MsgSn2]),
+
+    %% Verify that msg_sn values are different and sequential
+    ?assertNotEqual(MsgSn1, MsgSn2),
+    ?assertEqual(MsgSn1 + 1, MsgSn2),
+
+    %% Send ACK for first message
+    MsgId1 = ?MS_SEND_TEXT,
+    GenAckPacket1 = <<MsgSn1:?WORD, MsgId1:?WORD, 0>>,
+    Size1 = size(GenAckPacket1),
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+    AckSn1 = 2,
+    AckHeader1 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size1),
+            PhoneBCD/binary, AckSn1:?WORD>>,
+    AckFrame1 = gen_packet(AckHeader1, GenAckPacket1),
+    ok = gen_tcp:send(Socket, AckFrame1),
+
+    %% Send ACK for second message
+    GenAckPacket2 = <<MsgSn2:?WORD, MsgId1:?WORD, 0>>,
+    Size2 = size(GenAckPacket2),
+    AckSn2 = 3,
+    AckHeader2 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, AckSn2:?WORD>>,
+    AckFrame2 = gen_packet(AckHeader2, GenAckPacket2),
+    ok = gen_tcp:send(Socket, AckFrame2),
+
+    ok = gen_tcp:close(Socket).
+
+%% Split JT808 frames from received data (frames are delimited by 0x7E)
+split_jt808_frames(Data) ->
+    split_jt808_frames(Data, [], <<>>).
+
+split_jt808_frames(<<>>, Acc, <<>>) ->
+    lists:reverse(Acc);
+split_jt808_frames(<<>>, Acc, Current) when byte_size(Current) > 0 ->
+    lists:reverse([Current | Acc]);
+split_jt808_frames(<<16#7E, Rest/binary>>, Acc, <<>>) ->
+    %% Start of a new frame
+    split_jt808_frames(Rest, Acc, <<16#7E>>);
+split_jt808_frames(<<16#7E, Rest/binary>>, Acc, Current) when byte_size(Current) > 1 ->
+    %% End of current frame, might be start of next
+    Frame = <<Current/binary, 16#7E>>,
+    split_jt808_frames(Rest, [Frame | Acc], <<>>);
+split_jt808_frames(<<16#7E, Rest/binary>>, Acc, <<16#7E>>) ->
+    %% Double 0x7E - end of one frame, start of next
+    split_jt808_frames(Rest, Acc, <<16#7E>>);
+split_jt808_frames(<<Byte, Rest/binary>>, Acc, Current) ->
+    split_jt808_frames(Rest, Acc, <<Current/binary, Byte>>).
+
+%% Parse msg_sn from a complete JT808 frame (with 0x7E delimiters)
+parse_msg_sn_from_frame(Frame, PhoneBCD) ->
+    %% Remove leading and trailing 0x7E delimiters
+    <<16#7E, Inner/binary>> = Frame,
+    InnerSize = byte_size(Inner) - 1,
+    <<Escaped:InnerSize/binary, 16#7E>> = Inner,
+    %% Unescape the content
+    UnescapedPacket = unescape_packet(Escaped),
+    %% Header format: MsgId(2) + MsgAttr(2) + Phone(6) + MsgSn(2)
+    PhoneLen = byte_size(PhoneBCD),
+    <<_MsgId:2/binary, _MsgAttr:2/binary, _Phone:PhoneLen/binary, MsgSn:?WORD, _Rest/binary>> =
+        UnescapedPacket,
+    MsgSn.
