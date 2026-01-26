@@ -1031,6 +1031,141 @@ t_crash_restart_recover(Config) ->
         []
     ).
 
+%% This testcase verifies that storage configuration can be updated
+%% using `emqx_ds' module and the configuration changes are propagated
+%% to the peers. It is expected that each node propagates
+%% configuration to replicas of all shards where it is the leader.
+%%
+%% This testcase also verifies that inconsistent configuration doesn't
+%% lead to replica divergence.
+t_inconsistent_config_update(init, Config) ->
+    Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_storage_config_change1, #{apps => Apps}},
+            {t_storage_config_change2, #{apps => Apps}},
+            {t_storage_config_change3, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    [{nodes, Nodes}, {nodespecs, Specs} | Config];
+t_inconsistent_config_update('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
+t_inconsistent_config_update(Config) ->
+    Nodes = [N1, N2, N3] = ?config(nodes, Config),
+    DBOpts = opts(Config, #{
+        n_shards => 16, n_sites => 3, replication_factor => 3
+    }),
+    %% Initial configuration:
+    ConfN1 = DBOpts#{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {1, inf}}, wildcard_hash_bytes => 8
+            }}
+    },
+    ConfN2 = DBOpts#{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {2, inf}}, wildcard_hash_bytes => 9
+            }}
+    },
+    ConfN3 = DBOpts#{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {3, inf}}, wildcard_hash_bytes => 10
+            }}
+    },
+    %% New DB configurations to be applied on different nodes:
+    NewConfN1 = #{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {10, inf}}, wildcard_hash_bytes => 8
+            }}
+    },
+    NewConfN2 = #{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {20, inf}}, wildcard_hash_bytes => 9
+            }}
+    },
+    NewConfN3 = #{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {30, inf}}, wildcard_hash_bytes => 10
+            }}
+    },
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Initialize DB on all nodes. Initial configuration is
+            %% different on all nodes:
+            ?assertMatch(
+                ok,
+                ?ON(N1, emqx_ds:open_db(?DB, ConfN1))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N2, emqx_ds:open_db(?DB, ConfN2))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N3, emqx_ds:open_db(?DB, ConfN3))
+            ),
+            ?assertMatch(
+                [ok, ok, ok],
+                ?ON(Nodes, emqx_ds:wait_db(?DB, all, infinity))
+            ),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, DBOpts),
+            %% Apply config changes:
+            ?assertMatch(
+                ok,
+                ?ON(N1, emqx_ds:update_db_config(?DB, NewConfN1))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N2, emqx_ds:update_db_config(?DB, NewConfN2))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N3, emqx_ds:update_db_config(?DB, NewConfN3))
+            ),
+            %% Add a generation:
+            ?assertMatch(
+                ok,
+                ?ON(N1, emqx_ds:add_generation(?DB))
+            ),
+            %% Verify schema consistency
+            [
+                verify_storage_schema(Nodes, ?DB, Shard)
+             || Shard <- ?ON(N1, emqx_ds:list_shards(?DB))
+            ]
+        end,
+        []
+    ).
+
+verify_storage_schema([N0 | _], DB, Shard) ->
+    [Leader | Replicas] = ?ON(N0, emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred)),
+    GetSchema = fun({_Name, Node}) ->
+        #{schema := Schema} = ?ON(Node, emqx_ds_storage_layer:print_state({DB, Shard})),
+        maps:remove(prototype, Schema)
+    end,
+    Expected = GetSchema(Leader),
+    lists:foreach(
+        fun(Replica) ->
+            ?assertEqual(
+                Expected,
+                GetSchema(Replica),
+                #{
+                    shard => Shard,
+                    leader => Leader,
+                    replica => Replica
+                }
+            )
+        end,
+        Replicas
+    ).
+
 nodes_of_clientid(ClientId, Nodes) ->
     emqx_ds_raft_test_helpers:nodes_of_clientid(?DB, ClientId, Nodes).
 

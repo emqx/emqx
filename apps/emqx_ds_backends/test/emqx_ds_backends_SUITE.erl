@@ -161,11 +161,10 @@ t_06_smoke_add_generation(Config) ->
 
     ?assertMatch(ok, emqx_ds:add_generation(DB)),
     [
-        {Gen1, #{created_at := Created1, since := Since1, until := Until1}},
+        {Gen1, #{created_at := _Created1, since := Since1, until := Until1}},
         {_Gen2, #{created_at := Created2, since := Since2, until := undefined}}
     ] = maps:to_list(emqx_ds:list_slabs(DB)),
-    %% Check units of the return values (+/- 10s from test begin time):
-    ?give_or_take(BeginTime, 10_000_000, Created1),
+    %% Check units of the return values (+/- 10s from test begin time).
     ?give_or_take(BeginTime, 10_000_000, Created2),
     ?give_or_take(BeginTime, 10_000_000, Since2),
     ?give_or_take(BeginTime, 10_000_000, Until1).

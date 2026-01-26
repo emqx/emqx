@@ -727,18 +727,21 @@ otx_get_latest_generation(DB, Shard) ->
     emqx_ds_storage_layer:generation_current({DB, Shard}).
 
 otx_become_leader(DB, Shard) ->
+    maybe_propagate_initial_schema(DB, Shard),
     Command = emqx_ds_builtin_raft_machine:otx_new_leader(self()),
     case local_raft_leader(DB, Shard) of
         unknown ->
             ?err_rec(leader_unavailable);
         Leader ->
             case ra:process_command(Leader, Command, 5_000) of
+                {ok, {error, _, _} = Err, _} ->
+                    Err;
                 {ok, {Serial, Timestamp}, Leader} ->
                     %% Announce this process in the global name registry:
                     register_global_otx_leader(DB, Shard),
                     {ok, Serial, Timestamp};
-                {ok, _, _AnotherLeader} ->
-                    ?err_rec(leadership_gone);
+                {ok, Return, AnotherLeader} ->
+                    ?err_rec({leadership_gone, Return, AnotherLeader});
                 Err ->
                     ?err_unrec({raft, Err})
             end
@@ -900,6 +903,18 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
+
+-doc """
+Propagate node's schema to all replicas.
+Called in otx_become_leader.
+""".
+-spec maybe_propagate_initial_schema(emqx_ds:db(), emqx_ds:shard()) -> ok.
+maybe_propagate_initial_schema(DB, Shard) ->
+    %% Propagate leader's schema to the replicas:
+    SiteSchema = emqx_dsch:get_db_schema(DB),
+    Site = emqx_dsch:this_site(),
+    Command = emqx_ds_builtin_raft_machine:update_schema(0, Site, SiteSchema),
+    ra_command(DB, Shard, Command, -1).
 
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
 add_generation_to_shard(DB, Shard, Retries) ->
