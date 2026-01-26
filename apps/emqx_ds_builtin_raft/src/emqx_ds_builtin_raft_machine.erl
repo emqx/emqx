@@ -95,7 +95,7 @@ dictionary, see `?pd_ra_*` macrodefs for details.
     %% to discard obsolete schema updates.
     last_schema_changes := #{emqx_dsch:site() => emqx_dsch:pending_id()},
 
-    schema := emqx_ds_builtin_raft:db_schema(),
+    schema := emqx_ds_builtin_raft:db_schema() | undefined,
 
     %% Unique timestamp tracking real time closely.
     %% With microsecond granularity it should be nearly impossible for it to run
@@ -181,10 +181,14 @@ Initial version. Removed backward-compatibility with 5.* data.
 
 ## 1 (e6.1.1)
 
-- Changed behavior of `emqx_ds_storage_layer:update_config'.
-  Previously it attempted to automatically add a generation, and the
-  implementation contained a bug that didn't actually apply schema
-  updates to the runtime state.
+- Changed initialization procedure. State machine starts with an empty
+  schema, which then gets explicitly initialized by the leader.
+
+- Changed behavior of `update_schema' operation. Previously it
+  attempted to automatically add a generation, and the implementation
+  contained a bug that didn't actually apply schema updates to the
+  runtime state. New version doesn't have side effects, except
+  ensuring storage layer schema based on the RFSM data.
 
 - Changed behavior of `emqx_ds_storage_layer:add_generation'. Now it
   takes storage prototype as an explicit argument instead of reading
@@ -200,7 +204,10 @@ which_module(1) -> ?MODULE.
 add_generation(Since) when is_integer(Since) ->
     #{?tag => add_generation, since => Since}.
 
--spec update_schema(emqx_dsch:pending_id(), emqx_dsch:site(), emqx_ds_builtin_raft:db_schema()) ->
+%% Note: -1 is used when the leader propagates its schema during storage initialization
+-spec update_schema(
+    emqx_dsch:pending_id() | -1, emqx_dsch:site(), emqx_ds_builtin_raft:db_schema()
+) ->
     cmd_update_schema().
 update_schema(PendingId, Originator, NewSchema) when
     is_integer(PendingId), is_binary(Originator), is_map(NewSchema)
