@@ -417,9 +417,9 @@ handle_deliver(
             log(debug, #{msg => "enqueue_messages", messages => NMessages}, Channel),
             metrics_inc('messages.delivered', Channel, erlang:length(NMessages)),
             discard_downlink_messages(Dropped, Channel),
-            Frames = msgs2frame(NMessages, Channel),
+            {Frames, NChannel1} = msgs2frame(NMessages, Channel),
             NQueue = lists:foldl(fun(F, Q) -> queue:in(F, Q) end, Queue, Frames),
-            {Outgoings, NChannel} = dispatch_frame(Channel#channel{mqueue = NQueue}),
+            {Outgoings, NChannel} = dispatch_frame(NChannel1#channel{mqueue = NQueue}),
             {ok, [{outgoing, Outgoings}], NChannel}
     end.
 
@@ -434,33 +434,35 @@ split_by_pos([E | L], N, A1) ->
     split_by_pos(L, N - 1, [E | A1]).
 
 msgs2frame(Messages, Channel) ->
-    lists:filtermap(
-        fun(#message{payload = Payload}) ->
+    {Frames, NChannel} = lists:foldl(
+        fun(#message{payload = Payload}, {AccFrames, AccChannel}) ->
             case emqx_utils_json:safe_decode(Payload) of
-                {ok, Map = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
-                    NewHeader = build_frame_header(MsgId, Channel),
-                    Frame = maps:put(<<"header">>, NewHeader, Map),
-                    {true, Frame};
+                {ok, PayloadJson = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
+                    NewHeader = build_frame_header(MsgId, AccChannel),
+                    Frame = PayloadJson#{<<"header">> => NewHeader},
+                    {[Frame | AccFrames], state_inc_sn(AccChannel)};
                 {ok, _} ->
                     tp(
                         error,
                         invalid_dl_message,
                         #{reasons => "missing_msg_id", payload => Payload},
-                        Channel
+                        AccChannel
                     ),
-                    false;
+                    {AccFrames, AccChannel};
                 {error, _Reason} ->
                     tp(
                         error,
                         invalid_dl_message,
                         #{reason => "invalid_json", payload => Payload},
-                        Channel
+                        AccChannel
                     ),
-                    false
+                    {AccFrames, AccChannel}
             end
         end,
+        {[], Channel},
         Messages
-    ).
+    ),
+    {lists:reverse(Frames), NChannel}.
 
 authack(
     {Code, MsgSn,
@@ -625,7 +627,6 @@ retry_delivery([{Key, {Frame, RetxCount, Ts}} | Frames], Now, Interval, Inflight
 
 dispatch_frame(
     Channel = #channel{
-        msg_sn = TxMsgSn,
         mqueue = Queue,
         inflight = Inflight,
         retx_max_times = RetxMax
@@ -640,7 +641,7 @@ dispatch_frame(
             log(debug, #{msg => "delivery", frame => Frame}, Channel),
 
             NewInflight = emqx_inflight:insert(
-                set_msg_ack(msgid(Frame), TxMsgSn),
+                set_msg_ack(msgid(Frame), msgsn(Frame)),
                 {Frame, RetxMax, erlang:system_time(millisecond)},
                 Inflight
             ),
