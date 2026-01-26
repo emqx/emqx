@@ -46,7 +46,7 @@ role_expr.desc: """~
 
   Any result that is not a single value out of the above will forbid the user from being created.
 
-  If not set, will create a viewer user, or retain the existing role, unless the user exists and was created by OIDC.~"""
+  If not set, will create a viewer user, or retain the existing role, if the user exists.~"""
 
 namespace_expr.desc: """~
   A [`jq`](https://jqlang.org/manual/) program to construct the Dashboard user namespace.
@@ -55,7 +55,7 @@ namespace_expr.desc: """~
 
   Any result other than the described above will forbid the user from being created.
 
-  If not set, will create a user in the global namespace, unless the user exists and was created by OIDC.~"""
+  If not set, will create a user in the global namespace or retain existing namespace, if the user exists.~"""
 
 dashboard_addr.desc:
 """The address of the EMQX Dashboard."""
