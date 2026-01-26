@@ -29,16 +29,23 @@
 
 -define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
--define(assertReceivePublish(TOPIC, EXPR), begin
-    ?assertMatch(
-        EXPR,
-        maps:update_with(
-            payload,
-            fun emqx_utils_json:decode/1,
-            element(2, ?assertReceive({publish, #{topic := TOPIC}}))
-        )
-    )
-end).
+-define(assertReceivePublish(EXPR),
+    (fun() ->
+        lists:foreach(
+            fun(Pub0) ->
+                Pub = maps:update_with(
+                    payload,
+                    fun emqx_utils_json:decode/1,
+                    Pub0
+                ),
+                self() ! {decoded, Pub}
+            end,
+            drain_publishes([])
+        ),
+        {decoded, __X} = ?assertReceive({decoded, EXPR}),
+        __X
+    end)()
+).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -165,6 +172,14 @@ end_per_testcase(_TestCase, _Config) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+drain_publishes(Acc) ->
+    receive
+        {publish, Msg} ->
+            drain_publishes([Msg | Acc])
+    after 200 ->
+        lists:reverse(Acc)
+    end.
 
 maybe_json_decode(X) ->
     case emqx_utils_json:safe_decode(X) of
@@ -1855,16 +1870,22 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     %% Same rule topic is used by all rules here.
     {ok, _} = emqtt:publish(C, RuleTopic1, <<"hello!">>, [{qos, 2}]),
     ?assertReceivePublish(
-        <<"rep/t/global">>,
-        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdGlobal}}}
+        #{
+            payload := #{<<"metadata">> := #{<<"rule_id">> := IdGlobal}},
+            topic := <<"rep/t/global">>
+        }
     ),
     ?assertReceivePublish(
-        <<"rep/t/ns1">>,
-        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS1}}}
+        #{
+            payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS1}},
+            topic := <<"rep/t/ns1">>
+        }
     ),
     ?assertReceivePublish(
-        <<"rep/t/ns2">>,
-        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS2}}}
+        #{
+            payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS2}},
+            topic := <<"rep/t/ns2">>
+        }
     ),
     ?assertNotReceive({publish, _}),
 
@@ -2017,30 +2038,30 @@ t_namespaced_crud(TCConfig0) when is_list(TCConfig0) ->
     ?assertMatch({200, _}, simulate(IdNS2, SimulateParams, TCConfigNS2)),
 
     ?assertReceivePublish(
-        <<"rep/t/global">>,
         #{
             payload := #{
                 <<"payload">> := SimulatedEncPayload,
                 <<"metadata">> := #{<<"rule_id">> := IdGlobal}
-            }
+            },
+            topic := <<"rep/t/global">>
         }
     ),
     ?assertReceivePublish(
-        <<"rep/t/ns1">>,
         #{
             payload := #{
                 <<"payload">> := SimulatedEncPayload,
                 <<"metadata">> := #{<<"rule_id">> := IdNS1}
-            }
+            },
+            topic := <<"rep/t/ns1">>
         }
     ),
     ?assertReceivePublish(
-        <<"rep/t/ns2">>,
         #{
             payload := #{
                 <<"payload">> := SimulatedEncPayload,
                 <<"metadata">> := #{<<"rule_id">> := IdNS2}
-            }
+            },
+            topic := <<"rep/t/ns2">>
         }
     ),
     ?assertNotReceive({publish, _}),
@@ -2206,24 +2227,24 @@ t_namespaced_actions(TCConfig0) when is_list(TCConfig0) ->
 
     {ok, _} = emqtt:publish(C, RuleTopicNS1, <<"hello ns1">>, [{qos, 2}]),
     ?assertReceivePublish(
-        RemoteTopic,
         #{
             payload := #{
                 <<"ns">> := <<"ns1">>,
                 <<"metadata">> := #{<<"rule_id">> := IdNS1}
-            }
+            },
+            topic := RemoteTopic
         }
     ),
     ?assertNotReceive({publish, _}),
 
     {ok, _} = emqtt:publish(C, RuleTopicGlobal, <<"hello global">>, [{qos, 2}]),
     ?assertReceivePublish(
-        RemoteTopic,
         #{
             payload := #{
                 <<"ns">> := <<"global">>,
                 <<"metadata">> := #{<<"rule_id">> := IdGlobal}
-            }
+            },
+            topic := RemoteTopic
         }
     ),
     ?assertNotReceive({publish, _}),
@@ -2307,30 +2328,30 @@ t_namespaced_sources(TCConfig0) when is_list(TCConfig0) ->
 
     {ok, _} = emqtt:publish(C, RemoteTopic, <<"hello all sources">>, [{qos, 2}]),
     ?assertReceivePublish(
-        <<"rep/remote/t/global">>,
         #{
             payload := #{
                 <<"ns">> := <<"global">>,
                 <<"metadata">> := #{<<"rule_id">> := IdGlobal}
-            }
+            },
+            topic := <<"rep/remote/t/global">>
         }
     ),
     ?assertReceivePublish(
-        <<"rep/remote/t/ns1">>,
         #{
             payload := #{
                 <<"ns">> := <<"ns1">>,
                 <<"metadata">> := #{<<"rule_id">> := IdNS1}
-            }
+            },
+            topic := <<"rep/remote/t/ns1">>
         }
     ),
     ?assertReceivePublish(
-        <<"rep/remote/t/ns2">>,
         #{
             payload := #{
                 <<"ns">> := <<"ns2">>,
                 <<"metadata">> := #{<<"rule_id">> := IdNS2}
-            }
+            },
+            topic := <<"rep/remote/t/ns2">>
         }
     ),
     ?assertNotReceive({publish, _}),
@@ -2408,8 +2429,10 @@ t_namespaced_restart(TCConfig0) when is_list(TCConfig0) ->
     %% Same rule topic is used by all rules here.
     {ok, _} = emqtt:publish(C, RuleTopic1, <<"hello!">>, [{qos, 2}]),
     ?assertReceivePublish(
-        <<"rep/t/ns1">>,
-        #{payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS1}}}
+        #{
+            payload := #{<<"metadata">> := #{<<"rule_id">> := IdNS1}},
+            topic := <<"rep/t/ns1">>
+        }
     ),
     ok = emqtt:stop(C),
 
