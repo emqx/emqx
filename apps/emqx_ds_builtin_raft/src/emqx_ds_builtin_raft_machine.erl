@@ -246,14 +246,13 @@ otx_commit(PrevSerial, Serial, Time, Batch, Leader) when
 -spec init(#{
     name := _,
     db := emqx_ds:db(),
-    shard := emqx_ds:shard(),
-    schema := emqx_ds_builtin_raft:db_schema()
+    shard := emqx_ds:shard()
 }) -> ra_state().
-init(#{db := DB, shard := Shard, schema := Schema}) ->
+init(#{db := DB, shard := Shard}) ->
     #{
         db_shard => {DB, Shard},
         last_schema_changes => #{},
-        schema => Schema,
+        schema => undefined,
         latest => 0,
         tx_serial => 0,
         otx_leader_pid => undefined
@@ -264,6 +263,59 @@ snapshot_module() ->
 
 -spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
     {ra_state(), _Reply, _Effects}.
+apply(
+    _RaftMeta,
+    {machine_version, 0, 1},
+    State
+) ->
+    {State, ok, []};
+apply(
+    RaftMeta = #{machine_version := Vsn},
+    #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
+    #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest, schema := OldSchema} =
+        State0
+) ->
+    ?tp(
+        notice,
+        ds_ra_update_config,
+        #{
+            shard => DBShard,
+            schema => Schema,
+            originator => Site,
+            pending_id => PendingId,
+            machine_vsn => Vsn
+        }
+    ),
+    State =
+        case LSC of
+            #{Site := NewerId} when NewerId >= PendingId ->
+                %% This update has been already applied. Ignore
+                %% it:
+                State0;
+            #{} ->
+                case Vsn of
+                    0 ->
+                        case emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema) of
+                            ok ->
+                                ok;
+                            {error, {no_schema, _}} ->
+                                ok
+                        end;
+                    _ ->
+                        %% Newer versions use schema stored in the RFSM:
+                        ok
+                end,
+                ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
+                State0#{schema := Schema, last_schema_changes := LSC#{Site => PendingId}}
+        end,
+    Effect = release_log(RaftMeta, State),
+    {State, ok, [Effect]};
+apply(
+    _RaftMeta,
+    _Command,
+    State = #{schema := undefined}
+) ->
+    {State, {error, recoverable, shard_not_initialized}, []};
 apply(
     RaftMeta,
     #{
@@ -328,38 +380,6 @@ apply(
     Effect = release_log(RaftMeta, State),
     {State, Result, [Effect]};
 apply(
-    RaftMeta = #{machine_version := Vsn},
-    #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
-    #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest} = State0
-) ->
-    ?tp(
-        notice,
-        ds_ra_update_config,
-        #{
-            shard => DBShard,
-            schema => Schema,
-            originator => Site,
-            pending_id => PendingId
-        }
-    ),
-    State =
-        case LSC of
-            #{Site := NewerId} when NewerId >= PendingId ->
-                %% This update has been already applied. Ignore
-                %% it:
-                State0;
-            #{} ->
-                case Vsn of
-                    0 ->
-                        ok = emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema);
-                    _ ->
-                        ok
-                end,
-                State0#{schema := Schema, last_schema_changes := LSC#{Site => PendingId}}
-        end,
-    Effect = release_log(RaftMeta, State),
-    {State, ok, [Effect]};
-apply(
     _RaftMeta,
     #{?tag := drop_generation, generation := GenId},
     #{db_shard := DBShard} = State
@@ -384,13 +404,7 @@ apply(
 ) ->
     set_otx_leader(DBShard, Pid),
     Reply = {Serial, Timestamp},
-    {State#{otx_leader_pid => Pid}, Reply};
-apply(
-    _RaftMeta,
-    {machine_version, 0, 1},
-    State
-) ->
-    {State, ok}.
+    {State#{otx_leader_pid => Pid}, Reply}.
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(_TimeMs, #{db_shard := _DBShard}) ->
@@ -398,14 +412,13 @@ tick(_TimeMs, #{db_shard := _DBShard}) ->
 
 %% Called when the ra server changes state (e.g. leader -> follower).
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
-state_enter(MemberState, State = #{db_shard := DBShard, schema := Schema}) ->
+state_enter(MemberState, State = #{db_shard := DBShard}) ->
     {DB, Shard} = DBShard,
     ?tp(
         info,
         ds_ra_state_enter,
         State#{member_state => MemberState}
     ),
-    ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
     emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
     set_cache(MemberState, State),
     _ =

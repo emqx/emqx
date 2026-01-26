@@ -61,7 +61,8 @@
     get_gvars/1,
     ls_shards/1,
     get_stats/1,
-    db_group_stats/2
+    db_group_stats/2,
+    print_state/1
 ]).
 
 -export_type([
@@ -85,6 +86,7 @@
 -include("emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("../gen_src/DSBuiltinMetadata.hrl").
+-include_lib("emqx_utils/include/emqx_record_to_map.hrl").
 
 -elvis([
     {elvis_style, atom_naming_convention, disable},
@@ -492,7 +494,8 @@ start_link_no_schema(ShardId, Options = #{db_group := _}) ->
 -record(s_no_schema, {
     shard_id :: dbshard(),
     db :: rocksdb:db_handle(),
-    cf_refs :: cf_refs()
+    cf_refs :: cf_refs(),
+    gvars :: ets:tid()
 }).
 
 -record(s, {
@@ -519,14 +522,17 @@ init({ShardId, Options}) ->
     {ok, DB, CFRefs} = rocksdb_open(ShardId, Options),
     case get_schema_persistent(DB) of
         not_found ->
+            GVars = make_gvars(),
             S = #s_no_schema{
                 shard_id = ShardId,
                 db = DB,
-                cf_refs = CFRefs
+                cf_refs = CFRefs,
+                gvars = GVars
             },
+            put_schema_runtime(ShardId, open_shard(ShardId, DB, CFRefs, #{}, GVars)),
             {ok, S};
         Schema ->
-            Shard = open_shard(ShardId, DB, CFRefs, Schema),
+            Shard = open_shard(ShardId, DB, CFRefs, Schema, make_gvars()),
             CurrentGenId = maps:get(current_generation, Schema),
             S = #s{
                 shard_id = ShardId,
@@ -604,8 +610,8 @@ handle_call(#call_ensure_schema{options = Opts}, _From, S0) ->
         #s{} ->
             %% Already exists:
             {reply, ok, S0};
-        #s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs} ->
-            case handle_create_schema(ShardId, DB, CFRefs, Opts) of
+        #s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs, gvars = GVars} ->
+            case handle_create_schema(ShardId, DB, CFRefs, GVars, Opts) of
                 {ok, S} ->
                     {reply, ok, S};
                 {error, _} = Err ->
@@ -694,9 +700,9 @@ clear_all_checkpoints(ShardId) ->
         CheckpointDirs
     ).
 
--spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema()) ->
+-spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema(), ets:tid()) ->
     shard().
-open_shard(ShardId, DB, CFRefs, ShardSchema) ->
+open_shard(ShardId, DB, CFRefs, ShardSchema, GVars) ->
     %% Transform generation schemas to generation runtime data:
     Shard = maps:map(
         fun
@@ -709,7 +715,7 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     ),
     Shard#{
         db => DB,
-        gvars => ets:new(emqx_ds_storage_layer_gvars, [set, public, {read_concurrency, true}])
+        gvars => GVars
     }.
 
 -spec handle_add_generation(server_state(), emqx_ds:time(), prototype() | undefined) ->
@@ -832,13 +838,15 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
     GenSchema#{data => RuntimeData}.
 
--spec handle_create_schema(dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()) ->
+-spec handle_create_schema(
+    dbshard(), rocksdb:db_handle(), cf_refs(), ets:tid(), emqx_ds:create_db_opts()
+) ->
     {ok, server_state()} | {error, _}.
-handle_create_schema(ShardId, DB, CFRefs0, Options) ->
+handle_create_schema(ShardId, DB, CFRefs0, GVars, Options) ->
     maybe
         {ok, Schema, CFRefs} ?= create_new_shard_schema(ShardId, DB, CFRefs0, Options),
         CurrentGenId = maps:get(current_generation, Schema),
-        Shard = open_shard(ShardId, DB, CFRefs, Schema),
+        Shard = open_shard(ShardId, DB, CFRefs, Schema, GVars),
         S = #s{
             shard_id = ShardId,
             db = DB,
@@ -910,7 +918,7 @@ new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, DBOpts) ->
         module => Mod,
         data => GenData,
         cf_names => cf_names(NewCFRefs),
-        created_at => emqx_ds:timestamp_us(),
+        created_at => Since,
         ptrans => PTrans,
         since => Since,
         until => undefined
@@ -1179,30 +1187,19 @@ list_generations_since(Schema, GenId, Since) ->
             []
     end.
 
-format_state(#s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs}) ->
-    #{
-        id => ShardId,
-        db => DB,
-        cf_refs => CFRefs,
-        schema => not_initialized
-    };
-format_state(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, shard = Shard}) ->
-    #{
-        id => ShardId,
-        db => DB,
-        cf_refs => CFRefs,
-        schema => Schema,
-        shard =>
-            maps:map(
-                fun
-                    (?GEN_KEY(_), _Schema) ->
-                        '...';
-                    (_K, Val) ->
-                        Val
-                end,
-                Shard
-            )
-    }.
+format_state(S = #s_no_schema{}) ->
+    ?record_to_map(s_no_schema, S);
+format_state(S = #s{shard = Shard0}) ->
+    Shard = maps:map(
+        fun
+            (?GEN_KEY(_), _Schema) ->
+                '...';
+            (_K, Val) ->
+                Val
+        end,
+        Shard0
+    ),
+    ?record_to_map(s, S#s{shard = Shard}).
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
@@ -1214,6 +1211,10 @@ get_schema_runtime(Shard = {_, _}) ->
 get_gvars(DBShard) ->
     #{gvars := GVars} = get_schema_runtime(DBShard),
     GVars.
+
+-spec make_gvars() -> ets:tid().
+make_gvars() ->
+    ets:new(emqx_ds_storage_layer_gvars, [set, public, {read_concurrency, true}]).
 
 -spec get_stats(emqx_ds:db()) -> map().
 get_stats(DB) ->
@@ -1229,6 +1230,12 @@ db_group_stats(_GroupId, #db_group{sst_file_mgr = SSTFM, write_buffer_mgr = WBM}
     Stats1 = sstfm_info(SSTFM),
     Stats = Stats1#{write_buffer_manager => rocksdb:write_buffer_manager_info(WBM)},
     {ok, Stats}.
+
+-doc """
+Format server state for debugging and inspection.
+""".
+print_state(DBShard) ->
+    format_state(sys:get_state(?REF(DBShard))).
 
 -spec put_schema_runtime(dbshard(), shard()) -> ok.
 put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->
