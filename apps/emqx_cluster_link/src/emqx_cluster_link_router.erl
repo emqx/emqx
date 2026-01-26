@@ -15,11 +15,17 @@
 %% Test exports
 -export([push_update/5]).
 
+-type routeid() :: emqx_cluster_link_routerepl:routeid().
+
 %%--------------------------------------------------------------------
 
+-spec push_update(add | delete, emqx_types:topic(), routeid()) ->
+    ok | dropped.
 push_update(Op, Topic, RouteID) ->
     push_update(Op, Topic, RouteID, fun push_regular_route/4).
 
+-spec push_update_persistent(add | delete, emqx_types:topic(), routeid()) ->
+    ok | dropped.
 push_update_persistent(Op, Topic, RouteID) ->
     push_update(Op, Topic, RouteID, fun push_persistent_route/4).
 

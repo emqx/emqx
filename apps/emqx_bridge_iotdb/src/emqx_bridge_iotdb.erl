@@ -50,7 +50,7 @@ fields(action_config) ->
     emqx_resource_schema:override(
         emqx_bridge_v2_schema:make_producer_action_schema(
             mk(
-                ref(?MODULE, action_parameters),
+                hoconsc:union(fun action_parameters_selector/1),
                 #{
                     required => true, desc => ?DESC("action_parameters")
                 }
@@ -69,72 +69,23 @@ fields(action_resource_opts) ->
         {batch_size, #{default => 100}},
         {batch_time, #{default => <<"100ms">>}}
     ]);
-fields(action_parameters) ->
+fields(action_parameters_tree) ->
+    action_parameters(tree);
+fields(action_parameters_table) ->
+    action_parameters(table);
+fields(action_parameters_data_tree) ->
+    action_parameters_data_common();
+fields(action_parameters_data_table) ->
     [
-        {is_aligned,
+        {column_category,
             mk(
-                boolean(),
+                enum([tag, field, attribute]),
                 #{
-                    desc => ?DESC("config_is_aligned"),
-                    default => false
-                }
-            )},
-        {device_id,
-            mk(
-                emqx_schema:template(),
-                #{
-                    desc => ?DESC("config_device_id")
-                }
-            )},
-        {data,
-            mk(
-                array(ref(?MODULE, action_parameters_data)),
-                #{
-                    desc => ?DESC("action_parameters_data"),
                     required => true,
-                    validator => fun emqx_schema:non_empty_array/1
+                    desc => ?DESC(emqx_bridge_iotdb, "config_parameters_column_category")
                 }
             )}
-    ] ++
-        proplists_without(
-            [path, method, body, headers, request_timeout],
-            emqx_bridge_http_schema:fields("parameters_opts")
-        );
-fields(action_parameters_data) ->
-    [
-        {timestamp,
-            mk(
-                hoconsc:union([enum([now, now_ms, now_ns, now_us]), emqx_schema:template()]),
-                #{
-                    desc => ?DESC("config_parameters_timestamp"),
-                    default => <<"now">>
-                }
-            )},
-        {measurement,
-            mk(
-                emqx_schema:template(),
-                #{
-                    required => true,
-                    desc => ?DESC("config_parameters_measurement")
-                }
-            )},
-        {data_type,
-            mk(
-                enum([text, boolean, int32, int64, float, double]),
-                #{
-                    required => true,
-                    desc => ?DESC("config_parameters_data_type")
-                }
-            )},
-        {value,
-            mk(
-                emqx_schema:template(),
-                #{
-                    required => true,
-                    desc => ?DESC("config_parameters_value")
-                }
-            )}
-    ];
+    ] ++ action_parameters_data_common();
 fields("post_bridge_v2") ->
     emqx_bridge_v2_schema:type_and_name_fields(enum([iotdb])) ++ fields(action_config);
 fields("put_bridge_v2") ->
@@ -171,7 +122,15 @@ desc(action_config) ->
     ?DESC("desc_config");
 desc(action_parameters) ->
     ?DESC("action_parameters");
+desc(action_parameters_tree) ->
+    ?DESC("action_parameters");
+desc(action_parameters_table) ->
+    ?DESC("action_parameters");
 desc(action_parameters_data) ->
+    ?DESC("action_parameters_data");
+desc(action_parameters_data_tree) ->
+    ?DESC("action_parameters_data");
+desc(action_parameters_data_table) ->
     ?DESC("action_parameters_data");
 desc(action_resource_opts) ->
     ?DESC("action_resource_opts");
@@ -266,6 +225,127 @@ resource_creation_opts() ->
                     required => false,
                     default => #{},
                     desc => ?DESC(emqx_resource_schema, <<"resource_opts">>)
+                }
+            )}
+    ].
+
+action_parameters_selector(all_union_members) ->
+    [ref(?MODULE, action_parameters_tree), ref(?MODULE, action_parameters_table)];
+action_parameters_selector({value, Value}) ->
+    case Value of
+        #{<<"write_to_table">> := true} ->
+            [ref(?MODULE, action_parameters_table)];
+        _ ->
+            [ref(?MODULE, action_parameters_tree)]
+    end.
+
+action_parameters(tree) ->
+    [
+        {write_to_table,
+            mk(
+                false,
+                #{
+                    desc => ?DESC("config_write_to_table"),
+                    default => false
+                }
+            )},
+        {device_id,
+            mk(
+                emqx_schema:template(),
+                #{
+                    desc => ?DESC("config_device_id")
+                }
+            )},
+        {data,
+            mk(
+                array(ref(?MODULE, action_parameters_data_tree)),
+                #{
+                    desc => ?DESC("action_parameters_data"),
+                    required => true,
+                    validator => fun emqx_schema:non_empty_array/1
+                }
+            )}
+    ] ++
+        action_parameters_common();
+action_parameters(table) ->
+    [
+        {write_to_table,
+            mk(
+                true,
+                #{
+                    desc => ?DESC("config_write_to_table"),
+                    default => true
+                }
+            )},
+        {table,
+            mk(
+                binary(),
+                #{
+                    desc => ?DESC("config_table_name"),
+                    required => true,
+                    validator => fun emqx_schema:non_empty_string/1
+                }
+            )},
+        {data,
+            mk(
+                array(ref(?MODULE, action_parameters_data_table)),
+                #{
+                    desc => ?DESC("action_parameters_data"),
+                    required => true,
+                    validator => fun emqx_schema:non_empty_array/1
+                }
+            )}
+    ] ++
+        action_parameters_common().
+
+action_parameters_common() ->
+    [
+        {is_aligned,
+            mk(
+                boolean(),
+                #{
+                    desc => ?DESC("config_is_aligned"),
+                    default => false
+                }
+            )}
+    ] ++
+        proplists_without(
+            [path, method, body, headers, request_timeout],
+            emqx_bridge_http_schema:fields("parameters_opts")
+        ).
+
+action_parameters_data_common() ->
+    [
+        {timestamp,
+            mk(
+                hoconsc:union([enum([now, now_ms, now_ns, now_us]), emqx_schema:template()]),
+                #{
+                    desc => ?DESC("config_parameters_timestamp"),
+                    default => <<"now">>
+                }
+            )},
+        {measurement,
+            mk(
+                emqx_schema:template(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_measurement")
+                }
+            )},
+        {data_type,
+            mk(
+                enum([text, boolean, int32, int64, float, double]),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_data_type")
+                }
+            )},
+        {value,
+            mk(
+                emqx_schema:template(),
+                #{
+                    required => true,
+                    desc => ?DESC("config_parameters_value")
                 }
             )}
     ].

@@ -83,27 +83,41 @@ init_per_group(local = _Group, Config) ->
     ),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     [{suite_apps, Apps}, {auth, Auth} | Config];
-init_per_group(cluster = Group, Config) ->
-    ok = emqx_cth_suite:stop_apps([emqx_dashboard]),
-    SourceClusterSpec = emqx_cluster_link_SUITE:mk_source_cluster(Group, Config),
-    TargetClusterSpec = emqx_cluster_link_SUITE:mk_target_cluster(Group, Config),
-    SourceNodes = [SN1 | _] = emqx_cth_cluster:start(SourceClusterSpec),
-    TargetNodes = [TN1 | _] = emqx_cth_cluster:start(TargetClusterSpec),
-    emqx_cluster_link_SUITE:start_cluster_link(SourceNodes ++ TargetNodes, Config),
-    erpc:call(SN1, emqx_cth_suite, start_apps, [
-        [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
-        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
-    ]),
-    erpc:call(TN1, emqx_cth_suite, start_apps, [
-        [
-            emqx_management,
-            emqx_mgmt_api_test_util:emqx_dashboard(
-                "dashboard.listeners.http { enable = true, bind = 28083 }"
-            )
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Group, Config)}
-    ]),
-    Auth = ?ON(SN1, emqx_mgmt_api_test_util:auth_header_()),
+init_per_group(cluster, Config) ->
+    %% Setup 2 cluster of 2 nodes each, linked to each other:
+    SourceLink = emqx_cluster_link_cth:mk_link_conf(2, api_target, #{<<"topics">> => []}),
+    TargetLink = emqx_cluster_link_cth:mk_link_conf(1, api_source, #{<<"topics">> => [<<"#">>]}),
+    SourceConfSpec = {emqx_conf, #{config => #{cluster => #{links => [SourceLink]}}}},
+    SourceSpecs = [
+        #{
+            apps => [
+                SourceConfSpec,
+                emqx_management,
+                emqx_mgmt_api_test_util:emqx_dashboard()
+            ]
+        },
+        #{apps => [SourceConfSpec]}
+    ],
+    TargetConfSpec = {emqx_conf, #{config => #{cluster => #{links => [TargetLink]}}}},
+    TargetSpecs = [
+        #{
+            apps => [
+                TargetConfSpec,
+                emqx_management,
+                emqx_mgmt_api_test_util:emqx_dashboard(
+                    "dashboard.listeners.http { enable = true, bind = 28083 }"
+                )
+            ]
+        },
+        #{apps => [TargetConfSpec]}
+    ],
+    SourceClusterSpec = emqx_cluster_link_cth:mk_cluster(1, api_source, SourceSpecs, Config),
+    TargetClusterSpec = emqx_cluster_link_cth:mk_cluster(2, api_target, TargetSpecs, Config),
+    SourceNodes = emqx_cth_cluster:start(SourceClusterSpec),
+    TargetNodes = emqx_cth_cluster:start(TargetClusterSpec),
+    Auth = ?ON(hd(SourceNodes), emqx_mgmt_api_test_util:auth_header_()),
+    %% Give clusters time to reconnect to each other:
+    ok = timer:sleep(1000),
     [
         {source_nodes, SourceNodes},
         {target_nodes, TargetNodes},
@@ -410,7 +424,7 @@ t_create_invalid(Config) ->
 %% links and when fetching a specific link.
 t_status(Config) ->
     [SN1 | _] = ?config(source_nodes, Config),
-    Name = <<"cl.target">>,
+    Name = <<"api_target">>,
     ?retry(
         100,
         10,
@@ -580,8 +594,8 @@ t_metrics(Config) ->
     [SN1, SN2] = ?config(source_nodes, Config),
     [TN1, TN2] = ?config(target_nodes, Config),
     %% N.B. Link names on each cluster, so they are switched.
-    SourceName = <<"cl.target">>,
-    TargetName = <<"cl.source">>,
+    SourceName = <<"api_target">>,
+    TargetName = <<"api_source">>,
 
     ?assertMatch(
         {200, #{
@@ -900,7 +914,7 @@ t_disable_reenable(Config) ->
     ct:timetrap({seconds, 20}),
     [SN1, _SN2] = SourceNodes = ?config(source_nodes, Config),
     [TN1, TN2] = ?config(target_nodes, Config),
-    SourceName = <<"cl.target">>,
+    SourceName = <<"api_target">>,
 
     SourceC1 = emqx_cluster_link_cth:connect_client(<<"sc1">>, SN1),
     TargetC1 = emqx_cluster_link_cth:connect_client(<<"tc1">>, TN1),

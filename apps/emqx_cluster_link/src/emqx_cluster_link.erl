@@ -28,9 +28,6 @@
     on_message_publish/1
 ]).
 
-%% Internal exports
--export([do_handle_route_op_msg/1]).
-
 -include("emqx_cluster_link.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
@@ -154,31 +151,6 @@ delete_hook() ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish, []}).
 
 %%--------------------------------------------------------------------
-%% Internal exports
-%%--------------------------------------------------------------------
-
-%% Exported only for mocking in tests
-do_handle_route_op_msg(
-    #message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload} = Msg
-) ->
-    case emqx_cluster_link_mqtt:decode_route_op(Payload) of
-        {actor_init, Actor, InitInfo} ->
-            Result = actor_init(ClusterName, Actor, InitInfo),
-            _ = actor_init_ack(Actor, Result, Msg),
-            ok;
-        {route_updates, #{actor := Actor}, RouteOps} ->
-            ok = update_routes(ClusterName, Actor, RouteOps);
-        {heartbeat, #{actor := Actor}} ->
-            ok = actor_heartbeat(ClusterName, Actor);
-        {error, {unknown_payload, ParsedPayload}} ->
-            ?SLOG(warning, #{
-                msg => "unexpected_cluster_link_route_op_payload",
-                payload => ParsedPayload
-            })
-    end,
-    ok.
-
-%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
 
@@ -186,22 +158,40 @@ do_handle_route_op_msg(
 -define(PD_EXTROUTER_ACTOR_STATE, '$clink_extrouter_actor_state').
 
 handle_route_op_msg(
-    #message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>} = Msg
+    #message{topic = <<?ROUTE_TOPIC_PREFIX, ClusterName/binary>>, payload = Payload} = Msg
 ) ->
     try
-        ?MODULE:do_handle_route_op_msg(Msg)
+        case emqx_cluster_link_mqtt:decode_route_op(Payload) of
+            {actor_init, #{actor := Actor, incarnation := Incarnation}, InitInfo} ->
+                ?tp("cluster_link_routerepl_in_actor_init", #{
+                    actor => Actor,
+                    from_cluster => ClusterName
+                }),
+                Result = actor_init(ClusterName, Actor, Incarnation, InitInfo),
+                _ = actor_init_ack(Actor, Result, Msg),
+                ok;
+            {route_updates, #{actor := Actor}, RouteOps} ->
+                ok = update_routes(ClusterName, Actor, RouteOps);
+            {heartbeat, #{actor := Actor}} ->
+                ok = actor_heartbeat(ClusterName, Actor);
+            {error, {unknown_payload, ParsedPayload}} ->
+                ?tp(warning, "cluster_link_routerepl_protocol_error", #{
+                    payload => ParsedPayload,
+                    %% How this cluster names itself
+                    local_cluster => emqx_cluster_link_config:cluster(),
+                    %% How the remote cluster names itself
+                    from_cluster => ClusterName
+                }),
+                error
+        end
     catch
         K:E:Stacktrace ->
-            MyClusterName = emqx_cluster_link_config:cluster(),
-            ?SLOG(error, #{
-                msg => "cluster_link_routesync_protocol_error",
+            ?tp(error, "cluster_link_routerepl_protocol_error", #{
                 kind => K,
                 reason => E,
                 stacktrace => Stacktrace,
-                %% How this cluster names itself
-                local_name => MyClusterName,
-                %% How the remote cluster names itself
-                received_from => ClusterName
+                local_cluster => emqx_cluster_link_config:cluster(),
+                from_cluster => ClusterName
             }),
             error
     end.
@@ -209,6 +199,7 @@ handle_route_op_msg(
 actor_init(
     ClusterName,
     Actor,
+    Incarnation,
     #{
         target_cluster := TargetCluster,
         proto_ver := _
@@ -217,11 +208,12 @@ actor_init(
     MyClusterName = emqx_cluster_link_config:cluster(),
     case emqx_cluster_link_config:link(ClusterName) of
         #{enable := true} when MyClusterName =:= TargetCluster ->
-            _Created = actor_init(ClusterName, Actor);
+            _Created = actor_init(ClusterName, Actor, Incarnation);
         undefined ->
-            ?SLOG(error, #{
-                msg => "init_link_request_from_unknown_cluster",
-                link_name => ClusterName
+            ?SLOG(warning, #{
+                msg => "cluster_link_actor_init_rejected",
+                reason => "unknown_cluster",
+                from_cluster => ClusterName
             }),
             %% Avoid atom error reasons, since they can be sent to the remote cluster,
             %% which will use safe binary_to_term decoding
@@ -229,31 +221,41 @@ actor_init(
             {error, <<"unknown_cluster">>};
         #{enable := true} ->
             %% The remote cluster uses a different name to refer to this cluster
-            ?SLOG(error, #{
-                msg => "misconfigured_cluster_link_name",
+            ?SLOG(warning, #{
+                msg => "cluster_link_actor_init_rejected",
+                reason => "misconfigured_name",
                 %% How this cluster names itself
-                local_name => MyClusterName,
-                %% How the remote cluster names this local cluster
-                remote_name => TargetCluster,
+                local_cluster => MyClusterName,
                 %% How the remote cluster names itself
-                received_from => ClusterName
+                from_cluster => ClusterName,
+                %% How the remote cluster names this local cluster
+                local_known_as => TargetCluster
             }),
             {error, <<"bad_remote_cluster_link_name">>};
         #{enable := false} ->
+            ?SLOG(warning, #{
+                msg => "cluster_link_actor_init_rejected",
+                reason => "link_disabled",
+                from_cluster => ClusterName
+            }),
             {error, <<"cluster_link_disabled">>}
     end.
 
-actor_init(ClusterName, #{actor := Actor, incarnation := Incr}) ->
-    Env = #{timestamp => erlang:system_time(millisecond)},
-    {Created, ActorSt} = emqx_cluster_link_extrouter:actor_init(ClusterName, Actor, Incr, Env),
+actor_init(ClusterName, Actor, Incarnation) ->
+    {Created, ActorSt} = emqx_cluster_link_extrouter:actor_init(
+        ClusterName,
+        Actor,
+        Incarnation,
+        #{timestamp => erlang:system_time(millisecond)}
+    ),
     undefined = set_actor_state(ClusterName, Actor, ActorSt),
     Created.
 
-actor_init_ack(#{actor := Actor}, IsNew, MsgIn) when is_boolean(IsNew) ->
+actor_init_ack(Actor, IsNew, MsgIn) when is_boolean(IsNew) ->
     emqx_broker:publish(
         emqx_cluster_link_mqtt:mk_actor_init_ack(Actor, _NeedBootstrap = IsNew, MsgIn)
     );
-actor_init_ack(#{actor := Actor}, {error, _} = Error, MsgIn) ->
+actor_init_ack(Actor, {error, _} = Error, MsgIn) ->
     emqx_broker:publish(
         emqx_cluster_link_mqtt:mk_actor_init_ack_error(Actor, Error, MsgIn)
     ).
