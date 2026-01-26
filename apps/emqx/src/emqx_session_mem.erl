@@ -88,6 +88,7 @@
 %% Part of takeover sequence
 -export([
     takeover/1,
+    save_subopts/1,
     resume/2,
     enqueue/3,
     dequeue/2,
@@ -719,6 +720,20 @@ expire_awaiting_rel(
     ok.
 takeover(#session{subscriptions = Subs}) ->
     lists:foreach(fun emqx_broker:unsubscribe/1, maps:keys(Subs)).
+
+-spec save_subopts(session()) -> session().
+save_subopts(#session{subscriptions = Subs0} = Session0) ->
+    Subs = maps:map(
+        fun(TopicFilter, SubOpts0) ->
+            emqx_hooks:run_fold(
+                'session.save_subopts',
+                [#{topic_filter => TopicFilter}],
+                SubOpts0
+            )
+        end,
+        Subs0
+    ),
+    Session0#session{subscriptions = Subs}.
 
 -spec resume(emqx_types:clientinfo(), session()) ->
     session().

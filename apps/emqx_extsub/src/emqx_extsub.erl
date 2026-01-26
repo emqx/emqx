@@ -27,6 +27,7 @@ The module:
     on_session_unsubscribed/3,
     on_session_resumed/2,
     on_session_disconnected/2,
+    on_session_save_subopts/2,
     on_delivery_completed/2,
     on_message_delivered/2,
     on_message_nack/2,
@@ -65,8 +66,10 @@ register_hooks() ->
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.save_subopts', {?MODULE, on_session_save_subopts, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
+    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    ok.
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
@@ -77,8 +80,10 @@ unregister_hooks() ->
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     emqx_hooks:del('session.disconnected', {?MODULE, on_session_disconnected}),
+    emqx_hooks:del('session.save_subopts', {?MODULE, on_session_save_subopts}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
-    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
+    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Hooks callbacks
@@ -182,6 +187,24 @@ on_session_unsubscribed(_ClientInfo, TopicFilter, SubOpts) ->
 on_session_disconnected(_ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ?tp_debug(extsub_on_session_disconnected, #{subscriptions => Subs}),
     on_unsubscribed(disconnect, Subs).
+
+on_session_save_subopts(Context, SubOpts0) ->
+    with_st(
+        fun(#st{registry = HandlerRegistry0} = St) ->
+            {Res, HandlerRegistry} = emqx_extsub_handler_registry:save_subopts(
+                HandlerRegistry0, Context, SubOpts0
+            ),
+            SubOpts =
+                case map_size(Res) > 0 of
+                    true ->
+                        SubOpts0#{?MODULE => Res};
+                    false ->
+                        maps:remove(?MODULE, SubOpts0)
+                end,
+            {ok, St#st{registry = HandlerRegistry}, {ok, SubOpts}}
+        end,
+        {ok, SubOpts0}
+    ).
 
 on_unsubscribed(UnsubscribeType, Subs) ->
     with_st(fun(#st{registry = HandlerRegistry} = St) ->
@@ -379,6 +402,7 @@ with_st(Fun, DefaultResult) ->
 
 with_msg_handler(Msgs, Fun) ->
     with_msg_handler(Msgs, Fun, ok).
+
 with_msg_handler(#message{} = Msg, Fun, DefaultResult) ->
     case emqx_message:get_header(?EXTSUB_HEADER_INFO, Msg) of
         undefined ->

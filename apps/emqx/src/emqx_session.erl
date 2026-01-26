@@ -235,6 +235,8 @@
 
 -callback terminate(clientinfo(), _Reason, t()) -> ok.
 
+-callback save_subopts(t()) -> t().
+
 %%--------------------------------------------------------------------
 %% Create a Session
 %%--------------------------------------------------------------------
@@ -601,9 +603,10 @@ cancel_timer(Name, Timers0) ->
 
 -spec disconnect(clientinfo(), conninfo(), t()) ->
     {idle | shutdown, t()}.
-disconnect(ClientInfo, ConnInfo, Session) ->
-    run_hook('session.disconnected', [ClientInfo, info(Session)]),
-    ?IMPL(Session):disconnect(Session, ConnInfo).
+disconnect(ClientInfo, ConnInfo, Session0) ->
+    Session1 = ?IMPL(Session0):save_subopts(Session0),
+    run_hook('session.disconnected', [ClientInfo, info(Session1)]),
+    ?IMPL(Session1):disconnect(Session1, ConnInfo).
 
 -spec terminate(clientinfo(), Reason :: term(), t()) ->
     ok.

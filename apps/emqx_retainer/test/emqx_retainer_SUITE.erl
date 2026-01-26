@@ -13,6 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/src/emqx_tracepoints.hrl").
 
 all() ->
     [
@@ -1229,7 +1230,7 @@ t_takeover(TCConfig) ->
 t_resume(TCConfig) ->
     test_takeover_or_resume(resume, TCConfig).
 
-test_takeover_or_resume(Kind, _TCConfig) ->
+test_takeover_or_resume(Kind, TCConfig) ->
     update_retainer_config(#{
         <<"delivery_rate">> => <<"5/1s">>,
         <<"flow_control">> => #{<<"batch_read_number">> => 1}
@@ -1288,7 +1289,28 @@ test_takeover_or_resume(Kind, _TCConfig) ->
             ?assertEqual(NumRetained, NumReceived, Ctx),
             ?assertEqual(#{}, Duplicated, Ctx),
 
-            ok = emqtt:stop(C1),
+            case is_ds(TCConfig) of
+                true ->
+                    {ok, {ok, _}} =
+                        ?wait_async_action(
+                            emqtt:stop(C1),
+                            #{?snk_kind := ?sessds_terminate},
+                            1_000
+                        ),
+                    %% Ensure the sub state is cleared of extsub state.
+                    SSs = emqx_utils_maps:deep_get(
+                        [s, subscription_states],
+                        emqx_persistent_session_ds:print_session(ClientId)
+                    ),
+                    ?assertMatch(
+                        [{_, #{subopts := SubOpts}}] when not is_map_key(emqx_extsub, SubOpts),
+                        maps:to_list(SSs)
+                    ),
+                    ok;
+                false ->
+                    ok = emqtt:stop(C1),
+                    ok
+            end,
 
             ok
         end,
@@ -1299,6 +1321,14 @@ test_takeover_or_resume(Kind, _TCConfig) ->
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+is_ds(TCConfig) ->
+    case emqx_common_test_helpers:get_matrix_prop(TCConfig, [index_agnostic_ds], false) of
+        index_agnostic_ds ->
+            true;
+        _ ->
+            false
+    end.
 
 test_retain_while_reindexing(C, Deadline) ->
     case erlang:monotonic_time(millisecond) > Deadline of

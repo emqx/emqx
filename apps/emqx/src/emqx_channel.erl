@@ -1501,16 +1501,40 @@ handle_call(discard, Channel) ->
 handle_call(
     {takeover, 'begin'},
     Channel = #channel{
-        session = Session,
+        session = Session0,
         clientinfo = #{clientid := ClientId}
     }
 ) ->
+    %% Called during RPC via `emqx_cm_proto_v{1..3}`, only by `emqx_session_mem`.
     %% NOTE
     %% Ensure channel has enough time left to react to takeover end call. At the same
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
     Interval = interval(expire_takeover, Channel),
     NChannel = reset_timer(expire_session, Interval, Channel),
     ok = emqx_cm:unregister_channel(ClientId),
+    %% N.B.: This check is due to the different moments at which `session:disconnect/3` /
+    %% `session.disconnected` and the takeover call happen.
+    %%
+    %%   - When resuming (i.e., stopping a client, and re-connecting some time later),
+    %%     `session.disconnected` is called when the clients disconnects, then this
+    %%     takeover is called when it reconnects.
+    %%
+    %%   - When taking over (i.e., the first client _is_ connected and another one
+    %%     connects), `session.disconnected` hook **is not** called, and only this takeover
+    %%     is called.
+    %%
+    %% Since `session.disconnected` hook may tear down state that we wish to preserve
+    %% during `session.save_opts`, we must distinguish between these two cases for
+    %% in-memory sessions.
+    Session =
+        case Channel#channel.conn_state of
+            disconnected ->
+                %% The client is resuming.  Sub opts have already been saved.
+                Session0;
+            _ ->
+                %% A new client is taking over.  Need to save the sub opts now.
+                emqx_session_mem:save_subopts(Session0)
+        end,
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},

@@ -20,6 +20,7 @@ Collection of handlers for the external message sources.
     new/0,
     subscribe/4,
     unsubscribe/3,
+    save_subopts/3,
     find/2,
     update/3,
     recreate/3,
@@ -119,6 +120,35 @@ unsubscribe(
         ByTopicCBM
     ).
 
+save_subopts(#registry{by_topic_cbm = ByTopicCBM} = Registry0, Context, SubOpts) ->
+    #{topic_filter := TopicFilter} = Context,
+    maps:fold(
+        fun
+            ({Module, HandlerTopicFilter}, HandlerRef, {OutAcc0, RegistryAcc0}) when
+                HandlerTopicFilter == TopicFilter
+            ->
+                #registry{by_ref = ByRef0} = RegistryAcc0,
+                #{HandlerRef := #extsub{handler = Handler0} = ExtSub0} = ByRef0,
+                case emqx_extsub_handler:save_subopts(Handler0, Context, SubOpts) of
+                    {ok, Handler} ->
+                        ExtSub = ExtSub0#extsub{handler = Handler},
+                        ByRef = ByRef0#{HandlerRef := ExtSub},
+                        RegistryAcc = RegistryAcc0#registry{by_ref = ByRef},
+                        {OutAcc0, RegistryAcc};
+                    {ok, Handler, Res} ->
+                        ExtSub = ExtSub0#extsub{handler = Handler},
+                        ByRef = ByRef0#{HandlerRef := ExtSub},
+                        RegistryAcc = RegistryAcc0#registry{by_ref = ByRef},
+                        OutAcc = OutAcc0#{Module => Res},
+                        {OutAcc, RegistryAcc}
+                end;
+            (_ModTF, _HandlerRef, Acc) ->
+                Acc
+        end,
+        {#{}, Registry0},
+        ByTopicCBM
+    ).
+
 -spec find(t(), emqx_extsub_types:handler_ref()) ->
     emqx_extsub_handler:t() | undefined.
 find(#registry{by_ref = ByRef}, HandlerRef) when is_reference(HandlerRef) ->
@@ -135,7 +165,7 @@ update(#registry{by_ref = ByRef} = Registry, HandlerRef, Handler) ->
         #{HandlerRef := #extsub{} = ExtSub} ->
             Registry#registry{
                 by_ref = ByRef#{
-                    HandlerRef => ExtSub#extsub{
+                    HandlerRef := ExtSub#extsub{
                         handler = Handler
                     }
                 }
@@ -204,7 +234,7 @@ subscribe(
                     #extsub{handler = Handler0, topic_filters = TopicFiltersToSubOpts} = maps:get(
                         HandlerRef, ByRef
                     ),
-                    SubscribeCtx = create_subscribe_ctx(HandlerRef, SubOpts, SubscribeCtx0),
+                    SubscribeCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, SubscribeCtx0),
                     case
                         emqx_extsub_handler:subscribe(
                             SubscribeType, SubscribeCtx, Handler0, TopicFilter
@@ -227,7 +257,7 @@ subscribe(
                     end;
                 not_found ->
                     HandlerRef = make_ref(),
-                    SubscribeCtx = create_subscribe_ctx(HandlerRef, SubOpts, SubscribeCtx0),
+                    SubscribeCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, SubscribeCtx0),
                     case
                         emqx_extsub_handler:subscribe_new(
                             SubscribeType, Module, Options, SubscribeCtx, TopicFilter
@@ -274,7 +304,7 @@ subscribe(
             subscribe(NewRegistry, InitType, InitCtx0, HandlerSpec, TopicFilter, SubOpts);
         _ ->
             HandlerRef = make_ref(),
-            InitCtx = create_subscribe_ctx(HandlerRef, SubOpts, InitCtx0),
+            InitCtx = create_subscribe_ctx(HandlerRef, Module, SubOpts, InitCtx0),
             case
                 emqx_extsub_handler:subscribe_new(InitType, Module, Options, InitCtx, TopicFilter)
             of
@@ -368,7 +398,7 @@ create_unsubscribe_ctx(SubOpts) ->
         subopts => SubOpts
     }.
 
-create_subscribe_ctx(Ref, SubOpts, Ctx) ->
+create_subscribe_ctx(Ref, Module, SubOpts0, Ctx) ->
     Pid = self(),
     SendAfter = fun(Interval, Info) ->
         erlang:send_after(Interval, Pid, #info_to_extsub{
@@ -381,8 +411,24 @@ create_subscribe_ctx(Ref, SubOpts, Ctx) ->
         }),
         ok
     end,
+    SubOpts = filter_saved_subopts(Module, SubOpts0),
     Ctx#{
         subopts => SubOpts,
         send_after => SendAfter,
         send => Send
     }.
+
+filter_saved_subopts(Module, SubOpts0) ->
+    case SubOpts0 of
+        #{subopts := #{emqx_extsub := #{Module := SavedSt}} = InnerSubOpts0} ->
+            %% DS session
+            InnerSubOpts1 = maps:remove(emqx_extsub, InnerSubOpts0),
+            InnerSubOpts = InnerSubOpts1#{Module => SavedSt},
+            SubOpts0#{subopts := InnerSubOpts};
+        #{emqx_extsub := #{Module := SavedSt}} ->
+            %% in-memory session
+            SubOpts1 = maps:remove(emqx_extsub, SubOpts0),
+            SubOpts1#{Module => SavedSt};
+        _ ->
+            maps:remove(emqx_extsub, SubOpts0)
+    end.
