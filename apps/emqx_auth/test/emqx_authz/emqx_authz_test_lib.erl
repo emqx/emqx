@@ -11,21 +11,31 @@
 -compile(export_all).
 
 reset_authorizers() ->
-    reset_authorizers(deny, false, []).
+    reset_authorizers(deny, default, false, []).
 
 restore_authorizers() ->
     reset_authorizers(allow, true, []).
 
 reset_authorizers(Nomatch, CacheEnabled, Source) ->
+    reset_authorizers(Nomatch, default, CacheEnabled, Source).
+
+reset_authorizers(Nomatch, DenyAction, CacheEnabled, Source) ->
     {ok, _} = emqx:update_config(
         [authorization],
-        #{
-            <<"no_match">> => atom_to_binary(Nomatch),
-            <<"cache">> => #{<<"enable">> => CacheEnabled},
-            <<"sources">> => Source
-        }
+        maps:merge(
+            #{
+                <<"no_match">> => atom_to_binary(Nomatch),
+                <<"cache">> => #{<<"enable">> => CacheEnabled},
+                <<"sources">> => Source
+            },
+            case DenyAction of
+                disconnect -> #{<<"deny_action">> => <<"disconnect">>};
+                default -> #{}
+            end
+        )
     ),
     ok.
+
 %% Don't reset sources
 reset_authorizers(Nomatch, CacheEnabled) ->
     {ok, _} = emqx:update_config([<<"authorization">>, <<"no_match">>], Nomatch),

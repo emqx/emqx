@@ -517,6 +517,13 @@ if [ -n "${EMQX_NODE_NAME:-}" ]; then
     unset EMQX_NODE_NAME
 fi
 
+## Resolve Erlang cookie.
+if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
+    ## To be backward compatible, read and unset EMQX_NODE_COOKIE
+    export EMQX_NODE__COOKIE="${EMQX_NODE_COOKIE}"
+    unset EMQX_NODE_COOKIE
+fi
+
 # Turn off debug as the ps output can be quite noisy
 set +x
 
@@ -1010,12 +1017,6 @@ export ESCRIPT_NAME="$SHORT_NAME"
 
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
-## Resolve Erlang cookie.
-if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
-    ## To be backward compatible, read and unset EMQX_NODE_COOKIE
-    export EMQX_NODE__COOKIE="${EMQX_NODE_COOKIE}"
-    unset EMQX_NODE_COOKIE
-fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 COOKIE_IN_USE="$(get_boot_config 'node.cookie')"
 if [ "$IS_BOOT_COMMAND" != 'yes' ] && [ -n "$COOKIE_IN_USE" ] && [ -n "$COOKIE" ] && [ "$COOKIE" != "$COOKIE_IN_USE" ]; then

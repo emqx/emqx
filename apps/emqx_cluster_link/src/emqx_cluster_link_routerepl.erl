@@ -8,8 +8,8 @@
 -module(emqx_cluster_link_routerepl).
 
 -include("emqx_cluster_link.hrl").
+-include("emqx_cluster_link_internal.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
--include_lib("snabbkaffe/include/trace.hrl").
 
 %% Router API
 -export([push/5]).
@@ -44,6 +44,26 @@
     terminate/2
 ]).
 
+-export_type([
+    actor/0,
+    routeid/0
+]).
+
+%% Name of the target cluster for route replication:
+-type cluster() :: emqx_cluster_link_schema:cluster().
+
+%% Replication actor:
+%% * `node()` for regular routes.
+%% * `'ps-routes-v1'` for persistent routes.
+%% See also: `emqx_cluster_link_extrouter`.
+-type actor() :: atom().
+
+%% Route ID:
+%% A pair of {Topic, Route ID} uniquely identifies a single actor's route.
+%% This is needed for example to disambiguate different local routes that intersect
+%% to the same topic filter for a partical link, according to configured link filters.
+-type routeid() :: binary().
+
 -define(REF(NAME), {via, gproc, NAME}).
 -define(NAME(CLUSTER, ACTOR), {n, l, {?MODULE, CLUSTER, ACTOR}}).
 -define(NAME(CLUSTER, ACTOR, WHAT), {n, l, {?MODULE, CLUSTER, ACTOR, WHAT}}).
@@ -75,6 +95,8 @@
 
 %% @doc Replicate a route addition or removal, where route is annotated with unique
 %% route ID.
+-spec push(_Target :: cluster(), actor(), add | delete, emqx_types:topic(), routeid()) ->
+    ok | dropped.
 push(TargetCluster, Actor, OpName, Topic, ID) ->
     push_to(?SYNCER_NAME(TargetCluster, Actor), OpName, Topic, ID).
 
@@ -99,6 +121,12 @@ push_to(SyncerName, OpName, Topic, ID) ->
 %%    Replication protocol, and basic error handling.
 %% Configured with a "Route Replication Actor" identifier, an MFA supplying actor and
 %% protocol details (e.g. "Incarnation"), and a Cluster Link.
+-spec start_link(actor(), ActorMF, emqx_cluster_link_schema:link()) ->
+    {ok, pid()} | {error, _Reason}
+when
+    ActorMF ::
+        {module(), atom(), [_Arg]}
+        | fun((incarnation | marker) -> _).
 start_link(Actor, ActorMF, #{name := TargetCluster} = LinkConf) ->
     SupName = ?NAME(TargetCluster, Actor),
     supervisor:start_link(?REF(SupName), ?MODULE, {sup, Actor, ActorMF, LinkConf}).
@@ -256,7 +284,7 @@ callback_mode() ->
     [state_functions].
 
 init_manager(St = #st{}) ->
-    ?tp("cluster_link_actor_init", #{actor => St#st.actor}),
+    ?tp_routerepl("init", #{actor => St#st.actor}),
     _ = erlang:process_flag(trap_exit, true),
     {ok, connecting, St, {next_event, internal, connect}}.
 
@@ -269,14 +297,14 @@ connecting(
     St0 = #st{link = Link, actor = Actor, marker = ClientMarker, client = undefined}
 ) ->
     TargetCluster = target_cluster(St0),
-    ReconnectAt = erlang:system_time(millisecond) + ?RECONNECT_TIMEOUT,
+    ReconnectAt = erlang:system_time(millisecond) + reconnect_timeout(),
     St = St0#st{reconnect_at = ReconnectAt},
     case start_link_client(Actor, ClientMarker, Link) of
         {ok, ClientPid} ->
             ok = announce_client(TargetCluster, Actor, ClientPid),
             enter_handshaking(St#st{client = ClientPid});
         {error, Reason} ->
-            ?tp(error, "cluster_link_connection_failed", #{
+            ?tp_routerepl(warning, "connection_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -304,10 +332,10 @@ handshaking(
     case Result of
         ok ->
             St = St0#st{handshake_reqid = ReqId},
-            Timeout = ?RECONNECT_TIMEOUT,
+            Timeout = reconnect_timeout(),
             {keep_state, St, {state_timeout, Timeout, abandon}};
         {error, Reason} ->
-            ?tp(error, "cluster_link_handshake_failed", #{
+            ?tp_routerepl(warning, "handshake_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -333,7 +361,7 @@ handshaking(
             ok = start_syncer(TargetCluster, Actor, Incarnation),
             enter_bootstrap(NeedBootstrap, St);
         #{result := Error} ->
-            ?tp(error, "cluster_link_handshake_rejected", #{
+            ?tp_routerepl(warning, "handshake_rejected", #{
                 reason => error_reason(Error),
                 target_cluster => TargetCluster,
                 actor => Actor,
@@ -344,7 +372,7 @@ handshaking(
             keep_state_and_data
     end;
 handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
-    ?tp(error, "cluster_link_handshake_timeout", #{
+    ?tp_routerepl(warning, "handshake_timeout", #{
         target_cluster => target_cluster(St),
         actor => Actor
     }),
@@ -371,7 +399,7 @@ enter_bootstrapped(St = #st{actor = Actor}) ->
     enter_online(St#st{bootstrapped = true}).
 
 enter_online(St = #st{actor = Actor, incarnation = Incarnation}) ->
-    ?tp(info, "cluster_link_routerepl_online", #{
+    ?tp_routerepl(info, "online", #{
         target_cluster => target_cluster(St),
         actor => Actor,
         incarnation => Incarnation
@@ -406,7 +434,7 @@ heartbeat(#st{client = ClientPid, actor = Actor, incarnation = Incarnation}) ->
     publish_heartbeat(ClientPid, Actor, Incarnation).
 
 handle_disconnect(RC, St = #st{actor = Actor}) ->
-    ?tp(info, "cluster_link_connection_disconnect", #{
+    ?tp_routerepl(info, "disconnected", #{
         reason => emqx_reason_codes:name(RC),
         target_cluster => target_cluster(St),
         actor => Actor
@@ -423,7 +451,7 @@ enter_disconnected(Reason, St0 = #st{actor = Actor, reconnect_at = ReconnectAt})
         %% Otherwise info message since interruptions are expected.
         _ -> Level = info
     end,
-    ?tp(Level, "cluster_link_connection_down", #{
+    ?tp_routerepl(Level, "connection_down", #{
         reason => Reason,
         target_cluster => target_cluster(St0),
         actor => Actor,
@@ -450,10 +478,7 @@ handle_event(info, {disconnected, RC, _}, St) ->
     %% MQTT disconnect packet.
     handle_disconnect(RC, St);
 handle_event(Event, Payload, _St) ->
-    ?tp(warning, "cluster_link_routerepl_unexpected_event", #{
-        event => Event,
-        payload => Payload
-    }),
+    ?tp_routerepl(warning, "unexpected_event", #{event => Event, payload => Payload}),
     keep_state_and_data.
 
 terminate(_Reason, _St) ->
@@ -484,7 +509,7 @@ bootstrap(Bootstrap, HeartbeatTs, St = #st{actor = Actor, incarnation = Incarnat
     TargetCluster = target_cluster(St),
     case emqx_cluster_link_router_bootstrap:next_batch(Bootstrap) of
         done ->
-            ?tp(info, "cluster_link_bootstrap_complete", #{
+            ?tp_routerepl(info, "bootstrap_complete", #{
                 target_cluster => TargetCluster,
                 actor => Actor,
                 incarnation => Incarnation
@@ -497,7 +522,7 @@ bootstrap(Bootstrap, HeartbeatTs, St = #st{actor = Actor, incarnation = Incarnat
                     NHeartbeatTs = ensure_bootstrap_heartbeat(HeartbeatTs, St),
                     bootstrap(NBootstrap, NHeartbeatTs, St);
                 {error, Reason} ->
-                    ?tp(error, "cluster_link_bootstrap_failed", #{
+                    ?tp_routerepl(warning, "bootstrap_failed", #{
                         reason => Reason,
                         target_cluster => TargetCluster,
                         actor => Actor
@@ -545,7 +570,7 @@ start_link_client(Actor, ClientMarker, Link) ->
             try
                 case emqtt:connect(Pid) of
                     {ok, _Props} ->
-                        ?tp("cluster_link_actor_connected", #{actor => Actor}),
+                        ?tp_routerepl("connected", #{actor => Actor}),
                         Topic = ?RESP_TOPIC(local_cluster(), Actor),
                         {ok, _, _} = emqtt:subscribe(Pid, Topic, ?QOS_1),
                         {ok, Pid};
@@ -568,7 +593,7 @@ start_link_client(Actor, ClientMarker, Link) ->
 
 stop_link_client(#st{client = ClientPid}) when is_pid(ClientPid) ->
     %% Stop the client, tolerate if it's dead / stopping right now.
-    ?tp("cluster_link_stop_link_client", #{}),
+    ?tp_routerepl("stop_client", #{}),
     try
         emqtt:stop(ClientPid)
     catch
@@ -599,16 +624,21 @@ announce_client(TargetCluster, Actor, Pid) ->
     true = gproc:reg_other(?CLIENT_NAME(TargetCluster, Actor), Pid),
     ok.
 
-publish_routes(ClientPid, ActorName, Incarnation, Updates) ->
+publish_routes(ClientPid, ActorName, Incarnation, Updates) when ClientPid =/= undefined ->
     ?SAFE_MQTT_PUB(
         emqx_cluster_link_mqtt:publish_route_sync(ClientPid, ActorName, Incarnation, Updates),
         #{}
-    ).
+    );
+publish_routes(undefined, _ActorName, _Incarnation, _Updates) ->
+    {error, mqtt_client_down}.
 
 publish_heartbeat(ClientPid, Actor, Incarnation) ->
     %% NOTE: Fully asynchronous, no need for error handling.
     ActorName = atom_to_binary(Actor),
     emqx_cluster_link_mqtt:publish_heartbeat(ClientPid, ActorName, Incarnation).
+
+reconnect_timeout() ->
+    application:get_env(emqx_cluster_link, routerepl_actor_reconnect_timeout, ?RECONNECT_TIMEOUT).
 
 %%
 

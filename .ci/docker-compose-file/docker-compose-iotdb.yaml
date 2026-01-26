@@ -57,3 +57,27 @@ services:
     #     - "18080:18080"
     networks:
       - emqx_bridge
+
+  iotdb205:
+    container_name: iotdb205
+    hostname: iotdb205
+    image: apache/iotdb:2.0.5-standalone
+    restart: always
+    environment:
+      - enable_rest_service=true
+      - cn_internal_address=iotdb205
+      - cn_internal_port=10710
+      - cn_consensus_port=10720
+      - cn_seed_config_node=iotdb205:10710
+      - dn_rpc_address=iotdb205
+      - dn_internal_address=iotdb205
+      - dn_rpc_port=6667
+      - dn_mpp_data_exchange_port=10740
+      - dn_schema_region_consensus_port=10750
+      - dn_data_region_consensus_port=10760
+      - dn_seed_config_node=iotdb205:10710
+    expose:
+      - "18080"
+      - "6667"
+    networks:
+      - emqx_bridge
