@@ -377,39 +377,44 @@ parse_message_body(?MC_WAYBILL_REPORT, <<Length:?DWORD, Data/binary>>, _ProtoVer
     #{<<"length">> => Length, <<"data">> => base64:encode(Data)};
 parse_message_body(
     ?MC_DRIVER_ID_REPORT,
-    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>,
+    <<Status:?BYTE, TimeBCD:6/binary, Rest/binary>>,
     ProtoVer
-) when ProtoVer >= ?PROTO_VER_2019 ->
-    %% 2019 format: includes id_card field (20 bytes) at the end
-    <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest2/binary>> = Rest,
-    <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary, IdCard:20/binary>> = Rest2,
-    #{
-        <<"status">> => Status,
-        <<"time">> => from_bcd(TimeBCD, []),
-        <<"ic_result">> => IcResult,
-        <<"driver_name">> => Name,
-        <<"certificate">> => Certificate,
-        <<"organization">> => Orgnization,
-        <<"cert_expiry">> => from_bcd(CertExpiryBCD, []),
-        <<"id_card">> => remove_tail_zero(IdCard)
-    };
-parse_message_body(
-    ?MC_DRIVER_ID_REPORT,
-    <<Status:?BYTE, TimeBCD:6/binary, IcResult:?BYTE, NameLength:?BYTE, Rest/binary>>,
-    _ProtoVer
 ) ->
-    %% 2013 format: no id_card field
-    <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest2/binary>> = Rest,
-    <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary>> = Rest2,
-    #{
+    Base = #{
         <<"status">> => Status,
-        <<"time">> => from_bcd(TimeBCD, []),
-        <<"ic_result">> => IcResult,
-        <<"driver_name">> => Name,
-        <<"certificate">> => Certificate,
-        <<"organization">> => Orgnization,
-        <<"cert_expiry">> => from_bcd(CertExpiryBCD, [])
-    };
+        <<"time">> => from_bcd(TimeBCD, [])
+    },
+    case Status of
+        1 ->
+            <<IcResult:?BYTE, Rest1/binary>> = Rest,
+            case IcResult of
+                0 ->
+                    <<NameLength:?BYTE, Rest2/binary>> = Rest1,
+                    <<Name:NameLength/binary, Certificate:20/binary, OrgLength:?BYTE, Rest3/binary>> =
+                        Rest2,
+                    <<Orgnization:OrgLength/binary, CertExpiryBCD:4/binary, Rest4/binary>> = Rest3,
+                    Base1 = Base#{
+                        <<"ic_result">> => IcResult,
+                        <<"driver_name">> => Name,
+                        <<"certificate">> => Certificate,
+                        <<"organization">> => Orgnization,
+                        <<"cert_expiry">> => from_bcd(CertExpiryBCD, [])
+                    },
+                    case ProtoVer >= ?PROTO_VER_2019 of
+                        true ->
+                            <<IdCard:20/binary>> = Rest4,
+                            Base1#{<<"id_card">> => remove_tail_zero(IdCard)};
+                        false ->
+                            Base1
+                    end;
+                _ ->
+                    Base#{
+                        <<"ic_result">> => IcResult
+                    }
+            end;
+        _ ->
+            Base
+    end;
 parse_message_body(?MC_BULK_LOCATION_REPORT, <<Count:?WORD, Type:?BYTE, Rest/binary>>, ProtoVer) ->
     #{
         <<"type">> => Type,

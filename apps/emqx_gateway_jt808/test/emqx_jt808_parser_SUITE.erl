@@ -686,6 +686,42 @@ t_case15_custome_client_query_ack(_) ->
     ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
     _ = emqx_utils_json:encode(Packet).
 
+t_case16_driver_id_report_id_card(_) ->
+    Bin =
+        <<126, 7, 2, 64, 84, 1, 49, 51, 56, 48, 48, 49, 51, 56, 48, 48, 0, 3, 1, 26, 1, 23, 17, 5,
+            19, 0, 6, 229, 188, 160, 228, 184, 137, 49, 50, 51, 52, 53, 54, 55, 56, 57, 48, 49, 50,
+            51, 52, 53, 54, 55, 56, 57, 48, 24, 229, 140, 151, 228, 186, 172, 229, 184, 130, 228,
+            186, 164, 233, 128, 154, 229, 167, 148, 229, 145, 152, 228, 188, 154, 20, 28, 12, 31,
+            49, 49, 48, 49, 48, 49, 49, 57, 57, 48, 48, 49, 48, 49, 49, 50, 51, 52, 48, 48, 23,
+            126>>,
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    {ok, Packet, Rest, State} = emqx_jt808_frame:parse(Bin, Parser),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    Header = maps:get(<<"header">>, Packet),
+    Body = maps:get(<<"body">>, Packet),
+    ?assertEqual(16#0702, maps:get(<<"msg_id">>, Header)),
+    ?assertEqual(1, maps:get(<<"status">>, Body)),
+    ?assertEqual(0, maps:get(<<"ic_result">>, Body)),
+    ?assertEqual(true, maps:is_key(<<"driver_name">>, Body)),
+    ?assertEqual(true, maps:is_key(<<"id_card">>, Body)),
+    ok.
+
+t_case16_driver_id_report_offline(_) ->
+    Bin =
+        <<126, 7, 2, 64, 7, 1, 49, 51, 56, 48, 48, 49, 51, 56, 48, 48, 0, 3, 2, 26, 1, 23, 17, 5,
+            19, 73, 126>>,
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    {ok, Packet, Rest, State} = emqx_jt808_frame:parse(Bin, Parser),
+    ?assertEqual(<<>>, Rest),
+    ?assertMatch(#{data := <<>>, phase := searching_head_hex7e}, State),
+    Header = maps:get(<<"header">>, Packet),
+    Body = maps:get(<<"body">>, Packet),
+    ?assertEqual(16#0702, maps:get(<<"msg_id">>, Header)),
+    ?assertEqual(2, maps:get(<<"status">>, Body)),
+    ?assertEqual(false, maps:is_key(<<"ic_result">>, Body)),
+    ok.
+
 t_throw_error_if_parse_failed(_) ->
     Bin = unknown_message_packet(),
     Parser = emqx_jt808_frame:initial_parse_state(#{parse_unknown_message => false}),

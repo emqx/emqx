@@ -703,7 +703,12 @@ parse_incoming(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "received_data", data => Data}),
+    ?SLOG(debug, #{
+        msg => "received_data",
+        size => iolist_size(Data),
+        type => "hex",
+        bin => binary_to_list(binary:encode_hex(Data))
+    }),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
@@ -726,7 +731,7 @@ parse_incoming(Data, Packets, State) ->
             ?SLOG(error, #{
                 msg => "parse_frame_failed",
                 at_state => ParseState,
-                input_bytes => Data,
+                input_bytes => binary_to_list(binary:encode_hex(Data)),
                 reason => Reason,
                 stacktrace => Stack
             }),
@@ -850,7 +855,12 @@ send(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "send_data", data => IoData}),
+    ?SLOG(debug, #{
+        msg => "send_data",
+        size => iolist_size(IoData),
+        type => "hex",
+        iodata => IoData
+    }),
     Ctx = ChannMod:info(ctx, Channel),
     Oct = iolist_size(IoData),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),
