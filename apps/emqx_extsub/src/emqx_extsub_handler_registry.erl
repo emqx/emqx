@@ -183,13 +183,21 @@ subscribe(
     } = Registry,
     SubscribeType,
     SubscribeCtx0,
-    {Module, #{multi_topic := true} = Options},
+    {Module, #{multi_topic := true} = Options} = HandlerSpec,
     TopicFilter,
     SubOpts
 ) ->
+    IgnoreResubscribe = maps:get(ignore_resubscribe, Options, true),
     case ByTopicCBM of
-        #{{Module, TopicFilter} := _HandlerRef} ->
+        #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
+        #{{Module, TopicFilter} := HandlerRef} ->
+            %% Should be parameterizable?
+            TerminateType = unsubscribe,
+            NewRegistry = unsubscribe(
+                Registry, TerminateType, SubOpts, Module, TopicFilter, HandlerRef
+            ),
+            subscribe(NewRegistry, SubscribeType, SubscribeCtx0, HandlerSpec, TopicFilter, SubOpts);
         _ ->
             case find_module_handler_ref(Registry, Module) of
                 {ok, HandlerRef} ->
@@ -249,13 +257,21 @@ subscribe(
     } = Registry,
     InitType,
     InitCtx0,
-    {Module, #{multi_topic := false} = Options},
+    {Module, #{multi_topic := false} = Options} = HandlerSpec,
     TopicFilter,
     SubOpts
 ) ->
+    IgnoreResubscribe = maps:get(ignore_resubscribe, Options, true),
     case ByTopicCBM of
-        #{{Module, TopicFilter} := _HandlerRef} ->
+        #{{Module, TopicFilter} := _HandlerRef} when IgnoreResubscribe ->
             Registry;
+        #{{Module, TopicFilter} := HandlerRef} ->
+            %% Should be parameterizable?
+            TerminateType = unsubscribe,
+            NewRegistry = unsubscribe(
+                Registry, TerminateType, SubOpts, Module, TopicFilter, HandlerRef
+            ),
+            subscribe(NewRegistry, InitType, InitCtx0, HandlerSpec, TopicFilter, SubOpts);
         _ ->
             HandlerRef = make_ref(),
             InitCtx = create_subscribe_ctx(HandlerRef, SubOpts, InitCtx0),

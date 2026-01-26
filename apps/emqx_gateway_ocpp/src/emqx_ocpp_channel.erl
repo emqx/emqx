@@ -217,7 +217,7 @@ init(
         #{
             zone => default,
             listener => ListenerId,
-            protocol => ocpp,
+            protocol => emqx_gateway_utils:protocol(ocpp),
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,

@@ -40,8 +40,6 @@
     execute_batch/3
 ]).
 
--export([disable_prepared_statements/0]).
-
 %% for ecpool workers usage
 -export([
     do_get_status/1,
@@ -81,38 +79,15 @@ roots() ->
 fields(config) ->
     [
         {server, server()},
-        disable_prepared_statements()
+        {disable_prepared_statements, emqx_connector_schema_lib:disable_prepared_statements_field()}
     ] ++
-        adjust_fields(emqx_connector_schema_lib:relational_db_fields()) ++
+        emqx_connector_schema_lib:relational_db_fields(#{username => #{required => true}}) ++
         emqx_connector_schema_lib:ssl_fields() ++
         emqx_connector_schema_lib:prepare_statement_fields().
 
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?PGSQL_HOST_OPTIONS).
-
-disable_prepared_statements() ->
-    {disable_prepared_statements,
-        hoconsc:mk(
-            boolean(),
-            #{
-                default => false,
-                required => false,
-                desc => ?DESC("disable_prepared_statements")
-            }
-        )}.
-
-adjust_fields(Fields) ->
-    lists:map(
-        fun
-            ({username, Sc}) ->
-                Override = #{required => true},
-                {username, hocon_schema:override(Sc, Override)};
-            (Field) ->
-                Field
-        end,
-        Fields
-    ).
 
 %% ===================================================================
 resource_type() -> pgsql.

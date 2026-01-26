@@ -75,7 +75,7 @@ cassandra_db_fields() ->
         {servers, servers()},
         {keyspace, fun keyspace/1},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
-        {username, fun emqx_connector_schema_lib:username/1},
+        {username, emqx_connector_schema_lib:username_field()},
         {password, emqx_connector_schema_lib:password_field()},
         {auto_reconnect, fun emqx_connector_schema_lib:auto_reconnect/1}
     ].

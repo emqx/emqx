@@ -159,7 +159,7 @@ init(
         #{
             zone => default,
             listener => ListenerId,
-            protocol => gbt32960,
+            protocol => emqx_gateway_utils:protocol(gbt32960),
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,
@@ -511,8 +511,8 @@ reset_timer(Name, Channel) ->
 clean_timer(Name, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = maps:remove(Name, Timers)}.
 
-interval(alive_timer, #channel{keepalive = KeepAlive}) ->
-    emqx_keepalive:info(check_interval, KeepAlive);
+interval(alive_timer, #channel{keepalive = Keepalive}) ->
+    emqx_keepalive:info(check_interval, Keepalive);
 interval(retry_timer, #channel{retx_interval = RetxIntv}) ->
     RetxIntv.
 

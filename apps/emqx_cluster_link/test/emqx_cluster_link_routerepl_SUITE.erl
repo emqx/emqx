@@ -31,7 +31,7 @@ init_per_suite(Config) ->
         [
             emqx,
             emqx_conf,
-            emqx_cluster_link
+            {emqx_cluster_link, #{override_env => [{routerepl_actor_reconnect_timeout, 1000}]}}
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -52,10 +52,9 @@ end_per_testcase(TCName, Config) ->
 %% If an exception occurs while handling a route op message, we disconnect the upstream
 %% actor client so it restarts.
 t_disconnect_on_errors('init', Config) ->
-    ok = snabbkaffe:start_trace(),
     Config;
 t_disconnect_on_errors('end', _Config) ->
-    ok = snabbkaffe:stop().
+    snabbkaffe:stop().
 
 t_disconnect_on_errors(_Config) ->
     Actor = ?FUNCTION_NAME,
@@ -96,7 +95,6 @@ t_disconnect_on_errors(_Config) ->
 %% If a timeout occurs during actor state initialization, we close the (potentially
 %% unhealthy) connection and start anew.
 t_restart_connection_on_actor_init_timeout('init', Config) ->
-    ok = snabbkaffe:start_trace(),
     HSt = mk_hookst(),
     ok = emqx_hooks:add(
         'message.publish',
@@ -149,10 +147,12 @@ t_restart_connection_on_actor_init_timeout(Config) ->
             {"Handshake timeout caused route replication to abandon existing connection", fun(
                 Trace
             ) ->
-                ?strict_causality(
-                    #{?snk_kind := "cluster_link_routerepl_handshake_timeout"},
-                    #{?snk_kind := "cluster_link_routerepl_stop_client"},
-                    Trace
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := "cluster_link_routerepl_handshake_timeout"},
+                        #{?snk_kind := "cluster_link_routerepl_stop_client"},
+                        Trace
+                    )
                 )
             end}
         ]
@@ -190,7 +190,6 @@ h_restart_connection_on_actor_init_timeout(_Msg, _HSt) ->
 
 %% Connect / subscribe errors during routerepl actor initialization are handled gracefully.
 t_graceful_retry_on_actor_error('init', Config) ->
-    ok = snabbkaffe:start_trace(),
     ok = emqx_hooks:add(
         'message.publish',
         {?MODULE, h_graceful_retry_on_actor_error, []},
@@ -281,7 +280,6 @@ h_graceful_retry_on_actor_error(_Msg) ->
 %% Network issues do not result in route replication inconsistencies.
 t_consistency_under_unstable_connectivity('init', Config) ->
     HSt = mk_hookst(),
-    ok = snabbkaffe:start_trace(),
     ok = emqx_hooks:add(
         'message.publish',
         {?MODULE, h_consistency_under_unstable_connectivity, [HSt]},

@@ -101,7 +101,7 @@ fields(mongodb) ->
     [
         {srv_record, fun srv_record/1},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
-        {username, fun emqx_connector_schema_lib:username/1},
+        {username, emqx_connector_schema_lib:username_field()},
         {password, emqx_connector_schema_lib:password_field()},
         {use_legacy_protocol,
             hoconsc:mk(hoconsc:enum([auto, true, false]), #{

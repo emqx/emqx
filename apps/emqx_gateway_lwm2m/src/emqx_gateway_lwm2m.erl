@@ -25,16 +25,6 @@
     on_gateway_unload/2
 ]).
 
--import(
-    emqx_gateway_utils,
-    [
-        normalize_config/1,
-        start_listeners/4,
-        stop_listeners/2,
-        update_gateway/5
-    ]
-).
-
 -define(MOD_CFG, #{
     frame_mod => emqx_coap_frame,
     chann_mod => emqx_lwm2m_channel
@@ -54,20 +44,18 @@ on_gateway_load(
     XmlDir = maps:get(xml_dir, Config),
     case emqx_lwm2m_xml_object_db:start_link(XmlDir) of
         {ok, RegPid} ->
-            Listeners = emqx_gateway_utils:normalize_config(Config),
-            case
-                emqx_gateway_utils:start_listeners(
-                    Listeners, GwName, Ctx, ?MOD_CFG
-                )
-            of
+            ListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+                GwName, Config, ?MOD_CFG, Ctx
+            ),
+            case emqx_gateway_utils:start_listeners(ListenerConfigs) of
                 {ok, ListenerPids} ->
                     {ok, ListenerPids, #{ctx => Ctx, registry => RegPid}};
-                {error, {Reason, Listener}} ->
+                {error, {Reason, #{original_listener_config := ListenerConfig}}} ->
                     _ = emqx_lwm2m_xml_object_db:stop(),
                     throw(
                         {badconf, #{
                             key => listeners,
-                            value => Listener,
+                            value => ListenerConfig,
                             reason => Reason
                         }}
                     )
@@ -82,19 +70,22 @@ on_gateway_load(
             )
     end.
 
-on_gateway_update(Config, Gateway = #{config := OldConfig}, GwState = #{ctx := Ctx}) ->
-    GwName = maps:get(name, Gateway),
-    try
-        {ok, NewPids} = update_gateway(Config, OldConfig, GwName, Ctx, ?MOD_CFG),
-        {ok, NewPids, GwState}
-    catch
-        Class:Reason:Stk ->
-            logger:error(
-                "Failed to update ~ts; "
-                "reason: {~0p, ~0p} stacktrace: ~0p",
-                [GwName, Class, Reason, Stk]
-            ),
-            {error, Reason}
+on_gateway_update(
+    Config, _Gateway = #{config := OldConfig, name := GwName}, GwState = #{ctx := Ctx}
+) ->
+    OldListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, OldConfig, ?MOD_CFG, Ctx
+    ),
+    NewListenerConfigs = emqx_gateway_utils_conf:to_rt_listener_configs(
+        GwName, Config, ?MOD_CFG, Ctx
+    ),
+    case
+        emqx_gateway_utils:update_gateway_listeners(GwName, OldListenerConfigs, NewListenerConfigs)
+    of
+        {ok, NewPids} ->
+            {ok, NewPids, GwState};
+        {error, _} = Error ->
+            Error
     end.
 
 on_gateway_unload(
@@ -104,11 +95,16 @@ on_gateway_unload(
     },
     _GwState = #{registry := _RegPid}
 ) ->
-    _ =
-        try
-            emqx_lwm2m_xml_object_db:stop()
-        catch
-            _:_ -> ok
-        end,
-    Listeners = emqx_gateway_utils:normalize_config(Config),
-    emqx_gateway_utils:stop_listeners(GwName, Listeners).
+    try
+        emqx_lwm2m_xml_object_db:stop()
+    catch
+        Error:Reason ->
+            ?SLOG(error, #{
+                msg => "lwm2m_xml_object_db_stop_failed",
+                class => Error,
+                reason => Reason,
+                gateway => GwName
+            })
+    end,
+    ListenerIds = emqx_gateway_utils_conf:to_rt_listener_ids(GwName, Config),
+    emqx_gateway_utils:stop_listeners(ListenerIds).

@@ -41,7 +41,7 @@ fields(postgresql) ->
         {query, fun query/1}
     ] ++
         emqx_authn_schema:common_fields() ++
-        proplists:delete(prepare_statement, emqx_postgresql:fields(config)).
+        emqx_auth_postgresql_connector:config_fields().
 
 desc(postgresql) ->
     ?DESC(postgresql);

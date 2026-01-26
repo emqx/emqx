@@ -241,6 +241,23 @@ t_reload_etc_emqx_conf_not_persistent(Config) ->
     ),
     ok.
 
+t_update_cluster_readonly(Config) ->
+    ConfBin = hocon_pp:do(
+        #{
+            %% NOTE: Initially from `emqx_cluster_link_config_SUITE`, thus `links`.
+            <<"cluster">> => #{
+                <<"links">> => [],
+                <<"autoclean">> => <<"12h">>
+            }
+        },
+        #{}
+    ),
+    ConfFile = prepare_conf_file(?FUNCTION_NAME, ConfBin, Config),
+    ?assertMatch(
+        {error, <<"Cannot update read-only key 'cluster.autoclean'.">>},
+        emqx_conf_cli:conf(["load", ConfFile])
+    ).
+
 base_conf() ->
     #{
         <<"cluster">> => emqx_conf:get_raw([cluster]),

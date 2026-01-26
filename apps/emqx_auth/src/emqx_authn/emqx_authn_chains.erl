@@ -85,7 +85,7 @@
 ]).
 
 %% utility functions
--export([authenticator_id/1, metrics_id/2]).
+-export([authenticator_id/1, metrics_id/2, global_chain/1]).
 
 -export_type([
     authenticator_id/0,
@@ -930,8 +930,8 @@ global_chain(jt808) ->
     'jt808:global';
 global_chain(nats) ->
     'nats:global';
-global_chain(_) ->
-    error(invalid_protocol_name).
+global_chain(GwName) ->
+    error({invalid_protocol_name, GwName}).
 
 hook() ->
     ok = emqx_hooks:put('client.authenticate', {?MODULE, authenticate, []}, ?HP_AUTHN).

@@ -42,7 +42,7 @@ fields(config) ->
     [
         {server, server()},
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
-        {username, fun ensure_username/1},
+        {username, emqx_connector_schema_lib:username_field(#{required => true})},
         {password, emqx_connector_schema_lib:password_field()},
         {request_timeout,
             ?HOCON(emqx_schema:timeout_duration_ms(), #{
@@ -85,11 +85,6 @@ desc(_) ->
 server() ->
     Meta = #{desc => ?DESC("server")},
     emqx_schema:servers_sc(Meta, ?LDAP_HOST_OPTIONS).
-
-ensure_username(required) ->
-    true;
-ensure_username(Field) ->
-    emqx_connector_schema_lib:username(Field).
 
 filter_converter(Filter, _Opts) ->
     case re:run(Filter, "^\\s+$") of

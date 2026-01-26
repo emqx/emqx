@@ -15,7 +15,7 @@
 -define(MYSQL_HOST, "mysql-tls").
 
 -define(PATH, [authentication]).
--define(ResourceID, <<"password_based:mysql">>).
+-define(RESOURCE_ID, <<"password_based:mysql">>).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -31,15 +31,10 @@ init_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?MYSQL_HOST, ?MYSQL_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mysql], #{
-                work_dir => ?config(priv_dir, Config)
-            }),
-            [{apps, Apps} | Config];
-        false ->
-            {skip, no_mysql_tls}
-    end.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_mysql], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     emqx_authn_test_lib:delete_authenticators(
@@ -80,7 +75,7 @@ t_create_invalid(_Config) ->
             }
         )
     ),
-    emqx_authn_test_lib:delete_config(?ResourceID),
+    emqx_authn_test_lib:delete_config(?RESOURCE_ID),
     %% incompatible versions
     ?assertMatch(
         {ok, _},
@@ -92,7 +87,7 @@ t_create_invalid(_Config) ->
             }
         )
     ),
-    emqx_authn_test_lib:delete_config(?ResourceID),
+    emqx_authn_test_lib:delete_config(?RESOURCE_ID),
     %% incompatible ciphers
     ?assertMatch(
         {ok, _},
@@ -133,10 +128,10 @@ raw_mysql_auth_config(SpecificSSLOpts) ->
         <<"password">> => <<"public">>,
 
         <<"query">> =>
-            <<
-                "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
-                "                      FROM users where username = ${username} LIMIT 1"
-            >>,
+            """
+            SELECT password_hash, salt, is_superuser_str as is_superuser
+            FROM users where username = ${username} LIMIT 1
+            """,
         <<"server">> => mysql_server(),
         <<"ssl">> => maps:merge(SSLOpts, SpecificSSLOpts)
     }.

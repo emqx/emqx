@@ -7,7 +7,6 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
--include_lib("../../emqx_postgresql/include/emqx_postgresql.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
@@ -22,7 +21,7 @@
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 
-init_per_testcase(_, Config) ->
+init_per_testcase(_TestCase, Config) ->
     emqx_authn_test_lib:delete_authenticators(
         [authentication],
         ?GLOBAL
@@ -42,27 +41,17 @@ end_per_testcase(_TestCase, _Config) ->
     ok.
 
 init_per_suite(Config) ->
-    case emqx_common_test_helpers:is_tcp_server_available(?PGSQL_HOST, ?PGSQL_DEFAULT_PORT) of
-        true ->
-            Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_postgresql], #{
-                work_dir => ?config(priv_dir, Config)
-            }),
-            {ok, _} = emqx_resource:create_local(
-                ?PGSQL_RESOURCE,
-                ?AUTHN_RESOURCE_GROUP,
-                emqx_postgresql,
-                pgsql_config(),
-                #{}
-            ),
-            [{apps, Apps} | Config];
-        false ->
-            case os:getenv("IS_CI") of
-                "yes" ->
-                    throw(no_postgres);
-                _ ->
-                    {skip, no_postgres}
-            end
-    end.
+    Apps = emqx_cth_suite:start([emqx, emqx_conf, emqx_auth, emqx_auth_postgresql], #{
+        work_dir => ?config(priv_dir, Config)
+    }),
+    {ok, _} = emqx_resource:create_local(
+        ?PGSQL_RESOURCE,
+        ?AUTHN_RESOURCE_GROUP,
+        emqx_auth_postgresql_connector,
+        pgsql_config(),
+        #{}
+    ),
+    [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_resource:remove_local(?PGSQL_RESOURCE),
@@ -162,11 +151,6 @@ test_user_auth(#{
     ).
 
 t_authenticate_disabled_prepared_statements(_Config) ->
-    ResConfig = maps:merge(pgsql_config(), #{disable_prepared_statements => true}),
-    {ok, _} = emqx_resource:recreate_local(?PGSQL_RESOURCE, emqx_postgresql, ResConfig, #{}),
-    on_exit(fun() ->
-        emqx_resource:recreate_local(?PGSQL_RESOURCE, emqx_postgresql, pgsql_config(), #{})
-    end),
     ok = lists:foreach(
         fun(Sample0) ->
             Sample = maps:update_with(
@@ -221,10 +205,10 @@ t_update(_Config) ->
     IncorrectConfig =
         CorrectConfig#{
             <<"query">> =>
-                <<
-                    "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
-                    "                          FROM users where username = ${username} LIMIT 0"
-                >>
+                ~b"""
+                SELECT password_hash, salt, is_superuser_str as is_superuser
+                FROM users where username = ${username} LIMIT 0
+                """
         },
 
     {ok, _} = emqx:update_config(
@@ -296,7 +280,7 @@ test_is_superuser({Field, Value, ExpectedValue}) ->
 
     Query =
         "SELECT password_hash, salt, " ++ atom_to_list(Field) ++
-            " as is_superuser "
+            " as is_superuser, is_superuser_int as foobar "
             "FROM users where username = ${username} LIMIT 1",
 
     Config = maps:put(<<"query">>, Query, raw_pgsql_auth_config()),
@@ -419,10 +403,10 @@ raw_pgsql_auth_config() ->
         <<"password">> => <<"public">>,
 
         <<"query">> =>
-            <<
-                "SELECT password_hash, salt, is_superuser_str as is_superuser\n"
-                "                      FROM users where username = ${username} LIMIT 1"
-            >>,
+            ~b"""
+            SELECT password_hash, salt, is_superuser_str as is_superuser
+            FROM users where username = ${username} LIMIT 1
+            """,
         <<"server">> => pgsql_server()
     }.
 
@@ -476,10 +460,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${clientid} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${clientid} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -502,10 +486,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = \"${username}\" LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = \"${username}\" LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -531,11 +515,11 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "      FROM users where cert_subject = ${cert_subject} AND \n"
-                        "                       cert_common_name = ${cert_common_name} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where cert_subject = ${cert_subject} AND
+                    cert_common_name = ${cert_common_name} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{
                     <<"name">> => <<"sha256">>,
                     <<"salt_position">> => <<"prefix">>
@@ -557,10 +541,10 @@ user_seeds() ->
             },
             config_params => #{
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${username} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${username} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {ok, #{is_superuser => false}}
@@ -580,10 +564,10 @@ user_seeds() ->
             config_params => #{
                 % clientid variable & username credentials
                 <<"query">> =>
-                    <<
-                        "SELECT password_hash, salt, is_superuser_int as is_superuser\n"
-                        "                            FROM users where username = ${clientid} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT password_hash, salt, is_superuser_int as is_superuser
+                    FROM users where username = ${clientid} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
@@ -603,10 +587,10 @@ user_seeds() ->
             config_params => #{
                 % Bad keys in query
                 <<"query">> =>
-                    <<
-                        "SELECT 1 AS unknown_field\n"
-                        "                            FROM users where username = ${username} LIMIT 1"
-                    >>,
+                    ~b"""
+                    SELECT 1 AS unknown_field
+                    FROM users where username = ${username} LIMIT 1
+                    """,
                 <<"password_hash_algorithm">> => #{<<"name">> => <<"bcrypt">>}
             },
             result => {error, not_authorized}
@@ -633,17 +617,19 @@ user_seeds() ->
 
 init_seeds() ->
     ok = drop_seeds(),
-    {ok, _, _} = q(
-        "CREATE TABLE users(\n"
-        "                       username varchar(255),\n"
-        "                       password_hash varchar(255),\n"
-        "                       salt varchar(255),\n"
-        "                       cert_subject varchar(255),\n"
-        "                       cert_common_name varchar(255),\n"
-        "                       is_superuser_str varchar(255),\n"
-        "                       is_superuser_int smallint,\n"
-        "                       is_superuser_bool boolean)"
-    ),
+    {ok, _, _} = q("""
+        CREATE TABLE users(
+            username varchar(255),
+            password_hash varchar(255),
+            salt varchar(255),
+            cert_subject varchar(255),
+            cert_common_name varchar(255),
+            is_superuser_str varchar(255),
+            is_superuser_int smallint,
+            is_superuser_bool boolean,
+            topic_filter varchar(255)
+        )
+    """),
 
     lists:foreach(
         fun(#{data := Values}) ->
@@ -661,13 +647,16 @@ create_user(Values) ->
         cert_common_name,
         is_superuser_str,
         is_superuser_int,
-        is_superuser_bool
+        is_superuser_bool,
+        topic_filter
     ],
 
     InsertQuery =
-        "INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name, "
-        "is_superuser_str, is_superuser_int, is_superuser_bool) "
-        "VALUES($1, $2, $3, $4, $5, $6, $7, $8)",
+        ~b"""
+        INSERT INTO users(username, password_hash, salt, cert_subject, cert_common_name,
+        is_superuser_str, is_superuser_int, is_superuser_bool, topic_filter)
+        VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """,
 
     Params = [maps:get(F, Values, null) || F <- Fields],
     {ok, 1} = q(InsertQuery, Params),
@@ -699,7 +688,8 @@ pgsql_config() ->
         database => <<"mqtt">>,
         username => <<"root">>,
         password => <<"public">>,
-        pool_size => 8,
+        pool_size => 1,
         server => pgsql_server(),
-        ssl => #{enable => false}
+        ssl => #{enable => false},
+        connect_timeout => 5000
     }.

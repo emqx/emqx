@@ -157,25 +157,8 @@ roots() ->
 fields(config) ->
     [
         {server, server()}
-        | add_default_username(emqx_connector_schema_lib:relational_db_fields())
+        | emqx_connector_schema_lib:relational_db_fields(#{username => #{default => <<"sa">>}})
     ].
-
-add_default_username(Fields) ->
-    lists:map(
-        fun
-            ({username, OrigUsernameFn}) ->
-                {username, add_default_fn(OrigUsernameFn, <<"sa">>)};
-            (Field) ->
-                Field
-        end,
-        Fields
-    ).
-
-add_default_fn(OrigFn, Default) ->
-    fun
-        (default) -> Default;
-        (Field) -> OrigFn(Field)
-    end.
 
 server() ->
     hoconsc:mk(

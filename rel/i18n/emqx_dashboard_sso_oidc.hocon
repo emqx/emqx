@@ -20,6 +20,43 @@ name_var_source.desc: """~
 
   - `userinfo`: Utilizes the response from the `/userinfo` endpoint.
   - `id_token`: Utilizes the claims contained in the access token.~"""
+
+role_source.desc: """~
+  From which source to extract information to construct the Dashboard user role.  Defaults to `userinfo`.
+
+  - `userinfo`: Utilizes the response from the `/userinfo` endpoint.
+  - `id_token`: Utilizes the claims contained in the access token.
+
+  Note: Config changes will not immediately reflect the user's role in EMQX DB, the user's role is mapped to EMQX record *after* a successful login.~"""
+
+namespace_source.desc: """~
+  From which source to extract information to construct the Dashboard user namespace.  Defaults to `userinfo`.
+
+  - `userinfo`: Utilizes the response from the `/userinfo` endpoint.
+  - `id_token`: Utilizes the claims contained in the access token.
+
+  Note: Config changes will not immediately reflect the user's namespace in EMQX DB, the user's namespace is mapped to EMQX record *after* a successful login.~"""
+
+role_expr.desc: """~
+  A [`jq`](https://jqlang.org/manual/) program to construct the Dashboard user role.
+
+  This expression must return exactly one string, which must be a valid role.  Current valid roles are:
+  - `"viewer"`
+  - `"administrator"`
+
+  Any result that is not a single value out of the above will forbid the user from being created.
+
+  If not set, will create a viewer user, or retain the existing role, if the user exists.~"""
+
+namespace_expr.desc: """~
+  A [`jq`](https://jqlang.org/manual/) program to construct the Dashboard user namespace.
+
+  This expression must return exactly one string, which must be either a string with the name of an existing namespace, or a `null` value, which represents the global namespace.
+
+  Any result other than the described above will forbid the user from being created.
+
+  If not set, will create a user in the global namespace or retain existing namespace, if the user exists.~"""
+
 dashboard_addr.desc:
 """The address of the EMQX Dashboard."""
 

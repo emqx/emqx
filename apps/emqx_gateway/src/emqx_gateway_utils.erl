@@ -2,13 +2,17 @@
 %% Copyright (c) 2021-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc Utils funcs for emqx-gateway
 -module(emqx_gateway_utils).
+
+-moduledoc """
+Utility functions for EMQX gateway.
+""".
 
 -include("emqx_gateway.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--define(GATEWAYS, [
+-define(GATEWAY_APP_MODULES, [
     emqx_gateway_coap,
     emqx_gateway_exproto,
     emqx_gateway_gbt32960,
@@ -29,12 +33,11 @@
 ]).
 
 -export([
-    start_listeners/4,
-    start_listener/4,
-    stop_listeners/2,
-    stop_listener/2,
-    update_listeners/5,
-    update_gateway/5
+    start_listeners/1,
+    stop_listeners/1,
+    is_listener_running/1,
+    update_listeners/1,
+    update_gateway_listeners/3
 ]).
 
 -export([
@@ -42,20 +45,18 @@
     parse_listenon/1,
     unix_ts_to_rfc3339/2,
     listener_id/3,
+    listener_name_from_id/1,
     parse_listener_id/1,
-    is_running/2,
+    protocol/1,
     global_chain/1,
     listener_chain/3,
     find_gateway_definitions/0,
     find_gateway_definition/1,
-    plus_max_connections/2,
-    random_clientid/1,
-    check_gateway_edition/1
+    add_max_connections/2,
+    random_clientid/1
 ]).
 
 -export([stringfy/1]).
-
--export([normalize_config/1]).
 
 %% Common Envs
 -export([
@@ -69,12 +70,12 @@
 ]).
 
 -export([
-    default_tcp_options/0,
-    default_udp_options/0,
     default_subopts/0
 ]).
 
--import(emqx_listeners, [esockd_access_rules/1]).
+-type gw_name() :: emqx_gateway_utils_conf:gw_name().
+-type listener_runtime_config() :: emqx_gateway_utils_conf:listener_runtime_config().
+-type listener_runtime_id() :: emqx_gateway_utils_conf:listener_runtime_id().
 
 -define(ACTIVE_N, 10).
 -define(DEFAULT_IDLE_TIMEOUT, 30000).
@@ -83,11 +84,6 @@
     max_heap_size => 4194304,
     max_mailbox_size => 32000
 }).
-
--define(IS_ESOCKD_LISTENER(T),
-    T == tcp orelse T == ssl orelse T == udp orelse T == dtls
-).
--define(IS_COWBOY_LISTENER(T), T == ws orelse T == wss).
 
 -elvis([{elvis_style, god_modules, disable}]).
 
@@ -132,396 +128,239 @@ find_sup_child(Sup, ChildId) ->
         {_Id, Pid, _Type, _Mods} -> {ok, Pid}
     end.
 
-%% @doc start listeners. close all listeners if someone failed
--spec start_listeners(
-    Listeners :: list(),
-    GwName :: atom(),
-    Ctx :: map(),
-    ModCfg
-) ->
+-doc """
+Start listeners of a gateway using runtime listener configurations.
+""".
+-spec start_listeners(list(listener_runtime_config())) ->
     {ok, [pid()]}
-    | {error, term()}
-when
-    ModCfg :: #{
-        frame_mod := atom(),
-        chann_mod := atom(),
-        connection_mod => atom(),
-        esockd_proxy_opts => map()
-    }.
-start_listeners(Listeners, GwName, Ctx, ModCfg) ->
-    start_listeners(Listeners, GwName, Ctx, ModCfg, []).
+    | {error, {_Reason :: term(), listener_runtime_config()}}.
+start_listeners(ListenerConfigs) ->
+    start_listeners(ListenerConfigs, []).
 
-start_listeners([], _, _, _, Acc) ->
-    {ok, lists:map(fun({listener, {_, Pid}}) -> Pid end, Acc)};
-start_listeners([L | Ls], GwName, Ctx, ModCfg, Acc) ->
-    case start_listener(GwName, Ctx, L, ModCfg) of
-        {ok, {ListenerId, ListenOn, Pid}} ->
-            NAcc = Acc ++ [{listener, {{ListenerId, ListenOn}, Pid}}],
-            start_listeners(Ls, GwName, Ctx, ModCfg, NAcc);
+start_listeners([], Acc) ->
+    {ok, [Pid || {_ListenerConfig, Pid} <- Acc]};
+start_listeners([ListenerConfig | ListenerConfigs], Acc) ->
+    case start_listener(ListenerConfig) of
+        {ok, Pid} ->
+            NAcc = Acc ++ [{ListenerConfig, Pid}],
+            start_listeners(ListenerConfigs, NAcc);
         {error, Reason} ->
+            %% Rollback all started listeners
             lists:foreach(
-                fun({listener, {{ListenerId, ListenOn}, _}}) ->
-                    esockd:close({ListenerId, ListenOn})
+                fun({StartedListenerConfig, _Pid}) ->
+                    stop_listener(StartedListenerConfig)
                 end,
                 Acc
             ),
-            {error, {Reason, L}}
+            {error, {Reason, ListenerConfig}}
     end.
 
--spec start_listener(
-    GwName :: atom(),
-    Ctx :: emqx_gateway_ctx:context(),
-    Listener :: tuple(),
-    ModCfg :: map()
-) ->
-    {ok, {ListenerId :: atom(), esockd:listen_on(), pid()}}
-    | {error, term()}.
-start_listener(
-    GwName,
-    Ctx,
-    {Type, LisName, ListenOn, Cfg},
-    ModCfg
-) ->
-    ListenOnStr = emqx_listeners:format_bind(ListenOn),
-    ListenerId = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-
-    case
-        start_listener(
-            GwName,
-            Ctx,
-            Type,
-            LisName,
-            ListenOn,
-            Cfg,
-            ModCfg
-        )
-    of
+-doc """
+Start a single listener.
+""".
+-spec start_listener(listener_runtime_config()) -> {ok, pid()} | {error, term()}.
+start_listener(ListenerConfig) ->
+    case do_start_listener(ListenerConfig) of
         {ok, Pid} ->
-            console_print(
-                "Gateway ~ts:~ts:~ts on ~ts started.~n",
-                [GwName, Type, LisName, ListenOnStr]
-            ),
-            {ok, {ListenerId, ListenOn, Pid}};
+            ?tp(debug, gateway_listener_started, #{
+                listener_config => ListenerConfig,
+                pid => Pid
+            }),
+            {ok, Pid};
         {error, {already_started, Pid}} ->
-            console_print(
-                "Gateway ~ts:~ts:~ts on ~ts already started.~n",
-                [GwName, Type, LisName, ListenOnStr]
-            ),
-            {ok, {ListenerId, ListenOn, Pid}};
+            ?tp(debug, gateway_listener_already_started, #{
+                listener_config => ListenerConfig,
+                pid => Pid
+            }),
+            {ok, Pid};
         {error, Reason} ->
-            ?ELOG(
-                "Gateway failed to start ~ts:~ts:~ts on ~ts: ~0p~n",
-                [GwName, Type, LisName, ListenOnStr, Reason]
-            ),
+            ?tp(debug, gateway_listener_start_failed, #{
+                listener_config => ListenerConfig,
+                reason => Reason
+            }),
             emqx_gateway_utils:supervisor_ret({error, Reason})
     end.
 
-start_listener(GwName, Ctx, Type, LisName, ListenOn, Confs, ModCfg) when
-    ?IS_ESOCKD_LISTENER(Type)
+do_start_listener(#{
+    listener_id := ListenerId,
+    listen_on := ListenOn,
+    listener_opts := {esockd, #{type := Type, socket_opts := SocketOpts, mfa := MFA}}
+}) when
+    Type == tcp orelse Type == ssl
 ->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    SocketOpts = merge_default(Type, esockd_opts(Type, Confs)),
-    HighLevelCfgs0 = filter_out_low_level_opts(Type, Confs),
-    HighLevelCfgs = maps:merge(
-        HighLevelCfgs0,
-        ModCfg#{
-            ctx => Ctx,
-            listener => {GwName, Type, LisName}
-        }
-    ),
-    ConnMod = maps:get(connection_mod, ModCfg, emqx_gateway_conn),
-    MFA = {ConnMod, start_link, [HighLevelCfgs]},
-    do_start_listener(Type, Name, ListenOn, SocketOpts, MFA);
-start_listener(GwName, Ctx, Type, LisName, ListenOn, Confs, ModCfg) when
-    ?IS_COWBOY_LISTENER(Type)
-->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    RanchOpts = ranch_opts(Type, ListenOn, Confs),
-    HighLevelCfgs0 = filter_out_low_level_opts(Type, Confs),
-    HighLevelCfgs = maps:merge(
-        HighLevelCfgs0,
-        ModCfg#{
-            ctx => Ctx,
-            listener => {GwName, Type, LisName}
-        }
-    ),
-    WsOpts = ws_opts(Confs, HighLevelCfgs),
-    case Type of
-        ws -> cowboy:start_clear(Name, RanchOpts, WsOpts);
-        wss -> cowboy:start_tls(Name, RanchOpts, WsOpts)
-    end.
+    esockd:open(ListenerId, ListenOn, SocketOpts, MFA);
+%
+do_start_listener(#{
+    listener_id := ListenerId,
+    listen_on := ListenOn,
+    listener_opts := {esockd, #{type := udp, socket_opts := SocketOpts, mfa := MFA}}
+}) ->
+    esockd:open_udp(ListenerId, ListenOn, SocketOpts, MFA);
+%
+do_start_listener(#{
+    listener_id := ListenerId,
+    listen_on := ListenOn,
+    listener_opts := {esockd, #{type := dtls, socket_opts := SocketOpts, mfa := MFA}}
+}) ->
+    esockd:open_dtls(ListenerId, ListenOn, SocketOpts, MFA);
+%
+do_start_listener(#{
+    listener_id := ListenerId,
+    listener_opts := {cowboy, #{type := ws, ranch_opts := RanchOpts, ws_opts := WsOpts}}
+}) ->
+    cowboy:start_clear(ListenerId, RanchOpts, WsOpts);
+%
+do_start_listener(#{
+    listener_id := ListenerId,
+    listener_opts := {cowboy, #{type := wss, ranch_opts := RanchOpts, ws_opts := WsOpts}}
+}) ->
+    cowboy:start_tls(ListenerId, RanchOpts, WsOpts).
 
-filter_out_low_level_opts(Type, RawCfg = #{gw_conf := Conf0}) when ?IS_ESOCKD_LISTENER(Type) ->
-    EsockdKeys = [
-        gw_conf,
-        bind,
-        acceptors,
-        max_connections,
-        max_conn_rate,
-        tcp_options,
-        ssl_options,
-        udp_options,
-        dtls_options
-    ],
-    Conf1 = maps:without(EsockdKeys, RawCfg),
-    maps:merge(Conf0, Conf1);
-filter_out_low_level_opts(Type, RawCfg = #{gw_conf := Conf0}) when ?IS_COWBOY_LISTENER(Type) ->
-    CowboyKeys = [
-        gw_conf,
-        bind,
-        acceptors,
-        max_connections,
-        max_conn_rate,
-        tcp_options,
-        ssl_options,
-        udp_options,
-        dtls_options
-    ],
-    Conf1 = maps:without(CowboyKeys, RawCfg),
-    maps:merge(Conf0, Conf1).
+-doc """
+Stop specified listeners of a gateway using runtime listener configurations or runtime listener ids.
+""".
+-spec stop_listeners(list(listener_runtime_config() | listener_runtime_id())) -> ok.
+stop_listeners(ListenerConfigs) ->
+    lists:foreach(fun stop_listener/1, ListenerConfigs).
 
-merge_default(Udp, Options) ->
-    {Key, Default} =
-        case Udp of
-            udp ->
-                {udp_options, default_udp_options()};
-            dtls ->
-                {dtls_options, default_udp_options()};
-            tcp ->
-                {tcp_options, default_tcp_options()};
-            ssl ->
-                {tcp_options, default_tcp_options()}
-        end,
-    case lists:keytake(Key, 1, Options) of
-        {value, {Key, TcpOpts}, Options1} ->
-            [
-                {Key, emqx_utils:merge_opts(Default, TcpOpts)}
-                | Options1
-            ];
-        false ->
-            [{Key, Default} | Options]
-    end.
-
-do_start_listener(Type, Name, ListenOn, SocketOpts, MFA) when
-    Type == tcp;
-    Type == ssl
-->
-    esockd:open(Name, ListenOn, SocketOpts, MFA);
-do_start_listener(udp, Name, ListenOn, SocketOpts, MFA) ->
-    esockd:open_udp(Name, ListenOn, SocketOpts, MFA);
-do_start_listener(dtls, Name, ListenOn, SocketOpts, MFA) ->
-    esockd:open_dtls(Name, ListenOn, SocketOpts, MFA).
-
--spec stop_listeners(GwName :: atom(), Listeners :: list()) -> ok.
-stop_listeners(GwName, Listeners) ->
-    lists:foreach(fun(L) -> stop_listener(GwName, L) end, Listeners).
-
--spec stop_listener(GwName :: atom(), Listener :: tuple()) -> ok.
-stop_listener(GwName, {Type, LisName, ListenOn, Cfg}) ->
-    StopRet = stop_listener(GwName, Type, LisName, ListenOn, Cfg),
-    ListenOnStr = emqx_listeners:format_bind(ListenOn),
+-doc """
+Stop a single listener of a gateway.
+""".
+-spec stop_listener(listener_runtime_config() | listener_runtime_id()) -> ok.
+stop_listener(#{listener_opts := _} = ListenerConfig) ->
+    stop_listener(emqx_gateway_utils_conf:rt_listener_id(ListenerConfig));
+stop_listener(#{listener_id := ListenerId, listen_on := ListenOn} = ListenerRuntimeId) ->
+    StopRet = do_stop_listener(ListenerRuntimeId),
     case StopRet of
         ok ->
-            console_print(
-                "Gateway ~ts:~ts:~ts on ~ts stopped.~n",
-                [GwName, Type, LisName, ListenOnStr]
-            );
+            ?tp(debug, gateway_listener_stopped, #{
+                listener => ListenerRuntimeId
+            });
         {error, Reason} ->
+            ListenOnStr = emqx_listeners:format_bind(ListenOn),
+            ?tp(error, gateway_listener_stop_failed, #{
+                listener => ListenerRuntimeId,
+                reason => Reason
+            }),
             ?ELOG(
-                "Failed to stop gateway ~ts:~ts:~ts on ~ts: ~0p~n",
-                [GwName, Type, LisName, ListenOnStr, Reason]
+                "Failed to stop gateway ~p on ~ts: ~0p~n",
+                [ListenerId, ListenOnStr, Reason]
             )
     end,
     StopRet.
 
-stop_listener(GwName, Type, LisName, ListenOn, _Cfg) when ?IS_ESOCKD_LISTENER(Type) ->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    esockd:close(Name, ListenOn);
-stop_listener(GwName, Type, LisName, ListenOn, _Cfg) when ?IS_COWBOY_LISTENER(Type) ->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    case cowboy:stop_listener(Name) of
+do_stop_listener(#{listener_id := ListenerId, listen_on := ListenOn, listener_type := {esockd, _}}) ->
+    esockd:close(ListenerId, ListenOn);
+do_stop_listener(#{listener_id := ListenerId, listen_on := ListenOn, listener_type := {cowboy, _}}) ->
+    case cowboy:stop_listener(ListenerId) of
         ok ->
-            wait_listener_stopped(ListenOn);
+            wait_cowboy_listener_stopped(ListenOn);
         Error ->
             Error
     end.
 
-wait_listener_stopped(ListenOn) ->
-    % NOTE
-    % `cowboy:stop_listener/1` will not close the listening socket explicitly,
-    % it will be closed by the runtime system **only after** the process exits.
-    Endpoint = maps:from_list(ip_port(ListenOn)),
-    case
-        gen_tcp:connect(
-            maps:get(ip, Endpoint, loopback),
-            maps:get(port, Endpoint),
-            [{active, false}]
-        )
-    of
-        {error, _EConnrefused} ->
-            %% NOTE
-            %% We should get `econnrefused` here because acceptors are already dead
-            %% but don't want to crash if not, because this doesn't make any difference.
-            ok;
-        {ok, Socket} ->
-            %% NOTE
-            %% Tiny chance to get a connected socket here, when some other process
-            %% concurrently binds to the same port.
-            gen_tcp:close(Socket)
+-spec is_listener_running(listener_runtime_id()) -> boolean().
+is_listener_running(#{
+    listener_id := ListenerId, listen_on := ListenOn, listener_type := {esockd, _}
+}) ->
+    try esockd:listener({ListenerId, ListenOn}) of
+        Pid when is_pid(Pid) ->
+            true
+    catch
+        _:_ ->
+            false
+    end;
+is_listener_running(#{listener_id := ListenerId, listener_type := {cowboy, _}}) ->
+    try ranch:get_status(ListenerId) of
+        running ->
+            true;
+        _ ->
+            false
+    catch
+        _:_ ->
+            false
     end.
 
--spec update_gateway(
-    NewConfig :: map(),
-    OldConfig :: map(),
-    GwName :: atom(),
-    Ctx :: emqx_gateway_ctx:context(),
-    ModCfg :: map()
+wait_cowboy_listener_stopped(ListenOn) ->
+    emqx_listeners:wait_cowboy_listener_stopped(ListenOn).
+
+-spec update_gateway_listeners(
+    gw_name(), list(listener_runtime_config()), list(listener_runtime_config())
 ) ->
-    {ok, [pid()]}
-    | {error, term()}.
-update_gateway(NewConfig, OldConfig, GwName, Ctx, ModCfg) ->
-    NewListeners = normalize_config(NewConfig),
-    OldListeners = normalize_config(OldConfig),
-    Res = update_listeners(NewListeners, OldListeners, GwName, Ctx, ModCfg),
-    NewPids = lists:map(fun({_, Pid}) -> Pid end, maps:get(added, Res, [])),
-    ?SLOG(info, #{
-        msg => "update_gateway_result",
-        gateway => GwName,
-        result => Res
-    }),
-    {ok, NewPids}.
+    {ok, [pid()]} | {error, term()}.
+update_gateway_listeners(GwName, OldListenerConfigs, NewListenerConfigs) ->
+    try
+        Diff = emqx_gateway_utils_conf:diff_rt_listener_configs(
+            OldListenerConfigs, NewListenerConfigs
+        ),
+        case emqx_gateway_utils:update_listeners(Diff) of
+            {ok, NewPids} ->
+                {ok, NewPids};
+            {error, Reason} ->
+                ?SLOG(error, #{
+                    msg => "gateway_update_failed",
+                    reason => Reason,
+                    gateway => GwName,
+                    diff => Diff
+                }),
+                {error, Reason}
+        end
+    catch
+        Class:Error:Stk ->
+            ?SLOG(error, #{
+                msg => "gateway_update_failed",
+                class => Class,
+                reason => Error,
+                stacktrace => Stk,
+                gateway => GwName
+            }),
+            {error, Error}
+    end.
 
--spec update_listeners(
-    NewListeners :: list(),
-    OldListeners :: list(),
-    GwName :: atom(),
-    Ctx :: emqx_gateway_ctx:context(),
-    ModCfg :: map()
-) ->
-    #{
-        removed := [tuple()],
-        added := [tuple()],
-        updated := [tuple()]
-    }.
-update_listeners(NewListeners, OldListeners, GwName, Ctx, ModCfg) ->
-    #{
-        remove := Removes,
-        add := Adds,
-        update := Update
-    } = diff_listeners(NewListeners, OldListeners),
+-doc """
+Update listeners of a gateway.
+In case of error, the newly started listeners will be stopped.
+However, updated listeners will not be rolled back.
+""".
+-spec update_listeners(#{
+    stop := list(listener_runtime_config()),
+    update := list(listener_runtime_config()),
+    start := list(listener_runtime_config())
+}) ->
+    {ok, [pid()]} | {error, term()}.
+update_listeners(#{
+    stop := StopConfigs,
+    update := UpdateConfigs,
+    start := StartConfigs
+}) ->
+    ok = stop_listeners(StopConfigs),
+    ok = lists:foreach(fun update_listener/1, UpdateConfigs),
+    case start_listeners(StartConfigs) of
+        {ok, AddPids} ->
+            {ok, AddPids};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
-    RemoveListeners = lists:map(
-        fun({Type, LisName, ListenOn, Cfg}) ->
-            ok = stop_listener(GwName, Type, LisName, ListenOn, Cfg),
-            {Type, LisName, ListenOn}
-        end,
-        Removes
-    ),
-
-    AddListeners = lists:map(
-        fun({Type, LisName, ListenOn, Cfg}) ->
-            {ok, Pid} = start_listener(GwName, Ctx, Type, LisName, ListenOn, Cfg, ModCfg),
-            {{Type, LisName, ListenOn}, Pid}
-        end,
-        Adds
-    ),
-
-    UpdateListeners = lists:map(
-        fun({Type, LisName, ListenOn, Cfg}) ->
-            ok = update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg),
-            {Type, LisName, ListenOn}
-        end,
-        Update
-    ),
-
-    #{
-        removed => RemoveListeners,
-        added => AddListeners,
-        updated => UpdateListeners
-    }.
-
-update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_ESOCKD_LISTENER(Type) ->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    SocketOpts = merge_default(Type, esockd_opts(Type, Cfg)),
-    HighLevelCfgs0 = filter_out_low_level_opts(Type, Cfg),
-    HighLevelCfgs = maps:merge(
-        HighLevelCfgs0,
-        ModCfg#{
-            ctx => Ctx,
-            listener => {GwName, Type, LisName}
-        }
-    ),
-    ConnMod = maps:get(connection_mod, ModCfg, emqx_gateway_conn),
-    NewOptions = [{connection_mfargs, {ConnMod, start_link, [HighLevelCfgs]}} | SocketOpts],
-    esockd:set_options({Name, ListenOn}, NewOptions);
-update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_COWBOY_LISTENER(Type) ->
-    Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
-    RanchOpts = ranch_opts(Type, ListenOn, Cfg),
-    HighLevelCfgs0 = filter_out_low_level_opts(Type, Cfg),
-    HighLevelCfgs = maps:merge(
-        HighLevelCfgs0,
-        ModCfg#{
-            ctx => Ctx,
-            listener => {GwName, Type, LisName}
-        }
-    ),
-    WsOpts = ws_opts(Cfg, HighLevelCfgs),
-
-    ok = ranch:suspend_listener(Name),
-    ok = ranch:set_transport_options(Name, RanchOpts),
-    ok = ranch:set_protocol_options(Name, WsOpts),
+update_listener(#{
+    listener_id := ListenerId,
+    listen_on := ListenOn,
+    listener_opts := {esockd, #{socket_opts := SocketOpts, mfa := MFA}}
+}) ->
+    NewOptions = [{connection_mfargs, MFA} | SocketOpts],
+    esockd:set_options({ListenerId, ListenOn}, NewOptions);
+update_listener(#{
+    listener_id := ListenerId,
+    listen_on := ListenOn,
+    listener_opts := {cowboy, #{ranch_opts := RanchOpts, ws_opts := WsOpts}}
+}) ->
+    ok = ranch:suspend_listener(ListenerId),
+    ok = ranch:set_transport_options(ListenerId, RanchOpts),
+    ok = ranch:set_protocol_options(ListenerId, WsOpts),
     %% NOTE: ranch:suspend_listener/1 will close the listening socket,
     %% so we need to wait for the listener to be stopped.
-    ok = emqx_listeners:wait_listener_stopped(ListenOn),
-    ranch:resume_listener(Name).
-
-diff_listeners(NewListeners, OldListeners) ->
-    Init = #{
-        add => [],
-        remove => [],
-        update => []
-    },
-    {Removes, Diff1} = lists:foldl(
-        fun(L = {Type, LisName, ListenOn, Cfg}, {Old, Result}) ->
-            case take_listener_in_list(Type, LisName, Old) of
-                {ok, {dtls, _, _, _}, _} ->
-                    %% XXX: dtls have to restart to update the options due to the limitation of esockd
-                    Add = maps:get(add, Result, []),
-                    {Old, Result#{add => [L | Add]}};
-                {ok, {Type, LisName, ListenOn, Cfg}, Remaining} ->
-                    NoChange = maps:get(no_change, Result, []),
-                    {Remaining, Result#{no_change => [L | NoChange]}};
-                {ok, {Type, LisName, ListenOn, _OldCfg}, Remaining} ->
-                    Update = maps:get(update, Result, []),
-                    {Remaining, Result#{update => [L | Update]}};
-                {ok, {Type, LisName, _OldListenOn, _}, _Remaining} ->
-                    Add = maps:get(add, Result, []),
-                    {Old, Result#{add => [L | Add]}};
-                error ->
-                    Add = maps:get(add, Result, []),
-                    {Old, Result#{add => [L | Add]}}
-            end
-        end,
-        {OldListeners, Init},
-        NewListeners
-    ),
-    Diff1#{remove => Removes}.
-
-take_listener_in_list(Type, LisName, Listeners) ->
-    take_listener_in_list(Type, LisName, Listeners, []).
-
-take_listener_in_list(_, _, [], _) ->
-    error;
-take_listener_in_list(Type, LisName, [{Type, LisName, ListenOn, Conf} | T], Remaining) ->
-    {ok, {Type, LisName, ListenOn, Conf}, lists:reverse(Remaining) ++ T};
-take_listener_in_list(Type, LisName, [H | T], Remaining) ->
-    take_listener_in_list(Type, LisName, T, [H | Remaining]).
-
--ifndef(TEST).
-console_print(Fmt, Args) -> ?ULOG(Fmt, Args).
--else.
-console_print(_Fmt, _Args) -> ok.
--endif.
+    ok = wait_cowboy_listener_stopped(ListenOn),
+    ranch:resume_listener(ListenerId).
 
 apply({M, F, A}, A2) when
     is_atom(M),
@@ -564,6 +403,10 @@ listener_id(GwName, Type, LisName) ->
         <<(bin(GwName))/binary, ":", (bin(Type))/binary, ":", (bin(LisName))/binary>>
     ).
 
+listener_name_from_id(ListenerId) ->
+    {_GwName, _Type, Name} = parse_listener_id(ListenerId),
+    binary_to_existing_atom(Name).
+
 parse_listener_id(Id) when is_atom(Id) ->
     parse_listener_id(atom_to_binary(Id));
 parse_listener_id(Id) ->
@@ -574,39 +417,21 @@ parse_listener_id(Id) ->
         _:_ -> error({invalid_listener_id, Id})
     end.
 
-is_running(ListenerId, #{<<"bind">> := ListenOn}) ->
-    is_running(ListenerId, ListenOn);
-is_running(ListenerId, ListenOn0) ->
-    ListenOn = emqx_gateway_utils:parse_listenon(ListenOn0),
-    try esockd:listener({ListenerId, ListenOn}) of
-        Pid when is_pid(Pid) ->
-            true
-    catch
-        _:_ ->
-            false
-    end.
-%% same with emqx_authn_chains:global_chain/1
--spec global_chain(GatewayName :: atom()) -> atom().
-global_chain(stomp) ->
-    'stomp:global';
-global_chain('mqttsn') ->
-    'mqtt-sn:global';
-global_chain(coap) ->
-    'coap:global';
-global_chain(lwm2m) ->
-    'lwm2m:global';
-global_chain(exproto) ->
-    'exproto:global';
-global_chain(jt808) ->
-    'jt808:global';
-global_chain(gbt32960) ->
-    'gbt32960:global';
-global_chain(ocpp) ->
-    'ocpp:global';
-global_chain(nats) ->
-    'nats:global';
-global_chain(_) ->
-    error(invalid_protocol_name).
+-spec protocol(gw_name()) -> atom().
+protocol(stomp) -> stomp;
+protocol(mqttsn) -> 'mqtt-sn';
+protocol(coap) -> coap;
+protocol(lwm2m) -> lwm2m;
+protocol(exproto) -> exproto;
+protocol(jt808) -> jt808;
+protocol(gbt32960) -> gbt32960;
+protocol(ocpp) -> ocpp;
+protocol(nats) -> nats;
+protocol(GwName) -> error({invalid_protocol_name, GwName}).
+
+-spec global_chain(gw_name()) -> atom().
+global_chain(GwName) ->
+    emqx_authn_chains:global_chain(protocol(GwName)).
 
 listener_chain(GwName, Type, LisName) ->
     listener_id(GwName, Type, LisName).
@@ -633,128 +458,6 @@ stringfy(T) when is_list(T); is_binary(T) ->
     iolist_to_binary(T);
 stringfy(T) ->
     iolist_to_binary(io_lib:format("~0p", [T])).
-
--spec normalize_config(emqx_config:config()) ->
-    list({
-        Type :: udp | tcp | ssl | dtls,
-        Name :: atom(),
-        ListenOn :: esockd:listen_on(),
-        RawCfg :: map()
-    }).
-normalize_config(RawConf) ->
-    LisMap = maps:get(listeners, RawConf, #{}),
-    Cfg0 = maps:without([listeners], RawConf),
-    lists:append(
-        maps:fold(
-            fun(Type, Liss, AccIn1) ->
-                Listeners =
-                    maps:fold(
-                        fun(Name, Confs, AccIn2) ->
-                            ListenOn = maps:get(bind, Confs),
-                            [{Type, Name, ListenOn, Confs#{gw_conf => Cfg0}} | AccIn2]
-                        end,
-                        [],
-                        Liss
-                    ),
-                [Listeners | AccIn1]
-            end,
-            [],
-            LisMap
-        )
-    ).
-
-esockd_opts(Type, Opts0) when ?IS_ESOCKD_LISTENER(Type) ->
-    Opts1 = maps:with(
-        [
-            acceptors,
-            max_connections,
-            max_conn_rate,
-            proxy_protocol,
-            proxy_protocol_timeout,
-            health_check
-        ],
-        Opts0
-    ),
-    Opts2 = Opts1#{access_rules => esockd_access_rules(maps:get(access_rules, Opts0, []))},
-    maps:to_list(
-        case Type of
-            tcp ->
-                Opts2#{tcp_options => tcp_opts(Opts0)};
-            ssl ->
-                Opts2#{
-                    tcp_options => tcp_opts(Opts0),
-                    ssl_options => ssl_opts(ssl_options, Opts0)
-                };
-            udp ->
-                Opts2#{udp_options => udp_opts(Opts0)};
-            dtls ->
-                UDPOpts = udp_opts(Opts0),
-                DTLSOpts = ssl_opts(dtls_options, Opts0),
-                Opts2#{
-                    udp_options => UDPOpts,
-                    dtls_options => DTLSOpts
-                }
-        end
-    ).
-
-tcp_opts(Opts) ->
-    emqx_listeners:tcp_opts(Opts).
-
-udp_opts(Opts) ->
-    maps:to_list(
-        maps:without(
-            [active_n],
-            maps:get(udp_options, Opts, #{})
-        )
-    ).
-
-ssl_opts(Name, Opts) ->
-    SSLConf = maps:get(Name, Opts, #{}),
-    SSLOpts = ssl_server_opts(Name, SSLConf),
-    ensure_dtls_protocol(Name, SSLOpts).
-
-ensure_dtls_protocol(dtls_options, SSLOpts) ->
-    [{protocol, dtls} | SSLOpts];
-ensure_dtls_protocol(_, SSLOpts) ->
-    SSLOpts.
-
-ssl_server_opts(ssl_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(tls, SSLOpts);
-ssl_server_opts(dtls_options, SSLOpts) ->
-    emqx_tls_lib:to_server_opts(dtls, SSLOpts).
-
-ranch_opts(Type, ListenOn, Opts) ->
-    NumAcceptors = maps:get(acceptors, Opts, 4),
-    MaxConnections = maps:get(max_connections, Opts, 1024),
-    SocketOpts1 =
-        case Type of
-            wss ->
-                tcp_opts(Opts) ++
-                    proplists:delete(handshake_timeout, ssl_opts(ssl_options, Opts));
-            ws ->
-                tcp_opts(Opts)
-        end,
-    SocketOpts = ip_port(ListenOn) ++ proplists:delete(reuseaddr, SocketOpts1),
-    #{
-        num_acceptors => NumAcceptors,
-        max_connections => MaxConnections,
-        handshake_timeout => maps:get(handshake_timeout, Opts, 15000),
-        socket_opts => SocketOpts
-    }.
-
-ws_opts(Opts, Conf) ->
-    ConnMod = maps:get(connection_mod, Conf, emqx_gateway_conn_ws),
-    WsPaths = [
-        {emqx_utils_maps:deep_get([websocket, path], Opts, "") ++ "/[...]", ConnMod, Conf}
-    ],
-    Dispatch = cowboy_router:compile([{'_', WsPaths}]),
-    ProxyProto = maps:get(proxy_protocol, Opts, false),
-    #{env => #{dispatch => Dispatch}, proxy_header => ProxyProto}.
-
-ip_port(Port) when is_integer(Port) ->
-    [{port, Port}];
-ip_port({Addr, Port}) ->
-    [{ip, Addr}, {port, Port}].
 
 %%--------------------------------------------------------------------
 %% Envs
@@ -800,18 +503,6 @@ enable_stats(Options) ->
 %%--------------------------------------------------------------------
 %% Envs2
 
-default_tcp_options() ->
-    [
-        binary,
-        {packet, raw},
-        {reuseaddr, true},
-        {nodelay, true},
-        {backlog, 512}
-    ].
-
-default_udp_options() ->
-    [].
-
 default_subopts() ->
     %% Retain Handling
     #{
@@ -827,81 +518,41 @@ default_subopts() ->
 
 -spec find_gateway_definitions() -> list(gateway_def()).
 find_gateway_definitions() ->
-    read_pt_populate_if_missing(
-        emqx_gateways,
-        fun do_find_gateway_definitions/0
-    ).
+    case persistent_term:get(emqx_gateways, no_value) of
+        no_value ->
+            Definitions = do_find_gateway_definitions(),
+            _ = persistent_term:put(emqx_gateways, {value, Definitions}),
+            Definitions;
+        {value, Definitions} ->
+            Definitions
+    end.
 
 do_find_gateway_definitions() ->
     lists:flatmap(
-        fun(App) ->
-            lists:flatmap(fun gateways/1, find_attrs(App, gateway))
-        end,
-        ?GATEWAYS
+        fun(AppModule) -> find_gateway_attrs(AppModule) end,
+        ?GATEWAY_APP_MODULES
     ).
-
-read_pt_populate_if_missing(Key, Fn) ->
-    case persistent_term:get(Key, no_value) of
-        no_value ->
-            Value = Fn(),
-            _ = persistent_term:put(Key, {value, Value}),
-            Value;
-        {value, Value} ->
-            Value
-    end.
 
 -spec find_gateway_definition(atom()) -> {ok, map()} | {error, term()}.
 find_gateway_definition(Name) ->
-    find_gateway_definition(Name, ?GATEWAYS).
-
--dialyzer({no_match, [find_gateway_definition/2]}).
-find_gateway_definition(Name, [App | T]) ->
-    Attrs = find_attrs(App, gateway),
-    SearchFun = fun(#{name := GwName}) ->
-        GwName =:= Name
-    end,
-    case lists:search(SearchFun, Attrs) of
+    case
+        lists:search(
+            fun(#{name := GwName}) ->
+                GwName =:= Name
+            end,
+            find_gateway_definitions()
+        )
+    of
         {value, Definition} ->
-            case check_gateway_edition(Definition) of
-                true ->
-                    {ok, Definition};
-                _ ->
-                    {error, invalid_edition}
-            end;
+            {ok, Definition};
         false ->
-            find_gateway_definition(Name, T)
-    end;
-find_gateway_definition(_Name, []) ->
-    {error, not_found}.
-
--dialyzer({no_match, [gateways/1]}).
-gateways(
-    Definition = #{
-        name := Name,
-        callback_module := CbMod,
-        config_schema_module := SchemaMod
-    }
-) when is_atom(Name), is_atom(CbMod), is_atom(SchemaMod) ->
-    case check_gateway_edition(Definition) of
-        true ->
-            [Definition];
-        _ ->
-            []
+            {error, not_found}
     end.
 
--if(?EMQX_RELEASE_EDITION == ee).
-check_gateway_edition(_Defination) ->
-    true.
--else.
-check_gateway_edition(Defination) ->
-    ce == maps:get(edition, Defination, ce).
--endif.
-
-find_attrs(AppMod, Def) ->
+find_gateway_attrs(AppMod) ->
     [
         Attr
-     || {Name, Attrs} <- module_attributes(AppMod),
-        Name =:= Def,
+     || {gateway, Attrs} <- module_attributes(AppMod),
         Attr <- Attrs
     ].
 
@@ -912,13 +563,13 @@ module_attributes(Module) ->
         error:undef -> []
     end.
 
--spec plus_max_connections(non_neg_integer() | infinity, non_neg_integer() | infinity) ->
+-spec add_max_connections(non_neg_integer() | infinity, non_neg_integer() | infinity) ->
     pos_integer() | infinity.
-plus_max_connections(_, infinity) ->
+add_max_connections(_, infinity) ->
     infinity;
-plus_max_connections(infinity, _) ->
+add_max_connections(infinity, _) ->
     infinity;
-plus_max_connections(A, B) when is_integer(A) andalso is_integer(B) ->
+add_max_connections(A, B) when is_integer(A) andalso is_integer(B) ->
     A + B.
 
 random_clientid(GwName) when is_atom(GwName) ->

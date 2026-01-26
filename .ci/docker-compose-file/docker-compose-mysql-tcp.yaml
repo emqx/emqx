@@ -10,6 +10,11 @@ services:
       MYSQL_DATABASE: mqtt
     networks:
       - emqx_bridge
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppublic"]
+      interval: 1s
+      timeout: 1s
+      retries: 20
     command:
       - --bind-address=0.0.0.0
       - --character-set-server=utf8mb4

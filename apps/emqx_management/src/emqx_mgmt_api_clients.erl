@@ -1954,9 +1954,10 @@ peername_dispart({Addr, Port}) ->
 convert_expiry_interval_unit(ClientInfoMap = #{expiry_interval := Interval}) ->
     ClientInfoMap#{expiry_interval := Interval div 1000}.
 
-format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
+format_authz_cache({Key, {AuthzResult, Timestamp}}) ->
+    {Access, Topic} = emqx_authz_cache:parse_key(Key),
     #{
-        access => PubSub,
+        access => Access,
         topic => Topic,
         result => AuthzResult,
         updated_time => Timestamp

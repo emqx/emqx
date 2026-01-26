@@ -79,9 +79,11 @@ fields("get") ->
     emqx_bridge_v2_api:status_fields() ++ fields("post").
 
 base_config(HasDatabase) ->
+    DBFields = emqx_connector_schema_lib:relational_db_fields(#{password => #{required => false}}),
+
     [
         {server, server()}
-        | adjust_fields(emqx_connector_schema_lib:relational_db_fields(), HasDatabase)
+        | maybe_without_database(DBFields, HasDatabase)
     ].
 
 token_field() ->
@@ -98,18 +100,10 @@ desc(Method) when Method =:= "get"; Method =:= "put"; Method =:= "post" ->
 desc(_) ->
     undefined.
 
-adjust_fields(Fields, HasDatabase) ->
-    lists:filtermap(
-        fun
-            ({password, _}) ->
-                {true, {password, emqx_connector_schema_lib:password_field(#{required => false})}};
-            ({database, _}) ->
-                HasDatabase;
-            (_Field) ->
-                true
-        end,
-        Fields
-    ).
+maybe_without_database(Fields, true) ->
+    Fields;
+maybe_without_database(Fields, false) ->
+    lists:keydelete(database, 1, Fields).
 
 server() ->
     Meta = #{

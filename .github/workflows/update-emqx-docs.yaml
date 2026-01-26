@@ -70,6 +70,23 @@ jobs:
         run: |
           gh --repo emqx/emqx-docs workflow run update-api-and-cfg-manual.yaml -f version=${TAG##e} -f run_id=${GITHUB_RUN_ID}
 
+      - name: Generate changelog
+        run: |
+          PREV_TAG=$(./scripts/find-prev-rel-tag.sh)
+
+          changes_dir=("changes/ee")
+          while read -r file; do
+             tar --append --file=changes.tar $file
+          done < <(git diff --diff-filter=A --name-only "tags/${PREV_TAG}...HEAD" "${changes_dir[@]}")
+          gzip changes.tar
+
+      - name: Upload changes.tar.gz artifact
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: changes
+          path: changes.tar.gz
+          retention-days: 7
+
       - name: Trigger workflows in emqx/emqx-docs
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}

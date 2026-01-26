@@ -125,7 +125,7 @@ init(
         #{
             zone => default,
             listener => ListenerId,
-            protocol => stomp,
+            protocol => emqx_gateway_utils:protocol(stomp),
             peerhost => PeerHost,
             peername => PeerName,
             sockport => SockPort,

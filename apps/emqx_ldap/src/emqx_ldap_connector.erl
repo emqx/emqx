@@ -8,7 +8,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eldap/include/eldap.hrl").
--include_lib("emqx_ldap.hrl").
+-include("emqx_ldap.hrl").
 
 -export([
     resource_type/0,

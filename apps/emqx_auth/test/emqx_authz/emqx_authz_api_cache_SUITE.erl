@@ -76,9 +76,11 @@ t_clean_cache(_) ->
     {ok, _} = emqtt:connect(C),
     {ok, _, _} = emqtt:subscribe(C, <<"a/b/c">>, 0),
     ok = emqtt:publish(C, <<"a/b/c">>, <<"{\"x\":1,\"y\":1}">>, 0),
-
+    %% wait for async publish to be processed and cached
+    ct:sleep(100),
+    %% only publish is cached now (subscribe is not cached)
     {ok, 200, Result3} = request(get, uri(["clients", "emqx0", "authorization", "cache"])),
-    ?assertEqual(2, length(emqx_utils_json:decode(Result3))),
+    ?assertEqual(1, length(emqx_utils_json:decode(Result3))),
 
     request(delete, uri(["authorization", "cache"])),
 

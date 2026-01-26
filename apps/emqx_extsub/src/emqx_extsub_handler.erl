@@ -29,7 +29,8 @@
     subopts := emqx_types:subopts(),
     send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
     send := fun((term()) -> ok),
-    can_receive_acks := boolean()
+    can_receive_acks := boolean(),
+    subopts := emqx_types:infos()
 }.
 
 -type unsubscribe_ctx() :: #{
