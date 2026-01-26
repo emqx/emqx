@@ -27,7 +27,7 @@ role_source.desc: """~
   - `userinfo`: Utilizes the response from the `/userinfo` endpoint.
   - `id_token`: Utilizes the claims contained in the access token.
 
-  Note: if the user was already created via OIDC, it will retain its original role, even if this expression is changed before another SSO login is performed again.~"""
+  Note: Config changes will not immediately reflect the user's role in EMQX DB, the user's role is mapped to EMQX record *after* a successful login.~"""
 
 namespace_source.desc: """~
   From which source to extract information to construct the Dashboard user namespace.  Defaults to `userinfo`.
@@ -35,7 +35,7 @@ namespace_source.desc: """~
   - `userinfo`: Utilizes the response from the `/userinfo` endpoint.
   - `id_token`: Utilizes the claims contained in the access token.
 
-  Note: if the user was already created via OIDC, it will retain its original namespace, even if this expression is changed before another SSO login is performed again.~"""
+  Note: Config changes will not immediately reflect the user's namespace in EMQX DB, the user's namespace is mapped to EMQX record *after* a successful login.~"""
 
 role_expr.desc: """~
   A [`jq`](https://jqlang.org/manual/) program to construct the Dashboard user role.
