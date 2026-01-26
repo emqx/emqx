@@ -730,6 +730,7 @@ create_external_http_resource(Name, Params) ->
         pool_size := PoolSize,
         external_params := ExternalParams
     } = Params,
+    Method = normalize_external_http_method(maps:get(method, Params, post)),
     {ok, {Base, Path, QueryParams}} = emqx_schema_registry_schema:parse_url(URL),
     ConnectorConfig = #{
         request_base => Base,
@@ -755,6 +756,7 @@ create_external_http_resource(Name, Params) ->
     #{
         resource_id => ResourceId,
         headers => maps:to_list(Headers),
+        method => Method,
         path => Path,
         query_params => QueryParams,
         external_params => ExternalParams,
@@ -769,22 +771,37 @@ destroy_external_http_resource(Context) ->
 generate_external_http_request(Payload, EncodeOrDecode, Name, Context) ->
     #{
         headers := Headers,
+        method := Method,
         path := Path,
         query_params := QueryParams,
         external_params := ExternalParams
     } = Context,
-    PathWithQuery = append_query(Path, QueryParams),
-    Body = #{
-        <<"payload">> => base64:encode(Payload),
-        <<"type">> => EncodeOrDecode,
-        <<"schema_name">> => Name,
-        <<"opts">> => ExternalParams
-    },
-    BodyBin = emqx_utils_json:encode(Body),
-    {PathWithQuery, Headers, BodyBin}.
+    case Method of
+        post ->
+            PathWithQuery = append_query(Path, QueryParams),
+            Body = #{
+                <<"payload">> => base64:encode(Payload),
+                <<"type">> => EncodeOrDecode,
+                <<"schema_name">> => Name,
+                <<"opts">> => ExternalParams
+            },
+            BodyBin = emqx_utils_json:encode(Body),
+            {PathWithQuery, Headers, BodyBin};
+        get ->
+            QueryList = [
+                {<<"payload">>, base64:encode(Payload)},
+                {<<"type">>, emqx_utils_conv:bin(EncodeOrDecode)},
+                {<<"schema_name">>, Name},
+                {<<"opts">>, ExternalParams}
+            ],
+            QueryBin = merge_query_params(QueryParams, QueryList),
+            PathWithQuery = append_query(Path, QueryBin),
+            {PathWithQuery, Headers}
+    end.
 
 exec_external_http_request(Request, Context) ->
     #{
+        method := Method,
         resource_id := ResourceId,
         request_timeout := RequestTimeout,
         max_retries := MaxRetries
@@ -792,7 +809,7 @@ exec_external_http_request(Request, Context) ->
     Query = {
         _ActionResId = undefined,
         _KeyOrNum = undefined,
-        _Method = post,
+        _Method = Method,
         Request,
         RequestTimeout,
         MaxRetries
@@ -849,6 +866,31 @@ append_query(Path, <<"">>) ->
     Path;
 append_query(Path, Query) ->
     [Path, $?, Query].
+
+merge_query_params(<<"">>, QueryList) ->
+    emqx_utils_conv:bin(uri_string:compose_query(QueryList, [{encoding, utf8}]));
+merge_query_params(QueryParams, QueryList) ->
+    Extra = emqx_utils_conv:bin(uri_string:compose_query(QueryList, [{encoding, utf8}])),
+    <<QueryParams/binary, "&", Extra/binary>>.
+
+normalize_external_http_method(post) ->
+    post;
+normalize_external_http_method(get) ->
+    get;
+normalize_external_http_method(Method) when is_atom(Method) ->
+    case Method of
+        post -> post;
+        get -> get;
+        _ -> post
+    end;
+normalize_external_http_method(Method) when is_binary(Method) ->
+    case string:lowercase(binary_to_list(Method)) of
+        "post" -> post;
+        "get" -> get;
+        _ -> post
+    end;
+normalize_external_http_method(_Method) ->
+    post.
 
 do_spb_zip_kvs(#{} = Metric0) ->
     Metric1 = emqx_utils_maps:update_if_present(
