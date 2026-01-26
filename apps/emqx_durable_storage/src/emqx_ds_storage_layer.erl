@@ -394,13 +394,15 @@ fetch_global(ShardId, K) ->
 
 %% Deprecated. Kept for compatibility with ra machine version 0.
 -spec update_config_v0(dbshard(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
-    ok | {error, overlaps_existing_generations}.
+    ok
+    | {error, overlaps_existing_generations | {no_schema, _}}.
 update_config_v0(ShardId, Since, Options) ->
     Call = #call_update_config_v0{since = Since, options = Options},
     gen_server:call(?REF(ShardId), Call, infinity).
 
 -spec add_generation(dbshard(), emqx_ds:time(), prototype()) ->
-    ok | {error, overlaps_existing_generations}.
+    ok
+    | {error, overlaps_existing_generations | {no_schema, _}}.
 add_generation(ShardId, Since, {_, _} = Prototype) ->
     gen_server:call(
         ?REF(ShardId),
@@ -409,12 +411,13 @@ add_generation(ShardId, Since, {_, _} = Prototype) ->
     ).
 
 -spec add_generation(dbshard(), emqx_ds:time()) ->
-    ok | {error, overlaps_existing_generations}.
+    ok
+    | {error, overlaps_existing_generations | {no_schema, _}}.
 add_generation(ShardId, Since) ->
     gen_server:call(?REF(ShardId), #call_add_generation{since = Since}, infinity).
 
 -spec list_slabs(dbshard()) ->
-    #{gen_id() => slab_info()}.
+    #{gen_id() => slab_info()} | {error, {no_schema, _}}.
 list_slabs(ShardId) ->
     gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
 
@@ -477,7 +480,7 @@ ls_shards(DB) ->
 -doc """
 Start the stroage server and ensure schema.
 """.
--spec start_link(dbshard(), storage_layer_opts()) ->
+-spec start_link(dbshard(), emqx_ds:create_db_opts()) ->
     {ok, pid()}.
 start_link(ShardId, Options) ->
     Ret = {ok, _} = start_link_no_schema(ShardId, Options),
@@ -487,7 +490,7 @@ start_link(ShardId, Options) ->
 -doc """
 Start the storage server.
 """.
--spec start_link_no_schema(dbshard(), storage_layer_opts()) -> {ok, pid()}.
+-spec start_link_no_schema(dbshard(), emqx_ds:create_db_opts()) -> {ok, pid()}.
 start_link_no_schema(ShardId, Options = #{db_group := _}) ->
     gen_server:start_link(?REF(ShardId), ?MODULE, {ShardId, Options}, []).
 
@@ -700,7 +703,7 @@ clear_all_checkpoints(ShardId) ->
         CheckpointDirs
     ).
 
--spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema(), ets:tid()) ->
+-spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema() | #{}, ets:tid()) ->
     shard().
 open_shard(ShardId, DB, CFRefs, ShardSchema, GVars) ->
     %% Transform generation schemas to generation runtime data:
