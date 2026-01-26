@@ -64,15 +64,22 @@ issuer_validation_test_() ->
                 )
             )},
         {"no scheme",
-            ?_assertMatch(
-                #{<<"issuer">> := <<"http://string/">>},
+            ?_assertThrow(
+                {_, [
+                    #{
+                        reason := invalid_issuer_url,
+                        value := <<"string">>,
+                        path := "dashboard.sso.oidc.issuer",
+                        kind := validation_error
+                    }
+                ]},
                 parse_and_check(oidc_config(#{<<"issuer">> => <<"string">>}))
             )},
         {"bad scheme",
             ?_assertThrow(
                 {_, [
                     #{
-                        reason := {unsupported_scheme, <<"pulsar+ssl">>},
+                        reason := invalid_issuer_url,
                         value := _,
                         path := "dashboard.sso.oidc.issuer",
                         kind := validation_error
