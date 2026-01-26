@@ -115,10 +115,6 @@ end).
     )
 end).
 
--ifdef(EMQX_RELEASE_EDITION).
-
--if(?EMQX_RELEASE_EDITION == ee).
-
 -define(AUDIT(_LevelFun_, _MetaFun_), begin
     case logger_config:get(logger, ?AUDIT_HANDLER) of
         {error, {not_found, _}} ->
@@ -133,16 +129,6 @@ end).
             end
     end
 end).
-
--else.
-%% Only for compile pass, ce edition will not call it
--define(AUDIT(_L_, _M_), _ = {_L_, _M_}).
--endif.
-
--else.
-%% Only for compile pass, ce edition will not call it
--define(AUDIT(_L_, _M_), _ = {_L_, _M_}).
--endif.
 
 %% print to 'user' group leader
 -define(ULOG(Fmt, Args), io:format(user, Fmt, Args)).

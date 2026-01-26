@@ -5,6 +5,7 @@
 -ifndef(EMQX_BRIDGE_IOTDB_HRL).
 -define(EMQX_BRIDGE_IOTDB_HRL, true).
 
+-define(VSN_2_0_X, 'v2.0.x').
 -define(VSN_1_3_X, 'v1.3.x').
 -define(VSN_1_2_X, 'v1.2.x').
 -define(VSN_1_1_X, 'v1.1.x').
