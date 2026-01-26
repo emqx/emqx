@@ -80,16 +80,26 @@
 
 %%
 
+-doc "Get local cluster name".
+-spec cluster() -> emqx_cluster_link_schema:cluster().
 cluster() ->
     atom_to_binary(emqx_config:get([cluster, name])).
 
+-doc """
+Lookup a list of currently configured cluster links.
+Returns `[]` if config handler is not loaded.
+""".
 -spec links() -> [shortconf()].
 links() ->
-    get_shortconf(links).
+    get_shortconf(links, []).
 
+-doc """
+Lookup a list of currently enabled cluster links.
+Returns `[]` if config handler is not loaded.
+""".
 -spec enabled_links() -> [shortconf()].
 enabled_links() ->
-    get_shortconf(enabled).
+    get_shortconf(enabled, []).
 
 -spec link(_Name :: binary()) -> shortconf() | undefined.
 link(Name) ->
@@ -301,8 +311,8 @@ prepare_topics(Topics) ->
     Union = emqx_topic:union(Topics),
     lists:map(fun emqx_topic:words/1, Union).
 
-get_shortconf(K) ->
-    persistent_term:get(?PTERM(K)).
+get_shortconf(K, Default) ->
+    persistent_term:get(?PTERM(K), Default).
 
 %%--------------------------------------------------------------------
 %% Internal functions

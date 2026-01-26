@@ -37,6 +37,14 @@
     handle_info/2
 ]).
 
+-ifdef(TEST).
+-export([
+    enrich_clientinfo/2,
+    process_out/4,
+    process_nothing/3
+]).
+-endif.
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),

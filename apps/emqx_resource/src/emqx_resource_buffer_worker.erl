@@ -188,6 +188,10 @@ async_query(Id, Request, Opts0) ->
     Opts = ensure_expire_at(Opts1),
     PickKey = maps:get(pick_key, Opts, self()),
     emqx_resource_metrics:matched_inc(Id),
+    %% When a fallback action is itself unavailable, we emit this initial trace event so
+    %% that the frontend can see it was triggered when tracing rules...  Otherwise, if the
+    %% fallback never recovers, there will be no trace indicating it was received.
+    ?TRACE("QUERY", "async_query_received", #{action_id => Id}),
     pick_cast(Id, PickKey, #query{request = Request, query_opts = Opts}).
 
 %% simple query the resource without batching and queuing.
