@@ -211,12 +211,11 @@ fields("cluster") ->
             )},
         {"autoclean",
             sc(
-                emqx_schema:duration(),
+                emqx_schema:duration_s(),
                 #{
                     mapping => "mria.cluster_autoclean",
                     default => <<"24h">>,
-                    desc => ?DESC(cluster_autoclean),
-                    'readOnly' => true
+                    desc => ?DESC(cluster_autoclean)
                 }
             )},
         {"autoheal",
