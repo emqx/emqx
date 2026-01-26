@@ -269,7 +269,7 @@ handle_frame_error(Reason, Channel = #channel{clientinfo = ClientInfo}) ->
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->
     #{<<"body">> := #{<<"seq">> := Seq, <<"id">> := Id}} = Frame,
     NewInflight = ack_msg(?MC_GENERAL_RESPONSE, {Id, Seq}, Inflight),
-    {ok, Channel#channel{inflight = NewInflight}};
+    dispatch_and_reply(Channel#channel{inflight = NewInflight});
 do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
     case
@@ -353,7 +353,8 @@ do_handle_in(
             handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
         % this is a response to MS_REQ_DRIVER_ID(0x8702)
         true ->
-            {ok, Channel#channel{inflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight)}}
+            NewInflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight),
+            dispatch_and_reply(Channel#channel{inflight = NewInflight})
     end;
 do_handle_in(?MSG(?MC_DEREGISTER), Channel) ->
     {shutdown, normal, Channel};
@@ -373,7 +374,8 @@ do_handle_in(
                     handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
                 % these frames are response to server's request
                 false ->
-                    {ok, Channel#channel{inflight = ack_msg(MsgId, seq(Frame), Inflight)}}
+                    NewInflight = ack_msg(MsgId, seq(Frame), Inflight),
+                    dispatch_and_reply(Channel#channel{inflight = NewInflight})
             end;
         true ->
             _ = do_publish(Topic, Frame),
@@ -647,6 +649,12 @@ dispatch_frame(
             ),
             NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
             {[Frame], ensure_timer(retry_timer, NChannel)}
+    end.
+
+dispatch_and_reply(Channel) ->
+    case dispatch_frame(Channel) of
+        {[], NChannel} -> {ok, NChannel};
+        {Outgoings, NChannel} -> {ok, [{outgoing, Outgoings}], NChannel}
     end.
 
 %%--------------------------------------------------------------------
