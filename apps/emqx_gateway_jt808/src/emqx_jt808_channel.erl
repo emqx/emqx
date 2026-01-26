@@ -852,8 +852,8 @@ set_msg_ack(?MS_SINGLE_MM_DATA_CTRL, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 set_msg_ack(?MS_SEND_TRANSPARENT_DATA, MsgSn) ->
     {?MC_GENERAL_RESPONSE, {?MS_SEND_TRANSPARENT_DATA, MsgSn}};
-set_msg_ack(?MS_QUERY_AREA_ROUTE, MsgSn) ->
-    {?MC_QUERY_AREA_ROUTE_ACK, MsgSn};
+set_msg_ack(?MS_QUERY_AREA_ROUTE, _MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, none};
 set_msg_ack(MsgId, Param) ->
     error({invalid_message_type, MsgId, Param}).
 
@@ -879,8 +879,8 @@ get_msg_ack(?MC_MM_DATA_SEARCH_ACK, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 get_msg_ack(?MC_DRIVER_ID_REPORT, _MsgSn) ->
     {?MC_DRIVER_ID_REPORT, none};
-get_msg_ack(?MC_QUERY_AREA_ROUTE_ACK, MsgSn) ->
-    {?MC_QUERY_AREA_ROUTE_ACK, MsgSn};
+get_msg_ack(?MC_QUERY_AREA_ROUTE_ACK, _MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, none};
 get_msg_ack(MsgId, MsgSn) ->
     error({invalid_message_type, MsgId, MsgSn}).
 
