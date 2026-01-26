@@ -1,3 +1,4 @@
+.agent/
 .eunit
 *.conf.all
 test-data/
