@@ -73,7 +73,15 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
             {subscribe, #{subopts := #{}}} ->
                 true
         end,
-    #{subopts := #{rh := RH}} = SubscribeCtx,
+    RH =
+        case SubscribeCtx of
+            #{subopts := #{subopts := #{rh := RH0}}} ->
+                %% DS session
+                RH0;
+            #{subopts := #{rh := RH0}} ->
+                %% In-memory session
+                RH0
+        end,
     case RH == 0 orelse (RH == 1 andalso IsNew) of
         true ->
             subscribe(Handler, SubscribeCtx, TopicFilter);
