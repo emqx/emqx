@@ -1114,12 +1114,12 @@ t_external_http_serde_get(_Config) ->
 
     %% Roundtrip smoke test
     SQL1 = sql(
-        <<
-            "select"
-            "   schema_encode('${.name}', payload) as encoded,"
-            "   schema_decode('${.name}', encoded) as decoded"
-            " from \"t\" "
-        >>,
+        ~b"""
+            select
+                schema_encode('${.name}', payload) as encoded,
+                schema_decode('${.name}', encoded) as decoded
+            from "t"
+        """,
         #{name => SchemaName}
     ),
     Data1 = #{<<"f1">> => #{<<"bah">> => 123}},
