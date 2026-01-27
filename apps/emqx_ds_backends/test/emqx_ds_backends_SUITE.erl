@@ -26,6 +26,17 @@ t_00_smoke_open_drop(Config) ->
             ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             %% Reopen the DB and make sure the operation is idempotent:
             ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+            %% Each shard of a newly created DBs should contain
+            %% exactly one generation:
+            lists:foreach(
+                fun(Shard) ->
+                    ?assertMatch(
+                        [{{Shard, _Generation = 1}, _}],
+                        maps:to_list(emqx_ds:list_slabs(DB, #{shard => Shard, errors => crash}))
+                    )
+                end,
+                emqx_ds:list_shards(DB)
+            ),
             %% Drop the DB:
             ?assertMatch(ok, emqx_ds:drop_db(DB)),
             ?assertMatch(undefined, emqx_dsch:get_db_schema(DB))
