@@ -62,19 +62,8 @@ roots() ->
 
 fields(config) ->
     [{server, server()}] ++
-        add_default_username(emqx_connector_schema_lib:relational_db_fields(), []) ++
+        emqx_connector_schema_lib:relational_db_fields(#{username => #{default => <<"root">>}}) ++
         emqx_connector_schema_lib:ssl_fields().
-
-add_default_username([{username, OrigUsernameFn} | Tail], Head) ->
-    Head ++ [{username, add_default_fn(OrigUsernameFn, <<"root">>)} | Tail];
-add_default_username([Field | Tail], Head) ->
-    add_default_username(Tail, Head ++ [Field]).
-
-add_default_fn(OrigFn, Default) ->
-    fun
-        (default) -> Default;
-        (Field) -> OrigFn(Field)
-    end.
 
 server() ->
     Meta = #{desc => ?DESC("server")},
@@ -304,7 +293,7 @@ init_prepare(State = #{query_templates := Templates}) ->
                     State#{prepares => ok};
                 {error, Reason} ->
                     ?SLOG(error, #{
-                        msg => <<"MySQL init prepare statement failed">>,
+                        msg => "mysql_init_prepare_statement_failed",
                         reason => Reason
                     }),
                     %% mark the prepare_statement as failed
@@ -377,7 +366,7 @@ get_reconnect_callback_signature([Templates]) ->
 prepare_sql_to_conn(_Conn, []) ->
     ok;
 prepare_sql_to_conn(Conn, [{{Key, prepstmt}, {SQL, _RowTemplate}} | Rest]) ->
-    LogMeta = #{msg => "MySQL Prepare Statement", name => Key, prepare_sql => SQL},
+    LogMeta = #{msg => "mysql_prepare_statement", name => Key, prepare_sql => SQL},
     ?SLOG(info, LogMeta),
     _ = unprepare_sql_to_conn(Conn, Key),
     case mysql:prepare(Conn, Key, SQL) of
@@ -451,7 +440,7 @@ parse_batch_sql(Key, Query, Acc) ->
                     Acc#{{Key, batch} => parse_splited_sql(SplitedInsert)};
                 {error, Reason} ->
                     ?SLOG(error, #{
-                        msg => "parse insert sql statement failed",
+                        msg => "mysql_parse_insert_sql_statement_failed",
                         sql => Query,
                         reason => Reason
                     }),
@@ -461,7 +450,7 @@ parse_batch_sql(Key, Query, Acc) ->
             Acc;
         Type ->
             ?SLOG(error, #{
-                msg => "invalid sql statement type",
+                msg => "mysql_invalid_sql_statement_type",
                 sql => Query,
                 type => Type
             }),

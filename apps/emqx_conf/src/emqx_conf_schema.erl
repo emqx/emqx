@@ -37,6 +37,9 @@
     log_handler_common_confs/2
 ]).
 
+%% exported for testing
+-export([validate_tls_stateless_tickets_seed/1]).
+
 -define(DEFAULT_NODE_NAME, <<"emqx@127.0.0.1">>).
 
 %% Static apps which merge their configs into the merged emqx.conf
@@ -94,7 +97,7 @@
     resource_exception,
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
-    retained_dispatch_failed_for_rate_exceeded_limit,
+    retained_fetch_rate_limit_exceeded,
     retained_delete_failed_for_rate_exceeded_limit,
     socket_receive_paused_by_rate_limit,
     streams_message_db_key_expression_error,
@@ -464,7 +467,8 @@ fields("node") ->
                     sensitive => true,
                     desc => ?DESC(node_cookie),
                     importance => ?IMPORTANCE_HIGH,
-                    converter => fun emqx_schema:password_converter/2
+                    converter => fun emqx_schema:password_converter/2,
+                    validator => fun validate_cookie/1
                 }
             )},
         {"process_limit",
@@ -587,7 +591,7 @@ fields("node") ->
                 emqx_schema:timeout_duration_s(),
                 #{
                     mapping => "vm_args.-kernel net_ticktime",
-                    default => <<"2m">>,
+                    default => <<"60s">>,
                     'readOnly' => true,
                     importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(node_dist_net_ticktime)
@@ -1771,3 +1775,40 @@ validate_tls_stateless_tickets_seed(Seed) when is_binary(Seed) ->
     end;
 validate_tls_stateless_tickets_seed(_) ->
     {error, "tls_stateless_tickets_seed must be a string value"}.
+
+validate_cookie("") ->
+    throw("Cookie must be non-empty string");
+validate_cookie(Cookie) when is_list(Cookie) ->
+    case length(Cookie) > 255 of
+        true ->
+            throw("Cookie cannot be more than 255 bytes");
+        false ->
+            validate_cookie_chars(Cookie)
+    end.
+
+%% There is technically no such limit for 'erl' command,
+%% but hard to handle these chars in bash for commands 'ctl', 'remote' etc.,
+%% so, why not be nice, don't use them at all.
+validate_cookie_chars(Cookie) ->
+    InvalidChars = [$\\, $', $", $\s],
+    case find_invalid_cookie_char(Cookie, InvalidChars) of
+        ok ->
+            ok;
+        {error, Char} ->
+            throw("Cookie cannot contain character: " ++ describe_char(Char))
+    end.
+
+find_invalid_cookie_char([], _InvalidChars) ->
+    ok;
+find_invalid_cookie_char([Char | Rest], InvalidChars) ->
+    case lists:member(Char, InvalidChars) of
+        true ->
+            {error, Char};
+        false ->
+            find_invalid_cookie_char(Rest, InvalidChars)
+    end.
+
+describe_char($\\) -> "backslash (\\)";
+describe_char($') -> "single quote (')";
+describe_char($") -> "double quote (\")";
+describe_char($\s) -> "space".

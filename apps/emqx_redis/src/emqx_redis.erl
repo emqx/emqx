@@ -337,7 +337,7 @@ connect(Opts) ->
 redis_fields() ->
     [
         {pool_size, fun emqx_connector_schema_lib:pool_size/1},
-        {username, fun emqx_connector_schema_lib:username/1},
+        {username, emqx_connector_schema_lib:username_field()},
         {password, emqx_connector_schema_lib:password_field()},
         {database, #{
             type => non_neg_integer(),

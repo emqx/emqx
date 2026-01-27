@@ -66,8 +66,8 @@ t_full_config(_Config) ->
                             depth := 10,
                             enable := true,
                             keyfile := <<"server.key">>,
-                            reuse_sessions := true,
-                            secure_renegotiate := true,
+                            reuse_sessions := _,
+                            secure_renegotiate := _,
                             server_name_indication := "some-host",
                             verify := verify_peer,
                             versions := ['tlsv1.2']

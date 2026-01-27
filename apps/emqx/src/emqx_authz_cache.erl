@@ -16,7 +16,8 @@
     get_cache_ttl/0,
     is_enabled/1,
     drain_cache/0,
-    drain_cache/1
+    drain_cache/1,
+    parse_key/1
 ]).
 
 %% export for test
@@ -28,15 +29,28 @@
     get_oldest_key/0
 ]).
 
+-define(KEY(Topic, QoS, Retain), {?MODULE, Topic, QoS, Retain}).
+-define(KEY_PAT, {?MODULE, _, _, _}).
 -type authz_result() :: allow | deny.
 -type system_time() :: integer().
--type cache_key() :: {emqx_types:pubsub(), emqx_types:topic()}.
+-type retain_flag() :: 0 | 1.
+-type cache_key() :: ?KEY(emqx_types:topic(), emqx_types:qos(), retain_flag()).
 -type cache_val() :: {authz_result(), system_time()}.
 
 -type authz_cache_entry() :: {cache_key(), cache_val()}.
 
+parse_key(?KEY(Topic, QoS, Retain)) ->
+    Access = #{
+        action_type => publish,
+        qos => QoS,
+        retain => retain_flag_to_bool(Retain)
+    },
+    {Access, Topic}.
+
 %% Wrappers for key and value
-cache_k(PubSub, Topic) -> {PubSub, Topic}.
+cache_k(#{action_type := publish, qos := QoS, retain := Retain}, Topic) ->
+    ?KEY(Topic, QoS, retain_flag(Retain)).
+
 cache_v(AuthzResult) -> {AuthzResult, time_now()}.
 drain_k() -> {?MODULE, drain_timestamp}.
 
@@ -71,6 +85,8 @@ list_authz_cache() ->
 %% We'll cleanup the cache before replacing an expired authz.
 -spec get_authz_cache(emqx_types:pubsub(), emqx_types:topic()) ->
     authz_result() | not_found.
+get_authz_cache(#{action_type := subscribe}, _Topic) ->
+    not_found;
 get_authz_cache(PubSub, Topic) ->
     case erlang:get(cache_k(PubSub, Topic)) of
         undefined ->
@@ -93,13 +109,15 @@ get_authz_cache(PubSub, Topic) ->
 %%   is expired, then delete all the cache entries
 -spec put_authz_cache(emqx_types:pubsub(), emqx_types:topic(), authz_result()) ->
     ok.
-put_authz_cache(PubSub, Topic, AuthzResult) ->
+put_authz_cache(#{action_type := subscribe}, _Topic, _AuthzResult) ->
+    ok;
+put_authz_cache(Pub, Topic, AuthzResult) ->
     MaxSize = get_cache_max_size(),
     true = (MaxSize =/= 0),
     Size = get_cache_size(),
     case Size < MaxSize of
         true ->
-            add_authz(PubSub, Topic, AuthzResult);
+            add_authz(Pub, Topic, AuthzResult);
         false ->
             NewestK = get_newest_key(),
             {_AuthzResult, CachedAt} = erlang:get(NewestK),
@@ -110,11 +128,11 @@ put_authz_cache(PubSub, Topic, AuthzResult) ->
                     (true) ->
                         % all cache expired, cleanup first
                         empty_authz_cache(),
-                        add_authz(PubSub, Topic, AuthzResult);
+                        add_authz(Pub, Topic, AuthzResult);
                     (false) ->
                         % cache full, perform cache replacement
                         evict_authz_cache(),
-                        add_authz(PubSub, Topic, AuthzResult)
+                        add_authz(Pub, Topic, AuthzResult)
                 end
             )
     end.
@@ -157,7 +175,7 @@ map_authz_cache(Fun) ->
 map_authz_cache(Fun, Dict) ->
     [
         Fun(R)
-     || R = {{?authz_action, _T}, _Authz} <- Dict
+     || R = {?KEY_PAT, _Authz} <- Dict
     ].
 
 foreach_authz_cache(Fun) ->
@@ -293,3 +311,9 @@ if_expired(TTL, CachedAt, Fun) ->
         true -> Fun(true);
         false -> Fun(false)
     end.
+
+retain_flag(true) -> 1;
+retain_flag(false) -> 0.
+
+retain_flag_to_bool(0) -> false;
+retain_flag_to_bool(1) -> true.

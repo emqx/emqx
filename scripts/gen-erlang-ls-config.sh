@@ -49,9 +49,6 @@ lenses:
   enable:
     - show-behaviour-usages
     - ct-run-test
-macros:
-  - name: EMQX_RELEASE_EDITION
-    value: ee
 code_reload:
   node: emqx@127.0.0.1
 formatting:

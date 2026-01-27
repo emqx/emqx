@@ -10,16 +10,23 @@
 -export([
     pool_size/1,
     relational_db_fields/0,
+    relational_db_fields/1,
     ssl_fields/0,
     ssl_fields/1,
     prepare_statement_fields/0,
+    prepare_statement_field/0,
+    prepare_statement_field/1,
     password_field/0,
-    password_field/1
+    password_field/1,
+    username_field/0,
+    username_field/1,
+    connect_timeout_field/0,
+    connect_timeout_field/1,
+    disable_prepared_statements_field/0
 ]).
 
 -export([
     database/1,
-    username/1,
     auto_reconnect/1
 ]).
 
@@ -46,13 +53,16 @@ ssl_fields(EnableByDefault) ->
     ].
 
 relational_db_fields() ->
+    relational_db_fields(#{}).
+
+relational_db_fields(Overrides) ->
     [
         {database, fun database/1},
-        %% TODO: The `pool_size` for drivers will be deprecated. Ues `worker_pool_size` for emqx_resource
+        %% TODO: The `pool_size` for drivers will be deprecated. Use `worker_pool_size` for emqx_resource
         %% See emqx_resource.hrl
         {pool_size, fun pool_size/1},
-        {username, fun username/1},
-        {password, password_field()},
+        {username, username_field(maps:get(username, Overrides, #{}))},
+        {password, password_field(maps:get(password, Overrides, #{}))},
         {auto_reconnect, fun auto_reconnect/1}
     ].
 
@@ -66,12 +76,19 @@ password_field(Overrides) ->
     emqx_schema_secret:mk(maps:merge(Base, Overrides)).
 
 prepare_statement_fields() ->
-    [{prepare_statement, fun prepare_statement/1}].
+    [{prepare_statement, prepare_statement_field()}].
 
-prepare_statement(type) -> map();
-prepare_statement(desc) -> ?DESC("prepare_statement");
-prepare_statement(required) -> false;
-prepare_statement(_) -> undefined.
+prepare_statement_field() ->
+    prepare_statement_field(#{}).
+
+prepare_statement_field(Opts) ->
+    hoconsc:mk(
+        map(),
+        maps:merge(
+            #{desc => ?DESC("prepare_statement"), required => false},
+            Opts
+        )
+    ).
 
 database(type) -> binary();
 database(desc) -> ?DESC("database_desc");
@@ -85,13 +102,49 @@ pool_size(default) -> 8;
 pool_size(validator) -> [?MIN(1)];
 pool_size(_) -> undefined.
 
-username(type) -> binary();
-username(desc) -> ?DESC("username");
-username(required) -> false;
-username(_) -> undefined.
+username_field() ->
+    username_field(#{}).
+
+username_field(Opts) ->
+    hoconsc:mk(
+        binary(),
+        maps:merge(
+            #{
+                desc => ?DESC("username"),
+                required => false
+            },
+            Opts
+        )
+    ).
 
 auto_reconnect(type) -> boolean();
 auto_reconnect(desc) -> ?DESC("auto_reconnect");
 auto_reconnect(default) -> true;
 auto_reconnect(deprecated) -> {since, "5.0.15"};
 auto_reconnect(_) -> undefined.
+
+connect_timeout_field() ->
+    connect_timeout_field(#{}).
+
+connect_timeout_field(Opts) ->
+    hoconsc:mk(
+        emqx_schema:timeout_duration_ms(),
+        maps:merge(
+            #{
+                required => false,
+                desc => ?DESC("connect_timeout"),
+                default => <<"15s">>
+            },
+            Opts
+        )
+    ).
+
+disable_prepared_statements_field() ->
+    hoconsc:mk(
+        boolean(),
+        #{
+            default => false,
+            required => false,
+            desc => ?DESC("disable_prepared_statements")
+        }
+    ).

@@ -33,10 +33,15 @@
     handle_coap_in/3,
     handle_protocol_in/3,
     handle_deliver/3,
+    handle_out/3,
     timeout/3,
     send_cmd/3,
     set_reply/2
 ]).
+
+-ifdef(TEST).
+-export([normalize_mheaders/1]).
+-endif.
 
 %% froce update subscriptions
 -export([set_subscriptions/2]).
@@ -267,6 +272,9 @@ handle_coap_in(Msg, _WithContext, Session) ->
 
 handle_deliver(Delivers, WithContext, Session) ->
     return(deliver(Delivers, WithContext, Session)).
+
+handle_out(Msg, _WithContext, Session) ->
+    return(out_to_coap(Msg, Session)).
 
 timeout({transport, Msg}, _, Session) ->
     call_coap(timeout, Msg, Session).
@@ -697,8 +705,8 @@ send_msg_not_waiting_ack(Ctx, Req, Session) ->
 %%--------------------------------------------------------------------
 send_to_mqtt(Ref, EventType, Payload, WithContext, Session) ->
     #{topic := Topic, qos := Qos} = uplink_topic(EventType),
-    Mheaders = maps:get(mheaders, Ref, #{}),
-    proto_publish(Topic, Payload#{<<"msgType">> => EventType}, Qos, Mheaders, WithContext, Session).
+    MHeaders = normalize_mheaders(Ref),
+    proto_publish(Topic, Payload#{<<"msgType">> => EventType}, Qos, MHeaders, WithContext, Session).
 
 send_to_mqtt(
     Ctx,
@@ -708,8 +716,8 @@ send_to_mqtt(
     WithContext,
     Session
 ) ->
-    Mheaders = maps:get(mheaders, Ctx, #{}),
-    proto_publish(Topic, Payload#{<<"msgType">> => EventType}, Qos, Mheaders, WithContext, Session).
+    MHeaders = normalize_mheaders(Ctx),
+    proto_publish(Topic, Payload#{<<"msgType">> => EventType}, Qos, MHeaders, WithContext, Session).
 
 proto_publish(
     Topic,
@@ -806,8 +814,8 @@ maybe_do_deliver_to_coap(
         queue = Queue
     } = Session
 ) ->
-    MHeaders = maps:get(mheaders, Ctx, #{}),
-    TTL = maps:get(<<"ttl">>, MHeaders, 7200),
+    MHeaders = normalize_mheaders(Ctx),
+    TTL = maps:get(<<"ttl">>, MHeaders, maps:get(ttl, MHeaders, 7200)),
     case TTL of
         0 ->
             send_msg_not_waiting_ack(Ctx, Req, Session);
@@ -820,6 +828,19 @@ maybe_do_deliver_to_coap(
                     send_to_coap(Ctx, Req, Session);
                 false ->
                     Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)}
+            end
+    end.
+
+normalize_mheaders(Ctx) when is_map(Ctx) ->
+    case maps:get(mheaders, Ctx, undefined) of
+        MHeaders when is_map(MHeaders) ->
+            MHeaders;
+        _ ->
+            case maps:get(<<"mheaders">>, Ctx, undefined) of
+                MHeaders when is_map(MHeaders) ->
+                    MHeaders;
+                _ ->
+                    #{}
             end
     end.
 
@@ -871,10 +892,10 @@ get_outs() ->
         Any -> Any
     end.
 
-return(#session{coap = CoAP} = Session) ->
+return(#session{coap = Coap} = Session) ->
     Outs = get_outs(),
     erlang:put(?OUT_LIST_KEY, []),
-    {ok, Coap2, Msgs} = do_out(Outs, CoAP, []),
+    {ok, Coap2, Msgs} = do_out(Outs, Coap, []),
     #{return => {Msgs, Session#session{coap = Coap2}}}.
 
 do_out([{Ctx, Out} | T], TM, Msgs) ->

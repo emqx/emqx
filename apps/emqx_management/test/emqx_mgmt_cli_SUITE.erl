@@ -271,14 +271,15 @@ t_authz(_Config) ->
     ?assertMatch({error, not_found}, emqx_ctl:run_command(["authz", "cache-clean", ClientId])),
     {ok, C} = emqtt:start_link([{clean_start, true}, {clientid, ClientId}]),
     {ok, _} = emqtt:connect(C),
-    {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 1),
+    %% NOTE: subscribe authz results are not cached, use publish instead
+    {ok, _} = emqtt:publish(C, <<"topic/1">>, <<"payload">>, 1),
     [Pid] = emqx_cm:lookup_channels(ClientIdBin),
     ?assertMatch([_], gen_server:call(Pid, list_authz_cache)),
 
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", ClientId])),
     ?assertMatch([], gen_server:call(Pid, list_authz_cache)),
     %% authz cache-clean node <Node> # Clears authorization cache on given node
-    {ok, _, _} = emqtt:subscribe(C, <<"topic/2">>, 1),
+    {ok, _} = emqtt:publish(C, <<"topic/2">>, <<"payload">>, 1),
     ?assertMatch([_], gen_server:call(Pid, list_authz_cache)),
     ?assertMatch(ok, emqx_ctl:run_command(["authz", "cache-clean", "node", atom_to_list(node())])),
     ?assertMatch([], gen_server:call(Pid, list_authz_cache)),

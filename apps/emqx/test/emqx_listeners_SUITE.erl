@@ -71,9 +71,9 @@ t_wait_for_stop_listeners(_) ->
         fun({Id, ListenerOn}) ->
             Start = erlang:system_time(seconds),
             ok = emqx_listeners:stop_listener(Id),
-            ?assertEqual(timeout, emqx_listeners:wait_listener_stopped(ListenerOn)),
+            ?assertEqual(timeout, emqx_listeners:wait_cowboy_listener_stopped(ListenerOn)),
             End = erlang:system_time(seconds),
-            ?assert(End - Start >= 9, "wait_listener_stopped should wait at least 9 seconds")
+            ?assert(End - Start >= 9, "wait_cowboy_listener_stopped should wait at least 9 seconds")
         end,
         List
     ),
@@ -81,7 +81,7 @@ t_wait_for_stop_listeners(_) ->
     lists:foreach(
         fun({Id, ListenerOn}) ->
             ok = emqx_listeners:stop_listener(Id),
-            ?assertEqual(ok, emqx_listeners:wait_listener_stopped(ListenerOn))
+            ?assertEqual(ok, emqx_listeners:wait_cowboy_listener_stopped(ListenerOn))
         end,
         List
     ),

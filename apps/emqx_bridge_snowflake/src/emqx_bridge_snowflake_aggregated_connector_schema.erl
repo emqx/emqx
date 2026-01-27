@@ -53,18 +53,10 @@ fields(Field) when
 fields("config_connector") ->
     emqx_connector_schema:common_fields() ++ fields(connector_config);
 fields(connector_config) ->
-    Fields0 = emqx_connector_schema_lib:relational_db_fields(),
-    Fields1 = proplists:delete(database, Fields0),
-    Fields = lists:map(
-        fun
-            ({Field, Sc}) when Field =:= username; Field =:= password ->
-                Override = #{type => hocon_schema:field_schema(Sc, type), required => false},
-                {Field, hocon_schema:override(Sc, Override)};
-            ({Field, Sc}) ->
-                {Field, Sc}
-        end,
-        Fields1
-    ),
+    Fields0 = emqx_connector_schema_lib:relational_db_fields(#{
+        password => #{required => false}, username => #{required => false}
+    }),
+    Fields = proplists:delete(database, Fields0),
     [
         {server,
             emqx_schema:servers_sc(

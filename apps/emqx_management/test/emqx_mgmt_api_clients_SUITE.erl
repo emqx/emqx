@@ -629,7 +629,8 @@ t_authz_cache(Config) ->
 
     {ok, C} = emqtt:start_link(#{clientid => ClientId}),
     {ok, _} = emqtt:connect(C),
-    {ok, _, _} = emqtt:subscribe(C, <<"topic/1">>, 1),
+    %% NOTE: subscribe authz results are not cached, use publish instead
+    {ok, _} = emqtt:publish(C, <<"topic/1">>, <<"payload">>, 1),
 
     ClientAuthzCachePath = emqx_mgmt_api_test_util:api_path([
         "clients",
@@ -641,7 +642,11 @@ t_authz_cache(Config) ->
         {ok,
             {{_HTTP, 200, _}, _, [
                 #{
-                    <<"access">> := #{<<"action_type">> := <<"subscribe">>, <<"qos">> := 1},
+                    <<"access">> := #{
+                        <<"action_type">> := <<"publish">>,
+                        <<"qos">> := 1,
+                        <<"retain">> := false
+                    },
                     <<"result">> := <<"allow">>,
                     <<"topic">> := <<"topic/1">>,
                     <<"updated_time">> := _

@@ -297,14 +297,14 @@ connecting(
     St0 = #st{link = Link, actor = Actor, marker = ClientMarker, client = undefined}
 ) ->
     TargetCluster = target_cluster(St0),
-    ReconnectAt = erlang:system_time(millisecond) + ?RECONNECT_TIMEOUT,
+    ReconnectAt = erlang:system_time(millisecond) + reconnect_timeout(),
     St = St0#st{reconnect_at = ReconnectAt},
     case start_link_client(Actor, ClientMarker, Link) of
         {ok, ClientPid} ->
             ok = announce_client(TargetCluster, Actor, ClientPid),
             enter_handshaking(St#st{client = ClientPid});
         {error, Reason} ->
-            ?tp_routerepl(error, "connection_failed", #{
+            ?tp_routerepl(warning, "connection_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -332,10 +332,10 @@ handshaking(
     case Result of
         ok ->
             St = St0#st{handshake_reqid = ReqId},
-            Timeout = ?RECONNECT_TIMEOUT,
+            Timeout = reconnect_timeout(),
             {keep_state, St, {state_timeout, Timeout, abandon}};
         {error, Reason} ->
-            ?tp_routerepl(error, "handshake_failed", #{
+            ?tp_routerepl(warning, "handshake_failed", #{
                 reason => Reason,
                 target_cluster => TargetCluster,
                 actor => Actor
@@ -361,7 +361,7 @@ handshaking(
             ok = start_syncer(TargetCluster, Actor, Incarnation),
             enter_bootstrap(NeedBootstrap, St);
         #{result := Error} ->
-            ?tp_routerepl(error, "handshake_rejected", #{
+            ?tp_routerepl(warning, "handshake_rejected", #{
                 reason => error_reason(Error),
                 target_cluster => TargetCluster,
                 actor => Actor,
@@ -372,7 +372,7 @@ handshaking(
             keep_state_and_data
     end;
 handshaking(state_timeout, abandon, St = #st{actor = Actor}) ->
-    ?tp_routerepl(error, "handshake_timeout", #{
+    ?tp_routerepl(warning, "handshake_timeout", #{
         target_cluster => target_cluster(St),
         actor => Actor
     }),
@@ -636,6 +636,9 @@ publish_heartbeat(ClientPid, Actor, Incarnation) ->
     %% NOTE: Fully asynchronous, no need for error handling.
     ActorName = atom_to_binary(Actor),
     emqx_cluster_link_mqtt:publish_heartbeat(ClientPid, ActorName, Incarnation).
+
+reconnect_timeout() ->
+    application:get_env(emqx_cluster_link, routerepl_actor_reconnect_timeout, ?RECONNECT_TIMEOUT).
 
 %%
 

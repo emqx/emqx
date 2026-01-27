@@ -11,7 +11,8 @@
 -export([
     check_rbac/3,
     parse_dashboard_role/1,
-    parse_api_role/1
+    parse_api_role/1,
+    serialize_role/1
 ]).
 
 -export_type([actor_context/0]).
@@ -60,6 +61,16 @@ parse_api_role(Role) ->
     parse_role(api, Role).
 
 %% ===================================================================
+
+serialize_role(#{?role := Role, ?namespace := Ns}) when
+    ?IS_VALID_ROLE(Role)
+->
+    case Ns of
+        ?global_ns ->
+            Role;
+        _ when is_binary(Ns) ->
+            iolist_to_binary(["ns:", Ns, "::", Role])
+    end.
 
 parse_role(Type, Role0) ->
     maybe

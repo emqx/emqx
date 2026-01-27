@@ -153,17 +153,16 @@ cluster_gateway_status(GwName) ->
 
 %% @private
 max_connections_count(Config) ->
-    Listeners = emqx_gateway_utils:normalize_config(Config),
-    lists:foldl(
-        fun({_, _, _, Conf0}, Acc) ->
-            emqx_gateway_utils:plus_max_connections(
-                Acc,
-                maps:get(max_connections, Conf0, 0)
-            )
-        end,
+    MaxConnectionList = [
+        maps:get(max_connections, ListenerConfig, 0)
+     || {_Type, _Name, ListenerConfig} <- emqx_gateway_utils_conf:listener_configs(Config)
+    ],
+    MaxConnections = lists:foldl(
+        fun(Max, Acc) -> emqx_gateway_utils:add_max_connections(Acc, Max) end,
         0,
-        Listeners
-    ).
+        MaxConnectionList
+    ),
+    MaxConnections.
 
 %% @private
 current_connections_count(GwName) ->
@@ -177,20 +176,21 @@ current_connections_count(GwName) ->
 
 %% @private
 get_listeners_status(GwName, Config) ->
-    Listeners = emqx_gateway_utils:normalize_config(Config),
     lists:map(
-        fun({Type, LisName, ListenOn, _}) ->
-            Name0 = listener_id(GwName, Type, LisName),
-            Name = {Name0, ListenOn},
-            LisO = #{id => Name0, type => Type, name => LisName},
-            case catch esockd:listener(Name) of
-                _Pid when is_pid(_Pid) ->
-                    LisO#{running => true};
-                _ ->
-                    LisO#{running => false}
-            end
+        fun(
+            #{
+                listener_id := ListenerId,
+                listener_type := {_, Type}
+            } = ListenerRuntimeId
+        ) ->
+            #{
+                id => ListenerId,
+                type => Type,
+                name => emqx_gateway_utils:listener_name_from_id(ListenerId),
+                running => emqx_gateway_utils:is_listener_running(ListenerRuntimeId)
+            }
         end,
-        Listeners
+        emqx_gateway_utils_conf:to_rt_listener_ids(GwName, Config)
     ).
 
 %%--------------------------------------------------------------------
@@ -655,7 +655,7 @@ filter_listener(Req0, Meta) ->
 sum_cluster_connections(
     [#{max_connections := Max, current_connections := Current} | T], MaxAcc, CurrAcc
 ) ->
-    NMaxAcc = emqx_gateway_utils:plus_max_connections(MaxAcc, Max),
+    NMaxAcc = emqx_gateway_utils:add_max_connections(MaxAcc, Max),
     sum_cluster_connections(T, NMaxAcc, Current + CurrAcc);
 sum_cluster_connections([_ | T], MaxAcc, CurrAcc) ->
     sum_cluster_connections(T, MaxAcc, CurrAcc);

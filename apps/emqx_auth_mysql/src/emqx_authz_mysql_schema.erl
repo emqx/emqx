@@ -23,10 +23,14 @@ namespace() -> "authz".
 type() -> ?AUTHZ_TYPE.
 
 fields(mysql) ->
-    emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
-        emqx_mysql:fields(config) ++
-        emqx_connector_schema_lib:prepare_statement_fields() ++
-        [{query, query()}].
+    [
+        %% We do not need and never used this field for authz
+        {prepare_statement,
+            emqx_connector_schema_lib:prepare_statement_field(#{deprecated => {since, "6.2.0"}})}
+    ] ++
+        query_fields() ++
+        emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
+        emqx_auth_mysql_connector:config_fields().
 
 desc(mysql) ->
     ?DESC(mysql);
@@ -41,18 +45,5 @@ select_union_member(#{<<"type">> := ?AUTHZ_TYPE_BIN}, _) ->
 select_union_member(_Value, _) ->
     undefined.
 
-%%--------------------------------------------------------------------
-%% Internal Functions
-%%--------------------------------------------------------------------
-
-query() ->
-    ?HOCON(binary(), #{
-        desc => ?DESC(query),
-        required => true,
-        validator => fun(S) ->
-            case size(S) > 0 of
-                true -> ok;
-                _ -> {error, "Request query"}
-            end
-        end
-    }).
+query_fields() ->
+    emqx_authn_mysql_schema:query_fields().

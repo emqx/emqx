@@ -2423,7 +2423,7 @@ common_ssl_opts_schema(Defaults, Type) ->
             sc(
                 boolean(),
                 #{
-                    default => Df(reuse_sessions, true),
+                    default => Df(reuse_sessions, false),
                     desc => ?DESC(common_ssl_opts_schema_reuse_sessions),
                     importance => ?IMPORTANCE_LOW
                 }
@@ -2500,9 +2500,25 @@ common_ssl_auth_ext_fields() ->
             )}
     ].
 
-%% @doc Make schema for SSL listener options.
+-doc """
+Make schema for SSL listener options.
+
+The default value for `reuse_sessions` in server options is `false` (disabled).
+
+TLS 1.2 session reuse is stateful and not very useful in clustered environments.
+Additionally, the number of session tickets is limited by `session_cache_server_max` (default = 1000).
+
+The cost of enabling session reuse is that each TLS connection will call the gen_server
+`ssl_server_session_cache` to track the session ID, even when the client has no intention
+to resume later (there is no way for the server to know this beforehand).
+
+EMQX's defaults are tuned for large-scale clusters with large numbers of connections.
+We believe the cost to support TLS 1.2 session reuse by default is too high,
+hence it is disabled by default.
+""".
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
-server_ssl_opts_schema(Defaults, IsRanchListener) ->
+server_ssl_opts_schema(Defaults0, IsRanchListener) ->
+    Defaults = maps:merge(#{reuse_sessions => false}, Defaults0),
     D = fun(Field) -> maps:get(Field, Defaults, undefined) end,
     Df = fun(Field, Default) -> maps:get(Field, Defaults, Default) end,
     common_ssl_opts_schema(Defaults, server) ++

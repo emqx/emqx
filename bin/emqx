@@ -517,6 +517,13 @@ if [ -n "${EMQX_NODE_NAME:-}" ]; then
     unset EMQX_NODE_NAME
 fi
 
+## Resolve Erlang cookie.
+if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
+    ## To be backward compatible, read and unset EMQX_NODE_COOKIE
+    export EMQX_NODE__COOKIE="${EMQX_NODE_COOKIE}"
+    unset EMQX_NODE_COOKIE
+fi
+
 # Turn off debug as the ps output can be quite noisy
 set +x
 
@@ -603,7 +610,7 @@ get_boot_config() {
 
 EPMD_ARGS="${EPMD_ARGS:-"-start_epmd false -epmd_module ekka_epmd -proto_dist ekka"}"
 PROTO_DIST="$(get_boot_config 'cluster.proto_dist' || true)"
-TICKTIME="$(get_boot_config 'node.dist_net_ticktime' || echo '120')"
+TICKTIME="$(get_boot_config 'node.dist_net_ticktime' || echo '60')"
 # this environment variable is required by ekka_dist module
 # because proto_dist is overriden to ekka, and there is a lack of ekka_tls module
 export EKKA_PROTO_DIST_MOD="${PROTO_DIST:-inet_tcp}"
@@ -1010,12 +1017,6 @@ export ESCRIPT_NAME="$SHORT_NAME"
 
 PIPE_DIR="${PIPE_DIR:-/$DATA_DIR/${WHOAMI}_erl_pipes/$NAME/}"
 
-## Resolve Erlang cookie.
-if [ -n "${EMQX_NODE_COOKIE:-}" ]; then
-    ## To be backward compatible, read and unset EMQX_NODE_COOKIE
-    export EMQX_NODE__COOKIE="${EMQX_NODE_COOKIE}"
-    unset EMQX_NODE_COOKIE
-fi
 COOKIE="${EMQX_NODE__COOKIE:-}"
 COOKIE_IN_USE="$(get_boot_config 'node.cookie')"
 if [ "$IS_BOOT_COMMAND" != 'yes' ] && [ -n "$COOKIE_IN_USE" ] && [ -n "$COOKIE" ] && [ "$COOKIE" != "$COOKIE_IN_USE" ]; then
