@@ -24,6 +24,7 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    application:ensure_all_started(egbk),
     Config.
 
 end_per_suite(Config) ->
@@ -2608,4 +2609,397 @@ t_query_client_param_ack_parse_reserved_param(_Config) ->
     ?assertEqual(UnknownParamId, maps:get(<<"id">>, Param)),
     %% Reserved/unknown params should be base64 encoded
     ?assertEqual(UnknownData, base64:decode(maps:get(<<"value">>, Param))),
+    ok.
+
+%%--------------------------------------------------------------------
+%% 9. GBK/UTF-8 String Encoding Tests
+%%--------------------------------------------------------------------
+
+%% Test GBK to UTF-8 decoding for register message (license_number field)
+t_gbk_decode_register_license_number(_Config) ->
+    %% GBK encoded "京A12345" (Chinese license plate)
+    %% 京 in GBK is 0xBEA9, A is 0x41, 1-5 are 0x31-0x35
+    GbkLicenseNumber = <<16#BE, 16#A9, "A12345">>,
+    Utf8LicenseNumber = <<"京A12345"/utf8>>,
+
+    Parser = emqx_jt808_frame:initial_parse_state(#{string_encoding => gbk}),
+    Manuf = <<"examp">>,
+    Model = <<"33333333333333333333">>,
+    DevId = <<"1234567">>,
+    Color = 3,
+    RegisterPacket =
+        <<58:?word, 59:?word, Manuf/binary, Model/binary, DevId/binary, Color,
+            GbkLicenseNumber/binary>>,
+    MsgId = 16#0100,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 78,
+    Size = size(RegisterPacket),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, RegisterPacket),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    #{<<"body">> := #{<<"license_number">> := ParsedLicense}} = Map,
+    ?assertEqual(Utf8LicenseNumber, ParsedLicense),
+    ok.
+
+%% Test UTF-8 passthrough when string_encoding=utf8 (default behavior)
+t_utf8_passthrough_register_license_number(_Config) ->
+    %% UTF-8 encoded "京A12345"
+    Utf8LicenseNumber = <<"京A12345"/utf8>>,
+
+    Parser = emqx_jt808_frame:initial_parse_state(#{string_encoding => utf8}),
+    Manuf = <<"examp">>,
+    Model = <<"33333333333333333333">>,
+    DevId = <<"1234567">>,
+    Color = 3,
+    RegisterPacket =
+        <<58:?word, 59:?word, Manuf/binary, Model/binary, DevId/binary, Color,
+            Utf8LicenseNumber/binary>>,
+    MsgId = 16#0100,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 79,
+    Size = size(RegisterPacket),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, RegisterPacket),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    #{<<"body">> := #{<<"license_number">> := ParsedLicense}} = Map,
+    ?assertEqual(Utf8LicenseNumber, ParsedLicense),
+    ok.
+
+%% Test GBK to UTF-8 decoding for driver ID report (driver_name and organization)
+t_gbk_decode_driver_id_report(_Config) ->
+    %% GBK encoded strings
+    %% 张三 in GBK: 0xD5C5 0xC8FD
+    GbkDriverName = <<16#D5, 16#C5, 16#C8, 16#FD>>,
+    Utf8DriverName = <<"张三"/utf8>>,
+    %% 北京交通 in GBK: 0xB1B1 0xBEA9 0xBDBB 0xCDA8
+    GbkOrganization = <<16#B1, 16#B1, 16#BE, 16#A9, 16#BD, 16#BB, 16#CD, 16#A8>>,
+    Utf8Organization = <<"北京交通"/utf8>>,
+
+    Parser = emqx_jt808_frame:initial_parse_state(#{string_encoding => gbk}),
+    MsgId = 16#0702,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 220,
+
+    Status = 1,
+    TimeBCD = <<16#26, 16#01, 16#21, 16#10, 16#30, 16#45>>,
+    IcResult = 0,
+    NameLength = byte_size(GbkDriverName),
+    Certificate = pad_binary(<<"CERT123456789">>, 20),
+    OrgLength = byte_size(GbkOrganization),
+    CertExpiryBCD = <<16#28, 16#12, 16#31, 16#00>>,
+
+    Body = <<
+        Status:8,
+        TimeBCD/binary,
+        IcResult:8,
+        NameLength:8,
+        GbkDriverName/binary,
+        Certificate/binary,
+        OrgLength:8,
+        GbkOrganization/binary,
+        CertExpiryBCD/binary
+    >>,
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    #{<<"body">> := #{<<"driver_name">> := ParsedName, <<"organization">> := ParsedOrg}} = Map,
+    ?assertEqual(Utf8DriverName, ParsedName),
+    ?assertEqual(Utf8Organization, ParsedOrg),
+    ok.
+
+%% Test UTF-8 to GBK encoding for send_text serialization
+t_gbk_encode_send_text(_Config) ->
+    %% UTF-8 string to encode
+    Utf8Text = <<"请注意安全驾驶"/utf8>>,
+    %% Expected GBK: 请=C7EB 注=D7A2 意=D2E2 安=B0B2 全=C8AB 驾=BCDD 驶=CABB
+    ExpectedGbkText =
+        <<16#C7, 16#EB, 16#D7, 16#A2, 16#D2, 16#E2, 16#B0, 16#B2, 16#C8, 16#AB, 16#BC, 16#DD, 16#CA,
+            16#BB>>,
+
+    MsgId = 16#8300,
+    MsgSn = 62,
+    Flag = 1,
+    TextType = 2,
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{<<"flag">> => Flag, <<"text_type">> => TextType, <<"text">> => Utf8Text}
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{string_encoding => gbk}),
+
+    %% Parse the stream to verify it contains GBK encoded text
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    {ok, _, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+
+    %% Verify GBK text is in the raw stream (after header)
+    ?assert(binary:match(Stream, ExpectedGbkText) =/= nomatch),
+    ok.
+
+%% Test UTF-8 passthrough for send_text when string_encoding=utf8
+t_utf8_passthrough_send_text(_Config) ->
+    Utf8Text = <<"请注意安全驾驶"/utf8>>,
+
+    MsgId = 16#8300,
+    MsgSn = 63,
+    Flag = 1,
+    TextType = 2,
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{<<"flag">> => Flag, <<"text_type">> => TextType, <<"text">> => Utf8Text}
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{string_encoding => utf8}),
+
+    %% Verify UTF-8 text is in the raw stream (not converted)
+    ?assert(binary:match(Stream, Utf8Text) =/= nomatch),
+    ok.
+
+%% Test GBK round-trip: GBK wire → parse (UTF-8) → serialize (GBK wire)
+t_gbk_roundtrip_driver_info(_Config) ->
+    %% GBK encoded driver name
+
+    %% 张三
+    GbkDriverName = <<16#D5, 16#C5, 16#C8, 16#FD>>,
+    Utf8DriverName = <<"张三"/utf8>>,
+    %% 北京
+    GbkOrganization = <<16#B1, 16#B1, 16#BE, 16#A9>>,
+    Utf8Organization = <<"北京"/utf8>>,
+
+    Opts = #{string_encoding => gbk},
+    Parser = emqx_jt808_frame:initial_parse_state(Opts),
+    MsgId = 16#0702,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 230,
+
+    Status = 1,
+    TimeBCD = <<16#26, 16#01, 16#25, 16#14, 16#30, 16#00>>,
+    IcResult = 0,
+    NameLength = byte_size(GbkDriverName),
+    Certificate = pad_binary(<<"CERT999888777">>, 20),
+    OrgLength = byte_size(GbkOrganization),
+    CertExpiryBCD = <<16#30, 16#12, 16#31, 16#00>>,
+
+    Body = <<
+        Status:8,
+        TimeBCD/binary,
+        IcResult:8,
+        NameLength:8,
+        GbkDriverName/binary,
+        Certificate/binary,
+        OrgLength:8,
+        GbkOrganization/binary,
+        CertExpiryBCD/binary
+    >>,
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    %% Parse: GBK wire → UTF-8 internal
+    {ok, ParsedMap, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    #{<<"body">> := #{<<"driver_name">> := ParsedName, <<"organization">> := ParsedOrg}} =
+        ParsedMap,
+    ?assertEqual(Utf8DriverName, ParsedName),
+    ?assertEqual(Utf8Organization, ParsedOrg),
+    ok.
+
+%% Test default behavior (no string_encoding option) preserves UTF-8
+t_default_encoding_utf8_passthrough(_Config) ->
+    %% When no string_encoding is specified, UTF-8 should pass through unchanged
+    Utf8LicenseNumber = <<"京A12345"/utf8>>,
+
+    %% No string_encoding option - should default to utf8 (passthrough)
+    Parser = emqx_jt808_frame:initial_parse_state(#{}),
+    Manuf = <<"examp">>,
+    Model = <<"33333333333333333333">>,
+    DevId = <<"1234567">>,
+    Color = 3,
+    RegisterPacket =
+        <<58:?word, 59:?word, Manuf/binary, Model/binary, DevId/binary, Color,
+            Utf8LicenseNumber/binary>>,
+    MsgId = 16#0100,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 80,
+    Size = size(RegisterPacket),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, RegisterPacket),
+
+    {ok, Map, <<>>, _} = emqx_jt808_frame:parse(Stream, Parser),
+    #{<<"body">> := #{<<"license_number">> := ParsedLicense}} = Map,
+    ?assertEqual(Utf8LicenseNumber, ParsedLicense),
+    ok.
+
+%% Test GBK encoding for circle area name field
+t_gbk_encode_circle_area_name(_Config) ->
+    %% UTF-8 area name
+    Utf8AreaName = <<"禁行区域"/utf8>>,
+    %% Expected GBK: 禁=BDFB 行=D0D0 区=C7F8 域=D3F2
+    ExpectedGbkName = <<16#BD, 16#FB, 16#D0, 16#D0, 16#C7, 16#F8, 16#D3, 16#F2>>,
+
+    MsgId = 16#8600,
+    MsgSn = 70,
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => ?JT808_PHONE_STR_2019,
+            <<"msg_sn">> => MsgSn,
+            <<"proto_ver">> => ?PROTO_VER_2019
+        },
+        <<"body">> => #{
+            <<"type">> => 0,
+            <<"length">> => 1,
+            <<"areas">> => [
+                #{
+                    <<"id">> => 1,
+                    %% bit 6 set = has name field
+                    <<"flag">> => 16#0040,
+                    <<"center_latitude">> => 39908823,
+                    <<"center_longitude">> => 116397470,
+                    <<"radius">> => 1000,
+                    <<"start_time">> => <<"260125000000">>,
+                    <<"end_time">> => <<"261231235959">>,
+                    <<"max_speed">> => 60,
+                    <<"overspeed_duration">> => 10,
+                    <<"night_max_speed">> => 40,
+                    <<"name">> => Utf8AreaName
+                }
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{string_encoding => gbk}),
+
+    %% Verify GBK encoded name is in the stream
+    ?assert(binary:match(Stream, ExpectedGbkName) =/= nomatch),
+    ok.
+
+%% Test GBK encoding for client parameter (string type)
+t_gbk_encode_client_param_string(_Config) ->
+    %% UTF-8 APN value with Chinese characters
+    Utf8Apn = <<"中国移动"/utf8>>,
+    %% Expected GBK: 中=D6D0 国=B9FA 移=D2C6 动=B6AF
+    ExpectedGbkApn = <<16#D6, 16#D0, 16#B9, 16#FA, 16#D2, 16#C6, 16#B6, 16#AF>>,
+
+    MsgId = 16#8103,
+    MsgSn = 71,
+    %% Parameter 0x0010 is APN (STRING type)
+    DownlinkJson = #{
+        <<"header">> => #{
+            <<"msg_id">> => MsgId,
+            <<"encrypt">> => ?NO_ENCRYPT,
+            <<"phone">> => <<"000123456789">>,
+            <<"msg_sn">> => MsgSn
+        },
+        <<"body">> => #{
+            <<"length">> => 1,
+            <<"params">> => [
+                #{<<"id">> => 16#0010, <<"value">> => Utf8Apn}
+            ]
+        }
+    },
+    Stream = emqx_jt808_frame:serialize_pkt(DownlinkJson, #{string_encoding => gbk}),
+
+    %% Verify GBK encoded APN is in the stream
+    ?assert(binary:match(Stream, ExpectedGbkApn) =/= nomatch),
+    ok.
+
+%% Test GBK decoding for query param ack (string type parameter)
+t_gbk_decode_query_param_ack_string(_Config) ->
+    %% GBK encoded APN
+
+    %% 中国移动
+    GbkApn = <<16#D6, 16#D0, 16#B9, 16#FA, 16#D2, 16#C6, 16#B6, 16#AF>>,
+    Utf8Apn = <<"中国移动"/utf8>>,
+
+    Parser = emqx_jt808_frame:initial_parse_state(#{string_encoding => gbk}),
+    MsgId = 16#0104,
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgSn = 104,
+    ResponseSeq = 52,
+
+    %% Parameter 0x0010 is APN (STRING type)
+    ParamId = 16#0010,
+    ParamLen = byte_size(GbkApn),
+
+    Body = <<ResponseSeq:16/big, 1:8, ParamId:32/big, ParamLen:8, GbkApn/binary>>,
+
+    Size = byte_size(Body),
+    Header =
+        <<MsgId:?word, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?word>>,
+    Stream = encode(Header, Body),
+
+    {ok, Map, <<>>, _State} = emqx_jt808_frame:parse(Stream, Parser),
+    #{<<"body">> := #{<<"params">> := [Param]}} = Map,
+    ?assertEqual(ParamId, maps:get(<<"id">>, Param)),
+    ?assertEqual(Utf8Apn, maps:get(<<"value">>, Param)),
+    ok.
+
+%% Test unit functions for encoding module
+t_encoding_module_unit_tests(_Config) ->
+    %% Test maybe_decode_string with GBK encoding
+
+    %% 你好 in GBK
+    GbkHello = <<16#C4, 16#E3, 16#BA, 16#C3>>,
+    Utf8Hello = <<"你好"/utf8>>,
+    ?assertEqual(
+        Utf8Hello,
+        emqx_jt808_encoding:maybe_decode_string(GbkHello, test_field, #{string_encoding => gbk})
+    ),
+
+    %% Test maybe_decode_string with UTF-8 encoding (passthrough)
+    ?assertEqual(
+        Utf8Hello,
+        emqx_jt808_encoding:maybe_decode_string(Utf8Hello, test_field, #{string_encoding => utf8})
+    ),
+
+    %% Test maybe_decode_string with no encoding option (default passthrough)
+    ?assertEqual(Utf8Hello, emqx_jt808_encoding:maybe_decode_string(Utf8Hello, test_field, #{})),
+
+    %% Test maybe_encode_string with GBK encoding
+    ?assertEqual(
+        GbkHello,
+        emqx_jt808_encoding:maybe_encode_string(Utf8Hello, test_field, #{string_encoding => gbk})
+    ),
+
+    %% Test maybe_encode_string with UTF-8 encoding (passthrough)
+    ?assertEqual(
+        Utf8Hello,
+        emqx_jt808_encoding:maybe_encode_string(Utf8Hello, test_field, #{string_encoding => utf8})
+    ),
+
+    %% Test maybe_encode_string with no encoding option (default passthrough)
+    ?assertEqual(Utf8Hello, emqx_jt808_encoding:maybe_encode_string(Utf8Hello, test_field, #{})),
+
+    %% Test ASCII-only strings (should be identical in both encodings)
+    AsciiStr = <<"Hello123">>,
+    ?assertEqual(
+        AsciiStr,
+        emqx_jt808_encoding:maybe_decode_string(AsciiStr, test_field, #{string_encoding => gbk})
+    ),
+    ?assertEqual(
+        AsciiStr,
+        emqx_jt808_encoding:maybe_encode_string(AsciiStr, test_field, #{string_encoding => gbk})
+    ),
     ok.

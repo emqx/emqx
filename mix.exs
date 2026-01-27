@@ -314,6 +314,8 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}
 
+  def common_dep(:egbk), do: {:egbk, github: "emqx/egbk-conv", tag: "0.1.0", override: true}
+
   ###############################################################################################
   # BEGIN DEPRECATED FOR MIX BLOCK
   # These should be removed once we fully migrate to mix

@@ -269,7 +269,7 @@ handle_frame_error(Reason, Channel = #channel{clientinfo = ClientInfo}) ->
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->
     #{<<"body">> := #{<<"seq">> := Seq, <<"id">> := Id}} = Frame,
     NewInflight = ack_msg(?MC_GENERAL_RESPONSE, {Id, Seq}, Inflight),
-    {ok, Channel#channel{inflight = NewInflight}};
+    dispatch_and_reply(Channel#channel{inflight = NewInflight});
 do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
     case
@@ -353,7 +353,8 @@ do_handle_in(
             handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
         % this is a response to MS_REQ_DRIVER_ID(0x8702)
         true ->
-            {ok, Channel#channel{inflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight)}}
+            NewInflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight),
+            dispatch_and_reply(Channel#channel{inflight = NewInflight})
     end;
 do_handle_in(?MSG(?MC_DEREGISTER), Channel) ->
     {shutdown, normal, Channel};
@@ -373,7 +374,8 @@ do_handle_in(
                     handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
                 % these frames are response to server's request
                 false ->
-                    {ok, Channel#channel{inflight = ack_msg(MsgId, seq(Frame), Inflight)}}
+                    NewInflight = ack_msg(MsgId, seq(Frame), Inflight),
+                    dispatch_and_reply(Channel#channel{inflight = NewInflight})
             end;
         true ->
             _ = do_publish(Topic, Frame),
@@ -417,9 +419,9 @@ handle_deliver(
             log(debug, #{msg => "enqueue_messages", messages => NMessages}, Channel),
             metrics_inc('messages.delivered', Channel, erlang:length(NMessages)),
             discard_downlink_messages(Dropped, Channel),
-            Frames = msgs2frame(NMessages, Channel),
+            {Frames, NChannel1} = msgs2frame(NMessages, Channel),
             NQueue = lists:foldl(fun(F, Q) -> queue:in(F, Q) end, Queue, Frames),
-            {Outgoings, NChannel} = dispatch_frame(Channel#channel{mqueue = NQueue}),
+            {Outgoings, NChannel} = dispatch_frame(NChannel1#channel{mqueue = NQueue}),
             {ok, [{outgoing, Outgoings}], NChannel}
     end.
 
@@ -434,33 +436,35 @@ split_by_pos([E | L], N, A1) ->
     split_by_pos(L, N - 1, [E | A1]).
 
 msgs2frame(Messages, Channel) ->
-    lists:filtermap(
-        fun(#message{payload = Payload}) ->
+    {Frames, NChannel} = lists:foldl(
+        fun(#message{payload = Payload}, {AccFrames, AccChannel}) ->
             case emqx_utils_json:safe_decode(Payload) of
-                {ok, Map = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
-                    NewHeader = build_frame_header(MsgId, Channel),
-                    Frame = maps:put(<<"header">>, NewHeader, Map),
-                    {true, Frame};
+                {ok, PayloadJson = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
+                    NewHeader = build_frame_header(MsgId, AccChannel),
+                    Frame = PayloadJson#{<<"header">> => NewHeader},
+                    {[Frame | AccFrames], state_inc_sn(AccChannel)};
                 {ok, _} ->
                     tp(
                         error,
                         invalid_dl_message,
                         #{reasons => "missing_msg_id", payload => Payload},
-                        Channel
+                        AccChannel
                     ),
-                    false;
+                    {AccFrames, AccChannel};
                 {error, _Reason} ->
                     tp(
                         error,
                         invalid_dl_message,
                         #{reason => "invalid_json", payload => Payload},
-                        Channel
+                        AccChannel
                     ),
-                    false
+                    {AccFrames, AccChannel}
             end
         end,
+        {[], Channel},
         Messages
-    ).
+    ),
+    {lists:reverse(Frames), NChannel}.
 
 authack(
     {Code, MsgSn,
@@ -625,7 +629,6 @@ retry_delivery([{Key, {Frame, RetxCount, Ts}} | Frames], Now, Interval, Inflight
 
 dispatch_frame(
     Channel = #channel{
-        msg_sn = TxMsgSn,
         mqueue = Queue,
         inflight = Inflight,
         retx_max_times = RetxMax
@@ -640,12 +643,18 @@ dispatch_frame(
             log(debug, #{msg => "delivery", frame => Frame}, Channel),
 
             NewInflight = emqx_inflight:insert(
-                set_msg_ack(msgid(Frame), TxMsgSn),
+                set_msg_ack(msgid(Frame), msgsn(Frame)),
                 {Frame, RetxMax, erlang:system_time(millisecond)},
                 Inflight
             ),
             NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
             {[Frame], ensure_timer(retry_timer, NChannel)}
+    end.
+
+dispatch_and_reply(Channel) ->
+    case dispatch_frame(Channel) of
+        {[], NChannel} -> {ok, NChannel};
+        {Outgoings, NChannel} -> {ok, [{outgoing, Outgoings}], NChannel}
     end.
 
 %%--------------------------------------------------------------------
@@ -851,8 +860,8 @@ set_msg_ack(?MS_SINGLE_MM_DATA_CTRL, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 set_msg_ack(?MS_SEND_TRANSPARENT_DATA, MsgSn) ->
     {?MC_GENERAL_RESPONSE, {?MS_SEND_TRANSPARENT_DATA, MsgSn}};
-set_msg_ack(?MS_QUERY_AREA_ROUTE, MsgSn) ->
-    {?MC_QUERY_AREA_ROUTE_ACK, MsgSn};
+set_msg_ack(?MS_QUERY_AREA_ROUTE, _MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, none};
 set_msg_ack(MsgId, Param) ->
     error({invalid_message_type, MsgId, Param}).
 
@@ -878,8 +887,8 @@ get_msg_ack(?MC_MM_DATA_SEARCH_ACK, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 get_msg_ack(?MC_DRIVER_ID_REPORT, _MsgSn) ->
     {?MC_DRIVER_ID_REPORT, none};
-get_msg_ack(?MC_QUERY_AREA_ROUTE_ACK, MsgSn) ->
-    {?MC_QUERY_AREA_ROUTE_ACK, MsgSn};
+get_msg_ack(?MC_QUERY_AREA_ROUTE_ACK, _MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, none};
 get_msg_ack(MsgId, MsgSn) ->
     error({invalid_message_type, MsgId, MsgSn}).
 
