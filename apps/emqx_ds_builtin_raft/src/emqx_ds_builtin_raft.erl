@@ -1078,13 +1078,17 @@ This internal function is used by the OTX leader process to
 communicate with the Raft machine.
 """.
 -spec local_raft_leader(emqx_ds:db(), emqx_ds:shard()) ->
-    {ok, ra:server_id()} | {error, _}.
+    {ok, ra:server_id()} | {error, _, _}.
 local_raft_leader(DB, Shard) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
     case ra:ping(LocalServer, 1_000) of
         {pong, leader} ->
             %% Local server still considers itself a leader:
             {ok, LocalServer};
+        {pong, State} ->
+            ?err_unrec({invalid_state_of_local_leader, State});
+        timeout ->
+            ?err_rec(local_leader_timeout);
         Other ->
             ?err_unrec({invalid_response_from_local_leader, Other})
     end.
