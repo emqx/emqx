@@ -199,11 +199,15 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         intensity => 10,
         period => 100
     },
+    Setup = fun() -> ok end,
+    Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, '_') end,
+    %% FIXME: remove schema from here
     Schema = emqx_dsch:get_db_schema(DB),
     #{runtime := RTConf} = emqx_dsch:get_db_runtime(DB),
     Opts = maps:merge(Schema, RTConf),
     Children =
-        [shard_storage_spec(DB, Shard, Opts),
+        [emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
+         shard_storage_spec(DB, Shard, Opts),
          shard_replication_spec(DB, Shard, Schema, RTConf)] ++
          shard_beamformers_spec(DB, Shard, Opts),
     {ok, {SupFlags, Children}};
