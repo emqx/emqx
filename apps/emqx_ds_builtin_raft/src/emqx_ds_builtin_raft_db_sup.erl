@@ -148,15 +148,18 @@ start_shard_leader_sup(DB, Shard) ->
 
 %% @doc Shut down the leader-specific processes when the node loses
 %% leader status
--spec stop_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) -> ok.
+-spec stop_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
 stop_shard_leader_sup(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
     Child = ?shard_leader_sup,
-    case supervisor:terminate_child(Sup, Child) of
+    try supervisor:terminate_child(Sup, Child) of
         ok ->
             supervisor:delete_child(Sup, Child);
         {error, Reason} ->
             {error, Reason}
+    catch
+        exit:{noproc, _} ->
+            {error, shard_sup_is_not_running}
     end.
 
 %%================================================================================
