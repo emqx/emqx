@@ -298,12 +298,13 @@ retry_dirty_append(Shard, Opts, TTVs, Retries) ->
                         Other
                 end
         after 5_000 ->
-            {error, recoverable, timeout}
+            %% We've entered unknown territory, do not retry:
+            {error, unrecoverable, timeout}
         end,
     case Result of
         ok ->
             ok;
-        _ when Retries > 0 ->
+        {error, recoverable, _} when Retries > 0 ->
             timer:sleep(500),
             retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
         _ ->

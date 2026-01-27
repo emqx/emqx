@@ -618,6 +618,8 @@ t_rebalance_tolerate_lost(Config) ->
     [NS1, NS2, NS3] = ?config(nodespecs, Config),
     MsgStream = emqx_ds_test_helpers:topic_messages(?FUNCTION_NAME, <<"C1">>),
 
+    AppendOpts = #{db => ?DB, retries => 5},
+
     %% Start and initialize DB on a first node.
     %% The same usually happens with current defaults.
     [N1] = emqx_cth_cluster:start([NS1]),
@@ -669,8 +671,8 @@ t_rebalance_tolerate_lost(Config) ->
     %% Messages can now again be persisted successfully.
     {Msgs1, MsgStream1} = emqx_utils_stream:consume(50, MsgStream),
     {Msgs2, _MsgStream} = emqx_utils_stream:consume(50, MsgStream1),
-    ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(?DB, Msgs1))),
-    ?assertEqual(ok, ?ON(N3, emqx_ds_test_helpers:dirty_append(?DB, Msgs2))),
+    ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs1))),
+    ?assertEqual(ok, ?ON(N3, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs2))),
     MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
     ok = emqx_ds_test_helpers:diff_messages(Msgs1 ++ Msgs2, MsgsPersisted),
 
@@ -722,12 +724,14 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
     ct:pal("DS Status [healthy cluster]:", []),
     ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
 
+    AppendOpts = #{db => ?DB, retries => 5},
+
     ?check_trace(
         #{timetrap => 30_000},
         begin
             %% Store a bunch of messages.
             {Msgs1, MsgStream1} = emqx_utils_stream:consume(20, MsgStream),
-            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(?DB, Msgs1))),
+            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs1))),
 
             %% Stop N2.
             ok = emqx_cth_cluster:stop_node(N2),
@@ -735,7 +739,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
 
             %% Store another bunch of messages.
             {Msgs2, MsgStream2} = emqx_utils_stream:consume(20, MsgStream1),
-            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(?DB, Msgs2))),
+            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs2))),
 
             %% Stop N3 and N4 and expunge them out of the cluster.
             ok = emqx_cth_cluster:stop([N3, N4]),
@@ -808,7 +812,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
 
             %% Messages can now again be persisted successfully.
             {Msgs3, _MsgStream} = emqx_utils_stream:consume(20, MsgStream2),
-            ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(?DB, Msgs3))),
+            ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs3))),
             %% ...And the original messages still available in the DB.
             MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
             ok = emqx_ds_test_helpers:diff_messages(
