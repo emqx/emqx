@@ -728,23 +728,25 @@ otx_get_latest_generation(DB, Shard) ->
 
 otx_become_leader(DB, Shard) ->
     ok = maybe_propagate_initial_schema(DB, Shard),
+    maybe
+        {ok, Leader} ?= local_raft_leader(DB, Shard),
+        {ok, Serial, Timestamp} ?= do_become_otx_leader(Leader, 5_000),
+        %% Announce this process in the global name registry:
+        register_global_otx_leader(DB, Shard),
+        {ok, Serial, Timestamp}
+    end.
+
+do_become_otx_leader(Leader, Timeout) ->
     Command = emqx_ds_builtin_raft_machine:otx_new_leader(self()),
-    case local_raft_leader(DB, Shard) of
-        unknown ->
-            ?err_rec(leader_unavailable);
-        Leader ->
-            case ra:process_command(Leader, Command, 5_000) of
-                {ok, {error, _, _} = Err, _} ->
-                    Err;
-                {ok, {Serial, Timestamp}, Leader} ->
-                    %% Announce this process in the global name registry:
-                    register_global_otx_leader(DB, Shard),
-                    {ok, Serial, Timestamp};
-                {ok, Return, AnotherLeader} ->
-                    ?err_rec({leadership_gone, Return, AnotherLeader});
-                Err ->
-                    ?err_unrec({raft, Err})
-            end
+    case ra:process_command(Leader, Command, Timeout) of
+        {ok, {TxSerial, TxLastTimestamp}, Leader} ->
+            {ok, TxSerial, TxLastTimestamp};
+        {ok, {error, _, _} = Err, Leader} ->
+            Err;
+        {ok, _, OtherLeader} ->
+            ?err_unrec({leadership_gone, #{Leader => OtherLeader}});
+        Err ->
+            ?err_rec({raft, Err})
     end.
 
 -spec otx_prepare_tx(
@@ -761,17 +763,17 @@ otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
 otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     Command = emqx_ds_builtin_raft_machine:otx_commit(SerCtl, Serial, Timestamp, Batches, self()),
     case local_raft_leader(DB, Shard) of
-        unknown ->
-            ?err_rec(leader_unavailable);
-        Leader ->
+        {ok, Leader} ->
             case ra:process_command(Leader, Command, 5_000) of
                 {ok, ok, _Leader} ->
                     ok;
                 {ok, Err, _Leader} ->
                     Err;
                 Err ->
-                    ?err_unrec({raft, Err})
-            end
+                    ?err_rec({raft, Err})
+            end;
+        Err ->
+            Err
     end.
 
 otx_add_generation(DB, Shard, Since) ->
@@ -1076,15 +1078,15 @@ This internal function is used by the OTX leader process to
 communicate with the Raft machine.
 """.
 -spec local_raft_leader(emqx_ds:db(), emqx_ds:shard()) ->
-    ra:server_id() | unknown.
+    {ok, ra:server_id()} | {error, _}.
 local_raft_leader(DB, Shard) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
     case ra:ping(LocalServer, 1_000) of
         {pong, leader} ->
             %% Local server still considers itself a leader:
-            LocalServer;
-        _ ->
-            unknown
+            {ok, LocalServer};
+        Other ->
+            ?err_unrec({invalid_response_from_local_leader, Other})
     end.
 
 list_nodes() ->
