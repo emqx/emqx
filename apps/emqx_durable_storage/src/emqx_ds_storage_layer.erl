@@ -58,7 +58,6 @@
     generation_get/2,
     generation_current/1,
     generations_since/2,
-    get_gvars/1,
     ls_shards/1,
     get_stats/1,
     db_group_stats/2,
@@ -218,9 +217,7 @@
     %% Generations:
     ?GEN_KEY(gen_id()) => GenData,
     %% DB handle (runtime only).
-    db => rocksdb:db_handle(),
-    %% Runtime global variables
-    gvars => ets:tid()
+    db => rocksdb:db_handle()
 }.
 
 %% Shard schema (persistent):
@@ -500,8 +497,7 @@ start_link_no_schema(ShardId, Options = #{db_group := _}) ->
 -record(s_no_schema, {
     shard_id :: dbshard(),
     db :: rocksdb:db_handle(),
-    cf_refs :: cf_refs(),
-    gvars :: ets:tid()
+    cf_refs :: cf_refs()
 }).
 
 -record(s, {
@@ -528,17 +524,14 @@ init({ShardId, Options}) ->
     {ok, DB, CFRefs} = rocksdb_open(ShardId, Options),
     case get_schema_persistent(DB) of
         not_found ->
-            GVars = make_gvars(),
             S = #s_no_schema{
                 shard_id = ShardId,
                 db = DB,
-                cf_refs = CFRefs,
-                gvars = GVars
+                cf_refs = CFRefs
             },
-            put_schema_runtime(ShardId, open_shard(ShardId, DB, CFRefs, #{}, GVars)),
             {ok, S};
         Schema ->
-            Shard = open_shard(ShardId, DB, CFRefs, Schema, make_gvars()),
+            Shard = open_shard(ShardId, DB, CFRefs, Schema),
             CurrentGenId = maps:get(current_generation, Schema),
             S = #s{
                 shard_id = ShardId,
@@ -616,8 +609,8 @@ handle_call(#call_ensure_schema{options = Opts}, _From, S0) ->
         #s{} ->
             %% Already exists:
             {reply, ok, S0};
-        #s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs, gvars = GVars} ->
-            case handle_create_schema(ShardId, DB, CFRefs, GVars, Opts) of
+        #s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs} ->
+            case handle_create_schema(ShardId, DB, CFRefs, Opts) of
                 {ok, S} ->
                     {reply, ok, S};
                 {error, _} = Err ->
@@ -706,9 +699,9 @@ clear_all_checkpoints(ShardId) ->
         CheckpointDirs
     ).
 
--spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema() | #{}, ets:tid()) ->
+-spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema() | #{}) ->
     shard().
-open_shard(ShardId, DB, CFRefs, ShardSchema, GVars) ->
+open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     %% Transform generation schemas to generation runtime data:
     Shard = maps:map(
         fun
@@ -719,10 +712,7 @@ open_shard(ShardId, DB, CFRefs, ShardSchema, GVars) ->
         end,
         ShardSchema
     ),
-    Shard#{
-        db => DB,
-        gvars => GVars
-    }.
+    Shard#{db => DB}.
 
 -spec handle_add_generation(server_state(), emqx_ds:time(), prototype() | undefined) ->
     server_state() | {error, overlaps_existing_generations}.
@@ -845,14 +835,14 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     GenSchema#{data => RuntimeData}.
 
 -spec handle_create_schema(
-    dbshard(), rocksdb:db_handle(), cf_refs(), ets:tid(), emqx_ds:create_db_opts()
+    dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()
 ) ->
     {ok, server_state()} | {error, _}.
-handle_create_schema(ShardId, DB, CFRefs0, GVars, Options) ->
+handle_create_schema(ShardId, DB, CFRefs0, Options) ->
     maybe
         {ok, Schema, CFRefs} ?= create_new_shard_schema(ShardId, DB, CFRefs0, Options),
         CurrentGenId = maps:get(current_generation, Schema),
-        Shard = open_shard(ShardId, DB, CFRefs, Schema, GVars),
+        Shard = open_shard(ShardId, DB, CFRefs, Schema),
         S = #s{
             shard_id = ShardId,
             db = DB,
@@ -1212,15 +1202,6 @@ format_state(S = #s{shard = Shard0}) ->
 -spec get_schema_runtime(dbshard()) -> shard() | emqx_ds:error(_).
 get_schema_runtime(Shard = {_, _}) ->
     persistent_term:get(?PERSISTENT_TERM(Shard), ?err_rec(shard_unavailable)).
-
--spec get_gvars(dbshard()) -> ets:tid().
-get_gvars(DBShard) ->
-    #{gvars := GVars} = get_schema_runtime(DBShard),
-    GVars.
-
--spec make_gvars() -> ets:tid().
-make_gvars() ->
-    ets:new(emqx_ds_storage_layer_gvars, [set, public, {read_concurrency, true}]).
 
 -spec get_stats(emqx_ds:db()) -> map().
 get_stats(DB) ->

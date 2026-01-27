@@ -279,8 +279,7 @@ apply(
 apply(
     RaftMeta = #{machine_version := Vsn},
     #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
-    #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest, schema := OldSchema} =
-        State0
+    #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest} = State0
 ) ->
     ?tp(
         notice,
