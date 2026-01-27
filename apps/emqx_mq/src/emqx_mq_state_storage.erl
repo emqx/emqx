@@ -41,9 +41,16 @@ Persistence of Message queue state:
     find_mq/1
 ]).
 
+-export([
+    set_name_index/2,
+    find_id_by_name/1,
+    destroy_name_index/2
+]).
+
 %% For tests/maintenance.
 -export([
-    delete_all/0
+    delete_all/0,
+    mq_ids/0
 ]).
 
 -export([
@@ -62,10 +69,18 @@ Persistence of Message queue state:
 -define(pn_shard_progress, <<"shp">>).
 -define(col_shard_progress, col_shard_progress).
 -define(pn_mq, <<"mq">>).
--define(col_mq, col_mq).
+-define(pn_id, <<"id">>).
 
+%% pmap keys
 -define(mq_key, mq_key).
 -define(mq_key_bin, <<"mq_key">>).
+
+-define(id_key, id_key).
+-define(id_key_bin, <<"id_key">>).
+
+-define(mq_id_prefix, "m-").
+-define(consumer_id_prefix, "c-").
+-define(name_id_prefix, "n-").
 
 -type consumer_state() :: #{
     id := id(),
@@ -76,21 +91,8 @@ Persistence of Message queue state:
     )
 }.
 
--type mq_state() :: #{
-    id := id(),
-    ?collection_dirty := boolean(),
-    ?collection_guard := emqx_ds_pmap:guard() | undefined,
-    %% NOTE
-    %% we store MQ as a singleton key-value pair
-    %% since we are not going to update MQ properties individually.
-    %%
-    %% This also allows us to dirty read the MQ consistently.
-    ?col_mq := emqx_ds_pmap:pmap(?mq_key, emqx_mq_types:mq())
-}.
-
 -export_type([
-    consumer_state/0,
-    mq_state/0
+    consumer_state/0
 ]).
 
 -define(STATE_DELETE_RETRY, 1).
@@ -132,14 +134,7 @@ open_consumer_state(MQ) ->
             persist_consumer_state_tx(_NeedClaimOwnership = true, Rec)
         end
     ),
-    case TxRes of
-        {atomic, TXSerial, Rec} ->
-            {ok, Rec#{?collection_guard := TXSerial}};
-        {nop, Rec} ->
-            {ok, Rec};
-        Err ->
-            {error, {failed_to_open_consumer_state, Err}}
-    end.
+    format_tx_result(TxRes, failed_to_open_consumer_state).
 
 -spec put_shard_progress(
     emqx_ds:shard(), emqx_mq_consumer_stream_buffer:progress(), consumer_state()
@@ -190,42 +185,33 @@ destroy_consumer_state(MQHandle) ->
             emqx_ds_pmap:tx_destroy(Id, ?pn_shard_progress)
         end
     ),
-    case TxRes of
-        {atomic, _TXSerial, _} ->
-            ok;
-        {nop, _} ->
-            ok;
-        Err ->
-            {error, {failed_to_destroy_consumer_state, Err}}
-    end.
+    format_tx_result(TxRes, failed_to_destroy_consumer_state).
 
--spec create_mq_state(emqx_mq_types:mq()) -> {ok, mq_state()} | {error, term()}.
+%%------------------------------------------------------------------------------
+%% MQ State API
+%%------------------------------------------------------------------------------
+
+-spec create_mq_state(emqx_mq_types:mq()) -> ok | {error, term()}.
 create_mq_state(MQ) ->
     Id = mq_state_id(MQ),
     TransOpts = trans_opts(Id),
     TxRes = emqx_ds:trans(
         TransOpts,
         fun() ->
-            case open_mq_state_tx(Id) of
+            case emqx_ds_pmap:tx_guard(Id) of
                 undefined ->
-                    MQStateNewRec0 = put_mq(MQ, new_mq_state(MQ)),
-                    %% Token is used just as collection presence marker.
-                    %% We do not have concept of MQ state ownership.
+                    Pmap0 = emqx_ds_pmap:new_pmap(?MODULE, ?pn_mq),
+                    Pmap = emqx_ds_pmap:put(?mq_key, MQ, Pmap0),
                     emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
-                    persist_mq_state_tx(MQStateNewRec0);
-                FoundMQStateRec ->
-                    FoundMQStateRec
-            end
+                    emqx_ds_pmap:tx_commit(Id, Pmap),
+                    ok;
+                _Guard ->
+                    {error, {mq_state_already_exists, Id}}
+            end,
+            ok
         end
     ),
-    case TxRes of
-        {atomic, TXSerial, MQStateRec} ->
-            {ok, MQStateRec#{?collection_guard := TXSerial}};
-        {nop, MQStateRec} ->
-            {ok, MQStateRec};
-        Err ->
-            {error, {failed_to_create_mq_state, Err}}
-    end.
+    format_tx_result(TxRes, failed_to_create_mq_state).
 
 -spec update_mq_state(emqx_mq_types:mqid(), map()) ->
     {ok, emqx_mq_types:mq()} | not_found | {error, term()}.
@@ -235,26 +221,21 @@ update_mq_state(MQId, MQFields) ->
     TxRes = emqx_ds:trans(
         TransOpts,
         fun() ->
-            case open_mq_state_tx(Id) of
+            case emqx_ds_pmap:tx_guard(Id) of
                 undefined ->
                     not_found;
-                MQStateRec0 ->
-                    MQ0 = emqx_ds_pmap:collection_get(?col_mq, ?mq_key, MQStateRec0),
+                _Guard ->
+                    Pmap0 = emqx_ds_pmap:tx_restore(?MODULE, ?pn_mq, Id),
+                    MQ0 = emqx_ds_pmap:get(?mq_key, Pmap0),
                     MQ = maps:merge(MQ0, MQFields),
-                    MQStateRec = put_mq(MQ, MQStateRec0),
-                    _ = persist_mq_state_tx(MQStateRec),
+                    Pmap = emqx_ds_pmap:put(?mq_key, MQ, Pmap0),
+                    emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
+                    emqx_ds_pmap:tx_commit(Id, Pmap),
                     {ok, MQ}
             end
         end
     ),
-    case TxRes of
-        {atomic, _TXSerial, Res} ->
-            Res;
-        {nop, Res} ->
-            Res;
-        Err ->
-            {error, {failed_to_update_mq_state, Err}}
-    end.
+    format_tx_result(TxRes, failed_to_update_mq_state).
 
 -spec find_mq(emqx_mq_types:mqid()) -> {ok, emqx_mq_types:mq()} | not_found.
 find_mq(MQId) ->
@@ -277,14 +258,76 @@ destroy_mq_state(MQ) ->
             emqx_ds_pmap:tx_destroy(Id, ?pn_mq)
         end
     ),
-    case TxRes of
-        {atomic, _TXSerial, _} ->
-            ok;
-        {nop, _} ->
-            ok;
-        Err ->
-            {error, {failed_to_destroy_mq_state, Err}}
+    format_tx_result(TxRes, failed_to_destroy_mq_state).
+
+%%------------------------------------------------------------------------------
+%% Name Index API
+%%------------------------------------------------------------------------------
+
+-spec set_name_index(emqx_mq_types:mq_name(), emqx_mq_types:mqid()) ->
+    ok | {error, term()}.
+set_name_index(Name, MQId) ->
+    Id = name_id(Name),
+    TransOpts = trans_opts(Id),
+    TxRes = emqx_ds:trans(
+        TransOpts,
+        fun() ->
+            case emqx_ds_pmap:tx_guard(Id) of
+                undefined ->
+                    Pmap0 = emqx_ds_pmap:new_pmap(?MODULE, ?pn_id),
+                    Pmap = emqx_ds_pmap:put(?id_key, MQId, Pmap0),
+                    emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
+                    emqx_ds_pmap:tx_commit(Id, Pmap),
+                    ok;
+                _Guard ->
+                    Pmap0 = emqx_ds_pmap:tx_restore(?MODULE, ?pn_id, Id),
+                    case emqx_ds_pmap:get(?id_key, Pmap0) of
+                        MQId ->
+                            ok;
+                        _ ->
+                            {error, {name_index_already_exists, Name}}
+                    end
+            end
+        end
+    ),
+    format_tx_result(TxRes, failed_to_update_name_index_state).
+
+-spec find_id_by_name(binary()) -> {ok, emqx_mq_types:mqid()} | not_found.
+find_id_by_name(Name) ->
+    FoldOptions = maps:merge(trans_opts(Name), #{errors => ignore}),
+    case emqx_ds_pmap:dirty_read(?MODULE, ?pn_id, Name, FoldOptions) of
+        #{?id_key := Id} ->
+            {ok, Id};
+        #{} ->
+            not_found
     end.
+
+-spec destroy_name_index(emqx_mq_types:mq_name(), emqx_mq_types:mqid()) -> ok | {error, term()}.
+destroy_name_index(Name, MQId) ->
+    Id = name_id(Name),
+    TxRes = emqx_ds:trans(
+        trans_opts(Id),
+        fun() ->
+            case emqx_ds_pmap:tx_guard(Id) of
+                undefined ->
+                    {error, {name_index_not_found, Name}};
+                _Guard ->
+                    Pmap = emqx_ds_pmap:tx_restore(?MODULE, ?pn_id, Id),
+                    case emqx_ds_pmap:get(?id_key, Pmap) of
+                        MQId ->
+                            emqx_ds_pmap:tx_delete_guard(Id),
+                            emqx_ds_pmap:tx_destroy(Id, ?pn_id);
+                        _ ->
+                            ok
+                    end
+            end
+        end
+    ),
+    format_tx_result(TxRes, failed_to_destroy_name_index_state).
+
+%%------------------------------------------------------------------------------
+%% Utility functions
+%%------------------------------------------------------------------------------
 
 -spec delete_all() -> ok.
 delete_all() ->
@@ -301,6 +344,24 @@ delete_all() ->
         Shards
     ).
 
+-spec mq_ids() -> [emqx_mq_types:mqid()].
+mq_ids() ->
+    emqx_ds:fold_topic(
+        fun({Topic, _, _}, Acc) ->
+            case Topic of
+                ?guard_topic(<<?mq_id_prefix, MQId/binary>>) ->
+                    [MQId | Acc];
+                _ ->
+                    Acc
+            end
+        end,
+        [],
+        ?guard_topic('+'),
+        #{
+            db => ?DB
+        }
+    ).
+
 %%------------------------------------------------------------------------------
 %% emqx_ds_pmap behaviour
 %%------------------------------------------------------------------------------
@@ -308,12 +369,16 @@ delete_all() ->
 pmap_encode_key(?pn_shard_progress, Shard = _Key, _Val) when is_binary(Shard) ->
     Shard;
 pmap_encode_key(?pn_mq, ?mq_key, _Val) ->
-    ?mq_key_bin.
+    ?mq_key_bin;
+pmap_encode_key(?pn_id, ?id_key, _Val) ->
+    ?id_key_bin.
 
 pmap_decode_key(?pn_shard_progress, Shard = _KeyBin) ->
     Shard;
 pmap_decode_key(?pn_mq, ?mq_key_bin) ->
-    ?mq_key.
+    ?mq_key;
+pmap_decode_key(?pn_id, ?id_key_bin) ->
+    ?id_key.
 
 pmap_encode_val(?pn_shard_progress, _Key, #{
     status := active,
@@ -370,6 +435,7 @@ pmap_encode_val(
     } = MQ
 ) ->
     KeyExpression = maps:get(key_expression, MQ, undefined),
+    Name = maps:get(name, MQ, undefined),
     'MessageQueue':encode('MQ', #'MQ'{
         id = Id,
         topicFilter = TopicFilter,
@@ -385,8 +451,11 @@ pmap_encode_val(
         consumerPersistenceInterval = ConsumerPersistenceInterval,
         dataRetentionPeriod = DataRetentionPeriod,
         keyExpression = key_expression_to_asn1(KeyExpression),
-        limits = limits_to_asn1(Limits)
-    }).
+        limits = limits_to_asn1(Limits),
+        name = name_to_asn1(Name)
+    });
+pmap_encode_val(?pn_id, ?id_key, MQId) ->
+    MQId.
 
 pmap_decode_val(?pn_shard_progress, _Key, ValBin) ->
     case 'MessageQueue':decode('ShardProgress', ValBin) of
@@ -435,9 +504,10 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         consumerPersistenceInterval = ConsumerPersistenceInterval,
         dataRetentionPeriod = DataRetentionPeriod,
         keyExpression = KeyExpression,
-        limits = Limits
+        limits = Limits,
+        name = Name
     } = 'MessageQueue':decode('MQ', ValBin),
-    MQ = #{
+    MQ0 = #{
         id => Id,
         topic_filter => TopicFilter,
         is_lastvalue => IsLastvalue,
@@ -453,7 +523,10 @@ pmap_decode_val(?pn_mq, ?mq_key, ValBin) ->
         data_retention_period => DataRetentionPeriod,
         limits => limits_from_asn1(Limits)
     },
-    key_expression_from_asn1(MQ, KeyExpression).
+    MQ = key_expression_from_asn1(MQ0, KeyExpression),
+    name_from_asn1(MQ, Name);
+pmap_decode_val(?pn_id, ?id_key, IdKeyBin) ->
+    IdKeyBin.
 
 %%------------------------------------------------------------------------------
 %% Internal functions
@@ -497,39 +570,6 @@ persist_consumer_state_tx(
         ?collection_dirty := false
     }.
 
--spec new_mq_state(emqx_mq_types:mq()) -> mq_state().
-new_mq_state(MQ) ->
-    #{
-        id => mq_state_id(MQ),
-        ?collection_dirty => true,
-        ?collection_guard => undefined,
-        ?col_mq => emqx_ds_pmap:new_pmap(?MODULE, ?pn_mq)
-    }.
-
--spec put_mq(emqx_mq_types:mq(), mq_state()) -> mq_state().
-put_mq(MQ, MQStateRec) ->
-    emqx_ds_pmap:collection_put(?col_mq, ?mq_key, MQ, MQStateRec).
-
--spec open_mq_state_tx(id()) -> mq_state() | undefined.
-open_mq_state_tx(Id) ->
-    case emqx_ds_pmap:tx_guard(Id) of
-        undefined ->
-            undefined;
-        Guard ->
-            #{
-                id => Id,
-                ?collection_guard => Guard,
-                ?collection_dirty => false,
-                ?col_mq => emqx_ds_pmap:tx_restore(?MODULE, ?pn_mq, Id)
-            }
-    end.
-
-persist_mq_state_tx(#{id := Id, ?col_mq := MQPmap} = MQStateRec) ->
-    MQStateRec#{
-        ?col_mq := emqx_ds_pmap:tx_commit(Id, MQPmap),
-        ?collection_dirty := false
-    }.
-
 trans_opts(Id) ->
     trans_opts(Id, #{}).
 
@@ -544,12 +584,17 @@ trans_opts(Id, Opts) ->
     ).
 
 consumer_state_id(#{id := Id}) ->
-    <<"c-", Id/binary>>.
+    <<?consumer_id_prefix, Id/binary>>.
 
 mq_state_id(#{id := Id}) ->
     mq_state_id(Id);
 mq_state_id(Id) when is_binary(Id) ->
-    <<"m-", Id/binary>>.
+    <<?mq_id_prefix, Id/binary>>.
+
+name_id(#{name := Name}) ->
+    name_id(Name);
+name_id(Name) when is_binary(Name) ->
+    <<?name_id_prefix, Name/binary>>.
 
 to_asn1_optional_integer(undefined) ->
     asn1_NOVALUE;
@@ -571,6 +616,16 @@ key_expression_to_asn1(undefined) ->
     asn1_NOVALUE;
 key_expression_to_asn1(KeyExpression) ->
     emqx_variform:decompile(KeyExpression).
+
+name_to_asn1(undefined) ->
+    asn1_NOVALUE;
+name_to_asn1(Name) ->
+    Name.
+
+name_from_asn1(MQ, asn1_NOVALUE) ->
+    MQ;
+name_from_asn1(MQ, Name) ->
+    MQ#{name => Name}.
 
 limit_from_asn1_optional_integer(asn1_NOVALUE) ->
     infinity;
@@ -604,3 +659,10 @@ limits_to_asn1(#{
         maxShardMessageCount = limit_to_asn1_optional_integer(MaxShardMessageCount),
         maxShardMessageBytes = limit_to_asn1_optional_integer(MaxShardMessageBytes)
     }.
+
+format_tx_result({atomic, _TXSerial, Res}, _ErrorLabel) ->
+    Res;
+format_tx_result({nop, Res}, _ErrorLabel) ->
+    Res;
+format_tx_result(Err, ErrorLabel) ->
+    {error, {ErrorLabel, Err}}.

@@ -11,6 +11,9 @@
 -define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
 %% -define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
 
+%% Queue name for pre-6.1.1 queues.
+-define(DEFAULT_MQ_NAME, <<"default">>).
+
 -define(MQ_HEADER_MESSAGE_ID, mq_msg_id).
 -define(MQ_HEADER_SUBSCRIBER_ID, mq_sub_id).
 
