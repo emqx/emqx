@@ -92,7 +92,7 @@ usage() {
         echo "through a named pipe."
         logwarn "try to use the safer alternative, remote_console command."
         ;;
-    remote_console)
+    remote_console|remote)
         echo "Start an interactive shell running an Erlang or Elixir node which "
         echo "hidden-connects to the running EMQX node".
         echo "This command is mostly used for troubleshooting."
@@ -1175,7 +1175,7 @@ case "${COMMAND}" in
         exec "$BINDIR/to_erl" "$PIPE_DIR"
         ;;
 
-    remote_console)
+    remote_console|remote)
         assert_node_alive
 
         shift

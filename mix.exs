@@ -188,7 +188,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.2", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.3", override: true}
   def common_dep(:esockd), do: {:esockd, github: "emqx/esockd", tag: "5.14.0", override: true}
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
   def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.3", override: true}
@@ -286,17 +286,17 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:influxdb),
     do: {:influxdb, github: "emqx/influxdb-client-erl", tag: "1.1.13", override: true}
 
-  def common_dep(:wolff), do: {:wolff, "4.1.3"}
+  def common_dep(:wolff), do: {:wolff, "4.1.7"}
   def common_dep(:brod_gssapi), do: {:brod_gssapi, "0.1.3"}
 
   def common_dep(:kafka_protocol),
-    do: {:kafka_protocol, "4.3.1", override: true}
+    do: {:kafka_protocol, "4.3.2", override: true}
 
-  def common_dep(:brod), do: {:brod, "4.5.1"}
+  def common_dep(:brod), do: {:brod, "4.5.2"}
   ## TODO: remove `mix.exs` from `wolff` and remove this override
   ## TODO: remove `mix.exs` from `pulsar` and remove this override
   def common_dep(:snappyer), do: {:snappyer, "1.2.10", override: true}
-  def common_dep(:crc32cer), do: {:crc32cer, "1.1.0", override: true}
+  def common_dep(:crc32cer), do: {:crc32cer, "1.1.2", override: true}
   def common_dep(:jesse), do: {:jesse, github: "emqx/jesse", tag: "1.8.1.1"}
 
   def common_dep(:erlavro),

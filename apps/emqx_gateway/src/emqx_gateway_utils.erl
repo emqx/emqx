@@ -146,7 +146,10 @@ when
         frame_mod := atom(),
         chann_mod := atom(),
         connection_mod => atom(),
-        esockd_proxy_opts => map()
+        esockd_proxy_opts => map(),
+        %% Dynamically generate the connection options for the listener
+        %% based on the listener type
+        connection_opts => fun((Type :: udp | dtls) -> map())
     }.
 start_listeners(Listeners, GwName, Ctx, ModCfg) ->
     start_listeners(Listeners, GwName, Ctx, ModCfg, []).
@@ -216,9 +219,16 @@ start_listener(
             emqx_gateway_utils:supervisor_ret({error, Reason})
     end.
 
-start_listener(GwName, Ctx, Type, LisName, ListenOn, Confs, ModCfg) when
+start_listener(GwName, Ctx, Type, LisName, ListenOn, Confs, ModCfg0) when
     ?IS_ESOCKD_LISTENER(Type)
 ->
+    ModCfg =
+        case ModCfg0 of
+            #{connection_opts := ConnectionOptsFun} ->
+                maps:without([connection_opts], maps:merge(ModCfg0, ConnectionOptsFun(Type)));
+            _ ->
+                ModCfg0
+        end,
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     SocketOpts = merge_default(Type, esockd_opts(Type, Confs)),
     HighLevelCfgs0 = filter_out_low_level_opts(Type, Confs),
@@ -440,7 +450,16 @@ update_listeners(NewListeners, OldListeners, GwName, Ctx, ModCfg) ->
         updated => UpdateListeners
     }.
 
-update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg) when ?IS_ESOCKD_LISTENER(Type) ->
+update_listener(GwName, Type, LisName, ListenOn, Cfg, Ctx, ModCfg0) when
+    ?IS_ESOCKD_LISTENER(Type)
+->
+    ModCfg =
+        case ModCfg0 of
+            #{connection_opts := ConnectionOptsFun} ->
+                maps:without([connection_opts], maps:merge(ModCfg0, ConnectionOptsFun(Type)));
+            _ ->
+                ModCfg0
+        end,
     Name = emqx_gateway_utils:listener_id(GwName, Type, LisName),
     SocketOpts = merge_default(Type, esockd_opts(Type, Cfg)),
     HighLevelCfgs0 = filter_out_low_level_opts(Type, Cfg),

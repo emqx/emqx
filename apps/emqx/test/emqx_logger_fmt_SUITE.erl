@@ -27,6 +27,9 @@ t_text_fmt_lazy_values_only_in_debug_level_events(_) ->
 t_text_payload(_) ->
     check_fmt_payload(emqx_logger_textfmt).
 
+t_text_fmt_gen_rpc_packet(_) ->
+    check_fmt_gen_rpc_packet(emqx_logger_textfmt).
+
 t_json_fmt_lazy_values(_) ->
     check_fmt_lazy_values(emqx_logger_jsonfmt).
 
@@ -35,6 +38,9 @@ t_json_fmt_lazy_values_only_in_debug_level_events(_) ->
 
 t_json_payload(_) ->
     check_fmt_payload(emqx_logger_jsonfmt).
+
+t_json_fmt_gen_rpc_packet(_) ->
+    check_fmt_gen_rpc_packet(emqx_logger_jsonfmt).
 
 check_fmt_lazy_values(FormatModule) ->
     LogEntryIOData = FormatModule:format(event_with_lazy_value(), conf()),
@@ -65,6 +71,43 @@ check_fmt_payload(FormatModule) ->
     ?assertEqual(nomatch, binary:match(LogEntryBin, [<<"content">>])),
     %% The lazy value should not have been evaluated
     ?assertNotEqual(nomatch, binary:match(LogEntryBin, [<<"******">>])),
+    ok.
+
+%% Test that gen_rpc error reports with packet field (atom) don't crash the formatter
+%% The issue: packet => cast (atom) was causing format_packet/2 to crash because
+%% format_packet/2 only handled undefined, lists/binaries, and tuples, but not atoms.
+%% Fixed by adding a catch-all clause that formats non-packet values using io_lib:format/2.
+%% This simulates the gen_rpc error: {report,#{error => transmission_failed,driver => tcp,
+%% packet => cast,reason => {badtcp,timeout},socket => ["#Port<0.132>"],
+%% domain => [gen_rpc,client],msg => gen_rpc_error}}
+check_fmt_gen_rpc_packet(FormatModule) ->
+    GenRpcEvent = #{
+        meta => #{
+            pid => self(),
+            time => erlang:system_time(microsecond),
+            gl => group_leader(),
+            report_cb => fun logger:format_otp_report/1
+        },
+        msg =>
+            {report, #{
+                error => transmission_failed,
+                driver => tcp,
+                packet => cast,
+                reason => {badtcp, timeout},
+                socket => ["#Port<0.132>"],
+                domain => [gen_rpc, client],
+                msg => gen_rpc_error
+            }},
+        level => error
+    },
+    LogEntryIOData = FormatModule:format(GenRpcEvent, conf()),
+    LogEntryBin = unicode:characters_to_binary(LogEntryIOData),
+    %% Verify the formatter did not crash and produced output
+    ?assert(is_list(LogEntryIOData) orelse is_binary(LogEntryIOData)),
+    %% Verify the error information is present
+    ?assertNotEqual(nomatch, binary:match(LogEntryBin, [<<"transmission_failed">>])),
+    ?assertNotEqual(nomatch, binary:match(LogEntryBin, [<<"gen_rpc_error">>])),
+    ?assertNotEqual(nomatch, binary:match(LogEntryBin, [<<"packet">>])),
     ok.
 
 conf() ->

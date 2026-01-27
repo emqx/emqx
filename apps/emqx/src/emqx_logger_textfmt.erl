@@ -139,10 +139,10 @@ enrich_report(ReportRaw0, Meta, Config) ->
 
 try_format_unicode(undefined) ->
     undefined;
-try_format_unicode(Char) ->
+try_format_unicode(Chars) ->
     List =
         try
-            case unicode:characters_to_list(Char) of
+            case unicode:characters_to_list(Chars) of
                 {error, _, _} -> error;
                 {incomplete, _, _} -> error;
                 List1 -> List1
@@ -152,7 +152,7 @@ try_format_unicode(Char) ->
                 error
         end,
     case List of
-        error -> io_lib:format("~0p", [Char]);
+        error -> io_lib:format("~0p", [Chars]);
         _ -> List
     end.
 
@@ -214,7 +214,9 @@ format_packet(undefined, #{payload_encode := Encode}) ->
 format_packet(Packet, #{payload_encode := Encode}) when is_list(Packet); is_binary(Packet) ->
     {try_format_unicode(Packet), Encode};
 format_packet(Packet, #{payload_encode := Encode}) when is_tuple(Packet) ->
-    {try_format_unicode(emqx_packet:format(Packet, Encode)), Encode}.
+    {try_format_unicode(emqx_packet:format(Packet, Encode)), Encode};
+format_packet(Packet, #{payload_encode := Encode}) ->
+    {try_format_unicode(Packet), Encode}.
 
 format_payload(undefined, #{payload_encode := Encode}) ->
     {"", Encode};
