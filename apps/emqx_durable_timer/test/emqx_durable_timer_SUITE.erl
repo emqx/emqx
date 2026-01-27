@@ -911,8 +911,6 @@ db_dump(Node) ->
 %% CT boilerplate
 %%------------------------------------------------------------------------------
 
-suite() -> [{timetrap, {minutes, 1}}].
-
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
