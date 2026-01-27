@@ -250,11 +250,7 @@ otx_commit(PrevSerial, Serial, Time, Batch, Leader) when
 %% behavior callbacks
 %%================================================================================
 
--spec init(#{
-    name := _,
-    db := emqx_ds:db(),
-    shard := emqx_ds:shard()
-}) -> ra_state().
+-spec init(#{db := emqx_ds:db(), shard := emqx_ds:shard(), _ => _}) -> ra_state().
 init(#{db := DB, shard := Shard}) ->
     #{
         db_shard => {DB, Shard},
@@ -292,30 +288,29 @@ apply(
             machine_vsn => Vsn
         }
     ),
-    State =
-        case LSC of
-            #{Site := NewerId} when NewerId >= PendingId ->
-                %% This update has been already applied. Ignore
-                %% it:
-                State0;
-            #{} ->
-                case Vsn of
-                    0 ->
-                        case emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema) of
-                            ok ->
-                                ok;
-                            {error, {no_schema, _}} ->
-                                ok
-                        end;
-                    _ ->
-                        %% Newer versions use schema stored in the RFSM:
-                        ok
-                end,
-                ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
-                State0#{schema := Schema, last_schema_changes := LSC#{Site => PendingId}}
-        end,
+    case LSC of
+        #{Site := NewerId} when NewerId >= PendingId ->
+            %% This update has been already applied. Ignore
+            %% it:
+            State = State0,
+            Result = ok;
+        #{} ->
+            ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
+            State = State0#{
+                schema := Schema,
+                last_schema_changes := LSC#{Site => PendingId}
+            },
+            case Vsn of
+                0 ->
+                    Result = emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema);
+                _ ->
+                    %% Newer versions use schema stored in the RFSM,
+                    %% so there's no need to notify storage layer:
+                    Result = ok
+            end
+    end,
     Effect = release_log(RaftMeta, State),
-    {State, ok, [Effect]};
+    {State, Result, [Effect]};
 apply(
     _RaftMeta,
     _Command,
