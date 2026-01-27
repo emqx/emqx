@@ -8,8 +8,11 @@
 The module contains accessor functions for the MQs/MQ handles.
 """.
 
+-include("emqx_mq_internal.hrl").
+
 -export([
     id/1,
+    name/1,
     is_limited/1,
     is_lastvalue/1,
     is_append_only/1,
@@ -20,6 +23,16 @@ The module contains accessor functions for the MQs/MQ handles.
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
+
+-spec id(emqx_mq_types:mq_handle() | emqx_mq_types:mq()) -> emqx_mq_types:mqid().
+id(#{id := ID} = _MQHandle) ->
+    ID.
+
+-spec name(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> emqx_mq_types:mq_name().
+name(#{name := Name} = _MQ) ->
+    Name;
+name(#{topic_filter := TopicFilter} = _MQ) ->
+    <<"/", TopicFilter/binary>>.
 
 -spec is_limited(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> boolean().
 is_limited(
@@ -36,10 +49,6 @@ is_lastvalue(#{is_lastvalue := IsLastvalue} = _MQ) ->
 -spec topic_filter(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> emqx_types:topic().
 topic_filter(#{topic_filter := TopicFilter} = _MQ) ->
     TopicFilter.
-
--spec id(emqx_mq_types:mq_handle() | emqx_mq_types:mq()) -> emqx_mq_types:mqid().
-id(#{id := ID} = _MQHandle) ->
-    ID.
 
 -spec is_append_only(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> boolean().
 is_append_only(MQ) ->

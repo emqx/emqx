@@ -46,6 +46,7 @@ BEGIN
     dataRetentionPeriod [12] INTEGER,
     keyExpression [13] OCTET STRING OPTIONAL,
     limits [14] Limits OPTIONAL,
+    name [15] OCTET STRING OPTIONAL,
     ...
   }
 
