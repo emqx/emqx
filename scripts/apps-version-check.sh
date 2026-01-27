@@ -56,19 +56,29 @@ for app in ${APPS}; do
         echo "IGNORE: $src_file is newly added"
         true
     elif [ "$old_app_version" = "$now_app_version" ]; then
-        # Check for changes excluding .proto files
-        changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
+        # Check for changes - get changed files first, then filter out proto and appup files
+        changed_files="$(git diff "$latest_release" --name-only \
                              -- "$app_path/src" \
                              -- "$app_path/include" \
-                             -- ":(exclude)$app_path/src/*.appup.src" \
-                             -- ":(exclude)$app_path/priv/*.proto" \
                              -- "$app_path/priv" \
-                             -- "$app_path/c_src" | wc -l ) "
+                             -- "$app_path/c_src" \
+                         | grep -v '\.appup\.src$' \
+                         | grep -v '\.proto$' || true)"
+
+        # Now check if any of the remaining files have actual code changes (not just comments)
+        changed_lines=0
+        if [ -n "$changed_files" ]; then
+            # shellcheck disable=SC2086
+            changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$no_comment_re" \
+                             -- $changed_files | wc -l)"
+        fi
         # Check .proto files separately with regex that ignores comment lines
         proto_changed_lines=0
-        if find "$app_path/priv" -name "*.proto" -type f 2>/dev/null | grep -q .; then
+        proto_files="$(find "$app_path/priv" -name "*.proto" -type f 2>/dev/null || true)"
+        if [ -n "$proto_files" ]; then
+            # shellcheck disable=SC2086
             proto_changed_lines="$(git diff "$latest_release" --ignore-blank-lines -G "$proto_no_comment_re" \
-                                 "$(find "$app_path/priv" -name "*.proto" -type f 2>/dev/null)" | wc -l ) "
+                                 $proto_files | wc -l)"
         fi
         total_changed=$((changed_lines + proto_changed_lines))
         if [ "$total_changed" -gt 0 ]; then
