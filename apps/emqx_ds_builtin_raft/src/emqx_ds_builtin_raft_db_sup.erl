@@ -201,15 +201,12 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     },
     Setup = fun() -> ok end,
     Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, '_') end,
-    %% FIXME: remove schema from here
-    Schema = emqx_dsch:get_db_schema(DB),
     #{runtime := RTConf} = emqx_dsch:get_db_runtime(DB),
-    Opts = maps:merge(Schema, RTConf),
     Children =
         [emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
-         shard_storage_spec(DB, Shard, Opts),
-         shard_replication_spec(DB, Shard, Schema, RTConf)] ++
-         shard_beamformers_spec(DB, Shard, Opts),
+         shard_storage_spec(DB, Shard, RTConf),
+         shard_replication_spec(DB, Shard, RTConf)] ++
+         shard_beamformers_spec(DB, Shard),
     {ok, {SupFlags, Children}};
 init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
     %% Spec for a temporary supervisor that runs on the node only when
@@ -309,10 +306,10 @@ shard_storage_spec(DB, Shard, Opts) ->
         type => worker
     }.
 
-shard_replication_spec(DB, Shard, Schema, RTConf) ->
+shard_replication_spec(DB, Shard, RTConf) ->
     #{
         id => {Shard, replication},
-        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, Schema, RTConf]},
+        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, RTConf]},
         shutdown => 10_000,
         restart => transient,
         type => worker
@@ -334,7 +331,7 @@ db_lifecycle_spec(DB) ->
         type => worker
     }.
 
-shard_beamformers_spec(DB, Shard, _Opts) ->
+shard_beamformers_spec(DB, Shard) ->
     %% TODO: don't hardcode value
     BeamformerOpts = #{
         n_workers => 5
