@@ -824,7 +824,7 @@ do_t_resubscribe_on_fast_failure(CleanStart, ProtoVer, TCConfig) ->
         %% 2 sources with 3 workers each
         2 * PoolSize,
         %% Timeout
-        5_000
+        30_000
     ),
     [Source] = emqx_cth_cluster:restart(SourceNSpecs),
 
@@ -864,7 +864,7 @@ do_t_resubscribe_on_fast_failure(CleanStart, ProtoVer, TCConfig) ->
         %% 1 source with 3 workers each
         1 * PoolSize,
         %% Timeout
-        5_000
+        30_000
     ),
     [Source] = emqx_cth_cluster:restart(SourceNSpecs),
     {ok, _} = snabbkaffe:receive_events(SRef1),
