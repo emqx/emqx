@@ -912,18 +912,22 @@ Called in otx_become_leader.
 """.
 -spec maybe_propagate_initial_schema(emqx_ds:db(), emqx_ds:shard()) -> ok.
 maybe_propagate_initial_schema(DB, Shard) ->
-    %% Propagate leader's schema to the replicas. It happens only
-    %% during shard initialization due to small pending id:
-    PendingId = -1,
-    SiteSchema = emqx_dsch:get_db_schema(DB),
-    Site = emqx_dsch:this_site(),
-    Command = emqx_ds_builtin_raft_machine:update_schema(PendingId, Site, SiteSchema),
-    Result = ra_command(DB, Shard, Command, -1),
-    ?tp(debug, ra_propagate_leader_schema, #{db => DB, shard => Shard, result => Result}),
-    case Result of
-        ok -> ok;
-        {error, overlaps_existing_generations} -> ok;
-        {error, _} = Err -> Err
+    case emqx_ds_storage_layer:has_schema({DB, Shard}) of
+        false ->
+            %% Propagate leader's schema to the replicas:
+            PendingId = -1,
+            SiteSchema = emqx_dsch:get_db_schema(DB),
+            Site = emqx_dsch:this_site(),
+            Command = emqx_ds_builtin_raft_machine:update_schema(PendingId, Site, SiteSchema),
+            Result = ra_command(DB, Shard, Command, -1),
+            ?tp(debug, ra_propagate_leader_schema, #{db => DB, shard => Shard, result => Result}),
+            case Result of
+                ok -> ok;
+                {error, overlaps_existing_generations} -> ok;
+                {error, _} = Err -> Err
+            end;
+        true ->
+            ok
     end.
 
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.

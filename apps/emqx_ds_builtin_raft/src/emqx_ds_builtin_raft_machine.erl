@@ -126,7 +126,8 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 }.
 
 -type cmd_update_schema() :: #{
-    ?tag := update_schema,
+    %% Note: `update_schema' is inconsistent and obsolete:
+    ?tag := update_schema_v1 | update_schema,
     pending_id := emqx_dsch:pending_id(),
     originator := emqx_dsch:site(),
     schema := map()
@@ -213,7 +214,7 @@ update_schema(PendingId, Originator, NewSchema) when
     is_integer(PendingId), is_binary(Originator), is_map(NewSchema)
 ->
     #{
-        ?tag => update_schema,
+        ?tag => update_schema_v1,
         pending_id => PendingId,
         originator => Originator,
         schema => NewSchema
@@ -273,44 +274,24 @@ apply(
 ) ->
     {State, ok, []};
 apply(
-    RaftMeta = #{machine_version := Vsn},
-    #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
-    #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest} = State0
+    RaftMeta,
+    #{?tag := update_schema_v1, pending_id := PendingId, originator := Site, schema := Schema},
+    #{db_shard := DBShard} = State0
 ) ->
     ?tp(
-        notice,
-        ds_ra_update_config,
+        debug,
+        ds_ra_update_schema,
         #{
             shard => DBShard,
             schema => Schema,
             originator => Site,
-            pending_id => PendingId,
-            machine_vsn => Vsn
+            pending_id => PendingId
         }
     ),
-    case LSC of
-        #{Site := NewerId} when NewerId >= PendingId ->
-            %% This update has been already applied. Ignore
-            %% it:
-            State = State0,
-            Result = ok;
-        #{} ->
-            ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
-            State = State0#{
-                schema := Schema,
-                last_schema_changes := LSC#{Site => PendingId}
-            },
-            case Vsn of
-                0 ->
-                    Result = emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema);
-                _ ->
-                    %% Newer versions use schema stored in the RFSM,
-                    %% so there's no need to notify storage layer:
-                    Result = ok
-            end
-    end,
+    ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
+    {_, State} = maybe_apply_schema_change(State0, PendingId, Site, Schema),
     Effect = release_log(RaftMeta, State),
-    {State, Result, [Effect]};
+    {State, ok, [Effect]};
 apply(
     _RaftMeta,
     _Command,
@@ -380,6 +361,36 @@ apply(
     emqx_ds_beamformer:generation_event(DBShard),
     Effect = release_log(RaftMeta, State),
     {State, Result, [Effect]};
+apply(
+    RaftMeta = #{machine_version := Vsn},
+    #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
+    #{db_shard := DBShard, latest := Latest} = State0
+) ->
+    %% Obsolete version of update config:
+    ?tp(
+        warning,
+        ds_ra_update_config,
+        #{
+            shard => DBShard,
+            schema => Schema,
+            originator => Site,
+            pending_id => PendingId
+        }
+    ),
+    case Vsn of
+        0 ->
+            {IsNew, State} = maybe_apply_schema_change(State0, PendingId, Site, Schema),
+            ok =
+                case IsNew of
+                    true -> emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema);
+                    false -> ok
+                end,
+            Effect = release_log(RaftMeta, State),
+            {State, ok, [Effect]};
+        _ ->
+            %% Newer FSM versions refuse to apply it:
+            {State0, {error, unrecoverable, not_supported}, []}
+    end;
 apply(
     _RaftMeta,
     #{?tag := drop_generation, generation := GenId},
@@ -529,3 +540,18 @@ inc_bytes_need_release(Size) ->
 
 reset_bytes_need_release() ->
     erlang:put(?pd_ra_bytes_need_release, 0).
+
+maybe_apply_schema_change(#{last_schema_changes := LSC} = State0, PendingId, FromSite, Schema) ->
+    case LSC of
+        #{FromSite := NewerId} when NewerId >= PendingId ->
+            %% This update has been already applied. Ignore
+            %% it:
+            {false, State0};
+        #{} ->
+            State =
+                State0#{
+                    schema := Schema,
+                    last_schema_changes := LSC#{FromSite => PendingId}
+                },
+            {true, State}
+    end.

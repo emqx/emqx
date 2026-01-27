@@ -61,7 +61,8 @@
     ls_shards/1,
     get_stats/1,
     db_group_stats/2,
-    print_state/1
+    print_state/1,
+    has_schema/1
 ]).
 
 -export_type([
@@ -113,11 +114,6 @@
         max_open_files => non_neg_integer(),
         misc_options => [{atom(), _}]
     }.
-
--type storage_layer_opts() :: #{
-    db_group := db_group(),
-    rocksdb => rocksdb_options()
-}.
 
 -type batch_prepare_opts() :: #{}.
 
@@ -252,10 +248,15 @@
 -opaque db_group() :: #db_group{}.
 
 -record(call_ensure_schema, {options :: emqx_ds:create_db_opts()}).
+-record(call_has_schema, {}).
 
 %%================================================================================
 %% API for the replication layer
 %%================================================================================
+
+-spec has_schema(dbshard()) -> boolean().
+has_schema(DBShard) ->
+    gen_server:call(?REF(DBShard), #call_has_schema{}).
 
 -doc """
 Create shard schema and the first generation.
@@ -603,6 +604,13 @@ format_status(Status) ->
         Status
     ).
 
+handle_call(#call_has_schema{}, _From, S) ->
+    Reply =
+        case S of
+            #s{} -> true;
+            #s_no_schema{} -> false
+        end,
+    {reply, Reply, S};
 handle_call(#call_ensure_schema{options = Opts}, _From, S0) ->
     case S0 of
         #s{} ->
