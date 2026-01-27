@@ -876,7 +876,7 @@ t_drop_generation(Config) ->
                     Nodes,
                     ?assertEqual(
                         [{<<"0">>, 1}, {<<"0">>, 2}],
-                        maps:keys(emqx_ds:list_slabs(?DB))
+                        maps:keys(emqx_ds:list_slabs(?DB, #{errors => crash}))
                     )
                 ),
                 %% Drop generation while all nodes are online:
@@ -886,7 +886,7 @@ t_drop_generation(Config) ->
                     Nodes,
                     ?assertEqual(
                         [{<<"0">>, 2}],
-                        maps:keys(emqx_ds:list_slabs(?DB))
+                        maps:keys(emqx_ds:list_slabs(?DB, #{errors => crash}))
                     )
                 ),
                 %% Ston N3, then create and drop generation when it's offline:
@@ -913,7 +913,7 @@ t_drop_generation(Config) ->
                     Nodes,
                     ?assertEqual(
                         [{<<"0">>, 3}],
-                        maps:keys(emqx_ds:list_slabs(?DB))
+                        maps:keys(emqx_ds:list_slabs(?DB, #{errors => crash}))
                     )
                 )
             after
