@@ -6,7 +6,7 @@
 
 -behaviour(emqx_bpapi).
 
--export([introduced_in/0, call_client/3]).
+-export([introduced_in/0, call_keepalive_clients/2]).
 
 -include_lib("emqx/include/bpapi.hrl").
 
@@ -19,6 +19,7 @@ introduced_in() ->
 -doc """
 Call setopts update on target nodes.
 """.
--spec call_client([node()], emqx_types:clientid(), term()) -> emqx_rpc:erpc_multicall(term()).
-call_client(Nodes, ClientId, Req) ->
-    erpc:multicall(Nodes, emqx_setopts, do_call_client, [ClientId, Req], 30000).
+-spec call_keepalive_clients([node()], emqx_setopts:keepalive_batch()) ->
+    emqx_rpc:erpc_multicall(term()).
+call_keepalive_clients(Nodes, Batch) ->
+    erpc:multicall(Nodes, emqx_setopts, do_call_keepalive_clients, [Batch], 30000).

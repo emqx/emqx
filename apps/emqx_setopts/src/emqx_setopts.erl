@@ -13,15 +13,21 @@
 -export([start_link/0]).
 -export([on_message_publish/1]).
 -export([set_keepalive/2]).
--export([do_call_client/2]).
+-export([do_call_keepalive_clients/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+
+-export_type([keepalive_batch/0]).
 
 -define(SERVER, ?MODULE).
 -define(KEEPALIVE_PREFIX, "$SETOPTS/mqtt/keepalive/").
 -define(KEEPALIVE_BULK, <<"$SETOPTS/mqtt/keepalive-bulk">>).
 -define(MAILBOX_OVERLOAD_LIMIT, 10).
 -define(CALL_CONN_TIMEOUT_MS, 100).
+
+-type keepalive_interval() :: 0..65535.
+-type keepalive_batch_item() :: {emqx_types:clientid(), keepalive_interval()}.
+-type keepalive_batch() :: [keepalive_batch_item()].
 
 -doc """
 Start the setopts update server.
@@ -133,7 +139,8 @@ handle_keepalive_bulk(Msg, Payload) ->
 
 do_set_keepalive(ClientId, Interval) ->
     Nodes = lookup_client_nodes(ClientId),
-    call_client_on_nodes(Nodes, ClientId, {keepalive, Interval}).
+    Batch = [{ClientId, Interval}],
+    call_keepalive_on_nodes(Nodes, ClientId, Batch).
 
 lookup_client_nodes(ClientId) ->
     case emqx_cm_registry:is_enabled() of
@@ -144,15 +151,22 @@ lookup_client_nodes(ClientId) ->
             emqx:running_nodes()
     end.
 
-call_client_on_nodes([], _ClientId, _Req) ->
+call_keepalive_on_nodes([], _ClientId, _Batch) ->
     {error, not_found};
-call_client_on_nodes(Nodes, ClientId, Req) ->
-    Results = call_client(Nodes, ClientId, Req),
+call_keepalive_on_nodes(Nodes, ClientId, Batch) ->
+    Results = call_keepalive_clients(Nodes, Batch),
     {Expected, Errs} = lists:foldr(
-        fun
-            ({_N, {error, not_found}}, Acc) -> Acc;
-            ({_N, {error, _}} = Err, {OkAcc, ErrAcc}) -> {OkAcc, [Err | ErrAcc]};
-            ({_N, OkRes}, {OkAcc, ErrAcc}) -> {[OkRes | OkAcc], ErrAcc}
+        fun({N, Res}, Acc) ->
+            case extract_client_result(ClientId, Res) of
+                {error, not_found} ->
+                    Acc;
+                {error, _} = Err ->
+                    {OkAcc, ErrAcc} = Acc,
+                    {OkAcc, [{N, Err} | ErrAcc]};
+                OkRes ->
+                    {OkAcc, ErrAcc} = Acc,
+                    {[OkRes | OkAcc], ErrAcc}
+            end
         end,
         {[], []},
         lists:zip(Nodes, Results)
@@ -168,10 +182,16 @@ call_client_on_nodes(Nodes, ClientId, Req) ->
     end.
 
 -doc """
-RPC entrypoint: apply keepalive update on a local node.
+RPC entrypoint: apply keepalive updates on a local node.
 """.
--spec do_call_client(emqx_types:clientid(), term()) -> term().
-do_call_client(ClientId, Req) ->
+-spec do_call_keepalive_clients(keepalive_batch()) -> term().
+do_call_keepalive_clients(Batch) ->
+    [
+        {ClientId, do_call_keepalive_local(ClientId, Interval)}
+     || {ClientId, Interval} <- Batch
+    ].
+
+do_call_keepalive_local(ClientId, Interval) ->
     Channels = emqx_cm:lookup_channels(local, ClientId),
     Connected = lists:filtermap(
         fun(Pid) ->
@@ -190,7 +210,7 @@ do_call_client(ClientId, Req) ->
         end,
         Channels
     ),
-    call_connected_channels(ClientId, Connected, Req).
+    call_connected_channels(ClientId, Connected, {keepalive, Interval}).
 
 call_connected_channels(_ClientId, [], _Req) ->
     {error, not_found};
@@ -223,8 +243,18 @@ call_channel(ClientId, Pid, Req) ->
             {error, not_found}
     end.
 
-call_client(Nodes, ClientId, Req) ->
-    emqx_rpc:unwrap_erpc(emqx_setopts_proto_v1:call_client(Nodes, ClientId, Req)).
+call_keepalive_clients(Nodes, Batch) ->
+    emqx_rpc:unwrap_erpc(emqx_setopts_proto_v1:call_keepalive_clients(Nodes, Batch)).
+
+extract_client_result(_ClientId, {error, _} = Err) ->
+    Err;
+extract_client_result(ClientId, Res) when is_list(Res) ->
+    case lists:keyfind(ClientId, 1, Res) of
+        {ClientId, ClientRes} ->
+            ClientRes;
+        false ->
+            {error, not_found}
+    end.
 
 call_conn(ConnMod, Pid, Req) ->
     try
