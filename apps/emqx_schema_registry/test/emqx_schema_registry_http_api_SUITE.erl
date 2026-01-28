@@ -49,7 +49,8 @@ only_once_testcases() ->
         t_empty_sparkplug,
         t_external_registry_crud_confluent,
         t_smoke_test_external_registry_confluent,
-        t_external_http_serde
+        t_external_http_serde,
+        t_external_http_serde_get
     ].
 
 init_per_suite(Config) ->
@@ -423,12 +424,14 @@ mk_external_http_create_params(Opts) ->
         Opts,
         <<"http://127.0.0.1:", (integer_to_binary(Port))/binary, "/sr?qp=123">>
     ),
+    Method = maps:get(method, Opts, <<"post">>),
     #{
         <<"type">> => <<"external_http">>,
         <<"parameters">> => #{
             <<"url">> => URL,
             <<"external_params">> => <<"xor">>,
             <<"headers">> => #{<<"extra">> => <<"headers">>},
+            <<"method">> => Method,
             <<"request_timeout">> => <<"1s">>,
             <<"max_retries">> => 1,
             <<"connect_timeout">> => <<"2s">>,
@@ -449,15 +452,36 @@ start_external_http_serde_server() ->
     {ok, Port}.
 
 external_http_handler(Req0, State) ->
+    Method = cowboy_req:method(Req0),
     {ok, Body, Req} = cowboy_req:read_body(Req0),
+    Parsed =
+        case Method of
+            <<"POST">> ->
+                ?assertEqual(<<"application/json">>, cowboy_req:header(<<"content-type">>, Req0)),
+                emqx_utils_json:safe_decode(Body);
+            <<"GET">> ->
+                Qs = maps:from_list(cowboy_req:parse_qs(Req0)),
+                try
+                    {ok, #{
+                        <<"schema_name">> => maps:get(<<"schema_name">>, Qs),
+                        <<"type">> => maps:get(<<"type">>, Qs),
+                        <<"opts">> => maps:get(<<"opts">>, Qs),
+                        <<"payload">> => maps:get(<<"payload">>, Qs)
+                    }}
+                catch
+                    error:{badkey, _} ->
+                        {error, missing_query_param}
+                end;
+            _ ->
+                {error, unsupported_method}
+        end,
     maybe
         {ok, #{
             <<"schema_name">> := _Name,
             <<"type">> := EncodeOrDecode,
             <<"opts">> := ExtraOpts,
             <<"payload">> := PayloadB64
-        }} ?= emqx_utils_json:safe_decode(Body),
-        ?assertEqual(<<"application/json">>, cowboy_req:header(<<"content-type">>, Req0)),
+        }} ?= Parsed,
         {ok, Payload} ?= decode_base64(PayloadB64),
         {ok, RespBody} ?= exec_external_http_serde(EncodeOrDecode, ExtraOpts, Payload),
         RespBodyB64 = base64:encode(RespBody),
@@ -1066,6 +1090,52 @@ t_external_http_serde(_Config) ->
     ?assertMatch(
         {400, #{<<"message">> := #{<<"select_and_transform_error">> := <<"serde_not_found">>}}},
         dryrun_rule(SQL1, Context1)
+    ),
+
+    ok.
+
+%% Smoke test for registering and using an external HTTP serde with GET method.
+t_external_http_serde_get(_Config) ->
+    {ok, Port} = start_external_http_serde_server(),
+    SchemaName = <<"my_external_http_serde_get">>,
+    Params = mk_external_http_create_params(#{
+        name => SchemaName,
+        port => Port,
+        method => <<"get">>
+    }),
+    ?assertMatch(
+        {201, #{
+            <<"parameters">> := #{
+                <<"method">> := <<"get">>
+            }
+        }},
+        create_schema(Params)
+    ),
+
+    %% Roundtrip smoke test
+    SQL1 = sql(
+        ~b"""
+            select
+                schema_encode('${.name}', payload) as encoded,
+                schema_decode('${.name}', encoded) as decoded
+            from "t"
+        """,
+        #{name => SchemaName}
+    ),
+    Data1 = #{<<"f1">> => #{<<"bah">> => 123}},
+    Context1 = #{<<"payload">> := EncodedData1} = publish_context({json, Data1}),
+    ExpectedEncoded1 = xor_bin($z, EncodedData1),
+    ExpectedDecoded1 = EncodedData1,
+    ?assertMatch(
+        {200, #{
+            <<"encoded">> := ExpectedEncoded1,
+            <<"decoded">> := ExpectedDecoded1
+        }},
+        dryrun_rule(SQL1, Context1),
+        #{
+            expected_encoded => ExpectedEncoded1,
+            expected_decoded => ExpectedDecoded1
+        }
     ),
 
     ok.
