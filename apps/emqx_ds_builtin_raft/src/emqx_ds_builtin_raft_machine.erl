@@ -278,6 +278,12 @@ apply(
     #{?tag := update_schema_v1, pending_id := PendingId, originator := Site, schema := Schema},
     #{db_shard := DBShard} = State0
 ) ->
+    %% This command is issued and handled by the v1+ versions of state
+    %% machine. It appears in the log when `emqx_ds:update_config' is
+    %% called or during blank slate start of FSM leader with v1+
+    %% version of the code (any machine version). v0 code cannot
+    %% process it and will crash. But we hope that probability of this
+    %% command appearing in the log during rolling upgrade is low.
     ?tp(
         debug,
         ds_ra_update_schema,
@@ -366,7 +372,10 @@ apply(
     #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
     #{db_shard := DBShard, latest := Latest} = State0
 ) ->
-    %% Obsolete version of update config:
+    %% Obsolete version of update_config command. It is issued by v0
+    %% version of the code and can be processed by any version of code
+    %% and state machine. However, state machines updated to v1+
+    %% ignore it.
     ?tp(
         warning,
         ds_ra_update_config,
@@ -379,6 +388,7 @@ apply(
     ),
     case Vsn of
         0 ->
+            %% Compatibility code:
             {IsNew, State} = maybe_apply_schema_change(State0, PendingId, Site, Schema),
             ok =
                 case IsNew of
