@@ -418,16 +418,33 @@ create_subscribe_ctx(Ref, Module, SubOpts0, Ctx) ->
         send => Send
     }.
 
+%%% TODO: move to extsub
 filter_saved_subopts(Module, SubOpts0) ->
     case SubOpts0 of
-        #{subopts := #{emqx_extsub := #{Module := SavedSt}} = InnerSubOpts0} ->
+        #{subopts := InnerSubOpts0} ->
             %% DS session
-            InnerSubOpts = maps:remove(emqx_extsub, InnerSubOpts0),
-            InnerSubOpts#{Module => SavedSt};
-        #{emqx_extsub := #{Module := SavedSt}} ->
+            case maps:take(emqx_extsub, InnerSubOpts0) of
+                {#{Module := SavedSt}, InnerSubOpts1} ->
+                    InnerSubOpts = maybe_unwrap_ds_subopts(InnerSubOpts1),
+                    InnerSubOpts#{Module => SavedSt};
+                {_, InnerSubOpts} ->
+                    maybe_unwrap_ds_subopts(InnerSubOpts);
+                _ ->
+                    maybe_unwrap_ds_subopts(InnerSubOpts0)
+            end;
+        #{} ->
             %% in-memory session
-            SubOpts1 = maps:remove(emqx_extsub, SubOpts0),
-            SubOpts1#{Module => SavedSt};
-        _ ->
-            maps:remove(emqx_extsub, SubOpts0)
+            case maps:take(emqx_extsub, SubOpts0) of
+                {#{Module := SavedSt}, SubOpts} ->
+                    SubOpts#{Module => SavedSt};
+                {_, SubOpts} ->
+                    SubOpts;
+                error ->
+                    SubOpts0
+            end
     end.
+
+maybe_unwrap_ds_subopts(#{subopts := SubOpts}) ->
+    SubOpts;
+maybe_unwrap_ds_subopts(#{} = SubOpts) ->
+    SubOpts.

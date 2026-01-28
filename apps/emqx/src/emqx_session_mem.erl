@@ -88,13 +88,13 @@
 %% Part of takeover sequence
 -export([
     takeover/1,
-    save_subopts/1,
     resume/2,
     enqueue/3,
     dequeue/2,
     replay/2,
     dedup/2
 ]).
+-export([save_subopts/1]).
 
 %% Eviction agent channel
 -export([

@@ -71,8 +71,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
     handle_timeout/3,
     handle_info/3,
     disconnect/2,
-    terminate/3,
-    save_subopts/1
+    terminate/3
 ]).
 
 %% Will message handling
@@ -235,7 +234,6 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
     will_msg := emqx_types:message() | undefined,
     %% Flags:
     ?TIMER_DRAIN_INFLIGHT := boolean(),
-    called_disconnect := boolean(),
     %% Timers:
     ?TIMER_RETRY_REPLAY := timer_state(),
     ?TIMER_COMMIT := timer_state()
@@ -880,12 +878,7 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
                 S2
         end,
     {S, SharedSubS} = emqx_persistent_session_ds_shared_subs:on_disconnect(S3, SharedSubS0),
-    {shutdown,
-        async_checkpoint(Session#{
-            s := S,
-            shared_sub_s := SharedSubS,
-            called_disconnect := true
-        })}.
+    {shutdown, async_checkpoint(Session#{s := S, shared_sub_s := SharedSubS})}.
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWillMsg}) ->
@@ -1495,7 +1488,6 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
         props => Conf,
         replay => undefined,
         will_msg => MaybeWillMsg,
-        called_disconnect => false,
         ?TIMER_DRAIN_INFLIGHT => false,
         ?TIMER_COMMIT => undefined,
         ?TIMER_RETRY_REPLAY => undefined
@@ -2181,11 +2173,10 @@ commit(Session0 = #{s := S0}, Opts) ->
     Session = Session0#{s := S},
     cancel_state_commit_timer(Session).
 
--spec save_subopts(session()) -> session().
-save_subopts(Session0) ->
-    #{s := S0} = Session0,
-    S = do_save_subopts(S0),
-    Session0#{s := S}.
+maybe_augment_subopts(_Session, S0, #{lifetime := terminate}) ->
+    do_save_subopts(S0);
+maybe_augment_subopts(_Session, S0, _Opts) ->
+    S0.
 
 do_save_subopts(S0) ->
     emqx_persistent_session_ds_subs:fold(
@@ -2206,26 +2197,6 @@ do_save_subopts(S0) ->
         S0,
         [shared, direct]
     ).
-
-%% N.B.: These checks account for the different moments at which `session:disconnect/3`
-%% and `session:terminate` happen.
-%%
-%%   - When resuming (i.e., stopping a client, and re-connecting some time later),
-%%     `session.disconnected` is called when the clients disconnects, and soon after
-%%     `terminate` is called.
-%%
-%%   - When taking over (i.e., the first client _is_ connected and another one connects),
-%%     `session.disconnected` hook **is not** called, and only terminate is called.
-%%
-%% Since `session.disconnected` hook may tear down state that we wish to preserve during
-%% `session.save_opts`, we must distinguish between these two cases to avoid losing the
-%% already saved state.
-maybe_augment_subopts(#{called_disconnect := true}, S0, _Opts) ->
-    S0;
-maybe_augment_subopts(_Session, S0, #{lifetime := terminate}) ->
-    do_save_subopts(S0);
-maybe_augment_subopts(_Session, S0, _Opts) ->
-    S0.
 
 -spec ensure_state_commit_timer(session()) -> session().
 ensure_state_commit_timer(#{s := S} = Session) ->

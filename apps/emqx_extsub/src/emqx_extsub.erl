@@ -48,7 +48,12 @@ The module:
     registry :: emqx_extsub_handler_registry:t(),
     buffer :: emqx_extsub_buffer:t(),
     deliver_retry_tref :: reference() | undefined,
-    unacked :: #{emqx_extsub_buffer:seq_id() => true}
+    unacked :: #{emqx_extsub_buffer:seq_id() => true},
+    tombstone :: #{
+        saved_subopts => #{
+            emqx_types:topic() | emqx_types:share() => #{module() => term()}
+        }
+    }
 }).
 
 -record(extsub_info, {
@@ -186,25 +191,40 @@ on_session_unsubscribed(_ClientInfo, TopicFilter, SubOpts) ->
 
 on_session_disconnected(_ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ?tp_debug(extsub_on_session_disconnected, #{subscriptions => Subs}),
+    tombstone_subopts(Subs),
     on_unsubscribed(disconnect, Subs).
 
 on_session_save_subopts(Context, SubOpts0) ->
+    #{topic_filter := TopicFilter} = Context,
     with_st(
-        fun(#st{registry = HandlerRegistry0} = St) ->
-            {Res, HandlerRegistry} = emqx_extsub_handler_registry:save_subopts(
-                HandlerRegistry0, Context, SubOpts0
-            ),
-            SubOpts =
-                case map_size(Res) > 0 of
-                    true ->
-                        SubOpts0#{?MODULE => Res};
-                    false ->
-                        maps:remove(?MODULE, SubOpts0)
-                end,
-            {ok, St#st{registry = HandlerRegistry}, {ok, SubOpts}}
+        fun
+            (#st{tombstone = #{saved_subopts := SavedSubOpts}} = St) ->
+                %% Already disconnected and uninstalled all handlers.
+                case SavedSubOpts of
+                    #{TopicFilter := SubOpts} ->
+                        {ok, St, {ok, SubOpts}};
+                    _ ->
+                        {ok, St, {ok, SubOpts0}}
+                end;
+            (#st{} = St0) ->
+                {SubOpts, St} = do_save_subopts(St0, Context, SubOpts0),
+                {ok, St, {ok, SubOpts}}
         end,
         {ok, SubOpts0}
     ).
+
+do_save_subopts(#st{registry = HandlerRegistry0} = St0, Context, SubOpts0) ->
+    {Res, HandlerRegistry} = emqx_extsub_handler_registry:save_subopts(
+        HandlerRegistry0, Context, SubOpts0
+    ),
+    SubOpts =
+        case map_size(Res) > 0 of
+            true ->
+                SubOpts0#{?MODULE => Res};
+            false ->
+                maps:remove(?MODULE, SubOpts0)
+        end,
+    {SubOpts, St0#st{registry = HandlerRegistry}}.
 
 on_unsubscribed(UnsubscribeType, Subs) ->
     with_st(fun(#st{registry = HandlerRegistry} = St) ->
@@ -320,6 +340,34 @@ max_unacked() ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+tombstone_subopts(Subs) ->
+    _ = with_st(fun(#st{} = St0) ->
+        {Tombstone, St3} = maps:fold(
+            fun(TopicFilter, SubOpts0, {TombstoneAcc0, St1}) ->
+                Context = #{topic_filter => TopicFilter},
+                {SubOpts, St2} = do_save_subopts(St1, Context, SubOpts0),
+                HasData =
+                    case SubOpts of
+                        #{subopts := #{?MODULE := _}} ->
+                            %% DS session
+                            true;
+                        #{?MODULE := _} ->
+                            %% In-memory session
+                            true;
+                        _ ->
+                            false
+                    end,
+                TombstoneAcc = emqx_utils_maps:put_if(TombstoneAcc0, TopicFilter, SubOpts, HasData),
+                {TombstoneAcc, St2}
+            end,
+            {#{}, St0},
+            Subs
+        ),
+        St = St3#st{tombstone = #{saved_subopts => Tombstone}},
+        {ok, St}
+    end),
+    ok.
 
 recreate_handler(#st{registry = HandlerRegistry, buffer = Buffer} = St, ClientInfo, OldHandlerRef) ->
     SubscribeCtx = subscribe_ctx(ClientInfo),
@@ -510,7 +558,8 @@ new_st() ->
         registry = emqx_extsub_handler_registry:new(),
         buffer = emqx_extsub_buffer:new(),
         deliver_retry_tref = undefined,
-        unacked = #{}
+        unacked = #{},
+        tombstone = #{}
     }.
 
 put_st(#st{} = St) ->
