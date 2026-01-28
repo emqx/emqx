@@ -727,9 +727,9 @@ otx_get_latest_generation(DB, Shard) ->
     emqx_ds_storage_layer:generation_current({DB, Shard}).
 
 otx_become_leader(DB, Shard) ->
-    ok = maybe_propagate_initial_schema(DB, Shard),
     maybe
         {ok, Leader} ?= local_raft_leader(DB, Shard),
+        ok ?= propagate_schema(DB, Shard, Leader),
         {ok, Serial, Timestamp} ?= do_become_otx_leader(Leader, 5_000),
         %% Announce this process in the global name registry:
         register_global_otx_leader(DB, Shard),
@@ -907,27 +907,19 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
 %%================================================================================
 
 -doc """
-Propagate node's schema to all replicas.
-Called in otx_become_leader.
+Propagate leader's schema to the replicas.
 """.
--spec maybe_propagate_initial_schema(emqx_ds:db(), emqx_ds:shard()) -> ok.
-maybe_propagate_initial_schema(DB, Shard) ->
-    case emqx_ds_storage_layer:has_schema({DB, Shard}) of
-        false ->
-            %% Propagate leader's schema to the replicas:
-            PendingId = -1,
-            SiteSchema = emqx_dsch:get_db_schema(DB),
-            Site = emqx_dsch:this_site(),
-            Command = emqx_ds_builtin_raft_machine:update_schema(PendingId, Site, SiteSchema),
-            Result = ra_command(DB, Shard, Command, -1),
-            ?tp(debug, ra_propagate_leader_schema, #{db => DB, shard => Shard, result => Result}),
-            case Result of
-                ok -> ok;
-                {error, overlaps_existing_generations} -> ok;
-                {error, _} = Err -> Err
-            end;
-        true ->
-            ok
+-spec propagate_schema(emqx_ds:db(), emqx_ds:shard(), ra:server_id()) -> ok | emqx_ds:error(_).
+propagate_schema(DB, Shard, Leader) ->
+    maybe
+        %% v0 used a different mechanism for schema updates, we need
+        %% at least v1:
+        ok ?= wait_for_upgrade(DB, Shard, Leader, 1),
+        SiteSchema = emqx_dsch:get_db_schema(DB),
+        Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema),
+        Result = ra_command(DB, Shard, Command, 5),
+        ?tp(debug, ra_propagate_leader_schema, #{db => DB, shard => Shard, result => Result}),
+        Result
     end.
 
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
@@ -947,8 +939,8 @@ add_generation_to_shard(DB, Shard, Retries) ->
     emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:site(), Schema, Schema
 ) -> ok when
     Schema :: db_schema().
-update_shards_schema(DB, PendingId, Site, _OldSchema, NewSchema) ->
-    Command = emqx_ds_builtin_raft_machine:update_schema(PendingId, Site, NewSchema),
+update_shards_schema(DB, _PendingId, _Site, _OldSchema, NewSchema) ->
+    Command = emqx_ds_builtin_raft_machine:update_schema(NewSchema),
     foreach_shard(
         DB,
         fun(Shard) ->
@@ -956,9 +948,12 @@ update_shards_schema(DB, PendingId, Site, _OldSchema, NewSchema) ->
             %% inconsistencies between nodes and avoid duplication
             %% of updates, configuration changes are only applied
             %% to the shards where the current node is the leader:
-            case leader_node(DB, Shard) of
-                {ok, Node} when Node =:= node() ->
-                    ok = ra_command(DB, Shard, Command, ra_retries(DB));
+            case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred) of
+                [{_, Node} = Myself | _] when Node =:= node() ->
+                    maybe
+                        ok ?= wait_for_upgrade(DB, Shard, Myself, 1),
+                        ra_command(DB, Shard, Command, ra_retries(DB))
+                    end;
                 _ ->
                     ok
             end
@@ -1165,6 +1160,52 @@ leader_node(DB, Shard) ->
             {ok, Node};
         [] ->
             undefined
+    end.
+
+-doc """
+Wait until the quorum of EMQX nodes hosting replicas of `Shard` is
+upgraded at least to version `MinVersion` of the state machine.
+
+Note: this requires actual upgrade of the EMQX nodes.
+""".
+-spec wait_for_upgrade(emqx_ds:db(), emqx_ds:shard(), ra:server_id(), non_neg_integer()) ->
+    ok | emqx_ds:error(_).
+wait_for_upgrade(DB, Shard, Leader, MinVersion) ->
+    Alarm = iolist_to_binary(io_lib:format("~p/~s: waiting for cluster upgrade", [DB, Shard])),
+    try
+        ?tp_span(
+            debug,
+            ds_raft_waiting_for_cluster_upgrade,
+            #{db => DB, shard => Shard, version => MinVersion},
+            do_wait_for_upgrade(Alarm, Leader, MinVersion)
+        )
+    after
+        emqx_alarm:safe_deactivate(Alarm)
+    end.
+
+-spec do_wait_for_upgrade(binary(), ra:server_id(), non_neg_integer()) -> ok | emqx_ds:error(_).
+do_wait_for_upgrade(Alarm, Leader, MinVersion) ->
+    case get_leader_rfsm_vsn(Leader) of
+        {ok, Vsn} when Vsn >= MinVersion ->
+            ok;
+        {ok, Vsn} ->
+            emqx_alarm:safe_activate(Alarm, #{current_version => Vsn}, ""),
+            timer:sleep(1000),
+            do_wait_for_upgrade(Alarm, Leader, MinVersion);
+        Other ->
+            Other
+    end.
+
+get_leader_rfsm_vsn(Leader) ->
+    case
+        ra:consistent_query(Leader, fun(State) -> emqx_ds_builtin_raft_machine:get_vsn(State) end)
+    of
+        {ok, Vsn, Leader} ->
+            {ok, Vsn};
+        {ok, _, OtherLeader} ->
+            ?err_unrec({leader_changed, #{Leader => OtherLeader}});
+        Err ->
+            ?err_rec({raft, Err})
     end.
 
 -ifdef(TEST).
