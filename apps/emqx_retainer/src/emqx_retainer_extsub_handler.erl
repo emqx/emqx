@@ -12,7 +12,8 @@
 -export([
     handle_subscribe/4,
     handle_delivered/4,
-    handle_info/3
+    handle_info/3,
+    handle_save_subopts/3
 ]).
 
 %% This module is `emqx_retainer` companion
@@ -47,7 +48,8 @@
     limiter,
     cursor,
     nudge_enqueued = false,
-    times_throttled = 0
+    times_throttled = 0,
+    delivered = 0
 }).
 
 %% Events
@@ -73,15 +75,17 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
             {subscribe, #{subopts := #{}}} ->
                 true
         end,
-    #{subopts := #{rh := RH}} = SubscribeCtx,
+    #{subopts := #{rh := RH} = SubOpts} = SubscribeCtx,
     case RH == 0 orelse (RH == 1 andalso IsNew) of
         true ->
-            subscribe(Handler, SubscribeCtx, TopicFilter);
+            subscribe(Handler, SubscribeCtx, TopicFilter, SubOpts);
         false ->
             ignore
     end.
 
-handle_delivered(Handler, #{desired_message_count := DesiredMsgCount}, _Msg, _Ack) ->
+handle_delivered(Handler0, #{desired_message_count := DesiredMsgCount}, _Msg, _Ack) ->
+    #h{delivered = Delivered} = Handler0,
+    Handler = Handler0#h{delivered = Delivered + 1},
     case DesiredMsgCount > 0 of
         true ->
             enqueue_nudge(Handler, batch_read_num(), now);
@@ -95,16 +99,33 @@ handle_info(Handler0, _InfoCtx, #next{n = N}) ->
 handle_info(Handler, _InfoCtx, _Info) ->
     {ok, Handler}.
 
+handle_save_subopts(#h{cursor = ?cursor(_)} = Handler0, _Context, _SubOpts) ->
+    Res = #{delivered => Handler0#h.delivered},
+    %% Make the handler stop, since take over/disconnect persistence is ongoing.
+    Handler = Handler0#h{cursor = ?done},
+    {ok, Handler, Res};
+handle_save_subopts(Handler0, _Context, _SubOpts) ->
+    %% Make the handler stop, since take over/disconnect persistence is ongoing.
+    Handler = Handler0#h{cursor = ?done},
+    {ok, Handler}.
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
-subscribe(undefined = _Handler, SubscribeCtx, TopicFilter) ->
+subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
     #{send_after := SendAfterFn, send := SendFn} = SubscribeCtx,
     Context = emqx_retainer:context(),
     Mod = emqx_retainer:backend_module(Context),
     State = emqx_retainer:backend_state(Context),
     Limiter = get_limiter(),
+    Delivered =
+        case SubOpts of
+            #{?MODULE := #{delivered := N}} ->
+                N;
+            _ ->
+                0
+        end,
     Handler0 = #h{
         send_fn = SendFn,
         send_after_fn = SendAfterFn,
@@ -113,11 +134,12 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter) ->
         mod = Mod,
         state = State,
         limiter = Limiter,
-        cursor = ?init
+        cursor = ?init,
+        delivered = Delivered
     },
     Handler = enqueue_nudge(Handler0, batch_read_num(), now),
     {ok, Handler};
-subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter) ->
+subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
     {ok, Handler}.
 
 handle_next(#h{cursor = ?done} = Handler0, _N) ->
@@ -267,7 +289,14 @@ do_fetch(#h{cursor = ?cursor(Cursor0)} = Handler, N) ->
         mod = Mod,
         state = State
     } = Handler,
-    Opts = #{batch_read_number => N},
+    Opts1 = #{batch_read_number => N},
+    Opts =
+        case Cursor0 == ?no_cursor andalso Handler#h.delivered > 0 of
+            true ->
+                Opts1#{skip => Handler#h.delivered};
+            false ->
+                Opts1
+        end,
     %% TODO: how could this fail?
     {ok, Messages0, Cursor} = Mod:match_messages(State, TopicFilter, Cursor0, Opts),
     {Messages0, Cursor}.

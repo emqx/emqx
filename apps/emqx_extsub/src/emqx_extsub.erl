@@ -27,6 +27,7 @@ The module:
     on_session_unsubscribed/3,
     on_session_resumed/2,
     on_session_disconnected/2,
+    on_session_save_subopts/2,
     on_delivery_completed/2,
     on_message_delivered/2,
     on_message_nack/2,
@@ -38,6 +39,9 @@ The module:
     max_unacked/0
 ]).
 
+%% Internal exports (for `emqx_extsub` application)
+-export([filter_saved_subopts/2]).
+
 -define(ST_PD_KEY, extsub_st).
 -define(CAN_RECEIVE_ACKS_PD_KEY, extsub_can_receive_acks).
 
@@ -47,7 +51,12 @@ The module:
     registry :: emqx_extsub_handler_registry:t(),
     buffer :: emqx_extsub_buffer:t(),
     deliver_retry_tref :: reference() | undefined,
-    unacked :: #{emqx_extsub_buffer:seq_id() => true}
+    unacked :: #{emqx_extsub_buffer:seq_id() => true},
+    tombstone :: #{
+        saved_subopts => #{
+            emqx_types:topic() | emqx_types:share() => #{module() => term()}
+        }
+    }
 }).
 
 -record(extsub_info, {
@@ -65,8 +74,10 @@ register_hooks() ->
     ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_LOWEST),
+    ok = emqx_hooks:add('session.save_subopts', {?MODULE, on_session_save_subopts, []}, ?HP_LOWEST),
     ok = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
+    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    ok.
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
@@ -77,8 +88,10 @@ unregister_hooks() ->
     emqx_hooks:del('session.unsubscribed', {?MODULE, on_session_unsubscribed}),
     emqx_hooks:del('session.resumed', {?MODULE, on_session_resumed}),
     emqx_hooks:del('session.disconnected', {?MODULE, on_session_disconnected}),
+    emqx_hooks:del('session.save_subopts', {?MODULE, on_session_save_subopts}),
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
-    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}).
+    emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Hooks callbacks
@@ -181,7 +194,40 @@ on_session_unsubscribed(_ClientInfo, TopicFilter, SubOpts) ->
 
 on_session_disconnected(_ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ?tp_debug(extsub_on_session_disconnected, #{subscriptions => Subs}),
+    tombstone_subopts(Subs),
     on_unsubscribed(disconnect, Subs).
+
+on_session_save_subopts(Context, SubOpts0) ->
+    #{topic_filter := TopicFilter} = Context,
+    with_st(
+        fun
+            (#st{tombstone = #{saved_subopts := SavedSubOpts}} = St) ->
+                %% Already disconnected and uninstalled all handlers.
+                case SavedSubOpts of
+                    #{TopicFilter := SubOpts} ->
+                        {ok, St, {ok, SubOpts}};
+                    _ ->
+                        {ok, St, {ok, SubOpts0}}
+                end;
+            (#st{} = St0) ->
+                {SubOpts, St} = do_save_subopts(St0, Context, SubOpts0),
+                {ok, St, {ok, SubOpts}}
+        end,
+        {ok, SubOpts0}
+    ).
+
+do_save_subopts(#st{registry = HandlerRegistry0} = St0, Context, SubOpts0) ->
+    {Res, HandlerRegistry} = emqx_extsub_handler_registry:save_subopts(
+        HandlerRegistry0, Context, SubOpts0
+    ),
+    SubOpts =
+        case map_size(Res) > 0 of
+            true ->
+                SubOpts0#{?MODULE => Res};
+            false ->
+                maps:remove(?MODULE, SubOpts0)
+        end,
+    {SubOpts, St0#st{registry = HandlerRegistry}}.
 
 on_unsubscribed(UnsubscribeType, Subs) ->
     with_st(fun(#st{registry = HandlerRegistry} = St) ->
@@ -295,8 +341,70 @@ max_unacked() ->
     persistent_term:get(?MAX_UNACKED_PT_KEY, ?EXTSUB_MAX_UNACKED).
 
 %%--------------------------------------------------------------------
+%% Internal exports (for `emqx_extsub` application)
+%%--------------------------------------------------------------------
+
+filter_saved_subopts(Module, SubOpts0) ->
+    case SubOpts0 of
+        #{subopts := InnerSubOpts0} ->
+            %% DS session
+            case maps:take(?MODULE, InnerSubOpts0) of
+                {#{Module := SavedSt}, InnerSubOpts1} ->
+                    InnerSubOpts = maybe_unwrap_ds_subopts(InnerSubOpts1),
+                    InnerSubOpts#{Module => SavedSt};
+                {_, InnerSubOpts} ->
+                    maybe_unwrap_ds_subopts(InnerSubOpts);
+                _ ->
+                    maybe_unwrap_ds_subopts(InnerSubOpts0)
+            end;
+        #{} ->
+            %% in-memory session
+            case maps:take(?MODULE, SubOpts0) of
+                {#{Module := SavedSt}, SubOpts} ->
+                    SubOpts#{Module => SavedSt};
+                {_, SubOpts} ->
+                    SubOpts;
+                error ->
+                    SubOpts0
+            end
+    end.
+
+maybe_unwrap_ds_subopts(#{subopts := SubOpts}) ->
+    SubOpts;
+maybe_unwrap_ds_subopts(#{} = SubOpts) ->
+    SubOpts.
+
+%%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+tombstone_subopts(Subs) ->
+    _ = with_st(fun(#st{} = St0) ->
+        {Tombstone, St3} = maps:fold(
+            fun(TopicFilter, SubOpts0, {TombstoneAcc0, St1}) ->
+                Context = #{topic_filter => TopicFilter},
+                {SubOpts, St2} = do_save_subopts(St1, Context, SubOpts0),
+                HasData =
+                    case SubOpts of
+                        #{subopts := #{?MODULE := _}} ->
+                            %% DS session
+                            true;
+                        #{?MODULE := _} ->
+                            %% In-memory session
+                            true;
+                        _ ->
+                            false
+                    end,
+                TombstoneAcc = emqx_utils_maps:put_if(TombstoneAcc0, TopicFilter, SubOpts, HasData),
+                {TombstoneAcc, St2}
+            end,
+            {#{}, St0},
+            Subs
+        ),
+        St = St3#st{tombstone = #{saved_subopts => Tombstone}},
+        {ok, St}
+    end),
+    ok.
 
 recreate_handler(#st{registry = HandlerRegistry, buffer = Buffer} = St, ClientInfo, OldHandlerRef) ->
     SubscribeCtx = subscribe_ctx(ClientInfo),
@@ -379,6 +487,7 @@ with_st(Fun, DefaultResult) ->
 
 with_msg_handler(Msgs, Fun) ->
     with_msg_handler(Msgs, Fun, ok).
+
 with_msg_handler(#message{} = Msg, Fun, DefaultResult) ->
     case emqx_message:get_header(?EXTSUB_HEADER_INFO, Msg) of
         undefined ->
@@ -486,7 +595,8 @@ new_st() ->
         registry = emqx_extsub_handler_registry:new(),
         buffer = emqx_extsub_buffer:new(),
         deliver_retry_tref = undefined,
-        unacked = #{}
+        unacked = #{},
+        tombstone = #{}
     }.
 
 put_st(#st{} = St) ->

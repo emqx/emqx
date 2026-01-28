@@ -49,6 +49,7 @@
     'session.discarded',
     'session.takenover',
     'session.terminated',
+    'session.save_subopts',
     'message.publish',
     'message.puback',
     'message.dropped',
@@ -204,6 +205,22 @@ when
 -callback 'session.terminated'(
     emqx_types:clientinfo(), _Reason :: atom(), _SessionInfo :: emqx_types:infos()
 ) -> callback_result().
+
+-callback 'session.save_subopts'(
+    #{
+        topic_filter := emqx_types:topic() | emqx_types:share()
+    },
+    SubOpts
+) -> fold_callback_result(SubOpts) when
+    SubOpts :: #{
+        rh => _,
+        rap => _,
+        nl => _,
+        qos => _,
+        rap => _,
+        subid => _,
+        _ => _
+    }.
 
 -callback 'message.publish'(Msg) ->
     fold_callback_result(Msg)

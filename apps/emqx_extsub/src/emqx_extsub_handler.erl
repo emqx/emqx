@@ -13,6 +13,7 @@
     terminate/1,
     delivered/4,
     info/3,
+    save_subopts/3,
     get_options/1,
     get_option/2,
     get_option/3,
@@ -197,4 +198,17 @@ info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
             {ok, Handler#handler{st = State}, Messages};
         recreate ->
             recreate
+    end.
+
+save_subopts(#handler{cbm = CBM, st = State0} = Handler0, Context, SubOpts) ->
+    case erlang:function_exported(CBM, handle_save_subopts, 3) of
+        true ->
+            case CBM:handle_save_subopts(State0, Context, SubOpts) of
+                {ok, State, Res} ->
+                    {ok, Handler0#handler{st = State}, Res};
+                {ok, State} ->
+                    {ok, Handler0#handler{st = State}}
+            end;
+        false ->
+            {ok, Handler0}
     end.

@@ -712,7 +712,7 @@ handle_info1(
             exit(commit_failure);
         ignore ->
             %% Unknown message:
-            ?tp(warning, ?sessds_unknown_message, #{message => Info}),
+            ?tp(debug, ?sessds_unknown_message, #{message => Info}),
             Session
     end.
 
@@ -2168,9 +2168,35 @@ async_checkpoint(Session) ->
 commit(Session0 = #{s := S0}, Opts) ->
     ?tp(?sessds_commit, #{s => S0, opts => Opts}),
     S1 = emqx_persistent_session_ds_subs:gc(streams_gc(S0)),
-    S = emqx_persistent_session_ds_state:commit(S1, Opts),
+    S2 = maybe_augment_subopts(Session0, S1, Opts),
+    S = emqx_persistent_session_ds_state:commit(S2, Opts),
     Session = Session0#{s := S},
     cancel_state_commit_timer(Session).
+
+maybe_augment_subopts(_Session, S0, #{lifetime := terminate}) ->
+    do_save_subopts(S0);
+maybe_augment_subopts(_Session, S0, _Opts) ->
+    S0.
+
+do_save_subopts(S0) ->
+    emqx_persistent_session_ds_subs:fold(
+        fun(TopicFilter, #{current_state := SSID}, S1) ->
+            #{subopts := SubOpts0} =
+                SS0 =
+                emqx_persistent_session_ds_state:get_subscription_state(SSID, S1),
+            SubOpts =
+                emqx_hooks:run_fold(
+                    'session.save_subopts',
+                    [#{topic_filter => TopicFilter}],
+                    SubOpts0
+                ),
+            SS = SS0#{subopts := SubOpts},
+            emqx_persistent_session_ds_state:put_subscription_state(SSID, SS, S1)
+        end,
+        S0,
+        S0,
+        [shared, direct]
+    ).
 
 -spec ensure_state_commit_timer(session()) -> session().
 ensure_state_commit_timer(#{s := S} = Session) ->

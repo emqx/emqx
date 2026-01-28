@@ -13,6 +13,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx/src/emqx_tracepoints.hrl").
 
 all() ->
     [
@@ -20,6 +21,7 @@ all() ->
         {group, mnesia_with_indices},
         {group, mnesia_reindex},
         {group, index_agnostic},
+        {group, index_agnostic_ds},
         {group, disabled}
     ].
 
@@ -28,13 +30,26 @@ groups() ->
         {mnesia_without_indices, [sequence], index_related_tests()},
         {mnesia_with_indices, [sequence], index_related_tests()},
         {mnesia_reindex, [sequence], [t_reindex]},
-        {index_agnostic, [sequence], [t_disable_then_start, t_start_stop_on_setting_change]},
+        {index_agnostic, [sequence], [
+            t_disable_then_start,
+            t_start_stop_on_setting_change,
+            t_takeover,
+            t_resume
+        ]},
+        {index_agnostic_ds, [sequence], [t_takeover, t_resume]},
         {disabled, [t_disabled]}
     ].
 
 index_related_tests() ->
     emqx_common_test_helpers:all(?MODULE) --
-        [t_reindex, t_disable_then_start, t_disabled, t_start_stop_on_setting_change].
+        [
+            t_reindex,
+            t_disable_then_start,
+            t_disabled,
+            t_start_stop_on_setting_change,
+            t_takeover,
+            t_resume
+        ].
 
 %% erlfmt-ignore
 -define(BASE_CONF, ~'
@@ -69,15 +84,13 @@ mqtt {
 
 init_per_group(mnesia_without_indices = Group, Config) ->
     start_apps(Group, [{index, false} | Config]);
-init_per_group(mnesia_reindex = Group, Config) ->
-    start_apps(Group, Config);
 init_per_group(Group, Config) ->
     start_apps(Group, Config).
 
-end_per_group(_Group, Config) ->
+end_per_group(Group, Config) ->
     emqx_retainer_mnesia:populate_index_meta(),
-    stop_apps(Config),
-    Config.
+    stop_apps(Group, Config),
+    ok.
 
 init_per_testcase(t_disabled, Config) ->
     snabbkaffe:start_trace(),
@@ -110,6 +123,9 @@ emqx_conf_app_spec(disabled) ->
 emqx_conf_app_spec(_) ->
     emqx_conf.
 
+start_apps(index_agnostic_ds = _Group, Config) ->
+    ExtraApps = [emqx_retainer_app_spec()],
+    emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, #{});
 start_apps(Group, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -121,7 +137,9 @@ start_apps(Group, Config) ->
     ),
     [{suite_apps, Apps} | Config].
 
-stop_apps(Config) ->
+stop_apps(index_agnostic_ds, Config) ->
+    emqx_common_test_helpers:run_cleanups(Config);
+stop_apps(_Group, Config) ->
     emqx_cth_suite:stop(?config(suite_apps, Config)).
 
 %%--------------------------------------------------------------------
@@ -1088,6 +1106,14 @@ t_start_stop_on_setting_change(_Config) ->
         5000
     ),
     ?assertNot(is_retainer_started()),
+
+    %% Restore config for other test cases
+    ?assertWaitEvent(
+        set_retain_available_for_zone(default, true),
+        #{?snk_kind := retainer_status_updated},
+        5000
+    ),
+    ?assert(is_retainer_started()),
     ok.
 
 t_disabled(_Config) ->
@@ -1198,9 +1224,111 @@ t_update_config(_) ->
     NewConf = emqx_utils_maps:deep_put([<<"backend">>, <<"storage_type">>], OldConf, <<"disc">>),
     update_retainer_config(NewConf).
 
+t_takeover(TCConfig) ->
+    test_takeover_or_resume(takeover, TCConfig).
+
+t_resume(TCConfig) ->
+    test_takeover_or_resume(resume, TCConfig).
+
+test_takeover_or_resume(Kind, TCConfig) ->
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"5/1s">>,
+        <<"flow_control">> => #{<<"batch_read_number">> => 1}
+    }),
+    NumRetained = 15,
+    lists:foreach(
+        fun(N) ->
+            Topic = iolist_to_binary(io_lib:format("retained/~2..0w", [N])),
+            Message = emqx_message:make(Topic, <<"payload">>),
+            ok = emqx_retainer_publisher:store_retained(Message)
+        end,
+        lists:seq(1, NumRetained)
+    ),
+    ?check_trace(
+        begin
+            ClientId = <<"takeover">>,
+            Opts = #{
+                clientid => ClientId,
+                clean_start => false,
+                proto_ver => v5,
+                properties => #{'Session-Expiry-Interval' => 30}
+            },
+            {ok, C0} = emqtt:start_link(Opts#{clean_start := true}),
+            {ok, _} = emqtt:connect(C0),
+
+            {ok, C1} = emqtt:start_link(Opts),
+
+            %% Receive messages until rate limit is hit.
+            {ok, _, _} = emqtt:subscribe(C0, <<"retained/+">>, 1),
+            Msgs0 = receive_messages(5),
+
+            %% Now take over/resume
+            case Kind of
+                takeover ->
+                    unlink(C0);
+                resume ->
+                    emqtt:stop(C0)
+            end,
+            {ok, _} = emqtt:connect(C1),
+            Msgs1 = receive_messages(10),
+
+            %% Should have received everything without duplication.
+            Msgs = Msgs0 ++ Msgs1,
+            NumReceived = length(Msgs),
+            Duplicated0 = maps:groups_from_list(fun(#{topic := T}) -> T end, Msgs),
+            Duplicated = maps:filter(fun(_T, Ms) -> length(Ms) > 1 end, Duplicated0),
+            Ctx = #{
+                received_so_far => Msgs,
+                num_received => NumReceived,
+                duplicated => Duplicated,
+                old_client => C0,
+                new_client => C1
+            },
+
+            ?assertNotReceive({publish, _}, 1_000, Ctx),
+            ?assertEqual(NumRetained, NumReceived, Ctx),
+            ?assertEqual(#{}, Duplicated, Ctx),
+
+            case is_ds(TCConfig) of
+                true ->
+                    {ok, {ok, _}} =
+                        ?wait_async_action(
+                            emqtt:stop(C1),
+                            #{?snk_kind := ?sessds_terminate},
+                            1_000
+                        ),
+                    %% Ensure the sub state is cleared of extsub state.
+                    SSs = emqx_utils_maps:deep_get(
+                        [s, subscription_states],
+                        emqx_persistent_session_ds:print_session(ClientId)
+                    ),
+                    ?assertMatch(
+                        [{_, #{subopts := SubOpts}}] when not is_map_key(emqx_extsub, SubOpts),
+                        maps:to_list(SSs)
+                    ),
+                    ok;
+                false ->
+                    ok = emqtt:stop(C1),
+                    ok
+            end,
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
+
+is_ds(TCConfig) ->
+    case emqx_common_test_helpers:get_matrix_prop(TCConfig, [index_agnostic_ds], false) of
+        index_agnostic_ds ->
+            true;
+        _ ->
+            false
+    end.
 
 test_retain_while_reindexing(C, Deadline) ->
     case erlang:monotonic_time(millisecond) > Deadline of
@@ -1292,7 +1420,7 @@ reset_rates_to_default() ->
         <<"max_publish_rate">> => <<"100000/s">>,
         <<"flow_control">> =>
             #{
-                <<"batch_read_number">> => 0
+                <<"batch_read_number">> => 1_000
             }
     }).
 
