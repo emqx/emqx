@@ -411,40 +411,9 @@ create_subscribe_ctx(Ref, Module, SubOpts0, Ctx) ->
         }),
         ok
     end,
-    SubOpts = filter_saved_subopts(Module, SubOpts0),
+    SubOpts = emqx_extsub:filter_saved_subopts(Module, SubOpts0),
     Ctx#{
         subopts => SubOpts,
         send_after => SendAfter,
         send => Send
     }.
-
-%%% TODO: move to extsub
-filter_saved_subopts(Module, SubOpts0) ->
-    case SubOpts0 of
-        #{subopts := InnerSubOpts0} ->
-            %% DS session
-            case maps:take(emqx_extsub, InnerSubOpts0) of
-                {#{Module := SavedSt}, InnerSubOpts1} ->
-                    InnerSubOpts = maybe_unwrap_ds_subopts(InnerSubOpts1),
-                    InnerSubOpts#{Module => SavedSt};
-                {_, InnerSubOpts} ->
-                    maybe_unwrap_ds_subopts(InnerSubOpts);
-                _ ->
-                    maybe_unwrap_ds_subopts(InnerSubOpts0)
-            end;
-        #{} ->
-            %% in-memory session
-            case maps:take(emqx_extsub, SubOpts0) of
-                {#{Module := SavedSt}, SubOpts} ->
-                    SubOpts#{Module => SavedSt};
-                {_, SubOpts} ->
-                    SubOpts;
-                error ->
-                    SubOpts0
-            end
-    end.
-
-maybe_unwrap_ds_subopts(#{subopts := SubOpts}) ->
-    SubOpts;
-maybe_unwrap_ds_subopts(#{} = SubOpts) ->
-    SubOpts.

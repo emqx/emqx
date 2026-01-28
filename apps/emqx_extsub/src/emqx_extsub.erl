@@ -39,6 +39,9 @@ The module:
     max_unacked/0
 ]).
 
+%% Internal exports (for `emqx_extsub` application)
+-export([filter_saved_subopts/2]).
+
 -define(ST_PD_KEY, extsub_st).
 -define(CAN_RECEIVE_ACKS_PD_KEY, extsub_can_receive_acks).
 
@@ -336,6 +339,40 @@ set_max_unacked(MaxUnacked) ->
 
 max_unacked() ->
     persistent_term:get(?MAX_UNACKED_PT_KEY, ?EXTSUB_MAX_UNACKED).
+
+%%--------------------------------------------------------------------
+%% Internal exports (for `emqx_extsub` application)
+%%--------------------------------------------------------------------
+
+filter_saved_subopts(Module, SubOpts0) ->
+    case SubOpts0 of
+        #{subopts := InnerSubOpts0} ->
+            %% DS session
+            case maps:take(?MODULE, InnerSubOpts0) of
+                {#{Module := SavedSt}, InnerSubOpts1} ->
+                    InnerSubOpts = maybe_unwrap_ds_subopts(InnerSubOpts1),
+                    InnerSubOpts#{Module => SavedSt};
+                {_, InnerSubOpts} ->
+                    maybe_unwrap_ds_subopts(InnerSubOpts);
+                _ ->
+                    maybe_unwrap_ds_subopts(InnerSubOpts0)
+            end;
+        #{} ->
+            %% in-memory session
+            case maps:take(?MODULE, SubOpts0) of
+                {#{Module := SavedSt}, SubOpts} ->
+                    SubOpts#{Module => SavedSt};
+                {_, SubOpts} ->
+                    SubOpts;
+                error ->
+                    SubOpts0
+            end
+    end.
+
+maybe_unwrap_ds_subopts(#{subopts := SubOpts}) ->
+    SubOpts;
+maybe_unwrap_ds_subopts(#{} = SubOpts) ->
+    SubOpts.
 
 %%--------------------------------------------------------------------
 %% Internal functions
