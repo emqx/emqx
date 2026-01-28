@@ -1,59 +1,12 @@
 %%--------------------------------------------------------------------
 %% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
--module(emqx_ds_builtin_raft_machine).
--moduledoc """
-Ra Machine implementation
-
-This code decides how successfully replicated and committed log entries (e.g.
-commands) are applied to the shard storage state. This state is actually comprised
-logically of 2 parts:
-
-1. RocksDB database managed through `emqx_ds_storage_layer`.
-
-2. Machine state (`ra_state()`) that holds very minimal state needed to ensure
-   higher-level semantics, most importantly strictly monotonic quasi-wallclock
-   timestamp used to assign unique message timestamps to fulfill "append-only"
-   guarantees.
-
-There are few subtleties in how storage state is persisted and recovered.
-When the shard recovers from a shutdown or crash, this is what usually happens:
-
-1. Shard storage layer starts up the RocksDB database.
-2. Ra recovers the Raft log.
-3. Ra recovers the latest machine snapshot (`ra_state()`), taken at some point
-   in time (`RaftIdx`).
-4. Ra applies existing Raft log entries starting from `RaftIdx`.
-
-While most of the time storage layer state, machine snapshot and log entries are
-consistent with each other, there are situations when they are not. Namely:
- * RocksDB decides to flush memtables to disk by itself, which is unexpected but
-   possible.
- * Lagging replica accepts a storage snapshot sourced from a RocksDB checkpoint,
-   and RocksDB database is always implicitly flushed before checkpointing.
-In both of those cases, the Raft log would contain entries that were already
-applied from the point of view of the storage layer, and we must anticipate that.
-
-The process running Ra machine also keeps auxiliary ephemeral state in the process
-dictionary, see `?pd_ra_*` macrodefs for details.
-""".
+-module(emqx_ds_builtin_raft_machine_v0).
 
 -behaviour(ra_machine).
 
-%% API:
--export([
-    get_vsn/1,
-    add_generation/1,
-    otx_new_leader/1,
-    otx_commit/5,
-    drop_generation/1,
-    update_schema/1
-]).
-
 %% behavior callbacks:
 -export([
-    version/0,
-    which_module/1,
     init/1,
     apply/3,
     tick/2,
@@ -89,9 +42,12 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 
 %% Core state of the replication, i.e. the state of ra machine.
 -type ra_state() :: #{
-    vsn := 1,
     %% Shard ID.
     db_shard := {emqx_ds:db(), emqx_ds:shard()},
+
+    %% Map that stores last schema change id for each site, it is used
+    %% to discard obsolete schema updates.
+    last_schema_changes := #{emqx_dsch:site() => emqx_dsch:pending_id()},
 
     schema := emqx_ds_builtin_raft:db_schema() | undefined,
 
@@ -124,8 +80,9 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 }.
 
 -type cmd_update_schema() :: #{
-    %% Note: `update_schema' is inconsistent and obsolete:
-    ?tag := update_schema_v1 | update_schema,
+    ?tag := update_schema,
+    pending_id := emqx_dsch:pending_id(),
+    originator := emqx_dsch:site(),
     schema := map()
 }.
 
@@ -167,93 +124,19 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 -endif.
 
 %%================================================================================
-%% API functions
-%%================================================================================
-
--doc """
-# Version history
-
-## 0 (e6.0.0)
-Initial version. Removed backward-compatibility with 5.* data.
-
-## 1 (e6.1.1)
-
-- Changed initialization procedure. State machine starts with an empty
-  schema, which then gets explicitly initialized by the leader.
-
-- Changed behavior of `update_schema' operation. Previously it
-  attempted to automatically add a generation, and the implementation
-  contained a bug that didn't actually apply schema updates to the
-  runtime state. New version doesn't have such side effects.
-
-- Changed behavior of `emqx_ds_storage_layer:add_generation'. Now it
-  takes storage prototype as an explicit argument instead of reading
-  it from its own builtin metadata.
-""".
-version() ->
-    1.
-
-which_module(0) -> emqx_ds_builtin_raft_machine_v0;
-which_module(1) -> ?MODULE.
-
--spec add_generation(emqx_ds:time()) -> cmd_add_generation().
-add_generation(Since) when is_integer(Since) ->
-    #{?tag => add_generation, since => Since}.
-
-%% Note: -1 is used when the leader propagates its schema during storage initialization
--spec update_schema(
-    emqx_ds_builtin_raft:db_schema()
-) ->
-    cmd_update_schema().
-update_schema(NewSchema) when is_map(NewSchema) ->
-    #{
-        ?tag => update_schema_v1,
-        schema => NewSchema
-    }.
-
--spec drop_generation(emqx_ds:generation()) -> cmd_drop_generation().
-drop_generation(Gen) when is_integer(Gen) ->
-    #{?tag => drop_generation, generation => Gen}.
-
--spec otx_new_leader(pid()) -> cmd_otx_new_leader().
-otx_new_leader(Pid) when is_pid(Pid) ->
-    #{?tag => new_otx_leader, pid => Pid}.
-
--spec otx_commit(
-    emqx_ds_optimistic_tx:serial(),
-    emqx_ds_optimistic_tx:serial(),
-    emqx_ds:time(),
-    emqx_ds_optimistic_tx:batch(),
-    pid()
-) -> cmd_commit_tx().
-otx_commit(PrevSerial, Serial, Time, Batch, Leader) when
-    is_integer(PrevSerial), is_integer(Serial), is_integer(Time), is_list(Batch), is_pid(Leader)
-->
-    #{
-        ?tag => ?commit_otx,
-        ?prev_serial => PrevSerial,
-        ?serial => Serial,
-        ?otx_timestamp => Time,
-        ?batches => Batch,
-        ?otx_leader_pid => Leader
-    }.
-
--spec get_vsn(ra_state() | emqx_ds_builtin_raft_machine_v0:ra_state()) -> non_neg_integer().
-get_vsn(#{vsn := Vsn}) ->
-    Vsn;
-get_vsn(#{}) ->
-    %% v0 didn't have an explicit version:
-    0.
-
-%%================================================================================
 %% behavior callbacks
 %%================================================================================
 
--spec init(#{db := emqx_ds:db(), shard := emqx_ds:shard(), _ => _}) -> ra_state().
+-spec init(#{
+    name := _,
+    db := emqx_ds:db(),
+    shard := emqx_ds:shard(),
+    schema := emqx_ds_builtin_raft:db_schema()
+}) -> ra_state().
 init(#{db := DB, shard := Shard}) ->
     #{
-        vsn => 1,
         db_shard => {DB, Shard},
+        last_schema_changes => #{},
         schema => undefined,
         latest => 0,
         tx_serial => 0,
@@ -263,62 +146,8 @@ init(#{db := DB, shard := Shard}) ->
 snapshot_module() ->
     emqx_ds_builtin_raft_server_snapshot.
 
--spec apply(
-    ra_machine:command_meta_data(),
-    ra_command(),
-    ra_state() | emqx_ds_builtin_raft_machine_v0:ra_state()
-) ->
+-spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
     {ra_state(), _Reply, _Effects}.
-apply(
-    _RaftMeta,
-    {machine_version, 0, 1},
-    #{
-        db_shard := DBShard,
-        latest := Latest,
-        tx_serial := TxSerial,
-        otx_leader_pid := OtxLeader
-    }
-) ->
-    ?tp(notice, upgrading_state_machine, #{}),
-    %% Reset the schema:
-    State = #{
-        vsn => 1,
-        db_shard => DBShard,
-        schema => undefined,
-        latest => Latest,
-        tx_serial => TxSerial,
-        otx_leader_pid => OtxLeader
-    },
-    {State, ok, []};
-apply(
-    RaftMeta,
-    #{?tag := update_schema_v1, schema := Schema},
-    #{db_shard := DBShard} = State0
-) ->
-    %% This command is issued and handled by the v1+ versions of state
-    %% machine. It appears in the log when `emqx_ds:update_config' is
-    %% called or during blank slate start of FSM leader with v1+
-    %% version of the code (any machine version). v0 code cannot
-    %% process it and will crash. But we hope that probability of this
-    %% command appearing in the log during rolling upgrade is low.
-    ?tp(
-        debug,
-        ds_ra_update_schema,
-        #{
-            shard => DBShard,
-            schema => Schema
-        }
-    ),
-    ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
-    State = State0#{schema := Schema},
-    Effect = release_log(RaftMeta, State),
-    {State, ok, [Effect]};
-apply(
-    _RaftMeta,
-    _Command,
-    State = #{schema := undefined}
-) ->
-    {State, ?err_rec(shard_not_initialized), []};
 apply(
     RaftMeta,
     #{
@@ -360,11 +189,12 @@ apply(
             Result = ?err_unrec({not_the_leader, #{got => From, expect => Leader}}),
             Effects = []
     end,
+    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
-    RaftMeta = #{machine_version := Vsn},
+    RaftMeta,
     #{?tag := add_generation, since := Since},
-    #{db_shard := DBShard, schema := #{storage := Prototype}} = State
+    #{db_shard := DBShard} = State
 ) ->
     ?tp(
         info,
@@ -374,23 +204,19 @@ apply(
             since => Since
         }
     ),
-    Result =
-        case Vsn of
-            0 -> emqx_ds_storage_layer:add_generation(DBShard, Since);
-            1 -> emqx_ds_storage_layer:add_generation(DBShard, Since, Prototype)
-        end,
+    Result = emqx_ds_storage_layer:add_generation(DBShard, Since),
     emqx_ds_beamformer:generation_event(DBShard),
     Effect = release_log(RaftMeta, State),
+    Effect =/= {release_cursor, 0, State} andalso
+        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
     {State, Result, [Effect]};
 apply(
-    _RaftMeta,
+    RaftMeta,
     #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
-    #{db_shard := DBShard} = State0
+    #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest} = State0
 ) ->
-    %% Obsolete version of update_config command. It is issued by v0
-    %% version of the code.
     ?tp(
-        warning,
+        notice,
         ds_ra_update_config,
         #{
             shard => DBShard,
@@ -399,7 +225,20 @@ apply(
             pending_id => PendingId
         }
     ),
-    {State0, {error, unrecoverable, not_supported}, []};
+    State =
+        case LSC of
+            #{Site := NewerId} when NewerId >= PendingId ->
+                %% This update has been already applied. Ignore
+                %% it:
+                State0;
+            #{} ->
+                ok = emqx_ds_storage_layer:update_config_v0(DBShard, Latest, Schema),
+                State0#{schema := Schema, last_schema_changes := LSC#{Site => PendingId}}
+        end,
+    Effect = release_log(RaftMeta, State),
+    Effect =/= {release_cursor, 0, State} andalso
+        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
+    {State, ok, [Effect]};
 apply(
     _RaftMeta,
     #{?tag := drop_generation, generation := GenId},
@@ -431,14 +270,12 @@ apply(
 tick(_TimeMs, #{db_shard := _DBShard}) ->
     [].
 
-%% Called when the ra server changes state (e.g. leader -> follower).
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
-state_enter(MemberState, State = #{db_shard := DBShard}) ->
-    {DB, Shard} = DBShard,
+state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
     ?tp(
-        info,
+        debug,
         ds_ra_state_enter,
-        State#{member_state => MemberState}
+        State#{state => MemberState}
     ),
     emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
     set_cache(MemberState, State),
