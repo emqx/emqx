@@ -61,11 +61,8 @@ init(Zone, Interval) ->
     Second :: non_neg_integer()
 ) -> keepalive() | undefined.
 init(Zone, Stat, Second) when Second > 0 andalso Second =< ?MAX_INTERVAL ->
-    #{keepalive_multiplier := Mul, keepalive_check_interval := CheckInterval} =
-        emqx_config:get_zone_conf(Zone, [mqtt]),
-    MilliSeconds = timer:seconds(Second),
-    Interval = emqx_utils:clamp(CheckInterval, 1000, max(MilliSeconds div 2, 1000)),
-    MaxIdleMs = ceil(MilliSeconds * Mul),
+    #{check_interval := Interval, max_idle_millisecond := MaxIdleMs} =
+        keepalive_params(Zone, Second),
     {StatVal, ReaderMFA} =
         case Stat of
             {M, F, A} = MFA ->
@@ -139,15 +136,33 @@ check(
         statval = NewVal,
         idle_milliseconds = IdleAcc,
         check_interval = Interval
-    } = KeepAlive
+    } = Keepalive
 ) ->
-    {ok, KeepAlive#keepalive{statval = NewVal, idle_milliseconds = IdleAcc + Interval}};
-check(NewVal, #keepalive{} = KeepAlive) ->
-    {ok, KeepAlive#keepalive{statval = NewVal, idle_milliseconds = 0}}.
+    {ok, Keepalive#keepalive{statval = NewVal, idle_milliseconds = IdleAcc + Interval}};
+check(NewVal, #keepalive{} = Keepalive) ->
+    {ok, Keepalive#keepalive{statval = NewVal, idle_milliseconds = 0}}.
 
-%% @doc Update keepalive.
-%% The statval of the previous keepalive will be used,
-%% and normal checks will begin from the next cycle.
+%% @doc Update keepalive while preserving stat_reader and idle time.
 -spec update(atom(), non_neg_integer(), keepalive() | undefined) -> keepalive() | undefined.
-update(Zone, Interval, undefined) -> init(Zone, 0, Interval);
-update(Zone, Interval, #keepalive{statval = StatVal}) -> init(Zone, StatVal, Interval).
+update(Zone, Interval, undefined) ->
+    init(Zone, 0, Interval);
+update(Zone, Interval, Keepalive) when Interval > ?MAX_INTERVAL ->
+    update(Zone, ?MAX_INTERVAL, Keepalive);
+update(_Zone, 0, _Keepalive) ->
+    undefined;
+update(Zone, Interval, Keepalive = #keepalive{}) ->
+    #{check_interval := NewCheckInterval, max_idle_millisecond := MaxIdleMs} =
+        keepalive_params(Zone, Interval),
+    Keepalive#keepalive{
+        check_interval = NewCheckInterval,
+        max_idle_millisecond = MaxIdleMs
+    }.
+
+keepalive_params(Zone, Interval) ->
+    #{keepalive_multiplier := Mul, keepalive_check_interval := CheckInterval} =
+        emqx_config:get_zone_conf(Zone, [mqtt]),
+    MilliSeconds = timer:seconds(Interval),
+    #{
+        check_interval => emqx_utils:clamp(CheckInterval, 1000, max(MilliSeconds div 2, 1000)),
+        max_idle_millisecond => ceil(MilliSeconds * Mul)
+    }.

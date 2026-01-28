@@ -114,6 +114,7 @@ emqx_rule_engine: all
 emqx_s3: emqx_bridge_s3 emqx_bridge_s3tables emqx_ft
 emqx_schema_registry: all
 emqx_schema_validation: all
+emqx_setopts: all
 emqx_slow_subs: none
 emqx_streams: none
 emqx_telemetry: all
