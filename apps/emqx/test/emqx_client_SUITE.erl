@@ -75,6 +75,8 @@ groups() ->
         {misbehaving, [], [
             t_sock_closed_instantly,
             t_sock_closed_quickly,
+            t_sock_closed_on_shutdown,
+            t_sock_closed_on_kick_shutdown,
             t_sub_non_utf8_topic,
             t_congestion_send_timeout,
             t_congestion_decongested
@@ -609,6 +611,93 @@ t_sock_closed_quickly(_) ->
     after
         trace:session_destroy(TS)
     end.
+
+%% Connection process smoothly handles situations when socket is already closed
+%% during channel shutdown.
+t_sock_closed_on_shutdown(_) ->
+    %% NOTE
+    %% With socket-based listener, it's nearly impossible to trigger a situation when
+    %% `socket:send/4` sees a socket error. That makes this testcase currently a _false
+    %% positive_ for socket-based listener, however the relevant code path is still
+    %% handled carefully in `emqx_socket_connection`.
+    %% Start a tracing session:
+    TS = trace:session_create(?MODULE, self(), []),
+    %% Estabilish a connection:
+    {
+        {ok, Socket},
+        {ok, #{?snk_meta := #{pid := CPid}}}
+    } = ?wait_async_action(
+        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        #{?snk_kind := connection_started}
+    ),
+    trace:process(TS, CPid, true, [procs]),
+    %% Verify it handles closed socket smoothly in the context of shutdown:
+    %% 1. Send a CONNECT that gets treated as banned through the 'client.connect' hook.
+    %% 2. Disconnect the socket at the same time.
+    ok = emqx_hooks:add(
+        'client.connect',
+        {?MODULE, h_sock_closed_on_shutdown, [Socket]},
+        ?HP_HIGHEST
+    ),
+    try
+        ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            clientid = atom_to_binary(?FUNCTION_NAME)
+        }),
+        ok = gen_tcp:send(Socket, emqx_frame:serialize(ConnPacket, ?MQTT_PROTO_V5)),
+        ?assertReceive({trace, CPid, exit, {shutdown, banned}})
+    after
+        trace:session_destroy(TS),
+        emqx_hooks:del('client.connect', {?MODULE, h_sock_closed_on_shutdown})
+    end.
+
+h_sock_closed_on_shutdown(_ConnInfo, _ConnProps, Socket) ->
+    ok = gen_tcp:close(Socket),
+    ok = timer:sleep(5),
+    {stop, {error, ?RC_BANNED}}.
+
+%% Connection process smoothly handles situations when socket is already closed
+%% during channel shutdown as a result of a `kick` call.
+t_sock_closed_on_kick_shutdown(_) ->
+    %% NOTE
+    %% With socket-based listener, it's nearly impossible to trigger a situation when
+    %% `socket:send/4` sees a socket error. That makes this testcase currently a _false
+    %% positive_ for socket-based listener, however the relevant code path is still
+    %% handled carefully in `emqx_socket_connection`.
+    %% Start a tracing session:
+    TS = trace:session_create(?MODULE, self(), []),
+    %% Estabilish a connection:
+    {
+        {ok, Socket},
+        {ok, #{?snk_meta := #{pid := CPid}}}
+    } = ?wait_async_action(
+        gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+        #{?snk_kind := connection_started}
+    ),
+    trace:process(TS, CPid, true, [procs]),
+    ok = emqx_hooks:add(
+        'client.disconnected',
+        {?MODULE, h_sock_closed_on_kick_shutdown, [Socket]},
+        ?HP_HIGHEST
+    ),
+    try
+        ClientId = atom_to_binary(?FUNCTION_NAME),
+        ConnPacket = ?CONNECT_PACKET(#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            clientid = ClientId
+        }),
+        ok = gen_tcp:send(Socket, emqx_frame:serialize(ConnPacket, ?MQTT_PROTO_V5)),
+        ?assertReceive({tcp, Socket, _ConnAck}),
+        _Request = erpc:send_request(node(), emqx_cm, kick_session, [ClientId]),
+        ?assertReceive({trace, CPid, exit, {shutdown, kicked}})
+    after
+        trace:session_destroy(TS),
+        emqx_hooks:del('client.disconnected', {?MODULE, h_sock_closed_on_kick_shutdown})
+    end.
+
+h_sock_closed_on_kick_shutdown(_ClientInfo, _Reason, _ConnInfo, Socket) ->
+    ok = gen_tcp:close(Socket),
+    ok = timer:sleep(5).
 
 t_sub_non_utf8_topic(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
