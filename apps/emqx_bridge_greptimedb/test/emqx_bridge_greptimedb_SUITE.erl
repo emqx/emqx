@@ -284,7 +284,10 @@ make_row(_Schema, []) ->
     #{};
 make_row(#{<<"column_schemas">> := ColumnsSchemas}, [Row]) ->
     Columns = lists:map(fun(#{<<"name">> := Name}) -> Name end, ColumnsSchemas),
-    maps:from_list(lists:zip(Columns, Row)).
+    maps:from_list(lists:zip(Columns, Row));
+make_row(#{<<"column_schemas">> := ColumnsSchemas}, Rows) when is_list(Rows) ->
+    Columns = lists:map(fun(#{<<"name">> := Name}) -> Name end, ColumnsSchemas),
+    lists:map(fun(R) -> maps:from_list(lists:zip(Columns, R)) end, Rows).
 
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
@@ -742,4 +745,38 @@ t_authentication_error_on_send_message(TCConfig) ->
             ok
         end
     ),
+    ok.
+
+-doc """
+Verifies that, if an integer value is given to a value which is not suffixed by an integer
+suffix, we cast it to a float, which is the default InfluxDB Write Syntax value.
+""".
+t_auto_cast_int_to_float(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{}),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+    Payload0 = json_encode(#{
+        %% First, since we're auto-creating tables, let's make the column have a float64
+        %% type.
+        float_key => 24.5
+    }),
+    emqtt:publish(C, Topic, Payload0, [{qos, 1}]),
+    clear_table(TCConfig),
+
+    Payload1 = json_encode(#{
+        %% N.B.: now, an integer value where a float is expected
+        float_key => 30
+    }),
+    emqtt:publish(C, Topic, Payload1, [{qos, 1}]),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"float_value">> := 30.0},
+            query_by_clientid(ClientId, TCConfig)
+        )
+    ),
+
     ok.

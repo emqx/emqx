@@ -218,8 +218,25 @@ create_simple_table(TableName, TCConfig) ->
     ]),
     query_by_sql(SQL, TCConfig).
 
+create_simple_table2(TableName, TCConfig) ->
+    SQL = iolist_to_binary([
+        [<<"create table if not exists ">>, TableName, <<"(">>],
+        <<" ts timestamp time index,">>,
+        <<" clientid string,">>,
+        <<" payload float64,">>,
+        <<" primary key (clientid)">>,
+        <<")">>
+    ]),
+    query_by_sql(SQL, TCConfig).
+
 drop_table(TCConfig) ->
     drop_table(<<"mqtt">>, TCConfig).
+
+clear_table(TCConfig) ->
+    clear_table(<<"mqtt">>, TCConfig).
+
+clear_table(TableName, TCConfig) ->
+    query_by_sql(<<"delete from ", TableName/binary>>, TCConfig).
 
 drop_table(TableName, TCConfig) ->
     query_by_sql(<<"drop table ", TableName/binary>>, TCConfig).
@@ -598,4 +615,51 @@ t_multiple_tables_failure_in_the_end(TCConfig) when is_list(TCConfig) ->
             end
         end
     ),
+    ok.
+
+-doc """
+Verifies that, if an integer value is given to a value which is not suffixed by an integer
+suffix, we cast it to a float, which is the default InfluxDB Write Syntax value.
+""".
+t_auto_cast_int_to_float() ->
+    [{matrix, true}].
+t_auto_cast_int_to_float(matrix) ->
+    [
+        [?tcp, Sync, Batch]
+     || Sync <- [?sync, ?async],
+        Batch <- [?without_batch, ?with_batch]
+    ];
+t_auto_cast_int_to_float(TCConfig) ->
+    TableName = <<"auto_cast">>,
+    on_exit(fun() -> drop_table(TableName, TCConfig) end),
+    {ok, _} = create_simple_table2(TableName, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    {201, _} = create_action_api(TCConfig, #{
+        <<"parameters">> => #{
+            <<"write_syntax">> =>
+                <<TableName/binary, ",clientid=${clientid} payload=${payload.float_key}">>
+        }
+    }),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    ClientId = emqx_guid:to_hexstr(emqx_guid:gen()),
+    C = start_client(#{clientid => ClientId}),
+
+    Payload = json_encode(#{
+        %% N.B.: an integer value where a float is expected
+        float_key => 30
+    }),
+    emqtt:publish(C, Topic, Payload, [{qos, 1}]),
+    SQL = emqx_bridge_v2_testlib:fmt(
+        <<"select * from ${t} where clientid='${c}'">>,
+        #{t => TableName, c => ClientId}
+    ),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            #{<<"payload">> := 30.0},
+            query_by_sql(SQL, TCConfig)
+        )
+    ),
+
     ok.
