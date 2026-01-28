@@ -422,9 +422,8 @@ filter_saved_subopts(Module, SubOpts0) ->
     case SubOpts0 of
         #{subopts := #{emqx_extsub := #{Module := SavedSt}} = InnerSubOpts0} ->
             %% DS session
-            InnerSubOpts1 = maps:remove(emqx_extsub, InnerSubOpts0),
-            InnerSubOpts = InnerSubOpts1#{Module => SavedSt},
-            SubOpts0#{subopts := InnerSubOpts};
+            InnerSubOpts = maps:remove(emqx_extsub, InnerSubOpts0),
+            InnerSubOpts#{Module => SavedSt};
         #{emqx_extsub := #{Module := SavedSt}} ->
             %% in-memory session
             SubOpts1 = maps:remove(emqx_extsub, SubOpts0),
