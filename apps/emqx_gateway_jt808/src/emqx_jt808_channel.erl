@@ -706,8 +706,8 @@ try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel)
     %% Custom msg_sn: check for conflicts
     AutoKey = set_msg_ack(MsgId, MsgSn),
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
-    {ExpectAckMsgId, _} = AutoKey,
-    OrderKey = {msg_sn_order, ExpectAckMsgId, MsgSn},
+    %% Use AutoKey in OrderKey to distinguish different message types with same MsgSn
+    OrderKey = {msg_sn_order, AutoKey},
     case emqx_inflight:contain(CustomKey, Inflight) of
         true ->
             %% Duplicate custom msg_sn, discard
@@ -881,8 +881,8 @@ ensure_disconnected(
 ack_msg(AckMsgId, KeyParam, Inflight) ->
     AutoKey = get_msg_ack(AckMsgId, KeyParam),
     CustomKey = custom_get_msg_ack(AckMsgId, KeyParam),
-    MsgSn = extract_msg_sn(KeyParam),
-    OrderKey = {msg_sn_order, AckMsgId, MsgSn},
+    %% Use AutoKey in OrderKey to match the key used in try_insert_inflight
+    OrderKey = {msg_sn_order, AutoKey},
     HasAuto = emqx_inflight:contain(AutoKey, Inflight),
     HasCustom = emqx_inflight:contain(CustomKey, Inflight),
     case {HasAuto, HasCustom} of
@@ -912,10 +912,6 @@ ack_msg(AckMsgId, KeyParam, Inflight) ->
             _ = erase(OrderKey),
             Inflight
     end.
-
-%% Extract MsgSn from KeyParam
-extract_msg_sn({_MsgId, MsgSn}) -> MsgSn;
-extract_msg_sn(MsgSn) -> MsgSn.
 
 %% Build custom get_msg_ack key
 custom_get_msg_ack(MsgId, KeyParam) ->
