@@ -1557,22 +1557,6 @@ handle_call(takeover_kick, Channel) ->
     );
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
-handle_call(
-    {keepalive, Interval},
-    Channel = #channel{
-        keepalive = KeepAlive,
-        conninfo = ConnInfo,
-        clientinfo = #{zone := Zone}
-    }
-) ->
-    ClientId = info(clientid, Channel),
-    NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
-    NConnInfo = maps:put(keepalive, Interval, ConnInfo),
-    NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
-    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
-    ChanInfo1 = info(NChannel),
-    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
-    reply(ok, reset_timer(keepalive, NChannel));
 handle_call({Type, _Meta} = MsgsReq, Channel = #channel{session = Session}) when
     Type =:= mqueue_msgs; Type =:= inflight_msgs
 ->
