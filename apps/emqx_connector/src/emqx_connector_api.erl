@@ -900,8 +900,17 @@ deobfuscate_mqtt_connector_for_node(NewInfo0, OldInfo) ->
     OldIds = maps:get(<<"ids">>, OldInfo, []),
     NewIds0 = maps:get(<<"ids">>, NewInfo0, []),
     OldIndex = lists:foldl(
-        fun(#{<<"clientid">> := ClientId} = Id, Acc) ->
-            Acc#{ClientId => Id}
+        fun
+            (ClientId, Acc) when is_binary(ClientId) ->
+                %% N.B. this case is "impossible", as the converter has already converted
+                %% older configs (which were simple binaries).  But there was a report
+                %% where, somehow, someone managed to sneak a binary clientid in the raw
+                %% config and this clause was hit...  So, this was added as extra
+                %% precaution.
+                Id = #{<<"clientid">> => ClientId},
+                Acc#{ClientId => Id};
+            (#{<<"clientid">> := ClientId} = Id, Acc) ->
+                Acc#{ClientId => Id}
         end,
         #{},
         OldIds
