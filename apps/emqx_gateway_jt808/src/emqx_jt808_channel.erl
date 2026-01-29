@@ -644,7 +644,10 @@ dispatch_frame(
         true ->
             {[], Channel};
         false ->
-            {{value, {Frame, SnType}}, NewQueue} = queue:out(Queue),
+            {{value, Item}, NewQueue} = queue:out(Queue),
+            %% Handle both old format (Frame) and new format ({Frame, SnType})
+            %% for hot upgrade compatibility
+            {Frame, SnType} = normalize_queue_item(Item),
 
             log(debug, #{msg => "delivery", frame => Frame, sn_type => SnType}, Channel),
 
@@ -664,6 +667,15 @@ dispatch_frame(
                     dispatch_frame(NChannel)
             end
     end.
+
+%% @doc Normalize queue item for hot upgrade compatibility.
+%% Old format: Frame (map)
+%% New format: {Frame, SnType}
+normalize_queue_item({Frame, SnType}) when is_atom(SnType) ->
+    {Frame, SnType};
+normalize_queue_item(Frame) when is_map(Frame) ->
+    %% Legacy format - treat as auto msg_sn
+    {Frame, ?SN_AUTO}.
 
 dispatch_and_reply(Channel) ->
     case dispatch_frame(Channel) of
