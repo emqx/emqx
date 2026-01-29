@@ -101,6 +101,10 @@
 
 -define(IGNORE_UNSUPPORTED_FRAMES, true).
 
+%% Downlink message sequence number types
+-define(SN_AUTO, auto).
+-define(SN_CUSTOM, custom).
+
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
 %%--------------------------------------------------------------------
@@ -440,9 +444,11 @@ msgs2frame(Messages, Channel) ->
         fun(#message{payload = Payload}, {AccFrames, AccChannel}) ->
             case emqx_utils_json:safe_decode(Payload) of
                 {ok, PayloadJson = #{<<"header">> := Header = #{<<"msg_id">> := MsgId}}} ->
-                    {NewHeader, NAccChannel} = build_downlink_header(MsgId, Header, AccChannel),
+                    {NewHeader, SnType, NAccChannel} = build_downlink_header(
+                        MsgId, Header, AccChannel
+                    ),
                     Frame = PayloadJson#{<<"header">> => NewHeader},
-                    {[Frame | AccFrames], NAccChannel};
+                    {[{Frame, SnType} | AccFrames], NAccChannel};
                 {ok, _} ->
                     tp(
                         error,
@@ -638,23 +644,100 @@ dispatch_frame(
         true ->
             {[], Channel};
         false ->
-            {{value, Frame}, NewQueue} = queue:out(Queue),
+            {{value, {Frame, SnType}}, NewQueue} = queue:out(Queue),
 
-            log(debug, #{msg => "delivery", frame => Frame}, Channel),
+            log(debug, #{msg => "delivery", frame => Frame, sn_type => SnType}, Channel),
 
-            NewInflight = emqx_inflight:insert(
-                set_msg_ack(msgid(Frame), msgsn(Frame)),
-                {Frame, RetxMax, erlang:system_time(millisecond)},
-                Inflight
-            ),
-            NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
-            {[Frame], ensure_timer(retry_timer, NChannel)}
+            MsgId = msgid(Frame),
+            MsgSn = msgsn(Frame),
+            case try_insert_inflight(MsgId, MsgSn, SnType, Frame, RetxMax, Inflight, Channel) of
+                {ok, NewInflight} ->
+                    NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
+                    {[Frame], ensure_timer(retry_timer, NChannel)};
+                {discard, Reason} ->
+                    log(
+                        warning,
+                        #{msg => "discard_downlink_frame", reason => Reason, frame => Frame},
+                        Channel
+                    ),
+                    NChannel = Channel#channel{mqueue = NewQueue},
+                    dispatch_frame(NChannel)
+            end
     end.
 
 dispatch_and_reply(Channel) ->
     case dispatch_frame(Channel) of
         {[], NChannel} -> {ok, NChannel};
         {Outgoings, NChannel} -> {ok, [{outgoing, Outgoings}], NChannel}
+    end.
+
+%% @doc Try to insert a frame into inflight, handling race conditions
+%% for custom msg_sn messages.
+%%
+%% For auto msg_sn: use key {AckMsgId, {MsgId, MsgSn}} or {AckMsgId, MsgSn}
+%% For custom msg_sn: use key {custom, AckMsgId, {MsgId, MsgSn}} or {custom, AckMsgId, MsgSn}
+%%
+%% Race condition handling:
+%% - If custom key already exists: duplicate custom msg, discard
+%% - If auto key exists when inserting custom: record ?SN_AUTO in process dict
+%% - If no key exists for custom: record ?SN_CUSTOM in process dict
+try_insert_inflight(MsgId, MsgSn, ?SN_AUTO, Frame, RetxMax, Inflight, _Channel) ->
+    %% Auto msg_sn: standard insertion
+    Key = set_msg_ack(MsgId, MsgSn),
+    NewInflight = emqx_inflight:insert(
+        Key,
+        {Frame, RetxMax, erlang:system_time(millisecond)},
+        Inflight
+    ),
+    {ok, NewInflight};
+try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel) ->
+    %% Custom msg_sn: check for conflicts
+    AutoKey = set_msg_ack(MsgId, MsgSn),
+    CustomKey = custom_msg_ack_key(MsgId, MsgSn),
+    {ExpectAckMsgId, _} = AutoKey,
+    OrderKey = {msg_sn_order, ExpectAckMsgId, MsgSn},
+    case emqx_inflight:contain(CustomKey, Inflight) of
+        true ->
+            %% Duplicate custom msg_sn, discard
+            log(
+                warning,
+                #{msg => "duplicate_custom_msg_sn", msg_id => MsgId, msg_sn => MsgSn},
+                Channel
+            ),
+            {discard, duplicate_custom_msg_sn};
+        false ->
+            case emqx_inflight:contain(AutoKey, Inflight) of
+                true ->
+                    %% Auto msg sent first, record ordering
+                    log(
+                        debug,
+                        #{msg => "custom_msg_sn_after_auto", msg_id => MsgId, msg_sn => MsgSn},
+                        Channel
+                    ),
+                    put(OrderKey, ?SN_AUTO),
+                    NewInflight = emqx_inflight:insert(
+                        CustomKey,
+                        {Frame, RetxMax, erlang:system_time(millisecond)},
+                        Inflight
+                    ),
+                    {ok, NewInflight};
+                false ->
+                    %% Custom sent first (or alone), record ordering
+                    put(OrderKey, ?SN_CUSTOM),
+                    NewInflight = emqx_inflight:insert(
+                        CustomKey,
+                        {Frame, RetxMax, erlang:system_time(millisecond)},
+                        Inflight
+                    ),
+                    {ok, NewInflight}
+            end
+    end.
+
+%% Build custom msg ack key
+custom_msg_ack_key(MsgId, MsgSn) ->
+    case set_msg_ack(MsgId, MsgSn) of
+        {AckMsgId, AckParam} -> {custom, AckMsgId, AckParam};
+        Other -> {custom, Other}
     end.
 
 %%--------------------------------------------------------------------
@@ -780,11 +863,53 @@ ensure_disconnected(
     ),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
-ack_msg(MsgId, KeyParam, Inflight) ->
-    Key = get_msg_ack(MsgId, KeyParam),
-    case emqx_inflight:contain(Key, Inflight) of
-        true -> emqx_inflight:delete(Key, Inflight);
-        false -> Inflight
+%% @doc Handle ACK message, considering both auto and custom msg_sn keys.
+%% When there's a race condition (both auto and custom keys exist for same MsgSn),
+%% use process dictionary to determine which message was sent first and delete that one.
+ack_msg(AckMsgId, KeyParam, Inflight) ->
+    AutoKey = get_msg_ack(AckMsgId, KeyParam),
+    CustomKey = custom_get_msg_ack(AckMsgId, KeyParam),
+    MsgSn = extract_msg_sn(KeyParam),
+    OrderKey = {msg_sn_order, AckMsgId, MsgSn},
+    HasAuto = emqx_inflight:contain(AutoKey, Inflight),
+    HasCustom = emqx_inflight:contain(CustomKey, Inflight),
+    case {HasAuto, HasCustom} of
+        {true, true} ->
+            %% Both exist - race condition, check ordering
+            case erase(OrderKey) of
+                ?SN_CUSTOM ->
+                    %% Custom was sent first, delete it
+                    emqx_inflight:delete(CustomKey, Inflight);
+                ?SN_AUTO ->
+                    %% Auto was sent first, delete it
+                    emqx_inflight:delete(AutoKey, Inflight);
+                undefined ->
+                    %% No ordering info, delete auto first (default)
+                    emqx_inflight:delete(AutoKey, Inflight)
+            end;
+        {true, false} ->
+            %% Only auto exists
+            _ = erase(OrderKey),
+            emqx_inflight:delete(AutoKey, Inflight);
+        {false, true} ->
+            %% Only custom exists
+            _ = erase(OrderKey),
+            emqx_inflight:delete(CustomKey, Inflight);
+        {false, false} ->
+            %% Neither exists
+            _ = erase(OrderKey),
+            Inflight
+    end.
+
+%% Extract MsgSn from KeyParam
+extract_msg_sn({_MsgId, MsgSn}) -> MsgSn;
+extract_msg_sn(MsgSn) -> MsgSn.
+
+%% Build custom get_msg_ack key
+custom_get_msg_ack(MsgId, KeyParam) ->
+    case get_msg_ack(MsgId, KeyParam) of
+        {AckMsgId, AckParam} -> {custom, AckMsgId, AckParam};
+        Other -> {custom, Other}
     end.
 
 set_msg_ack(?MS_SET_CLIENT_PARAM, MsgSn) ->
@@ -906,14 +1031,14 @@ build_downlink_header(MsgId, PayloadHeader, Channel) ->
     case maps:get(<<"msg_sn">>, PayloadHeader, undefined) of
         undefined ->
             log(debug, #{msg => "downlink_use_channel_msg_sn", msg_id => MsgId}, Channel),
-            {build_frame_header(MsgId, Channel), state_inc_sn(Channel)};
+            {build_frame_header(MsgId, Channel), ?SN_AUTO, state_inc_sn(Channel)};
         PayloadMsgSn ->
             log(
                 info,
                 #{msg => "downlink_use_payload_msg_sn", msg_id => MsgId, msg_sn => PayloadMsgSn},
                 Channel
             ),
-            {build_frame_header_with_sn(MsgId, PayloadMsgSn, Channel), Channel}
+            {build_frame_header_with_sn(MsgId, PayloadMsgSn, Channel), ?SN_CUSTOM, Channel}
     end.
 
 build_frame_header(MsgId, Encrypt, Phone, TxMsgSn, ProtoVer) ->
