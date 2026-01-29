@@ -397,12 +397,12 @@ init(Parent, DB, Shard, CBM) ->
     maybe
         {ok, Serial, Timestamp} ?= CBM:otx_become_leader(DB, Shard),
         %% Issue a dummy transaction to trigger metadata update:
-        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp, []),
+        ok ?= CBM:otx_commit_tx_batch({DB, Shard}, Serial, Serial, Timestamp + 1, []),
         ?tp(info, ds_otx_up, #{serial => Serial, db => DB, shard => Shard, ts => Timestamp}),
         loop(
             check_soft_quota(D#d{
                 serial = Serial,
-                timestamp = Timestamp,
+                timestamp = Timestamp + 1,
                 committed_serial = Serial
             })
         )
