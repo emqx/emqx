@@ -170,11 +170,29 @@ send_request(Channel, Request) ->
     | {shutdown, Reason :: term(), replies(), channel()}.
 handle_in(Msg, Channel0) ->
     Channel = ensure_keepalive_timer(Channel0),
-    case emqx_coap_message:is_request(Msg) of
-        true ->
-            check_auth_state(Msg, Channel);
+    case Msg of
+        {coap_ignore, _} ->
+            {ok, Channel};
+        {coap_format_error, Type, MsgId, _} ->
+            %% RFC 7252 Section 4.2: reject CON format errors with Reset, ignore others.
+            case Type of
+                con ->
+                    Reset = emqx_coap_message:reset(#coap_message{type = Type, id = MsgId}),
+                    {ok, [{outgoing, Reset}], Channel};
+                _ ->
+                    {ok, Channel}
+            end;
+        {coap_request_error, Req, Error} ->
+            %% RFC 7252 Section 5.4.1/5.8: reply with a 4.xx error for bad requests.
+            Reply = emqx_coap_message:piggyback(Error, Req),
+            {ok, [{outgoing, Reply}], Channel};
         _ ->
-            call_session(handle_response, Msg, Channel)
+            case emqx_coap_message:is_request(Msg) of
+                true ->
+                    check_auth_state(Msg, Channel);
+                _ ->
+                    call_session(handle_response, Msg, Channel)
+            end
     end.
 
 handle_frame_error(Reason, Channel) ->
@@ -387,54 +405,28 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
             URIQuery = emqx_coap_message:extract_uri_query(Msg),
             case maps:get(<<"token">>, URIQuery, undefined) of
                 undefined ->
-                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg});
+                    %% Connection mode policy: reject requests without token/clientid.
+                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
+                    ErrMsg = <<"Missing token or clientid in connection mode">>,
+                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
+                    {ok, {outgoing, Reply}, Channel};
                 _ ->
                     check_token(Msg, Channel)
             end
     end.
-
-is_create_connection_request(Msg = #coap_message{method = Method}) when
-    is_atom(Method) andalso Method =/= undefined
-->
+is_create_connection_request(#coap_message{method = Method} = Msg) ->
     URIPath = emqx_coap_message:get_option(uri_path, Msg, []),
-    case URIPath of
-        [<<"mqtt">>, <<"connection">>] when Method == post ->
-            true;
-        _ ->
-            false
-    end;
-is_create_connection_request(_Msg) ->
-    false.
-
-is_delete_connection_request(Msg = #coap_message{method = Method}) when
-    is_atom(Method) andalso Method =/= undefined
-->
+    URIPath == [<<"mqtt">>, <<"connection">>] andalso Method == post.
+is_delete_connection_request(#coap_message{method = Method} = Msg) ->
     URIPath = emqx_coap_message:get_option(uri_path, Msg, []),
-    case URIPath of
-        [<<"mqtt">>, <<"connection">>] when Method == delete ->
-            true;
-        _ ->
-            false
-    end;
-is_delete_connection_request(_Msg) ->
-    false.
-
-check_token(
-    Msg,
-    #channel{
-        token = Token,
-        clientinfo = ClientInfo
-    } = Channel
-) ->
+    URIPath == [<<"mqtt">>, <<"connection">>] andalso Method == delete.
+check_token(Msg, Channel) ->
+    #channel{token = Token, clientinfo = ClientInfo} = Channel,
     #{clientid := ClientId} = ClientInfo,
     case emqx_coap_message:extract_uri_query(Msg) of
-        #{
-            <<"clientid">> := ClientId,
-            <<"token">> := Token
-        } ->
+        #{<<"clientid">> := ClientId, <<"token">> := Token} ->
             call_session(handle_request, Msg, Channel);
         _ ->
-            %% This channel is create by this DELETE command, so here can safely close this channel
             case Token =:= undefined andalso is_delete_connection_request(Msg) of
                 true ->
                     Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
@@ -445,32 +437,18 @@ check_token(
                     {ok, {outgoing, Reply}, Channel}
             end
     end.
-
-run_conn_hooks(
-    Input,
-    Channel = #channel{
-        ctx = Ctx,
-        conninfo = ConnInfo
-    }
-) ->
+run_conn_hooks(Input, Channel) ->
+    #channel{ctx = Ctx, conninfo = ConnInfo} = Channel,
     ConnProps = #{},
     case run_hooks(Ctx, 'client.connect', [ConnInfo], ConnProps) of
         Error = {error, _Reason} -> Error;
         _NConnProps -> {ok, Input, Channel}
     end.
-
-enrich_conninfo(
-    {Queries, _Msg},
-    Channel = #channel{
-        keepalive = KeepAlive,
-        conninfo = ConnInfo
-    }
-) ->
+enrich_conninfo({Queries, _Msg}, Channel) ->
+    #channel{keepalive = KeepAlive, conninfo = ConnInfo} = Channel,
     case Queries of
         #{<<"clientid">> := ClientId} ->
-            %% in milliseconds
             IntervalMs = emqx_keepalive:info(check_interval, KeepAlive),
-            %% in seconds
             InternalS = floor(IntervalMs / 1000),
             NConnInfo = ConnInfo#{
                 clientid => ClientId,
@@ -484,11 +462,8 @@ enrich_conninfo(
         _ ->
             {error, "clientid is required", Channel}
     end.
-
-enrich_clientinfo(
-    {Queries, Msg},
-    Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo0}
-) ->
+enrich_clientinfo({Queries, Msg}, Channel) ->
+    #channel{conninfo = ConnInfo, clientinfo = ClientInfo0} = Channel,
     ClientInfo = ClientInfo0#{
         clientid => maps:get(clientid, ConnInfo),
         username => maps:get(<<"username">>, Queries, undefined),
@@ -496,22 +471,12 @@ enrich_clientinfo(
     },
     {ok, NClientInfo} = fix_mountpoint(Msg, ClientInfo),
     {ok, Channel#channel{clientinfo = NClientInfo}}.
-
 set_log_meta(_Input, #channel{clientinfo = #{clientid := ClientId}}) ->
     emqx_logger:set_metadata_clientid(ClientId),
     ok.
-
-auth_connect(
-    _Input,
-    Channel = #channel{
-        ctx = Ctx,
-        clientinfo = ClientInfo
-    }
-) ->
-    #{
-        clientid := ClientId,
-        username := Username
-    } = ClientInfo,
+auth_connect(_Input, Channel) ->
+    #channel{ctx = Ctx, clientinfo = ClientInfo} = Channel,
+    #{clientid := ClientId, username := Username} = ClientInfo,
     case emqx_gateway_ctx:authenticate(Ctx, ClientInfo) of
         {ok, NClientInfo} ->
             {ok, Channel#channel{clientinfo = NClientInfo}};
@@ -524,46 +489,22 @@ auth_connect(
             }),
             {error, Reason}
     end.
-
 fix_mountpoint(_Packet, #{mountpoint := <<>>} = ClientInfo) ->
     {ok, ClientInfo};
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
     Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
     {ok, ClientInfo#{mountpoint := Mountpoint1}}.
-
-process_connect(
-    #channel{
-        ctx = Ctx,
-        session = Session,
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo
-    } = Channel,
-    Msg,
-    Result,
-    Iter
-) ->
-    %% inherit the old session
+process_connect(Channel, Msg, Result, Iter) ->
+    #channel{ctx = Ctx, session = Session, conninfo = ConnInfo, clientinfo = ClientInfo} = Channel,
     SessFun = fun(_, _) -> Session end,
     case
-        emqx_gateway_ctx:open_session(
-            Ctx,
-            true,
-            ClientInfo,
-            ConnInfo,
-            SessFun,
-            emqx_coap_session
-        )
+        emqx_gateway_ctx:open_session(Ctx, true, ClientInfo, ConnInfo, SessFun, emqx_coap_session)
     of
         {ok, _Sess} ->
-            %% FIXME: Token in cluster wide?
             RandVal = rand:uniform(?TOKEN_MAXIMUM),
             Token = erlang:list_to_binary(erlang:integer_to_list(RandVal)),
             NResult = Result#{events => [{event, connected}]},
-            iter(
-                Iter,
-                reply({ok, created}, Token, Msg, NResult),
-                Channel#channel{token = Token}
-            );
+            iter(Iter, reply({ok, created}, Token, Msg, NResult), Channel#channel{token = Token});
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "failed_open_session",
@@ -572,80 +513,40 @@ process_connect(
             }),
             iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
     end.
-
 schedule_connection_expire(Channel = #channel{ctx = Ctx, clientinfo = ClientInfo}) ->
     case emqx_gateway_ctx:connection_expire_interval(Ctx, ClientInfo) of
-        undefined ->
-            Channel;
-        Interval ->
-            ensure_timer(connection_expire_timer, Interval, connection_expire, Channel)
+        undefined -> Channel;
+        Interval -> ensure_timer(connection_expire_timer, Interval, connection_expire, Channel)
     end.
-
 run_hooks(Ctx, Name, Args) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run(Name, Args).
-
 run_hooks(Ctx, Name, Args, Acc) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name),
     emqx_hooks:run_fold(Name, Args, Acc).
+metrics_inc(Name, Ctx) -> emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
-metrics_inc(Name, Ctx) ->
-    emqx_gateway_ctx:metrics_inc(Ctx, Name).
-
-%%--------------------------------------------------------------------
-%% Ensure connected
-
-ensure_connected(
-    Channel = #channel{
-        ctx = Ctx,
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo
-    }
-) ->
+ensure_connected(Channel) ->
+    #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo} = Channel,
     NConnInfo = ConnInfo#{connected_at => erlang:system_time(millisecond)},
     _ = run_hooks(Ctx, 'client.connack', [NConnInfo, connection_accepted, #{}]),
     ok = run_hooks(Ctx, 'client.connected', [ClientInfo, NConnInfo]),
     schedule_connection_expire(Channel#channel{conninfo = NConnInfo, conn_state = connected}).
 
-%%--------------------------------------------------------------------
-%% Ensure disconnected
-
-ensure_disconnected(
-    Reason,
-    Channel = #channel{
-        ctx = Ctx,
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo,
-        conn_state = ConnState
-    }
-) ->
+ensure_disconnected(Reason, Channel) ->
+    #channel{ctx = Ctx, conninfo = ConnInfo, clientinfo = ClientInfo, conn_state = ConnState} =
+        Channel,
     NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
-
     case ConnState of
-        connected ->
-            ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]);
-        _ ->
-            ok
+        connected -> ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, Reason, NConnInfo]);
+        _ -> ok
     end,
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
-
-shutdown(Reason, Channel) ->
-    {shutdown, Reason, Channel}.
-
-shutdown_and_reply(Reason, Reply, Channel) ->
-    {shutdown, Reason, Reply, Channel}.
-
-%shutdown_and_reply(Reason, Reply, OutPkt, Channel) ->
-%    {shutdown, Reason, Reply, OutPkt, Channel}.
-
-%%--------------------------------------------------------------------
-%% Call Chain
-%%--------------------------------------------------------------------
-
+shutdown(Reason, Channel) -> {shutdown, Reason, Channel}.
+shutdown_and_reply(Reason, Reply, Channel) -> {shutdown, Reason, Reply, Channel}.
 call_session(Fun, Msg, #channel{session = Session} = Channel) ->
     Result = emqx_coap_session:Fun(Msg, Session),
     handle_result(Result, Channel).
-
 handle_result(Result, Channel) ->
     iter(
         [
@@ -662,17 +563,8 @@ handle_result(Result, Channel) ->
         Result,
         Channel
     ).
-
-call_handler(
-    request,
-    Msg,
-    Result,
-    #channel{
-        ctx = Ctx,
-        clientinfo = ClientInfo
-    } = Channel,
-    Iter
-) ->
+call_handler(request, Msg, Result, Channel, Iter) ->
+    #channel{ctx = Ctx, clientinfo = ClientInfo} = Channel,
     HandlerResult =
         case emqx_coap_message:get_option(uri_path, Msg) of
             [<<"ps">> | RestPath] ->
@@ -683,13 +575,7 @@ call_handler(
                 reply({error, bad_request}, Msg)
         end,
     iter(
-        [
-            connection,
-            fun process_connection/4,
-            subscribe,
-            fun process_subscribe/4
-            | Iter
-        ],
+        [connection, fun process_connection/4, subscribe, fun process_subscribe/4 | Iter],
         maps:merge(Result, HandlerResult),
         Channel
     );
@@ -698,50 +584,26 @@ call_handler(response, {{send_request, From}, Response}, Result, Channel, Iter) 
     iter(Iter, Result, Channel);
 call_handler(_, _, Result, Channel, Iter) ->
     iter(Iter, Result, Channel).
-
 process_session(Session, Result, Channel, Iter) ->
     iter(Iter, Result, Channel#channel{session = Session}).
-
 process_protocol({Type, Msg}, Result, Channel, Iter) ->
     call_handler(Type, Msg, Result, Channel, Iter).
-
-%% leaf node
 process_out(Outs, Result, Channel, _) ->
     Outs2 = lists:reverse(Outs),
-    Outs3 =
-        case maps:get(reply, Result, undefined) of
-            undefined ->
-                Outs2;
-            Reply ->
-                [Reply | Outs2]
-        end,
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, Outs3}] ++ Events, Channel}.
+    {ok, [{outgoing, Outs2}] ++ Events, Channel}.
+process_nothing(_, _, Channel) -> {ok, Channel}.
 
-%% leaf node
-process_nothing(_, _, Channel) ->
-    {ok, Channel}.
-
-process_connection(
-    {open, Req},
-    Result,
-    Channel = #channel{conn_state = idle},
-    Iter
-) ->
+process_connection({open, Req}, Result, Channel = #channel{conn_state = idle}, Iter) ->
     Queries = emqx_coap_message:extract_uri_query(Req),
-    case
-        emqx_utils:pipeline(
-            [
-                fun enrich_conninfo/2,
-                fun run_conn_hooks/2,
-                fun enrich_clientinfo/2,
-                fun set_log_meta/2,
-                fun auth_connect/2
-            ],
-            {Queries, Req},
-            Channel
-        )
-    of
+    Pipeline = [
+        fun enrich_conninfo/2,
+        fun run_conn_hooks/2,
+        fun enrich_clientinfo/2,
+        fun set_log_meta/2,
+        fun auth_connect/2
+    ],
+    case emqx_utils:pipeline(Pipeline, {Queries, Req}, Channel) of
         {ok, _Input, NChannel} ->
             process_connect(ensure_connected(NChannel), Req, Result, Iter);
         {error, ReasonCode, NChannel} ->
@@ -753,53 +615,31 @@ process_connection(
 process_connection(
     {open, Req},
     Result,
-    Channel = #channel{
-        conn_state = ConnState,
-        clientinfo = #{clientid := ClientId}
-    },
+    Channel = #channel{conn_state = ConnState, clientinfo = #{clientid := ClientId}},
     Iter
-) when
-    ConnState == connected
-->
-    %% TODO should take over the session here
+) when ConnState == connected ->
     Queries = emqx_coap_message:extract_uri_query(Req),
     ErrMsg0 =
         case Queries of
-            #{<<"clientid">> := ClientId} ->
-                "client has connected";
-            #{<<"clientid">> := ReqClientId} ->
-                ["channel has registered by: ", ReqClientId];
-            _ ->
-                "invalid queries"
+            #{<<"clientid">> := ClientId} -> "client has connected";
+            #{<<"clientid">> := ReqClientId} -> ["channel has registered by: ", ReqClientId];
+            _ -> "invalid queries"
         end,
     ErrMsg = io_lib:format("Bad Request: ~ts", [ErrMsg0]),
     Payload = iolist_to_binary(ErrMsg),
-    iter(
-        Iter,
-        reply({error, bad_request}, Payload, Req, Result),
-        Channel
-    );
+    iter(Iter, reply({error, bad_request}, Payload, Req, Result), Channel);
 process_connection({close, Msg}, _, Channel, _) ->
     Queries = emqx_coap_message:extract_uri_query(Msg),
     case maps:get(<<"clientid">>, Queries, undefined) of
-        undefined ->
-            ok;
-        ClientId ->
-            %% XXX: A cluster-level connection shutdown needs to be performed here.
-            %%
-            %% due to the possibility that the current close request may be
-            %% from a CoAP client from another IP + Port tuple
-            emqx_gateway_cm:cast(coap, ClientId, close)
+        undefined -> ok;
+        ClientId -> emqx_gateway_cm:cast(coap, ClientId, close)
     end,
     Reply = emqx_coap_message:piggyback({ok, deleted}, Msg),
     NChannel = ensure_disconnected(normal, Channel),
     {shutdown, normal, Reply, NChannel}.
-
 process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Iter) ->
     Result2 = emqx_coap_session:process_subscribe(Sub, Msg, Result, Session),
     iter([session, fun process_session/4 | Iter], Result2, Channel).
-
-%% leaf node
 process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
     Session2 = emqx_coap_session:set_reply(Reply, Session),
     Outs = maps:get(out, Result, []),
@@ -807,9 +647,4 @@ process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
     Events = maps:get(events, Result, []),
     {ok, [{outgoing, [Reply | Outs2]}] ++ Events, Channel#channel{session = Session2}}.
 
-%% leaf node
-process_shutdown(Reply, _Result, Channel, _) ->
-    %    Outs = maps:get(out, Result, []),
-    %   Outs2 = lists:reverse(Outs),
-    %  Events = maps:get(events, Result, []),
-    {shutdown, normal, Reply, Channel}.
+process_shutdown(Reply, _Result, Channel, _) -> {shutdown, normal, Reply, Channel}.

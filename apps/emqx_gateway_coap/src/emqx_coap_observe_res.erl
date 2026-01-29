@@ -13,14 +13,17 @@
     remove/2,
     res_changed/2,
     foreach/2,
-    subscriptions/1
+    subscriptions/1,
+    current_value/0,
+    observe_value/1
 ]).
 -export_type([manager/0]).
 
 -define(MAX_SEQ_ID, 16777215).
+-define(OBSERVE_TICK_US, 31).
 
 -type token() :: binary().
--type seq_id() :: 0..?MAX_SEQ_ID.
+-type seq_id() :: non_neg_integer().
 
 -type res() :: #{
     token := token(),
@@ -84,6 +87,9 @@ subscriptions(Manager) ->
         Manager
     ).
 
+-spec current_value() -> non_neg_integer().
+-spec observe_value(seq_id()) -> non_neg_integer().
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -91,18 +97,23 @@ subscriptions(Manager) ->
 new_res(Token, SubOpts) ->
     #{
         token => Token,
-        seq_id => 0,
+        %% RFC 7641 Section 4.4: start Observe sequence at a current value.
+        seq_id => current_seq(),
         subopts => SubOpts
     }.
 
 -spec res_changed(res()) -> res().
 res_changed(#{seq_id := SeqId} = Res) ->
-    NewSeqId = SeqId + 1,
-    NewSeqId2 =
-        case NewSeqId > ?MAX_SEQ_ID of
-            true ->
-                1;
-            _ ->
-                NewSeqId
-        end,
-    Res#{seq_id := NewSeqId2}.
+    %% RFC 7641 Section 4.4: sequence numbers are strictly increasing.
+    Now = current_seq(),
+    Res#{seq_id := max(Now, SeqId + 1)}.
+
+%% RFC 7641 Section 4.4: derive Observe value from a local timestamp.
+current_value() ->
+    observe_value(current_seq()).
+
+observe_value(SeqId) ->
+    SeqId band ?MAX_SEQ_ID.
+
+current_seq() ->
+    erlang:monotonic_time(microsecond) div ?OBSERVE_TICK_US.

@@ -217,7 +217,10 @@ process_subscribe(
         } = SubData ->
             {SeqId, OM2} = emqx_coap_observe_res:insert(SubData, OM),
             Replay = emqx_coap_message:piggyback({ok, content}, Msg),
-            Replay2 = Replay#coap_message{options = #{observe => SeqId}},
+            %% RFC 7641 Section 4.4: Observe option carries 24-bit sequence.
+            Replay2 = Replay#coap_message{
+                options = #{observe => emqx_coap_observe_res:observe_value(SeqId)}
+            },
             Result#{
                 reply => Replay2,
                 session => Session#session{observe_manager = OM2}
@@ -238,7 +241,8 @@ mqtt_to_coap(MQTT, Token, SeqId) ->
         method = {ok, content},
         token = Token,
         payload = Payload,
-        options = #{observe => SeqId}
+        %% RFC 7641 Section 4.4: Observe option carries 24-bit sequence.
+        options = #{observe => emqx_coap_observe_res:observe_value(SeqId)}
     }.
 
 get_notify_type(#message{qos = Qos}) ->
