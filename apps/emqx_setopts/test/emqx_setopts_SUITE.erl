@@ -11,6 +11,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(KEEPALIVE_BULK_TOPIC, <<"$SETOPTS/mqtt/keepalive-bulk">>).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -133,6 +135,125 @@ t_dynamic_keepalive_update_timeout(_) ->
         end,
     ?assertMatch({ok, [{ClientID, ok}]}, Result).
 
+t_dynamic_keepalive_update_timeout_batch_call(_) ->
+    ClientID = <<"dynamic_timeout_batch_call">>,
+    {ok, C} = emqtt:start_link([
+        {keepalive, 5},
+        {clientid, binary_to_list(ClientID)}
+    ]),
+    {ok, _} = emqtt:connect(C),
+    ok = sys:suspend(whereis(emqx_setopts)),
+    Result = emqx_setopts:set_keepalive_batch([{ClientID, 9}]),
+    ok = sys:resume(whereis(emqx_setopts)),
+    ok = emqtt:stop(C),
+    ?assertMatch({error, timeout}, Result).
+
+t_dynamic_keepalive_batch_missing_client(_) ->
+    ClientId = <<"dynamic_missing_client">>,
+    ?assertMatch(
+        [{ClientId, {error, not_found}}], emqx_setopts:set_keepalive_batch([{ClientId, 9}])
+    ).
+
+t_dynamic_keepalive_batch_deadline_expired(_) ->
+    Alias = erlang:alias([reply]),
+    Past = erlang:monotonic_time(millisecond) - 1,
+    gen_server:cast(whereis(emqx_setopts), {keepalive_batch_sync, [], Past, Alias}),
+    receive
+        {Alias, _Reply} ->
+            erlang:unalias(Alias),
+            error(unexpected_reply)
+    after 100 ->
+        erlang:unalias(Alias),
+        ok
+    end.
+
+t_dynamic_keepalive_registry_disabled_lookup(_) ->
+    Prev = emqx:get_config([broker, enable_session_registry]),
+    ok = emqx_config:put([broker, enable_session_registry], false),
+    ClientId = <<"dynamic_registry_disabled">>,
+    ?assertMatch(
+        [{ClientId, {error, not_found}}], emqx_setopts:set_keepalive_batch([{ClientId, 9}])
+    ),
+    ok = emqx_config:put([broker, enable_session_registry], Prev).
+
+t_dynamic_keepalive_bulk_invalid_payloads(_) ->
+    ClientId = <<"dynamic_bulk_invalid">>,
+    {ok, C} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId)}]),
+    {ok, _} = emqtt:connect(C),
+    _ = emqtt:publish(C, ?KEEPALIVE_BULK_TOPIC, <<"not_json">>),
+    _ = emqtt:publish(C, ?KEEPALIVE_BULK_TOPIC, <<"{\"foo\":1}">>),
+    _ = emqtt:publish(C, ?KEEPALIVE_BULK_TOPIC, <<"[{\"clientid\":\"", ClientId/binary, "\"}]">>),
+    _ = emqtt:publish(
+        C,
+        ?KEEPALIVE_BULK_TOPIC,
+        <<"[{\"clientid\":\"", ClientId/binary, "\",\"keepalive\":\"bad\"}]">>
+    ),
+    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId, 5, 2000)),
+    ok = emqtt:stop(C).
+
+t_dynamic_keepalive_non_client_publish_forbidden(_) ->
+    ClientId = <<"dynamic_forbidden">>,
+    {ok, C} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId)}]),
+    {ok, _} = emqtt:connect(C),
+    Msg = emqx_message:make(http_api, 0, <<"$SETOPTS/mqtt/keepalive">>, <<"10">>, #{}, #{}),
+    _ = emqx:publish(Msg),
+    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId, 5, 2000)),
+    ok = emqtt:stop(C).
+
+t_dynamic_keepalive_channel_not_connected(_) ->
+    ClientId = <<"dynamic_not_connected">>,
+    {ok, C} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId)}]),
+    {ok, _} = emqtt:connect(C),
+    [ChannelPid] = emqx_cm:lookup_channels(ClientId),
+    true = ets:delete(emqx_channel_live, ChannelPid),
+    ?assertMatch(
+        [{ClientId, {error, not_found}}],
+        emqx_setopts:do_call_keepalive_clients([{ClientId, 9}])
+    ),
+    ok = emqtt:stop(C).
+
+t_extract_batch_client_result_branches(_) ->
+    ClientId = <<"branchy">>,
+    ?assertEqual(
+        ok,
+        emqx_setopts:test_extract_batch_client_result(
+            ClientId,
+            [
+                [{ClientId, ok}],
+                [{ClientId, {error, e1}}],
+                [{<<"other">>, ok}]
+            ]
+        )
+    ),
+    ?assertEqual(
+        {error, e1},
+        emqx_setopts:test_extract_batch_client_result(
+            ClientId,
+            [
+                [{ClientId, {error, e1}}],
+                [{ClientId, {error, e2}}]
+            ]
+        )
+    ),
+    ?assertEqual(
+        {error, e1},
+        emqx_setopts:test_extract_batch_client_result(
+            ClientId,
+            [
+                {error, e1},
+                {error, e2},
+                foo
+            ]
+        )
+    ).
+
+t_setopts_internal_misc(_) ->
+    ?assertEqual(ignored, gen_server:call(whereis(emqx_setopts), ping)),
+    ok = gen_server:cast(whereis(emqx_setopts), ping),
+    whereis(emqx_setopts) ! ping,
+    ?assertMatch(#{}, sys:get_state(whereis(emqx_setopts))),
+    ok.
+
 t_dynamic_keepalive_update_clamped(_) ->
     emqx_config:put_zone_conf(default, [mqtt, server_keepalive], 6),
     ClientId1 = <<"dynamic_clamp_1">>,
@@ -248,7 +369,7 @@ publish_keepalive_update(Update, _Opts) when is_list(Update) ->
     {ok, Pub} = emqtt:start_link([]),
     {ok, _} = emqtt:connect(Pub),
     Payload = emqx_utils_json:encode(Update),
-    _ = emqtt:publish(Pub, <<"$SETOPTS/mqtt/keepalive-bulk">>, Payload),
+    _ = emqtt:publish(Pub, ?KEEPALIVE_BULK_TOPIC, Payload),
     ok = emqtt:stop(Pub),
     ok;
 publish_keepalive_update(#{clientid := ClientId, keepalive := Interval}, _Opts) ->

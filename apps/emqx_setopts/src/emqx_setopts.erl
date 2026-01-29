@@ -15,6 +15,7 @@
 -export([set_keepalive_batch/1]).
 -export([set_keepalive_batch_async/1]).
 -export([do_call_keepalive_clients/1]).
+-export([test_extract_batch_client_result/2]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
@@ -116,6 +117,10 @@ extract_batch_client_result(ClientId, Results) ->
         {error, not_found},
         Results
     ).
+
+%% Test helper to exercise batch result folding branches.
+test_extract_batch_client_result(ClientId, Results) ->
+    extract_batch_client_result(ClientId, Results).
 
 %% Hook callback
 -doc """
