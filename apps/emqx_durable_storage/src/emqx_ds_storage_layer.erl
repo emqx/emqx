@@ -17,7 +17,7 @@
     start_link_no_schema/2,
     drop_shard/1,
     shard_info/2,
-    ensure_schema/2,
+    ensure_schema/3,
 
     %% Generations
     update_config_v0/3,
@@ -248,7 +248,7 @@
 
 -opaque db_group() :: #db_group{}.
 
--record(call_ensure_schema, {options :: emqx_ds:create_db_opts()}).
+-record(call_ensure_schema, {options :: emqx_ds:create_db_opts(), created_at :: emqx_ds:time()}).
 -record(call_has_schema, {}).
 
 %%================================================================================
@@ -263,9 +263,13 @@ has_schema(DBShard) ->
 Create shard schema and the first generation.
 NOP if schema already exists.
 """.
--spec ensure_schema(dbshard(), emqx_ds:create_db_opts()) -> ok | {error, _}.
-ensure_schema(ShardId, Options) ->
-    gen_server:call(?REF(ShardId), #call_ensure_schema{options = Options}, infinity).
+-spec ensure_schema(dbshard(), emqx_ds:create_db_opts(), emqx_ds:time()) -> ok | {error, _}.
+ensure_schema(ShardId, Options, CreatedAt) ->
+    gen_server:call(
+        ?REF(ShardId),
+        #call_ensure_schema{options = Options, created_at = CreatedAt},
+        infinity
+    ).
 
 -spec create_db_group(emqx_ds:db_group(), create_db_group_opts()) -> {ok, db_group()} | {error, _}.
 create_db_group(_GroupId, UserOpts) ->
@@ -490,7 +494,7 @@ Start the stroage server and ensure schema.
     {ok, pid()}.
 start_link(ShardId, Options) ->
     Ret = {ok, _} = start_link_no_schema(ShardId, Options),
-    ok = ensure_schema(ShardId, Options),
+    ok = ensure_schema(ShardId, Options, emqx_ds:timestamp_us()),
     Ret.
 
 -doc """
@@ -617,13 +621,13 @@ handle_call(#call_has_schema{}, _From, S) ->
             #s_no_schema{} -> false
         end,
     {reply, Reply, S};
-handle_call(#call_ensure_schema{options = Opts}, _From, S0) ->
+handle_call(#call_ensure_schema{options = Opts, created_at = CreatedAt}, _From, S0) ->
     case S0 of
         #s{} ->
             %% Already exists:
             {reply, ok, S0};
         #s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs} ->
-            case handle_create_schema(ShardId, DB, CFRefs, Opts) of
+            case handle_create_schema(ShardId, DB, CFRefs, Opts, CreatedAt) of
                 {ok, S} ->
                     {reply, ok, S};
                 {error, _} = Err ->
@@ -848,12 +852,12 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     GenSchema#{data => RuntimeData}.
 
 -spec handle_create_schema(
-    dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()
+    dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts(), emqx_ds:time()
 ) ->
     {ok, server_state()} | {error, _}.
-handle_create_schema(ShardId, DB, CFRefs0, Options) ->
+handle_create_schema(ShardId, DB, CFRefs0, Options, CreatedAt) ->
     maybe
-        {ok, Schema, CFRefs} ?= create_new_shard_schema(ShardId, DB, CFRefs0, Options),
+        {ok, Schema, CFRefs} ?= create_new_shard_schema(ShardId, DB, CFRefs0, Options, CreatedAt),
         CurrentGenId = maps:get(current_generation, Schema),
         Shard = open_shard(ShardId, DB, CFRefs, Schema),
         S = #s{
@@ -869,10 +873,16 @@ handle_create_schema(ShardId, DB, CFRefs0, Options) ->
         {ok, S}
     end.
 
--spec create_new_shard_schema(dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()) ->
+-spec create_new_shard_schema(
+    dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts(), emqx_ds:time()
+) ->
     {ok, shard_schema(), cf_refs()} | {error, {bad_options, _}}.
 create_new_shard_schema(
-    ShardId, DB, CFRefs, Options = #{storage := Prototype, payload_type := PType}
+    ShardId,
+    DB,
+    CFRefs,
+    Options = #{storage := Prototype, payload_type := PType},
+    CreatedAt
 ) ->
     ?tp(notice, ds_create_new_shard_schema, #{
         shard => ShardId, prototype => Prototype, payload_transform => PType
@@ -885,7 +895,7 @@ create_new_shard_schema(
     },
     DBOpts = filter_layout_db_opts(Options),
     {_NewGenId, Schema, NewCFRefs} =
-        new_generation(ShardId, DB, Schema0, Prototype, undefined, _Since = 0, DBOpts),
+        new_generation(ShardId, DB, Schema0, Prototype, undefined, CreatedAt, DBOpts),
     {ok, Schema, NewCFRefs ++ CFRefs};
 create_new_shard_schema(_ShardId, _DB, _CFRefs, Options) ->
     {error, {bad_options, Options}}.

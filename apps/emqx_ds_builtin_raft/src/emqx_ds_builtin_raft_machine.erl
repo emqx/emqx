@@ -295,12 +295,6 @@ apply(
     #{?tag := update_schema_v1, schema := Schema},
     #{db_shard := DBShard} = State0
 ) ->
-    %% This command is issued and handled by the v1+ versions of state
-    %% machine. It appears in the log when `emqx_ds:update_config' is
-    %% called or during blank slate start of FSM leader with v1+
-    %% version of the code (any machine version). v0 code cannot
-    %% process it and will crash. But we hope that probability of this
-    %% command appearing in the log during rolling upgrade is low.
     ?tp(
         debug,
         ds_ra_update_schema,
