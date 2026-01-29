@@ -133,6 +133,22 @@ t_dynamic_keepalive_update_timeout(_) ->
         end,
     ?assertMatch({ok, [{ClientID, ok}]}, Result).
 
+t_dynamic_keepalive_update_clamped(_) ->
+    emqx_config:put_zone_conf(default, [mqtt, server_keepalive], 6),
+    ClientId1 = <<"dynamic_clamp_1">>,
+    ClientId2 = <<"dynamic_clamp_2">>,
+    {ok, C1} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId1)}]),
+    {ok, C2} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId2)}]),
+    {ok, _} = emqtt:connect(C1),
+    {ok, _} = emqtt:connect(C2),
+    ok = publish_keepalive_self(C1, 30),
+    ?assertMatch(#{conninfo := #{keepalive := 6}}, wait_for_keepalive(ClientId1, 6, 2000)),
+    ok = publish_keepalive_update([#{clientid => ClientId2, keepalive => 30}]),
+    ?assertMatch(#{conninfo := #{keepalive := 6}}, wait_for_keepalive(ClientId2, 6, 2000)),
+    ok = emqtt:stop(C1),
+    ok = emqtt:stop(C2),
+    emqx_config:put_zone_conf(default, [mqtt, server_keepalive], disabled).
+
 t_keepalive_update_not_routed_to_subscribers(_) ->
     {ok, Sub} = emqtt:start_link([]),
     {ok, _} = emqtt:connect(Sub),

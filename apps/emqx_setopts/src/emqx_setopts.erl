@@ -185,8 +185,9 @@ handle_keepalive_self(Msg, Payload, From) ->
         {ok, Interval} ->
             case From of
                 _ClientId when is_binary(From) ->
+                    Clamped = clamp_keepalive_for_client(From, Interval),
                     %% Single updates are handled by the publishing process
-                    gen_server:cast(self(), {keepalive, Interval});
+                    gen_server:cast(self(), {keepalive, Clamped});
                 _ ->
                     ?SLOG(error, #{
                         msg => "keepalive_update_single_forbidden",
@@ -278,8 +279,8 @@ call_connected_channels(ClientId, Channels, Req) ->
 
 cast_channel(ClientId, Pid, Req) ->
     case emqx_cm:get_chan_info(ClientId, Pid) of
-        #{conninfo := #{conn_mod := ConnMod}} ->
-            cast_conn(ConnMod, Pid, Req);
+        #{conninfo := #{conn_mod := ConnMod}, clientinfo := #{zone := Zone}} ->
+            cast_conn(ConnMod, Pid, clamp_keepalive_for_zone(Req, Zone));
         _ ->
             {error, not_found}
     end.
@@ -289,6 +290,25 @@ call_keepalive_clients(Nodes, Batch) ->
 
 cast_conn(ConnMod, Pid, {keepalive, _Interval} = Req) ->
     ok = erlang:apply(ConnMod, cast, [Pid, Req]).
+
+clamp_keepalive_for_client(ClientId, Interval) ->
+    case emqx_cm:get_chan_info(ClientId) of
+        #{clientinfo := #{zone := Zone}} ->
+            clamp_keepalive_value(Interval, Zone);
+        _ ->
+            Interval
+    end.
+
+clamp_keepalive_for_zone({keepalive, Interval}, Zone) ->
+    {keepalive, clamp_keepalive_value(Interval, Zone)}.
+
+clamp_keepalive_value(Interval, Zone) ->
+    case emqx_config:get_zone_conf(Zone, [mqtt, server_keepalive], disabled) of
+        Keepalive when is_integer(Keepalive) ->
+            min(Interval, Keepalive);
+        _ ->
+            Interval
+    end.
 
 %% Payload decoding
 
