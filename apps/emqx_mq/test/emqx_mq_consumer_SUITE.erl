@@ -47,7 +47,7 @@ end_per_testcase(_CaseName, _Config) ->
 %% Verify that the consumer stops itself after there are no active subscribers for a while
 t_auto_shutdown(_Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
         topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
     }),
 
@@ -66,7 +66,7 @@ t_auto_shutdown(_Config) ->
 t_quick_reconnect(_Config) ->
     %% Create a non-lastvalue Queue
     #{id := MQId} =
-        _ = emqx_mq_test_utils:create_mq(#{
+        _ = emqx_mq_test_utils:ensure_mq_created(#{
             topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
         }),
 
@@ -114,7 +114,7 @@ t_quick_reconnect(_Config) ->
 %% We verify that such acks/pings are ignored.
 t_ack_from_unknown_subscriber(_Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
         topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
     }),
 

@@ -12,7 +12,7 @@
     update_config/1,
     is_enabled/0,
     max_queue_count/0,
-    auto_create/1
+    auto_create/2
 ]).
 
 -export([
@@ -71,9 +71,9 @@ is_enabled() ->
 max_queue_count() ->
     emqx:get_config(?MQ_CONFIG_PATH ++ [max_queue_count]).
 
--spec auto_create(emqx_mq_types:mq_topic()) -> false | {true, emqx_mq_types:mq()}.
-auto_create(Topic) ->
-    auto_create(Topic, emqx:get_config(?MQ_CONFIG_PATH ++ [auto_create])).
+-spec auto_create(emqx_mq_types:mq_name(), emqx_mq_types:mq_topic()) -> false | {true, emqx_mq_types:mq()}.
+auto_create(Name, Topic) ->
+    auto_create(Name, Topic, emqx:get_config(?MQ_CONFIG_PATH ++ [auto_create])).
 
 %%------------------------------------------------------------------------------
 %% Config hooks
@@ -93,13 +93,13 @@ post_config_update(?MQ_CONFIG_PATH, _Request, NewConf, OldConf, _AppEnvs) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-auto_create(Topic, #{regular := #{} = RegularAutoCreate}) ->
-    MQ = RegularAutoCreate#{topic_filter => Topic, is_lastvalue => false},
+auto_create(Name, Topic, #{regular := #{} = RegularAutoCreate}) ->
+    MQ = RegularAutoCreate#{name => Name, topic_filter => Topic, is_lastvalue => false},
     {true, MQ};
-auto_create(Topic, #{lastvalue := #{} = LastvalueAutoCreate}) ->
-    MQ = LastvalueAutoCreate#{topic_filter => Topic, is_lastvalue => true},
+auto_create(Name, Topic, #{lastvalue := #{} = LastvalueAutoCreate}) ->
+    MQ = LastvalueAutoCreate#{name => Name, topic_filter => Topic, is_lastvalue => true},
     {true, MQ};
-auto_create(_Topic, _Config) ->
+auto_create(_Name, _Topic, _Config) ->
     false.
 
 maybe_enable(#{enable := Enable} = _NewConf, #{enable := Enable} = _OldConf) ->

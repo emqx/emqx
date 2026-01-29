@@ -15,6 +15,7 @@ The module contains the registry of Message Queues.
     create_tables/0,
     create/1,
     find/1,
+    find_by_id/1,
     match/1,
     delete/1,
     update/2,
@@ -26,11 +27,13 @@ The module contains the registry of Message Queues.
 
 %% Only for testing/debugging.
 -export([
-    delete_all/0
+    delete_all/0,
+    create_pre_611_queue/1
 ]).
 
--define(MQ_REGISTRY_INDEX_TAB, emqx_mq_registry_index).
 -define(MQ_REGISTRY_SHARD, emqx_mq_registry_shard).
+
+-define(MQ_REGISTRY_INDEX_TAB, emqx_mq_registry_index).
 
 -record(?MQ_REGISTRY_INDEX_TAB, {
     key :: emqx_topic_index:key(nil() | emqx_mq_types:mqid()) | '_',
@@ -83,31 +86,33 @@ create(#{is_lastvalue := IsLastValue} = MQ0) when
     IndexRecord = mq_to_record(MQ),
     maybe
         ok ?= validate_max_queue_count(),
-        do_create(
-            [
-                #{
-                    name => create_state,
-                    create => fun() -> emqx_mq_state_storage:create_mq_state(MQ) end,
-                    rollback => fun() -> drop_queue_state(MQ) end
-                },
-                #{
-                    name => create_index,
-                    create => fun() -> mria:dirty_write(IndexRecord) end,
-                    rollback => fun() ->
-                        mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
-                        drop_consumer_state(MQ),
-                        drop_queue_data(MQ)
-                    end
-                },
-                #{
-                    name => claim_name,
-                    create => fun() -> emqx_mq_state_storage:set_name_index(Name, Id) end,
-                    rollback => fun() -> emqx_mq_state_storage:destroy_name_index(Name, Id) end
-                }
-            ],
-            MQ,
-            []
-        )
+        ok ?=
+            do_create(
+                [
+                    #{
+                        name => create_state,
+                        create => fun() -> emqx_mq_state_storage:create_mq_state(MQ) end,
+                        rollback => fun() -> drop_queue_state(MQ) end
+                    },
+                    #{
+                        name => create_index,
+                        create => fun() -> mria:dirty_write(IndexRecord) end,
+                        rollback => fun() ->
+                            mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
+                            drop_consumer_state(MQ),
+                            drop_queue_data(MQ)
+                        end
+                    },
+                    #{
+                        name => claim_name,
+                        create => fun() -> emqx_mq_state_storage:set_name_index(Name, Id) end,
+                        rollback => fun() -> emqx_mq_state_storage:destroy_name_index(Name, Id) end
+                    }
+                ],
+                MQ,
+                []
+            ),
+        {ok, MQ}
     end.
 
 -doc """
@@ -135,7 +140,7 @@ Find the MQ by its name.
 """.
 -spec find(emqx_mq_types:mq_name()) -> {ok, emqx_mq_types:mq()} | not_found.
 %% Name of legacy unnamed queues, lookup by topic index
-find(<<"/", TopicFilter/binary>> = _Name) ->
+find(?LEGACY_QUEUE_NAME(TopicFilter)) ->
     Key = make_default_queue_key(TopicFilter),
     case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
         [] ->
@@ -146,16 +151,23 @@ find(<<"/", TopicFilter/binary>> = _Name) ->
 %% Normal name
 find(Name) ->
     maybe
-        {ok, Id} = emqx_mq_state_storage:find_id_by_name(Name),
-        emqx_mq_state_storage:find_mq(Id)
+        {ok, Id} ?= emqx_mq_state_storage:find_id_by_name(Name),
+        find_by_id(Id)
     end.
+
+-doc """
+Find the MQ by its ID.
+""".
+-spec find_by_id(emqx_mq_types:mqid()) -> {ok, emqx_mq_types:mq()} | not_found.
+find_by_id(Id) ->
+    emqx_mq_state_storage:find_mq(Id).
 
 -doc """
 Delete the MQ by its name.
 """.
 -spec delete(emqx_mq_types:mq_topic()) -> ok | not_found | {error, term()}.
 %% Legacy previously unnamed queue, find through topic index
-delete(<<"/", TopicFilter/binary>> = _Name) ->
+delete(?LEGACY_QUEUE_NAME(TopicFilter)) ->
     ?tp_debug(mq_registry_delete, #{topic_filter => TopicFilter}),
     Key = make_default_queue_key(TopicFilter),
     case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
@@ -180,7 +192,7 @@ Delete the MQ by its Id.
 -spec delete_by_id(emqx_mq_types:mqid()) -> ok | not_found | {error, term()}.
 delete_by_id(Id) ->
     maybe
-        {ok, MQ} ?= find(Id),
+        {ok, MQ} ?= emqx_mq_state_storage:find_mq(Id),
         Key = make_key(MQ),
         ok = mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
         ok ?= drop_consumer_state(MQ),
@@ -231,7 +243,7 @@ Update the MQ by its ID.
 update_by_id(Id, UpdateFields0) ->
     UpdateFields = maps:without([topic_filter, id, name], UpdateFields0),
     maybe
-        {ok, MQ} ?= find(Id),
+        {ok, MQ} ?= find_by_id(Id),
         Key = make_key(MQ),
         IsLastvalueOld = emqx_mq_prop:is_lastvalue(MQ),
         IsLastvalueNew = emqx_mq_prop:is_lastvalue(UpdateFields),
@@ -415,10 +427,13 @@ mq_record_stream_to_queues(Stream) ->
         Stream
     ).
 
-make_key(#{topic_filter := TopicFilter, id := Id, name := _Name}) ->
-    emqx_topic_index:make_key(TopicFilter, Id);
-make_key(#{topic_filter := TopicFilter}) ->
-    make_default_queue_key(TopicFilter).
+make_key(MQ) ->
+    make_key(MQ, emqx_mq_prop:name(MQ)).
+
+make_key(#{topic_filter := TopicFilter}, ?LEGACY_QUEUE_NAME(_)) ->
+    make_default_queue_key(TopicFilter);
+make_key(#{topic_filter := TopicFilter, id := Id} = _MQ, _Name) ->
+    emqx_topic_index:make_key(TopicFilter, Id).
 
 make_default_queue_key(TopicFilter) ->
     emqx_topic_index:make_key(TopicFilter, []).
@@ -524,3 +539,17 @@ do_rollback(MQ, [#{rollback := RollbackFun, name := Label} = _Step | Rest]) ->
     end;
 do_rollback(_MQ, []) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% Test helpers
+%%--------------------------------------------------------------------
+
+create_pre_611_queue(MQ0) ->
+    MQ = maps:without([name], MQ0#{id => emqx_guid:gen()}),
+    Rec = mq_to_record(MQ),
+    {atomic, ok} =
+        mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
+            mnesia:write(Rec)
+        end),
+    ok = emqx_mq_state_storage:create_mq_state(MQ),
+    MQ.

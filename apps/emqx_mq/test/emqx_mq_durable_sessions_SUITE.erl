@@ -53,7 +53,7 @@ end_per_testcase(_CaseName, _Config) ->
 %% Verify that a client cannot subscribe to an MQ if the session is durable.
 t_forbid_subscribe_to_mq_for_durable_sessions(_Config) ->
     %% Create an MQ
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    _ = emqx_mq_test_utils:ensure_mq_created(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
 
     %% When having a durable session, try to subscribe to an MQ and expect an error.
     CSub0 = emqx_mq_test_utils:emqtt_connect([
