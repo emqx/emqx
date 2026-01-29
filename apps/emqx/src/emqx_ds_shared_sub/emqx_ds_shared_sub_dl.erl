@@ -94,7 +94,8 @@ This module abstracts all CRUD operations on the shared sub leader durable state
     ?generations := emqx_ds_pmap:pmap(emqx_ds:shard(), emqx_ds:generation()),
     ?iterators := emqx_ds_pmap:pmap(
         {emqx_ds:slab(), emqx_ds:stream()}, emqx_ds_shared_sub_leader:stream_state()
-    )
+    ),
+    ?pmap_id => _
 }.
 
 -type lifetime() :: new | up.
@@ -165,7 +166,8 @@ create_new(Id) ->
         ?collection_guard => undefined,
         ?properties => emqx_ds_pmap:new_pmap(?MODULE, ?top_properties),
         ?generations => emqx_ds_pmap:new_pmap(?MODULE, ?top_generations),
-        ?iterators => emqx_ds_pmap:new_pmap(?MODULE, ?top_iterators)
+        ?iterators => emqx_ds_pmap:new_pmap(?MODULE, ?top_iterators),
+        ?new_pmap_collection
     }.
 
 -spec commit(lifetime(), t()) -> t().
@@ -421,7 +423,8 @@ open_tx(Id) ->
                 ?collection_dirty => false,
                 ?properties => emqx_ds_pmap:tx_restore(?MODULE, ?top_properties, Id),
                 ?generations => emqx_ds_pmap:tx_restore(?MODULE, ?top_generations, Id),
-                ?iterators => emqx_ds_pmap:tx_restore(?MODULE, ?top_iterators, Id)
+                ?iterators => emqx_ds_pmap:tx_restore(?MODULE, ?top_iterators, Id),
+                ?new_pmap_collection
             },
             {ok, Rec}
     end.

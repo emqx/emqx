@@ -226,7 +226,8 @@ add_generation(DB) ->
 
 otx_add_generation(DB, Shard, Since) ->
     DBShard = {DB, Shard},
-    ok = emqx_ds_storage_layer:add_generation(DBShard, Since),
+    #{storage := Prototype} = emqx_dsch:get_db_schema(DB),
+    ok = emqx_ds_storage_layer:add_generation(DBShard, Since, Prototype),
     emqx_ds_beamformer:generation_event(DBShard).
 
 -spec update_db_config(emqx_ds:db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
@@ -555,9 +556,8 @@ db_info(_) ->
     {ok, ""}.
 
 -spec handle_db_config_change(emqx_ds:db(), db_runtime_config()) -> ok.
-handle_db_config_change(_, _) ->
-    %% FIXME:
-    ok.
+handle_db_config_change(DB, _) ->
+    emqx_ds_optimistic_tx:config_change(DB).
 
 -spec handle_schema_event(emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:pending()) -> ok.
 handle_schema_event(_DB, PendingId, _Pending) ->

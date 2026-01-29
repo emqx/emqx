@@ -80,10 +80,6 @@ taking over the collection. Such locking is out of scope of this module.
     pmap_topic/3
 ]).
 
--ifdef(CHECK_SEQNO).
--export([do_seqno/0]).
--endif.
-
 -export_type([
     pmap/2,
     collection_id/0,
@@ -95,6 +91,11 @@ taking over the collection. Such locking is out of scope of this module.
 
 -include("emqx_ds.hrl").
 -include("emqx_ds_pmap.hrl").
+
+-ifdef(CHECK_SEQNO).
+-export([do_seqno/0, new_seqno/0]).
+-include_lib("stdlib/include/assert.hrl").
+-endif.
 
 %%================================================================================
 %% Type declarations
@@ -334,7 +335,6 @@ size(#pmap{cache = Cache}) ->
 
 -spec collection_get(field(), _Key, collection()) -> _Val | undefined.
 collection_get(Field, Key, Rec) ->
-    collection_check_sequence(Rec),
     get(Key, maps:get(Field, Rec)).
 
 -spec collection_fold(field(), fun((_K, _V, A) -> A), A, collection()) -> A.
@@ -368,18 +368,19 @@ collection_size(Field, Rec) ->
 
 -ifdef(CHECK_SEQNO).
 do_seqno() ->
-    case erlang:get(?MODULE) of
-        undefined ->
-            put(?MODULE, 0),
-            0;
-        N ->
-            put(?MODULE, N + 1),
-            N + 1
-    end.
+    Ref = make_ref(),
+    put(?MODULE, Ref),
+    Ref.
+
+new_seqno() ->
+    do_seqno().
 
 -spec collection_check_sequence(collection()) -> ok.
-collection_check_sequence(A = #{'_' := N}) ->
-    N = erlang:get(?MODULE),
+collection_check_sequence(#{?pmap_id := CollectionSeqNo}) ->
+    ProcessSeqNo = erlang:get(?MODULE),
+    ?assertEqual(ProcessSeqNo, CollectionSeqNo),
+    ok;
+collection_check_sequence(_) ->
     ok.
 -else.
 -spec collection_check_sequence(collection()) -> ok.

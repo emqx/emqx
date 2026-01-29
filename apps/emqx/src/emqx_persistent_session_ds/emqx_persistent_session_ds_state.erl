@@ -146,7 +146,8 @@
     %% stream scheduler module.
     ?streams := emqx_ds_pmap:pmap(emqx_ds:stream(), emqx_persistent_session_ds:srs()),
     ?ranks := emqx_ds_pmap:pmap(term(), integer()),
-    ?awaiting_rel := emqx_ds_pmap:pmap(emqx_types:packet_id(), _Timestamp :: integer())
+    ?awaiting_rel := emqx_ds_pmap:pmap(emqx_types:packet_id(), _Timestamp :: integer()),
+    ?pmap_id := _
 }.
 
 -type lifetime() ::
@@ -202,15 +203,16 @@ print_channel(SessionId) ->
     get_offline_info(Session).
 
 -spec format(t()) -> map().
-format(Rec = #{?id := Id}) ->
-    Pmaps = maps:fold(
-        fun(MapKey, #pmap{cache = Val}, Acc) ->
-            Acc#{MapKey => Val}
+format(Rec) ->
+    maps:map(
+        fun
+            (_MapKey, #pmap{cache = Cache}) ->
+                Cache;
+            (_, Val) ->
+                Val
         end,
-        #{?id => Id},
-        maps:without([?id, ?collection_dirty, ?collection_guard, ?checkpoint_ref, ?last_id], Rec)
-    ),
-    maps:merge(Pmaps, maps:with([?collection_dirty, ?collection_guard, ?checkpoint_ref], Rec)).
+        Rec
+    ).
 
 -spec list_sessions() -> [emqx_persistent_session_ds:id()].
 list_sessions() ->
@@ -280,7 +282,8 @@ create_new(SessionId) ->
         ?seqnos => emqx_persistent_session_ds_state_v2:new_pmap(?seqnos),
         ?streams => emqx_persistent_session_ds_state_v2:new_pmap(?streams),
         ?ranks => emqx_persistent_session_ds_state_v2:new_pmap(?ranks),
-        ?awaiting_rel => emqx_persistent_session_ds_state_v2:new_pmap(?awaiting_rel)
+        ?awaiting_rel => emqx_persistent_session_ds_state_v2:new_pmap(?awaiting_rel),
+        ?new_pmap_collection
     }.
 
 -spec is_dirty(t()) -> boolean().

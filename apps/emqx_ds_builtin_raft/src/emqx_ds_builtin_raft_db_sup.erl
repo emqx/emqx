@@ -148,15 +148,18 @@ start_shard_leader_sup(DB, Shard) ->
 
 %% @doc Shut down the leader-specific processes when the node loses
 %% leader status
--spec stop_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) -> ok.
+-spec stop_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
 stop_shard_leader_sup(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
     Child = ?shard_leader_sup,
-    case supervisor:terminate_child(Sup, Child) of
+    try supervisor:terminate_child(Sup, Child) of
         ok ->
             supervisor:delete_child(Sup, Child);
         {error, Reason} ->
             {error, Reason}
+    catch
+        exit:{noproc, _} ->
+            {error, shard_sup_is_not_running}
     end.
 
 %%================================================================================
@@ -199,13 +202,14 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         intensity => 10,
         period => 100
     },
-    Schema = emqx_dsch:get_db_schema(DB),
+    Setup = fun() -> ok end,
+    Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, '_') end,
     #{runtime := RTConf} = emqx_dsch:get_db_runtime(DB),
-    Opts = maps:merge(Schema, RTConf),
     Children =
-        [shard_storage_spec(DB, Shard, Opts),
-         shard_replication_spec(DB, Shard, Schema, RTConf)] ++
-         shard_beamformers_spec(DB, Shard, Opts),
+        [emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
+         shard_storage_spec(DB, Shard, RTConf),
+         shard_replication_spec(DB, Shard, RTConf)] ++
+         shard_beamformers_spec(DB, Shard),
     {ok, {SupFlags, Children}};
 init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
     %% Spec for a temporary supervisor that runs on the node only when
@@ -297,16 +301,18 @@ shard_storage_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, storage},
         start =>
-            {emqx_ds_storage_layer, start_link, [{DB, Shard}, emqx_ds_lib:resolve_db_group(Opts)]},
+            {emqx_ds_storage_layer, start_link_no_schema, [
+                {DB, Shard}, emqx_ds_lib:resolve_db_group(Opts)
+            ]},
         shutdown => 5_000,
         restart => permanent,
         type => worker
     }.
 
-shard_replication_spec(DB, Shard, Schema, RTConf) ->
+shard_replication_spec(DB, Shard, RTConf) ->
     #{
         id => {Shard, replication},
-        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, Schema, RTConf]},
+        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, RTConf]},
         shutdown => 10_000,
         restart => transient,
         type => worker
@@ -328,7 +334,7 @@ db_lifecycle_spec(DB) ->
         type => worker
     }.
 
-shard_beamformers_spec(DB, Shard, _Opts) ->
+shard_beamformers_spec(DB, Shard) ->
     %% TODO: don't hardcode value
     BeamformerOpts = #{
         n_workers => 5
