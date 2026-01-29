@@ -517,12 +517,16 @@ t_050_apply_after_postmortem_replay(Config) ->
             %% Prepare system:
             [N1, _N2, _N3] = Nodes = emqx_cth_cluster:start(Cluster),
             [?assertMatch(ok, ?ON(N, emqx_durable_test_timer:init())) || N <- Nodes],
+            %% Wait until the shard leader is ready to accept transactions:
+            ?block_until(#{?snk_kind := ds_otx_up, db := ?DB_GLOB}),
+            %% Schedule timers after a delay (which should be less
+            %% than time to add the timers and restart N1):
             [
                 ?assertMatch(
                     ok,
                     ?ON(
                         N1,
-                        emqx_durable_test_timer:apply_after(<<I>>, <<I>>, 1_000 + (I div 3) * 100)
+                        emqx_durable_test_timer:apply_after(<<I>>, <<I>>, 3_000 + (I div 3) * 100)
                     )
                 )
              || I <- lists:seq(0, 10)
