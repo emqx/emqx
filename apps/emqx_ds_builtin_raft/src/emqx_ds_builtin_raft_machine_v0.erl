@@ -241,6 +241,14 @@ apply(
     {State, ok, [Effect]};
 apply(
     _RaftMeta,
+    #{?tag := update_schema_v1},
+    State
+) ->
+    %% Should not happen: the new command was issued prematurely.
+    %% Ignore the command and let the replay proceed to the upgrade:
+    {State, ?err_rec(upgrade_to_v1_needed), []};
+apply(
+    _RaftMeta,
     #{?tag := drop_generation, generation := GenId},
     #{db_shard := DBShard} = State
 ) ->
