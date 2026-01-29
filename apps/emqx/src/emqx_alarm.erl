@@ -609,16 +609,9 @@ start_worker() ->
     proc_lib:start_link(?MODULE, do_start_worker, []).
 
 do_start_worker() ->
-    set_label(<<"alarm_event_worker">>),
+    ok = proc_lib:set_label(<<"alarm_event_worker">>),
     ok = proc_lib:init_ack(self()),
     ?MODULE:worker_loop().
-
-%% Drop check after OTP 26 is dropped.
--if(OTP_RELEASE >= 27).
-set_label(Label) -> proc_lib:set_label(Label).
--else.
-set_label(_Label) -> ok.
--endif.
 
 send_job_to_worker(Mod, Fn, Args, State0) ->
     #{?worker := WorkerPid} = State0,

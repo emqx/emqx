@@ -387,6 +387,7 @@ run_loop(
 ) ->
     Peername = emqx_channel:info(peername, Channel),
     emqx_logger:set_metadata_peername(esockd:format(Peername)),
+    proc_lib:set_label({Listener, Peername}),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     emqx_utils:tune_heap_size(ShutdownPolicy),
     case activate_socket(State) of
