@@ -375,7 +375,7 @@ normalize_interval(Interval) when is_integer(Interval) ->
 normalize_interval(Interval) when is_binary(Interval); is_list(Interval) ->
     Int = to_int(Interval),
     case Int of
-        Value when is_integer(Value), Value >= 0, Value =< 65535 ->
+        Value when Value >= 0, Value =< 65535 ->
             Value;
         _ ->
             erlang:throw({invalid_keepalive, Interval})
