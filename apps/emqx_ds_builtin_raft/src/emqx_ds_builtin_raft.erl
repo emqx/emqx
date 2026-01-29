@@ -1189,7 +1189,11 @@ do_wait_for_upgrade(Alarm, Leader, MinVersion) ->
         {ok, Vsn} when Vsn >= MinVersion ->
             ok;
         {ok, Vsn} ->
-            emqx_alarm:safe_activate(Alarm, #{current_version => Vsn}, ""),
+            emqx_alarm:safe_activate(
+                Alarm,
+                #{current_version => Vsn},
+                "Durable storoage shard is paused until all its replicas are upgraded"
+            ),
             timer:sleep(1000),
             do_wait_for_upgrade(Alarm, Leader, MinVersion);
         Other ->
