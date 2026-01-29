@@ -1478,3 +1478,21 @@ t_update_without_static_clientids(TCConfig) ->
     {201, _} = create_connector_api(TCConfig, #{}),
     {200, _} = update_connector_api(TCConfig, #{}),
     ok.
+
+%% https://emqx.atlassian.net/browse/EMQX-15061
+%% Even though it's currently not possible to reproduce the path that lead to this, we
+%% attempt to emulate the reported issue by storing an "impossible" value for static
+%% clientids in the raw config.  It's "impossible" because a hocon converter should have
+%% transformed a list of binary clientids into a list of more structured maps.
+t_corrupt_connector_raw_config(TCConfig) ->
+    Name = get_config(connector_name, TCConfig),
+    {201, _} = create_connector_api(TCConfig, #{}),
+    NodeBin = atom_to_binary(node()),
+    StaticClientIds = [#{<<"node">> => NodeBin, <<"ids">> => [<<"1">>]}],
+    ok = emqx_config:put_raw([connectors, mqtt, Name, static_clientids], StaticClientIds),
+    {200, _} = update_connector_api(TCConfig, #{
+        %% Here, it's fine to use list of binaries.  It'll pass through the hocon
+        %% converter.
+        <<"static_clientids">> => StaticClientIds
+    }),
+    ok.
