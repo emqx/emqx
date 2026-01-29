@@ -12,7 +12,7 @@
 
 -export([start_link/0]).
 -export([on_message_publish/1]).
--export([set_keepalive_batch/1]).
+-export([set_keepalive/1]).
 -export([set_keepalive_batch_async/1]).
 -export([do_call_keepalive_clients/1]).
 -export([test_extract_batch_client_result/2]).
@@ -38,22 +38,18 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 -doc """
-Update keepalive intervals for multiple clients (bulk API).
-Returns a list of {ClientId, Result} tuples where Result is ok or {error, Reason}.
+Update keepalive interval for a single client.
 """.
--spec set_keepalive_batch(keepalive_batch()) -> [{emqx_types:clientid(), ok | {error, term()}}].
-set_keepalive_batch(Batch) ->
-    DeadlineMs = erlang:monotonic_time(millisecond) + ?BULK_SYNC_TIMEOUT_MS,
-    Alias = erlang:alias([reply]),
-    gen_server:cast(?SERVER, {keepalive_batch_sync, Batch, DeadlineMs, Alias}),
-    receive
-        {Alias, Reply} ->
-            erlang:unalias(Alias),
-            Reply
-    after ?BULK_SYNC_TIMEOUT_MS ->
-        erlang:unalias(Alias),
-        {error, timeout}
-    end.
+-spec set_keepalive({emqx_types:clientid(), integer()}) -> ok | {error, term()}.
+set_keepalive({ClientId, Interval}) when is_binary(ClientId) ->
+    try
+        Normalized = normalize_interval(Interval),
+        keepalive_sync(ClientId, Normalized)
+    catch
+        throw:Reason -> {error, Reason}
+    end;
+set_keepalive(Other) ->
+    {error, {invalid_item, Other}}.
 
 -spec set_keepalive_batch_async(keepalive_batch()) -> ok.
 set_keepalive_batch_async(Batch) ->
@@ -74,15 +70,21 @@ do_set_keepalive_batch(Batch) ->
     case AllNodes of
         [] ->
             %% No nodes found, return not_found for all clients
-            [{ClientId, {error, not_found}} || {ClientId, _Interval} <- Batch];
+            {ok, [{ClientId, {error, not_found}} || {ClientId, _Interval} <- Batch]};
         _ ->
             %% Call bulk API on all nodes
             Results = call_keepalive_clients(AllNodes, Batch),
             %% Extract results for each client
-            [
+            {ok, [
                 {ClientId, extract_batch_client_result(ClientId, Results)}
              || {ClientId, _Interval} <- Batch
-            ]
+            ]}
+    end.
+
+do_set_keepalive_single(ClientId, Interval) ->
+    case do_set_keepalive_batch([{ClientId, Interval}]) of
+        {ok, [{ClientId, Result}]} -> Result;
+        {ok, _} -> {error, not_found}
     end.
 
 extract_batch_client_result(ClientId, Results) ->
@@ -156,12 +158,12 @@ handle_cast({keepalive_batch_async, Batch}, State) ->
             _ = do_set_keepalive_batch(Batch),
             {noreply, State}
     end;
-handle_cast({keepalive_batch_sync, Batch, DeadlineMs, Alias}, State) ->
+handle_cast({keepalive_sync, ClientId, Interval, DeadlineMs, Alias}, State) ->
     case erlang:monotonic_time(millisecond) > DeadlineMs of
         true ->
             {noreply, State};
         false ->
-            Reply = do_set_keepalive_batch(Batch),
+            Reply = do_set_keepalive_single(ClientId, Interval),
             Alias ! {Alias, Reply},
             {noreply, State}
     end;
@@ -296,6 +298,19 @@ call_keepalive_clients(Nodes, Batch) ->
 cast_conn(ConnMod, Pid, {keepalive, _Interval} = Req) ->
     ok = erlang:apply(ConnMod, cast, [Pid, Req]).
 
+keepalive_sync(ClientId, Interval) ->
+    DeadlineMs = erlang:monotonic_time(millisecond) + ?BULK_SYNC_TIMEOUT_MS,
+    Alias = erlang:alias([reply]),
+    gen_server:cast(?SERVER, {keepalive_sync, ClientId, Interval, DeadlineMs, Alias}),
+    receive
+        {Alias, Reply} ->
+            erlang:unalias(Alias),
+            Reply
+    after ?BULK_SYNC_TIMEOUT_MS ->
+        erlang:unalias(Alias),
+        {error, timeout}
+    end.
+
 clamp_keepalive_for_client(ClientId, Interval) ->
     case emqx_cm:get_chan_info(ClientId) of
         #{clientinfo := #{zone := Zone}} ->
@@ -322,7 +337,7 @@ decode_single_payload(Payload) ->
         Interval = normalize_interval(Payload),
         {ok, Interval}
     catch
-        error:Reason -> {error, Reason}
+        throw:Reason -> {error, Reason}
     end.
 
 decode_bulk_payload(Payload) ->
@@ -340,7 +355,7 @@ normalize_updates(Items) ->
         Updates = [normalize_item(Item) || Item <- Items],
         {ok, Updates}
     catch
-        error:Reason -> {error, Reason}
+        throw:Reason -> {error, Reason}
     end.
 
 normalize_item(#{<<"clientid">> := ClientId, <<"keepalive">> := Interval}) ->
@@ -348,21 +363,30 @@ normalize_item(#{<<"clientid">> := ClientId, <<"keepalive">> := Interval}) ->
 normalize_item(#{clientid := ClientId, keepalive := Interval}) ->
     {ClientId, normalize_interval(Interval)};
 normalize_item(Other) ->
-    erlang:error({invalid_item, Other}).
+    erlang:throw({invalid_item, Other}).
 
-normalize_interval(Interval) ->
+normalize_interval(Interval) when is_integer(Interval) ->
+    case Interval of
+        Value when Value >= 0, Value =< 65535 ->
+            Value;
+        _ ->
+            erlang:throw({invalid_keepalive, Interval})
+    end;
+normalize_interval(Interval) when is_binary(Interval); is_list(Interval) ->
     Int = to_int(Interval),
     case Int of
         Value when is_integer(Value), Value >= 0, Value =< 65535 ->
             Value;
         _ ->
-            erlang:error({invalid_keepalive, Interval})
-    end.
+            erlang:throw({invalid_keepalive, Interval})
+    end;
+normalize_interval(Interval) ->
+    erlang:throw({invalid_keepalive, Interval}).
 
 to_int(Value) when is_integer(Value) -> Value;
 to_int(Value) ->
     try emqx_utils_conv:int(Value) of
         Int -> Int
     catch
-        _:_ -> erlang:error({invalid_keepalive, Value})
+        _:_ -> erlang:throw({invalid_keepalive, Value})
     end.

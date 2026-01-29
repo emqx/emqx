@@ -127,13 +127,13 @@ t_dynamic_keepalive_update_timeout(_) ->
     [ChannelPid] = emqx_cm:lookup_channels(ClientID),
     ok = sys:suspend(ChannelPid),
     Result =
-        try call_in_time(fun() -> emqx_setopts:set_keepalive_batch([{ClientID, 9}]) end, 500) of
+        try call_in_time(fun() -> emqx_setopts:set_keepalive({ClientID, 9}) end, 500) of
             CallResult -> CallResult
         after
             ok = sys:resume(ChannelPid),
             ok = emqtt:stop(C)
         end,
-    ?assertMatch({ok, [{ClientID, ok}]}, Result).
+    ?assertMatch({ok, ok}, Result).
 
 t_dynamic_keepalive_update_timeout_batch_call(_) ->
     ClientID = <<"dynamic_timeout_batch_call">>,
@@ -143,7 +143,7 @@ t_dynamic_keepalive_update_timeout_batch_call(_) ->
     ]),
     {ok, _} = emqtt:connect(C),
     ok = sys:suspend(whereis(emqx_setopts)),
-    Result = emqx_setopts:set_keepalive_batch([{ClientID, 9}]),
+    Result = emqx_setopts:set_keepalive({ClientID, 9}),
     ok = sys:resume(whereis(emqx_setopts)),
     ok = emqtt:stop(C),
     ?assertMatch({error, timeout}, Result).
@@ -151,13 +151,14 @@ t_dynamic_keepalive_update_timeout_batch_call(_) ->
 t_dynamic_keepalive_batch_missing_client(_) ->
     ClientId = <<"dynamic_missing_client">>,
     ?assertMatch(
-        [{ClientId, {error, not_found}}], emqx_setopts:set_keepalive_batch([{ClientId, 9}])
+        {error, not_found},
+        emqx_setopts:set_keepalive({ClientId, 9})
     ).
 
 t_dynamic_keepalive_batch_deadline_expired(_) ->
     Alias = erlang:alias([reply]),
     Past = erlang:monotonic_time(millisecond) - 1,
-    gen_server:cast(whereis(emqx_setopts), {keepalive_batch_sync, [], Past, Alias}),
+    gen_server:cast(whereis(emqx_setopts), {keepalive_sync, <<"deadline">>, 1, Past, Alias}),
     receive
         {Alias, _Reply} ->
             erlang:unalias(Alias),
@@ -172,7 +173,8 @@ t_dynamic_keepalive_registry_disabled_lookup(_) ->
     ok = emqx_config:put([broker, enable_session_registry], false),
     ClientId = <<"dynamic_registry_disabled">>,
     ?assertMatch(
-        [{ClientId, {error, not_found}}], emqx_setopts:set_keepalive_batch([{ClientId, 9}])
+        {error, not_found},
+        emqx_setopts:set_keepalive({ClientId, 9})
     ),
     ok = emqx_config:put([broker, enable_session_registry], Prev).
 
