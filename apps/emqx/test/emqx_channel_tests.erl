@@ -76,7 +76,7 @@ set_tns_in_log_meta_test_() ->
         Ch0 = emqx_channel:dummy(),
         Ch1 = emqx_channel:set_field(clientinfo, CInfo, Ch0),
         ok = emqx_channel:set_log_meta(dummy, Ch1),
-        TestFn(emqx_logger:attach_label(logger:get_process_metadata()))
+        TestFn(logger:get_process_metadata())
     end,
     [
         {spawn, {Title, ?_test(Test(CInfo, TestFn))}}

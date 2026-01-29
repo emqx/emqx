@@ -138,6 +138,10 @@ t_set_metadata_clientid_truncated(_) ->
     ?assertMatch(
         {clientid, <<"🫠"/utf8, _:63/bytes>>},
         proc_lib:get_label(self())
+    ),
+    ?assertMatch(
+        #{clientid := <<"🫠"/utf8, _:63/bytes>>},
+        logger:get_process_metadata()
     ).
 
 t_set_metadata_username_truncated(_) ->
@@ -156,7 +160,7 @@ t_attach_label(_) ->
             clientid => <<"c_attach_label">>,
             username => <<"u_attach_label">>
         },
-        emqx_logger:attach_label(logger:get_process_metadata())
+        logger:get_process_metadata()
     ).
 
 split_toks_at_dot(AllToks) ->

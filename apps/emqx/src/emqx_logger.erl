@@ -24,9 +24,7 @@
     error/3,
     critical/1,
     critical/2,
-    critical/3,
-    %% Metadata:
-    attach_label/1
+    critical/3
 ]).
 
 %% Configs
@@ -134,13 +132,15 @@ critical(Metadata, Format, Args) when is_map(Metadata) ->
 set_metadata_clientid(ClientId) when ClientId =:= undefined orelse ClientId =:= <<>> ->
     ok;
 set_metadata_clientid(ClientId) ->
-    proc_lib:set_label({clientid, truncate_procmeta_string(ClientId)}).
+    ClientIdSafe = truncate_procmeta_string(ClientId),
+    proc_lib:set_label({clientid, ClientIdSafe}),
+    logger:update_process_metadata(#{clientid => ClientIdSafe}).
 
 -spec set_metadata_username(emqx_types:username()) -> ok.
 set_metadata_username(Username) when Username =:= undefined orelse Username =:= <<>> ->
     ok;
 set_metadata_username(Username) ->
-    set_proc_metadata(#{username => truncate_procmeta_string(Username)}).
+    logger:update_process_metadata(#{username => truncate_procmeta_string(Username)}).
 
 -spec set_metadata_peername(peername_str()) -> ok.
 set_metadata_peername(Peername) ->
@@ -155,13 +155,6 @@ set_proc_metadata(Meta) ->
     logger:update_process_metadata(
         maps:filter(fun(_, V) -> V =/= undefined andalso V =/= <<>> end, Meta)
     ).
-
--spec attach_label(logger:metadata()) -> logger:metadata().
-attach_label(Meta) ->
-    case proc_lib:get_label(self()) of
-        {K, V} when is_atom(K) -> Meta#{K => V};
-        _Otherwise -> Meta
-    end.
 
 -spec get_primary_log_level() -> logger:level().
 get_primary_log_level() ->
