@@ -703,9 +703,14 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
             shutdown(Reason, Reply, State#state{channel = NChannel});
         {shutdown, Reason, Reply, OutPacket, NChannel} ->
             NState = State#state{channel = NChannel},
-            {ok, NState2} = handle_outgoing(OutPacket, NState),
-            NState3 = graceful_shutdown_transport(Reason, NState2),
-            shutdown(Reason, Reply, NState3)
+            case handle_outgoing(OutPacket, NState) of
+                {ok, NState2} ->
+                    NState3 = graceful_shutdown_transport(Reason, NState2),
+                    shutdown(Reason, Reply, NState3);
+                {ok, {sock_error, _}, NState2} ->
+                    %% Ignore send errors during shutdown to avoid crashing.
+                    shutdown(Reason, Reply, NState2)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -896,8 +901,13 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
-            {ok, NState2} = handle_outgoing(Packet, NState),
-            shutdown(Reason, NState2)
+            case handle_outgoing(Packet, NState) of
+                {ok, NState2} ->
+                    shutdown(Reason, NState2);
+                {ok, {sock_error, _}, NState2} ->
+                    %% Ignore send errors during shutdown to avoid crashing.
+                    shutdown(Reason, NState2)
+            end
     end.
 
 %%--------------------------------------------------------------------
