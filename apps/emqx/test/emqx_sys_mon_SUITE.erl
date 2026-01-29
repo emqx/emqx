@@ -121,7 +121,7 @@ t_procinfo_initial_call_and_stacktrace(_) ->
     ?assertReceive({spawned, SomePid}),
     ProcInfo = emqx_sys_mon:procinfo(SomePid),
     ?assertEqual(
-        {?MODULE, some_function, ['Argument__1', 'Argument__2']},
+        {?MODULE, some_function, 2},
         proplists:get_value(proc_lib_initial_call, ProcInfo)
     ),
     ?assertMatch(

@@ -238,11 +238,11 @@ get_proc_lib_label(Pid) ->
     end.
 
 get_proc_lib_initial_call(Pid) ->
-    case proc_lib:initial_call(Pid) of
-        false ->
-            [];
-        InitialCall ->
-            [{proc_lib_initial_call, InitialCall}]
+    case proc_lib:translate_initial_call(Pid) of
+        InitialCall = {M, _, _} when M =/= proc_lib ->
+            [{proc_lib_initial_call, InitialCall}];
+        _Unknown ->
+            []
     end.
 
 portinfo(Port) ->
