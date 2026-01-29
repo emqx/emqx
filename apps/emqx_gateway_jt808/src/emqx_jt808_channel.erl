@@ -439,10 +439,10 @@ msgs2frame(Messages, Channel) ->
     {Frames, NChannel} = lists:foldl(
         fun(#message{payload = Payload}, {AccFrames, AccChannel}) ->
             case emqx_utils_json:safe_decode(Payload) of
-                {ok, PayloadJson = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
-                    NewHeader = build_frame_header(MsgId, AccChannel),
+                {ok, PayloadJson = #{<<"header">> := Header = #{<<"msg_id">> := MsgId}}} ->
+                    {NewHeader, NAccChannel} = build_downlink_header(MsgId, Header, AccChannel),
                     Frame = PayloadJson#{<<"header">> => NewHeader},
-                    {[Frame | AccFrames], state_inc_sn(AccChannel)};
+                    {[Frame | AccFrames], NAccChannel};
                 {ok, _} ->
                     tp(
                         error,
@@ -896,6 +896,25 @@ build_frame_header(MsgId, #channel{clientinfo = ClientInfo, msg_sn = TxMsgSn}) -
     #{phone := Phone} = ClientInfo,
     ProtoVer = maps:get(proto_ver, ClientInfo, ?PROTO_VER_2013),
     build_frame_header(MsgId, 0, Phone, TxMsgSn, ProtoVer).
+
+build_frame_header_with_sn(MsgId, MsgSn, #channel{clientinfo = ClientInfo}) ->
+    #{phone := Phone} = ClientInfo,
+    ProtoVer = maps:get(proto_ver, ClientInfo, ?PROTO_VER_2013),
+    build_frame_header(MsgId, 0, Phone, MsgSn, ProtoVer).
+
+build_downlink_header(MsgId, PayloadHeader, Channel) ->
+    case maps:get(<<"msg_sn">>, PayloadHeader, undefined) of
+        undefined ->
+            log(debug, #{msg => "downlink_use_channel_msg_sn", msg_id => MsgId}, Channel),
+            {build_frame_header(MsgId, Channel), state_inc_sn(Channel)};
+        PayloadMsgSn ->
+            log(
+                info,
+                #{msg => "downlink_use_payload_msg_sn", msg_id => MsgId, msg_sn => PayloadMsgSn},
+                Channel
+            ),
+            {build_frame_header_with_sn(MsgId, PayloadMsgSn, Channel), Channel}
+    end.
 
 build_frame_header(MsgId, Encrypt, Phone, TxMsgSn, ProtoVer) ->
     Header = #{
