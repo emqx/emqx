@@ -37,6 +37,14 @@
     handle_info/2
 ]).
 
+-ifdef(TEST).
+-export([
+    enrich_clientinfo/2,
+    process_out/4,
+    process_nothing/3
+]).
+-endif.
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -400,13 +408,13 @@ make_timer(Name, Time, Msg, Channel = #channel{timers = Timers}) ->
     Channel#channel{timers = Timers#{Name => TRef}}.
 
 update_life_timer(#channel{session = Session, timers = Timers} = Channel) ->
-    LifeTime = emqx_lwm2m_session:info(lifetime, Session),
+    Lifetime = emqx_lwm2m_session:info(lifetime, Session),
     _ =
         case maps:get(lifetime, Timers, undefined) of
             undefined -> ok;
             Ref -> erlang:cancel_timer(Ref)
         end,
-    make_timer(lifetime, LifeTime, lifetime, Channel).
+    make_timer(lifetime, Lifetime, lifetime, Channel).
 
 check_location(Location, #channel{session = Session}) ->
     SLocation = emqx_lwm2m_session:info(location_path, Session),

@@ -221,9 +221,9 @@ observe(post, #{
     query_string := #{<<"path">> := Path, <<"enable">> := Enable}
 }) ->
     MsgType =
-        case Enable of
+        case normalize_bool(Enable) of
             true -> <<"observe">>;
-            _ -> <<"cancel-observe">>
+            false -> <<"cancel-observe">>
         end,
 
     Cmd = #{
@@ -232,6 +232,20 @@ observe(post, #{
     },
 
     send_cmd(ClientId, Cmd).
+
+normalize_bool(true) -> true;
+normalize_bool(false) -> false;
+normalize_bool(<<"true">>) -> true;
+normalize_bool(<<"false">>) -> false;
+normalize_bool("true") -> true;
+normalize_bool("false") -> false;
+normalize_bool("1") -> true;
+normalize_bool("0") -> false;
+normalize_bool(<<"1">>) -> true;
+normalize_bool(<<"0">>) -> false;
+normalize_bool(1) -> true;
+normalize_bool(0) -> false;
+normalize_bool(_) -> false.
 
 read(post, #{
     bindings := #{clientid := ClientId},
