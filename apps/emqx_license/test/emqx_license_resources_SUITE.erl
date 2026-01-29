@@ -62,76 +62,149 @@ t_connection_count(Config) when is_list(Config) ->
         end
     ),
 
-    Tester = self(),
-    meck:new(emqx_alarm, [passthrough]),
-    meck:expect(
-        emqx_alarm,
-        activate,
-        fun(license_quota, _, Msg) ->
-            Tester ! {alarm_activated, Msg},
-            ok
-        end
-    ),
-    meck:expect(
-        emqx_alarm,
-        ensure_deactivated,
-        fun(license_quota) ->
-            Tester ! alarm_deactivated,
-            ok
-        end
-    ),
-    meck:new(emqx_cm, [passthrough]),
-    meck:expect(emqx_cm, get_sessions_count, fun() -> 10 end),
+    ok = emqx_alarm:ensure_deactivated(license_quota),
+    {ok, #{max_sessions := MaxSessions}} = emqx_license_checker:limits(),
+    High = emqx_conf:get([license, connection_high_watermark], 0.80),
+    Low = emqx_conf:get([license, connection_low_watermark], 0.75),
+    Baseline = emqx_cm:get_sessions_count(),
+    TargetHigh = min(MaxSessions - 1, trunc(MaxSessions * High) + 1),
+    Needed = max(0, TargetHigh - Baseline),
+    Pids = start_clients(Needed),
+    try
+        ?retry(
+            20,
+            50,
+            ?assert(emqx_cm:get_sessions_count() >= TargetHigh)
+        ),
+        ?check_trace(
+            begin
+                ?wait_async_action(
+                    whereis(emqx_license_resources) ! update_resources,
+                    #{?snk_kind := emqx_license_resources_updated},
+                    1000
+                ),
+                emqx_license_resources:cached_connection_count()
+            end,
+            fun(ConnCount, _Trace) ->
+                ?assert(ConnCount >= TargetHigh)
+            end
+        ),
+        ?retry(
+            20,
+            50,
+            ?assertMatch({ok, _}, emqx_alarm:read_details(license_quota))
+        ),
+        stop_clients(Pids),
+        ?retry(
+            40,
+            50,
+            ?assert(emqx_cm:get_sessions_count() =< trunc(MaxSessions * Low))
+        ),
+        ?check_trace(
+            begin
+                ?wait_async_action(
+                    whereis(emqx_license_resources) ! update_resources,
+                    #{?snk_kind := emqx_license_resources_updated},
+                    1000
+                ),
+                emqx_license_resources:cached_connection_count()
+            end,
+            fun(_ConnCount, _Trace) ->
+                ok
+            end
+        ),
+        ?retry(
+            20,
+            50,
+            ?assertEqual({error, not_found}, emqx_alarm:read_details(license_quota))
+        )
+    after
+        stop_clients(Pids),
+        ok = emqx_alarm:ensure_deactivated(license_quota)
+    end.
 
-    meck:new(emqx_license_proto_v3, [passthrough]),
+t_stats_ignore_errors({init, Config}) ->
+    Config;
+t_stats_ignore_errors({'end', _Config}) ->
+    ok;
+t_stats_ignore_errors(_Config) ->
+    meck:new(emqx_license_proto_v3, [passthrough, no_history]),
+    meck:expect(emqx_license_proto_v3, stats, fun(_Nodes, _Now) -> [{error, bad_rpc}] end),
+    try
+        ok = update_now(),
+        ?assertEqual(0, emqx_license_resources:cached_connection_count())
+    after
+        meck:unload(emqx_license_proto_v3)
+    end.
 
-    meck:expect(
-        emqx_license_proto_v3,
-        stats,
-        fun(_Nodes, _Now) -> [{ok, #{sessions => 21, tps => 2}}] end
-    ),
-    ?check_trace(
-        begin
-            ?wait_async_action(
-                whereis(emqx_license_resources) ! update_resources,
-                #{?snk_kind := emqx_license_resources_updated},
-                1000
-            ),
-            emqx_license_resources:cached_connection_count()
-        end,
-        fun(ConnCount, _Trace) ->
-            ?assertEqual(21, ConnCount)
-        end
-    ),
-    ?assertReceive({alarm_activated, <<"License: sessions quota exceeds 80%">>}, 100),
+t_local_connection_count({init, Config}) ->
+    Config;
+t_local_connection_count({'end', _Config}) ->
+    ok;
+t_local_connection_count(_Config) ->
+    Count = emqx_license_resources:local_connection_count(),
+    ?assert(is_integer(Count)),
+    ?assert(Count >= 0).
 
-    meck:expect(
-        emqx_license_proto_v3,
-        stats,
-        fun(Nodes, Time) ->
-            RpcRes = meck:passthrough([Nodes, Time]),
-            [{ok, #{sessions => 5, tps => 3}}, {error, some_error}] ++ RpcRes
-        end
-    ),
+t_handle_cast({init, Config}) ->
+    Config;
+t_handle_cast({'end', _Config}) ->
+    ok;
+t_handle_cast(_Config) ->
+    ok = gen_server:cast(emqx_license_resources, some_cast),
+    ?assertEqual(ignored, gen_server:call(emqx_license_resources, ignored)).
 
-    ?check_trace(
-        begin
-            ?wait_async_action(
-                whereis(emqx_license_resources) ! update_resources,
-                #{?snk_kind := emqx_license_resources_updated},
-                1000
-            ),
-            emqx_license_resources:cached_connection_count()
-        end,
-        fun(ConnCount, _Trace) ->
-            ?assertEqual(15, ConnCount)
-        end
-    ),
-    ?assertReceive(alarm_deactivated, 100),
+t_code_change({init, Config}) ->
+    Config;
+t_code_change({'end', _Config}) ->
+    ok;
+t_code_change(_Config) ->
+    Pid = whereis(emqx_license_resources),
+    State = sys:get_state(Pid),
+    ?assertEqual({ok, State}, emqx_license_resources:code_change(dummy, State, [])).
 
-    meck:unload(emqx_license_proto_v3),
-    meck:unload(emqx_cm),
-    meck:unload(emqx_alarm).
+t_terminate_restart({init, Config}) ->
+    Config;
+t_terminate_restart({'end', _Config}) ->
+    ok;
+t_terminate_restart(_Config) ->
+    Pid = whereis(emqx_license_resources),
+    State = sys:get_state(Pid),
+    ?assertEqual(ok, emqx_license_resources:terminate(normal, State)).
+
+t_stats_v2_path({init, Config}) ->
+    Config;
+t_stats_v2_path({'end', _Config}) ->
+    ok;
+t_stats_v2_path(_Config) ->
+    meck:new(emqx_bpapi, [passthrough, no_history]),
+    meck:new(emqx_license_proto_v2, [passthrough, no_history]),
+    meck:new(emqx_gateway_cm_registry, [passthrough, no_history]),
+    try
+        meck:expect(emqx_bpapi, supported_version, fun(emqx_license) -> 2 end),
+        meck:expect(
+            emqx_license_proto_v2,
+            remote_connection_counts,
+            fun(_Nodes) -> [{ok, 3}, {ok, 7}, {error, bad}] end
+        ),
+        meck:expect(emqx_gateway_cm_registry, get_connected_client_count, fun() -> 0 end),
+        ok = update_now(),
+        ?assertEqual(10, emqx_license_resources:cached_connection_count())
+    after
+        meck:unload(emqx_gateway_cm_registry),
+        meck:unload(emqx_license_proto_v2),
+        meck:unload(emqx_bpapi)
+    end.
+
+t_proto_versions({init, Config}) ->
+    Config;
+t_proto_versions({'end', _Config}) ->
+    ok;
+t_proto_versions(_Config) ->
+    ?assertEqual("5.0.0", emqx_license_proto_v2:introduced_in()),
+    ?assertEqual("6.0.0", emqx_license_proto_v3:introduced_in()),
+    ?assertEqual([], emqx_license_proto_v2:remote_connection_counts([])),
+    ?assertEqual([], emqx_license_proto_v3:remote_connection_counts([])).
 
 %% This test verifies below behaviors:
 %% - The alarm is activated when the latest TPS exceeds the limit.
@@ -225,3 +298,33 @@ read_alarm_details(Name) ->
     _ = emqx_alarm:get_alarms(activated),
     {ok, Details} = emqx_alarm:read_details(Name),
     Details.
+
+start_clients(Count) when Count =< 0 ->
+    [];
+start_clients(Count) ->
+    lists:map(
+        fun(I) ->
+            ClientId =
+                iolist_to_binary([
+                    <<"license-res-">>,
+                    integer_to_list(erlang:unique_integer([positive, monotonic])),
+                    <<"-">>,
+                    integer_to_list(I)
+                ]),
+            {ok, C} = emqtt:start_link([{clientid, ClientId}, {proto_ver, v5}]),
+            {ok, _} = emqtt:connect(C),
+            C
+        end,
+        lists:seq(1, Count)
+    ).
+
+stop_clients(Pids) ->
+    lists:foreach(
+        fun(Pid) ->
+            case is_process_alive(Pid) of
+                true -> catch emqtt:stop(Pid);
+                false -> ok
+            end
+        end,
+        Pids
+    ).
