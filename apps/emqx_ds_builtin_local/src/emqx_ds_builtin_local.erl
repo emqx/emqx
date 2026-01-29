@@ -248,20 +248,30 @@ list_slabs(DB, Opts) ->
             #{} ->
                 emqx_ds_builtin_local_meta:shards(DB)
         end,
-    Result = lists:foldl(
-        fun(Shard, Acc) ->
-            maps:fold(
-                fun(GenId, Data, Acc1) ->
-                    Acc1#{{Shard, GenId} => Data}
-                end,
-                Acc,
-                emqx_ds_storage_layer:list_slabs({DB, Shard})
-            )
+    lists:foldl(
+        fun(Shard, {Acc, AccErrors}) ->
+            case emqx_ds_storage_layer:list_slabs({DB, Shard}) of
+                {error, _, _} = Err ->
+                    {
+                        Acc,
+                        [{Shard, Err} | AccErrors]
+                    };
+                Map when is_map(Map) ->
+                    {
+                        maps:fold(
+                            fun(GenId, Data, Acc1) ->
+                                Acc1#{{Shard, GenId} => Data}
+                            end,
+                            Acc,
+                            Map
+                        ),
+                        AccErrors
+                    }
+            end
         end,
-        #{},
+        {#{}, []},
         Shards
-    ),
-    {Result, []}.
+    ).
 
 -spec drop_slab(emqx_ds:db(), emqx_ds:slab()) -> ok | {error, _}.
 drop_slab(DB, {Shard, GenId}) ->

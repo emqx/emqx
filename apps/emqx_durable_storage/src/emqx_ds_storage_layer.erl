@@ -418,9 +418,14 @@ add_generation(ShardId, Since) ->
     gen_server:call(?REF(ShardId), #call_add_generation{since = Since}, infinity).
 
 -spec list_slabs(dbshard()) ->
-    #{gen_id() => slab_info()} | {error, {no_schema, _}}.
+    #{gen_id() => slab_info()} | emqx_ds:error(_).
 list_slabs(ShardId) ->
-    gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
+    case gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity) of
+        {error, {no_schema, _} = Err} ->
+            ?err_rec(Err);
+        Other ->
+            Other
+    end.
 
 -spec drop_slab(dbshard(), gen_id()) -> ok | {error, _}.
 drop_slab(ShardId, GenId) ->
