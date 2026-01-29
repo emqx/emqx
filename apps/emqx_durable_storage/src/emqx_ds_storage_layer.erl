@@ -750,7 +750,7 @@ handle_add_generation(
     case Schema1 of
         _Updated = #{} ->
             {GenId, Schema, NewCFRefs} =
-                new_generation(ShardId, DB, Schema1, MaybePrototype, Shard0, Since, DBOpts),
+                new_generation(ShardId, DB, Schema1, MaybePrototype, Shard0, Since, Since, DBOpts),
             CFRefs = NewCFRefs ++ CFRefs0,
             Key = ?GEN_KEY(GenId),
             Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
@@ -895,7 +895,7 @@ create_new_shard_schema(
     },
     DBOpts = filter_layout_db_opts(Options),
     {_NewGenId, Schema, NewCFRefs} =
-        new_generation(ShardId, DB, Schema0, Prototype, undefined, CreatedAt, DBOpts),
+        new_generation(ShardId, DB, Schema0, Prototype, undefined, _Since = 0, CreatedAt, DBOpts),
     {ok, Schema, NewCFRefs ++ CFRefs};
 create_new_shard_schema(_ShardId, _DB, _CFRefs, Options, _CreatedAt) ->
     {error, {bad_options, Options}}.
@@ -907,10 +907,11 @@ create_new_shard_schema(_ShardId, _DB, _CFRefs, Options, _CreatedAt) ->
     prototype() | undefined,
     shard() | undefined,
     emqx_ds:time(),
+    emqx_ds:time(),
     emqx_ds:db_opts()
 ) ->
     {gen_id(), shard_schema(), cf_refs()}.
-new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, DBOpts) ->
+new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, CreatedAt, DBOpts) ->
     #{current_generation := PrevGenId, prototype := OldPrototype} = Schema0,
     {Mod, ModConf} =
         case MaybePrototype of
@@ -937,7 +938,7 @@ new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, DBOpts) ->
         module => Mod,
         data => GenData,
         cf_names => cf_names(NewCFRefs),
-        created_at => Since,
+        created_at => CreatedAt,
         ptrans => PTrans,
         since => Since,
         until => undefined
