@@ -18,12 +18,12 @@
             logger:log(
                 Level,
                 (Data),
-                (begin
+                emqx_logger:attach_label((begin
                     Meta
                 end)#{
                     mfa => {?MODULE, ?FUNCTION_NAME, ?FUNCTION_ARITY},
                     line => ?LINE
-                }
+                })
             );
         false ->
             ok

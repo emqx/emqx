@@ -24,7 +24,9 @@
     error/3,
     critical/1,
     critical/2,
-    critical/3
+    critical/3,
+    %% Metadata:
+    attach_label/1
 ]).
 
 %% Configs
@@ -64,6 +66,8 @@
 }.
 
 -define(STOPPED_HANDLERS, {?MODULE, stopped_handlers}).
+
+-define(MAX_PROCMETA_STRING_LEN, 64).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -127,24 +131,37 @@ critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
 
 -spec set_metadata_clientid(emqx_types:clientid()) -> ok.
-set_metadata_clientid(<<>>) ->
+set_metadata_clientid(ClientId) when ClientId =:= undefined orelse ClientId =:= <<>> ->
     ok;
 set_metadata_clientid(ClientId) ->
-    set_proc_metadata(#{clientid => ClientId}).
+    proc_lib:set_label({clientid, truncate_procmeta_string(ClientId)}).
 
 -spec set_metadata_username(emqx_types:username()) -> ok.
 set_metadata_username(Username) when Username =:= undefined orelse Username =:= <<>> ->
     ok;
 set_metadata_username(Username) ->
-    set_proc_metadata(#{username => Username}).
+    set_proc_metadata(#{username => truncate_procmeta_string(Username)}).
 
 -spec set_metadata_peername(peername_str()) -> ok.
 set_metadata_peername(Peername) ->
     set_proc_metadata(#{peername => Peername}).
 
--spec set_proc_metadata(logger:metadata()) -> ok.
+-spec set_proc_metadata(list({atom(), _}) | logger:metadata()) -> ok.
+set_proc_metadata(Meta) when is_list(Meta) ->
+    logger:update_process_metadata(
+        maps:from_list([KV || KV = {_, V} <- Meta, V =/= undefined andalso V =/= <<>>])
+    );
 set_proc_metadata(Meta) ->
-    logger:update_process_metadata(Meta).
+    logger:update_process_metadata(
+        maps:filter(fun(_, V) -> V =/= undefined andalso V =/= <<>> end, Meta)
+    ).
+
+-spec attach_label(logger:metadata()) -> logger:metadata().
+attach_label(Meta) ->
+    case proc_lib:get_label(self()) of
+        {K, V} when is_atom(K) -> Meta#{K => V};
+        _Otherwise -> Meta
+    end.
 
 -spec get_primary_log_level() -> logger:level().
 get_primary_log_level() ->
@@ -246,6 +263,17 @@ set_log_level(Level) ->
 %%--------------------------------------------------------------------
 %% Internal Functions
 %%--------------------------------------------------------------------
+
+%% Truncate process label / metadata value to a small-ish binary.
+%% Namely, MQTT Client ID can be potentially very long, and we:
+%% * do not want to store a copy of it,
+%% * do not want to reporting / logging facilities to handle it.
+truncate_procmeta_string(S) when not is_binary(S) ->
+    S;
+truncate_procmeta_string(S) when byte_size(S) < ?MAX_PROCMETA_STRING_LEN ->
+    S;
+truncate_procmeta_string(S) ->
+    binary:copy(string:slice(S, 0, ?MAX_PROCMETA_STRING_LEN)).
 
 log_handler_info(
     #{
