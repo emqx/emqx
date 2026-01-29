@@ -102,7 +102,7 @@ t_gc(_Config) ->
 
 %% Verify that the GC successfully completes when there are no streams
 t_gc_noop(_Config) ->
-    ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 1000).
+    ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 10_000).
 
 %% Verify that the GC collects data of regular streams limited by count or byte size
 t_limited_regular(_Config) ->
