@@ -91,9 +91,14 @@ callback_mode() ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig) ->
     #{
-        server := Server,
+        server := Server0,
         dbname := Database
     } = ConnConfig,
+    %% Replicate greptime connector behavior: 4001 is the default port.
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server0, #{
+        default_port => 4001
+    }),
+    Server = iolist_to_binary([Host, ":", integer_to_binary(Port)]),
     ClientOpts0 = #{
         pool_name => ConnResId,
         pool_size => erlang:system_info(dirty_io_schedulers),

@@ -599,3 +599,20 @@ t_multiple_tables_failure_in_the_end(TCConfig) when is_list(TCConfig) ->
         end
     ),
     ok.
+
+-doc """
+Checks that we treat port 4001 as the default port when the port is omitted in the server
+field, similar to greptimedb connector.
+""".
+t_default_port() ->
+    [{matrix, true}].
+t_default_port(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_default_port(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"server">> => <<"toxiproxy">>
+        })
+    ),
+    ok.
