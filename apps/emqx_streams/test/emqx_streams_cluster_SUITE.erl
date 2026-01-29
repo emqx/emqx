@@ -51,6 +51,11 @@ init_per_testcase(TCName, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(TCName, Config)}
     ),
     ok = snabbkaffe:start_trace(),
+    %% Wait for the cluster to stabilize. TODO: this should be avoided
+    %% by making `emqx_ds:wait_db' taking more readiness conditions
+    %% into account, and by better error propagation, in particular
+    %% between DS and MQTT publisher client.
+    ct:sleep(5_000),
     [{nodes, Nodes} | Config].
 
 end_per_testcase(_TCName, Config) ->
