@@ -324,19 +324,19 @@ log_handler_info(#{id := Id, level := Level, filters := Filters}, Status) ->
 set_all_log_handlers_level(Level) ->
     set_all_log_handlers_level(get_log_handlers(), Level, []).
 
-set_all_log_handlers_level([#{id := ID, level := Level} | List], NewLevel, ChangeHistory) ->
-    case set_log_handler_level(ID, NewLevel) of
+set_all_log_handlers_level([#{id := Id, level := Level} | List], NewLevel, ChangeHistory) ->
+    case set_log_handler_level(Id, NewLevel) of
         ok ->
-            set_all_log_handlers_level(List, NewLevel, [{ID, Level} | ChangeHistory]);
+            set_all_log_handlers_level(List, NewLevel, [{Id, Level} | ChangeHistory]);
         {error, Error} ->
             rollback(ChangeHistory),
-            {error, {handlers_logger_level, {ID, Error}}}
+            {error, {handlers_logger_level, {Id, Error}}}
     end;
 set_all_log_handlers_level([], _NewLevel, _NewHanlder) ->
     ok.
 
-rollback([{ID, Level} | List]) ->
-    _ = set_log_handler_level(ID, Level),
+rollback([{Id, Level} | List]) ->
+    _ = set_log_handler_level(Id, Level),
     rollback(List);
 rollback([]) ->
     ok.
