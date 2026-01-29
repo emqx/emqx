@@ -746,7 +746,7 @@ do_become_otx_leader(Leader, Timeout) ->
         {ok, _, OtherLeader} ->
             ?err_unrec({leadership_gone, #{Leader => OtherLeader}});
         Err ->
-            ?err_rec({raft, Err})
+            ?err_rec({raft, Err, ?FUNCTION_NAME})
     end.
 
 -spec otx_prepare_tx(
@@ -770,7 +770,7 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
                 {ok, Err, _Leader} ->
                     Err;
                 Err ->
-                    ?err_rec({raft, Err})
+                    ?err_rec({raft, Err, ?FUNCTION_NAME})
             end;
         Err ->
             Err
