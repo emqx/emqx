@@ -47,7 +47,7 @@ dictionary, see `?pd_ra_*` macrodefs for details.
     otx_new_leader/1,
     otx_commit/5,
     drop_generation/1,
-    update_schema/1
+    update_schema/2
 ]).
 
 %% behavior callbacks:
@@ -83,9 +83,6 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 -define(batches, 4).
 -define(otx_leader_pid, 5).
 -define(otx_timestamp, 6).
-%% Storage event:
--define(storage_event_payload, 2).
--define(now, 3).
 
 %% Core state of the replication, i.e. the state of ra machine.
 -type ra_state() :: #{
@@ -124,9 +121,9 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 }.
 
 -type cmd_update_schema() :: #{
-    %% Note: `update_schema' is inconsistent and obsolete:
-    ?tag := update_schema_v1 | update_schema,
-    schema := map()
+    ?tag := update_schema_v1,
+    schema := map(),
+    latest := emqx_ds:time()
 }.
 
 -type cmd_add_generation() :: #{
@@ -200,15 +197,23 @@ which_module(1) -> ?MODULE.
 add_generation(Since) when is_integer(Since) ->
     #{?tag => add_generation, since => Since}.
 
-%% Note: -1 is used when the leader propagates its schema during storage initialization
+-doc """
+Side effects:
+
+- If `Timestamp` is not `undefined', and it happens to be greater than
+  the shard timestamp, then the latter is set to `Timestamp`.
+  Otherwise this value is ignored.
+""".
 -spec update_schema(
-    emqx_ds_builtin_raft:db_schema()
+    emqx_ds_builtin_raft:db_schema(),
+    emqx_ds:time() | undefined
 ) ->
     cmd_update_schema().
-update_schema(NewSchema) when is_map(NewSchema) ->
+update_schema(NewSchema, Timestamp) when is_map(NewSchema) ->
     #{
         ?tag => update_schema_v1,
-        schema => NewSchema
+        schema => NewSchema,
+        latest => Timestamp
     }.
 
 -spec drop_generation(emqx_ds:generation()) -> cmd_drop_generation().
@@ -292,7 +297,7 @@ apply(
     {State, ok, []};
 apply(
     RaftMeta,
-    #{?tag := update_schema_v1, schema := Schema},
+    #{?tag := update_schema_v1, schema := Schema, latest := NewLatest},
     #{db_shard := DBShard} = State0
 ) ->
     ?tp(
@@ -303,8 +308,8 @@ apply(
             schema => Schema
         }
     ),
-    ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema),
-    State = State0#{schema := Schema},
+    State = #{latest := Latest} = safe_update_latest(NewLatest, State0#{schema := Schema}),
+    ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema, Latest),
     Effect = release_log(RaftMeta, State),
     {State, ok, [Effect]};
 apply(
@@ -323,16 +328,40 @@ apply(
         ?batches := Batches,
         ?otx_leader_pid := From
     },
-    State0 = #{db_shard := DBShard, tx_serial := ExpectedSerial, otx_leader_pid := Leader}
+    State0 = #{
+        db_shard := DBShard,
+        tx_serial := CurrentSerial,
+        otx_leader_pid := Leader,
+        latest := OldLatest
+    }
 ) ->
     case From of
-        Leader when SerCtl =:= ExpectedSerial ->
+        Leader when SerCtl =/= CurrentSerial ->
+            %% Leader pid matches, but not the control serial:
+            State = State0,
+            Result = ?err_unrec({serial_mismatch, SerCtl, CurrentSerial}),
+            Effects = [];
+        Leader when Serial < CurrentSerial ->
+            %% Leader pid matches, but serial is not monotonic. Note:
+            %% new serial can be equal to the old one when batch is
+            %% empty, so check is relaxed. Here we trust
+            %% `optimistic_tx' to do the right thing.
+            State = State0,
+            Result = ?err_unrec({non_monotonic_serial, Serial, CurrentSerial}),
+            Effects = [];
+        Leader when Timestamp < OldLatest ->
+            %% Leader pid matches, but timestamp is not monotonic.
+            %% Again, when batch is empty the timestamp may stay the
+            %% same.
+            State = State0,
+            Result = ?err_unrec({non_monotonic_timestamp, Timestamp, OldLatest}),
+            Effects = [];
+        Leader ->
             case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{durable => false}) of
                 ok ->
                     emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
-                    State = State0#{tx_serial := Serial, latest := Timestamp},
+                    State = safe_update_latest(Timestamp, State0#{tx_serial := Serial}),
                     Result = ok,
-                    set_ts(DBShard, Timestamp + 1),
                     DispatchF = fun(Stream) ->
                         emqx_ds_beamformer:shard_event(DBShard, [Stream])
                     end,
@@ -343,11 +372,6 @@ apply(
                     Result = Err,
                     Effects = []
             end;
-        Leader ->
-            %% Leader pid matches, but not the serial:
-            State = State0,
-            Result = ?err_unrec({serial_mismatch, SerCtl, ExpectedSerial}),
-            Effects = [];
         _ ->
             %% Leader mismatch:
             State = State0,
@@ -471,6 +495,14 @@ set_cache(MemberState, State = #{db_shard := DBShard, latest := Latest}) when
     end;
 set_cache(_, _) ->
     ok.
+
+safe_update_latest(NewLatest, #{db_shard := DBShard, latest := OldLatest} = State) when
+    is_integer(NewLatest), NewLatest > OldLatest
+->
+    set_ts(DBShard, NewLatest + 1),
+    State#{latest := NewLatest};
+safe_update_latest(_, State) ->
+    State.
 
 -doc """
 Set PID of the optimistic transaction leader at the time of the last

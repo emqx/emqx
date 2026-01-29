@@ -897,7 +897,7 @@ create_new_shard_schema(
     {_NewGenId, Schema, NewCFRefs} =
         new_generation(ShardId, DB, Schema0, Prototype, undefined, CreatedAt, DBOpts),
     {ok, Schema, NewCFRefs ++ CFRefs};
-create_new_shard_schema(_ShardId, _DB, _CFRefs, Options) ->
+create_new_shard_schema(_ShardId, _DB, _CFRefs, Options, _CreatedAt) ->
     {error, {bad_options, Options}}.
 
 -spec new_generation(

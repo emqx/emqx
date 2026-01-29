@@ -916,7 +916,7 @@ propagate_schema(DB, Shard, Leader) ->
         %% at least v1:
         ok ?= wait_for_upgrade(DB, Shard, Leader, 1),
         SiteSchema = emqx_dsch:get_db_schema(DB),
-        Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema),
+        Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema, emqx_ds:timestamp_us()),
         Result = ra_command(DB, Shard, Command, 5),
         ?tp(debug, ra_propagate_leader_schema, #{db => DB, shard => Shard, result => Result}),
         Result
@@ -940,7 +940,7 @@ add_generation_to_shard(DB, Shard, Retries) ->
 ) -> ok when
     Schema :: db_schema().
 update_shards_schema(DB, _PendingId, _Site, _OldSchema, NewSchema) ->
-    Command = emqx_ds_builtin_raft_machine:update_schema(NewSchema),
+    Command = emqx_ds_builtin_raft_machine:update_schema(NewSchema, undefined),
     foreach_shard(
         DB,
         fun(Shard) ->
