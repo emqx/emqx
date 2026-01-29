@@ -39,6 +39,7 @@
     handle_out/3,
     handle_timeout/3,
     handle_call/2,
+    handle_cast/2,
     handle_info/2,
     terminate/2
 ]).
@@ -1579,6 +1580,30 @@ handle_call({Type, _Meta} = MsgsReq, Channel = #channel{session = Session}) when
 handle_call(Req, Channel) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     reply(ignored, Channel).
+
+%%--------------------------------------------------------------------
+%% Handle cast
+
+-spec handle_cast(Req :: term(), channel()) -> channel().
+handle_cast(
+    {keepalive, Interval},
+    Channel = #channel{
+        keepalive = KeepAlive,
+        conninfo = ConnInfo,
+        clientinfo = #{zone := Zone}
+    }
+) ->
+    ClientId = info(clientid, Channel),
+    NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
+    NConnInfo = maps:put(keepalive, Interval, ConnInfo),
+    NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
+    SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
+    ChanInfo1 = info(NChannel),
+    emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
+    reset_timer(keepalive, NChannel);
+handle_cast(Req, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
+    Channel.
 
 %%--------------------------------------------------------------------
 %% Handle Info

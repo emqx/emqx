@@ -49,7 +49,7 @@ t_dynamic_keepalive_update_extend(_) ->
     [ChannelPid] = emqx_cm:lookup_channels(ClientID),
     erlang:link(ChannelPid),
     ct:sleep(1100),
-    ok = publish_keepalive_update(#{clientid => ClientID, keepalive => 10}),
+    ok = publish_keepalive_self(C, 10),
     ?assertMatch(#{conninfo := #{keepalive := 10}}, wait_for_keepalive(ClientID, 10, 2000)),
     ?assertMatch(
         no_keepalive_timeout_received,
@@ -73,8 +73,9 @@ t_dynamic_keepalive_update_shorten(_) ->
     [ChannelPid] = emqx_cm:lookup_channels(ClientID),
     erlang:link(ChannelPid),
     ct:sleep(2500),
-    ok = publish_keepalive_update(#{clientid => ClientID, keepalive => 1}),
-    ?assertMatch(ok, receive_msg_in_time(ChannelPid, C, 2000)).
+    ok = publish_keepalive_self(C, 1),
+    ?assertMatch(#{conninfo := #{keepalive := 1}}, wait_for_keepalive(ClientID, 1, 2000)),
+    ?assertMatch(ok, receive_msg_in_time(ChannelPid, C, 4000)).
 
 t_dynamic_keepalive_update_batch(_) ->
     emqx_config:put_zone_conf(default, [mqtt, keepalive_multiplier], 1.5),
@@ -97,17 +98,21 @@ t_dynamic_keepalive_update_invalid_payload(_) ->
     {ok, Sub} = emqtt:start_link([]),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [0]} = emqtt:subscribe(Sub, <<"t/invalid">>, []),
-    ok = publish_keepalive_update_raw(<<"$SETOPTS/mqtt/keepalive/dynamic_invalid">>, <<"not_int">>),
-    {ok, Pub} = emqtt:start_link([]),
+    ClientId = <<"dynamic_invalid">>,
+    {ok, Pub} = emqtt:start_link([{clientid, binary_to_list(ClientId)}]),
     {ok, _} = emqtt:connect(Pub),
-    _ = emqtt:publish(Pub, <<"t/invalid">>, <<"ok">>),
+    _ = emqtt:publish(Pub, <<"$SETOPTS/mqtt/keepalive">>, <<"not_int">>),
+    ok = emqtt:stop(Pub),
+    {ok, Pub2} = emqtt:start_link([]),
+    {ok, _} = emqtt:connect(Pub2),
+    _ = emqtt:publish(Pub2, <<"t/invalid">>, <<"ok">>),
     receive
         {publish, #{payload := <<"ok">>}} ->
             ok
     after 1000 ->
         error(no_message_received_after_invalid_payload)
     end,
-    ok = emqtt:stop(Pub),
+    ok = emqtt:stop(Pub2),
     ok = emqtt:stop(Sub).
 
 t_dynamic_keepalive_update_timeout(_) ->
@@ -120,13 +125,13 @@ t_dynamic_keepalive_update_timeout(_) ->
     [ChannelPid] = emqx_cm:lookup_channels(ClientID),
     ok = sys:suspend(ChannelPid),
     Result =
-        try call_in_time(fun() -> emqx_setopts:set_keepalive(ClientID, 9) end, 500) of
+        try call_in_time(fun() -> emqx_setopts:set_keepalive_batch([{ClientID, 9}]) end, 500) of
             CallResult -> CallResult
         after
             ok = sys:resume(ChannelPid),
             ok = emqtt:stop(C)
         end,
-    ?assertMatch({ok, {error, timeout}}, Result).
+    ?assertMatch({ok, [{ClientID, ok}]}, Result).
 
 t_keepalive_update_not_routed_to_subscribers(_) ->
     {ok, Sub} = emqtt:start_link([]),
@@ -194,10 +199,10 @@ t_drop_overloaded_batches(_) ->
     ],
     ok = sys:suspend(whereis(emqx_setopts)),
     lists:foreach(
-        fun(ClientId) ->
-            ok = publish_keepalive_update(#{clientid => ClientId, keepalive => 9})
+        fun({ClientId, _C}) ->
+            ok = publish_keepalive_update([#{clientid => ClientId, keepalive => 9}])
         end,
-        ClientIds
+        Clients
     ),
     ct:sleep(100),
     ok = sys:resume(whereis(emqx_setopts)),
@@ -235,11 +240,17 @@ publish_keepalive_update(#{clientid := ClientId, keepalive := Interval}, _Opts) 
 publish_keepalive_update(#{<<"clientid">> := ClientId, <<"keepalive">> := Interval}, _Opts) ->
     publish_keepalive_single(ClientId, Interval).
 
+publish_keepalive_self(Client, Interval) ->
+    Payload = integer_to_binary(to_int(Interval)),
+    Topic = <<"$SETOPTS/mqtt/keepalive">>,
+    _ = emqtt:publish(Client, Topic, Payload),
+    ok.
+
 publish_keepalive_single(ClientId, Interval) ->
-    {ok, Pub} = emqtt:start_link([]),
+    {ok, Pub} = emqtt:start_link([{clientid, binary_to_list(ClientId)}]),
     {ok, _} = emqtt:connect(Pub),
     Payload = integer_to_binary(to_int(Interval)),
-    Topic = <<"$SETOPTS/mqtt/keepalive/", (iolist_to_binary(ClientId))/binary>>,
+    Topic = <<"$SETOPTS/mqtt/keepalive">>,
     _ = emqtt:publish(Pub, Topic, Payload),
     ok = emqtt:stop(Pub),
     ok.

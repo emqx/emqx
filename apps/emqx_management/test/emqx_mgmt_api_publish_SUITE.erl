@@ -121,12 +121,12 @@ t_publish_api_keepalive_single(_) ->
     {ok, _} = emqtt:connect(C),
     Path = emqx_mgmt_api_test_util:api_path(["publish"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
-    Topic = <<"$SETOPTS/mqtt/keepalive/", ClientId/binary>>,
+    Topic = <<"$SETOPTS/mqtt/keepalive">>,
     Body = #{topic => Topic, payload => <<"10">>},
     {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
     ResponseMap = decode_json(Response),
-    ?assertMatch(#{<<"reason_code">> := _}, ResponseMap),
-    ?assertMatch(#{conninfo := #{keepalive := 10}}, wait_for_keepalive(ClientId, 10, 2000)),
+    ?assertMatch(#{<<"message">> := <<"no_matching_subscribers">>}, ResponseMap),
+    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId, 5, 2000)),
     ok = emqtt:stop(C).
 
 t_publish_no_subscriber({init, Config}) ->
@@ -284,11 +284,11 @@ t_publish_bulk_api_keepalive(_) ->
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Body = [
         #{
-            topic => <<"$SETOPTS/mqtt/keepalive/", ClientId1/binary>>,
+            topic => <<"$SETOPTS/mqtt/keepalive">>,
             payload => <<"7">>
         },
         #{
-            topic => <<"$SETOPTS/mqtt/keepalive/", ClientId2/binary>>,
+            topic => <<"$SETOPTS/mqtt/keepalive">>,
             payload => <<"9">>
         }
     ],
@@ -297,12 +297,12 @@ t_publish_bulk_api_keepalive(_) ->
     ?assertEqual(2, erlang:length(ResponseList)),
     lists:foreach(
         fun(ResponseMap) ->
-            ?assertMatch(#{<<"reason_code">> := _}, ResponseMap)
+            ?assertMatch(#{<<"message">> := <<"no_matching_subscribers">>}, ResponseMap)
         end,
         ResponseList
     ),
-    ?assertMatch(#{conninfo := #{keepalive := 7}}, wait_for_keepalive(ClientId1, 7, 2000)),
-    ?assertMatch(#{conninfo := #{keepalive := 9}}, wait_for_keepalive(ClientId2, 9, 2000)),
+    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId1, 5, 2000)),
+    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId2, 5, 2000)),
     ok = emqtt:stop(C1),
     ok = emqtt:stop(C2).
 

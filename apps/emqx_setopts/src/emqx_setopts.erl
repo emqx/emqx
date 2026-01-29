@@ -12,7 +12,8 @@
 
 -export([start_link/0]).
 -export([on_message_publish/1]).
--export([set_keepalive/2]).
+-export([set_keepalive_batch/1]).
+-export([set_keepalive_batch_async/1]).
 -export([do_call_keepalive_clients/1]).
 
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -20,10 +21,10 @@
 -export_type([keepalive_batch/0]).
 
 -define(SERVER, ?MODULE).
--define(KEEPALIVE_PREFIX, "$SETOPTS/mqtt/keepalive/").
+-define(KEEPALIVE_SINGLE, <<"$SETOPTS/mqtt/keepalive">>).
 -define(KEEPALIVE_BULK, <<"$SETOPTS/mqtt/keepalive-bulk">>).
 -define(MAILBOX_OVERLOAD_LIMIT, 10).
--define(CALL_CONN_TIMEOUT_MS, 100).
+-define(BULK_SYNC_TIMEOUT_MS, 5000).
 
 -type keepalive_interval() :: 0..65535.
 -type keepalive_batch_item() :: {emqx_types:clientid(), keepalive_interval()}.
@@ -35,14 +36,86 @@ Start the setopts update server.
 start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
-%% Public API for keepalive routing (used by emqx_mgmt if needed)
 -doc """
-Update a client's keepalive interval (0..65535).
+Update keepalive intervals for multiple clients (bulk API).
+Returns a list of {ClientId, Result} tuples where Result is ok or {error, Reason}.
 """.
-set_keepalive(ClientId, Interval) when is_integer(Interval), Interval >= 0, Interval =< 65535 ->
-    do_set_keepalive(ClientId, Interval);
-set_keepalive(_ClientId, _Interval) ->
-    {error, <<"mqtt3.1.1 specification: keepalive must between 0~65535">>}.
+-spec set_keepalive_batch(keepalive_batch()) -> [{emqx_types:clientid(), ok | {error, term()}}].
+set_keepalive_batch(Batch) ->
+    DeadlineMs = erlang:monotonic_time(millisecond) + ?BULK_SYNC_TIMEOUT_MS,
+    Alias = erlang:alias([reply]),
+    gen_server:cast(?SERVER, {keepalive_batch_sync, Batch, DeadlineMs, Alias}),
+    receive
+        {Alias, Reply} ->
+            erlang:unalias(Alias),
+            Reply
+    after ?BULK_SYNC_TIMEOUT_MS ->
+        erlang:unalias(Alias),
+        {error, timeout}
+    end.
+
+-spec set_keepalive_batch_async(keepalive_batch()) -> ok.
+set_keepalive_batch_async(Batch) ->
+    gen_server:cast(?SERVER, {keepalive_batch_async, Batch}).
+
+do_set_keepalive_batch(Batch) ->
+    %% Collect all unique nodes from all clients
+    AllNodes = lists:usort(
+        lists:foldl(
+            fun({ClientId, _Interval}, Acc) ->
+                Nodes = lookup_client_nodes(ClientId),
+                Acc ++ Nodes
+            end,
+            [],
+            Batch
+        )
+    ),
+    case AllNodes of
+        [] ->
+            %% No nodes found, return not_found for all clients
+            [{ClientId, {error, not_found}} || {ClientId, _Interval} <- Batch];
+        _ ->
+            %% Call bulk API on all nodes
+            Results = call_keepalive_clients(AllNodes, Batch),
+            %% Extract results for each client
+            [
+                {ClientId, extract_batch_client_result(ClientId, Results)}
+             || {ClientId, _Interval} <- Batch
+            ]
+    end.
+
+extract_batch_client_result(ClientId, Results) ->
+    %% Results is a list of [{ClientId, Result}] from each node (after unwrap_erpc)
+    %% Find the first successful result, or return the first error
+    lists:foldl(
+        fun
+            (NodeResults, Acc) when is_list(NodeResults) ->
+                case lists:keyfind(ClientId, 1, NodeResults) of
+                    {ClientId, ok} ->
+                        ok;
+                    {ClientId, {error, _} = Err} ->
+                        %% Prefer success if we already have it, otherwise use this error
+                        case Acc of
+                            ok -> ok;
+                            {error, not_found} -> Err;
+                            _ -> Acc
+                        end;
+                    false ->
+                        Acc
+                end;
+            ({error, _} = Err, Acc) ->
+                %% Node error, prefer success if we have it
+                case Acc of
+                    ok -> ok;
+                    {error, not_found} -> Err;
+                    _ -> Acc
+                end;
+            (_Other, Acc) ->
+                Acc
+        end,
+        {error, not_found},
+        Results
+    ).
 
 %% Hook callback
 -doc """
@@ -64,20 +137,31 @@ init([]) ->
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
 
-handle_cast({update_keepalive, Updates}, State) ->
+handle_cast({keepalive_batch_async, Batch}, State) ->
     case process_info(self(), message_queue_len) of
         {message_queue_len, Len} when Len > ?MAILBOX_OVERLOAD_LIMIT ->
             ?SLOG(warning, #{
                 msg => "keepalive_update_batch_dropped",
-                batch_size => length(Updates),
+                batch_size => length(Batch),
                 queue_len => Len,
                 cause => overload
             }),
             {noreply, State};
         _ ->
-            lists:foreach(fun handle_update/1, Updates),
+            _ = do_set_keepalive_batch(Batch),
             {noreply, State}
-    end.
+    end;
+handle_cast({keepalive_batch_sync, Batch, DeadlineMs, Alias}, State) ->
+    case erlang:monotonic_time(millisecond) > DeadlineMs of
+        true ->
+            {noreply, State};
+        false ->
+            Reply = do_set_keepalive_batch(Batch),
+            Alias ! {Alias, Reply},
+            {noreply, State}
+    end;
+handle_cast(_Msg, State) ->
+    {noreply, State}.
 
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -86,37 +170,29 @@ terminate(_Reason, _State) ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish, []}),
     ok.
 
-handle_update(#{clientid := ClientId, keepalive := Interval}) ->
-    case set_keepalive(ClientId, Interval) of
-        ok ->
-            ok;
-        {error, not_found} ->
-            ?SLOG(debug, #{msg => "keepalive_update_client_not_found", clientid => ClientId});
-        {error, Reason} ->
-            ?SLOG(debug, #{msg => "keepalive_update_failed", clientid => ClientId, reason => Reason})
-    end;
-handle_update(Invalid) ->
-    ?SLOG(debug, #{msg => "keepalive_update_item_invalid", item => Invalid}),
-    ok.
-
 %% Internal helpers
 
 handle_setopts(#message{topic = ?KEEPALIVE_BULK, payload = Payload} = Msg) ->
     handle_keepalive_bulk(Msg, Payload);
-handle_setopts(
-    #message{topic = <<?KEEPALIVE_PREFIX, ClientId/binary>>, payload = Payload} = Msg
-) when
-    ClientId =/= <<>>
-->
-    handle_keepalive_single(Msg, ClientId, Payload);
+handle_setopts(#message{topic = ?KEEPALIVE_SINGLE, payload = Payload, from = From} = Msg) ->
+    handle_keepalive_self(Msg, Payload, From);
 handle_setopts(#message{topic = Topic, headers = Headers} = Msg) ->
     ?SLOG(warning, #{msg => "setopts_unknown_topic", topic => Topic}),
     {stop, Msg#message{headers = Headers#{allow_publish => false}}}.
 
-handle_keepalive_single(Msg, ClientId, Payload) ->
-    case decode_single_payload(Payload, ClientId) of
-        {ok, Updates} ->
-            gen_server:cast(?SERVER, {update_keepalive, Updates}),
+handle_keepalive_self(Msg, Payload, From) ->
+    case decode_single_payload(Payload) of
+        {ok, Interval} ->
+            case From of
+                _ClientId when is_binary(From) ->
+                    %% Single updates are handled by the publishing process
+                    gen_server:cast(self(), {keepalive, Interval});
+                _ ->
+                    ?SLOG(error, #{
+                        msg => "keepalive_update_single_forbidden",
+                        from => From
+                    })
+            end,
             Headers = Msg#message.headers,
             {stop, Msg#message{headers = Headers#{allow_publish => false}}};
         {error, Reason} ->
@@ -127,8 +203,8 @@ handle_keepalive_single(Msg, ClientId, Payload) ->
 
 handle_keepalive_bulk(Msg, Payload) ->
     case decode_bulk_payload(Payload) of
-        {ok, Updates} ->
-            gen_server:cast(?SERVER, {update_keepalive, Updates}),
+        {ok, Batch} ->
+            set_keepalive_batch_async(Batch),
             Headers = Msg#message.headers,
             {stop, Msg#message{headers = Headers#{allow_publish => false}}};
         {error, Reason} ->
@@ -137,11 +213,6 @@ handle_keepalive_bulk(Msg, Payload) ->
             {stop, Msg#message{headers = Headers#{allow_publish => false}}}
     end.
 
-do_set_keepalive(ClientId, Interval) ->
-    Nodes = lookup_client_nodes(ClientId),
-    Batch = [{ClientId, Interval}],
-    call_keepalive_on_nodes(Nodes, ClientId, Batch).
-
 lookup_client_nodes(ClientId) ->
     case emqx_cm_registry:is_enabled() of
         true ->
@@ -149,36 +220,6 @@ lookup_client_nodes(ClientId) ->
             lists:usort([node(Pid) || Pid <- Channels]);
         false ->
             emqx:running_nodes()
-    end.
-
-call_keepalive_on_nodes([], _ClientId, _Batch) ->
-    {error, not_found};
-call_keepalive_on_nodes(Nodes, ClientId, Batch) ->
-    Results = call_keepalive_clients(Nodes, Batch),
-    {Expected, Errs} = lists:foldr(
-        fun({N, Res}, Acc) ->
-            case extract_client_result(ClientId, Res) of
-                {error, not_found} ->
-                    Acc;
-                {error, _} = Err ->
-                    {OkAcc, ErrAcc} = Acc,
-                    {OkAcc, [{N, Err} | ErrAcc]};
-                OkRes ->
-                    {OkAcc, ErrAcc} = Acc,
-                    {[OkRes | OkAcc], ErrAcc}
-            end
-        end,
-        {[], []},
-        lists:zip(Nodes, Results)
-    ),
-    case Expected of
-        [] ->
-            case Errs of
-                [] -> {error, not_found};
-                [{_Node, FirstErr} | _] -> FirstErr
-            end;
-        [Result | _] ->
-            Result
     end.
 
 -doc """
@@ -215,7 +256,7 @@ do_call_keepalive_local(ClientId, Interval) ->
 call_connected_channels(_ClientId, [], _Req) ->
     {error, not_found};
 call_connected_channels(ClientId, Channels, Req) ->
-    Results = [call_channel(ClientId, Pid, Req) || Pid <- Channels],
+    Results = [cast_channel(ClientId, Pid, Req) || Pid <- Channels],
     {OkAcc, ErrAcc} = lists:foldl(
         fun
             ({error, not_found}, {Ok, Errs}) -> {Ok, Errs};
@@ -235,10 +276,10 @@ call_connected_channels(ClientId, Channels, Req) ->
             end
     end.
 
-call_channel(ClientId, Pid, Req) ->
+cast_channel(ClientId, Pid, Req) ->
     case emqx_cm:get_chan_info(ClientId, Pid) of
         #{conninfo := #{conn_mod := ConnMod}} ->
-            call_conn(ConnMod, Pid, Req);
+            cast_conn(ConnMod, Pid, Req);
         _ ->
             {error, not_found}
     end.
@@ -246,67 +287,15 @@ call_channel(ClientId, Pid, Req) ->
 call_keepalive_clients(Nodes, Batch) ->
     emqx_rpc:unwrap_erpc(emqx_setopts_proto_v1:call_keepalive_clients(Nodes, Batch)).
 
-extract_client_result(_ClientId, {error, _} = Err) ->
-    Err;
-extract_client_result(ClientId, Res) when is_list(Res) ->
-    case lists:keyfind(ClientId, 1, Res) of
-        {ClientId, ClientRes} ->
-            ClientRes;
-        false ->
-            {error, not_found}
-    end.
-
-call_conn(ConnMod, Pid, Req) ->
-    try
-        %% Keep calls short to avoid slowing batch updates if a client is stuck.
-        erlang:apply(ConnMod, call, [Pid, Req, ?CALL_CONN_TIMEOUT_MS])
-    catch
-        exit:R when R =:= shutdown; R =:= normal ->
-            {error, shutdown};
-        exit:{R, _} when R =:= shutdown; R =:= noproc ->
-            {error, shutdown};
-        exit:{{shutdown, _OOMInfo}, _Location} ->
-            {error, shutdown};
-        exit:timeout ->
-            LogData = #{
-                msg => "call_client_connection_process_timeout",
-                request => Req,
-                pid => Pid,
-                module => ConnMod
-            },
-            LogData1 =
-                case node(Pid) =:= node() of
-                    true ->
-                        LogData#{stacktrace => erlang:process_info(Pid, current_stacktrace)};
-                    false ->
-                        LogData
-                end,
-            ?SLOG(warning, LogData1),
-            {error, timeout};
-        exit:{timeout, _} ->
-            LogData = #{
-                msg => "call_client_connection_process_timeout",
-                request => Req,
-                pid => Pid,
-                module => ConnMod
-            },
-            LogData1 =
-                case node(Pid) =:= node() of
-                    true ->
-                        LogData#{stacktrace => erlang:process_info(Pid, current_stacktrace)};
-                    false ->
-                        LogData
-                end,
-            ?SLOG(warning, LogData1),
-            {error, timeout}
-    end.
+cast_conn(ConnMod, Pid, {keepalive, _Interval} = Req) ->
+    ok = erlang:apply(ConnMod, cast, [Pid, Req]).
 
 %% Payload decoding
 
-decode_single_payload(Payload, ClientId) ->
+decode_single_payload(Payload) ->
     try
-        Interval = to_int(Payload),
-        {ok, [#{clientid => ClientId, keepalive => Interval}]}
+        Interval = normalize_interval(Payload),
+        {ok, Interval}
     catch
         error:Reason -> {error, Reason}
     end.
@@ -330,11 +319,20 @@ normalize_updates(Items) ->
     end.
 
 normalize_item(#{<<"clientid">> := ClientId, <<"keepalive">> := Interval}) ->
-    #{clientid => ClientId, keepalive => to_int(Interval)};
+    {ClientId, normalize_interval(Interval)};
 normalize_item(#{clientid := ClientId, keepalive := Interval}) ->
-    #{clientid => ClientId, keepalive => to_int(Interval)};
+    {ClientId, normalize_interval(Interval)};
 normalize_item(Other) ->
     erlang:error({invalid_item, Other}).
+
+normalize_interval(Interval) ->
+    Int = to_int(Interval),
+    case Int of
+        Value when is_integer(Value), Value >= 0, Value =< 65535 ->
+            Value;
+        _ ->
+            erlang:error({invalid_keepalive, Interval})
+    end.
 
 to_int(Value) when is_integer(Value) -> Value;
 to_int(Value) ->

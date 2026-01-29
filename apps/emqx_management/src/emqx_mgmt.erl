@@ -478,7 +478,12 @@ set_quota_policy(ClientId, Policy) ->
     call_client(ClientId, {quota, Policy}).
 
 set_keepalive(ClientId, Interval) ->
-    emqx_setopts:set_keepalive(ClientId, Interval).
+    case emqx_setopts:set_keepalive_batch([{ClientId, Interval}]) of
+        [{ClientId, Result}] ->
+            Result;
+        _ ->
+            {error, unexpected_result}
+    end.
 
 %% @private
 call_client(ClientId, Req) ->
