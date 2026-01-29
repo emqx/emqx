@@ -35,6 +35,19 @@
     terminate/2
 ]).
 
+-ifdef(TEST).
+-export([
+    try_insert_inflight/7,
+    ack_msg/3,
+    set_msg_ack/2,
+    get_msg_ack/2,
+    custom_msg_ack_key/2,
+    custom_get_msg_ack/2,
+    make_test_channel/0,
+    normalize_queue_item/1
+]).
+-endif.
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -1311,3 +1324,31 @@ shutdown(Reason, Reply, Channel) ->
 
 disconnect_and_shutdown(Reason, Reply, Channel) ->
     shutdown(Reason, Reply, Channel).
+
+-ifdef(TEST).
+%% @doc Create a minimal channel record for unit testing
+make_test_channel() ->
+    #channel{
+        ctx = undefined,
+        conninfo = #{},
+        clientinfo = #{
+            clientid => <<"test_client">>,
+            username => undefined
+        },
+        session = undefined,
+        conn_state = connected,
+        timers = #{},
+        authcode = undefined,
+        keepalive = undefined,
+        msg_sn = 0,
+        dn_topic = undefined,
+        up_topic = undefined,
+        auth = undefined,
+        inflight = emqx_inflight:new(128),
+        mqueue = queue:new(),
+        max_mqueue_len = 100,
+        rsa_key = undefined,
+        retx_interval = 8000,
+        retx_max_times = 5
+    }.
+-endif.

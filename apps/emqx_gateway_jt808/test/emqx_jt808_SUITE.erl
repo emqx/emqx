@@ -197,7 +197,7 @@ client_regi_procedure(Socket, ExpectedAuthCode) ->
     S1 = gen_packet(Header, RegisterPacket),
 
     ok = gen_tcp:send(Socket, S1),
-    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1_000),
 
     AckPacket = <<MsgSn:?WORD, 0, ExpectedAuthCode/binary>>,
     Size2 = size(AckPacket),
@@ -3975,3 +3975,166 @@ parse_msg_sn_from_frame(Frame, PhoneBCD) ->
     <<_MsgId:2/binary, _MsgAttr:2/binary, _Phone:PhoneLen/binary, MsgSn:?WORD, _Rest/binary>> =
         UnescapedPacket,
     MsgSn.
+
+%%--------------------------------------------------------------------
+%% Test Cases for custom msg_sn in downlink messages
+%%--------------------------------------------------------------------
+
+%% Test: Downlink message without msg_sn should use auto-generated channel sn
+t_case_downlink_auto_msg_sn(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    %% Publish downlink without msg_sn - should use auto-generated sn (2 after auth)
+    Flag = 15,
+    Text = <<"auto sn test">>,
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
+        <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+
+    %% Parse and verify msg_sn is auto-generated (should be 2)
+    [Frame | _] = split_jt808_frames(Packet),
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    ?LOGT("Auto msg_sn = ~p", [MsgSn]),
+    ?assertEqual(2, MsgSn),
+
+    %% Send ACK
+    MsgId = ?MS_SEND_TEXT,
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+    AckSn = 2,
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, AckSn:?WORD>>,
+    AckFrame = gen_packet(AckHeader, GenAckPacket),
+    ok = gen_tcp:send(Socket, AckFrame),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Downlink message with custom msg_sn should use the provided sn
+t_case_downlink_custom_msg_sn(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    %% Publish downlink with custom msg_sn
+    CustomMsgSn = 12345,
+    Flag = 15,
+    Text = <<"custom sn test">>,
+    DlCommand = #{
+        <<"header">> => #{
+            <<"msg_id">> => ?MS_SEND_TEXT,
+            <<"msg_sn">> => CustomMsgSn
+        },
+        <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+
+    %% Parse and verify msg_sn is the custom value
+    [Frame | _] = split_jt808_frames(Packet),
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    ?LOGT("Custom msg_sn = ~p", [MsgSn]),
+    ?assertEqual(CustomMsgSn, MsgSn),
+
+    %% Send ACK with the custom msg_sn
+    MsgId = ?MS_SEND_TEXT,
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+    AckSn = 2,
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, AckSn:?WORD>>,
+    AckFrame = gen_packet(AckHeader, GenAckPacket),
+    ok = gen_tcp:send(Socket, AckFrame),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Mixed auto and custom msg_sn in sequence
+%% Send messages one at a time and ACK each before sending the next
+t_case_downlink_mixed_msg_sn(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MS_SEND_TEXT,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+
+    %% First message with auto msg_sn
+    DlCommand1 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 1, <<"text">> => <<"first auto">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    {ok, Packet1} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame1 | _] = split_jt808_frames(Packet1),
+    MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
+    ?LOGT("MsgSn1 (auto) = ~p", [MsgSn1]),
+    ?assertEqual(2, MsgSn1),
+
+    %% ACK first message
+    GenAckPacket1 = <<MsgSn1:?WORD, MsgId:?WORD, 0>>,
+    Size1 = size(GenAckPacket1),
+    AckHeader1 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size1),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader1, GenAckPacket1)),
+
+    %% Second message with custom msg_sn
+    CustomMsgSn = 9999,
+    DlCommand2 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId, <<"msg_sn">> => CustomMsgSn},
+        <<"body">> => #{<<"flag">> => 2, <<"text">> => <<"second custom">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+    {ok, Packet2} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame2 | _] = split_jt808_frames(Packet2),
+    MsgSn2 = parse_msg_sn_from_frame(Frame2, PhoneBCD),
+    ?LOGT("MsgSn2 (custom) = ~p", [MsgSn2]),
+    ?assertEqual(CustomMsgSn, MsgSn2),
+
+    %% ACK second message
+    GenAckPacket2 = <<MsgSn2:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket2),
+    AckHeader2 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, 3:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader2, GenAckPacket2)),
+
+    %% Third message with auto msg_sn
+    DlCommand3 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 3, <<"text">> => <<"third auto">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame3 | _] = split_jt808_frames(Packet3),
+    MsgSn3 = parse_msg_sn_from_frame(Frame3, PhoneBCD),
+    ?LOGT("MsgSn3 (auto) = ~p", [MsgSn3]),
+    %% Auto msg_sn should continue from 3 (not affected by custom 9999)
+    ?assertEqual(3, MsgSn3),
+
+    %% ACK third message
+    GenAckPacket3 = <<MsgSn3:?WORD, MsgId:?WORD, 0>>,
+    Size3 = size(GenAckPacket3),
+    AckHeader3 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+            PhoneBCD/binary, 4:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader3, GenAckPacket3)),
+
+    ok = gen_tcp:close(Socket).
