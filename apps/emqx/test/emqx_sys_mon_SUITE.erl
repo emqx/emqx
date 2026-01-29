@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx/include/asserts.hrl").
 
 -define(SYSMON, emqx_sys_mon).
 
@@ -90,13 +91,6 @@ init_per_testcase(t_sys_mon2 = TestCase, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
     ),
     [{apps, Apps} | Config];
-init_per_testcase(t_procinfo = TestCase, Config) ->
-    Apps = emqx_cth_suite:start(
-        [emqx],
-        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
-    ),
-    ok = meck:new(emqx_vm, [passthrough, no_history]),
-    [{apps, Apps} | Config];
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
         [emqx],
@@ -104,28 +98,27 @@ init_per_testcase(TestCase, Config) ->
     ),
     [{apps, Apps} | Config].
 
-end_per_testcase(t_procinfo, Config) ->
-    Apps = ?config(apps, Config),
-    ok = meck:unload(emqx_vm),
-    ok = emqx_cth_suite:stop(Apps),
-    ok;
 end_per_testcase(_, Config) ->
     Apps = ?config(apps, Config),
     ok = emqx_cth_suite:stop(Apps),
     ok.
 
 t_procinfo(_) ->
-    ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
-    ?assertEqual([{pid, self()}], emqx_sys_mon:procinfo(self())).
+    ?assertMatch([{pid, Self} | _] when Self == self(), emqx_sys_mon:procinfo(self())).
+
+t_procinfo_label(_) ->
+    OnStart = fun() -> proc_lib:set_label({t_procinfo_label, 42}) end,
+    SomePid = proc_lib:spawn_link(?MODULE, some_function, [self(), OnStart]),
+    ?assertReceive({spawned, SomePid}),
+    ?assertMatch(
+        [{pid, SomePid}, {label, {t_procinfo_label, 42}} | _],
+        emqx_sys_mon:procinfo(SomePid)
+    ),
+    SomePid ! stop.
 
 t_procinfo_initial_call_and_stacktrace(_) ->
-    SomePid = proc_lib:spawn(?MODULE, some_function, [self(), arg2]),
-    receive
-        {spawned, SomePid} ->
-            ok
-    after 100 ->
-        error(process_not_spawned)
-    end,
+    SomePid = proc_lib:spawn(?MODULE, some_function, [self(), undefined]),
+    ?assertReceive({spawned, SomePid}),
     ProcInfo = emqx_sys_mon:procinfo(SomePid),
     ?assertEqual(
         {?MODULE, some_function, ['Argument__1', 'Argument__2']},
@@ -194,7 +187,8 @@ validate_sys_mon_info(PidOrPort, SysMonName, ValidateInfo, InfoOrPort) ->
 
 fmt(Fmt, Args) -> lists:flatten(io_lib:format(Fmt, Args)).
 
-some_function(Parent, _Arg2) ->
+some_function(Parent, OnStart) ->
+    is_function(OnStart) andalso OnStart(),
     Parent ! {spawned, self()},
     receive
         stop ->
