@@ -8,8 +8,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
--define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
-%% -define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
+% -define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
+-define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
 
 %% Queue name for pre-6.1.1 queues.
 -define(DEFAULT_MQ_NAME, <<"default">>).
@@ -26,7 +26,11 @@
     info :: term()
 }).
 
--record(info_mq_inspect, {receiver :: reference(), topic_filter :: emqx_mq_types:mq_topic()}).
+-record(info_mq_inspect, {
+    receiver :: reference(),
+    topic_filter :: emqx_mq_types:mq_topic() | undefined,
+    name :: emqx_mq_types:mq_name()
+}).
 
 -record(mq_sub_connected, {
     consumer_ref :: emqx_mq_types:consumer_ref()
@@ -74,5 +78,7 @@
 
 -define(MQ_QUOTA_BUFFER, mq_message_quota_buffer).
 -define(DEFAULT_QUOTA_BUFFER_POOL_SIZE, 10).
+
+-define(LEGACY_QUEUE_NAME(TF), <<"/", (TF)/binary>>).
 
 -endif.
