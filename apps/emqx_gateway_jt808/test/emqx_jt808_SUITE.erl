@@ -4138,3 +4138,88 @@ t_case_downlink_mixed_msg_sn(_) ->
     ok = gen_tcp:send(Socket, gen_packet(AckHeader3, GenAckPacket3)),
 
     ok = gen_tcp:close(Socket).
+
+%% Test: Different message types with same custom msg_sn should not conflict
+%% Both MS_SEND_TEXT and MS_CLIENT_CONTROL expect MC_GENERAL_RESPONSE,
+%% but they should be tracked separately using {MsgId, MsgSn} as the key.
+t_case_downlink_msg_sn_conflict_different_msg_types(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+    CustomMsgSn = 8888,
+
+    %% Send MS_SEND_TEXT with custom msg_sn=8888
+    MsgId1 = ?MS_SEND_TEXT,
+    DlCommand1 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId1, <<"msg_sn">> => CustomMsgSn},
+        <<"body">> => #{<<"flag">> => 1, <<"text">> => <<"text message">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    {ok, Packet1} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame1 | _] = split_jt808_frames(Packet1),
+    MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
+    ?LOGT("MsgSn1 (MS_SEND_TEXT) = ~p", [MsgSn1]),
+    ?assertEqual(CustomMsgSn, MsgSn1),
+
+    %% Send MS_CLIENT_CONTROL with same custom msg_sn=8888
+    MsgId2 = ?MS_CLIENT_CONTROL,
+    DlCommand2 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId2, <<"msg_sn">> => CustomMsgSn},
+        <<"body">> => #{<<"command">> => 1, <<"param">> => <<>>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+    {ok, Packet2} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame2 | _] = split_jt808_frames(Packet2),
+    MsgSn2 = parse_msg_sn_from_frame(Frame2, PhoneBCD),
+    ?LOGT("MsgSn2 (MS_CLIENT_CONTROL) = ~p", [MsgSn2]),
+    ?assertEqual(CustomMsgSn, MsgSn2),
+
+    %% Both messages have the same MsgSn but different MsgId
+    %% They should be tracked separately in inflight
+
+    %% ACK the first message (MS_SEND_TEXT)
+    %% General response format: <<AckMsgSn:WORD, AckMsgId:WORD, Result:BYTE>>
+    GenAckPacket1 = <<CustomMsgSn:?WORD, MsgId1:?WORD, 0>>,
+    Size1 = size(GenAckPacket1),
+    AckHeader1 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size1),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader1, GenAckPacket1)),
+
+    %% ACK the second message (MS_CLIENT_CONTROL)
+    GenAckPacket2 = <<CustomMsgSn:?WORD, MsgId2:?WORD, 0>>,
+    Size2 = size(GenAckPacket2),
+    AckHeader2 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, 3:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader2, GenAckPacket2)),
+
+    %% Both ACKs should be processed without conflict
+    %% If they were conflicting, we would see retransmission attempts
+
+    %% Send a third message to verify channel is still working properly
+    MsgId3 = ?MS_SEND_TEXT,
+    DlCommand3 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId3},
+        <<"body">> => #{<<"flag">> => 2, <<"text">> => <<"after conflict test">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame3 | _] = split_jt808_frames(Packet3),
+    MsgSn3 = parse_msg_sn_from_frame(Frame3, PhoneBCD),
+    ?LOGT("MsgSn3 (auto after conflict) = ~p", [MsgSn3]),
+    %% Auto msg_sn should be 2 (continuing from auth)
+    ?assertEqual(2, MsgSn3),
+
+    %% ACK the third message
+    GenAckPacket3 = <<MsgSn3:?WORD, MsgId3:?WORD, 0>>,
+    Size3 = size(GenAckPacket3),
+    AckHeader3 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+            PhoneBCD/binary, 4:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader3, GenAckPacket3)),
+
+    ok = gen_tcp:close(Socket).
