@@ -488,12 +488,8 @@ gateway_schema(Name) ->
     end.
 
 gateway_names() ->
-    Definitions = emqx_gateway_utils:find_gateway_definitions(),
-    [
-        Name
-     || #{name := Name} = Definition <- Definitions,
-        emqx_gateway_utils:check_gateway_edition(Definition)
-    ].
+    [Name || #{name := Name} <- emqx_gateway_utils:find_gateway_definitions()].
+
 %%--------------------------------------------------------------------
 %% helpers
 

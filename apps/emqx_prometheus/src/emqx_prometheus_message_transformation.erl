@@ -4,7 +4,6 @@
 
 -module(emqx_prometheus_message_transformation).
 
--if(?EMQX_RELEASE_EDITION == ee).
 %% for bpapi
 -behaviour(emqx_prometheus_cluster).
 
@@ -217,6 +216,3 @@ with_node_label(?PROM_DATA_MODE__ALL_NODES_AGGREGATED, Labels) ->
     Labels;
 with_node_label(?PROM_DATA_MODE__ALL_NODES_UNAGGREGATED, Labels) ->
     [{node, node()} | Labels].
-
-%% END if(?EMQX_RELEASE_EDITION == ee).
--endif.

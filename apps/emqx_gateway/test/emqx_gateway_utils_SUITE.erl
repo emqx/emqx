@@ -41,4 +41,4 @@ t_global_chain(_Config) ->
         end,
         Names
     ),
-    ?assertError(invalid_protocol_name, emqx_gateway_utils:global_chain('Others')).
+    ?assertError({invalid_protocol_name, 'Others'}, emqx_gateway_utils:global_chain('Others')).

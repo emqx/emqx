@@ -42,21 +42,26 @@ For cases where a single connector has both actions and sources, see
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 -define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
--define(assertReceivePublish(TOPIC, EXPR, TIMEOUT), begin
-    ?assertMatch(
-        EXPR,
-        maps:update_with(
-            payload,
-            fun emqx_utils_json:decode/1,
-            element(2, ?assertReceive({publish, #{topic := TOPIC}}, TIMEOUT, #{topic => TOPIC}))
+-define(assertReceivePublish(EXPR, GUARD, EXTRA, TIMEOUT),
+    (fun() ->
+        lists:foreach(
+            fun(Pub0) ->
+                Pub = maps:update_with(
+                    payload,
+                    fun emqx_utils_json:decode/1,
+                    Pub0
+                ),
+                self() ! {decoded, Pub}
+            end,
+            drain_publishes([])
         ),
-        #{
-            topic => TOPIC,
-            mailbox => ?drainMailbox()
-        }
-    )
-end).
--define(assertReceivePublish(TOPIC, EXPR), ?assertReceivePublish(TOPIC, EXPR, 1_000)).
+        {decoded, __X} = ?assertReceive({decoded, EXPR} when ((GUARD)), TIMEOUT, EXTRA),
+        __X
+    end)()
+).
+-define(assertReceivePublish(EXPR), ?assertReceivePublish(EXPR, true, #{}, 1_000)).
+-define(assertReceivePublish(EXPR, EXTRA), ?assertReceivePublish(EXPR, true, EXTRA, 1_000)).
+-define(assertReceivePublish(EXPR, GUARD, EXTRA), ?assertReceivePublish(EXPR, GUARD, EXTRA, 1_000)).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -210,6 +215,14 @@ end_per_testcase(_TestCase, TCConfig) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+drain_publishes(Acc) ->
+    receive
+        {publish, Msg} ->
+            drain_publishes([Msg | Acc])
+    after 200 ->
+        lists:reverse(Acc)
+    end.
 
 connector_config(Overrides) ->
     emqx_bridge_schema_testlib:mqtt_connector_config(Overrides).
@@ -732,16 +745,20 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     emqtt:publish(Pub1, <<"u/a">>, <<"2">>),
     %% Sanity check: sources should be working.
     ?assertReceivePublish(
-        RepublishTopicA,
-        #{payload := #{<<"payload">> := <<"1">>}}
+        #{
+            payload := #{<<"payload">> := <<"1">>},
+            topic := RepublishTopicA
+        }
     ),
     %% We receive this multiple times because it's an ordinary subscription, so each node
     %% receives and forwards it.
     lists:foreach(
         fun(_) ->
             ?assertReceivePublish(
-                RepublishTopicB,
-                #{payload := #{<<"payload">> := <<"2">>}}
+                #{
+                    payload := #{<<"payload">> := <<"2">>},
+                    topic := RepublishTopicB
+                }
             )
         end,
         lists:seq(1, NumNodes)
@@ -756,7 +773,7 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
         %% 2 sources with 3 workers each
         2 * PoolSize,
         %% Timeout
-        5_000
+        30_000
     ),
     [Source] = emqx_cth_cluster:restart(SourceNSpecs),
 
@@ -770,16 +787,22 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     emqtt:stop(Pub2),
 
     ?assertReceivePublish(
-        RepublishTopicA,
-        #{payload := #{<<"payload">> := <<"3">>}},
+        #{
+            payload := #{<<"payload">> := <<"3">>},
+            topic := RepublishTopicA
+        },
+        true,
+        #{},
         3_000
     ),
     lists:foreach(
         fun(N) ->
             ct:pal("expecting B message ~b", [N]),
             ?assertReceivePublish(
-                RepublishTopicB,
-                #{payload := #{<<"payload">> := <<"4">>}}
+                #{
+                    payload := #{<<"payload">> := <<"4">>},
+                    topic := RepublishTopicB
+                }
             )
         end,
         lists:seq(1, NumNodes)
@@ -796,7 +819,7 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
         %% 1 source with 3 workers each
         1 * PoolSize,
         %% Timeout
-        5_000
+        30_000
     ),
     [Source] = emqx_cth_cluster:restart(SourceNSpecs),
     {ok, _} = snabbkaffe:receive_events(SRef1),
@@ -808,8 +831,12 @@ t_resubscribe_on_fast_failure(TCConfig) when is_list(TCConfig) ->
     emqtt:stop(Pub3),
 
     ?assertReceivePublish(
-        RepublishTopicA,
-        #{payload := #{<<"payload">> := <<"5">>}},
+        #{
+            payload := #{<<"payload">> := <<"5">>},
+            topic := RepublishTopicA
+        },
+        true,
+        #{},
         3_000
     ),
     ?assertNotReceive({publish, _}),

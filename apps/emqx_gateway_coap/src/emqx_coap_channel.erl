@@ -348,6 +348,8 @@ handle_cast(Req, Channel) ->
     ok | {ok, channel()} | {shutdown, Reason :: term(), channel()}.
 handle_info({subscribe, _AutoSubs}, Channel) ->
     {ok, Channel};
+handle_info({sock_closed, Reason}, Channel) ->
+    shutdown(Reason, Channel);
 handle_info(Info, Channel) ->
     ?SLOG(warning, #{msg => "unexpected_info", info => Info}),
     {ok, Channel}.
