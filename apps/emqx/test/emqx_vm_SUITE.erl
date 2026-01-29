@@ -40,12 +40,28 @@ t_systeminfo(_Config) ->
     ?assertEqual(undefined, emqx_vm:get_system_info(undefined)).
 
 t_process_info(_Config) ->
-    ProcessInfo = emqx_vm:get_process_info(),
-    ?assertEqual(emqx_vm:process_info_keys(), [K || {K, _V} <- ProcessInfo]).
+    ?assertMatch(
+        [
+            {registered_name, _},
+            {initial_call, _},
+            {current_stacktrace, _},
+            {status, _},
+            {message_queue_len, _},
+            {group_leader, _},
+            {priority, _},
+            {trap_exit, _},
+            {reductions, _},
+            {last_calls, _}
+            | _
+        ],
+        emqx_vm:get_process_info(self())
+    ).
 
 t_process_gc(_Config) ->
-    GcInfo = emqx_vm:get_process_gc_info(),
-    ?assertEqual(emqx_vm:process_gc_info_keys(), [K || {K, _V} <- GcInfo]).
+    ?assertMatch(
+        [{memory, _}, {total_heap_size, _}, {heap_size, _}, {stack_size, _}],
+        emqx_vm:get_process_gc_info(self())
+    ).
 
 t_get_ets_list(_Config) ->
     ets:new(test, [named_table]),

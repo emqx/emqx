@@ -116,7 +116,6 @@ end_per_testcase(_, Config) ->
 
 t_procinfo(_) ->
     ok = meck:expect(emqx_vm, get_process_info, fun(_) -> [] end),
-    ok = meck:expect(emqx_vm, get_process_gc_info, fun(_) -> undefined end),
     ?assertEqual([{pid, self()}], emqx_sys_mon:procinfo(self())).
 
 t_procinfo_initial_call_and_stacktrace(_) ->

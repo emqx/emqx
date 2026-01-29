@@ -223,8 +223,7 @@ suppress(Key, SuccFun, State = #{events := Events}) ->
     end.
 
 procinfo(Pid) ->
-    [{pid, Pid} | procinfo_l(emqx_vm:get_process_gc_info(Pid))] ++
-        get_proc_lib_initial_call(Pid) ++
+    [{pid, Pid} | get_proc_lib_initial_call(Pid)] ++
         procinfo_l(emqx_vm:get_process_info(Pid)).
 
 procinfo_l(undefined) -> [];
