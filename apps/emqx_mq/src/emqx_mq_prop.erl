@@ -30,9 +30,7 @@ id(#{id := ID} = _MQHandle) ->
 
 -spec name(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> emqx_mq_types:mq_name().
 name(#{name := Name} = _MQ) ->
-    Name;
-name(#{topic_filter := TopicFilter} = _MQ) ->
-    <<"/", TopicFilter/binary>>.
+    Name.
 
 -spec is_limited(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> boolean().
 is_limited(

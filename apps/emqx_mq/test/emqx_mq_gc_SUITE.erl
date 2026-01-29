@@ -53,9 +53,9 @@ t_gc(_Config) ->
     emqx_config:put([mq, regular_queue_retention_period], 1000),
     ct:sleep(500),
     % %% Create a lastvalue Queue
-    MQC = emqx_mq_test_utils:create_mq(#{topic_filter => <<"tc/#">>, is_lastvalue => true}),
+    MQC = emqx_mq_test_utils:ensure_mq_created(#{topic_filter => <<"tc/#">>, is_lastvalue => true}),
     %% Create a non-lastvalue Queue
-    MQR = emqx_mq_test_utils:create_mq(#{
+    MQR = emqx_mq_test_utils:ensure_mq_created(#{
         topic_filter => <<"tr/#">>, is_lastvalue => false, data_retention_period => 1000
     }),
 
@@ -106,7 +106,7 @@ t_limited_regular(_Config) ->
     %% Create a regular queue limited by count
     %% 50 messages per shard maximum
     %% We have ?N_SHARDS = 2 shards, so 50 * 2 = 100 messages maximum
-    MQC = emqx_mq_test_utils:create_mq(
+    MQC = emqx_mq_test_utils:ensure_mq_created(
         #{
             topic_filter => <<"tc/#">>,
             is_lastvalue => false,
@@ -133,7 +133,7 @@ t_limited_regular(_Config) ->
     %% Create a regular queue limited by bytes
     %% 50KB per shard maximum
     %% We have ?N_SHARDS = 2 shards, so 50KB * 2 = 100KB maximum
-    MQB = emqx_mq_test_utils:create_mq(
+    MQB = emqx_mq_test_utils:ensure_mq_created(
         #{
             topic_filter => <<"tb/#">>,
             is_lastvalue => false,
@@ -164,7 +164,7 @@ t_limited_lastvalue(_Config) ->
     %% Create a lastvalue queue limited by count
     %% 100 messages per shard maximum
     %% We have ?N_SHARDS = 2 shards, so 100 * 2 = 200 messages maximum
-    _MQC = emqx_mq_test_utils:create_mq(
+    _MQC = emqx_mq_test_utils:ensure_mq_created(
         #{
             topic_filter => <<"tc/#">>,
             is_lastvalue => true,

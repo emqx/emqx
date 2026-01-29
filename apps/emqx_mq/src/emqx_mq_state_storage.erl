@@ -8,6 +8,7 @@
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
 -include("../gen_src/MessageQueue.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -moduledoc """
 Persistence of Message queue state:
@@ -134,7 +135,7 @@ open_consumer_state(MQ) ->
             persist_consumer_state_tx(_NeedClaimOwnership = true, Rec)
         end
     ),
-    format_tx_result(TxRes, failed_to_open_consumer_state).
+    format_consumer_state_persist_tx_result(TxRes, _NeedClaimOwnership = true, failed_to_open_consumer_state).
 
 -spec put_shard_progress(
     emqx_ds:shard(), emqx_mq_consumer_stream_buffer:progress(), consumer_state()
@@ -162,18 +163,11 @@ commit_consumer_state(
 ) ->
     TxRes = emqx_ds:trans(
         trans_opts(Id),
-        fun() -> persist_consumer_state_tx(NeedClaimOwnership, CSRec0) end
+        fun() ->
+            persist_consumer_state_tx(NeedClaimOwnership, CSRec0)
+        end
     ),
-    case TxRes of
-        {atomic, TXSerial, CSRec} when NeedClaimOwnership ->
-            {ok, CSRec#{?collection_guard := TXSerial}};
-        {atomic, _, CSRec} ->
-            {ok, CSRec};
-        {nop, CSRec} ->
-            {ok, CSRec};
-        Err ->
-            {error, {failed_to_commit_consumer_state, Err}}
-    end.
+    format_consumer_state_persist_tx_result(TxRes, NeedClaimOwnership, failed_to_commit_consumer_state).
 
 -spec destroy_consumer_state(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
 destroy_consumer_state(MQHandle) ->
@@ -207,8 +201,7 @@ create_mq_state(MQ) ->
                     ok;
                 _Guard ->
                     {error, {mq_state_already_exists, Id}}
-            end,
-            ok
+            end
         end
     ),
     format_tx_result(TxRes, failed_to_create_mq_state).
@@ -294,10 +287,11 @@ set_name_index(Name, MQId) ->
 
 -spec find_id_by_name(binary()) -> {ok, emqx_mq_types:mqid()} | not_found.
 find_id_by_name(Name) ->
-    FoldOptions = maps:merge(trans_opts(Name), #{errors => ignore}),
-    case emqx_ds_pmap:dirty_read(?MODULE, ?pn_id, Name, FoldOptions) of
-        #{?id_key := Id} ->
-            {ok, Id};
+    Id = name_id(Name),
+    FoldOptions = maps:merge(trans_opts(Id), #{errors => ignore}),
+    case emqx_ds_pmap:dirty_read(?MODULE, ?pn_id, Id, FoldOptions) of
+        #{?id_key := MQId} ->
+            {ok, MQId};
         #{} ->
             not_found
     end.
@@ -563,6 +557,7 @@ persist_consumer_state_tx(
         ?col_shard_progress := ShardProgress
     } = CSRec
 ) ->
+    ?tp(warning, consumer_state_tx_assert_guard, #{id => Id, old_guard => OldGuard}),
     emqx_ds_pmap:tx_assert_guard(Id, OldGuard),
     NeedClaimOwnership andalso emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
     CSRec#{
@@ -623,7 +618,7 @@ name_to_asn1(Name) ->
     Name.
 
 name_from_asn1(MQ, asn1_NOVALUE) ->
-    MQ;
+    MQ#{name => emqx_mq_prop:name(MQ)};
 name_from_asn1(MQ, Name) ->
     MQ#{name => Name}.
 
@@ -666,3 +661,15 @@ format_tx_result({nop, Res}, _ErrorLabel) ->
     Res;
 format_tx_result(Err, ErrorLabel) ->
     {error, {ErrorLabel, Err}}.
+
+format_consumer_state_persist_tx_result(TxRes, NeedClaimOwnership, ErrorLabel) ->
+    case TxRes of
+        {atomic, TXSerial, CSRec} when NeedClaimOwnership ->
+            {ok, CSRec#{?collection_guard := TXSerial}};
+        {atomic, _, CSRec} ->
+            {ok, CSRec};
+        {nop, CSRec} ->
+            {ok, CSRec};
+        Err ->
+            {error, {ErrorLabel, Err}}
+    end.

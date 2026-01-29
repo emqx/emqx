@@ -373,7 +373,7 @@ defmodule EMQXUmbrella.MixProject do
     if test_env?() do
       [
         {:bbmustache, "1.10.0"},
-        {:cth_readable, "1.6.1"},
+        {:cth_readable, "1.5.1"},
         common_dep(:proper),
         {:meck, "1.1.0"}
       ]
