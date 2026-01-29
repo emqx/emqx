@@ -70,9 +70,7 @@ stop_gateway(Config) ->
     ok.
 
 with_udp_channel(Fun) ->
-    ChId = {{127, 0, 0, 1}, 5683},
-    {ok, Sock} = er_coap_udp_socket:start_link(),
-    {ok, Channel} = er_coap_udp_socket:get_channel(Sock, ChId),
+    {ok, Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
     Res = Fun(Channel),
     er_coap_channel:close(Channel),
     er_coap_udp_socket:close(Sock),

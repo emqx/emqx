@@ -1110,7 +1110,14 @@ disconnection(Channel, Token, ShortenParamName) ->
     },
     URI = compose_uri(Prefix, Queries, ShortenParamName),
     Req = make_req(delete),
-    {ok, deleted, _} = do_request(Channel, URI, Req).
+    case do_request(Channel, URI, Req) of
+        {ok, deleted, _} ->
+            ok;
+        {error, timeout} ->
+            %% Use a fresh socket if the channel got closed during gateway updates.
+            {ok, deleted, _} = er_coap_client:request(delete, URI),
+            ok
+    end.
 
 observe(Channel, Token, Observe) ->
     observe(Channel, Token, Observe, false).
