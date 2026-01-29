@@ -124,8 +124,14 @@ t_cluster_hocon_import_mqtt_subscribers_retainer_messages(Config) ->
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
     ?assertEqual(
-        remove_time_based_fields(RawConfAfterImport),
-        remove_time_based_fields(emqx:get_raw_config([]))
+        normalize_checked_config(RawConfAfterImport),
+        normalize_checked_config(emqx:get_raw_config([])),
+        #{
+            diff => deep_diff_maps(
+                normalize_checked_config(emqx:get_raw_config([])),
+                normalize_checked_config(RawConfAfterImport)
+            )
+        }
     ),
     ok.
 
@@ -266,14 +272,20 @@ t_cluster_hocon_export_import(Config) ->
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
     ?assertEqual(
-        remove_time_based_fields(RawConfAfterImport),
-        remove_time_based_fields(emqx:get_raw_config([]))
+        normalize_checked_config(RawConfAfterImport),
+        normalize_checked_config(emqx:get_raw_config([])),
+        #{
+            diff => deep_diff_maps(
+                normalize_checked_config(RawConfAfterImport),
+                normalize_checked_config(emqx:get_raw_config([]))
+            )
+        }
     ),
     %% idempotent update assert
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
     ?assertEqual(
-        remove_time_based_fields(RawConfAfterImport),
-        remove_time_based_fields(emqx:get_raw_config([]))
+        normalize_checked_config(RawConfAfterImport),
+        normalize_checked_config(emqx:get_raw_config([]))
     ),
     %% lookup file inside <data_dir>/backup
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
@@ -907,5 +919,48 @@ remove_time_based_fields(RawConf0) ->
     RawConf1 = emqx_utils_maps:update_if_present(<<"actions">>, StripBridgeDates, RawConf0),
     emqx_utils_maps:update_if_present(<<"sources">>, StripBridgeDates, RawConf1).
 
+%% The process of checking the config also converts it, so we remove dynamic (time-based)
+%% fields, as well as normalize potentially injected fields during conversion.
+normalize_checked_config(RawConf0) ->
+    RawConf1 = remove_time_based_fields(RawConf0),
+    RawConf2 = emqx_utils_maps:update_if_present(
+        <<"retainer">>,
+        fun do_normalize_checked_config_retainer/1,
+        RawConf1
+    ),
+    emqx_utils_maps:update_if_present(
+        <<"prometheus">>,
+        fun do_normalize_checked_config_prometheus/1,
+        RawConf2
+    ).
+
+do_normalize_checked_config_retainer(Cfg) ->
+    %% Retainer injects flow control based on `delivery_rate`.
+    maps:remove(<<"flow_control">>, Cfg).
+
+do_normalize_checked_config_prometheus(Cfg0) ->
+    %% Apparently, these fields are added/removed when converting
+    Cfg1 = maps:remove(<<"latency_buckets">>, Cfg0),
+    emqx_utils_maps:deep_remove([<<"push_gateway">>, <<"method">>], Cfg1).
+
 basename(FilePath) ->
     filename:basename(FilePath).
+
+deep_diff_maps(#{} = ExpectedMap, #{} = ActualMap) ->
+    Diff0 = emqx_utils_maps:diff_maps(ExpectedMap, ActualMap),
+    Diff = maps:remove(identical, Diff0),
+    maps:update_with(
+        changed,
+        fun(#{} = InnerDiffs) ->
+            maps:map(
+                fun
+                    (_K, {#{} = XActual, #{} = XExpected}) ->
+                        deep_diff_maps(XExpected, XActual);
+                    (_K, Tuple) ->
+                        Tuple
+                end,
+                InnerDiffs
+            )
+        end,
+        Diff
+    ).

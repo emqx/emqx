@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("typerefl/include/types.hrl").
 
 -define(NODE1_PORT, 18085).
 -define(NODE2_PORT, 18086).
@@ -24,6 +25,7 @@
     filename:join(?config(data_dir, _Config_), _BackupName_)
 ).
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -117,6 +119,55 @@ t_import_ee_backup(Config) ->
         ee -> import_backup_test(Config, ?UPLOAD_EE_BACKUP);
         ce -> ok
     end.
+
+%% Verifies that we not only check, but also use the checked **and converted**
+%% configuration being imported, so that we don't store non-converted raw configs in PT.
+t_import_checks_config(TCConfig) ->
+    [N1 | _] = Nodes = ?config(cluster, TCConfig),
+    %% First, in the emulated "old version" node, we have a configuration value which is
+    %% just a binary.  In the emulated "new version" node, this raw value shall be
+    %% transformed to a map, and that is what's stored in the raw config persistent term.
+    ?ON_ALL(
+        Nodes,
+        begin
+            Mod = emqx_conf:schema_module(),
+            ok = meck:new(Mod, [passthrough, no_link, no_history]),
+            meck:expect(Mod, roots, fun() ->
+                roots() ++ meck:passthrough([])
+            end),
+            ok = meck:new(emqx_mgmt_data_backup, [passthrough, no_link, no_history]),
+            meck:expect(emqx_mgmt_data_backup, conf_keys, fun() ->
+                [[<<"dummy">>] | meck:passthrough([])]
+            end),
+            ok = emqx_config:init_load(?MODULE, <<"dummy = \"not converted\" ">>)
+        end
+    ),
+    {ok, _} = ?ON(N1, emqx_conf:update([dummy], <<"not converted">>, #{override_to => cluster})),
+    %% Sanity check
+    ?assertEqual(<<"not converted">>, ?ON(N1, emqx_config:get_raw([dummy]))),
+
+    Auth = ?config(auth, TCConfig),
+    Body = #{
+        <<"table_sets">> => [],
+        <<"root_keys">> => [<<"dummy">>]
+    },
+    Resp = export_backup2(?NODE1_PORT, Auth, Body),
+    {200, #{<<"filename">> := Filepath}} = Resp,
+
+    %% Now, we emulate the behavior of a new node version in which there is a schema
+    %% converter for a field present in the old config.  This field shall be converted
+    %% when importing, and the converted value shall be stored in the raw config
+    %% persistent term.
+    ?ON_ALL(Nodes, persistent_term:put(dummy_converter_type, map)),
+    {ok, _} = import_backup(?NODE1_PORT, Auth, Filepath),
+
+    %% The imported config should have been checked **and converted** by the schema.
+    Expected = lists:duplicate(length(Nodes), {ok, #{<<"converted">> => true}}),
+    ?assertEqual(
+        Expected,
+        ?ON_ALL(Nodes, emqx_config:get_raw([dummy]))
+    ),
+    ok.
 
 %% Simple smoke test for cloud export API (export with scoped table set names and root
 %% keys).
@@ -550,7 +601,8 @@ test_case_specific_apps_spec(TC) when
     ];
 test_case_specific_apps_spec(TestCase) when
     TestCase =:= t_export_cloud;
-    TestCase =:= t_export_cloud_ctl
+    TestCase =:= t_export_cloud_ctl;
+    TestCase =:= t_import_checks_config
 ->
     [
         emqx_auth,
@@ -573,3 +625,19 @@ test_case_specific_apps_spec(TestCase) when
     ];
 test_case_specific_apps_spec(_TC) ->
     [].
+
+roots() ->
+    [
+        {dummy,
+            hoconsc:mk(hoconsc:union([map(), binary()]), #{
+                converter => fun dummy_converter/2
+            })}
+    ].
+
+dummy_converter(X, _Opts) ->
+    case persistent_term:get(dummy_converter_type, binary) of
+        binary ->
+            X;
+        map ->
+            #{<<"converted">> => true}
+    end.
