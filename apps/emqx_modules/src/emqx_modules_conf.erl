@@ -212,28 +212,30 @@ cfg_update(Path, Action, Params) ->
 %%--------------------------------------------------------------------
 
 validate_topic_metrics_list(Conf) when is_list(Conf) ->
-    case lists:foldl(fun validate_topic_metrics_entry/2, ok, Conf) of
-        ok -> ok;
-        {error, _} = Error -> Error
-    end;
+    emqx_utils:foldl_while(
+        fun(Entry, ok) ->
+            case validate_topic_metrics_entry(Entry) of
+                ok -> {cont, ok};
+                {error, _} = Error -> {halt, Error}
+            end
+        end,
+        ok,
+        Conf
+    );
 validate_topic_metrics_list(_Other) ->
     ok.
 
-validate_topic_metrics_entry(#{<<"topic">> := Topic}, ok) ->
+validate_topic_metrics_entry(#{<<"topic">> := Topic}) ->
     validate_topic_metric(Topic);
-validate_topic_metrics_entry(#{topic := Topic}, ok) ->
+validate_topic_metrics_entry(#{topic := Topic}) ->
     validate_topic_metric(Topic);
-validate_topic_metrics_entry(_Entry, ok) ->
-    ok;
-validate_topic_metrics_entry(_Entry, {error, _} = Error) ->
-    Error.
+validate_topic_metrics_entry(_Entry) ->
+    ok.
 
-validate_topic_metric(Topic) when is_binary(Topic) ->
+validate_topic_metric(Topic) ->
     case emqx_topic:wildcard(Topic) of
         true ->
             {error, #{cause => wildcard_not_supported, topic => Topic}};
         false ->
             ok
-    end;
-validate_topic_metric(_Other) ->
-    {error, #{cause => wildcard_not_supported, topic => invalid}}.
+    end.
