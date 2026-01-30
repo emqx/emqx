@@ -159,7 +159,7 @@ mode.label:
 """MQTT Bridge Mode"""
 
 password.desc:
-"""The password of the MQTT protocol.  Note that if static clientids are used, this option is ignored."""
+"""The password of the MQTT protocol.  When using static clientids, this value is used if defined, and if there is no specific password associated with the static clientid."""
 
 password.label:
 """Password"""
@@ -197,7 +197,7 @@ server_configs.label:
 """Server Configs"""
 
 username.desc:
-"""The username of the MQTT protocol.  Note that if static clientids are used, this option is ignored."""
+"""The username of the MQTT protocol.  When using static clientids, this value is used if defined, and if there is no specific username associated with the static clientid."""
 
 username.label:
 """Username"""

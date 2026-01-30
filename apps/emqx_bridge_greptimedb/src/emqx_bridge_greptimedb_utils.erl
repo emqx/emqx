@@ -280,6 +280,8 @@ to_raw_value([<<"False">>]) ->
     false;
 to_raw_value([Float]) when is_float(Float) ->
     Float;
+to_raw_value([Int]) when is_integer(Int) ->
+    float(Int);
 to_raw_value(Val0) ->
     case unicode:characters_to_binary(Val0, utf8) of
         Val1 when is_binary(Val1) ->
@@ -318,6 +320,8 @@ value_type([<<"False">>]) ->
     greptimedb_values:boolean_value(false);
 value_type([Float]) when is_float(Float) ->
     Float;
+value_type([Int]) when is_integer(Int) ->
+    greptimedb_values:float64_value(Int);
 value_type(Val0) ->
     Val =
         case unicode:characters_to_binary(Val0, utf8) of

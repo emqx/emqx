@@ -597,6 +597,16 @@ fields("node") ->
                     desc => ?DESC(node_dist_net_ticktime)
                 }
             )},
+        {"dist_bind_address",
+            sc(
+                string(),
+                #{
+                    required => false,
+                    'readOnly' => true,
+                    importance => ?IMPORTANCE_LOW,
+                    desc => ?DESC(node_dist_bind_address)
+                }
+            )},
         {"backtrace_depth",
             sc(
                 integer(),
@@ -1259,11 +1269,48 @@ translation("prometheus") ->
     ];
 translation("vm_args") ->
     [
-        {"+P", fun tr_vm_args_process_limit/1}
+        {"+P", fun tr_vm_args_process_limit/1},
+        {"-kernel inet_dist_use_interface", fun tr_vm_args_dist_bind_address/1}
     ].
 
 tr_vm_args_process_limit(Conf) ->
     2 * conf_get("node.max_ports", Conf, ?DEFAULT_MAX_PORTS).
+
+tr_vm_args_dist_bind_address(Conf) ->
+    %% Try accessing via node first (like max_ports does)
+    %% If that doesn't work, try emqx since node has translate_to => ["emqx"]
+    case conf_get("node.dist_bind_address", Conf, undefined) of
+        undefined ->
+            case conf_get("emqx.dist_bind_address", Conf, undefined) of
+                undefined ->
+                    undefined;
+                Addr when is_binary(Addr) ->
+                    tr_vm_args_dist_bind_address_parse(binary_to_list(Addr));
+                Addr when is_list(Addr) ->
+                    tr_vm_args_dist_bind_address_parse(Addr);
+                Addr ->
+                    throw(#{bad_ip_address => Addr, cause => "not_a_string"})
+            end;
+        Addr when is_binary(Addr) ->
+            tr_vm_args_dist_bind_address_parse(binary_to_list(Addr));
+        Addr when is_list(Addr) ->
+            tr_vm_args_dist_bind_address_parse(Addr);
+        Addr ->
+            throw(#{bad_ip_address => Addr, cause => "not_a_string"})
+    end.
+
+tr_vm_args_dist_bind_address_parse(Addr) ->
+    case inet:parse_address(Addr) of
+        {ok, Tuple} ->
+            %% Convert tuple to atom string representation for VM args
+            %% Erlang's inet_dist_use_interface in VM args expects an atom representation
+            lists:flatten(io_lib:format("~0p", [Tuple]));
+        {error, Reason} ->
+            throw(#{
+                bad_ip_address => Addr,
+                cause => Reason
+            })
+    end.
 
 tr_prometheus_collectors(Conf) ->
     [

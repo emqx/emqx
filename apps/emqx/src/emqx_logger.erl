@@ -65,6 +65,8 @@
 
 -define(STOPPED_HANDLERS, {?MODULE, stopped_handlers}).
 
+-define(MAX_PROCMETA_STRING_LEN, 64).
+
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
@@ -127,24 +129,32 @@ critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
 
 -spec set_metadata_clientid(emqx_types:clientid()) -> ok.
-set_metadata_clientid(<<>>) ->
+set_metadata_clientid(ClientId) when ClientId =:= undefined orelse ClientId =:= <<>> ->
     ok;
 set_metadata_clientid(ClientId) ->
-    set_proc_metadata(#{clientid => ClientId}).
+    ClientIdSafe = truncate_procmeta_string(ClientId),
+    proc_lib:set_label({clientid, ClientIdSafe}),
+    logger:update_process_metadata(#{clientid => ClientIdSafe}).
 
 -spec set_metadata_username(emqx_types:username()) -> ok.
 set_metadata_username(Username) when Username =:= undefined orelse Username =:= <<>> ->
     ok;
 set_metadata_username(Username) ->
-    set_proc_metadata(#{username => Username}).
+    logger:update_process_metadata(#{username => truncate_procmeta_string(Username)}).
 
 -spec set_metadata_peername(peername_str()) -> ok.
 set_metadata_peername(Peername) ->
     set_proc_metadata(#{peername => Peername}).
 
--spec set_proc_metadata(logger:metadata()) -> ok.
+-spec set_proc_metadata(list({atom(), _}) | logger:metadata()) -> ok.
+set_proc_metadata(Meta) when is_list(Meta) ->
+    logger:update_process_metadata(
+        maps:from_list([KV || KV = {_, V} <- Meta, V =/= undefined andalso V =/= <<>>])
+    );
 set_proc_metadata(Meta) ->
-    logger:update_process_metadata(Meta).
+    logger:update_process_metadata(
+        maps:filter(fun(_, V) -> V =/= undefined andalso V =/= <<>> end, Meta)
+    ).
 
 -spec get_primary_log_level() -> logger:level().
 get_primary_log_level() ->
@@ -247,6 +257,17 @@ set_log_level(Level) ->
 %% Internal Functions
 %%--------------------------------------------------------------------
 
+%% Truncate process label / metadata value to a small-ish binary.
+%% Namely, MQTT Client ID can be potentially very long, and we:
+%% * do not want to store a copy of it,
+%% * do not want to reporting / logging facilities to handle it.
+truncate_procmeta_string(S) when not is_binary(S) ->
+    S;
+truncate_procmeta_string(S) when byte_size(S) < ?MAX_PROCMETA_STRING_LEN ->
+    S;
+truncate_procmeta_string(S) ->
+    binary:copy(string:slice(S, 0, ?MAX_PROCMETA_STRING_LEN)).
+
 log_handler_info(
     #{
         id := Id,
@@ -296,19 +317,19 @@ log_handler_info(#{id := Id, level := Level, filters := Filters}, Status) ->
 set_all_log_handlers_level(Level) ->
     set_all_log_handlers_level(get_log_handlers(), Level, []).
 
-set_all_log_handlers_level([#{id := ID, level := Level} | List], NewLevel, ChangeHistory) ->
-    case set_log_handler_level(ID, NewLevel) of
+set_all_log_handlers_level([#{id := Id, level := Level} | List], NewLevel, ChangeHistory) ->
+    case set_log_handler_level(Id, NewLevel) of
         ok ->
-            set_all_log_handlers_level(List, NewLevel, [{ID, Level} | ChangeHistory]);
+            set_all_log_handlers_level(List, NewLevel, [{Id, Level} | ChangeHistory]);
         {error, Error} ->
             rollback(ChangeHistory),
-            {error, {handlers_logger_level, {ID, Error}}}
+            {error, {handlers_logger_level, {Id, Error}}}
     end;
 set_all_log_handlers_level([], _NewLevel, _NewHanlder) ->
     ok.
 
-rollback([{ID, Level} | List]) ->
-    _ = set_log_handler_level(ID, Level),
+rollback([{Id, Level} | List]) ->
+    _ = set_log_handler_level(Id, Level),
     rollback(List);
 rollback([]) ->
     ok.

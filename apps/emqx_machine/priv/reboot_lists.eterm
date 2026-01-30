@@ -57,6 +57,7 @@
             emqx_ldap,
             emqx_auth_ldap,
             emqx_auto_subscribe,
+            emqx_setopts,
             emqx_gateway,
             emqx_gateway_stomp,
             emqx_gateway_mqttsn,

@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TOPIC1, <<"api_topic1">>).
 -define(TOPIC2, <<"api_topic2">>).
@@ -32,6 +33,7 @@ init_per_group(persistence_disabled, Config) ->
     Apps = emqx_cth_suite:start(
         [
             emqx,
+            emqx_setopts,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
@@ -44,7 +46,7 @@ init_per_group(persistence_enabled, Config) ->
         <<"checkpoint_interval">> => <<"100ms">>
     },
     Opts = #{durable_sessions_opts => DurableSessionsOpts},
-    ExtraApps = [emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
+    ExtraApps = [emqx_setopts, emqx_management, emqx_mgmt_api_test_util:emqx_dashboard()],
     emqx_common_test_helpers:start_apps_ds(Config, ExtraApps, Opts).
 
 end_per_group(persistence_enabled, Config) ->
@@ -109,6 +111,28 @@ t_publish_api(_) ->
     ResponseMap2 = decode_json(Response2),
     ?assertEqual([<<"id">>], lists:sort(maps:keys(ResponseMap2))),
     ?assertEqual(ok, element(1, receive_assert(?TOPIC2, 0, Payload))).
+
+t_publish_api_keepalive_single({init, Config}) ->
+    Config;
+t_publish_api_keepalive_single({'end', _Config}) ->
+    ok;
+t_publish_api_keepalive_single(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(["publish"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Topic = <<"$SETOPTS/mqtt/keepalive">>,
+    Body = #{topic => Topic, payload => <<"10">>},
+    ?check_trace(
+        begin
+            {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
+            ResponseMap = decode_json(Response),
+            ?assertMatch(#{<<"message">> := <<"no_matching_subscribers">>}, ResponseMap),
+            {ok, _} = ?block_until(
+                #{?snk_kind := keepalive_update_single_forbidden},
+                1000
+            )
+        end,
+        []
+    ).
 
 t_publish_no_subscriber({init, Config}) ->
     Config;
@@ -249,6 +273,43 @@ t_publish_bulk_api(_) ->
     ),
     ?assertEqual(ok, element(1, receive_assert(?TOPIC1, 0, Payload))),
     ?assertEqual(ok, element(1, receive_assert(?TOPIC2, 0, Payload))).
+
+t_publish_bulk_api_keepalive({init, Config}) ->
+    Config;
+t_publish_bulk_api_keepalive({'end', _Config}) ->
+    ok;
+t_publish_bulk_api_keepalive(_) ->
+    ClientId1 = <<"api_keepalive_bulk_1">>,
+    ClientId2 = <<"api_keepalive_bulk_2">>,
+    {ok, C1} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId1)}]),
+    {ok, C2} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId2)}]),
+    {ok, _} = emqtt:connect(C1),
+    {ok, _} = emqtt:connect(C2),
+    Path = emqx_mgmt_api_test_util:api_path(["publish", "bulk"]),
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    Body = [
+        #{
+            topic => <<"$SETOPTS/mqtt/keepalive">>,
+            payload => <<"7">>
+        },
+        #{
+            topic => <<"$SETOPTS/mqtt/keepalive">>,
+            payload => <<"9">>
+        }
+    ],
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
+    ResponseList = decode_json(Response),
+    ?assertEqual(2, erlang:length(ResponseList)),
+    lists:foreach(
+        fun(ResponseMap) ->
+            ?assertMatch(#{<<"message">> := <<"no_matching_subscribers">>}, ResponseMap)
+        end,
+        ResponseList
+    ),
+    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId1, 5, 2000)),
+    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId2, 5, 2000)),
+    ok = emqtt:stop(C1),
+    ok = emqtt:stop(C2).
 
 t_publish_no_subscriber_bulk({init, Config}) ->
     Config;
@@ -425,3 +486,15 @@ receive_assert(Topic, Qos, Payload) ->
 
 decode_json(In) ->
     emqx_utils_json:decode(In).
+
+wait_for_keepalive(ClientId, Expected, TimeoutMs) ->
+    Info = emqx_cm:get_chan_info(ClientId),
+    case Info of
+        #{conninfo := #{keepalive := Expected}} ->
+            Info;
+        _ when TimeoutMs > 0 ->
+            ct:sleep(50),
+            wait_for_keepalive(ClientId, Expected, TimeoutMs - 50);
+        _ ->
+            Info
+    end.

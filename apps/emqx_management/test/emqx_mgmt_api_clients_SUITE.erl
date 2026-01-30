@@ -1042,23 +1042,31 @@ t_keepalive(Config) ->
         emqx_cth_broker:connection_info({channel, keepalive}, list_to_binary(ClientId))
     ),
 
-    ?assertMatch(
-        {ok, {?HTTP200, _, #{<<"keepalive">> := 11}}},
-        request(put, Path, Body, Config)
-    ),
-    ?assertMatch(
-        #{conninfo := #{keepalive := 11}},
-        emqx_connection:info(Pid)
-    ),
+    ?retry(200, 10, begin
+        ?assertMatch(
+            {ok, {?HTTP200, _, #{<<"keepalive">> := 11}}},
+            request(put, Path, Body, Config)
+        )
+    end),
+    ?retry(200, 10, begin
+        ?assertMatch(
+            #{conninfo := #{keepalive := 11}},
+            emqx_connection:info(Pid)
+        )
+    end),
     %% Disable keepalive
-    ?assertMatch(
-        {ok, {?HTTP200, _, #{<<"keepalive">> := 0}}},
-        request(put, Path, #{interval => 0}, Config)
-    ),
-    ?assertMatch(
-        #{conninfo := #{keepalive := 0}},
-        emqx_connection:info(Pid)
-    ),
+    ?retry(200, 10, begin
+        ?assertMatch(
+            {ok, {?HTTP200, _, #{<<"keepalive">> := 0}}},
+            request(put, Path, #{interval => 0}, Config)
+        )
+    end),
+    ?retry(200, 10, begin
+        ?assertMatch(
+            #{conninfo := #{keepalive := 0}},
+            emqx_connection:info(Pid)
+        )
+    end),
     %% Maximal keepalive
     ?assertMatch(
         {error, {?HTTP400, _, #{<<"code">> := <<"BAD_REQUEST">>}}},

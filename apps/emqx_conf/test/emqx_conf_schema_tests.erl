@@ -851,3 +851,72 @@ check_desc_test() ->
         #{reason := "table_sets_desc_needs_update"},
         emqx_conf:check_dynamic_desc()
     ).
+
+%% erlfmt-ignore
+dist_bind_address_test_() ->
+    ensure_acl_conf(),
+    [
+        {"dist_bind_address not set returns undefined", fun() ->
+            DistBindAddr = get_dist_bind_address_from_conf(undefined),
+            ?assertEqual(undefined, DistBindAddr)
+        end},
+        {"dist_bind_address with IPv4 address formats correctly", fun() ->
+            assert_dist_bind_address("192.168.1.100", "{192,168,1,100}")
+        end},
+        {"dist_bind_address with IPv6 localhost formats correctly", fun() ->
+            assert_dist_bind_address("::1", "{0,0,0,0,0,0,0,1}")
+        end},
+        {"dist_bind_address with IPv6 full address formats correctly", fun() ->
+            assert_dist_bind_address("2001:0db8:85a3:0000:0000:8a2e:0370:7334", "{8193,3512,34211,0,0,35374,880,29492}")
+        end},
+        {"dist_bind_address with IPv6 compressed address formats correctly", fun() ->
+            assert_dist_bind_address("2001:db8::1", "{8193,3512,0,0,0,0,0,1}")
+        end},
+        {"dist_bind_address with IPv6 link-local address formats correctly", fun() ->
+            assert_dist_bind_address("fe80::1", "{65152,0,0,0,0,0,0,1}")
+        end},
+        {"dist_bind_address with localhost IPv4 formats correctly", fun() ->
+            assert_dist_bind_address("127.0.0.1", "{127,0,0,1}")
+        end},
+        {"dist_bind_address with invalid address throws error", fun() ->
+            BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
+            DistBindConf = "node { dist_bind_address = \"invalid.address\" }",
+            Conf0 = <<BaseConf/binary, (list_to_binary(DistBindConf))/binary>>,
+            {ok, Conf} = hocon:binary(Conf0, #{format => richmap}),
+            ?assertThrow(
+                {emqx_conf_schema, [
+                    #{
+                        kind := translation_error,
+                        path := "vm_args.-kernel inet_dist_use_interface",
+                        reason := #{
+                            bad_ip_address := _,
+                            cause := _
+                        }
+                    }
+                ]},
+                hocon_tconf:generate(emqx_conf_schema, Conf)
+            )
+        end},
+        {"dist_bind_address with binary string input", fun() ->
+            assert_dist_bind_address("10.0.0.1", "{10,0,0,1}")
+        end}
+    ].
+
+get_dist_bind_address_from_conf(Address) ->
+    BaseConf = to_bin(?BASE_CONF, ["emqx1@127.0.0.1"]),
+    Conf0 =
+        case Address of
+            undefined ->
+                BaseConf;
+            _ ->
+                DistBindConf = "node { dist_bind_address = \"" ++ Address ++ "\" }",
+                <<BaseConf/binary, (list_to_binary(DistBindConf))/binary>>
+        end,
+    {ok, Conf} = hocon:binary(Conf0, #{format => richmap}),
+    ConfList = hocon_tconf:generate(emqx_conf_schema, Conf),
+    VMArgs = proplists:get_value(vm_args, ConfList),
+    proplists:get_value('-kernel inet_dist_use_interface', VMArgs).
+
+assert_dist_bind_address(Address, ExpectedAtomStr) ->
+    DistBindAddr = get_dist_bind_address_from_conf(Address),
+    ?assertEqual(ExpectedAtomStr, DistBindAddr).

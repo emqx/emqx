@@ -351,10 +351,9 @@ run_loop(
         zone = Zone
     }
 ) ->
-    emqx_logger:set_proc_metadata(#{
-        peername => esockd:format(emqx_channel:info(peername, Channel)),
-        connmod => ?MODULE
-    }),
+    Peername = emqx_channel:info(peername, Channel),
+    emqx_logger:set_proc_metadata(#{peername => Peername, connmod => ?MODULE}),
+    proc_lib:set_label({Listener, Peername}),
     ShutdownPolicy = emqx_config:get_zone_conf(Zone, [force_shutdown]),
     _ = emqx_utils:tune_heap_size(ShutdownPolicy),
     _ = set_tcp_keepalive(Listener),
@@ -692,9 +691,14 @@ handle_call(_From, Req, State = #state{channel = Channel}) ->
             shutdown(Reason, Reply, State#state{channel = NChannel});
         {shutdown, Reason, Reply, OutPacket, NChannel} ->
             NState = State#state{channel = NChannel},
-            {ok, NState2} = handle_outgoing(OutPacket, NState),
-            NState3 = graceful_shutdown_transport(Reason, NState2),
-            shutdown(Reason, Reply, NState3)
+            case handle_outgoing(OutPacket, NState) of
+                {ok, NState2} ->
+                    NState3 = graceful_shutdown_transport(Reason, NState2),
+                    shutdown(Reason, Reply, NState3);
+                {ok, {sock_error, _}, NState2} ->
+                    %% Ignore send errors during shutdown to avoid crashing.
+                    shutdown(Reason, Reply, NState2)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -917,8 +921,13 @@ with_channel(Fun, Args, State = #state{channel = Channel}) ->
             shutdown(Reason, State#state{channel = NChannel});
         {shutdown, Reason, Packet, NChannel} ->
             NState = State#state{channel = NChannel},
-            {ok, NState2} = handle_outgoing(Packet, NState),
-            shutdown(Reason, NState2)
+            case handle_outgoing(Packet, NState) of
+                {ok, NState2} ->
+                    shutdown(Reason, NState2);
+                {ok, {sock_error, _}, NState2} ->
+                    %% Ignore send errors during shutdown to avoid crashing.
+                    shutdown(Reason, NState2)
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -1150,6 +1159,9 @@ handle_cast(
             ?tp(error, "failed_to_set_custom_socket_option", #{reason => Err})
     end,
     State;
+handle_cast({keepalive, _Interval} = Req, State = #state{channel = Channel}) ->
+    NChannel = emqx_channel:handle_cast(Req, Channel),
+    State#state{channel = NChannel};
 handle_cast(Req, State) ->
     ?tp(error, "received_unknown_cast", #{cast => Req}),
     State.
