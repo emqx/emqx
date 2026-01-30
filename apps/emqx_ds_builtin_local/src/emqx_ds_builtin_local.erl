@@ -226,7 +226,8 @@ add_generation(DB) ->
 
 otx_add_generation(DB, Shard, Since) ->
     DBShard = {DB, Shard},
-    ok = emqx_ds_storage_layer:add_generation(DBShard, Since),
+    #{storage := Prototype} = emqx_dsch:get_db_schema(DB),
+    ok = emqx_ds_storage_layer:add_generation(DBShard, Since, Prototype),
     emqx_ds_beamformer:generation_event(DBShard).
 
 -spec update_db_config(emqx_ds:db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
@@ -247,20 +248,30 @@ list_slabs(DB, Opts) ->
             #{} ->
                 emqx_ds_builtin_local_meta:shards(DB)
         end,
-    Result = lists:foldl(
-        fun(Shard, Acc) ->
-            maps:fold(
-                fun(GenId, Data, Acc1) ->
-                    Acc1#{{Shard, GenId} => Data}
-                end,
-                Acc,
-                emqx_ds_storage_layer:list_slabs({DB, Shard})
-            )
+    lists:foldl(
+        fun(Shard, {Acc, AccErrors}) ->
+            case emqx_ds_storage_layer:list_slabs({DB, Shard}) of
+                {error, _, _} = Err ->
+                    {
+                        Acc,
+                        [{Shard, Err} | AccErrors]
+                    };
+                Map when is_map(Map) ->
+                    {
+                        maps:fold(
+                            fun(GenId, Data, Acc1) ->
+                                Acc1#{{Shard, GenId} => Data}
+                            end,
+                            Acc,
+                            Map
+                        ),
+                        AccErrors
+                    }
+            end
         end,
-        #{},
+        {#{}, []},
         Shards
-    ),
-    {Result, []}.
+    ).
 
 -spec drop_slab(emqx_ds:db(), emqx_ds:slab()) -> ok | {error, _}.
 drop_slab(DB, {Shard, GenId}) ->
@@ -555,9 +566,8 @@ db_info(_) ->
     {ok, ""}.
 
 -spec handle_db_config_change(emqx_ds:db(), db_runtime_config()) -> ok.
-handle_db_config_change(_, _) ->
-    %% FIXME:
-    ok.
+handle_db_config_change(DB, _) ->
+    emqx_ds_optimistic_tx:config_change(DB).
 
 -spec handle_schema_event(emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:pending()) -> ok.
 handle_schema_event(_DB, PendingId, _Pending) ->

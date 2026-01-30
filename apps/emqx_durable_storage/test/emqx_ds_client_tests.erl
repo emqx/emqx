@@ -14,6 +14,7 @@
 -include("emqx_ds.hrl").
 -include("../src/emqx_ds_client_internals.hrl").
 -include("emqx_ds_client_tests.hrl").
+-include_lib("emqx_utils/include/emqx_record_to_map.hrl").
 
 -define(fake_shards, [<<"0">>, <<"12">>]).
 -define(test_sub_ids, [id1, id2]).

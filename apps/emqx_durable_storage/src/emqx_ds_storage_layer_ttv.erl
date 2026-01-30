@@ -209,8 +209,6 @@
 ) ->
     fun((_MatchCtx) -> boolean()).
 
--define(tx_serial_gvar, tx_serial).
-
 -define(ERR_GEN_GONE, ?err_unrec(generation_not_found)).
 
 %%================================================================================
@@ -263,20 +261,12 @@ lookup(DBShard, Generation, Topic, Time) ->
 
 -spec get_read_tx_serial(emqx_ds_storage_layer:dbshard()) ->
     {ok, emqx_ds_optimistic_tx:serial()} | undefined.
-get_read_tx_serial(DBShard) ->
-    GVars = emqx_ds_storage_layer:get_gvars(DBShard),
-    case ets:lookup(GVars, ?tx_serial_gvar) of
-        [{_, Serial}] ->
-            {ok, Serial};
-        [] ->
-            undefined
-    end.
+get_read_tx_serial({DB, Shard}) ->
+    emqx_dsch:gvar_get(DB, Shard, otx, read_tx_serial).
 
 -spec set_read_tx_serial(emqx_ds_storage_layer:dbshard(), emqx_ds_optimistic_tx:serial()) -> ok.
-set_read_tx_serial(DBShard, Serial) ->
-    GVars = emqx_ds_storage_layer:get_gvars(DBShard),
-    ets:insert(GVars, {?tx_serial_gvar, Serial}),
-    ok.
+set_read_tx_serial({DB, Shard}, Serial) ->
+    emqx_dsch:gvar_set(DB, Shard, otx, read_tx_serial, Serial).
 
 -spec commit_batch(
     emqx_ds_storage_layer:dbshard(),

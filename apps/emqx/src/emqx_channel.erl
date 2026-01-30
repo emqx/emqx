@@ -1114,18 +1114,18 @@ process_kick(
 
 process_maybe_shutdown(
     Reason,
-    Channel =
+    Channel0 =
         #channel{
             clientinfo = ClientInfo,
             conninfo = ConnInfo,
-            session = Session
+            session = Session0
         }
 ) ->
-    {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
-    Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel)),
-    Channel2 = Channel1#channel{session = Session1},
+    {Intent, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
+    Channel1 = Channel0#channel{session = Session},
+    Channel2 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel1)),
     case maybe_shutdown(Reason, Intent, Channel2) of
-        {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
+        {ok, Channel} -> {ok, ?REPLY_EVENT(disconnected), Channel};
         Shutdown -> Shutdown
     end.
 
