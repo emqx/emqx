@@ -419,22 +419,20 @@ reset() ->
 
 reset(Topic) ->
     Nodes = mria:running_nodes(),
-    case emqx_topic_metrics_proto_v1:reset(Nodes, Topic) of
-        {SuccResList, []} ->
-            case
-                lists:filter(
-                    fun
-                        ({error, _}) -> true;
-                        (_) -> false
-                    end,
-                    SuccResList
-                )
-            of
-                [{error, Reason} | _] ->
-                    {error, Reason};
-                [] ->
-                    ok
-            end
+    {SuccResList, []} = emqx_topic_metrics_proto_v1:reset(Nodes, Topic),
+    case
+        lists:filter(
+            fun
+                ({error, _}) -> true;
+                (_) -> false
+            end,
+            SuccResList
+        )
+    of
+        [{error, Reason} | _] ->
+            {error, Reason};
+        [] ->
+            ok
     end.
 
 %%--------------------------------------------------------------------
