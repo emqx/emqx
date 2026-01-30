@@ -1532,11 +1532,15 @@ group_path(Config) ->
     try
         Current = proplists:get_value(tc_group_properties, Config),
         NameF = fun(Props) ->
-            {name, Name} = lists:keyfind(name, 1, Props),
-            Name
+            case lists:keyfind(name, 1, Props) of
+                {name, Name} ->
+                    [Name];
+                false ->
+                    []
+            end
         end,
         Stack = proplists:get_value(tc_group_path, Config),
-        lists:reverse(lists:map(NameF, [Current | Stack]))
+        lists:reverse(lists:flatmap(NameF, [Current | Stack]))
     catch
         _:_ ->
             []

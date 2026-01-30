@@ -39,6 +39,7 @@
     handle_out/3,
     handle_timeout/3,
     handle_call/2,
+    handle_cast/2,
     handle_info/2,
     terminate/2
 ]).
@@ -1501,16 +1502,18 @@ handle_call(discard, Channel) ->
 handle_call(
     {takeover, 'begin'},
     Channel = #channel{
-        session = Session,
+        session = Session0,
         clientinfo = #{clientid := ClientId}
     }
 ) ->
+    %% Called during RPC via `emqx_cm_proto_v{1..3}`, only by `emqx_session_mem`.
     %% NOTE
     %% Ensure channel has enough time left to react to takeover end call. At the same
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
     Interval = interval(expire_takeover, Channel),
     NChannel = reset_timer(expire_session, Interval, Channel),
     ok = emqx_cm:unregister_channel(ClientId),
+    Session = emqx_session_mem:save_subopts(Session0),
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
     {takeover, 'end'},
@@ -1556,7 +1559,19 @@ handle_call(takeover_kick, Channel) ->
     );
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
-handle_call(
+handle_call({Type, _Meta} = MsgsReq, Channel = #channel{session = Session}) when
+    Type =:= mqueue_msgs; Type =:= inflight_msgs
+->
+    {reply, emqx_session:info(MsgsReq, Session), Channel};
+handle_call(Req, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    reply(ignored, Channel).
+
+%%--------------------------------------------------------------------
+%% Handle cast
+
+-spec handle_cast(Req :: term(), channel()) -> channel().
+handle_cast(
     {keepalive, Interval},
     Channel = #channel{
         keepalive = KeepAlive,
@@ -1571,14 +1586,10 @@ handle_call(
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
-    reply(ok, reset_timer(keepalive, NChannel));
-handle_call({Type, _Meta} = MsgsReq, Channel = #channel{session = Session}) when
-    Type =:= mqueue_msgs; Type =:= inflight_msgs
-->
-    {reply, emqx_session:info(MsgsReq, Session), Channel};
-handle_call(Req, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
-    reply(ignored, Channel).
+    reset_timer(keepalive, NChannel);
+handle_cast(Req, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
+    Channel.
 
 %%--------------------------------------------------------------------
 %% Handle Info
@@ -2200,10 +2211,8 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInf
             false ->
                 Tns0
         end,
-    Meta0 = [{clientid, ClientId}, {username, Username}, {tns, Tns}],
-    %% Drop undefined or <<>>
-    Meta = lists:filter(fun({_, V}) -> V =/= undefined andalso V =/= <<>> end, Meta0),
-    emqx_logger:set_proc_metadata(maps:from_list(Meta)).
+    emqx_logger:set_metadata_clientid(ClientId),
+    emqx_logger:set_proc_metadata([{username, Username}, {tns, Tns}]).
 
 get_tenant_namespace(ClientInfo) ->
     Attrs = maps:get(client_attrs, ClientInfo, #{}),

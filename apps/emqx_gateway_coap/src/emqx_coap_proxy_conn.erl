@@ -24,25 +24,40 @@ find_or_create(CId, Transport, Peer, Opts) ->
             emqx_gateway_conn:start_link(Transport, Peer, Opts)
     end.
 
-get_connection_id(_Transport, _Peer, State, Data) ->
+get_connection_id(_Transport, Peer, State, Data) ->
     case parse_incoming(Data, [], State) of
         {[Msg | _] = Packets, NState} ->
-            case emqx_coap_message:extract_uri_query(Msg) of
-                #{
-                    <<"clientid">> := ClientId
-                } ->
-                    {ok, ClientId, Packets, NState};
-                _ ->
-                    ErrMsg = <<"Missing token or clientid in connection mode">>,
-                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
-                    Bin = emqx_coap_frame:serialize_pkt(
-                        Reply, emqx_coap_frame:serialize_opts()
-                    ),
-                    {error, Bin}
+            case Msg of
+                #coap_message{} ->
+                    case emqx_coap_message:extract_uri_query(Msg) of
+                        #{
+                            <<"clientid">> := ClientId
+                        } ->
+                            {ok, ClientId, Packets, NState};
+                        _ ->
+                            %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
+                            {ok, peer_id(Peer), Packets, NState}
+                    end;
+                {coap_ignore, _} ->
+                    %% RFC 7252 Section 3: unknown versions must be silently ignored.
+                    {ok, peer_id(Peer), Packets, NState};
+                {coap_format_error, Type, MsgId, _} ->
+                    %% RFC 7252 Section 4.2: reject CON format errors with Reset.
+                    _ = {Type, MsgId},
+                    %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
+                    {ok, peer_id(Peer), Packets, NState};
+                {coap_request_error, Req, Error} ->
+                    %% RFC 7252 Section 5.4.1/5.8: reply with a 4.xx error for bad requests.
+                    _ = {Req, Error},
+                    %% RFC 7252 Section 4.2: per-message errors must not stop the listener.
+                    {ok, peer_id(Peer), Packets, NState}
             end;
         _Error ->
             invalid
     end.
+
+peer_id(Peer) ->
+    {peer, Peer}.
 
 dispatch(Pid, _State, Packet) ->
     erlang:send(Pid, Packet).

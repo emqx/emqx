@@ -423,6 +423,15 @@ node_dist_net_ticktime.desc:
 node_dist_net_ticktime.label:
 """Dist Net TickTime"""
 
+node_dist_bind_address.desc:
+"""Specify which IP address to use for Erlang distribution.
+This should be an IP address (e.g., "192.168.1.100" for IPv4 or "::1" for IPv6).
+When set, Erlang distribution will bind to the specified IP address.
+Note: If an IPv6 address is used, <code>cluster.proto_dist</code> must be set to <code>inet6_tcp</code>."""
+
+node_dist_bind_address.label:
+"""Dist Bind Address"""
+
 desc_cluster_k8s.desc:
 """Service discovery via Kubernetes API server."""
 

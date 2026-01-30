@@ -86,3 +86,4 @@ apps/emqx_utils/src/emqx_variform_scan.erl
 default-profile.mk
 /_build.*
 __pycache__/
+.agent/

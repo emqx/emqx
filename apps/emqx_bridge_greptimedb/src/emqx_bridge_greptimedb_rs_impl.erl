@@ -91,9 +91,15 @@ callback_mode() ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig) ->
     #{
-        server := Server,
+        server := Server0,
         dbname := Database
     } = ConnConfig,
+    ensure_consistent_ssl_opts(ConnConfig),
+    %% Replicate greptime connector behavior: 4001 is the default port.
+    #{hostname := Host, port := Port} = emqx_schema:parse_server(Server0, #{
+        default_port => 4001
+    }),
+    Server = iolist_to_binary([Host, ":", integer_to_binary(Port)]),
     ClientOpts0 = #{
         pool_name => ConnResId,
         pool_size => erlang:system_info(dirty_io_schedulers),
@@ -461,3 +467,24 @@ handle_async_result_continuation(Context0, Result, NextTable, PointsWithIndices)
     Context = Context0#{last_indices := NextIndices, final_res := ResAcc},
     ReplyFnAndArgs = {fun ?MODULE:reply_callback/2, [Context]},
     greptimedb_rs:insert_async(Client, NextTable, Points, ReplyFnAndArgs).
+
+ensure_consistent_ssl_opts(#{ssl := #{enable := true} = SSLOpts} = _ConnConfig) ->
+    AnyMissing =
+        lists:any(
+            fun(Key) -> is_blank_or_missing(Key, SSLOpts) end,
+            [cacertfile, certfile, keyfile]
+        ),
+    case AnyMissing of
+        true ->
+            throw(<<
+                "cacertfile, certfile and keyfile SSL options must be configured"
+                " when SSL is enabled."
+            >>);
+        false ->
+            ok
+    end;
+ensure_consistent_ssl_opts(_ConnConfig) ->
+    ok.
+
+is_blank_or_missing(Key, Cfg) ->
+    <<"">> == maps:get(Key, Cfg, <<"">>).

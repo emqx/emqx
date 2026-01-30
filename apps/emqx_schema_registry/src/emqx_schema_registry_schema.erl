@@ -175,6 +175,11 @@ fields(external_http_params) ->
     [
         {url, mk(binary(), #{required => true, desc => ?DESC("external_http_url")})},
         {headers, mk(map(), #{default => #{}, desc => ?DESC("external_http_headers")})},
+        {method,
+            mk(
+                hoconsc:enum([post, get]),
+                #{default => post, desc => ?DESC(emqx_bridge_http_connector, "method")}
+            )},
         {max_retries,
             mk(non_neg_integer(), #{
                 default => 2, desc => ?DESC(emqx_bridge_http_schema, "config_max_retries")
