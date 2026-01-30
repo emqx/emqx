@@ -109,6 +109,7 @@ t_lookup_read(Config) ->
 
     timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
+    wait_client_ready(Epn),
 
     %% step2,  send a READ command to device
     CmdId = 206,
@@ -156,6 +157,7 @@ t_lookup_discover(Config) ->
     timer:sleep(200),
 
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+    wait_client_ready(Epn),
 
     %% step2,  send a WRITE command to device
     CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
@@ -209,6 +211,7 @@ t_lookup_discover_unknown_object(Config) ->
     timer:sleep(200),
 
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, send a DISCOVER command to device
     CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
@@ -253,6 +256,7 @@ t_lookup_discover_obj_instance(Config) ->
     timer:sleep(200),
 
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, send a DISCOVER command to device
     CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
@@ -295,6 +299,7 @@ t_lookup_discover_operations_e(Config) ->
     timer:sleep(200),
 
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, send a DISCOVER command to device
     CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
@@ -343,6 +348,7 @@ t_lookup_content_empty(Config) ->
     timer:sleep(200),
 
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, send a WRITE command and return changed
     CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
@@ -385,6 +391,7 @@ t_lookup_discover_empty_object_list(Config) ->
     timer:sleep(200),
 
     std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, send a DISCOVER command with single link
     CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
@@ -443,6 +450,7 @@ t_observe_enable(Config) ->
 
     timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, call observe API (enable=true)
     ?assertMatch({204, []}, call_send_api(Epn, "observe", "path=/3/0/1&enable=true")),
@@ -496,6 +504,7 @@ t_read(Config) ->
 
     timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, call Read API
     ?assertMatch({204, []}, call_send_api(Epn, "read", "path=/3/0/0")),
@@ -532,6 +541,7 @@ t_write(Config) ->
 
     timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, call write API
     ?assertMatch({204, []}, call_send_api(Epn, "write", "path=/3/0/13&type=Integer&value=123")),
@@ -569,6 +579,7 @@ t_observe(Config) ->
 
     timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, call observe API
     ?assertMatch({204, []}, call_send_api(Epn, "observe", "path=/3/0/1&enable=false")),
@@ -606,6 +617,7 @@ t_observe_enable_numeric(Config) ->
 
     timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
+    wait_client_ready(Epn),
 
     %% step2, call observe API (enable=1)
     ?assertMatch({204, []}, call_send_api(Epn, "observe", "path=/3/0/1&enable=1")),
@@ -668,6 +680,7 @@ t_observe_enable_types(Config) ->
 
     timer:sleep(100),
     test_recv_mqtt_response(RespTopic),
+    wait_client_ready(Epn),
 
     ClientId = list_to_binary(Epn),
     Path = <<"/3/0/1">>,
@@ -745,6 +758,22 @@ call_send_api(ClientId, Cmd, Query, API) ->
     ),
     ?LOGT("rest api response:~ts~n", [Response]),
     {StatusCode, Response}.
+
+wait_client_ready(ClientId0) ->
+    ClientId = normalize_client_id(ClientId0),
+    ok = emqx_common_test_helpers:wait_for(
+        ?FUNCTION_NAME,
+        ?LINE,
+        fun() ->
+            [] =/= emqx_gateway_cm_registry:lookup_channels(lwm2m, ClientId)
+        end,
+        5000
+    ).
+
+normalize_client_id(ClientId) when is_binary(ClientId) ->
+    ClientId;
+normalize_client_id(ClientId) when is_list(ClientId) ->
+    list_to_binary(ClientId).
 
 no_received_request(ClientId, Path, Action) ->
     Response = call_lookup_api(ClientId, Path, Action),
