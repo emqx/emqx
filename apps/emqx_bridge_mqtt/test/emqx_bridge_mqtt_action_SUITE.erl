@@ -39,6 +39,7 @@ For cases where a single connector has both actions and sources, see
 -define(namespaced, namespaced).
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
+-define(ON_ALL(NODES, BODY), erpc:multicall(NODES, fun() -> BODY end)).
 
 -define(NS, <<"some_namespace">>).
 
@@ -188,10 +189,17 @@ init_per_testcase(TestCase, TCConfig) ->
         | TCConfig
     ].
 
-end_per_testcase(_TestCase, _TCConfig) ->
+end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    maybe
+        {nodes, Nodes} ?= lists:keyfind(nodes, 1, TCConfig),
+        ?ON_ALL(Nodes, begin
+            emqx_bridge_v2_testlib:delete_all_rules(),
+            emqx_bridge_v2_testlib:delete_all_bridges_and_connectors()
+        end)
+    end,
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -566,6 +574,81 @@ t_static_clientids(TCConfig) ->
         maps:from_list([{N, ?ON(N, emqx_bridge_v2_testlib:get_rule_metrics(RuleId))} || N <- Nodes])
     ),
 
+    ok.
+
+t_static_clientids_inherit_credentials() ->
+    [{matrix, true}].
+t_static_clientids_inherit_credentials(matrix) ->
+    [[?cluster]];
+t_static_clientids_inherit_credentials(TCConfig) ->
+    [N1 | _] = Nodes = get_config(nodes, TCConfig),
+    [N1Bin, N2Bin, N3Bin] = lists:map(fun atom_to_binary/1, Nodes),
+    Port = get_tcp_mqtt_port(N1),
+    ct:pal("creating connector"),
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(TCConfig, #{
+                <<"server">> => <<"127.0.0.1:", (integer_to_binary(Port))/binary>>,
+                <<"username">> => <<"root_user">>,
+                <<"password">> => <<"root_pass">>,
+                <<"static_clientids">> =>
+                    [
+                        #{<<"node">> => N1Bin, <<"ids">> => [<<"1">>]},
+                        #{
+                            <<"node">> => N2Bin,
+                            <<"ids">> => [
+                                #{
+                                    <<"clientid">> => <<"2">>,
+                                    <<"username">> => <<"specific_user2">>,
+                                    <<"password">> => <<"specific_pass2">>
+                                }
+                            ]
+                        },
+                        #{
+                            <<"node">> => N3Bin,
+                            <<"ids">> => [
+                                #{
+                                    <<"clientid">> => <<"3">>,
+                                    <<"username">> => <<"specific_user3">>
+                                }
+                            ]
+                        }
+                    ]
+            })
+        end,
+        fun(Trace) ->
+            SubTrace = ?of_kind("mqtt_emqtt_client_about_to_start", Trace),
+            Opts0 = lists:map(fun(#{opts := Opts}) -> Opts end, SubTrace),
+            Opts = lists:sort(fun(#{clientid := C1}, #{clientid := C2}) -> C1 =< C2 end, Opts0),
+            ?assertMatch(
+                [
+                    #{
+                        clientid := <<"1">>,
+                        username := <<"root_user">>,
+                        password := _
+                    },
+                    #{
+                        clientid := <<"2">>,
+                        username := <<"specific_user2">>,
+                        password := _
+                    },
+                    #{
+                        clientid := <<"3">>,
+                        username := <<"specific_user3">>,
+                        password := _
+                    }
+                ],
+                lists:map(fun(O) -> maps:with([clientid, username, password], O) end, Opts)
+            ),
+            [C1, C2, C3] = Opts,
+            ?assertEqual(<<"root_pass">>, emqx_secret:unwrap(maps:get(password, C1)), #{opts => C1}),
+            ?assertEqual(<<"specific_pass2">>, emqx_secret:unwrap(maps:get(password, C2)), #{
+                opts => C2
+            }),
+            ?assertEqual(<<"root_pass">>, emqx_secret:unwrap(maps:get(password, C3)), #{opts => C3}),
+            ok
+        end
+    ),
     ok.
 
 t_rule_test_trace() ->
@@ -1242,9 +1325,6 @@ t_static_clientids_username_password_tuples(TCConfig) ->
     ?check_trace(
         begin
             {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-                %% Root username and password are ignored if static clientids are used.
-                <<"username">> => <<"should_not_use_this">>,
-                <<"password">> => <<"should_not_use_this">>,
                 <<"static_clientids">> => [
                     #{
                         <<"node">> => NodeBin,
@@ -1328,9 +1408,6 @@ Checks that we correctly deobfuscate passwords inside the static clientid tuple 
 t_static_clientids_username_password_tuples_deobfuscate(TCConfig) ->
     NodeBin = atom_to_binary(node()),
     {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{
-        %% Root username and password are ignored if static clientids are used.
-        <<"username">> => <<"should_not_use_this">>,
-        <<"password">> => <<"should_not_use_this">>,
         <<"static_clientids">> => [
             #{
                 <<"node">> => NodeBin,
@@ -1357,8 +1434,6 @@ t_static_clientids_username_password_tuples_deobfuscate(TCConfig) ->
     ?check_trace(
         begin
             Overrides = #{
-                <<"username">> => <<"should_not_use_this">>,
-                <<"password">> => <<"should_not_use_this">>,
                 <<"static_clientids">> => [
                     #{
                         <<"node">> => NodeBin,
