@@ -29,6 +29,7 @@
     '/certs/ns/:namespace/list'/2,
     '/certs/ns/:namespace/name/:name'/2
 ]).
+-export([ns_bundle_filter/2]).
 
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
@@ -134,6 +135,7 @@ schema("/certs/ns/:namespace/list") ->
 schema("/certs/ns/:namespace/name/:name") ->
     #{
         'operationId' => '/certs/ns/:namespace/name/:name',
+        filter => fun ?MODULE:ns_bundle_filter/2,
         get => #{
             tags => ?TAGS,
             description => ?DESC("ns_file_list"),
@@ -444,6 +446,20 @@ handle_upload_files(Namespace, BundleName, Files) ->
                     ?INTERNAL_ERROR(Errors)
             end
     end.
+
+ns_bundle_filter(Req, #{method := post} = _Meta) ->
+    #{bindings := #{namespace := Namespace}} = Req,
+    Res = emqx_hooks:run_fold('namespace.resource_pre_create', [#{namespace => Namespace}], #{
+        exists => false
+    }),
+    case Res of
+        #{exists := false} ->
+            ?BAD_REQUEST(<<"Managed namespace not found">>);
+        #{exists := true} ->
+            {ok, Req}
+    end;
+ns_bundle_filter(Req, _Meta) ->
+    {ok, Req}.
 
 does_acc_key_exist(Namespace, BundleName) ->
     case emqx_managed_certs:list_managed_files(Namespace, BundleName) of

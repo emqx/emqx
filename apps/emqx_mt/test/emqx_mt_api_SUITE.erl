@@ -13,6 +13,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_mt.hrl").
+-include_lib("emqx/include/emqx_managed_certs.hrl").
 
 -define(NEW_CLIENTID(I),
     iolist_to_binary("c-" ++ atom_to_list(?FUNCTION_NAME) ++ "-" ++ integer_to_list(I))
@@ -25,6 +26,8 @@
 
 -define(MAX_NUM_TNS_CONFIGS, 1_000).
 -define(AUTH_HEADER_PD_KEY, {?MODULE, auth_header}).
+
+-define(FILE_KIND_CA_BIN, atom_to_binary(?FILE_KIND_CA)).
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 
@@ -457,6 +460,43 @@ wait_downs(Refs0, Timeout) ->
     after Timeout ->
         ct:fail("processes didn't die; remaining: ~b", [map_size(Refs0)])
     end.
+
+gen_cert(Opts) ->
+    #{
+        cert := Cert,
+        key := Key,
+        cert_pem := CertPEM,
+        key_pem := KeyPEM
+    } = emqx_cth_tls:gen_cert_pem(Opts),
+    #{
+        cert_key => {Cert, Key},
+        cert_pem => CertPEM,
+        key_pem => KeyPEM
+    }.
+
+upload_file_ns(Ns, BundleName, Kind, Contents) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
+    Body = #{Kind => Contents},
+    simple_request(#{
+        method => post,
+        url => URL,
+        body => Body
+    }).
+
+delete_bundle_ns(Ns, BundleName) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
+    simple_request(#{
+        method => delete,
+        url => URL
+    }).
+
+delete_file_ns(Ns, BundleName, Kind) ->
+    URL = emqx_mgmt_api_test_util:api_path(["certs", "ns", Ns, "name", BundleName]),
+    simple_request(#{
+        method => delete,
+        url => URL,
+        query_params => #{<<"kind">> => Kind}
+    }).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -1561,5 +1601,31 @@ t_namespaced_metrics(_TCConfig) ->
         }},
         get_metrics(Namespace)
     ),
+
+    ok.
+
+-doc """
+Verifies that we check whether a namespace exists before uploading managed certs.
+""".
+t_managed_certs_inexistent_ns(_TCConfig) ->
+    on_exit(fun emqx_managed_certs:clean_certs_dir/0),
+    Ns = <<"i_dont_exist">>,
+    Bundle = <<"some_bundle">>,
+
+    #{
+        cert_pem := CA
+    } = gen_cert(#{key => ec, issuer => root}),
+
+    %% Can delete even if ns is absent (potentially to cleanup)
+    ?assertMatch({204, _}, delete_file_ns(Ns, Bundle, ?FILE_KIND_CA_BIN)),
+    ?assertMatch({204, _}, delete_bundle_ns(Ns, Bundle)),
+
+    ?assertMatch(
+        {400, #{<<"message">> := <<"Managed namespace not found">>}},
+        upload_file_ns(Ns, Bundle, ?FILE_KIND_CA, CA)
+    ),
+
+    {204, _} = create_managed_ns(Ns),
+    ?assertMatch({204, _}, upload_file_ns(Ns, Bundle, ?FILE_KIND_CA, CA)),
 
     ok.
