@@ -7,14 +7,6 @@
 -include_lib("eunit/include/eunit.hrl").
 
 set_tns_in_log_meta_test_() ->
-    PdKey = '$logger_metadata$',
-    Original = get(PdKey),
-    Set = fun(Cinfo) ->
-        Ch = emqx_channel:dummy(),
-        Ch1 = emqx_channel:set_field(clientinfo, Cinfo, Ch),
-        emqx_channel:set_log_meta(dummy, Ch1)
-    end,
-    Restore = fun() -> put(PdKey, Original) end,
     NoTns = #{
         clientid => <<"id1">>,
         client_attrs => #{<<"not_tns">> => <<"tns1">>},
@@ -30,6 +22,7 @@ set_tns_in_log_meta_test_() ->
         ),
         ?assertNot(maps:is_key(tns, M))
     end,
+
     Prefixed = #{
         clientid => <<"tns1-id1">>,
         client_attrs => #{<<"tns">> => <<"tns1">>},
@@ -62,6 +55,7 @@ set_tns_in_log_meta_test_() ->
             ),
             ?assertNot(maps:is_key(tns, M))
         end,
+
     TnsAdded = #{
         clientid => <<"id4">>,
         client_attrs => #{<<"tns">> => <<"tns1">>},
@@ -77,22 +71,19 @@ set_tns_in_log_meta_test_() ->
             M
         )
     end,
-    Run = fun(Cinfo, CheckFn) ->
-        Set(Cinfo),
-        try
-            CheckFn(get(PdKey))
-        after
-            Restore()
-        end
-    end,
-    MakeTestFn = fun(Cinfo, CheckFn) ->
-        fun() ->
-            Run(Cinfo, CheckFn)
-        end
+
+    Test = fun(CInfo, TestFn) ->
+        Ch0 = emqx_channel:dummy(),
+        Ch1 = emqx_channel:set_field(clientinfo, CInfo, Ch0),
+        ok = emqx_channel:set_log_meta(dummy, Ch1),
+        TestFn(logger:get_process_metadata())
     end,
     [
-        {"tns-added", MakeTestFn(TnsAdded, TnsAddedFn)},
-        {"username as tns", MakeTestFn(Username, UsernameFn)},
-        {"tns prefixed clientid", MakeTestFn(Prefixed, PrefixedFn)},
-        {"no tns", MakeTestFn(NoTns, NoTnsFn)}
+        {spawn, {Title, ?_test(Test(CInfo, TestFn))}}
+     || {Title, CInfo, TestFn} <- [
+            {"tns-added", TnsAdded, TnsAddedFn},
+            {"username as tns", Username, UsernameFn},
+            {"tns prefixed clientid", Prefixed, PrefixedFn},
+            {"no tns", NoTns, NoTnsFn}
+        ]
     ].

@@ -287,16 +287,16 @@ get_pool_size(#{pool_size := PoolSize}) ->
     PoolSize.
 
 get_available_clientid_info(#{} = Conf, ClientOpts) ->
+    CommonCreds = maps:with([username, password], ClientOpts),
     case find_my_static_clientid_info(Conf) of
         {ok, Info} ->
-            Info;
+            lists:map(fun(I) -> maps:merge(CommonCreds, I) end, Info);
         error ->
             #{pool_size := PoolSize} = Conf,
             #{clientid := ClientIdPrefix} = ClientOpts,
             lists:map(
                 fun(WorkerId) ->
-                    Opts = maps:with([username, password], ClientOpts),
-                    Opts#{clientid => mk_clientid(WorkerId, ClientIdPrefix)}
+                    CommonCreds#{clientid => mk_clientid(WorkerId, ClientIdPrefix)}
                 end,
                 lists:seq(1, PoolSize)
             )
