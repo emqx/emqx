@@ -18,11 +18,7 @@
 ]).
 
 -export([
-    process_info_keys/0,
-    get_process_info/0,
     get_process_info/1,
-    process_gc_info_keys/0,
-    get_process_gc_info/0,
     get_process_gc_info/1,
     get_process_limit/0
 ]).
@@ -55,30 +51,25 @@
 ]).
 
 -define(PROCESS_INFO_KEYS, [
+    registered_name,
     initial_call,
     current_stacktrace,
-    registered_name,
     status,
     message_queue_len,
     group_leader,
     priority,
     trap_exit,
     reductions,
-    %%binary,
     last_calls,
-    catchlevel,
-    trace,
-    suspending,
-    sequential_trace_token,
-    error_handler
+    suspending
+    | ?PROCESS_GC_KEYS
 ]).
 
 -define(PROCESS_GC_KEYS, [
     memory,
     total_heap_size,
     heap_size,
-    stack_size,
-    min_heap_size
+    stack_size
 ]).
 
 -define(SYSTEM_INFO_KEYS, [
@@ -285,19 +276,9 @@ container_value(Props, Pos, Type, Container) ->
     TypeProps = proplists:get_value(Type, Props),
     element(Pos, lists:keyfind(Container, 1, TypeProps)).
 
-process_info_keys() ->
-    ?PROCESS_INFO_KEYS.
-
-get_process_info() ->
-    get_process_info(self()).
 get_process_info(Pid) when is_pid(Pid) ->
     process_info(Pid, ?PROCESS_INFO_KEYS).
 
-process_gc_info_keys() ->
-    ?PROCESS_GC_KEYS.
-
-get_process_gc_info() ->
-    get_process_gc_info(self()).
 get_process_gc_info(Pid) when is_pid(Pid) ->
     process_info(Pid, ?PROCESS_GC_KEYS).
 

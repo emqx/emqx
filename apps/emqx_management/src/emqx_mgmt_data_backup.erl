@@ -39,6 +39,9 @@
     parse_export_request/1
 ]).
 
+%% Only exposed for tests/mocking.
+-export([conf_keys/0]).
+
 -export_type([import_res/0]).
 
 -ifdef(TEST).
@@ -988,15 +991,15 @@ do_import_cluster_hocon(Namespace, BackupDir, Filename, Opts) ->
     case filelib:is_regular(Filename) of
         true ->
             maybe
-                {ok, RawConf} ?= hocon:files([Filename]),
-                RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf),
-                {ok, _} ?= validate_cluster_hocon(RawConf1),
+                {ok, RawConf0} ?= hocon:files([Filename]),
+                RawConf1 = upgrade_raw_conf(emqx_conf:schema_module(), RawConf0),
+                {ok, RawConf} ?= validate_cluster_hocon(RawConf1),
                 maybe_print(
                     "Importing cluster configuration for namespace ~s...~n", [Namespace], Opts
                 ),
                 %% At this point, when all validations have been passed, we want to log errors (if any)
                 %% but proceed with the next items, instead of aborting the whole import operation
-                {ok, do_import_conf(Namespace, RawConf1, Opts)}
+                {ok, do_import_conf(Namespace, RawConf, Opts)}
             end;
         false ->
             maybe_print("No cluster configuration to be imported.~n", [], Opts),
@@ -1053,14 +1056,18 @@ do_read_file(Filename) ->
             Filename
     end.
 
-validate_cluster_hocon(RawConf) ->
+validate_cluster_hocon(RawConf0) ->
     %% write ACL file to comply with the schema...
-    RawConf1 = emqx_authz:maybe_write_files(RawConf),
-    emqx_hocon:check(
-        emqx_conf:schema_module(),
-        maps:merge(emqx:get_raw_config([]), RawConf1),
-        #{atom_key => false, required => false}
-    ).
+    RawConf1 = emqx_authz:maybe_write_files(RawConf0),
+    maybe
+        {ok, RawConf} ?=
+            emqx_hocon:check(
+                emqx_conf:schema_module(),
+                maps:merge(emqx:get_raw_config([]), RawConf1),
+                #{atom_key => false, required => false, make_serializable => true}
+            ),
+        {ok, maps:with(maps:keys(RawConf0), RawConf)}
+    end.
 
 do_import_conf(Namespace, RawConf, Opts) ->
     GenConfErrs = filter_errors(maps:from_list(import_generic_conf(Namespace, RawConf))),
@@ -1120,8 +1127,12 @@ import_generic_conf(Namespace, Data) ->
                     {[KeyPath], UpdateRes}
             end
         end,
-        ?CONF_KEYS
+        ?MODULE:conf_keys()
     ).
+
+%% Only exposed for tests/mocking.
+conf_keys() ->
+    ?CONF_KEYS.
 
 maybe_print_changed(Changed, Opts) ->
     lists:foreach(

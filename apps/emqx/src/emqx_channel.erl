@@ -2202,10 +2202,8 @@ set_log_meta(_ConnPkt, #channel{clientinfo = #{clientid := ClientId} = ClientInf
             false ->
                 Tns0
         end,
-    Meta0 = [{clientid, ClientId}, {username, Username}, {tns, Tns}],
-    %% Drop undefined or <<>>
-    Meta = lists:filter(fun({_, V}) -> V =/= undefined andalso V =/= <<>> end, Meta0),
-    emqx_logger:set_proc_metadata(maps:from_list(Meta)).
+    emqx_logger:set_metadata_clientid(ClientId),
+    emqx_logger:set_proc_metadata([{username, Username}, {tns, Tns}]).
 
 get_tenant_namespace(ClientInfo) ->
     Attrs = maps:get(client_attrs, ClientInfo, #{}),
