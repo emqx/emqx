@@ -58,7 +58,10 @@ dictionary, see `?pd_ra_*` macrodefs for details.
     apply/3,
     tick/2,
     state_enter/2,
-    snapshot_module/0
+    snapshot_module/0,
+
+    init_aux/1,
+    handle_aux/5
 ]).
 
 %% internal exports:
@@ -449,6 +452,26 @@ apply(
 tick(_TimeMs, #{db_shard := _DBShard}) ->
     [].
 
+%%================================================================================
+%% AUX state maachine
+%%================================================================================
+
+%% AUX server state:
+-record(aux, {
+    name,
+    otx_leader :: undefined | {starting, pid()} | {running, pid()} | {stopping, pid()}
+}).
+
+-type aux() :: #aux{}.
+
+init_aux(Name) ->
+    #aux{name = Name}.
+
+-record(aux_start_otx, {db :: emqx_ds:db(), shard :: emqx_ds:shard()}).
+-record(aux_otx_started, {result}).
+-record(aux_stop_otx, {db :: emqx_ds:db(), shard :: emqx_ds:shard()}).
+-record(aux_otx_stopped, {result}).
+
 %% Called when the ra server changes state (e.g. leader -> follower).
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
 state_enter(MemberState, State = #{db_shard := DBShard}) ->
@@ -460,14 +483,118 @@ state_enter(MemberState, State = #{db_shard := DBShard}) ->
     ),
     emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
     set_cache(MemberState, State),
-    _ =
-        case MemberState of
-            leader ->
-                emqx_ds_builtin_raft_db_lifecycle:async_start_leader_sup(DB, Shard);
-            _ ->
-                emqx_ds_builtin_raft_db_lifecycle:async_stop_leader_sup(DB, Shard)
+    case MemberState of
+        leader ->
+            [{aux, #aux_start_otx{db = DB, shard = Shard}}];
+        _ ->
+            [{aux, #aux_stop_otx{db = DB, shard = Shard}}]
+    end.
+
+-spec handle_aux(ra_server:ra_state(), {call, ra:from()} | cast, _Command, aux(), IntState) ->
+    {reply, _Reply, aux(), IntState}
+    | {reply, _Reply, aux(), IntState, ra_machine:effects()}
+    | {no_reply, aux(), IntState}
+    | {no_reply, aux(), IntState, ra_machine:effects()}
+when
+    IntState :: ra_aux:internal_state().
+handle_aux(leader, _, #aux_start_otx{db = DB, shard = Shard}, Aux0 = #aux{name = Server}, IntState) ->
+    ?tp(
+        warning,
+        ra_aux_start_otx_command,
+        #{
+            aux => Aux0
+        }
+    ),
+    AsyncStarter = spawn_link(
+        fun() ->
+            Result = ?tp_span(
+                debug,
+                dsrepl_start_otx_leader,
+                #{db => DB, shard => Shard},
+                emqx_ds_builtin_raft_db_sup:start_shard_leader_sup(DB, Shard)
+            ),
+            ra:cast_aux_command(Server, #aux_otx_started{result = Result})
+        end
+    ),
+    Aux = Aux0#aux{otx_leader = {starting, AsyncStarter}},
+    {no_reply, Aux, IntState};
+handle_aux(_, _, #aux_otx_started{result = Result}, Aux0 = #aux{}, IntState) ->
+    ?tp(
+        warning,
+        ra_aux_otx_started_command,
+        #{
+            aux => Aux0
+        }
+    ),
+    {ok, Pid} = Result,
+    Aux = Aux0#aux{
+        otx_leader = {running, Pid}
+    },
+    link(Pid),
+    {no_reply, Aux, IntState};
+handle_aux(
+    _,
+    _,
+    #aux_stop_otx{db = DB, shard = Shard},
+    Aux0 = #aux{name = Server, otx_leader = OTX0},
+    IntState
+) ->
+    ?tp(
+        warning,
+        ra_aux_stop_command,
+        #{
+            aux => Aux0
+        }
+    ),
+    OTX =
+        case OTX0 of
+            {running, Pid} ->
+                AsyncStopper =
+                    spawn_link(
+                        fun() ->
+                            Result = emqx_ds_builtin_raft_leader:stop_shard_leader_sup(DB, Shard),
+                            ra:cast_aux_command(Server, #aux_otx_stopped{result = Result})
+                        end
+                    ),
+                {stopping, AsyncStopper};
+            {stopping, _} = Stopping ->
+                Stopping;
+            {starting, Pid} ->
+                exit('FIXME!');
+            undefined ->
+                undefined
         end,
-    [].
+    Aux = Aux0#aux{otx_leader = OTX},
+    {no_reply, Aux, IntState};
+handle_aux(State, Call, #aux_otx_stopped{result = Result}, Aux0, IntState) ->
+    ?tp(
+        warning,
+        ra_aux_otx_stopped,
+        #{
+            aux => Aux0
+        }
+    ),
+    ok = Result,
+    {stopping, _} = Aux0#aux.otx_leader,
+    Aux = Aux0#aux{otx_leader = undefined},
+    case State of
+        leader ->
+            %% TODO: restart otx leader
+            exit('FIXME!!');
+        _ ->
+            {no_reply, Aux, IntState}
+    end;
+handle_aux(RaState, Call, Command, Aux, IntState) ->
+    ?tp(
+        warning,
+        ra_aux_command,
+        #{
+            command => Command,
+            aux => Aux,
+            call => Call
+        }
+    ),
+    {no_reply, Aux, IntState}.
 
 %%================================================================================
 %% Internal exports

@@ -11,7 +11,10 @@
     apply/3,
     tick/2,
     state_enter/2,
-    snapshot_module/0
+    snapshot_module/0,
+
+    init_aux/1,
+    handle_aux/5
 ]).
 
 %% internal exports:
@@ -126,6 +129,12 @@
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
+
+init_aux(Name) ->
+    emqx_ds_builtin_raft_machine:init_aux(Name).
+
+handle_aux(State, Call, Command, Aux, Int) ->
+    emqx_ds_builtin_raft_machine:handle_aux(State, Call, Command, Aux, Int).
 
 -spec init(#{
     name := _,
@@ -279,22 +288,8 @@ tick(_TimeMs, #{db_shard := _DBShard}) ->
     [].
 
 -spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
-state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
-    ?tp(
-        debug,
-        ds_ra_state_enter,
-        State#{state => MemberState}
-    ),
-    emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
-    set_cache(MemberState, State),
-    _ =
-        case MemberState of
-            leader ->
-                emqx_ds_builtin_raft_db_lifecycle:async_start_leader_sup(DB, Shard);
-            _ ->
-                emqx_ds_builtin_raft_db_lifecycle:async_stop_leader_sup(DB, Shard)
-        end,
-    [].
+state_enter(MemberState, State) ->
+    emqx_ds_builtin_raft_machine:state_enter(MemberState, State).
 
 %%================================================================================
 %% Internal exports
