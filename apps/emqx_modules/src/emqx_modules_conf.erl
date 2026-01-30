@@ -97,12 +97,17 @@ import_config(_Namespace, _RawConf) ->
 ) ->
     {ok, emqx_config:update_request()} | {error, term()}.
 pre_config_update(_, {add_topic_metrics, Topic0}, RawConf) ->
-    Topic = #{<<"topic">> => Topic0},
-    case lists:member(Topic, RawConf) of
-        true ->
-            {error, already_existed};
-        _ ->
-            {ok, RawConf ++ [Topic]}
+    case validate_topic_metric(Topic0) of
+        ok ->
+            Topic = #{<<"topic">> => Topic0},
+            case lists:member(Topic, RawConf) of
+                true ->
+                    {error, already_existed};
+                _ ->
+                    {ok, RawConf ++ [Topic]}
+            end;
+        {error, _} = Error ->
+            Error
     end;
 pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
     Topic = #{<<"topic">> => Topic0},
@@ -113,11 +118,19 @@ pre_config_update(_, {remove_topic_metrics, Topic0}, RawConf) ->
             {error, not_found}
     end;
 pre_config_update(_, {merge_topics, NewConf}, OldConf) ->
-    KeyFun = fun(#{<<"topic">> := T}) -> T end,
-    MergedConf = emqx_utils:merge_lists(OldConf, NewConf, KeyFun),
-    {ok, MergedConf};
+    case validate_topic_metrics_list(NewConf) of
+        ok ->
+            KeyFun = fun(#{<<"topic">> := T}) -> T end,
+            MergedConf = emqx_utils:merge_lists(OldConf, NewConf, KeyFun),
+            {ok, MergedConf};
+        {error, _} = Error ->
+            Error
+    end;
 pre_config_update(_, NewConf, _OldConf) ->
-    {ok, NewConf}.
+    case validate_topic_metrics_list(NewConf) of
+        ok -> {ok, NewConf};
+        {error, _} = Error -> Error
+    end.
 
 -spec post_config_update(
     list(atom()),
@@ -135,8 +148,12 @@ post_config_update(
     _AppEnvs
 ) ->
     case emqx_topic_metrics:register(Topic) of
-        ok -> ok;
-        {error, Reason} -> {error, Reason}
+        ok ->
+            ok;
+        {error, wildcard_not_supported} ->
+            {error, #{cause => wildcard_not_supported, topic => Topic}};
+        {error, Reason} ->
+            {error, Reason}
     end;
 post_config_update(
     _,
@@ -155,7 +172,16 @@ post_config_update(_, _UpdateReq, NewConfig, OldConfig, _AppEnvs) ->
         added := Added
     } = emqx_utils:diff_lists(NewConfig, OldConfig, fun(#{topic := T}) -> T end),
     Deregistered = [emqx_topic_metrics:deregister(T) || #{topic := T} <- Removed],
-    Registered = [emqx_topic_metrics:register(T) || #{topic := T} <- Added],
+    Registered =
+        [
+            case emqx_topic_metrics:register(T) of
+                {error, wildcard_not_supported} ->
+                    {error, #{cause => wildcard_not_supported, topic => T}};
+                Res ->
+                    Res
+            end
+         || #{topic := T} <- Added
+        ],
     DeregisteredErrs = [Res || Res <- Deregistered, Res =/= ok, Res =/= {error, topic_not_found}],
     RegisteredErrs = [Res || Res <- Registered, Res =/= ok, Res =/= {error, already_existed}],
     case DeregisteredErrs ++ RegisteredErrs of
@@ -180,3 +206,34 @@ cfg_update(Path, Action, Params) ->
             #{override_to => cluster}
         )
     ).
+
+%%--------------------------------------------------------------------
+%%  Validation helpers
+%%--------------------------------------------------------------------
+
+validate_topic_metrics_list(Conf) when is_list(Conf) ->
+    case lists:foldl(fun validate_topic_metrics_entry/2, ok, Conf) of
+        ok -> ok;
+        {error, _} = Error -> Error
+    end;
+validate_topic_metrics_list(_Other) ->
+    ok.
+
+validate_topic_metrics_entry(#{<<"topic">> := Topic}, ok) ->
+    validate_topic_metric(Topic);
+validate_topic_metrics_entry(#{topic := Topic}, ok) ->
+    validate_topic_metric(Topic);
+validate_topic_metrics_entry(_Entry, ok) ->
+    ok;
+validate_topic_metrics_entry(_Entry, {error, _} = Error) ->
+    Error.
+
+validate_topic_metric(Topic) when is_binary(Topic) ->
+    case emqx_topic:wildcard(Topic) of
+        true ->
+            {error, #{cause => wildcard_not_supported, topic => Topic}};
+        false ->
+            ok
+    end;
+validate_topic_metric(_Other) ->
+    {error, #{cause => wildcard_not_supported, topic => invalid}}.

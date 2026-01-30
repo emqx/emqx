@@ -448,8 +448,11 @@ reason2httpresp(quota_exceeded) ->
         )
     ),
     {409, #{code => ?EXCEED_LIMIT, message => Msg}};
-reason2httpresp(bad_topic) ->
-    Msg = <<"Wildcard topic is not supported">>,
+reason2httpresp(#{cause := wildcard_not_supported, topic := Topic}) when is_binary(Topic) ->
+    Msg = iolist_to_binary([
+        "Wildcard topic filters are not allowed for topic metrics: ",
+        Topic
+    ]),
     {400, #{code => ?BAD_TOPIC, message => Msg}};
 reason2httpresp(already_existed) ->
     Msg = <<"Topic already registered">>,
