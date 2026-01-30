@@ -959,7 +959,7 @@ do_normalize_checked_config_retainer(Cfg) ->
 
 do_normalize_checked_config_prometheus(Cfg0) ->
     %% Apparently, these fields are added/removed when converting
-    Cfg1 = maps:remove(<<"latency_buckets">>, Cfg0),
+    Cfg1 = maps:without([<<"namespaced_metrics_limiter">>, <<"latency_buckets">>], Cfg0),
     emqx_utils_maps:deep_remove([<<"push_gateway">>, <<"method">>], Cfg1).
 
 basename(FilePath) ->
