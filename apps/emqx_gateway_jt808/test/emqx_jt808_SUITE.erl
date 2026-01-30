@@ -84,6 +84,40 @@ gateway.jt808 {
 }
 ">>).
 
+%% erlfmt-ignore
+-define(CONF_GBK_ENCODING, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  frame {
+    string_encoding = gbk
+  }
+  proto {
+    auth {
+      allow_anonymous = true
+    }
+  }
+}
+">>).
+
+%% erlfmt-ignore
+-define(CONF_UTF8_ENCODING, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  frame {
+    string_encoding = utf8
+  }
+  proto {
+    auth {
+      allow_anonymous = true
+    }
+  }
+}
+">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -105,6 +139,22 @@ init_per_testcase(Case, Config) when
     Case =:= t_create_DISALLOW_invalid_auth_config
 ->
     Apps = boot_apps(Case, <<>>, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_downlink_text_encoding_gbk, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_GBK_ENCODING, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_downlink_text_encoding_utf8, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_UTF8_ENCODING, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_uplink_text_encoding_gbk, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_GBK_ENCODING, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_uplink_text_encoding_utf8, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_UTF8_ENCODING, Config),
     [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) ->
     snabbkaffe:start_trace(),
@@ -4221,5 +4271,261 @@ t_case_downlink_msg_sn_conflict_different_msg_types(_) ->
         <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
             PhoneBCD/binary, 4:?WORD>>,
     ok = gen_tcp:send(Socket, gen_packet(AckHeader3, GenAckPacket3)),
+
+    ok = gen_tcp:close(Socket).
+
+%%--------------------------------------------------------------------
+%% Test Cases for string encoding (UTF-8 vs GBK)
+%%--------------------------------------------------------------------
+
+%% Test: Downlink text message with UTF-8 encoding (default passthrough)
+%% When string_encoding=utf8, Chinese text should be sent as UTF-8 bytes
+t_case_downlink_text_encoding_utf8(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MS_SEND_TEXT,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+
+    %% Chinese text "你好" in UTF-8 is: E4 BD A0 E5 A5 BD
+    ChineseText = <<"你好"/utf8>>,
+    ExpectedUtf8Bytes = <<16#E4, 16#BD, 16#A0, 16#E5, 16#A5, 16#BD>>,
+
+    %% Publish downlink message with Chinese text
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 8, <<"text">> => ChineseText}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame | _] = split_jt808_frames(Packet),
+
+    %% Parse the text body from the frame
+    TextBody = parse_text_body_from_frame(Frame, PhoneBCD),
+    ?LOGT("UTF-8 encoding test: received text body (hex) = ~s", [binary_to_hex(TextBody)]),
+    ?LOGT("UTF-8 encoding test: expected UTF-8 bytes (hex) = ~s", [binary_to_hex(ExpectedUtf8Bytes)]),
+
+    %% Verify the text is sent as UTF-8 (not converted)
+    ?assertEqual(ExpectedUtf8Bytes, TextBody),
+
+    %% Send ACK
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader, GenAckPacket)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Downlink text message with GBK encoding
+%% When string_encoding=gbk, Chinese text (UTF-8) should be converted to GBK bytes
+t_case_downlink_text_encoding_gbk(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MS_SEND_TEXT,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+
+    %% Chinese text "你好"
+    %% UTF-8: E4 BD A0 E5 A5 BD
+    %% GBK:   C4 E3 BA C3
+    ChineseText = <<"你好"/utf8>>,
+    ExpectedGbkBytes = <<16#C4, 16#E3, 16#BA, 16#C3>>,
+
+    %% Publish downlink message with Chinese text
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 8, <<"text">> => ChineseText}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame | _] = split_jt808_frames(Packet),
+
+    %% Parse the text body from the frame
+    TextBody = parse_text_body_from_frame(Frame, PhoneBCD),
+    ?LOGT("GBK encoding test: received text body (hex) = ~s", [binary_to_hex(TextBody)]),
+    ?LOGT("GBK encoding test: expected GBK bytes (hex) = ~s", [binary_to_hex(ExpectedGbkBytes)]),
+
+    %% Verify the text is converted to GBK
+    ?assertEqual(ExpectedGbkBytes, TextBody),
+
+    %% Send ACK
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader, GenAckPacket)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Parse text body from 0x8300 (MS_SEND_TEXT) frame
+%% Frame format: 7E + Header(12 bytes) + Body(flag:1 + text:n) + Checksum + 7E
+parse_text_body_from_frame(Frame, PhoneBCD) ->
+    %% Remove leading and trailing 0x7E delimiters
+    <<16#7E, Inner/binary>> = Frame,
+    InnerSize = byte_size(Inner) - 1,
+    <<Escaped:InnerSize/binary, 16#7E>> = Inner,
+    %% Unescape the content
+    Unescaped = unescape_packet(Escaped),
+    %% Header format: MsgId(2) + MsgAttr(2) + Phone(6) + MsgSn(2) = 12 bytes
+    PhoneLen = byte_size(PhoneBCD),
+    <<_MsgId:2/binary, MsgAttr:16, _Phone:PhoneLen/binary, _MsgSn:2/binary, Rest/binary>> =
+        Unescaped,
+    %% Body length from MsgAttr (lower 10 bits)
+    BodyLen = MsgAttr band 16#3FF,
+    %% Extract body and checksum
+    <<Body:BodyLen/binary, _Checksum:1/binary>> = Rest,
+    %% Body format for 0x8300: flag(1 byte) + text(n bytes)
+    <<_Flag:1/binary, TextBody/binary>> = Body,
+    TextBody.
+
+%% Convert binary to hex string for logging
+binary_to_hex(Bin) ->
+    lists:flatten([io_lib:format("~2.16.0B", [B]) || <<B>> <= Bin]).
+
+%%--------------------------------------------------------------------
+%% Test Cases for uplink string encoding (GBK to UTF-8 conversion)
+%%--------------------------------------------------------------------
+
+%% Test: Uplink driver identity report with UTF-8 encoding (passthrough)
+%% When string_encoding=utf8, UTF-8 bytes from client pass through unchanged
+t_case_uplink_text_encoding_utf8(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+
+    %% Driver name "张三" in UTF-8: E5 BC A0 E4 B8 89
+    DriverNameUtf8 = <<16#E5, 16#BC, 16#A0, 16#E4, 16#B8, 16#89>>,
+    DriverNameLen = byte_size(DriverNameUtf8),
+
+    %% Organization "北京" in UTF-8: E5 8C 97 E4 BA AC
+    OrgUtf8 = <<16#E5, 16#8C, 16#97, 16#E4, 16#BA, 16#AC>>,
+    OrgLen = byte_size(OrgUtf8),
+
+    %% Build driver identity report packet
+    %% Format: status(1) + time(BCD6) + ic_result(1) + driver_name_len(1) + driver_name(n)
+    %%         + certificate(20) + org_len(1) + org(m) + cert_expiry(BCD4)
+    UlPacket =
+        % status: IC card inserted
+        <<1:8,
+            % time: 2025-01-30 10:30:00
+            16#25, 16#01, 16#30, 16#10, 16#30, 16#00,
+            % ic_result: success
+            0:8,
+            % driver_name
+            DriverNameLen:8, DriverNameUtf8/binary,
+            % certificate (20 bytes)
+            "12345678901234567890",
+            % organization
+            OrgLen:8, OrgUtf8/binary,
+            % cert_expiry: 2030-12-31
+            16#20, 16#30, 16#12, 16#31>>,
+
+    Size = byte_size(UlPacket),
+    MsgId = ?MC_DRIVER_ID_REPORT,
+    MsgSn = 2,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S = gen_packet(Header, UlPacket),
+
+    ok = gen_tcp:send(Socket, S),
+    timer:sleep(100),
+
+    %% Receive and verify the uplink message
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    Body = maps:get(<<"body">>, DecodedPayload),
+
+    %% With UTF-8 encoding, the driver_name should be the UTF-8 bytes interpreted as UTF-8
+    %% Since we sent UTF-8 bytes and string_encoding=utf8, it should pass through
+    ReceivedDriverName = maps:get(<<"driver_name">>, Body),
+    ReceivedOrg = maps:get(<<"organization">>, Body),
+
+    ?LOGT("UTF-8 uplink: driver_name = ~p", [ReceivedDriverName]),
+    ?LOGT("UTF-8 uplink: organization = ~p", [ReceivedOrg]),
+
+    %% The received strings should be UTF-8 encoded "张三" and "北京"
+    ?assertEqual(<<"张三"/utf8>>, ReceivedDriverName),
+    ?assertEqual(<<"北京"/utf8>>, ReceivedOrg),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Uplink driver identity report with GBK encoding
+%% When string_encoding=gbk, GBK bytes from client are decoded to UTF-8
+t_case_uplink_text_encoding_gbk(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+
+    %% Driver name "张三" in GBK: D5 C5 C8 FD
+    DriverNameGbk = <<16#D5, 16#C5, 16#C8, 16#FD>>,
+    DriverNameLen = byte_size(DriverNameGbk),
+
+    %% Organization "北京" in GBK: B1 B1 BE A9
+    OrgGbk = <<16#B1, 16#B1, 16#BE, 16#A9>>,
+    OrgLen = byte_size(OrgGbk),
+
+    %% Build driver identity report packet
+    UlPacket =
+        % status: IC card inserted
+        <<1:8,
+            % time: 2025-01-30 10:30:00
+            16#25, 16#01, 16#30, 16#10, 16#30, 16#00,
+            % ic_result: success
+            0:8,
+            % driver_name (GBK encoded)
+            DriverNameLen:8, DriverNameGbk/binary,
+            % certificate (20 bytes)
+            "12345678901234567890",
+            % organization (GBK encoded)
+            OrgLen:8, OrgGbk/binary,
+            % cert_expiry: 2030-12-31
+            16#20, 16#30, 16#12, 16#31>>,
+
+    Size = byte_size(UlPacket),
+    MsgId = ?MC_DRIVER_ID_REPORT,
+    MsgSn = 2,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S = gen_packet(Header, UlPacket),
+
+    ok = gen_tcp:send(Socket, S),
+    timer:sleep(100),
+
+    %% Receive and verify the uplink message
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    Body = maps:get(<<"body">>, DecodedPayload),
+
+    %% With GBK encoding, the GBK bytes should be decoded to UTF-8
+    ReceivedDriverName = maps:get(<<"driver_name">>, Body),
+    ReceivedOrg = maps:get(<<"organization">>, Body),
+
+    ?LOGT("GBK uplink: driver_name = ~p", [ReceivedDriverName]),
+    ?LOGT("GBK uplink: organization = ~p", [ReceivedOrg]),
+
+    %% The received strings should be UTF-8 encoded "张三" and "北京"
+    ?assertEqual(<<"张三"/utf8>>, ReceivedDriverName),
+    ?assertEqual(<<"北京"/utf8>>, ReceivedOrg),
 
     ok = gen_tcp:close(Socket).
