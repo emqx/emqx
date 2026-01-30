@@ -32,8 +32,15 @@
 %% @doc Initial the frame parser states
 -callback initial_parse_state(map()) -> parse_state().
 
-%% @doc
+%% @doc Return default serialize options
 -callback serialize_opts() -> serialize_options().
+
+%% @doc Return serialize options based on frame config.
+%% Optional callback - if not implemented, falls back to serialize_opts/0.
+%% Gateways can implement this to customize serialization based on config.
+-callback serialize_opts(FrameOpts :: map()) -> serialize_options().
+
+-optional_callbacks([serialize_opts/1]).
 
 %% @doc
 -callback serialize_pkt(Frame :: any(), serialize_options()) -> iodata().

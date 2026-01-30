@@ -15,6 +15,7 @@
 -export([
     initial_parse_state/1,
     serialize_opts/0,
+    serialize_opts/1,
     serialize_pkt/2,
     parse/2,
     format/1,
@@ -53,6 +54,10 @@ initial_parse_state(Opts) ->
 -spec serialize_opts() -> emqx_gateway_frame:serialize_options().
 serialize_opts() ->
     #{}.
+
+-spec serialize_opts(map()) -> emqx_gateway_frame:serialize_options().
+serialize_opts(FrameOpts) ->
+    FrameOpts.
 
 -spec parse(binary(), parser_state()) ->
     emqx_gateway_frame:parse_result().
