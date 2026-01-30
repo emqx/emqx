@@ -618,6 +618,49 @@ t_multiple_tables_failure_in_the_end(TCConfig) when is_list(TCConfig) ->
     ok.
 
 -doc """
+Checks that we treat port 4001 as the default port when the port is omitted in the server
+field, similar to greptimedb connector.
+""".
+t_default_port() ->
+    [{matrix, true}].
+t_default_port(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_default_port(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_connector_api(TCConfig, #{
+            <<"server">> => <<"toxiproxy">>
+        })
+    ),
+    ok.
+
+-doc """
+Checks that we require `cacertfile`, `certfile` and `keyfile` to be set to _some_ value if
+`ssl.enable = true`, so we avoid bizarre errors thrown from the Rust driver.
+""".
+t_inconsistent_ssl_validation() ->
+    [{matrix, true}].
+t_inconsistent_ssl_validation(matrix) ->
+    [[?tcp, ?sync, ?without_batch]];
+t_inconsistent_ssl_validation(TCConfig) when is_list(TCConfig) ->
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> :=
+                <<
+                    "cacertfile, certfile and keyfile SSL options must"
+                    " be configured when SSL is enabled."
+                >>
+        }},
+        create_connector_api(TCConfig, #{
+            <<"ssl">> => #{
+                <<"enable">> => true
+            }
+        })
+    ),
+    ok.
+
+-doc """
 Verifies that, if an integer value is given to a value which is not suffixed by an integer
 suffix, we cast it to a float, which is the default InfluxDB Write Syntax value.
 """.

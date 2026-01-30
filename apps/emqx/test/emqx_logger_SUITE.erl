@@ -132,6 +132,37 @@ t_set_metadata_clientid(_) ->
     ?assertEqual(ok, ?LOGGER:set_metadata_clientid(<<>>)),
     ?assertEqual(ok, ?LOGGER:set_metadata_clientid("for_test")).
 
+t_set_metadata_clientid_truncated(_) ->
+    ClientID = unicode:characters_to_binary(["🫠", binary:copy(<<"C">>, 1000)]),
+    ?assertEqual(ok, ?LOGGER:set_metadata_clientid(ClientID)),
+    ?assertMatch(
+        {clientid, <<"🫠"/utf8, _:63/bytes>>},
+        proc_lib:get_label(self())
+    ),
+    ?assertMatch(
+        #{clientid := <<"🫠"/utf8, _:63/bytes>>},
+        logger:get_process_metadata()
+    ).
+
+t_set_metadata_username_truncated(_) ->
+    ClientID = unicode:characters_to_binary(["🫠", binary:copy(<<"U">>, 1000)]),
+    ?assertEqual(ok, ?LOGGER:set_metadata_username(ClientID)),
+    ?assertMatch(
+        #{username := <<"🫠"/utf8, _:63/bytes>>},
+        logger:get_process_metadata()
+    ).
+
+t_attach_label(_) ->
+    ?assertEqual(ok, ?LOGGER:set_metadata_clientid(<<"c_attach_label">>)),
+    ?assertEqual(ok, ?LOGGER:set_metadata_username(<<"u_attach_label">>)),
+    ?assertEqual(
+        #{
+            clientid => <<"c_attach_label">>,
+            username => <<"u_attach_label">>
+        },
+        logger:get_process_metadata()
+    ).
+
 split_toks_at_dot(AllToks) ->
     case lists:splitwith(fun is_no_dot/1, AllToks) of
         {Toks, [{dot, _} = Dot]} -> [Toks ++ [Dot]];
