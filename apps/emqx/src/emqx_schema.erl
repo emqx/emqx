@@ -341,7 +341,7 @@ roots(low) ->
             sc(
                 timeout_duration_ms(),
                 #{
-                    importance => ?IMPORTANCE_LOW,
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC("config_backup_interval"),
                     default => <<"5m">>
                 }
