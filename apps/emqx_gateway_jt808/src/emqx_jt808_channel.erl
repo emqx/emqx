@@ -928,10 +928,8 @@ ack_msg(AckMsgId, KeyParam, Inflight) ->
 
 %% Build custom get_msg_ack key
 custom_get_msg_ack(MsgId, KeyParam) ->
-    case get_msg_ack(MsgId, KeyParam) of
-        {AckMsgId, AckParam} -> {custom, AckMsgId, AckParam};
-        Other -> {custom, Other}
-    end.
+    {AckMsgId, AckParam} = get_msg_ack(MsgId, KeyParam),
+    {custom, AckMsgId, AckParam}.
 
 set_msg_ack(?MS_SET_CLIENT_PARAM, MsgSn) ->
     {?MC_GENERAL_RESPONSE, {?MS_SET_CLIENT_PARAM, MsgSn}};
