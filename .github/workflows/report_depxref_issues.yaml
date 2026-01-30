@@ -51,9 +51,9 @@ jobs:
             echo 'Skipping: pull request run finished with:' "${GH_RUN_CONCLUSION}" && exit 0
           fi
 
-          GH_PR_LABEL="$(gh --repo ${GH_REPO} pr view ${GH_PR_NUMBER} --json labels --jq '.labels[].name | select(. == "depxref")')"
-          if [ "${GH_PR_LABEL}" == "" ]; then
-            echo 'Skipping: pull request has no `depxref` label' && exit 0
+          GH_PR_LABEL="$(gh --repo ${GH_REPO} pr view ${GH_PR_NUMBER} --json labels --jq '.labels[].name | select(. == "no-depxref")')"
+          if [ "${GH_PR_LABEL}" != "" ]; then
+            echo 'Skipping: pull request has `no-depxref` label' && exit 0
           fi
 
           GH_RUN_ID="${{ inputs.workflow-run-id || github.event.workflow_run.id }}"
