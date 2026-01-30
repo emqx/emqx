@@ -9,6 +9,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([start_link/0]).
 -export([on_message_publish/1]).
@@ -196,10 +197,7 @@ handle_keepalive_self(Msg, Payload, From) ->
                     %% Single updates are handled by the publishing process
                     gen_server:cast(self(), {keepalive, Clamped});
                 _ ->
-                    ?SLOG(error, #{
-                        msg => "keepalive_update_single_forbidden",
-                        from => From
-                    })
+                    ?tp(warning, keepalive_update_single_forbidden, #{from => From})
             end,
             Headers = Msg#message.headers,
             {stop, Msg#message{headers = Headers#{allow_publish => false}}};

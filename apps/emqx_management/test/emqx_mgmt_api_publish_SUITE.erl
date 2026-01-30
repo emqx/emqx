@@ -9,6 +9,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(TOPIC1, <<"api_topic1">>).
 -define(TOPIC2, <<"api_topic2">>).
@@ -116,18 +117,22 @@ t_publish_api_keepalive_single({init, Config}) ->
 t_publish_api_keepalive_single({'end', _Config}) ->
     ok;
 t_publish_api_keepalive_single(_) ->
-    ClientId = <<"api_keepalive_single">>,
-    {ok, C} = emqtt:start_link([{keepalive, 5}, {clientid, binary_to_list(ClientId)}]),
-    {ok, _} = emqtt:connect(C),
     Path = emqx_mgmt_api_test_util:api_path(["publish"]),
     Auth = emqx_mgmt_api_test_util:auth_header_(),
     Topic = <<"$SETOPTS/mqtt/keepalive">>,
     Body = #{topic => Topic, payload => <<"10">>},
-    {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
-    ResponseMap = decode_json(Response),
-    ?assertMatch(#{<<"message">> := <<"no_matching_subscribers">>}, ResponseMap),
-    ?assertMatch(#{conninfo := #{keepalive := 5}}, wait_for_keepalive(ClientId, 5, 2000)),
-    ok = emqtt:stop(C).
+    ?check_trace(
+        begin
+            {ok, Response} = emqx_mgmt_api_test_util:request_api(post, Path, "", Auth, Body),
+            ResponseMap = decode_json(Response),
+            ?assertMatch(#{<<"message">> := <<"no_matching_subscribers">>}, ResponseMap),
+            {ok, _} = ?block_until(
+                #{?snk_kind := keepalive_update_single_forbidden},
+                1000
+            )
+        end,
+        []
+    ).
 
 t_publish_no_subscriber({init, Config}) ->
     Config;
