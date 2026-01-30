@@ -671,7 +671,7 @@ log_and_alarm(IsSuccess, Res, #{kind := ?KIND_INITIATE} = Meta) ->
             ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_result", result => emqx_utils:redact(Res)});
         false ->
             ?SLOG(warning, Meta#{
-                msg => "cluster_rpc_faile_to_init_transaction", result => emqx_utils:redact(Res)
+                msg => "cluster_rpc_failed_to_init_transaction", result => emqx_utils:redact(Res)
             })
     end;
 log_and_alarm(true, Res, Meta) ->
