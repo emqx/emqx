@@ -11,22 +11,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.coap {\n"
-    "  idle_timeout = 30s\n"
-    "  enable_stats = false\n"
-    "  mountpoint = \"\"\n"
-    "  notify_type = qos\n"
-    "  connection_required = true\n"
-    "  subscribe_qos = qos1\n"
-    "  publish_qos = qos1\n"
-    "  listeners.udp.default {\n"
-    "    bind = 5683\n"
-    "  }\n"
-    "}\n"
->>).
-
 -define(HOST, "127.0.0.1").
 -define(PORT, 5683).
 -define(CONN_URI,
@@ -44,23 +28,15 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
-    application:load(emqx_gateway_coap),
-    Apps = emqx_cth_suite:start(
-        [
-            {emqx_conf, ?CONF_DEFAULT},
-            emqx_gateway,
-            emqx_auth,
-            emqx_management,
-            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
-        ],
-        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    Config1 = emqx_coap_test_helpers:start_gateway(
+        Config,
+        emqx_coap_test_helpers:default_conf()
     ),
     _ = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    Config1.
 
 end_per_suite(Config) ->
-    emqx_cth_suite:stop(?config(suite_apps, Config)),
-    emqx_config:delete_override_conf_files().
+    emqx_coap_test_helpers:stop_gateway(Config).
 
 %%--------------------------------------------------------------------
 %% Cases
@@ -96,11 +72,123 @@ t_send_request_api(_) ->
     erlang:exit(ClientId, kill),
     ok.
 
+t_send_request_api_client_not_found(_) ->
+    Path = emqx_mgmt_api_test_util:api_path(
+        ["gateways/coap/clients/not_found/request"]
+    ),
+    Req = #{
+        token => <<"atoken">>,
+        payload => <<"hello">>,
+        timeout => <<"50ms">>,
+        content_type => <<"text/plain">>,
+        method => <<"get">>
+    },
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {error, {{"HTTP/1.1", 404, _}, _Headers, Body}} =
+        emqx_mgmt_api_test_util:request_api(
+            post,
+            Path,
+            "method=get",
+            Auth,
+            Req,
+            #{return_all => true}
+        ),
+    #{<<"code">> := <<"CLIENT_NOT_FOUND">>} = emqx_utils_json:decode(Body),
+    ok.
+
+t_send_request_api_timeout(_) ->
+    ClientId = start_silent_client(),
+    timer:sleep(200),
+    Path = emqx_mgmt_api_test_util:api_path(
+        ["gateways/coap/clients/client1/request"]
+    ),
+    Req = #{
+        token => <<"atoken">>,
+        payload => <<"hello">>,
+        timeout => <<"50ms">>,
+        content_type => <<"text/plain">>,
+        method => <<"get">>
+    },
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {error, {{"HTTP/1.1", 504, _}, _Headers, Body}} =
+        emqx_mgmt_api_test_util:request_api(
+            post,
+            Path,
+            "method=get",
+            Auth,
+            Req,
+            #{return_all => true}
+        ),
+    #{<<"code">> := <<"CLIENT_NOT_RESPONSE">>} = emqx_utils_json:decode(Body),
+    erlang:exit(ClientId, kill),
+    ok.
+
+t_send_request_api_octet_stream(_) ->
+    ClientId = start_client(),
+    timer:sleep(200),
+    Path = emqx_mgmt_api_test_util:api_path(
+        ["gateways/coap/clients/client1/request"]
+    ),
+    Payload = <<0, 1, 2, 3, 4>>,
+    Encoded = base64:encode(Payload),
+    Req = #{
+        token => <<"atoken">>,
+        payload => Encoded,
+        timeout => <<"10s">>,
+        content_type => <<"application/octet-stream">>,
+        method => <<"get">>
+    },
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(
+        post,
+        Path,
+        "method=get",
+        Auth,
+        Req
+    ),
+    #{<<"payload">> := Encoded} = emqx_utils_json:decode(Response),
+    erlang:exit(ClientId, kill),
+    ok.
+
+t_send_request_api_exception(_) ->
+    ok = meck:new(emqx_gateway_cm_registry, [passthrough, no_history, no_link]),
+    ok = meck:expect(
+        emqx_gateway_cm_registry,
+        lookup_channels,
+        fun(_, _) -> erlang:error(bad_registry) end
+    ),
+    Path = emqx_mgmt_api_test_util:api_path(
+        ["gateways/coap/clients/client1/request"]
+    ),
+    Req = #{
+        token => <<"atoken">>,
+        payload => <<"hello">>,
+        timeout => <<"50ms">>,
+        content_type => <<"text/plain">>,
+        method => <<"get">>
+    },
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {error, {{"HTTP/1.1", 404, _}, _Headers, Body}} =
+        emqx_mgmt_api_test_util:request_api(
+            post,
+            Path,
+            "method=get",
+            Auth,
+            Req,
+            #{return_all => true}
+        ),
+    #{<<"code">> := <<"CLIENT_NOT_FOUND">>} = emqx_utils_json:decode(Body),
+    meck:unload(emqx_gateway_cm_registry),
+    ok.
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 start_client() ->
     spawn(fun coap_client/0).
+
+start_silent_client() ->
+    spawn(fun coap_silent_client/0).
 
 coap_client() ->
     {ok, CSock} = gen_udp:open(0, [binary, {active, false}]),
@@ -113,6 +201,17 @@ echo_loop(CSock) ->
     #coap_message{payload = Payload} = Req = test_recv_coap_request(CSock),
     test_send_coap_response(CSock, ?HOST, ?PORT, {ok, content}, Payload, Req),
     echo_loop(CSock).
+
+coap_silent_client() ->
+    {ok, CSock} = gen_udp:open(0, [binary, {active, false}]),
+    test_send_coap_request(CSock, post, <<>>, [], 1),
+    Response = test_recv_coap_response(CSock),
+    ?assertEqual({ok, created}, Response#coap_message.method),
+    silent_loop(CSock).
+
+silent_loop(CSock) ->
+    _ = gen_udp:recv(CSock, 0, 500),
+    silent_loop(CSock).
 
 test_send_coap_request(UdpSock, Method, Content, Options, MsgId) ->
     is_list(Options) orelse error("Options must be a list"),
