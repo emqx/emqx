@@ -39,6 +39,7 @@
     handle_out/3,
     handle_timeout/3,
     handle_call/2,
+    handle_cast/2,
     handle_info/2,
     terminate/2
 ]).
@@ -1556,7 +1557,19 @@ handle_call(takeover_kick, Channel) ->
     );
 handle_call(list_authz_cache, Channel) ->
     {reply, emqx_authz_cache:list_authz_cache(), Channel};
-handle_call(
+handle_call({Type, _Meta} = MsgsReq, Channel = #channel{session = Session}) when
+    Type =:= mqueue_msgs; Type =:= inflight_msgs
+->
+    {reply, emqx_session:info(MsgsReq, Session), Channel};
+handle_call(Req, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
+    reply(ignored, Channel).
+
+%%--------------------------------------------------------------------
+%% Handle cast
+
+-spec handle_cast(Req :: term(), channel()) -> channel().
+handle_cast(
     {keepalive, Interval},
     Channel = #channel{
         keepalive = KeepAlive,
@@ -1571,14 +1584,10 @@ handle_call(
     SockInfo = maps:get(sockinfo, emqx_cm:get_chan_info(ClientId), #{}),
     ChanInfo1 = info(NChannel),
     emqx_cm:set_chan_info(ClientId, ChanInfo1#{sockinfo => SockInfo}),
-    reply(ok, reset_timer(keepalive, NChannel));
-handle_call({Type, _Meta} = MsgsReq, Channel = #channel{session = Session}) when
-    Type =:= mqueue_msgs; Type =:= inflight_msgs
-->
-    {reply, emqx_session:info(MsgsReq, Session), Channel};
-handle_call(Req, Channel) ->
-    ?SLOG(error, #{msg => "unexpected_call", call => Req}),
-    reply(ignored, Channel).
+    reset_timer(keepalive, NChannel);
+handle_cast(Req, Channel) ->
+    ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
+    Channel.
 
 %%--------------------------------------------------------------------
 %% Handle Info

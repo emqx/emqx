@@ -1077,6 +1077,9 @@ handle_cast(
             ?tp(error, "failed_to_set_custom_socket_option", #{reason => Err})
     end,
     State;
+handle_cast({keepalive, _Interval} = Req, State = #state{channel = Channel}) ->
+    NChannel = emqx_channel:handle_cast(Req, Channel),
+    State#state{channel = NChannel};
 handle_cast(Req, State) ->
     ?tp(error, "received_unknown_cast", #{cast => Req}),
     State.
