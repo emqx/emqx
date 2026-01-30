@@ -303,7 +303,7 @@ init_state(WrappedSock, Peername, Options, FrameMod, ChannMod) ->
     Limiter = undefined,
     FrameOpts = emqx_gateway_utils:frame_options(Options),
     ParseState = FrameMod:initial_parse_state(FrameOpts),
-    Serialize = FrameMod:serialize_opts(),
+    Serialize = get_serialize_opts(FrameMod, FrameOpts),
     Channel = ChannMod:init(ConnInfo, Options),
     GcState = emqx_gateway_utils:init_gc_state(Options),
     StatsTimer = emqx_gateway_utils:stats_timer(Options),
@@ -346,6 +346,14 @@ run_loop(
         {error, Reason} ->
             ok = esockd_close(Socket),
             exit_on_sock_error(Reason)
+    end.
+
+%% @doc Get serialize options from frame module.
+%% Try serialize_opts/1 first (with frame options), fall back to serialize_opts/0.
+get_serialize_opts(FrameMod, FrameOpts) ->
+    case erlang:function_exported(FrameMod, serialize_opts, 1) of
+        true -> FrameMod:serialize_opts(FrameOpts);
+        false -> FrameMod:serialize_opts()
     end.
 
 -spec exit_on_sock_error(atom()) -> no_return().
