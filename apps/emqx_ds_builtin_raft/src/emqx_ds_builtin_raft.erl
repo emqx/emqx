@@ -1194,8 +1194,15 @@ do_wait_for_upgrade(Alarm, Leader, MinVersion) ->
                 #{current_version => Vsn},
                 "Durable storoage shard is paused until all its replicas are upgraded"
             ),
-            timer:sleep(1000),
-            do_wait_for_upgrade(Alarm, Leader, MinVersion);
+            maybe
+                ok ?= sleep(1000),
+                do_wait_for_upgrade(Alarm, Leader, MinVersion)
+            end;
+        ?err_rec(_) ->
+            maybe
+                ok ?= sleep(1000),
+                do_wait_for_upgrade(Alarm, Leader, MinVersion)
+            end;
         Other ->
             Other
     end.
@@ -1209,7 +1216,15 @@ get_leader_rfsm_vsn(Leader) ->
         {ok, _, OtherLeader} ->
             ?err_unrec({leader_changed, #{Leader => OtherLeader}});
         Err ->
-            ?err_rec({raft, Err})
+            ?err_rec({raft, Err, ?FUNCTION_NAME})
+    end.
+
+sleep(Time) ->
+    receive
+        {'EXIT', Pid, Reason} ->
+            ?err_unrec({received_exit_signal, Pid, Reason})
+    after Time ->
+        ok
     end.
 
 -ifdef(TEST).
