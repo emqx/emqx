@@ -657,7 +657,7 @@ apply_mfa(TnxId, {M, F, A}, Kind) ->
     {IsSuccess, Res}.
 
 format_mfa(M, F, A) ->
-    iolist_to_binary([atom_to_list(M), ":", atom_to_list(F), "/", integer_to_list(A)]).
+    lists:flatten([atom_to_list(M), ":", atom_to_list(F), "/", integer_to_list(A)]).
 
 is_success(ok) -> true;
 is_success({ok, _}) -> true;
@@ -671,7 +671,7 @@ log_and_alarm(IsSuccess, Res, #{kind := ?KIND_INITIATE} = Meta) ->
             ?SLOG(debug, Meta#{msg => "cluster_rpc_apply_result", result => emqx_utils:redact(Res)});
         false ->
             ?SLOG(warning, Meta#{
-                msg => "cluster_rpc_apply_result", result => emqx_utils:redact(Res)
+                msg => "cluster_rpc_failed_to_init_transaction", result => emqx_utils:redact(Res)
             })
     end;
 log_and_alarm(true, Res, Meta) ->
