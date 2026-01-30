@@ -381,7 +381,6 @@ normalize_interval(Interval) when is_binary(Interval); is_list(Interval) ->
 normalize_interval(Interval) ->
     erlang:throw({invalid_keepalive, Interval}).
 
-to_int(Value) when is_integer(Value) -> Value;
 to_int(Value) ->
     try emqx_utils_conv:int(Value) of
         Int -> Int
