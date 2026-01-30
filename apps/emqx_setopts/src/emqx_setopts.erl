@@ -364,22 +364,17 @@ normalize_item(Other) ->
     erlang:throw({invalid_item, Other}).
 
 normalize_interval(Interval) when is_integer(Interval) ->
-    case Interval of
-        Value when Value >= 0, Value =< 65535 ->
-            Value;
-        _ ->
-            erlang:throw({invalid_keepalive, Interval})
-    end;
+    validate_keepalive_interval(Interval, Interval);
 normalize_interval(Interval) when is_binary(Interval); is_list(Interval) ->
     Int = to_int(Interval),
-    case Int of
-        Value when Value >= 0, Value =< 65535 ->
-            Value;
-        _ ->
-            erlang:throw({invalid_keepalive, Interval})
-    end;
+    validate_keepalive_interval(Int, Interval);
 normalize_interval(Interval) ->
     erlang:throw({invalid_keepalive, Interval}).
+
+validate_keepalive_interval(Value, Raw) when Value >= 0, Value =< 65535 ->
+    Value;
+validate_keepalive_interval(_Value, Raw) ->
+    erlang:throw({invalid_keepalive, Raw}).
 
 to_int(Value) ->
     try emqx_utils_conv:int(Value) of
