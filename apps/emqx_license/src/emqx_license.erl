@@ -36,6 +36,14 @@
 %% and can be changed by the communitiy.
 -define(HP_LICENSE, 2000).
 
+-define(LICENSE_LOG_META, #{tag => "LICENSE"}).
+-define(LICENSE_MSG_EXPIRED, #{msg => connection_rejected_due_to_license_expired}).
+-define(LICENSE_MSG_MAX_UPTIME, #{msg => connection_rejected_due_to_trial_license_uptime_limit}).
+-define(LICENSE_MSG_LIMIT_REACHED, #{msg => connection_rejected_due_to_license_limit_reached}).
+-define(LICENSE_MSG_NOT_LOADED(Reason), #{
+    msg => "connection_rejected_due_to_license_not_loaded", reason => Reason
+}).
+
 -define(IS_CLIENTID_TO_BE_ASSIGENED(X), (X =:= <<>> orelse X =:= undefined)).
 
 %%------------------------------------------------------------------------------
@@ -85,25 +93,15 @@ exec_config_update(Param) ->
 check(#{clientid := ClientId}, AckProps) ->
     case emqx_license_checker:limits() of
         {ok, #{max_sessions := ?ERR_EXPIRED}} ->
-            ?SLOG_THROTTLE(error, #{msg => connection_rejected_due_to_license_expired}, #{
-                tag => "LICENSE"
-            }),
+            ?SLOG_THROTTLE(error, ?LICENSE_MSG_EXPIRED, ?LICENSE_LOG_META),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
         {ok, #{max_sessions := ?ERR_MAX_UPTIME}} ->
-            ?SLOG_THROTTLE(
-                error, #{msg => connection_rejected_due_to_trial_license_uptime_limit}, #{
-                    tag => "LICENSE"
-                }
-            ),
+            ?SLOG_THROTTLE(error, ?LICENSE_MSG_MAX_UPTIME, ?LICENSE_LOG_META),
             {stop, {error, ?RC_QUOTA_EXCEEDED}};
         {ok, #{max_sessions := MaxSessions}} ->
             case is_max_clients_exceeded(MaxSessions) andalso is_new_client(ClientId) of
                 true ->
-                    ?SLOG_THROTTLE(
-                        error,
-                        #{msg => connection_rejected_due_to_license_limit_reached},
-                        #{tag => "LICENSE"}
-                    ),
+                    ?SLOG_THROTTLE(error, ?LICENSE_MSG_LIMIT_REACHED, ?LICENSE_LOG_META),
                     {stop, {error, ?RC_QUOTA_EXCEEDED}};
                 false ->
                     {ok, AckProps}
@@ -111,11 +109,8 @@ check(#{clientid := ClientId}, AckProps) ->
         {error, Reason} ->
             ?SLOG(
                 error,
-                #{
-                    msg => "connection_rejected_due_to_license_not_loaded",
-                    reason => Reason
-                },
-                #{tag => "LICENSE"}
+                ?LICENSE_MSG_NOT_LOADED(Reason),
+                ?LICENSE_LOG_META
             ),
             {stop, {error, ?RC_QUOTA_EXCEEDED}}
     end.
