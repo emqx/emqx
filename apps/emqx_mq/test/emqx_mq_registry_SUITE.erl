@@ -115,8 +115,8 @@ t_create_exception(_Config) ->
 %% Verify that we are able to operate with pre-6.1.1 MQs
 t_pre_611(_Config) ->
     MQ0 = emqx_mq_test_utils:fill_mq_defaults(#{topic_filter => <<"a/b/c">>}),
-    MQ = emqx_mq_registry:create_pre_611_queue(MQ0),
-    ?assertMatch({ok, #{topic_filter := <<"a/b/c">>}}, emqx_mq_registry:find(<<"/a/b/c">>)),
+    ok = emqx_mq_registry:create_pre_611_queue(MQ0),
+    {ok, #{topic_filter := <<"a/b/c">>} = MQ} = emqx_mq_registry:find(<<"/a/b/c">>),
     ?assertEqual(<<"/a/b/c">>, emqx_mq_prop:name(MQ)),
     ?assertEqual(ok, emqx_mq_registry:delete(<<"/a/b/c">>)),
     ?assertEqual(not_found, emqx_mq_registry:find(<<"/a/b/c">>)),
@@ -128,5 +128,3 @@ t_pre_611(_Config) ->
 
 create_mq(Name, TopicFilter) ->
     emqx_mq_test_utils:create_mq(#{name => Name, topic_filter => TopicFilter}).
-
-

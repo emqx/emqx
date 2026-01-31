@@ -53,10 +53,15 @@ t_gc(_Config) ->
     emqx_config:put([mq, regular_queue_retention_period], 1000),
     ct:sleep(500),
     % %% Create a lastvalue Queue
-    MQC = emqx_mq_test_utils:ensure_mq_created(#{topic_filter => <<"tc/#">>, is_lastvalue => true}),
+    MQC = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"tc">>, topic_filter => <<"tc/#">>, is_lastvalue => true
+    }),
     %% Create a non-lastvalue Queue
     MQR = emqx_mq_test_utils:ensure_mq_created(#{
-        topic_filter => <<"tr/#">>, is_lastvalue => false, data_retention_period => 1000
+        name => <<"tr">>,
+        topic_filter => <<"tr/#">>,
+        is_lastvalue => false,
+        data_retention_period => 1000
     }),
 
     % Publish 10 messages to the queues
@@ -108,6 +113,7 @@ t_limited_regular(_Config) ->
     %% We have ?N_SHARDS = 2 shards, so 50 * 2 = 100 messages maximum
     MQC = emqx_mq_test_utils:ensure_mq_created(
         #{
+            name => <<"tc">>,
             topic_filter => <<"tc/#">>,
             is_lastvalue => false,
             limits => #{
@@ -135,6 +141,7 @@ t_limited_regular(_Config) ->
     %% We have ?N_SHARDS = 2 shards, so 50KB * 2 = 100KB maximum
     MQB = emqx_mq_test_utils:ensure_mq_created(
         #{
+            name => <<"tb">>,
             topic_filter => <<"tb/#">>,
             is_lastvalue => false,
             limits => #{
@@ -166,6 +173,7 @@ t_limited_lastvalue(_Config) ->
     %% We have ?N_SHARDS = 2 shards, so 100 * 2 = 200 messages maximum
     _MQC = emqx_mq_test_utils:ensure_mq_created(
         #{
+            name => <<"tc">>,
             topic_filter => <<"tc/#">>,
             is_lastvalue => true,
             key_expression =>
@@ -195,7 +203,7 @@ t_limited_lastvalue(_Config) ->
     %% the republished 1st portion should go next,
     %% and the 2nd portion should be partially evicted
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"tc/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"tc">>),
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 200, _Timeout = 1000),
     ?assert(length(Msgs) < 200 + 20),
     PortionCounts = lists:foldl(

@@ -48,15 +48,22 @@ end_per_testcase(_CaseName, _Config) ->
 t_auto_shutdown(_Config) ->
     %% Create a non-lastvalue Queue
     _ = emqx_mq_test_utils:ensure_mq_created(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
+        name => <<"auto_shutdown">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        consumer_max_inactive => 50
     }),
 
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"auto_shutdown">>),
 
     ?assertWaitEvent(
         emqtt:disconnect(CSub),
-        #{?snk_kind := mq_consumer_shutdown, mq_topic_filter := <<"t/#">>},
+        #{
+            ?snk_kind := mq_consumer_shutdown,
+            mq_topic_filter := <<"t/#">>,
+            mq_name := <<"auto_shutdown">>
+        },
         1000
     ).
 
@@ -67,7 +74,10 @@ t_quick_reconnect(_Config) ->
     %% Create a non-lastvalue Queue
     #{id := MQId} =
         _ = emqx_mq_test_utils:ensure_mq_created(#{
-            topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
+            name => <<"quick_reconnect">>,
+            topic_filter => <<"t/#">>,
+            is_lastvalue => false,
+            consumer_max_inactive => 50
         }),
 
     %% Publish a message to the queue
@@ -89,7 +99,7 @@ t_quick_reconnect(_Config) ->
     %% Connect a client to the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
     ?assertWaitEvent(
-        emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+        emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"quick_reconnect">>),
         #{?snk_kind := mq_sub_handle_connect_error},
         1000
     ),
@@ -115,12 +125,15 @@ t_quick_reconnect(_Config) ->
 t_ack_from_unknown_subscriber(_Config) ->
     %% Create a non-lastvalue Queue
     _ = emqx_mq_test_utils:ensure_mq_created(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false, consumer_max_inactive => 50
+        name => <<"ack_from_unknown_subscriber">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        consumer_max_inactive => 50
     }),
 
     %% Create a subscriber spawning a consumer
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"ack_from_unknown_subscriber">>),
 
     %% Find the consumer send ack & ping from a fake subscriber
     [Consumer] = emqx_mq_test_utils:all_consumers(),
