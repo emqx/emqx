@@ -29,8 +29,9 @@ all() ->
         {group, random},
         {group, least_inflight},
         {group, round_robin}
-    ] ++
-        All.
+    ]
+    ++
+    All.
 
 groups() ->
     [
@@ -1158,9 +1159,7 @@ t_metrics(_Config) ->
 
 t_update_key_expression(_Config) ->
     %% Create a lastvalue Queue
-    emqx_mq_test_utils:ensure_mq_created(#{
-        name => <<"update_key_expression">>, topic_filter => <<"t/#">>, is_lastvalue => true
-    }),
+    emqx_mq_test_utils:ensure_mq_created(#{name => <<"update_key_expression">>, topic_filter => <<"t/#">>, is_lastvalue => true}),
 
     %% Publish 10 messages to the queue, with 10 keys
     %% In tests, the default key is "mq-key" user property.
@@ -1240,11 +1239,7 @@ t_unsubscribe(_Config) ->
 %% Verify that we gracefully handle acks to a message from a lost consumer.
 t_ack_to_message_from_lost_consumer(_Config) ->
     %% Create a non-lastvalue Queue
-    emqx_mq_test_utils:ensure_mq_created(#{
-        name => <<"ack_to_message_from_lost_consumer">>,
-        topic_filter => <<"t/#">>,
-        ping_interval => 100
-    }),
+    emqx_mq_test_utils:ensure_mq_created(#{name => <<"ack_to_message_from_lost_consumer">>, topic_filter => <<"t/#">>, ping_interval => 100}),
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Connect a client and subscribe to the queue

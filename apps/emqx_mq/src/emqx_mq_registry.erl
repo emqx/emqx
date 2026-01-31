@@ -295,8 +295,8 @@ list(Cursor, Limit) when Limit >= 1 ->
             {_Keys, MQs} = lists:unzip(KeyMQs0),
             {MQs, undefined};
         false ->
+            {Key, _MQ} = lists:last(KeyMQs0),
             KeyMQs = lists:sublist(KeyMQs0, Limit),
-            {Key, _MQ} = lists:last(KeyMQs),
             {_Keys, MQs} = lists:unzip(KeyMQs),
             NewCursor = cursor_from_key(Key),
             {MQs, NewCursor}
@@ -465,10 +465,11 @@ record_to_mq_handle(#?MQ_REGISTRY_INDEX_TAB{
         limits => maps:get(limits, Extra, ?DEFAULT_MQ_LIMITS)
     }.
 
-mq_to_record(
-    #{id := Id, is_lastvalue := IsLastValue, limits := Limits} = MQ
-) ->
+mq_to_record(MQ) ->
     Key = make_key(MQ),
+    mq_to_record(MQ, Key).
+
+mq_to_record(#{id := Id, is_lastvalue := IsLastValue, limits := Limits} = MQ, Key) ->
     #?MQ_REGISTRY_INDEX_TAB{
         key = Key,
         id = Id,
@@ -546,10 +547,10 @@ do_rollback(_MQ, []) ->
 
 create_pre_611_queue(MQ0) ->
     MQ = maps:without([name], MQ0#{id => emqx_guid:gen()}),
-    Rec = mq_to_record(MQ),
+    Key = make_default_queue_key(emqx_mq_prop:topic_filter(MQ)),
+    Rec = mq_to_record(MQ, Key),
     {atomic, ok} =
         mria:transaction(?MQ_REGISTRY_SHARD, fun() ->
             mnesia:write(Rec)
         end),
-    ok = emqx_mq_state_storage:create_mq_state(MQ),
-    MQ.
+    ok = emqx_mq_state_storage:create_mq_state(MQ).

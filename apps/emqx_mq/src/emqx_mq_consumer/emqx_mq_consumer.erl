@@ -105,7 +105,10 @@ find(Id) ->
     | {error, term()}.
 connect(#{topic_filter := _MQTopicFilter, name := _MQName} = MQ, SubscriberRef, ClientId) ->
     ?tp_debug(mq_consumer_connect, #{
-        mq_topic_filter => _MQTopicFilter, mq_name => _MQName, subscriber_ref => SubscriberRef, client_id => ClientId
+        mq_topic_filter => _MQTopicFilter,
+        mq_name => _MQName,
+        subscriber_ref => SubscriberRef,
+        client_id => ClientId
     }),
     case find_or_start(MQ) of
         {ok, ConsumerRef} ->
@@ -197,7 +200,13 @@ stop_v1(Pid) ->
 %% Gen Server Callbacks
 %%--------------------------------------------------------------------
 
-init([#{topic_filter := _MQTopicFilter, name := _MQName, consumer_persistence_interval := PersistenceInterval} = MQ]) ->
+init([
+    #{
+        topic_filter := _MQTopicFilter,
+        name := _MQName,
+        consumer_persistence_interval := PersistenceInterval
+    } = MQ
+]) ->
     erlang:process_flag(trap_exit, true),
     case try_register_consumer(MQ) of
         ok ->
@@ -240,7 +249,9 @@ handle_info(#info_to_mq_server{message = Message}, State) ->
 handle_info(#persist_consumer_data{}, State) ->
     handle_persist_consumer_data(State);
 handle_info(Request, #state{mq = #{topic_filter := _MQTopicFilter, name := _MQName}} = State0) ->
-    ?tp_debug(mq_consumer_handle_info, #{request => Request, mq_topic_filter => _MQTopicFilter, mq_name => _MQName}),
+    ?tp_debug(mq_consumer_handle_info, #{
+        request => Request, mq_topic_filter => _MQTopicFilter, mq_name => _MQName
+    }),
     case handle_ds_info(Request, State0) of
         ignore ->
             ?tp_debug(mq_consumer_unknown_info, #{
@@ -327,12 +338,12 @@ persist_consumer_data(
 
 handle_shutdown(
     #state{
-        mq = #{topic_filter := _MQTopicFilter} = _MQ,
+        mq = #{topic_filter := _MQTopicFilter, name := _MQName} = _MQ,
         streams = Streams0,
         consumer_state = ConsumerState0
     } = State0
 ) ->
-    ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter}),
+    ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter, mq_name => _MQName}),
     Streams1 = emqx_mq_consumer_streams:destroy(Streams0),
     {ProgressUpdates, Streams} = emqx_mq_consumer_streams:fetch_progress_updates(Streams1),
     ConsumerState = put_progress_updates(ConsumerState0, ProgressUpdates),

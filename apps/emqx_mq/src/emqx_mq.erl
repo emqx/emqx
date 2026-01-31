@@ -233,7 +233,7 @@ on_session_created(_ClientInfo, SessionInfo) ->
     ok = set_mq_supported(SessionInfo).
 
 on_client_authorize(
-    _ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = _Topic, Result
+    _ClientInfo, #{action_type := subscribe} = _Action, <<"$queue/", _/binary>> = _Topic, Result
 ) ->
     ?tp_mq_client(mq_on_client_authorize, #{
         client_info => _ClientInfo, action => _Action, topic => _Topic
