@@ -85,7 +85,7 @@ jobs:
           - release-60
           - release-61
         os:
-          - macos-15
+          - macos-26
 
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
