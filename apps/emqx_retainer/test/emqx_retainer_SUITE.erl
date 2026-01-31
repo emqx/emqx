@@ -822,7 +822,7 @@ t_shared_subscription(_TCConfig) ->
     {ok, _, _} = emqtt:subscribe(C, <<"$share/g_retained/+/shared_sub">>),
     ?assertNotReceive({publish, _}),
 
-    %% Queue topics (special shared subs)
+    %% Queue topics
     {ok, _, _} = emqtt:subscribe(C, <<"$queue/", Topic/binary>>),
     ?assertNotReceive({publish, _}),
 
