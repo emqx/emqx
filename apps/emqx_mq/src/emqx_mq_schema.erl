@@ -116,10 +116,10 @@ fields(auto_create) ->
     ];
 fields(auto_create_regular) ->
     RegularMQFields = message_queue_fields(false),
-    without_fields([is_lastvalue, topic_filter], RegularMQFields);
+    without_fields([is_lastvalue, name, topic_filter], RegularMQFields);
 fields(auto_create_lastvalue) ->
     LastvalueMQFields = message_queue_fields(true) ++ message_queue_lastvalue_fields(),
-    without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
+    without_fields([is_lastvalue, name, topic_filter], LastvalueMQFields);
 %% MQ structs
 fields(mq_individual_limits) ->
     [
@@ -136,7 +136,8 @@ fields(mq_individual_limits) ->
 %% Lastvalue structs
 %%
 fields(message_queue_api_lastvalue_put) ->
-    without_fields([topic_filter], message_queue_fields(true)) ++ message_queue_lastvalue_fields();
+    without_fields([name, topic_filter], message_queue_fields(true)) ++
+        message_queue_lastvalue_fields();
 fields(message_queue_lastvalue_api_get) ->
     message_queue_fields(true) ++ message_queue_lastvalue_fields();
 fields(message_queue_lastvalue_api_post) ->
@@ -145,7 +146,7 @@ fields(message_queue_lastvalue_api_post) ->
 %% Regular structs
 %%
 fields(message_queue_api_regular_put) ->
-    without_fields([topic_filter], message_queue_fields(false));
+    without_fields([name, topic_filter], message_queue_fields(false));
 fields(message_queue_regular_api_get) ->
     message_queue_fields(false);
 fields(message_queue_regular_api_post) ->
@@ -194,6 +195,9 @@ mq_sctype_api_post() ->
 
 message_queue_fields(IsLastvalue) ->
     [
+        %% TODO
+        %% name validation
+        {name, mk(binary(), #{desc => ?DESC(name), required => true})},
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
         {is_lastvalue,
             mk(

@@ -135,7 +135,9 @@ open_consumer_state(MQ) ->
             persist_consumer_state_tx(_NeedClaimOwnership = true, Rec)
         end
     ),
-    format_consumer_state_persist_tx_result(TxRes, _NeedClaimOwnership = true, failed_to_open_consumer_state).
+    format_consumer_state_persist_tx_result(
+        TxRes, _NeedClaimOwnership = true, failed_to_open_consumer_state
+    ).
 
 -spec put_shard_progress(
     emqx_ds:shard(), emqx_mq_consumer_stream_buffer:progress(), consumer_state()
@@ -167,7 +169,9 @@ commit_consumer_state(
             persist_consumer_state_tx(NeedClaimOwnership, CSRec0)
         end
     ),
-    format_consumer_state_persist_tx_result(TxRes, NeedClaimOwnership, failed_to_commit_consumer_state).
+    format_consumer_state_persist_tx_result(
+        TxRes, NeedClaimOwnership, failed_to_commit_consumer_state
+    ).
 
 -spec destroy_consumer_state(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
 destroy_consumer_state(MQHandle) ->
@@ -618,7 +622,7 @@ name_to_asn1(Name) ->
     Name.
 
 name_from_asn1(MQ, asn1_NOVALUE) ->
-    MQ#{name => emqx_mq_prop:name(MQ)};
+    MQ#{name => emqx_mq_prop:default_name(MQ)};
 name_from_asn1(MQ, Name) ->
     MQ#{name => Name}.
 
