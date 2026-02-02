@@ -38,7 +38,7 @@
 -ifdef(TEST).
 -export([
     try_insert_inflight/7,
-    ack_msg/3,
+    ack_msg/4,
     set_msg_ack/2,
     get_msg_ack/2,
     custom_msg_ack_key/2,
@@ -285,7 +285,7 @@ handle_frame_error(Reason, Channel = #channel{clientinfo = ClientInfo}) ->
 %% @private
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->
     #{<<"body">> := #{<<"seq">> := Seq, <<"id">> := Id}} = Frame,
-    NewInflight = ack_msg(?MC_GENERAL_RESPONSE, {Id, Seq}, Inflight),
+    NewInflight = ack_msg(?MC_GENERAL_RESPONSE, {Id, Seq}, Inflight, Channel),
     dispatch_and_reply(Channel#channel{inflight = NewInflight});
 do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
@@ -370,7 +370,7 @@ do_handle_in(
             handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
         % this is a response to MS_REQ_DRIVER_ID(0x8702)
         true ->
-            NewInflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight),
+            NewInflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight, Channel),
             dispatch_and_reply(Channel#channel{inflight = NewInflight})
     end;
 do_handle_in(?MSG(?MC_DEREGISTER), Channel) ->
@@ -391,7 +391,7 @@ do_handle_in(
                     handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
                 % these frames are response to server's request
                 false ->
-                    NewInflight = ack_msg(MsgId, seq(Frame), Inflight),
+                    NewInflight = ack_msg(MsgId, seq(Frame), Inflight, Channel),
                     dispatch_and_reply(Channel#channel{inflight = NewInflight})
             end;
         true ->
@@ -670,14 +670,11 @@ dispatch_frame(
                 {ok, NewInflight} ->
                     NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
                     {[Frame], ensure_timer(retry_timer, NChannel)};
-                {discard, Reason} ->
-                    log(
-                        warning,
-                        #{msg => "discard_downlink_frame", reason => Reason, frame => Frame},
-                        Channel
-                    ),
-                    NChannel = Channel#channel{mqueue = NewQueue},
-                    dispatch_frame(NChannel)
+                {ok_duplicate, NewInflight} ->
+                    %% Duplicate detected but still deliver (as a gateway should ensure delivery)
+                    %% The message is not added to inflight since it's already being tracked
+                    NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
+                    {[Frame], ensure_timer(retry_timer, NChannel)}
             end
     end.
 
@@ -723,13 +720,14 @@ try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel)
     OrderKey = {msg_sn_order, AutoKey},
     case emqx_inflight:contain(CustomKey, Inflight) of
         true ->
-            %% Duplicate custom msg_sn, discard
+            %% Duplicate custom msg_sn detected, but still deliver
+            %% (as a gateway should ensure message delivery as much as possible)
             log(
                 warning,
-                #{msg => "duplicate_custom_msg_sn", msg_id => MsgId, msg_sn => MsgSn},
+                #{msg => "duplicate_custom_msg_sn_delivered", msg_id => MsgId, msg_sn => MsgSn},
                 Channel
             ),
-            {discard, duplicate_custom_msg_sn};
+            {ok_duplicate, Inflight};
         false ->
             case emqx_inflight:contain(AutoKey, Inflight) of
                 true ->
@@ -891,7 +889,7 @@ ensure_disconnected(
 %% @doc Handle ACK message, considering both auto and custom msg_sn keys.
 %% When there's a race condition (both auto and custom keys exist for same MsgSn),
 %% use process dictionary to determine which message was sent first and delete that one.
-ack_msg(AckMsgId, KeyParam, Inflight) ->
+ack_msg(AckMsgId, KeyParam, Inflight, Channel) ->
     AutoKey = get_msg_ack(AckMsgId, KeyParam),
     CustomKey = custom_get_msg_ack(AckMsgId, KeyParam),
     %% Use AutoKey in OrderKey to match the key used in try_insert_inflight
@@ -921,8 +919,20 @@ ack_msg(AckMsgId, KeyParam, Inflight) ->
             _ = erase(OrderKey),
             emqx_inflight:delete(CustomKey, Inflight);
         {false, false} ->
-            %% Neither exists
+            %% Neither exists - ACK for message not in inflight
+            %% This can happen when duplicate messages are delivered and client sends multiple ACKs
             _ = erase(OrderKey),
+            log(
+                warning,
+                #{
+                    msg => "ack_for_unknown_msg",
+                    ack_msg_id => AckMsgId,
+                    key_param => KeyParam,
+                    auto_key => AutoKey,
+                    custom_key => CustomKey
+                },
+                Channel
+            ),
             Inflight
     end.
 
