@@ -5,443 +5,383 @@
 -module(emqx_nats_channel_SUITE).
 
 -include("emqx_nats.hrl").
--include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
--record(channel, {
-    ctx,
-    conninfo,
-    clientinfo,
-    session,
-    clientinfo_override,
-    conn_state,
-    subscriptions,
-    timers,
-    transaction
-}).
+-define(CONF_FMT, <<
+    "gateway.nats {\n"
+    "  default_heartbeat_interval = 2s\n"
+    "  heartbeat_wait_timeout = 1s\n"
+    "  protocol {\n"
+    "    max_payload_size = 1024\n"
+    "  }\n"
+    "  listeners.tcp.default {\n"
+    "    bind = ~p\n"
+    "  }\n"
+    "  listeners.ssl.default {\n"
+    "    bind = ~p\n"
+    "    ssl_options {\n"
+    "      cacertfile = \"~s\"\n"
+    "      certfile = \"~s\"\n"
+    "      keyfile = \"~s\"\n"
+    "      verify = verify_peer\n"
+    "      fail_if_no_peer_cert = true\n"
+    "    }\n"
+    "  }\n"
+    "}\n"
+>>).
 
-all() -> emqx_common_test_helpers:all(?MODULE).
+%%--------------------------------------------------------------------
+%% CT Callbacks
+%%--------------------------------------------------------------------
+
+all() ->
+    emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
     application:load(emqx_gateway_nats),
-    Conf = #{
-        [gateway, nats, server_id] => <<"emqx_nats_gateway">>,
-        [gateway, nats, server_name] => <<"emqx_nats_gateway">>,
-        [gateway, nats, protocol, max_payload_size] => 1024,
-        [gateway, nats, default_heartbeat_interval] => 2000,
-        [gateway, nats, heartbeat_wait_timeout] => 1000
-    },
-    ok = meck:new(emqx_conf, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_conf, get, fun(Path) -> maps:get(Path, Conf) end),
-    ok = meck:expect(emqx_conf, get, fun(Path, Default) -> maps:get(Path, Conf, Default) end),
-    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_hooks, run, fun(_Name, _Args) -> ok end),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_Name, _Args, Acc) -> Acc end),
-    ok = meck:new(emqx_gateway_metrics, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_gateway_metrics, inc, fun(_GwName, _Name) -> ok end),
-    ok = meck:expect(emqx_gateway_metrics, inc, fun(_GwName, _Name, _N) -> ok end),
-    Config.
+    TcpPort = emqx_common_test_helpers:select_free_port(tcp),
+    SslPort = emqx_common_test_helpers:select_free_port(ssl),
+    Conf = nats_conf(TcpPort, SslPort),
+    Apps = emqx_cth_suite:start(
+        [
+            {emqx_conf, Conf},
+            emqx_gateway,
+            emqx_auth,
+            emqx_management,
+            {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
+        ],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
+    ),
+    emqx_common_test_http:create_default_app(),
+    RawConf = emqx:get_raw_config([gateway, nats]),
+    [
+        {suite_apps, Apps},
+        {tcp_port, TcpPort},
+        {ssl_port, SslPort},
+        {raw_conf, RawConf}
+        | Config
+    ].
 
-end_per_suite(_Config) ->
-    meck:unload([emqx_conf, emqx_hooks, emqx_gateway_metrics]),
+end_per_suite(Config) ->
+    emqx_common_test_http:delete_default_app(),
+    emqx_cth_suite:stop(?config(suite_apps, Config)),
     ok.
 
-%%--------------------------------------------------------------------
-%% Helpers
-%%--------------------------------------------------------------------
+init_per_testcase(_TestCase, Config) ->
+    Config.
 
-base_ctx() ->
-    #{gwname => nats, cm => self()}.
-
-base_conninfo() ->
-    #{
-        peername => {{127, 0, 0, 1}, 12345},
-        sockname => {{127, 0, 0, 1}, 4222},
-        conn_mod => emqx_gateway_conn,
-        conn_params => #{},
-        keepalive => 1000
-    }.
-
-base_options() ->
-    #{
-        ctx => base_ctx(),
-        listener => {nats, tcp, default},
-        enable_authn => true,
-        clientinfo_override => #{}
-    }.
-
-make_channel(OptOverrides, ConnOverrides) ->
-    ConnInfo = maps:merge(base_conninfo(), ConnOverrides),
-    Options = maps:merge(base_options(), OptOverrides),
-    emqx_nats_channel:init(ConnInfo, Options).
-
-make_channel_without_listener(OptOverrides, ConnOverrides) ->
-    ConnInfo = maps:merge(base_conninfo(), ConnOverrides),
-    Options = maps:merge(maps:remove(listener, base_options()), OptOverrides),
-    emqx_nats_channel:init(ConnInfo, Options).
-
-sub(SId, Subject, MountedTopic, MaxMsgs) ->
-    #{
-        sid => SId,
-        subject => Subject,
-        mounted_topic => MountedTopic,
-        max_msgs => MaxMsgs,
-        sub_opts => #{}
-    }.
-
-connect_frame(Params) ->
-    #nats_frame{operation = ?OP_CONNECT, message = Params}.
-
-sub_frame(SId, Subject) ->
-    #nats_frame{operation = ?OP_SUB, message = #{sid => SId, subject => Subject}}.
-
-unsub_frame(SId, MaxMsgs) ->
-    #nats_frame{operation = ?OP_UNSUB, message = #{sid => SId, max_msgs => MaxMsgs}}.
-
-pub_frame(Subject, Payload, ReplyTo) ->
-    #nats_frame{
-        operation = ?OP_PUB,
-        message = #{subject => Subject, payload => Payload, reply_to => ReplyTo}
-    }.
+end_per_testcase(_TestCase, Config) ->
+    cleanup_hooks(),
+    allow_pubsub_all(),
+    disable_auth(),
+    update_nats_with_clientinfo_override(#{}),
+    restore_nats_conf(?config(raw_conf, Config)),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
 
-t_init_no_listener_and_no_auth(_Config) ->
-    Channel = make_channel_without_listener(#{enable_authn => false}, #{}),
-    ?assertEqual(anonymous, emqx_nats_channel:info(conn_state, Channel)),
-    ClientInfo = emqx_nats_channel:info(clientinfo, Channel),
-    ?assertEqual(undefined, maps:get(listener, ClientInfo)).
+t_connect_hook_error(Config) ->
+    ok = emqx_hooks:put('client.connect', {?MODULE, hook_connect_error, []}, 0),
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    {ok, [Err]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
+    emqx_nats_client:stop(Client).
 
-t_init_with_peercert_sets_dn_cn(_Config) ->
-    ok = meck:new(esockd_peercert, [passthrough, no_history]),
-    ok = meck:expect(esockd_peercert, subject, fun(_) -> <<"DN">> end),
-    ok = meck:expect(esockd_peercert, common_name, fun(_) -> <<"CN">> end),
-    try
-        Channel = make_channel(#{}, #{peercert => dummy_cert}),
-        ClientInfo = emqx_nats_channel:info(clientinfo, Channel),
-        ?assertEqual(<<"DN">>, maps:get(dn, ClientInfo)),
-        ?assertEqual(<<"CN">>, maps:get(cn, ClientInfo))
-    after
-        meck:unload(esockd_peercert)
-    end.
+t_subscribe_hook_blocked(Config) ->
+    ok = emqx_hooks:put('client.subscribe', {?MODULE, hook_subscribe_block, []}, 0),
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
+    {ok, [Err]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
+    emqx_nats_client:stop(Client).
 
-t_info_frame_tls_options_wss(_Config) ->
-    Channel = make_channel(#{listener => {nats, wss, default}}, #{}),
-    {ok, [{outgoing, #nats_frame{operation = ?OP_INFO, message = Msg}}], _} =
-        emqx_nats_channel:handle_info(after_init, Channel),
-    ?assertEqual(true, maps:get(tls_required, Msg)),
-    ?assertEqual(true, maps:get(tls_handshake_first, Msg)).
+t_subscribe_duplicate_sid(Config) ->
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"bar">>, <<"sid-1">>),
+    {ok, [Err]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
+    emqx_nats_client:stop(Client).
 
-t_set_conn_state(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    Channel1 = emqx_nats_channel:set_conn_state(disconnected, Channel),
-    ?assertEqual(disconnected, emqx_nats_channel:info(conn_state, Channel1)).
+t_subscribe_duplicate_topic(Config) ->
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-2">>),
+    {ok, [Err]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
+    emqx_nats_client:stop(Client).
 
-t_connect_pipeline_hook_error_with_placeholder_undefined(_Config) ->
-    ok = meck:new(emqx_placeholder, [passthrough, no_history]),
-    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_placeholder, proc_tmpl, fun(_, _, _) -> [undefined] end),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_Name, _Args, _Acc) -> {error, <<"hook_failed">>} end),
-    ok = meck:expect(emqx_gateway_ctx, authenticate, fun(_Ctx, Info) -> {ok, Info} end),
-    try
-        Channel = make_channel_without_listener(#{}, #{}),
-        Frame = connect_frame(#{}),
-        ?assertMatch(
-            {shutdown, <<"hook_failed">>, _Frame, _Chan},
-            emqx_nats_channel:handle_in(Frame, Channel)
-        )
-    after
-        ok = meck:expect(emqx_hooks, run_fold, fun(_Name, _Args, Acc) -> Acc end),
-        meck:unload([emqx_placeholder, emqx_gateway_ctx])
-    end.
+t_subscribe_before_connect_denied(Config) ->
+    ok = enable_auth(),
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
+    {ok, [Err]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
+    emqx_nats_client:stop(Client).
 
-t_schedule_connection_expire_timer(_Config) ->
-    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history]),
-    ok = meck:expect(emqx_gateway_ctx, authenticate, fun(_Ctx, Info) -> {ok, Info} end),
-    ok = meck:expect(emqx_gateway_ctx, connection_expire_interval, fun(_Ctx, _Info) -> 1000 end),
-    ok = meck:expect(
-        emqx_gateway_ctx,
-        open_session,
-        fun(_Ctx, _CleanStart, _ClientInfo, _ConnInfo, _SessFun) ->
-            {ok, #{session => #{}}}
-        end
+t_double_connect_no_responders_paths(Config) ->
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:connect(Client, #{no_responders => true, headers => false}),
+    {ok, [Err]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
+
+    ok = emqx_nats_client:connect(Client, #{no_responders => true, headers => true}),
+    {ok, [Ok]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_OK}, Ok),
+    emqx_nats_client:stop(Client).
+
+t_auth_expire_disconnect(Config) ->
+    ok = enable_auth(),
+    ExpireAt = erlang:system_time(millisecond) + 200,
+    ok = emqx_hooks:put(
+        'client.authenticate',
+        {?MODULE, hook_auth_expire, [ExpireAt]},
+        ?HP_AUTHN
     ),
-    ok = meck:expect(emqx_hooks, run, fun(_Name, _Args) -> ok end),
-    try
-        Channel = make_channel(#{}, #{}),
-        Frame = connect_frame(#{}),
-        {ok, _Replies, _Channel1} = emqx_nats_channel:handle_in(Frame, Channel)
-    after
-        meck:unload(emqx_gateway_ctx)
-    end.
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    Err = recv_err_frame(Client, 2000),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
+    emqx_nats_client:stop(Client).
 
-t_process_connect_open_session_error(_Config) ->
-    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_gateway_ctx, authenticate, fun(_Ctx, Info) -> {ok, Info} end),
-    ok = meck:expect(
-        emqx_gateway_ctx,
-        connection_expire_interval,
-        fun(_Ctx, _ClientInfo) -> undefined end
-    ),
-    ok = meck:expect(
-        emqx_gateway_ctx,
-        open_session,
-        fun(_Ctx, _CleanStart, _ClientInfo, _ConnInfo, _SessFun) ->
-            {error, <<"open_failed">>}
-        end
-    ),
-    ok = meck:expect(emqx_hooks, run, fun(_Name, _Args) -> ok end),
-    try
-        Channel = make_channel(#{}, #{}),
-        Frame = connect_frame(#{}),
-        ?assertMatch(
-            {shutdown, failed_to_open_session, _Frame, _Chan},
-            emqx_nats_channel:handle_in(Frame, Channel)
-        )
-    after
-        meck:unload(emqx_gateway_ctx)
-    end.
+t_clean_authz_cache(Config) ->
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true, user => <<"cache_user">>}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    [ClientInfo] = wait_for_client_by_username(<<"cache_user">>),
+    ClientId = maps:get(clientid, ClientInfo),
+    Pids = emqx_gateway_cm:lookup_by_clientid(nats, ClientId),
+    lists:foreach(fun(Pid) -> Pid ! clean_authz_cache end, Pids),
+    emqx_nats_client:stop(Client).
 
-t_double_connect_check_no_responders_paths(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    Channel = Channel0#channel{conn_state = connected},
-    ErrFrame = connect_frame(#{<<"no_responders">> => true, <<"headers">> => false}),
+t_cast_unexpected(Config) ->
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true, user => <<"cast_user">>}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    [ClientInfo] = wait_for_client_by_username(<<"cast_user">>),
+    ClientId = maps:get(clientid, ClientInfo),
+    ok = emqx_gateway_cm:cast(nats, ClientId, unexpected_cast),
+    emqx_nats_client:stop(Client).
+
+t_discard_on_duplicate_clientid(Config) ->
+    update_nats_with_clientinfo_override(#{<<"clientid">> => <<"fixed-client">>}),
+    ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true}),
+    {ok, Client1} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client1),
+    ok = emqx_nats_client:connect(Client1),
+    recv_ok_frame(Client1),
+
+    {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client2),
+    ok = emqx_nats_client:connect(Client2),
+    recv_ok_frame(Client2),
+
+    Err = recv_err_frame(Client1, 2000),
+    ?assertMatch(#nats_frame{operation = ?OP_ERR, message = <<"Discarded">>}, Err),
+    emqx_nats_client:stop(Client1),
+    emqx_nats_client:stop(Client2).
+
+t_tls_info_and_peercert(Config) ->
+    update_nats_with_clientinfo_override(#{}),
+    ClientOpts = maps:merge(ssl_client_opts(Config), #{verbose => true, user => <<"ssl_user">>}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(
-        {ok, {outgoing, #nats_frame{operation = ?OP_ERR}}, _},
-        emqx_nats_channel:handle_in(ErrFrame, Channel)
-    ),
-    OkFrame = connect_frame(#{<<"no_responders">> => false, <<"headers">> => true}),
-    {ok, Replies, _} = emqx_nats_channel:handle_in(OkFrame, Channel),
-    ?assert(lists:member({event, updated}, Replies)),
-    ?assert(
-        lists:any(
-            fun
-                ({outgoing, #nats_frame{operation = ?OP_OK}}) -> true;
-                (_) -> false
-            end,
-            Replies
-        )
-    ).
-
-t_subscribe_hook_blocked(_Config) ->
-    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_gateway_ctx, authorize, fun(_, _, _, _) -> allow end),
-    ok = meck:expect(emqx_hooks, run_fold, fun(_Name, _Args, _Acc) -> [] end),
-    ok = meck:new(emqx_utils, [passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_utils,
-        pipeline,
-        fun(_Funs, _Packet, Channel) -> {ok, {<<"1">>, <<"foo">>}, Channel} end
-    ),
-    try
-        Channel0 = make_channel(#{}, #{}),
-        Channel = Channel0#channel{conn_state = connected},
-        Frame = sub_frame(<<"1">>, <<"foo">>),
-        ?assertMatch(
-            {ok, {outgoing, #nats_frame{operation = ?OP_ERR}}, _},
-            emqx_nats_channel:handle_in(Frame, Channel)
-        )
-    after
-        ok = meck:expect(emqx_hooks, run_fold, fun(_Name, _Args, Acc) -> Acc end),
-        meck:unload([emqx_gateway_ctx, emqx_utils])
-    end.
-
-t_subscribe_duplicate_sid(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    Subs = [sub(<<"1">>, <<"foo">>, <<"foo">>, infinity)],
-    Channel = Channel0#channel{conn_state = connected, subscriptions = Subs},
-    Frame = sub_frame(<<"1">>, <<"bar">>),
-    ?assertMatch(
-        {ok, {outgoing, #nats_frame{operation = ?OP_ERR}}, _},
-        emqx_nats_channel:handle_in(Frame, Channel)
-    ).
-
-t_subscribe_duplicate_topic(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    Subs = [sub(<<"1">>, <<"foo">>, <<"foo">>, infinity)],
-    Channel = Channel0#channel{conn_state = connected, subscriptions = Subs},
-    Frame = sub_frame(<<"2">>, <<"foo">>),
-    ?assertMatch(
-        {ok, {outgoing, #nats_frame{operation = ?OP_ERR}}, _},
-        emqx_nats_channel:handle_in(Frame, Channel)
-    ).
-
-t_unsubscribe_unknown_sid(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    Channel = Channel0#channel{conn_state = connected, subscriptions = []},
-    Frame = unsub_frame(<<"missing">>, 0),
-    ?assertMatch(
-        {ok, [{outgoing, #nats_frame{operation = ?OP_OK}}], _},
-        emqx_nats_channel:handle_in(Frame, Channel)
-    ).
-
-t_handle_in_ok_and_unexpected(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    ?assertMatch({ok, _}, emqx_nats_channel:handle_in(?PACKET(?OP_OK), Channel)),
-    ?assertMatch({ok, _}, emqx_nats_channel:handle_in(unexpected, Channel)).
-
-t_handle_in_pong_timer_noop(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    TRef = make_ref(),
-    Channel = Channel0#channel{
-        conn_state = connected,
-        timers = #{keepalive_send_timer => TRef}
-    },
-    ?assertMatch({ok, _}, emqx_nats_channel:handle_in(?PACKET(?OP_PONG), Channel)).
-
-t_handle_frame_error_idle(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    Channel1 = Channel#channel{conn_state = idle},
-    ?assertMatch({shutdown, badarg, _}, emqx_nats_channel:handle_frame_error(badarg, Channel1)).
-
-t_handle_call_discard(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    ?assertMatch(
-        {shutdown, discarded, ok, #nats_frame{operation = ?OP_ERR}, _},
-        emqx_nats_channel:handle_call(discard, self(), Channel)
-    ).
-
-t_handle_cast_unexpected(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    ?assertMatch({ok, _}, emqx_nats_channel:handle_cast(unexpected_cast, Channel)).
-
-t_handle_info_sock_closed_connecting(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    Channel = Channel0#channel{conn_state = connecting},
-    ?assertMatch(
-        {shutdown, closed, _},
-        emqx_nats_channel:handle_info({sock_closed, closed}, Channel)
-    ).
-
-t_handle_info_sock_closed_disconnected(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    Channel = Channel0#channel{conn_state = disconnected},
-    ?assertMatch(
-        {ok, _},
-        emqx_nats_channel:handle_info({sock_closed, closed}, Channel)
-    ).
-
-t_handle_info_clean_authz_cache(_Config) ->
-    ok = meck:new(emqx_authz_cache, [passthrough, no_history]),
-    ok = meck:expect(emqx_authz_cache, empty_authz_cache, fun() -> ok end),
-    try
-        Channel = make_channel(#{}, #{}),
-        ?assertMatch({ok, _}, emqx_nats_channel:handle_info(clean_authz_cache, Channel))
-    after
-        meck:unload(emqx_authz_cache)
-    end.
-
-t_handle_info_unexpected(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    ?assertMatch({ok, _}, emqx_nats_channel:handle_info(unexpected_info, Channel)).
-
-t_handle_deliver_max_msgs_zero(_Config) ->
-    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_broker, unsubscribe, fun(_Topic) -> ok end),
-    try
-        Channel0 = make_channel(#{}, #{}),
-        Subs = [sub(<<"1">>, <<"foo">>, <<"foo">>, 0)],
-        Channel = Channel0#channel{subscriptions = Subs},
-        Msg = emqx_message:make(<<"cid">>, 0, <<"foo">>, <<"payload">>),
-        {ok, [{outgoing, Frames}, {event, updated}], _} =
-            emqx_nats_channel:handle_deliver([{deliver, <<"foo">>, Msg}], Channel),
-        ?assertEqual([], Frames)
-    after
-        meck:unload(emqx_broker)
-    end.
-
-t_handle_deliver_missing_subid(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    Msg = emqx_message:make(<<"cid">>, 0, <<"missing">>, <<"payload">>),
-    {ok, [{outgoing, Frames}, {event, updated}], _} =
-        emqx_nats_channel:handle_deliver([{deliver, <<"missing">>, Msg}], Channel),
-    ?assertEqual([], Frames).
-
-t_handle_deliver_reduce_nonmatching(_Config) ->
-    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_broker, unsubscribe, fun(_Topic) -> ok end),
-    try
-        Channel0 = make_channel(#{}, #{}),
-        Subs = [
-            sub(<<"1">>, <<"foo">>, <<"foo">>, 1),
-            sub(<<"2">>, <<"bar">>, <<"bar">>, 5)
-        ],
-        Channel = Channel0#channel{subscriptions = Subs},
-        Msg = emqx_message:make(<<"cid">>, 0, <<"foo">>, <<"payload">>),
-        {ok, [{outgoing, Frames}, {event, updated}], _} =
-            emqx_nats_channel:handle_deliver([{deliver, <<"foo">>, Msg}], Channel),
-        ?assertMatch([#nats_frame{operation = ?OP_MSG} | _], Frames)
-    after
-        meck:unload(emqx_broker)
-    end.
-
-t_handle_deliver_duplicate_sid_unsubscribe(_Config) ->
-    ok = meck:new(emqx_broker, [passthrough, no_history, no_link]),
-    ok = meck:expect(emqx_broker, unsubscribe, fun(_Topic) -> ok end),
-    try
-        Channel0 = make_channel(#{}, #{}),
-        Subs = [
-            sub(<<"1">>, <<"foo">>, <<"foo">>, 1),
-            sub(<<"1">>, <<"foo">>, <<"foo">>, 1)
-        ],
-        Channel = Channel0#channel{subscriptions = Subs},
-        Msg = emqx_message:make(<<"cid">>, 0, <<"foo">>, <<"payload">>),
-        {ok, [{outgoing, _Frames}, {event, updated}], _} =
-            emqx_nats_channel:handle_deliver([{deliver, <<"foo">>, Msg}], Channel)
-    after
-        meck:unload(emqx_broker)
-    end.
-
-t_unsub_update_sub_max_msgs(_Config) ->
-    Channel0 = make_channel(#{}, #{}),
-    Subs = [
-        sub(<<"1">>, <<"foo">>, <<"foo">>, infinity),
-        sub(<<"2">>, <<"bar">>, <<"bar">>, infinity)
-    ],
-    Channel = Channel0#channel{subscriptions = Subs, conn_state = connected},
-    Frame = unsub_frame(<<"1">>, 2),
-    {ok, [{outgoing, #nats_frame{operation = ?OP_OK}}], Channel1} =
-        emqx_nats_channel:handle_in(Frame, Channel),
-    ?assertEqual(
-        true,
-        lists:any(
-            fun
-                (#{sid := <<"2">>}) -> true;
-                (_) -> false
-            end,
-            Channel1#channel.subscriptions
-        )
-    ),
-    [Sub1] = [Sub || Sub = #{sid := <<"1">>} <- Channel1#channel.subscriptions],
-    ?assertEqual(2, maps:get(max_msgs, Sub1)).
-
-t_handle_timeout_connection_expire(_Config) ->
-    Channel = make_channel(#{}, #{}),
-    ?assertMatch(
-        {shutdown, expired, _Frame, _},
-        emqx_nats_channel:handle_timeout(make_ref(), connection_expire, Channel)
-    ).
-
-t_handle_in_pub_no_responders_no_match(_Config) ->
-    ok = meck:new(emqx_gateway_ctx, [passthrough, no_history]),
-    ok = meck:expect(emqx_gateway_ctx, authorize, fun(_, _, _, _) -> allow end),
-    ok = meck:new(emqx_broker, [passthrough, no_history]),
-    ok = meck:expect(emqx_broker, publish, fun(_Msg) -> [] end),
-    try
-        Channel0 = make_channel(#{}, #{}),
-        ConnInfo = Channel0#channel.conninfo,
-        Channel = Channel0#channel{
-            conn_state = connected,
-            conninfo = ConnInfo#{conn_params => #{<<"no_responders">> => true}},
-            subscriptions = [sub(<<"1">>, <<"foo">>, <<"foo">>, 1)]
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = #{
+                <<"tls_required">> := true,
+                <<"tls_handshake_first">> := true,
+                <<"tls_verify">> := true
+            }
         },
-        Frame = pub_frame(<<"foo">>, <<"payload">>, <<"reply.subject">>),
-        {ok, _Replies, _} = emqx_nats_channel:handle_in(Frame, Channel)
-    after
-        meck:unload([emqx_gateway_ctx, emqx_broker])
+        InfoMsg
+    ),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    [ClientInfo] = wait_for_client_by_username(<<"ssl_user">>),
+    ClientId = maps:get(clientid, ClientInfo),
+    ChanInfo = wait_for_chan_info(ClientId),
+    ?assertMatch(#{clientinfo := #{dn := _, cn := _}}, ChanInfo),
+    emqx_nats_client:stop(Client).
+
+%%--------------------------------------------------------------------
+%% Hook callbacks
+%%--------------------------------------------------------------------
+
+hook_connect_error(_ConnInfo, _Acc) ->
+    {stop, {error, <<"hook_failed">>}}.
+
+hook_subscribe_block(_ClientInfo, _Props, _Acc) ->
+    {stop, []}.
+
+hook_auth_expire(_Credential, _Acc, ExpireAt) ->
+    {stop, {ok, #{is_superuser => false, expire_at => ExpireAt}}}.
+
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+nats_conf(TcpPort, SslPort) ->
+    Ca = cert_path("cacert.pem"),
+    Cert = cert_path("cert.pem"),
+    Key = cert_path("key.pem"),
+    lists:flatten(io_lib:format(?CONF_FMT, [TcpPort, SslPort, Ca, Cert, Key])).
+
+cert_path(Name) ->
+    filename:join([code:lib_dir(emqx), "etc", "certs", Name]).
+
+tcp_client_opts(Config) ->
+    #{host => "tcp://localhost", port => ?config(tcp_port, Config)}.
+
+ssl_client_opts(Config) ->
+    #{
+        host => "ssl://localhost",
+        port => ?config(ssl_port, Config),
+        ssl_opts => #{
+            cacertfile => cert_path("cacert.pem"),
+            certfile => cert_path("client-cert.pem"),
+            keyfile => cert_path("client-key.pem"),
+            verify => verify_none
+        }
+    }.
+
+recv_ok_frame(Client) ->
+    {ok, [Frame]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_OK}, Frame).
+
+recv_info_frame(Client) ->
+    {ok, [Frame]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(#nats_frame{operation = ?OP_INFO}, Frame).
+
+find_client_by_username(Username) ->
+    ClientInfos = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
+    lists:filter(fun(ClientInfo) -> maps:get(username, ClientInfo) =:= Username end, ClientInfos).
+
+wait_for_client_by_username(Username) ->
+    wait_for_client_by_username(Username, 10).
+
+wait_for_client_by_username(Username, 0) ->
+    find_client_by_username(Username);
+wait_for_client_by_username(Username, Attempts) ->
+    case find_client_by_username(Username) of
+        [] ->
+            timer:sleep(100),
+            wait_for_client_by_username(Username, Attempts - 1);
+        Clients ->
+            Clients
     end.
+
+wait_for_chan_info(ClientId) ->
+    wait_for_chan_info(ClientId, 10).
+
+wait_for_chan_info(_ClientId, 0) ->
+    undefined;
+wait_for_chan_info(ClientId, Attempts) ->
+    case emqx_gateway_cm:lookup_by_clientid(nats, ClientId) of
+        [Pid | _] ->
+            case emqx_gateway_cm:get_chan_info(nats, ClientId, Pid) of
+                undefined ->
+                    timer:sleep(100),
+                    wait_for_chan_info(ClientId, Attempts - 1);
+                Info ->
+                    Info
+            end;
+        [] ->
+            timer:sleep(100),
+            wait_for_chan_info(ClientId, Attempts - 1)
+    end.
+
+recv_err_frame(Client, Timeout) ->
+    recv_err_frame(Client, Timeout, erlang:monotonic_time(millisecond)).
+
+recv_err_frame(Client, Timeout, StartMs) ->
+    Now = erlang:monotonic_time(millisecond),
+    case Now - StartMs > Timeout of
+        true ->
+            exit(timeout);
+        false ->
+            case emqx_nats_client:receive_message(Client, 1, 500) of
+                {ok, [#nats_frame{operation = ?OP_ERR} = Err]} ->
+                    Err;
+                {ok, [_Other]} ->
+                    recv_err_frame(Client, Timeout, StartMs);
+                {ok, []} ->
+                    recv_err_frame(Client, Timeout, StartMs)
+            end
+    end.
+
+enable_auth() ->
+    emqx_gateway_test_utils:enable_gateway_auth(<<"nats">>).
+
+disable_auth() ->
+    emqx_gateway_test_utils:disable_gateway_auth(<<"nats">>).
+
+allow_pubsub_all() ->
+    emqx_gateway_test_utils:update_authz_file_rule(
+        <<
+            "\n"
+            "        {allow,all}.\n"
+            "    "
+        >>
+    ).
+
+update_nats_with_clientinfo_override(ClientInfoOverride) ->
+    DefaultOverride = #{
+        <<"username">> => <<"${Packet.user}">>,
+        <<"password">> => <<"${Packet.pass}">>
+    },
+    ClientInfoOverride1 = maps:merge(DefaultOverride, ClientInfoOverride),
+    Conf = emqx:get_raw_config([gateway, nats]),
+    emqx_gateway_conf:update_gateway(
+        nats,
+        Conf#{<<"clientinfo_override">> => ClientInfoOverride1}
+    ).
+
+restore_nats_conf(Conf) ->
+    _ = emqx_gateway_conf:update_gateway(nats, Conf),
+    ok.
+
+cleanup_hooks() ->
+    _ = emqx_hooks:del('client.connect', {?MODULE, hook_connect_error}),
+    _ = emqx_hooks:del('client.subscribe', {?MODULE, hook_subscribe_block}),
+    _ = emqx_hooks:del('client.authenticate', {?MODULE, hook_auth_expire}),
+    ok.

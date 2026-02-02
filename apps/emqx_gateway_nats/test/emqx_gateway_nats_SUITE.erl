@@ -5,82 +5,120 @@
 -module(emqx_gateway_nats_SUITE).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 
 -compile(export_all).
 -compile(nowarn_export_all).
 
 all() ->
-    [
-        t_on_gateway_load_badconf,
-        t_on_gateway_update_error,
-        t_on_gateway_unload_stop_listeners
-    ].
+    emqx_common_test_helpers:all(?MODULE).
 
-t_on_gateway_load_badconf(_Config) ->
-    ok = meck:new(emqx_gateway_utils_conf, [passthrough, no_history]),
-    ok = meck:new(emqx_gateway_utils, [passthrough, no_history]),
-    ok = meck:expect(
-        emqx_gateway_utils_conf,
-        to_rt_listener_configs,
-        fun(_GwName, _Config, _ModCfg, _Ctx) -> [dummy_listener] end
+init_per_suite(Config) ->
+    application:load(emqx_gateway_nats),
+    Apps = emqx_cth_suite:start(
+        [emqx, emqx_conf, emqx_auth, emqx_gateway, emqx_gateway_nats],
+        #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    ok = meck:expect(
-        emqx_gateway_utils,
-        start_listeners,
-        fun(_Listeners) ->
-            {error, {bad_listener, #{original_listener_config => #{bad => config}}}}
-        end
-    ),
-    Gateway = #{name => nats, config => #{}},
-    Ctx = #{},
+    _ = application:ensure_all_started(emqx_gateway_nats),
+    [{apps, Apps} | Config].
+
+end_per_suite(Config) ->
+    emqx_cth_suite:stop(?config(apps, Config)),
+    ok.
+
+init_per_testcase(_TestCase, Config) ->
+    _ = emqx_gateway_conf:unload_gateway(nats),
+    ct:sleep(100),
+    Config.
+
+%%--------------------------------------------------------------------
+%% Test Cases
+%%--------------------------------------------------------------------
+
+t_load_badconf_listener_in_use(_Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
+    {ok, LSock} = gen_tcp:listen(Port, [binary, {active, false}]),
+    Conf = nats_conf(Port),
     try
-        ?assertThrow({badconf, _}, emqx_gateway_nats:on_gateway_load(Gateway, Ctx))
+        ?assertMatch({error, {badconf, _}}, emqx_gateway_conf:load_gateway(nats, Conf))
     after
-        meck:unload([emqx_gateway_utils_conf, emqx_gateway_utils])
+        gen_tcp:close(LSock)
     end.
 
-t_on_gateway_update_error(_Config) ->
-    ok = meck:new(emqx_gateway_utils_conf, [passthrough, no_history]),
-    ok = meck:new(emqx_gateway_utils, [passthrough, no_history]),
-    ok = meck:expect(
-        emqx_gateway_utils_conf,
-        to_rt_listener_configs,
-        fun(_GwName, Config, _ModCfg, _Ctx) -> Config end
-    ),
-    ok = meck:expect(
-        emqx_gateway_utils,
-        update_gateway_listeners,
-        fun(_GwName, _OldListeners, _NewListeners) ->
-            {error, update_failed}
-        end
-    ),
-    GwState = #{ctx => #{}},
-    Gateway = #{name => nats, config => old_config},
+t_load_update_unload(_Config) ->
+    Port1 = emqx_common_test_helpers:select_free_port(tcp),
+    Port2 = emqx_common_test_helpers:select_free_port(tcp),
+    Conf1 = nats_conf(Port1),
+    {ok, _} = emqx_gateway_conf:load_gateway(nats, Conf1),
+    ok = assert_can_connect(Port1, 10),
+    Raw0 = emqx:get_raw_config([gateway]),
+    Raw1 = Raw0#{<<"nats">> => nats_raw_conf(Port2)},
+    ?assertMatch({ok, _}, emqx:update_config([gateway], Raw1)),
+    ok = assert_can_connect(Port2, 10),
+    ok = emqx_gateway_conf:unload_gateway(nats),
+    ?assertMatch({error, _}, gen_tcp:connect("127.0.0.1", Port2, [binary], 1000)).
+
+t_update_error_listener_in_use(_Config) ->
+    Port1 = emqx_common_test_helpers:select_free_port(tcp),
+    Port2 = emqx_common_test_helpers:select_free_port(tcp),
+    Conf1 = nats_conf(Port1),
+    {ok, _} = emqx_gateway_conf:load_gateway(nats, Conf1),
+    {ok, LSock} = gen_tcp:listen(Port2, [binary, {active, false}]),
     try
-        ?assertEqual(
-            {error, update_failed},
-            emqx_gateway_nats:on_gateway_update(new_config, Gateway, GwState)
-        )
+        GwConf0 = emqx:get_config([gateway, nats]),
+        GwConf1 = emqx_utils_maps:deep_put([listeners, tcp, default, bind], GwConf0, Port2),
+        ?assertMatch({error, _}, emqx_gateway:update(nats, GwConf1))
     after
-        meck:unload([emqx_gateway_utils_conf, emqx_gateway_utils])
+        gen_tcp:close(LSock),
+        _ = emqx_gateway_conf:unload_gateway(nats)
     end.
 
-t_on_gateway_unload_stop_listeners(_Config) ->
-    ok = meck:new(emqx_gateway_utils_conf, [passthrough, no_history]),
-    ok = meck:new(emqx_gateway_utils, [passthrough, no_history]),
-    ok = meck:expect(
-        emqx_gateway_utils_conf,
-        to_rt_listener_ids,
-        fun(_GwName, _Config) -> [listener_id] end
-    ),
-    ok = meck:expect(
-        emqx_gateway_utils,
-        stop_listeners,
-        fun(Ids) -> {ok, Ids} end
-    ),
-    Gateway = #{name => nats, config => #{}},
-    try
-        ?assertEqual({ok, [listener_id]}, emqx_gateway_nats:on_gateway_unload(Gateway, #{}))
-    after
-        meck:unload([emqx_gateway_utils_conf, emqx_gateway_utils])
+%%--------------------------------------------------------------------
+%% Helpers
+%%--------------------------------------------------------------------
+
+nats_conf(Port) ->
+    nats_conf_list([listener(<<"default">>, Port)]).
+
+nats_conf_list(Listeners) ->
+    #{
+        <<"server_id">> => <<"emqx_nats_gateway">>,
+        <<"server_name">> => <<"emqx_nats_gateway">>,
+        <<"default_heartbeat_interval">> => <<"2s">>,
+        <<"heartbeat_wait_timeout">> => <<"1s">>,
+        <<"protocol">> => #{<<"max_payload_size">> => 1024},
+        <<"listeners">> => Listeners
+    }.
+
+listener(Name, Port) ->
+    #{
+        <<"type">> => <<"tcp">>,
+        <<"name">> => Name,
+        <<"bind">> => Port
+    }.
+
+nats_raw_conf(Port) ->
+    #{
+        <<"server_id">> => <<"emqx_nats_gateway">>,
+        <<"server_name">> => <<"emqx_nats_gateway">>,
+        <<"default_heartbeat_interval">> => <<"2s">>,
+        <<"heartbeat_wait_timeout">> => <<"1s">>,
+        <<"protocol">> => #{<<"max_payload_size">> => 1024},
+        <<"listeners">> => #{
+            <<"tcp">> => #{
+                <<"default">> => #{<<"bind">> => Port}
+            }
+        }
+    }.
+
+assert_can_connect(_Port, 0) ->
+    exit({connect_failed, timeout});
+assert_can_connect(Port, Attempts) ->
+    case gen_tcp:connect("127.0.0.1", Port, [binary], 1000) of
+        {ok, Socket} ->
+            gen_tcp:close(Socket),
+            ok;
+        _Error ->
+            timer:sleep(200),
+            assert_can_connect(Port, Attempts - 1)
     end.

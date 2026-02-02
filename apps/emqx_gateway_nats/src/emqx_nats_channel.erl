@@ -555,9 +555,14 @@ handle_in(
             ),
             case do_subscribe(NTopicFilters, NChannel) of
                 [] ->
+                    TopicText =
+                        case TopicFilter of
+                            {ParsedTopic, _SubOpts} -> ParsedTopic;
+                            _ -> TopicFilter
+                        end,
                     ErrMsg = io_lib:format(
                         "The client.subscribe hook blocked the ~s subscription request",
-                        [TopicFilter]
+                        [TopicText]
                     ),
                     handle_out(error, ErrMsg, NChannel);
                 [{MountedTopic, SubOpts} | _] ->
