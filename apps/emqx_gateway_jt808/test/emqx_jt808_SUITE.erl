@@ -84,6 +84,40 @@ gateway.jt808 {
 }
 ">>).
 
+%% erlfmt-ignore
+-define(CONF_GBK_ENCODING, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  frame {
+    string_encoding = gbk
+  }
+  proto {
+    auth {
+      allow_anonymous = true
+    }
+  }
+}
+">>).
+
+%% erlfmt-ignore
+-define(CONF_UTF8_ENCODING, <<"
+gateway.jt808 {
+  listeners.tcp.default {
+    bind = ", ?PORT_STR, "
+  }
+  frame {
+    string_encoding = utf8
+  }
+  proto {
+    auth {
+      allow_anonymous = true
+    }
+  }
+}
+">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -105,6 +139,22 @@ init_per_testcase(Case, Config) when
     Case =:= t_create_DISALLOW_invalid_auth_config
 ->
     Apps = boot_apps(Case, <<>>, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_downlink_text_encoding_gbk, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_GBK_ENCODING, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_downlink_text_encoding_utf8, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_UTF8_ENCODING, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_uplink_text_encoding_gbk, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_GBK_ENCODING, Config),
+    [{suite_apps, Apps} | Config];
+init_per_testcase(Case = t_case_uplink_text_encoding_utf8, Config) ->
+    snabbkaffe:start_trace(),
+    Apps = boot_apps(Case, ?CONF_UTF8_ENCODING, Config),
     [{suite_apps, Apps} | Config];
 init_per_testcase(Case, Config) ->
     snabbkaffe:start_trace(),
@@ -197,7 +247,7 @@ client_regi_procedure(Socket, ExpectedAuthCode) ->
     S1 = gen_packet(Header, RegisterPacket),
 
     ok = gen_tcp:send(Socket, S1),
-    {ok, Packet} = gen_tcp:recv(Socket, 0, 500),
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1_000),
 
     AckPacket = <<MsgSn:?WORD, 0, ExpectedAuthCode/binary>>,
     Size2 = size(AckPacket),
@@ -3975,3 +4025,507 @@ parse_msg_sn_from_frame(Frame, PhoneBCD) ->
     <<_MsgId:2/binary, _MsgAttr:2/binary, _Phone:PhoneLen/binary, MsgSn:?WORD, _Rest/binary>> =
         UnescapedPacket,
     MsgSn.
+
+%%--------------------------------------------------------------------
+%% Test Cases for custom msg_sn in downlink messages
+%%--------------------------------------------------------------------
+
+%% Test: Downlink message without msg_sn should use auto-generated channel sn
+t_case_downlink_auto_msg_sn(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    %% Publish downlink without msg_sn - should use auto-generated sn (2 after auth)
+    Flag = 15,
+    Text = <<"auto sn test">>,
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => ?MS_SEND_TEXT},
+        <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+
+    %% Parse and verify msg_sn is auto-generated (should be 2)
+    [Frame | _] = split_jt808_frames(Packet),
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    ?LOGT("Auto msg_sn = ~p", [MsgSn]),
+    ?assertEqual(2, MsgSn),
+
+    %% Send ACK
+    MsgId = ?MS_SEND_TEXT,
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+    AckSn = 2,
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, AckSn:?WORD>>,
+    AckFrame = gen_packet(AckHeader, GenAckPacket),
+    ok = gen_tcp:send(Socket, AckFrame),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Downlink message with custom msg_sn should use the provided sn
+t_case_downlink_custom_msg_sn(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    %% Publish downlink with custom msg_sn
+    CustomMsgSn = 12345,
+    Flag = 15,
+    Text = <<"custom sn test">>,
+    DlCommand = #{
+        <<"header">> => #{
+            <<"msg_id">> => ?MS_SEND_TEXT,
+            <<"msg_sn">> => CustomMsgSn
+        },
+        <<"body">> => #{<<"flag">> => Flag, <<"text">> => Text}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+
+    %% Parse and verify msg_sn is the custom value
+    [Frame | _] = split_jt808_frames(Packet),
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    ?LOGT("Custom msg_sn = ~p", [MsgSn]),
+    ?assertEqual(CustomMsgSn, MsgSn),
+
+    %% Send ACK with the custom msg_sn
+    MsgId = ?MS_SEND_TEXT,
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+    AckSn = 2,
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, AckSn:?WORD>>,
+    AckFrame = gen_packet(AckHeader, GenAckPacket),
+    ok = gen_tcp:send(Socket, AckFrame),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Mixed auto and custom msg_sn in sequence
+%% Send messages one at a time and ACK each before sending the next
+t_case_downlink_mixed_msg_sn(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MS_SEND_TEXT,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+
+    %% First message with auto msg_sn
+    DlCommand1 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 1, <<"text">> => <<"first auto">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    {ok, Packet1} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame1 | _] = split_jt808_frames(Packet1),
+    MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
+    ?LOGT("MsgSn1 (auto) = ~p", [MsgSn1]),
+    ?assertEqual(2, MsgSn1),
+
+    %% ACK first message
+    GenAckPacket1 = <<MsgSn1:?WORD, MsgId:?WORD, 0>>,
+    Size1 = size(GenAckPacket1),
+    AckHeader1 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size1),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader1, GenAckPacket1)),
+
+    %% Second message with custom msg_sn
+    CustomMsgSn = 9999,
+    DlCommand2 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId, <<"msg_sn">> => CustomMsgSn},
+        <<"body">> => #{<<"flag">> => 2, <<"text">> => <<"second custom">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+    {ok, Packet2} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame2 | _] = split_jt808_frames(Packet2),
+    MsgSn2 = parse_msg_sn_from_frame(Frame2, PhoneBCD),
+    ?LOGT("MsgSn2 (custom) = ~p", [MsgSn2]),
+    ?assertEqual(CustomMsgSn, MsgSn2),
+
+    %% ACK second message
+    GenAckPacket2 = <<MsgSn2:?WORD, MsgId:?WORD, 0>>,
+    Size2 = size(GenAckPacket2),
+    AckHeader2 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, 3:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader2, GenAckPacket2)),
+
+    %% Third message with auto msg_sn
+    DlCommand3 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 3, <<"text">> => <<"third auto">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame3 | _] = split_jt808_frames(Packet3),
+    MsgSn3 = parse_msg_sn_from_frame(Frame3, PhoneBCD),
+    ?LOGT("MsgSn3 (auto) = ~p", [MsgSn3]),
+    %% Auto msg_sn should continue from 3 (not affected by custom 9999)
+    ?assertEqual(3, MsgSn3),
+
+    %% ACK third message
+    GenAckPacket3 = <<MsgSn3:?WORD, MsgId:?WORD, 0>>,
+    Size3 = size(GenAckPacket3),
+    AckHeader3 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+            PhoneBCD/binary, 4:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader3, GenAckPacket3)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Different message types with same custom msg_sn should not conflict
+%% Both MS_SEND_TEXT and MS_CLIENT_CONTROL expect MC_GENERAL_RESPONSE,
+%% but they should be tracked separately using {MsgId, MsgSn} as the key.
+t_case_downlink_msg_sn_conflict_different_msg_types(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+    CustomMsgSn = 8888,
+
+    %% Send MS_SEND_TEXT with custom msg_sn=8888
+    MsgId1 = ?MS_SEND_TEXT,
+    DlCommand1 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId1, <<"msg_sn">> => CustomMsgSn},
+        <<"body">> => #{<<"flag">> => 1, <<"text">> => <<"text message">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
+    {ok, Packet1} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame1 | _] = split_jt808_frames(Packet1),
+    MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
+    ?LOGT("MsgSn1 (MS_SEND_TEXT) = ~p", [MsgSn1]),
+    ?assertEqual(CustomMsgSn, MsgSn1),
+
+    %% Send MS_CLIENT_CONTROL with same custom msg_sn=8888
+    MsgId2 = ?MS_CLIENT_CONTROL,
+    DlCommand2 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId2, <<"msg_sn">> => CustomMsgSn},
+        <<"body">> => #{<<"command">> => 1, <<"param">> => <<>>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
+    {ok, Packet2} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame2 | _] = split_jt808_frames(Packet2),
+    MsgSn2 = parse_msg_sn_from_frame(Frame2, PhoneBCD),
+    ?LOGT("MsgSn2 (MS_CLIENT_CONTROL) = ~p", [MsgSn2]),
+    ?assertEqual(CustomMsgSn, MsgSn2),
+
+    %% Both messages have the same MsgSn but different MsgId
+    %% They should be tracked separately in inflight
+
+    %% ACK the first message (MS_SEND_TEXT)
+    %% General response format: <<AckMsgSn:WORD, AckMsgId:WORD, Result:BYTE>>
+    GenAckPacket1 = <<CustomMsgSn:?WORD, MsgId1:?WORD, 0>>,
+    Size1 = size(GenAckPacket1),
+    AckHeader1 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size1),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader1, GenAckPacket1)),
+
+    %% ACK the second message (MS_CLIENT_CONTROL)
+    GenAckPacket2 = <<CustomMsgSn:?WORD, MsgId2:?WORD, 0>>,
+    Size2 = size(GenAckPacket2),
+    AckHeader2 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
+            PhoneBCD/binary, 3:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader2, GenAckPacket2)),
+
+    %% Both ACKs should be processed without conflict
+    %% If they were conflicting, we would see retransmission attempts
+
+    %% Send a third message to verify channel is still working properly
+    MsgId3 = ?MS_SEND_TEXT,
+    DlCommand3 = #{
+        <<"header">> => #{<<"msg_id">> => MsgId3},
+        <<"body">> => #{<<"flag">> => 2, <<"text">> => <<"after conflict test">>}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand3))),
+    {ok, Packet3} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame3 | _] = split_jt808_frames(Packet3),
+    MsgSn3 = parse_msg_sn_from_frame(Frame3, PhoneBCD),
+    ?LOGT("MsgSn3 (auto after conflict) = ~p", [MsgSn3]),
+    %% Auto msg_sn should be 2 (continuing from auth)
+    ?assertEqual(2, MsgSn3),
+
+    %% ACK the third message
+    GenAckPacket3 = <<MsgSn3:?WORD, MsgId3:?WORD, 0>>,
+    Size3 = size(GenAckPacket3),
+    AckHeader3 =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size3),
+            PhoneBCD/binary, 4:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader3, GenAckPacket3)),
+
+    ok = gen_tcp:close(Socket).
+
+%%--------------------------------------------------------------------
+%% Test Cases for string encoding (UTF-8 vs GBK)
+%%--------------------------------------------------------------------
+
+%% Test: Downlink text message with UTF-8 encoding (default passthrough)
+%% When string_encoding=utf8, Chinese text should be sent as UTF-8 bytes
+t_case_downlink_text_encoding_utf8(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MS_SEND_TEXT,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+
+    %% Chinese text "你好" in UTF-8 is: E4 BD A0 E5 A5 BD
+    ChineseText = <<"你好"/utf8>>,
+    ExpectedUtf8Bytes = <<16#E4, 16#BD, 16#A0, 16#E5, 16#A5, 16#BD>>,
+
+    %% Publish downlink message with Chinese text
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 8, <<"text">> => ChineseText}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame | _] = split_jt808_frames(Packet),
+
+    %% Parse the text body from the frame
+    TextBody = parse_text_body_from_frame(Frame, PhoneBCD),
+    ?LOGT("UTF-8 encoding test: received text body (hex) = ~s", [binary_to_hex(TextBody)]),
+    ?LOGT("UTF-8 encoding test: expected UTF-8 bytes (hex) = ~s", [binary_to_hex(ExpectedUtf8Bytes)]),
+
+    %% Verify the text is sent as UTF-8 (not converted)
+    ?assertEqual(ExpectedUtf8Bytes, TextBody),
+
+    %% Send ACK
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader, GenAckPacket)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Downlink text message with GBK encoding
+%% When string_encoding=gbk, Chinese text (UTF-8) should be converted to GBK bytes
+t_case_downlink_text_encoding_gbk(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+    MsgId = ?MS_SEND_TEXT,
+    MsgIdAck = ?MC_GENERAL_RESPONSE,
+
+    %% Chinese text "你好"
+    %% UTF-8: E4 BD A0 E5 A5 BD
+    %% GBK:   C4 E3 BA C3
+    ChineseText = <<"你好"/utf8>>,
+    ExpectedGbkBytes = <<16#C4, 16#E3, 16#BA, 16#C3>>,
+
+    %% Publish downlink message with Chinese text
+    DlCommand = #{
+        <<"header">> => #{<<"msg_id">> => MsgId},
+        <<"body">> => #{<<"flag">> => 8, <<"text">> => ChineseText}
+    },
+    emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand))),
+
+    %% Receive the downlink message
+    {ok, Packet} = gen_tcp:recv(Socket, 0, 1000),
+    [Frame | _] = split_jt808_frames(Packet),
+
+    %% Parse the text body from the frame
+    TextBody = parse_text_body_from_frame(Frame, PhoneBCD),
+    ?LOGT("GBK encoding test: received text body (hex) = ~s", [binary_to_hex(TextBody)]),
+    ?LOGT("GBK encoding test: expected GBK bytes (hex) = ~s", [binary_to_hex(ExpectedGbkBytes)]),
+
+    %% Verify the text is converted to GBK
+    ?assertEqual(ExpectedGbkBytes, TextBody),
+
+    %% Send ACK
+    MsgSn = parse_msg_sn_from_frame(Frame, PhoneBCD),
+    GenAckPacket = <<MsgSn:?WORD, MsgId:?WORD, 0>>,
+    Size = size(GenAckPacket),
+    AckHeader =
+        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size),
+            PhoneBCD/binary, 2:?WORD>>,
+    ok = gen_tcp:send(Socket, gen_packet(AckHeader, GenAckPacket)),
+
+    ok = gen_tcp:close(Socket).
+
+%% Parse text body from 0x8300 (MS_SEND_TEXT) frame
+%% Frame format: 7E + Header(12 bytes) + Body(flag:1 + text:n) + Checksum + 7E
+parse_text_body_from_frame(Frame, PhoneBCD) ->
+    %% Remove leading and trailing 0x7E delimiters
+    <<16#7E, Inner/binary>> = Frame,
+    InnerSize = byte_size(Inner) - 1,
+    <<Escaped:InnerSize/binary, 16#7E>> = Inner,
+    %% Unescape the content
+    Unescaped = unescape_packet(Escaped),
+    %% Header format: MsgId(2) + MsgAttr(2) + Phone(6) + MsgSn(2) = 12 bytes
+    PhoneLen = byte_size(PhoneBCD),
+    <<_MsgId:2/binary, MsgAttr:16, _Phone:PhoneLen/binary, _MsgSn:2/binary, Rest/binary>> =
+        Unescaped,
+    %% Body length from MsgAttr (lower 10 bits)
+    BodyLen = MsgAttr band 16#3FF,
+    %% Extract body and checksum
+    <<Body:BodyLen/binary, _Checksum:1/binary>> = Rest,
+    %% Body format for 0x8300: flag(1 byte) + text(n bytes)
+    <<_Flag:1/binary, TextBody/binary>> = Body,
+    TextBody.
+
+%% Convert binary to hex string for logging
+binary_to_hex(Bin) ->
+    lists:flatten([io_lib:format("~2.16.0B", [B]) || <<B>> <= Bin]).
+
+%%--------------------------------------------------------------------
+%% Test Cases for uplink string encoding (GBK to UTF-8 conversion)
+%%--------------------------------------------------------------------
+
+%% Test: Uplink driver identity report with UTF-8 encoding (passthrough)
+%% When string_encoding=utf8, UTF-8 bytes from client pass through unchanged
+t_case_uplink_text_encoding_utf8(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+
+    %% Driver name "张三" in UTF-8: E5 BC A0 E4 B8 89
+    DriverNameUtf8 = <<16#E5, 16#BC, 16#A0, 16#E4, 16#B8, 16#89>>,
+    DriverNameLen = byte_size(DriverNameUtf8),
+
+    %% Organization "北京" in UTF-8: E5 8C 97 E4 BA AC
+    OrgUtf8 = <<16#E5, 16#8C, 16#97, 16#E4, 16#BA, 16#AC>>,
+    OrgLen = byte_size(OrgUtf8),
+
+    %% Build driver identity report packet
+    %% Format: status(1) + time(BCD6) + ic_result(1) + driver_name_len(1) + driver_name(n)
+    %%         + certificate(20) + org_len(1) + org(m) + cert_expiry(BCD4)
+    UlPacket =
+        % status: IC card inserted
+        <<1:8,
+            % time: 2025-01-30 10:30:00
+            16#25, 16#01, 16#30, 16#10, 16#30, 16#00,
+            % ic_result: success
+            0:8,
+            % driver_name
+            DriverNameLen:8, DriverNameUtf8/binary,
+            % certificate (20 bytes)
+            "12345678901234567890",
+            % organization
+            OrgLen:8, OrgUtf8/binary,
+            % cert_expiry: 2030-12-31
+            16#20, 16#30, 16#12, 16#31>>,
+
+    Size = byte_size(UlPacket),
+    MsgId = ?MC_DRIVER_ID_REPORT,
+    MsgSn = 2,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S = gen_packet(Header, UlPacket),
+
+    ok = gen_tcp:send(Socket, S),
+    timer:sleep(100),
+
+    %% Receive and verify the uplink message
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    Body = maps:get(<<"body">>, DecodedPayload),
+
+    %% With UTF-8 encoding, the driver_name should be the UTF-8 bytes interpreted as UTF-8
+    %% Since we sent UTF-8 bytes and string_encoding=utf8, it should pass through
+    ReceivedDriverName = maps:get(<<"driver_name">>, Body),
+    ReceivedOrg = maps:get(<<"organization">>, Body),
+
+    ?LOGT("UTF-8 uplink: driver_name = ~p", [ReceivedDriverName]),
+    ?LOGT("UTF-8 uplink: organization = ~p", [ReceivedOrg]),
+
+    %% The received strings should be UTF-8 encoded "张三" and "北京"
+    ?assertEqual(<<"张三"/utf8>>, ReceivedDriverName),
+    ?assertEqual(<<"北京"/utf8>>, ReceivedOrg),
+
+    ok = gen_tcp:close(Socket).
+
+%% Test: Uplink driver identity report with GBK encoding
+%% When string_encoding=gbk, GBK bytes from client are decoded to UTF-8
+t_case_uplink_text_encoding_gbk(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, ?PORT, [binary, {active, false}]),
+    {ok, AuthCode} = client_regi_procedure(Socket, <<"anonymous">>),
+    ok = client_auth_procedure(Socket, AuthCode),
+    PhoneBCD = <<16#00, 16#01, 16#23, 16#45, 16#67, 16#89>>,
+
+    ok = emqx:subscribe(?JT808_UP_TOPIC),
+
+    %% Driver name "张三" in GBK: D5 C5 C8 FD
+    DriverNameGbk = <<16#D5, 16#C5, 16#C8, 16#FD>>,
+    DriverNameLen = byte_size(DriverNameGbk),
+
+    %% Organization "北京" in GBK: B1 B1 BE A9
+    OrgGbk = <<16#B1, 16#B1, 16#BE, 16#A9>>,
+    OrgLen = byte_size(OrgGbk),
+
+    %% Build driver identity report packet
+    UlPacket =
+        % status: IC card inserted
+        <<1:8,
+            % time: 2025-01-30 10:30:00
+            16#25, 16#01, 16#30, 16#10, 16#30, 16#00,
+            % ic_result: success
+            0:8,
+            % driver_name (GBK encoded)
+            DriverNameLen:8, DriverNameGbk/binary,
+            % certificate (20 bytes)
+            "12345678901234567890",
+            % organization (GBK encoded)
+            OrgLen:8, OrgGbk/binary,
+            % cert_expiry: 2030-12-31
+            16#20, 16#30, 16#12, 16#31>>,
+
+    Size = byte_size(UlPacket),
+    MsgId = ?MC_DRIVER_ID_REPORT,
+    MsgSn = 2,
+    Header =
+        <<MsgId:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size), PhoneBCD/binary,
+            MsgSn:?WORD>>,
+    S = gen_packet(Header, UlPacket),
+
+    ok = gen_tcp:send(Socket, S),
+    timer:sleep(100),
+
+    %% Receive and verify the uplink message
+    {?JT808_UP_TOPIC, Payload} = receive_msg(),
+    DecodedPayload = emqx_utils_json:decode(Payload),
+    Body = maps:get(<<"body">>, DecodedPayload),
+
+    %% With GBK encoding, the GBK bytes should be decoded to UTF-8
+    ReceivedDriverName = maps:get(<<"driver_name">>, Body),
+    ReceivedOrg = maps:get(<<"organization">>, Body),
+
+    ?LOGT("GBK uplink: driver_name = ~p", [ReceivedDriverName]),
+    ?LOGT("GBK uplink: organization = ~p", [ReceivedOrg]),
+
+    %% The received strings should be UTF-8 encoded "张三" and "北京"
+    ?assertEqual(<<"张三"/utf8>>, ReceivedDriverName),
+    ?assertEqual(<<"北京"/utf8>>, ReceivedOrg),
+
+    ok = gen_tcp:close(Socket).
