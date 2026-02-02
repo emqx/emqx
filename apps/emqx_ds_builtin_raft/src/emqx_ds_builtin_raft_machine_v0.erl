@@ -131,10 +131,10 @@
 %%================================================================================
 
 init_aux(Name) ->
-    emqx_ds_builtin_raft_machine:init_aux(Name).
+    emqx_ds_builtin_raft_aux:init(Name).
 
 handle_aux(State, Call, Command, Aux, Int) ->
-    emqx_ds_builtin_raft_machine:handle_aux(State, Call, Command, Aux, Int).
+    emqx_ds_builtin_raft_aux:handle_aux(State, Call, Command, Aux, Int).
 
 -spec init(#{
     name := _,
@@ -176,7 +176,7 @@ apply(
                     emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
                     State = State0#{tx_serial := Serial, latest := Timestamp},
                     Result = ok,
-                    set_ts(DBShard, Timestamp + 1),
+                    emqx_ds_builtin_raft_aux:set_ts(DBShard, Timestamp + 1),
                     DispatchF = fun(Stream) ->
                         emqx_ds_beamformer:shard_event(DBShard, [Stream])
                     end,
@@ -279,7 +279,7 @@ apply(
     },
     State = #{db_shard := DBShard, tx_serial := Serial, latest := Timestamp}
 ) ->
-    set_otx_leader(DBShard, Pid),
+    emqx_ds_builtin_raft_aux:set_otx_leader(DBShard, Pid),
     Reply = {Serial, Timestamp},
     {State#{otx_leader_pid => Pid}, Reply}.
 
@@ -287,9 +287,8 @@ apply(
 tick(_TimeMs, #{db_shard := _DBShard}) ->
     [].
 
--spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
 state_enter(MemberState, State) ->
-    emqx_ds_builtin_raft_machine:state_enter(MemberState, State).
+    emqx_ds_builtin_raft_aux:state_enter(MemberState, State).
 
 %%================================================================================
 %% Internal exports
@@ -298,42 +297,6 @@ state_enter(MemberState, State) ->
 %%================================================================================
 %% Internal functions
 %%================================================================================
-
-set_cache(MemberState, State = #{db_shard := DBShard, latest := Latest}) when
-    MemberState =:= leader; MemberState =:= follower
-->
-    set_ts(DBShard, Latest),
-    case State of
-        #{tx_serial := Serial} ->
-            emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
-        #{} ->
-            ok
-    end,
-    case State of
-        #{otx_leader_pid := Pid} ->
-            set_otx_leader(DBShard, Pid);
-        #{} ->
-            ok
-    end;
-set_cache(_, _) ->
-    ok.
-
--doc """
-Set PID of the optimistic transaction leader at the time of the last
-Raft log entry applied locally. Since log replication may be delayed,
-this pid may belong to a process long gone, and the pid can be even
-reclaimed by other process if the node had restarted. Because of that,
-DON'T SEND MESSAGES to this pid.
-
-This pid is used ONLY to verify that the transaction context has been
-created during the term of the current leader.
-""".
-set_otx_leader({DB, Shard}, Pid) ->
-    ?tp(info, dsrepl_set_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
-    emqx_dsch:gvar_set(DB, Shard, ?gv_sc_replica, ?gv_otx_leader_pid, Pid).
-
-set_ts({DB, Shard}, TS) ->
-    emqx_dsch:gvar_set(DB, Shard, ?gv_sc_replica, ?gv_timestamp, TS).
 
 try_release_log({_N, BatchSize}, RaftMeta = #{index := CurrentIdx}, State) ->
     %% NOTE

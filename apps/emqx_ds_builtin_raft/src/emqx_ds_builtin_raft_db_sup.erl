@@ -21,8 +21,8 @@
     restart_storage/1,
     ensure_shard/1,
 
-    start_shard_leader_sup/2,
-    stop_shard_leader_sup/2
+    start_otx_leader/2,
+    stop_otx_leader/2
 ]).
 -export([which_dbs/0, which_shards/1]).
 
@@ -140,29 +140,20 @@ get_shard_workers(DB) ->
 
 %% @doc Start a supervisor for processes that should only run on the
 %% shard leader.
--spec start_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) ->
+-spec start_otx_leader(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, pid()} | {error, _}.
-start_shard_leader_sup(DB, Shard) ->
+start_otx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    _ = stop_shard_leader_sup(DB, Shard),
-    case supervisor:start_child(Sup, shard_leader_spec(DB, Shard)) of
-        {ok, Pid} ->
-            {ok, Pid};
-        Err ->
-            Err
-    end.
+    supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)).
 
 %% @doc Shut down the leader-specific processes when the node loses
 %% leader status
--spec stop_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
-stop_shard_leader_sup(DB, Shard) ->
+-spec stop_otx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
+stop_otx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
     Child = ?shard_leader_sup,
-    try supervisor:terminate_child(Sup, Child) of
-        ok ->
-            supervisor:delete_child(Sup, Child);
-        {error, Reason} ->
-            {error, Reason}
+    try
+        supervisor:terminate_child(Sup, Child)
     catch
         exit:{noproc, _} ->
             {error, shard_sup_is_not_running}
@@ -225,21 +216,6 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
          shard_storage_spec(DB, Shard, RTConf),
          shard_replication_spec(DB, Shard, RTConf)] ++
          shard_beamformers_spec(DB, Shard),
-    {ok, {SupFlags, Children}};
-init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
-    %% Spec for a temporary supervisor that runs on the node only when
-    %% it happens to be the raft leader for the shard.
-    SupFlags = #{
-                 strategy => one_for_all,
-                 intensity => 10,
-                 period => 100
-                },
-    Setup = fun() -> ok end,
-    Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader) end,
-    Children = [
-                emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
-                shard_optimistic_tx_spec(DB, Shard)
-               ],
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
@@ -292,20 +268,6 @@ sup_spec(Id, Options) ->
         shutdown => infinity
     }.
 
-shard_leader_spec(DB, Shard) ->
-    %% Note: ra machines have some rudimentary facilities for process
-    %% supervision, however they aren't very reliable and/or easy to
-    %% use. Since some features will break if the leader-specific
-    %% processes die while the node assumes leadership, we address
-    %% this problem using a traditional supervisor.
-    #{
-        id => ?shard_leader_sup,
-        start => {?MODULE, start_link_sup, [#?shard_leader_sup{db = DB, shard = Shard}, []]},
-        shutdown => infinity,
-        restart => transient,
-        type => supervisor
-    }.
-
 shard_storage_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, storage},
@@ -353,11 +315,14 @@ shard_beamformers_spec(DB, Shard) ->
     ].
 
 shard_optimistic_tx_spec(DB, Shard) ->
+    %% Note: supervision and restarting of this server is handled by
+    %% the ra process. We just attach it to this supervisor just for the
+    %% cleanup reasons.
     #{
         id => optimistic_tx,
         type => worker,
-        shutdown => 1_000,
-        restart => permanent,
+        shutdown => 5_000,
+        restart => temporary,
         start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
     }.
 

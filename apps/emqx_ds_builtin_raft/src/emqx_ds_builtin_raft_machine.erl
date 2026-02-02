@@ -287,7 +287,7 @@ apply(
         otx_leader_pid := OtxLeader
     }
 ) ->
-    ?tp(notice, upgrading_state_machine, #{}),
+    ?tp(warning, upgrading_state_machine, #{shard => DBShard}),
     %% Reset the schema:
     State = #{
         vsn => 1,
@@ -444,7 +444,7 @@ apply(
     },
     State = #{db_shard := DBShard, tx_serial := Serial, latest := Timestamp}
 ) ->
-    set_otx_leader(DBShard, Pid),
+    emqx_ds_builtin_raft_aux:set_otx_leader(DBShard, Pid),
     Reply = {Serial, Timestamp},
     {State#{otx_leader_pid => Pid}, Reply}.
 
@@ -452,149 +452,15 @@ apply(
 tick(_TimeMs, #{db_shard := _DBShard}) ->
     [].
 
-%%================================================================================
-%% AUX state maachine
-%%================================================================================
-
-%% AUX server state:
--record(aux, {
-    name,
-    otx_leader :: undefined | {starting, pid()} | {running, pid()} | {stopping, pid()}
-}).
-
--type aux() :: #aux{}.
-
 init_aux(Name) ->
-    #aux{name = Name}.
-
--record(aux_start_otx, {db :: emqx_ds:db(), shard :: emqx_ds:shard()}).
--record(aux_otx_started, {result}).
--record(aux_stop_otx, {db :: emqx_ds:db(), shard :: emqx_ds:shard()}).
--record(aux_otx_stopped, {result}).
+    emqx_ds_builtin_raft_aux:init(Name).
 
 %% Called when the ra server changes state (e.g. leader -> follower).
--spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
-state_enter(MemberState, State = #{db_shard := DBShard}) ->
-    {DB, Shard} = DBShard,
-    ?tp(
-        info,
-        ds_ra_state_enter,
-        State#{member_state => MemberState}
-    ),
-    emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
-    set_cache(MemberState, State),
-    case MemberState of
-        leader ->
-            [{aux, #aux_start_otx{db = DB, shard = Shard}}];
-        _ ->
-            [{aux, #aux_stop_otx{db = DB, shard = Shard}}]
-    end.
+state_enter(MemberState, State) ->
+    emqx_ds_builtin_raft_aux:state_enter(MemberState, State).
 
--spec handle_aux(ra_server:ra_state(), {call, ra:from()} | cast, _Command, aux(), IntState) ->
-    {reply, _Reply, aux(), IntState}
-    | {reply, _Reply, aux(), IntState, ra_machine:effects()}
-    | {no_reply, aux(), IntState}
-    | {no_reply, aux(), IntState, ra_machine:effects()}
-when
-    IntState :: ra_aux:internal_state().
-handle_aux(leader, _, #aux_start_otx{db = DB, shard = Shard}, Aux0 = #aux{name = Server}, IntState) ->
-    ?tp(
-        warning,
-        ra_aux_start_otx_command,
-        #{
-            aux => Aux0
-        }
-    ),
-    AsyncStarter = spawn_link(
-        fun() ->
-            Result = ?tp_span(
-                debug,
-                dsrepl_start_otx_leader,
-                #{db => DB, shard => Shard},
-                emqx_ds_builtin_raft_db_sup:start_shard_leader_sup(DB, Shard)
-            ),
-            ra:cast_aux_command(Server, #aux_otx_started{result = Result})
-        end
-    ),
-    Aux = Aux0#aux{otx_leader = {starting, AsyncStarter}},
-    {no_reply, Aux, IntState};
-handle_aux(_, _, #aux_otx_started{result = Result}, Aux0 = #aux{}, IntState) ->
-    ?tp(
-        warning,
-        ra_aux_otx_started_command,
-        #{
-            aux => Aux0
-        }
-    ),
-    {ok, Pid} = Result,
-    Aux = Aux0#aux{
-        otx_leader = {running, Pid}
-    },
-    link(Pid),
-    {no_reply, Aux, IntState};
-handle_aux(
-    _,
-    _,
-    #aux_stop_otx{db = DB, shard = Shard},
-    Aux0 = #aux{name = Server, otx_leader = OTX0},
-    IntState
-) ->
-    ?tp(
-        warning,
-        ra_aux_stop_command,
-        #{
-            aux => Aux0
-        }
-    ),
-    OTX =
-        case OTX0 of
-            {running, Pid} ->
-                AsyncStopper =
-                    spawn_link(
-                        fun() ->
-                            Result = emqx_ds_builtin_raft_leader:stop_shard_leader_sup(DB, Shard),
-                            ra:cast_aux_command(Server, #aux_otx_stopped{result = Result})
-                        end
-                    ),
-                {stopping, AsyncStopper};
-            {stopping, _} = Stopping ->
-                Stopping;
-            {starting, Pid} ->
-                exit('FIXME!');
-            undefined ->
-                undefined
-        end,
-    Aux = Aux0#aux{otx_leader = OTX},
-    {no_reply, Aux, IntState};
-handle_aux(State, Call, #aux_otx_stopped{result = Result}, Aux0, IntState) ->
-    ?tp(
-        warning,
-        ra_aux_otx_stopped,
-        #{
-            aux => Aux0
-        }
-    ),
-    ok = Result,
-    {stopping, _} = Aux0#aux.otx_leader,
-    Aux = Aux0#aux{otx_leader = undefined},
-    case State of
-        leader ->
-            %% TODO: restart otx leader
-            exit('FIXME!!');
-        _ ->
-            {no_reply, Aux, IntState}
-    end;
-handle_aux(RaState, Call, Command, Aux, IntState) ->
-    ?tp(
-        debug,
-        ra_aux_command,
-        #{
-            command => Command,
-            aux => Aux,
-            call => Call
-        }
-    ),
-    {no_reply, Aux, IntState}.
+handle_aux(State, Call, Command, Aux, Int) ->
+    emqx_ds_builtin_raft_aux:handle_aux(State, Call, Command, Aux, Int).
 
 %%================================================================================
 %% Internal exports
@@ -604,49 +470,13 @@ handle_aux(RaState, Call, Command, Aux, IntState) ->
 %% Internal functions
 %%================================================================================
 
-set_cache(MemberState, State = #{db_shard := DBShard, latest := Latest}) when
-    MemberState =:= leader; MemberState =:= follower
-->
-    set_ts(DBShard, Latest),
-    case State of
-        #{tx_serial := Serial} ->
-            emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
-        #{} ->
-            ok
-    end,
-    case State of
-        #{otx_leader_pid := Pid} ->
-            set_otx_leader(DBShard, Pid);
-        #{} ->
-            ok
-    end;
-set_cache(_, _) ->
-    ok.
-
 safe_update_latest(NewLatest, #{db_shard := DBShard, latest := OldLatest} = State) when
     is_integer(NewLatest), NewLatest > OldLatest
 ->
-    set_ts(DBShard, NewLatest + 1),
+    emqx_ds_builtin_raft_aux:set_ts(DBShard, NewLatest + 1),
     State#{latest := NewLatest};
 safe_update_latest(_, State) ->
     State.
-
--doc """
-Set PID of the optimistic transaction leader at the time of the last
-Raft log entry applied locally. Since log replication may be delayed,
-this pid may belong to a process long gone, and the pid can be even
-reclaimed by other process if the node had restarted. Because of that,
-DON'T SEND MESSAGES to this pid.
-
-This pid is used ONLY to verify that the transaction context has been
-created during the term of the current leader.
-""".
-set_otx_leader({DB, Shard}, Pid) ->
-    ?tp(info, dsrepl_set_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
-    emqx_dsch:gvar_set(DB, Shard, ?gv_sc_replica, ?gv_otx_leader_pid, Pid).
-
-set_ts({DB, Shard}, TS) ->
-    emqx_dsch:gvar_set(DB, Shard, ?gv_sc_replica, ?gv_timestamp, TS).
 
 try_release_log({_N, BatchSize}, RaftMeta = #{index := CurrentIdx}, State) ->
     %% NOTE
