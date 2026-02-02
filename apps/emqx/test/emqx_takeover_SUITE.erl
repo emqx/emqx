@@ -1226,60 +1226,82 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
         after 2000 -> ok
         end,
 
-        %% Wait for events to be captured
+        catch emqtt:stop(Client2),
+
+        %% Wait for events to be captured (including final disconnect of Client2)
         timer:sleep(500),
 
-        %% THEN: Verify timestamp ordering
+        %% THEN: Verify ordered sequence for this client:
+        %% connect -> disconnect(ExpectedReason) -> connect -> disconnect(not takenover/discarded)
         AllEvents = ets:tab2list(TableName),
-
-        %% Get disconnected event for old session
-        DisconnectedEvents = [
-            E
-         || E = {disconnected, Id, _, _, Reason} <- AllEvents,
-            Id =:= ClientId,
-            Reason =:= ExpectedReason
-        ],
-        %% Get connected event for new session
-        ConnectedEvents = [
-            E
-         || E = {connected, Id, _} <- AllEvents,
+        ClientEvents = [
+            {Type, Seq, ConnectedAt, DisconnectedAt, Reason}
+         || {{Id, Seq}, {Type, ConnectedAt, DisconnectedAt, Reason}} <- AllEvents,
             Id =:= ClientId
         ],
-
-        ?assert(length(DisconnectedEvents) >= 1, "Should have at least one disconnected event"),
-        ?assert(length(ConnectedEvents) >= 1, "Should have at least one connected event"),
-
-        %% Get the disconnected event (old session)
-        {disconnected, _, OldDisconnectedAt, _OldConnectedAt, ExpectedReason} = lists:last(
-            DisconnectedEvents
+        ?assertEqual(
+            4,
+            length(ClientEvents),
+            io_lib:format("Expected exactly 4 events for client ~p, got: ~p", [
+                ClientId, ClientEvents
+            ])
         ),
 
-        %% Get connected events - we need to find the new session's connected_at
-        %% The new session's connected_at should be >= the old session's disconnected_at
-        %% If we have 2 connected events, use the last one; otherwise use the disconnected event's connected_at
-        %% to verify ordering (the fix ensures disconnected_at is set early)
-        NewConnectedAt =
-            case ConnectedEvents of
-                [_First, Last | _] ->
-                    {connected, _, CA} = Last,
-                    CA;
-                _ ->
-                    %% If we only have one connected event, it might be the new session
-                    %% Use the disconnected_at as a reference - it should be <= any new connection
-                    OldDisconnectedAt
-            end,
+        ConnectTs = [
+            ConnectedAt
+         || {connect, _Seq, ConnectedAt, undefined, undefined} <- ClientEvents
+        ],
+        Disconnects = [
+            {ConnectedAt, DisconnectedAt, Reason}
+         || {disconnect, _Seq, ConnectedAt, DisconnectedAt, Reason} <- ClientEvents
+        ],
+        ?assertEqual(
+            2,
+            length(ConnectTs),
+            io_lib:format("Expected 2 connect events, got: ~p", [ClientEvents])
+        ),
+        ?assertEqual(
+            2,
+            length(Disconnects),
+            io_lib:format("Expected 2 disconnect events, got: ~p", [ClientEvents])
+        ),
+        [{T1ForT2, T2, ExpectedReason}] = [
+            D
+         || D = {_ConnectedAt, _DisconnectedAt, Reason} <- Disconnects,
+            Reason =:= ExpectedReason
+        ],
+        [{T3ForT4, T4, Reason4}] = [
+            D
+         || D = {_ConnectedAt, _DisconnectedAt, Reason} <- Disconnects,
+            Reason =/= ExpectedReason
+        ],
+        [T1, T3] = lists:sort(ConnectTs),
 
-        %% Verify: old session's disconnected_at should be <= new session's connected_at
-        %% The key fix is that disconnected_at is set early, so it should be <= the new connection's connected_at
+        %% 1) and 2): timeline is non-decreasing when interpreted as:
+        %% connect(T1), disconnect(T2), connect(T3), disconnect(T4)
         ?assert(
-            OldDisconnectedAt =< NewConnectedAt,
-            io_lib:format(
-                "disconnected_at (~p) should be <= new connected_at (~p)",
-                [OldDisconnectedAt, NewConnectedAt]
-            )
+            T1 =< T2 andalso T2 =< T3 andalso T3 =< T4,
+            io_lib:format("Expected non-decreasing T1..T4, got: ~p", [ClientEvents])
         ),
-
-        catch emqtt:stop(Client2)
+        %% 3): T1 is associated with T2 (disconnect.connected_at == T1)
+        ?assertEqual(
+            T1,
+            T1ForT2,
+            io_lib:format("Expected T1 associated with T2 record, got: ~p", [ClientEvents])
+        ),
+        %% 4): T3 is associated with T4 (disconnect.connected_at == T3)
+        ?assertEqual(
+            T3,
+            T3ForT4,
+            io_lib:format("Expected T3 associated with T4 record, got: ~p", [ClientEvents])
+        ),
+        %% 5): T4 reason must not be takenover/discarded
+        ?assert(
+            Reason4 =/= discarded andalso Reason4 =/= takenover,
+            io_lib:format("Final disconnect reason must not be discarded/takenover: ~p", [
+                ClientEvents
+            ])
+        )
     after
         emqx_hooks:del('client.connected', {?MODULE, hook_fun_connected}),
         emqx_hooks:del('client.disconnected', {?MODULE, hook_fun_disconnected}),
@@ -1288,15 +1310,22 @@ verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, Expec
 
 %% Hook functions
 hook_fun_connected(ClientInfo, ConnInfo, TableName) ->
+    Seq = erlang:unique_integer([positive, monotonic]),
     ConnectedAt = maps:get(connected_at, ConnInfo),
-    ets:insert(TableName, {connected, maps:get(clientid, ClientInfo), ConnectedAt}),
+    ClientId = maps:get(clientid, ClientInfo),
+    ets:insert(
+        TableName,
+        {{ClientId, Seq}, {connect, ConnectedAt, undefined, undefined}}
+    ),
     ok.
 
 hook_fun_disconnected(ClientInfo, Reason, ConnInfo, TableName) ->
+    Seq = erlang:unique_integer([positive, monotonic]),
     DisconnectedAt = maps:get(disconnected_at, ConnInfo),
     ConnectedAt = maps:get(connected_at, ConnInfo),
+    ClientId = maps:get(clientid, ClientInfo),
     ets:insert(
         TableName,
-        {disconnected, maps:get(clientid, ClientInfo), DisconnectedAt, ConnectedAt, Reason}
+        {{ClientId, Seq}, {disconnect, ConnectedAt, DisconnectedAt, Reason}}
     ),
     ok.
