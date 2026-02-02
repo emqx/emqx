@@ -20,7 +20,7 @@
 %% Import functions from emqx_jt808_channel (exported via -ifdef(TEST))
 -import(emqx_jt808_channel, [
     try_insert_inflight/7,
-    ack_msg/3,
+    ack_msg/4,
     set_msg_ack/2,
     get_msg_ack/2,
     custom_msg_ack_key/2,
@@ -93,7 +93,8 @@ t_insert_custom_msg_sn_no_conflict(_Config) ->
     OrderKey = {msg_sn_order, AutoKey},
     ?assertEqual(?SN_CUSTOM, get(OrderKey)).
 
-%% Test: Custom msg_sn insertion should be discarded when duplicate
+%% Test: Custom msg_sn insertion returns ok_duplicate when duplicate detected
+%% The message should still be delivered (not discarded) to ensure message delivery
 t_insert_custom_msg_sn_duplicate(_Config) ->
     Inflight0 = emqx_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
@@ -107,10 +108,11 @@ t_insert_custom_msg_sn_duplicate(_Config) ->
         MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight0, Channel
     ),
 
-    %% Try to insert duplicate custom msg_sn
+    %% Try to insert duplicate custom msg_sn - should return ok_duplicate
+    %% (message will be delivered but not added to inflight again)
     Result = try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight1, Channel),
 
-    ?assertEqual({discard, duplicate_custom_msg_sn}, Result).
+    ?assertEqual({ok_duplicate, Inflight1}, Result).
 
 %% Test: Race condition - auto first, then custom with same msg_sn
 t_race_auto_first_then_custom(_Config) ->
@@ -194,7 +196,7 @@ t_ack_only_auto(_Config) ->
     %% ACK the message
     AckMsgId = ?MC_GENERAL_RESPONSE,
     KeyParam = {MsgId, MsgSn},
-    Inflight2 = ack_msg(AckMsgId, KeyParam, Inflight1),
+    Inflight2 = ack_msg(AckMsgId, KeyParam, Inflight1, Channel),
 
     %% Verify auto key was removed
     AutoKey = set_msg_ack(MsgId, MsgSn),
@@ -217,7 +219,7 @@ t_ack_only_custom(_Config) ->
     %% ACK the message
     AckMsgId = ?MC_GENERAL_RESPONSE,
     KeyParam = {MsgId, MsgSn},
-    Inflight2 = ack_msg(AckMsgId, KeyParam, Inflight1),
+    Inflight2 = ack_msg(AckMsgId, KeyParam, Inflight1, Channel),
 
     %% Verify custom key was removed
     CustomKey = custom_msg_ack_key(MsgId, MsgSn),
@@ -250,13 +252,13 @@ t_ack_race_auto_first(_Config) ->
     %% First ACK should remove auto (it was first)
     AckMsgId = ?MC_GENERAL_RESPONSE,
     KeyParam = {MsgId, MsgSn},
-    Inflight3 = ack_msg(AckMsgId, KeyParam, Inflight2),
+    Inflight3 = ack_msg(AckMsgId, KeyParam, Inflight2, Channel),
 
     ?assertNot(emqx_inflight:contain(AutoKey, Inflight3)),
     ?assert(emqx_inflight:contain(CustomKey, Inflight3)),
 
     %% Second ACK should remove custom
-    Inflight4 = ack_msg(AckMsgId, KeyParam, Inflight3),
+    Inflight4 = ack_msg(AckMsgId, KeyParam, Inflight3, Channel),
 
     ?assertNot(emqx_inflight:contain(AutoKey, Inflight4)),
     ?assertNot(emqx_inflight:contain(CustomKey, Inflight4)).
@@ -290,27 +292,30 @@ t_ack_race_custom_first(_Config) ->
     %% First ACK should remove custom (it was first)
     AckMsgId = ?MC_GENERAL_RESPONSE,
     KeyParam = {MsgId, MsgSn},
-    Inflight3 = ack_msg(AckMsgId, KeyParam, Inflight2),
+    Inflight3 = ack_msg(AckMsgId, KeyParam, Inflight2, Channel),
 
     ?assert(emqx_inflight:contain(AutoKey, Inflight3)),
     ?assertNot(emqx_inflight:contain(CustomKey, Inflight3)),
 
     %% Second ACK should remove auto
-    Inflight4 = ack_msg(AckMsgId, KeyParam, Inflight3),
+    Inflight4 = ack_msg(AckMsgId, KeyParam, Inflight3, Channel),
 
     ?assertNot(emqx_inflight:contain(AutoKey, Inflight4)),
     ?assertNot(emqx_inflight:contain(CustomKey, Inflight4)).
 
 %% Test: ACK when neither exists (edge case)
+%% This can happen when duplicate messages are delivered and client sends multiple ACKs
 t_ack_neither_exists(_Config) ->
     Inflight = emqx_inflight:new(128),
     MsgId = ?MS_SEND_TEXT,
     MsgSn = 100,
+    Channel = make_test_channel(),
 
     %% ACK a non-existent message should just return the inflight unchanged
+    %% (and log a warning internally)
     AckMsgId = ?MC_GENERAL_RESPONSE,
     KeyParam = {MsgId, MsgSn},
-    ResultInflight = ack_msg(AckMsgId, KeyParam, Inflight),
+    ResultInflight = ack_msg(AckMsgId, KeyParam, Inflight, Channel),
 
     ?assertEqual(emqx_inflight:size(Inflight), emqx_inflight:size(ResultInflight)).
 
