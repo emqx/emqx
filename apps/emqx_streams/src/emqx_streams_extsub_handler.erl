@@ -176,6 +176,8 @@ handle_subscribe(
                     Handler = add_unknown_stream(Handler1, SubscribeParams),
                     {ok, schedule_check_stream_status(Handler)}
             end;
+        ignore ->
+            ignore;
         ?err_unrec(Reason) ->
             ?tp(warning, streams_extsub_handler_subscribe_error, #{
                 reason => Reason,
@@ -866,7 +868,9 @@ check_stream_subscribe_topic_filter(Ctx, <<"$stream/", TopicFilter/binary>> = Fu
         }}
     end;
 check_stream_subscribe_topic_filter(Ctx, <<"$sp/", _/binary>> = FullTopicFilter) ->
-    check_stream_subscribe_topic_filter_with_partition(Ctx, FullTopicFilter).
+    check_stream_subscribe_topic_filter_with_partition(Ctx, FullTopicFilter);
+check_stream_subscribe_topic_filter(_Ctx, _TopicFilter) ->
+    ignore.
 
 %% Hide partitions from the user for now
 -ifdef(TEST).
