@@ -586,7 +586,7 @@ handle_aux(State, Call, #aux_otx_stopped{result = Result}, Aux0, IntState) ->
     end;
 handle_aux(RaState, Call, Command, Aux, IntState) ->
     ?tp(
-        warning,
+        debug,
         ra_aux_command,
         #{
             command => Command,
