@@ -206,15 +206,11 @@ jobs:
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
         with:
-          name: ${{ matrix.profile }}-test
+          name: ${{ matrix.profile }}-release
       - name: extract artifact
         run: |
-          unzip -o -q ${{ matrix.profile }}-test.zip
+          unzip -o -q ${{ matrix.profile }}-release.zip
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: build release
-        run: |
-          make ${PROFILE}-rel
-          ls -la "_build/$PROFILE/rel/emqx/bin/"
       - name: install pytest
         run: |
           apt-get update && apt-get install -y python3-venv
