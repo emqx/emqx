@@ -1155,6 +1155,7 @@ t_clientinfo_override_with_prefix_and_empty_clientid(Config) ->
 
 t_schema_coverage(_Config) ->
     _ = emqx_nats_schema:fields(wss_listener),
+    _ = emqx_nats_schema:desc(wss_listener),
     ok.
 
 %%--------------------------------------------------------------------

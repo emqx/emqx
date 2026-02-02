@@ -833,3 +833,87 @@ t_format_frame(_Config) ->
     _ = emqx_nats_frame:format(PingFrame),
     _ = emqx_nats_frame:format(SubFrame),
     ok.
+
+t_partial_headers_parse(_Config) ->
+    Subject = <<"test.subject">>,
+    Headers = <<"NATS/1.0\r\nHeader1: Value1\r\n\r\n">>,
+    HeadersSize = integer_to_binary(byte_size(Headers)),
+    Payload = <<"hello">>,
+    TotalSize = integer_to_binary(byte_size(Headers) + byte_size(Payload)),
+    Prefix = <<"HPUB ", Subject/binary, " ", HeadersSize/binary, " ", TotalSize/binary, "\r\n">>,
+    Part1 = <<Prefix/binary, (binary:part(Headers, 0, 5))/binary>>,
+    Part2 =
+        <<(binary:part(Headers, 5, byte_size(Headers) - 5))/binary, Payload/binary, "\r\n">>,
+    State0 = emqx_nats_frame:initial_parse_state(#{}),
+    {more, State1} = emqx_nats_frame:parse(Part1, State0),
+    {ok, Frame, Rest, _} = emqx_nats_frame:parse(Part2, State1),
+    ?assertEqual(?OP_HPUB, emqx_nats_frame:type(Frame)),
+    ?assertEqual(Payload, emqx_nats_frame:payload(Frame)),
+    ?assertEqual(<<>>, Rest).
+
+t_serialize_unknown_operation(_Config) ->
+    Frame = #nats_frame{operation = unknown_op, message = #{}},
+    ?assertError(
+        {unknown_operation, unknown_op},
+        emqx_nats_frame:serialize_pkt(Frame, #{})
+    ).
+
+t_max_msgs_badarg(_Config) ->
+    ?assertError(badarg, emqx_nats_frame:max_msgs(#nats_frame{operation = ?OP_PING})).
+
+t_invalid_headers_binary_missing_crlf(_Config) ->
+    Subject = <<"test.subject">>,
+    Headers = <<"NATS/1.0">>,
+    HeadersSize = integer_to_binary(byte_size(Headers)),
+    Payload = <<"hello">>,
+    TotalSize = integer_to_binary(byte_size(Headers) + byte_size(Payload)),
+    FrameBin =
+        <<"HPUB ", Subject/binary, " ", HeadersSize/binary, " ", TotalSize/binary, "\r\n",
+            Headers/binary, Payload/binary, "\r\n">>,
+    State = emqx_nats_frame:initial_parse_state(#{}),
+    ?assertError(invalid_headers_binary, emqx_nats_frame:parse(FrameBin, State)).
+
+t_invalid_headers_binary_odd_kv(_Config) ->
+    Subject = <<"test.subject">>,
+    Headers = <<"NATS/1.0\r\nHeader1: Value1\r\nHeader2\r\n\r\n">>,
+    HeadersSize = integer_to_binary(byte_size(Headers)),
+    Payload = <<"hello">>,
+    TotalSize = integer_to_binary(byte_size(Headers) + byte_size(Payload)),
+    FrameBin =
+        <<"HPUB ", Subject/binary, " ", HeadersSize/binary, " ", TotalSize/binary, "\r\n",
+            Headers/binary, Payload/binary, "\r\n">>,
+    State = emqx_nats_frame:initial_parse_state(#{}),
+    ?assertError(invalid_headers_binary, emqx_nats_frame:parse(FrameBin, State)).
+
+t_serialize_wildcard_subject_pub(Config) ->
+    SOpts = ?config(serialize_opts, Config),
+    Frame = #nats_frame{
+        operation = ?OP_PUB,
+        message = #{subject => <<"foo.*">>, payload => <<"hello">>}
+    },
+    ?assertError(
+        {invalid_subject, wildcard_subject_not_allowed_in_pub_message},
+        emqx_nats_frame:serialize_pkt(Frame, SOpts)
+    ).
+
+t_serialize_invalid_subject_pub(Config) ->
+    SOpts = ?config(serialize_opts, Config),
+    Frame = #nats_frame{
+        operation = ?OP_PUB,
+        message = #{subject => <<"foo..bar">>, payload => <<"hello">>}
+    },
+    ?assertError(
+        {invalid_subject, consecutive_dots},
+        emqx_nats_frame:serialize_pkt(Frame, SOpts)
+    ).
+
+t_serialize_invalid_subject_sub(Config) ->
+    SOpts = ?config(serialize_opts, Config),
+    Frame = #nats_frame{
+        operation = ?OP_SUB,
+        message = #{subject => <<"foo..bar">>, sid => <<"1">>}
+    },
+    ?assertError(
+        {invalid_subject, consecutive_dots},
+        emqx_nats_frame:serialize_pkt(Frame, SOpts)
+    ).
