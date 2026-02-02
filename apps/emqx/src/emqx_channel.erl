@@ -1426,13 +1426,17 @@ handle_call(kick, Channel = #channel{conn_state = ConnState}) when
     );
 handle_call(kick, Channel) ->
     process_kick(Channel);
-handle_call(discard, Channel) ->
+handle_call(discard, Channel = #channel{conninfo = ConnInfo}) ->
     ?EXT_TRACE_BROKER_DISCONNECT(
         ?EXT_TRACE_ATTR(
             maps:merge(basic_attrs(Channel), disconnect_attrs(discard, Channel))
         ),
         fun() ->
-            Channel0 = maybe_publish_will_msg(discarded, Channel),
+            %% Record disconnected_at here to ensure it's earlier than the new session's connected_at.
+            %% This prevents race conditions where the new session's connected_at is set before
+            %% the old session's disconnected_at.
+            NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
+            Channel0 = maybe_publish_will_msg(discarded, Channel#channel{conninfo = NConnInfo}),
             disconnect_and_shutdown(discarded, ok, Channel0)
         end,
         []
@@ -1442,14 +1446,19 @@ handle_call(
     {takeover, 'begin'},
     Channel = #channel{
         session = Session,
-        clientinfo = #{clientid := ClientId}
+        clientinfo = #{clientid := ClientId},
+        conninfo = ConnInfo
     }
 ) ->
     %% NOTE
     %% Ensure channel has enough time left to react to takeover end call. At the same
     %% time ensure that channel dies off reasonably quickly if no call will arrive.
+    %% Record disconnected_at here to ensure it's earlier than the new session's connected_at.
+    %% This prevents race conditions where the new session's connected_at is set before
+    %% the old session's disconnected_at.
+    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
     Interval = interval(expire_takeover, Channel),
-    NChannel = reset_timer(expire_session, Interval, Channel),
+    NChannel = reset_timer(expire_session, Interval, Channel#channel{conninfo = NConnInfo}),
     ok = emqx_cm:unregister_channel(ClientId),
     reply(Session, NChannel#channel{takeover = true});
 handle_call(
@@ -2957,7 +2966,13 @@ ensure_disconnected(
     }
 ) ->
     ok = emqx_authz_cache:empty_authz_cache(),
-    NConnInfo = ConnInfo#{disconnected_at => erlang:system_time(millisecond)},
+    %% If disconnected_at is already set (e.g., during takeover begin), don't overwrite it.
+    %% This ensures disconnected_at is recorded early enough to be before the new session's connected_at.
+    NConnInfo =
+        case maps:is_key(disconnected_at, ConnInfo) of
+            true -> ConnInfo;
+            false -> ConnInfo#{disconnected_at => erlang:system_time(millisecond)}
+        end,
     ok = run_hooks('client.disconnected', [ClientInfo, Reason, NConnInfo]),
     ChanPid = self(),
     emqx_cm:mark_channel_disconnected(ChanPid),
