@@ -554,6 +554,25 @@ t_manual_refresh(Config) ->
     emqx_config_handler:stop(),
     ok.
 
+t_manual_refresh_https(Config) ->
+    CRLDer = ?config(crl_der, Config),
+    Ref = get_crl_cache_table(),
+    ?assertEqual([], ets:tab2list(Ref)),
+    emqx_config_handler:start_link(),
+    {ok, _} = emqx_crl_cache:start_link(),
+    URL = "https://localhost/crl.pem",
+    URLBin = iolist_to_binary(URL),
+    ok = snabbkaffe:start_trace(),
+    ?wait_async_action(
+        ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
+        #{?snk_kind := crl_cache_insert},
+        5_000
+    ),
+    ok = snabbkaffe:stop(),
+    ?assertEqual([{URLBin, [CRLDer]}], ets:tab2list(Ref)),
+    emqx_config_handler:stop(),
+    ok.
+
 t_refresh_request_error(_Config) ->
     meck:expect(
         emqx_crl_cache,

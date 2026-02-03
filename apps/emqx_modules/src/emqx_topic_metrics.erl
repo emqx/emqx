@@ -304,7 +304,9 @@ do_register(Topic, Speeds) ->
         false ->
             case {number_of_registered_topics() < ?MAX_TOPICS, emqx_topic:wildcard(Topic)} of
                 {_, true} ->
-                    {error, bad_topic};
+                    %% Reached only if someone bypasses config validation and calls
+                    %% emqx_topic_metrics:register/1 directly.
+                    {error, wildcard_not_supported};
                 {false, _} ->
                     {error, quota_exceeded};
                 {true, false} ->
