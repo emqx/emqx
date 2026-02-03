@@ -19,11 +19,6 @@
 ]).
 -export([which_dbs/0, which_shards/1]).
 
-%% Debug:
--export([
-    get_shard_workers/1
-]).
-
 %% behaviour callbacks:
 -export([init/1]).
 
@@ -103,21 +98,6 @@ which_shards(DB) ->
 which_dbs() ->
     Key = {n, l, #?db_sup{_ = '_', db = '$1'}},
     gproc:select({local, names}, [{{Key, '_', '_'}, [], ['$1']}]).
-
-%% @doc Get pids of all local shard servers for the given DB.
--spec get_shard_workers(emqx_ds:db()) -> #{_Shard => pid()}.
-get_shard_workers(DB) ->
-    Shards = supervisor:which_children(?via(#?shards_sup{db = DB})),
-    L = lists:flatmap(
-        fun
-            ({_Shard, Sup, _, _}) when is_pid(Sup) ->
-                [{Id, Pid} || {Id, Pid, _, _} <- supervisor:which_children(Sup), is_pid(Pid)];
-            (_) ->
-                []
-        end,
-        Shards
-    ),
-    maps:from_list(L).
 
 %%================================================================================
 %% behaviour callbacks
