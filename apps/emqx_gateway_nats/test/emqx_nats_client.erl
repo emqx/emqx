@@ -50,6 +50,7 @@
     pedantic => boolean(),
     tls_required => boolean(),
     ssl_opts => map() | list(),
+    starttls => boolean(),
     %% Client's own options
     auto_respond_ping => boolean()
 }.
@@ -260,6 +261,26 @@ handle_incoming_data(Data, #{parse_state := ParseState, message_queue := Queue} 
             {noreply, State#{parse_state => NewParseState}}
     end.
 
+process_parsed_frame(
+    ?PACKET(?OP_INFO, ServerInfo),
+    State = #{options := Options, socket := {tcp, Socket}}
+) ->
+    State1 = State#{connected_server_info => ServerInfo},
+    case maps:get(starttls, Options, false) of
+        true ->
+            SslOpts = ssl_opts(maps:get(ssl_opts, Options, [])),
+            _ = inet:setopts(Socket, [{active, false}]),
+            case ssl:connect(Socket, [binary, {active, true}] ++ SslOpts) of
+                {ok, SslSocket} ->
+                    State1#{socket => {ssl, SslSocket}};
+                {error, Reason} ->
+                    _ = inet:setopts(Socket, [{active, true}]),
+                    ct:pal("[nats-client] starttls failed: ~p", [Reason]),
+                    State1
+            end;
+        false ->
+            State1
+    end;
 process_parsed_frame(?PACKET(?OP_INFO, ServerInfo), State) ->
     State#{connected_server_info => ServerInfo};
 process_parsed_frame(?PACKET(?OP_PING), State = #{socket := Socket, options := Options}) ->
@@ -324,6 +345,20 @@ connect("ssl://" ++ Host, Port, Options) ->
 connect("ws://" ++ Host, Port, _Options) ->
     Timeout = 5000,
     ConnOpts = #{connect_timeout => 5000},
+    case gun:open(Host, Port, ConnOpts) of
+        {ok, ConnPid} ->
+            {ok, _} = gun:await_up(ConnPid, Timeout),
+            case upgrade(ConnPid, Timeout) of
+                {ok, StreamRef} -> {ok, {ws, {ConnPid, StreamRef}}};
+                Error -> Error
+            end;
+        Error ->
+            Error
+    end;
+connect("wss://" ++ Host, Port, Options) ->
+    Timeout = 5000,
+    SslOpts = ssl_opts(maps:get(ssl_opts, Options, [])),
+    ConnOpts = #{connect_timeout => 5000, transport => tls, tls_opts => SslOpts},
     case gun:open(Host, Port, ConnOpts) of
         {ok, ConnPid} ->
             {ok, _} = gun:await_up(ConnPid, Timeout),

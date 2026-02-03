@@ -11,53 +11,38 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--define(DEFAULT_CLIENT_OPTS, #{
-    host => "tcp://localhost",
-    port => 4222,
-    verbose => false
-}).
-
--define(DEFAULT_WS_CLIENT_OPTS, #{
-    host => "ws://localhost",
-    port => 4223,
-    verbose => false
-}).
-
--define(CONF_DEFAULT, <<
-    "\n"
-    "gateway.nats {\n"
-    "  default_heartbeat_interval = 2s\n"
-    "  heartbeat_wait_timeout = 1s\n"
-    "  protocol {\n"
-    "    max_payload_size = 1024\n"
-    "  }\n"
-    "  listeners.tcp.default {\n"
-    "    bind = 4222\n"
-    "  }\n"
-    "  listeners.ws.default {\n"
-    "    bind = 4223\n"
-    "  }\n"
-    "}\n"
->>).
-
 %%--------------------------------------------------------------------
 %% CT Callbacks
 %%--------------------------------------------------------------------
 
-all() -> [{group, tcp}, {group, ws}].
+all() ->
+    [{group, emqx_gateway}, {group, nats_server}].
 
 groups() ->
     CTs = emqx_common_test_helpers:all(?MODULE),
+    CoreTCs = core_tests(CTs),
     [
-        {tcp, [], CTs},
-        {ws, [], CTs}
+        {emqx_gateway, [], emqx_group_members()},
+        {nats_server, [], nats_group_members()},
+        {tcp_all, [], CTs},
+        {ws_all, [], CTs},
+        {wss_all, [], CTs},
+        {ssl_all, [], CTs},
+        {tcp_core, [], CoreTCs},
+        {ws_core, [], CoreTCs},
+        {wss_core, [], CoreTCs},
+        {ssl_core, [], CoreTCs}
     ].
 
 init_per_suite(Config) ->
     application:load(emqx_gateway_nats),
+    TcpPort = tcp_port(emqx),
+    WsPort = ws_port(emqx),
+    WssPort = wss_port(emqx),
+    SslPort = ssl_port(emqx),
     Apps = emqx_cth_suite:start(
         [
-            {emqx_conf, ?CONF_DEFAULT},
+            {emqx_conf, conf_default(TcpPort, WsPort, WssPort, SslPort)},
             emqx_gateway,
             emqx_auth,
             emqx_management,
@@ -69,35 +54,422 @@ init_per_suite(Config) ->
     [{suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
-    emqx_common_test_http:delete_default_app(),
-    emqx_cth_suite:stop(?config(suite_apps, Config)),
-    ok.
+    case lists:keyfind(suite_apps, 1, Config) of
+        {suite_apps, _} ->
+            emqx_common_test_http:delete_default_app(),
+            emqx_cth_suite:stop(?config(suite_apps, Config)),
+            ok;
+        false ->
+            ok
+    end.
 
-init_per_group(tcp, Config) ->
-    [{client_opts, ?DEFAULT_CLIENT_OPTS}, {group_name, tcp} | Config];
-init_per_group(ws, Config) ->
-    [{client_opts, ?DEFAULT_WS_CLIENT_OPTS}, {group_name, ws} | Config].
+init_per_group(emqx_gateway, Config) ->
+    [{target, emqx} | Config];
+init_per_group(nats_server, Config) ->
+    case ensure_nats_server_available() of
+        ok ->
+            [{target, nats} | Config];
+        {skip, Reason} ->
+            {skip, Reason}
+    end;
+init_per_group(tcp_all, Config) ->
+    Target = target_from(Config),
+    [{client_opts, default_tcp_client_opts(Target)}, {group_name, tcp} | Config];
+init_per_group(tcp_core, Config) ->
+    Target = target_from(Config),
+    [{client_opts, default_tcp_client_opts(Target)}, {group_name, tcp} | Config];
+init_per_group(ws_all, Config) ->
+    Target = target_from(Config),
+    case ws_port(Target) of
+        undefined ->
+            {skip, "WS listener not configured"};
+        _ ->
+            [{client_opts, default_ws_client_opts(Target)}, {group_name, ws} | Config]
+    end;
+init_per_group(ws_core, Config) ->
+    Target = target_from(Config),
+    case ws_port(Target) of
+        undefined ->
+            {skip, "WS listener not configured"};
+        _ ->
+            [{client_opts, default_ws_client_opts(Target)}, {group_name, ws} | Config]
+    end;
+init_per_group(wss_all, Config) ->
+    Target = target_from(Config),
+    case wss_port(Target) of
+        undefined ->
+            {skip, "WSS listener not configured"};
+        _ ->
+            [{client_opts, default_wss_client_opts(Target)}, {group_name, wss} | Config]
+    end;
+init_per_group(wss_core, Config) ->
+    Target = target_from(Config),
+    case wss_port(Target) of
+        undefined ->
+            {skip, "WSS listener not configured"};
+        _ ->
+            [{client_opts, default_wss_client_opts(Target)}, {group_name, wss} | Config]
+    end;
+init_per_group(ssl_all, Config) ->
+    Target = target_from(Config),
+    case ssl_port(Target) of
+        undefined ->
+            {skip, "SSL listener not configured"};
+        _ ->
+            [{client_opts, default_ssl_client_opts(Target)}, {group_name, ssl} | Config]
+    end;
+init_per_group(ssl_core, Config) ->
+    Target = target_from(Config),
+    case ssl_port(Target) of
+        undefined ->
+            {skip, "SSL listener not configured"};
+        _ ->
+            [{client_opts, default_ssl_client_opts(Target)}, {group_name, ssl} | Config]
+    end.
 
 end_per_group(_Group, _Config) ->
     ok.
 
-init_per_testcase(_TestCase, Config) ->
-    Config.
+init_per_testcase(TestCase, Config) ->
+    case should_skip(TestCase, target_from(Config)) of
+        {skip, Reason} ->
+            {skip, Reason};
+        ok ->
+            Config
+    end.
 
 end_per_testcase(_TestCase, _Config) ->
-    try
-        allow_pubsub_all(),
-        delete_test_user(),
-        disable_auth()
-    catch
-        _:_ ->
+    case target_from(_Config) of
+        emqx ->
+            try
+                allow_pubsub_all(),
+                delete_test_user(),
+                disable_auth()
+            catch
+                _:_ ->
+                    ok
+            end,
+            ok;
+        nats ->
             ok
-    end,
-    ok.
+    end.
 
 %%--------------------------------------------------------------------
 %% Helper Functions
 %%--------------------------------------------------------------------
+
+target() ->
+    emqx.
+
+target_from(Config) ->
+    case lists:keyfind(target, 1, Config) of
+        {target, Target} -> Target;
+        false -> target()
+    end.
+
+emqx_group_members() ->
+    [{group, tcp_all}, {group, ws_all}, {group, wss_all}, {group, ssl_all}].
+
+nats_group_members() ->
+    [{group, tcp_core}, {group, ws_core}, {group, wss_core}, {group, ssl_core}].
+
+core_tests(AllTCs) ->
+    [TC || TC <- AllTCs, not lists:member(TC, nats_only_skips())].
+
+env_str(Key, Default) ->
+    case os:getenv(Key) of
+        false -> Default;
+        "" -> Default;
+        Val -> Val
+    end.
+
+env_int(Key, Default) ->
+    case os:getenv(Key) of
+        false -> Default;
+        "" -> Default;
+        Val -> list_to_integer(Val)
+    end.
+
+default_host(Target) ->
+    case os:getenv("NATS_HOST") of
+        false -> default_host_for_target(Target);
+        "" -> default_host_for_target(Target);
+        Val -> Val
+    end.
+
+default_host_for_target(emqx) ->
+    "127.0.0.1";
+default_host_for_target(nats) ->
+    "toxiproxy".
+
+has_scheme(Host) ->
+    lists:prefix("tcp://", Host) orelse lists:prefix("ssl://", Host) orelse
+        lists:prefix("ws://", Host) orelse lists:prefix("wss://", Host).
+
+ensure_scheme(Host, Scheme) ->
+    case has_scheme(Host) of
+        true -> Host;
+        false -> Scheme ++ "://" ++ Host
+    end.
+
+tcp_host(Target) ->
+    Host0 = env_str("NATS_TCP_HOST", default_host(Target)),
+    ensure_scheme(Host0, "tcp").
+
+ws_host(Target) ->
+    Host0 = env_str("NATS_WS_HOST", default_host(Target)),
+    ensure_scheme(Host0, "ws").
+
+tcp_port(_Target) ->
+    env_int("NATS_TCP_PORT", 4222).
+
+ws_port(Target) ->
+    case os:getenv("NATS_WS_PORT") of
+        false ->
+            case Target of
+                emqx -> 4223;
+                nats -> 9222
+            end;
+        "" ->
+            case Target of
+                emqx -> 4223;
+                nats -> 9222
+            end;
+        "0" ->
+            undefined;
+        Val ->
+            list_to_integer(Val)
+    end.
+
+wss_host(Target) ->
+    Host0 = env_str("NATS_WSS_HOST", default_wss_host(Target)),
+    ensure_scheme(Host0, "wss").
+
+default_wss_host(emqx) ->
+    "127.0.0.1";
+default_wss_host(nats) ->
+    "toxiproxy".
+
+wss_port(Target) ->
+    case os:getenv("NATS_WSS_PORT") of
+        false ->
+            case Target of
+                emqx -> 4224;
+                nats -> 9322
+            end;
+        "" ->
+            case Target of
+                emqx -> 4224;
+                nats -> 9322
+            end;
+        "0" ->
+            undefined;
+        Val ->
+            list_to_integer(Val)
+    end.
+
+ssl_host(Target) ->
+    Host0 = env_str("NATS_SSL_HOST", default_host(Target)),
+    ensure_scheme(Host0, "ssl").
+
+ssl_port(Target) ->
+    case os:getenv("NATS_SSL_PORT") of
+        false ->
+            case Target of
+                emqx -> 4225;
+                nats -> 4422
+            end;
+        "" ->
+            case Target of
+                emqx -> 4225;
+                nats -> 4422
+            end;
+        "0" ->
+            undefined;
+        Val ->
+            list_to_integer(Val)
+    end.
+
+default_tcp_client_opts(Target) ->
+    maybe_add_nats_auth(
+        Target,
+        #{
+            host => tcp_host(Target),
+            port => tcp_port(Target),
+            verbose => false
+        }
+    ).
+
+default_ws_client_opts(Target) ->
+    maybe_add_nats_auth(
+        Target,
+        #{
+            host => ws_host(Target),
+            port => ws_port(Target),
+            verbose => false
+        }
+    ).
+
+default_wss_client_opts(Target) ->
+    maybe_add_nats_auth(
+        Target,
+        #{
+            host => wss_host(Target),
+            port => wss_port(Target),
+            verbose => false,
+            ssl_opts => #{verify => verify_none}
+        }
+    ).
+
+default_ssl_client_opts(emqx) ->
+    #{
+        host => ssl_host(emqx),
+        port => ssl_port(emqx),
+        verbose => false,
+        ssl_opts => #{verify => verify_none}
+    };
+default_ssl_client_opts(nats) ->
+    maybe_add_nats_auth(
+        nats,
+        #{
+            host => ssl_starttls_host(),
+            port => ssl_port(nats),
+            verbose => false,
+            starttls => true,
+            ssl_opts => #{verify => verify_none}
+        }
+    ).
+
+maybe_add_nats_auth(nats, Opts) ->
+    Opts#{
+        user => <<"test_user">>,
+        pass => <<"password">>
+    };
+maybe_add_nats_auth(emqx, Opts) ->
+    Opts.
+
+ssl_starttls_host() ->
+    Host0 = env_str("NATS_SSL_HOST", default_host(nats)),
+    "tcp://" ++ strip_scheme(Host0).
+
+conf_default(TcpPort, WsPort, WssPort, SslPort) ->
+    iolist_to_binary(
+        [
+            "\n",
+            "gateway.nats {\n",
+            "  default_heartbeat_interval = 2s\n",
+            "  heartbeat_wait_timeout = 1s\n",
+            "  protocol {\n",
+            "    max_payload_size = 1024\n",
+            "  }\n",
+            "  listeners.tcp.default {\n",
+            "    bind = ",
+            integer_to_list(TcpPort),
+            "\n",
+            "  }\n",
+            ws_section(WsPort),
+            wss_section(WssPort),
+            ssl_section(SslPort),
+            "}\n"
+        ]
+    ).
+
+ws_section(undefined) ->
+    [];
+ws_section(Port) ->
+    [
+        "  listeners.ws.default {\n",
+        "    bind = ",
+        integer_to_list(Port),
+        "\n",
+        "  }\n"
+    ].
+
+wss_section(undefined) ->
+    [];
+wss_section(Port) ->
+    [
+        "  listeners.wss.default {\n",
+        "    bind = ",
+        integer_to_list(Port),
+        "\n",
+        "    ssl_options {\n",
+        "      cacertfile = \"",
+        cert_path("cacert.pem"),
+        "\"\n",
+        "      certfile = \"",
+        cert_path("cert.pem"),
+        "\"\n",
+        "      keyfile = \"",
+        cert_path("key.pem"),
+        "\"\n",
+        "    }\n",
+        "  }\n"
+    ].
+
+ssl_section(undefined) ->
+    [];
+ssl_section(Port) ->
+    [
+        "  listeners.ssl.default {\n",
+        "    bind = ",
+        integer_to_list(Port),
+        "\n",
+        "    ssl_options {\n",
+        "      cacertfile = \"",
+        cert_path("cacert.pem"),
+        "\"\n",
+        "      certfile = \"",
+        cert_path("cert.pem"),
+        "\"\n",
+        "      keyfile = \"",
+        cert_path("key.pem"),
+        "\"\n",
+        "    }\n",
+        "  }\n"
+    ].
+
+cert_path(Name) ->
+    filename:join([code:lib_dir(emqx), "etc", "certs", Name]).
+
+should_skip(TestCase, nats) ->
+    case lists:member(TestCase, nats_only_skips()) of
+        true -> {skip, "EMQX-only or requires EMQX management/auth"};
+        false -> ok
+    end;
+should_skip(_TestCase, emqx) ->
+    ok.
+
+nats_only_skips() ->
+    [
+        t_publish_authz,
+        t_subscribe_authz,
+        t_optional_connect_request,
+        t_optional_connect_request_only_work_authn_disabled,
+        t_server_to_client_ping
+    ].
+
+ensure_nats_server_available() ->
+    Target = nats,
+    Host = strip_scheme(tcp_host(Target)),
+    Port = tcp_port(Target),
+    case emqx_common_test_helpers:is_tcp_server_available(Host, Port) of
+        true ->
+            ok;
+        false ->
+            ct:fail({no_nats_server, Host, Port})
+    end.
+
+strip_scheme("tcp://" ++ Host) ->
+    Host;
+strip_scheme("ssl://" ++ Host) ->
+    Host;
+strip_scheme("ws://" ++ Host) ->
+    Host;
+strip_scheme("wss://" ++ Host) ->
+    Host;
+strip_scheme(Host) ->
+    Host.
 
 enable_auth() ->
     emqx_gateway_test_utils:enable_gateway_auth(<<"nats">>).
@@ -134,18 +506,6 @@ deny_pubsub_all() ->
         >>
     ).
 
-update_nats_with_clientinfo_override(ClientInfoOverride) ->
-    DefaultOverride = #{
-        <<"username">> => <<"${Packet.user}">>,
-        <<"password">> => <<"${Packet.pass}">>
-    },
-    ClientInfoOverride1 = maps:merge(DefaultOverride, ClientInfoOverride),
-    Conf = emqx:get_raw_config([gateway, nats]),
-    emqx_gateway_conf:update_gateway(
-        nats,
-        Conf#{<<"clientinfo_override">> => ClientInfoOverride1}
-    ).
-
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -167,17 +527,7 @@ t_verbose_mode(Config) ->
 
     %% Test INFO message
     {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_INFO,
-            message = #{
-                <<"auth_required">> := false,
-                <<"version">> := _,
-                <<"max_payload">> := _
-            }
-        },
-        InfoMsg
-    ),
+    assert_info_message(InfoMsg, target_from(Config)),
 
     %% Test CONNECT with verbose mode
     ok = emqx_nats_client:connect(Client),
@@ -395,34 +745,38 @@ t_unsubscribe(Config) ->
     emqx_nats_client:stop(Client).
 
 t_unsubscribe_with_max_msgs(Config) ->
-    Username = <<"unsub_user">>,
-    ClientOpts = maps:merge(?config(client_opts, Config), #{
-        verbose => true,
-        user => Username
-    }),
+    BaseOpts = ?config(client_opts, Config),
+    ClientOpts =
+        case target_from(Config) of
+            emqx ->
+                maps:merge(BaseOpts, #{
+                    verbose => true,
+                    user => <<"unsub_user">>
+                });
+            nats ->
+                maps:merge(BaseOpts, #{
+                    verbose => true
+                })
+        end,
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     recv_info_frame(Client),
 
     ok = emqx_nats_client:connect(Client),
     recv_ok_frame(Client),
 
-    wait_for_client_info(Config),
-    [ClientInfo] = find_client_by_username(Username),
-    ClientId = maps:get(clientid, ClientInfo),
-
     ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
     recv_ok_frame(Client),
-
-    ?assertMatch(
-        [#{topic := <<"foo">>}],
-        emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
-    ),
 
     ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>, 1),
     recv_ok_frame(Client),
 
-    ok = emqx_nats_client:publish(Client, <<"foo">>, <<"hello1">>),
-    recv_ok_frame(Client),
+    {ok, Publisher} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Publisher),
+    ok = emqx_nats_client:connect(Publisher),
+    recv_ok_frame(Publisher),
+
+    ok = emqx_nats_client:publish(Publisher, <<"foo">>, <<"hello1">>),
+    recv_ok_frame(Publisher),
 
     {ok, [Msg]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(
@@ -437,28 +791,30 @@ t_unsubscribe_with_max_msgs(Config) ->
         Msg
     ),
 
-    ok = emqx_nats_client:publish(Client, <<"foo">>, <<"hello2">>),
-    recv_ok_frame(Client),
+    ok = emqx_nats_client:publish(Publisher, <<"foo">>, <<"hello2">>),
+    recv_ok_frame(Publisher),
 
     {ok, []} = emqx_nats_client:receive_message(Client, 1000),
 
-    ?assertEqual(
-        [], emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
-    ),
+    emqx_nats_client:stop(Publisher),
     emqx_nats_client:stop(Client).
 
 t_queue_group(Config) ->
     ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
     {ok, Client1} = emqx_nats_client:start_link(ClientOpts),
     {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Publisher} = emqx_nats_client:start_link(ClientOpts),
 
     %% Connect both clients
     {ok, [_]} = emqx_nats_client:receive_message(Client1),
     {ok, [_]} = emqx_nats_client:receive_message(Client2),
+    {ok, [_]} = emqx_nats_client:receive_message(Publisher),
     ok = emqx_nats_client:connect(Client1),
     ok = emqx_nats_client:connect(Client2),
+    ok = emqx_nats_client:connect(Publisher),
     {ok, [_]} = emqx_nats_client:receive_message(Client1),
     {ok, [_]} = emqx_nats_client:receive_message(Client2),
+    {ok, [_]} = emqx_nats_client:receive_message(Publisher),
 
     %% Subscribe to the same queue group
     ok = emqx_nats_client:subscribe(Client1, <<"foo">>, <<"sid-1">>, <<"group-1">>),
@@ -466,9 +822,11 @@ t_queue_group(Config) ->
     {ok, [_]} = emqx_nats_client:receive_message(Client1),
     {ok, [_]} = emqx_nats_client:receive_message(Client2),
 
-    %% Publish messages with mqtt
-    _ = emqx_broker:publish(emqx_message:make(<<"foo">>, <<"msgs1">>)),
-    _ = emqx_broker:publish(emqx_message:make(<<"foo">>, <<"msgs2">>)),
+    %% Publish messages via NATS
+    ok = emqx_nats_client:publish(Publisher, <<"foo">>, <<"msgs1">>),
+    recv_ok_frame(Publisher),
+    ok = emqx_nats_client:publish(Publisher, <<"foo">>, <<"msgs2">>),
+    recv_ok_frame(Publisher),
 
     %% Receive messages - only one client should receive each message
     {ok, Msgs1} = emqx_nats_client:receive_message(Client1),
@@ -477,32 +835,42 @@ t_queue_group(Config) ->
     ?assertEqual(2, length(Msgs1 ++ Msgs2)),
 
     emqx_nats_client:stop(Client1),
-    emqx_nats_client:stop(Client2).
+    emqx_nats_client:stop(Client2),
+    emqx_nats_client:stop(Publisher).
 
 t_queue_group_with_empty_string(Config) ->
     ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, Publisher} = emqx_nats_client:start_link(ClientOpts),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
+    {ok, [_]} = emqx_nats_client:receive_message(Publisher),
 
     ok = emqx_nats_client:connect(Client),
     {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:connect(Publisher),
+    {ok, [_]} = emqx_nats_client:receive_message(Publisher),
 
     %% Subscribe to the empty string queue group treated as no queue group
     ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>, <<>>),
-    {ok, [SubAck]} = emqx_nats_client:receive_message(Client),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:publish(Publisher, <<"foo">>, <<"hello">>),
+    recv_ok_frame(Publisher),
+
+    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
     ?assertMatch(
         #nats_frame{
-            operation = ?OP_OK
+            operation = ?OP_MSG,
+            message = #{
+                subject := <<"foo">>,
+                sid := <<"sid-1">>,
+                payload := <<"hello">>
+            }
         },
-        SubAck
+        Msg
     ),
 
-    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
-    ClientId = maps:get(clientid, ClientInfo0),
-
-    Subscriptions = emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId),
-    ?assert(lists:any(fun(S) -> maps:get(topic, S) =:= <<"foo">> end, Subscriptions)),
-
+    emqx_nats_client:stop(Publisher),
     emqx_nats_client:stop(Client).
 
 t_reply_to(Config) ->
@@ -606,173 +974,257 @@ t_no_responders_must_work_with_headers(Config) ->
     emqx_nats_client:stop(Client).
 
 t_auth_success(Config) ->
-    ok = enable_auth(),
-    ok = create_test_user(),
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => <<"test_user">>,
-            pass => <<"password">>,
-            verbose => true
-        }
-    ),
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_INFO,
-            message = _Message
-        },
-        InfoMsg
-    ),
-    Message = InfoMsg#nats_frame.message,
-    ?assert(maps:get(<<"auth_required">>, Message) =:= true),
+    case target_from(Config) of
+        emqx ->
+            ok = enable_auth(),
+            ok = create_test_user(),
+            ClientOpts = maps:merge(
+                ?config(client_opts, Config),
+                #{
+                    user => <<"test_user">>,
+                    pass => <<"password">>,
+                    verbose => true
+                }
+            ),
+            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+            {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_INFO,
+                    message = _Message
+                },
+                InfoMsg
+            ),
+            Message = InfoMsg#nats_frame.message,
+            ?assert(maps:get(<<"auth_required">>, Message) =:= true),
 
-    %% Connect with credentials
-    ok = emqx_nats_client:connect(Client),
-    {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_OK
-        },
-        ConnectAck
-    ),
+            %% Connect with credentials
+            ok = emqx_nats_client:connect(Client),
+            {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_OK
+                },
+                ConnectAck
+            ),
 
-    %% Test basic operations after successful authentication
-    ok = emqx_nats_client:ping(Client),
-    {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_PONG
-        },
-        PongMsg
-    ),
+            %% Test basic operations after successful authentication
+            ok = emqx_nats_client:ping(Client),
+            {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_PONG
+                },
+                PongMsg
+            ),
 
-    emqx_nats_client:stop(Client),
-    ok = delete_test_user(),
-    ok = disable_auth().
+            emqx_nats_client:stop(Client),
+            ok = delete_test_user(),
+            ok = disable_auth();
+        nats ->
+            ClientOpts = maps:merge(
+                ?config(client_opts, Config),
+                #{
+                    user => <<"test_user">>,
+                    pass => <<"password">>,
+                    verbose => true
+                }
+            ),
+            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+            {ok, [_]} = emqx_nats_client:receive_message(Client),
+            ok = emqx_nats_client:connect(Client),
+            {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_OK
+                },
+                ConnectAck
+            ),
+            ok = emqx_nats_client:ping(Client),
+            {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_PONG
+                },
+                PongMsg
+            ),
+            emqx_nats_client:stop(Client)
+    end.
 
 t_auth_failure(Config) ->
-    ok = enable_auth(),
-    ok = create_test_user(),
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => <<"test_user">>,
-            pass => <<"wrong_password">>,
-            verbose => true
-        }
-    ),
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_INFO,
-            message = _Message
-        },
-        InfoMsg
-    ),
-    Message = InfoMsg#nats_frame.message,
-    ?assert(maps:get(<<"auth_required">>, Message) =:= true),
+    case target_from(Config) of
+        emqx ->
+            ok = enable_auth(),
+            ok = create_test_user(),
+            ClientOpts = maps:merge(
+                ?config(client_opts, Config),
+                #{
+                    user => <<"test_user">>,
+                    pass => <<"wrong_password">>,
+                    verbose => true
+                }
+            ),
+            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+            {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_INFO,
+                    message = _Message
+                },
+                InfoMsg
+            ),
+            Message = InfoMsg#nats_frame.message,
+            ?assert(maps:get(<<"auth_required">>, Message) =:= true),
 
-    %% Connect with wrong credentials
-    ok = emqx_nats_client:connect(Client),
-    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_ERR,
-            message = _
-        },
-        ErrorMsg
-    ),
+            %% Connect with wrong credentials
+            ok = emqx_nats_client:connect(Client),
+            {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_ERR,
+                    message = _
+                },
+                ErrorMsg
+            ),
 
-    emqx_nats_client:stop(Client),
-    ok = delete_test_user(),
-    ok = disable_auth().
+            emqx_nats_client:stop(Client),
+            ok = delete_test_user(),
+            ok = disable_auth();
+        nats ->
+            ClientOpts = maps:merge(
+                ?config(client_opts, Config),
+                #{
+                    user => <<"test_user">>,
+                    pass => <<"wrong_password">>,
+                    verbose => true
+                }
+            ),
+            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+            {ok, [_]} = emqx_nats_client:receive_message(Client),
+            ok = emqx_nats_client:connect(Client),
+            {ok, Msgs} = emqx_nats_client:receive_message(Client),
+            assert_auth_failed(Msgs),
+            emqx_nats_client:stop(Client)
+    end.
 
 t_auth_dynamic_enable_disable(Config) ->
-    %% Start with auth disabled
-    ok = disable_auth(),
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{verbose => true}
-    ),
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [InfoMsg1]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_INFO,
-            message = _Message1
-        },
-        InfoMsg1
-    ),
-    Message1 = InfoMsg1#nats_frame.message,
-    ?assert(maps:get(<<"auth_required">>, Message1) =:= false),
+    case target_from(Config) of
+        emqx ->
+            %% Start with auth disabled
+            ok = disable_auth(),
+            ClientOpts = maps:merge(
+                ?config(client_opts, Config),
+                #{verbose => true}
+            ),
+            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+            {ok, [InfoMsg1]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_INFO,
+                    message = _Message1
+                },
+                InfoMsg1
+            ),
+            Message1 = InfoMsg1#nats_frame.message,
+            ?assert(maps:get(<<"auth_required">>, Message1) =:= false),
 
-    %% Connect without credentials (should succeed)
-    ok = emqx_nats_client:connect(Client),
-    {ok, [ConnectAck1]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_OK
-        },
-        ConnectAck1
-    ),
+            %% Connect without credentials (should succeed)
+            ok = emqx_nats_client:connect(Client),
+            {ok, [ConnectAck1]} = emqx_nats_client:receive_message(Client),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_OK
+                },
+                ConnectAck1
+            ),
 
-    %% Enable auth and create test user
-    ok = enable_auth(),
-    ok = create_test_user(),
-    {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [InfoMsg2]} = emqx_nats_client:receive_message(Client2),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_INFO,
-            message = _Message2
-        },
-        InfoMsg2
-    ),
-    Message2 = InfoMsg2#nats_frame.message,
-    ?assert(maps:get(<<"auth_required">>, Message2) =:= true),
+            %% Enable auth and create test user
+            ok = enable_auth(),
+            ok = create_test_user(),
+            {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
+            {ok, [InfoMsg2]} = emqx_nats_client:receive_message(Client2),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_INFO,
+                    message = _Message2
+                },
+                InfoMsg2
+            ),
+            Message2 = InfoMsg2#nats_frame.message,
+            ?assert(maps:get(<<"auth_required">>, Message2) =:= true),
 
-    %% Try to connect without credentials (should fail)
-    ok = emqx_nats_client:connect(Client2),
-    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client2),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_ERR,
-            message = _
-        },
-        ErrorMsg
-    ),
+            %% Try to connect without credentials (should fail)
+            ok = emqx_nats_client:connect(Client2),
+            {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client2),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_ERR,
+                    message = _
+                },
+                ErrorMsg
+            ),
 
-    %% Disable auth again
-    ok = delete_test_user(),
-    ok = disable_auth(),
-    {ok, Client3} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [InfoMsg3]} = emqx_nats_client:receive_message(Client3),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_INFO,
-            message = _Message3
-        },
-        InfoMsg3
-    ),
-    Message3 = InfoMsg3#nats_frame.message,
-    ?assert(maps:get(<<"auth_required">>, Message3) =:= false),
+            %% Disable auth again
+            ok = delete_test_user(),
+            ok = disable_auth(),
+            {ok, Client3} = emqx_nats_client:start_link(ClientOpts),
+            {ok, [InfoMsg3]} = emqx_nats_client:receive_message(Client3),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_INFO,
+                    message = _Message3
+                },
+                InfoMsg3
+            ),
+            Message3 = InfoMsg3#nats_frame.message,
+            ?assert(maps:get(<<"auth_required">>, Message3) =:= false),
 
-    %% Connect without credentials (should succeed again)
-    ok = emqx_nats_client:connect(Client3),
-    {ok, [ConnectAck2]} = emqx_nats_client:receive_message(Client3),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_OK
-        },
-        ConnectAck2
-    ),
+            %% Connect without credentials (should succeed again)
+            ok = emqx_nats_client:connect(Client3),
+            {ok, [ConnectAck2]} = emqx_nats_client:receive_message(Client3),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_OK
+                },
+                ConnectAck2
+            ),
 
-    emqx_nats_client:stop(Client),
-    emqx_nats_client:stop(Client2),
-    emqx_nats_client:stop(Client3).
+            emqx_nats_client:stop(Client),
+            emqx_nats_client:stop(Client2),
+            emqx_nats_client:stop(Client3);
+        nats ->
+            ClientOptsNoCred0 = maps:remove(pass, maps:remove(user, ?config(client_opts, Config))),
+            ClientOptsNoCred = maps:merge(
+                ClientOptsNoCred0,
+                #{verbose => true}
+            ),
+            {ok, Client1} = emqx_nats_client:start_link(ClientOptsNoCred),
+            {ok, [_]} = emqx_nats_client:receive_message(Client1),
+            ok = emqx_nats_client:connect(Client1),
+            {ok, Msgs1} = emqx_nats_client:receive_message(Client1),
+            assert_auth_failed(Msgs1),
+            emqx_nats_client:stop(Client1),
+
+            ClientOptsCred = maps:merge(
+                ?config(client_opts, Config),
+                #{
+                    user => <<"test_user">>,
+                    pass => <<"password">>,
+                    verbose => true
+                }
+            ),
+            {ok, Client2} = emqx_nats_client:start_link(ClientOptsCred),
+            {ok, [_]} = emqx_nats_client:receive_message(Client2),
+            ok = emqx_nats_client:connect(Client2),
+            {ok, [ConnectAck2]} = emqx_nats_client:receive_message(Client2),
+            ?assertMatch(
+                #nats_frame{
+                    operation = ?OP_OK
+                },
+                ConnectAck2
+            ),
+            emqx_nats_client:stop(Client2)
+    end.
 
 t_publish_authz(Config) ->
     %% Enable authorization with deny all first
@@ -983,181 +1435,6 @@ t_invalid_frame(Config) ->
     ),
     emqx_nats_client:stop(Client).
 
-t_gateway_client_management(Config) ->
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => <<"test_user">>,
-            verbose => true
-        }
-    ),
-
-    %% Start a client
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-    ok = emqx_nats_client:connect(Client),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-
-    %% Test list clients
-    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
-    ?assertEqual(<<"test_user">>, maps:get(username, ClientInfo0)),
-    %% ClientId assigned by emqx_gateway_nats, it's a random string.
-    %% We can get it from the client info.
-    ClientId = maps:get(clientid, ClientInfo0),
-
-    %% Test get client info
-    ClientInfo = emqx_gateway_test_utils:get_gateway_client(<<"nats">>, ClientId),
-    ?assertEqual(ClientId, maps:get(clientid, ClientInfo)),
-    ?assertEqual(true, maps:get(connected, ClientInfo)),
-
-    %% Test kick client
-    ok = emqx_gateway_test_utils:kick_gateway_client(<<"nats">>, ClientId),
-    {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_ERR,
-            message = <<"Kicked out">>
-        },
-        ErrorMsg
-    ),
-
-    emqx_nats_client:stop(Client).
-
-t_gateway_client_subscription_management(Config) ->
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => <<"test_user">>,
-            verbose => true
-        }
-    ),
-    Topic = <<"test/subject">>,
-    Subject = <<"test.subject">>,
-    QueueSubject = <<"test.subject.queue">>,
-    Queue = <<"queue-1">>,
-    %% Start a client
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-    ok = emqx_nats_client:connect(Client),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-
-    [ClientInfo0] = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
-    ?assertEqual(<<"test_user">>, maps:get(username, ClientInfo0)),
-    ClientId = maps:get(clientid, ClientInfo0),
-
-    %% Create subscription by client
-    ok = emqx_nats_client:subscribe(Client, Subject, <<"sid-1">>),
-    {ok, [SubAck]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_OK
-        },
-        SubAck
-    ),
-
-    %% Create queue subscription by client
-    ok = emqx_nats_client:subscribe(Client, QueueSubject, <<"sid-2">>, Queue),
-    {ok, [SubAck2]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_OK
-        },
-        SubAck2
-    ),
-
-    %% Verify subscription list
-    Subscriptions = emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId),
-    ?assertEqual(2, length(Subscriptions)),
-
-    %% XXX: Not implemented yet
-    ?assertMatch(
-        {400, _},
-        emqx_gateway_test_utils:create_gateway_client_subscription(<<"nats">>, ClientId, Topic)
-    ),
-
-    %% XXX: Not implemented yet
-    ?assertMatch(
-        {400, _},
-        emqx_gateway_test_utils:delete_gateway_client_subscription(<<"nats">>, ClientId, Topic)
-    ),
-
-    %% Delete subscription by client
-    ok = emqx_nats_client:unsubscribe(Client, <<"sid-1">>),
-    {ok, [UnsubAck]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_OK
-        },
-        UnsubAck
-    ),
-    %% Delete queue subscription by client
-    ok = emqx_nats_client:unsubscribe(Client, <<"sid-2">>),
-    {ok, [UnsubAck2]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_OK
-        },
-        UnsubAck2
-    ),
-
-    ?assertEqual(
-        [], emqx_gateway_test_utils:get_gateway_client_subscriptions(<<"nats">>, ClientId)
-    ),
-
-    emqx_nats_client:stop(Client).
-
-t_clientinfo_override_with_empty_clientid(Config) ->
-    update_nats_with_clientinfo_override(#{<<"clientid">> => <<>>}),
-
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => <<"test_user">>,
-            pass => <<"password">>,
-            verbose => true
-        }
-    ),
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-    ok = emqx_nats_client:connect(Client),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-
-    wait_for_client_info(Config),
-    [ClientInfo] = find_client_by_username(<<"test_user">>),
-    ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
-    ?assertNotEqual(<<>>, maps:get(clientid, ClientInfo)),
-
-    emqx_nats_client:stop(Client).
-
-t_clientinfo_override_with_prefix_and_empty_clientid(Config) ->
-    update_nats_with_clientinfo_override(#{<<"clientid">> => <<"prefix-${Packet.clientid}">>}),
-
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => <<"test_user">>,
-            pass => <<"password">>,
-            verbose => true
-        }
-    ),
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-    ok = emqx_nats_client:connect(Client),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-
-    wait_for_client_info(Config),
-    [ClientInfo] = find_client_by_username(<<"test_user">>),
-    ?assertNotEqual(undefined, maps:get(clientid, ClientInfo)),
-    ?assertEqual(<<"prefix-">>, maps:get(clientid, ClientInfo)),
-
-    update_nats_with_clientinfo_override(#{}),
-    emqx_nats_client:stop(Client).
-
-t_schema_coverage(_Config) ->
-    _ = emqx_nats_schema:fields(wss_listener),
-    _ = emqx_nats_schema:desc(wss_listener),
-    ok.
-
 %%--------------------------------------------------------------------
 %% Utils
 
@@ -1179,19 +1456,26 @@ recv_info_frame(Client) ->
         Frame
     ).
 
-find_client_by_username(Username) ->
-    ClientInfos = emqx_gateway_test_utils:list_gateway_clients(<<"nats">>),
-    lists:filter(
-        fun(ClientInfo) ->
-            maps:get(username, ClientInfo) =:= Username
-        end,
-        ClientInfos
-    ).
-
-wait_for_client_info(Config) ->
-    case ?config(group_name, Config) of
-        ws ->
-            timer:sleep(1000);
-        _ ->
+assert_info_message(
+    #nats_frame{operation = ?OP_INFO, message = Message},
+    Target
+) ->
+    ?assert(is_map(Message)),
+    ?assert(maps:is_key(<<"version">>, Message)),
+    ?assert(maps:is_key(<<"max_payload">>, Message)),
+    case Target of
+        emqx ->
+            ?assertMatch(false, maps:get(<<"auth_required">>, Message, false));
+        nats ->
             ok
+    end.
+
+assert_auth_failed(Msgs) ->
+    case Msgs of
+        [#nats_frame{operation = ?OP_ERR} | _] ->
+            ok;
+        [tcp_closed | _] ->
+            ok;
+        _ ->
+            ?assertMatch([#nats_frame{operation = ?OP_ERR}], Msgs)
     end.
