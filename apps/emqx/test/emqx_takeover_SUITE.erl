@@ -52,7 +52,9 @@ tc_v5_only() ->
         t_takeover_before_session_expire_willdelay0,
         t_takeover_session_then_normal_disconnect,
         t_takeover_session_then_abnormal_disconnect,
-        t_takeover_session_then_abnormal_disconnect_2
+        t_takeover_session_then_abnormal_disconnect_2,
+        t_disconnected_at_before_connected_at_on_takeover,
+        t_disconnected_at_before_connected_at_on_discard
     ].
 
 init_per_suite(Config) ->
@@ -1077,3 +1079,177 @@ make_client_id(Case, Config) ->
 
 sleep(_PersistenceEnabled = true) -> 1_000;
 sleep(_) -> ?SLEEP.
+
+%%--------------------------------------------------------------------
+%% Test cases for timestamp ordering during takeover/discard
+%%--------------------------------------------------------------------
+
+t_disconnected_at_before_connected_at_on_takeover(Config) ->
+    ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
+    process_flag(trap_exit, true),
+    ClientId = make_client_id(?FUNCTION_NAME, Config),
+    MqttVer = ?config(mqtt_vsn, Config),
+    ClientOpts = [
+        {proto_ver, MqttVer},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 60}}
+    ],
+
+    verify_timestamp_ordering_on_reconnect(
+        ClientId,
+        ClientOpts,
+        ClientOpts,
+        takenover
+    ).
+
+t_disconnected_at_before_connected_at_on_discard(Config) ->
+    ?config(mqtt_vsn, Config) =:= v5 orelse ct:fail("MQTTv5 Only"),
+    process_flag(trap_exit, true),
+    ClientId = make_client_id(?FUNCTION_NAME, Config),
+    MqttVer = ?config(mqtt_vsn, Config),
+    ClientOptsOld = [
+        {proto_ver, MqttVer},
+        {clean_start, false},
+        {properties, #{'Session-Expiry-Interval' => 60}}
+    ],
+    ClientOptsNew = [
+        {proto_ver, MqttVer},
+        {clean_start, true},
+        {properties, #{'Session-Expiry-Interval' => 0}}
+    ],
+
+    verify_timestamp_ordering_on_reconnect(
+        ClientId,
+        ClientOptsOld,
+        ClientOptsNew,
+        discarded
+    ).
+
+%% Helper function to verify timestamp ordering during reconnect scenarios
+verify_timestamp_ordering_on_reconnect(ClientId, ClientOpts1, ClientOpts2, ExpectedReason) ->
+    %% Setup hooks to capture events - use a named ETS table
+    TableName = list_to_atom("events_" ++ integer_to_list(erlang:unique_integer([positive]))),
+    _ = ets:new(TableName, [ordered_set, named_table, public]),
+
+    try
+        emqx_hooks:add('client.connected', {?MODULE, hook_fun_connected, [TableName]}, 1000),
+        emqx_hooks:add('client.disconnected', {?MODULE, hook_fun_disconnected, [TableName]}, 1000),
+
+        %% GIVEN: First client connects
+        {ok, Client1} = emqtt:start_link([{clientid, ClientId} | ClientOpts1]),
+        {ok, _} = emqtt:connect(Client1),
+        timer:sleep(200),
+
+        %% WHEN: Second client connects (triggers takeover or discard)
+        {ok, Client2} = emqtt:start_link([{clientid, ClientId} | ClientOpts2]),
+        {ok, _} = emqtt:connect(Client2),
+
+        %% Client1 will exit during takeover/discard, drain the EXIT message
+        receive
+            {'EXIT', Client1, _Reason} -> ok
+        after 2000 -> ok
+        end,
+
+        catch emqtt:stop(Client2),
+
+        %% Wait for events to be captured (including final disconnect of Client2)
+        timer:sleep(500),
+
+        %% THEN: Verify ordered sequence for this client:
+        %% connect -> disconnect(ExpectedReason) -> connect -> disconnect(not takenover/discarded)
+        AllEvents = ets:tab2list(TableName),
+        ClientEvents = [
+            {Type, Seq, ConnectedAt, DisconnectedAt, Reason}
+         || {{Id, Seq}, {Type, ConnectedAt, DisconnectedAt, Reason}} <- AllEvents,
+            Id =:= ClientId
+        ],
+        ?assertEqual(
+            4,
+            length(ClientEvents),
+            io_lib:format("Expected exactly 4 events for client ~p, got: ~p", [
+                ClientId, ClientEvents
+            ])
+        ),
+
+        ConnectTs = [
+            ConnectedAt
+         || {connect, _Seq, ConnectedAt, undefined, undefined} <- ClientEvents
+        ],
+        Disconnects = [
+            {ConnectedAt, DisconnectedAt, Reason}
+         || {disconnect, _Seq, ConnectedAt, DisconnectedAt, Reason} <- ClientEvents
+        ],
+        ?assertEqual(
+            2,
+            length(ConnectTs),
+            io_lib:format("Expected 2 connect events, got: ~p", [ClientEvents])
+        ),
+        ?assertEqual(
+            2,
+            length(Disconnects),
+            io_lib:format("Expected 2 disconnect events, got: ~p", [ClientEvents])
+        ),
+        [{T1ForT2, T2, ExpectedReason}] = [
+            D
+         || D = {_ConnectedAt, _DisconnectedAt, Reason} <- Disconnects,
+            Reason =:= ExpectedReason
+        ],
+        [{T3ForT4, T4, Reason4}] = [
+            D
+         || D = {_ConnectedAt, _DisconnectedAt, Reason} <- Disconnects,
+            Reason =/= ExpectedReason
+        ],
+        [T1, T3] = lists:sort(ConnectTs),
+
+        %% 1) and 2): timeline is non-decreasing when interpreted as:
+        %% connect(T1), disconnect(T2), connect(T3), disconnect(T4)
+        ?assert(
+            T1 =< T2 andalso T2 =< T3 andalso T3 =< T4,
+            io_lib:format("Expected non-decreasing T1..T4, got: ~p", [ClientEvents])
+        ),
+        %% 3): T1 is associated with T2 (disconnect.connected_at == T1)
+        ?assertEqual(
+            T1,
+            T1ForT2,
+            io_lib:format("Expected T1 associated with T2 record, got: ~p", [ClientEvents])
+        ),
+        %% 4): T3 is associated with T4 (disconnect.connected_at == T3)
+        ?assertEqual(
+            T3,
+            T3ForT4,
+            io_lib:format("Expected T3 associated with T4 record, got: ~p", [ClientEvents])
+        ),
+        %% 5): T4 reason must not be takenover/discarded
+        ?assert(
+            Reason4 =/= discarded andalso Reason4 =/= takenover,
+            io_lib:format("Final disconnect reason must not be discarded/takenover: ~p", [
+                ClientEvents
+            ])
+        )
+    after
+        emqx_hooks:del('client.connected', {?MODULE, hook_fun_connected}),
+        emqx_hooks:del('client.disconnected', {?MODULE, hook_fun_disconnected}),
+        catch ets:delete(TableName)
+    end.
+
+%% Hook functions
+hook_fun_connected(ClientInfo, ConnInfo, TableName) ->
+    Seq = erlang:unique_integer([positive, monotonic]),
+    ConnectedAt = maps:get(connected_at, ConnInfo),
+    ClientId = maps:get(clientid, ClientInfo),
+    ets:insert(
+        TableName,
+        {{ClientId, Seq}, {connect, ConnectedAt, undefined, undefined}}
+    ),
+    ok.
+
+hook_fun_disconnected(ClientInfo, Reason, ConnInfo, TableName) ->
+    Seq = erlang:unique_integer([positive, monotonic]),
+    DisconnectedAt = maps:get(disconnected_at, ConnInfo),
+    ConnectedAt = maps:get(connected_at, ConnInfo),
+    ClientId = maps:get(clientid, ClientInfo),
+    ets:insert(
+        TableName,
+        {{ClientId, Seq}, {disconnect, ConnectedAt, DisconnectedAt, Reason}}
+    ),
+    ok.

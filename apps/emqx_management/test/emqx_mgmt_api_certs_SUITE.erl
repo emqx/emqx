@@ -12,6 +12,7 @@
 -include_lib("emqx/include/emqx_config.hrl").
 -include_lib("emqx/include/emqx_managed_certs.hrl").
 -include_lib("emqx_dashboard/include/emqx_dashboard_rbac.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -49,7 +50,15 @@ init_per_group(?local, TCConfig) ->
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
-            emqx_management,
+            {emqx_management, #{
+                after_start => fun() ->
+                    ok = emqx_hooks:add(
+                        'namespace.resource_pre_create',
+                        {?MODULE, on_namespace_resource_pre_create, []},
+                        ?HP_HIGHEST
+                    )
+                end
+            }},
             emqx_mgmt_api_test_util:emqx_dashboard()
         ],
         #{work_dir => emqx_cth_suite:work_dir(?local, TCConfig)}
@@ -62,7 +71,15 @@ init_per_group(?local, TCConfig) ->
 init_per_group(?cluster, TCConfig) ->
     AppSpecs = [
         emqx_conf,
-        emqx_management
+        {emqx_management, #{
+            after_start => fun() ->
+                ok = emqx_hooks:add(
+                    'namespace.resource_pre_create',
+                    {?MODULE, on_namespace_resource_pre_create, []},
+                    ?HP_HIGHEST
+                )
+            end
+        }}
     ],
     Nodes = emqx_cth_cluster:start(
         [
@@ -106,6 +123,9 @@ end_per_testcase(_TestCase, TCConfig) ->
 %%------------------------------------------------------------------------------
 %% Helper fns
 %%------------------------------------------------------------------------------
+
+on_namespace_resource_pre_create(#{namespace := _Namespace}, ResCtx) ->
+    {stop, ResCtx#{exists := true}}.
 
 get_config(Key, TCConfig) ->
     case proplists:get_value(Key, TCConfig, undefined) of
