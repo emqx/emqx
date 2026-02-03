@@ -153,11 +153,11 @@ delete({der, CRLs}) ->
     ssl_manager:delete_crls({?NO_DIST_POINT, CRLs});
 delete(URI) ->
     case uri_string:normalize(URI, [return_map]) of
-        #{scheme := "http", path := _} ->
+        #{scheme := Scheme, path := _} when Scheme =:= "http"; Scheme =:= "https" ->
             Key = cache_key(URI),
             ssl_manager:delete_crls(Key);
         _ ->
-            {error, {only_http_distribution_points_supported, URI}}
+            {error, {only_http_and_https_distribution_points_supported, URI}}
     end.
 
 %%--------------------------------------------------------------------
@@ -165,13 +165,13 @@ delete(URI) ->
 %%--------------------------------------------------------------------
 do_insert(URI, CRLs) ->
     case uri_string:normalize(URI, [return_map]) of
-        #{scheme := "http", path := _} ->
+        #{scheme := Scheme, path := _} when Scheme =:= "http"; Scheme =:= "https" ->
             Key = cache_key(URI),
             Res = ssl_manager:insert_crls(Key, CRLs),
             ?tp("emqx_ssl_crl_cache_inserted", #{key => Key}),
             Res;
         _ ->
-            {error, {only_http_distribution_points_supported, URI}}
+            {error, {only_http_and_https_distribution_points_supported, URI}}
     end.
 
 get_crls([], _) ->
