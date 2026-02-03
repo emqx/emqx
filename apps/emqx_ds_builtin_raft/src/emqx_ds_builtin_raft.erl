@@ -731,13 +731,13 @@ otx_get_latest_generation(DB, Shard) ->
 otx_become_leader(DB, Shard) ->
     maybe
         {ok, Leader} ?= local_raft_leader(DB, Shard),
-        {ok, TxSerial, _TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
-        %% v0 used a different mechanism for schema updates, we need
-        %% at least v1:
-        ok ?= check_min_rfsm_version_with_alarm(DB, Shard, Leader, 1),
+        ok ?= check_min_rfsm_version(Leader, 1),
+        %% Propagate my schema:
         SiteSchema = emqx_dsch:get_db_schema(DB),
         Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema, emqx_ds:timestamp_us()),
-        {ok, TxLastTimestamp} ?= ra_command(DB, Shard, Command, 5),
+        {ok, _TxLastTimestamp} ?= ra_command(DB, Shard, Command, 5),
+        %% Establish presence:
+        {ok, TxSerial, TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
         register_global_otx_leader(DB, Shard),
         {ok, TxSerial, TxLastTimestamp}
     end.
@@ -819,7 +819,7 @@ full_shard_cleanup(DB, Shard) ->
 
 leader_shard_cleanup(DB, Shard) ->
     emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader),
-    emqx_alarm:safe_deactivate(need_upgrade_alarm(DB, Shard)).
+    ok.
 
 %%================================================================================
 %% RPC targets
@@ -922,25 +922,6 @@ announce_otx_leader_pid(Leader, Timeout, Pid) ->
             ?err_unrec({leadership_gone, #{Leader => OtherLeader}});
         Err ->
             ?err_rec({raft, Err, ?FUNCTION_NAME})
-    end.
-
--spec check_min_rfsm_version_with_alarm(
-    emqx_ds:db(), emqx_ds:shard(), ra:server_id(), non_neg_integer()
-) -> ok | emqx_ds:error(_).
-check_min_rfsm_version_with_alarm(DB, Shard, Leader, MinVersion) ->
-    case check_min_rfsm_version(Leader, MinVersion) of
-        ok ->
-            emqx_alarm:safe_deactivate(need_upgrade_alarm(DB, Shard)),
-            ok;
-        ?err_rec({fsm_needs_upgrade, CurrentVsn}) = Err ->
-            emqx_alarm:safe_activate(
-                need_upgrade_alarm(DB, Shard),
-                #{current_version => CurrentVsn},
-                "Durable storoage shard is paused until all its replicas are upgraded"
-            ),
-            Err;
-        Other ->
-            Other
     end.
 
 -spec check_min_rfsm_version(ra:server_id(), non_neg_integer()) -> ok | emqx_ds:error(_).
@@ -1218,9 +1199,6 @@ get_leader_rfsm_vsn(Leader) ->
         Err ->
             ?err_rec({raft, Err, ?FUNCTION_NAME})
     end.
-
-need_upgrade_alarm(DB, Shard) ->
-    iolist_to_binary(io_lib:format("~p/~s: waiting for cluster upgrade", [DB, Shard])).
 
 -ifdef(TEST).
 

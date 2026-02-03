@@ -51,7 +51,8 @@ transaction leader process.
     | #cast_stop_otx{}
     | {down, pid(), _Reason}.
 
--define(restart_delay, 100).
+%% Cooldown interval for restarts:
+-define(restart_delay, 1_000).
 
 %%================================================================================
 %% API functions
