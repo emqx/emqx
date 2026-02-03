@@ -96,7 +96,9 @@ This is the entrypoint into the `builtin_raft` backend.
 %% Internal exports:
 -export([
     current_timestamp/2,
-    rpc_target_preference/1
+    rpc_target_preference/1,
+    full_shard_cleanup/2,
+    leader_shard_cleanup/2
 ]).
 
 -ifdef(TEST).
@@ -729,24 +731,15 @@ otx_get_latest_generation(DB, Shard) ->
 otx_become_leader(DB, Shard) ->
     maybe
         {ok, Leader} ?= local_raft_leader(DB, Shard),
-        ok ?= propagate_schema(DB, Shard, Leader),
-        {ok, Serial, Timestamp} ?= do_become_otx_leader(Leader, 5_000),
-        %% Announce this process in the global name registry:
+        {ok, TxSerial, _TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
+        %% v0 used a different mechanism for schema updates, we need
+        %% at least v1:
+        ok ?= check_min_rfsm_version_with_alarm(DB, Shard, Leader, 1),
+        SiteSchema = emqx_dsch:get_db_schema(DB),
+        Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema, emqx_ds:timestamp_us()),
+        {ok, TxLastTimestamp} ?= ra_command(DB, Shard, Command, 5),
         register_global_otx_leader(DB, Shard),
-        {ok, Serial, Timestamp}
-    end.
-
-do_become_otx_leader(Leader, Timeout) ->
-    Command = emqx_ds_builtin_raft_machine:otx_new_leader(self()),
-    case ra:process_command(Leader, Command, Timeout) of
-        {ok, {TxSerial, TxLastTimestamp}, Leader} ->
-            {ok, TxSerial, TxLastTimestamp};
-        {ok, {error, _, _} = Err, Leader} ->
-            Err;
-        {ok, _, OtherLeader} ->
-            ?err_unrec({leadership_gone, #{Leader => OtherLeader}});
-        Err ->
-            ?err_rec({raft, Err, ?FUNCTION_NAME})
+        {ok, TxSerial, TxLastTimestamp}
     end.
 
 -spec otx_prepare_tx(
@@ -815,6 +808,18 @@ current_timestamp(DB, Shard) ->
         undefined ->
             ?err_rec(replica_offline)
     end.
+
+-doc """
+Perform cleanup actions that fully tear down the shard (whether in
+leader or replica role).
+""".
+full_shard_cleanup(DB, Shard) ->
+    leader_shard_cleanup(DB, Shard),
+    emqx_dsch:gvar_unset_all(DB, Shard, '_').
+
+leader_shard_cleanup(DB, Shard) ->
+    emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader),
+    emqx_alarm:safe_deactivate(need_upgrade_alarm(DB, Shard)).
 
 %%================================================================================
 %% RPC targets
@@ -906,20 +911,47 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
 %% Internal functions
 %%================================================================================
 
--doc """
-Propagate leader's schema to the replicas.
-""".
--spec propagate_schema(emqx_ds:db(), emqx_ds:shard(), ra:server_id()) -> ok | emqx_ds:error(_).
-propagate_schema(DB, Shard, Leader) ->
-    maybe
-        %% v0 used a different mechanism for schema updates, we need
-        %% at least v1:
-        ok ?= wait_for_upgrade(DB, Shard, Leader, 1),
-        SiteSchema = emqx_dsch:get_db_schema(DB),
-        Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema, emqx_ds:timestamp_us()),
-        Result = ra_command(DB, Shard, Command, 5),
-        ?tp(debug, ra_propagate_leader_schema, #{db => DB, shard => Shard, result => Result}),
-        Result
+announce_otx_leader_pid(Leader, Timeout, Pid) ->
+    Command = emqx_ds_builtin_raft_machine:otx_new_leader(Pid),
+    case ra:process_command(Leader, Command, Timeout) of
+        {ok, {TxSerial, TxLastTimestamp}, Leader} ->
+            {ok, TxSerial, TxLastTimestamp};
+        {ok, {error, _, _} = Err, Leader} ->
+            Err;
+        {ok, _, OtherLeader} ->
+            ?err_unrec({leadership_gone, #{Leader => OtherLeader}});
+        Err ->
+            ?err_rec({raft, Err, ?FUNCTION_NAME})
+    end.
+
+-spec check_min_rfsm_version_with_alarm(
+    emqx_ds:db(), emqx_ds:shard(), ra:server_id(), non_neg_integer()
+) -> ok | emqx_ds:error(_).
+check_min_rfsm_version_with_alarm(DB, Shard, Leader, MinVersion) ->
+    case check_min_rfsm_version(Leader, MinVersion) of
+        ok ->
+            emqx_alarm:safe_deactivate(need_upgrade_alarm(DB, Shard)),
+            ok;
+        ?err_rec({fsm_needs_upgrade, CurrentVsn}) = Err ->
+            emqx_alarm:safe_activate(
+                need_upgrade_alarm(DB, Shard),
+                #{current_version => CurrentVsn},
+                "Durable storoage shard is paused until all its replicas are upgraded"
+            ),
+            Err;
+        Other ->
+            Other
+    end.
+
+-spec check_min_rfsm_version(ra:server_id(), non_neg_integer()) -> ok | emqx_ds:error(_).
+check_min_rfsm_version(Leader, MinVersion) ->
+    case get_leader_rfsm_vsn(Leader) of
+        {ok, Vsn} when Vsn >= MinVersion ->
+            ok;
+        {ok, Vsn} ->
+            ?err_rec({fsm_needs_upgrade, Vsn});
+        Other ->
+            Other
     end.
 
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
@@ -940,7 +972,23 @@ add_generation_to_shard(DB, Shard, Retries) ->
 ) -> ok when
     Schema :: db_schema().
 update_shards_schema(DB, _PendingId, _Site, _OldSchema, NewSchema) ->
-    Command = emqx_ds_builtin_raft_machine:update_schema(NewSchema, undefined),
+    Fun = fun(Shard, Leader) ->
+        Command = emqx_ds_builtin_raft_machine:update_schema(NewSchema, undefined),
+        Result =
+            maybe
+                ok ?= check_min_rfsm_version(Leader, 1),
+                %% TODO:
+                %% 1. send command to Leader
+                %% 2. use leader term as a check?
+                ra_command(DB, Shard, Command, ra_retries(DB))
+            end,
+        case Result of
+            {ok, _} ->
+                ok;
+            Other ->
+                logger:warning("Failed to update schema for DS shard ~p/~s: ~p", [DB, Shard, Other])
+        end
+    end,
     foreach_shard(
         DB,
         fun(Shard) ->
@@ -950,10 +998,7 @@ update_shards_schema(DB, _PendingId, _Site, _OldSchema, NewSchema) ->
             %% to the shards where the current node is the leader:
             case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred) of
                 [{_, Node} = Myself | _] when Node =:= node() ->
-                    maybe
-                        ok ?= wait_for_upgrade(DB, Shard, Myself, 1),
-                        ra_command(DB, Shard, Command, ra_retries(DB))
-                    end;
+                    Fun(Shard, Myself);
                 _ ->
                     ok
             end
@@ -1162,51 +1207,6 @@ leader_node(DB, Shard) ->
             undefined
     end.
 
--doc """
-Wait until the quorum of EMQX nodes hosting replicas of `Shard` is
-upgraded at least to version `MinVersion` of the state machine.
-
-Note: this requires actual upgrade of the EMQX nodes.
-""".
--spec wait_for_upgrade(emqx_ds:db(), emqx_ds:shard(), ra:server_id(), non_neg_integer()) ->
-    ok | emqx_ds:error(_).
-wait_for_upgrade(DB, Shard, Leader, MinVersion) ->
-    Alarm = iolist_to_binary(io_lib:format("~p/~s: waiting for cluster upgrade", [DB, Shard])),
-    try
-        ?tp_span(
-            debug,
-            ds_raft_waiting_for_cluster_upgrade,
-            #{db => DB, shard => Shard, version => MinVersion},
-            do_wait_for_upgrade(Alarm, Leader, MinVersion)
-        )
-    after
-        emqx_alarm:safe_deactivate(Alarm)
-    end.
-
--spec do_wait_for_upgrade(binary(), ra:server_id(), non_neg_integer()) -> ok | emqx_ds:error(_).
-do_wait_for_upgrade(Alarm, Leader, MinVersion) ->
-    case get_leader_rfsm_vsn(Leader) of
-        {ok, Vsn} when Vsn >= MinVersion ->
-            ok;
-        {ok, Vsn} ->
-            emqx_alarm:safe_activate(
-                Alarm,
-                #{current_version => Vsn},
-                "Durable storoage shard is paused until all its replicas are upgraded"
-            ),
-            maybe
-                ok ?= sleep(1000),
-                do_wait_for_upgrade(Alarm, Leader, MinVersion)
-            end;
-        ?err_rec(_) ->
-            maybe
-                ok ?= sleep(1000),
-                do_wait_for_upgrade(Alarm, Leader, MinVersion)
-            end;
-        Other ->
-            Other
-    end.
-
 get_leader_rfsm_vsn(Leader) ->
     case
         ra:consistent_query(Leader, fun(State) -> emqx_ds_builtin_raft_machine:get_vsn(State) end)
@@ -1219,13 +1219,8 @@ get_leader_rfsm_vsn(Leader) ->
             ?err_rec({raft, Err, ?FUNCTION_NAME})
     end.
 
-sleep(Time) ->
-    receive
-        {'EXIT', Pid, Reason} ->
-            ?err_unrec({received_exit_signal, Pid, Reason})
-    after Time ->
-        ok
-    end.
+need_upgrade_alarm(DB, Shard) ->
+    iolist_to_binary(io_lib:format("~p/~s: waiting for cluster upgrade", [DB, Shard])).
 
 -ifdef(TEST).
 

@@ -54,7 +54,6 @@
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
 -record(?shard_sup, {db, shard}).
--record(?shard_leader_sup, {db, shard}).
 
 %%================================================================================
 %% API functions
@@ -209,7 +208,9 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         period => 100
     },
     Setup = fun() -> ok end,
-    Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, '_') end,
+    Teardown = fun() ->
+                       emqx_ds_builtin_raft:full_shard_cleanup(DB, Shard)
+               end,
     #{runtime := RTConf} = emqx_dsch:get_db_runtime(DB),
     Children =
         [emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),

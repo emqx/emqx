@@ -314,7 +314,18 @@ apply(
     State = #{latest := Latest} = safe_update_latest(NewLatest, State0#{schema := Schema}),
     ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema, Latest),
     Effect = release_log(RaftMeta, State),
-    {State, ok, [Effect]};
+    {State, {ok, Latest}, [Effect]};
+apply(
+    _RaftMeta,
+    #{
+        ?tag := new_otx_leader,
+        pid := Pid
+    },
+    State = #{db_shard := DBShard, tx_serial := Serial, latest := Timestamp}
+) ->
+    emqx_ds_builtin_raft_aux:set_otx_leader(DBShard, Pid),
+    Reply = {Serial, Timestamp},
+    {State#{otx_leader_pid := Pid}, Reply};
 apply(
     _RaftMeta,
     _Command,
@@ -435,18 +446,7 @@ apply(
         }
     ),
     Result = emqx_ds_storage_layer:drop_slab(DBShard, GenId),
-    {State, Result};
-apply(
-    _RaftMeta,
-    #{
-        ?tag := new_otx_leader,
-        pid := Pid
-    },
-    State = #{db_shard := DBShard, tx_serial := Serial, latest := Timestamp}
-) ->
-    emqx_ds_builtin_raft_aux:set_otx_leader(DBShard, Pid),
-    Reply = {Serial, Timestamp},
-    {State#{otx_leader_pid => Pid}, Reply}.
+    {State, Result}.
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(_TimeMs, #{db_shard := _DBShard}) ->

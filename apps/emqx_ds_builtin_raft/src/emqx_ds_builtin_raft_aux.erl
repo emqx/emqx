@@ -36,7 +36,6 @@ transaction leader process.
 
 %% AUX server state:
 -record(aux, {
-    name,
     otx_leader = stopped :: otx_state()
 }).
 
@@ -166,7 +165,7 @@ manage_otx(_DB, _Shard, _Server, _State, #cast_start_otx{}, S) ->
     %% Either this replica is not the leader or OTX is already
     %% starting/stopping, keep state:
     {ok, S, []};
-manage_otx(DB, Shard, Server, State, #cast_otx_started{result = {ok, Pid}}, #starting{}) ->
+manage_otx(_DB, _Shard, Server, State, #cast_otx_started{result = {ok, Pid}}, #starting{}) ->
     %% Sucessfully started, monitor the server:
     Effects = [{monitor, process, aux, Pid}],
     %% Check if the server state changed in the meantime:
@@ -220,10 +219,10 @@ manage_otx(DB, Shard, Server, leader, {down, Pid, Reason}, #running{pid = Pid}) 
             reason => Reason
         }
     ),
-    leader_stopped_effects(DB, Shard),
+    emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
     manage_otx(DB, Shard, Server, leader, #cast_start_otx{delay = ?restart_delay}, ?stopped);
 manage_otx(DB, Shard, _Server, _State, {down, Pid, _Reason}, #stopping{pid = Pid}) ->
-    leader_stopped_effects(DB, Shard),
+    emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
     {ok, ?stopped, []};
 manage_otx(DB, Shard, Server, State, Event, Otx) when
     is_record(Event, cast_start_otx);
@@ -240,10 +239,5 @@ manage_otx(DB, Shard, Server, State, Event, Otx) when
             optimistic_leader => Otx
         }}
     );
-manage_otx(_DB, _Shard, _Server, _State, _Event, _OTX) ->
+manage_otx(_DB, _Shard, _Server, _State, _Event, _Otx) ->
     ignore.
-
--spec leader_stopped_effects(emqx_ds:db(), emqx_ds:shard()) -> ok.
-leader_stopped_effects(DB, Shard) ->
-    emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader),
-    ok.
