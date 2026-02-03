@@ -50,11 +50,10 @@ bwc_test(Config) ->
             ct:pal("Upgrading cluster..."),
             disconnect_sessions(Sessions),
             ok = upgrade_cluster(WorkDir, Cluster),
-            ct:sleep(10_000),
+            ok = test_cluster_formed(Cluster),
             ct:pal("Cluster upgraded."),
             %% After upgrade:
             Sessions = connect_clients(Cluster),
-            ok = test_cluster_formed(Cluster),
             %%ok = verify_sessions(Cluster, Sessions),
             ok = verify_payloads(<<"Hello from upgraded ">>, Sessions),
             ok

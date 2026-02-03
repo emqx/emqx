@@ -194,6 +194,7 @@ manage_otx(_DB, _Shard, _Server, _State, #cast_otx_started{}, #starting{}) ->
 manage_otx(DB, Shard, _Server, State, #cast_stop_otx{}, #running{pid = Pid}) when
     State =/= leader
 ->
+    ?tp(dsrepl_shut_down_otx, #{db => DB, shard => Shard, state => State}),
     AsyncStopper =
         spawn_link(
             fun() ->

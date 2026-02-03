@@ -60,6 +60,131 @@ t_metadata('end', Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),
     Config.
 
+-doc """
+This testcase verifies that the shard leader supervises optimistic
+transaction server (OTX).
+
+1. ra server on the leader replica starts OTX.
+2. ra server stops OTX when it loses leadership.
+3. OTX gets restarted on the leader when it crashes or fails to start.
+""".
+t_leader_otx_supervion(init, Config) ->
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_leader_otx_supervion1, #{apps => Apps}},
+            {t_leader_otx_supervion2, #{apps => Apps}},
+            {t_leader_otx_supervion3, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(NodeSpecs),
+    [{nodes, Nodes}, {specs, NodeSpecs} | Config];
+t_leader_otx_supervion('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)),
+    ok = snabbkaffe:stop().
+
+t_leader_otx_supervion(Config) ->
+    DB = ?FUNCTION_NAME,
+    Shard = <<"0">>,
+    NShards = 1,
+    DBOpts = #{
+        backend => builtin_raft,
+        n_shards => NShards,
+        n_sites => 1,
+        replication_factor => 3,
+        replication_options => #{}
+    },
+    Nodes = proplists:get_value(nodes, Config),
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Open DB on all nodes:
+            [?assertMatch(ok, ?ON(N, emqx_ds:open_db(DB, DBOpts))) || N <- Nodes],
+            %% Find the leader:
+            {ok, #{?snk_meta := #{node := Leader0}}} = ?block_until(#{
+                ?snk_kind := ds_otx_up, db := DB, shard := Shard
+            }),
+            %% 1. Kill OTX process on the leader. It should get restarted:
+            ?tp(notice, test_otx_restarts, #{leader => Leader0}),
+            ?wait_async_action(
+                ?ON(
+                    Leader0,
+                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                ),
+                #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
+            ),
+            %% Repeat the same (leader shouldn't change):
+            ?wait_async_action(
+                ?ON(
+                    Leader0,
+                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                ),
+                #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
+            ),
+            %% 2. Test graceful stop of OTX when server role changes.
+            {ok, Sub0} = snabbkaffe:subscribe(
+                ?match_event(
+                    #{?snk_kind := K} when
+                        K =:= ds_otx_up; K =:= dsrepl_shut_down_otx; K =:= ds_otx_terminate
+                ),
+                3,
+                infinity
+            ),
+            %% Ask Leader0 to give up its leadership:
+            ?ON(
+                Leader0,
+                begin
+                    [Leader, Next | _] = emqx_ds_builtin_raft_shard:servers(
+                        DB, Shard, leader_preferred
+                    ),
+                    ?tp(notice, test_transfer_leaderhip, #{from => Leader, to => Next}),
+                    ok = ra:transfer_leadership(Leader, Next)
+                end
+            ),
+            {ok, Events} = snabbkaffe:receive_events(Sub0),
+            [
+                #{?snk_kind := dsrepl_shut_down_otx, db := DB, shard := Shard},
+                #{?snk_kind := ds_otx_terminate},
+                #{
+                    ?snk_kind := ds_otx_up,
+                    db := DB,
+                    shard := Shard,
+                    ?snk_meta := #{node := Leader1}
+                }
+            ] = Events,
+            %% 3. Make OTX fail to start on Leader1 and restart it. Ra
+            %% server should attempt to restart the leader:
+            ?tp(notice, test_inject_start_failure, #{node => Leader1}),
+            ?ON(
+                Leader1,
+                begin
+                    ok = meck:new(emqx_ds_optimistic_tx, [no_link, no_history, passthrough]),
+                    ok = meck:expect(
+                        emqx_ds_optimistic_tx,
+                        init,
+                        fun(_Parent, _DB, _Shard, _CBM) ->
+                            exit(mocked)
+                        end
+                    ),
+                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                end
+            ),
+            %% Wait for at least two attempts:
+            ?block_until(#{?snk_kind := dsrepl_optimistic_leader_start_fail}, infinity, 0),
+            ?block_until(#{?snk_kind := dsrepl_optimistic_leader_start_fail}, infinity, 0),
+            %% Remove injected error. OTX should start:
+            ?wait_async_action(
+                ?ON(
+                    Leader1,
+                    ok = meck:unload(emqx_ds_optimistic_tx)
+                ),
+                #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
+            )
+        end,
+        []
+    ).
+
 t_metadata(_Config) ->
     DB = ?FUNCTION_NAME,
     NShards = 1,

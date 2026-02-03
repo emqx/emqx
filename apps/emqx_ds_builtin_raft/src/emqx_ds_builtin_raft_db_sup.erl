@@ -49,7 +49,6 @@
 -define(db_sup, ?MODULE).
 -define(shards_sup, emqx_ds_builtin_raft_db_shards_sup).
 -define(shard_sup, emqx_ds_builtin_raft_db_shard_sup).
--define(shard_leader_sup, emqx_ds_builtin_raft_db_shard_leader_sup).
 
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
@@ -157,7 +156,7 @@ start_otx_leader(DB, Shard) ->
 -spec stop_otx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
 stop_otx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    Child = ?shard_leader_sup,
+    Child = optimistic_tx,
     try
         supervisor:terminate_child(Sup, Child)
     catch
