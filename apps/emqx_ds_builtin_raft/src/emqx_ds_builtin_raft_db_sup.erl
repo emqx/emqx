@@ -143,7 +143,14 @@ get_shard_workers(DB) ->
     {ok, pid()} | {error, _}.
 start_otx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)).
+    case supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)) of
+        {ok, Pid} ->
+            {ok, Pid};
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        Other ->
+            Other
+    end.
 
 %% @doc Shut down the leader-specific processes when the node loses
 %% leader status

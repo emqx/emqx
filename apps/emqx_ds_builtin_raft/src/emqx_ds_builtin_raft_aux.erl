@@ -28,7 +28,7 @@ transaction leader process.
 %%================================================================================
 
 -define(stopped, stopped).
--record(starting, {starter :: pid(), retry = 0 :: non_neg_integer()}).
+-record(starting, {starter :: pid()}).
 -record(running, {pid :: pid()}).
 -record(stopping, {pid :: pid(), stopper :: pid()}).
 
@@ -206,8 +206,9 @@ manage_otx(DB, Shard, _Server, _State, #cast_stop_otx{}, ?stopped) ->
     emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader),
     {ok, ?stopped, []};
 manage_otx(_DB, _Shard, _Server, _State, #cast_stop_otx{}, S) ->
-    %% Alredy in transitional state, ignore the request. If server is
-    %% starting then `post_start_otx' will shut it down.
+    %% Already in transitional state, ignore the request. If server is
+    %% starting, then `#cast_otx_started' clause will issue a command
+    %% to tear it down.
     {ok, S, []};
 manage_otx(DB, Shard, Server, leader, {down, Pid, Reason}, #running{pid = Pid}) ->
     %% OTX server is down and we're still the leader. Restart it:

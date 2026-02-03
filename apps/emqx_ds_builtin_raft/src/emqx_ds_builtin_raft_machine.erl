@@ -406,11 +406,7 @@ apply(
             since => Since
         }
     ),
-    Result =
-        case Vsn of
-            0 -> emqx_ds_storage_layer:add_generation(DBShard, Since);
-            1 -> emqx_ds_storage_layer:add_generation(DBShard, Since, Prototype)
-        end,
+    Result = emqx_ds_storage_layer:add_generation(DBShard, Since, Prototype),
     emqx_ds_beamformer:generation_event(DBShard),
     Effect = release_log(RaftMeta, State),
     {State, Result, [Effect]};
