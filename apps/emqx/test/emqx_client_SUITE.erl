@@ -65,6 +65,8 @@ groups() ->
             t_certcn_as_alias,
             t_certdn_as_alias,
             t_client_attr_from_user_property,
+            t_client_attr_from_password,
+            t_sock_keepalive,
             t_sock_closed_reason_normal,
             t_sock_closed_force_closed_by_client,
             t_certcn_as_clientid_default_config_tls,
@@ -436,53 +438,86 @@ t_client_attr_from_user_property(_Config) ->
     ),
     emqtt:disconnect(Client).
 
-t_sock_closed_reason_normal(_) ->
-    ProtoVers = [v3, v4, v5],
+t_client_attr_from_password(_Config) ->
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    [
-        ?check_trace(
-            begin
-                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
-                {ok, _} = emqtt:connect(C),
-                ?wait_async_action(
-                    emqtt:disconnect(C),
-                    #{?snk_kind := sock_closed_normal},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
-                ok
-            end
-        )
-     || Ver <- ProtoVers
-    ].
+    Password = <<"secret-password">>,
+    {ok, Compiled} = emqx_variform:compile("password"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"pwd">>
+        }
+    ]),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {username, <<"user">>},
+        {password, Password}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    ChanInfo = emqx_cm:get_chan_info(ClientId),
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := #{<<"pwd">> := Password}}},
+        ChanInfo
+    ),
+    ClientInfo = maps:get(clientinfo, ChanInfo),
+    ?assertNot(maps:is_key(password, ClientInfo)),
+    emqtt:disconnect(Client).
 
-t_sock_closed_force_closed_by_client(_) ->
-    ProtoVers = [v3, v4, v5],
+t_sock_keepalive(Config) ->
+    %% Configure TCP Keepalive:
+    ok = emqx_config:put_listener_conf(tcp, default, [tcp_options, keepalive], "1,1,5"),
+    %% Connect MQTT client:
     ClientId = atom_to_binary(?FUNCTION_NAME),
-    process_flag(trap_exit, true),
-    [
-        ?check_trace(
-            begin
-                {ok, C} = emqtt:start_link([{proto_ver, Ver}, {clientid, ClientId}]),
-                {ok, _} = emqtt:connect(C),
-                ?wait_async_action(
-                    exit(C, kill),
-                    #{?snk_kind := sock_closed_with_other_reason},
-                    5_000
-                )
-            end,
-            fun(Trace0) ->
-                ?assertMatch(
-                    [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
-                ),
-                ok
-            end
-        )
-     || Ver <- ProtoVers
-    ],
-    process_flag(trap_exit, false).
+    {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+    {
+        {ok, _},
+        {ok, #{?snk_meta := #{pid := CPid}}}
+    } = ?wait_async_action(emqtt:connect(C), #{?snk_kind := connection_started}),
+    %% Verify TCP settings handled smoothly:
+    %% If actual keepalive probes are going around is notoriously difficult to verify.
+    MRef = erlang:monitor(process, CPid),
+    ok = timer:sleep(1_000),
+    ok = emqtt:disconnect(C),
+    ?assertReceive({'DOWN', MRef, process, CPid, normal}).
+
+t_sock_closed_reason_normal(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ?check_trace(
+        begin
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+            {ok, _} = emqtt:connect(C),
+            ?wait_async_action(
+                emqtt:disconnect(C),
+                #{?snk_kind := sock_closed_normal},
+                5_000
+            )
+        end,
+        fun(Trace0) ->
+            ?assertMatch([#{clientid := ClientId}], ?of_kind(sock_closed_normal, Trace0)),
+            ok
+        end
+    ).
+
+t_sock_closed_force_closed_by_client(Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    ?check_trace(
+        begin
+            {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
+            {ok, _} = emqtt:connect(C),
+            true = erlang:unlink(C),
+            ?wait_async_action(
+                exit(C, kill),
+                #{?snk_kind := sock_closed_with_other_reason},
+                5_000
+            )
+        end,
+        fun(Trace0) ->
+            ?assertMatch(
+                [#{clientid := ClientId}], ?of_kind(sock_closed_with_other_reason, Trace0)
+            ),
+            ok
+        end
+    ).
 
 t_clientid_override(_) ->
     emqx_logger:set_log_level(debug),
