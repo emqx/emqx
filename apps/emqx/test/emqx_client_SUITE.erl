@@ -64,6 +64,7 @@ groups() ->
             t_certcn_as_alias,
             t_certdn_as_alias,
             t_client_attr_from_user_property,
+            t_client_attr_from_password,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
@@ -430,6 +431,31 @@ t_client_attr_from_user_property(_Config) ->
         #{clientinfo := #{client_attrs := #{<<"group">> := <<"g1">>, <<"group2">> := <<"g1">>}}},
         emqx_cm:get_chan_info(ClientId)
     ),
+    emqtt:disconnect(Client).
+
+t_client_attr_from_password(_Config) ->
+    ClientId = atom_to_binary(?FUNCTION_NAME),
+    Password = <<"secret-password">>,
+    {ok, Compiled} = emqx_variform:compile("password"),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"pwd">>
+        }
+    ]),
+    {ok, Client} = emqtt:start_link([
+        {clientid, ClientId},
+        {username, <<"user">>},
+        {password, Password}
+    ]),
+    {ok, _} = emqtt:connect(Client),
+    ChanInfo = emqx_cm:get_chan_info(ClientId),
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := #{<<"pwd">> := Password}}},
+        ChanInfo
+    ),
+    ClientInfo = maps:get(clientinfo, ChanInfo),
+    ?assertNot(maps:is_key(password, ClientInfo)),
     emqtt:disconnect(Client).
 
 t_sock_keepalive(Config) ->

@@ -2077,14 +2077,19 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
             {ok, ClientInfo};
         Inits ->
             UserProperty = get_user_property_as_map(ConnPkt),
-            ClientInfo1 = initialize_client_attrs(Inits, ClientInfo#{user_property => UserProperty}),
-            {ok, maps:remove(user_property, ClientInfo1)}
+            Password = get_connect_password(ConnPkt),
+            RenderCtx = ClientInfo#{user_property => UserProperty, password => Password},
+            Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
+            Attrs1 = initialize_client_attrs(Inits, RenderCtx),
+            {ok, ClientInfo#{client_attrs => maps:merge(Attrs0, Attrs1)}}
     end.
+
+get_connect_password(#mqtt_packet_connect{password = Password}) ->
+    Password.
 
 initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
     lists:foldl(
         fun(#{expression := Variform, set_as_attr := Name}, Acc) ->
-            Attrs = maps:get(client_attrs, Acc, #{}),
             case emqx_variform:render(Variform, ClientInfo) of
                 {ok, <<>>} ->
                     ?SLOG(
@@ -2106,7 +2111,7 @@ initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
                         },
                         #{clientid => ClientId}
                     ),
-                    Acc#{client_attrs => Attrs#{Name => Value}};
+                    Acc#{Name => Value};
                 {error, Reason} ->
                     ?SLOG(
                         warning,
@@ -2119,7 +2124,7 @@ initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
                     Acc
             end
         end,
-        ClientInfo,
+        #{},
         Inits
     ).
 
