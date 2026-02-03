@@ -131,7 +131,9 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:crc32cer),
       # transitive dependency of pulsar-client-erl, and direct dep in s3tables bridge
       common_dep(:murmerl3),
-      common_dep(:unicode_util_compat)
+      common_dep(:unicode_util_compat),
+      # Used by :sbom, remove after https://github.com/erlef/mix_sbom/pull/84 or similar is merged & released
+      {:optimus, "~> 0.6.1", override: true}
     ]
   end
 
