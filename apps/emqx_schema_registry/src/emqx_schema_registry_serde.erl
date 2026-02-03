@@ -471,9 +471,19 @@ protobuf_cache_key(Name, #{type := bundle, root_proto_path := RootPath}) ->
         Sources0
     ),
     Sources = lists:sort(Sources1),
-    {Name, erlang:system_info(otp_release), erlang:md5(Sources)};
+    OptsHash = base_protobuf_opts_hash(),
+    {Name, erlang:system_info(otp_release), erlang:md5([OptsHash, Sources])};
 protobuf_cache_key(Name, Source) ->
-    {Name, erlang:system_info(otp_release), erlang:md5(Source)}.
+    OptsHash = base_protobuf_opts_hash(),
+    {Name, erlang:system_info(otp_release), erlang:md5([OptsHash, Source])}.
+
+%% Need to take options into account, as changing them might, for example, change the type
+%% of map keys between versions.
+base_protobuf_opts_hash() ->
+    Opts0 = base_protobuf_opts(),
+    Opts = lists:sort(Opts0),
+    Bin = erlang:term_to_binary(Opts),
+    erlang:md5(Bin).
 
 -spec lazy_generate_protobuf_code(schema_name(), module(), schema_source()) ->
     {ok, module(), binary()} | {error, #{error := term(), warnings := [term()]}}.
@@ -555,6 +565,9 @@ generate_protobuf_code(SerdeMod, Source) ->
         ]
     ).
 
+%% N.B.: This is part of the protobuf cache key, as changing these should prompt a
+%% regeneration of the module.  Add new "static" options here (i.e., not "dynamic" stuff
+%% like `import_fetcher` and include directories).
 base_protobuf_opts() ->
     [
         binary,
