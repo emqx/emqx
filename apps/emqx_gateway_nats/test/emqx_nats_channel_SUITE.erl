@@ -12,28 +12,30 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--define(CONF_FMT, <<
-    "gateway.nats {\n"
-    "  default_heartbeat_interval = 2s\n"
-    "  heartbeat_wait_timeout = 1s\n"
-    "  protocol {\n"
-    "    max_payload_size = 1024\n"
-    "  }\n"
-    "  listeners.tcp.default {\n"
-    "    bind = ~p\n"
-    "  }\n"
-    "  listeners.ssl.default {\n"
-    "    bind = ~p\n"
-    "    ssl_options {\n"
-    "      cacertfile = \"~s\"\n"
-    "      certfile = \"~s\"\n"
-    "      keyfile = \"~s\"\n"
-    "      verify = verify_peer\n"
-    "      fail_if_no_peer_cert = true\n"
-    "    }\n"
-    "  }\n"
-    "}\n"
->>).
+-define(CONF_FMT,
+    ~b"""
+gateway.nats {
+  default_heartbeat_interval = 2s
+  heartbeat_wait_timeout = 1s
+  protocol {
+    max_payload_size = 1024
+  }
+  listeners.tcp.default {
+    bind = ~p
+  }
+  listeners.ssl.default {
+    bind = ~p
+    ssl_options {
+      cacertfile = "~s"
+      certfile = "~s"
+      keyfile = "~s"
+      verify = verify_peer
+      fail_if_no_peer_cert = true
+    }
+  }
+}
+"""
+).
 
 %%--------------------------------------------------------------------
 %% CT Callbacks
