@@ -10,7 +10,7 @@
 
 %% API:
 -export([
-    start_db/4,
+    start_link_db/4,
     start_shard/1,
     stop_shard/1,
     terminate_storage/1,
@@ -28,7 +28,7 @@
 -export([init/1]).
 
 %% internal exports:
--export([start_link_sup/2]).
+-export([start_link_sup/2, whereis_db/1]).
 
 %%================================================================================
 %% Type declarations
@@ -48,14 +48,18 @@
 %% API functions
 %%================================================================================
 
--spec start_db(
+-spec start_link_db(
     emqx_ds:db(),
     boolean(),
     emqx_ds_builtin_local:db_schema(),
     emqx_ds_builtin_local:db_runtime_config()
 ) -> {ok, pid()}.
-start_db(DB, Create, Schema, RTOpts) ->
+start_link_db(DB, Create, Schema, RTOpts) ->
     start_link_sup(#?db_sup{db = DB}, {Create, Schema, RTOpts}).
+
+-spec whereis_db(emqx_ds:db()) -> pid() | undefined.
+whereis_db(DB) ->
+    gproc:where({n, l, #?db_sup{db = DB}}).
 
 -spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
@@ -90,7 +94,8 @@ ensure_shard(Shard) ->
 -spec which_shards(emqx_ds:db()) ->
     [_Child].
 which_shards(DB) ->
-    supervisor:which_children(?via(#?shards_sup{db = DB})).
+    Key = {n, l, #?shard_sup{db = DB, shard = '$1', _ = '_'}},
+    gproc:select({local, names}, [{{Key, '_', '_'}, [], ['$1']}]).
 
 %% @doc Return the list of builtin DS databases that are currently
 %% active on the node.
