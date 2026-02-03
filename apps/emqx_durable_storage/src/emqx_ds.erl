@@ -872,7 +872,7 @@ list_slabs(DB, Opts) ->
                 {Slabs, []} ->
                     Slabs;
                 {_Slabs, Errors} ->
-                    exit({list_slabs, DB, Errors})
+                    exit({?FUNCTION_NAME, DB, Errors})
             end;
         ignore ->
             {Slabs, _Errros} = Result,
@@ -1781,7 +1781,7 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
         {[], crash} ->
             Result;
         {_, crash} ->
-            error(Errors);
+            exit({?FUNCTION_NAME, DB, Errors});
         {_, report} ->
             {Result, Errors}
     end.
