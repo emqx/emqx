@@ -72,14 +72,14 @@ parse_spb_topic(Topic) ->
 register_aliases(#message{payload = Payload}, BirthMsg) ->
     try emqx_schema_registry_serde:rsf_spb_decode([Payload]) of
         #{<<"metrics">> := Metrics} ->
-            Mapping = gather_aliases(Metrics),
-            Key = key(BirthMsg),
-            case map_size(Mapping) > 0 of
-                true ->
-                    insert_alias_mapping(Key, Mapping);
-                false ->
-                    ok
-            end;
+            do_register_aliases(BirthMsg, Metrics);
+        #{metrics := _} = AtomMap ->
+            %% If the sparkplugb schema code was compiled and cached in an older EMQX
+            %% version (< 6.0.0) that happens to use the same OTP version as the current
+            %% node, then it used `gpb` options that output atom-keyed maps.  This is a
+            %% workaround for such cases.
+            #{<<"metrics">> := Metrics} = emqx_utils_maps:binary_key_map(AtomMap),
+            do_register_aliases(BirthMsg, Metrics);
         _ ->
             %% No `metrics` field?
             ok
@@ -92,6 +92,16 @@ register_aliases(#message{payload = Payload}, BirthMsg) ->
                 stacktrace => Stacktrace,
                 note => <<"No alias mapping will be stored from this message.">>
             }),
+            ok
+    end.
+
+do_register_aliases(BirthMsg, Metrics) ->
+    Mapping = gather_aliases(Metrics),
+    Key = key(BirthMsg),
+    case map_size(Mapping) > 0 of
+        true ->
+            insert_alias_mapping(Key, Mapping);
+        false ->
             ok
     end.
 
