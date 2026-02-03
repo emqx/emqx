@@ -212,8 +212,13 @@ manage_otx(_DB, _Shard, _Server, _State, #cast_stop_otx{}, S) ->
     {ok, S, []};
 manage_otx(DB, Shard, Server, leader, {down, Pid, Reason}, #running{pid = Pid}) ->
     %% OTX server is down and we're still the leader. Restart it:
+    LogLevel =
+        case Reason of
+            shutdown -> debug;
+            _ -> warning
+        end,
     ?tp(
-        warning,
+        LogLevel,
         dsrepl_optimistic_leader_fail,
         #{
             db => DB,

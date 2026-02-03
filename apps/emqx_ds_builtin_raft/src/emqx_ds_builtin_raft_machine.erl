@@ -287,7 +287,7 @@ apply(
         otx_leader_pid := OtxLeader
     }
 ) ->
-    ?tp(warning, upgrading_state_machine, #{shard => DBShard}),
+    ?tp(info, upgrading_state_machine, #{shard => DBShard}),
     %% Reset the schema:
     State = #{
         vsn => 1,
