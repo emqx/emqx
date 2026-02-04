@@ -14,6 +14,8 @@ Protocol used to exchange shard liveness information.
 %% behavior callbacks:
 -export([introduced_in/0]).
 
+-include_lib("emqx_utils/include/bpapi.hrl").
+
 %%================================================================================
 %% API functions
 %%================================================================================

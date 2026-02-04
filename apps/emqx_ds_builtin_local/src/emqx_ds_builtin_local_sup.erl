@@ -52,7 +52,7 @@ stop_db(DB) ->
         true ?= is_pid(Sup),
         DBPid = emqx_ds_builtin_local_db_sup:whereis_db(DB),
         true ?= is_pid(DBPid),
-        supervisor:terminate_child(Sup, DBPid),
+        _ = supervisor:terminate_child(Sup, DBPid),
         ok
     else
         _ -> ok
