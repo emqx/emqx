@@ -57,7 +57,9 @@ delete(SubscriberRef) when is_reference(SubscriberRef) ->
             _ = erlang:erase(?NAME_TOPIC_PD_KEY(NameTopic)),
             Sub#{subscriber_ref => SubscriberRef}
     end;
-delete({Name, Topic} = NameTopic) when is_binary(Name) andalso (is_binary(Topic) orelse Topic =:= undefined) ->
+delete({Name, Topic} = NameTopic) when
+    is_binary(Name) andalso (is_binary(Topic) orelse Topic =:= undefined)
+->
     case erlang:get(?NAME_TOPIC_PD_KEY(NameTopic)) of
         undefined ->
             undefined;
@@ -74,7 +76,9 @@ find(SubscriberRef) when is_reference(SubscriberRef) ->
         Sub ->
             Sub#{subscriber_ref => SubscriberRef}
     end;
-find({Name, Topic} = NameTopic) when is_binary(Name) andalso (is_binary(Topic) orelse Topic =:= undefined) ->
+find({Name, Topic} = NameTopic) when
+    is_binary(Name) andalso (is_binary(Topic) orelse Topic =:= undefined)
+->
     case erlang:get(?NAME_TOPIC_PD_KEY(NameTopic)) of
         undefined ->
             undefined;

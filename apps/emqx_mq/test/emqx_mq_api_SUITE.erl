@@ -62,8 +62,12 @@ t_crud(_Config) ->
         api_get([message_queues, queues])
     ),
     ?assertMatch(
+        {ok, 400, _},
+        api_get([message_queues, queues, urlencode(<<"invalid/queue/name">>)])
+    ),
+    ?assertMatch(
         {ok, 404, _},
-        api_get([message_queues, queues, urlencode(<<"t/1">>)])
+        api_get([message_queues, queues, <<"unknown_queue">>])
     ),
     ?assertMatch(
         {ok, 200, _},
@@ -199,6 +203,10 @@ t_pagination(_Config) ->
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         api_get([message_queues, queues, "?limit=6&cursor=%10%13"])
+    ),
+    ?assertMatch(
+        {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        api_get([message_queues, queues, "?limit=6&cursor=" ++ urlencode(base64:encode(<<"{{{">>))])
     ).
 
 %% Verify MQ subsystem (re)configuration via API.
