@@ -158,6 +158,7 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
     Children = [
+        liveness_spec(DB),
         sup_spec(#?shards_sup{db = DB}, []),
         shard_allocator_spec(DB)
     ],
@@ -280,6 +281,14 @@ shard_allocator_spec(DB) ->
     #{
         id => shard_allocator,
         start => {emqx_ds_builtin_raft_shard_allocator, start_link, [DB]},
+        restart => permanent,
+        type => worker
+    }.
+
+liveness_spec(DB) ->
+    #{
+        id => liveness,
+        start => {emqx_ds_builtin_raft_liveness, start_link, [DB]},
         restart => permanent,
         type => worker
     }.

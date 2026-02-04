@@ -98,7 +98,8 @@ This is the entrypoint into the `builtin_raft` backend.
     current_timestamp/2,
     rpc_target_preference/1,
     full_shard_cleanup/2,
-    leader_shard_cleanup/2
+    leader_shard_cleanup/2,
+    lookup_global_otx_leader/2
 ]).
 
 -ifdef(TEST).
@@ -739,6 +740,7 @@ otx_become_leader(DB, Shard) ->
         %% Establish presence:
         {ok, TxSerial, TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
         register_global_otx_leader(DB, Shard),
+        emqx_ds_builtin_raft_liveness:notify_shard_up(DB, Shard),
         {ok, TxSerial, TxLastTimestamp}
     end.
 
@@ -788,14 +790,14 @@ register_global_otx_leader(DB, Shard) ->
     yes = global:re_register_name(RegName, self()),
     ok.
 
+%%================================================================================
+%% Internal exports
+%%================================================================================
+
 -spec lookup_global_otx_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 lookup_global_otx_leader(DB, Shard) ->
     ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
     global:whereis_name(?otx_global_regname(ClusterId, DB, Shard)).
-
-%%================================================================================
-%% Internal exports
-%%================================================================================
 
 -doc """
 Messages have been replicated up to this timestamp on the local replica.
