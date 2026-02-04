@@ -21,7 +21,7 @@ The module contains basic types for the Message Queue application.
 }.
 -type ack() :: ?MQ_ACK | ?MQ_NACK | ?MQ_REJECTED.
 -type mq_topic() :: binary().
-%% Name of the MQ, MQs identified by users with names.
+%% Name of the MQ, used to identify MQs by users.
 %% Names are unique in a moment of time.
 -type mq_name() :: binary().
 %% Unique identifier of the MQ, used internally by the MQ server.
