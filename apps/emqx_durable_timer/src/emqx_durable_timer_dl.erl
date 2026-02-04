@@ -56,6 +56,8 @@ Value: empty.
     lts_threshold_cb/2,
     shards/0,
 
+    ensure_tables/0,
+
     update_epoch/4,
     last_heartbeat/1,
     delete_epoch_if_empty/1,
@@ -98,6 +100,23 @@ lts_threshold_cb(N, Root) when Root =:= ?top_deadhand; Root =:= ?top_started ->
     end;
 lts_threshold_cb(_, _) ->
     0.
+
+ensure_tables() ->
+    Storage =
+        {emqx_ds_storage_skipstream_lts_v2, #{
+            lts_threshold_spec => {mf, emqx_durable_timer_dl, lts_threshold_cb},
+            timestamp_bytes => 8
+        }},
+    DBConf = emqx_ds_schema:db_config_timers(),
+    ok = emqx_ds:open_db(
+        ?DB_GLOB,
+        DBConf#{
+            storage => Storage,
+            reads => leader_preferred
+        }
+    ),
+    _ = emqx_ds:wait_db(?DB_GLOB, all, infinity),
+    ok.
 
 %%--------------------------------------------------------------------------------
 %% Heartbeats
