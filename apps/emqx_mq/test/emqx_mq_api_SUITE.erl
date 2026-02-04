@@ -127,7 +127,7 @@ t_crud(_Config) ->
     ),
     ?assertMatch(
         {ok, 404, _},
-        api_put([message_queues, queues, urlencode(<<"crud_2">>)], #{<<"ping_interval">> => 10000})
+        api_put([message_queues, queues, <<"crud_2">>], #{<<"ping_interval">> => 10000})
     ),
     ?retry(
         5,
@@ -138,7 +138,7 @@ t_crud(_Config) ->
                 <<"topic_filter">> := <<"t/1/1">>,
                 <<"ping_interval">> := 10000
             }},
-            api_put([message_queues, queues, urlencode(<<"crud_11">>)], #{
+            api_put([message_queues, queues, <<"crud_11">>], #{
                 <<"ping_interval">> => 10000
             })
         )
@@ -149,19 +149,19 @@ t_crud(_Config) ->
             <<"topic_filter">> := <<"t/1/1">>,
             <<"ping_interval">> := 10000
         }},
-        api_get([message_queues, queues, urlencode(<<"crud_11">>)])
+        api_get([message_queues, queues, <<"crud_11">>])
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_queues, queues, urlencode(<<"crud_11">>)])
+        api_delete([message_queues, queues, <<"crud_11">>])
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_queues, queues, urlencode(<<"crud_12">>)])
+        api_delete([message_queues, queues, <<"crud_12">>])
     ),
     ?assertMatch(
         {ok, 404, _},
-        api_delete([message_queues, queues, urlencode(<<"crud_11">>)])
+        api_delete([message_queues, queues, <<"crud_11">>])
     ),
     ?retry(
         5,
