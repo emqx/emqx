@@ -419,22 +419,20 @@ reset() ->
 
 reset(Topic) ->
     Nodes = mria:running_nodes(),
-    case emqx_topic_metrics_proto_v1:reset(Nodes, Topic) of
-        {SuccResList, []} ->
-            case
-                lists:filter(
-                    fun
-                        ({error, _}) -> true;
-                        (_) -> false
-                    end,
-                    SuccResList
-                )
-            of
-                [{error, Reason} | _] ->
-                    {error, Reason};
-                [] ->
-                    ok
-            end
+    {SuccResList, []} = emqx_topic_metrics_proto_v1:reset(Nodes, Topic),
+    case
+        lists:filter(
+            fun
+                ({error, _}) -> true;
+                (_) -> false
+            end,
+            SuccResList
+        )
+    of
+        [{error, Reason} | _] ->
+            {error, Reason};
+        [] ->
+            ok
     end.
 
 %%--------------------------------------------------------------------
@@ -448,8 +446,11 @@ reason2httpresp(quota_exceeded) ->
         )
     ),
     {409, #{code => ?EXCEED_LIMIT, message => Msg}};
-reason2httpresp(bad_topic) ->
-    Msg = <<"Wildcard topic is not supported">>,
+reason2httpresp(#{cause := wildcard_not_supported, topic := Topic}) when is_binary(Topic) ->
+    Msg = iolist_to_binary([
+        "Wildcard topic filters are not allowed for topic metrics: ",
+        Topic
+    ]),
     {400, #{code => ?BAD_TOPIC, message => Msg}};
 reason2httpresp(already_existed) ->
     Msg = <<"Topic already registered">>,

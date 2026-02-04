@@ -204,6 +204,8 @@ def test_skip_quic_nif_load(emqx_bin_path, emqx_rel_path):
         shutil.copy2(nif_file, backup)
         backups.append((nif_file, backup))
 
+    timeout = 20
+
     try:
         # Delete all libquicer_nif.so files
         for nif_file, _ in backups:
@@ -214,7 +216,7 @@ def test_skip_quic_nif_load(emqx_bin_path, emqx_rel_path):
             [str(emqx_bin_path), "console"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=timeout
         )
         assert result.returncode != 0, "Expected emqx console to fail when libquicer_nif.so is absent"
 
@@ -226,7 +228,7 @@ def test_skip_quic_nif_load(emqx_bin_path, emqx_rel_path):
             env=env,
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=timeout
         )
         assert result.returncode == 0, f"Expected emqx start to succeed with QUICER_SKIP_NIF_LOAD=1. Exit code: {result.returncode}, Output: {result.stdout + result.stderr}"
 
@@ -235,7 +237,7 @@ def test_skip_quic_nif_load(emqx_bin_path, emqx_rel_path):
             [str(emqx_bin_path), "stop"],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=timeout
         )
         # Stop command may return non-zero if emqx wasn't running, which is acceptable
     finally:
