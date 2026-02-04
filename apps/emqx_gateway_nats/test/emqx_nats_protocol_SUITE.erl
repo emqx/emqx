@@ -20,18 +20,13 @@ all() ->
 
 groups() ->
     CTs = emqx_common_test_helpers:all(?MODULE),
-    CoreTCs = core_tests(CTs),
     [
         {emqx_gateway, [], emqx_group_members()},
         {nats_server, [], nats_group_members()},
-        {tcp_all, [], CTs},
-        {ws_all, [], CTs},
-        {wss_all, [], CTs},
-        {ssl_all, [], CTs},
-        {tcp_core, [], CoreTCs},
-        {ws_core, [], CoreTCs},
-        {wss_core, [], CoreTCs},
-        {ssl_core, [], CoreTCs}
+        {tcp, [], CTs},
+        {ws, [], CTs},
+        {wss, [], CTs},
+        {ssl, [], CTs}
     ].
 
 init_per_suite(Config) ->
@@ -72,59 +67,36 @@ init_per_group(nats_server, Config) ->
         {skip, Reason} ->
             {skip, Reason}
     end;
-init_per_group(tcp_all, Config) ->
+init_per_group(tcp, Config) ->
     Target = target_from(Config),
-    [{client_opts, default_tcp_client_opts(Target)}, {group_name, tcp} | Config];
-init_per_group(tcp_core, Config) ->
-    Target = target_from(Config),
-    [{client_opts, default_tcp_client_opts(Target)}, {group_name, tcp} | Config];
-init_per_group(ws_all, Config) ->
+    BaseOpts = default_tcp_client_opts(Target),
+    group_config(Target, tcp, BaseOpts) ++ Config;
+init_per_group(ws, Config) ->
     Target = target_from(Config),
     case ws_port(Target) of
         undefined ->
             {skip, "WS listener not configured"};
         _ ->
-            [{client_opts, default_ws_client_opts(Target)}, {group_name, ws} | Config]
+            BaseOpts = default_ws_client_opts(Target),
+            group_config(Target, ws, BaseOpts) ++ Config
     end;
-init_per_group(ws_core, Config) ->
-    Target = target_from(Config),
-    case ws_port(Target) of
-        undefined ->
-            {skip, "WS listener not configured"};
-        _ ->
-            [{client_opts, default_ws_client_opts(Target)}, {group_name, ws} | Config]
-    end;
-init_per_group(wss_all, Config) ->
+init_per_group(wss, Config) ->
     Target = target_from(Config),
     case wss_port(Target) of
         undefined ->
             {skip, "WSS listener not configured"};
         _ ->
-            [{client_opts, default_wss_client_opts(Target)}, {group_name, wss} | Config]
+            BaseOpts = default_wss_client_opts(Target),
+            group_config(Target, wss, BaseOpts) ++ Config
     end;
-init_per_group(wss_core, Config) ->
-    Target = target_from(Config),
-    case wss_port(Target) of
-        undefined ->
-            {skip, "WSS listener not configured"};
-        _ ->
-            [{client_opts, default_wss_client_opts(Target)}, {group_name, wss} | Config]
-    end;
-init_per_group(ssl_all, Config) ->
+init_per_group(ssl, Config) ->
     Target = target_from(Config),
     case ssl_port(Target) of
         undefined ->
             {skip, "SSL listener not configured"};
         _ ->
-            [{client_opts, default_ssl_client_opts(Target)}, {group_name, ssl} | Config]
-    end;
-init_per_group(ssl_core, Config) ->
-    Target = target_from(Config),
-    case ssl_port(Target) of
-        undefined ->
-            {skip, "SSL listener not configured"};
-        _ ->
-            [{client_opts, default_ssl_client_opts(Target)}, {group_name, ssl} | Config]
+            BaseOpts = default_ssl_client_opts(Target),
+            group_config(Target, ssl, BaseOpts) ++ Config
     end.
 
 end_per_group(_Group, _Config) ->
@@ -155,13 +127,10 @@ target_from(Config) ->
     end.
 
 emqx_group_members() ->
-    [{group, tcp_all}, {group, ws_all}, {group, wss_all}, {group, ssl_all}].
+    [{group, tcp}, {group, ws}, {group, wss}, {group, ssl}].
 
 nats_group_members() ->
-    [{group, tcp_core}, {group, ws_core}, {group, wss_core}, {group, ssl_core}].
-
-core_tests(AllTCs) ->
-    [TC || TC <- AllTCs, not lists:member(TC, nats_only_skips())].
+    [{group, tcp}, {group, ws}, {group, wss}, {group, ssl}].
 
 env_str(Key, Default) ->
     case os:getenv(Key) of
@@ -277,6 +246,34 @@ ssl_port(Target) ->
             list_to_integer(Val)
     end.
 
+noauth_tcp_host() ->
+    Host0 = env_str("NATS_NOAUTH_TCP_HOST", "nats-noauth"),
+    ensure_scheme(Host0, "tcp").
+
+noauth_ws_host() ->
+    Host0 = env_str("NATS_NOAUTH_WS_HOST", "nats-noauth"),
+    ensure_scheme(Host0, "ws").
+
+noauth_wss_host() ->
+    Host0 = env_str("NATS_NOAUTH_WSS_HOST", "nats-tls-noauth"),
+    ensure_scheme(Host0, "wss").
+
+noauth_ssl_host() ->
+    Host0 = env_str("NATS_NOAUTH_SSL_HOST", "nats-tls-noauth"),
+    ensure_scheme(Host0, "ssl").
+
+noauth_tcp_port() ->
+    env_int("NATS_NOAUTH_TCP_PORT", 4222).
+
+noauth_ws_port() ->
+    env_int("NATS_NOAUTH_WS_PORT", 9222).
+
+noauth_wss_port() ->
+    env_int("NATS_NOAUTH_WSS_PORT", 9322).
+
+noauth_ssl_port() ->
+    env_int("NATS_NOAUTH_SSL_PORT", 4422).
+
 default_tcp_client_opts(Target) ->
     maybe_add_nats_auth(
         Target,
@@ -286,6 +283,15 @@ default_tcp_client_opts(Target) ->
             verbose => false
         }
     ).
+
+default_tcp_client_opts_noauth(nats) ->
+    #{
+        host => noauth_tcp_host(),
+        port => noauth_tcp_port(),
+        verbose => false
+    };
+default_tcp_client_opts_noauth(emqx) ->
+    default_tcp_client_opts(emqx).
 
 default_ws_client_opts(Target) ->
     maybe_add_nats_auth(
@@ -297,6 +303,15 @@ default_ws_client_opts(Target) ->
         }
     ).
 
+default_ws_client_opts_noauth(nats) ->
+    #{
+        host => noauth_ws_host(),
+        port => noauth_ws_port(),
+        verbose => false
+    };
+default_ws_client_opts_noauth(emqx) ->
+    default_ws_client_opts(emqx).
+
 default_wss_client_opts(Target) ->
     maybe_add_nats_auth(
         Target,
@@ -307,6 +322,16 @@ default_wss_client_opts(Target) ->
             ssl_opts => #{verify => verify_none}
         }
     ).
+
+default_wss_client_opts_noauth(nats) ->
+    #{
+        host => noauth_wss_host(),
+        port => noauth_wss_port(),
+        verbose => false,
+        ssl_opts => #{verify => verify_none}
+    };
+default_wss_client_opts_noauth(emqx) ->
+    default_wss_client_opts(emqx).
 
 default_ssl_client_opts(emqx) ->
     #{
@@ -327,16 +352,31 @@ default_ssl_client_opts(nats) ->
         }
     ).
 
+default_ssl_client_opts_noauth(emqx) ->
+    default_ssl_client_opts(emqx);
+default_ssl_client_opts_noauth(nats) ->
+    #{
+        host => ssl_noauth_starttls_host(),
+        port => noauth_ssl_port(),
+        verbose => false,
+        starttls => true,
+        ssl_opts => #{verify => verify_none}
+    }.
+
 maybe_add_nats_auth(nats, Opts) ->
     Opts#{
-        user => <<"test_user">>,
-        pass => <<"password">>
+        user => auth_user(),
+        pass => auth_pass()
     };
 maybe_add_nats_auth(emqx, Opts) ->
     Opts.
 
 ssl_starttls_host() ->
     Host0 = env_str("NATS_SSL_HOST", default_host(nats)),
+    "tcp://" ++ strip_scheme(Host0).
+
+ssl_noauth_starttls_host() ->
+    Host0 = env_str("NATS_NOAUTH_SSL_HOST", "nats-tls-noauth"),
     "tcp://" ++ strip_scheme(Host0).
 
 conf_default(TcpPort, WsPort, WssPort, SslPort) ->
@@ -428,14 +468,7 @@ should_skip(_TestCase, emqx) ->
     ok.
 
 nats_only_skips() ->
-    [
-        t_auth_dynamic_enable_disable,
-        t_publish_authz,
-        t_subscribe_authz,
-        t_optional_connect_request,
-        t_optional_connect_request_only_work_authn_disabled,
-        t_server_to_client_ping
-    ].
+    [].
 
 ensure_nats_server_available() ->
     Target = nats,
@@ -467,14 +500,14 @@ disable_auth() ->
 
 create_test_user() ->
     User = #{
-        user_id => <<"test_user">>,
-        password => <<"password">>,
+        user_id => auth_user(),
+        password => auth_pass(),
         is_superuser => false
     },
     emqx_gateway_test_utils:add_gateway_auth_user(<<"nats">>, User).
 
 delete_test_user() ->
-    emqx_gateway_test_utils:delete_gateway_auth_user(<<"nats">>, <<"test_user">>).
+    emqx_gateway_test_utils:delete_gateway_auth_user(<<"nats">>, auth_user()).
 
 allow_pubsub_all() ->
     emqx_gateway_test_utils:update_authz_file_rule(
@@ -500,18 +533,58 @@ auth_user() ->
 auth_pass() ->
     <<"password">>.
 
-auth_client_opts(Config, Pass) ->
-    maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => auth_user(),
-            pass => Pass,
-            verbose => true
-        }
-    ).
+authz_deny_user() ->
+    <<"deny_user">>.
 
-client_opts_no_creds(Config) ->
-    maps:remove(pass, maps:remove(user, ?config(client_opts, Config))).
+authz_deny_pass() ->
+    <<"deny_password">>.
+
+strip_creds(Opts) ->
+    maps:remove(pass, maps:remove(user, Opts)).
+
+auth_enabled_opts(_Target, BaseOpts) ->
+    BaseOpts#{
+        user => auth_user(),
+        pass => auth_pass()
+    }.
+
+auth_disabled_opts(emqx, _Group, BaseOpts) ->
+    strip_creds(BaseOpts);
+auth_disabled_opts(nats, tcp, _BaseOpts) ->
+    default_tcp_client_opts_noauth(nats);
+auth_disabled_opts(nats, ws, _BaseOpts) ->
+    default_ws_client_opts_noauth(nats);
+auth_disabled_opts(nats, wss, _BaseOpts) ->
+    default_wss_client_opts_noauth(nats);
+auth_disabled_opts(nats, ssl, _BaseOpts) ->
+    default_ssl_client_opts_noauth(nats).
+
+authz_allow_opts(Target, BaseOpts) ->
+    auth_enabled_opts(Target, BaseOpts).
+
+authz_deny_opts(emqx, BaseOpts) ->
+    auth_enabled_opts(emqx, BaseOpts);
+authz_deny_opts(nats, BaseOpts) ->
+    BaseOpts#{
+        user => authz_deny_user(),
+        pass => authz_deny_pass()
+    }.
+
+apply_authz_deny(Config) ->
+    case target_from(Config) of
+        emqx ->
+            deny_pubsub_all();
+        nats ->
+            ok
+    end.
+
+apply_authz_allow(Config) ->
+    case target_from(Config) of
+        emqx ->
+            allow_pubsub_all();
+        nats ->
+            ok
+    end.
 
 auth_setup(Config) ->
     case target_from(Config) of
@@ -543,6 +616,20 @@ authz_cleanup(Config) ->
             ok
     end,
     auth_cleanup(Config).
+
+group_config(Target, GroupName, BaseOpts) ->
+    AuthEnabled = auth_enabled_opts(Target, BaseOpts),
+    AuthDisabled = auth_disabled_opts(Target, GroupName, BaseOpts),
+    AuthzAllow = authz_allow_opts(Target, BaseOpts),
+    AuthzDeny = authz_deny_opts(Target, BaseOpts),
+    [
+        {client_opts, BaseOpts},
+        {auth_enabled_opts, AuthEnabled},
+        {auth_disabled_opts, AuthDisabled},
+        {authz_allow_opts, AuthzAllow},
+        {authz_deny_opts, AuthzDeny},
+        {group_name, GroupName}
+    ].
 
 safe_delete_test_user() ->
     try
@@ -1014,7 +1101,7 @@ t_auth_success('end', Config) ->
     auth_cleanup(Config).
 
 t_auth_success(Config) ->
-    ClientOpts = auth_client_opts(Config, auth_pass()),
+    ClientOpts = maps:merge(?config(auth_enabled_opts, Config), #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     InfoMsg = recv_info_frame(Client),
     assert_auth_required(InfoMsg, true),
@@ -1041,7 +1128,10 @@ t_auth_failure('end', Config) ->
     auth_cleanup(Config).
 
 t_auth_failure(Config) ->
-    ClientOpts = auth_client_opts(Config, <<"wrong_password">>),
+    ClientOpts = maps:merge(
+        ?config(auth_enabled_opts, Config),
+        #{pass => <<"wrong_password">>, verbose => true}
+    ),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     InfoMsg = recv_info_frame(Client),
     assert_auth_required(InfoMsg, true),
@@ -1059,10 +1149,13 @@ t_auth_dynamic_enable_disable('end', Config) ->
     auth_cleanup(Config).
 
 t_auth_dynamic_enable_disable(Config) ->
-    ClientOptsNoCred = maps:merge(client_opts_no_creds(Config), #{verbose => true}),
+    ClientOptsNoAuth = maps:merge(?config(auth_disabled_opts, Config), #{verbose => true}),
+    ClientOptsAuthNoCred = maps:merge(strip_creds(?config(auth_enabled_opts, Config)), #{
+        verbose => true
+    }),
 
     %% Start with auth disabled
-    {ok, Client1} = emqx_nats_client:start_link(ClientOptsNoCred),
+    {ok, Client1} = emqx_nats_client:start_link(ClientOptsNoAuth),
     InfoMsg1 = recv_info_frame(Client1),
     assert_auth_required(InfoMsg1, false),
 
@@ -1072,9 +1165,8 @@ t_auth_dynamic_enable_disable(Config) ->
     emqx_nats_client:stop(Client1),
 
     %% Enable auth and create test user
-    ok = enable_auth(),
-    ok = create_test_user(),
-    {ok, Client2} = emqx_nats_client:start_link(ClientOptsNoCred),
+    _ = auth_setup(Config),
+    {ok, Client2} = emqx_nats_client:start_link(ClientOptsAuthNoCred),
     InfoMsg2 = recv_info_frame(Client2),
     assert_auth_required(InfoMsg2, true),
 
@@ -1085,9 +1177,8 @@ t_auth_dynamic_enable_disable(Config) ->
     emqx_nats_client:stop(Client2),
 
     %% Disable auth again
-    ok = delete_test_user(),
-    ok = disable_auth(),
-    {ok, Client3} = emqx_nats_client:start_link(ClientOptsNoCred),
+    _ = auth_cleanup(Config),
+    {ok, Client3} = emqx_nats_client:start_link(ClientOptsNoAuth),
     InfoMsg3 = recv_info_frame(Client3),
     assert_auth_required(InfoMsg3, false),
 
@@ -1102,40 +1193,29 @@ t_publish_authz('end', Config) ->
     authz_cleanup(Config).
 
 t_publish_authz(Config) ->
-    %% Enable authorization with deny all first
-    ok = deny_pubsub_all(),
-
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => auth_user(),
-            pass => auth_pass(),
-            verbose => true
-        }
-    ),
-
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-    ok = emqx_nats_client:connect(Client),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = apply_authz_deny(Config),
+    DenyOpts = maps:merge(?config(authz_deny_opts, Config), #{verbose => true}),
+    {ok, DenyClient} = emqx_nats_client:start_link(DenyOpts),
+    recv_info_frame(DenyClient),
+    ok = emqx_nats_client:connect(DenyClient),
+    recv_ok_frame(DenyClient),
 
     %% Test denied topic (should fail)
-    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
-    {ok, [ErrorMsg1]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_ERR,
-            message = <<"Permissions Violation for Publish to test.topic">>
-        },
-        ErrorMsg1
-    ),
+    ok = emqx_nats_client:publish(DenyClient, <<"test.topic">>, <<"test message">>),
+    {ok, [ErrorMsg1]} = emqx_nats_client:receive_message(DenyClient),
+    assert_permissions_violation(ErrorMsg1, publish, <<"test.topic">>),
+    emqx_nats_client:stop(DenyClient),
 
-    %% Allow all publish operations
-    ok = allow_pubsub_all(),
+    ok = apply_authz_allow(Config),
+    AllowOpts = maps:merge(?config(authz_allow_opts, Config), #{verbose => true}),
+    {ok, AllowClient} = emqx_nats_client:start_link(AllowOpts),
+    recv_info_frame(AllowClient),
+    ok = emqx_nats_client:connect(AllowClient),
+    recv_ok_frame(AllowClient),
 
     %% Test allowed topic (should succeed)
-    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"test message">>),
-    {ok, [PubAck]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:publish(AllowClient, <<"test.topic">>, <<"test message">>),
+    {ok, [PubAck]} = emqx_nats_client:receive_message(AllowClient),
     ?assertMatch(
         #nats_frame{
             operation = ?OP_OK
@@ -1143,7 +1223,7 @@ t_publish_authz(Config) ->
         PubAck
     ),
 
-    emqx_nats_client:stop(Client),
+    emqx_nats_client:stop(AllowClient),
     ok.
 
 t_subscribe_authz(init, Config) ->
@@ -1152,40 +1232,29 @@ t_subscribe_authz('end', Config) ->
     authz_cleanup(Config).
 
 t_subscribe_authz(Config) ->
-    %% Enable authorization with deny all first
-    ok = deny_pubsub_all(),
-
-    ClientOpts = maps:merge(
-        ?config(client_opts, Config),
-        #{
-            user => auth_user(),
-            pass => auth_pass(),
-            verbose => true
-        }
-    ),
-
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
-    ok = emqx_nats_client:connect(Client),
-    {ok, [_]} = emqx_nats_client:receive_message(Client),
+    ok = apply_authz_deny(Config),
+    DenyOpts = maps:merge(?config(authz_deny_opts, Config), #{verbose => true}),
+    {ok, DenyClient} = emqx_nats_client:start_link(DenyOpts),
+    recv_info_frame(DenyClient),
+    ok = emqx_nats_client:connect(DenyClient),
+    recv_ok_frame(DenyClient),
 
     %% Test denied subscription (should fail)
-    ok = emqx_nats_client:subscribe(Client, <<"test.topic">>, <<"sid-1">>),
-    {ok, [ErrorMsg1]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_ERR,
-            message = <<"Permissions Violation for Subscription to test.topic">>
-        },
-        ErrorMsg1
-    ),
+    ok = emqx_nats_client:subscribe(DenyClient, <<"test.topic">>, <<"sid-1">>),
+    {ok, [ErrorMsg1]} = emqx_nats_client:receive_message(DenyClient),
+    assert_permissions_violation(ErrorMsg1, subscribe, <<"test.topic">>),
+    emqx_nats_client:stop(DenyClient),
 
-    %% Allow all subscribe operations
-    ok = allow_pubsub_all(),
+    ok = apply_authz_allow(Config),
+    AllowOpts = maps:merge(?config(authz_allow_opts, Config), #{verbose => true}),
+    {ok, AllowClient} = emqx_nats_client:start_link(AllowOpts),
+    recv_info_frame(AllowClient),
+    ok = emqx_nats_client:connect(AllowClient),
+    recv_ok_frame(AllowClient),
 
     %% Test allowed subscription (should succeed)
-    ok = emqx_nats_client:subscribe(Client, <<"test.topic">>, <<"sid-1">>),
-    {ok, [SubAck]} = emqx_nats_client:receive_message(Client),
+    ok = emqx_nats_client:subscribe(AllowClient, <<"test.topic">>, <<"sid-1">>),
+    {ok, [SubAck]} = emqx_nats_client:receive_message(AllowClient),
     ?assertMatch(
         #nats_frame{
             operation = ?OP_OK
@@ -1193,12 +1262,12 @@ t_subscribe_authz(Config) ->
         SubAck
     ),
 
-    emqx_nats_client:stop(Client),
+    emqx_nats_client:stop(AllowClient),
     ok.
 
 t_optional_connect_request(Config) ->
     ClientOpts = maps:merge(
-        ?config(client_opts, Config),
+        ?config(auth_disabled_opts, Config),
         #{
             verbose => true
         }
@@ -1227,19 +1296,13 @@ t_optional_connect_request(Config) ->
     emqx_nats_client:stop(Client).
 
 t_optional_connect_request_only_work_authn_disabled(init, Config) ->
-    case target_from(Config) of
-        emqx ->
-            ok = enable_auth(),
-            Config;
-        nats ->
-            Config
-    end;
+    auth_setup(Config);
 t_optional_connect_request_only_work_authn_disabled('end', Config) ->
     auth_cleanup(Config).
 
 t_optional_connect_request_only_work_authn_disabled(Config) ->
     ClientOpts = maps:merge(
-        ?config(client_opts, Config),
+        strip_creds(?config(auth_enabled_opts, Config)),
         #{
             verbose => true
         }
@@ -1274,8 +1337,7 @@ t_server_to_client_ping(Config) ->
     recv_ok_frame(Client),
 
     %% waiting ping message
-    timer:sleep(2000),
-    {ok, [PingMsg]} = emqx_nats_client:receive_message(Client),
+    {ok, [PingMsg]} = emqx_nats_client:receive_message(Client, 1, 5000),
     ?assertMatch(
         #nats_frame{
             operation = ?OP_PING
@@ -1283,14 +1345,15 @@ t_server_to_client_ping(Config) ->
         PingMsg
     ),
     %% waiting for timeout and disconnect
-    timer:sleep(1500),
-    {ok, [DisconnectMsg]} = emqx_nats_client:receive_message(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_ERR
-        },
-        DisconnectMsg
-    ),
+    {ok, [DisconnectMsg]} = emqx_nats_client:receive_message(Client, 1, 5000),
+    case DisconnectMsg of
+        #nats_frame{operation = ?OP_ERR} ->
+            ok;
+        tcp_closed ->
+            ok;
+        _ ->
+            ?assertMatch(#nats_frame{operation = ?OP_ERR}, DisconnectMsg)
+    end,
     emqx_nats_client:stop(Client).
 
 t_invalid_frame(Config) ->
@@ -1355,3 +1418,25 @@ assert_auth_failed(Msgs) ->
         _ ->
             ?assertMatch([#nats_frame{operation = ?OP_ERR}], Msgs)
     end.
+
+assert_permissions_violation(#nats_frame{operation = ?OP_ERR, message = Msg}, Kind, Subject) ->
+    Normalized = normalize_violation_msg(Msg),
+    ExpectedPrefix =
+        case Kind of
+            publish ->
+                <<"Permissions Violation for Publish to">>;
+            subscribe ->
+                <<"Permissions Violation for Subscription to">>
+        end,
+    ?assertMatch({_, _}, binary:match(Normalized, ExpectedPrefix)),
+    ?assertMatch({_, _}, binary:match(Normalized, Subject));
+assert_permissions_violation(Other, _Kind, _Subject) ->
+    ?assertMatch(#nats_frame{operation = ?OP_ERR}, Other).
+
+normalize_violation_msg(Msg) when is_binary(Msg) ->
+    Str0 = binary_to_list(Msg),
+    Str1 = string:replace(Str0, "\\\"", "\"", all),
+    Str2 = string:trim(Str1, both, "'\""),
+    list_to_binary(Str2);
+normalize_violation_msg(Msg) ->
+    Msg.
