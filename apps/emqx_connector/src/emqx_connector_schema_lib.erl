@@ -41,9 +41,10 @@
 ]).
 
 ssl_fields() ->
-    ssl_fields(_EnableByDefault = false).
+    ssl_fields(#{enable_by_default => false}).
 
-ssl_fields(EnableByDefault) ->
+ssl_fields(Opts) ->
+    EnableByDefault = maps:get(enable_by_default, Opts, false),
     [
         {ssl, #{
             type => hoconsc:ref(emqx_schema, "ssl_client_opts"),

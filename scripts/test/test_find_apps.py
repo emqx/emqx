@@ -264,7 +264,11 @@ def test_change_app_used_by_others(project_root: Path, original_head: str):
     assert_find_apps(
         project_root,
         f"Change {test_app}",
-        [f"apps/{test_app}", "apps/emqx_cluster_link"],
+        [
+            f"apps/{test_app}",
+            "apps/emqx_cluster_link",
+            "apps/emqx_bridge_azure_event_grid"
+        ],
         original_head
     )
 
