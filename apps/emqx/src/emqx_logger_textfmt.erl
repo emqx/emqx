@@ -16,7 +16,7 @@ check_config(X) ->
     logger_formatter:check_config(maps:without([timestamp_format, with_mfa, payload_encode], X)).
 
 %% Principle here is to delegate the formatting to logger_formatter:format/2
-%% as much as possible, and only enrich the report with clientid, peername, topic, username
+%% as much as possible, and only enrich the report with clientid, peername, topic, username, pid
 format(#{msg := {report, ReportMap0}, meta := _Meta} = Event0, Config) when is_map(ReportMap0) ->
     #{msg := {report, ReportMap}, meta := Meta} = Event = evaluate_lazy_values_if_dbg_level(Event0),
     %% The most common case, when entering from SLOG macro
@@ -118,14 +118,22 @@ enrich_report(ReportRaw0, Meta, Config) ->
     %% TODO: move all tags to Meta so we can filter traces
     %% based on tags (currently not supported)
     Tag = maps:get(tag, ReportRaw, maps:get(tag, Meta, undefined)),
+    %% Extract pid from Meta (Erlang logger automatically adds it)
+    Pid =
+        case maps:get(pid, Meta, undefined) of
+            undefined -> undefined;
+            Pid0 when is_pid(Pid0) -> pid_to_list(Pid0);
+            Pid0 -> Pid0
+        end,
     %% turn it into a list so that the order of the fields is determined
     lists:foldl(
         fun
             ({_, undefined}, Acc) -> Acc;
             (Item, Acc) -> [Item | Acc]
         end,
-        maps:to_list(maps:without([topic, msg, tns, clientid, username, tag], ReportRaw)),
+        maps:to_list(maps:without([topic, msg, tns, clientid, username, tag, pid], ReportRaw)),
         [
+            {pid, Pid},
             {topic, try_format_unicode(Topic)},
             {username, try_format_unicode(Username)},
             {peername, Peer},
