@@ -318,6 +318,7 @@ load_hooks_for_rule(#{from := Topics}) ->
 maybe_add_metrics_for_rule(Id) ->
     case emqx_metrics_worker:has_metrics(rule_metrics, Id) of
         true ->
+            _ = emqx_metrics_worker:ensure_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS),
             ok = reset_metrics_for_rule(Id);
         false ->
             ok = emqx_metrics_worker:create_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS)
@@ -333,7 +334,13 @@ reset_metrics_for_rule(Id) ->
 
 -spec reset_metrics_for_rule(rule_id(), map()) -> ok.
 reset_metrics_for_rule(Id, _Opts) ->
-    emqx_metrics_worker:reset_metrics(rule_metrics, Id).
+    case emqx_metrics_worker:has_metrics(rule_metrics, Id) of
+        true ->
+            _ = emqx_metrics_worker:ensure_metrics(rule_metrics, Id, ?METRICS, ?RATE_METRICS),
+            emqx_metrics_worker:reset_metrics(rule_metrics, Id);
+        false ->
+            ok
+    end.
 
 unload_hooks_for_rule(#{id := Id, from := Topics}) ->
     lists:foreach(
