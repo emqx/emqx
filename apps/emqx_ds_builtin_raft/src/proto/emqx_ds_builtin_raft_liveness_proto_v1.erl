@@ -9,7 +9,7 @@ Protocol used to exchange shard liveness information.
 -behavior(emqx_bpapi).
 
 %% API:
--export([multicast_shard_up/3]).
+-export([multicast_shard_up/4]).
 
 %% behavior callbacks:
 -export([introduced_in/0]).
@@ -23,9 +23,11 @@ Protocol used to exchange shard liveness information.
 -doc """
 OTX process uses this to notify all peer nodes that it has started.
 """.
--spec multicast_shard_up([node()], emqx_ds:db(), emqx_ds:shard()) -> ok.
-multicast_shard_up(Nodes, DB, Shard) ->
-    erpc:multicast(Nodes, emqx_ds_builtin_raft_liveness, do_notify_shard_up_v1, [DB, Shard]).
+-spec multicast_shard_up([node()], emqx_ds:db(), emqx_ds:shard(), integer()) -> ok.
+multicast_shard_up(Nodes, DB, Shard, LeaderTerm) ->
+    erpc:multicast(Nodes, emqx_ds_builtin_raft_liveness, do_notify_shard_up_v1, [
+        DB, Shard, LeaderTerm
+    ]).
 
 %%================================================================================
 %% behavior callbacks

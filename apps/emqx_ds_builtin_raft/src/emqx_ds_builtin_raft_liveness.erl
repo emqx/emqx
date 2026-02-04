@@ -24,7 +24,7 @@ speed up change detection, but their content is ignored.
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 %% internal exports:
--export([do_notify_shard_up_v1/2]).
+-export([do_notify_shard_up_v1/3]).
 
 -export_type([]).
 
@@ -66,15 +66,18 @@ start_link(DB) ->
 
 -spec notify_shard_up(emqx_ds:db(), emqx_ds:shard()) -> ok.
 notify_shard_up(DB, Shard) ->
-    emqx_ds_builtin_raft_liveness_proto_v1:multicast_shard_up(nodes(), DB, Shard).
+    emqx_ds_builtin_raft_liveness_proto_v1:multicast_shard_up(nodes(), DB, Shard, -1).
 
 %%================================================================================
 %% Internal exports
 %%================================================================================
 
 %% RPC target
--spec do_notify_shard_up_v1(emqx_ds:db(), emqx_ds:shard()) -> ok.
-do_notify_shard_up_v1(DB, Shard) ->
+-spec do_notify_shard_up_v1(emqx_ds:db(), emqx_ds:shard(), integer()) -> ok.
+do_notify_shard_up_v1(DB, Shard, _LeaderTerm) ->
+    %% NOTE: leader term can be used in the future to serialize
+    %% updates and have a smarter implementation (e.g. avoid
+    %% dependence on `global'?).
     gen_server:cast(?via(DB), #cast_shard_up{shard = Shard}).
 
 %%================================================================================
