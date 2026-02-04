@@ -638,23 +638,39 @@ t_unknown_messages(_Config) ->
     emqx_config_handler:stop(),
     ok.
 
-t_evict(_Config) ->
+t_evict(Config) ->
     emqx_config_handler:start_link(),
     {ok, _} = emqx_crl_cache:start_link(),
     URL = "http://localhost/crl.pem",
     URLBin = iolist_to_binary(URL),
-    ?wait_async_action(
-        ?assertEqual(ok, emqx_crl_cache:refresh(URL)),
-        #{?snk_kind := crl_cache_insert},
-        5_000
+    CRLDer = ?config(crl_der, Config),
+    {ok, {ok, _}} = ?wait_async_action(
+        emqx_crl_cache:register_der_crls(URL, [CRLDer]),
+        #{?snk_kind := new_crl_url_inserted}
     ),
     Ref = get_crl_cache_table(),
-    ?assertMatch([{URLBin, _}], ets:tab2list(Ref)),
+    ?assertMatch([{URLBin, [CRLDer]}], ets:tab2list(Ref)),
+    StateBeforeEvict = emqx_crl_cache:info(),
+    ?assertEqual(true, sets:is_element(URL, maps:get(cached_urls, StateBeforeEvict))),
+    ?assertMatch(#{URL := _}, maps:get(refresh_timers, StateBeforeEvict)),
     {ok, {ok, _}} = ?wait_async_action(
         emqx_crl_cache:evict(URL),
         #{?snk_kind := crl_cache_evict}
     ),
     ?assertEqual([], ets:tab2list(Ref)),
+    StateAfterEvict = emqx_crl_cache:info(),
+    ?assertEqual(false, sets:is_element(URL, maps:get(cached_urls, StateAfterEvict))),
+    ?assertEqual(
+        [],
+        [U || {_Time, U} <- gb_trees:to_list(maps:get(insertion_times, StateAfterEvict)), U =:= URL]
+    ),
+    {ok, {ok, _}} = ?wait_async_action(
+        emqx_crl_cache:register_der_crls(URL, [CRLDer]),
+        #{?snk_kind := new_crl_url_inserted}
+    ),
+    ?assertMatch([{URLBin, [CRLDer]}], ets:tab2list(Ref)),
+    StateAfterReRegister = emqx_crl_cache:info(),
+    ?assertMatch(#{URL := _}, maps:get(refresh_timers, StateAfterReRegister)),
     emqx_config_handler:stop(),
     ok.
 
