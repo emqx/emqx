@@ -8,8 +8,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_utils/include/emqx_ds_dbs.hrl").
 
-% -define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
--define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
+-define(tp_debug(KIND, EVENT), ?tp_ignore_side_effects_in_prod(KIND, EVENT)).
+% -define(tp_debug(KIND, EVENT), ?tp(warning, KIND, EVENT)).
 
 %% Queue name for pre-6.1.1 queues.
 -define(DEFAULT_MQ_NAME, <<"default">>).

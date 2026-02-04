@@ -10,7 +10,7 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
--export([mq_sctype_api_get/0, mq_sctype_api_put/0, mq_sctype_api_post/0]).
+-export([mq_sctype_api_get/0, mq_sctype_api_put/0, mq_sctype_api_post/0, validate_name/1]).
 
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
@@ -197,7 +197,8 @@ message_queue_fields(IsLastvalue) ->
     [
         %% TODO
         %% name validation
-        {name, mk(binary(), #{desc => ?DESC(name), required => true})},
+        {name,
+            mk(binary(), #{desc => ?DESC(name), required => true, validator => fun validate_name/1})},
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
         {is_lastvalue,
             mk(
@@ -337,4 +338,13 @@ compile_variform(Expression, _Opts) ->
             Compiled;
         {error, Reason} ->
             throw(#{expression => Expression, reason => Reason})
+    end.
+
+validate_name(Name) ->
+    RE = "^[0-9a-zA-Z][\\-\\.0-9a-zA-Z_]*$",
+    case re:run(Name, RE, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error, invalid_name}
     end.

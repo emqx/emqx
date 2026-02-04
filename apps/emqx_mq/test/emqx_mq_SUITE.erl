@@ -29,9 +29,8 @@ all() ->
         {group, random},
         {group, least_inflight},
         {group, round_robin}
-    ]
-    ++
-    All.
+    ] ++
+        All.
 
 groups() ->
     [
@@ -1159,7 +1158,9 @@ t_metrics(_Config) ->
 
 t_update_key_expression(_Config) ->
     %% Create a lastvalue Queue
-    emqx_mq_test_utils:ensure_mq_created(#{name => <<"update_key_expression">>, topic_filter => <<"t/#">>, is_lastvalue => true}),
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"update_key_expression">>, topic_filter => <<"t/#">>, is_lastvalue => true
+    }),
 
     %% Publish 10 messages to the queue, with 10 keys
     %% In tests, the default key is "mq-key" user property.
@@ -1239,7 +1240,11 @@ t_unsubscribe(_Config) ->
 %% Verify that we gracefully handle acks to a message from a lost consumer.
 t_ack_to_message_from_lost_consumer(_Config) ->
     %% Create a non-lastvalue Queue
-    emqx_mq_test_utils:ensure_mq_created(#{name => <<"ack_to_message_from_lost_consumer">>, topic_filter => <<"t/#">>, ping_interval => 100}),
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"ack_to_message_from_lost_consumer">>,
+        topic_filter => <<"t/#">>,
+        ping_interval => 100
+    }),
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Connect a client and subscribe to the queue
@@ -1298,6 +1303,40 @@ t_auto_create_disabled(_Config) ->
 
     %% Verify that the queue was not automatically created
     ?assertEqual(not_found, emqx_mq_registry:find(<<"auto_create_disabled">>)),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Subscribe to the same name under different topic filters
+t_conflicting_queues(_Config) ->
+    %% Enable automatic creation of regular queues
+    emqx:update_config([mq, auto_create], #{<<"regular">> => #{}, <<"lastvalue">> => false}),
+    emqx_config:put([mq, find_queue_retry_interval], 100),
+
+    %% Connect a client and subscribe to the queues
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    %% This queue will be created
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"cq">>, <<"t1/#">>),
+    %% This queue will not be created, since cq is already created with topic filter t1/#
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"cq">>, <<"t2/#">>),
+
+    %% Publish a message to the queue and verify that it is received
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t1/">>}),
+    ?assertMatch(
+        {ok, [#{topic := <<"t1/", _/binary>>}]},
+        emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 1, _Timeout0 = 1000)
+    ),
+
+    %% Now recreate the queue with the second topic filter and verify that the message is also received
+    %% without reconnecting the client
+    emqx_mq_test_utils:stop_all_consumers(),
+    emqx_mq_registry:delete(<<"cq">>),
+    emqx_mq_test_utils:ensure_mq_created(#{name => <<"cq">>, topic_filter => <<"t2/#">>}),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+    ?assertMatch(
+        {ok, [#{topic := <<"t2/", _/binary>>}]},
+        emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 1000)
+    ),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).

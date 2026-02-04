@@ -282,12 +282,22 @@ list() ->
 -doc """
 List at most `Limit` MQs starting from `Cursor` position.
 """.
--spec list(cursor(), non_neg_integer()) -> {[emqx_mq_types:mq()], cursor()}.
+-spec list(cursor(), non_neg_integer()) ->
+    {ok, [emqx_mq_types:mq()], cursor()} | {error, bad_cursor}.
 list(Cursor, Limit) when Limit >= 1 ->
+    case key_from_cursor(Cursor) of
+        {ok, Key} ->
+            {MQs, CursorNext} = do_list(Key, Limit),
+            {ok, MQs, CursorNext};
+        {error, bad_cursor} ->
+            {error, bad_cursor}
+    end.
+
+do_list(StartKey, Limit) ->
     KeyMQs0 = emqx_utils_stream:consume(
         emqx_utils_stream:limit_length(
             Limit + 1,
-            mq_record_stream_to_queues(mq_record_stream(key_from_cursor(Cursor)))
+            mq_record_stream_to_queues(mq_record_stream(StartKey))
         )
     ),
     case length(KeyMQs0) < Limit + 1 of
@@ -295,9 +305,9 @@ list(Cursor, Limit) when Limit >= 1 ->
             {_Keys, MQs} = lists:unzip(KeyMQs0),
             {MQs, undefined};
         false ->
-            {Key, _MQ} = lists:last(KeyMQs0),
             KeyMQs = lists:sublist(KeyMQs0, Limit),
-            {_Keys, MQs} = lists:unzip(KeyMQs),
+            {Keys, MQs} = lists:unzip(KeyMQs),
+            Key = lists:last(Keys),
             NewCursor = cursor_from_key(Key),
             {MQs, NewCursor}
     end.
@@ -377,13 +387,13 @@ mq_record_stream(Key) ->
     ).
 
 key_from_cursor(undefined) ->
-    undefined;
+    {ok, undefined};
 key_from_cursor(Cursor) ->
     try emqx_utils_json:decode(base64:decode(Cursor)) of
         #{<<"tf">> := TopicFilter, <<"id">> := Id} ->
-            emqx_topic_index:make_key(TopicFilter, Id);
+            {ok, emqx_topic_index:make_key(TopicFilter, Id)};
         _ ->
-            undefined
+            {error, bad_cursor}
     catch
         Class:Reason ->
             ?tp(warning, mq_registry_key_from_cursor_error, #{
@@ -391,7 +401,7 @@ key_from_cursor(Cursor) ->
                 class => Class,
                 reason => Reason
             }),
-            undefined
+            {error, bad_cursor}
     end.
 
 cursor_from_key(Key) ->

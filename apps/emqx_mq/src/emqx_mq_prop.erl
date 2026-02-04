@@ -18,7 +18,8 @@ The module contains accessor functions for the MQs/MQ handles.
     is_append_only/1,
     topic_filter/1,
     quota_index_opts/1,
-    default_name/1
+    default_name/1,
+    default_name_from_topic/1
 ]).
 
 %%--------------------------------------------------------------------
@@ -37,7 +38,11 @@ name(#{name := Name} = _MQ) ->
 default_name(#{name := Name} = _MQ) ->
     Name;
 default_name(#{topic_filter := TopicFilter} = _MQ) ->
-    <<"/", TopicFilter/binary>>.
+    default_name_from_topic(TopicFilter).
+
+-spec default_name_from_topic(emqx_types:topic()) -> emqx_mq_types:mq_name().
+default_name_from_topic(TopicFilter) ->
+    ?LEGACY_QUEUE_NAME(TopicFilter).
 
 -spec is_limited(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) -> boolean().
 is_limited(
