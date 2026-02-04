@@ -98,8 +98,15 @@ peername({quic, Conn, _Stream, _Info}) ->
 sockname({quic, Conn, _Stream, _Info}) ->
     quicer:sockname(Conn).
 
+%% Extract peer certificate from QUIC connection.
+%% quicer:peercert/1 returns {ok, DerCert} when client presents a certificate.
+%% This enables peer_cert_as_username = "cn" on QUIC mTLS listeners.
+peercert({quic, Conn, _Stream, _Info}) ->
+    case quicer:peercert(Conn) of
+        {ok, DerCert} -> DerCert;
+        {error, _} -> nossl
+    end;
 peercert(_S) ->
-    %% @todo but unsupported by msquic
     nossl.
 
 peersni(_S) ->
