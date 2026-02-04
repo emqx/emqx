@@ -71,7 +71,8 @@ is_enabled() ->
 max_queue_count() ->
     emqx:get_config(?MQ_CONFIG_PATH ++ [max_queue_count]).
 
--spec auto_create(emqx_mq_types:mq_name(), emqx_mq_types:mq_topic()) -> false | {true, emqx_mq_types:mq()}.
+-spec auto_create(emqx_mq_types:mq_name(), emqx_mq_types:mq_topic()) ->
+    false | {true, emqx_mq_types:mq()}.
 auto_create(Name, Topic) ->
     auto_create(Name, Topic, emqx:get_config(?MQ_CONFIG_PATH ++ [auto_create])).
 
