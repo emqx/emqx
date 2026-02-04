@@ -135,7 +135,8 @@ groups() ->
             t_conn_resume,
             t_conn_without_ctrl_stream,
             t_probe_client_conn,
-            t_client_probe_conn
+            t_client_probe_conn,
+            t_peercert
         ]}
     ].
 
@@ -1797,6 +1798,24 @@ t_client_probe_conn(Config) ->
             TS1 >= TS0,
         ProbeRes
     ),
+    ok.
+
+t_peercert(_Config) ->
+    FakeConn = make_ref(),
+    FakeStream = make_ref(),
+    FakeInfo = #{},
+    QuicSock = {quic, FakeConn, FakeStream, FakeInfo},
+    DerCert = <<"fake-der-cert">>,
+    %% Test: peercert returns DER cert when quicer:peercert succeeds
+    meck:new(quicer, [passthrough, no_history]),
+    meck:expect(quicer, peercert, fun(Conn) when Conn =:= FakeConn -> {ok, DerCert} end),
+    ?assertEqual(DerCert, emqx_quic_stream:peercert(QuicSock)),
+    %% Test: peercert returns nossl when quicer:peercert fails
+    meck:expect(quicer, peercert, fun(Conn) when Conn =:= FakeConn -> {error, no_peercert} end),
+    ?assertEqual(nossl, emqx_quic_stream:peercert(QuicSock)),
+    meck:unload(quicer),
+    %% Test: non-QUIC socket returns nossl
+    ?assertEqual(nossl, emqx_quic_stream:peercert(some_other_socket)),
     ok.
 
 t_data_stream_race_ctrl_stream(Config) ->
