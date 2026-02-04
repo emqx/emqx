@@ -17,30 +17,13 @@ services:
         aliases:
           - nats
           - nats.emqx.net
-  nats_wss:
-    container_name: nats_wss
-    image: public.ecr.aws/docker/library/nats:${NATS_TAG:-2.10}
-    restart: always
-    expose:
-      - "4222"
-      - "9322"
-    volumes:
-      - ./nats/nats-wss.conf:/etc/nats/nats.conf
-      - ./certs:/etc/nats/certs:ro
-    command:
-      - "-c"
-      - "/etc/nats/nats.conf"
-    networks:
-      emqx_bridge:
-        aliases:
-          - nats-wss
-          - nats-wss.emqx.net
   nats_tls:
     container_name: nats_tls
     image: public.ecr.aws/docker/library/nats:${NATS_TAG:-2.10}
     restart: always
     expose:
       - "4422"
+      - "9322"
     volumes:
       - ./nats/nats-tls.conf:/etc/nats/nats.conf
       - ./certs:/etc/nats/certs:ro
@@ -52,3 +35,5 @@ services:
         aliases:
           - nats-tls
           - nats-tls.emqx.net
+          - nats-wss
+          - nats-wss.emqx.net

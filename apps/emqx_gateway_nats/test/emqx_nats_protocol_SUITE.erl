@@ -135,24 +135,11 @@ init_per_testcase(TestCase, Config) ->
         {skip, Reason} ->
             {skip, Reason};
         ok ->
-            Config
+            emqx_common_test_helpers:init_per_testcase(?MODULE, TestCase, Config)
     end.
 
-end_per_testcase(_TestCase, _Config) ->
-    case target_from(_Config) of
-        emqx ->
-            try
-                allow_pubsub_all(),
-                delete_test_user(),
-                disable_auth()
-            catch
-                _:_ ->
-                    ok
-            end,
-            ok;
-        nats ->
-            ok
-    end.
+end_per_testcase(TestCase, Config) ->
+    emqx_common_test_helpers:end_per_testcase(?MODULE, TestCase, Config).
 
 %%--------------------------------------------------------------------
 %% Helper Functions
@@ -442,6 +429,7 @@ should_skip(_TestCase, emqx) ->
 
 nats_only_skips() ->
     [
+        t_auth_dynamic_enable_disable,
         t_publish_authz,
         t_subscribe_authz,
         t_optional_connect_request,
@@ -506,6 +494,64 @@ deny_pubsub_all() ->
         >>
     ).
 
+auth_user() ->
+    <<"test_user">>.
+
+auth_pass() ->
+    <<"password">>.
+
+auth_client_opts(Config, Pass) ->
+    maps:merge(
+        ?config(client_opts, Config),
+        #{
+            user => auth_user(),
+            pass => Pass,
+            verbose => true
+        }
+    ).
+
+client_opts_no_creds(Config) ->
+    maps:remove(pass, maps:remove(user, ?config(client_opts, Config))).
+
+auth_setup(Config) ->
+    case target_from(Config) of
+        emqx ->
+            safe_delete_test_user(),
+            ok = enable_auth(),
+            ok = create_test_user();
+        nats ->
+            ok
+    end,
+    Config.
+
+auth_cleanup(Config) ->
+    case target_from(Config) of
+        emqx ->
+            safe_delete_test_user(),
+            _ = disable_auth(),
+            ok;
+        nats ->
+            ok
+    end,
+    Config.
+
+authz_cleanup(Config) ->
+    case target_from(Config) of
+        emqx ->
+            allow_pubsub_all();
+        nats ->
+            ok
+    end,
+    auth_cleanup(Config).
+
+safe_delete_test_user() ->
+    try
+        delete_test_user()
+    catch
+        _:_ ->
+            ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Test Cases
 %%--------------------------------------------------------------------
@@ -527,7 +573,7 @@ t_verbose_mode(Config) ->
 
     %% Test INFO message
     {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
-    assert_info_message(InfoMsg, target_from(Config)),
+    assert_info_message(InfoMsg),
 
     %% Test CONNECT with verbose mode
     ok = emqx_nats_client:connect(Client),
@@ -746,18 +792,7 @@ t_unsubscribe(Config) ->
 
 t_unsubscribe_with_max_msgs(Config) ->
     BaseOpts = ?config(client_opts, Config),
-    ClientOpts =
-        case target_from(Config) of
-            emqx ->
-                maps:merge(BaseOpts, #{
-                    verbose => true,
-                    user => <<"unsub_user">>
-                });
-            nats ->
-                maps:merge(BaseOpts, #{
-                    verbose => true
-                })
-        end,
+    ClientOpts = maps:merge(BaseOpts, #{verbose => true}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     recv_info_frame(Client),
 
@@ -973,272 +1008,108 @@ t_no_responders_must_work_with_headers(Config) ->
     ),
     emqx_nats_client:stop(Client).
 
+t_auth_success(init, Config) ->
+    auth_setup(Config);
+t_auth_success('end', Config) ->
+    auth_cleanup(Config).
+
 t_auth_success(Config) ->
-    case target_from(Config) of
-        emqx ->
-            ok = enable_auth(),
-            ok = create_test_user(),
-            ClientOpts = maps:merge(
-                ?config(client_opts, Config),
-                #{
-                    user => <<"test_user">>,
-                    pass => <<"password">>,
-                    verbose => true
-                }
-            ),
-            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-            {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_INFO,
-                    message = _Message
-                },
-                InfoMsg
-            ),
-            Message = InfoMsg#nats_frame.message,
-            ?assert(maps:get(<<"auth_required">>, Message) =:= true),
+    ClientOpts = auth_client_opts(Config, auth_pass()),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
 
-            %% Connect with credentials
-            ok = emqx_nats_client:connect(Client),
-            {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_OK
-                },
-                ConnectAck
-            ),
+    %% Connect with credentials
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
 
-            %% Test basic operations after successful authentication
-            ok = emqx_nats_client:ping(Client),
-            {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_PONG
-                },
-                PongMsg
-            ),
+    %% Test basic operations after successful authentication
+    ok = emqx_nats_client:ping(Client),
+    {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_PONG
+        },
+        PongMsg
+    ),
 
-            emqx_nats_client:stop(Client),
-            ok = delete_test_user(),
-            ok = disable_auth();
-        nats ->
-            ClientOpts = maps:merge(
-                ?config(client_opts, Config),
-                #{
-                    user => <<"test_user">>,
-                    pass => <<"password">>,
-                    verbose => true
-                }
-            ),
-            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-            {ok, [_]} = emqx_nats_client:receive_message(Client),
-            ok = emqx_nats_client:connect(Client),
-            {ok, [ConnectAck]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_OK
-                },
-                ConnectAck
-            ),
-            ok = emqx_nats_client:ping(Client),
-            {ok, [PongMsg]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_PONG
-                },
-                PongMsg
-            ),
-            emqx_nats_client:stop(Client)
-    end.
+    emqx_nats_client:stop(Client).
+
+t_auth_failure(init, Config) ->
+    auth_setup(Config);
+t_auth_failure('end', Config) ->
+    auth_cleanup(Config).
 
 t_auth_failure(Config) ->
-    case target_from(Config) of
-        emqx ->
-            ok = enable_auth(),
-            ok = create_test_user(),
-            ClientOpts = maps:merge(
-                ?config(client_opts, Config),
-                #{
-                    user => <<"test_user">>,
-                    pass => <<"wrong_password">>,
-                    verbose => true
-                }
-            ),
-            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-            {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_INFO,
-                    message = _Message
-                },
-                InfoMsg
-            ),
-            Message = InfoMsg#nats_frame.message,
-            ?assert(maps:get(<<"auth_required">>, Message) =:= true),
+    ClientOpts = auth_client_opts(Config, <<"wrong_password">>),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
 
-            %% Connect with wrong credentials
-            ok = emqx_nats_client:connect(Client),
-            {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_ERR,
-                    message = _
-                },
-                ErrorMsg
-            ),
+    %% Connect with wrong credentials
+    ok = emqx_nats_client:connect(Client),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
 
-            emqx_nats_client:stop(Client),
-            ok = delete_test_user(),
-            ok = disable_auth();
-        nats ->
-            ClientOpts = maps:merge(
-                ?config(client_opts, Config),
-                #{
-                    user => <<"test_user">>,
-                    pass => <<"wrong_password">>,
-                    verbose => true
-                }
-            ),
-            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-            {ok, [_]} = emqx_nats_client:receive_message(Client),
-            ok = emqx_nats_client:connect(Client),
-            {ok, Msgs} = emqx_nats_client:receive_message(Client),
-            assert_auth_failed(Msgs),
-            emqx_nats_client:stop(Client)
-    end.
+    emqx_nats_client:stop(Client).
+
+t_auth_dynamic_enable_disable(init, Config) ->
+    auth_cleanup(Config);
+t_auth_dynamic_enable_disable('end', Config) ->
+    auth_cleanup(Config).
 
 t_auth_dynamic_enable_disable(Config) ->
-    case target_from(Config) of
-        emqx ->
-            %% Start with auth disabled
-            ok = disable_auth(),
-            ClientOpts = maps:merge(
-                ?config(client_opts, Config),
-                #{verbose => true}
-            ),
-            {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-            {ok, [InfoMsg1]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_INFO,
-                    message = _Message1
-                },
-                InfoMsg1
-            ),
-            Message1 = InfoMsg1#nats_frame.message,
-            ?assert(maps:get(<<"auth_required">>, Message1) =:= false),
+    ClientOptsNoCred = maps:merge(client_opts_no_creds(Config), #{verbose => true}),
 
-            %% Connect without credentials (should succeed)
-            ok = emqx_nats_client:connect(Client),
-            {ok, [ConnectAck1]} = emqx_nats_client:receive_message(Client),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_OK
-                },
-                ConnectAck1
-            ),
+    %% Start with auth disabled
+    {ok, Client1} = emqx_nats_client:start_link(ClientOptsNoCred),
+    InfoMsg1 = recv_info_frame(Client1),
+    assert_auth_required(InfoMsg1, false),
 
-            %% Enable auth and create test user
-            ok = enable_auth(),
-            ok = create_test_user(),
-            {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
-            {ok, [InfoMsg2]} = emqx_nats_client:receive_message(Client2),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_INFO,
-                    message = _Message2
-                },
-                InfoMsg2
-            ),
-            Message2 = InfoMsg2#nats_frame.message,
-            ?assert(maps:get(<<"auth_required">>, Message2) =:= true),
+    %% Connect without credentials (should succeed)
+    ok = emqx_nats_client:connect(Client1),
+    recv_ok_frame(Client1),
+    emqx_nats_client:stop(Client1),
 
-            %% Try to connect without credentials (should fail)
-            ok = emqx_nats_client:connect(Client2),
-            {ok, [ErrorMsg]} = emqx_nats_client:receive_message(Client2),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_ERR,
-                    message = _
-                },
-                ErrorMsg
-            ),
+    %% Enable auth and create test user
+    ok = enable_auth(),
+    ok = create_test_user(),
+    {ok, Client2} = emqx_nats_client:start_link(ClientOptsNoCred),
+    InfoMsg2 = recv_info_frame(Client2),
+    assert_auth_required(InfoMsg2, true),
 
-            %% Disable auth again
-            ok = delete_test_user(),
-            ok = disable_auth(),
-            {ok, Client3} = emqx_nats_client:start_link(ClientOpts),
-            {ok, [InfoMsg3]} = emqx_nats_client:receive_message(Client3),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_INFO,
-                    message = _Message3
-                },
-                InfoMsg3
-            ),
-            Message3 = InfoMsg3#nats_frame.message,
-            ?assert(maps:get(<<"auth_required">>, Message3) =:= false),
+    %% Try to connect without credentials (should fail)
+    ok = emqx_nats_client:connect(Client2),
+    {ok, Msgs2} = emqx_nats_client:receive_message(Client2),
+    assert_auth_failed(Msgs2),
+    emqx_nats_client:stop(Client2),
 
-            %% Connect without credentials (should succeed again)
-            ok = emqx_nats_client:connect(Client3),
-            {ok, [ConnectAck2]} = emqx_nats_client:receive_message(Client3),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_OK
-                },
-                ConnectAck2
-            ),
+    %% Disable auth again
+    ok = delete_test_user(),
+    ok = disable_auth(),
+    {ok, Client3} = emqx_nats_client:start_link(ClientOptsNoCred),
+    InfoMsg3 = recv_info_frame(Client3),
+    assert_auth_required(InfoMsg3, false),
 
-            emqx_nats_client:stop(Client),
-            emqx_nats_client:stop(Client2),
-            emqx_nats_client:stop(Client3);
-        nats ->
-            ClientOptsNoCred0 = maps:remove(pass, maps:remove(user, ?config(client_opts, Config))),
-            ClientOptsNoCred = maps:merge(
-                ClientOptsNoCred0,
-                #{verbose => true}
-            ),
-            {ok, Client1} = emqx_nats_client:start_link(ClientOptsNoCred),
-            {ok, [_]} = emqx_nats_client:receive_message(Client1),
-            ok = emqx_nats_client:connect(Client1),
-            {ok, Msgs1} = emqx_nats_client:receive_message(Client1),
-            assert_auth_failed(Msgs1),
-            emqx_nats_client:stop(Client1),
+    %% Connect without credentials (should succeed again)
+    ok = emqx_nats_client:connect(Client3),
+    recv_ok_frame(Client3),
+    emqx_nats_client:stop(Client3).
 
-            ClientOptsCred = maps:merge(
-                ?config(client_opts, Config),
-                #{
-                    user => <<"test_user">>,
-                    pass => <<"password">>,
-                    verbose => true
-                }
-            ),
-            {ok, Client2} = emqx_nats_client:start_link(ClientOptsCred),
-            {ok, [_]} = emqx_nats_client:receive_message(Client2),
-            ok = emqx_nats_client:connect(Client2),
-            {ok, [ConnectAck2]} = emqx_nats_client:receive_message(Client2),
-            ?assertMatch(
-                #nats_frame{
-                    operation = ?OP_OK
-                },
-                ConnectAck2
-            ),
-            emqx_nats_client:stop(Client2)
-    end.
+t_publish_authz(init, Config) ->
+    auth_setup(Config);
+t_publish_authz('end', Config) ->
+    authz_cleanup(Config).
 
 t_publish_authz(Config) ->
     %% Enable authorization with deny all first
     ok = deny_pubsub_all(),
 
-    %% Create test user and enable auth
-    ok = enable_auth(),
-    ok = create_test_user(),
-
     ClientOpts = maps:merge(
         ?config(client_opts, Config),
         #{
-            user => <<"test_user">>,
-            pass => <<"password">>,
+            user => auth_user(),
+            pass => auth_pass(),
             verbose => true
         }
     ),
@@ -1273,22 +1144,22 @@ t_publish_authz(Config) ->
     ),
 
     emqx_nats_client:stop(Client),
-    ok = delete_test_user(),
-    ok = disable_auth().
+    ok.
+
+t_subscribe_authz(init, Config) ->
+    auth_setup(Config);
+t_subscribe_authz('end', Config) ->
+    authz_cleanup(Config).
 
 t_subscribe_authz(Config) ->
     %% Enable authorization with deny all first
     ok = deny_pubsub_all(),
 
-    %% Create test user and enable auth
-    ok = enable_auth(),
-    ok = create_test_user(),
-
     ClientOpts = maps:merge(
         ?config(client_opts, Config),
         #{
-            user => <<"test_user">>,
-            pass => <<"password">>,
+            user => auth_user(),
+            pass => auth_pass(),
             verbose => true
         }
     ),
@@ -1323,8 +1194,7 @@ t_subscribe_authz(Config) ->
     ),
 
     emqx_nats_client:stop(Client),
-    ok = delete_test_user(),
-    ok = disable_auth().
+    ok.
 
 t_optional_connect_request(Config) ->
     ClientOpts = maps:merge(
@@ -1356,8 +1226,18 @@ t_optional_connect_request(Config) ->
 
     emqx_nats_client:stop(Client).
 
+t_optional_connect_request_only_work_authn_disabled(init, Config) ->
+    case target_from(Config) of
+        emqx ->
+            ok = enable_auth(),
+            Config;
+        nats ->
+            Config
+    end;
+t_optional_connect_request_only_work_authn_disabled('end', Config) ->
+    auth_cleanup(Config).
+
 t_optional_connect_request_only_work_authn_disabled(Config) ->
-    enable_auth(),
     ClientOpts = maps:merge(
         ?config(client_opts, Config),
         #{
@@ -1378,7 +1258,7 @@ t_optional_connect_request_only_work_authn_disabled(Config) ->
     ),
 
     emqx_nats_client:stop(Client),
-    disable_auth().
+    ok.
 
 t_server_to_client_ping(Config) ->
     ClientOpts = maps:merge(
@@ -1454,21 +1334,17 @@ recv_info_frame(Client) ->
             operation = ?OP_INFO
         },
         Frame
-    ).
+    ),
+    Frame.
 
-assert_info_message(
-    #nats_frame{operation = ?OP_INFO, message = Message},
-    Target
-) ->
+assert_info_message(#nats_frame{operation = ?OP_INFO, message = Message}) ->
     ?assert(is_map(Message)),
     ?assert(maps:is_key(<<"version">>, Message)),
-    ?assert(maps:is_key(<<"max_payload">>, Message)),
-    case Target of
-        emqx ->
-            ?assertMatch(false, maps:get(<<"auth_required">>, Message, false));
-        nats ->
-            ok
-    end.
+    ?assert(maps:is_key(<<"max_payload">>, Message)).
+
+assert_auth_required(#nats_frame{operation = ?OP_INFO, message = Message}, Expected) ->
+    ?assert(is_map(Message)),
+    ?assertEqual(Expected, maps:get(<<"auth_required">>, Message, false)).
 
 assert_auth_failed(Msgs) ->
     case Msgs of
