@@ -429,9 +429,9 @@ systopic_mon() ->
 
 sharetopic() ->
     ?LET(
-        {Type, Grp, T},
-        {oneof([<<"$share">>]), list(latin_char()), normal_topic()},
-        <<Type/binary, "/", (iolist_to_binary(Grp))/binary, "/", T/binary>>
+        {Grp, T},
+        {list(latin_char()), normal_topic()},
+        <<"$share/", (iolist_to_binary(Grp))/binary, "/", T/binary>>
     ).
 
 normal_topic() ->
