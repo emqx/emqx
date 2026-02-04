@@ -93,6 +93,7 @@
     failed_to_connect_server,
     failed_to_fetch_crl,
     failed_to_retain_message,
+    failed_to_update_metric_counter,
     handle_resource_metrics_failed,
     retain_failed_for_payload_size_exceeded_limit,
     retain_failed_for_rate_exceeded_limit,
