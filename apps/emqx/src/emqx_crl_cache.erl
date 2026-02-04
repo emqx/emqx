@@ -130,12 +130,26 @@ init([]) ->
 handle_call(Call, _From, State) ->
     {reply, {error, {bad_call, Call}}, State}.
 
-handle_cast({evict, URL}, State0 = #state{refresh_timers = RefreshTimers0}) ->
+handle_cast(
+    {evict, URL0},
+    State0 = #state{
+        refresh_timers = RefreshTimers0,
+        cached_urls = CachedURLs0,
+        insertion_times = InsertionTimes0
+    }
+) ->
+    URL = to_string(URL0),
     emqx_ssl_crl_cache:delete(URL),
     MTimer = maps:get(URL, RefreshTimers0, undefined),
     emqx_utils:cancel_timer(MTimer),
     RefreshTimers = maps:without([URL], RefreshTimers0),
-    State = State0#state{refresh_timers = RefreshTimers},
+    CachedURLs = sets:del_element(URL, CachedURLs0),
+    InsertionTimes = remove_url_from_insertion_times(URL, InsertionTimes0),
+    State = State0#state{
+        refresh_timers = RefreshTimers,
+        cached_urls = CachedURLs,
+        insertion_times = InsertionTimes
+    },
     ?tp(
         crl_cache_evict,
         #{url => URL}
@@ -331,3 +345,8 @@ to_string(B) when is_binary(B) ->
     binary_to_list(B);
 to_string(L) when is_list(L) ->
     L.
+
+remove_url_from_insertion_times(URL, InsertionTimes0) ->
+    gb_trees:from_orddict(
+        [KV || KV = {_Time, CachedURL} <- gb_trees:to_list(InsertionTimes0), CachedURL =/= URL]
+    ).
