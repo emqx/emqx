@@ -517,7 +517,7 @@ send_auto_observe(RegInfo, Session) ->
             Session;
         true ->
             AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-            ObjectList = maps:get(<<"objectList">>, RegInfo, []),
+            ObjectList = auto_observe_object_list(RegInfo),
             observe_object_list(AlternatePath, ObjectList, Session);
         ObjectList when is_list(ObjectList) ->
             case ObjectList of

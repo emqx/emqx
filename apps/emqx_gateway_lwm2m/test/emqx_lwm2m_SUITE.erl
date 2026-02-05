@@ -167,7 +167,11 @@ groups() ->
             case128_session_internal_branches,
             case129_write_hex_encoding,
             case130_auto_observe_list_config,
-            case133_mountpoint_peerhost_placeholder
+            case133_mountpoint_peerhost_placeholder,
+            case134_auto_observe_empty_list,
+            case135_auto_observe_invalid_types,
+            case136_update_publish_condition_legacy,
+            case137_cmd_error_paths
         ]}
     ].
 
@@ -976,7 +980,9 @@ case02_update_publish_condition(Config) ->
 
     %% switch to contains_object_list, update without objectList should NOT publish
     ok = emqx_conf_cli:load_config(
-        ?global_ns, default_config_with_update_condition_raw("\"contains_object_list\""), #{mode => replace}
+        ?global_ns, default_config_with_update_condition_raw("\"contains_object_list\""), #{
+            mode => replace
+        }
     ),
     ensure_gateway_loaded(),
 
@@ -5327,6 +5333,14 @@ case130_auto_observe_list_config(_Config) ->
         [<<"/3/0">>, <<"/3/0/1">>],
         emqx_lwm2m_session:auto_observe_object_list(RegInfo)
     ),
+    BinaryRaw = "\"/3/0,/3/0/1\"",
+    ok = emqx_conf_cli:load_config(
+        ?global_ns, default_config_with_auto_observe_raw(BinaryRaw), #{mode => replace}
+    ),
+    ?assertEqual(
+        [<<"/3/0">>, <<"/3/0/1">>],
+        emqx_lwm2m_session:auto_observe_object_list(RegInfo)
+    ),
     OnRaw = "\"on\"",
     ok = emqx_conf_cli:load_config(
         ?global_ns, default_config_with_auto_observe_raw(OnRaw), #{mode => replace}
@@ -5358,6 +5372,107 @@ case133_mountpoint_peerhost_placeholder(_Config) ->
     {ok, Channel1} = emqx_lwm2m_channel:enrich_clientinfo(Msg, Channel0),
     #{mountpoint := Mountpoint} = emqx_lwm2m_channel:info(clientinfo, Channel1),
     ?assertEqual(<<"lwm2m/127.0.0.1/ep133/">>, Mountpoint).
+
+case134_auto_observe_empty_list(_Config) ->
+    ok = emqx_conf_cli:load_config(
+        ?global_ns, default_config_with_auto_observe_raw("[]"), #{mode => replace}
+    ),
+    WithContext = with_context_stub(),
+    Session0 = emqx_lwm2m_session:new(),
+    Query = #{<<"ep">> => <<"ep134">>, <<"lt">> => <<"60">>},
+    RegMsg = #coap_message{options = #{uri_query => Query}, payload = <<>>},
+    _ = emqx_lwm2m_session:init(RegMsg, <<>>, WithContext, Session0),
+    ok.
+
+case135_auto_observe_invalid_types(_Config) ->
+    RegInfo = #{<<"objectList">> => [<<"/1/0">>]},
+    OldValue = emqx:get_config([gateway, lwm2m, auto_observe]),
+    try
+        ok = emqx_config:put([gateway, lwm2m, auto_observe], ["/3/0", 1]),
+        ?assertException(
+            error,
+            badarg,
+            emqx_lwm2m_session:auto_observe_object_list(RegInfo)
+        ),
+        ok = emqx_config:put([gateway, lwm2m, auto_observe], 1),
+        ?assertEqual([], emqx_lwm2m_session:auto_observe_object_list(RegInfo))
+    after
+        ok = emqx_config:put([gateway, lwm2m, auto_observe], OldValue)
+    end.
+
+case136_update_publish_condition_legacy(_Config) ->
+    WithContext = with_context_stub(),
+    Session0 = emqx_lwm2m_session:new(),
+    Query = #{<<"ep">> => <<"ep136">>, <<"lt">> => <<"60">>},
+    RegMsg = #coap_message{options = #{uri_query => Query}, payload = <<"</3/0>">>},
+    InitResult = emqx_lwm2m_session:init(RegMsg, <<>>, WithContext, Session0),
+    Session1 = session_from_result(InitResult),
+    UpdateMsg = #coap_message{options = #{uri_query => #{<<"lt">> => <<"60">>}}, payload = <<>>},
+    OldValue = emqx:get_config([gateway, lwm2m, update_msg_publish_condition]),
+    try
+        ok = emqx_config:put([gateway, lwm2m, update_msg_publish_condition], <<"always">>),
+        _ = emqx_lwm2m_session:update(UpdateMsg, WithContext, Session1),
+        ok =
+            emqx_config:put(
+                [gateway, lwm2m, update_msg_publish_condition],
+                <<"contains_object_list">>
+            ),
+        _ = emqx_lwm2m_session:update(UpdateMsg, WithContext, Session1),
+        ok = emqx_config:put([gateway, lwm2m, update_msg_publish_condition], bogus),
+        _ = emqx_lwm2m_session:update(UpdateMsg, WithContext, Session1)
+    after
+        ok = emqx_config:put([gateway, lwm2m, update_msg_publish_condition], OldValue)
+    end.
+
+case137_cmd_error_paths(_Config) ->
+    WithContext = with_context_stub(),
+    Session0 = emqx_lwm2m_session:new(),
+    Session1 = setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}),
+    BadCmdNonBinary = #{
+        <<"msgType">> => <<"write">>,
+        <<"encoding">> => <<"hex">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => 1
+        }
+    },
+    _ = emqx_lwm2m_session:send_cmd(BadCmdNonBinary, WithContext, Session1),
+    ok = meck:new(emqx_utils, [passthrough, no_history]),
+    try
+        ok = meck:expect(emqx_utils, hexstr_to_bin, fun(_) -> throw(test_hex) end),
+        BadCmdThrow = #{
+            <<"msgType">> => <<"write">>,
+            <<"encoding">> => <<"hex">>,
+            <<"data">> => #{
+                <<"path">> => <<"/3/0/1">>,
+                <<"type">> => <<"String">>,
+                <<"value">> => <<"FF">>
+            }
+        },
+        _ = emqx_lwm2m_session:send_cmd(BadCmdThrow, WithContext, Session1)
+    after
+        meck:unload(emqx_utils)
+    end,
+    BadCmdOddHex = #{
+        <<"msgType">> => <<"write">>,
+        <<"encoding">> => <<"hex">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => <<"F">>
+        }
+    },
+    _ = emqx_lwm2m_session:send_cmd(BadCmdOddHex, WithContext, Session1),
+    MissingValueCmd = #{
+        <<"msgType">> => <<"write">>,
+        <<"encoding">> => <<"hex">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>
+        }
+    },
+    ?assertException(error, _, emqx_lwm2m_cmd:mqtt_to_coap(<<"/">>, MissingValueCmd)).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions

@@ -93,7 +93,9 @@ mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"write">>, <<"data">
                 <<"/">> ->
                     single_write_request(AlternatePath, Data, Encoding);
                 BasePath ->
-                    batch_write_request(AlternatePath, BasePath, maps:get(<<"content">>, Data), Encoding)
+                    batch_write_request(
+                        AlternatePath, BasePath, maps:get(<<"content">>, Data), Encoding
+                    )
             end,
         {CoapRequest, InputCmd}
     catch

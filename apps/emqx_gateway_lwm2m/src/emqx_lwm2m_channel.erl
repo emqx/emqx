@@ -596,9 +596,7 @@ fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
 
 normalize_legacy_mountpoint(Mountpoint) when is_binary(Mountpoint) ->
     Mountpoint1 = binary:replace(Mountpoint, <<"%a">>, <<"${peerhost}">>, [global]),
-    binary:replace(Mountpoint1, <<"%e">>, <<"${endpoint_name}">>, [global]);
-normalize_legacy_mountpoint(Mountpoint) ->
-    Mountpoint.
+    binary:replace(Mountpoint1, <<"%e">>, <<"${endpoint_name}">>, [global]).
 
 process_connect(
     Channel = #channel{
