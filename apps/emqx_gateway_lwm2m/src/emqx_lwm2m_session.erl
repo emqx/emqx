@@ -40,7 +40,7 @@
 ]).
 
 -ifdef(TEST).
--export([normalize_mheaders/1]).
+-export([normalize_mheaders/1, auto_observe_object_list/1]).
 -endif.
 
 %% froce update subscriptions
@@ -491,14 +491,23 @@ do_subscribe(
 
 send_auto_observe(RegInfo, Session) ->
     %% - auto observe the objects
-    case is_auto_observe() of
+    case auto_observe_mode() of
+        false ->
+            ?SLOG(info, #{msg => "skip_auto_observe_due_to_disabled"}),
+            Session;
         true ->
             AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
             ObjectList = maps:get(<<"objectList">>, RegInfo, []),
             observe_object_list(AlternatePath, ObjectList, Session);
-        _ ->
-            ?SLOG(info, #{msg => "skip_auto_observe_due_to_disabled"}),
-            Session
+        ObjectList when is_list(ObjectList) ->
+            case ObjectList of
+                [] ->
+                    ?SLOG(info, #{msg => "skip_auto_observe_due_to_empty_list"}),
+                    Session;
+                _ ->
+                    AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
+                    observe_object_list(AlternatePath, ObjectList, Session)
+            end
     end.
 
 observe_object_list(_, [], Session) ->
@@ -547,8 +556,46 @@ deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
     Req = alloc_token(Req0),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
-is_auto_observe() ->
-    emqx:get_config([gateway, lwm2m, auto_observe]).
+auto_observe_object_list(RegInfo) ->
+    case auto_observe_mode() of
+        false ->
+            [];
+        true ->
+            maps:get(<<"objectList">>, RegInfo, []);
+        ObjectList when is_list(ObjectList) ->
+            ObjectList
+    end.
+
+auto_observe_mode() ->
+    normalize_auto_observe(emqx:get_config([gateway, lwm2m, auto_observe])).
+
+normalize_auto_observe(true) ->
+    true;
+normalize_auto_observe(false) ->
+    false;
+normalize_auto_observe(<<"on">>) ->
+    true;
+normalize_auto_observe(<<"off">>) ->
+    false;
+normalize_auto_observe(Bin) when is_binary(Bin) ->
+    normalize_auto_observe_list(binary:split(Bin, <<",">>, [global]));
+normalize_auto_observe(List) when is_list(List) ->
+    normalize_auto_observe_list(List);
+normalize_auto_observe(_Other) ->
+    false.
+
+normalize_auto_observe_list(List) ->
+    lists:filter(
+        fun(Item) -> Item =/= <<>> end,
+        lists:map(fun normalize_auto_observe_item/1, List)
+    ).
+
+normalize_auto_observe_item(Item) when is_binary(Item) ->
+    trim(Item);
+normalize_auto_observe_item(Item) when is_list(Item) ->
+    trim(iolist_to_binary(Item));
+normalize_auto_observe_item(Item) ->
+    trim(iolist_to_binary(Item)).
 
 alloc_token(Req = #coap_message{}) ->
     Req#coap_message{token = crypto:strong_rand_bytes(4)}.

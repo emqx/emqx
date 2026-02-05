@@ -63,7 +63,7 @@ fields(lwm2m) ->
         %% TODO: Support config resource path
         {auto_observe,
             sc(
-                boolean(),
+                hoconsc:union([boolean(), binary(), hoconsc:array(binary())]),
                 #{
                     default => false,
                     desc => ?DESC(lwm2m_auto_observe)

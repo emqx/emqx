@@ -4,7 +4,8 @@ lwm2m.desc:
 """The LwM2M Gateway configuration. This gateway only supports the v1.0.1 protocol."""
 
 lwm2m_auto_observe.desc:
-"""Automatically observe the object list of REGISTER packet."""
+"""Automatically observe the object list of REGISTER packet.
+Accepts true/false or an explicit object list (e.g. [\"/3/0\",\"/3/0/1\"])."""
 
 lwm2m_lifetime_max.desc:
 """Maximum value of lifetime allowed to be set by the LwM2M client."""

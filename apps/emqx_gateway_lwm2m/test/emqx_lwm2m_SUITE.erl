@@ -77,7 +77,8 @@ groups() ->
             case07_register_alternate_path_02,
             case07_register_alternate_path_unprefixed,
             case08_reregister,
-            case09_auto_observe
+            case09_auto_observe,
+            case09_auto_observe_list
         ]},
         {test_grp_1_read, [RepeatOpt], [
             case10_read,
@@ -162,7 +163,8 @@ groups() ->
             case126_message_insert_resource,
             case127_channel_internal_branches,
             case128_session_internal_branches,
-            case129_write_hex_encoding
+            case129_write_hex_encoding,
+            case130_auto_observe_list_config
         ]}
     ].
 
@@ -190,6 +192,8 @@ init_per_testcase(TestCase, Config) ->
         case TestCase of
             case09_auto_observe ->
                 default_config(#{auto_observe => true});
+            case09_auto_observe_list ->
+                default_config_with_auto_observe_raw("[\"/3/0\"]");
             _ ->
                 default_config()
         end,
@@ -263,6 +267,40 @@ default_config(Overrides) ->
                 maps:get(auto_observe, Overrides, false),
                 maps:get(bind, Overrides, ?PORT)
             ]
+        )
+    ).
+
+default_config_with_auto_observe_raw(AutoObserveRaw) ->
+    XmlDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx_gateway_lwm2m",
+            "lwm2m_xml"
+        ]
+    ),
+    iolist_to_binary(
+        io_lib:format(
+            "\n"
+            "gateway.lwm2m {\n"
+            "  xml_dir = \"~s\"\n"
+            "  lifetime_min = 1s\n"
+            "  lifetime_max = 86400s\n"
+            "  qmode_time_window = 22s\n"
+            "  auto_observe = ~s\n"
+            "  mountpoint = \"lwm2m/${username}\"\n"
+            "  translators {\n"
+            "    command = {topic = \"/dn/#\", qos = 0}\n"
+            "    response = {topic = \"/up/resp\", qos = 0}\n"
+            "    notify = {topic = \"/up/notify\", qos = 0}\n"
+            "    register = {topic = \"/up/resp\", qos = 0}\n"
+            "    update = {topic = \"/up/resp\", qos = 0}\n"
+            "  }\n"
+            "  listeners.udp.default {\n"
+            "    bind = ~w\n"
+            "  }\n"
+            "}\n",
+            [XmlDir, AutoObserveRaw, ?PORT]
         )
     ).
 
@@ -1175,6 +1213,27 @@ case09_auto_observe(Config) ->
 
     {ok, _} = ?block_until(#{?snk_kind := ignore_observer_resource}, 1000),
     ok.
+
+case09_auto_observe_list(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:4",
+    MsgId1 = 16,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    std_register(
+        UdpSock,
+        Epn,
+        <<"</1>, </2>">>,
+        MsgId1,
+        RespTopic
+    ),
+
+    #coap_message{method = Method1, options = Options1} = test_recv_coap_request(UdpSock),
+    ?assertEqual(get, Method1),
+    ?assertEqual(0, get_coap_observe(Options1)),
+    ?assertEqual(<<"/3/0">>, get_coap_path(Options1)).
 
 case10_read(Config) ->
     UdpSock = ?config(sock, Config),
@@ -5099,6 +5158,30 @@ case129_write_hex_encoding(_Config) ->
     TlvData = emqx_lwm2m_message:json_to_tlv(PathList, [Data1]),
     Expected = emqx_lwm2m_tlv:encode(TlvData),
     ?assertEqual(Expected, Payload).
+
+case130_auto_observe_list_config(_Config) ->
+    RegInfo = #{<<"objectList">> => [<<"/1/0">>]},
+    ListRaw = "[\"/3/0\",\"/3/0/1\"]",
+    ok = emqx_conf_cli:load_config(
+        ?global_ns, default_config_with_auto_observe_raw(ListRaw), #{mode => replace}
+    ),
+    ?assertEqual(
+        [<<"/3/0">>, <<"/3/0/1">>],
+        emqx_lwm2m_session:auto_observe_object_list(RegInfo)
+    ),
+    OnRaw = "\"on\"",
+    ok = emqx_conf_cli:load_config(
+        ?global_ns, default_config_with_auto_observe_raw(OnRaw), #{mode => replace}
+    ),
+    ?assertEqual(
+        [<<"/1/0">>],
+        emqx_lwm2m_session:auto_observe_object_list(RegInfo)
+    ),
+    OffRaw = "\"off\"",
+    ok = emqx_conf_cli:load_config(
+        ?global_ns, default_config_with_auto_observe_raw(OffRaw), #{mode => replace}
+    ),
+    ?assertEqual([], emqx_lwm2m_session:auto_observe_object_list(RegInfo)).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions
