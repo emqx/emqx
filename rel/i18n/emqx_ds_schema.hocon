@@ -208,13 +208,13 @@ emqx_ds_schema {
     desc:
       """~
       Allow RocksDB to perform file space preallocation through `fallocate`, if supported
-      by the OS and filesystem.
+      by the OS and the file system.
       File space preallocation is used to increase the file write/append performance at the
       cost of considerable disk usage per each shard, especially for an empty or sparsely
       populated DB.
 
       If enabled, make sure that the data directory resides on the volume with enough free
-      space, e.g. at least several GBs.~"""
+      space, e.g. at least several gigabytes.~"""
   }
 
   // Raft-specific settings
