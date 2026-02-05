@@ -112,9 +112,9 @@ insert(Stream, Message) ->
             insert(Stream, emqx_streams_prop:is_limited(Stream), Key, Message)
     end.
 
-insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
+insert(#{is_lastvalue := true, id := Id} = Stream, IsLimited, Key, Message) ->
     DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
-    Shard = emqx_ds:shard_of(DB, Key),
+    Shard = emqx_ds:shard_of(DB, Id),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
@@ -164,9 +164,9 @@ insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
             emqx_streams_metrics:inc_stream(Stream, insert_errors),
             {error, {IsRecoverable, Reason}}
     end;
-insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
+insert(#{is_lastvalue := false, id := Id} = Stream, true = _IsLimited, Key, Message) ->
     DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
-    Shard = emqx_ds:shard_of(DB, Key),
+    Shard = emqx_ds:shard_of(DB, Id),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
@@ -203,9 +203,9 @@ insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
             emqx_streams_metrics:inc_stream(Stream, insert_errors),
             {error, {IsRecoverable, Reason}}
     end;
-insert(#{is_lastvalue := false} = Stream, false = _IsLimited, Key, Message) ->
+insert(#{is_lastvalue := false, id := Id} = Stream, false = _IsLimited, Key, Message) ->
     DB = ?STREAMS_MESSAGE_REGULAR_DB,
-    Shard = emqx_ds:shard_of(DB, Key),
+    Shard = emqx_ds:shard_of(DB, Id),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     NeedReply = need_reply(Message),
