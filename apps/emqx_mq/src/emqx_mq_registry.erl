@@ -99,8 +99,9 @@ create(#{is_lastvalue := IsLastValue} = MQ0) when
                         create => fun() -> mria:dirty_write(IndexRecord) end,
                         rollback => fun() ->
                             mria:dirty_delete(?MQ_REGISTRY_INDEX_TAB, Key),
-                            drop_consumer_state(MQ),
-                            drop_queue_data(MQ)
+                            _ = drop_consumer_state(MQ),
+                            _ = drop_queue_data(MQ),
+                            ok
                         end
                     },
                     #{

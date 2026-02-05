@@ -201,7 +201,7 @@ create_mq_state(MQ) ->
                     Pmap0 = emqx_ds_pmap:new_pmap(?MODULE, ?pn_mq),
                     Pmap = emqx_ds_pmap:put(?mq_key, MQ, Pmap0),
                     emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
-                    emqx_ds_pmap:tx_commit(Id, Pmap),
+                    _ = emqx_ds_pmap:tx_commit(Id, Pmap),
                     ok;
                 _Guard ->
                     {error, {mq_state_already_exists, Id}}
@@ -227,7 +227,7 @@ update_mq_state(MQId, MQFields) ->
                     MQ = maps:merge(MQ0, MQFields),
                     Pmap = emqx_ds_pmap:put(?mq_key, MQ, Pmap0),
                     emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
-                    emqx_ds_pmap:tx_commit(Id, Pmap),
+                    _ = emqx_ds_pmap:tx_commit(Id, Pmap),
                     {ok, MQ}
             end
         end
@@ -274,7 +274,7 @@ set_name_index(Name, MQId) ->
                     Pmap0 = emqx_ds_pmap:new_pmap(?MODULE, ?pn_id),
                     Pmap = emqx_ds_pmap:put(?id_key, MQId, Pmap0),
                     emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
-                    emqx_ds_pmap:tx_commit(Id, Pmap),
+                    _ = emqx_ds_pmap:tx_commit(Id, Pmap),
                     ok;
                 _Guard ->
                     Pmap0 = emqx_ds_pmap:tx_restore(?MODULE, ?pn_id, Id),
@@ -345,7 +345,7 @@ delete_all() ->
 -spec mq_ids() -> [emqx_mq_types:mqid()].
 mq_ids() ->
     emqx_ds:fold_topic(
-        fun({Topic, _, _}, Acc) ->
+        fun(_Slab, _Stream, {Topic, _, _}, Acc) ->
             case Topic of
                 ?guard_topic(<<?mq_id_prefix, MQId/binary>>) ->
                     [MQId | Acc];
@@ -356,7 +356,8 @@ mq_ids() ->
         [],
         ?guard_topic('+'),
         #{
-            db => ?DB
+            db => ?DB,
+            errors => ignore
         }
     ).
 
@@ -621,8 +622,8 @@ name_to_asn1(undefined) ->
 name_to_asn1(Name) ->
     Name.
 
-name_from_asn1(MQ, asn1_NOVALUE) ->
-    MQ#{name => emqx_mq_prop:default_name(MQ)};
+name_from_asn1(#{topic_filter := TopicFilter} = MQ, asn1_NOVALUE) ->
+    MQ#{name => emqx_mq_prop:default_name_from_topic(TopicFilter)};
 name_from_asn1(MQ, Name) ->
     MQ#{name => Name}.
 
