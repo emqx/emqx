@@ -19,7 +19,6 @@
 -behaviour(gen_server).
 
 -include_lib("stdlib/include/ms_transform.hrl").
--include_lib("emqx_utils/include/logger.hrl").
 
 %% API functions
 -export([
@@ -264,19 +263,16 @@ inc(Name, Id, Metric, Val) ->
         {ok, CounterRef, Idx} ->
             counters:add(CounterRef, Idx, Val);
         {error, Reason} ->
-            ?SLOG_THROTTLE(
-                warning,
-                #{
-                    msg => failed_to_update_metric_counter,
+            throw(
+                {failed_to_update_counter, #{
                     action => inc,
                     val => Val,
                     reason => Reason,
                     name => Name,
                     id => Id,
                     metric => Metric
-                }
-            ),
-            ok
+                }}
+            )
     end.
 
 %% Set value of counter explicitly, so it can behave as a gauge.
@@ -286,19 +282,16 @@ set(Name, Id, Metric, Val) ->
         {ok, CounterRef, Idx} ->
             counters:put(CounterRef, Idx, Val);
         {error, Reason} ->
-            ?SLOG_THROTTLE(
-                warning,
-                #{
-                    msg => failed_to_update_metric_counter,
+            throw(
+                {failed_to_update_counter, #{
                     action => set,
                     val => Val,
                     reason => Reason,
                     name => Name,
                     id => Id,
                     metric => Metric
-                }
-            ),
-            ok
+                }}
+            )
     end.
 
 %% Add a sample to the slide.

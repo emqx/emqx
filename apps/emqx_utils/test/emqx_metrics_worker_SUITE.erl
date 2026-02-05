@@ -534,22 +534,44 @@ t_ensure_metrics(_Config) ->
     ok.
 
 %% Verifies that we don't crash if name, id or metric cannot be found when increasing or
-%% setting metrics.
+%% setting metrics.  Instead, we throw an error with more detailed context.
 t_unknown_metrics(_TCConfig) ->
     Metrics = [a],
-    Id = <<"testid">>,
-    ok = emqx_metrics_worker:create_metrics(?NAME, Id, Metrics),
+    Id0 = <<"testid">>,
+    ok = emqx_metrics_worker:create_metrics(?NAME, Id0, Metrics),
     lists:foreach(
         fun({Name, Id, Metric}) ->
             ct:pal("~p", [#{name => Name, id => Id, metric => Metric}]),
-            ?assertEqual(ok, emqx_metrics_worker:inc(Name, Id, Metric)),
-            ?assertEqual(ok, emqx_metrics_worker:set(Name, Id, Metric, 0))
+            ?assertThrow(
+                {failed_to_update_counter, #{
+                    action := inc,
+                    val := 1,
+                    reason := _,
+                    name := Name,
+                    id := Id,
+                    metric := Metric
+                }},
+                emqx_metrics_worker:inc(Name, Id, Metric)
+            ),
+            ?assertThrow(
+                {failed_to_update_counter, #{
+                    action := set,
+                    val := 0,
+                    reason := _,
+                    name := Name,
+                    id := Id,
+                    metric := Metric
+                }},
+                emqx_metrics_worker:set(Name, Id, Metric, 0)
+            )
         end,
         [
             {Name, Id, Metric}
          || Name <- [?NAME, unknown_name],
-            Id <- [Id, <<"unknown_id">>],
-            Metric <- [a, unknown_metric]
+            Id <- [Id0, <<"unknown_id">>],
+            Metric <- [a, unknown_metric],
+            %% Exclude "happy" case where everything is fine
+            not (Name == ?NAME andalso Id == Id0 andalso Metric == a)
         ]
     ),
     ok.
