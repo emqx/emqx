@@ -337,9 +337,7 @@ json_encode(X) ->
 %%------------------------------------------------------------------------------
 
 t_start_stop(TCConfig) when is_list(TCConfig) ->
-    %% `greptimedb_worker' leaks atoms...  pids become atoms 🫠
-    Opts = #{skip_atom_leak_check => true},
-    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped, Opts).
+    emqx_bridge_v2_testlib:t_start_stop(TCConfig, greptimedb_client_stopped).
 
 t_on_get_status(TCConfig) when is_list(TCConfig) ->
     emqx_bridge_v2_testlib:t_on_get_status(TCConfig).
