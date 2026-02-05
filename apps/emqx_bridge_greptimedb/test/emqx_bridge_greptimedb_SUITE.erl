@@ -222,14 +222,19 @@ start_ehttpc_pool(EHttpcPoolName) ->
     {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
     ok.
 
-clear_table(TCConfig) ->
-    query_by_sql(<<"delete from mqtt">>, TCConfig).
-
 drop_table(TCConfig) ->
     query_by_sql(<<"drop table mqtt">>, TCConfig).
 
 query_by_clientid(ClientId, TCConfig) ->
     SQL = <<"select * from \"mqtt\" where clientid='", ClientId/binary, "'">>,
+    query_by_sql(SQL, TCConfig).
+
+query_by_clientid_and_int_key(ClientId, IntKey, TCConfig) ->
+    IntCol = <<ClientId/binary, "_int_value">>,
+    IntKeyBin = integer_to_binary(IntKey),
+    SQL =
+        <<"select * from \"mqtt\" where clientid='", ClientId/binary, "' and \"", IntCol/binary,
+            "\"=", IntKeyBin/binary>>,
     query_by_sql(SQL, TCConfig).
 
 query_by_sql(SQL, TCConfig) ->
@@ -518,15 +523,21 @@ t_boolean_variants(TCConfig) ->
         <<"True">> => true,
         <<"False">> => false
     },
-    maps:foreach(
-        fun(BoolVariant, Translation) ->
-            ct:pal("testing ~p -> ~p", [BoolVariant, Translation]),
+    IndexedVariants = lists:zip(lists:seq(1, map_size(BoolVariants)), maps:to_list(BoolVariants)),
+    lists:foreach(
+        fun({Idx, {BoolVariant, _Translation}}) ->
             Payload = json_encode(#{
-                int_key => -123,
+                int_key => Idx,
                 bool => BoolVariant,
                 uint_key => 123
             }),
-            emqtt:publish(C, Topic, Payload),
+            ok = emqtt:publish(C, Topic, Payload)
+        end,
+        IndexedVariants
+    ),
+    lists:foreach(
+        fun({Idx, {BoolVariant, Translation}}) ->
+            ct:pal("testing ~p -> ~p (int_key=~p)", [BoolVariant, Translation, Idx]),
             ?retry(
                 _Sleep2 = 500,
                 _Attempts2 = 20,
@@ -534,14 +545,12 @@ t_boolean_variants(TCConfig) ->
                     #{
                         <<"bool">> := Translation
                     },
-                    query_by_clientid(ClientId, TCConfig),
-                    #{variant => {BoolVariant, Translation}}
+                    query_by_clientid_and_int_key(ClientId, Idx, TCConfig),
+                    #{variant => {BoolVariant, Translation, Idx}}
                 )
-            ),
-            clear_table(TCConfig),
-            ct:sleep(100)
+            )
         end,
-        BoolVariants
+        IndexedVariants
     ),
     ok.
 
