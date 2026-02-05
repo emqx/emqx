@@ -104,7 +104,9 @@ groups() ->
             case23_write_multi_resource_instance,
             case24_write_content_response,
             case25_write_invalid_json,
-            case26_write_object_instance_mixed
+            case26_write_object_instance_mixed,
+            case27_write_hex_encoding,
+            case27_write_hex_encoding_invalid
         ]},
         {test_grp_create, [RepeatOpt], [
             case_create_basic,
@@ -159,7 +161,8 @@ groups() ->
             case125_message_internal_errors,
             case126_message_insert_resource,
             case127_channel_internal_branches,
-            case128_session_internal_branches
+            case128_session_internal_branches,
+            case129_write_hex_encoding
         ]}
     ].
 
@@ -2800,6 +2803,107 @@ case20_write(Config) ->
     ),
     ?assertEqual(WriteResult, test_recv_mqtt_response(RespTopic)).
 
+case27_write_hex_encoding(Config) ->
+    Epn = "urn:oma:lwm2m:oma:6",
+    MsgId1 = 15,
+    UdpSock = ?config(sock, Config),
+    ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+
+    CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
+    CmdId = 308,
+    Command = #{
+        <<"requestID">> => CmdId,
+        <<"cacheID">> => CmdId,
+        <<"msgType">> => <<"write">>,
+        <<"encoding">> => <<"hex">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => <<"48656C6C6F">>
+        }
+    },
+    CommandJson = emqx_utils_json:encode(Command),
+    test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
+    timer:sleep(50),
+    Request = test_recv_coap_request(UdpSock),
+    #coap_message{payload = Payload} = Request,
+    HexBin = emqx_utils:hexstr_to_bin(<<"48656C6C6F">>),
+    Data1 = #{
+        <<"path">> => <<"/3/0/1">>,
+        <<"type">> => <<"String">>,
+        <<"value">> => HexBin
+    },
+    {PathList, _QueryList} = emqx_lwm2m_cmd:path_list(<<"/3/0/1">>),
+    TlvData = emqx_lwm2m_message:json_to_tlv(PathList, [Data1]),
+    Expected = emqx_lwm2m_tlv:encode(TlvData),
+    ?assertEqual(Expected, Payload),
+
+    test_send_coap_response(
+        UdpSock,
+        "127.0.0.1",
+        ?PORT,
+        {ok, changed},
+        #coap_content{},
+        Request,
+        true
+    ),
+    WriteBin = test_recv_mqtt_response(RespTopic),
+    WriteMap = emqx_utils_json:decode(WriteBin),
+    ?assertEqual(<<"hex">>, maps:get(<<"encoding">>, WriteMap)),
+    ?assertEqual(<<"write">>, maps:get(<<"msgType">>, WriteMap)),
+    ?assertEqual(CmdId, maps:get(<<"requestID">>, WriteMap)),
+    ?assertEqual(CmdId, maps:get(<<"cacheID">>, WriteMap)),
+    WriteData = maps:get(<<"data">>, WriteMap),
+    ?assertEqual(<<"/3/0/1">>, maps:get(<<"reqPath">>, WriteData)),
+    ?assertEqual(<<"2.04">>, maps:get(<<"code">>, WriteData)),
+    ?assertEqual(<<"changed">>, maps:get(<<"codeMsg">>, WriteData)).
+
+case27_write_hex_encoding_invalid(Config) ->
+    Epn = "urn:oma:lwm2m:oma:7",
+    MsgId1 = 16,
+    UdpSock = ?config(sock, Config),
+    ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+
+    CommandTopic = <<"lwm2m/", (list_to_binary(Epn))/binary, "/dn/dm">>,
+    CmdId = 309,
+    Command = #{
+        <<"requestID">> => CmdId,
+        <<"cacheID">> => CmdId,
+        <<"msgType">> => <<"write">>,
+        <<"encoding">> => <<"hex">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => <<"ZZ">>
+        }
+    },
+    CommandJson = emqx_utils_json:encode(Command),
+    test_mqtt_broker:publish(CommandTopic, CommandJson, 0),
+    timer:sleep(50),
+
+    ?assertEqual(timeout_test_recv_coap_request, test_recv_coap_request(UdpSock)),
+
+    WriteBin = test_recv_mqtt_response(RespTopic),
+    ?assertNotEqual(timeout_test_recv_mqtt_response, WriteBin),
+    WriteMap = emqx_utils_json:decode(WriteBin),
+    ?assertEqual(<<"write">>, maps:get(<<"msgType">>, WriteMap)),
+    ?assertEqual(CmdId, maps:get(<<"requestID">>, WriteMap)),
+    ?assertEqual(CmdId, maps:get(<<"cacheID">>, WriteMap)),
+    WriteData = maps:get(<<"data">>, WriteMap),
+    ?assertEqual(<<"/3/0/1">>, maps:get(<<"reqPath">>, WriteData)),
+    ?assertEqual(<<"4.00">>, maps:get(<<"code">>, WriteData)),
+    ?assertEqual(<<"bad_request">>, maps:get(<<"codeMsg">>, WriteData)).
+
 case21_write_object(Config) ->
     %% step 1, device register ...
     Epn = "urn:oma:lwm2m:oma:3",
@@ -4972,6 +5076,29 @@ case128_session_internal_branches(_Config) ->
     Session3 = session_from_result(DeliverResult),
     _ = emqx_lwm2m_session:handle_protocol_in({ack, {Cmd1, RegMsg}}, WithContext, Session3),
     ok.
+
+case129_write_hex_encoding(_Config) ->
+    InputCmd = #{
+        <<"msgType">> => <<"write">>,
+        <<"encoding">> => <<"hex">>,
+        <<"data">> => #{
+            <<"path">> => <<"/3/0/1">>,
+            <<"type">> => <<"String">>,
+            <<"value">> => <<"48656C6C6F">>
+        }
+    },
+    {Req, _Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(<<"/">>, InputCmd),
+    #coap_message{payload = Payload} = Req,
+    HexBin = emqx_utils:hexstr_to_bin(<<"48656C6C6F">>),
+    Data1 = #{
+        <<"path">> => <<"/3/0/1">>,
+        <<"type">> => <<"String">>,
+        <<"value">> => HexBin
+    },
+    {PathList, _QueryList} = emqx_lwm2m_cmd:path_list(<<"/3/0/1">>),
+    TlvData = emqx_lwm2m_message:json_to_tlv(PathList, [Data1]),
+    Expected = emqx_lwm2m_tlv:encode(TlvData),
+    ?assertEqual(Expected, Payload).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions

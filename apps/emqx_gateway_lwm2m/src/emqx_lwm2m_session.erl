@@ -799,10 +799,22 @@ deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session) 
     is_map(TermData)
 ->
     WithContext(metrics, 'messages.delivered'),
-    {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
-    ExpiryTime = get_expiry_time(MQTT),
-    Session2 = record_request(Ctx, Session),
-    maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2).
+    case emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData) of
+        {Req, Ctx} ->
+            ExpiryTime = get_expiry_time(MQTT),
+            Session2 = record_request(Ctx, Session),
+            maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2);
+        {error, {bad_request, Reason}, Ctx} ->
+            ?SLOG(warning, #{
+                msg => "lwm2m_cmd_bad_request",
+                reason => Reason,
+                cmd => Ctx
+            }),
+            Session2 = record_request(Ctx, Session),
+            MqttPayload = emqx_lwm2m_cmd:cmd_error_to_mqtt(bad_request, Ctx),
+            Session3 = record_response(maps:get(<<"msgType">>, Ctx), MqttPayload, Session2),
+            send_to_mqtt(Ctx, maps:get(<<"msgType">>, Ctx), MqttPayload, WithContext, Session3)
+    end.
 
 maybe_do_deliver_to_coap(
     Ctx,
@@ -858,9 +870,20 @@ get_expiry_time(_) ->
 send_cmd_impl(Cmd, #session{reg_info = RegInfo} = Session) ->
     CacheMode = is_cache_mode(Session),
     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-    {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd),
-    Session2 = record_request(Ctx, Session),
-    maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, Session2).
+    case emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd) of
+        {Req, Ctx} ->
+            Session2 = record_request(Ctx, Session),
+            maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, Session2);
+        {error, {bad_request, Reason}, Ctx} ->
+            ?SLOG(warning, #{
+                msg => "lwm2m_cmd_bad_request",
+                reason => Reason,
+                cmd => Ctx
+            }),
+            Session2 = record_request(Ctx, Session),
+            MqttPayload = emqx_lwm2m_cmd:cmd_error_to_mqtt(bad_request, Ctx),
+            record_response(maps:get(<<"msgType">>, Ctx), MqttPayload, Session2)
+    end.
 
 %%--------------------------------------------------------------------
 %% Call CoAP
