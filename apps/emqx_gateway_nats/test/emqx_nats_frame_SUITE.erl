@@ -891,10 +891,9 @@ t_serialize_wildcard_subject_pub(Config) ->
         operation = ?OP_PUB,
         message = #{subject => <<"foo.*">>, payload => <<"hello">>}
     },
-    ?assertError(
-        {invalid_subject, wildcard_subject_not_allowed_in_pub_message},
-        emqx_nats_frame:serialize_pkt(Frame, SOpts)
-    ).
+    Bin = iolist_to_binary(emqx_nats_frame:serialize_pkt(Frame, SOpts)),
+    ?assertMatch({_, _}, binary:match(Bin, <<"foo.*">>)),
+    ?assertMatch({_, _}, binary:match(Bin, <<"hello">>)).
 
 t_serialize_invalid_subject_pub(Config) ->
     SOpts = ?config(serialize_opts, Config),

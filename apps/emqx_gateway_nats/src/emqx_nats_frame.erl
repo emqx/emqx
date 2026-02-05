@@ -180,7 +180,7 @@ serialize_message(?OP_PUB, Message) ->
     Subject = maps:get(subject, Message),
     Payload = maps:get(payload, Message),
     PayloadSize = integer_to_list(byte_size(Payload)),
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", PayloadSize, "\r\n", Payload];
@@ -195,7 +195,7 @@ serialize_message(?OP_HPUB, Message) ->
     HeadersSize = integer_to_list(byte_size(HeadersBin)),
     Payload = maps:get(payload, Message),
     TotalSize = integer_to_list(byte_size(Payload) + byte_size(HeadersBin)),
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload];
@@ -386,15 +386,15 @@ pre_do_parse_args(Op, Line, Rest, State) ->
     do_parse_args(Op, Args, Rest, State).
 
 do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
     M0 = #{
@@ -404,7 +404,7 @@ do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
     },
     parse_headers(Rest, to_header_state(State, M0));
 do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
     M0 = #{

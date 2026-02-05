@@ -866,7 +866,7 @@ t_receive_message(Config) ->
     ok = emqx_nats_client:connect(Client),
     ok = emqx_nats_client:subscribe(Client, <<"foo.*">>, <<"sid-1">>),
     ok = emqx_nats_client:publish(Client, <<"foo.bar">>, <<"hello">>),
-    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    Msg = recv_non_ping_frame(Client),
     ?assertMatch(
         #nats_frame{
             operation = ?OP_MSG,
@@ -888,7 +888,7 @@ t_receive_message(Config) ->
     ok = emqx_nats_client:connect(Client),
     ok = emqx_nats_client:subscribe(Client, <<"foo.>">>, <<"sid-1">>),
     ok = emqx_nats_client:publish(Client, <<"foo.bar.baz">>, <<"hello">>),
-    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    Msg = recv_non_ping_frame(Client),
     ?assertMatch(
         #nats_frame{
             operation = ?OP_MSG,
@@ -910,7 +910,7 @@ t_receive_message(Config) ->
     ok = emqx_nats_client:connect(Client),
     ok = emqx_nats_client:subscribe(Client, <<"*.bar.>">>, <<"sid-1">>),
     ok = emqx_nats_client:publish(Client, <<"foo.bar.cato.delta">>, <<"hello">>),
-    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    Msg = recv_non_ping_frame(Client),
     ?assertMatch(
         #nats_frame{
             operation = ?OP_MSG,
@@ -1117,7 +1117,7 @@ t_reply_to_with_no_responders(Config) ->
     ),
     recv_ok_frame(Client),
 
-    {ok, [Msg]} = emqx_nats_client:receive_message(Client),
+    Msg = recv_non_ping_frame(Client),
     ?assertMatch(
         #nats_frame{
             operation = ?OP_HMSG,
@@ -1456,6 +1456,15 @@ recv_info_frame(Client) ->
         Frame
     ),
     Frame.
+
+recv_non_ping_frame(Client) ->
+    {ok, [Frame]} = emqx_nats_client:receive_message(Client),
+    case Frame of
+        #nats_frame{operation = ?OP_PING} ->
+            recv_non_ping_frame(Client);
+        _ ->
+            Frame
+    end.
 
 assert_info_message(#nats_frame{operation = ?OP_INFO, message = Message}) ->
     ?assert(is_map(Message)),
