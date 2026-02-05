@@ -54,11 +54,11 @@ t_gc(_Config) ->
     emqx_config:put([streams, regular_stream_retention_period], 1000),
     ct:sleep(500),
     %% Create a lastvalue Stream
-    StreamLV = emqx_streams_test_utils:create_stream(#{
+    StreamLV = emqx_streams_test_utils:ensure_stream_created(#{
         topic_filter => <<"tc/#">>, is_lastvalue => true
     }),
     %% Create a non-lastvalue Stream
-    StreamR = emqx_streams_test_utils:create_stream(#{
+    StreamR = emqx_streams_test_utils:ensure_stream_created(#{
         topic_filter => <<"tr/#">>, is_lastvalue => false, data_retention_period => 1000
     }),
 
@@ -109,7 +109,7 @@ t_limited_regular(_Config) ->
     %% Create a regular stream limited by count
     %% 50 messages per shard maximum
     %% We have ?N_SHARDS = 2 shards, so 50 * 2 = 100 messages maximum
-    StreamRC = emqx_streams_test_utils:create_stream(
+    StreamRC = emqx_streams_test_utils:ensure_stream_created(
         #{
             topic_filter => <<"tc/#">>,
             is_lastvalue => false,
@@ -136,7 +136,7 @@ t_limited_regular(_Config) ->
     %% Create a regular stream limited by bytes
     %% 50KB per shard maximum
     %% We have ?N_SHARDS = 2 shards, so 50KB * 2 = 100KB maximum
-    StreamRB = emqx_streams_test_utils:create_stream(
+    StreamRB = emqx_streams_test_utils:ensure_stream_created(
         #{
             topic_filter => <<"tb/#">>,
             is_lastvalue => false,
@@ -167,7 +167,7 @@ t_limited_lastvalue(_Config) ->
     %% Create a lastvalue stream limited by count
     %% 100 messages per shard maximum
     %% We have ?N_SHARDS = 2 shards, so 100 * 2 = 200 messages maximum
-    _StreamLV = emqx_streams_test_utils:create_stream(#{
+    _StreamLV = emqx_streams_test_utils:ensure_stream_created(#{
         topic_filter => <<"tc/#">>,
         is_lastvalue => true,
         key_expression =>
