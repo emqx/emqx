@@ -750,6 +750,24 @@ t_verbose_mode(Config) ->
 
     emqx_nats_client:stop(Client).
 
+t_echo_disabled_no_self_delivery(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+
+    ok = emqx_nats_client:connect(Client, #{echo => false}),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:subscribe(Client, <<"echo.subject">>, <<"sid-1">>),
+    recv_ok_frame(Client),
+
+    ok = emqx_nats_client:publish(Client, <<"echo.subject">>, <<"payload">>),
+    recv_ok_frame(Client),
+
+    assert_no_message(Client, <<"echo.subject">>, 1000),
+
+    emqx_nats_client:stop(Client).
+
 t_ping_pong(Config) ->
     ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -770,6 +788,19 @@ t_subscribe(Config) ->
     ok = emqx_nats_client:subscribe(Client, <<"foo">>, <<"sid-1">>),
     emqx_nats_client:stop(Client).
 
+t_subscribe_invalid_subject(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    ok = send_raw_sub(Client, <<"foo..bar">>, <<"sid-1">>),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+
+    emqx_nats_client:stop(Client).
+
 t_publish(Config) ->
     ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -777,6 +808,32 @@ t_publish(Config) ->
     ?assertMatch([#nats_frame{operation = ?OP_INFO}], Msgs),
     ok = emqx_nats_client:connect(Client),
     ok = emqx_nats_client:publish(Client, <<"foo">>, <<"hello">>),
+    emqx_nats_client:stop(Client).
+
+t_publish_wildcard_subject(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    ok = send_raw_pub(Client, <<"foo.*">>, <<"hello">>),
+    recv_ok_frame(Client),
+
+    emqx_nats_client:stop(Client).
+
+t_publish_exceed_max_payload(Config) ->
+    ClientOpts = maps:merge(?config(client_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    Payload = binary:copy(<<"x">>, 2048),
+    ok = emqx_nats_client:publish(Client, <<"foo">>, Payload),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+
     emqx_nats_client:stop(Client).
 
 t_receive_message(Config) ->
@@ -1419,6 +1476,44 @@ assert_auth_failed(Msgs) ->
             ?assertMatch([#nats_frame{operation = ?OP_ERR}], Msgs)
     end.
 
+assert_protocol_error(Msgs) ->
+    case
+        lists:any(
+            fun
+                (#nats_frame{operation = ?OP_ERR}) -> true;
+                (tcp_closed) -> true;
+                (_) -> false
+            end,
+            Msgs
+        )
+    of
+        true -> ok;
+        false -> ?assertMatch([#nats_frame{operation = ?OP_ERR} | _], Msgs)
+    end.
+
+send_raw_sub(Client, Subject, Sid) ->
+    Data = iolist_to_binary([
+        "SUB ",
+        Subject,
+        " ",
+        Sid,
+        "\r\n"
+    ]),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
+send_raw_pub(Client, Subject, Payload) ->
+    PayloadSize = integer_to_list(byte_size(Payload)),
+    Data = iolist_to_binary([
+        "PUB ",
+        Subject,
+        " ",
+        PayloadSize,
+        "\r\n",
+        Payload,
+        "\r\n"
+    ]),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
 assert_permissions_violation(#nats_frame{operation = ?OP_ERR, message = Msg}, Kind, Subject) ->
     Normalized = normalize_violation_msg(Msg),
     ExpectedPrefix =
@@ -1440,3 +1535,27 @@ normalize_violation_msg(Msg) when is_binary(Msg) ->
     list_to_binary(Str2);
 normalize_violation_msg(Msg) ->
     Msg.
+
+assert_no_message(Client, Subject, Timeout) ->
+    Deadline = erlang:monotonic_time(millisecond) + Timeout,
+    assert_no_message_loop(Client, Subject, Deadline).
+
+assert_no_message_loop(Client, Subject, Deadline) ->
+    case erlang:monotonic_time(millisecond) >= Deadline of
+        true ->
+            ok;
+        false ->
+            {ok, Msgs} = emqx_nats_client:receive_message(Client, 1, 200),
+            case Msgs of
+                [] ->
+                    assert_no_message_loop(Client, Subject, Deadline);
+                [#nats_frame{operation = ?OP_MSG, message = #{subject := Subject}}] ->
+                    ct:fail({unexpected_message, Subject});
+                [#nats_frame{operation = ?OP_MSG, message = #{subject := Other}}] ->
+                    ct:fail({unexpected_message, Other});
+                [tcp_closed] ->
+                    ct:fail(tcp_closed);
+                [_Other] ->
+                    assert_no_message_loop(Client, Subject, Deadline)
+            end
+    end.
