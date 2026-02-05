@@ -423,12 +423,32 @@ update(
     Session2 = proto_subscribe(WithContext, NewSession),
     Session3 = send_dl_msg(Session2),
     RegPayload = #{<<"data">> => UpdateRegInfo},
-    Session4 = send_to_mqtt(#{}, CmdType, RegPayload, WithContext, Session3),
+    Session4 =
+        case should_publish_update(RegInfo) of
+            true ->
+                send_to_mqtt(#{}, CmdType, RegPayload, WithContext, Session3);
+            false ->
+                Session3
+        end,
 
     Result = return(Session4),
 
     Reply = emqx_coap_message:piggyback({ok, changed}, Msg),
     reply(Reply, Result#{lifetime => true}).
+
+should_publish_update(NewRegInfo) ->
+    case emqx:get_config([gateway, lwm2m, update_msg_publish_condition], always) of
+        always ->
+            true;
+        <<"always">> ->
+            true;
+        contains_object_list ->
+            maps:is_key(<<"objectList">>, NewRegInfo);
+        <<"contains_object_list">> ->
+            maps:is_key(<<"objectList">>, NewRegInfo);
+        _ ->
+            maps:is_key(<<"objectList">>, NewRegInfo)
+    end.
 
 register_init(WithContext, #session{reg_info = RegInfo} = Session) ->
     Session2 = send_auto_observe(RegInfo, Session),

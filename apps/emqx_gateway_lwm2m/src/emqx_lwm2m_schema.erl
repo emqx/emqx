@@ -69,12 +69,11 @@ fields(lwm2m) ->
                     desc => ?DESC(lwm2m_auto_observe)
                 }
             )},
-        %% FIXME: not working now
         {update_msg_publish_condition,
             sc(
                 hoconsc:enum([always, contains_object_list]),
                 #{
-                    default => contains_object_list,
+                    default => always,
                     desc => ?DESC(lwm2m_update_msg_publish_condition)
                 }
             )},

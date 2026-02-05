@@ -78,7 +78,8 @@ groups() ->
             case07_register_alternate_path_unprefixed,
             case08_reregister,
             case09_auto_observe,
-            case09_auto_observe_list
+            case09_auto_observe_list,
+            case02_update_publish_condition
         ]},
         {test_grp_1_read, [RepeatOpt], [
             case10_read,
@@ -250,7 +251,6 @@ default_config(Overrides) ->
             "  qmode_time_window = 22s\n"
             "  auto_observe = ~w\n"
             "  mountpoint = \"lwm2m/${username}\"\n"
-            "  update_msg_publish_condition = contains_object_list\n"
             "  translators {\n"
             "    command = {topic = \"/dn/#\", qos = 0}\n"
             "    response = {topic = \"/up/resp\", qos = 0}\n"
@@ -301,6 +301,41 @@ default_config_with_auto_observe_raw(AutoObserveRaw) ->
             "  }\n"
             "}\n",
             [XmlDir, AutoObserveRaw, ?PORT]
+        )
+    ).
+
+default_config_with_update_condition_raw(UpdateConditionRaw) ->
+    XmlDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx_gateway_lwm2m",
+            "lwm2m_xml"
+        ]
+    ),
+    iolist_to_binary(
+        io_lib:format(
+            "\n"
+            "gateway.lwm2m {\n"
+            "  xml_dir = \"~s\"\n"
+            "  lifetime_min = 1s\n"
+            "  lifetime_max = 86400s\n"
+            "  qmode_time_window = 22s\n"
+            "  auto_observe = false\n"
+            "  mountpoint = \"lwm2m/${username}\"\n"
+            "  update_msg_publish_condition = ~s\n"
+            "  translators {\n"
+            "    command = {topic = \"/dn/#\", qos = 0}\n"
+            "    response = {topic = \"/up/resp\", qos = 0}\n"
+            "    notify = {topic = \"/up/notify\", qos = 0}\n"
+            "    register = {topic = \"/up/resp\", qos = 0}\n"
+            "    update = {topic = \"/up/resp\", qos = 0}\n"
+            "  }\n"
+            "  listeners.udp.default {\n"
+            "    bind = ~w\n"
+            "  }\n"
+            "}\n",
+            [XmlDir, UpdateConditionRaw, ?PORT]
         )
     ).
 
@@ -860,6 +895,65 @@ case02_update_lifetime_zero(Config) ->
     Update = emqx_utils_json:decode(test_recv_mqtt_response(ReportTopic)),
     UpdateData = maps:get(<<"data">>, Update),
     ?assertEqual(0, maps:get(<<"lt">>, UpdateData)).
+
+case02_update_publish_condition(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:9",
+    MsgId = 40,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b/rd?ep=~ts&lt=345&lwm2m=1", [?PORT, Epn]),
+        #coap_content{
+            content_format = <<"text/plain">>,
+            payload = <<"</1>, </2>, </3>, </4>, </5>">>
+        },
+        [],
+        MsgId
+    ),
+    #coap_message{method = {ok, created}, options = Opts} = test_recv_coap_response(UdpSock),
+    Location = maps:get(location_path, Opts),
+    _ = test_recv_mqtt_response(RespTopic),
+
+    %% update without objectList should publish by default (always)
+    MsgId2 = 41,
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b~ts?lt=789", [?PORT, join_path(Location, <<>>)]),
+        #coap_content{payload = <<>>},
+        [],
+        MsgId2
+    ),
+    #coap_message{type = ack, id = MsgId2, method = {ok, changed}} =
+        test_recv_coap_response(UdpSock),
+    UpdateBin1 = test_recv_mqtt_response(RespTopic),
+    ?assertNotEqual(timeout_test_recv_mqtt_response, UpdateBin1),
+    UpdateMsg1 = emqx_utils_json:decode(UpdateBin1),
+    ?assertEqual(<<"update">>, maps:get(<<"msgType">>, UpdateMsg1)),
+
+    %% switch to contains_object_list, update without objectList should NOT publish
+    ok = emqx_conf_cli:load_config(
+        ?global_ns, default_config_with_update_condition_raw("\"contains_object_list\""), #{mode => replace}
+    ),
+    ensure_gateway_loaded(),
+
+    MsgId3 = 42,
+    test_send_coap_request(
+        UdpSock,
+        post,
+        sprintf("coap://127.0.0.1:~b~ts?lt=789", [?PORT, join_path(Location, <<>>)]),
+        #coap_content{payload = <<>>},
+        [],
+        MsgId3
+    ),
+    #coap_message{type = ack, id = MsgId3, method = {ok, changed}} =
+        test_recv_coap_response(UdpSock),
+    ?assertEqual(timeout_test_recv_mqtt_response, test_recv_mqtt_response(RespTopic)).
 
 case03_register_wrong_version(Config) ->
     %%----------------------------------------
