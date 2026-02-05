@@ -10,6 +10,7 @@ The module contains accessor functions for the Streams.
 
 -export([
     id/1,
+    name/1,
     is_limited/1,
     is_lastvalue/1,
     is_append_only/1,
@@ -45,6 +46,11 @@ topic_filter(#{topic_filter := TopicFilter} = _Stream) ->
     emqx_streams_types:stream_id().
 id(#{id := ID} = _Stream) ->
     ID.
+
+-spec name(emqx_streams_types:stream()) ->
+    emqx_streams_types:stream_name().
+name(#{name := Name} = _Stream) ->
+    Name.
 
 -spec is_append_only(emqx_streams_types:stream()) -> boolean().
 is_append_only(Stream) ->

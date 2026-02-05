@@ -115,7 +115,7 @@ end_per_testcase(_CaseName, Config) ->
 %% Very basic test, publish some messages to the stream and look into the DB
 %% to verify that the messages are stored.
 t_smoke(_Config) ->
-    Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
     ok = emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
     AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
     ?assertEqual(10, length(AllMessages)),
@@ -124,7 +124,7 @@ t_smoke(_Config) ->
 %% Verify reading stream messages from the earliest timestamp.
 t_read_earliest(Config) ->
     %% Create a stream
-    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
     %% Subscribe to the stream, either to all shards at once or to each shard separately.
@@ -175,7 +175,7 @@ t_read_earliest(Config) ->
 %% Verify reading stream messages from the latest timestamp.
 t_read_latest(Config) ->
     %% Create a stream
-    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
     %% Subscribe to the stream, either to all shards at once or to each shard separately.
@@ -213,7 +213,7 @@ t_read_latest(Config) ->
 %% Verify reading stream messages from a specific offset.
 t_read_timestamp(Config) ->
     %% Create a stream
-    Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
     %% Publish 1st portion of messages to the stream
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
@@ -264,7 +264,7 @@ t_read_timestamp(Config) ->
 t_publish_and_consume_regular_many_generations(Config) ->
     %% Create a non-lastvalue Stream
     LimitOpts = ?config(limits, Config),
-    _ = emqx_streams_test_utils:create_stream(LimitOpts#{
+    _ = emqx_streams_test_utils:ensure_stream_created(LimitOpts#{
         topic_filter => <<"t/#">>, is_lastvalue => false
     }),
 
@@ -315,7 +315,7 @@ t_publish_and_consume_regular_many_generations(Config) ->
 t_publish_and_consume_lastvalue(Config) ->
     %% Create a lastvalue Stream
     LimitOpts = ?config(limits, Config),
-    _ = emqx_streams_test_utils:create_stream(LimitOpts#{
+    _ = emqx_streams_test_utils:ensure_stream_created(LimitOpts#{
         topic_filter => <<"t/#">>, is_lastvalue => true
     }),
 
@@ -364,7 +364,7 @@ t_backpressure(_Config) ->
 
     %% Create a non-lastvalue Stream
     _ =
-        emqx_streams_test_utils:create_stream(#{
+        emqx_streams_test_utils:ensure_stream_created(#{
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             read_max_unacked => DSStreamMaxUnacked
@@ -419,7 +419,7 @@ t_find_stream(_Config) ->
     emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
 
     %% Create the stream
-    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
     emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Verify that the message is received
@@ -434,7 +434,7 @@ t_stream_recreate(_Config) ->
     emqx_config:put([streams, check_stream_status_interval], 100),
 
     %% Create the stream
-    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
     emqx_streams_test_utils:populate(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-1-">>
     }),
@@ -451,7 +451,7 @@ t_stream_recreate(_Config) ->
     %% Recreate the stream
     emqx_streams_registry:delete(<<"t/#">>),
     ?retry(5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t/#">>))),
-    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
     emqx_streams_test_utils:populate_lastvalue(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-2-">>
     }),
@@ -465,7 +465,7 @@ t_stream_recreate(_Config) ->
     emqx_streams_registry:delete(<<"t/#">>),
     ?retry(5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t/#">>))),
     ct:sleep(emqx_config:get([streams, check_stream_status_interval]) * 3),
-    emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
     emqx_streams_test_utils:populate(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-3-">>
     }),
@@ -484,7 +484,7 @@ t_metrics(_Config) ->
         emqx_streams_metrics:get_counters(ds),
 
     %% Create a stream, publish and consume some messages
-    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
     emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]),
@@ -511,7 +511,7 @@ t_metrics(_Config) ->
 %% with correct timestamps.
 t_subscribe_invalid_topic(_Config) ->
     %% Create a stream
-    _Stream = emqx_streams_test_utils:create_stream(#{topic_filter => <<"t/#">>}),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
     emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Subscribe to the stream with invalid timestamps
@@ -595,10 +595,10 @@ t_autocreate_stream(_Config) ->
 %% Verify that the data retention period is applied correctly
 t_data_retention_period(_Config) ->
     %% Create a lastvalue and a regular streams with 1s data retention period
-    StreamLV = emqx_streams_test_utils:create_stream(#{
+    StreamLV = emqx_streams_test_utils:ensure_stream_created(#{
         topic_filter => <<"t1/#">>, is_lastvalue => true, data_retention_period => 1000
     }),
-    StreamR = emqx_streams_test_utils:create_stream(#{
+    StreamR = emqx_streams_test_utils:ensure_stream_created(#{
         topic_filter => <<"t2/#">>, is_lastvalue => false, data_retention_period => 1000
     }),
 
