@@ -12,7 +12,9 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
--export([stream_sctype_api_get/0, stream_sctype_api_put/0, stream_sctype_api_post/0]).
+-export([
+    stream_sctype_api_get/0, stream_sctype_api_put/0, stream_sctype_api_post/0, validate_name/1
+]).
 
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
@@ -185,12 +187,23 @@ stream_sctype_api_put() ->
 stream_sctype_api_post() ->
     stream_sctype(ref(stream_lastvalue_api_post), ref(stream_regular_api_post)).
 
+validate_name(Name) ->
+    RE = "^[0-9a-zA-Z][\\-\\.0-9a-zA-Z_]*$",
+    case re:run(Name, RE, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error, invalid_name}
+    end.
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
 stream_fields(IsLastValue) ->
     [
+        {name,
+            mk(binary(), #{desc => ?DESC(name), required => true, validator => fun validate_name/1})},
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
         {is_lastvalue,
             mk(

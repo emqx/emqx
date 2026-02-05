@@ -71,6 +71,12 @@ streams {
     label: "Message Streams Settings"
 }
 
+name {
+    desc: """~
+        The name of the Message Stream."""
+    label: "Name"
+}
+
 topic_filter {
     desc: """~
         The filter used to determine which messages are getting into the message stream."""
