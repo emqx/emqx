@@ -34,7 +34,10 @@ Main test suite for the Streams application.
 
 all() ->
     All = emqx_common_test_helpers:all(?MODULE) -- (?PUBLISH_AND_CONSUME_CASES ++ ?READ_CASES),
-    [{group, pub_and_consume}, {group, read}] ++ All.
+    [
+        {group, pub_and_consume},
+        {group, read}
+    ] ++ All.
 
 groups() ->
     emqx_common_test_helpers:nested_groups([
@@ -122,7 +125,13 @@ t_smoke(_Config) ->
 %% Verify reading stream messages from the earliest timestamp.
 t_read_earliest(Config) ->
     %% Create a stream
-    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
+    StreamOpts = #{topic_filter => <<"t/#">>, name => <<"t_read_earliest">>},
+    case ?config(subscribe, Config) of
+        all ->
+            _ = emqx_streams_test_utils:ensure_legacy_stream_created(StreamOpts);
+        all_stream ->
+            _ = emqx_streams_test_utils:ensure_stream_created(StreamOpts)
+    end,
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
     %% Subscribe to the stream, either to all shards at once or to each shard separately.
@@ -133,7 +142,7 @@ t_read_earliest(Config) ->
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
-                [<<"$stream/t/#">>],
+                [<<"$stream/t_read_earliest/t/#">>],
                 [{<<"$stream.start-from">>, <<"earliest">>}]
             )
     end,
@@ -153,7 +162,7 @@ t_read_earliest(Config) ->
         all ->
             emqtt:unsubscribe(CSub, <<"$s/earliest/t/#">>);
         all_stream ->
-            emqtt:unsubscribe(CSub, <<"$stream/t/#">>)
+            emqtt:unsubscribe(CSub, <<"$stream/t_read_earliest/t/#">>)
     end,
 
     %% Publish more messages, we should not receive any
@@ -166,7 +175,13 @@ t_read_earliest(Config) ->
 %% Verify reading stream messages from the latest timestamp.
 t_read_latest(Config) ->
     %% Create a stream
-    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
+    StreamOpts = #{topic_filter => <<"t/#">>, name => <<"t_read_latest">>},
+    case ?config(subscribe, Config) of
+        all ->
+            _ = emqx_streams_test_utils:ensure_legacy_stream_created(StreamOpts);
+        all_stream ->
+            _ = emqx_streams_test_utils:ensure_stream_created(StreamOpts)
+    end,
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
     %% Subscribe to the stream, either to all shards at once or to each shard separately.
@@ -177,14 +192,14 @@ t_read_latest(Config) ->
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
-                [<<"$stream/t/#">>],
+                [<<"$stream/t_read_latest/t/#">>],
                 [{<<"dummy-prop">>, <<"latest">>}, {<<"$stream.start-from">>, <<"latest">>}]
             )
     end,
 
     %% Drain the messages from the stream
     %% and verify that they are NOT received — we subscribed to the latest offset.
-    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 0, _Timeout1 = 500),
+    {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 0, _Timeout0 = 500),
     ?assertEqual(0, length(Msgs0)),
 
     %% Publish more messages while the clients are still subscribed.
@@ -199,7 +214,15 @@ t_read_latest(Config) ->
 %% Verify reading stream messages from a specific offset.
 t_read_timestamp(Config) ->
     %% Create a stream
-    Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
+    StreamOpts = #{topic_filter => <<"t/#">>, name => <<"t_read_timestamp">>},
+    Stream =
+        case ?config(subscribe, Config) of
+            all ->
+                emqx_streams_test_utils:ensure_legacy_stream_created(StreamOpts);
+            all_stream ->
+                emqx_streams_test_utils:ensure_stream_created(StreamOpts)
+        end,
+
     %% Publish 1st portion of messages to the stream
     ok = emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>, different_clients => true}),
 
@@ -221,7 +244,7 @@ t_read_timestamp(Config) ->
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
-                [<<"$stream/t/#">>],
+                [<<"$stream/t_read_timestamp/t/#">>],
                 [{<<"$stream.start-from">>, OffsetBin}]
             )
     end,
@@ -246,9 +269,17 @@ t_read_timestamp(Config) ->
 t_publish_and_consume_regular_many_generations(Config) ->
     %% Create a non-lastvalue Stream
     LimitOpts = ?config(limits, Config),
-    _ = emqx_streams_test_utils:ensure_stream_created(LimitOpts#{
-        topic_filter => <<"t/#">>, is_lastvalue => false
-    }),
+    StreamOpts = LimitOpts#{
+        name => <<"test_publish_and_consume_regular_many_generations">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
+    },
+    case ?config(subscribe, Config) of
+        all ->
+            _ = emqx_streams_test_utils:ensure_legacy_stream_created(StreamOpts);
+        all_stream ->
+            _ = emqx_streams_test_utils:ensure_stream_created(StreamOpts)
+    end,
 
     %% Publish 100 messages to the stream
     emqx_streams_test_utils:populate(50, #{topic_prefix => <<"t/">>}),
@@ -262,8 +293,8 @@ t_publish_and_consume_regular_many_generations(Config) ->
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
-                [<<"$stream/t/#">>],
-                [{<<"$stream.Start-from">>, <<"earliest">>}]
+                [<<"$stream/test_publish_and_consume_regular_many_generations/t/#">>],
+                [{<<"$stream.start-from">>, <<"earliest">>}]
             )
     end,
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 5000),
@@ -293,9 +324,17 @@ t_publish_and_consume_regular_many_generations(Config) ->
 t_publish_and_consume_lastvalue(Config) ->
     %% Create a lastvalue Stream
     LimitOpts = ?config(limits, Config),
-    _ = emqx_streams_test_utils:ensure_stream_created(LimitOpts#{
-        topic_filter => <<"t/#">>, is_lastvalue => true
-    }),
+    StreamOpts = LimitOpts#{
+        name => <<"test_publish_and_consume_lastvalue">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => true
+    },
+    case ?config(subscribe, Config) of
+        all ->
+            _ = emqx_streams_test_utils:ensure_legacy_stream_created(StreamOpts);
+        all_stream ->
+            _ = emqx_streams_test_utils:ensure_stream_created(StreamOpts)
+    end,
 
     %% Publish 100 messages to the stream
     emqx_streams_test_utils:populate_lastvalue(100, #{
@@ -312,7 +351,7 @@ t_publish_and_consume_lastvalue(Config) ->
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
-                [<<"$stream/t/#">>],
+                [<<"$stream/test_publish_and_consume_lastvalue/t/#">>],
                 [{<<"$stream.start-from">>, <<"earliest">>}]
             )
     end,
@@ -339,6 +378,7 @@ t_backpressure(_Config) ->
     %% Create a non-lastvalue Stream
     _ =
         emqx_streams_test_utils:ensure_stream_created(#{
+            name => <<"t_backpressure">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             read_max_unacked => DSStreamMaxUnacked
@@ -349,7 +389,9 @@ t_backpressure(_Config) ->
 
     %% Consume the messages from the stream
     CSub = emqx_streams_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_backpressure">>, [
+        {<<"$stream.start-from">>, <<"earliest">>}
+    ]),
     {ok, Msgs0} =
         emqx_streams_test_utils:emqtt_drain(_MinMsg = BufferSize, _Timeout = 200),
 
@@ -371,7 +413,7 @@ t_backpressure(_Config) ->
 
     %% After acknowledging, the messages should start being received again
     {ok, Msgs1} =
-        emqx_streams_test_utils:emqtt_drain(_MinMsg = BufferSize, _Timeout = 200),
+        emqx_streams_test_utils:emqtt_drain(_MinMsg1 = BufferSize, _Timeout1 = 200),
     ?assert(
         length(Msgs1) =< BufferSize + DSStreamMaxUnacked * 2,
         binfmt(
@@ -390,10 +432,14 @@ t_find_stream(_Config) ->
 
     %% Connect a client and subscribe to a non-existent stream
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_find_stream">>, [
+        {<<"$stream.start-from">>, <<"earliest">>}
+    ]),
 
     %% Create the stream
-    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
+    emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_find_stream">>, topic_filter => <<"t/#">>
+    }),
     emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Verify that the message is received
@@ -409,7 +455,9 @@ t_stream_recreate(_Config) ->
 
     %% Create the stream
     emqx_streams_test_utils:ensure_stream_created(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false
+        name => <<"t_stream_recreate">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
     }),
     emqx_streams_test_utils:populate(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-1-">>
@@ -417,7 +465,9 @@ t_stream_recreate(_Config) ->
 
     %% Subscribe to the stream
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_stream_recreate">>, [
+        {<<"$stream.start-from">>, <<"earliest">>}
+    ]),
 
     %% Verify that the message is received
     {ok, [#{payload := <<"payload-1-", _/binary>>}]} = emqx_streams_test_utils:emqtt_drain(
@@ -425,9 +475,13 @@ t_stream_recreate(_Config) ->
     ),
 
     %% Recreate the stream
-    emqx_streams_registry:delete(<<"t/#">>),
-    ?retry(5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t/#">>))),
-    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+    emqx_streams_registry:delete(<<"t_stream_recreate">>),
+    ?retry(
+        5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t_stream_recreate">>, <<"t/#">>))
+    ),
+    emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_stream_recreate">>, topic_filter => <<"t/#">>, is_lastvalue => true
+    }),
     emqx_streams_test_utils:populate_lastvalue(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-2-">>
     }),
@@ -438,11 +492,15 @@ t_stream_recreate(_Config) ->
     ),
 
     %% Recreate the stream again, but with a pause > check_stream_status_interval
-    emqx_streams_registry:delete(<<"t/#">>),
-    ?retry(5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t/#">>))),
+    emqx_streams_registry:delete(<<"t_stream_recreate">>),
+    ?retry(
+        5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t_stream_recreate">>, <<"t/#">>))
+    ),
     ct:sleep(emqx_config:get([streams, check_stream_status_interval]) * 3),
     emqx_streams_test_utils:ensure_stream_created(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false
+        name => <<"t_stream_recreate">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
     }),
     emqx_streams_test_utils:populate(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-3-">>
@@ -462,10 +520,14 @@ t_metrics(_Config) ->
         emqx_streams_metrics:get_counters(ds),
 
     %% Create a stream, publish and consume some messages
-    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_metrics">>, topic_filter => <<"t/#">>
+    }),
     emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_metrics">>, [
+        {<<"$stream.start-from">>, <<"earliest">>}
+    ]),
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
     ok = emqtt:disconnect(CSub),
     ?assertEqual(10, length(Msgs)),
@@ -484,22 +546,25 @@ t_metrics(_Config) ->
     emqx_streams_metrics:print_flush_quota_hist(),
     emqx_streams_metrics:print_common_hists(regular_limited).
 
-%% Verify that invalid topics are rejected without crashing
-%% and that invalid timestamps do not prevent further subscription
-%% with correct timestamps.
+%% Verify that subscription with invalid topic filter
+%% does not prevent further subscription with valid topic filter.
 t_subscribe_invalid_topic(_Config) ->
     %% Create a stream
-    _Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
+    _Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_subscribe_invalid_topic">>, topic_filter => <<"t/#">>
+    }),
     emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
-    %% Subscribe to the stream with invalid timestamps
+    %% Subscribe to the stream with invalid topic
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/invalid-ts/t/#">>]),
-    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$sp/0/invalid-ts/t/#">>]),
-    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$sp/9999/earliest/t/#">>]),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_subscribe_invalid_topic/xxx/#">>, [
+        {<<"$stream.start-from">>, <<"earliest">>}
+    ]),
 
-    %% Subscribe to the stream with valid timestamp
-    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$sp/all/earliest/t/#">>]),
+    %% Subscribe to the stream with valid topic filter
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_subscribe_invalid_topic/t/#">>, [
+        {<<"$stream.start-from">>, <<"earliest">>}
+    ]),
 
     %% Drain the messages from the stream and verify that we receive the messages
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
@@ -523,8 +588,7 @@ t_autocreate_stream(_Config) ->
         }
     }),
     ok = emqx_streams_test_utils:emqtt_sub(CSub, [
-        <<"$sp/0/latest/a/#">>,
-        <<"$sp/1/latest/a/#">>,
+        <<"$stream/auto_create_lastvalue/a/#">>,
         <<"$s/earliest/b/#">>,
         <<"$s/0/c/#">>
     ]),
@@ -537,8 +601,7 @@ t_autocreate_stream(_Config) ->
         }
     }),
     ok = emqx_streams_test_utils:emqtt_sub(CSub, [
-        <<"$sp/0/latest/d/#">>,
-        <<"$sp/1/latest/d/#">>,
+        <<"$stream/auto_create_regular/d/#">>,
         <<"$s/earliest/e/#">>,
         <<"$s/0/f/#">>
     ]),
@@ -574,66 +637,117 @@ t_autocreate_stream(_Config) ->
 t_data_retention_period(_Config) ->
     %% Create a lastvalue and a regular streams with 1s data retention period
     StreamLV = emqx_streams_test_utils:ensure_stream_created(#{
-        topic_filter => <<"t1/#">>, is_lastvalue => true, data_retention_period => 1000
+        name => <<"data_retention_period_lastvalue">>,
+        topic_filter => <<"t1/#">>,
+        is_lastvalue => true,
+        data_retention_period => 1000
     }),
     StreamR = emqx_streams_test_utils:ensure_stream_created(#{
-        topic_filter => <<"t2/#">>, is_lastvalue => false, data_retention_period => 1000
+        name => <<"data_retention_period_regular">>,
+        topic_filter => <<"t2/#">>,
+        is_lastvalue => false,
+        data_retention_period => 1000
     }),
 
-    %% Publish 1 message to the lastvalue stream
-    emqx_streams_test_utils:populate_lastvalue(1, #{topic_prefix => <<"t1/">>, key_start_from => 0}),
-    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+    %% Timestamp before the message was published
+    TimestampBeforeMessage = erlang:system_time(microsecond) - 1_000_000,
+    TimestampBeforeMessageBin = integer_to_binary(TimestampBeforeMessage),
+
+    %% Publish 1 message to the streams
+    emqx_streams_test_utils:populate_lastvalue(1, #{
+        topic_prefix => <<"t1/">>, key_start_from => 0, payload_prefix => <<"payload-old-">>
+    }),
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"t2/">>, payload_prefix => <<"payload-old-">>
+    }),
     emqx_streams_message_db:add_regular_db_generation(),
 
     %% Wait for 1s to let the data expire
     ct:sleep(1000),
 
     %% Publish 1 more message to the streams
-    emqx_streams_test_utils:populate_lastvalue(1, #{topic_prefix => <<"t1/">>, key_start_from => 1}),
-    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+    emqx_streams_test_utils:populate_lastvalue(1, #{
+        topic_prefix => <<"t1/">>, key_start_from => 1, payload_prefix => <<"payload-new-">>
+    }),
+    emqx_streams_test_utils:populate(1, #{
+        topic_prefix => <<"t2/">>, payload_prefix => <<"payload-new-">>
+    }),
 
     %% Try to read the messages as earliest and see that the limit is applied.
     %% We should see the second message from each stream, totaling 2 messages.
     CSub0 = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub0, [<<"$s/earliest/t1/#">>, <<"$s/earliest/t2/#">>]),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub0,
+        [<<"$stream/data_retention_period_lastvalue">>],
+        [{<<"$stream.start-from">>, <<"earliest">>}]
+    ),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub0,
+        [<<"$stream/data_retention_period_regular">>],
+        [{<<"$stream.start-from">>, <<"earliest">>}]
+    ),
+
     {ok, Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 2, _Timeout0 = 100),
     ?assertEqual(2, length(Msgs0)),
     ok = emqtt:disconnect(CSub0),
 
     %% Try to read the messages from timestamp 2s ago and see that the limit is applied
-    Timestamp2sAgo = erlang:system_time(microsecond) - 2_000_000,
-    Timestamp2sAgoBin = integer_to_binary(Timestamp2sAgo),
     CSub1 = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub1, [
-        <<"$s/", Timestamp2sAgoBin/binary, "/t1/#">>, <<"$s/", Timestamp2sAgoBin/binary, "/t2/#">>
-    ]),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub1,
+        [<<"$stream/data_retention_period_lastvalue">>],
+        [{<<"$stream.start-from">>, TimestampBeforeMessageBin}]
+    ),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub1,
+        [<<"$stream/data_retention_period_regular">>],
+        [{<<"$stream.start-from">>, TimestampBeforeMessageBin}]
+    ),
     {ok, Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 2, _Timeout1 = 100),
     ?assertEqual(2, length(Msgs1)),
     ok = emqtt:disconnect(CSub1),
 
     %% Now update the data retention period to 1m and verify that we see all the messages
-    %% (because it was not yet GC-ed)
+    %% (because stream was not yet GC-ed)
     emqx_streams_registry:update(
-        emqx_streams_prop:topic_filter(StreamLV),
+        <<"data_retention_period_lastvalue">>,
         StreamLV#{data_retention_period => 60_000}
     ),
     emqx_streams_registry:update(
-        emqx_streams_prop:topic_filter(StreamR),
+        <<"data_retention_period_regular">>,
         StreamR#{data_retention_period => 60_000}
     ),
 
     %% Try to read the messages as earliest and get all the messages
     CSub2 = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub2, [<<"$s/earliest/t1/#">>, <<"$s/earliest/t2/#">>]),
-    {ok, _Msgs2} = emqx_streams_test_utils:emqtt_drain(_MinMsg2 = 4, _Timeout2 = 100),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub2,
+        [<<"$stream/data_retention_period_lastvalue">>],
+        [{<<"$stream.start-from">>, <<"earliest">>}]
+    ),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub2,
+        [<<"$stream/data_retention_period_regular">>],
+        [{<<"$stream.start-from">>, <<"earliest">>}]
+    ),
+    {ok, _Msgs2} = emqx_streams_test_utils:emqtt_drain(_MinMsg2 = 4, _Timeout2 = 200),
     ok = emqtt:disconnect(CSub2),
 
-    %% Try to read the messages from timestamp Timestamp1sAgo and get all the messages
+    %% Try to read the messages from timestamp TimestampBeforeMessage and get all the messages
     CSub3 = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub3, [
-        <<"$s/", Timestamp2sAgoBin/binary, "/t1/#">>, <<"$s/", Timestamp2sAgoBin/binary, "/t2/#">>
-    ]),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub3,
+        [<<"$stream/data_retention_period_lastvalue">>],
+        [{<<"$stream.start-from">>, TimestampBeforeMessageBin}]
+    ),
+    emqx_streams_test_utils:emqtt_sub(
+        CSub3,
+        [<<"$stream/data_retention_period_regular">>],
+        [{<<"$stream.start-from">>, TimestampBeforeMessageBin}]
+    ),
     {ok, _Msgs3} = emqx_streams_test_utils:emqtt_drain(_MinMsg3 = 4, _Timeout3 = 1000),
+
+    %% Clean up
     ok = emqtt:disconnect(CSub3).
 
 %%--------------------------------------------------------------------

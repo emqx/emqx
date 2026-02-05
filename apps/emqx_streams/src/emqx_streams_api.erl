@@ -20,7 +20,7 @@
 %% API callbacks
 -export([
     '/message_streams/streams'/2,
-    '/message_streams/streams/:topic_filter'/2,
+    '/message_streams/streams/:name'/2,
     '/message_streams/config'/2
 ]).
 
@@ -44,7 +44,7 @@ api_spec() ->
 paths() ->
     [
         "/message_streams/streams",
-        "/message_streams/streams/:topic_filter",
+        "/message_streams/streams/:name",
         "/message_streams/config"
     ].
 
@@ -94,14 +94,14 @@ schema("/message_streams/streams") ->
             }
         }
     };
-schema("/message_streams/streams/:topic_filter") ->
+schema("/message_streams/streams/:name") ->
     #{
-        'operationId' => '/message_streams/streams/:topic_filter',
+        'operationId' => '/message_streams/streams/:name',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
             description => ?DESC(message_streams_get),
-            parameters => [topic_filter_param()],
+            parameters => [name_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     emqx_streams_schema:stream_sctype_api_get(),
@@ -118,7 +118,7 @@ schema("/message_streams/streams/:topic_filter") ->
         put => #{
             tags => ?TAGS,
             description => ?DESC(message_streams_update),
-            parameters => [topic_filter_param()],
+            parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_streams_schema:stream_sctype_api_put(),
                 put_message_stream_example()
@@ -142,7 +142,7 @@ schema("/message_streams/streams/:topic_filter") ->
         delete => #{
             tags => ?TAGS,
             description => ?DESC(message_streams_delete),
-            parameters => [topic_filter_param()],
+            parameters => [name_param()],
             responses => #{
                 204 => ?DESC(message_streams_delete_success),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -190,21 +190,21 @@ schema("/message_streams/config") ->
 %% Schema
 %%--------------------------------------------------------------------
 
-topic_filter_param() ->
-    {topic_filter,
+name_param() ->
+    {name,
         hoconsc:mk(binary(), #{
-            default => <<>>,
             required => true,
-            desc => ?DESC(topic_filter),
-            validator => fun emqx_schema:non_empty_string/1,
+            desc => ?DESC(name),
+            validator => fun emqx_streams_schema:validate_name/1,
             in => path
         })}.
 
 put_message_stream_example() ->
-    maps:without([<<"topic_filter">>], get_message_stream_example()).
+    maps:without([<<"name">>, <<"topic_filter">>], get_message_stream_example()).
 
 get_message_stream_example() ->
     #{
+        <<"name">> => <<"s1">>,
         <<"topic_filter">> => <<"t/1">>,
         <<"is_lastvalue">> => true,
         <<"data_retention_period">> => 604800000,
@@ -240,21 +240,21 @@ put_message_stream_config_example() ->
 %%--------------------------------------------------------------------
 
 '/message_streams/streams'(get, #{query_string := QString}) ->
-    EncodedCursor = maps:get(<<"cursor">>, QString, undefined),
+    Cursor = maps:get(<<"cursor">>, QString, undefined),
     Limit = maps:get(<<"limit">>, QString),
-    case decode_cursor(EncodedCursor) of
-        {ok, Cursor} ->
-            {MessageStreams, CursorNext} = get_message_streams(Cursor, Limit),
-            case CursorNext of
-                undefined ->
-                    ?OK(#{data => MessageStreams, meta => #{hasnext => false}});
-                _ ->
-                    ?OK(#{
-                        data => MessageStreams,
-                        meta => #{cursor => encode_cursor(CursorNext), hasnext => true}
-                    })
-            end;
-        bad_cursor ->
+    maybe
+        {ok, MessageStreams, CursorNext} ?= get_message_streams(Cursor, Limit),
+        case CursorNext of
+            undefined ->
+                ?OK(#{data => MessageStreams, meta => #{hasnext => false}});
+            _ ->
+                ?OK(#{
+                    data => MessageStreams,
+                    meta => #{cursor => CursorNext, hasnext => true}
+                })
+        end
+    else
+        {error, bad_cursor} ->
             ?BAD_REQUEST(<<"Invalid cursor">>)
     end;
 '/message_streams/streams'(post, #{body := NewMessageStreamRaw}) ->
@@ -269,17 +269,17 @@ put_message_stream_config_example() ->
             ?SERVICE_UNAVAILABLE(Reason)
     end.
 
-'/message_streams/streams/:topic_filter'(get, #{bindings := #{topic_filter := TopicFilter}}) ->
-    case get_message_stream(TopicFilter) of
+'/message_streams/streams/:name'(get, #{bindings := #{name := Name}}) ->
+    case get_message_stream(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message stream not found">>);
         {ok, Stream} ->
             ?OK(Stream)
     end;
-'/message_streams/streams/:topic_filter'(put, #{
-    body := UpdatedMessageStream, bindings := #{topic_filter := TopicFilter}
+'/message_streams/streams/:name'(put, #{
+    body := UpdatedMessageStream, bindings := #{name := Name}
 }) ->
-    case update_message_stream(TopicFilter, UpdatedMessageStream) of
+    case update_message_stream(Name, UpdatedMessageStream) of
         not_found ->
             ?NOT_FOUND(<<"Message stream not found">>);
         {ok, StreamRaw} ->
@@ -293,8 +293,8 @@ put_message_stream_config_example() ->
         {error, _} = Error ->
             ?SERVICE_UNAVAILABLE(Error)
     end;
-'/message_streams/streams/:topic_filter'(delete, #{bindings := #{topic_filter := TopicFilter}}) ->
-    case delete_message_stream(TopicFilter) of
+'/message_streams/streams/:name'(delete, #{bindings := #{name := Name}}) ->
+    case delete_message_stream(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message stream not found">>);
         {error, Reason} ->
@@ -343,20 +343,12 @@ check_ready(Request, _Meta) ->
 %%--------------------------------------------------------------------
 
 get_message_streams(Cursor, Limit) ->
-    {MessageStreams, CursorNext} = emqx_streams_registry:list(Cursor, Limit),
-    {[emqx_streams_config:stream_to_raw_get(Stream) || Stream <- MessageStreams], CursorNext}.
-
-encode_cursor(Cursor) ->
-    emqx_base62:encode(Cursor).
-
-decode_cursor(undefined) ->
-    {ok, undefined};
-decode_cursor(EncodedCursor) ->
-    try
-        {ok, emqx_base62:decode(EncodedCursor)}
-    catch
-        _:_ ->
-            bad_cursor
+    case emqx_streams_registry:list(Cursor, Limit) of
+        {ok, MessageStreams, CursorNext} ->
+            {ok, [emqx_streams_config:stream_to_raw_get(Stream) || Stream <- MessageStreams],
+                CursorNext};
+        {error, _} ->
+            {error, bad_cursor}
     end.
 
 add_message_stream(NewStreamRaw) ->
@@ -368,17 +360,17 @@ add_message_stream(NewStreamRaw) ->
             {error, Reason}
     end.
 
-get_message_stream(TopicFilter) ->
-    case emqx_streams_registry:find(TopicFilter) of
+get_message_stream(Name) ->
+    case emqx_streams_registry:find(Name) of
         not_found ->
             not_found;
         {ok, Stream} ->
             {ok, emqx_streams_config:stream_to_raw_get(Stream)}
     end.
 
-update_message_stream(TopicFilter, UpdatedStreamRaw) ->
+update_message_stream(Name, UpdatedStreamRaw) ->
     UpdatedStream = emqx_streams_config:stream_update_from_raw_put(UpdatedStreamRaw),
-    case emqx_streams_registry:update(TopicFilter, UpdatedStream) of
+    case emqx_streams_registry:update(Name, UpdatedStream) of
         {ok, Stream} ->
             {ok, emqx_streams_config:stream_to_raw_get(Stream)};
         not_found ->
@@ -387,8 +379,8 @@ update_message_stream(TopicFilter, UpdatedStreamRaw) ->
             Error
     end.
 
-delete_message_stream(TopicFilter) ->
-    emqx_streams_registry:delete(TopicFilter).
+delete_message_stream(Name) ->
+    emqx_streams_registry:delete(Name).
 
 ref(Module, Name) ->
     hoconsc:ref(Module, Name).

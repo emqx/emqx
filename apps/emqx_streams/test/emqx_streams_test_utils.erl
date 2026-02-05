@@ -16,7 +16,13 @@
     emqtt_ack/1
 ]).
 
--export([create_stream/1, ensure_stream_created/1, fill_stream_defaults/1]).
+-export([
+    create_stream/1,
+    ensure_stream_created/1,
+    create_legacy_stream/1,
+    ensure_legacy_stream_created/1,
+    fill_stream_defaults/1
+]).
 
 -export([populate/2, populate_lastvalue/2]).
 
@@ -96,8 +102,19 @@ create_stream(Stream0) ->
     Stream = fill_stream_defaults(Stream0),
     emqx_streams_registry:create(Stream).
 
-ensure_stream_created(#{topic_filter := TopicFilter} = Stream0) ->
+create_legacy_stream(Stream0) ->
+    Stream = fill_stream_defaults(Stream0),
+    emqx_streams_registry:create_pre_611_stream(Stream).
+
+ensure_stream_created(Stream0) ->
     {ok, Stream} = ?retry(50, 100, {ok, _} = create_stream(Stream0)),
+    wait_for_stream_created(Stream).
+
+ensure_legacy_stream_created(Stream0) ->
+    {ok, Stream} = ?retry(50, 100, {ok, _} = create_legacy_stream(Stream0)),
+    wait_for_stream_created(Stream).
+
+wait_for_stream_created(#{topic_filter := TopicFilter} = Stream) ->
     SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
