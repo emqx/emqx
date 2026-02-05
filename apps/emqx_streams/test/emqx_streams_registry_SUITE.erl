@@ -88,7 +88,7 @@ t_crud(_Config) ->
 %% Verify that we are able to operate with pre-6.1.1 streams
 t_pre_611(_Config) ->
     Stream0 = emqx_streams_test_utils:fill_stream_defaults(#{topic_filter => <<"a/b/c">>}),
-    ok = emqx_streams_registry:create_pre_611_stream(Stream0),
+    {ok, _} = emqx_streams_registry:create_pre_611_stream(Stream0),
     {ok, #{topic_filter := <<"a/b/c">>} = Stream} = emqx_streams_registry:find(<<"/a/b/c">>),
     ?assertEqual(<<"/a/b/c">>, emqx_streams_prop:name(Stream)),
     ?assertEqual(ok, emqx_streams_registry:delete(<<"/a/b/c">>)),

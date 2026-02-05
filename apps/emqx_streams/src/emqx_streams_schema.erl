@@ -115,10 +115,10 @@ fields(auto_create) ->
     ];
 fields(auto_create_regular) ->
     RegularMQFields = stream_fields(false),
-    without_fields([is_lastvalue, topic_filter], RegularMQFields);
+    without_fields([is_lastvalue, topic_filter, name], RegularMQFields);
 fields(auto_create_lastvalue) ->
     LastvalueMQFields = stream_fields(true),
-    without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
+    without_fields([is_lastvalue, topic_filter, name], LastvalueMQFields);
 %% Stream structs
 fields(stream_individual_limits) ->
     [
@@ -135,7 +135,7 @@ fields(stream_individual_limits) ->
 %% Lastvalue structs
 %%
 fields(stream_lastvalue_api_put) ->
-    without_fields([topic_filter], stream_fields(true));
+    without_fields([name, topic_filter], stream_fields(true));
 fields(stream_lastvalue_api_get) ->
     stream_fields(true);
 fields(stream_lastvalue_api_post) ->
@@ -144,7 +144,7 @@ fields(stream_lastvalue_api_post) ->
 %% Regular structs
 %%
 fields(stream_regular_api_put) ->
-    without_fields([topic_filter], stream_fields(false));
+    without_fields([name, topic_filter], stream_fields(false));
 fields(stream_regular_api_get) ->
     stream_fields(false);
 fields(stream_regular_api_post) ->

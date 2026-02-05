@@ -72,7 +72,6 @@ DS streams are explicity called `DS streams' here.
 
 -record(subscribe_params, {
     name :: binary(),
-    partition :: binary(),
     start_from :: binary(),
     topic_filter :: binary(),
     full_topic_filter :: binary()
@@ -299,7 +298,7 @@ subscribe(
     Handler,
     #subscribe_params{
         name = Name,
-        topic_filter = TopicFilter,
+        topic_filter = MaybeTopicFilter,
         start_from = StartFromBin,
         full_topic_filter = FullTopicFilter
     } =
@@ -308,13 +307,16 @@ subscribe(
     maybe
         ok ?= validate_new_topic_filter(Handler, SubscribeParams),
         {ok, StartFrom} ?= parse_offset(StartFromBin),
-        {ok, Stream} ?= find_stream(Name, TopicFilter),
+        {ok, Stream} ?= find_stream(Name, MaybeTopicFilter),
         #h{
             state = #state{by_topic_filter = ByTopicFilter, ds_subs = DSSubs} = State0,
             ds_client = DSClient0
         } = Handler,
         DSSubId = make_ref(),
         StartTimeUs = start_time_us(Stream, StartFrom),
+        ?tp_debug(streams_extsub_handler_subscribe, #{
+            stream => Name, start_from => StartFrom, start_time_us => StartTimeUs
+        }),
         {ok, Progress} ?= init_progress(Stream, StartTimeUs),
         StreamState = #stream_state{
             stream = Stream,
@@ -577,8 +579,16 @@ split_topic_filter(TopicFilter) ->
         _ -> ?err_unrec(invalid_topic_filter)
     end.
 
+split_name_topic(NameTopic) ->
+    case binary:split(NameTopic, <<"/">>) of
+        [Name, Topic] -> {Name, Topic};
+        _ -> {NameTopic, undefined}
+    end.
+
 find_stream(Name, TopicFilter) ->
     case emqx_streams_registry:find(Name) of
+        {ok, Stream} when TopicFilter =:= undefined ->
+            {ok, Stream};
         {ok, #{topic_filter := TopicFilter} = Stream} ->
             {ok, Stream};
         {ok, #{topic_filter := ExistingTopicFilter}} ->
@@ -799,8 +809,8 @@ check_stream_subscribe_topic_filter(Ctx, <<"$stream/", NameTopicFilter/binary>> 
     UserProperties = maps:get('User-Property', SubProps, []),
     StartFrom = proplists:get_value(?START_FROM_USER_PROP, UserProperties, <<"latest">>),
     maybe
-        {ok, Name, TopicFilter} ?= split_topic_filter(NameTopicFilter),
-        ok = validate_name(Name),
+        {Name, TopicFilter} = split_name_topic(NameTopicFilter),
+        ok ?= validate_name(Name),
         {ok, #subscribe_params{
             name = Name,
             start_from = StartFrom,

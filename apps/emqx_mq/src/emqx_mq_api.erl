@@ -207,7 +207,7 @@ name_param() ->
         })}.
 
 put_message_queue_example() ->
-    maps:without([<<"name">>], get_message_queue_example()).
+    maps:without([<<"name">>, <<"topic_filter">>], get_message_queue_example()).
 
 get_message_queue_example() ->
     #{

@@ -126,7 +126,9 @@ create(
             mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
                 case mnesia:read(?STREAMS_REGISTRY_NAME_INDEX_TAB, Name) of
                     [] ->
-                        ok = mnesia:write(#?STREAMS_REGISTRY_NAME_INDEX_TAB{name = Name, topic_filter = TopicFilter, id = Id}),
+                        ok = mnesia:write(#?STREAMS_REGISTRY_NAME_INDEX_TAB{
+                            name = Name, topic_filter = TopicFilter, id = Id
+                        }),
                         ok = mnesia:write(Rec);
                     [_] ->
                         {error, stream_exists}
@@ -165,7 +167,7 @@ Find the Stream by its name
 """.
 -spec find(emqx_streams_types:stream_topic()) -> {ok, emqx_streams_types:stream()} | not_found.
 find(?LEGACY_STREAM_NAME(TopicFilter)) ->
-    ?tp_debug(mq_registry_find, #{topic_filter => TopicFilter}),
+    ?tp_debug(streams_registry_find_legacy, #{topic_filter => TopicFilter}),
     Key = make_legacy_key(TopicFilter),
     case mnesia:dirty_read(?STREAMS_REGISTRY_INDEX_TAB, Key) of
         [] ->
@@ -212,7 +214,6 @@ Delete the Stream by its name.
 delete(?LEGACY_STREAM_NAME(TopicFilter)) ->
     Key = make_legacy_key(TopicFilter),
     do_delete(Key);
-
 delete(Name) ->
     ?tp_debug(mq_registry_delete, #{name => Name}),
     case mnesia:dirty_read(?STREAMS_REGISTRY_NAME_INDEX_TAB, Name) of
@@ -333,6 +334,8 @@ do_list(StartKey, Limit) ->
             record_iterator_to_streams(record_iterator(StartKey))
         )
     ),
+    KeyNames = [#{key => Key, name => Name} || {Key, #{name := Name}} <- KeyStreams0],
+    ?tp_debug(streams_registry_list, #{start_key => StartKey, key_names => KeyNames}),
     case length(KeyStreams0) < Limit + 1 of
         true ->
             {_Keys, Streams} = lists:unzip(KeyStreams0),
@@ -352,8 +355,8 @@ do_list(StartKey, Limit) ->
 record_iterator() ->
     record_iterator(undefined).
 
-record_iterator(Cursor) ->
-    Stream = ets_record_iterator(key_from_cursor(Cursor)),
+record_iterator(Key) ->
+    Stream = ets_record_iterator(Key),
     emqx_utils_stream:chainmap(
         fun(L) -> L end,
         Stream
@@ -368,11 +371,12 @@ key_from_cursor(Cursor) ->
         _ ->
             {error, bad_cursor}
     catch
-        Class:Reason ->
+        Class:Reason:StackTrace ->
             ?tp(warning, streams_registry_key_from_cursor_error, #{
                 cursor => Cursor,
                 class => Class,
-                reason => Reason
+                reason => Reason,
+                stack_trace => StackTrace
             }),
             {error, bad_cursor}
     end.
@@ -438,13 +442,14 @@ record_to_stream(
         extra = Extra
     } = _Rec
 ) ->
-    Name = case Extra of
-        #{?name_key := N} ->
-            N;
-        _ ->
-            TopicFilter = emqx_topic_index:get_topic(Key),
-            ?LEGACY_STREAM_NAME(TopicFilter)
-    end,
+    Name =
+        case Extra of
+            #{?name_key := N} ->
+                N;
+            _ ->
+                TopicFilter = emqx_topic_index:get_topic(Key),
+                ?LEGACY_STREAM_NAME(TopicFilter)
+        end,
     #{
         id => Id,
         name => Name,
@@ -518,4 +523,4 @@ create_pre_611_stream(Stream0) ->
         mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
             mnesia:write(Rec)
         end),
-    ok.
+    {ok, _} = find(Name).

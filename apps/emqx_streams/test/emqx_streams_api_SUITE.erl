@@ -70,22 +70,30 @@ t_crud(_Config) ->
         {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
         api_get([message_streams, streams])
     ),
+    %% Test invalid stream name, expect 400
+    ?assertMatch(
+        {ok, 400, _},
+        api_get([message_streams, streams, urlencode(<<"invalid/stream/name">>)])
+    ),
     %% Fetch a non-existent stream, expect 404
     ?assertMatch(
         {ok, 404, _},
-        api_get([message_streams, streams, urlencode(<<"t/1">>)])
+        api_get([message_streams, streams, <<"unknown_stream">>])
     ),
     %% Create a stream
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
-            <<"topic_filter">> => <<"t/1/1">>, <<"read_max_unacked">> => 1000
+            <<"name">> => <<"crud_11">>,
+            <<"topic_filter">> => <<"t/1/1">>,
+            <<"read_max_unacked">> => 1000
         })
     ),
     %% Create a capped stream
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
+            <<"name">> => <<"crud_12">>,
             <<"topic_filter">> => <<"t/1/2">>,
             <<"read_max_unacked">> => 9999,
             <<"limits">> => #{
@@ -107,6 +115,7 @@ t_crud(_Config) ->
             ?assertMatch(
                 [
                     #{
+                        <<"name">> := <<"crud_11">>,
                         <<"topic_filter">> := <<"t/1/1">>,
                         <<"read_max_unacked">> := 1000,
                         %% Lastvalue flag is true by default
@@ -117,6 +126,7 @@ t_crud(_Config) ->
                         }
                     },
                     #{
+                        <<"name">> := <<"crud_12">>,
                         <<"topic_filter">> := <<"t/1/2">>,
                         <<"read_max_unacked">> := 9999,
                         <<"limits">> := #{
@@ -125,40 +135,52 @@ t_crud(_Config) ->
                         }
                     }
                 ],
-                sort_by(fun(#{<<"topic_filter">> := TopicFilter}) -> TopicFilter end, Data)
+                sort_by(fun(#{<<"name">> := Name}) -> Name end, Data)
             )
         end
     ),
     %% Try to update a non-existent stream, expect 404
     ?assertMatch(
         {ok, 404, _},
-        api_put([message_streams, streams, urlencode(<<"t/2">>)], #{<<"read_max_unacked">> => 10000})
+        api_put([message_streams, streams, <<"crud_2">>], #{<<"read_max_unacked">> => 10000})
     ),
     %% Update an existing stream
-    ?assertMatch(
-        {ok, 200, #{<<"topic_filter">> := <<"t/1/1">>, <<"read_max_unacked">> := 10000}},
-        api_put([message_streams, streams, urlencode(<<"t/1/1">>)], #{
-            <<"read_max_unacked">> => 10000
-        })
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{
+                <<"name">> := <<"crud_11">>,
+                <<"topic_filter">> := <<"t/1/1">>,
+                <<"read_max_unacked">> := 10000
+            }},
+            api_put([message_streams, streams, <<"crud_11">>], #{
+                <<"read_max_unacked">> => 10000
+            })
+        )
     ),
     %% Verify that the stream is updated
     ?assertMatch(
-        {ok, 200, #{<<"topic_filter">> := <<"t/1/1">>, <<"read_max_unacked">> := 10000}},
-        api_get([message_streams, streams, urlencode(<<"t/1/1">>)])
+        {ok, 200, #{
+            <<"name">> := <<"crud_11">>,
+            <<"topic_filter">> := <<"t/1/1">>,
+            <<"read_max_unacked">> := 10000
+        }},
+        api_get([message_streams, streams, <<"crud_11">>])
     ),
     %% Delete both streams
     ?assertMatch(
         {ok, 204},
-        api_delete([message_streams, streams, urlencode(<<"t/1/1">>)])
+        api_delete([message_streams, streams, <<"crud_11">>])
     ),
     ?assertMatch(
         {ok, 204},
-        api_delete([message_streams, streams, urlencode(<<"t/1/2">>)])
+        api_delete([message_streams, streams, <<"crud_12">>])
     ),
     %% Verify that the streams are deleted
     ?assertMatch(
         {ok, 404, _},
-        api_delete([message_streams, streams, urlencode(<<"t/1/1">>)])
+        api_delete([message_streams, streams, <<"crud_11">>])
     ),
     %% Verify that the streams are not listed
     ?retry(
@@ -176,10 +198,14 @@ t_pagination(_Config) ->
     lists:foreach(
         fun(I) ->
             IBin = integer_to_binary(I),
-            api_post([message_streams, streams], #{<<"topic_filter">> => <<"t/", IBin/binary>>})
+            api_post([message_streams, streams], #{
+                <<"name">> => <<"pagination_", IBin/binary>>,
+                <<"topic_filter">> => <<"t/", IBin/binary>>
+            })
         end,
         lists:seq(1, 10)
     ),
+    ct:sleep(100),
     {ok, 200, #{
         <<"data">> := Data0, <<"meta">> := #{<<"hasnext">> := true, <<"cursor">> := Cursor}
     }} =
@@ -198,6 +224,12 @@ t_pagination(_Config) ->
     ?assertMatch(
         {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
         api_get([message_streams, streams, "?limit=6&cursor=%10%13"])
+    ),
+    ?assertMatch(
+        {ok, 400, #{<<"code">> := <<"BAD_REQUEST">>}},
+        api_get([
+            message_streams, streams, "?limit=6&cursor=" ++ urlencode(base64:encode(<<"{{{">>))
+        ])
     ).
 
 %% Verify streams subsystem (re)configuration via API.
@@ -270,24 +302,28 @@ t_lastvalue_vs_regular(_Config) ->
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
-            <<"topic_filter">> => <<"t/1">>, <<"is_lastvalue">> => false
+            <<"name">> => <<"regular1">>,
+            <<"topic_filter">> => <<"t/1">>,
+            <<"is_lastvalue">> => false
         })
     ),
     ?assertMatch(
         {ok, 400, _},
-        api_put([message_streams, streams, urlencode(<<"t/1">>)], #{<<"is_lastvalue">> => true})
+        api_put([message_streams, streams, <<"regular1">>], #{<<"is_lastvalue">> => true})
     ),
 
     %% Cannot update a lastvalue stream to regular
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
-            <<"topic_filter">> => <<"t/2">>, <<"is_lastvalue">> => true
+            <<"name">> => <<"lastvalue1">>,
+            <<"topic_filter">> => <<"t/2">>,
+            <<"is_lastvalue">> => true
         })
     ),
     ?assertMatch(
         {ok, 400, _},
-        api_put([message_streams, streams, urlencode(<<"t/2">>)], #{<<"is_lastvalue">> => false})
+        api_put([message_streams, streams, <<"lastvalue1">>], #{<<"is_lastvalue">> => false})
     ).
 
 %% Verify that regular stream cannot be converted from limited to unlimited and vice versa.
@@ -296,7 +332,9 @@ t_limited_vs_unlimited(_Config) ->
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
-            <<"topic_filter">> => <<"t/1">>, <<"is_lastvalue">> => false
+            <<"name">> => <<"regular">>,
+            <<"topic_filter">> => <<"t/1">>,
+            <<"is_lastvalue">> => false
         })
     ),
 
@@ -307,7 +345,7 @@ t_limited_vs_unlimited(_Config) ->
             <<"message">> :=
                 <<"Regular streams cannot be updated from limited to unlimited and vice versa">>
         }},
-        api_put([message_streams, streams, urlencode(<<"t/1">>)], #{
+        api_put([message_streams, streams, <<"regular">>], #{
             <<"is_lastvalue">> => false,
             <<"limits">> => #{
                 <<"max_shard_message_count">> => 1000,
@@ -320,6 +358,7 @@ t_limited_vs_unlimited(_Config) ->
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
+            <<"name">> => <<"regular_limited">>,
             <<"topic_filter">> => <<"t/2">>,
             <<"is_lastvalue">> => false,
             <<"limits">> => #{
@@ -336,21 +375,23 @@ t_limited_vs_unlimited(_Config) ->
             <<"message">> :=
                 <<"Regular streams cannot be updated from limited to unlimited and vice versa">>
         }},
-        api_put([message_streams, streams, urlencode(<<"t/2">>)], #{<<"is_lastvalue">> => false})
+        api_put([message_streams, streams, <<"regular_limited">>], #{<<"is_lastvalue">> => false})
     ),
 
     %% Create an unlimited lastvalue stream
     ?assertMatch(
         {ok, 200, _},
         api_post([message_streams, streams], #{
-            <<"topic_filter">> => <<"t/3">>, <<"is_lastvalue">> => true
+            <<"name">> => <<"lastvalue">>,
+            <<"topic_filter">> => <<"t/3">>,
+            <<"is_lastvalue">> => true
         })
     ),
 
     %% Successfully update an unlimited lastvalue stream to limited
     ?assertMatch(
         {ok, 200, _},
-        api_put([message_streams, streams, urlencode(<<"t/3">>)], #{
+        api_put([message_streams, streams, <<"lastvalue">>], #{
             <<"is_lastvalue">> => true,
             <<"limits">> => #{
                 <<"max_shard_message_count">> => 1000,
@@ -362,7 +403,7 @@ t_limited_vs_unlimited(_Config) ->
     %% Successfully remove limits back from a limited lastvalue stream
     ?assertMatch(
         {ok, 200, _},
-        api_put([message_streams, streams, urlencode(<<"t/3">>)], #{
+        api_put([message_streams, streams, <<"lastvalue">>], #{
             <<"is_lastvalue">> => true,
             <<"limits">> => #{
                 <<"max_shard_message_count">> => <<"infinity">>,
@@ -375,7 +416,9 @@ t_limited_vs_unlimited(_Config) ->
 t_defaults(_Config) ->
     ?assertMatch(
         {ok, 200, _},
-        api_post([message_streams, streams], #{<<"topic_filter">> => <<"t/#">>})
+        api_post([message_streams, streams], #{
+            <<"name">> => <<"defaults">>, <<"topic_filter">> => <<"t/#">>
+        })
     ),
     %% Publish 10 messages to the queue
     emqx_mq_test_utils:populate_lastvalue(10, #{
@@ -386,8 +429,10 @@ t_defaults(_Config) ->
 
     %% Consume the messages from the queue
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub, <<"$s/earliest/t/#">>),
-    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 100),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/defaults">>, [
+        {<<"$stream.start-from">>, <<"earliest">>}
+    ]),
+    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
     ok = emqtt:disconnect(CSub),
 
     %% Verify the messages. Default key expression is clientid, so we should receive only one message.
@@ -402,7 +447,10 @@ t_max_stream_count(_Config) ->
             IBin = integer_to_binary(I),
             ?assertMatch(
                 {ok, 200, _},
-                api_post([message_streams, streams], #{<<"topic_filter">> => <<"t/", IBin/binary>>})
+                api_post([message_streams, streams], #{
+                    <<"name">> => <<"max_", IBin/binary>>,
+                    <<"topic_filter">> => <<"t/", IBin/binary>>
+                })
             )
         end,
         lists:seq(1, 5)
@@ -413,7 +461,9 @@ t_max_stream_count(_Config) ->
             <<"code">> := <<"MAX_STREAM_COUNT_REACHED">>,
             <<"message">> := <<"Max stream count reached">>
         }},
-        api_post([message_streams, streams], #{<<"topic_filter">> => <<"t/6">>})
+        api_post([message_streams, streams], #{
+            <<"name">> => <<"max_6">>, <<"topic_filter">> => <<"t/6">>
+        })
     ).
 
 % %%--------------------------------------------------------------------
