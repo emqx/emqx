@@ -81,7 +81,7 @@ apply_rule(Rule = #{id := RuleID}, Columns, Envs) ->
         },
         debug
     ),
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleID, 'matched'),
+    ok = metric_inc(RuleID, 'matched'),
     clear_rule_payload(),
     try
         do_apply_rule(Rule, add_metadata(Columns, #{rule_id => RuleID}), Envs)
@@ -191,7 +191,7 @@ do_apply_rule(
                     trace_rule_sql(
                         "SQL_yielded_result", #{result => FinalCollection}, debug
                     ),
-                    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed')
+                    ok = metric_inc(RuleId, 'passed')
             end,
             NewEnvs = maps:merge(ColumnsAndSelected, Envs),
             {ok, [handle_action_list(RuleId, Actions, Coll, NewEnvs) || Coll <- FinalCollection]};
@@ -214,7 +214,7 @@ do_apply_rule(
     case evaluate_select(Fields, Columns, Conditions) of
         {ok, Selected} ->
             trace_rule_sql("SQL_yielded_result", #{result => Selected}, debug),
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'passed'),
+            ok = metric_inc(RuleId, 'passed'),
             {ok, handle_action_list(RuleId, Actions, Selected, maps:merge(Columns, Envs))};
         false ->
             trace_rule_sql("SQL_yielded_no_result"),
@@ -400,12 +400,12 @@ handle_action_list(RuleId, Actions, Selected, Envs) ->
     [handle_action(RuleId, Act, Selected, Envs) || Act <- Actions].
 
 handle_action(RuleId, ActId, Selected, Envs) ->
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.total'),
+    ok = metric_inc(RuleId, 'actions.total'),
     try
         do_handle_action(RuleId, ActId, Selected, Envs)
     catch
         throw:{discard, Reason} ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.discarded'),
+            ok = metric_inc(RuleId, 'actions.discarded'),
             trace_action(ActId, "discarded", #{cause => Reason}, debug);
         error:?EMQX_TRACE_STOP_ACTION_MATCH = Reason ->
             ?EMQX_TRACE_STOP_ACTION(Explanation) = Reason,
@@ -414,15 +414,15 @@ handle_action(RuleId, ActId, Selected, Envs) ->
                 "action_stopped_after_template_rendering",
                 #{reason => Explanation}
             ),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+            metric_inc(RuleId, 'actions.failed'),
+            metric_inc(RuleId, 'actions.failed.unknown');
         throw:{failed, unhealthy_target} ->
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service'),
+            metric_inc(RuleId, 'actions.failed'),
+            metric_inc(RuleId, 'actions.failed.out_of_service'),
             trace_action(ActId, "action_failed", #{reason => unhealthy_target}, error);
         Err:Reason:ST ->
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown'),
+            ok = metric_inc(RuleId, 'actions.failed'),
+            ok = metric_inc(RuleId, 'actions.failed.unknown'),
             trace_action(
                 ActId,
                 "action_failed",
@@ -770,14 +770,14 @@ do_inc_action_metrics(
         "action_stopped_after_template_rendering",
         maps:merge(#{reason => Explanation}, TraceContext1)
     ),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+    metric_inc(RuleId, 'actions.failed'),
+    metric_inc(RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId},
     ?RESOURCE_ERROR_M(R, _)
 ) when ?IS_RES_DOWN(R) ->
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service'),
+    ok = metric_inc(RuleId, 'actions.failed'),
+    ok = metric_inc(RuleId, 'actions.failed.out_of_service'),
     trace_action(ActId, "out_of_service", #{}, warning);
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
@@ -789,7 +789,7 @@ do_inc_action_metrics(
     },
     TraceContext1 = maps:remove(action_id, TraceContext),
     trace_action(ActId, "out_of_service", TraceContext1#{reason => FormatterRes}),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.out_of_service');
+    metric_inc(RuleId, 'actions.failed.out_of_service');
 do_inc_action_metrics(
     #{rule_id := RuleId, action_id := ActId} = TraceContext,
     {error, {unrecoverable_error, _}} = Reason
@@ -800,8 +800,8 @@ do_inc_action_metrics(
         data = {ActId, Reason}
     },
     trace_action(ActId, "action_failed", maps:merge(#{reason => FormatterRes}, TraceContext1)),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-    emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+    metric_inc(RuleId, 'actions.failed'),
+    metric_inc(RuleId, 'actions.failed.unknown');
 do_inc_action_metrics(#{rule_id := RuleId, action_id := ActId} = TraceContext, R) ->
     TraceContext1 = maps:remove(action_id, TraceContext),
     FormatterRes = #emqx_trace_format_func_data{
@@ -815,15 +815,15 @@ do_inc_action_metrics(#{rule_id := RuleId, action_id := ActId} = TraceContext, R
                 "action_failed",
                 maps:merge(#{reason => FormatterRes}, TraceContext1)
             ),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed'),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.failed.unknown');
+            metric_inc(RuleId, 'actions.failed'),
+            metric_inc(RuleId, 'actions.failed.unknown');
         true ->
             trace_action(
                 ActId,
                 "action_success",
                 maps:merge(#{result => FormatterRes}, TraceContext1)
             ),
-            emqx_metrics_worker:inc(rule_metrics, RuleId, 'actions.success')
+            metric_inc(RuleId, 'actions.success')
     end.
 
 trace_formatted_result({{bridge_v2, Type, _Name}, R}) ->
@@ -929,9 +929,33 @@ trace_rule_sql(Message, Extra, Level) ->
     ).
 
 metrics_inc_no_result(RuleId) ->
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.no_result'),
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed').
+    ok = metric_inc(RuleId, 'failed.no_result'),
+    ok = metric_inc(RuleId, 'failed').
 
 metrics_inc_exception(RuleId) ->
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed.exception'),
-    ok = emqx_metrics_worker:inc(rule_metrics, RuleId, 'failed').
+    ok = metric_inc(RuleId, 'failed.exception'),
+    ok = metric_inc(RuleId, 'failed').
+
+metric_inc(RuleId, Metric) ->
+    try
+        emqx_metrics_worker:inc(rule_metrics, RuleId, Metric)
+    catch
+        throw:{failed_to_update_counter, #{
+            reason := Reason,
+            name := Name,
+            id := Id,
+            metric := Metric
+        }} ->
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => failed_to_update_metric_counter,
+                    action => inc,
+                    reason => Reason,
+                    name => Name,
+                    id => Id,
+                    metric => Metric
+                }
+            ),
+            ok
+    end.
