@@ -85,7 +85,7 @@ handle_aux(ServerState, _, Event, Aux0 = #aux{otx_leader = Otx0}, IntState) ->
 state_enter(MemberState, State = #{db_shard := DBShard}) ->
     {DB, Shard} = DBShard,
     ?tp(
-        info,
+        notice,
         ds_ra_state_enter,
         State#{member_state => MemberState}
     ),
