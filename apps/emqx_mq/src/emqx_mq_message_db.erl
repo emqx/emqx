@@ -240,7 +240,7 @@ insert(#{is_lastvalue := false} = MQHandle, false = _IsLimited, Message) ->
             end
     end.
 
--spec drop(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
+-spec drop(emqx_mq_types:mq_handle() | emqx_mq_types:mq()) -> ok | {error, term()}.
 drop(MQHandle) ->
     DB = db(MQHandle),
     delete(DB, delete_topics(DB, MQHandle)).

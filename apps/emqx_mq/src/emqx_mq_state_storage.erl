@@ -173,7 +173,8 @@ commit_consumer_state(
         TxRes, NeedClaimOwnership, failed_to_commit_consumer_state
     ).
 
--spec destroy_consumer_state(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
+-spec destroy_consumer_state(emqx_mq_types:mq() | emqx_mq_types:mq_handle()) ->
+    ok | {error, term()}.
 destroy_consumer_state(MQHandle) ->
     Id = consumer_state_id(MQHandle),
     TxRes = emqx_ds:trans(
@@ -245,9 +246,9 @@ find_mq(MQId) ->
             not_found
     end.
 
--spec destroy_mq_state(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
-destroy_mq_state(MQ) ->
-    Id = mq_state_id(MQ),
+-spec destroy_mq_state(emqx_mq_types:mq_handle() | emqx_mq_types:mq()) -> ok | {error, term()}.
+destroy_mq_state(MQHandle) ->
+    Id = mq_state_id(MQHandle),
     TxRes = emqx_ds:trans(
         trans_opts(Id, #{retries => ?STATE_DELETE_RETRY}),
         fun() ->
