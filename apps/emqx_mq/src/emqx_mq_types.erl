@@ -61,7 +61,6 @@ The module contains basic types for the Message Queue application.
 %% Minimal data necessary to write data into the MQ.
 -type mq_handle() :: #{
     id := mqid(),
-    name := mq_name(),
     topic_filter := mq_topic(),
     is_lastvalue := boolean(),
     key_expression => emqx_variform:compiled() | undefined,
