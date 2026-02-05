@@ -40,12 +40,12 @@ groups() ->
     emqx_common_test_helpers:nested_groups([
         [pub_and_consume],
         [limited, unlimited],
-        [pc_subscribe_all, pc_subscribe_shard, pc_subscribe_all_stream],
+        [pc_subscribe_all, pc_subscribe_all_stream],
         ?PUBLISH_AND_CONSUME_CASES
     ]) ++
         emqx_common_test_helpers:nested_groups([
             [read],
-            [read_subscribe_all, read_subscribe_shard, read_subscribe_all_stream],
+            [read_subscribe_all, read_subscribe_all_stream],
             ?READ_CASES
         ]).
 
@@ -74,14 +74,10 @@ init_per_group(unlimited, Config) ->
     ];
 init_per_group(pc_subscribe_all, Config) ->
     [{subscribe, all} | Config];
-init_per_group(pc_subscribe_shard, Config) ->
-    [{subscribe, shard} | Config];
 init_per_group(pc_subscribe_all_stream, Config) ->
     [{subscribe, all_stream} | Config];
 init_per_group(read_subscribe_all, Config) ->
     [{subscribe, all} | Config];
-init_per_group(read_subscribe_shard, Config) ->
-    [{subscribe, shard} | Config];
 init_per_group(read_subscribe_all_stream, Config) ->
     [{subscribe, all_stream} | Config];
 init_per_group(_Group, Config) ->
@@ -115,7 +111,9 @@ end_per_testcase(_CaseName, Config) ->
 %% Very basic test, publish some messages to the stream and look into the DB
 %% to verify that the messages are stored.
 t_smoke(_Config) ->
-    Stream = emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>}),
+    Stream = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"smoke">>, topic_filter => <<"t/#">>
+    }),
     ok = emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
     AllMessages = emqx_streams_message_db:dirty_read_all(Stream),
     ?assertEqual(10, length(AllMessages)),
@@ -132,11 +130,6 @@ t_read_earliest(Config) ->
     case ?config(subscribe, Config) of
         all ->
             emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]);
-        shard ->
-            emqx_streams_test_utils:emqtt_sub(
-                CSub,
-                [<<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>]
-            );
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
@@ -159,8 +152,6 @@ t_read_earliest(Config) ->
     case ?config(subscribe, Config) of
         all ->
             emqtt:unsubscribe(CSub, <<"$s/earliest/t/#">>);
-        shard ->
-            emqtt:unsubscribe(CSub, [<<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>]);
         all_stream ->
             emqtt:unsubscribe(CSub, <<"$stream/t/#">>)
     end,
@@ -183,11 +174,6 @@ t_read_latest(Config) ->
     case ?config(subscribe, Config) of
         all ->
             emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/latest/t/#">>]);
-        shard ->
-            emqx_streams_test_utils:emqtt_sub(
-                CSub,
-                [<<"$sp/0/latest/t/#">>, <<"$sp/1/latest/t/#">>]
-            );
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
@@ -232,10 +218,6 @@ t_read_timestamp(Config) ->
     case ?config(subscribe, Config) of
         all ->
             emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/", OffsetBin/binary, "/t/#">>]);
-        shard ->
-            emqx_streams_test_utils:emqtt_sub(CSub, [
-                <<"$sp/0/", OffsetBin/binary, "/t/#">>, <<"$sp/1/", OffsetBin/binary, "/t/#">>
-            ]);
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
@@ -277,10 +259,6 @@ t_publish_and_consume_regular_many_generations(Config) ->
     case ?config(subscribe, Config) of
         all ->
             emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]);
-        shard ->
-            emqx_streams_test_utils:emqtt_sub(CSub, [
-                <<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>
-            ]);
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
@@ -331,10 +309,6 @@ t_publish_and_consume_lastvalue(Config) ->
     case ?config(subscribe, Config) of
         all ->
             emqx_streams_test_utils:emqtt_sub(CSub, [<<"$s/earliest/t/#">>]);
-        shard ->
-            emqx_streams_test_utils:emqtt_sub(CSub, [
-                <<"$sp/0/earliest/t/#">>, <<"$sp/1/earliest/t/#">>
-            ]);
         all_stream ->
             emqx_streams_test_utils:emqtt_sub(
                 CSub,
@@ -434,7 +408,9 @@ t_stream_recreate(_Config) ->
     emqx_config:put([streams, check_stream_status_interval], 100),
 
     %% Create the stream
-    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    emqx_streams_test_utils:ensure_stream_created(#{
+        topic_filter => <<"t/#">>, is_lastvalue => false
+    }),
     emqx_streams_test_utils:populate(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-1-">>
     }),
@@ -465,7 +441,9 @@ t_stream_recreate(_Config) ->
     emqx_streams_registry:delete(<<"t/#">>),
     ?retry(5, 100, ?assertNot(emqx_streams_registry:is_present(<<"t/#">>))),
     ct:sleep(emqx_config:get([streams, check_stream_status_interval]) * 3),
-    emqx_streams_test_utils:ensure_stream_created(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    emqx_streams_test_utils:ensure_stream_created(#{
+        topic_filter => <<"t/#">>, is_lastvalue => false
+    }),
     emqx_streams_test_utils:populate(1, #{
         topic_prefix => <<"t/">>, payload_prefix => <<"payload-3-">>
     }),

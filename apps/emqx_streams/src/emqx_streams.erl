@@ -58,14 +58,14 @@ on_message_publish_stream(#message{topic = Topic} = Message) ->
             case Result of
                 ok ->
                     emqx_streams_metrics:inc(ds, inserted_messages),
-                    ?tp_debug(streams_on_message_publish_to_queue, #{
+                    ?tp_debug(streams_on_message_publish_stream_ok, #{
                         topic_filter => emqx_streams_prop:topic_filter(Stream),
                         message_topic => emqx_message:topic(Message),
                         time_us => Time,
                         result => ok
                     });
                 {error, Reason} ->
-                    ?tp(error, streams_on_message_publish_queue_error, #{
+                    ?tp(error, streams_on_message_publish_stream_error, #{
                         topic_filter => emqx_streams_prop:topic_filter(Stream),
                         message_topic => emqx_message:topic(Message),
                         time_us => Time,
