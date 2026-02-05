@@ -321,12 +321,40 @@ inc(Name, Id, Metric) ->
 
 -spec inc(handler_name(), metric_id(), metric_name(), integer()) -> ok.
 inc(Name, Id, Metric, Val) ->
-    counters:add(get_ref(Name, Id), idx_metric(Name, Id, counter, Metric), Val).
+    case get_counter_ref_and_idx(Name, Id, Metric) of
+        {ok, CounterRef, Idx} ->
+            counters:add(CounterRef, Idx, Val);
+        {error, Reason} ->
+            throw(
+                {failed_to_update_counter, #{
+                    action => inc,
+                    val => Val,
+                    reason => Reason,
+                    name => Name,
+                    id => Id,
+                    metric => Metric
+                }}
+            )
+    end.
 
 %% Set value of counter explicitly, so it can behave as a gauge.
 -spec set(handler_name(), metric_id(), metric_name(), integer()) -> ok.
 set(Name, Id, Metric, Val) ->
-    counters:put(get_ref(Name, Id), idx_metric(Name, Id, counter, Metric), Val).
+    case get_counter_ref_and_idx(Name, Id, Metric) of
+        {ok, CounterRef, Idx} ->
+            counters:put(CounterRef, Idx, Val);
+        {error, Reason} ->
+            throw(
+                {failed_to_update_counter, #{
+                    action => set,
+                    val => Val,
+                    reason => Reason,
+                    name => Name,
+                    id => Id,
+                    metric => Metric
+                }}
+            )
+    end.
 
 %% Add a sample to the slide.
 %%
@@ -688,6 +716,21 @@ get_indexes(Name, Type, Id) ->
         #{} -> #{}
     end.
 
+idx_metric_safe(Name, Id, Type, Metric) ->
+    Metrics = get_pterm(Name),
+    case maps:find(Id, Metrics) of
+        {ok, #{Type := #{Metric := Idx}}} ->
+            {ok, Idx};
+        {ok, #{Type := _}} ->
+            {error, metric_not_found};
+        {ok, _} ->
+            {error, type_not_found};
+        error when map_size(Metrics) == 0 ->
+            {error, empty_metrics_in_pt};
+        error ->
+            {error, id_not_found}
+    end.
+
 get_pterm(Name) ->
     persistent_term:get(?CntrRef(Name), #{}).
 
@@ -936,5 +979,18 @@ handle_ensure_metrics(#state{name = Name} = State0, Id, Metrics, RateMetrics) ->
             case handle_create_metrics(State0, Id, Metrics, RateMetrics) of
                 {ok, State} -> {{ok, created}, State};
                 {Result, State} -> {Result, State}
+            end
+    end.
+
+get_counter_ref_and_idx(Name, Id, Metric) ->
+    case get_ref(Name, Id) of
+        not_found ->
+            {error, no_ref};
+        CounterRef ->
+            case idx_metric_safe(Name, Id, counter, Metric) of
+                {ok, Idx} ->
+                    {ok, CounterRef, Idx};
+                {error, _} = Error ->
+                    Error
             end
     end.
