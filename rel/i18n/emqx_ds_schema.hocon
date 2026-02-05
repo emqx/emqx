@@ -214,7 +214,13 @@ emqx_ds_schema {
       populated DB.
 
       If enabled, make sure that the data directory resides on the volume with enough free
-      space, e.g. at least several gigabytes.~"""
+      space, e.g. at least several gigabytes.
+      
+      If the data directory is using `btrfs` file system, keeping it disabled is recommended.
+      On `btrfs` the extra allocated space cannot be freed. This could be significant for DS
+      databases, where having a lot of shards on a single site is common.
+      
+      Refer to RocksDB C++ API documentation of `allow_fallocate` flag for further details.~"""
   }
 
   // Raft-specific settings
