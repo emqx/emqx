@@ -141,7 +141,8 @@ groups() ->
         ]},
         {test_grp_10_rest_api, [RepeatOpt], [
             case100_clients_api,
-            case100_subscription_api
+            case100_subscription_api,
+            case102_mountpoint_peerhost_api
         ]},
         {test_grp_11_internal, [RepeatOpt], [
             case110_xml_object_helpers,
@@ -165,7 +166,8 @@ groups() ->
             case127_channel_internal_branches,
             case128_session_internal_branches,
             case129_write_hex_encoding,
-            case130_auto_observe_list_config
+            case130_auto_observe_list_config,
+            case133_mountpoint_peerhost_placeholder
         ]}
     ].
 
@@ -195,6 +197,8 @@ init_per_testcase(TestCase, Config) ->
                 default_config(#{auto_observe => true});
             case09_auto_observe_list ->
                 default_config_with_auto_observe_raw("[\"/3/0\"]");
+            case102_mountpoint_peerhost_api ->
+                default_config_with_mountpoint_raw("\"lwm2m/%a/%e/\"");
             _ ->
                 default_config()
         end,
@@ -301,6 +305,40 @@ default_config_with_auto_observe_raw(AutoObserveRaw) ->
             "  }\n"
             "}\n",
             [XmlDir, AutoObserveRaw, ?PORT]
+        )
+    ).
+
+default_config_with_mountpoint_raw(MountpointRaw) ->
+    XmlDir = filename:join(
+        [
+            emqx_common_test_helpers:proj_root(),
+            "apps",
+            "emqx_gateway_lwm2m",
+            "lwm2m_xml"
+        ]
+    ),
+    iolist_to_binary(
+        io_lib:format(
+            "\n"
+            "gateway.lwm2m {\n"
+            "  xml_dir = \"~s\"\n"
+            "  lifetime_min = 1s\n"
+            "  lifetime_max = 86400s\n"
+            "  qmode_time_window = 22s\n"
+            "  auto_observe = false\n"
+            "  mountpoint = ~s\n"
+            "  translators {\n"
+            "    command = {topic = \"dn/#\", qos = 0}\n"
+            "    response = {topic = \"up/resp\", qos = 0}\n"
+            "    notify = {topic = \"up/notify\", qos = 0}\n"
+            "    register = {topic = \"up/resp\", qos = 0}\n"
+            "    update = {topic = \"up/resp\", qos = 0}\n"
+            "  }\n"
+            "  listeners.udp.default {\n"
+            "    bind = ~w\n"
+            "  }\n"
+            "}\n",
+            [XmlDir, MountpointRaw, ?PORT]
         )
     ).
 
@@ -4672,6 +4710,32 @@ case100_subscription_api(Config) ->
     {204, _} = request(delete, Path ++ "/tx"),
     {200, [InitSub]} = request(get, Path).
 
+case102_mountpoint_peerhost_api(Config) ->
+    Epn = "urn:oma:lwm2m:oma:5",
+    MsgId1 = 26,
+    UdpSock = ?config(sock, Config),
+    ObjectList = <<"</1>, </2>, </3/0>, </4>, </5>">>,
+    RespTopic = list_to_binary("lwm2m/127.0.0.1/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+    std_register(UdpSock, Epn, ObjectList, MsgId1, RespTopic),
+
+    {200, #{data := [Client1]}} =
+        request(
+            get,
+            "/gateways/lwm2m/clients",
+            [{<<"endpoint_name">>, list_to_binary(Epn)}]
+        ),
+    ClientId = maps:get(clientid, Client1),
+    Path =
+        "/gateways/lwm2m/clients/" ++
+            binary_to_list(ClientId) ++
+            "/subscriptions",
+
+    {200, [InitSub]} = request(get, Path),
+    ExpectedTopic =
+        <<"lwm2m/127.0.0.1/", (list_to_binary(Epn))/binary, "/dn/#">>,
+    ?assertEqual(ExpectedTopic, maps:get(topic, InitSub)).
 case110_xml_object_helpers(_Config) ->
     ObjDefinition = emqx_lwm2m_xml_object:get_obj_def(3, true),
     ?assert(is_tuple(ObjDefinition)),
@@ -5276,6 +5340,24 @@ case130_auto_observe_list_config(_Config) ->
         ?global_ns, default_config_with_auto_observe_raw(OffRaw), #{mode => replace}
     ),
     ?assertEqual([], emqx_lwm2m_session:auto_observe_object_list(RegInfo)).
+
+case133_mountpoint_peerhost_placeholder(_Config) ->
+    CmPid = whereis(emqx_gateway_lwm2m_cm),
+    ?assert(is_pid(CmPid)),
+    Ctx = #{gwname => lwm2m, cm => CmPid},
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 56830},
+        sockname => {{127, 0, 0, 1}, 56830}
+    },
+    Channel0 = emqx_lwm2m_channel:init(
+        ConnInfo, #{ctx => Ctx, mountpoint => <<"lwm2m/%a/%e/">>}
+    ),
+    Msg = #coap_message{
+        options = #{uri_query => #{<<"ep">> => <<"ep133">>, <<"lt">> => <<"60">>}}
+    },
+    {ok, Channel1} = emqx_lwm2m_channel:enrich_clientinfo(Msg, Channel0),
+    #{mountpoint := Mountpoint} = emqx_lwm2m_channel:info(clientinfo, Channel1),
+    ?assertEqual(<<"lwm2m/127.0.0.1/ep133/">>, Mountpoint).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% Internal Functions

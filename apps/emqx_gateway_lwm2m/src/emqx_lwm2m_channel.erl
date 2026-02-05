@@ -516,10 +516,11 @@ enrich_conninfo(
     case Query of
         #{<<"ep">> := Epn, <<"lt">> := Lifetime} ->
             ClientId = maps:get(<<"device_id">>, Query, Epn),
+            ProtoVer = maps:get(proto_ver, ConnInfo, <<"1.0.1">>),
             NConnInfo = ConnInfo#{
                 clientid => ClientId,
                 proto_name => <<"LwM2M">>,
-                proto_ver => <<"1.0.1">>,
+                proto_ver => ProtoVer,
                 clean_start => true,
                 keepalive => binary_to_integer(Lifetime),
                 expiry_interval => 0
@@ -589,8 +590,15 @@ auth_connect(
 fix_mountpoint(_Packet, #{mountpoint := undefined} = ClientInfo) ->
     {ok, ClientInfo};
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
-    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
+    Mountpoint1 = normalize_legacy_mountpoint(Mountpoint),
+    Mountpoint2 = emqx_mountpoint:replvar(Mountpoint1, ClientInfo),
+    {ok, ClientInfo#{mountpoint := Mountpoint2}}.
+
+normalize_legacy_mountpoint(Mountpoint) when is_binary(Mountpoint) ->
+    Mountpoint1 = binary:replace(Mountpoint, <<"%a">>, <<"${peerhost}">>, [global]),
+    binary:replace(Mountpoint1, <<"%e">>, <<"${endpoint_name}">>, [global]);
+normalize_legacy_mountpoint(Mountpoint) ->
+    Mountpoint.
 
 process_connect(
     Channel = #channel{
