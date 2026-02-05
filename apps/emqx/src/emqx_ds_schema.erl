@@ -318,6 +318,19 @@ fields(rocksdb_options) ->
                     default => infinity,
                     desc => ?DESC(rocksdb_max_open_files)
                 }
+            )},
+        {allow_fallocate,
+            sc(
+                boolean(),
+                #{
+                    %% NOTE
+                    %% In contrast to RocksDB defaults, `allow_fallocate' is _disabled_
+                    %% by default for DS shards. When enabled, each shard consumes
+                    %% considerable amount of disk space. This compounds because of few
+                    %% DS DBs that are created by default, each comprised of 16 shards.
+                    default => false,
+                    desc => ?DESC(rocksdb_allow_fallocate)
+                }
             )}
     ];
 fields(layout_builtin_wildcard_optimized) ->

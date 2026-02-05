@@ -244,7 +244,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:erlang_qq, github: "k32/erlang_qq", tag: "1.0.0", override: true}
 
   def common_dep(:rocksdb),
-    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "9.10.0-emqx-1", override: true}
+    do: {:rocksdb, github: "emqx/erlang-rocksdb", tag: "9.10.0-emqx-2", override: true}
 
   def common_dep(:emqx_http_lib),
     do: {:emqx_http_lib, github: "emqx/emqx_http_lib", tag: "0.5.3", override: true}
