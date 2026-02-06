@@ -204,7 +204,7 @@ t_limited_lastvalue(_Config) ->
     %% and the 2nd portion should be partially evicted
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_limited_lastvalue">>, [
-        {<<"$stream.start-from">>, <<"earliest">>}
+        {<<"stream-offset">>, <<"earliest">>}
     ]),
     {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 1000),
     ?assert(length(Msgs) < 100 + 10),

@@ -128,7 +128,9 @@ DS streams are explicity called `DS streams' here.
 
 -record(check_stream_status, {}).
 
--define(START_FROM_USER_PROP, <<"$stream.start-from">>).
+-define(START_FROM_USER_PROP, <<"stream-offset">>).
+-define(START_FROM_USER_PROP_LEGACY, <<"$stream.start-from">>).
+-define(START_FROM_DEFAULT_VALUE, <<"latest">>).
 
 %%------------------------------------------------------------------------------------
 %% ExtSub Handler callbacks
@@ -807,7 +809,17 @@ check_stream_subscribe_topic_filter(Ctx, <<"$stream/", NameTopicFilter/binary>> 
     SubOpts = maps:get(subopts, Ctx, #{}),
     SubProps = maps:get(sub_props, SubOpts, #{}),
     UserProperties = maps:get('User-Property', SubProps, []),
-    StartFrom = proplists:get_value(?START_FROM_USER_PROP, UserProperties, <<"latest">>),
+    StartFrom =
+        case proplists:lookup(?START_FROM_USER_PROP, UserProperties) of
+            none ->
+                proplists:get_value(
+                    ?START_FROM_USER_PROP_LEGACY,
+                    UserProperties,
+                    ?START_FROM_DEFAULT_VALUE
+                );
+            {?START_FROM_USER_PROP, Value} ->
+                Value
+        end,
     maybe
         {Name, TopicFilter} = split_name_topic(NameTopicFilter),
         ok ?= validate_name(Name),

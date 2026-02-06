@@ -430,9 +430,9 @@ t_defaults(_Config) ->
     %% Consume the messages from the queue
     CSub = emqx_streams_test_utils:emqtt_connect([]),
     emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/defaults">>, [
-        {<<"$stream.start-from">>, <<"earliest">>}
+        {<<"stream-offset">>, <<"earliest">>}
     ]),
-    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
+    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 5000),
     ok = emqtt:disconnect(CSub),
 
     %% Verify the messages. Default key expression is clientid, so we should receive only one message.
