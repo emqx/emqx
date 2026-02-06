@@ -85,10 +85,10 @@ t_cluster_smoke(Config) ->
     SubClient0 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB0_PORT}]),
     SubClient1 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
     ok = emqx_streams_test_utils:emqtt_sub(SubClient0, <<"$stream/q1/q/1">>, [
-        {<<"$stream.start-from">>, <<"earliest">>}
+        {<<"stream-offset">>, <<"earliest">>}
     ]),
     ok = emqx_streams_test_utils:emqtt_sub(SubClient1, <<"$stream/q1">>, [
-        {<<"$stream.start-from">>, <<"earliest">>}
+        {<<"stream-offset">>, <<"earliest">>}
     ]),
 
     %% Publish 100 messages to the queue
