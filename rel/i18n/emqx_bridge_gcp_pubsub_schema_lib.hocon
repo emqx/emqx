@@ -1,0 +1,24 @@
+emqx_bridge_gcp_pubsub_schema_lib {
+
+  service_account_json {
+    label: """GCP Service Account Credentials"""
+    desc: """JSON containing the GCP Service Account credentials to be used with GCP.
+When a GCP Service Account is created (as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), you have the option of downloading the credentials in JSON form.  That's the file needed."""
+  }
+
+  authentication {
+    label: "Authentication"
+    desc: "Authentication method to be used with GCP."
+  }
+
+  auth_service_account_json {
+    label: "Service Account JSON"
+    desc: "Authenticate using a JSON containing the GCP Service Account credentials."
+  }
+
+  auth_service_account_json_type {
+    label: "Service Account JSON"
+    desc: "Service Account JSON"
+  }
+
+}

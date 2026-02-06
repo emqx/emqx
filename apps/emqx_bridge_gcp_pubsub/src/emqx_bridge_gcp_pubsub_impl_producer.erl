@@ -12,7 +12,7 @@
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
-    service_account_json := emqx_bridge_gcp_pubsub_client:service_account_json()
+    authentication := emqx_bridge_gcp_pubsub_client:authentication_config()
 }.
 -type action_config() :: #{
     parameters := #{
@@ -76,12 +76,9 @@ on_start(InstanceId, Config0) ->
         msg => "starting_gcp_pubsub_bridge",
         instance_id => InstanceId
     }),
-    Config1 = maps:update_with(
-        service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
-    ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
-    Config = Config1#{
+    Config = Config0#{
         jwt_opts => #{
             %% fixed for pubsub; trailing slash is important.
             aud => <<"https://pubsub.googleapis.com/">>
@@ -90,7 +87,7 @@ on_start(InstanceId, Config0) ->
         host => Host,
         port => Port
     },
-    #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
+    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
         {ok, Client} ->
             State = #{

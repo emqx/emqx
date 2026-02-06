@@ -157,7 +157,10 @@ init_per_testcase(TestCase, TCConfig0) ->
         #{<<"project_id">> := ProjectId} =
         emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
     ConnectorConfig = connector_config(#{
-        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+        <<"authentication">> => #{
+            <<"type">> => <<"service_account_json">>,
+            <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+        }
     }),
     SourceName = ConnectorName,
     PubSubTopic = Name,
@@ -178,7 +181,8 @@ init_per_testcase(TestCase, TCConfig0) ->
         {source_type, ?SOURCE_TYPE},
         {source_name, SourceName},
         {source_config, SourceConfig},
-        {pubsub_topic, PubSubTopic}
+        {pubsub_topic, PubSubTopic},
+        {service_account_json, ServiceAccountJSON}
         | TCConfig1
     ].
 
@@ -391,6 +395,18 @@ get_connector_api(TCConfig) ->
         emqx_bridge_v2_testlib:get_connector_api(Type, Name)
     ).
 
+update_connector_api(TCConfig, Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name,
+        connector_config := Cfg0
+    } =
+        emqx_bridge_v2_testlib:get_common_values_with_configs(TCConfig),
+    Cfg = emqx_utils_maps:deep_merge(Cfg0, Overrides),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
+    ).
+
 get_source_api(TCConfig) ->
     #{type := Type, name := Name} = emqx_bridge_v2_testlib:get_common_values(TCConfig),
     emqx_bridge_v2_testlib:simplify_result(
@@ -463,7 +479,10 @@ start_control_client(GCPEmulatorHost, GCPEmulatorPort) ->
             connect_timeout => 5_000,
             max_retries => 0,
             pool_size => 1,
-            service_account_json => RawServiceAccount,
+            authentication => #{
+                type => service_account_json,
+                service_account_json => emqx_utils_json:encode(RawServiceAccount)
+            },
             jwt_opts => #{aud => <<"https://pubsub.googleapis.com/">>},
             transport => tcp,
             host => GCPEmulatorHost,
@@ -2135,4 +2154,50 @@ t_create_via_http_json_object_service_account(TCConfig) ->
         <<"service_account_json">> => ServiceAccountJSON
     }),
     assert_persisted_service_account_json_is_binary(TCConfig),
+    ok.
+
+-doc """
+Verifies that an older version of the connector config (in which `service_account_json`
+was a root field) is correctly converted to the new schema (in which it is an union
+constructor of the new `authentication` field).
+""".
+t_legacy_connector_config(TCConfig) ->
+    ServiceAccountJSON = get_config(service_account_json, TCConfig),
+    LegacyConnConfig = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"max_retries">> => 2,
+        <<"pool_size">> => 8,
+        <<"pipelining">> => 1,
+        <<"connect_timeout">> => <<"5s">>,
+        <<"max_inactive">> => <<"10s">>,
+        %% This is now deprecated (6.2.0)
+        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON),
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    TCConfig1 = lists:keyreplace(
+        connector_config, 1, TCConfig, {connector_config, LegacyConnConfig}
+    ),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"type">> := <<"service_account_json">>,
+                <<"service_account_json">> := <<_/binary>>
+            }
+        }},
+        create_connector_api(TCConfig1, #{})
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"type">> := <<"service_account_json">>,
+                <<"service_account_json">> := <<_/binary>>
+            }
+        }},
+        update_connector_api(TCConfig1, #{})
+    ),
     ok.

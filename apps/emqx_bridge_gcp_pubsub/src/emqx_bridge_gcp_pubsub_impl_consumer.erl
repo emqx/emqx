@@ -42,7 +42,7 @@
     max_retries := non_neg_integer(),
     pool_size := non_neg_integer(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
-    service_account_json := emqx_bridge_gcp_pubsub_client:service_account_json(),
+    authentication := emqx_bridge_gcp_pubsub_client:authentication_config(),
     any() => term()
 }.
 -type connector_state() :: #{
@@ -90,12 +90,9 @@ query_mode(_Config) -> no_queries.
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, term()}.
 on_start(ConnectorResId, Config0) ->
-    Config1 = maps:update_with(
-        service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
-    ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
-    Config = Config1#{
+    Config = Config0#{
         jwt_opts => #{
             %% fixed for pubsub; trailing slash is important.
             aud => <<"https://pubsub.googleapis.com/">>
@@ -104,7 +101,7 @@ on_start(ConnectorResId, Config0) ->
         host => Host,
         port => Port
     },
-    #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
+    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
         {ok, Client} ->
             ConnectorState = #{

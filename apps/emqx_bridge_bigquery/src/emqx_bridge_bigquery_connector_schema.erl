@@ -17,7 +17,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    root_converter/1
 ]).
 
 %% `emqx_connector_examples' API
@@ -86,22 +87,83 @@ fields(connector_config) ->
                 }
             )},
         emqx_connector_schema:ehttpc_max_inactive_sc(),
+        emqx_bridge_gcp_pubsub_schema_lib:authentication_field(),
         {service_account_json,
             mk(
                 binary(),
                 #{
-                    required => true,
-                    validator => fun emqx_bridge_gcp_pubsub:service_account_json_validator/1,
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    validator => fun emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator/1,
                     sensitive => true,
-                    desc => ?DESC(emqx_bridge_gcp_pubsub, "service_account_json")
+                    desc => ?DESC(emqx_bridge_gcp_pubsub_schema_lib, "service_account_json")
                 }
             )}
     ] ++
-        emqx_connector_schema:resource_opts().
+        emqx_connector_schema:resource_opts();
+fields(auth_azure_wif) ->
+    [
+        {type,
+            mk(azure_wif, #{
+                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif")
+            })},
+        {tenant_id,
+            mk(binary(), #{
+                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_tenant_id")
+            })},
+        {app_id,
+            mk(binary(), #{
+                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_app_id")
+            })},
+        {client_id,
+            mk(binary(), #{
+                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_client_id")
+            })},
+        {client_secret,
+            emqx_schema_secret:mk(#{
+                required => true,
+                sensitive => true,
+                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_client_secret")
+            })},
+        {service_account_email,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_service_account_email")
+            })},
+        {gcp_project_id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_project_id")
+            })},
+        {gcp_project_number,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_project_number")
+            })},
+        {gcp_wif_pool_id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_wif_pool_id")
+            })},
+        {gcp_wif_pool_provider_id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_wif_pool_provider_id")
+            })}
+    ].
 
 desc("config_connector") ->
     ?DESC("config_connector");
 desc(_Name) ->
+    undefined.
+
+root_converter("config_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter("post_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter("put_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter(_) ->
     undefined.
 
 %%------------------------------------------------------------------------------

@@ -85,11 +85,12 @@ fields(connector_config) ->
             sc(
                 binary(),
                 #{
-                    required => true,
-                    validator => fun ?MODULE:service_account_json_validator/1,
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    validator => fun emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator/1,
                     converter => fun ?MODULE:service_account_json_converter/2,
                     sensitive => true,
-                    desc => ?DESC("service_account_json")
+                    desc => ?DESC(emqx_bridge_gcp_pubsub_schema_lib, "service_account_json")
                 }
             )}
     ];
@@ -307,8 +308,9 @@ deep_update(Path, Fun, Map) ->
 
 ensure_binary_service_account_json(Connectors) ->
     maps:map(
-        fun(_Name, Conf) ->
-            maps:update_with(
+        fun(_Name, #{<<"authentication">> := #{<<"type">> := <<"service_account_json">>}} = Conf0) ->
+            #{<<"authentication">> := AuthConfig0} = Conf0,
+            AuthConfig = maps:update_with(
                 <<"service_account_json">>,
                 fun(JSON) ->
                     case is_map(JSON) of
@@ -316,8 +318,9 @@ ensure_binary_service_account_json(Connectors) ->
                         false -> JSON
                     end
                 end,
-                Conf
-            )
+                AuthConfig0
+            ),
+            Conf0#{<<"authentication">> := AuthConfig}
         end,
         Connectors
     ).

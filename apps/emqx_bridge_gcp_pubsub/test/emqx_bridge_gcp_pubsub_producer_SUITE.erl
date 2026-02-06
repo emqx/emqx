@@ -98,7 +98,10 @@ init_per_testcase(TestCase, TCConfig) ->
     ConnectorName = atom_to_binary(TestCase),
     ServiceAccountJSON = emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
     ConnectorConfig = connector_config(#{
-        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+        <<"authentication">> => #{
+            <<"type">> => <<"service_account_json">>,
+            <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+        }
     }),
     ActionName = ConnectorName,
     ActionConfig = action_config(#{
@@ -155,7 +158,7 @@ connector_config(Overrides) ->
         <<"pipelining">> => 100,
         <<"max_inactive">> => <<"10s">>,
         <<"max_retries">> => 2,
-        <<"service_account_json">> => <<"please override">>,
+        <<"authentication">> => <<"please override (this is the wrong type)">>,
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
@@ -681,6 +684,18 @@ get_action_api(Config) ->
         emqx_bridge_v2_testlib:get_action_api(
             Config
         )
+    ).
+
+update_connector_api(TCConfig, Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name,
+        connector_config := Cfg0
+    } =
+        emqx_bridge_v2_testlib:get_common_values_with_configs(TCConfig),
+    Cfg = emqx_utils_maps:deep_merge(Cfg0, Overrides),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
     ).
 
 simple_create_rule_api(TCConfig) ->
@@ -1997,5 +2012,51 @@ t_connector_health_check_timeout(TCConfig) ->
             ok
         end,
         []
+    ),
+    ok.
+
+-doc """
+Verifies that an older version of the connector config (in which `service_account_json`
+was a root field) is correctly converted to the new schema (in which it is an union
+constructor of the new `authentication` field).
+""".
+t_legacy_connector_config(TCConfig) ->
+    ServiceAccountJSON = get_config(service_account_json, TCConfig),
+    LegacyConnConfig = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"connect_timeout">> => <<"5s">>,
+        <<"pool_size">> => 8,
+        <<"pipelining">> => 100,
+        <<"max_inactive">> => <<"10s">>,
+        <<"max_retries">> => 2,
+        %% This is now deprecated (6.2.0)
+        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON),
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    TCConfig1 = lists:keyreplace(
+        connector_config, 1, TCConfig, {connector_config, LegacyConnConfig}
+    ),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"type">> := <<"service_account_json">>,
+                <<"service_account_json">> := <<_/binary>>
+            }
+        }},
+        create_connector_api(TCConfig1, #{})
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"type">> := <<"service_account_json">>,
+                <<"service_account_json">> := <<_/binary>>
+            }
+        }},
+        update_connector_api(TCConfig1, #{})
     ),
     ok.

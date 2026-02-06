@@ -102,14 +102,9 @@ callback_mode() ->
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, _Reason}.
 on_start(ConnResId, ConnConfig0) ->
-    ConnConfig1 = maps:update_with(
-        service_account_json,
-        fun(X) -> emqx_utils_json:decode(X) end,
-        ConnConfig0
-    ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(bigquery),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
-    ConnConfig = ConnConfig1#{
+    ConnConfig = ConnConfig0#{
         jwt_opts => #{
             %% trailing slash is important.
             aud => <<"https://bigquery.googleapis.com/">>
@@ -118,7 +113,7 @@ on_start(ConnResId, ConnConfig0) ->
         host => Host,
         port => Port
     },
-    #{service_account_json := #{<<"project_id">> := ProjectId}} = ConnConfig,
+    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(ConnConfig),
     maybe
         {ok, Client} ?= emqx_bridge_gcp_pubsub_client:start(ConnResId, ConnConfig),
         ConnState = #{

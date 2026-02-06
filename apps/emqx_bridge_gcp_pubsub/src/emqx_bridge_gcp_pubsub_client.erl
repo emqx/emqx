@@ -21,9 +21,10 @@
 ]).
 -export([reply_delegator/3]).
 
--export([pubsub_get_topic/3]).
-
--export([get_jwt_authorization_header/1]).
+-export([
+    get_project_id/1,
+    pubsub_get_topic/3
+]).
 
 %% Only for tests.
 -export([get_transport/1]).
@@ -36,15 +37,25 @@
     max_retries := non_neg_integer(),
     max_inactive := non_neg_integer(),
     resource_opts := #{atom() => term()},
-    service_account_json := service_account_json(),
+    authentication := authentication_config(),
     any() => term()
+}.
+-type authentication_config() :: service_account_json_auth_config().
+-type service_account_json_auth_config() :: #{
+    type := service_account_json,
+    service_account_json := binary()
 }.
 -opaque state() :: #{
     connect_timeout := duration(),
-    jwt_config := emqx_connector_jwt:jwt_config(),
+    auth_config := auth_state(),
     max_retries := non_neg_integer(),
     pool_name := binary(),
     project_id := project_id()
+}.
+-type auth_state() :: service_account_json_auth_state().
+-type service_account_json_auth_state() :: #{
+    type := service_account_json,
+    jwt_config := emqx_connector_jwt:jwt_config()
 }.
 -type headers() :: [{binary(), iodata()}].
 -type body() :: iodata().
@@ -56,6 +67,7 @@
 -type topic() :: binary().
 
 -export_type([
+    authentication_config/0,
     service_account_json/0,
     state/0,
     headers/0,
@@ -104,12 +116,12 @@ start(
         {enable_pipelining, maps:get(pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
     #{
-        jwt_config := JWTConfig,
+        auth_config := AuthConfig,
         project_id := ProjectId
-    } = parse_jwt_config(ResourceId, Config),
+    } = parse_auth_config(ResourceId, Config),
     State = #{
         connect_timeout => ConnectTimeout,
-        jwt_config => JWTConfig,
+        auth_config => AuthConfig,
         max_retries => MaxRetries,
         pool_name => ResourceId,
         project_id => ProjectId
@@ -205,6 +217,11 @@ get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
 %% API
 %%-------------------------------------------------------------------------------------------------
 
+get_project_id(#{authentication := #{type := service_account_json} = AuthConfig}) ->
+    #{service_account_json := ServiceAccountJSON0} = AuthConfig,
+    #{<<"project_id">> := ProjectId} = emqx_utils_json:decode(ServiceAccountJSON0),
+    ProjectId.
+
 -spec pubsub_get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
 pubsub_get_topic(Topic, ClientState, ReqOpts) ->
     #{project_id := ProjectId} = ClientState,
@@ -244,11 +261,15 @@ get_transport(Type) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
+parse_auth_config(ResourceId, #{authentication := #{type := service_account_json}} = Config) ->
+    parse_jwt_config(ResourceId, Config).
+
 -spec parse_jwt_config(resource_id(), config()) -> map().
 parse_jwt_config(ResourceId, #{
     jwt_opts := #{aud := Aud},
-    service_account_json := ServiceAccountJSON
+    authentication := #{service_account_json := ServiceAccountJSON0}
 }) ->
+    ServiceAccountJSON = emqx_utils_json:decode(ServiceAccountJSON0),
     #{
         <<"project_id">> := ProjectId,
         <<"private_key_id">> := KId,
@@ -300,12 +321,12 @@ parse_jwt_config(ResourceId, #{
         alg => Alg
     },
     #{
-        jwt_config => JWTConfig,
+        auth_config => #{type => service_account_json, jwt_config => JWTConfig},
         project_id => ProjectId
     }.
 
--spec get_jwt_authorization_header(emqx_connector_jwt:jwt_config()) -> [{binary(), binary()}].
-get_jwt_authorization_header(JWTConfig) ->
+-spec get_authorization_header(auth_state()) -> [{binary(), binary()}].
+get_authorization_header(#{type := service_account_json, jwt_config := JWTConfig}) ->
     JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
     [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}].
 
@@ -329,6 +350,7 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}, ReqOpts}) 
         }
     ),
     Request = to_ehttpc_request(State, Method, Path, Body),
+    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{req => Request}]),
     Response = ehttpc:request(
         PoolName,
         Method,
@@ -373,8 +395,8 @@ do_send_requests_async(
     end.
 
 to_ehttpc_request(State, Method, Path, Body) ->
-    #{jwt_config := JWTConfig} = State,
-    Headers = get_jwt_authorization_header(JWTConfig),
+    #{auth_config := AuthConfig} = State,
+    Headers = get_authorization_header(AuthConfig),
     case {Method, Body} of
         {get, <<>>} -> {Path, Headers};
         {delete, <<>>} -> {Path, Headers};
