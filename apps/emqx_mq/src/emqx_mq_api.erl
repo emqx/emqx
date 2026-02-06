@@ -256,10 +256,9 @@ put_message_queue_config_example() ->
 %%--------------------------------------------------------------------
 
 '/message_queues/queues'(get, #{query_string := QString}) ->
-    EncodedCursor = maps:get(<<"cursor">>, QString, undefined),
+    Cursor = maps:get(<<"cursor">>, QString, undefined),
     Limit = maps:get(<<"limit">>, QString),
     maybe
-        {ok, Cursor} ?= decode_cursor(EncodedCursor),
         {ok, MessageQueues, CursorNext} ?= get_message_queues(Cursor, Limit),
         case CursorNext of
             undefined ->
@@ -267,7 +266,7 @@ put_message_queue_config_example() ->
             _ ->
                 ?OK(#{
                     data => MessageQueues,
-                    meta => #{cursor => encode_cursor(CursorNext), hasnext => true}
+                    meta => #{cursor => CursorNext, hasnext => true}
                 })
         end
     else
@@ -362,19 +361,6 @@ get_message_queues(Cursor, Limit) ->
             {ok, [emqx_mq_config:mq_to_raw_get(MQ) || MQ <- MessageQueues], CursorNext};
         {error, _} ->
             {error, bad_cursor}
-    end.
-
-encode_cursor(Cursor) ->
-    emqx_base62:encode(Cursor).
-
-decode_cursor(undefined) ->
-    {ok, undefined};
-decode_cursor(EncodedCursor) ->
-    try
-        {ok, emqx_base62:decode(EncodedCursor)}
-    catch
-        _:_ ->
-            bad_cursor
     end.
 
 add_message_queue(NewMessageQueueRaw) ->
