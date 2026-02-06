@@ -73,7 +73,7 @@ DS streams are explicity called `DS streams' here.
 -record(subscribe_params, {
     name :: binary(),
     start_from :: binary(),
-    topic_filter :: binary(),
+    topic_filter :: binary() | undefined,
     full_topic_filter :: binary()
 }).
 
@@ -599,6 +599,13 @@ find_stream(Name, TopicFilter) ->
                     name => Name,
                     topic_filter => TopicFilter,
                     existing_topic_filter => ExistingTopicFilter
+                }}
+            );
+        not_found when TopicFilter =:= undefined ->
+            ?err_rec(
+                {stream_not_found, #{
+                    name => Name,
+                    topic_filter => TopicFilter
                 }}
             );
         not_found ->
