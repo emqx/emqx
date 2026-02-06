@@ -365,8 +365,9 @@ record_iterator(Key) ->
 key_from_cursor(undefined) ->
     {ok, undefined};
 key_from_cursor(Cursor) ->
-    try emqx_utils_json:decode(base64:decode(Cursor)) of
-        #{<<"tf">> := TopicFilter, <<"id">> := Id} ->
+    try emqx_utils_json:decode(emqx_base62:decode(Cursor)) of
+        #{<<"tf">> := TopicFilter, <<"id">> := EncodedId} ->
+            Id = emqx_base62:decode(EncodedId),
             {ok, emqx_topic_index:make_key(TopicFilter, Id)};
         _ ->
             {error, bad_cursor}
@@ -384,7 +385,9 @@ key_from_cursor(Cursor) ->
 cursor_from_key(Key) ->
     TopicFilter = emqx_topic_index:get_topic(Key),
     Id = emqx_topic_index:get_id(Key),
-    base64:encode(emqx_utils_json:encode(#{<<"tf">> => TopicFilter, <<"id">> => Id})).
+    emqx_base62:encode(
+        emqx_utils_json:encode(#{<<"tf">> => TopicFilter, <<"id">> => emqx_base62:encode(Id)})
+    ).
 
 ets_record_iterator(Key) ->
     fun() ->
