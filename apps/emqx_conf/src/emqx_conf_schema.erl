@@ -92,6 +92,7 @@
     failed_to_fetch_crl,
     failed_to_retain_message,
     failed_to_trigger_fallback_action,
+    failed_to_update_metric_counter,
     handle_resource_metrics_failed,
     mq_message_db_key_expression_error,
     resource_exception,

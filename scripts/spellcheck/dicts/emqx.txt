@@ -215,6 +215,7 @@ PINGREQ
 pipelining
 PKCE
 powershell
+preallocation
 priv
 procmem
 procs
