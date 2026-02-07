@@ -79,6 +79,7 @@ schema("/gcp_devices") ->
     #{
         'operationId' => '/gcp_devices',
         get => #{
+            summary => ?DESC(gcp_devices_get),
             description => ?DESC(gcp_devices_get),
             tags => ?TAGS,
             parameters => [
@@ -93,6 +94,7 @@ schema("/gcp_devices") ->
             }
         },
         post => #{
+            summary => ?DESC(gcp_devices_post),
             description => ?DESC(gcp_devices_post),
             tags => ?TAGS,
             'requestBody' => hoconsc:mk(hoconsc:array(?R_REF(gcp_exported_device)), #{}),
@@ -149,6 +151,7 @@ schema("/gcp_devices/:deviceid") ->
                     }
             },
         delete => #{
+            summary => ?DESC(gcp_device_delete),
             description => ?DESC(gcp_device_delete),
             tags => ?TAGS,
             parameters => [deviceid(#{in => path})],

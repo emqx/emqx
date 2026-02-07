@@ -41,6 +41,7 @@ schema("/publish") ->
     #{
         'operationId' => publish,
         post => #{
+            summary => ?DESC(publish_api),
             description => ?DESC(publish_api),
             tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, publish_message)),

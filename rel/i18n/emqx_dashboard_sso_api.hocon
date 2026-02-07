@@ -63,4 +63,11 @@ last_error.desc:
 last_error.label:
 """Last Error"""
 
+saml_sso_acs.label:
+"""SAML SSO ACS"""
+
+sp_saml_metadata.label:
+"""SP SAML Metadata"""
+
+
 }

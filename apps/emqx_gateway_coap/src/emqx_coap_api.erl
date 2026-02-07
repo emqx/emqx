@@ -41,6 +41,7 @@ schema(?PREFIX ++ "/request") ->
         operationId => request,
         post => #{
             tags => ?TAGS,
+            summary => ?DESC(send_coap_request),
             desc => ?DESC(send_coap_request),
             parameters => request_parameters(),
             requestBody => request_body(),

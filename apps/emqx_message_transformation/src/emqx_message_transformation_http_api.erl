@@ -67,6 +67,7 @@ schema("/message_transformations") ->
         'operationId' => '/message_transformations',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("list_transformations"),
             description => ?DESC("list_transformations"),
             responses =>
                 #{
@@ -81,6 +82,7 @@ schema("/message_transformations") ->
         },
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("append_transformation"),
             description => ?DESC("append_transformation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_message_transformation_schema:api_schema(post),
@@ -98,6 +100,7 @@ schema("/message_transformations") ->
         },
         put => #{
             tags => ?TAGS,
+            summary => ?DESC("update_transformation"),
             description => ?DESC("update_transformation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_message_transformation_schema:api_schema(put),
@@ -120,6 +123,7 @@ schema("/message_transformations/reorder") ->
         'operationId' => '/message_transformations/reorder',
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("reorder_transformations"),
             description => ?DESC("reorder_transformations"),
             'requestBody' =>
                 emqx_dashboard_swagger:schema_with_examples(
@@ -151,6 +155,7 @@ schema("/message_transformations/dryrun") ->
         'operationId' => '/message_transformations/dryrun',
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("dryrun_transformation"),
             description => ?DESC("dryrun_transformation"),
             'requestBody' =>
                 emqx_dashboard_swagger:schema_with_examples(
@@ -169,6 +174,7 @@ schema("/message_transformations/transformation/:name") ->
         'operationId' => '/message_transformations/transformation/:name',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("lookup_transformation"),
             description => ?DESC("lookup_transformation"),
             parameters => [param_path_name()],
             responses =>
@@ -185,6 +191,7 @@ schema("/message_transformations/transformation/:name") ->
         },
         delete => #{
             tags => ?TAGS,
+            summary => ?DESC("delete_transformation"),
             description => ?DESC("delete_transformation"),
             parameters => [param_path_name()],
             responses =>
@@ -199,6 +206,7 @@ schema("/message_transformations/transformation/:name/metrics") ->
         'operationId' => '/message_transformations/transformation/:name/metrics',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("get_transformation_metrics"),
             description => ?DESC("get_transformation_metrics"),
             parameters => [param_path_name()],
             responses =>
@@ -217,6 +225,7 @@ schema("/message_transformations/transformation/:name/metrics/reset") ->
         'operationId' => '/message_transformations/transformation/:name/metrics/reset',
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("reset_transformation_metrics"),
             description => ?DESC("reset_transformation_metrics"),
             parameters => [param_path_name()],
             responses =>
@@ -231,6 +240,7 @@ schema("/message_transformations/transformation/:name/enable/:enable") ->
         'operationId' => '/message_transformations/transformation/:name/enable/:enable',
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("enable_disable_transformation"),
             description => ?DESC("enable_disable_transformation"),
             parameters => [param_path_name(), param_path_enable()],
             responses =>

@@ -190,6 +190,7 @@ schema("/rules") ->
         'operationId' => '/rules',
         get => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api1"),
             description => ?DESC("api1"),
             parameters => [
                 {enable,
@@ -223,6 +224,7 @@ schema("/rules") ->
         },
         post => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api2"),
             description => ?DESC("api2"),
             'requestBody' => rule_creation_schema(),
             responses => #{
@@ -236,6 +238,7 @@ schema("/rule_events") ->
         'operationId' => '/rule_events',
         get => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api3"),
             description => ?DESC("api3"),
             responses => #{
                 200 => mk(ref(emqx_rule_api_schema, "rule_events"), #{})
@@ -247,6 +250,7 @@ schema("/rules/:id") ->
         'operationId' => '/rules/:id',
         get => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api4"),
             description => ?DESC("api4"),
             parameters => param_path_id(),
             responses => #{
@@ -256,6 +260,7 @@ schema("/rules/:id") ->
         },
         put => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api5"),
             description => ?DESC("api5"),
             parameters => param_path_id(),
             'requestBody' => rule_creation_schema(),
@@ -267,6 +272,7 @@ schema("/rules/:id") ->
         },
         delete => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api6"),
             description => ?DESC("api6"),
             parameters => param_path_id(),
             responses => #{
@@ -280,6 +286,7 @@ schema("/rules/:id/test") ->
         'operationId' => '/rules/:id/test',
         post => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api11"),
             description => ?DESC("api11"),
             parameters => param_path_id(),
             'requestBody' => rule_apply_test_schema(),
@@ -296,6 +303,7 @@ schema("/rules/:id/metrics") ->
         'operationId' => '/rules/:id/metrics',
         get => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api4_1"),
             description => ?DESC("api4_1"),
             parameters => param_path_id(),
             responses => #{
@@ -309,6 +317,7 @@ schema("/rules/:id/metrics/reset") ->
         'operationId' => '/rules/:id/metrics/reset',
         put => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api7"),
             description => ?DESC("api7"),
             parameters => param_path_id(),
             responses => #{
@@ -322,6 +331,7 @@ schema("/rule_test") ->
         'operationId' => '/rule_test',
         post => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api8"),
             description => ?DESC("api8"),
             'requestBody' => rule_test_schema(),
             responses => #{
@@ -336,6 +346,7 @@ schema("/rule_engine") ->
         'operationId' => '/rule_engine',
         get => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api9"),
             description => ?DESC("api9"),
             responses => #{
                 200 => rule_engine_schema()
@@ -343,6 +354,7 @@ schema("/rule_engine") ->
         },
         put => #{
             tags => [<<"rules">>],
+            summary => ?DESC("api10"),
             description => ?DESC("api10"),
             'requestBody' => rule_engine_schema(),
             responses => #{

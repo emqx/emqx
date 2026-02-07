@@ -79,6 +79,7 @@ schema("/logout") ->
         'operationId' => logout,
         post => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(logout_api),
             desc => ?DESC(logout_api),
             security => [#{'bearerAuth' => []}],
             parameters => sso_parameters(),
@@ -94,6 +95,7 @@ schema("/users") ->
         'operationId' => users,
         get => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(list_users_api),
             desc => ?DESC(list_users_api),
             security => [#{'bearerAuth' => []}],
             responses => #{
@@ -105,6 +107,7 @@ schema("/users") ->
         },
         post => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(create_user_api),
             desc => ?DESC(create_user_api),
             security => [#{'bearerAuth' => []}],
             'requestBody' => fields([username, password, role, description]),
@@ -118,6 +121,7 @@ schema("/users/:username") ->
         'operationId' => user,
         put => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(update_user_api),
             desc => ?DESC(update_user_api),
             parameters => sso_parameters(fields([username_in_path])),
             'requestBody' => fields([role, description]),
@@ -128,6 +132,7 @@ schema("/users/:username") ->
         },
         delete => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(delete_user_api),
             desc => ?DESC(delete_user_api),
             parameters => sso_parameters(fields([username_in_path])),
             responses => #{
@@ -144,6 +149,7 @@ schema("/users/:username/change_pwd") ->
         'operationId' => change_pwd,
         post => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(change_pwd_api),
             desc => ?DESC(change_pwd_api),
             parameters => fields([username_in_path]),
             'requestBody' => fields([old_pwd, new_pwd]),
@@ -162,6 +168,7 @@ schema("/users/:username/mfa") ->
         'operationId' => change_mfa,
         post => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(change_mfa),
             desc => ?DESC(change_mfa),
             parameters => fields([username_in_path]),
             'requestBody' => emqx_dashboard_schema:mfa_fields(),
@@ -172,6 +179,7 @@ schema("/users/:username/mfa") ->
         },
         delete => #{
             tags => [<<"dashboard">>],
+            summary => ?DESC(delete_mfa),
             desc => ?DESC(delete_mfa),
             parameters => fields([username_in_path]),
             responses => #{

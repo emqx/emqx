@@ -50,6 +50,7 @@ schema("/audit") ->
         'operationId' => audit,
         get => #{
             tags => ?TAGS,
+            summary => ?DESC(audit_get),
             description => ?DESC(audit_get),
             parameters => [
                 {node,

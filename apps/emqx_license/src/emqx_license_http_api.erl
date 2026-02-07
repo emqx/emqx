@@ -43,6 +43,7 @@ schema("/license") ->
         'operationId' => '/license',
         get => #{
             tags => ?LICENSE_TAGS,
+            summary => ?DESC("desc_license_info_api"),
             description => ?DESC("desc_license_info_api"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
@@ -87,6 +88,7 @@ schema("/license/setting") ->
         'operationId' => '/license/setting',
         get => #{
             tags => ?LICENSE_TAGS,
+            summary => ?DESC("desc_license_setting_api"),
             description => ?DESC("desc_license_setting_api"),
             responses => #{
                 200 => setting()
@@ -94,6 +96,7 @@ schema("/license/setting") ->
         },
         put => #{
             tags => ?LICENSE_TAGS,
+            summary => ?DESC("desc_license_setting_api"),
             description => ?DESC("desc_license_setting_api"),
             'requestBody' => setting(),
             responses => #{

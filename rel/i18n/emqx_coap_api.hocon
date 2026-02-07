@@ -34,4 +34,8 @@ client_not_response_timeout.desc:
 client_not_response_timeout.label:
 """Client Not Response Timeout"""
 
+send_coap_request.label:
+"""Send COAP Request"""
+
+
 }

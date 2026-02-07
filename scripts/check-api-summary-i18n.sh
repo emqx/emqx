@@ -39,6 +39,65 @@ for f in "${api_files[@]}"; do
 
 done
 
+echo "[check-api-summary-i18n] Checking missing summaries when desc/description is present..."
+for f in "${api_files[@]}"; do
+  if perl -ne '
+    sub braces_delta {
+      my ($s) = @_;
+      my $open = () = $s =~ /\{/g;
+      my $close = () = $s =~ /\}/g;
+      return $open - $close;
+    }
+
+    sub analyze_block {
+      my ($file, $line, $method, $block) = @_;
+      if (
+        $block =~ /tags\s*=>/s &&
+        $block =~ /\b(desc|description)\s*=>\s*\?DESC\(/s &&
+        $block !~ /\bsummary\s*=>/s
+      ) {
+        print "$file:$line: method '\''$method'\'' has desc/description but no summary\n";
+        $::bad = 1;
+      }
+    }
+
+    if (!$in_block) {
+      next if /^\s*%%/;
+      if (/^(\s*)(get|post|put|delete|patch|head|options)\s*=>\s*#\{/) {
+        my $indent = length($1);
+        if ($indent <= 20) {
+          $in_block = 1;
+          $start_line = $.;
+          $method = $2;
+          $block = "";
+          $depth = 0;
+        }
+      }
+    }
+
+    if ($in_block) {
+      my $line = $_;
+      $line =~ s/%%.*$//;
+      $block .= $line;
+      $depth += braces_delta($line);
+      if ($depth <= 0) {
+        analyze_block($ARGV, $start_line, $method, $block);
+        $in_block = 0;
+        $start_line = 0;
+        $method = "";
+        $block = "";
+        $depth = 0;
+      }
+    }
+
+    END { exit($::bad ? 2 : 0) }
+  ' "$f"; then
+    :
+  else
+    errors=1
+  fi
+done
+
 echo "[check-api-summary-i18n] Collecting summary i18n keys..."
 keys_file=$(mktemp)
 rg -n "summary\\s*=>\\s*\\?DESC\\(" "${api_files[@]}" \

@@ -30,6 +30,7 @@ schema("/mqtt/auto_subscribe") ->
     #{
         'operationId' => auto_subscribe,
         get => #{
+            summary => ?DESC(list_auto_subscribe_api),
             description => ?DESC(list_auto_subscribe_api),
             tags => [<<"Auto Subscribe">>],
             responses => #{
@@ -37,6 +38,7 @@ schema("/mqtt/auto_subscribe") ->
             }
         },
         put => #{
+            summary => ?DESC(update_auto_subscribe_api),
             description => ?DESC(update_auto_subscribe_api),
             tags => [<<"Auto Subscribe">>],
             'requestBody' => topics(),

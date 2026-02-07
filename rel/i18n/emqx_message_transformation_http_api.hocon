@@ -116,4 +116,35 @@ emqx_message_transformation_http_api {
   example_metrics.label:
   """Metrics Example"""
 
+append_transformation.label:
+"""Append Transformation"""
+
+delete_transformation.label:
+"""Delete Transformation"""
+
+dryrun_transformation.label:
+"""Dryrun Transformation"""
+
+enable_disable_transformation.label:
+"""Enable Disable Transformation"""
+
+get_transformation_metrics.label:
+"""Get Transformation Metrics"""
+
+list_transformations.label:
+"""List Transformations"""
+
+lookup_transformation.label:
+"""Lookup Transformation"""
+
+reorder_transformations.label:
+"""Reorder Transformations"""
+
+reset_transformation_metrics.label:
+"""Reset Transformation Metrics"""
+
+update_transformation.label:
+"""Update Transformation"""
+
+
 }

@@ -35,6 +35,7 @@ schema("/alarms") ->
     #{
         'operationId' => alarms,
         get => #{
+            summary => ?DESC(list_alarms_api),
             description => ?DESC(list_alarms_api),
             tags => ?TAGS,
             parameters => [
@@ -55,6 +56,7 @@ schema("/alarms") ->
             }
         },
         delete => #{
+            summary => ?DESC(delete_alarms_api),
             description => ?DESC(delete_alarms_api),
             tags => ?TAGS,
             responses => #{
@@ -66,6 +68,7 @@ schema("/alarms/force_deactivate") ->
     #{
         'operationId' => force_deactivate_alarm,
         post => #{
+            summary => ?DESC(force_deactivate_alarm_api),
             description => ?DESC(force_deactivate_alarm_api),
             tags => ?TAGS,
             'requestBody' => hoconsc:ref(?MODULE, force_deactivate_alarm_request),

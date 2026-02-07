@@ -108,4 +108,32 @@ emqx_schema_validation_http_api {
   example_metrics.label:
   """Metrics Example"""
 
+append_validation.label:
+"""Append Validation"""
+
+delete_validation.label:
+"""Delete Validation"""
+
+enable_disable_validation.label:
+"""Enable Disable Validation"""
+
+get_validation_metrics.label:
+"""Get Validation Metrics"""
+
+list_validations.label:
+"""List Validations"""
+
+lookup_validation.label:
+"""Lookup Validation"""
+
+reorder_validations.label:
+"""Reorder Validations"""
+
+reset_validation_metrics.label:
+"""Reset Validation Metrics"""
+
+update_validation.label:
+"""Update Validation"""
+
+
 }

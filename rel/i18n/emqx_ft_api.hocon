@@ -2,15 +2,23 @@ emqx_ft_api {
 
 file_list.desc:
 """List all uploaded files."""
+file_list.label:
+"""List Files"""
 
 file_list_transfer.desc:
 """List a file uploaded during specified transfer, identified by client id and file id."""
+file_list_transfer.label:
+"""List Transfer Files"""
 
 file_transfer_get_config.desc:
 """Show current File Transfer configuration."""
+file_transfer_get_config.label:
+"""Get File Transfer Configuration"""
 
 file_transfer_update_config.desc:
 """Replace File Transfer configuration."""
+file_transfer_update_config.label:
+"""Update File Transfer Configuration"""
 
 operation_success.desc:
 """Operation success"""
@@ -46,12 +54,5 @@ files_not_found.desc:
 """Files requested for this transfer could not be found."""
 files_not_found.label:
 """Files Not Found"""
-
-}
-
-emqx_ft_storage_exporter_fs_api {
-
-file_get.desc:
-"""Get a file by its id."""
 
 }

@@ -50,6 +50,7 @@ schema("/schemas/:name") ->
             parameters => [
                 {name, hoconsc:mk(hoconsc:enum(Schemas), #{in => path})}
             ],
+            summary => ?DESC(get_schema),
             desc => ?DESC(get_schema),
             tags => ?TAGS,
             security => [],

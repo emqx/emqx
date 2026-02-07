@@ -51,6 +51,7 @@ schema("/ai/models") ->
         'operationId' => '/ai/models',
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_model_list"),
             description => ?DESC("ai_model_list"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:provider_sctype_api(put),
@@ -78,6 +79,7 @@ schema("/ai/providers") ->
         'operationId' => '/ai/providers',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_providers_list"),
             description => ?DESC("ai_providers_list"),
             parameters => [],
             responses => #{
@@ -92,6 +94,7 @@ schema("/ai/providers") ->
         },
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_providers_create"),
             description => ?DESC("ai_providers_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:provider_sctype_api(post),
@@ -113,6 +116,7 @@ schema("/ai/providers/:name") ->
         'operationId' => '/ai/providers/:name',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_providers_get"),
             description => ?DESC("ai_providers_get"),
             parameters => [name_param()],
             responses => #{
@@ -127,6 +131,7 @@ schema("/ai/providers/:name") ->
         },
         put => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_providers_update"),
             description => ?DESC("ai_providers_update"),
             parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
@@ -148,6 +153,7 @@ schema("/ai/providers/:name") ->
         },
         delete => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_providers_delete"),
             description => ?DESC("ai_providers_delete"),
             parameters => [name_param()],
             responses => #{
@@ -169,6 +175,7 @@ schema("/ai/providers/:name/models") ->
         'operationId' => '/ai/providers/:name/models',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_providers_model_list"),
             description => ?DESC("ai_providers_model_list"),
             parameters => [name_param()],
             responses => #{
@@ -193,6 +200,7 @@ schema("/ai/completion_profiles") ->
         'operationId' => '/ai/completion_profiles',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_completion_profiles_list"),
             description => ?DESC("ai_completion_profiles_list"),
             parameters => [],
             responses => #{
@@ -207,6 +215,7 @@ schema("/ai/completion_profiles") ->
         },
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_completion_profiles_create"),
             description => ?DESC("ai_completion_profiles_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_ai_completion_schema:completion_profile_sctype_api(post),
@@ -228,6 +237,7 @@ schema("/ai/completion_profiles/:name") ->
         'operationId' => '/ai/completion_profiles/:name',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_completion_profiles_get"),
             description => ?DESC("ai_completion_profiles_get"),
             parameters => [name_param()],
             responses => #{
@@ -242,6 +252,7 @@ schema("/ai/completion_profiles/:name") ->
         },
         put => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_completion_profiles_update"),
             description => ?DESC("ai_completion_profiles_update"),
             parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
@@ -263,6 +274,7 @@ schema("/ai/completion_profiles/:name") ->
         },
         delete => #{
             tags => ?TAGS,
+            summary => ?DESC("ai_completion_profiles_delete"),
             description => ?DESC("ai_completion_profiles_delete"),
             parameters => [name_param()],
             responses => #{

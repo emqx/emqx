@@ -64,6 +64,7 @@ schema("/sso/oidc/callback") ->
         'operationId' => code_callback,
         get => #{
             tags => [?TAGS],
+            summary => ?DESC(code_callback),
             desc => ?DESC(code_callback),
             responses => #{
                 200 => emqx_dashboard_api:fields([token, version, license]),

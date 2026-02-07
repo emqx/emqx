@@ -48,6 +48,7 @@ schema("/data/export") ->
         'operationId' => data_export,
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("data_export"),
             description => ?DESC("data_export"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ?R_REF(export_request_body),
@@ -73,6 +74,7 @@ schema("/data/import") ->
         'operationId' => data_import,
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("data_import"),
             description => ?DESC("data_import"),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ?R_REF(import_request_body),
@@ -92,6 +94,7 @@ schema("/data/files") ->
         'operationId' => data_files,
         post => #{
             tags => ?TAGS,
+            summary => ?DESC("upload_backup_file"),
             description => ?DESC("upload_backup_file"),
             'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
@@ -103,6 +106,7 @@ schema("/data/files") ->
         },
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("list_backup_files"),
             desc => ?DESC("list_backup_files"),
             parameters => [
                 ?R_REF(emqx_dashboard_swagger, page),
@@ -122,6 +126,7 @@ schema("/data/files/:filename") ->
         'operationId' => data_file_by_name,
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("download_backup_file"),
             description => ?DESC("download_backup_file"),
             parameters => [
                 field_filename(true, #{in => path}),
@@ -139,6 +144,7 @@ schema("/data/files/:filename") ->
         },
         delete => #{
             tags => ?TAGS,
+            summary => ?DESC("delete_backup_file"),
             desc => ?DESC("delete_backup_file"),
             parameters => [
                 field_filename(true, #{in => path}),

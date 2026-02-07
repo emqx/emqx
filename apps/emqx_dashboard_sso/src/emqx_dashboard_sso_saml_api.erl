@@ -61,6 +61,7 @@ schema("/sso/saml/acs") ->
         'operationId' => sp_saml_callback,
         post => #{
             tags => [?TAGS],
+            summary => ?DESC(saml_sso_acs),
             desc => ?DESC(saml_sso_acs),
             %% 'requestbody' => urlencoded_request_body(),
             responses => #{
@@ -76,6 +77,7 @@ schema("/sso/saml/metadata") ->
         'operationId' => sp_saml_metadata,
         get => #{
             tags => [?TAGS],
+            summary => ?DESC(sp_saml_metadata),
             desc => ?DESC(sp_saml_metadata),
             'requestbody' => saml_metadata_response(),
             responses => #{

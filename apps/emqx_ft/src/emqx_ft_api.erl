@@ -54,6 +54,7 @@ schema("/file_transfer/files") ->
         filter => fun ?MODULE:check_ft_enabled/2,
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("file_list"),
             description => ?DESC("file_list"),
             parameters => [
                 ref(following),
@@ -76,6 +77,7 @@ schema("/file_transfer/files/:clientid/:fileid") ->
         filter => fun ?MODULE:check_ft_enabled/2,
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("file_list_transfer"),
             description => ?DESC("file_list_transfer"),
             parameters => [
                 ref(client_id),
@@ -97,6 +99,7 @@ schema("/file_transfer") ->
         'operationId' => '/file_transfer',
         get => #{
             tags => ?TAGS,
+            summary => ?DESC("file_transfer_get_config"),
             description => ?DESC("file_transfer_get_config"),
             responses => #{
                 200 => ?SCHEMA_CONFIG
@@ -104,6 +107,7 @@ schema("/file_transfer") ->
         },
         put => #{
             tags => ?TAGS,
+            summary => ?DESC("file_transfer_update_config"),
             description => ?DESC("file_transfer_update_config"),
             'requestBody' => ?SCHEMA_CONFIG,
             responses => #{

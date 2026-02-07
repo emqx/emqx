@@ -66,6 +66,7 @@ schema("/trace") ->
     #{
         'operationId' => trace,
         get => #{
+            summary => ?DESC(list_all),
             description => ?DESC(list_all),
             tags => ?TAGS,
             responses => #{
@@ -73,6 +74,7 @@ schema("/trace") ->
             }
         },
         post => #{
+            summary => ?DESC(create_new),
             description => ?DESC(create_new),
             tags => ?TAGS,
             'requestBody' => hoconsc:ref(trace_params),
@@ -96,6 +98,7 @@ schema("/trace") ->
             }
         },
         delete => #{
+            summary => ?DESC(clear_all),
             description => ?DESC(clear_all),
             tags => ?TAGS,
             responses => #{
@@ -107,6 +110,7 @@ schema("/trace/:name") ->
     #{
         'operationId' => delete_trace,
         delete => #{
+            summary => ?DESC(delete_trace),
             description => ?DESC(delete_trace),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -122,6 +126,7 @@ schema("/trace/:name/stop") ->
     #{
         'operationId' => stop_trace,
         put => #{
+            summary => ?DESC(stop_trace),
             description => ?DESC(stop_trace),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -137,6 +142,7 @@ schema("/trace/:name/download") ->
     #{
         'operationId' => download_trace_log,
         get => #{
+            summary => ?DESC(download_trace_log),
             description => ?DESC(download_trace_log),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name), hoconsc:ref(node)],
@@ -158,6 +164,7 @@ schema("/trace/:name/log_detail") ->
     #{
         'operationId' => get_trace_log_detail,
         get => #{
+            summary => ?DESC(get_trace_log_detail),
             description => ?DESC(get_trace_log_detail),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -173,6 +180,7 @@ schema("/trace/:name/log") ->
     #{
         'operationId' => stream_trace_log,
         get => #{
+            summary => ?DESC(stream_trace_log),
             description => ?DESC(stream_trace_log),
             tags => ?TAGS,
             parameters => [
@@ -206,6 +214,7 @@ schema("/tracing") ->
         'operationId' => config,
         get => #{
             tags => ?TAGS,
+            summary => ?DESC(get_config),
             description => ?DESC(get_config),
             responses => #{
                 200 => ConfigSchema
@@ -213,6 +222,7 @@ schema("/tracing") ->
         },
         put => #{
             tags => ?TAGS,
+            summary => ?DESC(update_config),
             description => ?DESC(update_config),
             'requestBody' => ConfigSchema,
             responses => #{

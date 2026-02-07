@@ -40,6 +40,7 @@ schema("/status") ->
                         #{
                             in => query,
                             default => <<"text">>,
+                            summary => ?DESC(get_status_api_format),
                             desc => ?DESC(get_status_api_format)
                         }
                     )}

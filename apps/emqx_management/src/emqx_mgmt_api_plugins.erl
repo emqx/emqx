@@ -79,6 +79,7 @@ schema("/plugins") ->
     #{
         'operationId' => list_plugins,
         get => #{
+            summary => ?DESC("list_plugins_desc"),
             description => ?DESC("list_plugins_desc"),
             tags => ?TAGS,
             responses => #{
@@ -91,6 +92,7 @@ schema("/plugins/install") ->
         'operationId' => upload_install,
         filter => fun ?MODULE:validate_file_name/2,
         post => #{
+            summary => ?DESC("install_plugin_desc"),
             description => ?DESC("install_plugin_desc"),
             tags => ?TAGS,
             'requestBody' => #{
@@ -124,6 +126,7 @@ schema("/plugins/:name") ->
     #{
         'operationId' => plugin,
         get => #{
+            summary => ?DESC("get_plugin_desc"),
             description => ?DESC("get_plugin_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -133,6 +136,7 @@ schema("/plugins/:name") ->
             }
         },
         delete => #{
+            summary => ?DESC("delete_plugin_desc"),
             description => ?DESC("delete_plugin_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -147,6 +151,7 @@ schema("/plugins/:name/:action") ->
     #{
         'operationId' => update_plugin,
         put => #{
+            summary => ?DESC("trigger_action_desc"),
             description => ?DESC("trigger_action_desc"),
             tags => ?TAGS,
             parameters => [
@@ -164,6 +169,7 @@ schema("/plugins/:name/config") ->
     #{
         'operationId' => plugin_config,
         get => #{
+            summary => ?DESC("get_plugin_config_desc"),
             description => ?DESC("get_plugin_config_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -177,6 +183,7 @@ schema("/plugins/:name/config") ->
             }
         },
         put => #{
+            summary => ?DESC("update_plugin_config_desc"),
             description => ?DESC("update_plugin_config_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -205,6 +212,7 @@ schema("/plugins/:name/config/download") ->
     #{
         'operationId' => download_plugin_config,
         get => #{
+            summary => ?DESC("download_plugin_config_desc"),
             description => ?DESC("download_plugin_config_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -221,6 +229,7 @@ schema("/plugins/:name/config/upload") ->
     #{
         'operationId' => upload_plugin_config,
         post => #{
+            summary => ?DESC("upload_plugin_config_desc"),
             description => ?DESC("upload_plugin_config_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -253,6 +262,7 @@ schema("/plugins/:name/schema") ->
     #{
         'operationId' => plugin_schema,
         get => #{
+            summary => ?DESC("get_plugin_schema_desc"),
             description => ?DESC("get_plugin_schema_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -270,6 +280,7 @@ schema("/plugins/:name/move") ->
     #{
         'operationId' => update_boot_order,
         post => #{
+            summary => ?DESC("move_plugin_desc"),
             description => ?DESC("move_plugin_desc"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -284,6 +295,7 @@ schema("/plugins/cluster_sync") ->
     #{
         'operationId' => sync_plugin,
         post => #{
+            summary => ?DESC("sync_plugin_desc"),
             description => ?DESC("sync_plugin_desc"),
             tags => ?TAGS,
             'requestBody' => sync_request_body(),

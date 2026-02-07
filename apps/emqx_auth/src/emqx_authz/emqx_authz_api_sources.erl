@@ -211,6 +211,7 @@ schema("/authorization/sources/order") ->
         'operationId' => sources_order,
         put => #{
             tags => ?TAGS,
+            summary => ?DESC(authorization_sources_order_put),
             description => ?DESC(authorization_sources_order_put),
             'requestBody' => mk(
                 hoconsc:array(ref(?MODULE, request_sources_order)),

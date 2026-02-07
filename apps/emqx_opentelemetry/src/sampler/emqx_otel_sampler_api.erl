@@ -45,6 +45,7 @@ schema("/opentelemetry/whitelist/:type") ->
         'operationId' => whitelist,
         get => #{
             tags => ?API_TAGS,
+            summary => ?DESC(sample_white_list_get),
             description => ?DESC(sample_white_list_get),
             parameters => [ref(white_list_type)],
             responses =>
@@ -54,6 +55,7 @@ schema("/opentelemetry/whitelist/:type") ->
         },
         post => #{
             tags => ?API_TAGS,
+            summary => ?DESC(sample_white_list_post),
             description => ?DESC(sample_white_list_post),
             parameters => [ref(white_list_type)],
             'requestBody' => swagger_with_example(),

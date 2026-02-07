@@ -90,4 +90,26 @@ deleted.desc:
 deleted.label:
 """Deleted"""
 
+external_registry_create.label:
+"""External Registry Create"""
+
+external_registry_delete.label:
+"""External Registry Delete"""
+
+external_registry_list.label:
+"""External Registry List"""
+
+external_registry_lookup.label:
+"""External Registry Lookup"""
+
+external_registry_update.label:
+"""External Registry Update"""
+
+protobuf_bundle_create.label:
+"""Protobuf Bundle Create"""
+
+protobuf_bundle_update.label:
+"""Protobuf Bundle Update"""
+
+
 }

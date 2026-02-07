@@ -39,6 +39,7 @@ schema("/error_codes") ->
         'operationId' => error_codes,
         get => #{
             security => [],
+            summary => ?DESC(error_codes),
             description => ?DESC(error_codes),
             tags => [<<"Error Codes">>],
             responses => #{
@@ -51,6 +52,7 @@ schema("/error_codes/:code") ->
         'operationId' => error_code,
         get => #{
             security => [],
+            summary => ?DESC("get_error_code"),
             description => ?DESC("get_error_code"),
             tags => [<<"Error Codes">>],
             parameters => [
