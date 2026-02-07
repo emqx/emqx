@@ -612,12 +612,22 @@ to_spec(Meta, Params, RequestBody, Responses) ->
 
 generate_method_desc(Spec = #{desc := _Desc}, Options) ->
     Spec1 = trans_description(maps:remove(desc, Spec), Spec, Options),
-    trans_tags(Spec1);
+    trans_tags(trans_summary(Spec1, Options));
 generate_method_desc(Spec = #{description := _Desc}, Options) ->
     Spec1 = trans_description(Spec, Spec, Options),
-    trans_tags(Spec1);
-generate_method_desc(Spec, _Options) ->
-    trans_tags(Spec).
+    trans_tags(trans_summary(Spec1, Options));
+generate_method_desc(Spec, Options) ->
+    trans_tags(trans_summary(Spec, Options)).
+
+trans_summary(Spec = #{summary := ?DESC(_, _) = Struct}, Options) ->
+    Summary =
+        case get_i18n(<<"label">>, Struct, undefined, Options) of
+            undefined -> missing_i18n_ref(Struct);
+            Text -> Text
+        end,
+    Spec#{summary => Summary};
+trans_summary(Spec, _Options) ->
+    Spec.
 
 trans_tags(Spec = #{tags := Tags}) ->
     Spec#{tags => [string:titlecase(to_bin(Tag)) || Tag <- Tags]};

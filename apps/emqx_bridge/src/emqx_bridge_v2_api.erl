@@ -472,7 +472,7 @@ schema("/action_types") ->
         get => #{
             tags => [<<"actions">>],
             desc => ?DESC("desc_api10"),
-            summary => <<"List Available Action Types">>,
+            summary => ?DESC("desc_api10"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:action_types_sc()),
@@ -690,7 +690,7 @@ schema("/source_types") ->
         get => #{
             tags => [<<"sources">>],
             desc => ?DESC("desc_api11"),
-            summary => <<"List Available Source Types">>,
+            summary => ?DESC("desc_api11"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:source_types_sc()),
