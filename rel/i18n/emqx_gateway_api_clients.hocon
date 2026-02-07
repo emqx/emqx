@@ -216,4 +216,44 @@ param_gte_lifetime.desc:
 mqueue_len.desc:
 """Current length of message queue"""
 
+example_general_client_list.desc:
+"""An example response payload for listing general gateway clients."""
+example_general_client_list.label:
+"""Example General Client List"""
+
+example_lwm2m_client_list.desc:
+"""An example response payload for listing LwM2M gateway clients."""
+example_lwm2m_client_list.label:
+"""Example LwM2M Client List"""
+
+example_general_client.desc:
+"""An example response payload for a general gateway client."""
+example_general_client.label:
+"""Example General Client"""
+
+example_lwm2m_client.desc:
+"""An example response payload for a LwM2M gateway client."""
+example_lwm2m_client.label:
+"""Example LwM2M Client"""
+
+example_general_subscription_list.desc:
+"""An example response payload for listing general client subscriptions."""
+example_general_subscription_list.label:
+"""Example General Subscription List"""
+
+example_stomp_subscription_list.desc:
+"""An example response payload for listing STOMP client subscriptions."""
+example_stomp_subscription_list.label:
+"""Example STOMP Subscription List"""
+
+example_general_subscription.desc:
+"""An example response payload for a general client subscription."""
+example_general_subscription.label:
+"""Example General Subscription"""
+
+example_stomp_subscription.desc:
+"""An example response payload for a STOMP client subscription."""
+example_stomp_subscription.label:
+"""Example STOMP Subscription"""
+
 }

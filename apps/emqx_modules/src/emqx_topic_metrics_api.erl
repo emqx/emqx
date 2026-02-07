@@ -253,7 +253,7 @@ reset_examples() ->
     #{
         reset_specific_one_topic_metrics =>
             #{
-                summary => <<"reset_specific_one_topic_metrics">>,
+                summary => ?DESC("reset_specific_one_topic_metrics"),
                 value =>
                     #{
                         topic => "testtopic/1",
@@ -262,7 +262,7 @@ reset_examples() ->
             },
         reset_all_topic_metrics =>
             #{
-                summary => <<"reset_all_topic_metrics">>,
+                summary => ?DESC("reset_all_topic_metrics"),
                 value =>
                     #{action => "reset"}
             }

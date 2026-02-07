@@ -60,6 +60,16 @@ external_registry_create.desc:
 external_registry_update.desc:
 """Update external schema registry"""
 
+example_avro.desc:
+"""Example Avro schema payload."""
+example_avro.label:
+"""Avro Example"""
+
+example_confluent.desc:
+"""Example external schema registry payload for Confluent."""
+example_confluent.label:
+"""Confluent Example"""
+
 schema_already_exists.desc:
 """Schema already exists."""
 schema_already_exists.label:

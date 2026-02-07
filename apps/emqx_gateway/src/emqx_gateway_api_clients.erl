@@ -1060,12 +1060,12 @@ examples_client_list() ->
     #{
         general_client_list =>
             #{
-                summary => <<"General client list">>,
+                summary => ?DESC(example_general_client_list),
                 value => [example_general_client()]
             },
         lwm2m_client_list =>
             #{
-                summary => <<"LwM2M client list">>,
+                summary => ?DESC(example_lwm2m_client_list),
                 value => [example_lwm2m_client()]
             }
     }.
@@ -1074,12 +1074,12 @@ examples_client() ->
     #{
         general_client =>
             #{
-                summary => <<"General client info">>,
+                summary => ?DESC(example_general_client),
                 value => example_general_client()
             },
         lwm2m_client =>
             #{
-                summary => <<"LwM2M client info">>,
+                summary => ?DESC(example_lwm2m_client),
                 value => example_lwm2m_client()
             }
     }.
@@ -1088,12 +1088,12 @@ examples_subscription_list() ->
     #{
         general_subscription_list =>
             #{
-                summary => <<"A general subscription list">>,
+                summary => ?DESC(example_general_subscription_list),
                 value => [example_general_subscription()]
             },
         stomp_subscription_list =>
             #{
-                summary => <<"The STOMP subscription list">>,
+                summary => ?DESC(example_stomp_subscription_list),
                 value => [example_stomp_subscription]
             }
     }.
@@ -1102,12 +1102,12 @@ examples_subscription() ->
     #{
         general_subscription =>
             #{
-                summary => <<"A general subscription">>,
+                summary => ?DESC(example_general_subscription),
                 value => example_general_subscription()
             },
         stomp_subscription =>
             #{
-                summary => <<"A STOMP subscription">>,
+                summary => ?DESC(example_stomp_subscription),
                 value => example_stomp_subscription()
             }
     }.

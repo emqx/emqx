@@ -28,4 +28,9 @@ bad_setting_value.desc:
 bad_setting_value.label:
 """Bad Setting Value"""
 
+example_license_key_string.desc:
+"""Example payload that updates the license key."""
+example_license_key_string.label:
+"""License Key String Example"""
+
 }

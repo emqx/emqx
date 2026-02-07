@@ -216,6 +216,56 @@ authentication_settings_updated.desc:
 authentication_settings_updated.label:
 """Authentication Settings Updated"""
 
+example_builtin_password_authn.desc:
+"""An example built-in database authenticator configuration for password-based authentication."""
+example_builtin_password_authn.label:
+"""Example Built-In Password Authenticator"""
+
+example_http_password_authn.desc:
+"""An example HTTP authenticator configuration for password-based authentication."""
+example_http_password_authn.label:
+"""Example HTTP Password Authenticator"""
+
+example_jwt_authn.desc:
+"""An example JWT authenticator configuration."""
+example_jwt_authn.label:
+"""Example JWT Authenticator"""
+
+example_mongodb_password_authn.desc:
+"""An example MongoDB authenticator configuration for password-based authentication."""
+example_mongodb_password_authn.label:
+"""Example MongoDB Password Authenticator"""
+
+example_redis_password_authn.desc:
+"""An example Redis authenticator configuration for password-based authentication."""
+example_redis_password_authn.label:
+"""Example Redis Password Authenticator"""
+
+example_authn_status_metrics.desc:
+"""An example authenticator status response with metrics details."""
+example_authn_status_metrics.label:
+"""Example Authenticator Status Metrics"""
+
+example_regular_user.desc:
+"""An example user payload for a regular authenticator user."""
+example_regular_user.label:
+"""Example Regular User"""
+
+example_superuser.desc:
+"""An example user payload for a superuser authenticator user."""
+example_superuser.label:
+"""Example Superuser"""
+
+example_update_regular_user.desc:
+"""An example payload for updating a regular authenticator user."""
+example_update_regular_user.label:
+"""Example Regular User Update"""
+
+example_update_promote_superuser.desc:
+"""An example payload for promoting a regular user to superuser."""
+example_update_promote_superuser.label:
+"""Example Promote to Superuser"""
+
 bad_request.desc:
 """Bad Request"""
 bad_request.label:

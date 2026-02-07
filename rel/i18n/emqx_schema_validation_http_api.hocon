@@ -78,4 +78,34 @@ emqx_schema_validation_http_api {
   duplicated_validations.label:
   """Duplicate Validations"""
 
+  example_sql_check.desc:
+  """Example payload using a SQL validation check."""
+  example_sql_check.label:
+  """SQL Check Example"""
+
+  example_avro_check.desc:
+  """Example payload using an Avro schema validation check."""
+  example_avro_check.label:
+  """Avro Check Example"""
+
+  example_update.desc:
+  """Example payload for updating a validation."""
+  example_update.label:
+  """Update Example"""
+
+  example_reorder.desc:
+  """Example payload for reordering validations."""
+  example_reorder.label:
+  """Reorder Example"""
+
+  example_list.desc:
+  """Example response listing validations."""
+  example_list.label:
+  """List Example"""
+
+  example_metrics.desc:
+  """Example response showing validation metrics."""
+  example_metrics.label:
+  """Metrics Example"""
+
 }
