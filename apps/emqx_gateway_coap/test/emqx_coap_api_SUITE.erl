@@ -28,9 +28,14 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    Conf = <<
+        (emqx_coap_test_helpers:default_conf())/binary,
+        "\n",
+        "gateway.coap.blockwise { max_body_size = \"1KB\" }\n"
+    >>,
     Config1 = emqx_coap_test_helpers:start_gateway(
         Config,
-        emqx_coap_test_helpers:default_conf()
+        Conf
     ),
     _ = emqx_common_test_http:create_default_app(),
     Config1.
@@ -69,6 +74,60 @@ t_send_request_api(_) ->
         ?assertEqual(Payload, RPayload)
     end,
     Test("gateways/coap/clients/client1/request"),
+    erlang:exit(ClientId, kill),
+    ok.
+
+
+
+t_send_request_api_block2(_) ->
+    ClientId = start_block2_client(),
+    timer:sleep(200),
+    Path = emqx_mgmt_api_test_util:api_path(
+        ["gateways/coap/clients/client1/request"]
+    ),
+    Req = #{
+        token => <<"btoken">>,
+        payload => <<"hello">>,
+        timeout => <<"10s">>,
+        content_type => <<"text/plain">>,
+        method => <<"get">>
+    },
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(
+        post,
+        Path,
+        "method=get",
+        Auth,
+        Req
+    ),
+    #{<<"payload">> := Payload} = emqx_utils_json:decode(Response),
+    ?assertEqual(block2_payload(), Payload),
+    erlang:exit(ClientId, kill),
+    ok.
+
+t_send_request_api_block2_too_large(_) ->
+    ClientId = start_block2_client(block2_large_payload()),
+    timer:sleep(200),
+    Path = emqx_mgmt_api_test_util:api_path(
+        ["gateways/coap/clients/client1/request"]
+    ),
+    Req = #{
+        token => <<"btlrg">>,
+        payload => <<"hello">>,
+        timeout => <<"10s">>,
+        content_type => <<"text/plain">>,
+        method => <<"get">>
+    },
+    Auth = emqx_mgmt_api_test_util:auth_header_(),
+    {ok, Response} = emqx_mgmt_api_test_util:request_api(
+        post,
+        Path,
+        "method=get",
+        Auth,
+        Req
+    ),
+    #{<<"method">> := Method} = emqx_utils_json:decode(Response),
+    ?assertEqual(<<"{error,request_entity_too_large}">>, Method),
     erlang:exit(ClientId, kill),
     ok.
 
@@ -190,6 +249,12 @@ start_client() ->
 start_silent_client() ->
     spawn(fun coap_silent_client/0).
 
+start_block2_client() ->
+    start_block2_client(block2_payload()).
+
+start_block2_client(Payload) ->
+    spawn(fun() -> coap_block2_client(Payload) end).
+
 coap_client() ->
     {ok, CSock} = gen_udp:open(0, [binary, {active, false}]),
     test_send_coap_request(CSock, post, <<>>, [], 1),
@@ -208,6 +273,23 @@ coap_silent_client() ->
     Response = test_recv_coap_response(CSock),
     ?assertEqual({ok, created}, Response#coap_message.method),
     silent_loop(CSock).
+
+coap_block2_client(FullPayload) ->
+    {ok, CSock} = gen_udp:open(0, [binary, {active, false}]),
+    test_send_coap_request(CSock, post, <<>>, [], 1),
+    Response = test_recv_coap_response(CSock),
+    ?assertEqual({ok, created}, Response#coap_message.method),
+    block2_loop(CSock, FullPayload).
+
+block2_loop(CSock, FullPayload) ->
+    Req0 = test_recv_coap_request(CSock),
+    Num =
+        case emqx_coap_message:get_option(block2, Req0, undefined) of
+            undefined -> 0;
+            {N, _M, _Size} -> N
+        end,
+    test_send_coap_response_block2(CSock, ?HOST, ?PORT, {ok, content}, FullPayload, Req0, Num),
+    block2_loop(CSock, FullPayload).
 
 silent_loop(CSock) ->
     _ = gen_udp:recv(CSock, 0, 500),
@@ -297,6 +379,24 @@ test_send_coap_response(UdpSock, Host, Port, Code, Content, Request) ->
     Response0 = emqx_coap_message:piggyback(Code, Content, Request),
     Response = Response0#coap_message{options = #{uri_query => [<<"clientid=client1">>]}},
     ?LOGT("test_send_coap_response Response=~p", [Response]),
+    Binary = emqx_coap_frame:serialize_pkt(Response, undefined),
+    ok = gen_udp:send(UdpSock, IpAddr, Port, Binary).
+
+block2_payload() ->
+    <<"This is a block2 payload from the device.">>.
+
+block2_large_payload() ->
+    binary:copy(<<"L">>, 2048).
+
+test_send_coap_response_block2(UdpSock, Host, Port, Code, FullContent, Request, Num) ->
+    is_list(Host) orelse error("Host is not a string"),
+    {ok, IpAddr} = inet:getaddr(Host, inet),
+    Response0 = emqx_coap_message:piggyback(Code, Request),
+    Response1 = emqx_coap_message:set_payload_block(FullContent, block2, {Num, true, 16}, Response0),
+    Block = emqx_coap_message:get_option(block2, Response1, {Num, false, 16}),
+    Response2 = emqx_coap_message:set(block2, Block, Response1),
+    Response = Response2#coap_message{options = maps:put(uri_query, [<<"clientid=client1">>], Response2#coap_message.options)},
+    ?LOGT("test_send_coap_response_block2 Response=~p", [Response]),
     Binary = emqx_coap_frame:serialize_pkt(Response, undefined),
     ok = gen_udp:send(UdpSock, IpAddr, Port, Binary).
 

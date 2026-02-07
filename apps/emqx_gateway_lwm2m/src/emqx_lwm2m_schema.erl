@@ -85,9 +85,60 @@ fields(lwm2m) ->
                     desc => ?DESC(lwm2m_translators)
                 }
             )},
+        {coap_max_block_size,
+            sc(
+                range(16, 1024),
+                #{
+                    default => 1024,
+                    desc => ?DESC(lwm2m_coap_max_block_size)
+                }
+            )},
+        {blockwise,
+            sc(
+                ref(lwm2m_blockwise),
+                #{desc => ?DESC(lwm2m_blockwise)}
+            )},
         {mountpoint, emqx_gateway_schema:mountpoint("lwm2m/${endpoint_name}/")},
         {listeners, sc(ref(emqx_gateway_schema, udp_listeners), #{desc => ?DESC(udp_listeners)})}
     ] ++ emqx_gateway_schema:gateway_common_options();
+fields(lwm2m_blockwise) ->
+    [
+        {enable,
+            sc(
+                boolean(),
+                #{default => true, desc => ?DESC(lwm2m_blockwise_enable)}
+            )},
+        {max_block_size,
+            sc(
+                hoconsc:enum([16, 32, 64, 128, 256, 512, 1024]),
+                #{default => 1024, desc => ?DESC(lwm2m_blockwise_max_block_size)}
+            )},
+        {max_body_size,
+            sc(
+                emqx_schema:bytesize(),
+                #{default => <<"4MB">>, desc => ?DESC(lwm2m_blockwise_max_body_size)}
+            )},
+        {exchange_lifetime,
+            sc(
+                emqx_schema:timeout_duration_ms(),
+                #{default => <<"247s">>, desc => ?DESC(lwm2m_blockwise_exchange_lifetime)}
+            )},
+        {auto_tx_block1,
+            sc(
+                boolean(),
+                #{default => true, desc => ?DESC(lwm2m_blockwise_auto_tx_block1)}
+            )},
+        {auto_rx_block2,
+            sc(
+                boolean(),
+                #{default => true, desc => ?DESC(lwm2m_blockwise_auto_rx_block2)}
+            )},
+        {auto_tx_block2,
+            sc(
+                boolean(),
+                #{default => false, desc => ?DESC(lwm2m_blockwise_auto_tx_block2)}
+            )}
+    ];
 fields(lwm2m_translators) ->
     [
         {command,
@@ -153,6 +204,8 @@ fields(translator) ->
 
 desc(lwm2m) ->
     "The LwM2M protocol gateway.";
+desc(lwm2m_blockwise) ->
+    "Block-wise transfer settings for the LwM2M gateway.";
 desc(lwm2m_translators) ->
     "MQTT topics that correspond to LwM2M events.";
 desc(translator) ->

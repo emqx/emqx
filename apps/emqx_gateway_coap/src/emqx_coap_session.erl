@@ -26,6 +26,7 @@
     handle_out/2,
     set_reply/2,
     deliver/3,
+    deliver/5,
     timeout/2
 ]).
 
@@ -151,12 +152,21 @@ set_reply(Msg, #session{transport_manager = TM} = Session) ->
 deliver(
     Delivers,
     Ctx,
+    #session{} = Session
+) ->
+    deliver(Delivers, Ctx, Session, undefined, undefined).
+
+deliver(
+    Delivers,
+    Ctx,
     #session{
         observe_manager = OM,
         transport_manager = TM
-    } = Session
+    } = Session,
+    BW0,
+    PeerKey
 ) ->
-    Fun = fun({_, Topic, Message}, {OutAcc, OMAcc, TMAcc} = Acc) ->
+    Fun = fun({_, Topic, Message}, {OutAcc, OMAcc, TMAcc, BWAcc} = Acc) ->
         case emqx_coap_observe_res:res_changed(Topic, OMAcc) of
             undefined ->
                 metrics_inc('delivery.dropped', Ctx),
@@ -164,20 +174,25 @@ deliver(
                 Acc;
             {Token, SeqId, OM2} ->
                 metrics_inc('messages.delivered', Ctx),
-                Msg = mqtt_to_coap(Message, Token, SeqId),
+                Msg0 = mqtt_to_coap(Message, Token, SeqId),
+                {Msg, BW2} = maybe_split_notify_block2(Msg0, PeerKey, BWAcc, Ctx),
                 #{out := Out, tm := TM2} = emqx_coap_tm:handle_out(Msg, TMAcc),
-                {Out ++ OutAcc, OM2, TM2}
+                {Out ++ OutAcc, OM2, TM2, BW2}
         end
     end,
-    {Outs, OM2, TM2} = lists:foldl(Fun, {[], OM, TM}, lists:reverse(Delivers)),
+    {Outs, OM2, TM2, BW2} = lists:foldl(Fun, {[], OM, TM, BW0}, lists:reverse(Delivers)),
 
-    #{
+    BaseResult = #{
         out => lists:reverse(Outs),
         session => Session#session{
             observe_manager = OM2,
             transport_manager = TM2
         }
-    }.
+    },
+    case BW0 of
+        BW when is_map(BW) -> BaseResult#{blockwise => BW2};
+        _ -> BaseResult
+    end.
 
 timeout(Timer, Session) ->
     call_transport_manager(?FUNCTION_NAME, Timer, Session).
@@ -256,4 +271,18 @@ get_notify_type(#message{qos = Qos}) ->
             end;
         Other ->
             Other
+    end.
+
+maybe_split_notify_block2(Msg, _PeerKey, undefined, _Ctx) ->
+    {Msg, undefined};
+maybe_split_notify_block2(Msg, PeerKey, BW0, Ctx) ->
+    case emqx_coap_blockwise:server_prepare_out_response(undefined, Msg, PeerKey, BW0) of
+        {single, Msg1, BW1} ->
+            {Msg1, BW1};
+        {chunked, Msg1, BW1} ->
+            metrics_inc('blockwise.tx_block2.started', Ctx),
+            {Msg1, BW1};
+        {error, Msg1, BW1} ->
+            metrics_inc('blockwise.tx_block2.failed', Ctx),
+            {Msg1, BW1}
     end.

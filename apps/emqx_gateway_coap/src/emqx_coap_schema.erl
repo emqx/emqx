@@ -54,18 +54,63 @@ fields(coap) ->
                     desc => ?DESC(coap_publish_qos)
                 }
             )},
+        {blockwise,
+            sc(
+                ref(coap_blockwise),
+                #{desc => ?DESC(coap_blockwise)}
+            )},
         {mountpoint, emqx_gateway_schema:mountpoint()},
         {listeners,
             sc(
                 ref(emqx_gateway_schema, udp_listeners),
                 #{desc => ?DESC(udp_listeners)}
             )}
-    ] ++ emqx_gateway_schema:gateway_common_options().
+    ] ++ emqx_gateway_schema:gateway_common_options();
+fields(coap_blockwise) ->
+    [
+        {enable,
+            sc(
+                boolean(),
+                #{default => true, desc => ?DESC(coap_blockwise_enable)}
+            )},
+        {max_block_size,
+            sc(
+                hoconsc:enum([16, 32, 64, 128, 256, 512, 1024]),
+                #{default => 1024, desc => ?DESC(coap_blockwise_max_block_size)}
+            )},
+        {max_body_size,
+            sc(
+                emqx_schema:bytesize(),
+                #{default => <<"4MB">>, desc => ?DESC(coap_blockwise_max_body_size)}
+            )},
+        {exchange_lifetime,
+            sc(
+                emqx_schema:timeout_duration_ms(),
+                #{default => <<"247s">>, desc => ?DESC(coap_blockwise_exchange_lifetime)}
+            )},
+        {auto_tx_block1,
+            sc(
+                boolean(),
+                #{default => true, desc => ?DESC(coap_blockwise_auto_tx_block1)}
+            )},
+        {auto_rx_block2,
+            sc(
+                boolean(),
+                #{default => true, desc => ?DESC(coap_blockwise_auto_rx_block2)}
+            )},
+        {auto_tx_block2,
+            sc(
+                boolean(),
+                #{default => false, desc => ?DESC(coap_blockwise_auto_tx_block2)}
+            )}
+    ].
 
 desc(coap) ->
     "The CoAP protocol gateway provides EMQX with the access capability of the CoAP protocol.\n"
     "It allows publishing, subscribing, and receiving messages to EMQX in accordance\n"
     "with a certain defined CoAP message format.";
+desc(coap_blockwise) ->
+    "Block-wise transfer settings for the CoAP gateway.";
 desc(_) ->
     undefined.
 
@@ -77,3 +122,6 @@ sc(Type, Meta) ->
 
 ref(Mod, Field) ->
     hoconsc:ref(Mod, Field).
+
+ref(Field) ->
+    ref(?MODULE, Field).

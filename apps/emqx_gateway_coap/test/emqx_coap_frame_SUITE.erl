@@ -231,6 +231,20 @@ t_frame_empty_reset_and_undefined_option(_) ->
     _ = emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts()),
     ok.
 
+t_frame_block_size_uses_protocol_upper_bound(_) ->
+    Msg0 = #coap_message{
+        type = con,
+        method = get,
+        id = 44,
+        options = #{block2 => {0, true, 1024}},
+        payload = <<>>
+    },
+    Bin = emqx_coap_frame:serialize_pkt(Msg0, emqx_coap_frame:serialize_opts()),
+    {ok, Decoded, <<>>, _} = emqx_coap_frame:parse(Bin, #{}),
+    ?assertEqual({0, true, 1024}, maps:get(block2, Decoded#coap_message.options)),
+    Msg1 = Msg0#coap_message{id = 45, options = #{block2 => {0, true, 2048}}},
+    ?assertThrow({bad_block, invalid_size}, emqx_coap_frame:serialize_pkt(Msg1, emqx_coap_frame:serialize_opts())).
+
 t_frame_decode_extended_values(_) ->
     OptVal13 = binary:copy(<<"x">>, 13),
     Header13 = <<1:2, 0:2, 0:4, 0:3, 1:5, 2:16>>,

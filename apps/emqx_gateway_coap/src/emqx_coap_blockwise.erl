@@ -1,0 +1,799 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+
+-module(emqx_coap_blockwise).
+
+-export([
+    new/1,
+    server_in/3,
+    server_followup_in/3,
+    server_prepare_out_response/4,
+    client_prepare_out_request/3,
+    client_in_response/3,
+    expire/2,
+    has_active_client_tx/2,
+    block1_required/2,
+    blockwise_size/1,
+    max_body_size/1,
+    enabled/1,
+    auto_tx_block1_enabled/1,
+    auto_rx_block2_enabled/1,
+    auto_tx_block2_enabled/1
+]).
+
+-export_type([state/0]).
+
+-include("emqx_coap.hrl").
+-include_lib("emqx/include/logger.hrl").
+
+-define(DEFAULT_MAX_BLOCK_SIZE, 1024).
+-define(DEFAULT_MAX_BODY_SIZE, 4 * 1024 * 1024).
+-define(DEFAULT_EXCHANGE_LIFETIME, 247000).
+
+-type block_key() :: term().
+
+-type state() :: #{}
+    | #{
+        opts := map(),
+        server_rx_block1 := #{block_key() => map()},
+        server_tx_block2 := #{block_key() => map()},
+        client_tx_block1 := #{block_key() => map()},
+        client_rx_block2 := #{block_key() => map()},
+        client_req := #{block_key() => map()}
+    }.
+
+-spec new(map()) -> state().
+new(Opts0) ->
+    Opts = normalize_opts(Opts0),
+    #{
+        opts => Opts,
+        server_rx_block1 => #{},
+        server_tx_block2 => #{},
+        client_tx_block1 => #{},
+        client_rx_block2 => #{},
+        client_req => #{}
+    }.
+
+-spec enabled(state()) -> boolean().
+enabled(#{opts := Opts}) -> maps:get(enable, Opts, true).
+
+-spec auto_tx_block1_enabled(state()) -> boolean().
+auto_tx_block1_enabled(#{opts := Opts}) -> maps:get(auto_tx_block1, Opts, true).
+
+-spec auto_rx_block2_enabled(state()) -> boolean().
+auto_rx_block2_enabled(#{opts := Opts}) -> maps:get(auto_rx_block2, Opts, true).
+
+-spec auto_tx_block2_enabled(state()) -> boolean().
+auto_tx_block2_enabled(#{opts := Opts}) -> maps:get(auto_tx_block2, Opts, false).
+
+-spec blockwise_size(state()) -> pos_integer().
+blockwise_size(#{opts := Opts}) -> maps:get(max_block_size, Opts, ?DEFAULT_MAX_BLOCK_SIZE).
+
+-spec max_body_size(state()) -> pos_integer().
+max_body_size(#{opts := Opts}) -> maps:get(max_body_size, Opts, ?DEFAULT_MAX_BODY_SIZE).
+
+-spec has_active_client_tx(term(), state()) -> boolean().
+has_active_client_tx(Ctx, #{client_tx_block1 := TxMap}) ->
+    maps:is_key(client_tx_key(Ctx), TxMap).
+
+-spec block1_required(#coap_message{}, state()) -> boolean().
+block1_required(#coap_message{payload = Payload, options = Opts}, State) ->
+    enabled(State) andalso
+        auto_tx_block1_enabled(State) andalso
+        byte_size(Payload) > blockwise_size(State) andalso
+        not maps:is_key(block1, Opts).
+
+-spec server_in(#coap_message{}, term(), state()) ->
+    {pass, #coap_message{}, state()}
+    | {continue, #coap_message{}, state()}
+    | {complete, #coap_message{}, state()}
+    | {error, #coap_message{}, state()}.
+server_in(Msg, PeerKey, State0) ->
+    State = maybe_expire(State0),
+    case enabled(State) of
+        false ->
+            {pass, Msg, State};
+        true ->
+            case emqx_coap_message:get_option(block1, Msg, undefined) of
+                undefined ->
+                    {pass, Msg, State};
+                Block ->
+                    handle_server_block1(Block, Msg, PeerKey, State)
+            end
+    end.
+
+-spec server_followup_in(#coap_message{}, term(), state()) ->
+    {pass, #coap_message{}, state()}
+    | {reply, #coap_message{}, state()}
+    | {error, #coap_message{}, state()}.
+server_followup_in(Msg, _PeerKey, State0) when not is_record(Msg, coap_message) ->
+    {pass, Msg, maybe_expire(State0)};
+server_followup_in(Msg, PeerKey, State0) ->
+    State = maybe_expire(State0),
+    case enabled(State) andalso auto_tx_block2_enabled(State) of
+        false ->
+            {pass, Msg, State};
+        true ->
+            case emqx_coap_message:get_option(block2, Msg, undefined) of
+                undefined ->
+                    {pass, Msg, State};
+                Block2 ->
+                    handle_server_followup_block2(Block2, Msg, PeerKey, State)
+            end
+    end.
+
+-spec server_prepare_out_response(#coap_message{} | undefined, #coap_message{}, term(), state()) ->
+    {single, #coap_message{}, state()}
+    | {chunked, #coap_message{}, state()}
+    | {error, #coap_message{}, state()}.
+server_prepare_out_response(_Req, Reply, _PeerKey, State0) when
+    not is_record(Reply, coap_message)
+->
+    State = maybe_expire(State0),
+    {single, Reply, State};
+server_prepare_out_response(Req, Reply, PeerKey, State0) ->
+    State = maybe_expire(State0),
+    case enabled(State) andalso should_split_server_tx_block2(Req, Reply, State) of
+        false ->
+            State1 = maybe_clear_server_tx(PeerKey, Req, State),
+            {single, Reply, State1};
+        true ->
+            handle_server_tx_block2(Req, Reply, PeerKey, State)
+    end.
+
+-spec client_prepare_out_request(term(), #coap_message{}, state()) ->
+    {single, #coap_message{}, state()} | {first_block, #coap_message{}, state()}.
+client_prepare_out_request(Ctx, Msg, State0) ->
+    State = maybe_expire(State0),
+    State1 = put_client_request(Ctx, Msg, State),
+    case block1_required(Msg, State) of
+        false ->
+            {single, Msg, State1};
+        true ->
+            Size = blockwise_size(State),
+            Payload = Msg#coap_message.payload,
+            Key = client_tx_key(Ctx),
+            First = emqx_coap_message:set_payload_block(Payload, block1, {0, true, Size}, Msg),
+            Tx = #{
+                payload => Payload,
+                size => Size,
+                next_num => 1,
+                req => Msg,
+                expires_at => expires_at(State)
+            },
+            {first_block, First, put_client_tx(Key, Tx, State1)}
+    end.
+
+-spec client_in_response(term(), #coap_message{}, state()) ->
+    {deliver, #coap_message{}, state()}
+    | {send_next, #coap_message{}, state()}
+    | {consume_only, state()}.
+client_in_response(Ctx, Resp, State0) ->
+    State = maybe_expire(State0),
+    case enabled(State) of
+        false ->
+            {deliver, Resp, clear_client_exchange(Ctx, State)};
+        true ->
+            Key = client_tx_key(Ctx),
+            case maps:get(Key, maps:get(client_tx_block1, State), undefined) of
+                undefined ->
+                    maybe_handle_rx_block2(Ctx, Resp, State);
+                Tx ->
+                    handle_client_tx_block1(Ctx, Resp, Key, Tx, State)
+            end
+    end.
+
+-spec expire(integer(), state()) -> state().
+expire(Now, State) ->
+    ServerMap = maps:filter(
+        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
+        maps:get(server_rx_block1, State)
+    ),
+    ServerTx = maps:filter(
+        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
+        maps:get(server_tx_block2, State)
+    ),
+    ClientTx = maps:filter(
+        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
+        maps:get(client_tx_block1, State)
+    ),
+    ClientRx = maps:filter(
+        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
+        maps:get(client_rx_block2, State)
+    ),
+    ClientReq = maps:filter(
+        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
+        maps:get(client_req, State)
+    ),
+    State#{
+        server_rx_block1 => ServerMap,
+        server_tx_block2 => ServerTx,
+        client_tx_block1 => ClientTx,
+        client_rx_block2 => ClientRx,
+        client_req => ClientReq
+    }.
+
+should_split_server_tx_block2(_Req, #coap_message{method = Method}, _State) when not is_tuple(Method) ->
+    false;
+should_split_server_tx_block2(Req, #coap_message{payload = Payload}, State) when is_binary(Payload) ->
+    case auto_tx_block2_enabled(State) of
+        false ->
+            false;
+        true ->
+            case pick_server_tx_block2_params(Req, State) of
+                {ok, Num, Size} ->
+                    byte_size(Payload) > Size orelse Num > 0 orelse has_block2_option(Req);
+                error ->
+                    false
+            end
+    end;
+should_split_server_tx_block2(_Req, _Reply, _State) ->
+    false.
+
+handle_server_tx_block2(Req, Reply, PeerKey, State) ->
+    case pick_server_tx_block2_params(Req, State) of
+        {ok, Num, Size} ->
+            Opts = maps:remove(block2, Reply#coap_message.options),
+            Tx = #{
+                payload => Reply#coap_message.payload,
+                size => Size,
+                method => Reply#coap_message.method,
+                options => Opts,
+                observe => maps:get(observe, Opts, undefined),
+                expires_at => expires_at(State)
+            },
+            case build_server_tx_block(Req, Reply, Num, Tx) of
+                {ok, ChunkedReply, More} ->
+                    Key = server_tx_key(PeerKey, Req, Reply),
+                    State1 = put_server_tx(Key, Tx, More, State),
+                    ?SLOG(debug, #{
+                        msg => "coap_block2_tx_chunked",
+                        key => Key,
+                        block_num => Num,
+                        block_size => Size,
+                        more => More
+                    }),
+                    {chunked, ChunkedReply, State1};
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "coap_block2_tx_build_failed",
+                        reason => Reason,
+                        block_num => Num,
+                        block_size => Size
+                    }),
+                    {error, error_reply({error, bad_option}, reply_request(Req, Reply)), State}
+            end;
+        error ->
+            {error, error_reply({error, bad_option}, reply_request(Req, Reply)), State}
+    end.
+
+handle_server_followup_block2({Num, More, Size}, Msg, PeerKey, State) when
+    is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size)
+->
+    case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
+        false ->
+            {error, error_reply({error, bad_option}, Msg), State};
+        true ->
+            do_handle_server_followup_block2(Num, Size, Msg, PeerKey, State)
+    end;
+handle_server_followup_block2(_, Msg, _PeerKey, State) ->
+    {error, error_reply({error, bad_option}, Msg), State}.
+
+do_handle_server_followup_block2(Num, Size, Msg, PeerKey, State) ->
+    Key = server_tx_key_from_req(PeerKey, Msg),
+    TxMap = maps:get(server_tx_block2, State),
+    case {Key, maps:get(Key, TxMap, undefined)} of
+        {undefined, _} ->
+            {pass, Msg, State};
+        {_K, undefined} ->
+            {pass, Msg, State};
+        {_K, _Tx = #{size := TxSize}} when TxSize =/= Size ->
+            ?SLOG(warning, #{
+                msg => "coap_block2_followup_size_mismatch",
+                key => Key,
+                expected_size => TxSize,
+                got_size => Size
+            }),
+            State1 = State#{server_tx_block2 => maps:remove(Key, TxMap)},
+            {error, error_reply({error, bad_option}, Msg), State1};
+        {_K, Tx} ->
+            case build_server_tx_block(Msg, undefined, Num, Tx) of
+                {ok, Reply, More} ->
+                    Tx2 = Tx#{expires_at => expires_at(State)},
+                    State1 = put_server_tx(Key, Tx2, More, State),
+                    ?SLOG(debug, #{
+                        msg => "coap_block2_followup_served",
+                        key => Key,
+                        block_num => Num,
+                        block_size => Size,
+                        more => More
+                    }),
+                    {reply, Reply, State1};
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "coap_block2_followup_failed",
+                        key => Key,
+                        reason => Reason,
+                        block_num => Num,
+                        block_size => Size
+                    }),
+                    State1 = State#{server_tx_block2 => maps:remove(Key, TxMap)},
+                    {error, error_reply({error, bad_option}, Msg), State1}
+            end
+    end.
+
+build_server_tx_block(
+    #coap_message{} = Req,
+    _Reply,
+    Num,
+    Tx = #{method := Method, options := Opts}
+) ->
+    Template0 = emqx_coap_message:piggyback(Method, Req),
+    Template = Template0#coap_message{options = maps:remove(block2, Opts)},
+    build_server_tx_block_from_template(Template, Num, Tx);
+build_server_tx_block(_Req, #coap_message{options = Opts} = Reply, Num, Tx) ->
+    Reply0 = Reply#coap_message{options = maps:remove(block2, Opts)},
+    build_server_tx_block_from_template(Reply0, Num, Tx).
+
+build_server_tx_block_from_template(Template, Num, #{payload := Payload, size := Size}) ->
+    Offset = Num * Size,
+    case Offset >= byte_size(Payload) of
+        true ->
+            {error, out_of_range};
+        false ->
+            Resp0 = apply_server_tx_template(Template, Payload, Num, Size),
+            case emqx_coap_message:get_option(block2, Resp0, undefined) of
+                {_, More, _} ->
+                    {ok, Resp0, More};
+                _ ->
+                    {error, invalid_block2}
+            end
+    end.
+
+apply_server_tx_template(#coap_message{} = Reply, Payload, Num, Size) ->
+    emqx_coap_message:set_payload_block(Payload, block2, {Num, false, Size}, Reply).
+
+pick_server_tx_block2_params(Req, State) ->
+    DefaultSize = blockwise_size(State),
+    case request_block2(Req) of
+        undefined ->
+            {ok, 0, DefaultSize};
+        {Num, _More, Size}
+        when is_integer(Num), Num >= 0, is_boolean(_More), is_integer(Size) ->
+            case is_valid_block_size(Size) andalso Size =< DefaultSize of
+                true -> {ok, Num, Size};
+                false -> error
+            end;
+        _ ->
+            error
+    end.
+
+request_block2(#coap_message{} = Req) -> emqx_coap_message:get_option(block2, Req, undefined);
+request_block2(_) -> undefined.
+
+has_block2_option(#coap_message{} = Req) ->
+    emqx_coap_message:get_option(block2, Req, undefined) =/= undefined;
+has_block2_option(_) ->
+    false.
+
+reply_request(#coap_message{} = Req, _Reply) -> Req;
+reply_request(_Req, #coap_message{} = Reply) -> Reply.
+
+maybe_clear_server_tx(PeerKey, Req, State) ->
+    Key = server_tx_key_from_req(PeerKey, Req),
+    case Key of
+        undefined ->
+            State;
+        _ ->
+            TxMap = maps:get(server_tx_block2, State),
+            State#{server_tx_block2 => maps:remove(Key, TxMap)}
+    end.
+
+put_server_tx(undefined, _Tx, _More, State) ->
+    State;
+put_server_tx(Key, _Tx, false, State) ->
+    TxMap = maps:get(server_tx_block2, State),
+    State#{server_tx_block2 => maps:remove(Key, TxMap)};
+put_server_tx(Key, Tx, true, State) ->
+    TxMap = maps:get(server_tx_block2, State),
+    Observe = maps:get(observe, Tx, undefined),
+    TxMap2 =
+        case maps:get(Key, TxMap, undefined) of
+            #{observe := Observe} = Prev when Observe =/= undefined ->
+                TxMap#{Key => Prev#{expires_at => maps:get(expires_at, Tx)}};
+            _ ->
+                TxMap#{Key => Tx}
+        end,
+    State#{server_tx_block2 => TxMap2}.
+
+handle_server_block1({Num, More, Size}, Msg, PeerKey, State) when
+    is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size)
+->
+    case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
+        false ->
+            {error, error_reply({error, bad_option}, Msg), State};
+        true ->
+            do_handle_server_block1(Num, More, Size, Msg, PeerKey, State)
+    end;
+handle_server_block1(_, Msg, _PeerKey, State) ->
+    {error, error_reply({error, bad_option}, Msg), State}.
+
+do_handle_server_block1(Num, More, Size, Msg, PeerKey, State) ->
+    Key = server_block1_key(PeerKey, Msg),
+    ServerMap = maps:get(server_rx_block1, State),
+    MaxBody = max_body_size(State),
+    Payload = Msg#coap_message.payload,
+    case {Num, maps:get(Key, ServerMap, undefined)} of
+        {0, _Prev} ->
+            Total = byte_size(Payload),
+            if
+                Total > MaxBody ->
+                    {error, error_reply({error, request_entity_too_large}, Msg), State};
+                More ->
+                    Tx = #{
+                        payload => Payload,
+                        next_num => 1,
+                        size => Size,
+                        req => Msg,
+                        expires_at => expires_at(State)
+                    },
+                    Continue = continue_reply(Msg, Num, Size),
+                    {continue, Continue, State#{server_rx_block1 => ServerMap#{Key => Tx}}};
+                true ->
+                    {complete, clear_block1(Msg), State#{server_rx_block1 => maps:remove(Key, ServerMap)}}
+            end;
+        {_Num, undefined} ->
+            {error, error_reply({error, request_entity_incomplete}, Msg), State};
+        {_Num, Tx = #{next_num := Expected, size := TxSize, payload := Acc}} ->
+            case Num =:= Expected andalso Size =:= TxSize of
+                false ->
+                    {
+                        error,
+                        error_reply({error, request_entity_incomplete}, Msg),
+                        State#{server_rx_block1 => maps:remove(Key, ServerMap)}
+                    };
+                true ->
+                    NewPayload = <<Acc/binary, Payload/binary>>,
+                    case byte_size(NewPayload) > MaxBody of
+                        true ->
+                            {
+                                error,
+                                error_reply({error, request_entity_too_large}, Msg),
+                                State#{server_rx_block1 => maps:remove(Key, ServerMap)}
+                            };
+                        false when More ->
+                            Tx2 = Tx#{
+                                payload => NewPayload,
+                                next_num => Expected + 1,
+                                expires_at => expires_at(State)
+                            },
+                            Continue = continue_reply(Msg, Num, Size),
+                            {
+                                continue,
+                                Continue,
+                                State#{server_rx_block1 => ServerMap#{Key => Tx2}}
+                            };
+                        false ->
+                            Full = clear_block1(Msg#coap_message{payload = NewPayload}),
+                            {
+                                complete,
+                                Full,
+                                State#{server_rx_block1 => maps:remove(Key, ServerMap)}
+                            }
+                    end
+            end
+    end.
+
+handle_client_tx_block1(Ctx, Resp, Key, Tx, State) ->
+    Method = Resp#coap_message.method,
+    case Method of
+        {ok, continue} ->
+            send_next_client_tx_block(Ctx, Tx, State);
+        _ ->
+            State2 = State#{client_tx_block1 => maps:remove(Key, maps:get(client_tx_block1, State))},
+            maybe_handle_rx_block2(Ctx, Resp, State2)
+    end.
+
+send_next_client_tx_block(Ctx, Tx, State) ->
+    Payload = maps:get(payload, Tx),
+    Req = maps:get(req, Tx),
+    Size = maps:get(size, Tx),
+    Num = maps:get(next_num, Tx),
+    Offset = Num * Size,
+    case Offset < byte_size(Payload) of
+        true ->
+            BlockReq = emqx_coap_message:set_payload_block(Payload, block1, {Num, true, Size}, Req),
+            case emqx_coap_message:get_option(block1, BlockReq, undefined) of
+                {Num, true, _} ->
+                    Tx2 = Tx#{next_num => Num + 1, expires_at => expires_at(State)},
+                    {send_next, BlockReq, put_client_tx(client_tx_key(Ctx), Tx2, State)};
+                {Num, false, _} ->
+                    Tx2 = Tx#{next_num => Num + 1, expires_at => expires_at(State)},
+                    {send_next, BlockReq, put_client_tx(client_tx_key(Ctx), Tx2, State)};
+                _ ->
+                    {consume_only, State}
+            end;
+        false ->
+            Reply = error_reply({error, request_entity_incomplete}, Req),
+            {deliver, Reply, clear_client_exchange(Ctx, State)}
+    end.
+
+maybe_handle_rx_block2(Ctx, Resp, State) ->
+    case auto_rx_block2_enabled(State) of
+        false ->
+            {deliver, Resp, clear_client_exchange(Ctx, State)};
+        true ->
+            case emqx_coap_message:get_option(block2, Resp, undefined) of
+                undefined ->
+                    {deliver, Resp, clear_client_request(Ctx, State)};
+                {Num, More, Size}
+                when is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size) ->
+                    case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
+                        true ->
+                            handle_client_rx_block2(Ctx, Num, More, Size, Resp, State);
+                        false ->
+                            {deliver, Resp, clear_client_exchange(Ctx, State)}
+                    end;
+                _ ->
+                    {deliver, Resp, clear_client_exchange(Ctx, State)}
+            end
+    end.
+
+handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
+    Key = client_rx_key(Ctx),
+    RxMap = maps:get(client_rx_block2, State),
+    Payload = Resp#coap_message.payload,
+    MaxBody = max_body_size(State),
+    case {Num, maps:get(Key, RxMap, undefined)} of
+        {0, _} ->
+                    case byte_size(Payload) > MaxBody of
+                        true ->
+                            {
+                                deliver,
+                                Resp,
+                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                            };
+                false when More ->
+                    case next_block2_request(Ctx, Resp, 1, Size, State) of
+                        undefined ->
+                            {
+                                deliver,
+                                Resp,
+                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                            };
+                        NextReq ->
+                            Rx = #{
+                                payload => Payload,
+                                next_num => 1,
+                                size => Size,
+                                expires_at => expires_at(State)
+                            },
+                            {send_next, NextReq, State#{client_rx_block2 => RxMap#{Key => Rx}}}
+                    end;
+                false ->
+                    {
+                        deliver,
+                        clear_block2(Resp),
+                        clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                    }
+            end;
+        {_Num, undefined} ->
+            {deliver, Resp, clear_client_request(Ctx, State)};
+        {_Num, Rx = #{next_num := Expected, size := RxSize, payload := Acc}} ->
+            case Num =:= Expected andalso Size =:= RxSize of
+                false ->
+                    {
+                        deliver,
+                        Resp,
+                        clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                    };
+                true ->
+                    NewPayload = <<Acc/binary, Payload/binary>>,
+                    case byte_size(NewPayload) > MaxBody of
+                        true ->
+                            {
+                                deliver,
+                                Resp,
+                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                            };
+                        false when More ->
+                            case next_block2_request(Ctx, Resp, Num + 1, Size, State) of
+                                undefined ->
+                                    {
+                                        deliver,
+                                        Resp,
+                                        clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                                    };
+                                NextReq ->
+                                    Rx2 = Rx#{
+                                        payload => NewPayload,
+                                        next_num => Num + 1,
+                                        expires_at => expires_at(State)
+                                    },
+                                    {
+                                        send_next,
+                                        NextReq,
+                                        State#{client_rx_block2 => RxMap#{Key => Rx2}}
+                                    }
+                            end;
+                        false ->
+                            Full = clear_block2(Resp#coap_message{payload = NewPayload}),
+                            {
+                                deliver,
+                                Full,
+                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                            }
+                    end
+            end
+    end.
+
+next_block2_request(Ctx, Resp, Num, Size, State) ->
+    Template = block2_template(Ctx, Resp, State),
+    case Template of
+        undefined ->
+            undefined;
+        Req0 ->
+            Req1 = clear_block1(Req0),
+            Token =
+                case Resp#coap_message.token of
+                    <<>> -> Req1#coap_message.token;
+                    T -> T
+                end,
+            Req2 = Req1#coap_message{payload = <<>>, token = Token},
+            emqx_coap_message:set(block2, {Num, false, Size}, Req2)
+    end.
+
+block2_template(Ctx, Resp, State) ->
+    case Ctx of
+        #{request := Req0} when is_record(Req0, coap_message) ->
+            Req0;
+        _ ->
+            ReqMap = maps:get(client_req, State),
+            case maps:get(client_req_key(Ctx), ReqMap, undefined) of
+                #{request := Req} when is_record(Req, coap_message) ->
+                    Req;
+                _ ->
+                    Resp
+            end
+    end.
+
+server_block1_key(PeerKey, #coap_message{method = Method, token = Token, options = Opts}) ->
+    {
+        PeerKey,
+        Method,
+        maps:get(uri_path, Opts, undefined),
+        maps:get(uri_query, Opts, undefined),
+        Token
+    }.
+
+server_tx_key(PeerKey, Req, _Reply) when is_record(Req, coap_message) ->
+    server_tx_key_from_req(PeerKey, Req);
+server_tx_key(PeerKey, _Req, #coap_message{token = Token}) when Token =/= <<>> ->
+    {server_tx_block2, PeerKey, Token};
+server_tx_key(_PeerKey, _Req, _Reply) ->
+    undefined.
+
+server_tx_key_from_req(PeerKey, #coap_message{token = Token}) when Token =/= <<>> ->
+    {server_tx_block2, PeerKey, Token};
+server_tx_key_from_req(_PeerKey, _) ->
+    undefined.
+
+client_tx_key(Ctx) ->
+    {client_tx_block1, erlang:phash2(normalize_ctx(Ctx))}.
+
+client_rx_key(Ctx) ->
+    {client_rx_block2, erlang:phash2(normalize_ctx(Ctx))}.
+
+client_req_key(Ctx) ->
+    {client_req, erlang:phash2(normalize_ctx(Ctx))}.
+
+normalize_ctx(Ctx) when is_map(Ctx) ->
+    maps:without([request], Ctx);
+normalize_ctx(Ctx) ->
+    Ctx.
+
+clear_block1(#coap_message{options = Opts} = Msg) ->
+    Msg#coap_message{options = maps:remove(block1, Opts)}.
+
+clear_block2(#coap_message{options = Opts} = Msg) ->
+    Msg#coap_message{options = maps:remove(block2, Opts)}.
+
+continue_reply(Msg, Num, Size) ->
+    Reply = emqx_coap_message:piggyback({ok, continue}, Msg),
+    emqx_coap_message:set(block1, {Num, true, Size}, Reply).
+
+error_reply(Method, Msg) ->
+    emqx_coap_message:piggyback(Method, Msg).
+
+put_client_tx(Key, Tx, State) ->
+    Map = maps:get(client_tx_block1, State),
+    State#{client_tx_block1 => Map#{Key => Tx}}.
+
+put_client_request(Ctx, Req, State) ->
+    Key = client_req_key(Ctx),
+    ReqMap = maps:get(client_req, State),
+    ReqItem = #{request => Req, expires_at => expires_at(State)},
+    State#{client_req => ReqMap#{Key => ReqItem}}.
+
+clear_client_request(Ctx, State) ->
+    Key = client_req_key(Ctx),
+    ReqMap = maps:get(client_req, State),
+    State#{client_req => maps:remove(Key, ReqMap)}.
+
+clear_client_tx(Ctx, State) ->
+    Key = client_tx_key(Ctx),
+    TxMap = maps:get(client_tx_block1, State),
+    State#{client_tx_block1 => maps:remove(Key, TxMap)}.
+
+clear_client_rx(Ctx, State) ->
+    Key = client_rx_key(Ctx),
+    RxMap = maps:get(client_rx_block2, State),
+    State#{client_rx_block2 => maps:remove(Key, RxMap)}.
+
+clear_client_exchange(Ctx, State0) ->
+    State1 = clear_client_tx(Ctx, State0),
+    State2 = clear_client_rx(Ctx, State1),
+    clear_client_request(Ctx, State2).
+
+maybe_expire(State) ->
+    expire(erlang:monotonic_time(millisecond), State).
+
+expires_at(State) ->
+    erlang:monotonic_time(millisecond) + maps:get(exchange_lifetime, maps:get(opts, State)).
+
+normalize_opts(Opts0) ->
+    Map0 = #{},
+    Map1 = put_if_defined(Map0, enable, maps:get(enable, Opts0, true)),
+    Map2 = put_if_defined(
+        Map1, max_block_size, normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))
+    ),
+    Map3 = put_if_defined(
+        Map2, max_body_size, normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))
+    ),
+    Map4 = put_if_defined(
+        Map3,
+        exchange_lifetime,
+        normalize_exchange_lifetime(maps:get(exchange_lifetime, Opts0, ?DEFAULT_EXCHANGE_LIFETIME))
+    ),
+    Map5 = put_if_defined(Map4, auto_tx_block1, maps:get(auto_tx_block1, Opts0, true)),
+    Map6 = put_if_defined(Map5, auto_rx_block2, maps:get(auto_rx_block2, Opts0, true)),
+    put_if_defined(Map6, auto_tx_block2, maps:get(auto_tx_block2, Opts0, false)).
+
+put_if_defined(Map, _Key, undefined) ->
+    Map;
+put_if_defined(Map, Key, Value) ->
+    Map#{Key => Value}.
+
+normalize_block_size(Size) when is_integer(Size) ->
+    case is_valid_block_size(Size) of
+        true -> Size;
+        false -> ?DEFAULT_MAX_BLOCK_SIZE
+    end;
+normalize_block_size(_) ->
+    ?DEFAULT_MAX_BLOCK_SIZE.
+
+normalize_max_body_size(MaxBody) when is_integer(MaxBody), MaxBody > 0 ->
+    MaxBody;
+normalize_max_body_size(Bin) when is_binary(Bin) ->
+    case emqx_schema:to_bytesize(Bin) of
+        Bytes when is_integer(Bytes), Bytes > 0 -> Bytes;
+        _ -> ?DEFAULT_MAX_BODY_SIZE
+    end;
+normalize_max_body_size(_) ->
+    ?DEFAULT_MAX_BODY_SIZE.
+
+normalize_exchange_lifetime(T) when is_integer(T), T > 0 ->
+    T;
+normalize_exchange_lifetime(Bin) when is_binary(Bin) ->
+    case emqx_schema:to_duration_ms(Bin) of
+        Ms when is_integer(Ms), Ms > 0 -> Ms;
+        _ -> ?DEFAULT_EXCHANGE_LIFETIME
+    end;
+normalize_exchange_lifetime(_) ->
+    ?DEFAULT_EXCHANGE_LIFETIME.
+
+is_valid_block_size(Size) when is_integer(Size) ->
+    Size >= 16 andalso Size =< ?MAX_BLOCK_SIZE andalso (Size band (Size - 1)) =:= 0;
+is_valid_block_size(_) ->
+    false.

@@ -139,12 +139,13 @@ call_client(ClientId, Msg, Timeout) ->
     try
         case emqx_gateway_cm_registry:lookup_channels(coap, ClientId) of
             [Channel | _] ->
-                RequestId = emqx_coap_channel:send_request(Channel, Msg),
-                case gen_server:wait_response(RequestId, Timeout) of
-                    {reply, Reply} ->
-                        Reply;
-                    _ ->
-                        timeout
+                case do_send_request(Channel, Msg, Timeout) of
+                    timeout ->
+                        timeout;
+                    Reply = #coap_message{} ->
+                        maybe_collect_block2(Channel, Msg, Reply, Timeout);
+                    Reply ->
+                        Reply
                 end;
             _ ->
                 not_found
@@ -159,3 +160,75 @@ call_client(ClientId, Msg, Timeout) ->
             }),
             not_found
     end.
+
+do_send_request(Channel, Msg, Timeout) ->
+    RequestId = emqx_coap_channel:send_request(Channel, Msg),
+    case gen_server:wait_response(RequestId, Timeout) of
+        {reply, Reply} ->
+            Reply;
+        _ ->
+            timeout
+    end.
+
+maybe_collect_block2(Channel, Req, Resp, Timeout) ->
+    State0 = emqx_coap_blockwise:new(coap_blockwise_opts()),
+    Ctx = #{request => Req},
+    collect_block2(Channel, Ctx, Resp, Timeout, State0, 0).
+
+collect_block2(Channel, Ctx, Resp, Timeout, State0, N) ->
+    case emqx_coap_blockwise:client_in_response(Ctx, Resp, State0) of
+        {deliver, FullResp, _State} ->
+            FullResp;
+        {consume_only, _State} ->
+            Resp;
+        {send_next, NextReq, State1} ->
+            case block2_exceeds_max_body(Resp, State0) of
+                true ->
+                    block2_too_large_reply(Ctx, Resp);
+                false ->
+                    case do_send_request(Channel, NextReq, Timeout) of
+                        timeout ->
+                            timeout;
+                        NextResp = #coap_message{} ->
+                            collect_block2(Channel, Ctx, NextResp, Timeout, State1, N + 1);
+                        Other ->
+                            Other
+                    end
+            end
+    end.
+
+block2_exceeds_max_body(Resp, State) ->
+    case emqx_coap_message:get_option(block2, Resp, undefined) of
+        {Num, true, Size} when is_integer(Num), Num >= 0, is_integer(Size), Size > 0 ->
+            MaxBlocks = max_block2_blocks(State, Size),
+            (Num + 1) >= MaxBlocks;
+        _ ->
+            false
+    end.
+
+max_block2_blocks(State, Size) ->
+    MaxBody = emqx_coap_blockwise:max_body_size(State),
+    (MaxBody + Size - 1) div Size.
+
+block2_too_large_reply(Ctx, Resp) ->
+    Req =
+        case Ctx of
+            #{request := Req0} when is_record(Req0, coap_message) -> Req0;
+            _ -> Resp
+        end,
+    emqx_coap_message:piggyback({error, request_entity_too_large}, Req).
+
+coap_blockwise_opts() ->
+    BlockwiseCfg = emqx:get_config([gateway, coap, blockwise], #{}),
+    maps:merge(
+        #{
+            enable => true,
+            max_block_size => 1024,
+            max_body_size => 4 * 1024 * 1024,
+            exchange_lifetime => 247000,
+            auto_tx_block1 => true,
+            auto_rx_block2 => true,
+            auto_tx_block2 => false
+        },
+        BlockwiseCfg
+    ).

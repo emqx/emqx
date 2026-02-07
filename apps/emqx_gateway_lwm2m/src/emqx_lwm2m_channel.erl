@@ -60,7 +60,9 @@
     %% Timer
     timers :: #{atom() => disable | undefined | reference()},
     %% FIXME: don't store anonymous func
-    with_context :: function()
+    with_context :: function(),
+    %% CoAP block-wise transfer state
+    blockwise :: emqx_coap_blockwise:state()
 }).
 
 -type channel() :: #channel{}.
@@ -154,7 +156,8 @@ init(
         timers = #{},
         session = emqx_lwm2m_session:new(),
         conn_state = idle,
-        with_context = with_context(Ctx, ClientInfo)
+        with_context = with_context(Ctx, ClientInfo),
+        blockwise = emqx_coap_blockwise:new(lwm2m_blockwise_opts())
     }.
 
 lookup_cmd(Channel, Path, Action) ->
@@ -759,18 +762,38 @@ process_protocol(
 
 handle_request_protocol(
     post,
-    #coap_message{options = Opts} = Msg,
+    Msg,
     Result,
-    Channel,
+    #channel{blockwise = BW0, conninfo = ConnInfo} = Channel,
     Iter
 ) ->
-    case Opts of
-        #{uri_path := [?REG_PREFIX]} ->
-            do_connect(Msg, Result, Channel, Iter);
-        #{uri_path := Location} ->
-            do_update(Location, Msg, Result, Channel, Iter);
-        _ ->
-            iter(Iter, reply({error, not_found}, Msg, Result), Channel)
+    PeerKey = maps:get(peername, ConnInfo, undefined),
+    case emqx_coap_blockwise:server_followup_in(Msg, PeerKey, BW0) of
+        {reply, Reply, BW1} ->
+            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+        {error, Reply, BW1} ->
+            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+        {pass, Msg1, BW1} ->
+            case emqx_coap_blockwise:server_in(Msg1, PeerKey, BW1) of
+                {continue, Reply, BW2} ->
+                    iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
+                {error, Reply, BW2} ->
+                    iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
+                {pass, Msg2, BW2} ->
+                    do_handle_request_post(
+                        Msg2,
+                        Result#{request_msg => Msg2},
+                        Channel#channel{blockwise = BW2},
+                        Iter
+                    );
+                {complete, Msg2, BW2} ->
+                    do_handle_request_post(
+                        Msg2,
+                        Result#{request_msg => Msg2},
+                        Channel#channel{blockwise = BW2},
+                        Iter
+                    )
+            end
     end;
 handle_request_protocol(
     delete,
@@ -791,6 +814,32 @@ handle_request_protocol(
         _ ->
             iter(Iter, reply({error, bad_request}, Msg, Result), Channel)
     end.
+
+do_handle_request_post(#coap_message{options = Opts} = Msg, Result, Channel, Iter) ->
+    case Opts of
+        #{uri_path := [?REG_PREFIX]} ->
+            do_connect(Msg, Result, Channel, Iter);
+        #{uri_path := Location} ->
+            do_update(Location, Msg, Result, Channel, Iter);
+        _ ->
+            iter(Iter, reply({error, not_found}, Msg, Result), Channel)
+    end.
+
+lwm2m_blockwise_opts() ->
+    BlockwiseCfg = emqx:get_config([gateway, lwm2m, blockwise], #{}),
+    LegacyMaxSize = emqx:get_config([gateway, lwm2m, coap_max_block_size], 1024),
+    maps:merge(
+        #{
+            enable => true,
+            max_block_size => LegacyMaxSize,
+            max_body_size => 4 * 1024 * 1024,
+            exchange_lifetime => 247000,
+            auto_tx_block1 => true,
+            auto_rx_block2 => true,
+            auto_tx_block2 => false
+        },
+        BlockwiseCfg
+    ).
 
 do_update(
     Location,
@@ -827,12 +876,34 @@ process_out(Outs, Result, Channel, _) ->
     Events = maps:get(events, Result, []),
     {ok, [{outgoing, Outs3}] ++ Events, Channel}.
 
-process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
-    Session2 = emqx_lwm2m_session:set_reply(Reply, Session),
+process_reply(
+    Reply,
+    Result,
+    #channel{session = Session, blockwise = BW0, conninfo = ConnInfo} = Channel,
+    _
+) ->
+    Req = maps:get(request_msg, Result, undefined),
+    PeerKey = maps:get(peername, ConnInfo, undefined),
+    {Reply1, BW1} = maybe_prepare_block2_reply(Req, Reply, PeerKey, BW0),
+    Session2 = emqx_lwm2m_session:set_reply(Reply1, Session),
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, [Reply | Outs2]}] ++ Events, Channel#channel{session = Session2}}.
+    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{session = Session2, blockwise = BW1}}.
+
+maybe_prepare_block2_reply(Req, Reply, _PeerKey, BW) when
+    not is_record(Req, coap_message); not is_record(Reply, coap_message)
+->
+    {Reply, BW};
+maybe_prepare_block2_reply(Req, Reply, PeerKey, BW0) ->
+    case emqx_coap_blockwise:server_prepare_out_response(Req, Reply, PeerKey, BW0) of
+        {single, Reply1, BW1} ->
+            {Reply1, BW1};
+        {chunked, Reply1, BW1} ->
+            {Reply1, BW1};
+        {error, Reply1, BW1} ->
+            {Reply1, BW1}
+    end.
 
 process_lifetime(_, Result, Channel, Iter) ->
     iter(Iter, Result, update_life_timer(Channel)).
