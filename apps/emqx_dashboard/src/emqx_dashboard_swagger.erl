@@ -749,6 +749,7 @@ forbidden_summary_ref(_Spec) ->
 %% Fail in production, if any translation is missing, the node will not boot
 %% so smoke tests will fail
 -dialyzer({nowarn_function, missing_i18n_ref/1}).
+-dialyzer({nowarn_function, forbidden_summary_ref/1}).
 missing_i18n_ref(Text) ->
     error({missing_i18n_ref, Text}).
 %% In production, explicit operation summary is forbidden. Summary must be
