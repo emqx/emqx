@@ -42,7 +42,6 @@ schema("/cluster") ->
     #{
         'operationId' => cluster_info,
         get => #{
-            summary => ?DESC(get_cluster_info),
             desc => ?DESC(get_cluster_info),
             tags => [<<"Cluster">>],
             responses => #{
@@ -50,7 +49,6 @@ schema("/cluster") ->
             }
         },
         put => #{
-            summary => ?DESC(put_cluster_info),
             desc => ?DESC(put_cluster_info),
             tags => [<<"Cluster">>],
             'requestBody' => hoconsc:ref(?MODULE, cluster_info_request),
@@ -64,7 +62,6 @@ schema("/cluster/topology") ->
     #{
         'operationId' => cluster_topology,
         get => #{
-            summary => ?DESC(get_cluster_topology),
             desc => ?DESC(get_cluster_topology),
             tags => [<<"Cluster">>],
             responses => #{
@@ -76,7 +73,6 @@ schema("/cluster/invitation") ->
     #{
         'operationId' => get_invitation_status,
         get => #{
-            summary => ?DESC(get_invitation_status),
             desc => ?DESC(get_invitation_status),
             tags => [<<"Cluster">>],
             responses => #{
@@ -91,7 +87,6 @@ schema("/cluster/:node/invite") ->
     #{
         'operationId' => invite_node,
         put => #{
-            summary => ?DESC(invite_node),
             desc => ?DESC(invite_node),
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
@@ -106,7 +101,6 @@ schema("/cluster/:node/invite_async") ->
     #{
         'operationId' => invite_node_async,
         put => #{
-            summary => ?DESC(invite_node_async),
             desc => ?DESC(invite_node_async),
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],
@@ -120,7 +114,6 @@ schema("/cluster/:node/force_leave") ->
     #{
         'operationId' => force_leave,
         delete => #{
-            summary => ?DESC(force_remove_node),
             desc => ?DESC(force_remove_node),
             tags => [<<"Cluster">>],
             parameters => [hoconsc:ref(node)],

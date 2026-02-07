@@ -42,7 +42,6 @@ schema("/topics") ->
     #{
         'operationId' => topics,
         get => #{
-            summary => ?DESC(topic_list),
             description => ?DESC(topic_list),
             tags => ?TAGS,
             parameters => [
@@ -63,7 +62,6 @@ schema("/topics/:topic") ->
     #{
         'operationId' => topic,
         get => #{
-            summary => ?DESC("topic_info_by_name"),
             description => ?DESC("topic_info_by_name"),
             tags => ?TAGS,
             parameters => [topic_param(path)],

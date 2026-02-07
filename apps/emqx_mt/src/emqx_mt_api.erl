@@ -83,7 +83,6 @@ schema("/mt/ns_list") ->
         'operationId' => '/mt/ns_list',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("ns_list"),
             description => ?DESC("ns_list"),
             parameters => [
                 last_ns_in_query(),
@@ -104,7 +103,6 @@ schema("/mt/ns_list_details") ->
         'operationId' => '/mt/ns_list_details',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("ns_list_details"),
             description => ?DESC("ns_list_details"),
             parameters => [
                 last_ns_in_query(),
@@ -125,7 +123,6 @@ schema("/mt/ns/:ns/client_list") ->
         'operationId' => '/mt/ns/:ns/client_list',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("client_list"),
             description => ?DESC("client_list"),
             parameters => [
                 param_path_ns(),
@@ -148,7 +145,6 @@ schema("/mt/ns/:ns/client_count") ->
         'operationId' => '/mt/ns/:ns/client_count',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("client_count"),
             description => ?DESC("client_count"),
             parameters => [param_path_ns()],
             responses =>
@@ -163,7 +159,6 @@ schema("/mt/managed_ns_list") ->
         'operationId' => '/mt/managed_ns_list',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("managed_ns_list"),
             description => ?DESC("managed_ns_list"),
             parameters => [
                 last_ns_in_query(),
@@ -184,7 +179,6 @@ schema("/mt/managed_ns_list_details") ->
         'operationId' => '/mt/managed_ns_list_details',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("managed_ns_list_details"),
             description => ?DESC("managed_ns_list_details"),
             parameters => [
                 last_ns_in_query(),
@@ -205,7 +199,6 @@ schema("/mt/ns/:ns") ->
         'operationId' => '/mt/ns/:ns',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("create_managed_ns"),
             description => ?DESC("create_managed_ns"),
             parameters => [param_path_ns()],
             responses =>
@@ -219,7 +212,6 @@ schema("/mt/ns/:ns") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC("delete_ns"),
             description => ?DESC("delete_ns"),
             parameters => [param_path_ns()],
             responses =>
@@ -233,7 +225,6 @@ schema("/mt/ns/:ns/kick_all_clients") ->
         'operationId' => '/mt/ns/:ns/kick_all_clients',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("kick_all_clients"),
             description => ?DESC("kick_all_clients"),
             parameters => [param_path_ns()],
             responses =>
@@ -249,7 +240,6 @@ schema("/mt/ns/:ns/config") ->
         'operationId' => '/mt/ns/:ns/config',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("get_managed_ns_config"),
             description => ?DESC("get_managed_ns_config"),
             parameters => [param_path_ns()],
             responses =>
@@ -264,7 +254,6 @@ schema("/mt/ns/:ns/config") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC("update_managed_ns_config"),
             description => ?DESC("update_managed_ns_config"),
             parameters => [param_path_ns()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -288,7 +277,6 @@ schema("/mt/bulk_import_configs") ->
         'operationId' => '/mt/bulk_import_configs',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("bulk_import_configs"),
             description => ?DESC("bulk_import_configs"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 hoconsc:array(ref(bulk_config_in)),
@@ -307,7 +295,6 @@ schema("/mt/bulk_export_ns_configs") ->
         'operationId' => '/mt/bulk_export_ns_configs',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("bulk_export_ns_configs"),
             description => ?DESC("bulk_export_ns_configs"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(bulk_export_ns_configs_in),
@@ -329,7 +316,6 @@ schema("/mt/bulk_import_ns_configs") ->
         'operationId' => '/mt/bulk_import_ns_configs',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("bulk_import_ns_configs"),
             description => ?DESC("bulk_import_ns_configs"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(bulk_import_ns_configs_in),
@@ -351,7 +337,6 @@ schema("/mt/bulk_delete_ns") ->
         'operationId' => '/mt/bulk_delete_ns',
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC("bulk_delete_ns"),
             description => ?DESC("bulk_delete_ns"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(bulk_delete_ns_in),

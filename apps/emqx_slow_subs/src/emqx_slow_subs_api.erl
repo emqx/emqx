@@ -30,7 +30,6 @@ schema(("/slow_subscriptions")) ->
         'operationId' => slow_subs,
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC(clear_records_api),
             description => ?DESC(clear_records_api),
             parameters => [],
             'requestBody' => [],
@@ -38,7 +37,6 @@ schema(("/slow_subscriptions")) ->
         },
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(get_records_api),
             description => ?DESC(get_records_api),
             parameters => [
                 ref(emqx_dashboard_swagger, page),
@@ -53,13 +51,11 @@ schema("/slow_subscriptions/settings") ->
         'operationId' => settings,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(get_setting_api),
             description => ?DESC(get_setting_api),
             responses => #{200 => conf_schema()}
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC(update_setting_api),
             description => ?DESC(update_setting_api),
             'requestBody' => conf_schema(),
             responses => #{200 => conf_schema()}

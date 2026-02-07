@@ -43,7 +43,6 @@ schema(?PREFIX) ->
         'operationId' => config,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(get_config_api),
             description => ?DESC(get_config_api),
             responses => #{
                 200 => mk(conf_schema(), #{desc => ?DESC(config_content)}),
@@ -52,7 +51,6 @@ schema(?PREFIX) ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC(update_retainer_api),
             description => ?DESC(update_retainer_api),
             'requestBody' => mk(conf_schema(), #{desc => ?DESC(config_content)}),
             responses => #{
@@ -66,7 +64,6 @@ schema(?PREFIX ++ "/messages") ->
         'operationId' => '/messages',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(list_retained_api),
             description => ?DESC(list_retained_api),
             parameters => parameters(query, false, query_match_topic) ++ page_params(),
             responses => #{
@@ -79,7 +76,6 @@ schema(?PREFIX ++ "/messages") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC(delete_messages),
             description => ?DESC(delete_messages),
             responses => #{
                 204 => <<>>
@@ -91,7 +87,6 @@ schema(?PREFIX ++ "/message/:topic") ->
         'operationId' => with_topic_warp,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(lookup_api),
             description => ?DESC(lookup_api),
             parameters => parameters(),
             responses => #{
@@ -102,7 +97,6 @@ schema(?PREFIX ++ "/message/:topic") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC(delete_matching_api),
             description => ?DESC(delete_matching_api),
             parameters => parameters(),
             responses => #{

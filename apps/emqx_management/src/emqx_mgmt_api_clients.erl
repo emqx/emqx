@@ -148,7 +148,6 @@ schema("/clients_v2") ->
     #{
         'operationId' => list_clients_v2,
         get => #{
-            summary => ?DESC(list_clients),
             description => ?DESC(list_clients),
             hidden => true,
             tags => ?TAGS,
@@ -176,7 +175,6 @@ schema("/clients") ->
     #{
         'operationId' => clients,
         get => #{
-            summary => ?DESC(list_clients),
             description => ?DESC(list_clients),
             tags => ?TAGS,
             parameters => fields(list_clients_v1_inputs),
@@ -202,7 +200,6 @@ schema("/clients/kickout/bulk") ->
     #{
         'operationId' => kickout_clients,
         post => #{
-            summary => ?DESC(kickout_clients),
             description => ?DESC(kickout_clients),
             tags => ?TAGS,
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
@@ -219,7 +216,6 @@ schema("/clients/:clientid") ->
     #{
         'operationId' => client,
         get => #{
-            summary => ?DESC(clients_info_from_id),
             description => ?DESC(clients_info_from_id),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -234,7 +230,6 @@ schema("/clients/:clientid") ->
             }
         },
         delete => #{
-            summary => ?DESC(kick_client_id),
             description => ?DESC(kick_client_id),
             tags => ?TAGS,
             parameters => [
@@ -252,7 +247,6 @@ schema("/clients/:clientid/authorization/cache") ->
     #{
         'operationId' => authz_cache,
         get => #{
-            summary => ?DESC(get_authz_cache),
             description => ?DESC(get_authz_cache),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -264,7 +258,6 @@ schema("/clients/:clientid/authorization/cache") ->
             }
         },
         delete => #{
-            summary => ?DESC(clean_authz_cache),
             description => ?DESC(clean_authz_cache),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -280,7 +273,6 @@ schema("/clients/:clientid/subscriptions") ->
     #{
         'operationId' => subscriptions,
         get => #{
-            summary => ?DESC(get_client_subs),
             description => ?DESC(get_client_subs),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -298,7 +290,6 @@ schema("/clients/:clientid/subscribe") ->
     #{
         'operationId' => subscribe,
         post => #{
-            summary => ?DESC(subscribe),
             description => ?DESC(subscribe),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -316,7 +307,6 @@ schema("/clients/:clientid/subscribe/bulk") ->
     #{
         'operationId' => subscribe_batch,
         post => #{
-            summary => ?DESC(subscribe_g),
             description => ?DESC(subscribe_g),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -334,7 +324,6 @@ schema("/clients/:clientid/unsubscribe") ->
     #{
         'operationId' => unsubscribe,
         post => #{
-            summary => ?DESC(unsubscribe),
             description => ?DESC(unsubscribe),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -352,7 +341,6 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
     #{
         'operationId' => unsubscribe_batch,
         post => #{
-            summary => ?DESC(unsubscribe_g),
             description => ?DESC(unsubscribe_g),
             tags => ?TAGS,
             parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
@@ -370,7 +358,6 @@ schema("/clients/:clientid/keepalive") ->
     #{
         'operationId' => set_keepalive,
         put => #{
-            summary => ?DESC(set_keepalive_seconds),
             description => ?DESC(set_keepalive_seconds),
             tags => ?TAGS,
             hidden => true,
@@ -399,7 +386,6 @@ schema("/sessions_count") ->
     #{
         'operationId' => sessions_count,
         get => #{
-            summary => ?DESC(get_sessions_count),
             description => ?DESC(get_sessions_count),
             tags => ?TAGS,
             parameters => [

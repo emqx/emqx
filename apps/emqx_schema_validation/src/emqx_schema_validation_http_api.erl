@@ -60,7 +60,6 @@ schema("/schema_validations") ->
         'operationId' => '/schema_validations',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("list_validations"),
             description => ?DESC("list_validations"),
             responses =>
                 #{
@@ -75,7 +74,6 @@ schema("/schema_validations") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("append_validation"),
             description => ?DESC("append_validation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_validation_schema:api_schema(post),
@@ -93,7 +91,6 @@ schema("/schema_validations") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC("update_validation"),
             description => ?DESC("update_validation"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_validation_schema:api_schema(put),
@@ -116,7 +113,6 @@ schema("/schema_validations/reorder") ->
         'operationId' => '/schema_validations/reorder',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("reorder_validations"),
             description => ?DESC("reorder_validations"),
             'requestBody' =>
                 emqx_dashboard_swagger:schema_with_examples(
@@ -146,7 +142,6 @@ schema("/schema_validations/validation/:name") ->
         'operationId' => '/schema_validations/validation/:name',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("lookup_validation"),
             description => ?DESC("lookup_validation"),
             parameters => [param_path_name()],
             responses =>
@@ -163,7 +158,6 @@ schema("/schema_validations/validation/:name") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC("delete_validation"),
             description => ?DESC("delete_validation"),
             parameters => [param_path_name()],
             responses =>
@@ -178,7 +172,6 @@ schema("/schema_validations/validation/:name/metrics") ->
         'operationId' => '/schema_validations/validation/:name/metrics',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("get_validation_metrics"),
             description => ?DESC("get_validation_metrics"),
             parameters => [param_path_name()],
             responses =>
@@ -197,7 +190,6 @@ schema("/schema_validations/validation/:name/metrics/reset") ->
         'operationId' => '/schema_validations/validation/:name/metrics/reset',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("reset_validation_metrics"),
             description => ?DESC("reset_validation_metrics"),
             parameters => [param_path_name()],
             responses =>
@@ -212,7 +204,6 @@ schema("/schema_validations/validation/:name/enable/:enable") ->
         'operationId' => '/schema_validations/validation/:name/enable/:enable',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("enable_disable_validation"),
             description => ?DESC("enable_disable_validation"),
             parameters => [param_path_name(), param_path_enable()],
             responses =>

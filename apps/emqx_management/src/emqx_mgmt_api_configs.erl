@@ -83,7 +83,6 @@ schema("/configs") ->
         'operationId' => configs,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(get_configs),
             description => ?DESC(get_configs),
             parameters => [
                 {key,
@@ -122,7 +121,6 @@ schema("/configs") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC(update_configs),
             description => ?DESC(update_configs),
             parameters => [
                 {mode,
@@ -152,7 +150,6 @@ schema("/configs_reset/:rootname") ->
         'operationId' => config_reset,
         post => #{
             tags => ?TAGS,
-            summary => ?DESC(rest_conf_query),
             description => ?DESC(rest_conf_query),
             %% We only return "200" rather than the new configs that has been changed, as
             %% the schema of the changed configs is depends on the request parameter
@@ -187,13 +184,11 @@ schema("/configs/global_zone") ->
         'operationId' => global_zone_configs,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(get_global_zone_configs),
             description => ?DESC(get_global_zone_configs),
             responses => #{200 => Schema}
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC(update_global_zone_configs),
             description => ?DESC(update_global_zone_configs),
             'requestBody' => Schema,
             responses => #{

@@ -58,7 +58,6 @@ schema("/schema_registry") ->
         'operationId' => '/schema_registry',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("desc_schema_registry_api_list"),
             description => ?DESC("desc_schema_registry_api_list"),
             responses =>
                 #{
@@ -74,7 +73,6 @@ schema("/schema_registry") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("desc_schema_registry_api_post"),
             description => ?DESC("desc_schema_registry_api_post"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_schema_registry_schema:api_schema("post"),
@@ -97,7 +95,6 @@ schema("/schema_registry_protobuf/bundle") ->
         filter => fun ?MODULE:validate_protobuf_bundle_request/2,
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("protobuf_bundle_create"),
             description => ?DESC("protobuf_bundle_create"),
             'requestBody' => protobuf_bundle_request_body(),
             responses =>
@@ -117,7 +114,6 @@ schema("/schema_registry_protobuf/bundle") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC("protobuf_bundle_update"),
             description => ?DESC("protobuf_bundle_update"),
             'requestBody' => protobuf_bundle_request_body(),
             responses =>
@@ -137,7 +133,6 @@ schema("/schema_registry/:name") ->
         'operationId' => '/schema_registry/:name',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("desc_schema_registry_api_get"),
             description => ?DESC("desc_schema_registry_api_get"),
             parameters => [param_path_schema_name()],
             responses =>
@@ -152,7 +147,6 @@ schema("/schema_registry/:name") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC("desc_schema_registry_api_put"),
             description => ?DESC("desc_schema_registry_api_put"),
             parameters => [param_path_schema_name()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -171,7 +165,6 @@ schema("/schema_registry/:name") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC("desc_schema_registry_api_delete"),
             description => ?DESC("desc_schema_registry_api_delete"),
             parameters => [param_path_schema_name()],
             responses =>
@@ -186,7 +179,6 @@ schema("/schema_registry_external") ->
         'operationId' => '/schema_registry_external',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("external_registry_list"),
             description => ?DESC("external_registry_list"),
             responses =>
                 #{
@@ -204,7 +196,6 @@ schema("/schema_registry_external") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("external_registry_create"),
             description => ?DESC("external_registry_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 hoconsc:union(fun create_external_registry_union/1),
@@ -226,7 +217,6 @@ schema("/schema_registry_external/registry/:name") ->
         'operationId' => '/schema_registry_external/registry/:name',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("external_registry_lookup"),
             description => ?DESC("external_registry_lookup"),
             parameters => [param_path_external_registry_name()],
             responses =>
@@ -241,7 +231,6 @@ schema("/schema_registry_external/registry/:name") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC("external_registry_update"),
             description => ?DESC("external_registry_update"),
             parameters => [param_path_external_registry_name()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -260,7 +249,6 @@ schema("/schema_registry_external/registry/:name") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC("external_registry_delete"),
             description => ?DESC("external_registry_delete"),
             parameters => [param_path_external_registry_name()],
             responses => #{204 => ?DESC("deleted")}

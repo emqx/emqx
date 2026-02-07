@@ -60,7 +60,6 @@ schema("/sso/running") ->
         'operationId' => running,
         get => #{
             tags => [?TAGS],
-            summary => ?DESC(list_running),
             desc => ?DESC(list_running),
             responses => #{
                 200 => array(enum(emqx_dashboard_sso:types()))
@@ -73,7 +72,6 @@ schema("/sso") ->
         'operationId' => sso,
         get => #{
             tags => [?TAGS],
-            summary => ?DESC(get_sso),
             desc => ?DESC(get_sso),
             responses => #{
                 200 => array(ref(backend_status))
@@ -88,7 +86,6 @@ schema("/sso/login/:backend") ->
         'operationId' => login,
         post => #{
             tags => [?TAGS],
-            summary => ?DESC(login),
             desc => ?DESC(login),
             parameters => backend_name_in_path(),
             'requestBody' => login_union(),
@@ -107,7 +104,6 @@ schema("/sso/:backend") ->
         'operationId' => backend,
         get => #{
             tags => [?TAGS],
-            summary => ?DESC(get_backend),
             desc => ?DESC(get_backend),
             parameters => backend_name_in_path(),
             responses => #{
@@ -117,7 +113,6 @@ schema("/sso/:backend") ->
         },
         put => #{
             tags => [?TAGS],
-            summary => ?DESC(update_backend),
             desc => ?DESC(update_backend),
             parameters => backend_name_in_path(),
             'requestBody' => backend_union(),
@@ -128,7 +123,6 @@ schema("/sso/:backend") ->
         },
         delete => #{
             tags => [?TAGS],
-            summary => ?DESC(delete_backend),
             desc => ?DESC(delete_backend),
             parameters => backend_name_in_path(),
             responses => #{

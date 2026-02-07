@@ -47,7 +47,6 @@ schema("/node_eviction/status") ->
         'operationId' => '/node_eviction/status',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("node_eviction_status_get"),
             description => ?DESC("node_eviction_status_get"),
             responses => #{
                 200 => schema_status()

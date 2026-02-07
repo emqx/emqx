@@ -44,7 +44,6 @@ schema("/monitor") ->
         'operationId' => monitor,
         get => #{
             tags => [<<"Metrics">>],
-            summary => ?DESC(list_monitor),
             description => ?DESC(list_monitor),
             parameters => [parameter_latest()],
             responses => #{
@@ -54,7 +53,6 @@ schema("/monitor") ->
         },
         delete => #{
             tags => [<<"Metrics">>],
-            summary => ?DESC(clear_monitor),
             description => ?DESC(clear_monitor),
             responses => #{
                 204 => ?DESC("metrics_deleted")
@@ -66,7 +64,6 @@ schema("/monitor/nodes/:node") ->
         'operationId' => monitor,
         get => #{
             tags => [<<"Metrics">>],
-            summary => ?DESC(list_monitor_node),
             description => ?DESC(list_monitor_node),
             parameters => [parameter_node(), parameter_latest()],
             responses => #{
@@ -80,7 +77,6 @@ schema("/monitor_current") ->
         'operationId' => monitor_current,
         get => #{
             tags => [<<"Metrics">>],
-            summary => ?DESC(current_stats),
             description => ?DESC(current_stats),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{})
@@ -92,7 +88,6 @@ schema("/monitor_current/nodes/:node") ->
         'operationId' => monitor_current,
         get => #{
             tags => [<<"Metrics">>],
-            summary => ?DESC(current_stats_node),
             description => ?DESC(current_stats_node),
             parameters => [parameter_node()],
             responses => #{

@@ -61,13 +61,11 @@ schema(("/exhooks")) ->
         'operationId' => exhooks,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(list_all_servers),
             desc => ?DESC(list_all_servers),
             responses => #{200 => mk(array(ref(detail_server_info)))}
         },
         post => #{
             tags => ?TAGS,
-            summary => ?DESC(add_server),
             desc => ?DESC(add_server),
             'requestBody' => server_conf_schema(),
             responses => #{
@@ -82,7 +80,6 @@ schema("/exhooks/:name") ->
         'operationId' => action_with_name,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(get_detail),
             desc => ?DESC(get_detail),
             parameters => params_server_name_in_path(),
             responses => #{
@@ -92,7 +89,6 @@ schema("/exhooks/:name") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => ?DESC(update_server),
             desc => ?DESC(update_server),
             parameters => params_server_name_in_path(),
             'requestBody' => server_conf_schema(),
@@ -105,7 +101,6 @@ schema("/exhooks/:name") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => ?DESC(delete_server),
             desc => ?DESC(delete_server),
             parameters => params_server_name_in_path(),
             responses => #{
@@ -120,7 +115,6 @@ schema("/exhooks/:name/hooks") ->
         'operationId' => server_hooks,
         get => #{
             tags => ?TAGS,
-            summary => ?DESC(get_hooks),
             desc => ?DESC(get_hooks),
             parameters => params_server_name_in_path(),
             responses => #{
@@ -134,7 +128,6 @@ schema("/exhooks/:name/move") ->
         'operationId' => move,
         post => #{
             tags => ?TAGS,
-            summary => ?DESC(move_api),
             desc => ?DESC(move_api),
             parameters => params_server_name_in_path(),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(

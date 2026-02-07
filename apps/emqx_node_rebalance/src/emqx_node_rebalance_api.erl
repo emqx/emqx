@@ -78,7 +78,6 @@ schema("/load_rebalance/status") ->
         'operationId' => '/load_rebalance/status',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("load_rebalance_status"),
             description => ?DESC("load_rebalance_status"),
             responses => #{
                 200 => local_status_response_schema()
@@ -90,7 +89,6 @@ schema("/load_rebalance/global_status") ->
         'operationId' => '/load_rebalance/global_status',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("load_rebalance_global_status"),
             description => ?DESC("load_rebalance_global_status"),
             responses => #{
                 200 => ref(global_status)
@@ -102,7 +100,6 @@ schema("/load_rebalance/availability_check") ->
         'operationId' => '/load_rebalance/availability_check',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("load_rebalance_availability_check"),
             description => ?DESC("load_rebalance_availability_check"),
             responses => #{
                 200 => response_schema(),
@@ -116,7 +113,6 @@ schema("/load_rebalance/:node/start") ->
         'operationId' => '/load_rebalance/:node/start',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("load_rebalance_start"),
             description => ?DESC("load_rebalance_start"),
             parameters => [param_node()],
             'requestBody' =>
@@ -136,7 +132,6 @@ schema("/load_rebalance/:node/stop") ->
         'operationId' => '/load_rebalance/:node/stop',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("load_rebalance_stop"),
             description => ?DESC("load_rebalance_stop"),
             parameters => [param_node()],
             responses => #{
@@ -151,7 +146,6 @@ schema("/load_rebalance/:node/evacuation/start") ->
         'operationId' => '/load_rebalance/:node/evacuation/start',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("load_rebalance_evacuation_start"),
             description => ?DESC("load_rebalance_evacuation_start"),
             parameters => [param_node()],
             'requestBody' =>
@@ -171,7 +165,6 @@ schema("/load_rebalance/:node/evacuation/stop") ->
         'operationId' => '/load_rebalance/:node/evacuation/stop',
         post => #{
             tags => ?TAGS,
-            summary => ?DESC("load_rebalance_evacuation_stop"),
             description => ?DESC("load_rebalance_evacuation_stop"),
             parameters => [param_node()],
             responses => #{

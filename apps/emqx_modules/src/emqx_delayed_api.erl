@@ -62,7 +62,6 @@ schema("/mqtt/delayed") ->
         'operationId' => status,
         get => #{
             tags => ?API_TAG_MQTT,
-            summary => ?DESC(view_status_api),
             description => ?DESC(view_status_api),
             responses => #{
                 200 => ref(emqx_modules_schema, "delayed")
@@ -70,7 +69,6 @@ schema("/mqtt/delayed") ->
         },
         put => #{
             tags => ?API_TAG_MQTT,
-            summary => ?DESC(update_api),
             description => ?DESC(update_api),
             'requestBody' => ref(emqx_modules_schema, "delayed"),
             responses => #{
@@ -90,7 +88,6 @@ schema("/mqtt/delayed/messages/:topic") ->
         'operationId' => delayed_message_topic,
         delete => #{
             tags => ?API_TAG_MQTT,
-            summary => ?DESC(delete_api),
             description => ?DESC(delete_api),
             parameters => [
                 {topic,
@@ -117,7 +114,6 @@ schema("/mqtt/delayed/messages/:node/:msgid") ->
         'operationId' => delayed_message,
         get => #{
             tags => ?API_TAG_MQTT,
-            summary => ?DESC(get_message_api),
             description => ?DESC(get_message_api),
             parameters => [
                 {node,
@@ -141,7 +137,6 @@ schema("/mqtt/delayed/messages/:node/:msgid") ->
         },
         delete => #{
             tags => ?API_TAG_MQTT,
-            summary => ?DESC(delete_api),
             description => ?DESC(delete_api),
             parameters => [
                 {node,
@@ -169,7 +164,6 @@ schema("/mqtt/delayed/messages") ->
         'operationId' => delayed_messages,
         get => #{
             tags => ?API_TAG_MQTT,
-            summary => ?DESC(list_api),
             description => ?DESC(list_api),
             parameters => [ref(emqx_dashboard_swagger, page), ref(emqx_dashboard_swagger, limit)],
             responses => #{

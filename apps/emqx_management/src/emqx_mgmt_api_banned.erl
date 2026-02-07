@@ -58,7 +58,6 @@ schema("/banned") ->
     #{
         'operationId' => banned,
         get => #{
-            summary => ?DESC(list_banned_api),
             description => ?DESC(list_banned_api),
             tags => ?TAGS,
             parameters => fields(get_banned_parameters),
@@ -74,7 +73,6 @@ schema("/banned") ->
             }
         },
         post => #{
-            summary => ?DESC(create_banned_api),
             description => ?DESC(create_banned_api),
             tags => ?TAGS,
             'requestBody' => hoconsc:mk(hoconsc:ref(ban)),
@@ -87,7 +85,6 @@ schema("/banned") ->
             }
         },
         delete => #{
-            summary => ?DESC(clear_banned_api),
             description => ?DESC(clear_banned_api),
             tags => ?TAGS,
             parameters => [],
@@ -99,7 +96,6 @@ schema("/banned/:as/:who") ->
     #{
         'operationId' => delete_banned,
         delete => #{
-            summary => ?DESC(delete_banned_api),
             description => ?DESC(delete_banned_api),
             tags => ?TAGS,
             parameters => [

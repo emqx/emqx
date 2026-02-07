@@ -50,7 +50,6 @@ schema("/file_transfer/file") ->
         'operationId' => '/file_transfer/file',
         get => #{
             tags => ?TAGS,
-            summary => ?DESC("file_get"),
             description => ?DESC("file_get"),
             parameters => [
                 hoconsc:ref(file_node),

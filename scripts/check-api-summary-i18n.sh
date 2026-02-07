@@ -50,31 +50,17 @@ for f in "${api_files[@]}"; do
       return $open - $close;
     }
 
-    sub emit_args {
-      my ($kind, $block) = @_;
-      while ($block =~ /\b$kind\s*=>\s*\?DESC\(([^\)]*)\)/g) {
-        print "$1\n";
-      }
-    }
-
-    sub analyze_block {
-      my ($block) = @_;
-      return if $block !~ /tags\s*=>/s;
-      if ($block =~ /\bsummary\s*=>\s*\?DESC\(/s) {
-        emit_args("summary", $block);
-      } elsif ($block =~ /\b(desc|description)\s*=>\s*\?DESC\(/s) {
-        emit_args("desc", $block);
-        emit_args("description", $block);
-      }
-    }
-
     if (!$in_block) {
       next if /^\s*%%/;
       if (/^(\s*)(get|post|put|delete|patch|head|options)\s*=>\s*#\{/) {
         my $indent = length($1);
         if ($indent <= 20) {
           $in_block = 1;
-          $block = "";
+          $method_indent = $indent;
+          $top_indent = $indent + 4;
+          $has_tags = 0;
+          $summary_arg = undef;
+          $desc_arg = undef;
           $depth = 0;
         }
       }
@@ -83,12 +69,33 @@ for f in "${api_files[@]}"; do
     if ($in_block) {
       my $line = $_;
       $line =~ s/%%.*$//;
-      $block .= $line;
+      if ($line =~ /^\s{$top_indent}tags\s*=>/) {
+        $has_tags = 1;
+      }
+      if (!defined($summary_arg) && $line =~ /^\s{$top_indent}summary\s*=>\s*\?DESC\(([^\)]*)\)/) {
+        $summary_arg = $1;
+      }
+      if (
+        !defined($desc_arg) &&
+        $line =~ /^\s{$top_indent}(?:desc|description)\s*=>\s*\?DESC\(([^\)]*)\)/
+      ) {
+        $desc_arg = $1;
+      }
       $depth += braces_delta($line);
       if ($depth <= 0) {
-        analyze_block($block);
+        if ($has_tags) {
+          if (defined($summary_arg)) {
+            print "$summary_arg\n";
+          } elsif (defined($desc_arg)) {
+            print "$desc_arg\n";
+          }
+        }
         $in_block = 0;
-        $block = "";
+        $method_indent = 0;
+        $top_indent = 0;
+        $has_tags = 0;
+        $summary_arg = undef;
+        $desc_arg = undef;
         $depth = 0;
       }
     }

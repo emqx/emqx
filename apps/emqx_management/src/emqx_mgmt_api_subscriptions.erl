@@ -50,7 +50,6 @@ schema("/subscriptions") ->
     #{
         'operationId' => subscriptions,
         get => #{
-            summary => ?DESC(list_subs),
             description => ?DESC(list_subs),
             tags => [<<"Subscriptions">>],
             parameters => parameters(),

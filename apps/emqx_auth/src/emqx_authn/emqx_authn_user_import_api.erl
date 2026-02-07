@@ -47,7 +47,6 @@ schema("/authentication/:id/import_users") ->
         'operationId' => authenticator_import_users,
         post => #{
             tags => ?API_TAGS_GLOBAL,
-            summary => ?DESC(authentication_id_import_users_post),
             description => ?DESC(authentication_id_import_users_post),
             parameters => [emqx_authn_api:param_auth_id(), param_password_type()],
             'requestBody' => request_body_schema(),
@@ -64,7 +63,6 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
         post => #{
             tags => ?API_TAGS_SINGLE,
             deprecated => true,
-            summary => ?DESC(listeners_listener_id_authentication_id_import_users_post),
             description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
             parameters => [
                 emqx_authn_api:param_listener_id(),

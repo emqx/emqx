@@ -184,7 +184,6 @@ schema("/connectors") ->
         'operationId' => '/connectors',
         get => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api1"),
             description => ?DESC("desc_api1"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -195,7 +194,6 @@ schema("/connectors") ->
         },
         post => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api2"),
             description => ?DESC("desc_api2"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_connector_schema:post_request(),
@@ -212,7 +210,6 @@ schema("/connectors/:id") ->
         'operationId' => '/connectors/:id',
         get => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api3"),
             description => ?DESC("desc_api3"),
             parameters => [param_path_id()],
             responses => #{
@@ -222,7 +219,6 @@ schema("/connectors/:id") ->
         },
         put => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api4"),
             description => ?DESC("desc_api4"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -237,7 +233,6 @@ schema("/connectors/:id") ->
         },
         delete => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api5"),
             description => ?DESC("desc_api5"),
             parameters => [param_path_id()],
             responses => #{
@@ -274,7 +269,6 @@ schema("/connectors/:id/:operation") ->
         'operationId' => '/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api7"),
             description => ?DESC("desc_api7"),
             parameters => [
                 param_path_id(),
@@ -296,7 +290,6 @@ schema("/nodes/:node/connectors/:id/:operation") ->
         'operationId' => '/nodes/:node/connectors/:id/:operation',
         post => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api8"),
             description => ?DESC("desc_api8"),
             parameters => [
                 param_path_node(),
@@ -322,7 +315,6 @@ schema("/connectors_probe") ->
         'operationId' => '/connectors_probe',
         post => #{
             tags => [<<"connectors">>],
-            summary => ?DESC("desc_api9"),
             desc => ?DESC("desc_api9"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_connector_schema:post_request(),

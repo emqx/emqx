@@ -26,7 +26,6 @@ schema("/api_key") ->
     #{
         'operationId' => api_key,
         get => #{
-            summary => ?DESC(api_key_list),
             description => ?DESC(api_key_list),
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
@@ -35,7 +34,6 @@ schema("/api_key") ->
             }
         },
         post => #{
-            summary => ?DESC(create_new_api_key),
             description => ?DESC(create_new_api_key),
             tags => ?TAGS,
             security => [#{'bearerAuth' => []}],
@@ -50,7 +48,6 @@ schema("/api_key/:name") ->
     #{
         'operationId' => api_key_by_name,
         get => #{
-            summary => ?DESC(get_api_key),
             description => ?DESC(get_api_key),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -60,7 +57,6 @@ schema("/api_key/:name") ->
             }
         },
         put => #{
-            summary => ?DESC(update_api_key),
             description => ?DESC(update_api_key),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],
@@ -71,7 +67,6 @@ schema("/api_key/:name") ->
             }
         },
         delete => #{
-            summary => ?DESC(delete_api_key),
             description => ?DESC(delete_api_key),
             tags => ?TAGS,
             parameters => [hoconsc:ref(name)],

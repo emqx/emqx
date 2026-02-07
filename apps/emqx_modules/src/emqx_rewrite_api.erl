@@ -29,7 +29,6 @@ schema("/mqtt/topic_rewrite") ->
         'operationId' => topic_rewrite,
         get => #{
             tags => ?API_TAG_MQTT,
-            summary => ?DESC(list_topic_rewrite_api),
             description => ?DESC(list_topic_rewrite_api),
             responses => #{
                 200 => hoconsc:mk(
@@ -39,7 +38,6 @@ schema("/mqtt/topic_rewrite") ->
             }
         },
         put => #{
-            summary => ?DESC(update_topic_rewrite_api),
             description => ?DESC(update_topic_rewrite_api),
             tags => ?API_TAG_MQTT,
             'requestBody' => hoconsc:mk(

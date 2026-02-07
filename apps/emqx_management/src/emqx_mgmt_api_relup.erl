@@ -70,7 +70,6 @@ schema("/relup/package/upload") ->
     #{
         'operationId' => '/relup/package/upload',
         post => #{
-            summary => ?DESC("upload_package"),
             description => ?DESC("upload_package"),
             tags => ?TAGS,
             'requestBody' => #{
@@ -98,7 +97,6 @@ schema("/relup/package") ->
     #{
         'operationId' => '/relup/package',
         get => #{
-            summary => ?DESC("get_package"),
             description => ?DESC("get_package"),
             tags => ?TAGS,
             responses => #{
@@ -110,7 +108,6 @@ schema("/relup/package") ->
             }
         },
         delete => #{
-            summary => ?DESC("delete_package"),
             description => ?DESC("delete_package"),
             tags => ?TAGS,
             responses => #{
@@ -122,7 +119,6 @@ schema("/relup/status") ->
     #{
         'operationId' => '/relup/status',
         get => #{
-            summary => ?DESC("get_status_all"),
             description => ?DESC("get_status_all"),
             tags => ?TAGS,
             responses => #{
@@ -134,7 +130,6 @@ schema("/relup/status/:node") ->
     #{
         'operationId' => '/relup/status/:node',
         get => #{
-            summary => ?DESC("get_status_node"),
             description => ?DESC("get_status_node"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(node_name)],
@@ -147,7 +142,6 @@ schema("/relup/upgrade") ->
     #{
         'operationId' => '/relup/upgrade',
         post => #{
-            summary => ?DESC("upgrade_all"),
             description => ?DESC("upgrade_all"),
             tags => ?TAGS,
             responses => #{
@@ -166,7 +160,6 @@ schema("/relup/upgrade/:node") ->
     #{
         'operationId' => '/relup/upgrade/:node',
         post => #{
-            summary => ?DESC("upgrade_node"),
             description => ?DESC("upgrade_node"),
             tags => ?TAGS,
             parameters => [hoconsc:ref(node_name)],
