@@ -833,7 +833,7 @@ request_body(Schema, Module, Options) ->
             false ->
                 {parse_object(Schema, Module, Options), undefined}
         end,
-    {#{<<"content">> => content(Props, Examples)}, Refs}.
+    {#{<<"content">> => content(Props, Examples, Options)}, Refs}.
 
 responses(Responses, Module, Options) ->
     {Spec, Refs, _, _} = maps:fold(fun response/3, {#{}, [], Module, Options}, Responses),
@@ -870,7 +870,7 @@ response(Status, Schema, {Acc, RefsAcc, Module, Options}) ->
             Examples = hocon_schema:field_schema(Schema, examples),
             {Spec, Refs} = hocon_schema_to_spec(Hocon, Module),
             Init = trans_description(#{}, Schema, Options),
-            Content = content(Spec, Examples),
+            Content = content(Spec, Examples, Options),
             {
                 Acc#{integer_to_binary(Status) => Init#{<<"content">> => Content}},
                 Refs ++ RefsAcc,
@@ -1070,12 +1070,44 @@ fix_empty_props(Props) ->
     Props.
 
 content(ApiSpec) ->
-    content(ApiSpec, undefined).
+    content(ApiSpec, undefined, #{}).
 
-content(ApiSpec, undefined) ->
+content(ApiSpec, undefined, _Options) ->
     #{<<"application/json">> => #{<<"schema">> => ApiSpec}};
-content(ApiSpec, Examples) when is_map(Examples) ->
-    #{<<"application/json">> => Examples#{<<"schema">> => ApiSpec}}.
+content(ApiSpec, Examples, Options) when is_map(Examples) ->
+    Examples1 = translate_examples(Examples, Options),
+    #{<<"application/json">> => Examples1#{<<"schema">> => ApiSpec}}.
+
+translate_examples(Value, Options) when is_map(Value) ->
+    maps:fold(
+        fun(Key, V, Acc) ->
+            V1 = translate_examples(V, Options),
+            Acc#{Key => maybe_translate_example_doc(Key, V1, Options)}
+        end,
+        #{},
+        Value
+    );
+translate_examples(Value, Options) when is_list(Value) ->
+    [translate_examples(V, Options) || V <- Value];
+translate_examples(Value, _Options) ->
+    Value.
+
+maybe_translate_example_doc(Key, ?DESC(_, _) = Struct, Options) when
+    Key =:= summary; Key =:= <<"summary">>
+->
+    case get_i18n(<<"label">>, Struct, undefined, Options) of
+        undefined -> missing_i18n_ref(Struct);
+        Text -> Text
+    end;
+maybe_translate_example_doc(Key, ?DESC(_, _) = Struct, Options) when
+    Key =:= description; Key =:= <<"description">>
+->
+    case get_i18n(<<"desc">>, Struct, undefined, Options) of
+        undefined -> missing_i18n_ref(Struct);
+        Text -> Text
+    end;
+maybe_translate_example_doc(_Key, Value, _Options) ->
+    Value.
 
 to_ref(Mod, StructName, Acc, RefsAcc) ->
     Ref = #{<<"$ref">> => ?TO_COMPONENTS_PARAM(Mod, StructName)},
