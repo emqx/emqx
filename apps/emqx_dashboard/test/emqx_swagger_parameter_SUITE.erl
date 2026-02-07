@@ -565,7 +565,7 @@ schema("/summary/i18n") ->
     #{
         operationId => test,
         post => #{
-            summary => ?DESC(emqx_dashboard_swagger, page),
+            description => ?DESC(emqx_dashboard_swagger, page),
             responses => #{200 => <<"ok">>}
         }
     };

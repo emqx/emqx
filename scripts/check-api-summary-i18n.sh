@@ -39,9 +39,10 @@ for f in "${api_files[@]}"; do
 
 done
 
-echo "[check-api-summary-i18n] Checking missing summaries when desc/description is present..."
+echo "[check-api-summary-i18n] Collecting summary i18n keys..."
+keys_file=$(mktemp)
 for f in "${api_files[@]}"; do
-  if perl -ne '
+  perl -ne '
     sub braces_delta {
       my ($s) = @_;
       my $open = () = $s =~ /\{/g;
@@ -49,15 +50,21 @@ for f in "${api_files[@]}"; do
       return $open - $close;
     }
 
+    sub emit_args {
+      my ($kind, $block) = @_;
+      while ($block =~ /\b$kind\s*=>\s*\?DESC\(([^\)]*)\)/g) {
+        print "$1\n";
+      }
+    }
+
     sub analyze_block {
-      my ($file, $line, $method, $block) = @_;
-      if (
-        $block =~ /tags\s*=>/s &&
-        $block =~ /\b(desc|description)\s*=>\s*\?DESC\(/s &&
-        $block !~ /\bsummary\s*=>/s
-      ) {
-        print "$file:$line: method '\''$method'\'' has desc/description but no summary\n";
-        $::bad = 1;
+      my ($block) = @_;
+      return if $block !~ /tags\s*=>/s;
+      if ($block =~ /\bsummary\s*=>\s*\?DESC\(/s) {
+        emit_args("summary", $block);
+      } elsif ($block =~ /\b(desc|description)\s*=>\s*\?DESC\(/s) {
+        emit_args("desc", $block);
+        emit_args("description", $block);
       }
     }
 
@@ -67,8 +74,6 @@ for f in "${api_files[@]}"; do
         my $indent = length($1);
         if ($indent <= 20) {
           $in_block = 1;
-          $start_line = $.;
-          $method = $2;
           $block = "";
           $depth = 0;
         }
@@ -81,41 +86,28 @@ for f in "${api_files[@]}"; do
       $block .= $line;
       $depth += braces_delta($line);
       if ($depth <= 0) {
-        analyze_block($ARGV, $start_line, $method, $block);
+        analyze_block($block);
         $in_block = 0;
-        $start_line = 0;
-        $method = "";
         $block = "";
         $depth = 0;
       }
     }
-
-    END { exit($::bad ? 2 : 0) }
-  ' "$f"; then
-    :
-  else
-    errors=1
-  fi
-done
-
-echo "[check-api-summary-i18n] Collecting summary i18n keys..."
-keys_file=$(mktemp)
-rg -n "summary\\s*=>\\s*\\?DESC\\(" "${api_files[@]}" \
+  ' "$f"
+done \
   | perl -ne '
-      if (/\?DESC\(([^\)]*)\)/) {
-        my $a = $1;
-        $a =~ s/\s+//g;
-        if ($a =~ /^"([^"]+)"$/) {
-          print "ONE:$1\n";
-        } elsif ($a =~ /^([a-zA-Z0-9_]+)$/) {
-          print "ONE:$1\n";
-        } elsif ($a =~ /^([a-zA-Z0-9_]+),"([^"]+)"$/) {
-          print "TWO:$1:$2\n";
-        } elsif ($a =~ /^([a-zA-Z0-9_]+),([a-zA-Z0-9_]+)$/) {
-          print "TWO:$1:$2\n";
-        } else {
-          print "UNK:$a\n";
-        }
+      my $a = $_;
+      chomp($a);
+      $a =~ s/\s+//g;
+      if ($a =~ /^"([^"]+)"$/) {
+        print "ONE:$1\n";
+      } elsif ($a =~ /^([a-zA-Z0-9_]+)$/) {
+        print "ONE:$1\n";
+      } elsif ($a =~ /^([a-zA-Z0-9_]+),"([^"]+)"$/) {
+        print "TWO:$1:$2\n";
+      } elsif ($a =~ /^([a-zA-Z0-9_]+),([a-zA-Z0-9_]+)$/) {
+        print "TWO:$1:$2\n";
+      } else {
+        print "UNK:$a\n";
       }
     ' | sort -u > "$keys_file"
 
