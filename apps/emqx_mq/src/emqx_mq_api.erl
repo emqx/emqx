@@ -54,7 +54,7 @@ schema("/message_queues/queues") ->
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
-            summary => <<"List all message queues">>,
+            summary => ?DESC(message_queues_list),
             description => ?DESC(message_queues_list),
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, cursor),
@@ -75,7 +75,7 @@ schema("/message_queues/queues") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Create message queue">>,
+            summary => ?DESC(message_queues_create),
             description => ?DESC(message_queues_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_mq_schema:mq_sctype_api_post(),
@@ -102,7 +102,7 @@ schema("/message_queues/queues/:topic_filter") ->
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
-            summary => <<"Get message queue">>,
+            summary => ?DESC(message_queues_get),
             description => ?DESC(message_queues_get),
             parameters => [topic_filter_param()],
             responses => #{
@@ -120,7 +120,7 @@ schema("/message_queues/queues/:topic_filter") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update message queue">>,
+            summary => ?DESC(message_queues_update),
             description => ?DESC(message_queues_update),
             parameters => [topic_filter_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
@@ -145,7 +145,7 @@ schema("/message_queues/queues/:topic_filter") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete message queue">>,
+            summary => ?DESC(message_queues_delete),
             description => ?DESC(message_queues_delete),
             parameters => [topic_filter_param()],
             responses => #{
@@ -167,7 +167,7 @@ schema("/message_queues/config") ->
         'operationId' => '/message_queues/config',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get message queue config">>,
+            summary => ?DESC(message_queues_config_get),
             description => ?DESC(message_queues_config_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -178,7 +178,7 @@ schema("/message_queues/config") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update message queue config">>,
+            summary => ?DESC(message_queues_config_update),
             description => ?DESC(message_queues_config_update),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ref(emqx_mq_schema, api_config_put),

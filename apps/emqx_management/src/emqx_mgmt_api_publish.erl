@@ -57,7 +57,7 @@ schema("/publish/bulk") ->
     #{
         'operationId' => publish_batch,
         post => #{
-            summary => <<"Publish a batch of messages">>,
+            summary => ?DESC(publish_bulk_api),
             description => ?DESC(publish_bulk_api),
             tags => [<<"Publish">>],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message)), #{}),

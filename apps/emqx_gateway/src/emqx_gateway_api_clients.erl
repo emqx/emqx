@@ -500,7 +500,7 @@ schema("/gateways/:name/clients") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_clients),
-                summary => <<"List gateway's clients">>,
+                summary => ?DESC(list_clients),
                 parameters => params_client_query(),
                 responses =>
                     ?STANDARD_RESP(#{
@@ -518,7 +518,7 @@ schema("/gateways/:name/clients/:clientid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_client),
-                summary => <<"Get client info">>,
+                summary => ?DESC(get_client),
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{200 => schema_client()})
@@ -527,7 +527,7 @@ schema("/gateways/:name/clients/:clientid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(kick_client),
-                summary => <<"Kick out client">>,
+                summary => ?DESC(kick_client),
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Kicked">>})
@@ -540,7 +540,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_subscriptions),
-                summary => <<"List client's subscription">>,
+                summary => ?DESC(list_subscriptions),
                 parameters => params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(
@@ -556,7 +556,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(add_subscription),
-                summary => <<"Add subscription for client">>,
+                summary => ?DESC(add_subscription),
                 parameters => params_client_insta(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(subscription),
@@ -580,7 +580,7 @@ schema("/gateways/:name/clients/:clientid/subscriptions/:topic") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(delete_subscription),
-                summary => <<"Delete client's subscription">>,
+                summary => ?DESC(delete_subscription),
                 parameters => params_topic_name_in_path() ++ params_client_insta(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Unsubscribed">>})

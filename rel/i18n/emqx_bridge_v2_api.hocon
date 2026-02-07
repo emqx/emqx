@@ -104,8 +104,14 @@ desc_enable_bridge.label:
 actions_summary.desc:
 """Summarize actions."""
 
+actions_summary.label:
+"""Summarize Actions"""
+
 sources_summary.desc:
-"""Summarize actions."""
+"""Summarize sources."""
+
+sources_summary.label:
+"""Summarize Sources"""
 
 desc_param_path_enable.desc:
 """Whether to enable this bridge."""

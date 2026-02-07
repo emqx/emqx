@@ -63,7 +63,7 @@ schema("/login") ->
         post => #{
             tags => [<<"dashboard">>],
             desc => ?DESC(login_api),
-            summary => <<"Dashboard authentication">>,
+            summary => ?DESC(login_api),
             'requestBody' => fields([username, password, mfa_token]),
             responses => #{
                 200 => fields([

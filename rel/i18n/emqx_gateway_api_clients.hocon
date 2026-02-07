@@ -11,6 +11,8 @@ send_oct.desc:
 
 get_client.desc:
 """Get the gateway client information"""
+get_client.label:
+"""Get Client Info"""
 
 param_gte_created_at.desc:
 """Match the session created datetime greater than a certain value"""
@@ -29,6 +31,8 @@ inflight_cnt.desc:
 
 delete_subscription.desc:
 """Delete a subscriptions membership"""
+delete_subscription.label:
+"""Delete Client Subscription"""
 
 param_lte_connected_at.desc:
 """Match the client socket connected datatime less than a certain value"""
@@ -59,6 +63,8 @@ sub_props.desc:
 
 list_clients.desc:
 """Get the gateway client list"""
+list_clients.label:
+"""List Gateway Clients"""
 
 subscriptions_cnt.desc:
 """Number of subscriptions established by this client"""
@@ -134,6 +140,8 @@ recv_msg.desc:
 
 list_subscriptions.desc:
 """Get the gateway client subscriptions"""
+list_subscriptions.label:
+"""List Client Subscriptions"""
 
 recv_oct.desc:
 """Number of bytes received"""
@@ -164,6 +172,8 @@ clientid.desc:
 
 kick_client.desc:
 """Kick out the gateway client"""
+kick_client.label:
+"""Kick Out Client"""
 
 is_bridge.desc:
 """Indicates whether the client is connected via bridge"""
@@ -176,6 +186,8 @@ send_msg.desc:
 
 add_subscription.desc:
 """Create a subscription membership"""
+add_subscription.label:
+"""Add Client Subscription"""
 
 param_endpoint_name.desc:
 """Match the lwm2m client's endpoint name"""
