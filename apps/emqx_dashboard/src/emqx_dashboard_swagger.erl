@@ -611,23 +611,20 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     maps:put('requestBody', RequestBody, Spec).
 
 generate_method_desc(Spec = #{desc := _Desc}, Options) ->
+    enforce_method_desc_policy(Spec),
     Spec1 = trans_description(maps:remove(desc, Spec), Spec, Options),
     trans_tags(trans_summary(Spec1, Spec, Options));
 generate_method_desc(Spec = #{description := _Desc}, Options) ->
+    enforce_method_desc_policy(Spec),
     Spec1 = trans_description(Spec, Spec, Options),
     trans_tags(trans_summary(Spec1, Spec, Options));
 generate_method_desc(Spec, Options) ->
+    enforce_method_desc_policy(Spec),
     trans_tags(trans_summary(Spec, Spec, Options)).
 
-trans_summary(Spec = #{summary := ?DESC(_, _) = Struct}, _Hocon, Options) ->
-    Summary =
-        case get_i18n(<<"label">>, Struct, undefined, Options) of
-            undefined -> missing_i18n_ref(Struct);
-            Text -> Text
-        end,
-    Spec#{summary => Summary};
-trans_summary(Spec = #{summary := _}, _Hocon, _Options) ->
-    Spec;
+trans_summary(Spec = #{summary := _}, Hocon, Options) ->
+    forbidden_summary_ref(Spec),
+    trans_summary(maps:remove(summary, Spec), Hocon, Options);
 trans_summary(Spec, Hocon, Options) ->
     case desc_struct(Hocon) of
         ?DESC(_, _) = Struct ->
@@ -723,7 +720,10 @@ trans_description(Spec, Hocon, Options) ->
             undefined ->
                 undefined;
             ?DESC(_, _) = Struct ->
-                get_i18n(<<"desc">>, Struct, undefined, Options);
+                case get_i18n(<<"desc">>, Struct, undefined, Options) of
+                    undefined -> missing_i18n_ref(Struct);
+                    Text -> Text
+                end;
             Text ->
                 missing_i18n_ref(Text)
         end,
@@ -731,21 +731,45 @@ trans_description(Spec, Hocon, Options) ->
         true ->
             Spec;
         false ->
-            Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
+            Desc1 = binary:replace(to_bin(Desc), [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
 
 -ifdef(TEST).
 %% Do not raise error in tests because there are schema defined in tests.
+missing_i18n_ref(Text) when is_binary(Text) ->
+    Text;
 missing_i18n_ref(Text) ->
-    to_bin(Text).
+    unicode:characters_to_binary(io_lib:format("~p", [Text])).
+%% In tests, we keep permissive behavior to avoid breaking unit tests that use
+%% synthetic specs with explicit summary.
+forbidden_summary_ref(_Spec) ->
+    ok.
 -else.
 %% Fail in production, if any translation is missing, the node will not boot
 %% so smoke tests will fail
 -dialyzer({nowarn_function, missing_i18n_ref/1}).
 missing_i18n_ref(Text) ->
     error({missing_i18n_ref, Text}).
+%% In production, explicit operation summary is forbidden. Summary must be
+%% derived from the same ?DESC(...) reference used by desc/description.
+forbidden_summary_ref(Spec) ->
+    error({forbidden_summary_ref, Spec}).
 -endif.
+
+%% Policy for operation docs:
+%% 1) Tagged endpoint methods must not define summary in source.
+%% 2) Tagged endpoint methods must define desc/description so summary can be
+%%    derived from i18n label and description from i18n desc.
+enforce_method_desc_policy(#{tags := _, summary := _} = Spec) ->
+    forbidden_summary_ref(Spec);
+enforce_method_desc_policy(#{tags := _} = Spec) ->
+    case desc_struct(Spec) of
+        undefined -> missing_i18n_ref(missing_operation_description);
+        _ -> ok
+    end;
+enforce_method_desc_policy(_Spec) ->
+    ok.
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),

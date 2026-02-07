@@ -205,7 +205,6 @@ t_in_mix(_Config) ->
     ExpectMeta = #{
         tags => [<<"Tags">>, <<"Good">>],
         description => <<"good description">>,
-        summary => <<"good summary">>,
         security => [],
         deprecated => true,
         responses => #{<<"200">> => #{description => <<"ok">>}}
