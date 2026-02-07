@@ -11,6 +11,9 @@
 -include("logger.hrl").
 -include("emqx_hooks.hrl").
 -include("emqx_mqtt.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -export([
     start_link/0,
@@ -61,6 +64,7 @@
 
 -define(SYS, ?MODULE).
 -define(CONF_KEY_PATH, [sys_topics]).
+-define(RETAINED_SYS_MSG_EXPIRY_INTERVAL, 3600).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -345,12 +349,30 @@ translate_topic(Prefix, Name) ->
 safe_publish(Topic, Payload) ->
     safe_publish(Topic, #{}, Payload).
 safe_publish(Topic, Flags, Payload) ->
-    emqx_broker:safe_publish(
+    Msg =
         emqx_message:set_flags(
             maps:merge(#{sys => true}, Flags),
             emqx_message:make(?SYS, Topic, iolist_to_binary(Payload))
-        )
-    ).
+        ),
+    emqx_broker:safe_publish(maybe_set_retained_expiry(Msg)).
+
+maybe_set_retained_expiry(Msg) ->
+    case emqx_message:get_flag(retain, Msg, false) of
+        true ->
+            Props = emqx_message:get_header(properties, Msg, #{}),
+            case maps:is_key('Message-Expiry-Interval', Props) of
+                true ->
+                    Msg;
+                false ->
+                    emqx_message:set_header(
+                        properties,
+                        Props#{'Message-Expiry-Interval' => ?RETAINED_SYS_MSG_EXPIRY_INTERVAL},
+                        Msg
+                    )
+            end;
+        false ->
+            Msg
+    end.
 
 common_infos(
     _ClientInfo = #{
@@ -401,3 +423,29 @@ event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
 
 bin(A) when is_atom(A) -> atom_to_binary(A);
 bin(B) when is_binary(B) -> B.
+
+-ifdef(TEST).
+maybe_set_retained_expiry_test() ->
+    Msg0 = emqx_message:make(?SYS, <<"$SYS/test">>, <<"payload">>),
+    Msg1 = emqx_message:set_flag(retain, true, Msg0),
+    Msg2 = maybe_set_retained_expiry(Msg1),
+    Props = emqx_message:get_header(properties, Msg2, #{}),
+    ?assertEqual(?RETAINED_SYS_MSG_EXPIRY_INTERVAL, maps:get('Message-Expiry-Interval', Props)).
+
+maybe_set_retained_expiry_non_retained_test() ->
+    Msg0 = emqx_message:make(?SYS, <<"$SYS/test">>, <<"payload">>),
+    Msg1 = maybe_set_retained_expiry(Msg0),
+    ?assertEqual(undefined, emqx_message:get_header(properties, Msg1)).
+
+maybe_set_retained_expiry_preserve_existing_test() ->
+    Msg0 = emqx_message:make(?SYS, <<"$SYS/test">>, <<"payload">>),
+    Msg1 = emqx_message:set_flag(retain, true, Msg0),
+    Msg2 = emqx_message:set_header(
+        properties,
+        #{'Message-Expiry-Interval' => 10},
+        Msg1
+    ),
+    Msg3 = maybe_set_retained_expiry(Msg2),
+    Props = emqx_message:get_header(properties, Msg3, #{}),
+    ?assertEqual(10, maps:get('Message-Expiry-Interval', Props)).
+-endif.
