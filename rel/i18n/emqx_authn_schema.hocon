@@ -109,7 +109,7 @@ node.desc:
 """Node name."""
 
 node.label:
-"""Node Name."""
+"""Node Name"""
 
 node_error.desc:
 """The error of node."""

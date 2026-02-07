@@ -13,7 +13,7 @@ get_sso.label:
 login.desc:
 """Get Dashboard Auth Token."""
 login.label:
-"""Get Dashboard Auth Token."""
+"""Get Dashboard Auth Token"""
 
 get_backend.desc:
 """Get details of a backend"""

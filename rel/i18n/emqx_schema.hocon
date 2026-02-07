@@ -77,7 +77,7 @@ fields_cache_enable.desc:
 """Enable or disable the authorization cache."""
 
 fields_cache_enable.label:
-"""Enable or disable the authorization cache."""
+"""Enable or disable the authorization cache"""
 
 fields_mqtt_quic_listener_disconnect_timeout_ms.desc:
 """How long to wait for an ACK before declaring a path dead and disconnecting. Default: 16000"""
@@ -336,7 +336,7 @@ stats_enable.desc:
 """Enable/disable statistic data collection."""
 
 stats_enable.label:
-"""Enable/disable statistic data collection."""
+"""Enable/disable statistic data collection"""
 
 fields_authorization_deny_action.desc:
 """The action when the authorization check rejects an operation."""
@@ -390,7 +390,7 @@ If the system is busy or the process hangs due to a busy socket (see `high_water
 To avoid excessive memory usage, EMQX will force a process to shut down when the length of its message queue exceeds `max_mailbox_size`."""
 
 force_shutdown_max_mailbox_size.label:
-"""Maximum mailbox size."""
+"""Maximum mailbox size"""
 
 sys_heartbeat_interval.desc:
 """Time interval for publishing following heartbeat messages:
@@ -540,7 +540,7 @@ there will be a <code>busy_dist_port</code> warning log,
 and an MQTT message is published to system topic <code>$SYS/sysmon/busy_dist_port</code>."""
 
 sysmon_vm_busy_dist_port.label:
-"""Enable Busy Distribution Port monitoring."""
+"""Enable Busy Distribution Port monitoring"""
 
 mqtt_max_mqueue_len.desc:
 """Maximum queue length. Enqueued messages when persistent client disconnected, or inflight window is full."""
@@ -710,7 +710,7 @@ fields_cache_max_size.desc:
 """Maximum number of cached items."""
 
 fields_cache_max_size.label:
-"""Maximum number of cached items."""
+"""Maximum number of cached items"""
 
 fields_listeners_tcp.desc:
 """TCP listeners."""
@@ -808,7 +808,7 @@ client_ssl_opts_schema_enable.desc:
 """Enable TLS."""
 
 client_ssl_opts_schema_enable.label:
-"""Enable TLS."""
+"""Enable TLS"""
 
 fields_mqtt_quic_listener_mtu_discovery_missing_probe_count.desc:
 """The maximum number of stateless operations that may be queued on a binding at any one time. Default: 3"""
@@ -949,7 +949,7 @@ sysmon_vm_long_schedule.desc:
 and an MQTT message is published to the system topic <code>$SYS/sysmon/long_schedule</code>."""
 
 sysmon_vm_long_schedule.label:
-"""Enable Long Schedule monitoring."""
+"""Enable Long Schedule monitoring"""
 
 mqtt_keepalive_multiplier.desc:
 """Keep-Alive Timeout = Keep-Alive interval × Keep-Alive Multiplier.
@@ -1001,7 +1001,7 @@ fields_cache_ttl.desc:
 """Time to live for the cached data."""
 
 fields_cache_ttl.label:
-"""Time to live for the cached data."""
+"""Time to live for the cached data"""
 
 fields_authz_cache_excludes.label:
 """Excludes"""
@@ -1147,7 +1147,7 @@ base_listener_limiter.desc:
 """Type of the rate limit."""
 
 base_listener_limiter.label:
-"""Type of the rate limit."""
+"""Type of the rate limit"""
 
 alarm_validity_period.desc:
 """The validity period of historical alarms. Calculated from the time of activation of the historical alarm instead of the time of cancellation.
@@ -1451,7 +1451,7 @@ sysmon_vm_busy_port.desc:
 and an MQTT message is published to the system topic <code>$SYS/sysmon/busy_port</code>."""
 
 sysmon_vm_busy_port.label:
-"""Enable Busy Port monitoring."""
+"""Enable Busy Port monitoring"""
 
 sys_event_client_connected.desc:
 """Enable to publish client connected event messages"""
@@ -1551,7 +1551,7 @@ sysmon_vm_long_gc.desc:
 and an MQTT message is published to the system topic <code>$SYS/sysmon/long_gc</code>."""
 
 sysmon_vm_long_gc.label:
-"""Enable Long GC monitoring."""
+"""Enable Long GC monitoring"""
 
 fields_mqtt_quic_listener_keyfile.desc:
 """Path to the secret key file. Will be deprecated in 5.1, use .ssl_options.keyfile instead."""
@@ -1660,7 +1660,7 @@ crl_cache_refresh_interval.label:
 crl_cache_failure_threshold.desc:
 """Failure Threshold"""
 crl_cache_failure_threshold.label:
-"""Specifies the maximum time period that a URL can continuously fail to refresh before it is evicted from the system."""
+"""Specifies the maximum time period that a URL can continuously fail to refresh before it is evicted from the system"""
 
 mqtt_listener_proxy_protocol.desc:
 """Enable the Proxy Protocol V1/2 if the EMQX cluster is deployed behind HAProxy or Nginx.<br/>
@@ -1697,7 +1697,7 @@ sysmon_os_cpu_check_interval.desc:
 """The time interval for the periodic CPU check. Disabled on Windows platform."""
 
 sysmon_os_cpu_check_interval.label:
-"""The time interval for the periodic CPU check."""
+"""The time interval for the periodic CPU check"""
 
 sysmon_top_sample_interval.desc:
 """Specifies how often process top should be collected"""
@@ -1773,7 +1773,7 @@ sysmon_vm_large_heap.desc:
 """When the heap memory occupied by a process exceeds the size specified by `large_heap`, the system will write a warning level `large_heap` log, and an MQTT message will be published to the system topic `$SYS/sysmon/large_heap`."""
 
 sysmon_vm_large_heap.label:
-"""Enable Large Heap monitoring."""
+"""Enable Large Heap monitoring"""
 
 description.label:
 """Description"""

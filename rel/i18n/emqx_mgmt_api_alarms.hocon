@@ -9,7 +9,7 @@ deactivate_at.desc:
 delete_alarms_api.desc:
 """Remove all historical alarms."""
 delete_alarms_api.label:
-"""Remove all historical alarms."""
+"""Remove all historical alarms"""
 
 delete_alarms_api_response204.desc:
 """Historical alarms have been cleared successfully."""

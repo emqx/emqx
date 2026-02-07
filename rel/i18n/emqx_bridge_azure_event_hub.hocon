@@ -154,7 +154,7 @@ producer_kafka_ext_header_key.desc:
 """Key of the Azure Event Hubs header. Placeholders in format of ${var} are supported."""
 
 producer_kafka_ext_header_key.label:
-"""Azure Event Hubs extra header key."""
+"""Azure Event Hubs extra header key"""
 
 producer_kafka_ext_header_value.desc:
 """Value of the header. Placeholders in format of ${var} are supported."""

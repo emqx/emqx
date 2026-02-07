@@ -99,7 +99,6 @@ static_checks: $(ELIXIR_COMMON_DEPS)
 	    emqx.xref, dialyzer --mode classic, \
 	    emqx.static_checks
 	./scripts/check-i18n-style.sh
-	./scripts/check-api-summary-i18n.sh
 	./scripts/check_missing_reboot_apps.exs
 
 # Allow user-set CASES environment variable
