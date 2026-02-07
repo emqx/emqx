@@ -97,7 +97,6 @@ schema("/gateways/:name/authentication/import_users") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(emqx_gateway_api_authn, import_users),
-                summary => ?DESC(emqx_gateway_api_authn, import_users),
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
@@ -111,7 +110,6 @@ schema("/gateways/:name/listeners/:id/authentication/import_users") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(emqx_gateway_api_listeners, import_users),
-                summary => ?DESC(emqx_gateway_api_listeners, import_users),
                 parameters => params_gateway_name_in_path() ++
                     params_listener_id_in_path(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),

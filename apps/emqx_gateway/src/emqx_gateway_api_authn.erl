@@ -173,7 +173,6 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_authn),
-                summary => ?DESC(get_authn),
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     ?STANDARD_RESP(
@@ -187,7 +186,6 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(update_authn),
-                summary => ?DESC(update_authn),
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => schema_authn(),
                 responses =>
@@ -197,7 +195,6 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(add_authn),
-                summary => ?DESC(add_authn),
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => schema_authn(),
                 responses =>
@@ -207,7 +204,6 @@ schema("/gateways/:name/authentication") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(delete_authn),
-                summary => ?DESC(delete_authn),
                 parameters => params_gateway_name_in_path(),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Deleted">>})
@@ -220,7 +216,6 @@ schema("/gateways/:name/authentication/users") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(list_users),
-                summary => ?DESC(list_users),
                 parameters => params_gateway_name_in_path() ++
                     params_paging_in_qs() ++
                     params_fuzzy_in_qs(),
@@ -238,7 +233,6 @@ schema("/gateways/:name/authentication/users") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(add_user),
-                summary => ?DESC(add_user),
                 parameters => params_gateway_name_in_path(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                     ref(emqx_authn_api, request_user_create),
@@ -262,7 +256,6 @@ schema("/gateways/:name/authentication/users/:uid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(get_user),
-                summary => ?DESC(get_user),
                 parameters => params_gateway_name_in_path() ++
                     params_userid_in_path(),
                 responses =>
@@ -279,7 +272,6 @@ schema("/gateways/:name/authentication/users/:uid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(update_user),
-                summary => ?DESC(update_user),
                 parameters => params_gateway_name_in_path() ++
                     params_userid_in_path(),
                 'requestBody' => emqx_dashboard_swagger:schema_with_examples(
@@ -300,7 +292,6 @@ schema("/gateways/:name/authentication/users/:uid") ->
             #{
                 tags => ?TAGS,
                 desc => ?DESC(delete_user),
-                summary => ?DESC(delete_user),
                 parameters => params_gateway_name_in_path() ++
                     params_userid_in_path(),
                 responses =>

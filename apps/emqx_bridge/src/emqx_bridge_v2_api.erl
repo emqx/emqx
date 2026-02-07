@@ -373,7 +373,6 @@ schema("/actions/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"actions">>],
-                summary => ?DESC("desc_enable_bridge"),
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
@@ -581,7 +580,6 @@ schema("/sources/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"sources">>],
-                summary => ?DESC("desc_enable_bridge"),
                 desc => ?DESC("desc_enable_bridge"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
