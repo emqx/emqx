@@ -33,7 +33,8 @@
 
 -type block_key() :: term().
 
--type state() :: #{}
+-type state() ::
+    #{}
     | #{
         opts := map(),
         server_rx_block1 := #{block_key() => map()},
@@ -214,9 +215,13 @@ expire(Now, State) ->
         client_req => ClientReq
     }.
 
-should_split_server_tx_block2(_Req, #coap_message{method = Method}, _State) when not is_tuple(Method) ->
+should_split_server_tx_block2(_Req, #coap_message{method = Method}, _State) when
+    not is_tuple(Method)
+->
     false;
-should_split_server_tx_block2(Req, #coap_message{payload = Payload}, State) when is_binary(Payload) ->
+should_split_server_tx_block2(Req, #coap_message{payload = Payload}, State) when
+    is_binary(Payload)
+->
     case auto_tx_block2_enabled(State) of
         false ->
             false;
@@ -359,8 +364,9 @@ pick_server_tx_block2_params(Req, State) ->
     case request_block2(Req) of
         undefined ->
             {ok, 0, DefaultSize};
-        {Num, _More, Size}
-        when is_integer(Num), Num >= 0, is_boolean(_More), is_integer(Size) ->
+        {Num, _More, Size} when
+            is_integer(Num), Num >= 0, is_boolean(_More), is_integer(Size)
+        ->
             case is_valid_block_size(Size) andalso Size =< DefaultSize of
                 true -> {ok, Num, Size};
                 false -> error
@@ -441,7 +447,9 @@ do_handle_server_block1(Num, More, Size, Msg, PeerKey, State) ->
                     Continue = continue_reply(Msg, Num, Size),
                     {continue, Continue, State#{server_rx_block1 => ServerMap#{Key => Tx}}};
                 true ->
-                    {complete, clear_block1(Msg), State#{server_rx_block1 => maps:remove(Key, ServerMap)}}
+                    {complete, clear_block1(Msg), State#{
+                        server_rx_block1 => maps:remove(Key, ServerMap)
+                    }}
             end;
         {_Num, undefined} ->
             {error, error_reply({error, request_entity_incomplete}, Msg), State};
@@ -491,7 +499,9 @@ handle_client_tx_block1(Ctx, Resp, Key, Tx, State) ->
         {ok, continue} ->
             send_next_client_tx_block(Ctx, Tx, State);
         _ ->
-            State2 = State#{client_tx_block1 => maps:remove(Key, maps:get(client_tx_block1, State))},
+            State2 = State#{
+                client_tx_block1 => maps:remove(Key, maps:get(client_tx_block1, State))
+            },
             maybe_handle_rx_block2(Ctx, Resp, State2)
     end.
 
@@ -527,8 +537,9 @@ maybe_handle_rx_block2(Ctx, Resp, State) ->
             case emqx_coap_message:get_option(block2, Resp, undefined) of
                 undefined ->
                     {deliver, Resp, clear_client_request(Ctx, State)};
-                {Num, More, Size}
-                when is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size) ->
+                {Num, More, Size} when
+                    is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size)
+                ->
                     case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
                         true ->
                             handle_client_rx_block2(Ctx, Num, More, Size, Resp, State);
@@ -547,20 +558,24 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
     MaxBody = max_body_size(State),
     case {Num, maps:get(Key, RxMap, undefined)} of
         {0, _} ->
-                    case byte_size(Payload) > MaxBody of
-                        true ->
-                            {
-                                deliver,
-                                Resp,
-                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
-                            };
+            case byte_size(Payload) > MaxBody of
+                true ->
+                    {
+                        deliver,
+                        Resp,
+                        clear_client_request(Ctx, State#{
+                            client_rx_block2 => maps:remove(Key, RxMap)
+                        })
+                    };
                 false when More ->
                     case next_block2_request(Ctx, Resp, 1, Size, State) of
                         undefined ->
                             {
                                 deliver,
                                 Resp,
-                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                                clear_client_request(Ctx, State#{
+                                    client_rx_block2 => maps:remove(Key, RxMap)
+                                })
                             };
                         NextReq ->
                             Rx = #{
@@ -575,7 +590,9 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
                     {
                         deliver,
                         clear_block2(Resp),
-                        clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                        clear_client_request(Ctx, State#{
+                            client_rx_block2 => maps:remove(Key, RxMap)
+                        })
                     }
             end;
         {_Num, undefined} ->
@@ -586,7 +603,9 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
                     {
                         deliver,
                         Resp,
-                        clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                        clear_client_request(Ctx, State#{
+                            client_rx_block2 => maps:remove(Key, RxMap)
+                        })
                     };
                 true ->
                     NewPayload = <<Acc/binary, Payload/binary>>,
@@ -595,7 +614,9 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
                             {
                                 deliver,
                                 Resp,
-                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                                clear_client_request(Ctx, State#{
+                                    client_rx_block2 => maps:remove(Key, RxMap)
+                                })
                             };
                         false when More ->
                             case next_block2_request(Ctx, Resp, Num + 1, Size, State) of
@@ -603,7 +624,9 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
                                     {
                                         deliver,
                                         Resp,
-                                        clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                                        clear_client_request(Ctx, State#{
+                                            client_rx_block2 => maps:remove(Key, RxMap)
+                                        })
                                     };
                                 NextReq ->
                                     Rx2 = Rx#{
@@ -622,7 +645,9 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
                             {
                                 deliver,
                                 Full,
-                                clear_client_request(Ctx, State#{client_rx_block2 => maps:remove(Key, RxMap)})
+                                clear_client_request(Ctx, State#{
+                                    client_rx_block2 => maps:remove(Key, RxMap)
+                                })
                             }
                     end
             end
@@ -746,10 +771,14 @@ normalize_opts(Opts0) ->
     Map0 = #{},
     Map1 = put_if_defined(Map0, enable, maps:get(enable, Opts0, true)),
     Map2 = put_if_defined(
-        Map1, max_block_size, normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))
+        Map1,
+        max_block_size,
+        normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))
     ),
     Map3 = put_if_defined(
-        Map2, max_body_size, normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))
+        Map2,
+        max_body_size,
+        normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))
     ),
     Map4 = put_if_defined(
         Map3,

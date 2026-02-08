@@ -8,7 +8,7 @@
 -compile(nowarn_export_all).
 
 -include("emqx_coap.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(HOST, "127.0.0.1").
@@ -77,8 +77,6 @@ t_send_request_api(_) ->
     erlang:exit(ClientId, kill),
     ok.
 
-
-
 t_send_request_api_block2(_) ->
     ClientId = start_block2_client(),
     timer:sleep(200),
@@ -130,6 +128,84 @@ t_send_request_api_block2_too_large(_) ->
     ?assertEqual(<<"{error,request_entity_too_large}">>, Method),
     erlang:exit(ClientId, kill),
     ok.
+
+t_send_request_api_block2_timeout_followup_fake_channel(_) ->
+    ClientId = <<"fake_timeout">>,
+    Token = <<"ftok">>,
+    Resp0 = #coap_message{
+        type = ack,
+        method = {ok, content},
+        token = Token,
+        payload = <<"part">>,
+        options = #{block2 => {0, true, 16}}
+    },
+    {Pid, Cleanup} = start_fake_channel(ClientId, [Resp0]),
+    try
+        Body = #{
+            <<"method">> => get,
+            <<"token">> => Token,
+            <<"payload">> => <<>>,
+            <<"timeout">> => 50,
+            <<"content_type">> => 'text/plain'
+        },
+        {504, #{code := 'CLIENT_NOT_RESPONSE'}} =
+            emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body}),
+        ok
+    after
+        Cleanup(),
+        erlang:exit(Pid, kill)
+    end.
+
+t_send_request_api_block2_other_followup_fake_channel(_) ->
+    ClientId = <<"fake_other">>,
+    Token = <<"fotok">>,
+    Resp0 = #coap_message{
+        type = ack,
+        method = {ok, content},
+        token = Token,
+        payload = <<"part">>,
+        options = #{block2 => {0, true, 16}}
+    },
+    {Pid, Cleanup} = start_fake_channel(ClientId, [Resp0, {error, fake_reply}]),
+    try
+        Body = #{
+            <<"method">> => get,
+            <<"token">> => Token,
+            <<"payload">> => <<>>,
+            <<"timeout">> => 50,
+            <<"content_type">> => 'text/plain'
+        },
+        ?assertException(
+            error,
+            function_clause,
+            emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body})
+        )
+    after
+        Cleanup(),
+        erlang:exit(Pid, kill)
+    end.
+
+t_send_request_api_non_coap_reply(_) ->
+    ClientId = <<"fake_non_coap">>,
+    Token = <<"nctok">>,
+    {Pid, Cleanup} = start_fake_channel(ClientId, [{error, fake_reply}]),
+    try
+        Body = #{
+            <<"method">> => get,
+            <<"token">> => Token,
+            <<"payload">> => <<>>,
+            <<"timeout">> => 50,
+            <<"content_type">> => 'text/plain'
+        },
+        ?assertException(
+            error,
+            function_clause,
+            emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body})
+        )
+    after
+        Cleanup(),
+        erlang:exit(Pid, kill)
+    end.
 
 t_send_request_api_client_not_found(_) ->
     Path = emqx_mgmt_api_test_util:api_path(
@@ -210,34 +286,41 @@ t_send_request_api_octet_stream(_) ->
     ok.
 
 t_send_request_api_exception(_) ->
-    ok = meck:new(emqx_gateway_cm_registry, [passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_gateway_cm_registry,
-        lookup_channels,
-        fun(_, _) -> erlang:error(bad_registry) end
-    ),
-    Path = emqx_mgmt_api_test_util:api_path(
-        ["gateways/coap/clients/client1/request"]
-    ),
-    Req = #{
-        token => <<"atoken">>,
-        payload => <<"hello">>,
-        timeout => <<"50ms">>,
-        content_type => <<"text/plain">>,
-        method => <<"get">>
-    },
-    Auth = emqx_mgmt_api_test_util:auth_header_(),
-    {error, {{"HTTP/1.1", 404, _}, _Headers, Body}} =
-        emqx_mgmt_api_test_util:request_api(
-            post,
-            Path,
-            "method=get",
-            Auth,
-            Req,
-            #{return_all => true}
+    Tab = emqx_gateway_cm_registry:tabname(coap),
+    {atomic, ok} = mnesia:delete_table(Tab),
+    try
+        Path = emqx_mgmt_api_test_util:api_path(
+            ["gateways/coap/clients/client1/request"]
         ),
-    #{<<"code">> := <<"CLIENT_NOT_FOUND">>} = emqx_utils_json:decode(Body),
-    meck:unload(emqx_gateway_cm_registry),
+        Req = #{
+            token => <<"atoken">>,
+            payload => <<"hello">>,
+            timeout => <<"50ms">>,
+            content_type => <<"text/plain">>,
+            method => <<"get">>
+        },
+        Auth = emqx_mgmt_api_test_util:auth_header_(),
+        {error, {{"HTTP/1.1", 404, _}, _Headers, Body}} =
+            emqx_mgmt_api_test_util:request_api(
+                post,
+                Path,
+                "method=get",
+                Auth,
+                Req,
+                #{return_all => true}
+            ),
+        #{<<"code">> := <<"CLIENT_NOT_FOUND">>} = emqx_utils_json:decode(Body)
+    after
+        ok = mria:create_table(Tab, [
+            {type, bag},
+            {rlog_shard, emqx_gateway_cm_shard},
+            {storage, ram_copies},
+            {record_name, channel},
+            {attributes, [chid, pid]},
+            {storage_properties, [{ets, [{read_concurrency, true}, {write_concurrency, true}]}]}
+        ]),
+        ok = mria:wait_for_tables([Tab])
+    end,
     ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -254,6 +337,26 @@ start_block2_client() ->
 
 start_block2_client(Payload) ->
     spawn(fun() -> coap_block2_client(Payload) end).
+
+start_fake_channel(ClientId, Responses) ->
+    Pid = spawn(fun() -> fake_channel_loop(Responses) end),
+    ok = emqx_gateway_cm_registry:register_channel(coap, {ClientId, Pid}),
+    Cleanup = fun() -> emqx_gateway_cm_registry:unregister_channel(coap, {ClientId, Pid}) end,
+    {Pid, Cleanup}.
+
+fake_channel_loop(Responses) ->
+    receive
+        {_Tag, From, {send_request, _Msg}} ->
+            case Responses of
+                [Resp | Rest] ->
+                    gen_server:reply(From, Resp),
+                    fake_channel_loop(Rest);
+                [] ->
+                    fake_channel_loop([])
+            end;
+        _Other ->
+            fake_channel_loop(Responses)
+    end.
 
 coap_client() ->
     {ok, CSock} = gen_udp:open(0, [binary, {active, false}]),
@@ -392,10 +495,14 @@ test_send_coap_response_block2(UdpSock, Host, Port, Code, FullContent, Request, 
     is_list(Host) orelse error("Host is not a string"),
     {ok, IpAddr} = inet:getaddr(Host, inet),
     Response0 = emqx_coap_message:piggyback(Code, Request),
-    Response1 = emqx_coap_message:set_payload_block(FullContent, block2, {Num, true, 16}, Response0),
+    Response1 = emqx_coap_message:set_payload_block(
+        FullContent, block2, {Num, true, 16}, Response0
+    ),
     Block = emqx_coap_message:get_option(block2, Response1, {Num, false, 16}),
     Response2 = emqx_coap_message:set(block2, Block, Response1),
-    Response = Response2#coap_message{options = maps:put(uri_query, [<<"clientid=client1">>], Response2#coap_message.options)},
+    Response = Response2#coap_message{
+        options = maps:put(uri_query, [<<"clientid=client1">>], Response2#coap_message.options)
+    },
     ?LOGT("test_send_coap_response_block2 Response=~p", [Response]),
     Binary = emqx_coap_frame:serialize_pkt(Response, undefined),
     ok = gen_udp:send(UdpSock, IpAddr, Port, Binary).

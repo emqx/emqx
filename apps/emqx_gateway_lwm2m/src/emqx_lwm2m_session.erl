@@ -638,13 +638,17 @@ handle_coap_response(
             send_to_coap(Ctx, NextReq, Session#session{blockwise = BW1});
         {consume_only, BW1} ->
             Session#session{blockwise = BW1};
-        {deliver, #coap_message{
-            method = CoapMsgMethod,
-            type = CoapMsgType,
-            payload = CoapMsgPayload,
-            options = CoapMsgOpts
-        }, BW1} ->
-            MqttPayload = emqx_lwm2m_cmd:coap_to_mqtt(CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ctx),
+        {deliver,
+            #coap_message{
+                method = CoapMsgMethod,
+                type = CoapMsgType,
+                payload = CoapMsgPayload,
+                options = CoapMsgOpts
+            },
+            BW1} ->
+            MqttPayload = emqx_lwm2m_cmd:coap_to_mqtt(
+                CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ctx
+            ),
             {ReqPath, _} = emqx_lwm2m_cmd:path_list(emqx_lwm2m_cmd:extract_path(Ctx)),
             Session2 = record_response(EventType, MqttPayload, Session#session{blockwise = BW1}),
             Session3 =
@@ -653,7 +657,12 @@ handle_coap_response(
                         %% this is a notification for status update during NB firmware upgrade.
                         %% need to reply to DM http callbacks
                         send_to_mqtt(
-                            Ctx, <<"notify">>, MqttPayload, ?lwm2m_up_dm_topic, WithContext, Session2
+                            Ctx,
+                            <<"notify">>,
+                            MqttPayload,
+                            ?lwm2m_up_dm_topic,
+                            WithContext,
+                            Session2
                         );
                     {_ReqPath, _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
                         %% this is actually a notification, correct the msgType
@@ -981,7 +990,9 @@ send_blockwise_busy(Ctx, WithContext, Session) ->
     Session2 = record_response(<<"coap_busy">>, Payload, Session),
     maybe_send_to_mqtt(Ctx, <<"coap_busy">>, Payload, WithContext, Session2).
 
-maybe_send_to_mqtt(Ctx, EventType, Payload, WithContext, Session) when is_function(WithContext, 2) ->
+maybe_send_to_mqtt(Ctx, EventType, Payload, WithContext, Session) when
+    is_function(WithContext, 2)
+->
     send_to_mqtt(Ctx, EventType, Payload, WithContext, Session);
 maybe_send_to_mqtt(_Ctx, _EventType, _Payload, _WithContext, Session) ->
     Session.

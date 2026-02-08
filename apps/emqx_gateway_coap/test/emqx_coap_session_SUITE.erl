@@ -8,7 +8,7 @@
 -compile(nowarn_export_all).
 
 -include("emqx_coap.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
@@ -76,7 +76,9 @@ t_session_deliver_block2_notify(_) ->
     BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
     Ctx = #{gwname => coap, cm => self()},
     Deliver = {deliver, <<"tb2">>, emqx_message:make(<<"tb2">>, binary:copy(<<"Z">>, 40))},
-    #{out := [Out0], blockwise := BW1} = emqx_coap_session:deliver([Deliver], Ctx, Session1, BW0, {peer, 7}),
+    #{out := [Out0], blockwise := BW1} = emqx_coap_session:deliver(
+        [Deliver], Ctx, Session1, BW0, {peer, 7}
+    ),
     ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, Out0, undefined)),
     FollowReq = #coap_message{
         type = con,

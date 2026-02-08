@@ -593,7 +593,9 @@ handle_result(Result, Channel) ->
         Result,
         Channel
     ).
-call_handler(request, Msg, Result, #channel{blockwise = BW0, conninfo = ConnInfo, ctx = Ctx} = Channel, Iter) ->
+call_handler(
+    request, Msg, Result, #channel{blockwise = BW0, conninfo = ConnInfo, ctx = Ctx} = Channel, Iter
+) ->
     PeerKey = maps:get(peername, ConnInfo, undefined),
     case emqx_coap_blockwise:server_followup_in(Msg, PeerKey, BW0) of
         {reply, Reply, BW1} ->
@@ -723,7 +725,9 @@ process_reply(
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{session = Session2, blockwise = BW1}}.
+    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{
+        session = Session2, blockwise = BW1
+    }}.
 
 process_shutdown(Reply, _Result, Channel, _) -> {shutdown, normal, Reply, Channel}.
 

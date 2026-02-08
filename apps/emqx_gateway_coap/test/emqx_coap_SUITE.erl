@@ -18,7 +18,7 @@
 -include_lib("er_coap_client/include/coap.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/asserts.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(LOGT(Format, Args), ct:pal("TEST_SUITE: " ++ Format, Args)).
@@ -30,28 +30,14 @@ all() -> emqx_common_test_helpers:all(?MODULE).
 init_per_suite(Config) ->
     Config1 = emqx_coap_test_helpers:start_gateway(Config),
     emqx_common_test_http:create_default_app(),
+    {ok, _} = emqx_gateway_auth_ct:start(),
     Config1.
 
 end_per_suite(Config) ->
+    ok = emqx_gateway_auth_ct:stop(),
     emqx_coap_test_helpers:stop_gateway(Config).
 
-init_per_testcase(t_connection_with_authn_failed, Config) ->
-    ok = meck:new(emqx_access_control, [passthrough]),
-    ok = meck:expect(
-        emqx_access_control,
-        authenticate,
-        fun(_) -> {error, bad_username_or_password} end
-    ),
-    Config;
 init_per_testcase(t_connection_with_expire, Config) ->
-    ok = meck:new(emqx_access_control, [passthrough, no_history]),
-    ok = meck:expect(
-        emqx_access_control,
-        authenticate,
-        fun(_) ->
-            {ok, #{is_superuser => false, expire_at => erlang:system_time(millisecond) + 100}}
-        end
-    ),
     snabbkaffe:start_trace(),
     Config;
 init_per_testcase(t_heartbeat, Config) ->
@@ -66,21 +52,6 @@ init_per_testcase(t_heartbeat, Config) ->
         {new_heartbeat, NewHeartbeat}
         | Config
     ];
-init_per_testcase(t_connection_open_session_error, Config) ->
-    ok = meck:new(emqx_gateway_ctx, [passthrough]),
-    ok = meck:expect(
-        emqx_gateway_ctx,
-        open_session,
-        fun(_, _, _, _, _, _) -> {error, session_error} end
-    ),
-    Config;
-init_per_testcase(t_publish_with_retain_qos_expiry, Config) ->
-    ok = meck:new(emqx_access_control, [passthrough]),
-    Config;
-init_per_testcase(t_pubsub_unauthorized, Config) ->
-    ok = meck:new(emqx_access_control, [passthrough]),
-    ok = meck:expect(emqx_access_control, authorize, fun(_, _, _) -> deny end),
-    Config;
 init_per_testcase(_, Config) ->
     Config.
 
@@ -90,19 +61,6 @@ end_per_testcase(t_heartbeat, Config) ->
     ok;
 end_per_testcase(t_connection_with_expire, Config) ->
     snabbkaffe:stop(),
-    meck:unload(emqx_access_control),
-    Config;
-end_per_testcase(t_connection_open_session_error, Config) ->
-    ok = meck:unload(emqx_gateway_ctx),
-    Config;
-end_per_testcase(t_connection_with_authn_failed, Config) ->
-    ok = meck:unload(emqx_access_control),
-    Config;
-end_per_testcase(t_publish_with_retain_qos_expiry, Config) ->
-    ok = meck:unload(emqx_access_control),
-    Config;
-end_per_testcase(t_pubsub_unauthorized, Config) ->
-    ok = meck:unload(emqx_access_control),
     Config;
 end_per_testcase(_, Config) ->
     Config.
@@ -156,7 +114,7 @@ t_connection(_) ->
             end,
 
             %% heartbeat
-            {ok, changed, _} = send_heartbeat(Token),
+            {ok, changed, _} = send_heartbeat(Channel, Token),
 
             disconnection(Channel, Token),
 
@@ -184,7 +142,7 @@ t_connection_with_short_param_name(_) ->
         ),
 
         %% heartbeat
-        {ok, changed, _} = send_heartbeat(Token, true),
+        {ok, changed, _} = send_heartbeat(Channel, Token, true),
 
         disconnection(Channel, Token, true),
 
@@ -211,7 +169,7 @@ t_heartbeat(Config) ->
         Delay = Heartbeat div 2,
         lists:foreach(
             fun(_) ->
-                ?assertMatch({ok, changed, _}, send_heartbeat(Token)),
+                ?assertMatch({ok, changed, _}, send_heartbeat(Channel, Token)),
                 timer:sleep(Delay)
             end,
             lists:seq(1, 5)
@@ -276,44 +234,56 @@ t_connection_optional_params(_) ->
     do(ClientIdIsRequired).
 
 t_connection_with_authn_failed(_) ->
-    {ok, _Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
-    URI =
-        ?MQTT_PREFIX ++
-            "/connection?clientid=client1&username=admin&password=public",
-    Req = make_req(post),
-    ?assertMatch({error, bad_request, _}, do_request(Channel, URI, Req)),
+    ok = emqx_gateway_auth_ct:start_auth(authn_http),
+    try
+        {ok, _Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+        URI =
+            ?MQTT_PREFIX ++
+                "/connection?clientid=client1&username=deny&password=public",
+        Req = make_req(post),
+        ?assertMatch({error, bad_request, _}, do_request(Channel, URI, Req)),
 
-    timer:sleep(100),
-    ?assertEqual(
-        [],
-        emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
-    ),
+        timer:sleep(100),
+        ?assertEqual(
+            [],
+            emqx_gateway_cm_registry:lookup_channels(coap, <<"client1">>)
+        )
+    after
+        ok = emqx_gateway_auth_ct:stop_auth(authn_http)
+    end,
     ok.
 
 t_connection_with_expire(_) ->
-    {ok, _Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
+    ok = emqx_gateway_auth_ct:start_auth(authn_http),
+    try
+        {ok, _Sock, Channel} = er_coap_udp_socket:connect({127, 0, 0, 1}, 5683),
 
-    URI = ?MQTT_PREFIX ++ "/connection?clientid=client1",
+        URI =
+            ?MQTT_PREFIX ++
+                "/connection?clientid=client1&username=expire&password=public",
 
-    ?assertWaitEvent(
-        begin
-            Req = make_req(post),
-            {ok, created, _Data} = do_request(Channel, URI, Req)
-        end,
-        #{
-            ?snk_kind := conn_process_terminated,
-            clientid := <<"client1">>,
-            reason := {shutdown, expired}
-        },
-        5000
-    ).
+        ?assertWaitEvent(
+            begin
+                Req = make_req(post),
+                {ok, created, _Data} = do_request(Channel, URI, Req)
+            end,
+            #{
+                ?snk_kind := conn_process_terminated,
+                clientid := <<"client1">>,
+                reason := {shutdown, expired}
+            },
+            5000
+        )
+    after
+        ok = emqx_gateway_auth_ct:stop_auth(authn_http)
+    end.
 
 t_update_not_restart_listener(_) ->
     update_coap_with_mountpoint(<<"mp/">>),
-    with_connection(fun(_Channel, Token) ->
-        ?assertMatch({ok, changed, _}, send_heartbeat(Token)),
+    with_connection(fun(Channel, Token) ->
+        ?assertMatch({ok, changed, _}, send_heartbeat(Channel, Token)),
         update_coap_with_mountpoint(<<>>),
-        ?assertMatch({ok, changed, _}, send_heartbeat(Token)),
+        ?assertMatch({ok, changed, _}, send_heartbeat(Channel, Token)),
         true
     end).
 
@@ -371,17 +341,24 @@ t_connection_hooks_error(_) ->
 
 t_connection_open_session_error(_) ->
     Action = fun(Channel) ->
+        ClientId = <<"client1">>,
+        Locker = list_to_atom("emqx_gateway_coap_locker"),
+        {true, _} = ekka_locker:acquire(Locker, ClientId, quorum),
         Prefix = ?MQTT_PREFIX ++ "/connection",
         Queries = #{
-            "clientid" => <<"client1">>,
+            "clientid" => ClientId,
             "username" => <<"admin">>,
             "password" => <<"public">>
         },
         URI = compose_uri(Prefix, Queries, false),
         Req = make_req(post),
-        case do_request(Channel, URI, Req) of
-            {error, bad_request, _} -> ok;
-            {error, bad_request} -> ok
+        try
+            case do_request(Channel, URI, Req) of
+                {error, bad_request, _} -> ok;
+                {error, bad_request} -> ok
+            end
+        after
+            _ = ekka_locker:release(Locker, ClientId, quorum)
         end
     end,
     do(Action).
@@ -511,26 +488,33 @@ t_pubsub_handler_errors(_) ->
     do(Action).
 
 t_pubsub_unauthorized(_) ->
-    Action = fun(Channel) ->
-        Token = connection(Channel),
-        URI = pubsub_uri("deny", Token),
-        Req1 = make_req(post, <<"payload">>),
-        case do_request(Channel, URI, Req1) of
-            {error, uauthorized} -> ok;
-            {error, uauthorized, _} -> ok;
-            {error, unauthorized, _} -> ok;
-            {error, unauthorized} -> ok
+    OldAuthz = emqx:get_raw_config([authorization]),
+    ok = emqx_gateway_auth_ct:start_auth(authz_http),
+    try
+        Action = fun(Channel) ->
+            Token = connection(Channel),
+            URI = pubsub_uri("deny", Token),
+            Req1 = make_req(post, <<"payload">>),
+            case do_request(Channel, URI, Req1) of
+                {error, uauthorized} -> ok;
+                {error, uauthorized, _} -> ok;
+                {error, unauthorized, _} -> ok;
+                {error, unauthorized} -> ok
+            end,
+            Req2 = make_req(get, <<>>, [{observe, 0}]),
+            case do_request(Channel, URI, Req2) of
+                {error, uauthorized} -> ok;
+                {error, uauthorized, _} -> ok;
+                {error, unauthorized, _} -> ok;
+                {error, unauthorized} -> ok
+            end,
+            disconnection(Channel, Token)
         end,
-        Req2 = make_req(get, <<>>, [{observe, 0}]),
-        case do_request(Channel, URI, Req2) of
-            {error, uauthorized} -> ok;
-            {error, uauthorized, _} -> ok;
-            {error, unauthorized, _} -> ok;
-            {error, unauthorized} -> ok
-        end,
-        disconnection(Channel, Token)
-    end,
-    do(Action).
+        do(Action)
+    after
+        ok = emqx_gateway_auth_ct:stop_auth(authz_http),
+        {ok, _} = emqx:update_config([authorization], OldAuthz)
+    end.
 
 t_subscribe_opts_nl_rh(_) ->
     Fun = fun(Channel, Token) ->
@@ -656,14 +640,6 @@ t_publish(_) ->
     with_connection(Topics, Action).
 
 t_publish_with_retain_qos_expiry(_) ->
-    _ = meck:expect(
-        emqx_access_control,
-        authorize,
-        fun(_, #{action_type := publish, qos := 1, retain := true}, _) ->
-            allow
-        end
-    ),
-
     Topics = [<<"abc">>],
     Action = fun(Topic, Channel, Token) ->
         Payload = <<"123">>,
@@ -688,8 +664,7 @@ t_publish_with_retain_qos_expiry(_) ->
         true
     end,
     with_connection(Topics, Action),
-
-    _ = meck:validate(emqx_access_control).
+    ok.
 
 t_subscribe(_) ->
     %% can subscribe to a normal topic
@@ -1070,10 +1045,10 @@ t_invalid_if_none_match_bad_option(_) ->
 %%--------------------------------------------------------------------
 %% helpers
 
-send_heartbeat(Token) ->
-    send_heartbeat(Token, false).
+send_heartbeat(Channel, Token) ->
+    send_heartbeat(Channel, Token, false).
 
-send_heartbeat(Token, ShortenParamName) ->
+send_heartbeat(Channel, Token, ShortenParamName) ->
     Prefix = ?MQTT_PREFIX ++ "/connection",
     Queries = #{
         "clientid" => <<"client1">>,
@@ -1081,7 +1056,8 @@ send_heartbeat(Token, ShortenParamName) ->
     },
     URI = compose_uri(Prefix, Queries, ShortenParamName),
     ?LOGT("send heartbeat request:~ts~n", [URI]),
-    er_coap_client:request(put, URI).
+    Req = make_req(put),
+    do_request(Channel, URI, Req).
 
 connection(Channel) ->
     connection(Channel, false).

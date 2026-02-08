@@ -889,7 +889,9 @@ process_reply(
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{session = Session2, blockwise = BW1}}.
+    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{
+        session = Session2, blockwise = BW1
+    }}.
 
 maybe_prepare_block2_reply(Req, Reply, _PeerKey, BW) when
     not is_record(Req, coap_message); not is_record(Reply, coap_message)
