@@ -636,8 +636,6 @@ handle_coap_response(
     case emqx_coap_blockwise:client_in_response(Ctx, Resp0, BW0) of
         {send_next, NextReq, BW1} ->
             send_to_coap(Ctx, NextReq, Session#session{blockwise = BW1});
-        {consume_only, BW1} ->
-            Session#session{blockwise = BW1};
         {deliver,
             #coap_message{
                 method = CoapMsgMethod,
@@ -814,9 +812,7 @@ send_msg_not_waiting_ack(Ctx, Req, Session) ->
     out_to_coap(Ctx, Req, Session).
 
 downlink_ctx_key(Ctx) when is_map(Ctx) ->
-    erlang:phash2(maps:without([mheaders, <<"mheaders">>], Ctx));
-downlink_ctx_key(Ctx) ->
-    erlang:phash2(Ctx).
+    erlang:phash2(maps:without([mheaders, <<"mheaders">>], Ctx)).
 
 clear_blockwise_downlink(Ctx, #session{blockwise_downlink = ActiveKey} = Session) ->
     case ActiveKey =:= downlink_ctx_key(Ctx) of

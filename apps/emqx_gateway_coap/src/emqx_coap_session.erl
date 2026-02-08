@@ -281,8 +281,5 @@ maybe_split_notify_block2(Msg, PeerKey, BW0, Ctx) ->
             {Msg1, BW1};
         {chunked, Msg1, BW1} ->
             metrics_inc('blockwise.tx_block2.started', Ctx),
-            {Msg1, BW1};
-        {error, Msg1, BW1} ->
-            metrics_inc('blockwise.tx_block2.failed', Ctx),
             {Msg1, BW1}
     end.

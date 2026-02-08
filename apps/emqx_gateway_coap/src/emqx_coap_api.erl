@@ -179,8 +179,6 @@ collect_block2(Channel, Ctx, Resp, Timeout, State0, N) ->
     case emqx_coap_blockwise:client_in_response(Ctx, Resp, State0) of
         {deliver, FullResp, _State} ->
             FullResp;
-        {consume_only, _State} ->
-            Resp;
         {send_next, NextReq, State1} ->
             case block2_exceeds_max_body(Resp, State0) of
                 true ->
@@ -198,25 +196,16 @@ collect_block2(Channel, Ctx, Resp, Timeout, State0, N) ->
     end.
 
 block2_exceeds_max_body(Resp, State) ->
-    case emqx_coap_message:get_option(block2, Resp, undefined) of
-        {Num, true, Size} when is_integer(Num), Num >= 0, is_integer(Size), Size > 0 ->
-            MaxBlocks = max_block2_blocks(State, Size),
-            (Num + 1) >= MaxBlocks;
-        _ ->
-            false
-    end.
+    {Num, true, Size} = emqx_coap_message:get_option(block2, Resp, undefined),
+    MaxBlocks = max_block2_blocks(State, Size),
+    (Num + 1) >= MaxBlocks.
 
 max_block2_blocks(State, Size) ->
     MaxBody = emqx_coap_blockwise:max_body_size(State),
     (MaxBody + Size - 1) div Size.
 
-block2_too_large_reply(Ctx, Resp) ->
-    Req =
-        case Ctx of
-            #{request := Req0} when is_record(Req0, coap_message) -> Req0;
-            _ -> Resp
-        end,
-    emqx_coap_message:piggyback({error, request_entity_too_large}, Req).
+block2_too_large_reply(#{request := Req0}, _Resp) when is_record(Req0, coap_message) ->
+    emqx_coap_message:piggyback({error, request_entity_too_large}, Req0).
 
 coap_blockwise_opts() ->
     BlockwiseCfg = emqx:get_config([gateway, coap, blockwise], #{}),

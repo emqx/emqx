@@ -472,8 +472,6 @@ safe_hexstr_to_bin(Value) when is_binary(Value) ->
     try
         {ok, emqx_utils:hexstr_to_bin(Value)}
     catch
-        throw:Reason ->
-            {error, Reason};
         error:Reason ->
             {error, Reason}
     end;

@@ -78,18 +78,18 @@ max_body_size(#{opts := Opts}) -> maps:get(max_body_size, Opts, ?DEFAULT_MAX_BOD
 has_active_client_tx(Ctx, #{client_tx_block1 := TxMap}) ->
     maps:is_key(client_tx_key(Ctx), TxMap).
 
--spec block1_required(#coap_message{}, state()) -> boolean().
+-spec block1_required(coap_message(), state()) -> boolean().
 block1_required(#coap_message{payload = Payload, options = Opts}, State) ->
     enabled(State) andalso
         auto_tx_block1_enabled(State) andalso
         byte_size(Payload) > blockwise_size(State) andalso
         not maps:is_key(block1, Opts).
 
--spec server_in(#coap_message{}, term(), state()) ->
-    {pass, #coap_message{}, state()}
-    | {continue, #coap_message{}, state()}
-    | {complete, #coap_message{}, state()}
-    | {error, #coap_message{}, state()}.
+-spec server_in(coap_message(), term(), state()) ->
+    {pass, coap_message(), state()}
+    | {continue, coap_message(), state()}
+    | {complete, coap_message(), state()}
+    | {error, coap_message(), state()}.
 server_in(Msg, PeerKey, State0) ->
     State = maybe_expire(State0),
     case enabled(State) of
@@ -104,10 +104,10 @@ server_in(Msg, PeerKey, State0) ->
             end
     end.
 
--spec server_followup_in(#coap_message{}, term(), state()) ->
-    {pass, #coap_message{}, state()}
-    | {reply, #coap_message{}, state()}
-    | {error, #coap_message{}, state()}.
+-spec server_followup_in(coap_message(), term(), state()) ->
+    {pass, coap_message(), state()}
+    | {reply, coap_message(), state()}
+    | {error, coap_message(), state()}.
 server_followup_in(Msg, _PeerKey, State0) when not is_record(Msg, coap_message) ->
     {pass, Msg, maybe_expire(State0)};
 server_followup_in(Msg, PeerKey, State0) ->
@@ -124,10 +124,10 @@ server_followup_in(Msg, PeerKey, State0) ->
             end
     end.
 
--spec server_prepare_out_response(#coap_message{} | undefined, #coap_message{}, term(), state()) ->
-    {single, #coap_message{}, state()}
-    | {chunked, #coap_message{}, state()}
-    | {error, #coap_message{}, state()}.
+-spec server_prepare_out_response(coap_message() | undefined, coap_message(), term(), state()) ->
+    {single, coap_message(), state()}
+    | {chunked, coap_message(), state()}
+    | {error, coap_message(), state()}.
 server_prepare_out_response(_Req, Reply, _PeerKey, State0) when
     not is_record(Reply, coap_message)
 ->
@@ -143,8 +143,8 @@ server_prepare_out_response(Req, Reply, PeerKey, State0) ->
             handle_server_tx_block2(Req, Reply, PeerKey, State)
     end.
 
--spec client_prepare_out_request(term(), #coap_message{}, state()) ->
-    {single, #coap_message{}, state()} | {first_block, #coap_message{}, state()}.
+-spec client_prepare_out_request(term(), coap_message(), state()) ->
+    {single, coap_message(), state()} | {first_block, coap_message(), state()}.
 client_prepare_out_request(Ctx, Msg, State0) ->
     State = maybe_expire(State0),
     State1 = put_client_request(Ctx, Msg, State),
@@ -166,10 +166,9 @@ client_prepare_out_request(Ctx, Msg, State0) ->
             {first_block, First, put_client_tx(Key, Tx, State1)}
     end.
 
--spec client_in_response(term(), #coap_message{}, state()) ->
-    {deliver, #coap_message{}, state()}
-    | {send_next, #coap_message{}, state()}
-    | {consume_only, state()}.
+-spec client_in_response(term(), coap_message(), state()) ->
+    {deliver, coap_message(), state()}
+    | {send_next, coap_message(), state()}.
 client_in_response(Ctx, Resp, State0) ->
     State = maybe_expire(State0),
     case enabled(State) of
@@ -237,39 +236,35 @@ should_split_server_tx_block2(_Req, _Reply, _State) ->
     false.
 
 handle_server_tx_block2(Req, Reply, PeerKey, State) ->
-    case pick_server_tx_block2_params(Req, State) of
-        {ok, Num, Size} ->
-            Opts = maps:remove(block2, Reply#coap_message.options),
-            Tx = #{
-                payload => Reply#coap_message.payload,
-                size => Size,
-                method => Reply#coap_message.method,
-                options => Opts,
-                observe => maps:get(observe, Opts, undefined),
-                expires_at => expires_at(State)
-            },
-            case build_server_tx_block(Req, Reply, Num, Tx) of
-                {ok, ChunkedReply, More} ->
-                    Key = server_tx_key(PeerKey, Req, Reply),
-                    State1 = put_server_tx(Key, Tx, More, State),
-                    ?SLOG(debug, #{
-                        msg => "coap_block2_tx_chunked",
-                        key => Key,
-                        block_num => Num,
-                        block_size => Size,
-                        more => More
-                    }),
-                    {chunked, ChunkedReply, State1};
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "coap_block2_tx_build_failed",
-                        reason => Reason,
-                        block_num => Num,
-                        block_size => Size
-                    }),
-                    {error, error_reply({error, bad_option}, reply_request(Req, Reply)), State}
-            end;
-        error ->
+    {ok, Num, Size} = pick_server_tx_block2_params(Req, State),
+    Opts = maps:remove(block2, Reply#coap_message.options),
+    Tx = #{
+        payload => Reply#coap_message.payload,
+        size => Size,
+        method => Reply#coap_message.method,
+        options => Opts,
+        observe => maps:get(observe, Opts, undefined),
+        expires_at => expires_at(State)
+    },
+    case build_server_tx_block(Req, Reply, Num, Tx) of
+        {ok, ChunkedReply, More} ->
+            Key = server_tx_key(PeerKey, Req, Reply),
+            State1 = put_server_tx(Key, Tx, More, State),
+            ?SLOG(debug, #{
+                msg => "coap_block2_tx_chunked",
+                key => Key,
+                block_num => Num,
+                block_size => Size,
+                more => More
+            }),
+            {chunked, ChunkedReply, State1};
+        {error, Reason} ->
+            ?SLOG(warning, #{
+                msg => "coap_block2_tx_build_failed",
+                reason => Reason,
+                block_num => Num,
+                block_size => Size
+            }),
             {error, error_reply({error, bad_option}, reply_request(Req, Reply)), State}
     end.
 
@@ -348,12 +343,8 @@ build_server_tx_block_from_template(Template, Num, #{payload := Payload, size :=
             {error, out_of_range};
         false ->
             Resp0 = apply_server_tx_template(Template, Payload, Num, Size),
-            case emqx_coap_message:get_option(block2, Resp0, undefined) of
-                {_, More, _} ->
-                    {ok, Resp0, More};
-                _ ->
-                    {error, invalid_block2}
-            end
+            {_, More, _} = emqx_coap_message:get_option(block2, Resp0, undefined),
+            {ok, Resp0, More}
     end.
 
 apply_server_tx_template(#coap_message{} = Reply, Payload, Num, Size) ->
@@ -383,8 +374,7 @@ has_block2_option(#coap_message{} = Req) ->
 has_block2_option(_) ->
     false.
 
-reply_request(#coap_message{} = Req, _Reply) -> Req;
-reply_request(_Req, #coap_message{} = Reply) -> Reply.
+reply_request(#coap_message{} = Req, _Reply) -> Req.
 
 maybe_clear_server_tx(PeerKey, Req, State) ->
     Key = server_tx_key_from_req(PeerKey, Req),
@@ -433,23 +423,26 @@ do_handle_server_block1(Num, More, Size, Msg, PeerKey, State) ->
     case {Num, maps:get(Key, ServerMap, undefined)} of
         {0, _Prev} ->
             Total = byte_size(Payload),
-            if
-                Total > MaxBody ->
-                    {error, error_reply({error, request_entity_too_large}, Msg), State};
-                More ->
-                    Tx = #{
-                        payload => Payload,
-                        next_num => 1,
-                        size => Size,
-                        req => Msg,
-                        expires_at => expires_at(State)
-                    },
-                    Continue = continue_reply(Msg, Num, Size),
-                    {continue, Continue, State#{server_rx_block1 => ServerMap#{Key => Tx}}};
+            case Total > MaxBody of
                 true ->
-                    {complete, clear_block1(Msg), State#{
-                        server_rx_block1 => maps:remove(Key, ServerMap)
-                    }}
+                    {error, error_reply({error, request_entity_too_large}, Msg), State};
+                false ->
+                    case More of
+                        true ->
+                            Tx = #{
+                                payload => Payload,
+                                next_num => 1,
+                                size => Size,
+                                req => Msg,
+                                expires_at => expires_at(State)
+                            },
+                            Continue = continue_reply(Msg, Num, Size),
+                            {continue, Continue, State#{server_rx_block1 => ServerMap#{Key => Tx}}};
+                        false ->
+                            {complete, clear_block1(Msg), State#{
+                                server_rx_block1 => maps:remove(Key, ServerMap)
+                            }}
+                    end
             end;
         {_Num, undefined} ->
             {error, error_reply({error, request_entity_incomplete}, Msg), State};
@@ -514,16 +507,9 @@ send_next_client_tx_block(Ctx, Tx, State) ->
     case Offset < byte_size(Payload) of
         true ->
             BlockReq = emqx_coap_message:set_payload_block(Payload, block1, {Num, true, Size}, Req),
-            case emqx_coap_message:get_option(block1, BlockReq, undefined) of
-                {Num, true, _} ->
-                    Tx2 = Tx#{next_num => Num + 1, expires_at => expires_at(State)},
-                    {send_next, BlockReq, put_client_tx(client_tx_key(Ctx), Tx2, State)};
-                {Num, false, _} ->
-                    Tx2 = Tx#{next_num => Num + 1, expires_at => expires_at(State)},
-                    {send_next, BlockReq, put_client_tx(client_tx_key(Ctx), Tx2, State)};
-                _ ->
-                    {consume_only, State}
-            end;
+            {Num, _More, _} = emqx_coap_message:get_option(block1, BlockReq, undefined),
+            Tx2 = Tx#{next_num => Num + 1, expires_at => expires_at(State)},
+            {send_next, BlockReq, put_client_tx(client_tx_key(Ctx), Tx2, State)};
         false ->
             Reply = error_reply({error, request_entity_incomplete}, Req),
             {deliver, Reply, clear_client_exchange(Ctx, State)}
@@ -568,24 +554,14 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
                         })
                     };
                 false when More ->
-                    case next_block2_request(Ctx, Resp, 1, Size, State) of
-                        undefined ->
-                            {
-                                deliver,
-                                Resp,
-                                clear_client_request(Ctx, State#{
-                                    client_rx_block2 => maps:remove(Key, RxMap)
-                                })
-                            };
-                        NextReq ->
-                            Rx = #{
-                                payload => Payload,
-                                next_num => 1,
-                                size => Size,
-                                expires_at => expires_at(State)
-                            },
-                            {send_next, NextReq, State#{client_rx_block2 => RxMap#{Key => Rx}}}
-                    end;
+                    NextReq = next_block2_request(Ctx, Resp, 1, Size, State),
+                    Rx = #{
+                        payload => Payload,
+                        next_num => 1,
+                        size => Size,
+                        expires_at => expires_at(State)
+                    },
+                    {send_next, NextReq, State#{client_rx_block2 => RxMap#{Key => Rx}}};
                 false ->
                     {
                         deliver,
@@ -619,27 +595,17 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
                                 })
                             };
                         false when More ->
-                            case next_block2_request(Ctx, Resp, Num + 1, Size, State) of
-                                undefined ->
-                                    {
-                                        deliver,
-                                        Resp,
-                                        clear_client_request(Ctx, State#{
-                                            client_rx_block2 => maps:remove(Key, RxMap)
-                                        })
-                                    };
-                                NextReq ->
-                                    Rx2 = Rx#{
-                                        payload => NewPayload,
-                                        next_num => Num + 1,
-                                        expires_at => expires_at(State)
-                                    },
-                                    {
-                                        send_next,
-                                        NextReq,
-                                        State#{client_rx_block2 => RxMap#{Key => Rx2}}
-                                    }
-                            end;
+                            NextReq = next_block2_request(Ctx, Resp, Num + 1, Size, State),
+                            Rx2 = Rx#{
+                                payload => NewPayload,
+                                next_num => Num + 1,
+                                expires_at => expires_at(State)
+                            },
+                            {
+                                send_next,
+                                NextReq,
+                                State#{client_rx_block2 => RxMap#{Key => Rx2}}
+                            };
                         false ->
                             Full = clear_block2(Resp#coap_message{payload = NewPayload}),
                             {
@@ -654,20 +620,15 @@ handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
     end.
 
 next_block2_request(Ctx, Resp, Num, Size, State) ->
-    Template = block2_template(Ctx, Resp, State),
-    case Template of
-        undefined ->
-            undefined;
-        Req0 ->
-            Req1 = clear_block1(Req0),
-            Token =
-                case Resp#coap_message.token of
-                    <<>> -> Req1#coap_message.token;
-                    T -> T
-                end,
-            Req2 = Req1#coap_message{payload = <<>>, token = Token},
-            emqx_coap_message:set(block2, {Num, false, Size}, Req2)
-    end.
+    Req0 = block2_template(Ctx, Resp, State),
+    Req1 = clear_block1(Req0),
+    Token =
+        case Resp#coap_message.token of
+            <<>> -> Req1#coap_message.token;
+            T -> T
+        end,
+    Req2 = Req1#coap_message{payload = <<>>, token = Token},
+    emqx_coap_message:set(block2, {Num, false, Size}, Req2).
 
 block2_template(Ctx, Resp, State) ->
     case Ctx of
@@ -804,25 +765,13 @@ normalize_block_size(_) ->
 
 normalize_max_body_size(MaxBody) when is_integer(MaxBody), MaxBody > 0 ->
     MaxBody;
-normalize_max_body_size(Bin) when is_binary(Bin) ->
-    case emqx_schema:to_bytesize(Bin) of
-        Bytes when is_integer(Bytes), Bytes > 0 -> Bytes;
-        _ -> ?DEFAULT_MAX_BODY_SIZE
-    end;
 normalize_max_body_size(_) ->
     ?DEFAULT_MAX_BODY_SIZE.
 
 normalize_exchange_lifetime(T) when is_integer(T), T > 0 ->
     T;
-normalize_exchange_lifetime(Bin) when is_binary(Bin) ->
-    case emqx_schema:to_duration_ms(Bin) of
-        Ms when is_integer(Ms), Ms > 0 -> Ms;
-        _ -> ?DEFAULT_EXCHANGE_LIFETIME
-    end;
 normalize_exchange_lifetime(_) ->
     ?DEFAULT_EXCHANGE_LIFETIME.
 
 is_valid_block_size(Size) when is_integer(Size) ->
-    Size >= 16 andalso Size =< ?MAX_BLOCK_SIZE andalso (Size band (Size - 1)) =:= 0;
-is_valid_block_size(_) ->
-    false.
+    Size >= 16 andalso Size =< ?MAX_BLOCK_SIZE andalso (Size band (Size - 1)) =:= 0.
