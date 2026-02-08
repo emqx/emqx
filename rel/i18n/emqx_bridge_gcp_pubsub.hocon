@@ -148,8 +148,8 @@ consumer_mqtt_payload.label:
 
 
 request_timeout.desc:
-"""request_timeout"""
+"""Request timeout for calling GCP Pub/Sub."""
 request_timeout.label:
-"""request_timeout"""
+"""Request Timeout"""
 
 }

@@ -59,8 +59,8 @@ emqx_mq_api {
     }
 
 message_queues_config_update_success.desc:
-"""message_queues_config_update_success"""
+"""Message queue configuration updated successfully."""
 message_queues_config_update_success.label:
-"""message_queues_config_update_success"""
+"""Message Queue Config Updated"""
 
 }

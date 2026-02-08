@@ -192,116 +192,116 @@ source_already_exists.desc:
 
 
 action_already_exists.desc:
-"""action_already_exists"""
+"""Action already exists."""
 action_already_exists.label:
-"""action_already_exists"""
+"""Action Already Exists"""
 
 
 desc_metrics.desc:
-"""desc_metrics"""
+"""Bridge metrics on the local node."""
 desc_metrics.label:
-"""desc_metrics"""
+"""Metrics"""
 
 
 desc_node_metrics.desc:
-"""desc_node_metrics"""
+"""Bridge metrics grouped by node."""
 desc_node_metrics.label:
-"""desc_node_metrics"""
+"""Node Metrics"""
 
 
 desc_node_name.desc:
-"""desc_node_name"""
+"""Node name."""
 desc_node_name.label:
-"""desc_node_name"""
+"""Node Name"""
 
 
 metric_dropped.desc:
-"""metric_dropped"""
+"""Number of dropped messages."""
 metric_dropped.label:
-"""metric_dropped"""
+"""Dropped Messages"""
 
 
 metric_dropped_other.desc:
-"""metric_dropped_other"""
+"""Number of messages dropped for other reasons."""
 metric_dropped_other.label:
-"""metric_dropped_other"""
+"""Dropped Messages (Other)"""
 
 
 metric_dropped_queue_full.desc:
-"""metric_dropped_queue_full"""
+"""Number of messages dropped because queue is full."""
 metric_dropped_queue_full.label:
-"""metric_dropped_queue_full"""
+"""Dropped Messages (Queue Full)"""
 
 
 metric_dropped_resource_not_found.desc:
-"""metric_dropped_resource_not_found"""
+"""Number of messages dropped because the resource was not found."""
 metric_dropped_resource_not_found.label:
-"""metric_dropped_resource_not_found"""
+"""Dropped Messages (Resource Not Found)"""
 
 
 metric_dropped_resource_stopped.desc:
-"""metric_dropped_resource_stopped"""
+"""Number of messages dropped because the resource was stopped."""
 metric_dropped_resource_stopped.label:
-"""metric_dropped_resource_stopped"""
+"""Dropped Messages (Resource Stopped)"""
 
 
 metric_inflight.desc:
-"""metric_inflight"""
+"""Number of messages currently in flight."""
 metric_inflight.label:
-"""metric_inflight"""
+"""In-flight Messages"""
 
 
 metric_matched.desc:
-"""metric_matched"""
+"""Number of matched messages."""
 metric_matched.label:
-"""metric_matched"""
+"""Matched Messages"""
 
 
 metric_queuing.desc:
-"""metric_queuing"""
+"""Number of messages queued for delivery."""
 metric_queuing.label:
-"""metric_queuing"""
+"""Queued Messages"""
 
 
 metric_rate.desc:
-"""metric_rate"""
+"""Current message send rate."""
 metric_rate.label:
-"""metric_rate"""
+"""Send Rate"""
 
 
 metric_rate_last5m.desc:
-"""metric_rate_last5m"""
+"""Average message send rate in the last 5 minutes."""
 metric_rate_last5m.label:
-"""metric_rate_last5m"""
+"""Send Rate (Last 5 Minutes)"""
 
 
 metric_rate_max.desc:
-"""metric_rate_max"""
+"""Maximum message send rate since startup."""
 metric_rate_max.label:
-"""metric_rate_max"""
+"""Max Send Rate"""
 
 
 metric_received.desc:
-"""metric_received"""
+"""Number of received messages."""
 metric_received.label:
-"""metric_received"""
+"""Received Messages"""
 
 
 metric_retried.desc:
-"""metric_retried"""
+"""Number of retried messages."""
 metric_retried.label:
-"""metric_retried"""
+"""Retried Messages"""
 
 
 metric_sent_failed.desc:
-"""metric_sent_failed"""
+"""Number of failed message sends."""
 metric_sent_failed.label:
-"""metric_sent_failed"""
+"""Failed Sends"""
 
 
 metric_sent_success.desc:
-"""metric_sent_success"""
+"""Number of successful message sends."""
 metric_sent_success.label:
-"""metric_sent_success"""
+"""Successful Sends"""
 
 }

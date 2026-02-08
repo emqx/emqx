@@ -576,8 +576,8 @@ max_payload_bytes.label:
 
 
 msg_payload.desc:
-"""msg_payload"""
+"""Message payload."""
 msg_payload.label:
-"""msg_payload"""
+"""Payload"""
 
 }

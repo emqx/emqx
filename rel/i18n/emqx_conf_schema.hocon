@@ -923,8 +923,8 @@ node_tls_stateless_tickets_seed.label:
 
 
 log_throttling.desc:
-"""log_throttling"""
+"""Log throttling configuration."""
 log_throttling.label:
-"""log_throttling"""
+"""Log Throttling"""
 
 }

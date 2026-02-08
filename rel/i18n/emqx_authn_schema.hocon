@@ -194,8 +194,8 @@ precondition.desc: """~
   Find more information about Variform expressions in EMQX doc.~"""
 
 authentication_cache.desc:
-"""authentication_cache"""
+"""Authentication cache settings."""
 authentication_cache.label:
-"""authentication_cache"""
+"""Authentication Cache"""
 
 }

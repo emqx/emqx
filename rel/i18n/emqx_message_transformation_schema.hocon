@@ -2,62 +2,62 @@ emqx_message_transformation_schema {
 
 
 config_enable.desc:
-"""config_enable"""
+"""Whether this feature is enabled."""
 config_enable.label:
-"""config_enable"""
+"""Enable"""
 
 
 failure_action.desc:
-"""failure_action"""
+"""Action when transformation fails."""
 failure_action.label:
-"""failure_action"""
+"""Failure Action"""
 
 
 log_failure_at.desc:
-"""log_failure_at"""
+"""Log level for recording transformation failures."""
 log_failure_at.label:
-"""log_failure_at"""
+"""Failure Log Level"""
 
 
 name.desc:
-"""name"""
+"""Transformation name."""
 name.label:
-"""name"""
+"""Name"""
 
 
 operation.desc:
-"""operation"""
+"""List of transformation operations."""
 operation.label:
-"""operation"""
+"""Operations"""
 
 
 operation_key.desc:
-"""operation_key"""
+"""Target key path to update."""
 operation_key.label:
-"""operation_key"""
+"""Operation Key"""
 
 
 operation_value.desc:
-"""operation_value"""
+"""Value or template assigned to the key."""
 operation_value.label:
-"""operation_value"""
+"""Operation Value"""
 
 
 payload_decoder.desc:
-"""payload_decoder"""
+"""Payload decoder configuration."""
 payload_decoder.label:
-"""payload_decoder"""
+"""Payload Decoder"""
 
 
 payload_encoder.desc:
-"""payload_encoder"""
+"""Payload encoder configuration."""
 payload_encoder.label:
-"""payload_encoder"""
+"""Payload Encoder"""
 
 
 topics.desc:
-"""topics"""
+"""Topic filters to apply this transformation."""
 topics.label:
-"""topics"""
+"""Topics"""
 
 }

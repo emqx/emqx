@@ -98,8 +98,8 @@ emqx_schema_validation_schema {
 
 
 config_enable.desc:
-"""config_enable"""
+"""Whether this feature is enabled."""
 config_enable.label:
-"""config_enable"""
+"""Enable"""
 
 }

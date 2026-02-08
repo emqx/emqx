@@ -292,8 +292,8 @@ emqx_metrics {
     }
 
 session_disonnected.desc:
-"""session_disonnected"""
+"""Number of disconnected sessions."""
 session_disonnected.label:
-"""session_disonnected"""
+"""Disconnected Sessions"""
 
 }

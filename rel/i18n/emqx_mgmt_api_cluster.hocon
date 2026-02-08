@@ -122,8 +122,8 @@ deleted_successfully.label:
 
 
 node_name.desc:
-"""node_name"""
+"""Node name."""
 node_name.label:
-"""node_name"""
+"""Node Name"""
 
 }

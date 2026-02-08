@@ -13,10 +13,10 @@ bad_request.label:
 
 
 authorization_settings_get.label:
-"""authorization_settings_get"""
+"""Get Authorization Settings"""
 
 
 authorization_settings_put.label:
-"""authorization_settings_put"""
+"""Update Authorization Settings"""
 
 }

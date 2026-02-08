@@ -20,8 +20,8 @@ emqx_bridge_disk_log_action_schema {
   """Content of the JSON object to be written. Supports templates."""
 
 parameters.desc:
-"""parameters"""
+"""Action-specific parameters."""
 parameters.label:
-"""parameters"""
+"""Parameters"""
 
 }

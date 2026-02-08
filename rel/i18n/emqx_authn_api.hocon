@@ -283,26 +283,26 @@ no_content.label:
 
 
 ALREADY_EXISTS.desc:
-"""ALREADY_EXISTS"""
+"""Resource already exists."""
 ALREADY_EXISTS.label:
-"""ALREADY_EXISTS"""
+"""Already Exists"""
 
 
 BAD_REQUEST.desc:
-"""BAD_REQUEST"""
+"""Bad request."""
 BAD_REQUEST.label:
-"""BAD_REQUEST"""
+"""Bad Request"""
 
 
 INTERNAL_ERROR.desc:
-"""INTERNAL_ERROR"""
+"""Internal server error."""
 INTERNAL_ERROR.label:
-"""INTERNAL_ERROR"""
+"""Internal Error"""
 
 
 NOT_FOUND.desc:
-"""NOT_FOUND"""
+"""Resource not found."""
 NOT_FOUND.label:
-"""NOT_FOUND"""
+"""Not Found"""
 
 }

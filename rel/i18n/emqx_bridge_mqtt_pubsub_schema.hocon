@@ -26,8 +26,8 @@ emqx_bridge_mqtt_pubsub_schema {
 
 
 source_parameters.desc:
-"""source_parameters"""
+"""Source-specific parameters."""
 source_parameters.label:
-"""source_parameters"""
+"""Source Parameters"""
 
 }

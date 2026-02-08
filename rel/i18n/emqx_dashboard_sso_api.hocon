@@ -72,8 +72,8 @@ sp_saml_metadata.label:
 
 
 backend_name_in_qs.desc:
-"""backend_name_in_qs"""
+"""SSO backend name from query string."""
 backend_name_in_qs.label:
-"""backend_name_in_qs"""
+"""Backend Name (Query)"""
 
 }

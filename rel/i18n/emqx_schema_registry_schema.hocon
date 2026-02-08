@@ -159,8 +159,8 @@ confluent_schema_registry_auth_basic_password.desc:
 
 
 external_registry_name.desc:
-"""external_registry_name"""
+"""Name of the external schema registry."""
 external_registry_name.label:
-"""external_registry_name"""
+"""External Registry Name"""
 
 }

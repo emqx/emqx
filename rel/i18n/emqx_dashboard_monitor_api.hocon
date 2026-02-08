@@ -215,8 +215,8 @@ node_not_found: {
 
 
 hwmark_kpeak_time.desc:
-"""hwmark_kpeak_time"""
+"""Timestamp of the peak value."""
 hwmark_kpeak_time.label:
-"""hwmark_kpeak_time"""
+"""Peak Time"""
 
 }

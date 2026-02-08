@@ -64,14 +64,14 @@ user_id.desc:
 
 
 bad_request.desc:
-"""bad_request"""
+"""Bad request."""
 bad_request.label:
-"""bad_request"""
+"""Bad Request"""
 
 
 not_found.desc:
-"""not_found"""
+"""Resource not found."""
 not_found.label:
-"""not_found"""
+"""Not Found"""
 
 }

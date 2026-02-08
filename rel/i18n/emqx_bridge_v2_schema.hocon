@@ -62,14 +62,14 @@ undefined_vars_as_null.label:
 
 
 desc_name.desc:
-"""desc_name"""
+"""Name of the bridge resource."""
 desc_name.label:
-"""desc_name"""
+"""Name"""
 
 
 desc_type.desc:
-"""desc_type"""
+"""Type of the bridge resource."""
 desc_type.label:
-"""desc_type"""
+"""Type"""
 
 }

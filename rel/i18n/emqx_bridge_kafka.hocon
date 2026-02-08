@@ -457,8 +457,8 @@ allow_auto_topic_creation.label:
 """Allow Auto Topic Creation"""
 
 resource_opts.desc:
-"""resource_opts"""
+"""Resource options."""
 resource_opts.label:
-"""resource_opts"""
+"""Resource Options"""
 
 }

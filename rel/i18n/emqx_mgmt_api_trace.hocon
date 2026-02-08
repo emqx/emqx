@@ -204,8 +204,8 @@ payload_limit.label:
 
 
 ruleid_field.desc:
-"""ruleid_field"""
+"""Rule ID."""
 ruleid_field.label:
-"""ruleid_field"""
+"""Rule ID"""
 
 }

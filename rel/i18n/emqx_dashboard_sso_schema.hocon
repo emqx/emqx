@@ -17,14 +17,14 @@ sso_struct.label:
 
 
 password.desc:
-"""password"""
+"""Password."""
 password.label:
-"""password"""
+"""Password"""
 
 
 username.desc:
-"""username"""
+"""Username."""
 username.label:
-"""username"""
+"""Username"""
 
 }

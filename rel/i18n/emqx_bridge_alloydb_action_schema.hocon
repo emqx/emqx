@@ -12,8 +12,8 @@ emqx_bridge_alloydb_action_schema {
   }
 
 parameters.desc:
-"""parameters"""
+"""Action-specific parameters."""
 parameters.label:
-"""parameters"""
+"""Parameters"""
 
 }

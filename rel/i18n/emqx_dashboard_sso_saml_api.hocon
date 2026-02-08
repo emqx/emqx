@@ -2,32 +2,32 @@ emqx_dashboard_sso_saml_api {
 
 
 backend_not_found.desc:
-"""backend_not_found"""
+"""Specified SAML backend was not found."""
 backend_not_found.label:
-"""backend_not_found"""
+"""Backend Not Found"""
 
 
 login_failed401.desc:
-"""login_failed401"""
+"""Login failed due to invalid credentials."""
 login_failed401.label:
-"""login_failed401"""
+"""Login Failed"""
 
 
 redirect.desc:
-"""redirect"""
+"""Redirect URL to the IdP login page."""
 redirect.label:
-"""redirect"""
+"""Redirect URL"""
 
 
 saml_sso_acs.desc:
-"""saml_sso_acs"""
+"""SAML assertion consumer service URL."""
 saml_sso_acs.label:
-"""saml_sso_acs"""
+"""SAML SSO ACS"""
 
 
 sp_saml_metadata.desc:
-"""sp_saml_metadata"""
+"""Service Provider SAML metadata."""
 sp_saml_metadata.label:
-"""sp_saml_metadata"""
+"""SP SAML Metadata"""
 
 }

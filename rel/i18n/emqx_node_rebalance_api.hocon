@@ -311,20 +311,20 @@ not_found.label:
 
 
 conn_evict_rpc_timeout.desc:
-"""conn_evict_rpc_timeout"""
+"""RPC timeout for connection eviction during rebalancing."""
 conn_evict_rpc_timeout.label:
-"""conn_evict_rpc_timeout"""
+"""Connection Eviction RPC Timeout"""
 
 
 global_status_purges.desc:
-"""global_status_purges"""
+"""Global purge task status across nodes."""
 global_status_purges.label:
-"""global_status_purges"""
+"""Global Purge Status"""
 
 
 sess_evict_rpc_timeout.desc:
-"""sess_evict_rpc_timeout"""
+"""RPC timeout for session eviction during rebalancing."""
 sess_evict_rpc_timeout.label:
-"""sess_evict_rpc_timeout"""
+"""Session Eviction RPC Timeout"""
 
 }

@@ -85,8 +85,8 @@ emqx_bridge_s3tables_action_schema {
 
 
 parameters.desc:
-"""parameters"""
+"""Action-specific parameters."""
 parameters.label:
-"""parameters"""
+"""Parameters"""
 
 }

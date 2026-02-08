@@ -14,8 +14,8 @@ emqx_bridge_doris_action_schema {
 
 
 parameters.desc:
-"""parameters"""
+"""Action-specific parameters."""
 parameters.label:
-"""parameters"""
+"""Parameters"""
 
 }

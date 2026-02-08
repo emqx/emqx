@@ -21,8 +21,8 @@ file.label:
 
 
 rules.desc:
-"""rules"""
+"""Authorization rules."""
 rules.label:
-"""rules"""
+"""Rules"""
 
 }

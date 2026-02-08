@@ -439,32 +439,32 @@ event_ctx_authn_reason_code.desc:
 
 
 alarm_activated_at.desc:
-"""alarm_activated_at"""
+"""Time when the alarm was activated."""
 alarm_activated_at.label:
-"""alarm_activated_at"""
+"""Alarm Activated At"""
 
 
 alarm_deactivated_at.desc:
-"""alarm_deactivated_at"""
+"""Time when the alarm was deactivated."""
 alarm_deactivated_at.label:
-"""alarm_deactivated_at"""
+"""Alarm Deactivated At"""
 
 
 alarm_details.desc:
-"""alarm_details"""
+"""Additional alarm details."""
 alarm_details.label:
-"""alarm_details"""
+"""Alarm Details"""
 
 
 alarm_message.desc:
-"""alarm_message"""
+"""Alarm message."""
 alarm_message.label:
-"""alarm_message"""
+"""Alarm Message"""
 
 
 alarm_name.desc:
-"""alarm_name"""
+"""Alarm name."""
 alarm_name.label:
-"""alarm_name"""
+"""Alarm Name"""
 
 }
