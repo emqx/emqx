@@ -87,7 +87,7 @@ fields(lwm2m) ->
             )},
         {coap_max_block_size,
             sc(
-                range(16, 1024),
+                emqx_coap_schema:block_size(),
                 #{
                     default => 1024,
                     desc => ?DESC(lwm2m_coap_max_block_size)
@@ -110,7 +110,7 @@ fields(lwm2m_blockwise) ->
             )},
         {max_block_size,
             sc(
-                hoconsc:enum([16, 32, 64, 128, 256, 512, 1024]),
+                emqx_coap_schema:block_size(),
                 #{default => 1024, desc => ?DESC(lwm2m_blockwise_max_block_size)}
             )},
         {max_body_size,

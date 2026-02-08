@@ -9,6 +9,11 @@
 
 %% config schema provides
 -export([namespace/0, fields/1, desc/1]).
+-export([block_size/0]).
+
+-spec block_size() -> typerefl:type().
+block_size() ->
+    typerefl:alias("block_size", typerefl:union([16, 32, 64, 128, 256, 512, 1024])).
 
 namespace() -> "gateway".
 
@@ -75,7 +80,7 @@ fields(coap_blockwise) ->
             )},
         {max_block_size,
             sc(
-                hoconsc:enum([16, 32, 64, 128, 256, 512, 1024]),
+                block_size(),
                 #{default => 1024, desc => ?DESC(coap_blockwise_max_block_size)}
             )},
         {max_body_size,
