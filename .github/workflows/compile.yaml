@@ -51,7 +51,7 @@ jobs:
           # Ensure generated dashboard i18n assets (for example desc.zh.hocon)
           # exist in test artifacts consumed by downstream CT jobs.
           if [ "${{ inputs.build_type }}" = "test" ]; then
-            ./scripts/pre-compile.sh "${PROFILE}"
+            make pre-compile
           fi
           make ${MAKE_TARGET}
           echo "export PROFILE=${PROFILE}" | tee -a env.sh
