@@ -48,6 +48,11 @@ jobs:
         run: |
           set -exuo pipefail
           make ensure-rebar3
+          # Ensure generated dashboard i18n assets (for example desc.zh.hocon)
+          # exist in test artifacts consumed by downstream CT jobs.
+          if [ "${{ inputs.build_type }}" = "test" ]; then
+            ./scripts/pre-compile.sh "${PROFILE}"
+          fi
           make ${MAKE_TARGET}
           echo "export PROFILE=${PROFILE}" | tee -a env.sh
           echo "export PKG_VSN=$(./pkg-vsn.sh ${PROFILE})" | tee -a env.sh
