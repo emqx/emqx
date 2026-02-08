@@ -57,4 +57,10 @@ emqx_mq_api {
     topic_filter {
         desc: "Topic filter"
     }
+
+message_queues_config_update_success.desc:
+"""message_queues_config_update_success"""
+message_queues_config_update_success.label:
+"""message_queues_config_update_success"""
+
 }

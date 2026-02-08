@@ -70,4 +70,10 @@ sp_saml_metadata.label:
 """SP SAML Metadata"""
 
 
+
+backend_name_in_qs.desc:
+"""backend_name_in_qs"""
+backend_name_in_qs.label:
+"""backend_name_in_qs"""
+
 }

@@ -281,4 +281,28 @@ no_content.desc:
 no_content.label:
 """No Content"""
 
+
+ALREADY_EXISTS.desc:
+"""ALREADY_EXISTS"""
+ALREADY_EXISTS.label:
+"""ALREADY_EXISTS"""
+
+
+BAD_REQUEST.desc:
+"""BAD_REQUEST"""
+BAD_REQUEST.label:
+"""BAD_REQUEST"""
+
+
+INTERNAL_ERROR.desc:
+"""INTERNAL_ERROR"""
+INTERNAL_ERROR.label:
+"""INTERNAL_ERROR"""
+
+
+NOT_FOUND.desc:
+"""NOT_FOUND"""
+NOT_FOUND.label:
+"""NOT_FOUND"""
+
 }

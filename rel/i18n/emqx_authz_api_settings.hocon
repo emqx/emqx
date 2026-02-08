@@ -11,4 +11,12 @@ bad_request.desc:
 bad_request.label:
 """Bad Request"""
 
+
+authorization_settings_get.label:
+"""authorization_settings_get"""
+
+
+authorization_settings_put.label:
+"""authorization_settings_put"""
+
 }

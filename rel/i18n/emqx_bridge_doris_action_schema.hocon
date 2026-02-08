@@ -12,4 +12,10 @@ emqx_bridge_doris_action_schema {
     """Additional parameters specific to this action type"""
   }
 
+
+parameters.desc:
+"""parameters"""
+parameters.label:
+"""parameters"""
+
 }

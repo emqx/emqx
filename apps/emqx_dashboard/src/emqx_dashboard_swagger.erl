@@ -6,6 +6,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(BASE_PATH, "/api/v5").
 
@@ -107,6 +108,7 @@
     translate_body => boolean() | {true, atom_keys},
     schema_converter => fun((hocon_schema:schema(), Module :: atom()) -> map()),
     i18n_lang => atom() | string() | binary(),
+    i18n_strict => boolean(),
     filter => filter()
 }.
 
@@ -628,11 +630,7 @@ trans_summary(Spec = #{summary := _}, Hocon, Options) ->
 trans_summary(Spec, Hocon, Options) ->
     case desc_struct(Hocon) of
         ?DESC(_, _) = Struct ->
-            Summary =
-                case get_i18n(<<"label">>, Struct, undefined, Options) of
-                    undefined -> missing_i18n_ref(Struct);
-                    Text -> Text
-                end,
+            Summary = resolve_i18n(<<"label">>, Struct, Options),
             Spec#{summary => Summary};
         _ ->
             Spec
@@ -720,10 +718,7 @@ trans_description(Spec, Hocon, Options) ->
             undefined ->
                 undefined;
             ?DESC(_, _) = Struct ->
-                case get_i18n(<<"desc">>, Struct, undefined, Options) of
-                    undefined -> missing_i18n_ref(Struct);
-                    Text -> Text
-                end;
+                resolve_i18n(<<"desc">>, Struct, Options);
             Text ->
                 missing_i18n_ref(Text)
         end,
@@ -787,6 +782,70 @@ get_i18n_text(Lang, Namespace, Id, Tag, Default) ->
             Default;
         Text ->
             Text
+    end.
+
+resolve_i18n(Tag, ?DESC(_, _) = Struct, Options) ->
+    case get_i18n(Tag, Struct, undefined, Options) of
+        undefined ->
+            case is_i18n_strict(Options) of
+                true ->
+                    missing_i18n_ref(Struct);
+                false ->
+                    warn_missing_i18n_once(Tag, Struct),
+                    fallback_i18n_text(Struct)
+            end;
+        Text ->
+            Text
+    end.
+
+is_i18n_strict(Options) ->
+    maps:get(i18n_strict, Options, i18n_strict_env()).
+
+i18n_strict_env() ->
+    case os:getenv("EMQX_SWAGGER_I18N_STRICT") of
+        false -> false;
+        "1" -> true;
+        "true" -> true;
+        "TRUE" -> true;
+        _ -> false
+    end.
+
+fallback_i18n_text(?DESC(_, Id)) ->
+    to_bin(Id).
+
+warn_missing_i18n_once(Tag, Struct) ->
+    Tab = emqx_dashboard_swagger_missing_i18n_warned,
+    ok = ensure_warned_i18n_tab(Tab),
+    Key = {Tag, Struct},
+    case ets:insert_new(Tab, {Key, true}) of
+        true ->
+            ?LOG_WARNING(
+                "swagger i18n missing ref, fallback to id: tag=~p ref=~p",
+                [Tag, Struct]
+            );
+        false ->
+            ok
+    end.
+
+ensure_warned_i18n_tab(Tab) ->
+    case ets:info(Tab) of
+        undefined ->
+            try
+                _ = ets:new(Tab, [
+                    named_table,
+                    public,
+                    set,
+                    {read_concurrency, true},
+                    {write_concurrency, true}
+                ]),
+                ok
+            catch
+                error:badarg ->
+                    %% another process created it first
+                    ok
+            end;
+        _ ->
+            ok
     end.
 
 %% So far i18n_lang in options is only used at build time.
@@ -1095,17 +1154,11 @@ translate_examples(Value, _Options) ->
 maybe_translate_example_doc(Key, ?DESC(_, _) = Struct, Options) when
     Key =:= summary; Key =:= <<"summary">>
 ->
-    case get_i18n(<<"label">>, Struct, undefined, Options) of
-        undefined -> missing_i18n_ref(Struct);
-        Text -> Text
-    end;
+    resolve_i18n(<<"label">>, Struct, Options);
 maybe_translate_example_doc(Key, ?DESC(_, _) = Struct, Options) when
     Key =:= description; Key =:= <<"description">>
 ->
-    case get_i18n(<<"desc">>, Struct, undefined, Options) of
-        undefined -> missing_i18n_ref(Struct);
-        Text -> Text
-    end;
+    resolve_i18n(<<"desc">>, Struct, Options);
 maybe_translate_example_doc(_Key, Value, _Options) ->
     Value.
 

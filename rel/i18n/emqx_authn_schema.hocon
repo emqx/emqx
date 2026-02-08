@@ -192,4 +192,10 @@ precondition.desc: """~
     `iif(is_empty_val(password), false, str_eq(zone, 'zone1'))`
 
   Find more information about Variform expressions in EMQX doc.~"""
+
+authentication_cache.desc:
+"""authentication_cache"""
+authentication_cache.label:
+"""authentication_cache"""
+
 }

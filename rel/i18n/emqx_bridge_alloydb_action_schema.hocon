@@ -10,4 +10,10 @@ emqx_bridge_alloydb_action_schema {
     desc:
     """Set of parameters for the action."""
   }
+
+parameters.desc:
+"""parameters"""
+parameters.label:
+"""parameters"""
+
 }

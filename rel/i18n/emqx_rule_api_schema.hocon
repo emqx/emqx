@@ -437,4 +437,34 @@ event_is_superuser.desc:
 event_ctx_authn_reason_code.desc:
 """The reason code"""
 
+
+alarm_activated_at.desc:
+"""alarm_activated_at"""
+alarm_activated_at.label:
+"""alarm_activated_at"""
+
+
+alarm_deactivated_at.desc:
+"""alarm_deactivated_at"""
+alarm_deactivated_at.label:
+"""alarm_deactivated_at"""
+
+
+alarm_details.desc:
+"""alarm_details"""
+alarm_details.label:
+"""alarm_details"""
+
+
+alarm_message.desc:
+"""alarm_message"""
+alarm_message.label:
+"""alarm_message"""
+
+
+alarm_name.desc:
+"""alarm_name"""
+alarm_name.label:
+"""alarm_name"""
+
 }

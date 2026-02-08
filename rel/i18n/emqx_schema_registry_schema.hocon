@@ -157,4 +157,10 @@ confluent_schema_registry_auth_basic_password.desc:
       Note: any `NBIRTH` and `DBIRTH` messages received while alias-name mapping is disabled will not take effect after this config is later enabled.~"""
   }
 
+
+external_registry_name.desc:
+"""external_registry_name"""
+external_registry_name.label:
+"""external_registry_name"""
+
 }

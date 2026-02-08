@@ -921,4 +921,10 @@ Important:
 node_tls_stateless_tickets_seed.label:
 """TLS Stateless Tickets Seed"""
 
+
+log_throttling.desc:
+"""log_throttling"""
+log_throttling.label:
+"""log_throttling"""
+
 }

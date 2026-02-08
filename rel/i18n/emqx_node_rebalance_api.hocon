@@ -309,4 +309,22 @@ not_found.desc:
 not_found.label:
 """Not Found"""
 
+
+conn_evict_rpc_timeout.desc:
+"""conn_evict_rpc_timeout"""
+conn_evict_rpc_timeout.label:
+"""conn_evict_rpc_timeout"""
+
+
+global_status_purges.desc:
+"""global_status_purges"""
+global_status_purges.label:
+"""global_status_purges"""
+
+
+sess_evict_rpc_timeout.desc:
+"""sess_evict_rpc_timeout"""
+sess_evict_rpc_timeout.label:
+"""sess_evict_rpc_timeout"""
+
 }

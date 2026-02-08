@@ -96,4 +96,10 @@ emqx_schema_validation_schema {
   checks.label:
   """Checks"""
 
+
+config_enable.desc:
+"""config_enable"""
+config_enable.label:
+"""config_enable"""
+
 }

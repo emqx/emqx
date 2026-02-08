@@ -62,4 +62,16 @@ update_user.label:
 user_id.desc:
 """User ID"""
 
+
+bad_request.desc:
+"""bad_request"""
+bad_request.label:
+"""bad_request"""
+
+
+not_found.desc:
+"""not_found"""
+not_found.label:
+"""not_found"""
+
 }

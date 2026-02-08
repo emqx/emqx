@@ -1,0 +1,15 @@
+emqx_gateway_api_authn_user_import {
+
+
+bad_request.desc:
+"""bad_request"""
+bad_request.label:
+"""bad_request"""
+
+
+not_found.desc:
+"""not_found"""
+not_found.label:
+"""not_found"""
+
+}

@@ -455,4 +455,10 @@ allow_auto_topic_creation.desc:
 """Set to true to allow automatic Kafka topic creation with metadata fetch request."""
 allow_auto_topic_creation.label:
 """Allow Auto Topic Creation"""
+
+resource_opts.desc:
+"""resource_opts"""
+resource_opts.label:
+"""resource_opts"""
+
 }

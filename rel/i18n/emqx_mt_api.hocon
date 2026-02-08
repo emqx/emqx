@@ -131,4 +131,16 @@ emqx_mt_api {
         desc: "Example list response payload."
         label: "List Example"
     }
+
+last_clientid_in_query.desc:
+"""last_clientid_in_query"""
+last_clientid_in_query.label:
+"""last_clientid_in_query"""
+
+
+param_path_ns.desc:
+"""param_path_ns"""
+param_path_ns.label:
+"""param_path_ns"""
+
 }

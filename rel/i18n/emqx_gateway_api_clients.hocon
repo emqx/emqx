@@ -256,4 +256,16 @@ example_stomp_subscription.desc:
 example_stomp_subscription.label:
 """Example STOMP Subscription"""
 
+
+bad_request.desc:
+"""bad_request"""
+bad_request.label:
+"""bad_request"""
+
+
+not_found.desc:
+"""not_found"""
+not_found.label:
+"""not_found"""
+
 }

@@ -290,4 +290,10 @@ emqx_metrics {
     overload_protection_new_conn {
         desc: "Number of overload protection close new incoming connection"
     }
+
+session_disonnected.desc:
+"""session_disonnected"""
+session_disonnected.label:
+"""session_disonnected"""
+
 }

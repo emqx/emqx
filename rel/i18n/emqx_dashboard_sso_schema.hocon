@@ -15,4 +15,16 @@ sso_struct.desc:
 sso_struct.label:
 """Dashboard Single Sign-On"""
 
+
+password.desc:
+"""password"""
+password.label:
+"""password"""
+
+
+username.desc:
+"""username"""
+username.label:
+"""username"""
+
 }
