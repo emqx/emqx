@@ -17,13 +17,13 @@ emqx_bridge_gcp_pubsub_producer_schema {
 
 
 desc_name.desc:
-"""Name of the bridge resource."""
+"""Name of the resource."""
 desc_name.label:
 """Name"""
 
 
 desc_type.desc:
-"""Type of the bridge resource."""
+"""Type of the resource."""
 desc_type.label:
 """Type"""
 
