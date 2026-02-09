@@ -154,7 +154,7 @@ producer_kafka_ext_header_key.desc:
 """Key of the Azure Event Hubs header. Placeholders in format of ${var} are supported."""
 
 producer_kafka_ext_header_key.label:
-"""Azure Event Hubs extra header key."""
+"""Azure Event Hubs extra header key"""
 
 producer_kafka_ext_header_value.desc:
 """Value of the header. Placeholders in format of ${var} are supported."""
@@ -370,5 +370,11 @@ allow_auto_topic_creation.desc:
 """Set to true to allow automatic topic creation with metadata fetch request."""
 allow_auto_topic_creation.label:
 """Allow Auto Topic Creation"""
+
+
+resource_opts.desc:
+"""Resource options."""
+resource_opts.label:
+"""Resource Options"""
 
 }

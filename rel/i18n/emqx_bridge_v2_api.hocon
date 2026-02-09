@@ -23,59 +23,137 @@ desc_status_reason.desc:
 desc_status_reason.label:
 """Failure reason"""
 
-desc_api1.desc:
-"""List all created bridges."""
+desc_actions_list.desc:
+"""List all created actions."""
 
-desc_api1.label:
-"""List All Bridges"""
+desc_actions_list.label:
+"""List Actions"""
 
-desc_api2.desc:
-"""Create a new bridge by type and name."""
+desc_actions_create.desc:
+"""Create a new action by type and name."""
 
-desc_api2.label:
-"""Create Bridge"""
+desc_actions_create.label:
+"""Create Action"""
 
-desc_api3.desc:
-"""Get a bridge by id."""
+desc_actions_get.desc:
+"""Get an action by id."""
 
-desc_api3.label:
-"""Get Bridge"""
+desc_actions_get.label:
+"""Get Action"""
 
-desc_api4.desc:
-"""Update a bridge by id."""
+desc_actions_update.desc:
+"""Update an action by id."""
 
-desc_api4.label:
-"""Update Bridge"""
+desc_actions_update.label:
+"""Update Action"""
 
-desc_api5.desc:
-"""Delete a bridge by id."""
+desc_actions_delete.desc:
+"""Delete an action by id."""
 
-desc_api5.label:
-"""Delete Bridge"""
+desc_actions_delete.label:
+"""Delete Action"""
 
-desc_api6.desc:
-"""Reset a bridge metrics by id."""
+desc_actions_metrics_get.desc:
+"""Get action metrics by id."""
 
-desc_api6.label:
-"""Reset Bridge Metrics"""
+desc_actions_metrics_get.label:
+"""Get Action Metrics"""
 
-desc_api7.desc:
-"""Start bridge on all nodes in the cluster."""
+desc_actions_metrics_reset.desc:
+"""Reset action metrics by id."""
 
-desc_api7.label:
-"""Cluster Bridge Operation"""
+desc_actions_metrics_reset.label:
+"""Reset Action Metrics"""
 
-desc_api8.desc:
-"""Start bridge on a specific node."""
+desc_actions_enable_cluster.desc:
+"""Enable or disable action on all nodes in the cluster."""
 
-desc_api8.label:
-"""Node Bridge Operation"""
+desc_actions_enable_cluster.label:
+"""Cluster Action Enable"""
 
-desc_api9.desc:
-"""Test creating a new bridge."""
+desc_actions_operation_cluster.desc:
+"""Start action on all nodes in the cluster."""
 
-desc_api9.label:
-"""Test Bridge Creation"""
+desc_actions_operation_cluster.label:
+"""Cluster Action Operation"""
+
+desc_actions_operation_node.desc:
+"""Start action on a specific node."""
+
+desc_actions_operation_node.label:
+"""Node Action Operation"""
+
+desc_actions_probe.desc:
+"""Test creating a new action."""
+
+desc_actions_probe.label:
+"""Test Action Creation"""
+
+desc_sources_list.desc:
+"""List all created sources."""
+
+desc_sources_list.label:
+"""List Sources"""
+
+desc_sources_create.desc:
+"""Create a new source by type and name."""
+
+desc_sources_create.label:
+"""Create Source"""
+
+desc_sources_get.desc:
+"""Get a source by id."""
+
+desc_sources_get.label:
+"""Get Source"""
+
+desc_sources_update.desc:
+"""Update a source by id."""
+
+desc_sources_update.label:
+"""Update Source"""
+
+desc_sources_delete.desc:
+"""Delete a source by id."""
+
+desc_sources_delete.label:
+"""Delete Source"""
+
+desc_sources_metrics_get.desc:
+"""Get source metrics by id."""
+
+desc_sources_metrics_get.label:
+"""Get Source Metrics"""
+
+desc_sources_metrics_reset.desc:
+"""Reset source metrics by id."""
+
+desc_sources_metrics_reset.label:
+"""Reset Source Metrics"""
+
+desc_sources_enable_cluster.desc:
+"""Enable or disable source on all nodes in the cluster."""
+
+desc_sources_enable_cluster.label:
+"""Cluster Source Enable"""
+
+desc_sources_operation_cluster.desc:
+"""Start source on all nodes in the cluster."""
+
+desc_sources_operation_cluster.label:
+"""Cluster Source Operation"""
+
+desc_sources_operation_node.desc:
+"""Start source on a specific node."""
+
+desc_sources_operation_node.label:
+"""Node Source Operation"""
+
+desc_sources_probe.desc:
+"""Test creating a new source."""
+
+desc_sources_probe.label:
+"""Test Source Creation"""
 
 desc_api10.desc:
 """Lists the available action types."""
@@ -89,23 +167,17 @@ desc_api11.desc:
 desc_api11.label:
 """List source types"""
 
-desc_bridge_metrics.desc:
-"""Get bridge metrics by id."""
-
-desc_bridge_metrics.label:
-"""Get Bridge Metrics"""
-
-desc_enable_bridge.desc:
-"""Enable or Disable bridge on all nodes in the cluster."""
-
-desc_enable_bridge.label:
-"""Cluster Bridge Enable"""
-
 actions_summary.desc:
 """Summarize actions."""
 
+actions_summary.label:
+"""Summarize Actions"""
+
 sources_summary.desc:
-"""Summarize actions."""
+"""Summarize sources."""
+
+sources_summary.label:
+"""Summarize Sources"""
 
 desc_param_path_enable.desc:
 """Whether to enable this bridge."""
@@ -183,5 +255,119 @@ action_test_failed.desc:
 
 source_already_exists.desc:
 """Source already exists."""
+
+
+action_already_exists.desc:
+"""Action already exists."""
+action_already_exists.label:
+"""Action Already Exists"""
+
+
+desc_metrics.desc:
+"""Bridge metrics on the local node."""
+desc_metrics.label:
+"""Metrics"""
+
+
+desc_node_metrics.desc:
+"""Bridge metrics grouped by node."""
+desc_node_metrics.label:
+"""Node Metrics"""
+
+
+desc_node_name.desc:
+"""Node name."""
+desc_node_name.label:
+"""Node Name"""
+
+
+metric_dropped.desc:
+"""Number of dropped messages."""
+metric_dropped.label:
+"""Dropped Messages"""
+
+
+metric_dropped_other.desc:
+"""Number of messages dropped for other reasons."""
+metric_dropped_other.label:
+"""Dropped Messages (Other)"""
+
+
+metric_dropped_queue_full.desc:
+"""Number of messages dropped because the queue is full."""
+metric_dropped_queue_full.label:
+"""Dropped Messages (Queue Full)"""
+
+
+metric_dropped_resource_not_found.desc:
+"""Number of messages dropped because the resource was not found."""
+metric_dropped_resource_not_found.label:
+"""Dropped Messages (Resource Not Found)"""
+
+
+metric_dropped_resource_stopped.desc:
+"""Number of messages dropped because the resource was stopped."""
+metric_dropped_resource_stopped.label:
+"""Dropped Messages (Resource Stopped)"""
+
+
+metric_inflight.desc:
+"""Number of messages currently in flight."""
+metric_inflight.label:
+"""In-flight Messages"""
+
+
+metric_matched.desc:
+"""Number of matched messages."""
+metric_matched.label:
+"""Matched Messages"""
+
+
+metric_queuing.desc:
+"""Number of messages queued for delivery."""
+metric_queuing.label:
+"""Queued Messages"""
+
+
+metric_rate.desc:
+"""Current message send rate."""
+metric_rate.label:
+"""Send Rate"""
+
+
+metric_rate_last5m.desc:
+"""Average message send rate in the last 5 minutes."""
+metric_rate_last5m.label:
+"""Send Rate (Last 5 Minutes)"""
+
+
+metric_rate_max.desc:
+"""Maximum message send rate since startup."""
+metric_rate_max.label:
+"""Max Send Rate"""
+
+
+metric_received.desc:
+"""Number of received messages."""
+metric_received.label:
+"""Received Messages"""
+
+
+metric_retried.desc:
+"""Number of retried messages."""
+metric_retried.label:
+"""Retried Messages"""
+
+
+metric_sent_failed.desc:
+"""Number of failed message sends."""
+metric_sent_failed.label:
+"""Failed Sends"""
+
+
+metric_sent_success.desc:
+"""Number of successful message sends."""
+metric_sent_success.label:
+"""Successful Sends"""
 
 }

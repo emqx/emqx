@@ -16,6 +16,6 @@ for example, `administrator` or `viewer`.
 The 'role' is introduced in 5.4, to be backward compatible, if it is missing, the key is implicitly granted `administrator` role."""
 
 bootstrap_file.label:
-"""Initialize api_key file."""
+"""Initialize api_key file"""
 
 }

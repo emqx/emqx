@@ -40,6 +40,16 @@ deleted.desc:
 deleted.label:
 """Deleted"""
 
+example_clientid_whitelist.desc:
+"""Example white list for Client ID sampler rules."""
+example_clientid_whitelist.label:
+"""Client ID White List Example"""
+
+example_topic_whitelist.desc:
+"""Example white list for topic sampler rules."""
+example_topic_whitelist.label:
+"""Topic White List Example"""
+
 internal_service_error.desc:
 """Internal Service Error"""
 internal_service_error.label:

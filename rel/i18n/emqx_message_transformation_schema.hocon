@@ -1,0 +1,63 @@
+emqx_message_transformation_schema {
+
+
+config_enable.desc:
+"""Whether this feature is enabled."""
+config_enable.label:
+"""Enable"""
+
+
+failure_action.desc:
+"""Action when transformation fails."""
+failure_action.label:
+"""Failure Action"""
+
+
+log_failure_at.desc:
+"""Log level for recording transformation failures."""
+log_failure_at.label:
+"""Failure Log Level"""
+
+
+name.desc:
+"""Transformation name."""
+name.label:
+"""Name"""
+
+
+operation.desc:
+"""List of transformation operations."""
+operation.label:
+"""Operations"""
+
+
+operation_key.desc:
+"""Target key path to update."""
+operation_key.label:
+"""Operation Key"""
+
+
+operation_value.desc:
+"""Value or template assigned to the key."""
+operation_value.label:
+"""Operation Value"""
+
+
+payload_decoder.desc:
+"""Payload decoder configuration."""
+payload_decoder.label:
+"""Payload Decoder"""
+
+
+payload_encoder.desc:
+"""Payload encoder configuration."""
+payload_encoder.label:
+"""Payload Encoder"""
+
+
+topics.desc:
+"""Topic filters to apply this transformation."""
+topics.label:
+"""Topics"""
+
+}

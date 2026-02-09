@@ -10,4 +10,10 @@ emqx_bridge_cockroachdb_action_schema {
     desc:
     """Set of parameters for the action."""
   }
+
+parameters.desc:
+"""Action-specific parameters."""
+parameters.label:
+"""Parameters"""
+
 }
