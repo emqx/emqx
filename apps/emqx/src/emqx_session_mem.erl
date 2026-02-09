@@ -374,18 +374,27 @@ publish(
     Msg = #message{qos = ?QOS_2, timestamp = Ts},
     Session = #session{awaiting_rel = AwaitingRel}
 ) ->
-    case is_awaiting_full(Session) of
+    Dup = emqx_message:get_flag(dup, Msg),
+    case maps:is_key(PacketId, AwaitingRel) of
+        true when Dup ->
+            %% Retransmitted QoS2 PUBLISH: do not publish to subscribers again.
+            {ok, dup_publish_result(Msg), Session};
+        true ->
+            {error, ?RC_PACKET_IDENTIFIER_IN_USE};
         false ->
-            case maps:is_key(PacketId, AwaitingRel) of
+            case is_awaiting_full(Session) of
+                true ->
+                    {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED};
+                false when Dup ->
+                    %% The original awaiting_rel state may have been expired already.
+                    %% Keep awaiting PUBREL state and acknowledge without re-delivery.
+                    AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
+                    {ok, dup_publish_result(Msg), Session#session{awaiting_rel = AwaitingRel1}};
                 false ->
                     Results = emqx_broker:publish(Msg),
                     AwaitingRel1 = maps:put(PacketId, Ts, AwaitingRel),
-                    {ok, Results, Session#session{awaiting_rel = AwaitingRel1}};
-                true ->
-                    {error, ?RC_PACKET_IDENTIFIER_IN_USE}
-            end;
-        true ->
-            {error, ?RC_RECEIVE_MAXIMUM_EXCEEDED}
+                    {ok, Results, Session#session{awaiting_rel = AwaitingRel1}}
+            end
     end;
 %% Publish QoS0/1 directly
 publish(_PacketId, Msg, Session) ->
@@ -598,6 +607,9 @@ maybe_nack(Msg) ->
 
 mark_begin_deliver(Msg) ->
     emqx_message:set_header(deliver_begin_at, erlang:system_time(millisecond), Msg).
+
+dup_publish_result(#message{topic = Topic}) ->
+    [{node(), Topic, ok}].
 
 %%--------------------------------------------------------------------
 %% Timeouts

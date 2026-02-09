@@ -87,3 +87,53 @@ t_check_rel_cleanup(_Config) ->
 
     %% Disconnect the client
     emqx_mqtt_test_client:stop(Client1).
+
+t_qos2_dup_publish_not_redelivered_after_await_rel_expired(_Config) ->
+    Topic = <<"topic/qos2/dup/rel-expire">>,
+    Payload = <<"hello">>,
+    PacketId = 100,
+    Host = "127.0.0.1",
+    Port = 1883,
+    ConnectPacket = ?CONNECT_PACKET(
+        #mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            properties = #{'Session-Expiry-Interval' => 30000},
+            clientid = <<"clientid-dup-check">>,
+            clean_start = true
+        }
+    ),
+    ok = emqx_broker:subscribe(Topic),
+    try
+        {ok, Client} = emqx_mqtt_test_client:start_link(Host, Port),
+        ok = emqx_mqtt_test_client:send(Client, ConnectPacket),
+        {ok, ?CONNACK_PACKET(?RC_SUCCESS, _, _)} = emqx_mqtt_test_client:receive_packet(),
+        Publish = ?PUBLISH_PACKET(?QOS_2, Topic, PacketId, Payload),
+        ok = emqx_mqtt_test_client:send(Client, Publish),
+        ?assertMatch(
+            {ok, ?PUBREC_PACKET(PacketId, ?RC_SUCCESS, _)},
+            emqx_mqtt_test_client:receive_packet()
+        ),
+        ?assertMatch({deliver, Topic, #message{payload = Payload}}, receive_deliver(1000)),
+
+        %% let awaiting_rel expire, then resend PUBLISH with DUP=1
+        ct:sleep(200),
+        HeaderDup = (Publish#mqtt_packet.header)#mqtt_packet_header{dup = true},
+        PublishDup = Publish#mqtt_packet{header = HeaderDup},
+        ok = emqx_mqtt_test_client:send(Client, PublishDup),
+        ?assertMatch(
+            {ok, ?PUBREC_PACKET(PacketId, ?RC_SUCCESS, _)},
+            emqx_mqtt_test_client:receive_packet()
+        ),
+        ?assertEqual(timeout, receive_deliver(300)),
+        ok = emqx_mqtt_test_client:stop(Client)
+    after
+        ok = emqx_broker:unsubscribe(Topic)
+    end.
+
+receive_deliver(Timeout) ->
+    receive
+        {deliver, Topic, #message{} = Msg} ->
+            {deliver, Topic, Msg}
+    after Timeout ->
+        timeout
+    end.
