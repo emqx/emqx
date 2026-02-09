@@ -59,6 +59,8 @@ fields(config) ->
 %% Less than ?T_OPERATION of emqx_resource_manager
 -define(CHANNEL_CLOSE_TIMEOUT, 4_000).
 
+-define(AUTO_RECONNECT_INTERVAL_S, 2).
+
 %% ===================================================================
 %% Callbacks defined in emqx_resource
 %% ===================================================================
@@ -78,7 +80,8 @@ on_start(InstanceId, Config) ->
     Options = [
         {config, Config},
         {pool_size, maps:get(pool_size, Config)},
-        {pool, InstanceId}
+        {pool, InstanceId},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
@@ -189,6 +192,8 @@ on_get_status(PoolName, #{channels := Channels}) ->
     ?tp("rabbitmq_on_get_status_enter1", #{}),
     ChannelNum = maps:size(Channels),
     Conns = get_rabbitmq_connections(PoolName),
+    %% TODO: should disentangle channel and connector health checks; channels should be
+    %% restarted independently, instead of relying on full connector restart...
     try actual_channel_nums(Conns) of
         ActualNums ->
             Check = lists:all(fun(ActualNum) -> ActualNum >= ChannelNum end, ActualNums),
@@ -467,6 +472,7 @@ make_channel([], _ChannelId, _Param, Acc) ->
     {ok, Acc};
 make_channel([Conn | Conns], ChannelId, Params, Acc) ->
     maybe
+        ?tp("rabbitmq_will_make_channel", #{}),
         {ok, RabbitMQChannel} ?= amqp_connection:open_channel(Conn),
         ok ?= try_confirm_channel(Params, RabbitMQChannel),
         ok ?= try_subscribe(Params, RabbitMQChannel, ChannelId),
