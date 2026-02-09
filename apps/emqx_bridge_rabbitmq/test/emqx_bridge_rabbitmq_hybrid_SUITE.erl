@@ -543,3 +543,36 @@ test_crash_recovery(CrashWhat, TCConfig) ->
         []
     ),
     ok.
+
+-doc """
+Asserts that we don't leak channel processes if, for whatever reason, creating a list of
+channels fails midway.
+""".
+t_start_channel_no_leak(TCConfig) ->
+    %% Sanity check
+    ?assertEqual([], list_rabbitmq_channel_processes()),
+    ?assertEqual([], list_rabbitmq_connection_processes()),
+
+    {201, #{
+        <<"status">> := <<"connected">>,
+        <<"pool_size">> := PoolSize
+    }} = create_connector_api(TCConfig, #{}),
+    ct:timetrap({seconds, 5}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            ?inject_crash(
+                #{?snk_kind := "rabbitmq_will_make_channel"},
+                snabbkaffe_nemesis:periodic_crash(
+                    _Period = PoolSize,
+                    _DutyCycle = 0.5,
+                    _Phase = 0
+                )
+            ),
+            {201, #{<<"status">> := <<"disconnected">>}} = create_action_api(TCConfig, #{}),
+            ?assertEqual(0, length(list_rabbitmq_channel_processes())),
+            ok
+        end,
+        []
+    ),
+    ok.
