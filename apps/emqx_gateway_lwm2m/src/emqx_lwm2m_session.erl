@@ -80,7 +80,7 @@
     cmd_record :: cmd_record(),
     subscriptions :: map(),
     blockwise :: emqx_coap_blockwise:state(),
-    blockwise_downlink :: request_context() | undefined
+    blockwise_downlink :: non_neg_integer() | undefined
 }).
 
 -type session() :: #session{}.
