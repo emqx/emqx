@@ -9,10 +9,12 @@
     source_config/1,
 
     ssl_options/1,
+    connect_client/1,
     connect_and_setup_exchange_and_queue/1,
     cleanup_client_and_queue/1,
 
     receive_message/1,
+    receive_message/3,
     publish_message/2
 ]).
 
@@ -82,28 +84,13 @@ source_config(Overrides) ->
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(source, ?SOURCE_TYPE_BIN, <<"x">>, InnerConfigMap).
 
-connect_and_setup_exchange_and_queue(Opts) ->
+connect_and_setup_exchange_and_queue(ClientOpts) ->
     #{
-        host := Host,
-        port := Port,
-        use_tls := UseTLS,
         exchange := Exchange,
         queue := Queue,
         routing_key := RoutingKey
-    } = Opts,
-    SSLOptions =
-        case UseTLS of
-            false -> none;
-            true -> emqx_tls_lib:to_client_opts(ssl_options(UseTLS))
-        end,
-    %% Create an exchange and a queue
-    {ok, Connection} =
-        amqp_connection:start(#amqp_params_network{
-            host = str(Host),
-            port = Port,
-            ssl_options = SSLOptions
-        }),
-    {ok, Channel} = amqp_connection:open_channel(Connection),
+    } = ClientOpts,
+    {Connection, Channel} = connect_client(ClientOpts),
     %% Create an exchange
     #'exchange.declare_ok'{} =
         amqp_channel:call(
@@ -129,31 +116,45 @@ connect_and_setup_exchange_and_queue(Opts) ->
                 routing_key = RoutingKey
             }
         ),
-    #{
-        connection => Connection,
-        channel => Channel,
-        queue => Queue,
-        exchange => Exchange,
-        routing_key => RoutingKey
-    }.
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
+    ok.
 
-cleanup_client_and_queue(Client) ->
+connect_client(Opts) ->
     #{
-        channel := Channel,
-        connection := Connection,
-        queue := Queue
-    } = Client,
+        host := Host,
+        port := Port,
+        use_tls := UseTLS
+    } = Opts,
+    SSLOptions =
+        case UseTLS of
+            false -> none;
+            true -> emqx_tls_lib:to_client_opts(ssl_options(UseTLS))
+        end,
+    %% Create an exchange and a queue
+    {ok, Connection} =
+        amqp_connection:start(#amqp_params_network{
+            host = str(Host),
+            port = Port,
+            ssl_options = SSLOptions
+        }),
+    {ok, Channel} = amqp_connection:open_channel(Connection),
+    {Connection, Channel}.
+
+cleanup_client_and_queue(ClientOpts) ->
+    #{queue := Queue} = ClientOpts,
+    {Connection, Channel} = connect_client(ClientOpts),
     amqp_channel:call(Channel, #'queue.purge'{queue = Queue}),
     amqp_channel:close(Channel),
     amqp_connection:close(Connection),
     ok.
 
-publish_message(Payload, Client) ->
+publish_message(Payload, ClientOpts) ->
+    {Connection, Channel} = connect_client(ClientOpts),
     #{
-        channel := Channel,
         exchange := Exchange,
         routing_key := RoutingKey
-    } = Client,
+    } = ClientOpts,
     MessageProperties = #'P_basic'{
         headers = [],
         delivery_mode = 1
@@ -162,7 +163,7 @@ publish_message(Payload, Client) ->
         exchange = Exchange,
         routing_key = RoutingKey
     },
-    amqp_channel:cast(
+    amqp_channel:call(
         Channel,
         Method,
         #amqp_msg{
@@ -170,13 +171,19 @@ publish_message(Payload, Client) ->
             props = MessageProperties
         }
     ),
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
     ok.
 
-receive_message(Client) ->
-    #{
-        channel := Channel,
-        queue := Queue
-    } = Client,
+receive_message(ClientOpts) ->
+    {Connection, Channel} = connect_client(ClientOpts),
+    Res = receive_message(Connection, Channel, ClientOpts),
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
+    Res.
+
+receive_message(_Connection, Channel, ClientOpts) ->
+    #{queue := Queue} = ClientOpts,
     #'basic.consume_ok'{consumer_tag = ConsumerTag} =
         amqp_channel:call(
             Channel,
