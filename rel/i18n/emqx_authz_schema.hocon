@@ -34,7 +34,7 @@ node.desc:
 """Node name."""
 
 node.label:
-"""Node Name."""
+"""Node Name"""
 
 rate_last5m.desc:
 """The average rate of matched in the last 5 minutes, times/second."""

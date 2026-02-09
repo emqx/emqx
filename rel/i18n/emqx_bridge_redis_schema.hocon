@@ -24,7 +24,7 @@ batch_time.desc:
 """Maximum waiting interval when accumulating a batch at a low message rates for more efficient resource usage."""
 
 batch_time.label:
-"""Max batch wait time, disable when in Redis Cluster Mode."""
+"""Max batch wait time, disable when in Redis Cluster Mode"""
 
 redis_action.label:
 """Redis Action"""

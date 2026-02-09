@@ -1473,7 +1473,7 @@ authenticator_array_example() ->
 authenticator_examples() ->
     #{
         'password_based:built_in_database' => #{
-            summary => <<"Built-in password_based authentication">>,
+            summary => ?DESC("example_builtin_password_authn"),
             value => #{
                 mechanism => <<"password_based">>,
                 backend => <<"built_in_database">>,
@@ -1485,7 +1485,7 @@ authenticator_examples() ->
             }
         },
         'password_based:http' => #{
-            summary => <<"password_based authentication through external HTTP API">>,
+            summary => ?DESC("example_http_password_authn"),
             value => #{
                 mechanism => <<"password_based">>,
                 backend => <<"http">>,
@@ -1506,7 +1506,7 @@ authenticator_examples() ->
             }
         },
         'jwt' => #{
-            summary => <<"JWT authentication">>,
+            summary => ?DESC("example_jwt_authn"),
             value => #{
                 mechanism => <<"jwt">>,
                 use_jwks => false,
@@ -1519,7 +1519,7 @@ authenticator_examples() ->
             }
         },
         'password_based:mongodb' => #{
-            summary => <<"password_based authentication with MongoDB backend">>,
+            summary => ?DESC("example_mongodb_password_authn"),
             value => #{
                 mechanism => <<"password_based">>,
                 backend => <<"mongodb">>,
@@ -1539,7 +1539,7 @@ authenticator_examples() ->
             }
         },
         'password_based:redis' => #{
-            summary => <<"password_based authentication with Redis backend">>,
+            summary => ?DESC("example_redis_password_authn"),
             value => #{
                 mechanism => <<"password_based">>,
                 backend => <<"redis">>,
@@ -1558,7 +1558,7 @@ authenticator_examples() ->
 status_metrics_example() ->
     #{
         status_metrics => #{
-            summary => <<"Authn status metrics">>,
+            summary => ?DESC("example_authn_status_metrics"),
             value => #{
                 resource_metrics => #{
                     matched => 0,
@@ -1619,14 +1619,14 @@ status_metrics_example() ->
 request_user_create_examples() ->
     #{
         regular_user => #{
-            summary => <<"Regular user">>,
+            summary => ?DESC("example_regular_user"),
             value => #{
                 user_id => <<"user1">>,
                 password => <<"******">>
             }
         },
         super_user => #{
-            summary => <<"Superuser">>,
+            summary => ?DESC("example_superuser"),
             value => #{
                 user_id => <<"user2">>,
                 password => <<"******">>,
@@ -1638,13 +1638,13 @@ request_user_create_examples() ->
 request_user_update_examples() ->
     #{
         regular_user => #{
-            summary => <<"Update regular user">>,
+            summary => ?DESC("example_update_regular_user"),
             value => #{
                 password => <<"******">>
             }
         },
         super_user => #{
-            summary => <<"Update user and promote to superuser">>,
+            summary => ?DESC("example_update_promote_superuser"),
             value => #{
                 password => <<"******">>,
                 is_superuser => true
@@ -1655,13 +1655,13 @@ request_user_update_examples() ->
 response_user_examples() ->
     #{
         regular_user => #{
-            summary => <<"Regular user">>,
+            summary => ?DESC("example_regular_user"),
             value => #{
                 user_id => <<"user1">>
             }
         },
         super_user => #{
-            summary => <<"Superuser">>,
+            summary => ?DESC("example_superuser"),
             value => #{
                 user_id => <<"user2">>,
                 is_superuser => true

@@ -146,4 +146,10 @@ consumer_mqtt_payload.label:
     label: "GCP PubSub Consumer"
   }
 
+
+request_timeout.desc:
+"""Request timeout for calling GCP Pub/Sub."""
+request_timeout.label:
+"""Request Timeout"""
+
 }
