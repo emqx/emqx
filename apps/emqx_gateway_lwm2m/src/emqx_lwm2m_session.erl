@@ -941,7 +941,7 @@ maybe_do_deliver_to_coap(
     Req,
     ExpiryTime,
     CacheMode,
-    WithContext,
+    _WithContext,
     #session{
         wait_ack = WaitAck,
         queue = Queue
@@ -949,12 +949,13 @@ maybe_do_deliver_to_coap(
 ) ->
     case is_blockwise_downlink_busy(Ctx, Req, Session) of
         true ->
-            send_blockwise_busy(Ctx, WithContext, Session);
+            Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)};
         false ->
             MHeaders = normalize_mheaders(Ctx),
             TTL = maps:get(<<"ttl">>, MHeaders, maps:get(ttl, MHeaders, 7200)),
             case TTL of
                 0 ->
+                    %% TTL=0 means no timeout control; fire-and-forget without waiting for ACK.
                     send_msg_not_waiting_ack(Ctx, Req, Session);
                 _ ->
                     case
@@ -979,19 +980,6 @@ is_blockwise_downlink_busy(Ctx, Req, #session{blockwise = BW, blockwise_downlink
         _ ->
             false
     end.
-
-send_blockwise_busy(Ctx, WithContext, Session) ->
-    Payload0 = emqx_lwm2m_cmd:cmd_error_to_mqtt(service_unavailable, Ctx),
-    Payload = Payload0#{<<"msgType">> => <<"coap_busy">>},
-    Session2 = record_response(<<"coap_busy">>, Payload, Session),
-    maybe_send_to_mqtt(Ctx, <<"coap_busy">>, Payload, WithContext, Session2).
-
-maybe_send_to_mqtt(Ctx, EventType, Payload, WithContext, Session) when
-    is_function(WithContext, 2)
-->
-    send_to_mqtt(Ctx, EventType, Payload, WithContext, Session);
-maybe_send_to_mqtt(_Ctx, _EventType, _Payload, _WithContext, Session) ->
-    Session.
 
 normalize_mheaders(Ctx) when is_map(Ctx) ->
     case maps:get(mheaders, Ctx, undefined) of

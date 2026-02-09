@@ -5561,8 +5561,8 @@ case138_blockwise_downlink_busy(_Config) ->
     Cmd2 = Cmd1#{<<"requestID">> => 1002},
     #{return := {OutsBusy, Session3}} = emqx_lwm2m_session:send_cmd(Cmd2, WithContext, Session2),
     ?assertEqual([], OutsBusy),
-    BusyPayload = wait_publish_payload(),
-    ?assertEqual(<<"coap_busy">>, maps:get(<<"msgType">>, BusyPayload)),
+    ?assertEqual(1, queue:len(element(3, Session3))),
+    expect_no_publish(),
 
     ContinueResp = emqx_coap_message:piggyback({ok, continue}, FirstReq),
     #{return := {Outs2, _Session4}} = emqx_lwm2m_session:handle_protocol_in(
