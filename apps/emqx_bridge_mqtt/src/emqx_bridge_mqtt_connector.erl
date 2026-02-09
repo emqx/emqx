@@ -93,8 +93,7 @@ callback_mode() -> async_if_possible.
 
 -spec on_start(connector_resource_id(), map()) -> {ok, connector_state()} | {error, term()}.
 on_start(ResourceId, #{server := Server} = Conf) ->
-    ?SLOG(info, #{
-        msg => "starting_mqtt_connector",
+    ?tp(info, "starting_mqtt_connector", #{
         connector => ResourceId,
         config => emqx_utils:redact(Conf)
     }),

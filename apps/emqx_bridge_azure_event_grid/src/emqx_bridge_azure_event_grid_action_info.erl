@@ -1,0 +1,39 @@
+%%--------------------------------------------------------------------
+%% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
+%%--------------------------------------------------------------------
+-module(emqx_bridge_azure_event_grid_action_info).
+
+-behaviour(emqx_action_info).
+
+-include("emqx_bridge_azure_event_grid.hrl").
+
+%% `emqx_action_info' API
+-export([
+    action_type_name/0,
+    connector_type_name/0,
+    schema_module/0,
+    is_action/0,
+    is_source/0
+]).
+
+%%------------------------------------------------------------------------------
+%% Type declarations
+%%------------------------------------------------------------------------------
+
+%%------------------------------------------------------------------------------
+%% `emqx_action_info' API
+%%------------------------------------------------------------------------------
+
+action_type_name() -> ?ACTION_TYPE.
+
+connector_type_name() -> ?CONNECTOR_TYPE.
+
+schema_module() -> emqx_bridge_azure_event_grid_hybrid_schema.
+
+is_action() -> true.
+
+is_source() -> true.
+
+%%------------------------------------------------------------------------------
+%% Internal fns
+%%------------------------------------------------------------------------------
