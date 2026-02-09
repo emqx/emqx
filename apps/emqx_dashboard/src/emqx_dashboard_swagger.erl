@@ -770,7 +770,9 @@ get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),
     case Lang of
         ?NO_I18N ->
-            undefined;
+            %% When explicit i18n is disabled (e.g. schema export endpoints),
+            %% we still resolve from English entries to keep strict checks.
+            get_i18n_text(en, Namespace, Id, Tag, Default);
         _ ->
             get_i18n_text(Lang, Namespace, Id, Tag, Default)
     end.
