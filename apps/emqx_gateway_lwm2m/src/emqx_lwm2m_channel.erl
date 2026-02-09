@@ -194,14 +194,10 @@ handle_deliver(Delivers, Channel) ->
 handle_timeout(
     _,
     lifetime,
-    #channel{
-        ctx = Ctx,
-        clientinfo = ClientInfo,
-        conninfo = ConnInfo
-    } = Channel
+    #channel{} = Channel
 ) ->
-    ok = run_hooks(Ctx, 'client.disconnected', [ClientInfo, timeout, ConnInfo]),
-    {shutdown, timeout, Channel};
+    NChannel = ensure_disconnected(timeout, Channel),
+    {shutdown, timeout, NChannel};
 handle_timeout(_, {transport, _} = Msg, Channel) ->
     call_session(timeout, Msg, Channel);
 handle_timeout(_, disconnect, Channel) ->
