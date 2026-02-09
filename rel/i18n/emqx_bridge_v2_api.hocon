@@ -294,7 +294,7 @@ metric_dropped_other.label:
 
 
 metric_dropped_queue_full.desc:
-"""Number of messages dropped because queue is full."""
+"""Number of messages dropped because the queue is full."""
 metric_dropped_queue_full.label:
 """Dropped Messages (Queue Full)"""
 
