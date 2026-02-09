@@ -108,7 +108,6 @@
     translate_body => boolean() | {true, atom_keys},
     schema_converter => fun((hocon_schema:schema(), Module :: atom()) -> map()),
     i18n_lang => atom() | string() | binary(),
-    i18n_strict => boolean(),
     filter => filter()
 }.
 
@@ -787,65 +786,9 @@ get_i18n_text(Lang, Namespace, Id, Tag, Default) ->
 resolve_i18n(Tag, ?DESC(_, _) = Struct, Options) ->
     case get_i18n(Tag, Struct, undefined, Options) of
         undefined ->
-            case is_i18n_strict(Options) of
-                true ->
-                    missing_i18n_ref(Struct);
-                false ->
-                    warn_missing_i18n_once(Tag, Struct),
-                    fallback_i18n_text(Struct)
-            end;
+            missing_i18n_ref(Struct);
         Text ->
             Text
-    end.
-
-is_i18n_strict(Options) ->
-    maps:get(i18n_strict, Options, i18n_strict_env()).
-
-i18n_strict_env() ->
-    case os:getenv("EMQX_SWAGGER_I18N_STRICT") of
-        false -> false;
-        "1" -> true;
-        "true" -> true;
-        "TRUE" -> true;
-        _ -> false
-    end.
-
-fallback_i18n_text(?DESC(_, Id)) ->
-    to_bin(Id).
-
-warn_missing_i18n_once(Tag, Struct) ->
-    Tab = emqx_dashboard_swagger_missing_i18n_warned,
-    ok = ensure_warned_i18n_tab(Tab),
-    Key = {Tag, Struct},
-    case ets:insert_new(Tab, {Key, true}) of
-        true ->
-            ?LOG_WARNING(
-                "swagger i18n missing ref, fallback to id: tag=~p ref=~p",
-                [Tag, Struct]
-            );
-        false ->
-            ok
-    end.
-
-ensure_warned_i18n_tab(Tab) ->
-    case ets:info(Tab) of
-        undefined ->
-            try
-                _ = ets:new(Tab, [
-                    named_table,
-                    public,
-                    set,
-                    {read_concurrency, true},
-                    {write_concurrency, true}
-                ]),
-                ok
-            catch
-                error:badarg ->
-                    %% another process created it first
-                    ok
-            end;
-        _ ->
-            ok
     end.
 
 %% So far i18n_lang in options is only used at build time.
