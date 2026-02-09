@@ -53,6 +53,8 @@ do_start() ->
 stop(_State) ->
     ok = emqx_conf:remove_handler([mq]),
     ok = optvar:unset(?OPTVAR_READY),
+    %% Restore handling of `$queue` topics to the default (as `$share` with group `$queue`)
+    ok = emqx_topic:enable_queue_alias_to_share(true),
     ok = emqx_mq:unregister_hooks(),
     ok = emqx_mq_quota_buffer:stop(?MQ_QUOTA_BUFFER),
     ok = emqx_mq_message_db:close(),
@@ -94,6 +96,8 @@ complete_start() ->
     ok = emqx_mq_sup:start_metrics(),
     ok = emqx_mq_quota_buffer:start(?MQ_QUOTA_BUFFER, quota_buffer_options()),
     ok = emqx_mq_sup:start_gc_scheduler(),
+    %% Claim handling of `$queue` topics to ourselves
+    ok = emqx_topic:enable_queue_alias_to_share(false),
     ok = emqx_mq:register_hooks().
 
 quota_buffer_options() ->
