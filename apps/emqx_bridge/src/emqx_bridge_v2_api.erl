@@ -277,7 +277,7 @@ schema("/actions") ->
         'operationId' => '/actions',
         get => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api1"),
+            description => ?DESC("desc_actions_list"),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     array(emqx_bridge_v2_schema:actions_get_response()),
@@ -287,7 +287,7 @@ schema("/actions") ->
         },
         post => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api2"),
+            description => ?DESC("desc_actions_create"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
@@ -303,7 +303,7 @@ schema("/actions/:id") ->
         'operationId' => '/actions/:id',
         get => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api3"),
+            description => ?DESC("desc_actions_get"),
             parameters => [param_path_id()],
             responses => #{
                 200 => actions_get_response_body_schema(),
@@ -312,7 +312,7 @@ schema("/actions/:id") ->
         },
         put => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api4"),
+            description => ?DESC("desc_actions_update"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_put_request(),
@@ -327,7 +327,7 @@ schema("/actions/:id") ->
         },
         delete => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api5"),
+            description => ?DESC("desc_actions_delete"),
             parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -346,7 +346,7 @@ schema("/actions/:id/metrics") ->
         'operationId' => '/actions/:id/metrics',
         get => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_bridge_metrics"),
+            description => ?DESC("desc_actions_metrics_get"),
             parameters => [param_path_id()],
             responses => #{
                 200 => metrics_fields(),
@@ -359,7 +359,7 @@ schema("/actions/:id/metrics/reset") ->
         'operationId' => '/actions/:id/metrics/reset',
         put => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api6"),
+            description => ?DESC("desc_actions_metrics_reset"),
             parameters => [param_path_id()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -373,7 +373,7 @@ schema("/actions/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"actions">>],
-                desc => ?DESC("desc_enable_bridge"),
+                desc => ?DESC("desc_actions_enable_cluster"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
                     #{
@@ -388,7 +388,7 @@ schema("/actions/:id/:operation") ->
         'operationId' => '/actions/:id/:operation',
         post => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api7"),
+            description => ?DESC("desc_actions_operation_cluster"),
             parameters => [
                 param_path_id(),
                 param_path_operation_cluster()
@@ -409,7 +409,7 @@ schema("/nodes/:node/actions/:id/:operation") ->
         'operationId' => '/nodes/:node/actions/:id/:operation',
         post => #{
             tags => [<<"actions">>],
-            description => ?DESC("desc_api8"),
+            description => ?DESC("desc_actions_operation_node"),
             parameters => [
                 param_path_node(),
                 param_path_id(),
@@ -429,7 +429,7 @@ schema("/actions_probe") ->
         'operationId' => '/actions_probe',
         post => #{
             tags => [<<"actions">>],
-            desc => ?DESC("desc_api9"),
+            desc => ?DESC("desc_actions_probe"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_ACTIONS)
@@ -482,7 +482,7 @@ schema("/sources") ->
         'operationId' => '/sources',
         get => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api1"),
+            description => ?DESC("desc_sources_list"),
             responses => #{
                 %% FIXME: examples
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -493,7 +493,7 @@ schema("/sources") ->
         },
         post => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api2"),
+            description => ?DESC("desc_sources_create"),
             %% FIXME: examples
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
@@ -510,7 +510,7 @@ schema("/sources/:id") ->
         'operationId' => '/sources/:id',
         get => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api3"),
+            description => ?DESC("desc_sources_get"),
             parameters => [param_path_id()],
             responses => #{
                 200 => sources_get_response_body_schema(),
@@ -519,7 +519,7 @@ schema("/sources/:id") ->
         },
         put => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api4"),
+            description => ?DESC("desc_sources_update"),
             parameters => [param_path_id()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_put_request(),
@@ -534,7 +534,7 @@ schema("/sources/:id") ->
         },
         delete => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api5"),
+            description => ?DESC("desc_sources_delete"),
             parameters => [param_path_id(), param_qs_delete_cascade()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -553,7 +553,7 @@ schema("/sources/:id/metrics") ->
         'operationId' => '/sources/:id/metrics',
         get => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_bridge_metrics"),
+            description => ?DESC("desc_sources_metrics_get"),
             parameters => [param_path_id()],
             responses => #{
                 200 => metrics_fields(),
@@ -566,7 +566,7 @@ schema("/sources/:id/metrics/reset") ->
         'operationId' => '/sources/:id/metrics/reset',
         put => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api6"),
+            description => ?DESC("desc_sources_metrics_reset"),
             parameters => [param_path_id()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -580,7 +580,7 @@ schema("/sources/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"sources">>],
-                desc => ?DESC("desc_enable_bridge"),
+                desc => ?DESC("desc_sources_enable_cluster"),
                 parameters => [param_path_id(), param_path_enable()],
                 responses =>
                     #{
@@ -595,7 +595,7 @@ schema("/sources/:id/:operation") ->
         'operationId' => '/sources/:id/:operation',
         post => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api7"),
+            description => ?DESC("desc_sources_operation_cluster"),
             parameters => [
                 param_path_id(),
                 param_path_operation_cluster()
@@ -614,7 +614,7 @@ schema("/nodes/:node/sources/:id/:operation") ->
         'operationId' => '/nodes/:node/sources/:id/:operation',
         post => #{
             tags => [<<"sources">>],
-            description => ?DESC("desc_api8"),
+            description => ?DESC("desc_sources_operation_node"),
             parameters => [
                 param_path_node(),
                 param_path_id(),
@@ -634,7 +634,7 @@ schema("/sources_probe") ->
         'operationId' => '/sources_probe',
         post => #{
             tags => [<<"sources">>],
-            desc => ?DESC("desc_api9"),
+            desc => ?DESC("desc_sources_probe"),
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
                 bridge_info_examples(post, ?ROOT_KEY_SOURCES)

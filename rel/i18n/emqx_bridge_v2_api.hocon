@@ -23,59 +23,137 @@ desc_status_reason.desc:
 desc_status_reason.label:
 """Failure reason"""
 
-desc_api1.desc:
-"""List all created bridges."""
+desc_actions_list.desc:
+"""List all created actions."""
 
-desc_api1.label:
-"""List All Bridges"""
+desc_actions_list.label:
+"""List Actions"""
 
-desc_api2.desc:
-"""Create a new bridge by type and name."""
+desc_actions_create.desc:
+"""Create a new action by type and name."""
 
-desc_api2.label:
-"""Create Bridge"""
+desc_actions_create.label:
+"""Create Action"""
 
-desc_api3.desc:
-"""Get a bridge by id."""
+desc_actions_get.desc:
+"""Get an action by id."""
 
-desc_api3.label:
-"""Get Bridge"""
+desc_actions_get.label:
+"""Get Action"""
 
-desc_api4.desc:
-"""Update a bridge by id."""
+desc_actions_update.desc:
+"""Update an action by id."""
 
-desc_api4.label:
-"""Update Bridge"""
+desc_actions_update.label:
+"""Update Action"""
 
-desc_api5.desc:
-"""Delete a bridge by id."""
+desc_actions_delete.desc:
+"""Delete an action by id."""
 
-desc_api5.label:
-"""Delete Bridge"""
+desc_actions_delete.label:
+"""Delete Action"""
 
-desc_api6.desc:
-"""Reset a bridge metrics by id."""
+desc_actions_metrics_get.desc:
+"""Get action metrics by id."""
 
-desc_api6.label:
-"""Reset Bridge Metrics"""
+desc_actions_metrics_get.label:
+"""Get Action Metrics"""
 
-desc_api7.desc:
-"""Start bridge on all nodes in the cluster."""
+desc_actions_metrics_reset.desc:
+"""Reset action metrics by id."""
 
-desc_api7.label:
-"""Cluster Bridge Operation"""
+desc_actions_metrics_reset.label:
+"""Reset Action Metrics"""
 
-desc_api8.desc:
-"""Start bridge on a specific node."""
+desc_actions_enable_cluster.desc:
+"""Enable or disable action on all nodes in the cluster."""
 
-desc_api8.label:
-"""Node Bridge Operation"""
+desc_actions_enable_cluster.label:
+"""Cluster Action Enable"""
 
-desc_api9.desc:
-"""Test creating a new bridge."""
+desc_actions_operation_cluster.desc:
+"""Start action on all nodes in the cluster."""
 
-desc_api9.label:
-"""Test Bridge Creation"""
+desc_actions_operation_cluster.label:
+"""Cluster Action Operation"""
+
+desc_actions_operation_node.desc:
+"""Start action on a specific node."""
+
+desc_actions_operation_node.label:
+"""Node Action Operation"""
+
+desc_actions_probe.desc:
+"""Test creating a new action."""
+
+desc_actions_probe.label:
+"""Test Action Creation"""
+
+desc_sources_list.desc:
+"""List all created sources."""
+
+desc_sources_list.label:
+"""List Sources"""
+
+desc_sources_create.desc:
+"""Create a new source by type and name."""
+
+desc_sources_create.label:
+"""Create Source"""
+
+desc_sources_get.desc:
+"""Get a source by id."""
+
+desc_sources_get.label:
+"""Get Source"""
+
+desc_sources_update.desc:
+"""Update a source by id."""
+
+desc_sources_update.label:
+"""Update Source"""
+
+desc_sources_delete.desc:
+"""Delete a source by id."""
+
+desc_sources_delete.label:
+"""Delete Source"""
+
+desc_sources_metrics_get.desc:
+"""Get source metrics by id."""
+
+desc_sources_metrics_get.label:
+"""Get Source Metrics"""
+
+desc_sources_metrics_reset.desc:
+"""Reset source metrics by id."""
+
+desc_sources_metrics_reset.label:
+"""Reset Source Metrics"""
+
+desc_sources_enable_cluster.desc:
+"""Enable or disable source on all nodes in the cluster."""
+
+desc_sources_enable_cluster.label:
+"""Cluster Source Enable"""
+
+desc_sources_operation_cluster.desc:
+"""Start source on all nodes in the cluster."""
+
+desc_sources_operation_cluster.label:
+"""Cluster Source Operation"""
+
+desc_sources_operation_node.desc:
+"""Start source on a specific node."""
+
+desc_sources_operation_node.label:
+"""Node Source Operation"""
+
+desc_sources_probe.desc:
+"""Test creating a new source."""
+
+desc_sources_probe.label:
+"""Test Source Creation"""
 
 desc_api10.desc:
 """Lists the available action types."""
@@ -88,18 +166,6 @@ desc_api11.desc:
 
 desc_api11.label:
 """List source types"""
-
-desc_bridge_metrics.desc:
-"""Get bridge metrics by id."""
-
-desc_bridge_metrics.label:
-"""Get Bridge Metrics"""
-
-desc_enable_bridge.desc:
-"""Enable or Disable bridge on all nodes in the cluster."""
-
-desc_enable_bridge.label:
-"""Cluster Bridge Enable"""
 
 actions_summary.desc:
 """Summarize actions."""
