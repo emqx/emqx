@@ -221,7 +221,7 @@ cth_config(emqx_mq, ConfigOverrides) ->
     Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
     #{
         config => Config,
-        after_start => fun() -> ok = emqx_mq_app:wait_readiness(15_000) end
+        after_start => fun() -> started = emqx_mq_controller:wait_status(15_000) end
     };
 cth_config(emqx, ConfigOverrides) ->
     DefaultConfig = #{
@@ -257,5 +257,6 @@ default_mq_config() ->
         <<"auto_create">> => #{
             <<"regular">> => false,
             <<"lastvalue">> => false
-        }
+        },
+        <<"enable">> => true
     }.

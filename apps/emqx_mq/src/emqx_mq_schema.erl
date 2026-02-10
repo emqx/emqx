@@ -31,8 +31,8 @@ tags() ->
 fields(mq) ->
     [
         {enable,
-            mk(boolean(), #{
-                default => true,
+            mk(hoconsc:union([boolean(), auto]), #{
+                default => auto,
                 required => true,
                 desc => ?DESC(enable)
             })},

@@ -144,7 +144,8 @@ emqx_mq_schema {
 
     enable {
         desc: """~
-            Whether to enable the Message Queue."""
+            Whether to enable the Message Queues. If set to `auto`, the Message Queues will be disabled
+            by default and enabled only if there are already any Message Queues created."""
         label: "Enable"
     }
 

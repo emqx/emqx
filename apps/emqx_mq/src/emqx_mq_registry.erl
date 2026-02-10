@@ -20,7 +20,8 @@ The module contains the registry of Message Queues.
     delete/1,
     update/2,
     list/0,
-    list/2
+    list/2,
+    queue_count/0
 ]).
 
 -dialyzer(no_improper_lists).
@@ -313,6 +314,13 @@ do_list(StartKey, Limit) ->
             {MQs, NewCursor}
     end.
 
+-doc """
+Get the number of queues.
+""".
+-spec queue_count() -> non_neg_integer().
+queue_count() ->
+    mnesia:table_info(?MQ_REGISTRY_INDEX_TAB, size).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -490,9 +498,6 @@ mq_to_record(#{id := Id, is_lastvalue := IsLastValue, limits := Limits} = MQ, Ke
             limits => Limits
         }
     }.
-
-queue_count() ->
-    mnesia:table_info(?MQ_REGISTRY_INDEX_TAB, size).
 
 validate_max_queue_count() ->
     case queue_count() >= emqx_mq_config:max_queue_count() of
