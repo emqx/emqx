@@ -54,7 +54,6 @@ schema("/message_streams/streams") ->
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
-            summary => <<"List all message streams">>,
             description => ?DESC(message_streams_list),
             parameters => [
                 hoconsc:ref(emqx_dashboard_swagger, cursor),
@@ -75,7 +74,6 @@ schema("/message_streams/streams") ->
         },
         post => #{
             tags => ?TAGS,
-            summary => <<"Create message stream">>,
             description => ?DESC(message_streams_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_streams_schema:stream_sctype_api_post(),
@@ -102,7 +100,6 @@ schema("/message_streams/streams/:topic_filter") ->
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
-            summary => <<"Get message stream">>,
             description => ?DESC(message_streams_get),
             parameters => [topic_filter_param()],
             responses => #{
@@ -120,7 +117,6 @@ schema("/message_streams/streams/:topic_filter") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update message stream">>,
             description => ?DESC(message_streams_update),
             parameters => [topic_filter_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
@@ -145,7 +141,6 @@ schema("/message_streams/streams/:topic_filter") ->
         },
         delete => #{
             tags => ?TAGS,
-            summary => <<"Delete message stream">>,
             description => ?DESC(message_streams_delete),
             parameters => [topic_filter_param()],
             responses => #{
@@ -167,7 +162,6 @@ schema("/message_streams/config") ->
         'operationId' => '/message_streams/config',
         get => #{
             tags => ?TAGS,
-            summary => <<"Get message stream config">>,
             description => ?DESC(message_streams_config_get),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -178,7 +172,6 @@ schema("/message_streams/config") ->
         },
         put => #{
             tags => ?TAGS,
-            summary => <<"Update message stream config">>,
             description => ?DESC(message_streams_config_update),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ref(emqx_streams_schema, api_config_put),

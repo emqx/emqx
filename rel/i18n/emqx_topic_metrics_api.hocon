@@ -170,4 +170,14 @@ message_out_rate.desc:
 message_out_rate.label:
 """Out messages rate"""
 
+reset_specific_one_topic_metrics.desc:
+"""Example payload for resetting metrics of a specific topic."""
+reset_specific_one_topic_metrics.label:
+"""Reset Specific Topic Metrics Example"""
+
+reset_all_topic_metrics.desc:
+"""Example payload for resetting metrics of all topics."""
+reset_all_topic_metrics.label:
+"""Reset All Topic Metrics Example"""
+
 }

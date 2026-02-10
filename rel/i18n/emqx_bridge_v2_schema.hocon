@@ -60,4 +60,16 @@ undefined_vars_as_null.label:
     desc: """Republish fallback action.  Works the same way as the Republish rule action from Rule Engine."""
   }
 
+
+desc_name.desc:
+"""Name of the resource."""
+desc_name.label:
+"""Name"""
+
+
+desc_type.desc:
+"""Type of the resource."""
+desc_type.label:
+"""Type"""
+
 }

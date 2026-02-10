@@ -685,7 +685,7 @@ examples_listener() ->
     #{
         tcp_listener =>
             #{
-                summary => <<"A simple TCP listener example">>,
+                summary => ?DESC(example_tcp_listener),
                 value =>
                     #{
                         name => <<"tcp-def">>,
@@ -712,7 +712,7 @@ examples_listener() ->
             },
         ssl_listener =>
             #{
-                summary => <<"A simple SSL listener example">>,
+                summary => ?DESC(example_ssl_listener),
                 value =>
                     #{
                         name => <<"ssl-def">>,
@@ -745,7 +745,7 @@ examples_listener() ->
             },
         udp_listener =>
             #{
-                summary => <<"A simple UDP listener example">>,
+                summary => ?DESC(example_udp_listener),
                 value =>
                     #{
                         name => <<"udp-def">>,
@@ -763,7 +763,7 @@ examples_listener() ->
             },
         dtls_listener =>
             #{
-                summary => <<"A simple DTLS listener example">>,
+                summary => ?DESC(example_dtls_listener),
                 value =>
                     #{
                         name => <<"dtls-def">>,
@@ -791,7 +791,7 @@ examples_listener() ->
             },
         dtls_listener_with_psk_ciphers =>
             #{
-                summary => <<"A DTLS listener with PSK example">>,
+                summary => ?DESC(example_dtls_listener_with_psk_ciphers),
                 value =>
                     #{
                         name => <<"dtls-psk">>,
@@ -819,7 +819,7 @@ examples_listener() ->
             },
         lisetner_with_authn =>
             #{
-                summary => <<"A TCP listener with authentication example">>,
+                summary => ?DESC(example_listener_with_authn),
                 value =>
                     #{
                         name => <<"tcp-with-authn">>,
@@ -840,7 +840,7 @@ examples_listener() ->
             },
         ws_listener =>
             #{
-                summary => <<"A simple WebSocket listener example">>,
+                summary => ?DESC(example_ws_listener),
                 value =>
                     #{
                         name => <<"ws-def">>,
@@ -878,7 +878,7 @@ examples_listener() ->
             },
         wss_listener =>
             #{
-                summary => <<"A simple WebSocket/TLS listener example">>,
+                summary => ?DESC(example_wss_listener),
                 value =>
                     #{
                         name => <<"ws-ssl-def">>,

@@ -31,7 +31,7 @@ list_users_api.label:
 login_api.desc:
 """Get Dashboard Auth Token."""
 login_api.label:
-"""Get Dashboard Auth Token."""
+"""Get Dashboard Auth Token"""
 
 login_failed401.desc:
 """Login failed. Bad/missing MFA token, or bad username or password"""
@@ -105,5 +105,12 @@ mfa_status.desc:
 - `none`: no MFA enabled
 - `disabled`: MFA is disabled for the user
 - Otherwise: The MFA mechanism in use, e.g. `totp`"""
+
+change_mfa.label:
+"""Change MFA"""
+
+delete_mfa.label:
+"""Delete MFA"""
+
 
 }

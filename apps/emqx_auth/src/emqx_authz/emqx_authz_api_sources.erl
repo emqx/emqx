@@ -595,22 +595,22 @@ position_example() ->
     #{
         front =>
             #{
-                summary => <<"front example">>,
+                summary => ?DESC(position_front_example),
                 value => #{<<"position">> => <<"front">>}
             },
         rear =>
             #{
-                summary => <<"rear example">>,
+                summary => ?DESC(position_rear_example),
                 value => #{<<"position">> => <<"rear">>}
             },
         relative_before =>
             #{
-                summary => <<"relative example">>,
+                summary => ?DESC(position_relative_before_example),
                 value => #{<<"position">> => <<"before:file">>}
             },
         relative_after =>
             #{
-                summary => <<"relative example">>,
+                summary => ?DESC(position_relative_after_example),
                 value => #{<<"position">> => <<"after:file">>}
             }
     }.
@@ -622,7 +622,7 @@ binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 status_metrics_example() ->
     #{
         'metrics_example' => #{
-            summary => <<"Showing a typical metrics example">>,
+            summary => ?DESC(metrics_example),
             value =>
                 #{
                     resource_metrics => #{

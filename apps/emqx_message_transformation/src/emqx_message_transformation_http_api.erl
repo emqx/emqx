@@ -455,7 +455,7 @@ example_input_create() ->
     #{
         <<"message_transformation">> =>
             #{
-                summary => <<"Simple message transformation">>,
+                summary => ?DESC("example_simple_transformation"),
                 value => example_transformation()
             }
     }.
@@ -464,7 +464,7 @@ example_input_update() ->
     #{
         <<"update">> =>
             #{
-                summary => <<"Update">>,
+                summary => ?DESC("example_update"),
                 value => example_transformation()
             }
     }.
@@ -473,7 +473,7 @@ example_input_reorder() ->
     #{
         <<"reorder">> =>
             #{
-                summary => <<"Update">>,
+                summary => ?DESC("example_reorder"),
                 value => #{
                     order => [<<"bar">>, <<"foo">>, <<"baz">>]
                 }
@@ -484,7 +484,7 @@ example_input_dryrun_transformation() ->
     #{
         <<"test">> =>
             #{
-                summary => <<"Test an input against a configuration">>,
+                summary => ?DESC("example_dryrun"),
                 value => #{
                     message => #{
                         client_attrs => #{},
@@ -505,7 +505,7 @@ example_return_list() ->
     #{
         <<"list">> =>
             #{
-                summary => <<"List">>,
+                summary => ?DESC("example_list"),
                 value => [
                     example_transformation(),
                     OtherVal
@@ -534,7 +534,7 @@ example_return_metrics() ->
     #{
         <<"metrics">> =>
             #{
-                summary => <<"Metrics">>,
+                summary => ?DESC("example_metrics"),
                 value => #{
                     metrics => Metrics,
                     node_metrics =>
