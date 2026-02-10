@@ -112,13 +112,14 @@ on_add_channel(
                     Channel = #{param => ProcParam, rabbitmq => RabbitChannels},
                     NewChannels = maps:put(ChannelId, Channel, Channels),
                     {ok, State#{channels => NewChannels}};
-                {error, Error} ->
+                {{error, Error}, PartialRabbitChannels} ->
                     ?SLOG(error, #{
                         msg => "failed_to_start_rabbitmq_channel",
                         instance_id => InstanceId,
                         params => emqx_utils:redact(Config),
                         error => Error
                     }),
+                    close_channels(maps:values(PartialRabbitChannels)),
                     {error, Error}
             end
     end.
@@ -454,26 +455,43 @@ make_channel([], _ChannelId, _Param, Acc) ->
 make_channel([Conn | Conns], ChannelId, Params, Acc) ->
     maybe
         {ok, RabbitMQChannel} ?= amqp_connection:open_channel(Conn),
+        make_channel_cont([Conn | Conns], RabbitMQChannel, ChannelId, Params, Acc)
+    else
+        Error ->
+            {Error, Acc}
+    end.
+
+make_channel_cont([Conn | Conns], RabbitMQChannel, ChannelId, Params, Acc) ->
+    NewAcc = Acc#{Conn => RabbitMQChannel},
+    maybe
         ok ?= try_confirm_channel(Params, RabbitMQChannel),
         ok ?= try_subscribe(Params, RabbitMQChannel, ChannelId),
-        NewAcc = Acc#{Conn => RabbitMQChannel},
         make_channel(Conns, ChannelId, Params, NewAcc)
+    else
+        Error ->
+            {Error, NewAcc}
     end.
 
 %% We need to enable confirmations if we want to wait for them
 try_confirm_channel(#{wait_for_publish_confirmations := true}, Channel) ->
-    case amqp_channel:call(Channel, #'confirm.select'{}) of
-        #'confirm.select_ok'{} ->
-            ok;
-        Error ->
-            Reason =
-                iolist_to_binary(
-                    io_lib:format(
-                        "Could not enable RabbitMQ confirmation mode ~p",
-                        [Error]
-                    )
-                ),
-            {error, Reason}
+    try
+        ?tp("rabbitmq_will_confirm_channel", #{}),
+        case amqp_channel:call(Channel, #'confirm.select'{}) of
+            #'confirm.select_ok'{} ->
+                ok;
+            Error ->
+                Reason =
+                    iolist_to_binary(
+                        io_lib:format(
+                            "Could not enable RabbitMQ confirmation mode ~p",
+                            [Error]
+                        )
+                    ),
+                {error, Reason}
+        end
+    catch
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
     end;
 try_confirm_channel(#{wait_for_publish_confirmations := false}, _Channel) ->
     ok.
@@ -541,12 +559,17 @@ try_subscribe(
     RabbitChan,
     ChannelId
 ) ->
-    WorkState = {RabbitChan, ChannelId, Params},
-    {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
-    BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
-    #'basic.consume_ok'{consumer_tag = _} =
-        amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
-    ok;
+    try
+        WorkState = {RabbitChan, ChannelId, Params},
+        {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
+        BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
+        #'basic.consume_ok'{consumer_tag = _} =
+            amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
+        ok
+    catch
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
+    end;
 try_subscribe(#{config_root := actions}, _RabbitChan, _ChannelId) ->
     ok.
 
