@@ -796,6 +796,28 @@ t_publish_exceed_max_payload(Config) ->
 
     emqx_nats_client:stop(Client).
 
+t_hpub_exceed_max_payload(Config) ->
+    ClientOpts = maps:merge(
+        ?config(client_opts, Config),
+        #{
+            verbose => true,
+            headers => true
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+
+    HeaderValue = binary:copy(<<"x">>, 1200),
+    Headers = #{<<"X-Test">> => HeaderValue},
+    Payload = <<"hi">>,
+    ok = send_raw_hpub(Client, <<"foo">>, Headers, Payload),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_protocol_error(Msgs),
+
+    emqx_nats_client:stop(Client).
+
 t_receive_message(Config) ->
     ClientOpts = ?config(client_opts, Config),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -1481,6 +1503,16 @@ send_raw_pub(Client, Subject, Payload) ->
         Payload,
         "\r\n"
     ]),
+    emqx_nats_client:send_invalid_frame(Client, Data).
+
+send_raw_hpub(Client, Subject, Headers, Payload) ->
+    Frame = #nats_frame{
+        operation = ?OP_HPUB,
+        message = #{subject => Subject, headers => Headers, payload => Payload}
+    },
+    Data = iolist_to_binary(
+        emqx_nats_frame:serialize_pkt(Frame, emqx_nats_frame:serialize_opts())
+    ),
     emqx_nats_client:send_invalid_frame(Client, Data).
 
 assert_permissions_violation(#nats_frame{operation = ?OP_ERR, message = Msg}, Kind, Subject) ->

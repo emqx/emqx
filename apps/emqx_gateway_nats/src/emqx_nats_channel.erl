@@ -1228,7 +1228,7 @@ nats_subject_to_pub_topic(Subject) ->
 
 check_max_payload(Frame, _Channel) ->
     MaxPayload = emqx_conf:get([gateway, nats, protocol, max_payload_size]),
-    PayloadSize = byte_size(emqx_nats_frame:payload(Frame)),
+    PayloadSize = emqx_nats_frame:payload_total_size(Frame),
     case PayloadSize > MaxPayload of
         true ->
             {error, <<"Maximum Payload Violation">>};

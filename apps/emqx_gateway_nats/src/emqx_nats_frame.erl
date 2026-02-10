@@ -26,6 +26,7 @@
     reply_to/1,
     headers/1,
     payload/1,
+    payload_total_size/1,
     max_msgs/1
 ]).
 
@@ -329,10 +330,28 @@ payload(#nats_frame{operation = Op, message = M}) when ?HAS_PAYLOAD_OP(Op) ->
 payload(_) ->
     error(badarg).
 
+payload_total_size(#nats_frame{operation = Op} = Frame) when ?HAS_PAYLOAD_OP(Op) ->
+    Payload = payload(Frame),
+    case Op of
+        ?OP_HPUB ->
+            payload_and_headers_size(Frame, Payload);
+        ?OP_HMSG ->
+            payload_and_headers_size(Frame, Payload);
+        _ ->
+            byte_size(Payload)
+    end;
+payload_total_size(_) ->
+    error(badarg).
+
 max_msgs(#nats_frame{operation = ?OP_UNSUB, message = M}) ->
     maps:get(max_msgs, M, 0);
 max_msgs(_) ->
     error(badarg).
+
+payload_and_headers_size(Frame, Payload) ->
+    Headers = headers(Frame),
+    HeadersBinSize = byte_size(serialize_headers(Headers)) + 2,
+    HeadersBinSize + byte_size(Payload).
 
 %%--------------------------------------------------------------------
 %% utils
