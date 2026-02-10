@@ -184,6 +184,8 @@ connect(Options) ->
 -spec on_get_status(resource_id(), term()) ->
     ?status_connected | {?status_disconnected, binary()}.
 on_get_status(PoolName, #{channels := Channels}) ->
+    ?tp("rabbitmq_on_get_status_enter0", #{}),
+    ?tp("rabbitmq_on_get_status_enter1", #{}),
     ChannelNum = maps:size(Channels),
     Conns = get_rabbitmq_connections(PoolName),
     try actual_channel_nums(Conns) of
@@ -191,7 +193,11 @@ on_get_status(PoolName, #{channels := Channels}) ->
             Check = lists:all(fun(ActualNum) -> ActualNum >= ChannelNum end, ActualNums),
             case Check of
                 true when Conns =/= [] ->
-                    ?status_connected;
+                    ?tp_span(
+                        "rabbitmq_on_get_status_connected",
+                        #{},
+                        ?status_connected
+                    );
                 _ ->
                     {?status_disconnected, <<"not_connected">>}
             end
@@ -217,6 +223,7 @@ actual_channel_nums(Conns) ->
     ).
 
 on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
+    ?tp("rabbitmq_on_get_channel_status_enter", #{channel_id => ChannelId}),
     case emqx_utils_maps:deep_find([ChannelId, rabbitmq], Channels) of
         {ok, RabbitMQ} ->
             case lists:all(fun is_process_alive/1, maps:values(RabbitMQ)) of
