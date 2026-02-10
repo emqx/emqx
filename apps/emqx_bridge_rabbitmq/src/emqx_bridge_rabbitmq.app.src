@@ -1,6 +1,6 @@
 {application, emqx_bridge_rabbitmq, [
     {description, "EMQX Enterprise RabbitMQ Bridge"},
-    {vsn, "0.2.6"},
+    {vsn, "0.2.7"},
     {registered, []},
     {mod, {emqx_bridge_rabbitmq_app, []}},
     {applications, [
