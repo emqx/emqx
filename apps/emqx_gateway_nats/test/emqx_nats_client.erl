@@ -13,6 +13,7 @@
     start_link/1,
     stop/1,
     connect/1,
+    connect/2,
     ping/1,
     subscribe/3,
     subscribe/4,
@@ -48,6 +49,8 @@
     verbose => boolean(),
     pedantic => boolean(),
     tls_required => boolean(),
+    ssl_opts => map() | list(),
+    starttls => boolean(),
     %% Client's own options
     auto_respond_ping => boolean()
 }.
@@ -79,6 +82,10 @@ stop(Client) ->
 -spec connect(client()) -> ok | {error, term()}.
 connect(Client) ->
     gen_server:call(Client, connect).
+
+-spec connect(client(), map()) -> ok | {error, term()}.
+connect(Client, Overrides) when is_map(Overrides) ->
+    gen_server:call(Client, {connect, Overrides}).
 
 -spec ping(client()) -> ok | {error, term()}.
 ping(Client) ->
@@ -137,7 +144,7 @@ send_invalid_frame(Client, Data) ->
 init([Options]) ->
     Host = maps:get(host, Options, "tcp://localhost"),
     Port = maps:get(port, Options, 4222),
-    {ok, Socket} = connect(Host, Port),
+    {ok, Socket} = connect(Host, Port, Options),
     ParseState = emqx_nats_frame:initial_parse_state(undefined),
     {ok, #{
         socket => Socket,
@@ -150,6 +157,13 @@ init([Options]) ->
 
 handle_call(connect, _From, #{socket := Socket} = State) ->
     ConnectFrame = #nats_frame{operation = ?OP_CONNECT, message = connect_opts(State)},
+    send_msg(Socket, ConnectFrame),
+    {reply, ok, State};
+handle_call({connect, Overrides}, _From, #{socket := Socket} = State) ->
+    ConnectFrame = #nats_frame{
+        operation = ?OP_CONNECT,
+        message = connect_opts(State, Overrides)
+    },
     send_msg(Socket, ConnectFrame),
     {reply, ok, State};
 handle_call(ping, _From, #{socket := Socket} = State) ->
@@ -210,6 +224,10 @@ handle_info({tcp, _Socket, Data}, State) ->
     handle_incoming_data(Data, State);
 handle_info({tcp_closed, _}, State = #{message_queue := Queue}) ->
     {noreply, State#{message_queue => Queue ++ [tcp_closed]}};
+handle_info({ssl, _Socket, Data}, State) ->
+    handle_incoming_data(Data, State);
+handle_info({ssl_closed, _}, State = #{message_queue := Queue}) ->
+    {noreply, State#{message_queue => Queue ++ [tcp_closed]}};
 handle_info({tcp_error, _Socket, _Reason}, State) ->
     {stop, normal, State};
 handle_info({gun_ws, _ConnPid, _StreamRef, {_Type, Msg}}, State) ->
@@ -243,6 +261,26 @@ handle_incoming_data(Data, #{parse_state := ParseState, message_queue := Queue} 
             {noreply, State#{parse_state => NewParseState}}
     end.
 
+process_parsed_frame(
+    ?PACKET(?OP_INFO, ServerInfo),
+    State = #{options := Options, socket := {tcp, Socket}}
+) ->
+    State1 = State#{connected_server_info => ServerInfo},
+    case maps:get(starttls, Options, false) of
+        true ->
+            SslOpts = ssl_opts(maps:get(ssl_opts, Options, [])),
+            _ = inet:setopts(Socket, [{active, false}]),
+            case ssl:connect(Socket, [binary, {active, true}] ++ SslOpts) of
+                {ok, SslSocket} ->
+                    State1#{socket => {ssl, SslSocket}};
+                {error, Reason} ->
+                    _ = inet:setopts(Socket, [{active, true}]),
+                    ct:pal("[nats-client] starttls failed: ~p", [Reason]),
+                    State1
+            end;
+        false ->
+            State1
+    end;
 process_parsed_frame(?PACKET(?OP_INFO, ServerInfo), State) ->
     State#{connected_server_info => ServerInfo};
 process_parsed_frame(?PACKET(?OP_PING), State = #{socket := Socket, options := Options}) ->
@@ -271,7 +309,10 @@ handle_message_with_state(Frame, #{message_queue := Queue} = State) ->
             State#{message_queue => NewQueue}
     end.
 
-connect_opts(#{options := Options}) ->
+connect_opts(State) ->
+    connect_opts(State, #{}).
+
+connect_opts(#{options := Options}, Overrides) ->
     Opts = #{
         verbose => maps:get(verbose, Options, false),
         pedantic => maps:get(pedantic, Options, false),
@@ -281,7 +322,8 @@ connect_opts(#{options := Options}) ->
         no_responders => maps:get(no_responders, Options, undefined),
         headers => maps:get(headers, Options, undefined)
     },
-    maps:filter(fun(_, V) -> V =/= undefined end, Opts).
+    Merged = maps:merge(Opts, Overrides),
+    maps:filter(fun(_, V) -> V =/= undefined end, Merged).
 
 serialize_pkt(Frame) ->
     emqx_nats_frame:serialize_pkt(
@@ -293,12 +335,30 @@ serialize_pkt(Frame) ->
 %% Socket and Websocket
 %%--------------------------------------------------------------------
 
-connect("tcp://" ++ Host, Port) ->
+connect("tcp://" ++ Host, Port, _Options) ->
     {ok, Socket} = gen_tcp:connect(Host, Port, [binary, {active, true}]),
     {ok, {tcp, Socket}};
-connect("ws://" ++ Host, Port) ->
+connect("ssl://" ++ Host, Port, Options) ->
+    SslOpts = ssl_opts(maps:get(ssl_opts, Options, [])),
+    {ok, Socket} = ssl:connect(Host, Port, [binary, {active, true}] ++ SslOpts),
+    {ok, {ssl, Socket}};
+connect("ws://" ++ Host, Port, _Options) ->
     Timeout = 5000,
     ConnOpts = #{connect_timeout => 5000},
+    case gun:open(Host, Port, ConnOpts) of
+        {ok, ConnPid} ->
+            {ok, _} = gun:await_up(ConnPid, Timeout),
+            case upgrade(ConnPid, Timeout) of
+                {ok, StreamRef} -> {ok, {ws, {ConnPid, StreamRef}}};
+                Error -> Error
+            end;
+        Error ->
+            Error
+    end;
+connect("wss://" ++ Host, Port, Options) ->
+    Timeout = 5000,
+    SslOpts = ssl_opts(maps:get(ssl_opts, Options, [])),
+    ConnOpts = #{connect_timeout => 5000, transport => tls, tls_opts => SslOpts},
     case gun:open(Host, Port, ConnOpts) of
         {ok, ConnPid} ->
             {ok, _} = gun:await_up(ConnPid, Timeout),
@@ -330,16 +390,30 @@ upgrade(ConnPid, Timeout) ->
 send_msg({tcp, Socket}, Frame) ->
     Bin = serialize_pkt(Frame),
     ok = gen_tcp:send(Socket, Bin);
+send_msg({ssl, Socket}, Frame) ->
+    Bin = serialize_pkt(Frame),
+    ok = ssl:send(Socket, Bin);
 send_msg({ws, {ConnPid, StreamRef}}, Frame) ->
     Bin = serialize_pkt(Frame),
     gun:ws_send(ConnPid, StreamRef, {text, Bin}).
 
 send_data({tcp, Socket}, Data) ->
     ok = gen_tcp:send(Socket, Data);
+send_data({ssl, Socket}, Data) ->
+    ok = ssl:send(Socket, Data);
 send_data({ws, {ConnPid, StreamRef}}, Data) ->
     gun:ws_send(ConnPid, StreamRef, {text, Data}).
 
 close({tcp, Socket}) ->
     gen_tcp:close(Socket);
+close({ssl, Socket}) ->
+    ssl:close(Socket);
 close({ws, {ConnPid, _StreamRef}}) ->
     gun:shutdown(ConnPid).
+
+ssl_opts(Opts) when is_map(Opts) ->
+    maps:to_list(Opts);
+ssl_opts(Opts) when is_list(Opts) ->
+    Opts;
+ssl_opts(_) ->
+    [].
