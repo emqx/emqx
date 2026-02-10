@@ -511,8 +511,8 @@ try_confirm_channel(#{wait_for_publish_confirmations := true}, Channel) ->
                 {error, Reason}
         end
     catch
-        Kind:Reason0 ->
-            {error, {Kind, Reason0}}
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
     end;
 try_confirm_channel(#{wait_for_publish_confirmations := false}, _Channel) ->
     ok.
@@ -668,8 +668,8 @@ open_channel(Conn) ->
     try
         amqp_connection:open_channel(Conn)
     catch
-        Kind:Reason ->
-            {error, {Kind, Reason}}
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
     end.
 
 try_subscribe(
@@ -685,8 +685,8 @@ try_subscribe(
             amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
         ok
     catch
-        Kind:Reason0 ->
-            {error, {Kind, Reason0}}
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
     end;
 try_subscribe(#{config_root := actions}, _RabbitChan, _ChannelId) ->
     ok.
