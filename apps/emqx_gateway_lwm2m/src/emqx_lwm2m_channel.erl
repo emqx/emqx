@@ -590,13 +590,8 @@ auth_connect(
 fix_mountpoint(_Packet, #{mountpoint := undefined} = ClientInfo) ->
     {ok, ClientInfo};
 fix_mountpoint(_Packet, ClientInfo = #{mountpoint := Mountpoint}) ->
-    Mountpoint1 = normalize_legacy_mountpoint(Mountpoint),
-    Mountpoint2 = emqx_mountpoint:replvar(Mountpoint1, ClientInfo),
-    {ok, ClientInfo#{mountpoint := Mountpoint2}}.
-
-normalize_legacy_mountpoint(Mountpoint) when is_binary(Mountpoint) ->
-    Mountpoint1 = binary:replace(Mountpoint, <<"%a">>, <<"${peerhost}">>, [global]),
-    binary:replace(Mountpoint1, <<"%e">>, <<"${endpoint_name}">>, [global]).
+    Mountpoint1 = emqx_mountpoint:replvar(Mountpoint, ClientInfo),
+    {ok, ClientInfo#{mountpoint := Mountpoint1}}.
 
 process_connect(
     Channel = #channel{

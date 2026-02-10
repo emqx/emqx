@@ -5,7 +5,8 @@ lwm2m.desc:
 
 lwm2m_auto_observe.desc:
 """Automatically observe the object list of REGISTER packet.
-Accepts true/false or an explicit object list (e.g. [\"/3/0\",\"/3/0/1\"])."""
+Accepts true/false, "on"/"off", a comma-separated string ("/3/0,/3/0/1"),
+or an explicit object list (e.g. ["/3/0","/3/0/1"])."""
 
 lwm2m_lifetime_max.desc:
 """Maximum value of lifetime allowed to be set by the LwM2M client."""

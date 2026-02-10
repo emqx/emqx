@@ -517,16 +517,20 @@ send_auto_observe(RegInfo, Session) ->
             Session;
         true ->
             AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-            ObjectList = auto_observe_object_list(RegInfo),
+            ObjectList = maps:get(<<"objectList">>, RegInfo, []),
             observe_object_list(AlternatePath, ObjectList, Session);
         ObjectList when is_list(ObjectList) ->
-            case ObjectList of
+            FilteredList = intersect_object_list(
+                ObjectList,
+                maps:get(<<"objectList">>, RegInfo, [])
+            ),
+            case FilteredList of
                 [] ->
                     ?SLOG(info, #{msg => "skip_auto_observe_due_to_empty_list"}),
                     Session;
                 _ ->
                     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-                    observe_object_list(AlternatePath, ObjectList, Session)
+                    observe_object_list(AlternatePath, FilteredList, Session)
             end
     end.
 
@@ -577,14 +581,19 @@ deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
 auto_observe_object_list(RegInfo) ->
-    case auto_observe_mode() of
-        false ->
-            [];
-        true ->
-            maps:get(<<"objectList">>, RegInfo, []);
-        ObjectList when is_list(ObjectList) ->
-            ObjectList
-    end.
+    auto_observe_object_list(RegInfo, auto_observe_mode()).
+
+auto_observe_object_list(_RegInfo, false) ->
+    [];
+auto_observe_object_list(RegInfo, true) ->
+    maps:get(<<"objectList">>, RegInfo, []);
+auto_observe_object_list(RegInfo, ObjectList) when is_list(ObjectList) ->
+    intersect_object_list(ObjectList, maps:get(<<"objectList">>, RegInfo, [])).
+
+intersect_object_list(ObjectList, RegObjectList) when is_list(RegObjectList) ->
+    [Item || Item <- ObjectList, lists:member(Item, RegObjectList)];
+intersect_object_list(_ObjectList, _RegObjectList) ->
+    [].
 
 auto_observe_mode() ->
     normalize_auto_observe(emqx:get_config([gateway, lwm2m, auto_observe])).
