@@ -109,6 +109,7 @@ init_per_group(gen_tcp_listener, Config) ->
                 "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
                 "listeners.tcp.default.tcp_options.high_watermark = 160KB\n"
                 %% t_congestion_decongested
+                "conn_congestion.enable_alarm = true\n"
                 "conn_congestion.min_alarm_sustain_duration = 0\n"
                 %% others
                 "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
@@ -126,6 +127,7 @@ init_per_group(socket_listener, Config) ->
                 "listeners.tcp.default.tcp_options.sndbuf = 4KB\n"
                 "listeners.tcp.default.tcp_options.recbuf = 4KB\n"
                 %% t_congestion_decongested
+                "conn_congestion.enable_alarm = true\n"
                 "conn_congestion.min_alarm_sustain_duration = 0\n"
                 %% others
                 "listeners.ssl.default.ssl_options.verify = verify_peer\n"}
