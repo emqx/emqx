@@ -23,7 +23,8 @@ NOTE: in this module, we call `emqx_utils_stream` objects "iterators" to avoid c
     delete/1,
     update/2,
     list/0,
-    list/2
+    list/2,
+    stream_count/0
 ]).
 
 -dialyzer(no_improper_lists).

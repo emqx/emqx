@@ -2,7 +2,8 @@ emqx_streams_schema {
 
 enable {
     desc: """~
-        Enable Message Streams feature."""
+        Enable Message Streams feature. If set to `auto`, the Message Streams will be disabled
+        by default and enabled only if there are already any Message Streams created."""
     label: "Enable Message Streams"
 }
 

@@ -37,16 +37,18 @@ unregister_hooks() ->
 
 -spec register_stream_hooks() -> ok.
 register_stream_hooks() ->
-    ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish_stream, []}, ?HP_HIGHEST),
-    ok = emqx_extsub_handler_registry:register(emqx_streams_extsub_handler, #{
+    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish_stream, []}, ?HP_HIGHEST),
+    _ = emqx_extsub_handler_registry:register(emqx_streams_extsub_handler, #{
         handle_generic_messages => true,
         multi_topic => true
-    }).
+    }),
+    ok.
+
 -spec unregister_stream_hooks() -> ok.
 unregister_stream_hooks() ->
-    emqx_hooks:del('message.publish', {?MODULE, on_message_publish_stream}),
-    emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler).
-
+    _ = emqx_hooks:del('message.publish', {?MODULE, on_message_publish_stream}),
+    _ = emqx_extsub_handler_registry:unregister(emqx_streams_extsub_handler),
+    ok.
 %%
 
 on_message_publish_stream(#message{topic = Topic} = Message) ->

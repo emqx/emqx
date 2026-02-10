@@ -595,10 +595,10 @@ find_stream(Name, TopicFilter) ->
             {ok, Stream};
         {ok, #{topic_filter := ExistingTopicFilter}} ->
             ?err_rec(
-                {stream_not_found, #{
+                {stream_bound_to_different_topic_filter, #{
                     name => Name,
                     topic_filter => TopicFilter,
-                    existing_topic_filter => ExistingTopicFilter
+                    bound_topic_filter => ExistingTopicFilter
                 }}
             );
         not_found when TopicFilter =:= undefined ->

@@ -27,13 +27,14 @@ roots() ->
     [?SCHEMA_ROOT].
 
 tags() ->
-    [<<"Durable Streams">>].
+    [<<"Message Streams">>].
 
 fields(?SCHEMA_ROOT) ->
     [
         {enable,
-            mk(boolean(), #{
+            mk(hoconsc:union([boolean(), auto]), #{
                 default => false,
+                required => true,
                 desc => ?DESC(enable)
             })},
         {max_stream_count,

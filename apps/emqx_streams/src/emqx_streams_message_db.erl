@@ -90,10 +90,28 @@ open() ->
         _ -> error(failed_to_open_streams_databases)
     end.
 
--spec close() -> ok.
+-spec close() -> ok | {error, term()}.
 close() ->
-    ok = emqx_ds:close_db(?STREAMS_MESSAGE_LASTVALUE_DB),
-    ok = emqx_ds:close_db(?STREAMS_MESSAGE_REGULAR_DB).
+    LastValueErrors =
+        case emqx_ds:close_db(?STREAMS_MESSAGE_LASTVALUE_DB) of
+            ok ->
+                [];
+            LVError ->
+                [{?STREAMS_MESSAGE_LASTVALUE_DB, LVError}]
+        end,
+    RegularErrors =
+        case emqx_ds:close_db(?STREAMS_MESSAGE_REGULAR_DB) of
+            ok ->
+                [];
+            RegularError ->
+                [{?STREAMS_MESSAGE_REGULAR_DB, RegularError}]
+        end,
+    case LastValueErrors ++ RegularErrors of
+        [] ->
+            ok;
+        Errors ->
+            {error, Errors}
+    end.
 
 -spec wait_readiness(timeout()) -> ok | timeout.
 wait_readiness(Timeout) ->

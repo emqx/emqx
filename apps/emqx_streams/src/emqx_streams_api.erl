@@ -311,9 +311,11 @@ put_message_stream_config_example() ->
             ?NO_CONTENT;
         {error,
             {post_config_update, emqx_streams_config, #{
-                reason := cannot_disable_streams_in_runtime
+                reason := cannot_stop_streams_with_existing_streams
             }}} ->
-            ?BAD_REQUEST(<<"Cannot disable streams subsystem via API">>);
+            ?BAD_REQUEST(
+                <<"Cannot disable streams subsystem via API when there are existing streams">>
+            );
         {error,
             {post_config_update, emqx_streams_config, #{
                 reason := cannot_enable_both_regular_and_lastvalue_auto_create
@@ -326,16 +328,10 @@ put_message_stream_config_example() ->
     end.
 
 check_ready(Request, _Meta) ->
-    case emqx_streams_config:is_enabled() of
-        true ->
-            case emqx_streams_app:is_ready() of
-                true ->
-                    {ok, Request};
-                false ->
-                    ?SERVICE_UNAVAILABLE(<<"Not ready">>)
-            end;
-        false ->
-            ?SERVICE_UNAVAILABLE(<<"Not enabled">>)
+    case emqx_streams_controller:status() of
+        stopped -> ?SERVICE_UNAVAILABLE(<<"Not enabled">>);
+        starting -> ?SERVICE_UNAVAILABLE(<<"Not ready">>);
+        started -> {ok, Request}
     end.
 
 %%--------------------------------------------------------------------

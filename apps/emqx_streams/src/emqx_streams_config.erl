@@ -32,7 +32,7 @@ individual streams.
 
 %% Streams config accessors
 -export([
-    is_enabled/0,
+    enabled/0,
     max_stream_count/0,
     auto_create/2,
     gc_interval/0,
@@ -86,8 +86,8 @@ update_config(UpdateRequest0) ->
         override_to => cluster
     }).
 
--spec is_enabled() -> boolean().
-is_enabled() ->
+-spec enabled() -> boolean() | auto.
+enabled() ->
     emqx:get_config([?SCHEMA_ROOT, enable]).
 
 -spec max_stream_count() -> pos_integer().
@@ -158,12 +158,23 @@ auto_create(Name, Topic, #{lastvalue := #{} = LastvalueAutoCreate}) ->
 auto_create(_Name, _Topic, _Config) ->
     false.
 
-maybe_enable(#{enable := Enable} = _NewConf, #{enable := Enable} = _OldConf) ->
+%% Enable state not changed, always allow and do nothing.
+maybe_enable(#{enable := NewEnable} = _NewConf, #{enable := NewEnable} = _OldConf) ->
     ok;
-maybe_enable(#{enable := false} = _NewConf, #{enable := true} = _OldConf) ->
-    {error, #{reason => cannot_disable_streams_in_runtime}};
-maybe_enable(#{enable := true} = _NewConf, #{enable := false} = _OldConf) ->
-    ok = emqx_streams_app:do_start().
+%% Always allow to change the enable state to auto. Do not need start if not started yet.
+maybe_enable(#{enable := auto} = _NewConf, _OldConf) ->
+    ok;
+%% Always allow to change the enable state to true.
+maybe_enable(#{enable := true} = _NewConf, _OldConf) ->
+    ok = emqx_streams_controller:start_streams();
+%% Allow to disable if there are no streams.
+maybe_enable(#{enable := false} = _NewConf, _OldConf) ->
+    case emqx_streams_controller:stop_streams() of
+        ok ->
+            ok;
+        {error, Reason} ->
+            {error, #{reason => Reason}}
+    end.
 
 maybe_reschedule_gc(
     #{gc_interval := GcInterval} = _NewConf, #{gc_interval := GcInterval} = _OldConf

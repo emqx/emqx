@@ -236,7 +236,7 @@ cth_config(emqx_streams, ConfigOverrides) ->
     Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
     #{
         config => Config,
-        after_start => fun() -> ok = emqx_streams_app:wait_readiness(15_000) end
+        after_start => fun() -> started = emqx_streams_controller:wait_status(15_000) end
     };
 cth_config(emqx_mq, ConfigOverrides) ->
     DefaultConfig = #{<<"mq">> => default_mq_config()},
