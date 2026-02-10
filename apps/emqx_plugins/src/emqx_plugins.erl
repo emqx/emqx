@@ -18,7 +18,8 @@
     describe/1,
     describe/2,
     plugin_schema/1,
-    plugin_i18n/1
+    plugin_i18n/1,
+    resolve_api_callback/1
 ]).
 
 %% Package operations
@@ -92,6 +93,7 @@
 
 %% Defines
 -define(PLUGIN_CONFIG_PT_KEY(NameVsn), {?MODULE, NameVsn}).
+-define(PLUGIN_STARTED_VSN_PT_KEY(Name), {emqx_plugin, Name}).
 
 -define(CATCH(BODY), catch_errors(atom_to_list(?FUNCTION_NAME), fun() -> BODY end)).
 
@@ -120,6 +122,25 @@ plugin_schema(NameVsn) ->
 -spec plugin_i18n(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
 plugin_i18n(NameVsn) ->
     ?CATCH(emqx_plugins_fs:read_i18n(NameVsn)).
+
+-spec resolve_api_callback(binary() | string() | atom()) ->
+    {ok, module()} | {error, not_found | missing_callback}.
+resolve_api_callback(Plugin0) ->
+    Plugin = bin(Plugin0),
+    case is_plugin_started(Plugin) of
+        false ->
+            {error, not_found};
+        true ->
+            case plugin_callback_module_if_existing(Plugin) of
+                {ok, CallbackModule} ->
+                    case is_valid_plugin_api_module(CallbackModule) of
+                        true -> {ok, CallbackModule};
+                        false -> {error, missing_callback}
+                    end;
+                {error, _} ->
+                    {error, not_found}
+            end
+    end.
 
 %% Note: this is only used for the HTTP API.
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
@@ -346,6 +367,7 @@ ensure_stopped(NameVsn) ->
 do_ensure_stopped(NameVsn) ->
     case emqx_plugins_info:read(NameVsn) of
         {ok, Plugin} ->
+            _ = erase_started_plugin(maps:get(name, Plugin)),
             emqx_plugins_apps:stop(Plugin);
         {error, Reason} ->
             {error, Reason}
@@ -432,6 +454,29 @@ filter_plugin_of_type(hidden, #{hidden := true} = Info) ->
     {true, Info};
 filter_plugin_of_type(hidden, _Info) ->
     false.
+
+plugin_callback_module_if_existing(PluginName) ->
+    try
+        Module = list_to_existing_atom(binary_to_list(PluginName) ++ "_api"),
+        {ok, Module}
+    catch
+        error:badarg ->
+            {error, not_found}
+    end.
+
+is_valid_plugin_api_module(Module) ->
+    erlang:function_exported(Module, handle, 4).
+
+is_plugin_started(PluginName) ->
+    persistent_term:get(?PLUGIN_STARTED_VSN_PT_KEY(PluginName), undefined) =/= undefined.
+
+put_started_plugin(PluginName, PluginVsn) ->
+    persistent_term:put(?PLUGIN_STARTED_VSN_PT_KEY(PluginName), PluginVsn),
+    ok.
+
+erase_started_plugin(PluginName) ->
+    _ = persistent_term:erase(?PLUGIN_STARTED_VSN_PT_KEY(PluginName)),
+    ok.
 
 %%--------------------------------------------------------------------
 %% Package utils
@@ -567,7 +612,8 @@ do_ensure_started(NameVsn) ->
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
-        ok ?= emqx_plugins_apps:start(Plugin)
+        ok ?= emqx_plugins_apps:start(Plugin),
+        ok = put_started_plugin(maps:get(name, Plugin), maps:get(rel_vsn, Plugin))
     else
         {error, Reason} ->
             ?SLOG(error, #{
