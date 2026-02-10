@@ -218,6 +218,9 @@ emqx_metrics {
     client_connack {
         desc: "Number of CONNACK packet sent"
     }
+    actions_executed {
+        desc: "Number of rule-engine actions executed"
+    }
     client_connected {
         desc: "Number of successful client connected"
     }
@@ -295,5 +298,10 @@ session_disonnected.desc:
 """Number of disconnected sessions."""
 session_disonnected.label:
 """Disconnected Sessions"""
+
+rules_matched.desc:
+"""Number of rules matched."""
+rules_matched.label:
+"""Rules Matched"""
 
 }

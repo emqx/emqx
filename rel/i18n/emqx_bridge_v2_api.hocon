@@ -370,4 +370,14 @@ metric_sent_success.desc:
 metric_sent_success.label:
 """Successful Sends"""
 
+metric_aggregated_upload_success.desc:
+"""Number of successful aggregated uploads."""
+metric_aggregated_upload_success.label:
+"""Aggregated Upload Success"""
+
+metric_aggregated_upload_failure.desc:
+"""Number of failed aggregated uploads."""
+metric_aggregated_upload_failure.label:
+"""Aggregated Upload Failure"""
+
 }
