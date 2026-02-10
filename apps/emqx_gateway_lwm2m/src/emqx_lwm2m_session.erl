@@ -40,7 +40,7 @@
 ]).
 
 -ifdef(TEST).
--export([normalize_mheaders/1, auto_observe_object_list/1]).
+-export([normalize_mheaders/1]).
 -endif.
 
 %% froce update subscriptions
@@ -511,14 +511,15 @@ do_subscribe(
 
 send_auto_observe(RegInfo, Session) ->
     %% - auto observe the objects
-    case auto_observe_mode() of
+    Mode = auto_observe_mode(),
+    case Mode of
         false ->
-            ?SLOG(info, #{msg => "skip_auto_observe_due_to_disabled"}),
             Session;
         true ->
             AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
             ObjectList = maps:get(<<"objectList">>, RegInfo, []),
-            observe_object_list(AlternatePath, ObjectList, Session);
+            FilteredList = filter_ignore_object(ObjectList),
+            observe_object_list(AlternatePath, FilteredList, Session);
         ObjectList when is_list(ObjectList) ->
             FilteredList = intersect_object_list(
                 ObjectList,
@@ -526,7 +527,6 @@ send_auto_observe(RegInfo, Session) ->
             ),
             case FilteredList of
                 [] ->
-                    ?SLOG(info, #{msg => "skip_auto_observe_due_to_empty_list"}),
                     Session;
                 _ ->
                     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
@@ -539,11 +539,8 @@ observe_object_list(_, [], Session) ->
 observe_object_list(AlternatePath, ObjectList, Session) ->
     Fun = fun(ObjectPath, Acc) ->
         {[ObjId | _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
-        case lists:member(ObjId, ?IGNORE_OBJECT) of
-            true ->
-                Acc;
-            false ->
-                ObjId1 = binary_to_integer(ObjId),
+        case emqx_utils_binary:bin_to_int(ObjId) of
+            {ObjId1, <<>>} ->
                 case emqx_lwm2m_xml_object_db:find_objectid(ObjId1) of
                     {error, no_xml_definition} ->
                         ?tp(
@@ -557,7 +554,9 @@ observe_object_list(AlternatePath, ObjectList, Session) ->
                         Acc;
                     _ ->
                         observe_object(AlternatePath, ObjectPath, Acc)
-                end
+                end;
+            _ ->
+                Acc
         end
     end,
     lists:foldl(Fun, Session, ObjectList).
@@ -571,28 +570,24 @@ observe_object(AlternatePath, ObjectPath, Session) ->
     deliver_auto_observe_to_coap(AlternatePath, Payload, Session).
 
 deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
-    ?SLOG(info, #{
-        msg => "send_auto_observe",
-        path => AlternatePath,
-        data => TermData
-    }),
     {Req0, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     Req = alloc_token(Req0),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
-auto_observe_object_list(RegInfo) ->
-    auto_observe_object_list(RegInfo, auto_observe_mode()).
-
-auto_observe_object_list(_RegInfo, false) ->
-    [];
-auto_observe_object_list(RegInfo, true) ->
-    maps:get(<<"objectList">>, RegInfo, []);
-auto_observe_object_list(RegInfo, ObjectList) when is_list(ObjectList) ->
-    intersect_object_list(ObjectList, maps:get(<<"objectList">>, RegInfo, [])).
-
 intersect_object_list(ObjectList, RegObjectList) when is_list(RegObjectList) ->
     [Item || Item <- ObjectList, lists:member(Item, RegObjectList)];
 intersect_object_list(_ObjectList, _RegObjectList) ->
+    [].
+
+filter_ignore_object(ObjectList) when is_list(ObjectList) ->
+    lists:filter(
+        fun(ObjectPath) ->
+            {[ObjId | _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
+            not lists:member(ObjId, ?IGNORE_OBJECT)
+        end,
+        ObjectList
+    );
+filter_ignore_object(_ObjectList) ->
     [].
 
 auto_observe_mode() ->
