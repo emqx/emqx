@@ -7,5 +7,4 @@
 -export([start/2]).
 
 start(_Type, _Args) ->
-    emqx_durable_timer_dl:ensure_tables(),
     emqx_durable_timer_sup:start_top().

@@ -17,11 +17,14 @@
 %% Testcases
 %%------------------------------------------------------------------------------
 
-%% This testcase verifies initialization sequence of the application.
+%% This testcase verifies lazy initialization sequence of the
+%% application. It is expected that the application is started without
+%% creating any durable databases until the first timer type is
+%% registered.
 %%
 %% Additionally, this testcase doesn't create any timer data, so it's
 %% used to verify that the logic handles lack of any timers.
-t_010_initialization({init, Config}) ->
+t_010_lazy_initialization({init, Config}) ->
     Env = #{
         <<"durable_storage">> =>
             #{
@@ -39,20 +42,20 @@ t_010_initialization({init, Config}) ->
     },
     Cluster = cluster(?FUNCTION_NAME, Config, 1, Env),
     [{cluster, Cluster} | Config];
-t_010_initialization({stop, Config}) ->
+t_010_lazy_initialization({stop, Config}) ->
     Config;
-t_010_initialization(Config) ->
+t_010_lazy_initialization(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
         #{timetrap => 30_000},
         begin
             [Node] = emqx_cth_cluster:start(Cluster),
-            %% Verify that the node has opened the DB:
+            %% Application is started but dormant. Databases don't exist yet:
             ?ON(
                 Node,
                 begin
                     {DBs, _} = lists:unzip(emqx_ds:which_dbs()),
-                    ?defer_assert(?assert(lists:member(?DB_GLOB, DBs)))
+                    ?defer_assert(?assertNot(lists:member(?DB_GLOB, DBs)))
                 end
             ),
             %%
@@ -70,6 +73,14 @@ t_010_initialization(Config) ->
                         ok = emqx_durable_test_timer:init()
                     end
                 )
+            ),
+            %% Verify that the node has opened the DB:
+            ?ON(
+                Node,
+                begin
+                    {DBs, _} = lists:unzip(emqx_ds:which_dbs()),
+                    ?defer_assert(?assert(lists:member(?DB_GLOB, DBs)))
+                end
             ),
             %%
             %% The node should create a new epoch:
@@ -369,6 +380,7 @@ t_030_cancellation(Config) ->
             ?ON(
                 Node,
                 begin
+                    emqx_durable_timer_dl:wait_for_shards(all, infinity),
                     DHT = emqx_durable_timer_dl:dead_hand_topic(
                         emqx_durable_test_timer:durable_timer_type(),
                         emqx_durable_timer:epoch(),

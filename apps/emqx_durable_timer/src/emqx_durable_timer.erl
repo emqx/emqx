@@ -278,6 +278,7 @@ get_cbm(Type) ->
 %%================================================================================
 
 enter_isolated(PrevState, NextEpoch, D0) ->
+    ok = emqx_durable_timer_dl:ensure_tables(),
     case PrevState of
         ?s_isolated(_) ->
             ok;
