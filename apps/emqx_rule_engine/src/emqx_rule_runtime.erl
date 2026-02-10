@@ -1012,9 +1012,9 @@ inc_rule_matched_metrics(RuleResId) ->
     ok = emqx_metrics:inc_global('rules.matched'),
     ok.
 
-metric_inc(RuleId, Metric) ->
+metric_inc(RuleResId, Metric) ->
     try
-        emqx_metrics_worker:inc(rule_metrics, RuleId, Metric)
+        emqx_metrics_worker:inc(rule_metrics, RuleResId, Metric)
     catch
         throw:{failed_to_update_counter, #{
             reason := Reason,
