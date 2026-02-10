@@ -65,4 +65,22 @@ emqx_mgmt_api_certs {
         label: "Internal Error"
     }
 
+    param_path_bundle_name {
+        desc: """~
+            Bundle name in path parameter.~"""
+        label: "Bundle Name"
+    }
+
+    param_path_ns {
+        desc: """~
+            Managed namespace name in path parameter.~"""
+        label: "Namespace"
+    }
+
+    param_qs_file_kind {
+        desc: """~
+            File kind in query parameter.~"""
+        label: "File Kind"
+    }
+
 }

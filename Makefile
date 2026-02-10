@@ -287,6 +287,10 @@ $(foreach zt,$(ALL_DOCKERS),$(eval $(call gen-docker-target,$(zt))))
 merge-config:
 	@$(SCRIPTS)/merge-config.escript
 
+.PHONY: pre-compile
+pre-compile:
+	@$(SCRIPTS)/pre-compile.sh $(PROFILE)
+
 .PHONY: fmt
 fmt: $(REBAR)
 	@find . \( -name '*.app.src' -o \

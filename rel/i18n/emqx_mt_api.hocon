@@ -131,4 +131,20 @@ emqx_mt_api {
         desc: "Some side-effects failed to execute."
         label: "Side Effects Failed"
     }
+    example_list {
+        desc: "Example list response payload."
+        label: "List Example"
+    }
+
+last_clientid_in_query.desc:
+"""Last client ID cursor for pagination."""
+last_clientid_in_query.label:
+"""Last Client ID"""
+
+
+param_path_ns.desc:
+"""Namespace in path parameter."""
+param_path_ns.label:
+"""Namespace"""
+
 }

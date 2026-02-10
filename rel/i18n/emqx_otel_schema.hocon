@@ -15,7 +15,7 @@ otel_traces.desc: "Open Telemetry Traces configuration."
 otel_traces.label: "Open Telemetry Traces"
 
 enable.desc: "Enable or disable Open Telemetry signal."
-enable.label: "Enable."
+enable.label: "Enable"
 
 otel_exporter.desc: "Open Telemetry Exporter"
 otel_exporter.label: "Exporter"

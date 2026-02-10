@@ -62,7 +62,7 @@ schema("/license") ->
                 hoconsc:ref(?MODULE, key_license),
                 #{
                     license_key => #{
-                        summary => <<"License key string">>,
+                        summary => ?DESC("example_license_key_string"),
                         value => #{
                             <<"key">> => <<"xxx">>
                         }

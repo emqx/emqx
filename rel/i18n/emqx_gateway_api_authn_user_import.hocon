@@ -1,0 +1,15 @@
+emqx_gateway_api_authn_user_import {
+
+
+bad_request.desc:
+"""Bad request."""
+bad_request.label:
+"""Bad Request"""
+
+
+not_found.desc:
+"""Resource not found."""
+not_found.label:
+"""Not Found"""
+
+}

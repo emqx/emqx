@@ -13,7 +13,7 @@ get_sso.label:
 login.desc:
 """Get Dashboard Auth Token."""
 login.label:
-"""Get Dashboard Auth Token."""
+"""Get Dashboard Auth Token"""
 
 get_backend.desc:
 """Get details of a backend"""
@@ -62,5 +62,18 @@ last_error.desc:
 
 last_error.label:
 """Last Error"""
+
+saml_sso_acs.label:
+"""SAML SSO ACS"""
+
+sp_saml_metadata.label:
+"""SP SAML Metadata"""
+
+
+
+backend_name_in_qs.desc:
+"""SSO backend name from query string."""
+backend_name_in_qs.label:
+"""Backend Name (Query)"""
 
 }

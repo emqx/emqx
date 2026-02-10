@@ -57,4 +57,9 @@ indicate that certain metrics were returned on a certain node."""
 mode_parameter.label:
 """Mode Parameter"""
 
+qp_namespace.desc:
+"""Query parameter to filter metrics by namespace."""
+qp_namespace.label:
+"""Namespace filter"""
+
 }

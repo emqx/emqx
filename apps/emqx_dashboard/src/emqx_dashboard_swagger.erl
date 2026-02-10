@@ -6,6 +6,7 @@
 
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("kernel/include/logger.hrl").
 
 -define(BASE_PATH, "/api/v5").
 
@@ -627,13 +628,28 @@ to_spec(Meta, Params, RequestBody, Responses) ->
     maps:put('requestBody', RequestBody, Spec).
 
 generate_method_desc(Spec = #{desc := _Desc}, Options) ->
+    enforce_method_desc_policy(Spec),
     Spec1 = trans_description(maps:remove(desc, Spec), Spec, Options),
-    trans_tags(Spec1);
+    trans_tags(trans_summary(Spec1, Spec, Options));
 generate_method_desc(Spec = #{description := _Desc}, Options) ->
+    enforce_method_desc_policy(Spec),
     Spec1 = trans_description(Spec, Spec, Options),
-    trans_tags(Spec1);
-generate_method_desc(Spec, _Options) ->
-    trans_tags(Spec).
+    trans_tags(trans_summary(Spec1, Spec, Options));
+generate_method_desc(Spec, Options) ->
+    enforce_method_desc_policy(Spec),
+    trans_tags(trans_summary(Spec, Spec, Options)).
+
+trans_summary(Spec = #{summary := _}, Hocon, Options) ->
+    forbidden_summary_ref(Spec),
+    trans_summary(maps:remove(summary, Spec), Hocon, Options);
+trans_summary(Spec, Hocon, Options) ->
+    case desc_struct(Hocon) of
+        ?DESC(_, _) = Struct ->
+            Summary = resolve_i18n(<<"label">>, Struct, Options),
+            Spec#{summary => Summary};
+        _ ->
+            Spec
+    end.
 
 trans_tags(Spec = #{tags := Tags}) ->
     Spec#{tags => [string:titlecase(to_bin(Tag)) || Tag <- Tags]};
@@ -717,7 +733,7 @@ trans_description(Spec, Hocon, Options) ->
             undefined ->
                 undefined;
             ?DESC(_, _) = Struct ->
-                get_i18n(<<"desc">>, Struct, undefined, Options);
+                resolve_i18n(<<"desc">>, Struct, Options);
             Text ->
                 missing_i18n_ref(Text)
         end,
@@ -725,27 +741,54 @@ trans_description(Spec, Hocon, Options) ->
         true ->
             Spec;
         false ->
-            Desc1 = binary:replace(Desc, [<<"\n">>], <<"<br/>">>, [global]),
+            Desc1 = binary:replace(to_bin(Desc), [<<"\n">>], <<"<br/>">>, [global]),
             Spec#{description => Desc1}
     end.
 
 -ifdef(TEST).
 %% Do not raise error in tests because there are schema defined in tests.
+missing_i18n_ref(Text) when is_binary(Text) ->
+    Text;
 missing_i18n_ref(Text) ->
-    to_bin(Text).
+    unicode:characters_to_binary(io_lib:format("~p", [Text])).
+%% In tests, we keep permissive behavior to avoid breaking unit tests that use
+%% synthetic specs with explicit summary.
+forbidden_summary_ref(_Spec) ->
+    ok.
 -else.
 %% Fail in production, if any translation is missing, the node will not boot
 %% so smoke tests will fail
 -dialyzer({nowarn_function, missing_i18n_ref/1}).
+-dialyzer({nowarn_function, forbidden_summary_ref/1}).
 missing_i18n_ref(Text) ->
     error({missing_i18n_ref, Text}).
+%% In production, explicit operation summary is forbidden. Summary must be
+%% derived from the same ?DESC(...) reference used by desc/description.
+forbidden_summary_ref(Spec) ->
+    error({forbidden_summary_ref, Spec}).
 -endif.
+
+%% Policy for operation docs:
+%% 1) Tagged endpoint methods must not define summary in source.
+%% 2) Tagged endpoint methods must define desc/description so summary can be
+%%    derived from i18n label and description from i18n desc.
+enforce_method_desc_policy(#{tags := _, summary := _} = Spec) ->
+    forbidden_summary_ref(Spec);
+enforce_method_desc_policy(#{tags := _} = Spec) ->
+    case desc_struct(Spec) of
+        undefined -> missing_i18n_ref(missing_operation_description);
+        _ -> ok
+    end;
+enforce_method_desc_policy(_Spec) ->
+    ok.
 
 get_i18n(Tag, ?DESC(Namespace, Id), Default, Options) ->
     Lang = get_lang(Options),
     case Lang of
         ?NO_I18N ->
-            undefined;
+            %% When explicit i18n is disabled (e.g. schema export endpoints),
+            %% we still resolve from English entries to keep strict checks.
+            get_i18n_text(en, Namespace, Id, Tag, Default);
         _ ->
             get_i18n_text(Lang, Namespace, Id, Tag, Default)
     end.
@@ -754,6 +797,14 @@ get_i18n_text(Lang, Namespace, Id, Tag, Default) ->
     case emqx_dashboard_desc_cache:lookup(Lang, Namespace, Id, Tag) of
         undefined ->
             Default;
+        Text ->
+            Text
+    end.
+
+resolve_i18n(Tag, ?DESC(_, _) = Struct, Options) ->
+    case get_i18n(Tag, Struct, undefined, Options) of
+        undefined ->
+            missing_i18n_ref(Struct);
         Text ->
             Text
     end.
@@ -802,7 +853,7 @@ request_body(Schema, Module, Options) ->
             false ->
                 {parse_object(Schema, Module, Options), undefined}
         end,
-    {#{<<"content">> => content(Props, Examples)}, Refs}.
+    {#{<<"content">> => content(Props, Examples, Options)}, Refs}.
 
 responses(Responses, Module, Options) ->
     {Spec, Refs, _, _} = maps:fold(fun response/3, {#{}, [], Module, Options}, Responses),
@@ -839,7 +890,7 @@ response(Status, Schema, {Acc, RefsAcc, Module, Options}) ->
             Examples = hocon_schema:field_schema(Schema, examples),
             {Spec, Refs} = hocon_schema_to_spec(Hocon, Module),
             Init = trans_description(#{}, Schema, Options),
-            Content = content(Spec, Examples),
+            Content = content(Spec, Examples, Options),
             {
                 Acc#{integer_to_binary(Status) => Init#{<<"content">> => Content}},
                 Refs ++ RefsAcc,
@@ -1039,15 +1090,40 @@ fix_empty_props(Props) ->
     Props.
 
 content(ApiSpec) ->
-    content(ApiSpec, undefined).
+    content(ApiSpec, undefined, #{}).
 
-content(ApiSpec, Examples) ->
-    content(ApiSpec, Examples, _ContentTypes = [<<"application/json">>]).
-
-content(ApiSpec, undefined, ContentTypes) ->
+content(ApiSpec, undefined, Options) ->
+    ContentTypes = maps:get(request_body_content_types, Options, [<<"application/json">>]),
     maps:from_keys(ContentTypes, #{<<"schema">> => ApiSpec});
-content(ApiSpec, Examples, ContentTypes) when is_map(Examples) ->
-    maps:from_keys(ContentTypes, Examples#{<<"schema">> => ApiSpec}).
+content(ApiSpec, Examples, Options) when is_map(Examples) ->
+    ContentTypes = maps:get(request_body_content_types, Options, [<<"application/json">>]),
+    Examples1 = translate_examples(Examples, Options),
+    maps:from_keys(ContentTypes, Examples1#{<<"schema">> => ApiSpec}).
+
+translate_examples(Value, Options) when is_map(Value) ->
+    maps:fold(
+        fun(Key, V, Acc) ->
+            V1 = translate_examples(V, Options),
+            Acc#{Key => maybe_translate_example_doc(Key, V1, Options)}
+        end,
+        #{},
+        Value
+    );
+translate_examples(Value, Options) when is_list(Value) ->
+    [translate_examples(V, Options) || V <- Value];
+translate_examples(Value, _Options) ->
+    Value.
+
+maybe_translate_example_doc(Key, ?DESC(_, _) = Struct, Options) when
+    Key =:= summary; Key =:= <<"summary">>
+->
+    resolve_i18n(<<"label">>, Struct, Options);
+maybe_translate_example_doc(Key, ?DESC(_, _) = Struct, Options) when
+    Key =:= description; Key =:= <<"description">>
+->
+    resolve_i18n(<<"desc">>, Struct, Options);
+maybe_translate_example_doc(_Key, Value, _Options) ->
+    Value.
 
 to_ref(Mod, StructName, Acc, RefsAcc) ->
     Ref = #{<<"$ref">> => ?TO_COMPONENTS_PARAM(Mod, StructName)},

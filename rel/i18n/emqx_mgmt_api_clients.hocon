@@ -23,12 +23,12 @@ kick_client_id.label:
 get_authz_cache.desc:
 """Get client authz cache in the cluster."""
 get_authz_cache.label:
-"""Get client authz cache in the cluster."""
+"""Get client authz cache in the cluster"""
 
 clean_authz_cache.desc:
 """Clean client authz cache in the cluster."""
 clean_authz_cache.label:
-"""Clean client authz cache in the cluster."""
+"""Clean client authz cache in the cluster"""
 
 get_client_subs.desc:
 """Get client subscriptions"""
@@ -573,5 +573,11 @@ max_payload_bytes.desc:
 """Client's inflight/mqueue messages payload limit. The total payload size of all messages in the response will not exceed this value. Messages beyond the limit will be silently omitted in the response. The only exception to this rule is when the first message payload is already larger than the limit, in this case, the first message will be returned in the response."""
 max_payload_bytes.label:
 """Max Payload Bytes"""
+
+
+msg_payload.desc:
+"""Message payload."""
+msg_payload.label:
+"""Payload"""
 
 }

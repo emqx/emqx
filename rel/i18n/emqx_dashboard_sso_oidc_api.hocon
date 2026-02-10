@@ -13,4 +13,8 @@ backend_not_found.desc:
 backend_not_found.label:
 """Backend Not Found"""
 
+code_callback.label:
+"""Code Callback"""
+
+
 }

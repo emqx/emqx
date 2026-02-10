@@ -15,4 +15,16 @@ emqx_bridge_gcp_pubsub_producer_schema {
   config_connector.label:
   """GCP PubSub Producer Client Configuration"""
 
+
+desc_name.desc:
+"""Name of the resource."""
+desc_name.label:
+"""Name"""
+
+
+desc_type.desc:
+"""Type of the resource."""
+desc_type.label:
+"""Type"""
+
 }

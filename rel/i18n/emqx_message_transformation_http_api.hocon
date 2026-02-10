@@ -86,4 +86,65 @@ emqx_message_transformation_http_api {
   no_content.label:
   """No Content"""
 
+  example_simple_transformation.desc:
+  """Example payload for a basic message transformation."""
+  example_simple_transformation.label:
+  """Simple Transformation Example"""
+
+  example_update.desc:
+  """Example payload for updating a transformation."""
+  example_update.label:
+  """Update Example"""
+
+  example_reorder.desc:
+  """Example payload for reordering transformations."""
+  example_reorder.label:
+  """Reorder Example"""
+
+  example_dryrun.desc:
+  """Example request for dry-run testing a transformation."""
+  example_dryrun.label:
+  """Dryrun Example"""
+
+  example_list.desc:
+  """Example response listing transformations."""
+  example_list.label:
+  """List Example"""
+
+  example_metrics.desc:
+  """Example response showing transformation metrics."""
+  example_metrics.label:
+  """Metrics Example"""
+
+append_transformation.label:
+"""Append Transformation"""
+
+delete_transformation.label:
+"""Delete Transformation"""
+
+dryrun_transformation.label:
+"""Dryrun Transformation"""
+
+enable_disable_transformation.label:
+"""Enable Disable Transformation"""
+
+get_transformation_metrics.label:
+"""Get Transformation Metrics"""
+
+list_transformations.label:
+"""List Transformations"""
+
+lookup_transformation.label:
+"""Lookup Transformation"""
+
+reorder_transformations.label:
+"""Reorder Transformations"""
+
+reset_transformation_metrics.label:
+"""Reset Transformation Metrics"""
+
+update_transformation.label:
+"""Update Transformation"""
+
+
 }
