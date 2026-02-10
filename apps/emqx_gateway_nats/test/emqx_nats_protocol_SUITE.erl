@@ -147,11 +147,7 @@ env_int(Key, Default) ->
     end.
 
 default_host(Target) ->
-    case os:getenv("NATS_HOST") of
-        false -> default_host_for_target(Target);
-        "" -> default_host_for_target(Target);
-        Val -> Val
-    end.
+    default_host_for_target(Target).
 
 default_host_for_target(emqx) ->
     "127.0.0.1";
@@ -169,36 +165,24 @@ ensure_scheme(Host, Scheme) ->
     end.
 
 tcp_host(Target) ->
-    Host0 = env_str("NATS_TCP_HOST", default_host(Target)),
+    Host0 = default_host(Target),
     ensure_scheme(Host0, "tcp").
 
 ws_host(Target) ->
-    Host0 = env_str("NATS_WS_HOST", default_host(Target)),
+    Host0 = default_host(Target),
     ensure_scheme(Host0, "ws").
 
 tcp_port(_Target) ->
-    env_int("NATS_TCP_PORT", 4222).
+    4222.
 
 ws_port(Target) ->
-    case os:getenv("NATS_WS_PORT") of
-        false ->
-            case Target of
-                emqx -> 4223;
-                nats -> 9222
-            end;
-        "" ->
-            case Target of
-                emqx -> 4223;
-                nats -> 9222
-            end;
-        "0" ->
-            undefined;
-        Val ->
-            list_to_integer(Val)
+    case Target of
+        emqx -> 4223;
+        nats -> 9222
     end.
 
 wss_host(Target) ->
-    Host0 = env_str("NATS_WSS_HOST", default_wss_host(Target)),
+    Host0 = default_wss_host(Target),
     ensure_scheme(Host0, "wss").
 
 default_wss_host(emqx) ->
@@ -207,43 +191,19 @@ default_wss_host(nats) ->
     "toxiproxy".
 
 wss_port(Target) ->
-    case os:getenv("NATS_WSS_PORT") of
-        false ->
-            case Target of
-                emqx -> 4224;
-                nats -> 9322
-            end;
-        "" ->
-            case Target of
-                emqx -> 4224;
-                nats -> 9322
-            end;
-        "0" ->
-            undefined;
-        Val ->
-            list_to_integer(Val)
+    case Target of
+        emqx -> 4224;
+        nats -> 9322
     end.
 
 ssl_host(Target) ->
-    Host0 = env_str("NATS_SSL_HOST", default_host(Target)),
+    Host0 = default_host(Target),
     ensure_scheme(Host0, "ssl").
 
 ssl_port(Target) ->
-    case os:getenv("NATS_SSL_PORT") of
-        false ->
-            case Target of
-                emqx -> 4225;
-                nats -> 4422
-            end;
-        "" ->
-            case Target of
-                emqx -> 4225;
-                nats -> 4422
-            end;
-        "0" ->
-            undefined;
-        Val ->
-            list_to_integer(Val)
+    case Target of
+        emqx -> 4225;
+        nats -> 4422
     end.
 
 noauth_tcp_host() ->
@@ -372,7 +332,7 @@ maybe_add_nats_auth(emqx, Opts) ->
     Opts.
 
 ssl_starttls_host() ->
-    Host0 = env_str("NATS_SSL_HOST", default_host(nats)),
+    Host0 = default_host(nats),
     "tcp://" ++ strip_scheme(Host0).
 
 ssl_noauth_starttls_host() ->

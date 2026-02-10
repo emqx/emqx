@@ -345,26 +345,12 @@ else
                     -e SUITEGROUP="${SUITEGROUP:-}" \
                     -e ENABLE_COVER_COMPILE="${ENABLE_COVER_COMPILE:-}" \
                     -e CT_COVER_EXPORT_PREFIX="${CT_COVER_EXPORT_PREFIX:-}" \
-                    -e NATS_HOST="${NATS_HOST:-}" \
-                    -e NATS_TCP_HOST="${NATS_TCP_HOST:-}" \
-                    -e NATS_TCP_PORT="${NATS_TCP_PORT:-}" \
-                    -e NATS_WS_HOST="${NATS_WS_HOST:-}" \
-                    -e NATS_WS_PORT="${NATS_WS_PORT:-}" \
-                    -e NATS_WSS_HOST="${NATS_WSS_HOST:-}" \
-                    -e NATS_WSS_PORT="${NATS_WSS_PORT:-}" \
                     -i $TTY "$ERLANG_CONTAINER" \
                     bash -c "make ${WHICH_APP}-ct"
     else
         # this is an ad-hoc run
         docker exec -e IS_CI="$IS_CI" \
                     -e PROFILE="$PROFILE" \
-                    -e NATS_HOST="${NATS_HOST:-}" \
-                    -e NATS_TCP_HOST="${NATS_TCP_HOST:-}" \
-                    -e NATS_TCP_PORT="${NATS_TCP_PORT:-}" \
-                    -e NATS_WS_HOST="${NATS_WS_HOST:-}" \
-                    -e NATS_WS_PORT="${NATS_WS_PORT:-}" \
-                    -e NATS_WSS_HOST="${NATS_WSS_HOST:-}" \
-                    -e NATS_WSS_PORT="${NATS_WSS_PORT:-}" \
                     -i $TTY "$ERLANG_CONTAINER" \
                     bash -c "./rebar3 ct $REBAR3CT"
     fi
