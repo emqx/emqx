@@ -9,6 +9,7 @@
 
 -include_lib("emqx_connector/include/emqx_connector.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("amqp_client/include/amqp_client.hrl").
 
@@ -25,8 +26,7 @@
     get_rabbitmq/1,
     ssl_options/1,
     get_channel_connection/1,
-    parse_and_check/4,
-    receive_message_from_rabbitmq/1
+    parse_and_check/4
 ]).
 %%------------------------------------------------------------------------------
 %% Common Test Setup, Tear down and Testcase List
@@ -58,6 +58,10 @@ create_bridge(Name, Config) ->
 
 delete_bridge(Name) ->
     ok = emqx_bridge:remove(?TYPE, Name).
+
+receive_message_from_rabbitmq(TCConfig) ->
+    ClientOpts = ?config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:receive_message(ClientOpts).
 
 %%------------------------------------------------------------------------------
 %% Test Cases
@@ -95,7 +99,7 @@ t_send_message_query(Config) ->
     %% This will use the SQL template included in the bridge
     emqx_bridge:send_message(BridgeID, Payload),
     %% Check that the data got to the database
-    ?assertEqual(Payload, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := Payload}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
@@ -116,7 +120,7 @@ t_send_message_query_with_template(Config) ->
     ExpectedResult = Payload#{
         <<"secret">> => 42
     },
-    ?assertEqual(ExpectedResult, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := ExpectedResult}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
@@ -127,7 +131,7 @@ t_send_simple_batch(Config) ->
     BridgeID = create_bridge(Name, BridgeConf),
     Payload = #{<<"key">> => 42, <<"data">> => <<"RabbitMQ">>, <<"timestamp">> => 10000},
     emqx_bridge:send_message(BridgeID, Payload),
-    ?assertEqual(Payload, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := Payload}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
@@ -147,11 +151,12 @@ t_send_simple_batch_with_template(Config) ->
     },
     emqx_bridge:send_message(BridgeID, Payload),
     ExpectedResult = Payload#{<<"secret">> => 42},
-    ?assertEqual(ExpectedResult, receive_message_from_rabbitmq(Config)),
+    ?assertMatch(#{payload := ExpectedResult}, receive_message_from_rabbitmq(Config)),
     ok = delete_bridge(Name),
     ok.
 
 t_heavy_batching(Config) ->
+    ClientOpts = ?config(client_opts, Config),
     Name = atom_to_binary(?FUNCTION_NAME),
     NumberOfMessages = 20000,
     RabbitMQ = get_rabbitmq(Config),
@@ -165,15 +170,19 @@ t_heavy_batching(Config) ->
         emqx_bridge:send_message(BridgeID, Payload)
     end,
     [SendMessage(Key) || Key <- lists:seq(1, NumberOfMessages)],
+    {Connection, Channel} = emqx_bridge_rabbitmq_testlib:connect_client(ClientOpts),
     AllMessages = lists:foldl(
         fun(_, Acc) ->
-            Message = receive_message_from_rabbitmq(Config),
-            #{<<"key">> := Key} = Message,
+            #{payload := #{<<"key">> := Key}} = emqx_bridge_rabbitmq_testlib:receive_message(
+                Connection, Channel, ClientOpts
+            ),
             Acc#{Key => true}
         end,
         #{},
         lists:seq(1, NumberOfMessages)
     ),
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
     ?assertEqual(NumberOfMessages, maps:size(AllMessages)),
     ok = delete_bridge(Name),
     ok.

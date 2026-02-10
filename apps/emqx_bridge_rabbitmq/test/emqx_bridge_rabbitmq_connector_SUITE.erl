@@ -21,8 +21,7 @@
     get_rabbitmq/1,
     ssl_options/1,
     get_channel_connection/1,
-    parse_and_check/4,
-    receive_message_from_rabbitmq/1
+    parse_and_check/4
 ]).
 
 %% This test SUITE requires a running RabbitMQ instance. If you don't want to
@@ -128,6 +127,10 @@ perform_lifecycle_check(ResourceID, InitialConfig, TestConfig) ->
 % %% Helpers
 % %%------------------------------------------------------------------------------
 
+receive_message_from_rabbitmq(TCConfig) ->
+    ClientOpts = ?config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:receive_message(ClientOpts).
+
 check_config(Config) ->
     {ok, #{config := CheckedConfig}} =
         emqx_resource:check_config(emqx_bridge_rabbitmq_connector, Config),
@@ -152,7 +155,7 @@ perform_query(PoolName, Channel) ->
     %% Get the message from queue:
     SendData = test_data(),
     RecvData = receive_message_from_rabbitmq(Channel),
-    ?assertMatch(SendData, RecvData),
+    ?assertMatch(#{payload := SendData}, RecvData),
     ?assertEqual(ok, emqx_resource_manager:remove_channel(PoolName, ChannelId)),
     ok.
 
