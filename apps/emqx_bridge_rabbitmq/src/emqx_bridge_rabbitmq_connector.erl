@@ -60,6 +60,8 @@ fields(config) ->
 %% Less than ?T_OPERATION of emqx_resource_manager
 -define(CHANNEL_CLOSE_TIMEOUT, 4_000).
 
+-define(AUTO_RECONNECT_INTERVAL_S, 2).
+
 %% ===================================================================
 %% Callbacks defined in emqx_resource
 %% ===================================================================
@@ -79,7 +81,8 @@ on_start(InstanceID, Config) ->
     Options = [
         {config, Config},
         {pool_size, maps:get(pool_size, Config)},
-        {pool, InstanceID}
+        {pool, InstanceID},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
     case emqx_resource_pool:start(InstanceID, ?MODULE, Options) of
         ok ->
