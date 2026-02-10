@@ -562,14 +562,18 @@ t_start_channel_no_leak(TCConfig) ->
         emqx_bridge_v2_testlib:snk_timetrap(),
         begin
             ?inject_crash(
-                #{?snk_kind := "rabbitmq_will_make_channel"},
+                #{?snk_kind := "rabbitmq_will_confirm_channel"},
                 snabbkaffe_nemesis:periodic_crash(
                     _Period = PoolSize,
                     _DutyCycle = 0.5,
                     _Phase = 0
                 )
             ),
-            {201, #{<<"status">> := <<"disconnected">>}} = create_action_api(TCConfig, #{}),
+            {201, #{<<"status">> := <<"disconnected">>}} = create_action_api(TCConfig, #{
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"2s">>
+                }
+            }),
             ?assertEqual(0, length(list_rabbitmq_channel_processes())),
             ok
         end,
