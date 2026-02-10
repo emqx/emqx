@@ -510,12 +510,15 @@ handle_in(
     }
 ) when (Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB) andalso ?ALLOW_PUB_SUB(ConnState) ->
     Subject = emqx_nats_frame:subject(Frame),
-    Topic = emqx_nats_topic:nats_to_mqtt(Subject),
+    Topic = nats_subject_to_pub_topic(Subject),
     case emqx_gateway_ctx:authorize(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic) of
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         allow ->
-            process_pub_frame(Frame, Channel)
+            case check_max_payload(Frame, Channel) of
+                ok -> process_pub_frame(Frame, Channel);
+                {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
+            end
     end;
 handle_in(
     Frame = ?PACKET(?OP_SUB),
@@ -555,9 +558,14 @@ handle_in(
             ),
             case do_subscribe(NTopicFilters, NChannel) of
                 [] ->
+                    TopicText =
+                        case TopicFilter of
+                            {ParsedTopic, _SubOpts} -> ParsedTopic;
+                            _ -> TopicFilter
+                        end,
                     ErrMsg = io_lib:format(
                         "The client.subscribe hook blocked the ~s subscription request",
-                        [TopicFilter]
+                        [TopicText]
                     ),
                     handle_out(error, ErrMsg, NChannel);
                 [{MountedTopic, SubOpts} | _] ->
@@ -658,9 +666,14 @@ to_atom_shutdown_reason({R, _}) when is_atom(R) ->
 %%--------------------------------------------------------------------
 %% Subs
 
-parse_topic_filter({SId, Topic}, Channel) ->
+parse_topic_filter({SId, Topic}, Channel = #channel{conninfo = ConnInfo}) ->
     {ParsedTopic, SubOpts} = emqx_topic:parse(Topic),
-    NSubOpts = SubOpts#{sub_props => #{sid => SId}},
+    NSubOpts0 = SubOpts#{sub_props => #{sid => SId}},
+    NSubOpts =
+        case is_no_local_enabled(ConnInfo) of
+            true -> NSubOpts0#{nl => 1};
+            false -> NSubOpts0
+        end,
     {ok, {SId, {ParsedTopic, NSubOpts}}, Channel}.
 
 check_subscribed_status(
@@ -922,49 +935,57 @@ handle_deliver(
     Delivers,
     Channel = #channel{
         ctx = Ctx,
-        clientinfo = ClientInfo = #{mountpoint := Mountpoint},
+        clientinfo = ClientInfo = #{clientid := ClientId, mountpoint := Mountpoint},
         subscriptions = Subs
     }
 ) ->
+    EchoDisabled = is_no_local_enabled(Channel#channel.conninfo),
     {Frames0, NSubs} = lists:foldl(
         fun({deliver, SubTopic, Message}, {FrameAcc, SubsAcc}) ->
-            ReplyTo = emqx_message:get_header(reply_to, Message),
-            case find_sub_by_topic(SubTopic, SubsAcc) of
-                #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
-                    Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
-                    metrics_inc('messages.delivered', Channel),
-                    NMessage = run_hooks_without_metrics(
-                        Ctx,
-                        'message.delivered',
-                        [ClientInfo],
-                        Message1
-                    ),
-                    MsgContent = #{
-                        subject => emqx_nats_topic:mqtt_to_nats(emqx_message:topic(NMessage)),
-                        sid => SId,
-                        reply_to => ReplyTo,
-                        payload => emqx_message:payload(NMessage)
-                    },
-                    Frame = #nats_frame{
-                        operation = ?OP_MSG,
-                        message = MsgContent
-                    },
-                    {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
-                #{max_msgs := 0} ->
-                    metrics_inc('delivery.dropped', Channel),
-                    metrics_inc('delivery.dropped.max_msgs', Channel),
+            case EchoDisabled andalso emqx_message:from(Message) =:= ClientId of
+                true ->
                     {FrameAcc, SubsAcc};
                 false ->
-                    ?SLOG(error, #{
-                        tag => ?TAG,
-                        msg => "dropped_message_due_to_subscription_not_found",
-                        message => Message,
-                        matched_subscription_topic => SubTopic,
-                        message_topic => emqx_message:topic(Message)
-                    }),
-                    metrics_inc('delivery.dropped', Channel),
-                    metrics_inc('delivery.dropped.no_subid', Channel),
-                    {FrameAcc, SubsAcc}
+                    ReplyTo = emqx_message:get_header(reply_to, Message),
+                    case find_sub_by_topic(SubTopic, SubsAcc) of
+                        #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
+                            Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
+                            metrics_inc('messages.delivered', Channel),
+                            NMessage = run_hooks_without_metrics(
+                                Ctx,
+                                'message.delivered',
+                                [ClientInfo],
+                                Message1
+                            ),
+                            MsgContent = #{
+                                subject => emqx_nats_topic:mqtt_to_nats(
+                                    emqx_message:topic(NMessage)
+                                ),
+                                sid => SId,
+                                reply_to => ReplyTo,
+                                payload => emqx_message:payload(NMessage)
+                            },
+                            Frame = #nats_frame{
+                                operation = ?OP_MSG,
+                                message = MsgContent
+                            },
+                            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+                        #{max_msgs := 0} ->
+                            metrics_inc('delivery.dropped', Channel),
+                            metrics_inc('delivery.dropped.max_msgs', Channel),
+                            {FrameAcc, SubsAcc};
+                        false ->
+                            ?SLOG(error, #{
+                                tag => ?TAG,
+                                msg => "dropped_message_due_to_subscription_not_found",
+                                message => Message,
+                                matched_subscription_topic => SubTopic,
+                                message_topic => emqx_message:topic(Message)
+                            }),
+                            metrics_inc('delivery.dropped', Channel),
+                            metrics_inc('delivery.dropped.no_subid', Channel),
+                            {FrameAcc, SubsAcc}
+                    end
             end
         end,
         {[], Subs},
@@ -1061,7 +1082,7 @@ frame2message(
 ) ->
     ProtoVer = maps:get(proto_ver, ConnInfo, <<"1">>),
     Subject = emqx_nats_frame:subject(Frame),
-    Topic = emqx_nats_topic:nats_to_mqtt(Subject),
+    Topic = nats_subject_to_pub_topic(Subject),
     Payload = emqx_nats_frame:payload(Frame),
     Headers = emqx_nats_frame:headers(Frame),
     ReplyTo = emqx_nats_frame:reply_to(Frame),
@@ -1180,6 +1201,40 @@ is_verbose_mode(_Channel = #channel{conninfo = #{conn_params := ConnParams}}) ->
     maps:get(<<"verbose">>, ConnParams, true);
 is_verbose_mode(_) ->
     true.
+
+is_no_local_enabled(#{conn_params := ConnParams}) ->
+    Echo =
+        case ConnParams of
+            #{<<"echo">> := Val} -> Val;
+            #{echo := Val} -> Val;
+            #{"echo" := Val} -> Val;
+            _ -> true
+        end,
+    case Echo of
+        false -> true;
+        <<"false">> -> true;
+        "false" -> true;
+        _ -> false
+    end;
+is_no_local_enabled(_) ->
+    false.
+
+nats_subject_to_pub_topic(Subject) ->
+    case emqx_nats_topic:validate_nats_subject(Subject) of
+        {ok, true} -> emqx_nats_topic:nats_to_mqtt_publish(Subject);
+        {ok, false} -> emqx_nats_topic:nats_to_mqtt(Subject);
+        {error, _} -> emqx_nats_topic:nats_to_mqtt_publish(Subject)
+    end.
+
+check_max_payload(Frame, _Channel) ->
+    MaxPayload = emqx_conf:get([gateway, nats, protocol, max_payload_size]),
+    PayloadSize = emqx_nats_frame:payload_total_size(Frame),
+    case PayloadSize > MaxPayload of
+        true ->
+            {error, <<"Maximum Payload Violation">>};
+        false ->
+            ok
+    end.
 
 find_sub_by_topic(_Topic, []) ->
     false;

@@ -329,5 +329,29 @@
     "listen": "0.0.0.0:8123",
     "upstream": "clickhouse:8123",
     "enabled": true
+  },
+  {
+    "name": "nats_tcp",
+    "listen": "0.0.0.0:4222",
+    "upstream": "nats:4222",
+    "enabled": true
+  },
+  {
+    "name": "nats_ws",
+    "listen": "0.0.0.0:9222",
+    "upstream": "nats:9222",
+    "enabled": true
+  },
+  {
+    "name": "nats_tls",
+    "listen": "0.0.0.0:4422",
+    "upstream": "nats_tls:4422",
+    "enabled": true
+  },
+  {
+    "name": "nats_wss",
+    "listen": "0.0.0.0:9322",
+    "upstream": "nats_tls:9322",
+    "enabled": true
   }
 ]
