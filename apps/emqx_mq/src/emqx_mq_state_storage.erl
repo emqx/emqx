@@ -563,7 +563,7 @@ persist_consumer_state_tx(
         ?col_shard_progress := ShardProgress
     } = CSRec
 ) ->
-    ?tp(warning, consumer_state_tx_assert_guard, #{id => Id, old_guard => OldGuard}),
+    ?tp(debug, consumer_state_tx_assert_guard, #{id => Id, old_guard => OldGuard}),
     emqx_ds_pmap:tx_assert_guard(Id, OldGuard),
     NeedClaimOwnership andalso emqx_ds_pmap:tx_write_guard(Id, ?ds_tx_serial),
     CSRec#{

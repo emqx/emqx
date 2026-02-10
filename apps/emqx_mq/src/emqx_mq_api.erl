@@ -326,8 +326,9 @@ put_message_queue_config_example() ->
     case emqx_mq_config:update_config(Body) of
         {ok, _} ->
             ?NO_CONTENT;
-        {error, {post_config_update, emqx_mq_config, #{reason := cannot_disable_mq_in_runtime}}} ->
-            ?BAD_REQUEST(<<"Cannot disable MQ subsystem via API">>);
+        {error,
+            {post_config_update, emqx_mq_config, #{reason := cannot_stop_mqs_with_existing_queues}}} ->
+            ?BAD_REQUEST(<<"Cannot disable MQ subsystem via API when there are existing queues">>);
         {error,
             {post_config_update, emqx_mq_config, #{
                 reason := cannot_enable_both_regular_and_lastvalue_auto_create
@@ -340,16 +341,10 @@ put_message_queue_config_example() ->
     end.
 
 check_ready(Request, _Meta) ->
-    case emqx_mq_config:is_enabled() of
-        true ->
-            case emqx_mq_app:is_ready() of
-                true ->
-                    {ok, Request};
-                false ->
-                    ?SERVICE_UNAVAILABLE(<<"Not ready">>)
-            end;
-        false ->
-            ?SERVICE_UNAVAILABLE(<<"Not enabled">>)
+    case emqx_mq_controller:status() of
+        stopped -> ?SERVICE_UNAVAILABLE(<<"Not enabled">>);
+        starting -> ?SERVICE_UNAVAILABLE(<<"Not ready">>);
+        started -> {ok, Request}
     end.
 
 %%--------------------------------------------------------------------
