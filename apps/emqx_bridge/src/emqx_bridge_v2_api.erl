@@ -285,8 +285,7 @@ schema("/actions") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
-            summary => <<"List Actions">>,
-            description => ?DESC("desc_api1"),
+            description => ?DESC("desc_actions_list"),
             parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -297,8 +296,7 @@ schema("/actions") ->
         },
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Create Action">>,
-            description => ?DESC("desc_api2"),
+            description => ?DESC("desc_actions_create"),
             parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
@@ -316,8 +314,7 @@ schema("/actions/:id") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Get Action">>,
-            description => ?DESC("desc_api3"),
+            description => ?DESC("desc_actions_get"),
             parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => actions_get_response_body_schema(),
@@ -326,8 +323,7 @@ schema("/actions/:id") ->
         },
         put => #{
             tags => [<<"actions">>],
-            summary => <<"Update Action">>,
-            description => ?DESC("desc_api4"),
+            description => ?DESC("desc_actions_update"),
             parameters => [param_path_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_put_request(),
@@ -342,8 +338,7 @@ schema("/actions/:id") ->
         },
         delete => #{
             tags => [<<"actions">>],
-            summary => <<"Delete Action">>,
-            description => ?DESC("desc_api5"),
+            description => ?DESC("desc_actions_delete"),
             parameters => [param_path_id(), param_qs_delete_cascade(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -363,8 +358,7 @@ schema("/actions/:id/metrics") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Get Action Metrics">>,
-            description => ?DESC("desc_bridge_metrics"),
+            description => ?DESC("desc_actions_metrics_get"),
             parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => metrics_fields(),
@@ -378,8 +372,7 @@ schema("/actions/:id/metrics/reset") ->
         filter => fun ?MODULE:filter/2,
         put => #{
             tags => [<<"actions">>],
-            summary => <<"Reset Action Metrics">>,
-            description => ?DESC("desc_api6"),
+            description => ?DESC("desc_actions_metrics_reset"),
             parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -394,8 +387,7 @@ schema("/actions/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"actions">>],
-                summary => <<"Enable or Disable Action">>,
-                desc => ?DESC("desc_enable_bridge"),
+                desc => ?DESC("desc_actions_enable_cluster"),
                 parameters => [param_path_id(), param_path_enable(), ns_qs_param()],
                 responses =>
                     #{
@@ -411,8 +403,7 @@ schema("/actions/:id/:operation") ->
         filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Manually Start an Action">>,
-            description => ?DESC("desc_api7"),
+            description => ?DESC("desc_actions_operation_cluster"),
             parameters => [
                 param_path_id(),
                 param_path_operation_cluster(),
@@ -435,8 +426,7 @@ schema("/nodes/:node/actions/:id/:operation") ->
         filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"actions">>],
-            summary => <<"Manually Start an Action on a Given Node">>,
-            description => ?DESC("desc_api8"),
+            description => ?DESC("desc_actions_operation_node"),
             parameters => [
                 param_path_node(),
                 param_path_id(),
@@ -458,8 +448,7 @@ schema("/actions_probe") ->
         filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"actions">>],
-            desc => ?DESC("desc_api9"),
-            summary => <<"Test Creating Action">>,
+            desc => ?DESC("desc_actions_probe"),
             parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:actions_post_request(),
@@ -477,7 +466,6 @@ schema("/actions_summary") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"actions">>],
-            summary => <<"Summarize Actions">>,
             description => ?DESC("actions_summary"),
             parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
@@ -494,7 +482,6 @@ schema("/action_types") ->
         get => #{
             tags => [<<"actions">>],
             desc => ?DESC("desc_api10"),
-            summary => <<"List Available Action Types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:action_types_sc()),
@@ -518,8 +505,7 @@ schema("/sources") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
-            summary => <<"List Sources">>,
-            description => ?DESC("desc_api1"),
+            description => ?DESC("desc_sources_list"),
             parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -530,8 +516,8 @@ schema("/sources") ->
         },
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Create Source">>,
-            description => ?DESC("desc_api2"),
+            description => ?DESC("desc_sources_create"),
+            %% FIXME: examples
             parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
@@ -549,8 +535,7 @@ schema("/sources/:id") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Get Source">>,
-            description => ?DESC("desc_api3"),
+            description => ?DESC("desc_sources_get"),
             parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => sources_get_response_body_schema(),
@@ -559,8 +544,7 @@ schema("/sources/:id") ->
         },
         put => #{
             tags => [<<"sources">>],
-            summary => <<"Update Source">>,
-            description => ?DESC("desc_api4"),
+            description => ?DESC("desc_sources_update"),
             parameters => [param_path_id(), ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_put_request(),
@@ -575,8 +559,7 @@ schema("/sources/:id") ->
         },
         delete => #{
             tags => [<<"sources">>],
-            summary => <<"Delete Source">>,
-            description => ?DESC("desc_api5"),
+            description => ?DESC("desc_sources_delete"),
             parameters => [param_path_id(), param_qs_delete_cascade(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -596,8 +579,7 @@ schema("/sources/:id/metrics") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Get Source Metrics">>,
-            description => ?DESC("desc_bridge_metrics"),
+            description => ?DESC("desc_sources_metrics_get"),
             parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 200 => metrics_fields(),
@@ -611,8 +593,7 @@ schema("/sources/:id/metrics/reset") ->
         filter => fun ?MODULE:filter/2,
         put => #{
             tags => [<<"sources">>],
-            summary => <<"Reset Source Metrics">>,
-            description => ?DESC("desc_api6"),
+            description => ?DESC("desc_sources_metrics_reset"),
             parameters => [param_path_id(), ns_qs_param()],
             responses => #{
                 204 => ?DESC("OK"),
@@ -627,8 +608,7 @@ schema("/sources/:id/enable/:enable") ->
         put =>
             #{
                 tags => [<<"sources">>],
-                summary => <<"Enable or Disable Source">>,
-                desc => ?DESC("desc_enable_bridge"),
+                desc => ?DESC("desc_sources_enable_cluster"),
                 parameters => [param_path_id(), param_path_enable(), ns_qs_param()],
                 responses =>
                     #{
@@ -644,8 +624,7 @@ schema("/sources/:id/:operation") ->
         filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Manually Start a Source">>,
-            description => ?DESC("desc_api7"),
+            description => ?DESC("desc_sources_operation_cluster"),
             parameters => [
                 param_path_id(),
                 param_path_operation_cluster(),
@@ -666,8 +645,7 @@ schema("/nodes/:node/sources/:id/:operation") ->
         filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"sources">>],
-            summary => <<"Manually Start a Source on a Given Node">>,
-            description => ?DESC("desc_api8"),
+            description => ?DESC("desc_sources_operation_node"),
             parameters => [
                 param_path_node(),
                 param_path_id(),
@@ -689,8 +667,7 @@ schema("/sources_probe") ->
         filter => fun ?MODULE:filter/2,
         post => #{
             tags => [<<"sources">>],
-            desc => ?DESC("desc_api9"),
-            summary => <<"Test Creating Source">>,
+            desc => ?DESC("desc_sources_probe"),
             parameters => [ns_qs_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 emqx_bridge_v2_schema:sources_post_request(),
@@ -708,7 +685,6 @@ schema("/sources_summary") ->
         filter => fun ?MODULE:filter/2,
         get => #{
             tags => [<<"sources">>],
-            summary => <<"Summarize Sources">>,
             description => ?DESC("sources_summary"),
             parameters => [ns_qs_param(), only_global_qs_param()],
             responses => #{
@@ -725,7 +701,6 @@ schema("/source_types") ->
         get => #{
             tags => [<<"sources">>],
             desc => ?DESC("desc_api11"),
-            summary => <<"List Available Source Types">>,
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     array(emqx_bridge_v2_schema:source_types_sc()),

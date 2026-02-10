@@ -496,4 +496,9 @@ allow_auto_topic_creation.label:
     desc: "If necessary, specify the extensions to be passed down to the SASL handshake."
   }
 
+resource_opts.desc:
+"""Resource options."""
+resource_opts.label:
+"""Resource Options"""
+
 }

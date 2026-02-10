@@ -34,4 +34,17 @@ no_content.desc:
 no_content.label:
 """No Content"""
 
+lookup_resource.label:
+"""Lookup Resource"""
+
+observe_resource.label:
+"""Observe Resource"""
+
+read_resource.label:
+"""Read Resource"""
+
+write_resource.label:
+"""Write Resource"""
+
+
 }

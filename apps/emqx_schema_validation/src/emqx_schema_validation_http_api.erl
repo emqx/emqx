@@ -393,12 +393,12 @@ example_input_create() ->
     #{
         <<"sql_check">> =>
             #{
-                summary => <<"Using a SQL check">>,
+                summary => ?DESC("example_sql_check"),
                 value => example_validation([example_sql_check()])
             },
         <<"avro_check">> =>
             #{
-                summary => <<"Using an Avro schema check">>,
+                summary => ?DESC("example_avro_check"),
                 value => example_validation([example_avro_check()])
             }
     }.
@@ -407,7 +407,7 @@ example_input_update() ->
     #{
         <<"update">> =>
             #{
-                summary => <<"Update">>,
+                summary => ?DESC("example_update"),
                 value => example_validation([example_sql_check()])
             }
     }.
@@ -416,7 +416,7 @@ example_input_reorder() ->
     #{
         <<"reorder">> =>
             #{
-                summary => <<"Update">>,
+                summary => ?DESC("example_reorder"),
                 value => #{
                     order => [<<"bar">>, <<"foo">>, <<"baz">>]
                 }
@@ -429,7 +429,7 @@ example_return_list() ->
     #{
         <<"list">> =>
             #{
-                summary => <<"List">>,
+                summary => ?DESC("example_list"),
                 value => [
                     example_validation([example_sql_check()]),
                     OtherVal
@@ -458,7 +458,7 @@ example_return_metrics() ->
     #{
         <<"metrics">> =>
             #{
-                summary => <<"Metrics">>,
+                summary => ?DESC("example_metrics"),
                 value => #{
                     metrics => Metrics,
                     node_metrics =>

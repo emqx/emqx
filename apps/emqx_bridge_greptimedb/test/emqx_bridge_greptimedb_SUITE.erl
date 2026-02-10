@@ -216,14 +216,6 @@ query_by_clientid(ClientId, TCConfig) ->
     SQL = <<"select * from \"mqtt\" where clientid='", ClientId/binary, "'">>,
     query_by_sql(SQL, TCConfig).
 
-query_by_clientid_and_int_key(ClientId, IntKey, TCConfig) ->
-    IntCol = <<ClientId/binary, "_int_value">>,
-    IntKeyBin = integer_to_binary(IntKey),
-    SQL =
-        <<"select * from \"mqtt\" where clientid='", ClientId/binary, "' and \"", IntCol/binary,
-            "\"=", IntKeyBin/binary>>,
-    query_by_sql(SQL, TCConfig).
-
 query_by_sql(SQL, TCConfig) ->
     #{hostname := Host, port := Port} =
         emqx_schema:parse_server(get_config(query_server, TCConfig), #{}),
@@ -513,21 +505,15 @@ t_boolean_variants(TCConfig) ->
         <<"True">> => true,
         <<"False">> => false
     },
-    IndexedVariants = lists:zip(lists:seq(1, map_size(BoolVariants)), maps:to_list(BoolVariants)),
-    lists:foreach(
-        fun({Idx, {BoolVariant, _Translation}}) ->
+    maps:foreach(
+        fun(BoolVariant, Translation) ->
+            ct:pal("testing ~p -> ~p", [BoolVariant, Translation]),
             Payload = json_encode(#{
-                int_key => Idx,
+                int_key => -123,
                 bool => BoolVariant,
                 uint_key => 123
             }),
-            ok = emqtt:publish(C, Topic, Payload)
-        end,
-        IndexedVariants
-    ),
-    lists:foreach(
-        fun({Idx, {BoolVariant, Translation}}) ->
-            ct:pal("testing ~p -> ~p (int_key=~p)", [BoolVariant, Translation, Idx]),
+            emqtt:publish(C, Topic, Payload),
             ?retry(
                 _Sleep2 = 500,
                 _Attempts2 = 20,
@@ -535,12 +521,14 @@ t_boolean_variants(TCConfig) ->
                     #{
                         <<"bool">> := Translation
                     },
-                    query_by_clientid_and_int_key(ClientId, Idx, TCConfig),
-                    #{variant => {BoolVariant, Translation, Idx}}
+                    query_by_clientid(ClientId, TCConfig),
+                    #{variant => {BoolVariant, Translation}}
                 )
-            )
+            ),
+            clear_table(TCConfig),
+            ct:sleep(100)
         end,
-        IndexedVariants
+        BoolVariants
     ),
     ok.
 

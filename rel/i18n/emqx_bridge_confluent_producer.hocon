@@ -154,7 +154,7 @@ producer_kafka_ext_header_key.desc:
 """Key of the Confluent header. Placeholders in format of ${var} are supported."""
 
 producer_kafka_ext_header_key.label:
-"""Confluent extra header key."""
+"""Confluent extra header key"""
 
 producer_kafka_ext_header_value.desc:
 """Value of the header. Placeholders in format of ${var} are supported."""
@@ -420,5 +420,10 @@ allow_auto_topic_creation.label:
     label: "Identity Pool ID"
     desc: "Confluent Identity Pool ID to be used in SASL extensions when connecting."
   }
+
+resource_opts.desc:
+"""Resource options."""
+resource_opts.label:
+"""Resource Options"""
 
 }

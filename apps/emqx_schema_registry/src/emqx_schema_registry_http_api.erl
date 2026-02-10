@@ -549,7 +549,7 @@ example_template(Method) ->
     #{
         <<"avro_schema">> =>
             #{
-                summary => <<"Avro">>,
+                summary => ?DESC("example_avro"),
                 value => sample_get_schema_response(avro, Method)
             }
     }.
@@ -578,7 +578,7 @@ create_external_registry_input_examples(Method) ->
     #{
         <<"confluent">> =>
             #{
-                summary => <<"Confluent">>,
+                summary => ?DESC("example_confluent"),
                 value => sample_get_external_registry_response(confluent, Method)
             }
     }.

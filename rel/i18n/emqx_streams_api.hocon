@@ -51,6 +51,18 @@ emqx_streams_api {
     invalid_message_stream {
         desc: "Invalid message stream"
     }
+    invalid_message_queue {
+        desc: "Invalid message queue"
+    }
+    message_queue_not_found {
+        desc: "Message queue not found"
+    }
+    invalid_message_stream_config {
+        desc: "Invalid message stream config"
+    }
+    message_streams_config_update_success {
+        desc: "Message streams config updated successfully"
+    }
     invalid_streams_config {
         desc: "Invalid streams config"
     }

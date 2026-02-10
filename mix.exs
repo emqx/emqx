@@ -133,7 +133,11 @@ defmodule EMQXUmbrella.MixProject do
       common_dep(:murmerl3),
       common_dep(:unicode_util_compat),
       # Used by :sbom, remove after https://github.com/erlef/mix_sbom/pull/84 or similar is merged & released
-      {:optimus, "~> 0.6.1", override: true}
+      {:optimus, "~> 0.6.1", override: true},
+      # Used by :sbom
+      # The revision is v0.16.0 + commit with Elixir 1.19 fixes
+      # Remove after protobuf releases a new version and mix_sbom is updated to use it
+      {:protobuf, github: "elixir-protobuf/protobuf", ref: "4328993", override: true}
     ]
   end
 
