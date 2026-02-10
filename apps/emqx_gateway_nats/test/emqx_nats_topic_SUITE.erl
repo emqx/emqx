@@ -111,4 +111,7 @@ t_validate_nats_subject(_) ->
 
     ?assertEqual(
         {error, invalid_utf8_string}, emqx_nats_topic:validate_nats_subject(<<16#0000>>)
+    ),
+    ?assertEqual(
+        {error, invalid_utf8_string}, emqx_nats_topic:validate_nats_subject(<<16#FF>>)
     ).
