@@ -12,6 +12,7 @@
 
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_http_api.hrl").
 
 -define(DEFAULT_TIMEOUT, 5000).
 
@@ -66,7 +67,7 @@ gateway(Method, Params, Request) ->
     },
     case Plugin of
         undefined ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}};
+            ?NOT_FOUND(<<"Plugin API Not Found">>);
         _ ->
             call_plugin_api(Plugin, Method, PathRemainder, ReqInfo, Context)
     end.
