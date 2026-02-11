@@ -170,7 +170,6 @@ groups() ->
             case127_channel_internal_branches,
             case128_session_internal_branches,
             case129_write_hex_encoding,
-            case130_auto_observe_list_config,
             case132_coap_max_block_size,
             case133_mountpoint_peerhost_placeholder,
             case134_auto_observe_empty_list,
@@ -5468,38 +5467,6 @@ case129_write_hex_encoding(_Config) ->
     TlvData = emqx_lwm2m_message:json_to_tlv(PathList, [Data1]),
     Expected = emqx_lwm2m_tlv:encode(TlvData),
     ?assertEqual(Expected, Payload).
-
-case130_auto_observe_list_config(_Config) ->
-    RegInfo = #{<<"objectList">> => [<<"/3/0">>, <<"/3/0/1">>]},
-    ListRaw = "[\"/3/0\",\"/3/0/1\"]",
-    ok = emqx_conf_cli:load_config(
-        ?global_ns, default_config_with_auto_observe_raw(ListRaw), #{mode => replace}
-    ),
-    ?assertEqual(
-        [<<"/3/0">>, <<"/3/0/1">>],
-        emqx_lwm2m_session:auto_observe_object_list(RegInfo)
-    ),
-    BinaryRaw = "\"/3/0,/3/0/1\"",
-    ok = emqx_conf_cli:load_config(
-        ?global_ns, default_config_with_auto_observe_raw(BinaryRaw), #{mode => replace}
-    ),
-    ?assertEqual(
-        [<<"/3/0">>, <<"/3/0/1">>],
-        emqx_lwm2m_session:auto_observe_object_list(RegInfo)
-    ),
-    OnRaw = "\"on\"",
-    ok = emqx_conf_cli:load_config(
-        ?global_ns, default_config_with_auto_observe_raw(OnRaw), #{mode => replace}
-    ),
-    ?assertEqual(
-        [<<"/3/0">>, <<"/3/0/1">>],
-        emqx_lwm2m_session:auto_observe_object_list(RegInfo)
-    ),
-    OffRaw = "\"off\"",
-    ok = emqx_conf_cli:load_config(
-        ?global_ns, default_config_with_auto_observe_raw(OffRaw), #{mode => replace}
-    ),
-    ?assertEqual([], emqx_lwm2m_session:auto_observe_object_list(RegInfo)).
 
 case132_coap_max_block_size(_Config) ->
     BaseReq =

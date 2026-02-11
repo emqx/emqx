@@ -529,8 +529,6 @@ send_auto_observe(RegInfo, WithContext, Session) ->
             observe_object_list(AlternatePath, ObjectList, WithContext, Session)
     end.
 
-observe_object_list(_, [], _WithContext, Session) ->
-    Session;
 observe_object_list(AlternatePath, ObjectList, WithContext, Session) ->
     Fun = fun(ObjectPath, Acc) ->
         {[ObjId | _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
