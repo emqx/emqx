@@ -135,8 +135,8 @@ do_on_session_subscribed(ClientInfo, Name, TopicFilter, _SubOpts) ->
     ?tp_mq_client(mq_on_session_subscribed, #{
         name => Name, topic_filter => TopicFilter, client_info => ClientInfo
     }),
-    case is_mq_supported() of
-        true ->
+    case validate_mq_supported() of
+        ok ->
             case emqx_mq_sub_registry:find({Name, TopicFilter}) of
                 undefined ->
                     ok = maybe_auto_create(Name, TopicFilter),
@@ -145,8 +145,8 @@ do_on_session_subscribed(ClientInfo, Name, TopicFilter, _SubOpts) ->
                 _Sub ->
                     ok
             end;
-        false ->
-            ?tp(info, mq_cannot_subscribe_to_mq, #{reason => mq_not_supported}),
+        {error, Reason} ->
+            ?tp(warning, mq_cannot_subscribe_to_mq, #{reason => Reason}),
             ok
     end.
 
@@ -179,8 +179,9 @@ do_on_session_unsubscribed(_ClientInfo, Name, Topic) ->
     end.
 
 on_session_resumed(ClientInfo, #{subscriptions := Subs} = SessionInfo) ->
+    SessionResumedCtx = emqx_hooks:context('session.resumed'),
     ?tp_mq_client(mq_on_session_resumed, #{subscriptions => Subs, session_info => SessionInfo}),
-    ok = set_mq_supported(SessionInfo),
+    ok = set_mq_supported(SessionResumedCtx, SessionInfo),
     ok = maps:foreach(
         fun
             (<<"$queue/", _/binary>> = FullTopic, SubOpts) ->
@@ -257,8 +258,9 @@ on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ).
 
 on_session_created(_ClientInfo, SessionInfo) ->
+    SessionCreatedCtx = emqx_hooks:context('session.created'),
     ?tp_mq_client(mq_on_session_created, #{client_info => _ClientInfo, session_info => SessionInfo}),
-    ok = set_mq_supported(SessionInfo).
+    ok = set_mq_supported(SessionCreatedCtx, SessionInfo).
 
 on_client_authorize(
     ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = Topic, Result
@@ -271,14 +273,15 @@ on_client_authorize(
 on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
     {ok, Result}.
 
-deny_if_mq_not_supported(_ClientInfo, _Topic, Result) ->
+deny_if_mq_not_supported(ClientInfo, _Topic, Result) ->
     ?tp_mq_client(mq_on_client_authorize, #{
-        client_info => _ClientInfo, topic => _Topic
+        client_info => ClientInfo, topic => _Topic
     }),
-    case is_mq_supported() of
-        true ->
+    case validate_mq_supported() of
+        ok ->
             {ok, Result};
-        false ->
+        {error, Reason} ->
+            ?tp(warning, mq_cannot_subscribe_to_mq, #{reason => Reason}),
             {stop, #{result => deny, from => mq}}
     end.
 
@@ -357,19 +360,34 @@ delivers(SubscriberRef, Messages) ->
         Messages
     ).
 
-set_mq_supported(#{impl := emqx_session_mem} = _SessionInfo) ->
-    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, true),
-    ok;
-set_mq_supported(_SessionInfo) ->
-    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, false),
+set_mq_supported(Ctx, SessionInfo) ->
+    ProtoVer =
+        case Ctx of
+            #{conn_info_fn := ConnInfoFn} ->
+                ConnInfoFn(proto_ver);
+            _ ->
+                undefined
+        end,
+    SessionImpl = maps:get(impl, SessionInfo, undefined),
+    MQSupported =
+        case {SessionImpl, ProtoVer} of
+            {emqx_session_mem, ?MQTT_PROTO_V5} ->
+                ok;
+            {emqx_session_mem, _} ->
+                {error, not_mqtt_v5_protocol};
+            {_, _} ->
+                {error, {not_supported_for_session_impl, SessionImpl}}
+        end,
+    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, MQSupported),
     ok.
 
-is_mq_supported() ->
+validate_mq_supported() ->
     case erlang:get(?IS_MQ_SUPPORTED_PD_KEY) of
         undefined ->
-            false;
-        IsSupported ->
-            IsSupported
+            %% Should never happen
+            {error, unknown};
+        MQSupported ->
+            MQSupported
     end.
 
 maybe_auto_create(_Name, undefined) ->

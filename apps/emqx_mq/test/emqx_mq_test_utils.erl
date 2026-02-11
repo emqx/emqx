@@ -29,6 +29,7 @@
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 emqtt_connect(Opts) ->
     BaseOpts = [{proto_ver, v5}],
@@ -51,12 +52,12 @@ emqtt_pub_mq(Client, Topic, Payload, Opts) ->
 
 emqtt_sub_mq(Client, Name, Topic) ->
     FullTopic = <<"$queue/", Name/binary, "/", Topic/binary>>,
-    {ok, _, _} = emqtt:subscribe(Client, {FullTopic, 1}),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client, {FullTopic, ?QOS_1}),
     ok.
 
 emqtt_sub_mq(Client, Name) ->
     FullTopic = <<"$queue/", Name/binary>>,
-    {ok, _, _} = emqtt:subscribe(Client, {FullTopic, 1}),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client, {FullTopic, ?QOS_1}),
     ok.
 
 emqtt_drain() ->

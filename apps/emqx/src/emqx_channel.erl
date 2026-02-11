@@ -3336,7 +3336,7 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile({inline, [run_hooks/3, run_hooks/4]}).
+-compile({inline, [run_hooks/3, run_hooks/4, run_hook_with_context/3, run_fold_with_context/4]}).
 run_hooks(Name, Args, Channel) ->
     ok = inc_metrics(Name, Channel),
     emqx_hooks:run(Name, Args).
@@ -3345,21 +3345,13 @@ run_hooks(Name, Args, Acc, Channel) ->
     ok = inc_metrics(Name, Channel),
     emqx_hooks:run_fold(Name, Args, Acc).
 
--compile({inline, [run_hook_with_context/3]}).
 run_hook_with_context(Name, Args, Channel) ->
     HookContext = mk_common_hook_context(Channel),
-    emqx_hooks:stash_context(Name, HookContext),
-    Res = emqx_hooks:run(Name, Args),
-    emqx_hooks:unstash_context(Name),
-    Res.
+    emqx_hooks:run(Name, HookContext, Args).
 
--compile({inline, [run_fold_with_context/4]}).
 run_fold_with_context(Name, Args, Acc, Channel) ->
     HookContext = mk_common_hook_context(Channel),
-    emqx_hooks:stash_context(Name, HookContext),
-    Res = emqx_hooks:run_fold(Name, Args, Acc),
-    emqx_hooks:unstash_context(Name),
-    Res.
+    emqx_hooks:run_fold(Name, HookContext, Args, Acc).
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 
@@ -3496,8 +3488,7 @@ sub_authz_attrs(AuthzResult) ->
 disconnect_attrs(Reason, Channel) ->
     emqx_external_trace:disconnect_attrs(Reason, Channel).
 
-mk_common_hook_context(Channel) ->
-    Session = Channel#channel.session,
+mk_common_hook_context(#channel{session = Session} = Channel) ->
     #{
         chan_info_fn => fun(Prop) -> emqx_channel:info(Prop, Channel) end,
         session_info_fn => fun(Prop) -> emqx_session:info(Prop, Session) end

@@ -1341,6 +1341,18 @@ t_conflicting_queues(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify that only MQTT v5 clients are allowed to subscribe to queues
+t_allow_only_mqtt_v5(_Config) ->
+    %% Connect a client and subscribe to a queue
+    {ok, CSub} = emqtt:start_link([{proto_ver, v3}]),
+    {ok, _} = emqtt:connect(CSub),
+
+    %% Try to subscribe to a queue with MQTT v3
+    {ok, _, [?RC_UNSPECIFIED_ERROR]} = emqtt:subscribe(CSub, {<<"$queue/some_queue/t/#">>, 1}),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
