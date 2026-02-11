@@ -42,6 +42,14 @@ fields(nats) ->
                 }
             )},
         {protocol, sc(ref(protocol))},
+        {authn_token,
+            sc(
+                binary(),
+                #{
+                    required => false,
+                    desc => ?DESC(authn_token)
+                }
+            )},
         {mountpoint, emqx_gateway_schema:mountpoint()},
         {listeners, sc(ref(tcp_ws_listeners), #{})}
     ] ++ emqx_gateway_schema:gateway_common_options();

@@ -319,6 +319,7 @@ connect_opts(#{options := Options}, Overrides) ->
         tls_required => maps:get(tls_required, Options, false),
         user => maps:get(user, Options, undefined),
         pass => maps:get(pass, Options, undefined),
+        auth_token => maps:get(auth_token, Options, undefined),
         no_responders => maps:get(no_responders, Options, undefined),
         headers => maps:get(headers, Options, undefined)
     },

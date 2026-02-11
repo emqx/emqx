@@ -234,6 +234,34 @@ noauth_wss_port() ->
 noauth_ssl_port() ->
     env_int("NATS_NOAUTH_SSL_PORT", 4422).
 
+token_tcp_host() ->
+    Host0 = env_str("NATS_TOKEN_TCP_HOST", "nats-token"),
+    ensure_scheme(Host0, "tcp").
+
+token_ws_host() ->
+    Host0 = env_str("NATS_TOKEN_WS_HOST", "nats-token"),
+    ensure_scheme(Host0, "ws").
+
+token_wss_host() ->
+    Host0 = env_str("NATS_TOKEN_WSS_HOST", "nats-token-tls"),
+    ensure_scheme(Host0, "wss").
+
+token_ssl_host() ->
+    Host0 = env_str("NATS_TOKEN_SSL_HOST", "nats-token-tls"),
+    ensure_scheme(Host0, "tcp").
+
+token_tcp_port() ->
+    env_int("NATS_TOKEN_TCP_PORT", 4222).
+
+token_ws_port() ->
+    env_int("NATS_TOKEN_WS_PORT", 9222).
+
+token_wss_port() ->
+    env_int("NATS_TOKEN_WSS_PORT", 9322).
+
+token_ssl_port() ->
+    env_int("NATS_TOKEN_SSL_PORT", 4422).
+
 default_tcp_client_opts(Target) ->
     maybe_add_nats_auth(
         Target,
@@ -428,7 +456,9 @@ should_skip(_TestCase, emqx) ->
     ok.
 
 nats_only_skips() ->
-    [].
+    [
+        t_token_auth_priority_over_userpass
+    ].
 
 ensure_nats_server_available() ->
     Target = nats,
@@ -499,8 +529,55 @@ authz_deny_user() ->
 authz_deny_pass() ->
     <<"deny_password">>.
 
+token_plain() ->
+    <<"nats_token">>.
+
+token_bcrypt_hash() ->
+    _ = application:ensure_all_started(bcrypt),
+    Salt = <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
+    emqx_passwd:hash({bcrypt, Salt}, token_plain()).
+
 strip_creds(Opts) ->
-    maps:remove(pass, maps:remove(user, Opts)).
+    maps:remove(auth_token, maps:remove(pass, maps:remove(user, Opts))).
+
+token_client_opts(Config) ->
+    BaseOpts = ?config(client_opts, Config),
+    case target_from(Config) of
+        nats -> token_nats_client_opts(?config(group_name, Config));
+        emqx -> BaseOpts
+    end.
+
+token_nats_client_opts(tcp) ->
+    #{
+        host => token_tcp_host(),
+        port => token_tcp_port(),
+        verbose => false,
+        auth_token => token_plain()
+    };
+token_nats_client_opts(ws) ->
+    #{
+        host => token_ws_host(),
+        port => token_ws_port(),
+        verbose => false,
+        auth_token => token_plain()
+    };
+token_nats_client_opts(wss) ->
+    #{
+        host => token_wss_host(),
+        port => token_wss_port(),
+        verbose => false,
+        ssl_opts => #{verify => verify_none},
+        auth_token => token_plain()
+    };
+token_nats_client_opts(ssl) ->
+    #{
+        host => token_ssl_host(),
+        port => token_ssl_port(),
+        verbose => false,
+        starttls => true,
+        ssl_opts => #{verify => verify_none},
+        auth_token => token_plain()
+    }.
 
 auth_enabled_opts(_Target, BaseOpts) ->
     BaseOpts#{
@@ -567,6 +644,53 @@ auth_cleanup(Config) ->
             ok
     end,
     Config.
+
+token_auth_setup(Config, Type, Token) ->
+    case target_from(Config) of
+        emqx ->
+            PrevToken = emqx_conf:get([gateway, nats, authn_token], undefined),
+            TokenConf = ensure_token_type(Type, Token),
+            _ = emqx_conf:update(
+                [gateway, nats, authn_token],
+                TokenConf,
+                #{override_to => cluster}
+            ),
+            [{token_auth_prev, PrevToken} | Config];
+        nats ->
+            Config
+    end.
+
+token_auth_cleanup(Config) ->
+    case target_from(Config) of
+        emqx ->
+            case lists:keyfind(token_auth_prev, 1, Config) of
+                {token_auth_prev, undefined} ->
+                    _ = emqx_conf:remove(
+                        [gateway, nats, authn_token],
+                        #{override_to => cluster}
+                    ),
+                    ok;
+                {token_auth_prev, PrevToken} ->
+                    _ = emqx_conf:update(
+                        [gateway, nats, authn_token],
+                        PrevToken,
+                        #{override_to => cluster}
+                    ),
+                    ok;
+                false ->
+                    ok
+            end;
+        nats ->
+            ok
+    end,
+    Config.
+
+ensure_token_type(plain, Token) ->
+    Token;
+ensure_token_type(bcrypt, Token) ->
+    Token;
+ensure_token_type(_Type, Token) ->
+    Token.
 
 authz_cleanup(Config) ->
     case target_from(Config) of
@@ -1225,6 +1349,85 @@ t_auth_dynamic_enable_disable(Config) ->
     ok = emqx_nats_client:connect(Client3),
     recv_ok_frame(Client3),
     emqx_nats_client:stop(Client3).
+
+t_token_auth_plain_success(init, Config) ->
+    token_auth_setup(Config, plain, token_plain());
+t_token_auth_plain_success('end', Config) ->
+    token_auth_cleanup(Config).
+
+t_token_auth_plain_success(Config) ->
+    ClientOpts = maps:merge(token_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{auth_token => token_plain()}),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_plain_failure(init, Config) ->
+    token_auth_setup(Config, plain, token_plain());
+t_token_auth_plain_failure('end', Config) ->
+    token_auth_cleanup(Config).
+
+t_token_auth_plain_failure(Config) ->
+    ClientOpts = maps:merge(token_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{auth_token => <<"bad-token">>}),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_priority_over_userpass(init, Config) ->
+    auth_setup(token_auth_setup(Config, plain, token_plain()));
+t_token_auth_priority_over_userpass('end', Config) ->
+    token_auth_cleanup(auth_cleanup(Config)).
+
+t_token_auth_priority_over_userpass(Config) ->
+    ClientOpts = maps:merge(?config(auth_enabled_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{auth_token => <<"bad-token">>}),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_fallback_to_userpass(init, Config) ->
+    auth_setup(token_auth_setup(Config, plain, token_plain()));
+t_token_auth_fallback_to_userpass('end', Config) ->
+    token_auth_cleanup(auth_cleanup(Config)).
+
+t_token_auth_fallback_to_userpass(Config) ->
+    ClientOpts = maps:merge(?config(auth_enabled_opts, Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_bcrypt(init, Config) ->
+    token_auth_setup(Config, bcrypt, token_bcrypt_hash());
+t_token_auth_bcrypt('end', Config) ->
+    token_auth_cleanup(Config).
+
+t_token_auth_bcrypt(Config) ->
+    ClientOpts = maps:merge(token_client_opts(Config), #{verbose => true}),
+    {ok, Client1} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg1 = recv_info_frame(Client1),
+    assert_auth_required(InfoMsg1, true),
+    ok = emqx_nats_client:connect(Client1, #{auth_token => token_plain()}),
+    recv_ok_frame(Client1),
+    emqx_nats_client:stop(Client1),
+
+    {ok, Client2} = emqx_nats_client:start_link(ClientOpts),
+    _InfoMsg2 = recv_info_frame(Client2),
+    ok = emqx_nats_client:connect(Client2, #{auth_token => <<"bad-token">>}),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client2),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client2).
 
 t_publish_authz(init, Config) ->
     auth_setup(Config);
