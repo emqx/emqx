@@ -18,7 +18,8 @@
     describe/1,
     describe/2,
     plugin_schema/1,
-    plugin_i18n/1
+    plugin_i18n/1,
+    handle_api_call/3
 ]).
 
 %% Package operations
@@ -120,6 +121,37 @@ plugin_schema(NameVsn) ->
 -spec plugin_i18n(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
 plugin_i18n(NameVsn) ->
     ?CATCH(emqx_plugins_fs:read_i18n(NameVsn)).
+
+-spec handle_api_call(binary() | string() | atom(), map(), timeout()) ->
+    {integer(), map() | term()} | {integer(), map(), term()}.
+handle_api_call(Plugin0, Request, Timeout) ->
+    Plugin = bin(Plugin0),
+    case resolve_active_name_vsn(Plugin) of
+        {ok, NameVsn} ->
+            try
+                Result = emqx_utils:nolink_apply(
+                    fun() -> emqx_plugins_apps:on_handle_api_call(NameVsn, Request) end,
+                    Timeout
+                ),
+                map_plugin_api_result(Result)
+            catch
+                exit:{timeout, _} ->
+                    {503, #{code => <<"PLUGIN_API_TIMEOUT">>, message => <<"Plugin API Timeout">>}};
+                Class:Reason:Stacktrace ->
+                    ?SLOG(error, #{
+                        msg => "plugin_api_callback_crash",
+                        plugin => Plugin,
+                        class => Class,
+                        reason => Reason,
+                        stacktrace => Stacktrace
+                    }),
+                    {500, #{
+                        code => <<"INTERNAL_ERROR">>, message => <<"Plugin API Callback Crash">>
+                    }}
+            end;
+        {error, not_found} ->
+            {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}}
+    end.
 
 %% Note: this is only used for the HTTP API.
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
@@ -432,6 +464,42 @@ filter_plugin_of_type(hidden, #{hidden := true} = Info) ->
     {true, Info};
 filter_plugin_of_type(hidden, _Info) ->
     false.
+
+resolve_active_name_vsn(Plugin) ->
+    resolve_active_name_vsn(Plugin, list_active()).
+
+resolve_active_name_vsn(Plugin0, ActiveNameVsns) ->
+    Plugin = bin(Plugin0),
+    case lists:member(Plugin, ActiveNameVsns) of
+        true ->
+            {ok, Plugin};
+        false ->
+            Matches = lists:filter(
+                fun(NameVsn) -> plugin_name(NameVsn) =:= Plugin end, ActiveNameVsns
+            ),
+            case Matches of
+                [NameVsn | _] -> {ok, NameVsn};
+                [] -> {error, not_found}
+            end
+    end.
+
+map_plugin_api_result({ok, Status, Headers, Body}) when is_integer(Status) ->
+    {Status, normalize_headers(Headers), Body};
+map_plugin_api_result({error, Code, Msg}) ->
+    {400, #{code => to_bin(Code), message => to_bin(Msg)}};
+map_plugin_api_result({error, Status, Headers, Body}) when is_integer(Status) ->
+    {Status, normalize_headers(Headers), Body};
+map_plugin_api_result({error, not_found}) ->
+    {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}};
+map_plugin_api_result(_Other) ->
+    {500, #{code => <<"INTERNAL_ERROR">>, message => <<"Invalid Plugin API Response">>}}.
+
+normalize_headers(Headers) when is_map(Headers) ->
+    maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- maps:to_list(Headers)]);
+normalize_headers(Headers) when is_list(Headers) ->
+    maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- Headers]);
+normalize_headers(_) ->
+    #{}.
 
 %%--------------------------------------------------------------------
 %% Package utils
@@ -950,6 +1018,15 @@ bin_key(Term) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);
+to_bin(B) when is_binary(B) -> B;
+to_bin(T) -> iolist_to_binary(io_lib:format("~0p", [T])).
+
+plugin_name(NameVsn) ->
+    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    bin(Name).
 
 name_vsn(Name, Vsn) ->
     emqx_plugins_utils:make_name_vsn_binary(Name, Vsn).
