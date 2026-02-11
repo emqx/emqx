@@ -801,8 +801,9 @@ check_active_streams_status(
     #h{state = State} = Handler,
     Handler#h{state = State#state{unknown_topic_filters = UnknownTopicFilters}}.
 
-check_stream_subscribe_topic_filter(_Ctx, <<"$s/", TopicFilter0/binary>> = FullTopicFilter) ->
+check_stream_subscribe_topic_filter(Ctx, <<"$s/", TopicFilter0/binary>> = FullTopicFilter) ->
     maybe
+        ok ?= validate_protocol(Ctx),
         {ok, StartFrom, TopicFilter} ?= split_topic_filter(TopicFilter0),
         Name = emqx_streams_prop:default_name_from_topic(TopicFilter),
         {ok, #subscribe_params{
@@ -828,6 +829,7 @@ check_stream_subscribe_topic_filter(Ctx, <<"$stream/", NameTopicFilter/binary>> 
                 Value
         end,
     maybe
+        ok ?= validate_protocol(Ctx),
         {Name, TopicFilter} = split_name_topic(NameTopicFilter),
         ok ?= validate_name(Name),
         {ok, #subscribe_params{
@@ -846,4 +848,14 @@ validate_name(Name) ->
             ok;
         {error, Reason} ->
             ?err_unrec({invalid_name, #{name => Name, reason => Reason}})
+    end.
+
+validate_protocol(#{conninfo_fn := ConnInfoFn, clientinfo := ClientInfo} = _SubscribeCtx) ->
+    ProtoVer = ConnInfoFn(proto_ver),
+    Protocol = maps:get(protocol, ClientInfo, undefined),
+    case {Protocol, ProtoVer} of
+        {mqtt, ?MQTT_PROTO_V5} ->
+            ok;
+        Unsupported ->
+            ?err_unrec({streams_not_supported_for_protocol, Unsupported})
     end.

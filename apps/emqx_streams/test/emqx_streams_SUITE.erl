@@ -772,6 +772,57 @@ t_legacy_start_from_user_property(_Config) ->
     ?assertEqual(1, length(Msgs)),
     ok = emqtt:disconnect(CSub).
 
+%% Verify that subscription restoration works correctly for stream topics
+t_sub_restoration(_Config) ->
+    %% Create a non-lastvalue stream
+    emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"offline_session">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
+    }),
+    emqx_streams_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
+
+    %% Subscribe to the stream
+    CSub0 = emqx_streams_test_utils:emqtt_connect([
+        {clientid, <<"csub">>},
+        {properties, #{'Session-Expiry-Interval' => 1000}},
+        {clean_start, false}
+    ]),
+    emqx_streams_test_utils:emqtt_sub(CSub0, <<"$stream/offline_session">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+
+    %% Verify that we receive all the messages
+    {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 1000),
+
+    %% Disconnect the client
+    ok = emqtt:disconnect(CSub0),
+
+    %% Reconnect the client
+    CSub1 = emqx_streams_test_utils:emqtt_connect([
+        {clientid, <<"csub">>},
+        {properties, #{'Session-Expiry-Interval' => 1000}},
+        {clean_start, false}
+    ]),
+
+    %% Receive the messages again
+    {ok, _Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
+%% Verify that only MQTT v5 clients are allowed to subscribe to streams
+t_allow_only_mqtt_v5(_Config) ->
+    %% Connect a client and subscribe to a queue
+    {ok, CSub} = emqtt:start_link([{proto_ver, v3}]),
+    {ok, _} = emqtt:connect(CSub),
+
+    %% Try to subscribe to a queue with MQTT v3
+    {ok, _, [?RC_UNSPECIFIED_ERROR]} = emqtt:subscribe(CSub, {<<"$stream/some_stream/t/#">>, 1}),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------

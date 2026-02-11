@@ -273,9 +273,9 @@ on_client_authorize(
 on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
     {ok, Result}.
 
-deny_if_mq_not_supported(ClientInfo, _Topic, Result) ->
+deny_if_mq_not_supported(_ClientInfo, _Topic, Result) ->
     ?tp_mq_client(mq_on_client_authorize, #{
-        client_info => ClientInfo, topic => _Topic
+        client_info => _ClientInfo, topic => _Topic
     }),
     case validate_mq_supported() of
         ok ->
