@@ -23,10 +23,15 @@ on(Nodes, Fun) ->
             ({_Node, {ok, Result}}) ->
                 Result;
             ({Node, Error}) ->
-                ct:pal("Error on node ~p", [Node]),
                 case Error of
                     {error, {exception, Reason, Stack}} ->
-                        erlang:raise(error, Reason, Stack);
+                        error(
+                            {failed_call_to_node, #{
+                                node => Node,
+                                reason => Reason,
+                                remote_stacktrace => Stack
+                            }}
+                        );
                     _ ->
                         error(Error)
                 end
