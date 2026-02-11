@@ -61,8 +61,10 @@ t_crud(_Config) ->
         {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
         api_get([message_queues, queues])
     ),
+    %% We may work with legacy queues, which had not passed name validation,
+    %% so we allow any name in get requests.
     ?assertMatch(
-        {ok, 400, _},
+        {ok, 404, _},
         api_get([message_queues, queues, urlencode(<<"invalid/queue/name">>)])
     ),
     ?assertMatch(
@@ -171,6 +173,49 @@ t_crud(_Config) ->
             api_get([message_queues, queues])
         )
     ).
+
+%% Verify basic CRUD operations on legacy message queues.
+t_legacy_queues_crud(_Config) ->
+    %% Cannot create a legacy queue with API
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([message_queues, queues], #{
+            <<"name">> => <<"/t/1">>,
+            <<"topic_filter">> => <<"t/1">>,
+            <<"is_lastvalue">> => false
+        })
+    ),
+
+    %% Create a legacy queue directly in the database
+    MQ0 = emqx_mq_test_utils:fill_mq_defaults(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    ok = emqx_mq_registry:create_pre_611_queue(MQ0),
+    ?assertMatch(
+        {ok, _},
+        emqx_mq_registry:find(<<"/t/#">>)
+    ),
+
+    %% Find queue via API
+    ?assertMatch(
+        {ok, 200, _},
+        api_get([message_queues, queues, urlencode(<<"/t/#">>)])
+    ),
+
+    %% Update queue via API
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_queues, queues, urlencode(<<"/t/#">>)], #{
+            <<"is_lastvalue">> => false,
+            <<"ping_interval">> => 10000
+        })
+    ),
+
+    %% Delete queue via API
+    ?assertMatch(
+        {ok, 204},
+        api_delete([message_queues, queues, urlencode(<<"/t/#">>)])
+    ),
+
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>)).
 
 %% Verify pagination logic of message queue listing.
 t_pagination(_Config) ->

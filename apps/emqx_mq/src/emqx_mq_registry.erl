@@ -74,6 +74,7 @@ Create a new MQ.
 -spec create(emqx_mq_types:mq()) ->
     {ok, emqx_mq_types:mq()}
     | {error, {queue_exists, emqx_mq_types:mq_handle()}}
+    | {error, invalid_name}
     | {error, max_queue_count_reached}
     | {error, term()}.
 %% Create a queue with a non-default name, store it in the new way.
@@ -86,6 +87,7 @@ create(#{is_lastvalue := IsLastValue} = MQ0) when
     Key = make_key(MQ),
     IndexRecord = mq_to_record(MQ),
     maybe
+        ok ?= validate_name(Name),
         ok ?= validate_max_queue_count(),
         ok ?=
             do_create(
@@ -226,6 +228,14 @@ Update the MQ by its topic filter.
         is_lastvalue_not_allowed_to_be_updated
         | limit_presence_cannot_be_updated_for_regular_queues
         | term()}.
+update(?LEGACY_QUEUE_NAME(TopicFilter), UpdateFields) ->
+    Key = make_default_queue_key(TopicFilter),
+    case mnesia:dirty_read(?MQ_REGISTRY_INDEX_TAB, Key) of
+        [] ->
+            not_found;
+        [#?MQ_REGISTRY_INDEX_TAB{id = Id}] ->
+            update_by_id(Id, UpdateFields)
+    end;
 update(Name, UpdateFields) ->
     maybe
         {ok, Id} ?= emqx_mq_state_storage:find_id_by_name(Name),
@@ -509,6 +519,9 @@ validate_max_queue_count() ->
         false ->
             ok
     end.
+
+validate_name(Name) ->
+    emqx_mq_schema:validate_name(Name).
 
 do_create([], _MQ, _Rollbacks) ->
     ok;

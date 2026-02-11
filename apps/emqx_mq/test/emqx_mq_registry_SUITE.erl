@@ -84,6 +84,20 @@ t_crud(_Config) ->
         emqx_mq_registry:match(<<"a/x/d">>)
     ).
 
+t_validate_name(_Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_mq_registry:create(
+            emqx_mq_test_utils:fill_mq_defaults(#{name => <<"mq-1">>, topic_filter => <<"a/b/c">>})
+        )
+    ),
+    ?assertEqual(
+        {error, invalid_name},
+        emqx_mq_registry:create(
+            emqx_mq_test_utils:fill_mq_defaults(#{name => <<"mq-1/2">>, topic_filter => <<"a/b/c">>})
+        )
+    ).
+
 %% Verify that index is cleaned up if queue state creation fails with error.
 t_create_error(_Config) ->
     ok = meck:new(emqx_ds, [passthrough, no_history]),
