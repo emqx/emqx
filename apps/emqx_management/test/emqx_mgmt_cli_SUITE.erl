@@ -137,6 +137,21 @@ t_subscriptions(_Config) ->
     %% subscriptions del <ClientId> <Topic>       # Delete a static subscription manually
     ok.
 
+t_subscriptions_shared_topic_list(_Config) ->
+    SubPid = self(),
+    Topic =
+        {share, <<"fos_device_data_service">>,
+            <<"spBv1.0/flnc246/DBIRTH/A_C039_N001_DAC01/Inverter">>},
+    Key = {Topic, SubPid},
+    true = ets:insert(
+        emqx_suboption, {Key, #{subid => <<"test_client">>, qos => 0, nl => 0, rh => 0, rap => 0}}
+    ),
+    try
+        ?assertEqual(ok, emqx_ctl:run_command(["subscriptions", "list"]))
+    after
+        true = ets:delete(emqx_suboption, Key)
+    end.
+
 t_plugins(_Config) ->
     %% plugins <command> [Name-Vsn]          # e.g. 'start emqx_plugin_template-5.0-rc.1'
     %% plugins list                          # List all installed plugins

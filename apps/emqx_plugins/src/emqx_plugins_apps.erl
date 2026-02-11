@@ -20,7 +20,8 @@
 %% Triggering app's callbacks
 -export([
     on_config_changed/3,
-    on_health_check/2
+    on_health_check/2,
+    on_handle_api_call/2
 ]).
 
 -type health_check_options() :: #{}.
@@ -126,6 +127,17 @@ on_config_changed(NameVsn, OldConf, NewConf) ->
 on_health_check(NameVsn, Options) ->
     apply_callback(NameVsn, {on_health_check, 1}, [Options]).
 
+-spec on_handle_api_call(name_vsn(), map()) ->
+    {ok, pos_integer(), map() | [{term(), iodata()}], term()}
+    | {error, term(), iodata()}
+    | {error, pos_integer(), map() | [{term(), iodata()}], term()}
+    | {error, not_found}
+    | {error, term()}.
+on_handle_api_call(NameVsn, #{
+    method := Method, path := PathRemainder, request := Request, context := Context
+}) ->
+    apply_api_callback(NameVsn, {on_handle_api_call, 4}, [Method, PathRemainder, Request, Context]).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
@@ -157,6 +169,16 @@ apply_callback(NameVsn, {FuncName, Arity}, Args) ->
             ok;
         _ ->
             ok
+    end.
+
+apply_api_callback(NameVsn, {FuncName, Arity}, Args) ->
+    maybe
+        {ok, PluginAppModule} ?= app_module_name(NameVsn),
+        ok ?= is_callback_exported(PluginAppModule, FuncName, Arity),
+        erlang:apply(PluginAppModule, FuncName, Args)
+    else
+        {error, _Reason} ->
+            {error, not_found}
     end.
 
 app_running_status(AppName, RunningApps, LoadedApps) ->
