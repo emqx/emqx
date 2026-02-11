@@ -95,6 +95,24 @@ t_pre_611(_Config) ->
     ?assertEqual(not_found, emqx_streams_registry:find(<<"/a/b/c">>)),
     ?assertEqual([], emqx_streams_registry:match(<<"a/b/c">>)).
 
+t_validate_name(_Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_streams_registry:create(
+            emqx_streams_test_utils:fill_stream_defaults(#{
+                name => <<"stream-1">>, topic_filter => <<"a/b/c">>
+            })
+        )
+    ),
+    ?assertEqual(
+        {error, invalid_name},
+        emqx_streams_registry:create(
+            emqx_streams_test_utils:fill_stream_defaults(#{
+                name => <<"stream-1/2">>, topic_filter => <<"a/b/c">>
+            })
+        )
+    ).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------

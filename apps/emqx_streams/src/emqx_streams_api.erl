@@ -195,7 +195,6 @@ name_param() ->
         hoconsc:mk(binary(), #{
             required => true,
             desc => ?DESC(name),
-            validator => fun emqx_streams_schema:validate_name/1,
             in => path
         })}.
 

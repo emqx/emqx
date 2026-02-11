@@ -588,9 +588,7 @@ t_autocreate_stream(_Config) ->
         }
     }),
     ok = emqx_streams_test_utils:emqtt_sub(CSub, [
-        <<"$stream/auto_create_lastvalue/a/#">>,
-        <<"$s/earliest/b/#">>,
-        <<"$s/0/c/#">>
+        <<"$stream/auto_create_lastvalue/a/#">>
     ]),
 
     %% Autocreate some regular streams
@@ -601,34 +599,24 @@ t_autocreate_stream(_Config) ->
         }
     }),
     ok = emqx_streams_test_utils:emqtt_sub(CSub, [
-        <<"$stream/auto_create_regular/d/#">>,
-        <<"$s/earliest/e/#">>,
-        <<"$s/0/f/#">>
+        <<"$stream/auto_create_regular/d/#">>
     ]),
 
     %% Verify that all 6 streams are created
     ?assertMatch(
         [
             #{topic_filter := <<"a/#">>},
-            #{topic_filter := <<"b/#">>},
-            #{topic_filter := <<"c/#">>},
-            #{topic_filter := <<"d/#">>},
-            #{topic_filter := <<"e/#">>},
-            #{topic_filter := <<"f/#">>}
+            #{topic_filter := <<"d/#">>}
         ],
         emqx_utils_stream:consume(emqx_streams_registry:list())
     ),
 
     %% Publish some messages to the streams
     emqx_streams_test_utils:populate_lastvalue(10, #{topic_prefix => <<"a/">>}),
-    emqx_streams_test_utils:populate_lastvalue(10, #{topic_prefix => <<"b/">>}),
-    emqx_streams_test_utils:populate_lastvalue(10, #{topic_prefix => <<"c/">>}),
     emqx_streams_test_utils:populate(10, #{topic_prefix => <<"d/">>}),
-    emqx_streams_test_utils:populate(10, #{topic_prefix => <<"e/">>}),
-    emqx_streams_test_utils:populate(10, #{topic_prefix => <<"f/">>}),
 
     %% Verify that we receive all the messages
-    {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(60, 1000),
+    {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(20, 1000),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).

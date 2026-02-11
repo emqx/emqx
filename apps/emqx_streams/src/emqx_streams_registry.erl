@@ -105,6 +105,7 @@ Create a new Stream.
 -spec create(emqx_streams_types:stream()) ->
     {ok, emqx_streams_types:stream()}
     | {error, stream_exists}
+    | {error, invalid_name}
     | {error, max_stream_count_reached}
     | {error, term()}.
 create(
@@ -122,6 +123,7 @@ create(
     Stream = Stream0#{id => Id},
     Rec = stream_to_record(Stream),
     maybe
+        ok ?= validate_name(Name),
         ok ?= validate_max_stream_count(),
         {atomic, ok} ?=
             mria:transaction(?STREAMS_REGISTRY_SHARD, fun() ->
@@ -503,6 +505,9 @@ validate_max_stream_count() ->
         false ->
             ok
     end.
+
+validate_name(Name) ->
+    emqx_streams_schema:validate_name(Name).
 
 %%--------------------------------------------------------------------
 %% Test helpers

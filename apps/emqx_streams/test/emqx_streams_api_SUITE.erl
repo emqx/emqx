@@ -70,9 +70,10 @@ t_crud(_Config) ->
         {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
         api_get([message_streams, streams])
     ),
-    %% Test invalid stream name, expect 400
+    %% We may work with legacy streams, which had not passed name validation,
+    %% so we allow any name in get requests.
     ?assertMatch(
-        {ok, 400, _},
+        {ok, 404, _},
         api_get([message_streams, streams, urlencode(<<"invalid/stream/name">>)])
     ),
     %% Fetch a non-existent stream, expect 404
@@ -191,6 +192,49 @@ t_crud(_Config) ->
             api_get([message_streams, streams])
         )
     ).
+
+%% Verify basic CRUD operations on legacy message streams.
+t_legacy_streams_crud(_Config) ->
+    %% Cannot create a legacy stream with API
+    ?assertMatch(
+        {ok, 400, _},
+        api_post([message_streams, streams], #{
+            <<"name">> => <<"/t/1">>,
+            <<"topic_filter">> => <<"t/1">>,
+            <<"is_lastvalue">> => true
+        })
+    ),
+
+    %% Create a legacy stream directly in the database
+    Stream0 = emqx_streams_test_utils:fill_stream_defaults(#{topic_filter => <<"t/#">>}),
+    {ok, _} = emqx_streams_registry:create_pre_611_stream(Stream0),
+    ?assertMatch(
+        {ok, _},
+        emqx_streams_registry:find(<<"/t/#">>)
+    ),
+
+    %% Find stream via API
+    ?assertMatch(
+        {ok, 200, _},
+        api_get([message_streams, streams, urlencode(<<"/t/#">>)])
+    ),
+
+    %% Update stream via API
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_streams, streams, urlencode(<<"/t/#">>)], #{
+            <<"is_lastvalue">> => false,
+            <<"read_max_unacked">> => 10000
+        })
+    ),
+
+    %% Delete stream via API
+    ?assertMatch(
+        {ok, 204},
+        api_delete([message_streams, streams, urlencode(<<"/t/#">>)])
+    ),
+
+    ?assertEqual(not_found, emqx_streams_registry:find(<<"/t/#">>)).
 
 %% Verify pagination logic of message stream listing.
 t_pagination(_Config) ->
