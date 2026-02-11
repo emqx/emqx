@@ -23,7 +23,8 @@ defmodule EMQXUsernameQuota.MixProject do
 
   def deps() do
     UMP.deps([
-      {:emqx, in_umbrella: true}
+      {:emqx, in_umbrella: true},
+      {:emqx_plugin_helper, github: "emqx/emqx-plugin-helper", tag: "v5.9.2", manager: :rebar3}
     ])
   end
 end
