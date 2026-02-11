@@ -2,7 +2,7 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_dashboard_plugin_api_endpoint_SUITE).
+-module(emqx_plugins_api_endpoint_SUITE).
 
 -compile(export_all).
 -compile(nowarn_export_all).
