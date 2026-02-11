@@ -80,7 +80,9 @@ call_plugin_api(Plugin, Method, PathRemainder, ReqInfo, Context) ->
             try
                 Result = emqx_utils:nolink_apply(
                     fun() ->
-                        CallbackModule:handle(Method, PathRemainder, ReqInfo, Context)
+                        emqx_plugin_api:dispatch(
+                            CallbackModule, Method, PathRemainder, ReqInfo, Context
+                        )
                     end,
                     Timeout
                 ),
