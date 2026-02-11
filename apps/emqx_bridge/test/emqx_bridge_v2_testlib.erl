@@ -515,6 +515,9 @@ get_action_api(Config) ->
     ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
+get_action_api2(Config) ->
+    simplify_result(get_action_api(Config)).
+
 get_action_metrics_api(Config) ->
     ActionName = ?config(action_name, Config),
     ActionType = ?config(action_type, Config),
@@ -1951,3 +1954,37 @@ fmt(FmtStr, Context) ->
     iolist_to_binary(emqx_template:render_strict(Template, Context)).
 
 bin(X) -> emqx_utils_conv:bin(X).
+
+common_connector_resource_opts() ->
+    #{
+        <<"health_check_interval">> => <<"1s">>,
+        %% <<"health_check_timeout">> => <<"30s">>,
+        <<"start_after_created">> => true,
+        <<"start_timeout">> => <<"5s">>
+    }.
+
+common_action_resource_opts() ->
+    #{
+        <<"batch_size">> => 1,
+        <<"batch_time">> => <<"0ms">>,
+        <<"buffer_mode">> => <<"memory_only">>,
+        <<"buffer_seg_bytes">> => <<"10MB">>,
+        <<"health_check_interval">> => <<"1s">>,
+        %% <<"health_check_interval_jitter">> => <<"0s">>,
+        %% <<"health_check_timeout">> => <<"30s">>,
+        <<"inflight_window">> => 100,
+        <<"max_buffer_bytes">> => <<"256MB">>,
+        <<"metrics_flush_interval">> => <<"1s">>,
+        <<"query_mode">> => <<"sync">>,
+        <<"request_ttl">> => <<"15s">>,
+        <<"resume_interval">> => <<"1s">>,
+        <<"worker_pool_size">> => 1
+    }.
+
+common_source_resource_opts() ->
+    #{
+        <<"health_check_interval">> => <<"1s">>,
+        %% <<"health_check_interval_jitter">> => <<"0s">>,
+        %% <<"health_check_timeout">> => <<"1s">>,
+        <<"resume_interval">> => <<"1s">>
+    }.
