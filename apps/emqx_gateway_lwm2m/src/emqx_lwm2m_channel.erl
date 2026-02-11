@@ -516,10 +516,11 @@ enrich_conninfo(
     case Query of
         #{<<"ep">> := Epn, <<"lt">> := Lifetime} ->
             ClientId = maps:get(<<"device_id">>, Query, Epn),
+            ProtoVer = maps:get(proto_ver, ConnInfo, <<"1.0.1">>),
             NConnInfo = ConnInfo#{
                 clientid => ClientId,
                 proto_name => <<"LwM2M">>,
-                proto_ver => <<"1.0.1">>,
+                proto_ver => ProtoVer,
                 clean_start => true,
                 keepalive => binary_to_integer(Lifetime),
                 expiry_interval => 0

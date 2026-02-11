@@ -423,12 +423,32 @@ update(
     Session2 = proto_subscribe(WithContext, NewSession),
     Session3 = send_dl_msg(Session2),
     RegPayload = #{<<"data">> => UpdateRegInfo},
-    Session4 = send_to_mqtt(#{}, CmdType, RegPayload, WithContext, Session3),
+    Session4 =
+        case should_publish_update(RegInfo) of
+            true ->
+                send_to_mqtt(#{}, CmdType, RegPayload, WithContext, Session3);
+            false ->
+                Session3
+        end,
 
     Result = return(Session4),
 
     Reply = emqx_coap_message:piggyback({ok, changed}, Msg),
     reply(Reply, Result#{lifetime => true}).
+
+should_publish_update(NewRegInfo) ->
+    case emqx:get_config([gateway, lwm2m, update_msg_publish_condition], always) of
+        always ->
+            true;
+        <<"always">> ->
+            true;
+        contains_object_list ->
+            maps:is_key(<<"objectList">>, NewRegInfo);
+        <<"contains_object_list">> ->
+            maps:is_key(<<"objectList">>, NewRegInfo);
+        _ ->
+            maps:is_key(<<"objectList">>, NewRegInfo)
+    end.
 
 register_init(WithContext, #session{reg_info = RegInfo} = Session) ->
     Session2 = send_auto_observe(RegInfo, Session),
@@ -491,14 +511,27 @@ do_subscribe(
 
 send_auto_observe(RegInfo, Session) ->
     %% - auto observe the objects
-    case is_auto_observe() of
+    Mode = auto_observe_mode(),
+    case Mode of
+        false ->
+            Session;
         true ->
             AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
             ObjectList = maps:get(<<"objectList">>, RegInfo, []),
-            observe_object_list(AlternatePath, ObjectList, Session);
-        _ ->
-            ?SLOG(info, #{msg => "skip_auto_observe_due_to_disabled"}),
-            Session
+            FilteredList = filter_ignore_object(ObjectList),
+            observe_object_list(AlternatePath, FilteredList, Session);
+        ObjectList when is_list(ObjectList) ->
+            FilteredList = intersect_object_list(
+                ObjectList,
+                maps:get(<<"objectList">>, RegInfo, [])
+            ),
+            case FilteredList of
+                [] ->
+                    Session;
+                _ ->
+                    AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
+                    observe_object_list(AlternatePath, FilteredList, Session)
+            end
     end.
 
 observe_object_list(_, [], Session) ->
@@ -506,11 +539,8 @@ observe_object_list(_, [], Session) ->
 observe_object_list(AlternatePath, ObjectList, Session) ->
     Fun = fun(ObjectPath, Acc) ->
         {[ObjId | _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
-        case lists:member(ObjId, ?IGNORE_OBJECT) of
-            true ->
-                Acc;
-            false ->
-                ObjId1 = binary_to_integer(ObjId),
+        case emqx_utils_binary:bin_to_int(ObjId) of
+            {ObjId1, <<>>} ->
                 case emqx_lwm2m_xml_object_db:find_objectid(ObjId1) of
                     {error, no_xml_definition} ->
                         ?tp(
@@ -524,7 +554,9 @@ observe_object_list(AlternatePath, ObjectList, Session) ->
                         Acc;
                     _ ->
                         observe_object(AlternatePath, ObjectPath, Acc)
-                end
+                end;
+            _ ->
+                Acc
         end
     end,
     lists:foldl(Fun, Session, ObjectList).
@@ -538,17 +570,56 @@ observe_object(AlternatePath, ObjectPath, Session) ->
     deliver_auto_observe_to_coap(AlternatePath, Payload, Session).
 
 deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
-    ?SLOG(info, #{
-        msg => "send_auto_observe",
-        path => AlternatePath,
-        data => TermData
-    }),
     {Req0, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     Req = alloc_token(Req0),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
-is_auto_observe() ->
-    emqx:get_config([gateway, lwm2m, auto_observe]).
+intersect_object_list(ObjectList, RegObjectList) when is_list(RegObjectList) ->
+    [Item || Item <- ObjectList, lists:member(Item, RegObjectList)];
+intersect_object_list(_ObjectList, _RegObjectList) ->
+    [].
+
+filter_ignore_object(ObjectList) when is_list(ObjectList) ->
+    lists:filter(
+        fun(ObjectPath) ->
+            {[ObjId | _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
+            not lists:member(ObjId, ?IGNORE_OBJECT)
+        end,
+        ObjectList
+    );
+filter_ignore_object(_ObjectList) ->
+    [].
+
+auto_observe_mode() ->
+    normalize_auto_observe(emqx:get_config([gateway, lwm2m, auto_observe])).
+
+normalize_auto_observe(true) ->
+    true;
+normalize_auto_observe(false) ->
+    false;
+normalize_auto_observe(<<"on">>) ->
+    true;
+normalize_auto_observe(<<"off">>) ->
+    false;
+normalize_auto_observe(Bin) when is_binary(Bin) ->
+    normalize_auto_observe_list(binary:split(Bin, <<",">>, [global]));
+normalize_auto_observe(List) when is_list(List) ->
+    normalize_auto_observe_list(List);
+normalize_auto_observe(_Other) ->
+    false.
+
+normalize_auto_observe_list(List) ->
+    lists:filter(
+        fun(Item) -> Item =/= <<>> end,
+        lists:map(fun normalize_auto_observe_item/1, List)
+    ).
+
+normalize_auto_observe_item(Item) when is_binary(Item) ->
+    trim(Item);
+normalize_auto_observe_item(Item) when is_list(Item) ->
+    trim(iolist_to_binary(Item));
+normalize_auto_observe_item(Item) ->
+    trim(iolist_to_binary(Item)).
 
 alloc_token(Req = #coap_message{}) ->
     Req#coap_message{token = crypto:strong_rand_bytes(4)}.
@@ -799,10 +870,22 @@ deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session) 
     is_map(TermData)
 ->
     WithContext(metrics, 'messages.delivered'),
-    {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
-    ExpiryTime = get_expiry_time(MQTT),
-    Session2 = record_request(Ctx, Session),
-    maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2).
+    case emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData) of
+        {Req, Ctx} ->
+            ExpiryTime = get_expiry_time(MQTT),
+            Session2 = record_request(Ctx, Session),
+            maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2);
+        {error, {bad_request, Reason}, Ctx} ->
+            ?SLOG(warning, #{
+                msg => "lwm2m_cmd_bad_request",
+                reason => Reason,
+                cmd => Ctx
+            }),
+            Session2 = record_request(Ctx, Session),
+            MqttPayload = emqx_lwm2m_cmd:cmd_error_to_mqtt(bad_request, Ctx),
+            Session3 = record_response(maps:get(<<"msgType">>, Ctx), MqttPayload, Session2),
+            send_to_mqtt(Ctx, maps:get(<<"msgType">>, Ctx), MqttPayload, WithContext, Session3)
+    end.
 
 maybe_do_deliver_to_coap(
     Ctx,
@@ -858,9 +941,20 @@ get_expiry_time(_) ->
 send_cmd_impl(Cmd, #session{reg_info = RegInfo} = Session) ->
     CacheMode = is_cache_mode(Session),
     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-    {Req, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd),
-    Session2 = record_request(Ctx, Session),
-    maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, Session2).
+    case emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd) of
+        {Req, Ctx} ->
+            Session2 = record_request(Ctx, Session),
+            maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, Session2);
+        {error, {bad_request, Reason}, Ctx} ->
+            ?SLOG(warning, #{
+                msg => "lwm2m_cmd_bad_request",
+                reason => Reason,
+                cmd => Ctx
+            }),
+            Session2 = record_request(Ctx, Session),
+            MqttPayload = emqx_lwm2m_cmd:cmd_error_to_mqtt(bad_request, Ctx),
+            record_response(maps:get(<<"msgType">>, Ctx), MqttPayload, Session2)
+    end.
 
 %%--------------------------------------------------------------------
 %% Call CoAP

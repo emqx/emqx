@@ -12,7 +12,8 @@
     mqtt_to_coap/2,
     coap_to_mqtt/4,
     empty_ack_to_mqtt/1,
-    coap_failure_to_mqtt/2
+    coap_failure_to_mqtt/2,
+    cmd_error_to_mqtt/2
 ]).
 
 -export([path_list/1, extract_path/1]).
@@ -85,14 +86,22 @@ mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"read">>, <<"data">>
         InputCmd
     };
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"write">>, <<"data">> := Data}) ->
-    CoapRequest =
-        case maps:get(<<"basePath">>, Data, <<"/">>) of
-            <<"/">> ->
-                single_write_request(AlternatePath, Data);
-            BasePath ->
-                batch_write_request(AlternatePath, BasePath, maps:get(<<"content">>, Data))
-        end,
-    {CoapRequest, InputCmd};
+    Encoding = maps:get(<<"encoding">>, InputCmd, <<"plain">>),
+    try
+        CoapRequest =
+            case maps:get(<<"basePath">>, Data, <<"/">>) of
+                <<"/">> ->
+                    single_write_request(AlternatePath, Data, Encoding);
+                BasePath ->
+                    batch_write_request(
+                        AlternatePath, BasePath, maps:get(<<"content">>, Data), Encoding
+                    )
+            end,
+        {CoapRequest, InputCmd}
+    catch
+        throw:{bad_request, Reason} ->
+            {error, {bad_request, Reason}, InputCmd}
+    end;
 mqtt_to_coap(AlternatePath, InputCmd = #{<<"msgType">> := <<"execute">>, <<"data">> := Data}) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
@@ -228,6 +237,9 @@ empty_ack_to_mqtt(Ref) ->
 
 coap_failure_to_mqtt(Ref, MsgType) ->
     make_base_response(maps:put(<<"msgType">>, MsgType, Ref)).
+
+cmd_error_to_mqtt(Code, Ref) ->
+    make_response(Code, Ref).
 
 %% TODO: application/link-format
 content_to_mqtt(CoapPayload, <<"text/plain">>, Ref) ->
@@ -392,7 +404,7 @@ extract_path(Ref = #{}) ->
         end
     ).
 
-batch_write_request(AlternatePath, BasePath, Content) ->
+batch_write_request(AlternatePath, BasePath, Content, Encoding) ->
     {PathList, QueryList} = path_list(BasePath),
     Method =
         case length(PathList) of
@@ -400,7 +412,8 @@ batch_write_request(AlternatePath, BasePath, Content) ->
             3 -> put
         end,
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
-    TlvData = emqx_lwm2m_message:json_to_tlv(PathList, Content),
+    Content1 = decode_write_content(Encoding, Content),
+    TlvData = emqx_lwm2m_message:json_to_tlv(PathList, Content1),
     Payload = emqx_lwm2m_tlv:encode(TlvData),
     emqx_coap_message:request(
         con,
@@ -413,11 +426,12 @@ batch_write_request(AlternatePath, BasePath, Content) ->
         ]
     ).
 
-single_write_request(AlternatePath, Data) ->
+single_write_request(AlternatePath, Data, Encoding) ->
     {PathList, QueryList} = path_list(maps:get(<<"path">>, Data)),
     FullPathList = add_alternate_path_prefix(AlternatePath, PathList),
     %% TO DO: handle write to resource instance, e.g. /4/0/1/0
-    TlvData = emqx_lwm2m_message:json_to_tlv(PathList, [Data]),
+    Datas = decode_write_content(Encoding, [Data]),
+    TlvData = emqx_lwm2m_message:json_to_tlv(PathList, Datas),
     Payload = emqx_lwm2m_tlv:encode(TlvData),
     emqx_coap_message:request(
         con,
@@ -435,6 +449,36 @@ drop_query(Path) ->
         [Path] -> Path;
         [PathOnly, _Query] -> PathOnly
     end.
+
+decode_write_content(<<"hex">>, Datas) when is_list(Datas) ->
+    lists:map(
+        fun
+            (Data = #{<<"value">> := Value}) ->
+                case safe_hexstr_to_bin(Value) of
+                    {ok, Bin} ->
+                        Data#{<<"value">> => Bin};
+                    {error, Reason} ->
+                        throw({bad_request, Reason})
+                end;
+            (Data) ->
+                Data
+        end,
+        Datas
+    );
+decode_write_content(_Encoding, Datas) ->
+    Datas.
+
+safe_hexstr_to_bin(Value) when is_binary(Value) ->
+    try
+        {ok, emqx_utils:hexstr_to_bin(Value)}
+    catch
+        throw:Reason ->
+            {error, Reason};
+        error:Reason ->
+            {error, Reason}
+    end;
+safe_hexstr_to_bin(_Value) ->
+    {error, invalid_hex_string}.
 
 code(get) -> <<"0.01">>;
 code(post) -> <<"0.02">>;
