@@ -39,8 +39,8 @@ end_per_testcase(_TC, _Config) ->
 t_plugin_api_ok(_Config) ->
     ok = meck:expect(
         emqx_plugins,
-        resolve_api_callback,
-        fun(<<"fake">>) -> {ok, emqx_dashboard_plugin_api_endpoint_fake_api} end
+        handle_api_call,
+        fun(<<"fake">>, _Request, _Timeout) -> {200, #{ok => true}} end
     ),
     {200, Body} = request(get, ?SERVER ++ "/plugin_api/fake/ping"),
     ?assertEqual(#{<<"ok">> => true}, Body).
@@ -48,8 +48,10 @@ t_plugin_api_ok(_Config) ->
 t_plugin_api_not_found(_Config) ->
     ok = meck:expect(
         emqx_plugins,
-        resolve_api_callback,
-        fun(_) -> {error, not_found} end
+        handle_api_call,
+        fun(_, _Request, _Timeout) ->
+            {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}}
+        end
     ),
     {404, Body} = request(get, ?SERVER ++ "/plugin_api/nope/ping"),
     ?assertMatch(
@@ -60,18 +62,18 @@ t_plugin_api_not_found(_Config) ->
 t_plugin_api_unauthorized(_Config) ->
     ok = meck:expect(
         emqx_plugins,
-        resolve_api_callback,
-        fun(_) -> {ok, emqx_dashboard_plugin_api_endpoint_fake_api} end
+        handle_api_call,
+        fun(_, _Request, _Timeout) -> {200, #{ok => true}} end
     ),
     {401, _Body} = request(get, ?SERVER ++ "/plugin_api/fake/ping", [{"x-test", "1"}]).
 
 t_plugin_api_callback_crash(_Config) ->
     ok = meck:expect(
         emqx_plugins,
-        resolve_api_callback,
-        fun(_) -> {ok, emqx_dashboard_plugin_api_endpoint_fake_api} end
+        handle_api_call,
+        fun(_, _Request, _Timeout) -> {500, #{code => <<"INTERNAL_ERROR">>}} end
     ),
-    {500, Body} = request(get, ?SERVER ++ "/plugin_api/fake/crash"),
+    {500, Body} = request(get, ?SERVER ++ "/plugin_api/fake/ping"),
     ?assertMatch(
         #{<<"code">> := <<"INTERNAL_ERROR">>},
         Body

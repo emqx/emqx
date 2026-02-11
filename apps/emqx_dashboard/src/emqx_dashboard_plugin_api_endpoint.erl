@@ -10,7 +10,6 @@
 -export([gateway/3]).
 
 -include_lib("hocon/include/hoconsc.hrl").
--include_lib("emqx/include/logger.hrl").
 
 -define(DEFAULT_TIMEOUT, 5000).
 
@@ -71,49 +70,17 @@ gateway(Method, Params, Request) ->
     end.
 
 call_plugin_api(Plugin, Method, PathRemainder, ReqInfo, Context) ->
-    case emqx_plugins:resolve_api_callback(Plugin) of
-        {ok, CallbackModule} ->
-            Timeout = emqx:get_config(
-                [plugins, api_endpoint, timeout],
-                emqx:get_config([plugins, api_gateway, timeout], ?DEFAULT_TIMEOUT)
-            ),
-            try
-                Result = emqx_utils:nolink_apply(
-                    fun() ->
-                        emqx_plugin_api:dispatch(
-                            CallbackModule, Method, PathRemainder, ReqInfo, Context
-                        )
-                    end,
-                    Timeout
-                ),
-                map_callback_result(Result)
-            catch
-                exit:{timeout, _} ->
-                    {503, #{code => <<"PLUGIN_API_TIMEOUT">>, message => <<"Plugin API Timeout">>}};
-                Class:Reason:Stacktrace ->
-                    ?SLOG(error, #{
-                        msg => "plugin_api_endpoint_callback_crash",
-                        callback_module => CallbackModule,
-                        class => Class,
-                        reason => Reason,
-                        stacktrace => Stacktrace
-                    }),
-                    {500, #{
-                        code => <<"INTERNAL_ERROR">>, message => <<"Plugin API Callback Crash">>
-                    }}
-            end;
-        {error, _} ->
-            {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}}
-    end.
-
-map_callback_result({ok, Status, Headers, Body}) when is_integer(Status) ->
-    {Status, normalize_headers(Headers), Body};
-map_callback_result({error, Code, Msg}) ->
-    {400, #{code => to_bin(Code), message => to_bin(Msg)}};
-map_callback_result({error, Status, Headers, Body}) when is_integer(Status) ->
-    {Status, normalize_headers(Headers), Body};
-map_callback_result(_Other) ->
-    {500, #{code => <<"INTERNAL_ERROR">>, message => <<"Invalid Plugin API Response">>}}.
+    Timeout = emqx:get_config(
+        [plugins, api_endpoint, timeout],
+        emqx:get_config([plugins, api_gateway, timeout], ?DEFAULT_TIMEOUT)
+    ),
+    Request = #{
+        method => Method,
+        path => PathRemainder,
+        request => ReqInfo,
+        context => Context
+    },
+    emqx_plugins:handle_api_call(Plugin, Request, Timeout).
 
 parse_request_path(Request) ->
     %% Keep both path forms:
@@ -143,13 +110,6 @@ normalize_path_remainder([H | T]) ->
     [to_bin(H) | [to_bin(X) || X <- T]];
 normalize_path_remainder(V) ->
     [to_bin(V)].
-
-normalize_headers(Headers) when is_map(Headers) ->
-    maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- maps:to_list(Headers)]);
-normalize_headers(Headers) when is_list(Headers) ->
-    maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- Headers]);
-normalize_headers(_) ->
-    #{}.
 
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);
