@@ -387,3 +387,108 @@ cleanup_hooks() ->
     _ = emqx_hooks:del('client.subscribe', {?MODULE, hook_subscribe_block}),
     _ = emqx_hooks:del('client.authenticate', {?MODULE, hook_auth_expire}),
     ok.
+
+%%--------------------------------------------------------------------
+%% NKEY Unit Tests
+%%--------------------------------------------------------------------
+
+t_nkey_normalize(_Config) ->
+    ?assertEqual(<<"UABC">>, emqx_nats_nkey:normalize("uabc")).
+
+t_nkey_decode_public_ok(_Config) ->
+    {ok, PubKey} = emqx_nats_nkey:decode_public(nkey_pub()),
+    ?assertEqual(32, byte_size(PubKey)).
+
+t_nkey_encode_public_roundtrip(_Config) ->
+    {ok, PubKey} = emqx_nats_nkey:decode_public(nkey_pub()),
+    Encoded = emqx_nats_nkey:encode_public(PubKey),
+    ?assertEqual(emqx_nats_nkey:normalize(nkey_pub()), Encoded).
+
+t_nkey_decode_public_invalid_prefix(_Config) ->
+    Bad = replace_first_char(nkey_pub(), $A),
+    ?assertEqual({error, invalid_nkey_prefix}, emqx_nats_nkey:decode_public(Bad)).
+
+t_nkey_decode_public_invalid_base32(_Config) ->
+    ?assertEqual(
+        {error, invalid_base32_char},
+        emqx_nats_nkey:decode_public(<<"U0">>)
+    ).
+
+t_nkey_decode_public_invalid_size(_Config) ->
+    Short = binary:part(nkey_pub(), 0, byte_size(nkey_pub()) - 2),
+    ?assertEqual({error, invalid_nkey_size}, emqx_nats_nkey:decode_public(Short)).
+
+t_nkey_decode_public_invalid_crc(_Config) ->
+    Bad = toggle_last_base32_char(nkey_pub()),
+    ?assertEqual({error, invalid_nkey_crc}, emqx_nats_nkey:decode_public(Bad)).
+
+t_nkey_verify_signature_ok(_Config) ->
+    Nonce = <<"nonce">>,
+    Sig = nkey_sig(Nonce),
+    {ok, _} = emqx_nats_nkey:verify_signature(nkey_pub(), Sig, Nonce).
+
+t_nkey_verify_signature_bad_sig(_Config) ->
+    Nonce = <<"nonce">>,
+    Sig = nkey_sig(Nonce),
+    BadSig = mutate_sig(Sig),
+    ?assertEqual(
+        {error, invalid_nkey_sig},
+        emqx_nats_nkey:verify_signature(nkey_pub(), BadSig, Nonce)
+    ).
+
+t_nkey_verify_signature_bad_sig_format(_Config) ->
+    ?assertEqual(
+        {error, invalid_nkey_sig_format},
+        emqx_nats_nkey:verify_signature(nkey_pub(), <<"***">>, <<"nonce">>)
+    ).
+
+t_nkey_verify_signature_standard_base64(_Config) ->
+    Nonce = <<"nonce">>,
+    %% "////" is valid standard base64 but invalid urlsafe.
+    StdSig = <<"////">>,
+    ?assertEqual(
+        {error, invalid_nkey_sig},
+        emqx_nats_nkey:verify_signature(nkey_pub(), StdSig, Nonce)
+    ).
+
+t_nkey_verify_signature_bad_nkey(_Config) ->
+    Nonce = <<"nonce">>,
+    Sig = nkey_sig(Nonce),
+    BadNKey = replace_first_char(nkey_pub(), $A),
+    ?assertEqual(
+        {error, invalid_nkey_prefix},
+        emqx_nats_nkey:verify_signature(BadNKey, Sig, Nonce)
+    ).
+
+%%--------------------------------------------------------------------
+%% NKEY Helpers
+%%--------------------------------------------------------------------
+
+nkey_pub() ->
+    <<"UB4G32YJ2GVZG3KTC3Z7BLIU3PXPJC2Y4QF6SNJUN2XIF3M3E3NDEUCZ">>.
+
+nkey_priv() ->
+    <<205, 42, 56, 73, 83, 88, 159, 152, 35, 244, 15, 34, 196, 39, 226, 60, 111, 109, 0, 79, 72,
+        148, 60, 239, 181, 139, 118, 231, 215, 12, 158, 116>>.
+
+nkey_sig(Nonce) ->
+    Sig = crypto:sign(eddsa, none, Nonce, [nkey_priv(), ed25519]),
+    base64:encode(Sig, #{mode => urlsafe, padding => false}).
+
+replace_first_char(<<_Old, Rest/binary>>, New) ->
+    <<New, Rest/binary>>.
+
+toggle_last_base32_char(Bin) ->
+    <<Head:(byte_size(Bin) - 1)/binary, Last>> = Bin,
+    NewLast =
+        case Last of
+            $A -> $B;
+            _ -> $A
+        end,
+    <<Head/binary, NewLast>>.
+
+mutate_sig(Sig) ->
+    SigBin = base64:decode(Sig, #{mode => urlsafe, padding => false}),
+    <<First:8, Rest/binary>> = SigBin,
+    BadSigBin = <<(First bxor 1), Rest/binary>>,
+    base64:encode(BadSigBin, #{mode => urlsafe, padding => false}).

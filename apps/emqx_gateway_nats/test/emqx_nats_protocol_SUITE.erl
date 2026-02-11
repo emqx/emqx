@@ -537,8 +537,25 @@ token_bcrypt_hash() ->
     Salt = <<"$2b$12$wtY3h20mUjjmeaClpqZVve">>,
     emqx_passwd:hash({bcrypt, Salt}, token_plain()).
 
+nkey_pub() ->
+    <<"UB4G32YJ2GVZG3KTC3Z7BLIU3PXPJC2Y4QF6SNJUN2XIF3M3E3NDEUCZ">>.
+
+nkey_priv() ->
+    <<205, 42, 56, 73, 83, 88, 159, 152, 35, 244, 15, 34, 196, 39, 226, 60, 111, 109, 0, 79, 72,
+        148, 60, 239, 181, 139, 118, 231, 215, 12, 158, 116>>.
+
+nkey_sig(Nonce) ->
+    Sig = crypto:sign(eddsa, none, Nonce, [nkey_priv(), ed25519]),
+    base64:encode(Sig, #{mode => urlsafe, padding => false}).
+
+nkey_nonce(#nats_frame{message = Message}) ->
+    maps:get(<<"nonce">>, Message).
+
 strip_creds(Opts) ->
-    maps:remove(auth_token, maps:remove(pass, maps:remove(user, Opts))).
+    maps:remove(
+        sig,
+        maps:remove(nkey, maps:remove(auth_token, maps:remove(pass, maps:remove(user, Opts))))
+    ).
 
 token_client_opts(Config) ->
     BaseOpts = ?config(client_opts, Config),
@@ -674,6 +691,45 @@ token_auth_cleanup(Config) ->
                     _ = emqx_conf:update(
                         [gateway, nats, authn_token],
                         PrevToken,
+                        #{override_to => cluster}
+                    ),
+                    ok;
+                false ->
+                    ok
+            end;
+        nats ->
+            ok
+    end,
+    Config.
+
+nkey_auth_setup(Config) ->
+    case target_from(Config) of
+        emqx ->
+            Prev = emqx_conf:get([gateway, nats, authn_nkeys], undefined),
+            _ = emqx_conf:update(
+                [gateway, nats, authn_nkeys],
+                [nkey_pub()],
+                #{override_to => cluster}
+            ),
+            [{nkey_auth_prev, Prev} | Config];
+        nats ->
+            Config
+    end.
+
+nkey_auth_cleanup(Config) ->
+    case target_from(Config) of
+        emqx ->
+            case lists:keyfind(nkey_auth_prev, 1, Config) of
+                {nkey_auth_prev, undefined} ->
+                    _ = emqx_conf:remove(
+                        [gateway, nats, authn_nkeys],
+                        #{override_to => cluster}
+                    ),
+                    ok;
+                {nkey_auth_prev, Prev} ->
+                    _ = emqx_conf:update(
+                        [gateway, nats, authn_nkeys],
+                        Prev,
                         #{override_to => cluster}
                     ),
                     ok;
@@ -1428,6 +1484,41 @@ t_token_auth_bcrypt(Config) ->
     {ok, Msgs} = emqx_nats_client:receive_message(Client2),
     assert_auth_failed(Msgs),
     emqx_nats_client:stop(Client2).
+
+t_nkey_auth_success(init, Config) ->
+    nkey_auth_setup(Config);
+t_nkey_auth_success('end', Config) ->
+    nkey_auth_cleanup(Config).
+
+t_nkey_auth_success(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    Nonce = nkey_nonce(InfoMsg),
+    ?assert(is_binary(Nonce)),
+    ok = emqx_nats_client:connect(Client, #{nkey => nkey_pub(), sig => nkey_sig(Nonce)}),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_nkey_auth_failure(init, Config) ->
+    nkey_auth_setup(Config);
+t_nkey_auth_failure('end', Config) ->
+    nkey_auth_cleanup(Config).
+
+t_nkey_auth_failure(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    Nonce = nkey_nonce(InfoMsg),
+    Sig = nkey_sig(Nonce),
+    SigBin = base64:decode(Sig, #{mode => urlsafe, padding => false}),
+    <<First:8, Rest/binary>> = SigBin,
+    BadSigBin = <<(First bxor 1), Rest/binary>>,
+    BadSig = base64:encode(BadSigBin, #{mode => urlsafe, padding => false}),
+    ok = emqx_nats_client:connect(Client, #{nkey => nkey_pub(), sig => BadSig}),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
 
 t_publish_authz(init, Config) ->
     auth_setup(Config);
