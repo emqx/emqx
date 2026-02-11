@@ -7,6 +7,14 @@
 -export([dispatch/5]).
 -export_type([callback_response/0]).
 
+-type header_name() :: atom() | binary() | string().
+-type header_value() :: iodata().
+-type headers_map() :: #{header_name() => header_value()}.
+-type headers_list() :: [{header_name(), header_value()}].
+-type headers() :: headers_map() | headers_list().
+-type status_code() :: pos_integer().
+-type error_code() :: atom() | binary() | string().
+
 -callback handle(
     Method :: atom(),
     PathRemainder :: [binary()],
@@ -16,9 +24,9 @@
     callback_response().
 
 -type callback_response() ::
-    {ok, Status :: pos_integer(), Headers :: map() | [{binary(), iodata()}], Body :: term()}
-    | {error, Code :: atom() | binary() | string(), Msg :: iodata()}
-    | {error, Status :: pos_integer(), Headers :: map() | [{binary(), iodata()}], Body :: term()}.
+    {ok, Status :: status_code(), Headers :: headers(), Body :: term()}
+    | {error, Code :: error_code(), Msg :: iodata()}
+    | {error, Status :: status_code(), Headers :: headers(), Body :: term()}.
 
 -spec dispatch(module(), atom(), [binary()], map(), map()) -> callback_response().
 dispatch(Module, Method, PathRemainder, Request, Context) ->
