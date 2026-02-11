@@ -168,7 +168,7 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     {SockHost, SockPort} = maps:get(sockname, ConnInfo),
     {ok, Vsn} = application:get_key(emqx_gateway_nats, vsn),
     TlsOptions = tls_required_and_verify(maps:get(listener, ClientInfo)),
-    MsgContent = TlsOptions#{
+    MsgContent0 = TlsOptions#{
         server_id => emqx_conf:get([gateway, nats, server_id]),
         server_name => emqx_conf:get([gateway, nats, server_name]),
         version => list_to_binary(Vsn),
@@ -180,18 +180,26 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         auth_required => is_auth_required(ClientInfo),
         jetstream => false
     },
+    MsgContent = maybe_add_nkey_nonce(MsgContent0, ConnInfo),
     #nats_frame{operation = ?OP_INFO, message = MsgContent}.
 
 is_auth_required(#{enable_authn := false}) ->
     false;
 is_auth_required(#{enable_authn := true}) ->
-    token_auth_enabled() orelse gateway_auth_enabled().
+    nkey_auth_enabled() orelse token_auth_enabled() orelse gateway_auth_enabled().
 
 gateway_auth_enabled() ->
     emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined.
 
 token_auth_enabled() ->
     case token_auth_value() of
+        undefined -> false;
+        _ -> true
+    end.
+
+nkey_auth_enabled() ->
+    case nkey_auth_value() of
+        [] -> false;
         undefined -> false;
         _ -> true
     end.
@@ -385,6 +393,7 @@ auth_connect(
     #nats_frame{message = ConnParams},
     Channel = #channel{
         ctx = Ctx,
+        conninfo = ConnInfo,
         clientinfo = ClientInfo
     }
 ) ->
@@ -396,31 +405,124 @@ auth_connect(
         false ->
             {ok, Channel};
         true ->
-            case maybe_token_auth(ConnParams, ClientInfo) of
-                {ok, NClientInfo} ->
-                    {ok, Channel#channel{clientinfo = NClientInfo}};
-                {skip, NClientInfo} ->
-                    case emqx_gateway_ctx:authenticate(Ctx, NClientInfo) of
-                        {ok, NClientInfo2} ->
-                            {ok, Channel#channel{clientinfo = NClientInfo2}};
-                        {error, Reason} ->
-                            ?SLOG(warning, #{
-                                tag => ?TAG,
-                                msg => "client_login_failed",
-                                clientid => ClientId,
-                                username => Username,
-                                reason => Reason
-                            }),
-                            {error, Reason}
-                    end;
+            auth_connect_with_authn(
+                ConnParams,
+                ConnInfo,
+                Ctx,
+                ClientInfo,
+                Channel,
+                ClientId,
+                Username
+            )
+    end.
+
+auth_connect_with_authn(
+    ConnParams,
+    ConnInfo,
+    Ctx,
+    ClientInfo,
+    Channel,
+    ClientId,
+    Username
+) ->
+    case maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo) of
+        {ok, NClientInfo} ->
+            {ok, Channel#channel{clientinfo = NClientInfo}};
+        {skip, NClientInfo} ->
+            auth_connect_with_token(
+                ConnParams,
+                Ctx,
+                NClientInfo,
+                Channel,
+                ClientId,
+                Username
+            );
+        {error, Reason} ->
+            log_auth_failed("nkey_auth_failed", ClientId, Username, Reason),
+            {error, Reason}
+    end.
+
+auth_connect_with_token(
+    ConnParams,
+    Ctx,
+    ClientInfo,
+    Channel,
+    ClientId,
+    Username
+) ->
+    case maybe_token_auth(ConnParams, ClientInfo) of
+        {ok, NClientInfo} ->
+            {ok, Channel#channel{clientinfo = NClientInfo}};
+        {skip, NClientInfo} ->
+            auth_connect_with_gateway(
+                Ctx,
+                NClientInfo,
+                Channel,
+                ClientId,
+                Username
+            );
+        {error, Reason} ->
+            log_auth_failed("token_auth_failed", ClientId, Username, Reason),
+            {error, Reason}
+    end.
+
+auth_connect_with_gateway(Ctx, ClientInfo, Channel, ClientId, Username) ->
+    case emqx_gateway_ctx:authenticate(Ctx, ClientInfo) of
+        {ok, NClientInfo} ->
+            {ok, Channel#channel{clientinfo = NClientInfo}};
+        {error, Reason} ->
+            log_auth_failed("client_login_failed", ClientId, Username, Reason),
+            {error, Reason}
+    end.
+
+log_auth_failed(Msg, ClientId, Username, Reason) ->
+    ?SLOG(warning, #{
+        tag => ?TAG,
+        msg => Msg,
+        clientid => ClientId,
+        username => Username,
+        reason => Reason
+    }).
+
+maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo) ->
+    case nkey_auth_enabled() of
+        false ->
+            {skip, ClientInfo};
+        true ->
+            NKey = normalize_token(conn_param(ConnParams, <<"nkey">>)),
+            Sig = conn_param(ConnParams, <<"sig">>),
+            maybe_nkey_auth_params(NKey, Sig, ConnInfo, ClientInfo)
+    end.
+
+maybe_nkey_auth_params(undefined, _Sig, _ConnInfo, ClientInfo) ->
+    case token_auth_enabled() orelse gateway_auth_enabled() of
+        true -> {skip, ClientInfo};
+        false -> {error, nkey_required}
+    end;
+maybe_nkey_auth_params(_NKey, undefined, _ConnInfo, _ClientInfo) ->
+    {error, nkey_sig_required};
+maybe_nkey_auth_params(NKey, Sig, ConnInfo, ClientInfo) ->
+    case maps:get(nkey_nonce, ConnInfo, undefined) of
+        undefined ->
+            {error, nkey_nonce_unavailable};
+        Nonce ->
+            nkey_authenticate(NKey, Sig, Nonce, ClientInfo)
+    end.
+
+nkey_authenticate(NKey, Sig, Nonce, ClientInfo) ->
+    Allowed = nkey_auth_list(),
+    case nkey_allowed(NKey, Allowed) of
+        false ->
+            {error, invalid_nkey};
+        true ->
+            case emqx_nats_nkey:verify_signature(NKey, Sig, Nonce) of
+                {ok, _PubKey} ->
+                    {ok, ClientInfo#{
+                        auth_method => nkey,
+                        nkey => NKey,
+                        auth_expire_at => undefined
+                    }};
                 {error, Reason} ->
-                    ?SLOG(warning, #{
-                        tag => ?TAG,
-                        msg => "token_auth_failed",
-                        clientid => ClientId,
-                        username => Username,
-                        reason => Reason
-                    }),
                     {error, Reason}
             end
     end.
@@ -472,9 +574,7 @@ check_token(plain, ConfigToken, Token) ->
     emqx_passwd:compare_secure(ConfigToken, Token);
 check_token(bcrypt, ConfigToken, Token) ->
     ensure_bcrypt_started(),
-    emqx_passwd:check_pass({bcrypt, ConfigToken}, ConfigToken, Token);
-check_token(_Other, _ConfigToken, _Token) ->
-    false.
+    emqx_passwd:check_pass({bcrypt, ConfigToken}, ConfigToken, Token).
 
 ensure_bcrypt_started() ->
     _ = application:ensure_all_started(bcrypt),
@@ -507,6 +607,35 @@ is_bcrypt_token(_) ->
 token_auth_value() ->
     Token0 = emqx_conf:get([gateway, nats, authn_token], undefined),
     normalize_token(Token0).
+
+nkey_auth_value() ->
+    emqx_conf:get([gateway, nats, authn_nkeys], []).
+
+nkey_auth_list() ->
+    lists:map(fun emqx_nats_nkey:normalize/1, nkey_auth_value()).
+
+nkey_allowed(NKey, Allowed) ->
+    lists:member(emqx_nats_nkey:normalize(NKey), Allowed).
+
+ensure_nkey_nonce(Channel = #channel{conninfo = ConnInfo}) ->
+    case nkey_auth_enabled() of
+        true ->
+            case maps:get(nkey_nonce, ConnInfo, undefined) of
+                undefined ->
+                    Nonce = emqx_utils:rand_id(24),
+                    Channel#channel{conninfo = ConnInfo#{nkey_nonce => Nonce}};
+                _ ->
+                    Channel
+            end;
+        false ->
+            Channel
+    end.
+
+maybe_add_nkey_nonce(MsgContent, ConnInfo) ->
+    case maps:get(nkey_nonce, ConnInfo, undefined) of
+        undefined -> MsgContent;
+        Nonce -> MsgContent#{nonce => Nonce}
+    end.
 
 conn_param(ConnParams, Key) ->
     maps:get(Key, ConnParams, undefined).
@@ -1004,8 +1133,9 @@ handle_info(Info, Channel) ->
     {ok, Channel}.
 
 handle_after_init(Channel) ->
-    Replies = [{outgoing, info_frame(Channel)}],
-    {ok, Replies, Channel}.
+    NChannel = ensure_nkey_nonce(Channel),
+    Replies = [{outgoing, info_frame(NChannel)}],
+    {ok, Replies, NChannel}.
 
 %%--------------------------------------------------------------------
 %% Ensure disconnected

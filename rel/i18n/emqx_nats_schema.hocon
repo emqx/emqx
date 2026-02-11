@@ -22,6 +22,14 @@ protocol.desc:
 max_payload_size.desc:
 """The maximum number of bytes of Payload allowed per NATS PUB/HPUB message."""
 
+authn_token.desc:
+"""Authentication Token. Optional. Token authentication and username/password
+authentication can be configured simultaneously."""
+
+authn_nkeys.desc:
+"""Authenticate via allowed NKEY public keys (NATS nkey starting with “U...”). Optional. When configured, only clients with matching NKEYs are allowed to connect and authentication is performed via signed challenge/response (recommended to use nkeys tool to generate keys). Can be used alongside authn_token; if neither is set, username/password authentication applies by default.
+Multiple NKEYs can be configured, one public key per line."""
+
 tcp_ws_listeners.desc:
 """The gateway's Websocket listener adopts the same structure as the MQTT Websocket listener."""
 
