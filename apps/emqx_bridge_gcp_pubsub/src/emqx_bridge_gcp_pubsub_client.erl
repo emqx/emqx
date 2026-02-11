@@ -141,7 +141,17 @@ start(
             {ok, State};
         {error, {already_started, _}} ->
             ?tp(gcp_ehttpc_pool_already_started, #{pool_name => ResourceId}),
-            {ok, State};
+            _ = ehttpc_sup:stop_pool(ResourceId),
+            case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
+                {ok, _} ->
+                    {ok, State};
+                {error, Reason} ->
+                    ?tp(gcp_ehttpc_pool_start_failure, #{
+                        pool_name => ResourceId,
+                        reason => Reason
+                    }),
+                    {error, Reason}
+            end;
         {error, Reason} ->
             ?tp(gcp_ehttpc_pool_start_failure, #{
                 pool_name => ResourceId,
