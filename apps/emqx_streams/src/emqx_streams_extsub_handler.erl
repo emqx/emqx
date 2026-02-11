@@ -759,7 +759,7 @@ check_unknown_stream_status(
                     %% Should never happen, however, do not retry on unrecoverable error
                     {HandlerAcc0, UnknownTopicFiltersAcc};
                 ?err_rec(Reason) ->
-                    ?tp(info, streams_extsub_handler_delayed_subscribe_error, #{
+                    ?tp(debug, streams_extsub_handler_delayed_subscribe_error, #{
                         reason => Reason,
                         topic_filter => FullTopicFilter,
                         recoverable => true
