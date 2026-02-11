@@ -4,25 +4,39 @@ add_authn.desc:
 """Enables the authenticator for client authentication for the specified gateway. <br/>
 When the authenticator is not configured or turned off, all client connections are assumed to be allowed. <br/>
 Note: Only one authenticator is allowed to be enabled at a time in the gateway, rather than allowing multiple authenticators to be configured to form an authentication chain as in MQTT."""
+add_authn.label:
+"""Create Authenticator for Gateway"""
 
 add_user.desc:
 """Add user for the authenticator (only supports built_in_database)."""
+add_user.label:
+"""Add User for Gateway Authenticator"""
 
 delete_authn.desc:
 """Delete the authenticator of the specified gateway."""
+delete_authn.label:
+"""Delete Gateway Authenticator"""
 
 delete_user.desc:
 """Delete the user for the gateway authenticator (only supports built_in_database)"""
+delete_user.label:
+"""Delete User for Gateway Authenticator"""
 
 get_authn.desc:
 """Gets the configuration of the specified gateway authenticator.<br/>
 Returns 404 when gateway or authentication is not enabled."""
+get_authn.label:
+"""Get Authenticator Configuration"""
 
 get_user.desc:
 """Get user info from the gateway authenticator (only supports built_in_database)"""
+get_user.label:
+"""Get User Info for Gateway Authenticator"""
 
 import_users.desc:
 """Import users into the gateway authenticator (only supports built_in_database)"""
+import_users.label:
+"""Import Users"""
 
 is_superuser.desc:
 """Is superuser"""
@@ -32,14 +46,32 @@ like_user_id.desc:
 
 list_users.desc:
 """Get the users for the authenticator (only supported by <code>built_in_database</code>)."""
+list_users.label:
+"""List Users for Gateway Authenticator"""
 
 update_authn.desc:
 """Update the configuration of the specified gateway authenticator, or disable the authenticator."""
+update_authn.label:
+"""Update Authenticator Configuration"""
 
 update_user.desc:
 """Update the user info for the gateway authenticator (only supports built_in_database)"""
+update_user.label:
+"""Update User Info for Gateway Authenticator"""
 
 user_id.desc:
 """User ID"""
+
+
+bad_request.desc:
+"""Bad request."""
+bad_request.label:
+"""Bad Request"""
+
+
+not_found.desc:
+"""Resource not found."""
+not_found.label:
+"""Not Found"""
 
 }

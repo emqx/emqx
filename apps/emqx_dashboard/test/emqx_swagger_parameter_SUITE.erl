@@ -11,6 +11,7 @@
 -export([init_per_suite/1, end_per_suite/1]).
 -export([t_in_path/1, t_in_query/1, t_in_mix/1, t_without_in/1, t_ref/1, t_public_ref/1]).
 -export([t_require/1, t_query_enum/1, t_nullable/1, t_method/1, t_api_spec/1]).
+-export([t_summary_i18n/1]).
 -export([t_in_path_trans/1, t_in_query_trans/1, t_in_mix_trans/1, t_ref_trans/1]).
 -export([t_in_path_trans_error/1, t_in_query_trans_error/1, t_in_mix_trans_error/1]).
 -export([all/0, suite/0, groups/0]).
@@ -38,6 +39,7 @@ groups() ->
             t_query_enum,
             t_nullable,
             t_method,
+            t_summary_i18n,
             t_public_ref
         ]},
         {validation, [parallel], [
@@ -203,7 +205,6 @@ t_in_mix(_Config) ->
     ExpectMeta = #{
         tags => [<<"Tags">>, <<"Good">>],
         description => <<"good description">>,
-        summary => <<"good summary">>,
         security => [],
         deprecated => true,
         responses => #{<<"200">> => #{description => <<"ok">>}}
@@ -272,6 +273,14 @@ t_method(_Config) ->
         {error, #{module := ?MODULE, path := PathError, method := bar}},
         emqx_dashboard_swagger:parse_spec_ref(?MODULE, PathError, #{})
     ),
+    ok.
+
+t_summary_i18n(_Config) ->
+    {test, Spec, [], #{}} = emqx_dashboard_swagger:parse_spec_ref(
+        ?MODULE, "/summary/i18n", #{i18n_lang => zh}
+    ),
+    Post = maps:get(post, Spec),
+    ?assertEqual(<<"页码"/utf8>>, maps:get(summary, Post)),
     ok.
 
 t_in_path_trans(_Config) ->
@@ -425,6 +434,7 @@ paths() ->
         "/required/false",
         "/nullable/false",
         "/nullable/true",
+        "/summary/i18n",
         "/method/ok"
     ].
 
@@ -550,6 +560,14 @@ schema("/nullable/false") ->
     to_schema([{'userid', mk(binary(), #{in => query, required => true})}]);
 schema("/nullable/true") ->
     to_schema([{'userid', mk(binary(), #{in => query, required => false})}]);
+schema("/summary/i18n") ->
+    #{
+        operationId => test,
+        post => #{
+            description => ?DESC(emqx_dashboard_swagger, page),
+            responses => #{200 => <<"ok">>}
+        }
+    };
 schema("/method/ok") ->
     Response = #{responses => #{200 => <<"ok">>}},
     lists:foldl(

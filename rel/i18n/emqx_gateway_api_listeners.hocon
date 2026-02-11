@@ -102,6 +102,46 @@ update_user.desc:
 update_user.label:
 """Update User"""
 
+example_tcp_listener.desc:
+"""An example TCP listener configuration payload."""
+example_tcp_listener.label:
+"""Example TCP Listener Configuration"""
+
+example_ssl_listener.desc:
+"""An example SSL listener configuration payload."""
+example_ssl_listener.label:
+"""Example SSL Listener Configuration"""
+
+example_udp_listener.desc:
+"""An example UDP listener configuration payload."""
+example_udp_listener.label:
+"""Example UDP Listener Configuration"""
+
+example_dtls_listener.desc:
+"""An example DTLS listener configuration payload."""
+example_dtls_listener.label:
+"""Example DTLS Listener Configuration"""
+
+example_dtls_listener_with_psk_ciphers.desc:
+"""An example DTLS listener configuration payload using PSK ciphers."""
+example_dtls_listener_with_psk_ciphers.label:
+"""Example DTLS Listener with PSK Ciphers"""
+
+example_listener_with_authn.desc:
+"""An example TCP listener configuration payload with authentication enabled."""
+example_listener_with_authn.label:
+"""Example TCP Listener with Authentication"""
+
+example_ws_listener.desc:
+"""An example WebSocket listener configuration payload."""
+example_ws_listener.label:
+"""Example WebSocket Listener Configuration"""
+
+example_wss_listener.desc:
+"""An example secure WebSocket listener configuration payload."""
+example_wss_listener.label:
+"""Example Secure WebSocket Listener Configuration"""
+
 deleted.desc:
 """Deleted"""
 deleted.label:

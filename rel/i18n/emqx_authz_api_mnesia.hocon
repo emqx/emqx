@@ -157,6 +157,11 @@ bad_request.desc:
 bad_request.label:
 """Bad request"""
 
+forbidden.desc:
+"""Forbidden."""
+forbidden.label:
+"""Forbidden"""
+
 zone.desc:
 """Zone name for filtering applied rules. For example: 'zone1', 'zone2', 'default'"""
 zone.label:

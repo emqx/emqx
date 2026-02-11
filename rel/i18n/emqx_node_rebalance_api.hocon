@@ -309,4 +309,22 @@ not_found.desc:
 not_found.label:
 """Not Found"""
 
+
+conn_evict_rpc_timeout.desc:
+"""RPC timeout for connection eviction during rebalancing."""
+conn_evict_rpc_timeout.label:
+"""Connection Eviction RPC Timeout"""
+
+
+global_status_purges.desc:
+"""Global purge task status across nodes."""
+global_status_purges.label:
+"""Global Purge Status"""
+
+
+sess_evict_rpc_timeout.desc:
+"""RPC timeout for session eviction during rebalancing."""
+sess_evict_rpc_timeout.label:
+"""Session Eviction RPC Timeout"""
+
 }

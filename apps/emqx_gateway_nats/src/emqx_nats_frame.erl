@@ -26,6 +26,7 @@
     reply_to/1,
     headers/1,
     payload/1,
+    payload_total_size/1,
     max_msgs/1
 ]).
 
@@ -180,7 +181,7 @@ serialize_message(?OP_PUB, Message) ->
     Subject = maps:get(subject, Message),
     Payload = maps:get(payload, Message),
     PayloadSize = integer_to_list(byte_size(Payload)),
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", PayloadSize, "\r\n", Payload];
@@ -195,7 +196,7 @@ serialize_message(?OP_HPUB, Message) ->
     HeadersSize = integer_to_list(byte_size(HeadersBin)),
     Payload = maps:get(payload, Message),
     TotalSize = integer_to_list(byte_size(Payload) + byte_size(HeadersBin)),
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload];
@@ -329,10 +330,28 @@ payload(#nats_frame{operation = Op, message = M}) when ?HAS_PAYLOAD_OP(Op) ->
 payload(_) ->
     error(badarg).
 
+payload_total_size(#nats_frame{operation = Op} = Frame) when ?HAS_PAYLOAD_OP(Op) ->
+    Payload = payload(Frame),
+    case Op of
+        ?OP_HPUB ->
+            payload_and_headers_size(Frame, Payload);
+        ?OP_HMSG ->
+            payload_and_headers_size(Frame, Payload);
+        _ ->
+            byte_size(Payload)
+    end;
+payload_total_size(_) ->
+    error(badarg).
+
 max_msgs(#nats_frame{operation = ?OP_UNSUB, message = M}) ->
     maps:get(max_msgs, M, 0);
 max_msgs(_) ->
     error(badarg).
+
+payload_and_headers_size(Frame, Payload) ->
+    Headers = headers(Frame),
+    HeadersBinSize = byte_size(serialize_headers(Headers)) + 2,
+    HeadersBinSize + byte_size(Payload).
 
 %%--------------------------------------------------------------------
 %% utils
@@ -386,15 +405,15 @@ pre_do_parse_args(Op, Line, Rest, State) ->
     do_parse_args(Op, Args, Rest, State).
 
 do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
     parse_payload(Rest, to_payload_state(State, M0));
 do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
     M0 = #{
@@ -404,7 +423,7 @@ do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
     },
     parse_headers(Rest, to_header_state(State, M0));
 do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     HeadersSize = binary_to_integer(HeadersSize0),
     TotalSize = binary_to_integer(TotalSize0),
     M0 = #{

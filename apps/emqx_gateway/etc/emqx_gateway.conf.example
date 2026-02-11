@@ -307,12 +307,13 @@ gateway.lwm2m {
 }
 
 ## v4-compatible LwM2M profile (customer copy/paste)
-## - mountpoint uses %e
+## - mountpoint uses ${endpoint_name}
 ## - topics without leading '/'
 ## - socket buffers and DTLS ciphers as in v4 config
+## - update_msg_publish_condition = contains_object_list
 # gateway.lwm2m {
 #   xml_dir = "{{ platform_etc_dir }}/lwm2m_xml"
-#   mountpoint = "lwm2m/%e/"
+#   mountpoint = "lwm2m/${endpoint_name}/"
 #
 #   lifetime_min = 1s
 #   lifetime_max = 86400s

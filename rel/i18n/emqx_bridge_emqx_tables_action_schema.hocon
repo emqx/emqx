@@ -4,4 +4,9 @@ emqx_bridge_emqx_tables_action_schema {
     desc:
     """Action that takes incoming events and appends them to EMQX Tables."""
   }
+
+  parameters {
+    label: "Action Parameters"
+    desc: "Set of parameters for the action."
+  }
 }

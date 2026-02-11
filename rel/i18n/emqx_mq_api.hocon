@@ -57,4 +57,10 @@ emqx_mq_api {
     topic_filter {
         desc: "Topic filter"
     }
+
+message_queues_config_update_success.desc:
+"""Message queue configuration updated successfully."""
+message_queues_config_update_success.label:
+"""Message Queue Config Updated"""
+
 }

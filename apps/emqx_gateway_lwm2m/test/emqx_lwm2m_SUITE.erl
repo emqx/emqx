@@ -79,6 +79,10 @@ groups() ->
             case08_reregister,
             case09_auto_observe,
             case09_auto_observe_list,
+            case09_auto_observe_list_intersection,
+            case09_auto_observe_list_no_intersection,
+            case09_auto_observe_list_explicit_ignored,
+            case09_auto_observe_list_multi_order,
             case02_update_publish_condition
         ]},
         {test_grp_1_read, [RepeatOpt], [
@@ -170,7 +174,6 @@ groups() ->
             case132_coap_max_block_size,
             case133_mountpoint_peerhost_placeholder,
             case134_auto_observe_empty_list,
-            case135_auto_observe_invalid_types,
             case136_update_publish_condition_legacy,
             case137_cmd_error_paths,
             case138_blockwise_downlink_busy,
@@ -212,8 +215,18 @@ init_per_testcase(TestCase, Config) ->
                 default_config(#{auto_observe => true});
             case09_auto_observe_list ->
                 default_config_with_auto_observe_raw("[\"/3/0\"]");
+            case09_auto_observe_list_intersection ->
+                default_config_with_auto_observe_raw("[\"/3/0\"]");
+            case09_auto_observe_list_no_intersection ->
+                default_config_with_auto_observe_raw("[\"/3/0\"]");
+            case09_auto_observe_list_explicit_ignored ->
+                default_config_with_auto_observe_raw("[\"/1/0\"]");
+            case09_auto_observe_list_multi_order ->
+                default_config_with_auto_observe_raw("[\"/3/0\",\"/1/0\"]");
             case102_mountpoint_peerhost_api ->
-                default_config_with_mountpoint_raw("\"lwm2m/%a/%e/\"");
+                default_config_with_mountpoint_raw(
+                    "\"lwm2m/${peerhost}/${endpoint_name}/\""
+                );
             _ ->
                 default_config()
         end,
@@ -1409,11 +1422,106 @@ case09_auto_observe_list(Config) ->
         MsgId1,
         RespTopic
     ),
+    ?assertEqual(timeout_test_recv_coap_request, test_recv_coap_request(UdpSock)).
 
-    #coap_message{method = Method1, options = Options1} = test_recv_coap_request(UdpSock),
+case09_auto_observe_list_intersection(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:4",
+    MsgId1 = 17,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    std_register(
+        UdpSock,
+        Epn,
+        <<"</1/0>, </2>, </3/0>">>,
+        MsgId1,
+        RespTopic
+    ),
+
+    Request1 = test_recv_coap_request(UdpSock),
+    #coap_message{method = Method1, options = Options1} = Request1,
     ?assertEqual(get, Method1),
     ?assertEqual(0, get_coap_observe(Options1)),
     ?assertEqual(<<"/3/0">>, get_coap_path(Options1)).
+
+case09_auto_observe_list_no_intersection(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:4",
+    MsgId1 = 18,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    std_register(
+        UdpSock,
+        Epn,
+        <<"</1>, </2>">>,
+        MsgId1,
+        RespTopic
+    ),
+    ?assertEqual(timeout_test_recv_coap_request, test_recv_coap_request(UdpSock)).
+
+case09_auto_observe_list_explicit_ignored(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:4",
+    MsgId1 = 19,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    std_register(
+        UdpSock,
+        Epn,
+        <<"</1/0>, </2>, </3/0>">>,
+        MsgId1,
+        RespTopic
+    ),
+
+    Request1 = test_recv_coap_request(UdpSock),
+    #coap_message{method = Method1, options = Options1} = Request1,
+    ?assertEqual(get, Method1),
+    ?assertEqual(0, get_coap_observe(Options1)),
+    ?assertEqual(<<"/1/0">>, get_coap_path(Options1)).
+
+case09_auto_observe_list_multi_order(Config) ->
+    UdpSock = ?config(sock, Config),
+    Epn = "urn:oma:lwm2m:oma:4",
+    MsgId1 = 20,
+    RespTopic = list_to_binary("lwm2m/" ++ Epn ++ "/up/resp"),
+    emqtt:subscribe(?config(emqx_c, Config), RespTopic, qos0),
+    timer:sleep(200),
+
+    std_register(
+        UdpSock,
+        Epn,
+        <<"</1/0>, </3/0>">>,
+        MsgId1,
+        RespTopic
+    ),
+
+    Request1 =
+        #coap_message{method = Method1, options = Options1} = test_recv_coap_request(UdpSock),
+    ?assertEqual(get, Method1),
+    ?assertEqual(0, get_coap_observe(Options1)),
+    ?assertEqual(<<"/3/0">>, get_coap_path(Options1)),
+
+    test_send_coap_observe_ack(
+        UdpSock,
+        "127.0.0.1",
+        ?PORT,
+        {ok, content},
+        #coap_content{content_format = <<"text/plain">>, payload = <<"1">>},
+        Request1
+    ),
+    timer:sleep(100),
+
+    #coap_message{method = Method2, options = Options2} = test_recv_coap_request(UdpSock),
+    ?assertEqual(get, Method2),
+    ?assertEqual(0, get_coap_observe(Options2)),
+    ?assertEqual(<<"/1/0">>, get_coap_path(Options2)),
+    ?assertEqual(timeout_test_recv_coap_request, test_recv_coap_request(UdpSock)).
 
 case10_read(Config) ->
     UdpSock = ?config(sock, Config),
@@ -5362,7 +5470,7 @@ case129_write_hex_encoding(_Config) ->
     ?assertEqual(Expected, Payload).
 
 case130_auto_observe_list_config(_Config) ->
-    RegInfo = #{<<"objectList">> => [<<"/1/0">>]},
+    RegInfo = #{<<"objectList">> => [<<"/3/0">>, <<"/3/0/1">>]},
     ListRaw = "[\"/3/0\",\"/3/0/1\"]",
     ok = emqx_conf_cli:load_config(
         ?global_ns, default_config_with_auto_observe_raw(ListRaw), #{mode => replace}
@@ -5384,7 +5492,7 @@ case130_auto_observe_list_config(_Config) ->
         ?global_ns, default_config_with_auto_observe_raw(OnRaw), #{mode => replace}
     ),
     ?assertEqual(
-        [<<"/1/0">>],
+        [<<"/3/0">>, <<"/3/0/1">>],
         emqx_lwm2m_session:auto_observe_object_list(RegInfo)
     ),
     OffRaw = "\"off\"",
@@ -5435,7 +5543,8 @@ case133_mountpoint_peerhost_placeholder(_Config) ->
         sockname => {{127, 0, 0, 1}, 56830}
     },
     Channel0 = emqx_lwm2m_channel:init(
-        ConnInfo, #{ctx => Ctx, mountpoint => <<"lwm2m/%a/%e/">>}
+        ConnInfo,
+        #{ctx => Ctx, mountpoint => <<"lwm2m/${peerhost}/${endpoint_name}/">>}
     ),
     Msg = #coap_message{
         options = #{uri_query => #{<<"ep">> => <<"ep133">>, <<"lt">> => <<"60">>}}
@@ -5454,22 +5563,6 @@ case134_auto_observe_empty_list(_Config) ->
     RegMsg = #coap_message{options = #{uri_query => Query}, payload = <<>>},
     _ = emqx_lwm2m_session:init(RegMsg, <<>>, WithContext, Session0),
     ok.
-
-case135_auto_observe_invalid_types(_Config) ->
-    RegInfo = #{<<"objectList">> => [<<"/1/0">>]},
-    OldValue = emqx:get_config([gateway, lwm2m, auto_observe]),
-    try
-        ok = emqx_config:put([gateway, lwm2m, auto_observe], ["/3/0", 1]),
-        ?assertException(
-            error,
-            badarg,
-            emqx_lwm2m_session:auto_observe_object_list(RegInfo)
-        ),
-        ok = emqx_config:put([gateway, lwm2m, auto_observe], 1),
-        ?assertEqual([], emqx_lwm2m_session:auto_observe_object_list(RegInfo))
-    after
-        ok = emqx_config:put([gateway, lwm2m, auto_observe], OldValue)
-    end.
 
 case136_update_publish_condition_legacy(_Config) ->
     WithContext = with_context_stub(),

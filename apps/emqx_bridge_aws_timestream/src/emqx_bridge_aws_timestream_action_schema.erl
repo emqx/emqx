@@ -60,7 +60,7 @@ fields(?ACTION_TYPE) ->
             ref(action_parameters),
             #{
                 required => true,
-                desc => ?DESC("parameters")
+                desc => ?DESC(action_parameters)
             }
         )
     );

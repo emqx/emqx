@@ -109,7 +109,7 @@ node.desc:
 """Node name."""
 
 node.label:
-"""Node Name."""
+"""Node Name"""
 
 node_error.desc:
 """The error of node."""
@@ -192,4 +192,10 @@ precondition.desc: """~
     `iif(is_empty_val(password), false, str_eq(zone, 'zone1'))`
 
   Find more information about Variform expressions in EMQX doc.~"""
+
+authentication_cache.desc:
+"""Authentication cache settings."""
+authentication_cache.label:
+"""Authentication Cache"""
+
 }

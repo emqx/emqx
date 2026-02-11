@@ -180,6 +180,9 @@ for dep in ${CT_DEPS}; do
         opents)
             FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
             ;;
+        nats)
+            FILES+=( '.ci/docker-compose-file/docker-compose-nats.yaml' )
+            ;;
         pulsar)
             FILES+=( '.ci/docker-compose-file/docker-compose-pulsar.yaml' )
             ;;

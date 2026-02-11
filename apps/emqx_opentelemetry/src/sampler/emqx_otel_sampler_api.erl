@@ -158,12 +158,12 @@ swagger_with_example() ->
         array(binary()),
         #{
             clientid_white_list => #{
-                summary => <<"ClientId White list">>,
+                summary => ?DESC("example_clientid_whitelist"),
                 value => [<<"clientid">>, <<"clientid2">>]
             },
 
             topic_white_list => #{
-                summary => <<"Topic White list">>,
+                summary => ?DESC("example_topic_whitelist"),
                 value => [<<"topic/#">>, <<"topic/2">>]
             }
         }

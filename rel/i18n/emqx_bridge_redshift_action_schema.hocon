@@ -11,4 +11,10 @@ emqx_bridge_redshift_action_schema {
     """Set of parameters for the action."""
   }
 
+
+parameters.desc:
+"""Action-specific parameters."""
+parameters.label:
+"""Parameters"""
+
 }

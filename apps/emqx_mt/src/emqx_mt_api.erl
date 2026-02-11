@@ -752,7 +752,7 @@ example_ns_list() ->
     #{
         <<"list">> =>
             #{
-                summary => <<"List">>,
+                summary => ?DESC("example_list"),
                 value => [<<"ns1">>, <<"ns2">>]
             }
     }.
@@ -761,7 +761,7 @@ example_ns_list_details() ->
     #{
         <<"list">> =>
             #{
-                summary => <<"List">>,
+                summary => ?DESC("example_list"),
                 value => [
                     #{
                         <<"name">> => <<"ns1">>,
@@ -779,7 +779,7 @@ example_client_list() ->
     #{
         <<"list">> =>
             #{
-                summary => <<"List">>,
+                summary => ?DESC("example_list"),
                 value => [<<"client1">>, <<"client2">>]
             }
     }.
