@@ -2,14 +2,16 @@
 %% Copyright (c) 2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
--module(emqx_dashboard_plugin_api_endpoint).
+-module(emqx_plugins_api_endpoint).
 
 -behaviour(minirest_api).
+-compile(nowarn_undefined_behaviour).
 
 -export([api_spec/0, paths/0, schema/1]).
 -export([gateway/3]).
 
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx/include/emqx_config.hrl").
 
 -define(DEFAULT_TIMEOUT, 5000).
 
@@ -60,7 +62,7 @@ gateway(Method, Params, Request) ->
     AuthMeta = maps:get(auth_meta, Params, #{}),
     Context = #{
         auth_meta => AuthMeta,
-        namespace => emqx_dashboard:get_namespace(Params)
+        namespace => request_namespace(Params)
     },
     case Plugin of
         undefined ->
@@ -114,3 +116,10 @@ normalize_path_remainder(V) ->
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);
 to_bin(B) when is_binary(B) -> B.
+
+request_namespace(#{auth_meta := #{namespace := Namespace}}) when is_binary(Namespace) ->
+    Namespace;
+request_namespace(#{auth_meta := #{namespace := ?global_ns}}) ->
+    ?global_ns;
+request_namespace(_Request) ->
+    ?global_ns.

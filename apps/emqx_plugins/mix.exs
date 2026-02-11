@@ -24,6 +24,7 @@ defmodule EMQXPlugins.MixProject do
   def deps() do
     UMP.deps([
       {:emqx, in_umbrella: true},
+      :minirest,
       :erlavro
     ])
   end
