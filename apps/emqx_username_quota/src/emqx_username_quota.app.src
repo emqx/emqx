@@ -1,0 +1,12 @@
+{application, emqx_username_quota, [
+    {description, "emqx_username_quota"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {modules, [
+        emqx_username_quota,
+        emqx_username_quota_app,
+        emqx_username_quota_sup
+    ]},
+    {applications, [kernel, stdlib, emqx_plugin_helper]},
+    {mod, {emqx_username_quota_app, []}}
+]}.
