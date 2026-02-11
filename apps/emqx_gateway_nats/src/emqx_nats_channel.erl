@@ -185,11 +185,15 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
 is_auth_required(#{enable_authn := false}) ->
     false;
 is_auth_required(#{enable_authn := true}) ->
-    case emqx_conf:get([gateway, nats, authentication], undefined) of
-        undefined ->
-            false;
-        _ ->
-            true
+    token_auth_enabled() orelse gateway_auth_enabled().
+
+gateway_auth_enabled() ->
+    emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined.
+
+token_auth_enabled() ->
+    case token_auth_value() of
+        undefined -> false;
+        _ -> true
     end.
 
 tls_required_and_verify(ListenerId) ->
@@ -378,7 +382,7 @@ set_log_meta(_Packet, #channel{clientinfo = #{clientid := ClientId}}) ->
     ok.
 
 auth_connect(
-    _Packet,
+    #nats_frame{message = ConnParams},
     Channel = #channel{
         ctx = Ctx,
         clientinfo = ClientInfo
@@ -388,19 +392,124 @@ auth_connect(
         clientid := ClientId,
         username := Username
     } = ClientInfo,
-    case emqx_gateway_ctx:authenticate(Ctx, ClientInfo) of
-        {ok, NClientInfo} ->
-            {ok, Channel#channel{clientinfo = NClientInfo}};
+    case maps:get(enable_authn, ClientInfo, true) of
+        false ->
+            {ok, Channel};
+        true ->
+            case maybe_token_auth(ConnParams, ClientInfo) of
+                {ok, NClientInfo} ->
+                    {ok, Channel#channel{clientinfo = NClientInfo}};
+                {skip, NClientInfo} ->
+                    case emqx_gateway_ctx:authenticate(Ctx, NClientInfo) of
+                        {ok, NClientInfo2} ->
+                            {ok, Channel#channel{clientinfo = NClientInfo2}};
+                        {error, Reason} ->
+                            ?SLOG(warning, #{
+                                tag => ?TAG,
+                                msg => "client_login_failed",
+                                clientid => ClientId,
+                                username => Username,
+                                reason => Reason
+                            }),
+                            {error, Reason}
+                    end;
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        tag => ?TAG,
+                        msg => "token_auth_failed",
+                        clientid => ClientId,
+                        username => Username,
+                        reason => Reason
+                    }),
+                    {error, Reason}
+            end
+    end.
+
+maybe_token_auth(ConnParams, ClientInfo) ->
+    case token_auth_enabled() of
+        false ->
+            {skip, ClientInfo};
+        true ->
+            AuthToken = conn_param(ConnParams, <<"auth_token">>),
+            case normalize_token(AuthToken) of
+                undefined ->
+                    case gateway_auth_enabled() of
+                        true -> {skip, ClientInfo};
+                        false -> {error, token_required}
+                    end;
+                Token ->
+                    token_authenticate(Token, ClientInfo)
+            end
+    end.
+
+token_authenticate(Token, ClientInfo) ->
+    case token_auth_config() of
+        {ok, ConfigToken} ->
+            Type = token_type(ConfigToken),
+            case check_token(Type, ConfigToken, Token) of
+                true ->
+                    {ok, ClientInfo#{
+                        auth_method => token,
+                        token_type => Type,
+                        auth_expire_at => undefined
+                    }};
+                false ->
+                    {error, invalid_token}
+            end;
         {error, Reason} ->
-            ?SLOG(warning, #{
-                tag => ?TAG,
-                msg => "client_login_failed",
-                clientid => ClientId,
-                username => Username,
-                reason => Reason
-            }),
             {error, Reason}
     end.
+
+token_auth_config() ->
+    case token_auth_value() of
+        undefined ->
+            {error, token_disabled};
+        Token ->
+            {ok, Token}
+    end.
+
+check_token(plain, ConfigToken, Token) ->
+    emqx_passwd:compare_secure(ConfigToken, Token);
+check_token(bcrypt, ConfigToken, Token) ->
+    ensure_bcrypt_started(),
+    emqx_passwd:check_pass({bcrypt, ConfigToken}, ConfigToken, Token);
+check_token(_Other, _ConfigToken, _Token) ->
+    false.
+
+ensure_bcrypt_started() ->
+    _ = application:ensure_all_started(bcrypt),
+    ok.
+
+normalize_token(undefined) ->
+    undefined;
+normalize_token(<<>>) ->
+    undefined;
+normalize_token(Token) when is_binary(Token) ->
+    Token;
+normalize_token(Token) ->
+    emqx_utils_conv:bin(Token).
+
+token_type(Token) ->
+    case is_bcrypt_token(Token) of
+        true -> bcrypt;
+        false -> plain
+    end.
+
+is_bcrypt_token(<<"$2a$", _/binary>>) ->
+    true;
+is_bcrypt_token(<<"$2b$", _/binary>>) ->
+    true;
+is_bcrypt_token(<<"$2y$", _/binary>>) ->
+    true;
+is_bcrypt_token(_) ->
+    false.
+
+token_auth_value() ->
+    Token0 = emqx_conf:get([gateway, nats, authn_token], undefined),
+    normalize_token(Token0).
+
+conn_param(ConnParams, Key) ->
+    maps:get(Key, ConnParams, undefined).
 
 ensure_connected(
     Channel = #channel{
