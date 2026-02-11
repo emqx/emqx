@@ -88,11 +88,29 @@ defmodule AppsVersionCheck do
   def has_valid_app_vsn?(app, context) do
     src_file = Path.join(["apps", app, "mix.exs"])
 
-    if File.exists?(src_file) do
+    cond do
+      is_plugin_app?(app) ->
+        log("IGNORE: apps/#{app} is a plugin app (detected by emqx_plugrel in rebar.config)")
+        true
+
+      File.exists?(src_file) ->
       do_has_valid_app_vsn?(app, context)
-    else
-      log("IGNORE: #{src_file} was deleted")
-      true
+
+      true ->
+        log("IGNORE: #{src_file} was deleted")
+        true
+    end
+  end
+
+  def is_plugin_app?(app) do
+    rebar_config = Path.join(["apps", app, "rebar.config"])
+
+    case File.read(rebar_config) do
+      {:ok, content} ->
+        String.contains?(content, "{emqx_plugrel")
+
+      {:error, _} ->
+        false
     end
   end
 
