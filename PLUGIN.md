@@ -1,24 +1,71 @@
-# EMQX plugins
+# EMQX Plugin Development Guide
 
-EMQX is built as a set of Erlang/OTP applications under `apps/`.
-In this monorepo, `mix` (Elixir build tooling) is used to compile and test those apps together.
+EMQX is organized as a set of Erlang/OTP applications under the `apps/` directory.
+In the EMQX monorepo, **Mix** (Elixir build tooling) is used to compile and test all applications together.
 
-For plugin work in this repository, you will typically keep both files in the plugin app:
+There are two project styles to build a EMQX plugin. Standalone project, or embedded in EMQX monorepo.
 
-- `mix.exs`: used by monorepo compile/test workflows.
-- `rebar.config`: used to build plugin packages (`emqx_plugrel`) as `.tar.gz` artifacts.
+---
 
-Important: building a plugin package does not auto-boot it in EMQX.
-Runtime plugin lifecycle is managed with:
-`emqx ctl plugins install|enable|start`.
+## Build Files Overview
 
-## Prepare
+### Standalone Plugin Project
 
-To build a EMQX plugin, you will need `rebar3` and the emqx-plugin template.
+A standalone EMQX plugin is built and released **only with `rebar3`**.
 
-You can run `make ensure-rebar3` in this project root to ensure `rebar3` is downloaded to `./`.
+- `rebar.config`
+  Used to build the plugin package (`emqx_plugrel`) as a `.tar.gz` artifact.
+- `mix.exs`
+  **Not required**.
 
-If `rebar3 new help` does not list `emqx-plugin (custom)`, you will need to install the template first:
+This mode is recommended for independent plugin development outside the EMQX monorepo.
+
+### Plugin Inside the EMQX Monorepo
+
+When a plugin is developed inside the EMQX monorepo, the plugin application typically contains **both** build files:
+
+- `mix.exs`: Required so the plugin participates in the monorepo compile and test workflows.
+
+- `rebar.config`: Used to build the distributable plugin package.
+
+> **Note**
+> Building a plugin package does **not** automatically load or start the plugin in EMQX.
+> Runtime plugin lifecycle is managed explicitly via:
+>
+> ```bash
+> emqx ctl plugins install|enable|start
+> ```
+
+---
+
+## Preparation
+
+To build an EMQX plugin, you need:
+
+- `rebar3`
+- the **emqx-plugin** project template
+
+### Ensure `rebar3`
+
+From the repository root, run:
+
+```bash
+make ensure-rebar3
+```
+
+This ensures `rebar3` is available locally.
+
+### Install the Plugin Template
+
+Check whether the EMQX plugin template is already installed:
+
+```bash
+rebar3 new help
+```
+
+If `emqx-plugin (custom)` is **not** listed, install the template manually.
+
+#### Default `rebar3` config location
 
 ```bash
 mkdir -p ~/.config/rebar3/templates
@@ -26,7 +73,7 @@ cd ~/.config/rebar3/templates
 git clone https://github.com/emqx/emqx-plugin-template.git
 ```
 
-If `REBAR_CACHE_DIR` is set, use:
+#### If `REBAR_CACHE_DIR` is set
 
 ```bash
 mkdir -p "$REBAR_CACHE_DIR/.config/rebar3/templates"
@@ -34,51 +81,110 @@ cd "$REBAR_CACHE_DIR/.config/rebar3/templates"
 git clone https://github.com/emqx/emqx-plugin-template.git
 ```
 
-Then verify:
+Verify the installation:
 
 ```bash
 rebar3 new help
 ```
 
-With the template in place, there are two common development modes:
+---
 
-## Build as a standalone plugin project
+## Development Modes
 
-Follow the instructions in the template project:
-[emqx-plugin-template](https://github.com/emqx/emqx-plugin-template).
+With the template installed, there are two common ways to develop an EMQX plugin.
 
-## Build in this monorepo (`contribute-*` branches)
+---
+
+## Standalone Plugin Development
+
+For plugins developed outside the EMQX monorepo:
+
+1. Generate a new plugin project:
+   ```bash
+   rebar3 new emqx-plugin {plugin_name}
+   ```
+
+2. Develop and test the plugin using `rebar3`.
+
+3. Build the plugin package following the instructions in:
+   https://github.com/emqx/emqx-plugin-template
+
+This mode uses **only `rebar3`** and does not involve Mix or `mix.exs`.
+
+---
+
+## Plugin Development Inside the EMQX Monorepo (`contribute-*` Branches)
+
+This mode is intended for plugin development tightly coupled with a specific EMQX version.
 
 ### Bootstrap
 
-- Pick a plugin name. It should be globally unique and also be the Erlang app name.
-- Check out a `contribute-*` branch.
-  Example: use `contribute-61` for EMQX 6.1-based plugin work.
-- Generate the app with the template:
-  `rebar3 new emqx-plugin {plugin_name}`
-- Place the generated plugin app under `apps/{plugin_name}`.
-- Add `apps/{plugin_name}/mix.exs` so the app participates in monorepo build/test.
-  You can take `apps/emqx_username_quota/mix.exs` as a reference.
+1. **Choose a plugin name**
+   - Must be globally unique.
+   - Must also be the Erlang application name.
 
-### Development and test
+2. **Check out the appropriate branch**
+   - Use a `contribute-??` branch matching the target EMQX version.
+   - Example: `contribute-61` for EMQX 6.1-based development.
 
-- Implement plugin code in `apps/{plugin_name}/src`.
-- Add Common Test suites in `apps/{plugin_name}/test`.
-- Run tests with the app-level CT target:
-  `make apps/{plugin_name}-ct`
+3. **Generate the plugin application**
+   ```bash
+   cd apps/
+   rebar3 new emqx-plugin {plugin_name}
+   ```
+
+4. **Add `mix.exs`**
+   - Create `apps/{plugin_name}/mix.exs` so the plugin participates in monorepo build and test workflows.
+   - You can use `apps/emqx_username_quota/mix.exs` as a reference.
+
+---
+
+### Development and Testing
+
+- Implement plugin code under:
+  ```
+  apps/{plugin_name}/src
+  ```
+
+- Add Common Test suites under:
+  ```
+  apps/{plugin_name}/test
+  ```
+
+- Run Common Test for the plugin only:
+  ```bash
+  make apps/{plugin_name}-ct
+  ```
 
 Example:
-`make apps/emqx_username_quota-ct`
 
-### Integration test and release
+```bash
+make apps/emqx_username_quota-ct
+```
 
-- For quick local integration testing (without adding plugin apps to EMQX boot apps), run:
-  `scripts/run-plugin-dev.sh {plugin_name} [--attach]`
-- Build the plugin package from repo root:
-  `make plugin-{plugin_name}`
+---
+
+### Integration Testing and Packaging
+
+- For quick local integration testing (without adding the plugin to EMQX boot applications):
+  ```bash
+  scripts/run-plugin-dev.sh {plugin_name} [--attach]
+  ```
+
+- Build the plugin package from the repository root:
+  ```bash
+  make plugin-{plugin_name}
+  ```
+
+This produces a `.tar.gz` plugin artifact suitable for installation via `emqx ctl plugins`.
+
+---
 
 ### Example
 
-- Plugin name: `emqx_username_quota`
-- App path: `apps/emqx_username_quota`
-- Package build command: `make plugin-emqx_username_quota`
+- **Plugin name:** `emqx_username_quota`
+- **Application path:** `apps/emqx_username_quota`
+- **Package build command:**
+  ```bash
+  make plugin-emqx_username_quota
+  ```
