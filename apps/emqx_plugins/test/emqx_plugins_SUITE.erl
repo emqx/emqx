@@ -263,29 +263,20 @@ t_position(Config) ->
 t_resolve_api_callback_convention({init, Config}) ->
     Config;
 t_resolve_api_callback_convention({'end', _Config}) ->
-    _ = persistent_term:erase({emqx_plugin, <<"emqx_plugins_fake">>}),
-    _ = persistent_term:erase({emqx_plugin, <<"emqx_plugins_fake_no_behavior">>}),
     ok;
 t_resolve_api_callback_convention(_Config) ->
-    persistent_term:put({emqx_plugin, <<"emqx_plugins_fake">>}, <<"1.0.0">>),
-    persistent_term:put({emqx_plugin, <<"emqx_plugins_fake_no_behavior">>}, <<"1.0.0">>),
-    try
-        ?assertEqual(
-            {ok, emqx_plugins_fake_api},
-            emqx_plugins:resolve_api_callback(<<"emqx_plugins_fake">>)
-        ),
-        ?assertEqual(
-            {error, not_found},
-            emqx_plugins:resolve_api_callback(<<"unknown_plugin">>)
-        ),
-        ?assertEqual(
-            {error, missing_callback},
-            emqx_plugins:resolve_api_callback(<<"emqx_plugins_fake_no_behavior">>)
-        )
-    after
-        _ = persistent_term:erase({emqx_plugin, <<"emqx_plugins_fake">>}),
-        _ = persistent_term:erase({emqx_plugin, <<"emqx_plugins_fake_no_behavior">>})
-    end.
+    ?assertEqual(
+        {ok, emqx_plugins_fake_api},
+        emqx_plugins:resolve_api_callback(<<"emqx_plugins_fake">>)
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_plugins:resolve_api_callback(<<"unknown_plugin">>)
+    ),
+    ?assertEqual(
+        {error, missing_callback},
+        emqx_plugins:resolve_api_callback(<<"emqx_plugins_fake_no_behavior">>)
+    ).
 
 t_start_restart_and_stop({init, Config}) ->
     #{package := Package} = get_demo_plugin_package(),
