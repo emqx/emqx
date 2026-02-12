@@ -146,6 +146,8 @@
 
 ## Disable os_mon's disksup by default
 -os_mon start_disksup false
+## Only collect system-wide memory statistics
+-os_mon memsup_system_only true
 
 ## Sets unicode as the printable character range when formatting binaries
 +pc unicode
