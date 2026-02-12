@@ -26,12 +26,27 @@
     get_tls/1,
     ssl_options/1,
     get_channel_connection/1,
-    parse_and_check/4,
-    receive_message_from_rabbitmq/1
+    parse_and_check/4
 ]).
 -import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(TYPE, <<"rabbitmq">>).
+-define(CONNECTOR_TYPE, rabbitmq).
+-define(CONNECTOR_TYPE_BIN, <<"rabbitmq">>).
+-define(ACTION_TYPE, rabbitmq).
+-define(ACTION_TYPE_BIN, <<"rabbitmq">>).
+-define(SOURCE_TYPE, rabbitmq).
+-define(SOURCE_TYPE_BIN, <<"rabbitmq">>).
+-define(USER, <<"guest">>).
+-define(PASSWORD, <<"guest">>).
+-define(EXCHANGE, <<"messages">>).
+-define(QUEUE, <<"test_queue">>).
+-define(ROUTING_KEY, <<"test_routing_key">>).
+
+-define(tpal(MSG, ARGS), begin
+    ct:pal(lists:flatten(io_lib:format(MSG, ARGS))),
+    ?tp(notice, lists:flatten(io_lib:format(MSG, ARGS)), #{})
+end).
 
 all() ->
     [
@@ -52,13 +67,48 @@ init_per_group(Group, Config) ->
 end_per_group(Group, Config) ->
     emqx_bridge_rabbitmq_test_utils:end_per_group(Group, Config).
 
-init_per_testcase(_TestCase, Config) ->
-    Name = atom_to_binary(?MODULE),
-    create_connector(Name, get_rabbitmq(Config)),
-    Config.
+init_per_testcase(TestCase, TCConfig) ->
+    ConnectorName = atom_to_binary(TestCase),
+    ConnectorConfig = connector_config(#{}),
+    ActionName = ConnectorName,
+    ActionConfig = action_config(#{
+        <<"connector">> => ConnectorName
+    }),
+    SourceName = ConnectorName,
+    SourceConfig = source_config(#{
+        <<"connector">> => ConnectorName
+    }),
+    ClientOpts = #{
+        host => get_config(host, TCConfig, <<"rabbitmq">>),
+        port => get_config(port, TCConfig, 5672),
+        use_tls => get_config(enable_tls, TCConfig, false),
+        exchange => ?EXCHANGE,
+        queue => ?QUEUE,
+        routing_key => ?ROUTING_KEY
+    },
+    emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts),
+    snabbkaffe:start_trace(),
+    [
+        {connector_type, ?CONNECTOR_TYPE},
+        {connector_name, ConnectorName},
+        {connector_config, ConnectorConfig},
+        {action_type, ?ACTION_TYPE},
+        {action_name, ActionName},
+        {action_config, ActionConfig},
+        {source_type, ?SOURCE_TYPE},
+        {source_name, SourceName},
+        {source_config, SourceConfig},
+        {client_opts, ClientOpts}
+        | TCConfig
+    ].
 
-end_per_testcase(_TestCase, _Config) ->
+end_per_testcase(_TestCase, TCConfig) ->
+    snabbkaffe:stop(),
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(ClientOpts),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    emqx_common_test_helpers:call_janitor(),
     ok.
 
 rabbitmq_connector(Config) ->
@@ -134,7 +184,8 @@ rabbitmq_action(TestCase, Exchange) ->
 
 create_connector(Name, Config) ->
     Connector = rabbitmq_connector(Config),
-    {ok, _} = emqx_bridge_v2_testlib:create_connector_api(Name, ?TYPE, Connector).
+    on_exit(fun() -> delete_connector(Name) end),
+    {ok, _} = emqx_connector:create(?TYPE, Name, Connector).
 
 delete_connector(Name) ->
     ok = emqx_connector:remove(?TYPE, Name).
@@ -166,12 +217,224 @@ create_action(TestCase, Name, Exchange) ->
 delete_action(Name) ->
     ok = emqx_bridge_v2:remove(actions, ?TYPE, Name).
 
+get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+get_config(K, TCConfig, Default) -> proplists:get_value(K, TCConfig, Default).
+
+waiting_for_disconnected_alarms(InstanceId) ->
+    waiting_for_disconnected_alarms(InstanceId, 0).
+
+waiting_for_disconnected_alarms(_InstanceId, 200) ->
+    throw(not_receive_disconnect_alarm);
+waiting_for_disconnected_alarms(InstanceId, Count) ->
+    case emqx_alarm:get_alarms(activated) of
+        [] ->
+            ct:sleep(100),
+            waiting_for_disconnected_alarms(InstanceId, Count + 1);
+        [Alarm] ->
+            ?assertMatch(
+                #{
+                    message :=
+                        <<"resource down: #{error => not_connected,status => disconnected}">>,
+                    name := InstanceId
+                },
+                Alarm
+            )
+    end.
+
+waiting_for_dropped_count(InstanceId) ->
+    waiting_for_dropped_count(InstanceId, 0).
+
+waiting_for_dropped_count(_InstanceId, 400) ->
+    throw(not_receive_dropped_count);
+waiting_for_dropped_count(InstanceId, Count) ->
+    #{
+        counters := #{
+            dropped := Dropped,
+            success := 0,
+            matched := 1,
+            failed := 0,
+            received := 0
+        }
+    } = emqx_resource:get_metrics(InstanceId),
+    case Dropped of
+        1 ->
+            ok;
+        0 ->
+            ct:sleep(400),
+            waiting_for_dropped_count(InstanceId, Count + 1)
+    end.
+
+receive_messages(Count) ->
+    receive_messages(Count, []).
+receive_messages(0, Msgs) ->
+    Msgs;
+receive_messages(Count, Msgs) ->
+    receive
+        {publish, Msg} ->
+            ct:log("Msg: ~p ~n", [Msg]),
+            receive_messages(Count - 1, [Msg | Msgs])
+    after 2000 ->
+        Msgs
+    end.
+
+payload() ->
+    #{<<"key">> => 42, <<"data">> => <<"RabbitMQ">>, <<"timestamp">> => 10000}.
+
+payload(t_action_dynamic) ->
+    Payload = payload(),
+    Payload#{<<"e">> => ?EXCHANGE, <<"r">> => ?ROUTING_KEY};
+payload(t_action_use_default_exchange) ->
+    (payload())#{<<"e">> => <<"">>, <<"r">> => ?QUEUE}.
+
+send_test_message_to_rabbitmq(Config) ->
+    ClientOpts = ?config(client_opts, Config),
+    emqx_bridge_rabbitmq_testlib:publish_message(emqx_utils_json:encode(payload()), ClientOpts).
+
+instance_id(Type, Name) ->
+    ConnectorId = emqx_bridge_resource:resource_id(Type, ?TYPE, Name),
+    BridgeId = emqx_bridge_resource:bridge_id(?TYPE, Name),
+    TypeBin =
+        case Type of
+            sources -> <<"source:">>;
+            actions -> <<"action:">>
+        end,
+    <<TypeBin/binary, BridgeId/binary, ":", ConnectorId/binary>>.
+
+rabbit_mq_exchange(t_action_dynamic) ->
+    <<"${payload.e}">>;
+rabbit_mq_exchange(t_action_use_default_exchange) ->
+    <<"">>;
+rabbit_mq_exchange(_) ->
+    ?EXCHANGE.
+
+rabbit_mq_routing_key(t_action_dynamic) ->
+    <<"${payload.r}">>;
+rabbit_mq_routing_key(t_action_use_default_exchange) ->
+    ?QUEUE;
+rabbit_mq_routing_key(_) ->
+    ?ROUTING_KEY.
+
+connector_config(Overrides) ->
+    emqx_bridge_rabbitmq_testlib:connector_config(Overrides).
+
+action_config(Overrides) ->
+    emqx_bridge_rabbitmq_testlib:action_config(Overrides).
+
+source_config(Overrides) ->
+    emqx_bridge_rabbitmq_testlib:source_config(Overrides).
+
+%% Attempts to list all rabbitmq connections processes (`amqp_connection:start`) without
+%% relying on details about how it's started/managed by emqx.
+list_rabbitmq_connection_processes() ->
+    [
+        Pid
+     || Pid <- erlang:processes(),
+        case proc_lib:initial_call(Pid) of
+            {amqp_gen_connection, init, [_]} ->
+                true;
+            _ ->
+                false
+        end
+    ].
+
+%% Attempts to list all rabbitmq channel processes (`amqp_connection:open_channel`)
+%% without relying on details about how it's started/managed by emqx.
+list_rabbitmq_channel_processes() ->
+    [
+        Pid
+     || Pid <- erlang:processes(),
+        case proc_lib:initial_call(Pid) of
+            {amqp_channel, init, [_]} ->
+                true;
+            _ ->
+                false
+        end
+    ].
+
+random(List) ->
+    lists:nth(rand:uniform(length(List)), List).
+
+create_connector_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_connector_api(TCConfig, Overrides)
+    ).
+
+create_action_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:create_action_api([{bridge_kind, action} | TCConfig], Overrides)
+    ).
+
+create_source_api(TCConfig, Overrides) ->
+    emqx_bridge_v2_testlib:create_source_api([{bridge_kind, source} | TCConfig], Overrides).
+
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
+
+get_action_api(TCConfig) ->
+    emqx_bridge_v2_testlib:get_action_api2(TCConfig).
+
+get_source_api(TCConfig) ->
+    #{type := Type, name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_source_api(Type, Name)
+    ).
+
+get_common_values_action(TCConfig) ->
+    emqx_bridge_v2_testlib:get_common_values([{bridge_kind, action} | TCConfig]).
+
+get_common_values_source(TCConfig) ->
+    emqx_bridge_v2_testlib:get_common_values([{bridge_kind, source} | TCConfig]).
+
+%% Must be called after action and source are created.
+snk_subscribe_to_health_checks(TCConfig) ->
+    #{connector_name := ConnectorName} = get_common_values_action(TCConfig),
+    #{name := SourceName} = get_common_values_source(TCConfig),
+    ActionResId = emqx_bridge_v2_testlib:bridge_id(TCConfig),
+    SourceResId = emqx_bridge_v2:source_id(?SOURCE_TYPE, SourceName, ConnectorName),
+    {ok, SRef1} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "rabbitmq_on_get_status_enter0"})
+    ),
+    {ok, SRef2} = snabbkaffe:subscribe(
+        ?match_event(#{
+            ?snk_kind := "rabbitmq_on_get_channel_status_enter",
+            channel_id := ActionResId
+        })
+    ),
+    {ok, SRef3} = snabbkaffe:subscribe(
+        ?match_event(#{
+            ?snk_kind := "rabbitmq_on_get_channel_status_enter",
+            channel_id := SourceResId
+        })
+    ),
+    #{connector => SRef1, action => SRef2, source => SRef3}.
+
+snk_receive_health_check_events(SRefs) ->
+    maps:map(
+        fun(K, SRef) ->
+            ct:pal("waiting for ~p", [K]),
+            Res = snabbkaffe:receive_events(SRef),
+            ct:pal("~p got ~p", [K, Res]),
+            Res
+        end,
+        SRefs
+    ).
+
+receive_message_from_rabbitmq(TCConfig) ->
+    ClientOpts = ?config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:receive_message(ClientOpts).
+
 %%------------------------------------------------------------------------------
 %% Test Cases
 %%------------------------------------------------------------------------------
 
 t_source(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(?MODULE, get_rabbitmq(Config)),
     create_source(Name),
     Sources = emqx_bridge_v2:list(sources),
     %% Don't show rabbitmq source in bridge_v1_list
@@ -253,15 +516,17 @@ t_source(Config) ->
     ),
     ok.
 
-t_source_probe(_Config) ->
+t_source_probe(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(?MODULE, get_rabbitmq(Config)),
     Source = rabbitmq_source(),
     {ok, Res0} = emqx_bridge_v2_testlib:probe_bridge_api(source, ?TYPE, Name, Source),
     ?assertMatch({{_, 204, _}, _, _}, Res0),
     ok.
 
-t_action_probe(_Config) ->
+t_action_probe(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(?MODULE, get_rabbitmq(Config)),
     Action = rabbitmq_action(?FUNCTION_NAME),
     {ok, Res0} = emqx_bridge_v2_testlib:probe_bridge_api(action, ?TYPE, Name, Action),
     ?assertMatch({{_, 204, _}, _, _}, Res0),
@@ -269,6 +534,7 @@ t_action_probe(_Config) ->
 
 t_action(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(?MODULE, get_rabbitmq(Config)),
     create_action(?FUNCTION_NAME, Name),
     Actions = emqx_bridge_v2:list(actions),
     Any = fun(#{name := BName}) -> BName =:= Name end,
@@ -289,7 +555,7 @@ t_action(Config) ->
     PayloadBin = emqx_utils_json:encode(Payload),
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
     Msg = receive_message_from_rabbitmq(Config),
-    ?assertMatch(Payload, Msg),
+    ?assertMatch(#{payload := Payload}, Msg),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
     #{counters := Counters} = emqx_resource:get_metrics(InstanceId),
@@ -308,8 +574,9 @@ t_action(Config) ->
     ),
     ok.
 
-t_action_stop(_Config) ->
+t_action_stop(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(?MODULE, get_rabbitmq(Config)),
     create_action(?FUNCTION_NAME, Name),
 
     %% Emulate channel close hitting the timeout
@@ -323,8 +590,9 @@ t_action_stop(_Config) ->
     meck:unload(amqp_channel),
     ok.
 
-t_action_not_exist_exchange(_Config) ->
+t_action_not_exist_exchange(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(?MODULE, get_rabbitmq(Config)),
     create_action(?FUNCTION_NAME, Name, <<"not_exist_exchange">>),
     Actions = emqx_bridge_v2:list(actions),
     Any = fun(#{name := BName}) -> BName =:= Name end,
@@ -443,6 +711,7 @@ t_replace_action_source(Config) ->
 
 t_action_dynamic(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
+    create_connector(?MODULE, get_rabbitmq(Config)),
     create_action(?FUNCTION_NAME, Name),
     Actions = emqx_bridge_v2:list(actions),
     Any = fun(#{name := BName}) -> BName =:= Name end,
@@ -463,7 +732,7 @@ t_action_dynamic(Config) ->
     PayloadBin = emqx_utils_json:encode(Payload),
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
     Msg = receive_message_from_rabbitmq(Config),
-    ?assertMatch(Payload, Msg),
+    ?assertMatch(#{payload := Payload}, Msg),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
     ?retry(
@@ -490,9 +759,185 @@ t_action_dynamic(Config) ->
 
     ok.
 
+%% Verifies that actions/sources/connectors recovers themselves when a rabbitmq
+%% connection process crashes.
+t_connection_crash_recovery(TCConfig) ->
+    test_crash_recovery(_CrashWhat = connection_pid, TCConfig).
+
+%% Verifies that actions/sources/connectors recovers themselves when a rabbitmq action
+%% channel process crashes.
+t_action_channel_crash_recovery(TCConfig) ->
+    test_crash_recovery(_CrashWhat = action_chan_pid, TCConfig).
+
+%% Verifies that actions/sources/connectors recovers themselves when a rabbitmq source
+%% channel process crashes.
+t_source_channel_crash_recovery(TCConfig) ->
+    test_crash_recovery(_CrashWhat = source_chan_pid, TCConfig).
+
+%% Verifies that actions/sources/connectors recovers themselves when a rabbitmq connection or
+%% channel process crashes.
+test_crash_recovery(CrashWhat, TCConfig) ->
+    %% Sanity check
+    ?assertEqual([], list_rabbitmq_channel_processes()),
+    ?assertEqual([], list_rabbitmq_connection_processes()),
+
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    ConnectionPidsBefore = list_rabbitmq_connection_processes(),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    ActionChanPidsBefore = list_rabbitmq_channel_processes(),
+    {201, #{<<"status">> := <<"connected">>}} = create_source_api(TCConfig, #{}),
+    ChanPidsBefore = list_rabbitmq_channel_processes(),
+    SourceChanPidsBefore = ChanPidsBefore -- ActionChanPidsBefore,
+    ?assertMatch([_ | _], ChanPidsBefore),
+    ?assertMatch([_ | _], ConnectionPidsBefore),
+
+    ct:timetrap({seconds, 15}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            %% ∙ Connection/channel crashes and is detected by connector/channel health check.
+            PidToKill =
+                case CrashWhat of
+                    connection_pid ->
+                        random(ConnectionPidsBefore);
+                    action_chan_pid ->
+                        random(ActionChanPidsBefore);
+                    source_chan_pid ->
+                        random(SourceChanPidsBefore)
+                end,
+            ?force_ordering(
+                #{?snk_kind := "rabbitmq_on_get_status_enter0"},
+                #{?snk_kind := kill_connection, ?snk_span := start}
+            ),
+            ?force_ordering(
+                #{?snk_kind := kill_connection, ?snk_span := {complete, _}},
+                #{?snk_kind := "rabbitmq_on_get_status_enter1"}
+            ),
+            SRefs1 = snk_subscribe_to_health_checks(TCConfig),
+            spawn_link(fun() ->
+                ?tp_span(kill_connection, #{}, begin
+                    ?tpal("killing pid ~p", [PidToKill]),
+                    exit(PidToKill, boom),
+                    %% Allow some time for exit signal to propagate to ecpool
+                    %% worker (assuming it's monitoring the pid).  Otherwise,
+                    %% assertion might succeed because (current) `gen_server` call
+                    %% could fail due to the same exit signal, propagating to the
+                    %% health check pid instead.
+                    ct:sleep(100)
+                end)
+            end),
+            ?assertMatch(
+                #{
+                    connector := {ok, _},
+                    action := {ok, _},
+                    source := {ok, _}
+                },
+                snk_receive_health_check_events(SRefs1)
+            ),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_action_api(TCConfig)
+                )
+            ),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_source_api(TCConfig)
+                )
+            ),
+            %%   ∙ Should be eventually restarted/recover.
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    length(ConnectionPidsBefore),
+                    length(list_rabbitmq_connection_processes())
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    length(ChanPidsBefore),
+                    length(list_rabbitmq_channel_processes())
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_connector_api(TCConfig)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_action_api(TCConfig)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(TCConfig)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+%% Asserts that we don't leak channel processes if, for whatever reason, creating a list of
+%% channels fails midway.
+t_start_channel_no_leak(TCConfig) ->
+    %% Sanity check
+    ?assertEqual([], list_rabbitmq_channel_processes()),
+    ?assertEqual([], list_rabbitmq_connection_processes()),
+
+    {201, #{
+        <<"status">> := <<"connected">>,
+        <<"pool_size">> := PoolSize
+    }} = create_connector_api(TCConfig, #{}),
+    ct:timetrap({seconds, 5}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            ?inject_crash(
+                #{?snk_kind := "rabbitmq_will_confirm_channel"},
+                snabbkaffe_nemesis:periodic_crash(
+                    _Period = PoolSize,
+                    _DutyCycle = 0.5,
+                    _Phase = 0
+                )
+            ),
+            {201, #{<<"status">> := <<"disconnected">>}} = create_action_api(TCConfig, #{
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"2s">>
+                }
+            }),
+            ?assertEqual(0, length(list_rabbitmq_channel_processes())),
+            ok
+        end,
+        []
+    ),
+    ok.
+
 t_action_use_default_exchange(Config) ->
     Name = atom_to_binary(?FUNCTION_NAME),
-    create_action(?FUNCTION_NAME, Name, rabbit_mq_default_exchange()),
+    create_connector(?MODULE, get_rabbitmq(Config)),
+    DefaultExchange = <<"">>,
+    create_action(?FUNCTION_NAME, Name, DefaultExchange),
     Actions = emqx_bridge_v2:list(actions),
     Any = fun(#{name := BName}) -> BName =:= Name end,
     ?assert(lists:any(Any, Actions), Actions),
@@ -512,7 +957,7 @@ t_action_use_default_exchange(Config) ->
     PayloadBin = emqx_utils_json:encode(Payload),
     {ok, _} = emqtt:publish(C1, Topic, #{}, PayloadBin, [{qos, 1}, {retain, false}]),
     Msg = receive_message_from_rabbitmq(Config),
-    ?assertMatch(Payload, Msg),
+    ?assertMatch(#{payload := Payload}, Msg),
     ok = emqtt:disconnect(C1),
     InstanceId = instance_id(actions, Name),
     ?retry(
@@ -538,119 +983,3 @@ t_action_use_default_exchange(Config) ->
     ?assertNot(lists:any(Any, ActionsAfterDelete), ActionsAfterDelete),
 
     ok.
-
-%%------------------------------------------------------------------------------
-%% Helpers
-%%------------------------------------------------------------------------------
-
-waiting_for_disconnected_alarms(InstanceId) ->
-    ?retry(
-        _TimeOut = 100,
-        _Times = 20,
-        case
-            lists:any(
-                fun
-                    (
-                        #{
-                            message :=
-                                <<"resource down: #{error => not_connected,status => disconnected}">>,
-                            name := InstanceId0
-                        }
-                    ) ->
-                        InstanceId0 =:= InstanceId;
-                    (_) ->
-                        false
-                end,
-                emqx_alarm:get_alarms(activated)
-            )
-        of
-            true ->
-                ok;
-            false ->
-                throw(not_receive_disconnect_alarm)
-        end
-    ).
-
-waiting_for_dropped_count(InstanceId) ->
-    ?retry(
-        400,
-        10,
-        ?assertMatch(
-            #{
-                counters := #{
-                    dropped := 1,
-                    success := 0,
-                    matched := 1,
-                    failed := 0,
-                    received := 0
-                }
-            },
-            emqx_resource:get_metrics(InstanceId)
-        )
-    ).
-
-receive_messages(Count) ->
-    receive_messages(Count, []).
-receive_messages(0, Msgs) ->
-    Msgs;
-receive_messages(Count, Msgs) ->
-    receive
-        {publish, Msg} ->
-            ct:log("Msg: ~p ~n", [Msg]),
-            receive_messages(Count - 1, [Msg | Msgs]);
-        Other ->
-            ct:log("Other Msg: ~p~n", [Other]),
-            receive_messages(Count, Msgs)
-    after 2000 ->
-        Msgs
-    end.
-
-payload() ->
-    #{<<"key">> => 42, <<"data">> => <<"RabbitMQ">>, <<"timestamp">> => 10000}.
-
-payload(t_action_dynamic) ->
-    (payload())#{<<"e">> => rabbit_mq_exchange(), <<"r">> => rabbit_mq_routing_key()};
-payload(t_action_use_default_exchange) ->
-    (payload())#{<<"e">> => rabbit_mq_default_exchange(), <<"r">> => rabbit_mq_queue()}.
-
-send_test_message_to_rabbitmq(Config) ->
-    #{channel := Channel} = get_channel_connection(Config),
-    MessageProperties = #'P_basic'{
-        headers = [],
-        delivery_mode = 1
-    },
-    Method = #'basic.publish'{
-        exchange = rabbit_mq_exchange(),
-        routing_key = rabbit_mq_routing_key()
-    },
-    amqp_channel:cast(
-        Channel,
-        Method,
-        #amqp_msg{
-            payload = emqx_utils_json:encode(payload()),
-            props = MessageProperties
-        }
-    ),
-    ok.
-
-instance_id(Type, Name) ->
-    ConnectorId = emqx_bridge_resource:resource_id(Type, ?TYPE, Name),
-    BridgeId = emqx_bridge_resource:bridge_id(?TYPE, Name),
-    TypeBin =
-        case Type of
-            sources -> <<"source:">>;
-            actions -> <<"action:">>
-        end,
-    <<TypeBin/binary, BridgeId/binary, ":", ConnectorId/binary>>.
-
-rabbit_mq_exchange(t_action_dynamic) ->
-    <<"${payload.e}">>;
-rabbit_mq_exchange(_) ->
-    rabbit_mq_exchange().
-
-rabbit_mq_routing_key(t_action_dynamic) ->
-    <<"${payload.r}">>;
-rabbit_mq_routing_key(t_action_use_default_exchange) ->
-    rabbit_mq_queue();
-rabbit_mq_routing_key(_) ->
-    rabbit_mq_routing_key().

@@ -515,6 +515,9 @@ get_action_api(Config) ->
     ct:pal("get action (http) result:\n  ~p", [Res]),
     Res.
 
+get_action_api2(Config) ->
+    simplify_result(get_action_api(Config)).
+
 get_action_metrics_api(Config) ->
     ActionName = ?config(action_name, Config),
     ActionType = ?config(action_type, Config),
