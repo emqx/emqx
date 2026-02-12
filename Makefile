@@ -135,10 +135,30 @@ else
 endif
 endef
 
+define gen-plugin-ct-target
+$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
+	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
+ifneq ($(SUITES),)
+	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
+	    PROFILE=$(PROFILE)-test \
+	        $(MIX) emqx.ct_plugins \
+		$(call cover_args,$1) \
+		--suites $(SUITES) \
+		$(GROUPS_ARG) \
+		$(CASES_ARG)
+else
+	@echo 'No suites found for $1'
+endif
+endef
+
 ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
 app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
+ifneq ($(filter plugins/%,$(app_to_test)),)
+$(eval $(call gen-plugin-ct-target,$(app_to_test)))
+else
 $(eval $(call gen-app-ct-target,$(app_to_test)))
+endif
 endif
 
 ## apps/name-prop targets

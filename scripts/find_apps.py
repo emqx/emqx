@@ -15,8 +15,6 @@ import re
 from pathlib import Path
 from typing import List, Set, Optional
 
-APP_DIR_NAMES = ("apps", "plugins")
-
 
 def get_distro() -> str:
     """Get the distribution name."""
@@ -45,16 +43,8 @@ def find_apps(app_dir: Path) -> List[str]:
     return sorted(apps)
 
 
-def find_all_apps(project_root: Path) -> List[str]:
-    """Find all apps under app roots (apps/ and plugins/)."""
-    all_apps: List[str] = []
-    for app_dir_name in APP_DIR_NAMES:
-        all_apps.extend(find_apps(project_root / app_dir_name))
-    return sorted(all_apps)
-
-
 def get_changed_apps(base_ref: str, project_root: Path) -> List[str]:
-    """Get changed apps based on git diff. Returns app paths (e.g., 'apps/emqx', 'plugins/foo')."""
+    """Get changed apps based on git diff. Returns list of app paths (e.g., 'apps/emqx')."""
     os.chdir(project_root)
 
     # Get changed files
@@ -68,30 +58,26 @@ def get_changed_apps(base_ref: str, project_root: Path) -> List[str]:
 
     # Check if mix.exs at root is changed
     if "mix.exs" in changed_files:
-        return find_all_apps(project_root)
+        return find_apps(project_root / "apps")
 
     # Check if .github or .ci directories are changed
     if any(f.startswith(".github/") or f.startswith(".ci/") for f in changed_files):
-        return find_all_apps(project_root)
+        return find_apps(project_root / "apps")
 
-    # Get changed files in app roots.
-    changed_app_files = [
-        f
-        for f in changed_files
-        if any(f.startswith(f"{app_dir_name}/") for app_dir_name in APP_DIR_NAMES)
-    ]
+    # Get changed files in apps/ directory
+    changed_app_files = [f for f in changed_files if f.startswith("apps/")]
 
     if not changed_app_files:
         return []
 
-    # Extract unique app paths from changed paths.
-    app_paths = set()
+    # Extract unique app names from changed paths and return as app paths
+    app_names = set()
     for file_path in changed_app_files:
         parts = file_path.split("/")
-        if len(parts) > 1 and parts[0] in APP_DIR_NAMES:
-            app_paths.add(f"{parts[0]}/{parts[1]}")
+        if len(parts) > 1:
+            app_names.add(parts[1])
 
-    return sorted(app_paths)
+    return sorted([f"apps/{app}" for app in app_names])
 
 
 def get_apps_to_test(changed_apps: List[str], project_root: Path) -> List[str]:
@@ -100,7 +86,7 @@ def get_apps_to_test(changed_apps: List[str], project_root: Path) -> List[str]:
 
     if not deps_file.exists():
         print(f"Warning: {deps_file} not found, falling back to all apps", file=sys.stderr)
-        return find_all_apps(project_root)
+        return find_apps(project_root / "apps")
 
     if not changed_apps:
         return []
@@ -123,16 +109,12 @@ def get_apps_to_test(changed_apps: List[str], project_root: Path) -> List[str]:
     found_all = False
 
     for app_path in changed_apps:
-        if app_path.startswith("plugins/"):
-            apps_set.add(app_path)
-            continue
-
-        # Normalize: strip "apps/" prefix to get just the app name
-        app = app_path.replace("apps/", "", 1)
+        # Normalize: strip "apps/" prefix if present to get just the app name
+        app = app_path.replace("apps/", "")
 
         if app not in deps_map:
             # App not found in deps.txt, just add the changed app itself
-            apps_set.add(app_path)
+            apps_set.add(app)
             continue
 
         users = deps_map[app].strip()
@@ -144,15 +126,16 @@ def get_apps_to_test(changed_apps: List[str], project_root: Path) -> List[str]:
         elif users != "none" and users:
             # Add users to the set
             for user in users.split():
-                apps_set.add(f"apps/{user.strip()}")
+                apps_set.add(user.strip())
 
         # Also add the changed app itself
-        apps_set.add(app_path)
+        apps_set.add(app)
 
     if found_all:
-        return find_all_apps(project_root)
+        return find_apps(project_root / "apps")
     else:
-        return sorted(apps_set)
+        # Convert set to sorted list and add "apps/" prefix
+        return sorted([f"apps/{app}" for app in apps_set])
 
 
 def format_app_entry(app: str, groups: int, runner: str) -> List[dict]:
@@ -190,7 +173,7 @@ def generate_matrix(apps: List[str], project_root: Path) -> List[dict]:
             entries.extend(format_app_entry(app, 10, runner))
         elif app == "apps/emqx_management":
             entries.extend(format_app_entry(app, 2, runner))
-        elif app.startswith("apps/") or app.startswith("plugins/"):
+        elif app.startswith("apps/"):
             entries.extend(format_app_entry(app, 1, runner))
         else:
             print(f"unknown app: {app}", file=sys.stderr)
@@ -231,7 +214,7 @@ def main():
             sys.exit(1)
 
     if mode == "list":
-        apps = find_all_apps(project_root)
+        apps = find_apps(project_root / "apps")
         for app in apps:
             print(app)
         sys.exit(0)
@@ -246,7 +229,7 @@ def main():
             )
             if result.returncode != 0:
                 # If BASE_REF is not available or invalid, fall back to all apps
-                apps = find_all_apps(project_root)
+                apps = find_apps(project_root / "apps")
                 matrix = generate_matrix(apps, project_root)
                 print(json.dumps(matrix))
                 sys.exit(0)
@@ -265,7 +248,7 @@ def main():
                 print("[]")
         else:
             # No base ref provided, return all apps
-            apps = find_all_apps(project_root)
+            apps = find_apps(project_root / "apps")
             matrix = generate_matrix(apps, project_root)
             print(json.dumps(matrix))
     else:
