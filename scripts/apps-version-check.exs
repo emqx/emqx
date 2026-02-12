@@ -94,7 +94,7 @@ defmodule AppsVersionCheck do
         true
 
       File.exists?(src_file) ->
-      do_has_valid_app_vsn?(app, context)
+        do_has_valid_app_vsn?(app, context)
 
       true ->
         log("IGNORE: #{src_file} was deleted")
