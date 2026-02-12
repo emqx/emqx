@@ -90,3 +90,21 @@ t_session_deliver_block2_notify(_) ->
     {reply, Out1, _BW2} = emqx_coap_blockwise:server_followup_in(FollowReq, {peer, 7}, BW1),
     ?assertEqual({1, true, 16}, emqx_coap_message:get_option(block2, Out1, undefined)),
     ok.
+
+t_session_notify_block2_prepare_error_mapping(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = {ok, content},
+        token = <<"tok-map">>,
+        payload = <<"payload">>,
+        options = #{}
+    },
+    BW = emqx_coap_blockwise:new(#{max_block_size => 16}),
+    {MappedMsg, MappedBW} = emqx_coap_session:map_notify_block2_prepare_result(
+        {error, fake_reply, BW},
+        Msg,
+        {peer, 8},
+        #{gwname => coap, cm => self()}
+    ),
+    ?assertEqual(Msg, MappedMsg),
+    ?assertEqual(BW, MappedBW).

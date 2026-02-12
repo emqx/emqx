@@ -270,6 +270,18 @@ t_blockwise_opts_and_helpers(_) ->
     ?assertEqual(false, emqx_coap_blockwise:has_active_client_tx(<<"raw">>, BW2)),
     ok.
 
+t_blockwise_lwm2m_opts_and_disabled_server_paths(_) ->
+    Lwm2mOpts = emqx_coap_blockwise:default_opts(lwm2m),
+    ?assert(is_map(Lwm2mOpts)),
+    ?assert(is_integer(maps:get(max_block_size, Lwm2mOpts))),
+    BW0 = emqx_coap_blockwise:new(#{enable => false, max_block_size => 16}),
+    FollowReq = #coap_message{token = <<"off-follow">>, options = #{block2 => {0, false, 16}}},
+    {pass, FollowReq, BW1} = emqx_coap_blockwise:server_followup_in(FollowReq, {peer, 13}, BW0),
+    {pass, <<"bad-msg">>, _BW2} = emqx_coap_blockwise:server_incoming(
+        <<"bad-msg">>, {peer, 13}, BW1
+    ),
+    ok.
+
 t_blockwise_server_in_invalids(_) ->
     BaseOpts = #{uri_path => [<<"ps">>, <<"topic">>]},
     Msg0 =

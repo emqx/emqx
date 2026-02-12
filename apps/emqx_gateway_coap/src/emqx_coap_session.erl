@@ -30,6 +30,10 @@
     timeout/2
 ]).
 
+-ifdef(TEST).
+-export([map_notify_block2_prepare_result/4]).
+-endif.
+
 -export_type([session/0]).
 
 -record(session, {
@@ -287,16 +291,21 @@ get_notify_type(#message{qos = Qos}) ->
 maybe_split_notify_block2(Msg, _PeerKey, undefined, _Ctx) ->
     {Msg, undefined};
 maybe_split_notify_block2(Msg, PeerKey, BW0, Ctx) ->
-    case emqx_coap_blockwise:server_prepare_out_response(undefined, Msg, PeerKey, BW0) of
-        {single, Msg1, BW1} ->
-            {Msg1, BW1};
-        {chunked, Msg1, BW1} ->
-            metrics_inc('blockwise.tx_block2.started', Ctx),
-            {Msg1, BW1};
-        {error, _ErrorReply, BW1} ->
-            ?SLOG(warning, #{
-                msg => "coap_notify_block2_prepare_failed",
-                peer_key => PeerKey
-            }),
-            {Msg, BW1}
-    end.
+    map_notify_block2_prepare_result(
+        emqx_coap_blockwise:server_prepare_out_response(undefined, Msg, PeerKey, BW0),
+        Msg,
+        PeerKey,
+        Ctx
+    ).
+
+map_notify_block2_prepare_result({single, Msg1, BW1}, _Msg, _PeerKey, _Ctx) ->
+    {Msg1, BW1};
+map_notify_block2_prepare_result({chunked, Msg1, BW1}, _Msg, _PeerKey, Ctx) ->
+    metrics_inc('blockwise.tx_block2.started', Ctx),
+    {Msg1, BW1};
+map_notify_block2_prepare_result({error, _ErrorReply, BW1}, Msg, PeerKey, _Ctx) ->
+    ?SLOG(warning, #{
+        msg => "coap_notify_block2_prepare_failed",
+        peer_key => PeerKey
+    }),
+    {Msg, BW1}.

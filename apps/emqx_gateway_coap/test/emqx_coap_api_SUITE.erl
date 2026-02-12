@@ -248,6 +248,13 @@ t_send_request_api_block2_invalid_followup_sequence_fake_channel(_) ->
         erlang:exit(Pid, kill)
     end.
 
+t_send_request_api_block2_exceeds_helper_fallback(_) ->
+    BW = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(coap)),
+    RespNoMore = #coap_message{options = #{block2 => {0, false, 16}}},
+    ?assertEqual(false, emqx_coap_api:block2_exceeds_max_body(RespNoMore, BW, 0)),
+    RespNoBlock2 = #coap_message{options = #{}},
+    ?assertEqual(false, emqx_coap_api:block2_exceeds_max_body(RespNoBlock2, BW, 0)).
+
 t_send_request_api_block2_respects_disable_config(_) ->
     KeyPath = [gateway, coap, blockwise, enable],
     OldValue = emqx_config:find(KeyPath),

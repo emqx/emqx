@@ -173,6 +173,7 @@ groups() ->
             case132_coap_max_block_size,
             case133_mountpoint_peerhost_placeholder,
             case134_auto_observe_empty_list,
+            case145_auto_observe_normalize_edges,
             case136_update_publish_condition_legacy,
             case137_cmd_error_paths,
             case138_blockwise_downlink_busy,
@@ -5530,6 +5531,63 @@ case134_auto_observe_empty_list(_Config) ->
     RegMsg = #coap_message{options = #{uri_query => Query}, payload = <<>>},
     _ = emqx_lwm2m_session:init(RegMsg, <<>>, WithContext, Session0),
     ok.
+
+case145_auto_observe_normalize_edges(_Config) ->
+    KeyPath = [gateway, lwm2m, auto_observe],
+    OldMode = emqx:get_config(KeyPath),
+    WithContext = with_context_stub(),
+    Session0 = emqx_lwm2m_session:new(),
+    try
+        ok = emqx_config:put(KeyPath, <<"on">>),
+        OnMsg = #coap_message{
+            options = #{uri_query => #{<<"ep">> => <<"ep145_on">>, <<"lt">> => <<"60">>}},
+            payload = <<"</abc/0>">>
+        },
+        _ = emqx_lwm2m_session:init(OnMsg, <<>>, WithContext, Session0),
+        ok = emqx_config:put(KeyPath, <<"off">>),
+        OffMsg = #coap_message{
+            options = #{
+                uri_query => #{
+                    <<"ep">> => <<"ep145_off">>,
+                    <<"lt">> => <<"60">>,
+                    <<"objectList">> => <<"/bad">>
+                }
+            },
+            payload = <<>>
+        },
+        _ = emqx_lwm2m_session:init(OffMsg, <<>>, WithContext, Session0),
+        ok = emqx_config:put(KeyPath, bogus),
+        InvalidMsg = #coap_message{
+            options = #{uri_query => #{<<"ep">> => <<"ep145_invalid">>, <<"lt">> => <<"60">>}},
+            payload = <<"</3/0>">>
+        },
+        _ = emqx_lwm2m_session:init(InvalidMsg, <<>>, WithContext, Session0),
+        ok = emqx_config:put(KeyPath, ["/abc/0", 47]),
+        ListMsg = #coap_message{
+            options = #{uri_query => #{<<"ep">> => <<"ep145_list">>, <<"lt">> => <<"60">>}},
+            payload = <<"</abc/0>,</3/0>">>
+        },
+        ?assertException(
+            error,
+            _,
+            emqx_lwm2m_session:init(ListMsg, <<>>, WithContext, Session0)
+        ),
+        ok = emqx_config:put(KeyPath, true),
+        NonListObjectMsg = #coap_message{
+            options = #{
+                uri_query => #{
+                    <<"ep">> => <<"ep145_obj">>,
+                    <<"lt">> => <<"60">>,
+                    <<"objectList">> => <<"/bad">>
+                }
+            },
+            payload = <<>>
+        },
+        _ = emqx_lwm2m_session:init(NonListObjectMsg, <<>>, WithContext, Session0),
+        ok
+    after
+        ok = emqx_config:put(KeyPath, OldMode)
+    end.
 
 case136_update_publish_condition_legacy(_Config) ->
     WithContext = with_context_stub(),

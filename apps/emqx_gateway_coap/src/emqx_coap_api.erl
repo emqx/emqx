@@ -15,6 +15,7 @@
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
 
 -export([request/2]).
+-export([block2_exceeds_max_body/3]).
 
 -define(PREFIX, "/gateways/coap/clients/:clientid").
 -define(TAGS, [<<"CoAP Gateways">>]).
@@ -46,10 +47,10 @@ schema(?PREFIX ++ "/request") ->
             requestBody => request_body(),
             responses => #{
                 200 => coap_message(),
-                400 => error_codes(['BAD_REQUEST'], <<"Missing required parameter">>),
+                400 => error_codes(['BAD_REQUEST'], ?DESC("missing_required_parameter")),
                 404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found")),
                 502 => error_codes(
-                    ['CLIENT_BAD_RESPONSE'], <<"Client returned an invalid CoAP reply">>
+                    ['CLIENT_BAD_RESPONSE'], ?DESC("client_bad_response")
                 ),
                 504 => error_codes(
                     ['CLIENT_NOT_RESPONSE'], ?DESC("client_not_response_timeout")
