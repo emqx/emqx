@@ -643,13 +643,13 @@ server_tx_key_from_req(_PeerKey, _) ->
     undefined.
 
 client_tx_key(Ctx) ->
-    {client_tx_block1, erlang:phash2(normalize_ctx(Ctx))}.
+    {client_tx_block1, normalize_ctx(Ctx)}.
 
 client_rx_key(Ctx) ->
-    {client_rx_block2, erlang:phash2(normalize_ctx(Ctx))}.
+    {client_rx_block2, normalize_ctx(Ctx)}.
 
 client_req_key(Ctx) ->
-    {client_req, erlang:phash2(normalize_ctx(Ctx))}.
+    {client_req, normalize_ctx(Ctx)}.
 
 normalize_ctx(Ctx) when is_map(Ctx) ->
     maps:without([request], Ctx);

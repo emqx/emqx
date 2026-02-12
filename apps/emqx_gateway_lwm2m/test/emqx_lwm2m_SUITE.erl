@@ -5854,7 +5854,7 @@ case142_clear_blockwise_downlink(_Config) ->
         <<"msgType">> => <<"execute">>,
         <<"data">> => #{<<"path">> => <<"/3/0/1">>}
     },
-    ActiveKey = erlang:phash2(maps:without([mheaders, <<"mheaders">>], Ctx)),
+    ActiveKey = {downlink_ctx, maps:without([mheaders, <<"mheaders">>], Ctx)},
     Session0 = emqx_lwm2m_session:new(),
     Session1 = setelement(16, setelement(15, Session0, BW0), ActiveKey),
     Resp = #coap_message{type = ack, method = {ok, changed}, payload = <<>>, options = #{}},
@@ -5867,7 +5867,7 @@ case143_blockwise_busy_no_context(_Config) ->
     Session0 = emqx_lwm2m_session:new(),
     Session1 = setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}),
     BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
-    BusyKey = erlang:phash2(#{<<"msgType">> => <<"busy">>}),
+    BusyKey = {downlink_ctx, #{<<"msgType">> => <<"busy">>}},
     Session2 = setelement(16, setelement(15, Session1, BW0), BusyKey),
     LargeValue = binary:copy(<<"A">>, 3000),
     Cmd = #{
@@ -5893,7 +5893,7 @@ case144_blockwise_consume_only(_Config) ->
         req => Req,
         expires_at => erlang:monotonic_time(millisecond) + 10000
     },
-    Key = {client_tx_block1, erlang:phash2(maps:without([request], Ctx))},
+    Key = {client_tx_block1, maps:without([request], Ctx)},
     BW0 = emqx_coap_blockwise:new(#{}),
     BW1 = BW0#{client_tx_block1 => #{Key => Tx}},
     Session0 = emqx_lwm2m_session:new(),

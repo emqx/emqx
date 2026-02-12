@@ -80,7 +80,7 @@
     cmd_record :: cmd_record(),
     subscriptions :: map(),
     blockwise :: emqx_coap_blockwise:state(),
-    blockwise_downlink :: non_neg_integer() | undefined
+    blockwise_downlink :: term() | undefined
 }).
 
 -type session() :: #session{}.
@@ -820,7 +820,7 @@ send_msg_not_waiting_ack(Ctx, Req, Session) ->
     out_to_coap(Ctx, Req, Session).
 
 downlink_ctx_key(Ctx) when is_map(Ctx) ->
-    erlang:phash2(maps:without([mheaders, <<"mheaders">>], Ctx)).
+    {downlink_ctx, maps:without([mheaders, <<"mheaders">>], Ctx)}.
 
 clear_blockwise_downlink(Ctx, #session{blockwise_downlink = ActiveKey} = Session) ->
     case ActiveKey =:= downlink_ctx_key(Ctx) of
