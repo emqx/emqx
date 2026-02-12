@@ -3,8 +3,8 @@
 Pytest tests for find_apps.py --ci --base-ref
 This script:
 1. Remembers the current HEAD commit
-2. Makes changes in a few apps/appname directories
-3. Asserts find_apps.py finds the changed apps and their user apps
+2. Makes changes in a few apps/appname or plugins/appname directories
+3. Asserts find_apps.py finds the changed apps/plugins and their user apps
 4. Resets git to the original commit
 
 Usage:
@@ -411,3 +411,33 @@ def test_change_github_directory(project_root: Path, original_head: str):
         pytest.fail(f"Only found {app_count} apps, expected all")
 
     print(f"PASS: Found {app_count} apps (expected all)")
+
+
+def test_change_plugin_app(project_root: Path, original_head: str):
+    """Test 7: Change a plugin app (should trigger that plugin only)."""
+    plugins_dir = project_root / "plugins"
+    if not plugins_dir.exists():
+        pytest.skip("plugins directory does not exist")
+
+    plugin_candidates = sorted(
+        (
+            p
+            for p in plugins_dir.iterdir()
+            if p.is_dir() and not p.is_symlink() and (p / "mix.exs").exists()
+        ),
+        key=lambda p: p.name
+    )
+    if not plugin_candidates:
+        pytest.skip("No plugin app with mix.exs found in plugins/")
+
+    plugin_path = plugin_candidates[0]
+    plugin_name = plugin_path.name
+
+    make_change(project_root, plugin_path)
+
+    assert_find_apps(
+        project_root,
+        f"Change plugin {plugin_name}",
+        [f"plugins/{plugin_name}"],
+        original_head
+    )
