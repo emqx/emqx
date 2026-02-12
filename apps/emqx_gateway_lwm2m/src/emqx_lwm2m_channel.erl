@@ -880,11 +880,7 @@ maybe_prepare_block2_reply(Req, Reply, _PeerKey, BW) when
     {Reply, BW};
 maybe_prepare_block2_reply(Req, Reply, PeerKey, BW0) ->
     case emqx_coap_blockwise:server_prepare_out_response(Req, Reply, PeerKey, BW0) of
-        {single, Reply1, BW1} ->
-            {Reply1, BW1};
-        {chunked, Reply1, BW1} ->
-            {Reply1, BW1};
-        {error, Reply1, BW1} ->
+        {_, Reply1, BW1} ->
             {Reply1, BW1}
     end.
 
