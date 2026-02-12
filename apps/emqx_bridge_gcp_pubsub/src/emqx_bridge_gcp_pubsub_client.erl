@@ -15,6 +15,7 @@
 -export([
     start/2,
     stop/1,
+    stop/3,
     query_sync/2,
     query_async/3,
     get_status/1
@@ -80,6 +81,8 @@
 -define(DEFAULT_PIPELINE_SIZE, 100).
 -define(DEFAULT_MAX_INACTIVE, 10_000).
 
+-define(TOKEN_ROW(RES_ID, TOKEN), {RES_ID, TOKEN}).
+
 %%-------------------------------------------------------------------------------------------------
 %% API
 %%-------------------------------------------------------------------------------------------------
@@ -89,13 +92,35 @@ start(
     ResourceId,
     #{
         connect_timeout := ConnectTimeout,
-        max_retries := MaxRetries,
+        max_retries := MaxRetries
+    } = Config
+) ->
+    case maybe_initialize_auth_resources(ResourceId, Config) of
+        {ok, AuthCtx} ->
+            #{
+                auth_config := AuthConfig,
+                project_id := ProjectId
+            } = AuthCtx,
+            State = #{
+                connect_timeout => ConnectTimeout,
+                auth_config => AuthConfig,
+                max_retries => MaxRetries,
+                pool_name => ResourceId,
+                project_id => ProjectId
+            },
+            do_start_pool(ResourceId, State, Config);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_start_pool(ResourceId, State, Config) ->
+    #{
+        connect_timeout := ConnectTimeout,
         pool_size := PoolSize,
         transport := Transport,
         host := Host,
         port := Port
-    } = Config
-) ->
+    } = Config,
     PoolType = random,
     TransportOpts =
         case Transport of
@@ -115,17 +140,6 @@ start(
         {max_inactive, maps:get(max_inactive, Config, ?DEFAULT_MAX_INACTIVE)},
         {enable_pipelining, maps:get(pipelining, Config, ?DEFAULT_PIPELINE_SIZE)}
     ],
-    #{
-        auth_config := AuthConfig,
-        project_id := ProjectId
-    } = parse_auth_config(ResourceId, Config),
-    State = #{
-        connect_timeout => ConnectTimeout,
-        auth_config => AuthConfig,
-        max_retries => MaxRetries,
-        pool_name => ResourceId,
-        project_id => ProjectId
-    },
     ?tp(
         gcp_on_start_before_starting_pool,
         #{
@@ -142,6 +156,7 @@ start(
         {error, {already_started, _}} ->
             ?tp(gcp_ehttpc_pool_already_started, #{pool_name => ResourceId}),
             _ = ehttpc_sup:stop_pool(ResourceId),
+            ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
             case ehttpc_sup:start_pool(ResourceId, PoolOpts) of
                 {ok, _} ->
                     {ok, State};
@@ -160,14 +175,32 @@ start(
             {error, Reason}
     end.
 
--spec stop(resource_id()) -> ok | {error, term()}.
-stop(ResourceId) ->
+-spec stop(state()) -> ok | {error, term()}.
+stop(Client) ->
+    #{pool_name := ResourceId} = Client,
+    {Sup, Tab} =
+        case Client of
+            #{auth_config := #{type := wif, token_table := Tab0, supervisor := Sup0}} ->
+                {Sup0, Tab0};
+            _ ->
+                {undefined, undefined}
+        end,
+    stop(ResourceId, Sup, Tab).
+
+-spec stop(resource_id(), undefined | supervisor:sup_ref(), undefined | ets:table()) ->
+    ok | {error, term()}.
+stop(ResourceId, Sup, Tab) ->
     ?tp(gcp_client_stop, #{instance_id => ResourceId, resource_id => ResourceId}),
     ?SLOG(info, #{
         msg => "stopping_gcp_client",
         connector => ResourceId
     }),
     ok = emqx_connector_jwt:delete_jwt(?JWT_TABLE, ResourceId),
+    maybe
+        true ?= Sup /= undefined,
+        true ?= Tab /= undefined,
+        ok = stop_worker_and_clear_token(ResourceId, Sup, Tab)
+    end,
     case ehttpc_sup:stop_pool(ResourceId) of
         ok ->
             ok;
@@ -210,8 +243,8 @@ query_async(
     do_send_requests_async(State, {prepared_request, PreparedRequest, ReqOpts}, ReplyFunAndArgs).
 
 -spec get_status(state()) -> ?status_connected | {?status_disconnected, term()}.
-get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
-    case do_get_status(PoolName, Timeout) of
+get_status(#{connect_timeout := _, pool_name := _} = State) ->
+    case do_get_status(State) of
         ok ->
             ?status_connected;
         {error, Reason} ->
@@ -230,6 +263,9 @@ get_status(#{connect_timeout := Timeout, pool_name := PoolName} = State) ->
 get_project_id(#{authentication := #{type := service_account_json} = AuthConfig}) ->
     #{service_account_json := ServiceAccountJSON0} = AuthConfig,
     #{<<"project_id">> := ProjectId} = emqx_utils_json:decode(ServiceAccountJSON0),
+    ProjectId;
+get_project_id(#{authentication := #{type := wif} = AuthConfig}) ->
+    #{gcp_project_id := ProjectId} = AuthConfig,
     ProjectId.
 
 -spec pubsub_get_topic(topic(), state(), request_opts()) -> {ok, map()} | {error, term()}.
@@ -271,8 +307,40 @@ get_transport(Type) ->
 %% Helper fns
 %%-------------------------------------------------------------------------------------------------
 
-parse_auth_config(ResourceId, #{authentication := #{type := service_account_json}} = Config) ->
-    parse_jwt_config(ResourceId, Config).
+maybe_initialize_auth_resources(
+    ResourceId, #{authentication := #{type := service_account_json}} = Config
+) ->
+    {ok, parse_jwt_config(ResourceId, Config)};
+maybe_initialize_auth_resources(ResourceId, #{authentication := #{type := wif}} = Config) ->
+    #{authentication := #{gcp_project_id := ProjectId} = AuthConfig0} = Config,
+    #{
+        supervisor := Sup,
+        token_table := Tab
+    } = Config,
+    ChildSpec = prepare_wif_worker_spec(ResourceId, Tab, AuthConfig0),
+    case supervisor:start_child(Sup, ChildSpec) of
+        {ok, _} ->
+            case do_check_token_exists(Tab, ResourceId) of
+                ok ->
+                    AuthConfig1 = maps:with([type, gcp_project_id], AuthConfig0),
+                    AuthConfig = AuthConfig1#{
+                        resource_id => ResourceId,
+                        token_table => Tab,
+                        supervisor => Sup
+                    },
+                    {ok, #{auth_config => AuthConfig, project_id => ProjectId}};
+                {error, Reason} ->
+                    _ = supervisor:terminate_child(Sup, ResourceId),
+                    _ = supervisor:delete_child(Sup, ResourceId),
+                    {error, Reason}
+            end;
+        {error, {already_started, _}} ->
+            _ = supervisor:terminate_child(Sup, ResourceId),
+            _ = supervisor:delete_child(Sup, ResourceId),
+            maybe_initialize_auth_resources(ResourceId, Config);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec parse_jwt_config(resource_id(), config()) -> map().
 parse_jwt_config(ResourceId, #{
@@ -335,9 +403,159 @@ parse_jwt_config(ResourceId, #{
         project_id => ProjectId
     }.
 
+prepare_wif_worker_spec(ResourceId, Tab, AuthConfig) ->
+    Opts = prepare_wif_worker_steps(AuthConfig, ResourceId, Tab),
+    emqx_bridge_gcp_pubsub_auth_wif_worker:child_spec(ResourceId, Opts).
+
+prepare_wif_worker_steps(#{type := wif} = AuthConfig, ResourceId, Tab) ->
+    #{
+        initial_token := InitialTokenConfig,
+        service_account_email := ServiceAccountEmail,
+        gcp_project_number := ProjectNumber,
+        gcp_wif_pool_id := WIFPoolId,
+        gcp_wif_pool_provider_id := WIFPoolProviderId
+    } = AuthConfig,
+    Step1Name = initial_token,
+    Step1 = prepare_initial_step(Step1Name, InitialTokenConfig),
+    Step2Name = gcp_access_token,
+    Step2 = #{
+        name => Step2Name,
+        method => post,
+        lifetime => timer:hours(1),
+        url => fun(_StepContext) -> <<"https://sts.googleapis.com/v1/token">> end,
+        body => fun(#{{step, Step1Name} := #{token := InitialToken}}) ->
+            Audience = fmt(
+                <<
+                    "//iam.googleapis.com/projects/${gcp_project_number}"
+                    "/locations/global/workloadIdentityPools/${gcp_wif_pool_id}"
+                    "/providers/${gcp_wif_pool_provider_id}"
+                >>,
+                #{
+                    gcp_project_number => ProjectNumber,
+                    gcp_wif_pool_id => WIFPoolId,
+                    gcp_wif_pool_provider_id => WIFPoolProviderId
+                }
+            ),
+            emqx_utils_json:encode(#{
+                <<"grantType">> => <<"urn:ietf:params:oauth:grant-type:token-exchange">>,
+                <<"audience">> => Audience,
+                <<"scope">> => <<"https://www.googleapis.com/auth/cloud-platform">>,
+                <<"requestedTokenType">> => <<"urn:ietf:params:oauth:token-type:access_token">>,
+                <<"subjectTokenType">> => <<"urn:ietf:params:oauth:token-type:jwt">>,
+                <<"subjectToken">> => emqx_secret:unwrap(InitialToken)
+            })
+        end,
+        headers => fun(_StepContext) ->
+            [{<<"Content-Type">>, <<"application/json">>}]
+        end,
+        extract_result => fun(#{body := RespBody}) ->
+            case emqx_utils_json:safe_decode(RespBody) of
+                {ok, #{<<"access_token">> := Token}} ->
+                    {ok, #{token => Token}};
+                Error ->
+                    {error, {bad_token_response, Error}}
+            end
+        end
+    },
+    Step3 = #{
+        name => gcp_impersonate_service_account,
+        method => post,
+        lifetime => timer:hours(1),
+        url => fun(_StepContext) ->
+            Name = fmt(
+                <<"projects/-/serviceAccounts/${service_account_email}">>,
+                #{service_account_email => ServiceAccountEmail}
+            ),
+            fmt(
+                <<"https://iamcredentials.googleapis.com/v1/${name}:generateAccessToken">>,
+                #{name => Name}
+            )
+        end,
+        body => fun(_StepContext) ->
+            emqx_utils_json:encode(#{
+                <<"scope">> => [
+                    <<"https://www.googleapis.com/auth/cloud-platform">>,
+                    <<"https://www.googleapis.com/auth/userinfo.email">>,
+                    <<"https://www.googleapis.com/auth/userinfo.profile">>,
+                    <<"https://www.googleapis.com/auth/admin.directory.user">>,
+                    <<"https://www.googleapis.com/auth/admin.directory.group">>
+                ],
+                <<"lifetime">> => <<"3600s">>
+            })
+        end,
+        headers => fun(#{{step, Step2Name} := #{token := WIFToken0}}) ->
+            WIFToken = emqx_secret:unwrap(WIFToken0),
+            [
+                {<<"Content-Type">>, <<"application/json">>},
+                {<<"Authorization">>, <<"Bearer ", WIFToken/binary>>}
+            ]
+        end,
+        extract_result => fun(#{body := RespBody}) ->
+            case emqx_utils_json:safe_decode(RespBody) of
+                {ok, #{<<"accessToken">> := Token}} ->
+                    {ok, #{token => Token}};
+                Error ->
+                    {error, {bad_token_response, Error}}
+            end
+        end
+    },
+    Steps = [Step1, Step2, Step3],
+    InsertFn = {fun(FinalToken) -> ets:insert(Tab, ?TOKEN_ROW(ResourceId, FinalToken)) end, []},
+    #{
+        resource_id => ResourceId,
+        steps => Steps,
+        insert_fn => InsertFn
+    }.
+
+prepare_initial_step(Step1Name, #{type := oidc_client_credentials} = InitialTokenConfig) ->
+    #{
+        endpoint_uri := EndpointURI,
+        client_id := ClientId,
+        client_secret := ClientSecret,
+        scope := Scope
+    } = InitialTokenConfig,
+    #{
+        name => Step1Name,
+        method => post,
+        lifetime => timer:hours(1),
+        url => fun(_StepContext) -> EndpointURI end,
+        body => fun(_StepContext) ->
+            uri_string:compose_query([
+                {<<"grant_type">>, <<"client_credentials">>},
+                {<<"client_id">>, ClientId},
+                {<<"client_secret">>, emqx_secret:unwrap(ClientSecret)},
+                {<<"scope">>, Scope}
+            ])
+        end,
+        headers => fun(_StepContext) ->
+            [{<<"Content-Type">>, <<"application/x-www-form-urlencoded">>}]
+        end,
+        extract_result => fun(#{body := RespBody}) ->
+            case emqx_utils_json:safe_decode(RespBody) of
+                {ok, #{<<"access_token">> := Token}} ->
+                    {ok, #{token => Token}};
+                Error ->
+                    {error, {bad_token_response, Error}}
+            end
+        end
+    }.
+
+stop_worker_and_clear_token(ResourceId, Sup, Tab) ->
+    _ = ets:delete(Tab, ResourceId),
+    _ = supervisor:terminate_child(Sup, ResourceId),
+    _ = supervisor:delete_child(Sup, ResourceId),
+    ok.
+
+fmt(FmtStr, Context) ->
+    Template = emqx_template:parse(FmtStr),
+    iolist_to_binary(emqx_template:render_strict(Template, Context)).
+
 -spec get_authorization_header(auth_state()) -> [{binary(), binary()}].
 get_authorization_header(#{type := service_account_json, jwt_config := JWTConfig}) ->
     JWT = emqx_connector_jwt:ensure_jwt(JWTConfig),
+    [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}];
+get_authorization_header(#{type := wif, resource_id := ResourceId, token_table := Tab}) ->
+    [?TOKEN_ROW(_, JWT)] = ets:lookup(Tab, ResourceId),
     [{<<"Authorization">>, <<"Bearer ", JWT/binary>>}].
 
 -spec do_send_requests_sync(
@@ -360,7 +578,6 @@ do_send_requests_sync(State, {prepared_request, {Method, Path, Body}, ReqOpts}) 
         }
     ),
     Request = to_ehttpc_request(State, Method, Path, Body),
-    ct:pal("~p>>>>>>>>>\n  ~p", [{node(), ?MODULE, ?LINE, self()}, #{req => Request}]),
     Response = ehttpc:request(
         PoolName,
         Method,
@@ -478,16 +695,25 @@ reply_delegator(ResourceId, ReplyFunAndArgs, Response) ->
     Result = handle_response(Response, ResourceId, _QueryMode = async),
     emqx_resource:apply_reply_fun(ReplyFunAndArgs, Result).
 
--spec do_get_status(resource_id(), duration()) -> ok | {error, term()}.
-do_get_status(ResourceId, Timeout) ->
-    case ehttpc:check_pool_integrity(ResourceId) of
+-spec do_get_status(state()) -> ok | {error, term()}.
+do_get_status(State) ->
+    case check_token_exists(State) of
         ok ->
-            do_get_status1(ResourceId, Timeout);
+            #{connect_timeout := Timeout, pool_name := PoolName} = State,
+            do_get_status_pool(PoolName, Timeout);
         {error, Reason} ->
             {error, Reason}
     end.
 
-do_get_status1(ResourceId, Timeout) ->
+do_get_status_pool(ResourceId, Timeout) ->
+    case ehttpc:check_pool_integrity(ResourceId) of
+        ok ->
+            do_get_status_pool1(ResourceId, Timeout);
+        {error, Reason} ->
+            {error, Reason}
+    end.
+
+do_get_status_pool1(ResourceId, Timeout) ->
     Workers = [Worker || {_WorkerName, Worker} <- ehttpc:workers(ResourceId)],
     DoPerWorker =
         fun(Worker) ->
@@ -525,4 +751,19 @@ do_get_status1(ResourceId, Timeout) ->
     catch
         exit:timeout ->
             {error, timeout}
+    end.
+
+check_token_exists(#{auth_config := #{type := wif} = AuthConfig} = _State) ->
+    #{token_table := Tab, resource_id := ResourceId} = AuthConfig,
+    do_check_token_exists(Tab, ResourceId);
+check_token_exists(_State) ->
+    ok.
+
+do_check_token_exists(Tab, ResourceId) ->
+    case ets:lookup(Tab, ResourceId) of
+        [?TOKEN_ROW(ResourceId, _)] ->
+            ok;
+        [] ->
+            Timeout = 10_000,
+            emqx_bridge_gcp_pubsub_auth_wif_worker:ensure_token(ResourceId, Timeout)
     end.

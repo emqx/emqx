@@ -31,6 +31,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("emqx_bridge_gcp_pubsub.hrl").
 
 -type mqtt_config() :: #{
     mqtt_topic := emqx_types:topic(),
@@ -75,6 +76,8 @@
     "provided service account has the correct permissions configured."
 ).
 
+-define(SUP, emqx_bridge_gcp_pubsub_sup).
+
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
@@ -99,7 +102,9 @@ on_start(ConnectorResId, Config0) ->
         },
         transport => Transport,
         host => Host,
-        port => Port
+        port => Port,
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB
     },
     ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
@@ -119,7 +124,7 @@ on_stop(ConnectorResId, ConnectorState) ->
     ?tp(gcp_pubsub_consumer_stop_enter, #{}),
     clear_unhealthy(ConnectorState),
     ok = stop_consumers(ConnectorState),
-    emqx_bridge_gcp_pubsub_client:stop(ConnectorResId).
+    emqx_bridge_gcp_pubsub_client:stop(ConnectorResId, ?SUP, ?TOKEN_TAB).
 
 -spec on_get_status(resource_id(), connector_state()) ->
     ?status_connected | ?status_connecting.

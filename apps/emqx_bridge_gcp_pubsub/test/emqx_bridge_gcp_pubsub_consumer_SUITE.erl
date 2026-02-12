@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("../src/emqx_bridge_gcp_pubsub.hrl").
 
 %%------------------------------------------------------------------------------
 %% Defs
@@ -20,6 +21,10 @@
 
 -define(local, local).
 -define(custom_cluster, custom_cluster).
+-define(service_account_json, service_account_json).
+-define(wif_oidc, wif_oidc).
+
+-define(SUP, emqx_bridge_gcp_pubsub_sup).
 
 -define(CONNECTOR_TYPE, gcp_pubsub_consumer).
 -define(CONNECTOR_TYPE_BIN, <<"gcp_pubsub_consumer">>).
@@ -131,14 +136,21 @@ init_per_group(?custom_cluster = Group, TCConfig) ->
         {proxy_name, ?PROXY_NAME},
         {client, Client}
         | TCConfig
-    ].
+    ];
+init_per_group(_Group, TCConfig) ->
+    TCConfig.
 
-end_per_group(_Group, TCConfig) ->
+end_per_group(Group, TCConfig) when
+    Group == ?local;
+    Group == ?custom_cluster
+->
     reset_proxy(),
     Client = get_config(client, TCConfig),
     stop_control_client(Client),
     Apps = get_config(apps, TCConfig),
     emqx_cth_suite:stop(Apps),
+    ok;
+end_per_group(_Group, _TCConfig) ->
     ok.
 
 init_per_testcase(t_async_worker_death_mid_pull, _TCConfig) ->
@@ -156,11 +168,18 @@ init_per_testcase(TestCase, TCConfig0) ->
     ServiceAccountJSON =
         #{<<"project_id">> := ProjectId} =
         emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
+    Authentication =
+        case auth_of(TCConfig0) of
+            ?service_account_json ->
+                #{
+                    <<"type">> => <<"service_account_json">>,
+                    <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+                };
+            ?wif_oidc ->
+                wif_oidc_auth()
+        end,
     ConnectorConfig = connector_config(#{
-        <<"authentication">> => #{
-            <<"type">> => <<"service_account_json">>,
-            <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
-        }
+        <<"authentication">> => Authentication
     }),
     SourceName = ConnectorName,
     PubSubTopic = Name,
@@ -340,7 +359,49 @@ source_config(Overrides) ->
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(source, ?SOURCE_TYPE_BIN, <<"x">>, InnerConfigMap).
 
+wif_oidc_auth() ->
+    #{
+        <<"type">> => <<"wif">>,
+        <<"gcp_project_id">> => <<"myproject">>,
+        <<"gcp_project_number">> => <<"123456789012">>,
+        <<"gcp_wif_pool_id">> => <<"my-wif">>,
+        <<"gcp_wif_pool_provider_id">> => <<"my-wif-provider">>,
+        <<"service_account_email">> => <<"sa@myproject.iam.gserviceaccount.com">>,
+        <<"initial_token">> => #{
+            <<"type">> => <<"oidc_client_credentials">>,
+            <<"client_id">> => <<"5e870489-067f-4a0d-aa4d-295563d8b2e9">>,
+            <<"client_secret">> => <<"super oidc secret">>,
+            <<"endpoint_uri">> => <<"https://my.oidc.provider/oauth2/token/uri">>,
+            <<"scope">> => <<"api://03e6cfaa-bf6d-4078-b748-cb73834e37f3/.default">>
+        }
+    }.
+
+mock_wif_auth_calls() ->
+    Mod = emqx_bridge_gcp_pubsub_auth_wif_worker,
+    on_exit(fun meck:unload/0),
+    meck:new(Mod, [passthrough]),
+    meck:expect(Mod, request, fun(_Method, URL, _Headers, _Body, _ReqOpts) ->
+        case URL of
+            <<"https://my.oidc.provider/oauth2/token/uri">> ->
+                simple_token_reply(<<"access_token">>, <<"initial_token">>);
+            <<"https://sts.googleapis.com/v1/token">> ->
+                simple_token_reply(<<"access_token">>, <<"gcp_access_token">>);
+            <<"https://iamcredentials.googleapis.com/v1/", _/binary>> ->
+                simple_token_reply(<<"accessToken">>, <<"sa_impersonation_token">>)
+        end
+    end),
+    ok.
+
+simple_token_reply(Key, Token) ->
+    {ok, 200, [{<<"Content-Type">>, <<"application/json">>}],
+        emqx_utils_json:encode(#{Key => Token})}.
+
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+
+auth_of(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [?service_account_json, ?wif_oidc], ?service_account_json
+    ).
 
 group_path(Config, Default) ->
     case emqx_common_test_helpers:group_path(Config) of
@@ -814,11 +875,19 @@ assert_persisted_service_account_json_is_binary(TCConfig) ->
                 <<"connectors">>,
                 <<"gcp_pubsub_consumer">>,
                 ConnectorName,
+                <<"authentication">>,
                 <<"service_account_json">>
             ],
             Hocon
         )
     ),
+    ok.
+
+%% * Worker process is removed from supervisor.
+%% * Token is deleted from table.
+ensure_token_resources_cleared() ->
+    ?assertMatch([], supervisor:which_children(?SUP)),
+    ?assertMatch([], ets:tab2list(?TOKEN_TAB)),
     ok.
 
 %%------------------------------------------------------------------------------
@@ -2200,4 +2269,51 @@ t_legacy_connector_config(TCConfig) ->
         }},
         update_connector_api(TCConfig1, #{})
     ),
+    ok.
+
+-doc """
+Simple smoke test for using WIF (workload identity federation) authentication.
+
+It cannot really emulate the real GCP IAM authentication process, but it does emulate the
+calls to get a token and use the stored token.
+""".
+t_wif_auth() ->
+    [{matrix, true}].
+t_wif_auth(matrix) ->
+    [[?local, ?wif_oidc]];
+t_wif_auth(TCConfig) ->
+    mock_wif_auth_calls(),
+    %% Sanity check
+    ensure_token_resources_cleared(),
+
+    PubSubTopic = get_config(pubsub_topic, TCConfig),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"type">> := <<"wif">>}
+        }},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_source_api(TCConfig, #{})
+    ),
+    #{topic := RepublishTopic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    QoS = 2,
+    {ok, _, [_]} = emqtt:subscribe(C, RepublishTopic, [{qos, QoS}]),
+
+    Payload0 = emqx_guid:to_hexstr(emqx_guid:gen()),
+    Messages0 = [#{<<"data">> => Payload0}],
+    pubsub_publish(TCConfig, PubSubTopic, Messages0),
+    {ok, Published0} = receive_published(),
+    ?assertMatch(
+        [#{payload := #{<<"value">> := Payload0}}],
+        Published0
+    ),
+
+    %% Verify resource cleanup
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    ensure_token_resources_cleared(),
     ok.

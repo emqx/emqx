@@ -23,6 +23,7 @@ defmodule EMQXBridgeBigQuery.MixProject do
   def application do
     [
       extra_applications: UMP.extra_applications(),
+      mod: {:emqx_bridge_bigquery_app, []},
       env: [
         emqx_action_info_modules: [:emqx_bridge_bigquery_action_info],
         emqx_connector_info_modules: [:emqx_bridge_bigquery_connector_info]

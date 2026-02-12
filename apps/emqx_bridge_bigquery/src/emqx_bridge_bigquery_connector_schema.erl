@@ -100,57 +100,7 @@ fields(connector_config) ->
                 }
             )}
     ] ++
-        emqx_connector_schema:resource_opts();
-fields(auth_azure_wif) ->
-    [
-        {type,
-            mk(azure_wif, #{
-                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif")
-            })},
-        {tenant_id,
-            mk(binary(), #{
-                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_tenant_id")
-            })},
-        {app_id,
-            mk(binary(), #{
-                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_app_id")
-            })},
-        {client_id,
-            mk(binary(), #{
-                required => true, desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_client_id")
-            })},
-        {client_secret,
-            emqx_schema_secret:mk(#{
-                required => true,
-                sensitive => true,
-                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_client_secret")
-            })},
-        {service_account_email,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_service_account_email")
-            })},
-        {gcp_project_id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_project_id")
-            })},
-        {gcp_project_number,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_project_number")
-            })},
-        {gcp_wif_pool_id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_wif_pool_id")
-            })},
-        {gcp_wif_pool_provider_id,
-            mk(binary(), #{
-                required => true,
-                desc => ?DESC(emqx_bridge_gcp_pubsub, "auth_azure_wif_gcp_wif_pool_provider_id")
-            })}
-    ].
+        emqx_connector_schema:resource_opts().
 
 desc("config_connector") ->
     ?DESC("config_connector");

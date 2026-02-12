@@ -7,6 +7,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_bridge_gcp_pubsub.hrl").
 
 -type connector_config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
@@ -60,9 +61,12 @@
 
 -export([reply_delegator/4]).
 
+-define(SUP, emqx_bridge_gcp_pubsub_sup).
+
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
+
 resource_type() -> gcp_pubsub.
 
 callback_mode() -> async_if_possible.
@@ -85,7 +89,9 @@ on_start(InstanceId, Config0) ->
         },
         transport => Transport,
         host => Host,
-        port => Port
+        port => Port,
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB
     },
     ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
@@ -102,7 +108,7 @@ on_start(InstanceId, Config0) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok | {error, term()}.
 on_stop(InstanceId, _State) ->
-    emqx_bridge_gcp_pubsub_client:stop(InstanceId).
+    emqx_bridge_gcp_pubsub_client:stop(InstanceId, ?SUP, ?TOKEN_TAB).
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | {?status_disconnected, term()}.

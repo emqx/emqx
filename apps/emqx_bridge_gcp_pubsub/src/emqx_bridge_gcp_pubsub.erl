@@ -308,19 +308,22 @@ deep_update(Path, Fun, Map) ->
 
 ensure_binary_service_account_json(Connectors) ->
     maps:map(
-        fun(_Name, #{<<"authentication">> := #{<<"type">> := <<"service_account_json">>}} = Conf0) ->
-            #{<<"authentication">> := AuthConfig0} = Conf0,
-            AuthConfig = maps:update_with(
-                <<"service_account_json">>,
-                fun(JSON) ->
-                    case is_map(JSON) of
-                        true -> emqx_utils_json:encode(JSON);
-                        false -> JSON
-                    end
-                end,
-                AuthConfig0
-            ),
-            Conf0#{<<"authentication">> := AuthConfig}
+        fun
+            (_Name, #{<<"authentication">> := #{<<"type">> := <<"service_account_json">>}} = Conf0) ->
+                #{<<"authentication">> := AuthConfig0} = Conf0,
+                AuthConfig = maps:update_with(
+                    <<"service_account_json">>,
+                    fun(JSON) ->
+                        case is_map(JSON) of
+                            true -> emqx_utils_json:encode(JSON);
+                            false -> JSON
+                        end
+                    end,
+                    AuthConfig0
+                ),
+                Conf0#{<<"authentication">> := AuthConfig};
+            (_Name, Conf) ->
+                Conf
         end,
         Connectors
     ).

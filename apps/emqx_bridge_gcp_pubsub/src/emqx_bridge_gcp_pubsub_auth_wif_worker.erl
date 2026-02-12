@@ -105,11 +105,11 @@ start_link(ResId, Opts) ->
 
 child_spec(ResId, Opts) ->
     #{
-      id => ResId,
-      start => {?MODULE, start_link, [ResId, Opts]},
-      type => worker,
-      shutdown => 1_000
-     }.
+        id => ResId,
+        start => {?MODULE, start_link, [ResId, Opts]},
+        type => worker,
+        shutdown => 1_000
+    }.
 
 ensure_token(ResId, Timeout) ->
     try

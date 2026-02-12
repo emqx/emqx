@@ -11,6 +11,7 @@
 -include_lib("snabbkaffe/include/trace.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_trace.hrl").
+-include("emqx_bridge_bigquery.hrl").
 
 %% `emqx_resource` API
 -export([
@@ -45,6 +46,8 @@
 -define(PREPARED_REQUEST(METHOD, PATH, BODY, OPTS),
     {prepared_request, {METHOD, PATH, BODY}, OPTS}
 ).
+
+-define(SUP, emqx_bridge_bigquery_sup).
 
 %% Allocatable resources
 
@@ -111,7 +114,9 @@ on_start(ConnResId, ConnConfig0) ->
         },
         transport => Transport,
         host => Host,
-        port => Port
+        port => Port,
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB
     },
     ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(ConnConfig),
     maybe
@@ -126,7 +131,7 @@ on_start(ConnResId, ConnConfig0) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok.
 on_stop(ConnResId, _ConnState) ->
-    Res = emqx_bridge_gcp_pubsub_client:stop(ConnResId),
+    Res = emqx_bridge_gcp_pubsub_client:stop(ConnResId, ?SUP, ?TOKEN_TAB),
     ?tp("bigquery_connector_stop", #{instance_id => ConnResId}),
     Res.
 
