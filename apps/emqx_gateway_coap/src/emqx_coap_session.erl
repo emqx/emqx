@@ -281,5 +281,11 @@ maybe_split_notify_block2(Msg, PeerKey, BW0, Ctx) ->
             {Msg1, BW1};
         {chunked, Msg1, BW1} ->
             metrics_inc('blockwise.tx_block2.started', Ctx),
-            {Msg1, BW1}
+            {Msg1, BW1};
+        {error, _ErrorReply, BW1} ->
+            ?SLOG(warning, #{
+                msg => "coap_notify_block2_prepare_failed",
+                peer_key => PeerKey
+            }),
+            {Msg, BW1}
     end.
