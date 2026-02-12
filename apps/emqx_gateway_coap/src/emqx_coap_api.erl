@@ -158,8 +158,6 @@ call_client(ClientId, Msg, Timeout) ->
         case emqx_gateway_cm_registry:lookup_channels(coap, ClientId) of
             [Channel | _] ->
                 case do_send_request(Channel, Msg, Timeout) of
-                    timeout ->
-                        timeout;
                     Reply = #coap_message{} ->
                         maybe_collect_block2(Channel, Msg, Reply, Timeout);
                     Reply ->
