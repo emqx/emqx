@@ -175,11 +175,8 @@ t_send_request_api_block2_other_followup_fake_channel(_) ->
             <<"timeout">> => 50,
             <<"content_type">> => 'text/plain'
         },
-        ?assertException(
-            error,
-            function_clause,
+        {502, #{code := 'CLIENT_BAD_RESPONSE'}} =
             emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body})
-        )
     after
         Cleanup(),
         erlang:exit(Pid, kill)
@@ -197,11 +194,8 @@ t_send_request_api_non_coap_reply(_) ->
             <<"timeout">> => 50,
             <<"content_type">> => 'text/plain'
         },
-        ?assertException(
-            error,
-            function_clause,
+        {502, #{code := 'CLIENT_BAD_RESPONSE'}} =
             emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body})
-        )
     after
         Cleanup(),
         erlang:exit(Pid, kill)
