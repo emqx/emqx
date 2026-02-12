@@ -116,21 +116,71 @@ defmodule Mix.Tasks.Emqx.Ct do
       node_name: node_name
     } = context
 
-    :ct.run_test(
-      abort_if_missing_suites: true,
-      auto_compile: false,
-      suite: opts |> Map.fetch!(:suites) |> Enum.map(&to_charlist/1),
-      group:
-        opts
-        |> Map.fetch!(:group_paths)
-        |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
-      testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
-      readable: ~c"true",
-      name: node_name,
-      ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
-      logdir: to_charlist(logdir),
-      repeat: opts[:repeat]
-    )
+    suites = Map.fetch!(opts, :suites)
+    plugins_only? = Enum.all?(suites, &String.starts_with?(&1, "plugins/"))
+
+    if plugins_only? do
+      suite_mods =
+        suites
+        |> Enum.map(&suite_module/1)
+
+      dirs =
+        suite_mods
+        |> Enum.map(&suite_ebin_dir/1)
+        |> Enum.uniq()
+        |> Enum.map(&to_charlist/1)
+
+      :ct.run_test(
+        abort_if_missing_suites: true,
+        auto_compile: false,
+        dir: dirs,
+        suite: suite_mods,
+        group:
+          opts
+          |> Map.fetch!(:group_paths)
+          |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
+        testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
+        readable: ~c"true",
+        name: node_name,
+        ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
+        logdir: to_charlist(logdir),
+        repeat: opts[:repeat]
+      )
+    else
+      :ct.run_test(
+        abort_if_missing_suites: true,
+        auto_compile: false,
+        suite: Enum.map(suites, &to_charlist/1),
+        group:
+          opts
+          |> Map.fetch!(:group_paths)
+          |> Enum.map(fn gp -> Enum.map(gp, &String.to_atom/1) end),
+        testcase: opts |> Map.fetch!(:cases) |> Enum.map(&to_charlist/1),
+        readable: ~c"true",
+        name: node_name,
+        ct_hooks: [:cth_readable_shell, :cth_readable_failonly],
+        logdir: to_charlist(logdir),
+        repeat: opts[:repeat]
+      )
+    end
+  end
+
+  defp suite_module(suite_path) do
+    suite_path
+    |> Path.basename(".erl")
+    |> String.to_atom()
+  end
+
+  defp suite_ebin_dir(suite_mod) do
+    case :code.which(suite_mod) do
+      full_path when is_list(full_path) ->
+        full_path
+        |> List.to_string()
+        |> Path.dirname()
+
+      _ ->
+        Mix.raise("suite #{suite_mod} is not compiled")
+    end
   end
 
   def run_test_spec(opts, context) do

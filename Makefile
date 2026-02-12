@@ -172,16 +172,17 @@ cover:
 
 .PHONY: plugin-%
 plugin-%:
-	@if [ ! -d apps/$* ]; then \
-		echo "No such plugin app: apps/$*"; \
+	@PLUGIN_APP_DIR="$$(if [ -d plugins/$* ]; then echo plugins/$*; fi)"; \
+	if [ -z "$$PLUGIN_APP_DIR" ]; then \
+		echo "No such plugin app: plugins/$*"; \
 		exit 1; \
-	fi
-	@if ! $(MAKE) -C apps/$* -n rel >/dev/null 2>&1; then \
-		echo "App apps/$* does not define a 'rel' target."; \
+	fi; \
+	if ! $(MAKE) -C "$$PLUGIN_APP_DIR" -n rel >/dev/null 2>&1; then \
+		echo "App $$PLUGIN_APP_DIR does not define a 'rel' target."; \
 		echo "Ensure it is generated from emqx-plugin-template or provides plugin packaging make rules."; \
 		exit 1; \
-	fi
-	@$(MAKE) -C apps/$* rel
+	fi; \
+	$(MAKE) -C "$$PLUGIN_APP_DIR" rel
 
 COMMON_DEPS := $(REBAR)
 

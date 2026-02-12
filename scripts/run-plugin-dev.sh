@@ -69,7 +69,10 @@ make -C "$ROOT_DIR" "plugin-$APP"
 
 TAR_PATH="$(find "$ROOT_DIR/apps/$APP" -type f -name "$APP-*.tar.gz" | head -n1 || true)"
 if [[ -z "$TAR_PATH" ]]; then
-    echo "Cannot find plugin tarball for $APP under apps/$APP" >&2
+    TAR_PATH="$(find "$ROOT_DIR/plugins/$APP" -type f -name "$APP-*.tar.gz" | head -n1 || true)"
+fi
+if [[ -z "$TAR_PATH" ]]; then
+    echo "Cannot find plugin tarball for $APP under plugins/$APP or apps/$APP" >&2
     exit 1
 fi
 
@@ -97,4 +100,3 @@ else
     echo "Attach console with:"
     echo "  $EMQX_BIN remote_console"
 fi
-
