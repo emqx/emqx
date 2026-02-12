@@ -4,7 +4,7 @@ EMQX is organized as a set of Erlang/OTP applications under the `apps/` director
 Plugin applications in this monorepo should live under the `plugins/` directory.
 In the EMQX monorepo, **Mix** (Elixir build tooling) is used to compile and test all applications together.
 
-There are two project styles to build a EMQX plugin. Standalone project, or embedded in EMQX monorepo.
+There are two project styles to build an EMQX plugin: standalone project, or embedded in the EMQX monorepo.
 
 ---
 
@@ -125,7 +125,7 @@ This mode is intended for plugin development tightly coupled with a specific EMQ
    - Must also be the Erlang application name.
 
 2. **Check out the appropriate branch**
-   - Use a `relese` branch matching the target EMQX version.
+   - Use a `release` branch matching the target EMQX version.
    - Example: `release-61` for EMQX 6.1-based development.
 
 3. **Generate the plugin application**
@@ -142,7 +142,7 @@ This mode is intended for plugin development tightly coupled with a specific EMQ
 
 4. **Add `mix.exs`**
    - Create `plugins/{plugin_name}/mix.exs` so the plugin participates in monorepo build and test workflows.
-   - You can use `apps/emqx_username_quota/mix.exs` as a reference.
+   - You can use `plugins/emqx_username_quota/mix.exs` as a reference.
 
 ---
 
