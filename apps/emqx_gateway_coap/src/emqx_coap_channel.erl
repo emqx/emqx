@@ -404,17 +404,17 @@ ensure_keepalive_timer(Fun, #channel{keepalive = KeepAlive} = Channel) ->
 check_auth_state(Msg, #channel{connection_required = false} = Channel) ->
     call_session(handle_request, Msg, Channel);
 check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
-    case is_create_connection_request(Msg) of
-        true ->
-            call_session(handle_request, Msg, Channel);
-        false ->
-            URIQuery = emqx_coap_message:extract_uri_query(Msg),
-            case get_query_value(<<"token">>, URIQuery) of
-                undefined ->
-                    %% Connection mode policy: reject requests without token/clientid.
-                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
-                    ErrMsg = <<"Missing token or clientid in connection mode">>,
-                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
+            case is_create_connection_request(Msg) of
+                true ->
+                    call_session(handle_request, Msg, Channel);
+                false ->
+                    URIQuery = emqx_coap_message:extract_uri_query(Msg),
+                    case get_query_value(<<"token">>, URIQuery) of
+                        undefined ->
+                            %% Connection mode policy: reject requests without token/clientid.
+                            ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
+                            ErrMsg = <<"Missing token or clientid in connection mode">>,
+                            Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
                     {ok, {outgoing, Reply}, Channel};
                 _ ->
                     check_token(Msg, Channel)
@@ -430,8 +430,8 @@ check_token(Msg, Channel) ->
     #channel{token = Token, clientinfo = ClientInfo} = Channel,
     #{clientid := ClientId} = ClientInfo,
     URIQuery = emqx_coap_message:extract_uri_query(Msg),
-    ReqClientId = normalize_query_value(get_query_value(<<"clientid">>, URIQuery)),
-    ReqToken = normalize_query_value(get_query_value(<<"token">>, URIQuery)),
+    ReqClientId = get_query_value(<<"clientid">>, URIQuery),
+    ReqToken = get_query_value(<<"token">>, URIQuery),
     case {ReqClientId, ReqToken} of
         {ClientId, Token} when ReqClientId =/= undefined, ReqToken =/= undefined ->
             call_session(handle_request, Msg, Channel);
@@ -448,12 +448,14 @@ check_token(Msg, Channel) ->
     end.
 
 get_query_value(Key, URIQuery) ->
-    case maps:get(Key, URIQuery, undefined) of
-        undefined ->
-            maps:get(binary_to_list(Key), URIQuery, undefined);
-        Value ->
-            Value
-    end.
+    RawValue =
+        case maps:find(Key, URIQuery) of
+            {ok, Value} ->
+                Value;
+            error ->
+                maps:get(binary_to_list(Key), URIQuery, undefined)
+        end,
+    normalize_query_value(RawValue).
 
 normalize_query_value(undefined) ->
     undefined;
