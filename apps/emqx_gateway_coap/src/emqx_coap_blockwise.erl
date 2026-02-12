@@ -706,7 +706,23 @@ clear_client_exchange(Ctx, State0) ->
     clear_client_request(Ctx, State2).
 
 maybe_expire(State) ->
-    expire(erlang:monotonic_time(millisecond), State).
+    case has_blockwise_entries(State) of
+        true -> expire(erlang:monotonic_time(millisecond), State);
+        false -> State
+    end.
+
+has_blockwise_entries(#{
+    server_rx_block1 := ServerRx,
+    server_tx_block2 := ServerTx,
+    client_tx_block1 := ClientTx,
+    client_rx_block2 := ClientRx,
+    client_req := ClientReq
+}) ->
+    map_size(ServerRx) > 0 orelse
+        map_size(ServerTx) > 0 orelse
+        map_size(ClientTx) > 0 orelse
+        map_size(ClientRx) > 0 orelse
+        map_size(ClientReq) > 0.
 
 expires_at(State) ->
     erlang:monotonic_time(millisecond) + maps:get(exchange_lifetime, maps:get(opts, State)).
