@@ -770,14 +770,7 @@ handle_request_protocol(
                     iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
                 {error, Reply, BW2} ->
                     iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
-                {pass, Msg2, BW2} ->
-                    do_handle_request_post(
-                        Msg2,
-                        Result#{request_msg => Msg2},
-                        Channel#channel{blockwise = BW2},
-                        Iter
-                    );
-                {complete, Msg2, BW2} ->
+                {Tag, Msg2, BW2} when Tag =:= pass; Tag =:= complete ->
                     do_handle_request_post(
                         Msg2,
                         Result#{request_msg => Msg2},

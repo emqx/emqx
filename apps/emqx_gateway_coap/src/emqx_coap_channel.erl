@@ -610,9 +610,7 @@ call_handler(
                     iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
                 {error, Reply, BW2} ->
                     iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
-                {pass, Msg2, BW2} ->
-                    do_call_handler_request(Msg2, Result, Channel#channel{blockwise = BW2}, Iter);
-                {complete, Msg2, BW2} ->
+                {Tag, Msg2, BW2} when Tag =:= pass; Tag =:= complete ->
                     do_call_handler_request(Msg2, Result, Channel#channel{blockwise = BW2}, Iter)
             end
     end;
