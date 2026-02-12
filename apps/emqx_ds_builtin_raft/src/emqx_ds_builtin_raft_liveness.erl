@@ -66,7 +66,8 @@ start_link(DB) ->
 
 -spec notify_shard_up(emqx_ds:db(), emqx_ds:shard()) -> ok.
 notify_shard_up(DB, Shard) ->
-    emqx_ds_builtin_raft_liveness_proto_v1:multicast_shard_up(nodes(), DB, Shard, -1).
+    Nodes = emqx:cluster_nodes(running),
+    emqx_ds_builtin_raft_liveness_proto_v1:multicast_shard_up(Nodes, DB, Shard, -1).
 
 %%================================================================================
 %% Internal exports
