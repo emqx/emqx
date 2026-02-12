@@ -154,18 +154,27 @@ deliver(
     Ctx,
     #session{} = Session
 ) ->
-    deliver(Delivers, Ctx, Session, undefined, undefined).
+    do_deliver(Delivers, Ctx, Session, #{blockwise => disabled}).
 
 deliver(
+    Delivers,
+    Ctx,
+    #session{} = Session,
+    BW0,
+    PeerKey
+) ->
+    do_deliver(Delivers, Ctx, Session, #{blockwise => {enabled, BW0, PeerKey}}).
+
+do_deliver(
     Delivers,
     Ctx,
     #session{
         observe_manager = OM,
         transport_manager = TM
     } = Session,
-    BW0,
-    PeerKey
+    Mode
 ) ->
+    {BW0, PeerKey} = blockwise_ctx(Mode),
     Fun = fun({_, Topic, Message}, {OutAcc, OMAcc, TMAcc, BWAcc} = Acc) ->
         case emqx_coap_observe_res:res_changed(Topic, OMAcc) of
             undefined ->
@@ -189,10 +198,17 @@ deliver(
             transport_manager = TM2
         }
     },
-    case BW0 of
-        BW when is_map(BW) -> BaseResult#{blockwise => BW2};
-        _ -> BaseResult
-    end.
+    maybe_attach_blockwise_result(BaseResult, BW0, BW2).
+
+blockwise_ctx(#{blockwise := {enabled, BW0, PeerKey}}) ->
+    {BW0, PeerKey};
+blockwise_ctx(_) ->
+    {undefined, undefined}.
+
+maybe_attach_blockwise_result(BaseResult, BW0, BW2) when is_map(BW0) ->
+    BaseResult#{blockwise => BW2};
+maybe_attach_blockwise_result(BaseResult, _BW0, _BW2) ->
+    BaseResult.
 
 timeout(Timer, Session) ->
     call_transport_manager(?FUNCTION_NAME, Timer, Session).
