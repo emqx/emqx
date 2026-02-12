@@ -3944,19 +3944,32 @@ t_case_downlink_msg_sn_unique(_) ->
     emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand1))),
     emqx:publish(emqx_message:make(?JT808_DN_TOPIC, emqx_utils_json:encode(DlCommand2))),
 
-    %% Receive frames - they may arrive together or separately
-    timer:sleep(200),
-    {ok, RecvData} = gen_tcp:recv(Socket, 0, 2000),
-    ?LOGT("RecvData=~p", [RecvData]),
+    %% Receive first batch of data.
+    %% Depending on timing, we may get 1 or 2 frames:
+    %% - 2 frames: both publishes were processed as separate handle_deliver calls
+    %% - 1 frame: both were batched, and dispatch_frame/1 only dispatches one at a time
+    {ok, RecvData1} = gen_tcp:recv(Socket, 0, 5000),
+    Frames1 = split_jt808_frames(RecvData1),
+    ?assert(length(Frames1) >= 1),
 
-    %% Split received data into individual frames (delimited by 0x7E)
-    Frames = split_jt808_frames(RecvData),
-    ?LOGT("Frames=~p", [Frames]),
-
-    %% We should have received at least 2 frames
-    ?assert(length(Frames) >= 2),
-
-    [Frame1, Frame2 | _] = Frames,
+    {Frame1, Frame2} =
+        case Frames1 of
+            [F1, F2 | _] ->
+                %% Got both frames in first recv
+                {F1, F2};
+            [F1] ->
+                %% Only got one frame; ACK it to trigger dispatch of the second
+                MsgSn = parse_msg_sn_from_frame(F1, PhoneBCD),
+                AckPkt = <<MsgSn:?WORD, (?MS_SEND_TEXT):?WORD, 0>>,
+                AckSz = size(AckPkt),
+                AckHdr =
+                    <<(?MC_GENERAL_RESPONSE):?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3,
+                        ?MSG_SIZE(AckSz), PhoneBCD/binary, 2:?WORD>>,
+                ok = gen_tcp:send(Socket, gen_packet(AckHdr, AckPkt)),
+                {ok, RecvData2} = gen_tcp:recv(Socket, 0, 5000),
+                [F2] = split_jt808_frames(RecvData2),
+                {F1, F2}
+        end,
 
     %% Parse msg_sn from both frames
     MsgSn1 = parse_msg_sn_from_frame(Frame1, PhoneBCD),
@@ -3967,27 +3980,20 @@ t_case_downlink_msg_sn_unique(_) ->
     ?assertNotEqual(MsgSn1, MsgSn2),
     ?assertEqual(MsgSn1 + 1, MsgSn2),
 
-    %% Send ACK for first message
+    %% ACK both messages (first may already be ACK'd above, but second always needs ACK)
     MsgId1 = ?MS_SEND_TEXT,
-    GenAckPacket1 = <<MsgSn1:?WORD, MsgId1:?WORD, 0>>,
-    Size1 = size(GenAckPacket1),
     MsgIdAck = ?MC_GENERAL_RESPONSE,
-    AckSn1 = 2,
-    AckHeader1 =
-        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size1),
-            PhoneBCD/binary, AckSn1:?WORD>>,
-    AckFrame1 = gen_packet(AckHeader1, GenAckPacket1),
-    ok = gen_tcp:send(Socket, AckFrame1),
-
-    %% Send ACK for second message
-    GenAckPacket2 = <<MsgSn2:?WORD, MsgId1:?WORD, 0>>,
-    Size2 = size(GenAckPacket2),
-    AckSn2 = 3,
-    AckHeader2 =
-        <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Size2),
-            PhoneBCD/binary, AckSn2:?WORD>>,
-    AckFrame2 = gen_packet(AckHeader2, GenAckPacket2),
-    ok = gen_tcp:send(Socket, AckFrame2),
+    lists:foreach(
+        fun({MsgSn, AckSn}) ->
+            GenAckPacket = <<MsgSn:?WORD, MsgId1:?WORD, 0>>,
+            Sz = size(GenAckPacket),
+            AckHeader =
+                <<MsgIdAck:?WORD, ?RESERVE:2, ?NO_FRAGMENT:1, ?NO_ENCRYPT:3, ?MSG_SIZE(Sz),
+                    PhoneBCD/binary, AckSn:?WORD>>,
+            ok = gen_tcp:send(Socket, gen_packet(AckHeader, GenAckPacket))
+        end,
+        [{MsgSn1, 2}, {MsgSn2, 3}]
+    ),
 
     ok = gen_tcp:close(Socket).
 
