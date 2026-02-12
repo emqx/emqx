@@ -513,8 +513,9 @@ find_project_root("/") ->
     {ok, Cwd} = file:get_cwd(),
     Cwd;
 find_project_root(Dir) ->
-    RebarConfig = filename:join(Dir, "rebar.config"),
-    case filelib:is_file(RebarConfig) of
+    %% Look for the .ci directory which only exists at the umbrella project root
+    CiDir = filename:join(Dir, ".ci"),
+    case filelib:is_dir(CiDir) of
         true -> Dir;
         false -> find_project_root(filename:dirname(Dir))
     end.
