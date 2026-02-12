@@ -23,6 +23,7 @@ MQTT_SUB_TOPIC=${MQTT_SUB_TOPIC:-lwm2m/up/resp}
 MQTT_PUB_TOPIC=${MQTT_PUB_TOPIC:-lwm2m/dn/dm}
 MQTT_DEBUG=${MQTT_DEBUG:-0}
 LWM2M_PORT=${LWM2M_PORT:-5783}
+LWM2M_LOCAL_PORT=${LWM2M_LOCAL_PORT:-56830}
 CLIENT_ID=${CLIENT_ID:-demo-lwm2m-001}
 BLOCK_SIZE=${BLOCK_SIZE:-16}
 BLOCK1_BYTES=${BLOCK1_BYTES:-256}
@@ -64,11 +65,14 @@ Environment variables (override defaults):
   MQTT_PUB_TOPIC     (default: lwm2m/dn/dm)
   MQTT_DEBUG         (default: 0)  # 1 = subscribe to lwm2m/# for debug
   LWM2M_PORT         (default: 5783)
+  LWM2M_LOCAL_PORT   (default: 56830)  # wakaama client local UDP port
   CLIENT_ID          (default: demo-lwm2m-001)
   BLOCK_SIZE         (default: 16)
   BLOCK1_BYTES       (default: 256)
   SHOW_LOGS          (default: 1)
   LOG_TAIL_LINES     (default: 0, 0 = from new lines only)
+  CLIENT_START_TIMEOUT (default: 10) # seconds to wait for client to start
+  CLIENT_REG_TIMEOUT   (default: 15) # seconds to wait for client registration
   LWM2M_XML_DIR      (default: ./apps/emqx_gateway_lwm2m/lwm2m_xml)
   WAKAAMA_DIR        (default: ./.cache/wakaama)
   WAKAAMA_BUILD_DIR  (default: $WAKAAMA_DIR/examples/client/udp/build)
@@ -95,6 +99,15 @@ api_error_hint() {
   - Check EMQX_USER / EMQX_PASS
   - Ensure Dashboard API is enabled and reachable
   - Ensure LwM2M gateway app is enabled
+HINT
+}
+
+port_error_hint() {
+  cat <<'HINT'
+[demo] Hint:
+  - LWM2M_LOCAL_PORT is the client local UDP port (default: 56830)
+  - Set a free port: LWM2M_LOCAL_PORT=56831
+  - If you suspect a hidden process, try: sudo lsof -nP -iUDP:56830
 HINT
 }
 
@@ -309,6 +322,33 @@ print(urllib.parse.quote(sys.argv[1]))
 PY
 }
 
+check_local_port_free() {
+  local port=$1
+  local err=""
+  if ! err=$(
+    python3 - "$port" 2>&1 <<'PY'
+import socket, sys
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+try:
+    s.bind(("0.0.0.0", port))
+except OSError as e:
+    print(f"{e.errno} {e.strerror}")
+    sys.exit(1)
+finally:
+    s.close()
+PY
+  ); then
+    echo "[demo] UDP local port $port is already in use."
+    if [ -n "$err" ]; then
+      echo "[demo] Bind error: $err"
+    fi
+    port_error_hint
+    return 22
+  fi
+  return 0
+}
+
 ensure_wakaama() {
   if [ ! -d "$WAKAAMA_DIR/.git" ]; then
     explain "Cloning wakaama into $WAKAAMA_DIR (first run only)"
@@ -513,15 +553,64 @@ JSON
 
 start_client() {
   explain "Starting Wakaama LwM2M client (endpoint: $CLIENT_ID)"
+  explain "Local UDP port: $LWM2M_LOCAL_PORT  →  Server: ${EMQX_HOST}:${LWM2M_PORT}"
+  check_local_port_free "$LWM2M_LOCAL_PORT"
   PIPE=$(mktemp -u)
   mkfifo "$PIPE"
   # Open FIFO in read/write mode to avoid blocking before reader starts.
   exec 3<> "$PIPE"
-  "$WAKAAMA_BUILD_DIR/lwm2mclient" -4 -n "$CLIENT_ID" -h "$EMQX_HOST" -p "$LWM2M_PORT" -S "$BLOCK_SIZE" \
+  : > "$LOG_FILE"
+  "$WAKAAMA_BUILD_DIR/lwm2mclient" -4 -n "$CLIENT_ID" -h "$EMQX_HOST" -p "$LWM2M_PORT" -l "$LWM2M_LOCAL_PORT" -S "$BLOCK_SIZE" \
     < "$PIPE" > "$LOG_FILE" 2>&1 &
   CLIENT_PID=$!
   explain "Client pid=$CLIENT_PID, log=$LOG_FILE"
   sleep 2
+}
+
+wait_client_start() {
+  local waited=0
+  local timeout=${CLIENT_START_TIMEOUT:-10}
+  while [ "$waited" -lt "$timeout" ]; do
+    if [ -s "$LOG_FILE" ]; then
+      if grep -q "Failed to open socket" "$LOG_FILE" 2>/dev/null; then
+        echo "[demo] Wakaama client failed to start (socket bind error)."
+        port_error_hint
+        return 22
+      fi
+      if grep -q "LWM2M Client .* started on port" "$LOG_FILE" 2>/dev/null; then
+        return 0
+      fi
+    fi
+    if ! kill -0 "$CLIENT_PID" 2>/dev/null; then
+      echo "[demo] Wakaama client exited unexpectedly."
+      echo "[demo] Check log: $LOG_FILE"
+      return 22
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "[demo] Wakaama client did not start within ${timeout}s."
+  echo "[demo] Check log: $LOG_FILE"
+  return 22
+}
+
+wait_client_registered() {
+  local waited=0
+  local timeout=${CLIENT_REG_TIMEOUT:-15}
+  while [ "$waited" -lt "$timeout" ]; do
+    if ! curl_api_status GET "$EMQX_API/gateways/lwm2m/clients/$CLIENT_ID"; then
+      return 22
+    fi
+    if [ "${CURL_API_CODE:-}" = "200" ]; then
+      ok "LwM2M client registered: $CLIENT_ID"
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "[demo] LwM2M client not registered within ${timeout}s: $CLIENT_ID"
+  echo "[demo] Check log: $LOG_FILE"
+  return 22
 }
 
 stop_client() {
@@ -764,7 +853,15 @@ main() {
   step "Step 3/9 — Start LwM2M Device (Wakaama Client)"
   explain "The client registers with EMQX as endpoint '${CLIENT_ID}'"
   explain "It exposes standard LwM2M objects: /3 (Device), /5 (Firmware)"
-  start_client
+  if ! start_client; then
+    exit 22
+  fi
+  if ! wait_client_start; then
+    exit 22
+  fi
+  if ! wait_client_registered; then
+    exit 22
+  fi
 
   step "Step 4/9 — Start MQTT Subscriber"
   explain "We subscribe to '$(effective_mqtt_sub_topic)' to watch responses from the device"
