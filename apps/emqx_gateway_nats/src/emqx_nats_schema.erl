@@ -59,9 +59,101 @@ fields(nats) ->
                     default => []
                 }
             )},
+        {authn_jwt,
+            sc(
+                ref(authn_jwt),
+                #{
+                    required => false,
+                    desc => ?DESC(authn_jwt)
+                }
+            )},
         {mountpoint, emqx_gateway_schema:mountpoint()},
         {listeners, sc(ref(tcp_ws_listeners), #{})}
     ] ++ emqx_gateway_schema:gateway_common_options();
+fields(authn_jwt) ->
+    [
+        {trusted_operators,
+            sc(
+                hoconsc:array(binary()),
+                #{
+                    required => false,
+                    default => [],
+                    desc => ?DESC(trusted_operators)
+                }
+            )},
+        {resolver,
+            sc(
+                hoconsc:union(fun jwt_resolver_union_member_selector/1),
+                #{
+                    default => memory,
+                    required => false,
+                    desc => ?DESC(resolver)
+                }
+            )},
+        {cache_ttl,
+            sc(
+                emqx_schema:duration(),
+                #{
+                    default => <<"5m">>,
+                    desc => ?DESC(cache_ttl)
+                }
+            )},
+        {verify_exp,
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(verify_exp)
+                }
+            )},
+        {verify_nbf,
+            sc(
+                boolean(),
+                #{
+                    default => true,
+                    desc => ?DESC(verify_nbf)
+                }
+            )}
+    ];
+fields(jwt_resolver_memory) ->
+    [
+        {type,
+            sc(
+                hoconsc:enum([memory]),
+                #{
+                    required => true,
+                    desc => ?DESC(type)
+                }
+            )},
+        {resolver_preload,
+            sc(
+                hoconsc:array(ref(jwt_resolver_preload_entry)),
+                #{
+                    required => false,
+                    default => [],
+                    desc => ?DESC(resolver_preload)
+                }
+            )}
+    ];
+fields(jwt_resolver_preload_entry) ->
+    [
+        {pubkey,
+            sc(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC(pubkey)
+                }
+            )},
+        {jwt,
+            sc(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC(jwt)
+                }
+            )}
+    ];
 fields(protocol) ->
     [
         {max_payload_size,
@@ -109,6 +201,12 @@ fields(websocket) ->
 
 desc(nats) ->
     ?DESC(nats);
+desc(authn_jwt) ->
+    ?DESC(authn_jwt);
+desc(jwt_resolver_memory) ->
+    ?DESC(jwt_resolver);
+desc(jwt_resolver_preload_entry) ->
+    ?DESC(jwt_resolver_preload_entry);
 desc(protocol) ->
     ?DESC(protocol);
 desc(tcp_ws_listeners) ->
@@ -137,3 +235,27 @@ ref(Mod, Field) ->
 
 map(Name, Type) ->
     hoconsc:map(Name, Type).
+
+jwt_resolver_union_member_selector(all_union_members) ->
+    [memory, ref(jwt_resolver_memory)];
+jwt_resolver_union_member_selector({value, V0}) ->
+    V =
+        case is_map(V0) of
+            true -> emqx_utils_maps:binary_key_map(V0);
+            false -> V0
+        end,
+    case V of
+        memory ->
+            [memory];
+        <<"memory">> ->
+            [memory];
+        #{<<"type">> := memory} ->
+            [ref(jwt_resolver_memory)];
+        #{<<"type">> := <<"memory">>} ->
+            [ref(jwt_resolver_memory)];
+        _ ->
+            throw(#{
+                field_name => resolver,
+                expected => "memory | {type = memory, ...}"
+            })
+    end.

@@ -53,6 +53,24 @@ services:
         aliases:
           - nats-noauth
           - nats-noauth.emqx.net
+  nats_jwt:
+    container_name: nats_jwt
+    image: public.ecr.aws/docker/library/nats:${NATS_TAG:-2.10}
+    restart: always
+    expose:
+      - "4222"
+      - "9222"
+    volumes:
+      - ./nats/nats-jwt.conf:/etc/nats/nats.conf
+      - ./certs:/etc/nats/certs:ro
+    command:
+      - "-c"
+      - "/etc/nats/nats.conf"
+    networks:
+      emqx_bridge:
+        aliases:
+          - nats-jwt
+          - nats-jwt.emqx.net
   nats_tls:
     container_name: nats_tls
     image: public.ecr.aws/docker/library/nats:${NATS_TAG:-2.10}
@@ -109,3 +127,21 @@ services:
         aliases:
           - nats-tls-noauth
           - nats-tls-noauth.emqx.net
+  nats_tls_jwt:
+    container_name: nats_tls_jwt
+    image: public.ecr.aws/docker/library/nats:${NATS_TAG:-2.10}
+    restart: always
+    expose:
+      - "4422"
+      - "9322"
+    volumes:
+      - ./nats/nats-tls-jwt.conf:/etc/nats/nats.conf
+      - ./certs:/etc/nats/certs:ro
+    command:
+      - "-c"
+      - "/etc/nats/nats.conf"
+    networks:
+      emqx_bridge:
+        aliases:
+          - nats-jwt-tls
+          - nats-jwt-tls.emqx.net

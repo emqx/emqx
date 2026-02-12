@@ -6,6 +6,11 @@
 
 -export([decode_public/1, encode_public/1, normalize/1, verify_signature/3]).
 
+-ifdef(TEST).
+-compile(export_all).
+-compile(nowarn_export_all).
+-endif.
+
 -define(NKEY_USER_PREFIX, 16#A0).
 -define(BASE32_ALPHABET, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567").
 

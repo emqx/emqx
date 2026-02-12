@@ -103,7 +103,7 @@ end_per_group(_Group, _Config) ->
     ok.
 
 init_per_testcase(TestCase, Config) ->
-    case should_skip(TestCase, target_from(Config)) of
+    case should_skip(TestCase, Config) of
         {skip, Reason} ->
             {skip, Reason};
         ok ->
@@ -124,6 +124,12 @@ target_from(Config) ->
     case lists:keyfind(target, 1, Config) of
         {target, Target} -> Target;
         false -> target()
+    end.
+
+group_from(Config) ->
+    case lists:keyfind(group_name, 1, Config) of
+        {group_name, Group} -> Group;
+        false -> undefined
     end.
 
 emqx_group_members() ->
@@ -262,6 +268,34 @@ token_wss_port() ->
 token_ssl_port() ->
     env_int("NATS_TOKEN_SSL_PORT", 4422).
 
+jwt_tcp_host() ->
+    Host0 = env_str("NATS_JWT_TCP_HOST", "nats-jwt"),
+    ensure_scheme(Host0, "tcp").
+
+jwt_ws_host() ->
+    Host0 = env_str("NATS_JWT_WS_HOST", "nats-jwt"),
+    ensure_scheme(Host0, "ws").
+
+jwt_wss_host() ->
+    Host0 = env_str("NATS_JWT_WSS_HOST", "nats-jwt-tls"),
+    ensure_scheme(Host0, "wss").
+
+jwt_ssl_host() ->
+    Host0 = env_str("NATS_JWT_SSL_HOST", "nats-jwt-tls"),
+    ensure_scheme(Host0, "tcp").
+
+jwt_tcp_port() ->
+    env_int("NATS_JWT_TCP_PORT", 4222).
+
+jwt_ws_port() ->
+    env_int("NATS_JWT_WS_PORT", 9222).
+
+jwt_wss_port() ->
+    env_int("NATS_JWT_WSS_PORT", 9322).
+
+jwt_ssl_port() ->
+    env_int("NATS_JWT_SSL_PORT", 4422).
+
 default_tcp_client_opts(Target) ->
     maybe_add_nats_auth(
         Target,
@@ -346,6 +380,36 @@ default_ssl_client_opts_noauth(nats) ->
     #{
         host => ssl_noauth_starttls_host(),
         port => noauth_ssl_port(),
+        verbose => false,
+        starttls => true,
+        ssl_opts => #{verify => verify_none}
+    }.
+
+default_jwt_client_opts(emqx, _Group, BaseOpts) ->
+    strip_creds(BaseOpts);
+default_jwt_client_opts(nats, tcp, _BaseOpts) ->
+    #{
+        host => jwt_tcp_host(),
+        port => jwt_tcp_port(),
+        verbose => false
+    };
+default_jwt_client_opts(nats, ws, _BaseOpts) ->
+    #{
+        host => jwt_ws_host(),
+        port => jwt_ws_port(),
+        verbose => false
+    };
+default_jwt_client_opts(nats, wss, _BaseOpts) ->
+    #{
+        host => jwt_wss_host(),
+        port => jwt_wss_port(),
+        verbose => false,
+        ssl_opts => #{verify => verify_none}
+    };
+default_jwt_client_opts(nats, ssl, _BaseOpts) ->
+    #{
+        host => jwt_ssl_host(),
+        port => jwt_ssl_port(),
         verbose => false,
         starttls => true,
         ssl_opts => #{verify => verify_none}
@@ -447,18 +511,110 @@ ssl_section(Port) ->
 cert_path(Name) ->
     filename:join([code:lib_dir(emqx), "etc", "certs", Name]).
 
-should_skip(TestCase, nats) ->
-    case lists:member(TestCase, nats_only_skips()) of
-        true -> {skip, "EMQX-only or requires EMQX management/auth"};
-        false -> ok
-    end;
-should_skip(_TestCase, emqx) ->
-    ok.
+should_skip(TestCase, Config) ->
+    Target = target_from(Config),
+    Group = group_from(Config),
+    case missing_caps(TestCase, Target, Group) of
+        [] ->
+            ok;
+        MissingCaps ->
+            {skip, skip_reason(Target, Group, TestCase, MissingCaps)}
+    end.
 
 nats_only_skips() ->
     [
-        t_token_auth_priority_over_userpass
+        TestCase
+     || TestCase <- emqx_common_test_helpers:all(?MODULE),
+        missing_caps(TestCase, nats, tcp) =/= []
     ].
+
+missing_caps(TestCase, Target, Group) ->
+    RequiredCaps = required_caps(TestCase),
+    TargetCaps = target_caps(Target, Group),
+    [Cap || Cap <- RequiredCaps, not lists:member(Cap, TargetCaps)].
+
+target_caps(emqx, _Group) ->
+    [
+        jwt_auth,
+        jwt_verify_toggle,
+        jwt_permissions_priority,
+        mixed_auth_priority
+    ];
+target_caps(nats, Group) ->
+    case nats_jwt_fixture_available(Group) of
+        true ->
+            [jwt_auth];
+        false ->
+            []
+    end.
+
+required_caps(t_token_auth_priority_over_userpass) ->
+    %% NATS parser rejects configs that combine token auth with users array.
+    [mixed_auth_priority];
+required_caps(t_token_auth_priority_over_jwt) ->
+    %% In NATS operator mode, token is ignored once JWT auth is enabled.
+    [mixed_auth_priority, jwt_auth];
+required_caps(t_token_auth_priority_over_nkey) ->
+    %% NATS parser rejects configs that combine token auth with users/nkey auth.
+    [mixed_auth_priority];
+required_caps(t_token_auth_fallback_to_nkey) ->
+    %% NATS parser rejects configs that combine token auth with users/nkey auth.
+    [mixed_auth_priority];
+required_caps(t_token_auth_fallback_to_jwt) ->
+    %% In NATS operator mode, JWT is authoritative and token fallback cannot be modeled.
+    [mixed_auth_priority, jwt_auth];
+required_caps(t_jwt_auth_success) ->
+    [jwt_auth];
+required_caps(t_jwt_auth_missing_token_failure) ->
+    [jwt_auth];
+required_caps(t_jwt_auth_expired_token_failure) ->
+    [jwt_auth];
+required_caps(t_jwt_auth_not_before_failure) ->
+    [jwt_auth];
+required_caps(t_jwt_auth_invalid_format_failure) ->
+    [jwt_auth];
+required_caps(t_jwt_auth_exp_ignored_when_verify_exp_disabled) ->
+    %% NATS server has no per-listener toggle equivalent to EMQX verify_exp/verify_nbf.
+    [jwt_auth, jwt_verify_toggle];
+required_caps(t_jwt_auth_nbf_ignored_when_verify_nbf_disabled) ->
+    %% NATS server has no per-listener toggle equivalent to EMQX verify_exp/verify_nbf.
+    [jwt_auth, jwt_verify_toggle];
+required_caps(t_jwt_permissions_priority_over_acl) ->
+    %% NATS JWT permissions and EMQX ACL precedence are different authorization models.
+    [jwt_auth, jwt_permissions_priority];
+required_caps(t_nkey_auth_priority_over_jwt) ->
+    [jwt_auth];
+required_caps(t_nkey_auth_fallback_to_jwt) ->
+    [jwt_auth];
+required_caps(_TestCase) ->
+    [].
+
+skip_reason(Target, Group, TestCase, MissingCaps) ->
+    lists:flatten(
+        io_lib:format(
+            "~p/~p skips ~p due to missing capabilities: ~p",
+            [Target, Group, TestCase, MissingCaps]
+        )
+    ).
+
+nats_jwt_fixture_available(Group) ->
+    case jwt_endpoint(Group) of
+        {Host, Port} ->
+            emqx_common_test_helpers:is_tcp_server_available(strip_scheme(Host), Port);
+        undefined ->
+            false
+    end.
+
+jwt_endpoint(tcp) ->
+    {jwt_tcp_host(), jwt_tcp_port()};
+jwt_endpoint(ws) ->
+    {jwt_ws_host(), jwt_ws_port()};
+jwt_endpoint(wss) ->
+    {jwt_wss_host(), jwt_wss_port()};
+jwt_endpoint(ssl) ->
+    {jwt_ssl_host(), jwt_ssl_port()};
+jwt_endpoint(_Group) ->
+    undefined.
 
 ensure_nats_server_available() ->
     Target = nats,
@@ -544,17 +700,56 @@ nkey_priv() ->
     <<205, 42, 56, 73, 83, 88, 159, 152, 35, 244, 15, 34, 196, 39, 226, 60, 111, 109, 0, 79, 72,
         148, 60, 239, 181, 139, 118, 231, 215, 12, 158, 116>>.
 
+nats_jwt_token() ->
+    <<
+        "eyJ0eXAiOiJKV1QiLCJhbGciOiJlZDI1NTE5LW5rZXkifQ."
+        "eyJqdGkiOiJPMjU3WlA3NDdUQ1g3VUo2RkFVS0xHSzNJQTVGRFRXV01BTERaSEJNTUtQRlo1NTNPNlJRIiwia"
+        "WF0IjoxNzcwOTU0MjMyLCJpc3MiOiJBQURBQk5FRktMWVdaRENGQTVTUlJKMlRaWkFaTUNZNVdMR0FUTlg3V"
+        "1ZCQlJaRU9UWFZCTFI0TSIsIm5hbWUiOiJ0ZXN0Iiwic3ViIjoiVUNDNEdGUlJYVVVNS1ROUDY3VlFUQUJDT"
+        "ExPRFROQ05PQklVTlVIVUFNRUZQM09FRkgzUUQ3WUIiLCJuYXRzIjp7InB1YiI6e30sInN1YiI6e30sInN1Y"
+        "nMiOi0xLCJkYXRhIjotMSwicGF5bG9hZCI6LTEsInR5cGUiOiJ1c2VyIiwidmVyc2lvbiI6Mn19."
+        "-aoi_dRV83R-LmpKbUCTYpvHvBiuOlx_HdhDyD89ZV2ocTxtyFf4KCco5F0lUA7GsLQZo1kmX1Df9sLv4wIZDA"
+    >>.
+
+nats_jwt_nkey() ->
+    <<"UCC4GFRRXUUMKTNP67VQTABCLLODTNCNOBIUNUHUAMEFP3OEFH3QD7YB">>.
+
+nats_jwt_nkey_seed() ->
+    <<153, 4, 163, 231, 183, 138, 62, 8, 137, 201, 217, 217, 31, 222, 119, 53, 165, 160, 35, 110,
+        172, 49, 225, 23, 186, 170, 182, 203, 170, 119, 70, 83>>.
+
 nkey_sig(Nonce) ->
     Sig = crypto:sign(eddsa, none, Nonce, [nkey_priv(), ed25519]),
     base64:encode(Sig, #{mode => urlsafe, padding => false}).
+
+invalid_nkey_sig(Nonce) ->
+    Sig = nkey_sig(Nonce),
+    invalidate_sig(Sig).
+
+nats_jwt_sig(Nonce) ->
+    Sig = crypto:sign(eddsa, none, Nonce, [nats_jwt_nkey_seed(), ed25519]),
+    base64:encode(Sig, #{mode => urlsafe, padding => false}).
+
+invalid_nats_jwt_sig(Nonce) ->
+    Sig = nats_jwt_sig(Nonce),
+    invalidate_sig(Sig).
+
+invalidate_sig(Sig) ->
+    SigBin = base64:decode(Sig, #{mode => urlsafe, padding => false}),
+    <<First:8, Rest/binary>> = SigBin,
+    BadSigBin = <<(First bxor 1), Rest/binary>>,
+    base64:encode(BadSigBin, #{mode => urlsafe, padding => false}).
 
 nkey_nonce(#nats_frame{message = Message}) ->
     maps:get(<<"nonce">>, Message).
 
 strip_creds(Opts) ->
     maps:remove(
-        sig,
-        maps:remove(nkey, maps:remove(auth_token, maps:remove(pass, maps:remove(user, Opts))))
+        jwt,
+        maps:remove(
+            sig,
+            maps:remove(nkey, maps:remove(auth_token, maps:remove(pass, maps:remove(user, Opts))))
+        )
     ).
 
 token_client_opts(Config) ->
@@ -563,6 +758,9 @@ token_client_opts(Config) ->
         nats -> token_nats_client_opts(?config(group_name, Config));
         emqx -> BaseOpts
     end.
+
+jwt_client_opts(Config) ->
+    ?config(jwt_client_opts, Config).
 
 token_nats_client_opts(tcp) ->
     #{
@@ -741,6 +939,93 @@ nkey_auth_cleanup(Config) ->
     end,
     Config.
 
+jwt_auth_setup(Config) ->
+    jwt_auth_setup(Config, #{}).
+
+jwt_auth_setup(Config, Overrides) ->
+    case target_from(Config) of
+        emqx ->
+            Prev = emqx_conf:get_raw([gateway, nats, authn_jwt], undefined),
+            JWTConf = maps:merge(
+                #{
+                    trusted_operators => [<<"OP_TEST">>],
+                    cache_ttl => <<"5m">>,
+                    verify_exp => true,
+                    verify_nbf => true
+                },
+                Overrides
+            ),
+            _ = emqx_conf:update(
+                [gateway, nats, authn_jwt],
+                JWTConf,
+                #{override_to => cluster}
+            ),
+            [{jwt_auth_prev, Prev} | Config];
+        nats ->
+            Config
+    end.
+
+jwt_auth_cleanup(Config) ->
+    case target_from(Config) of
+        emqx ->
+            case lists:keyfind(jwt_auth_prev, 1, Config) of
+                {jwt_auth_prev, undefined} ->
+                    _ = emqx_conf:remove(
+                        [gateway, nats, authn_jwt],
+                        #{override_to => cluster}
+                    ),
+                    ok;
+                {jwt_auth_prev, Prev} ->
+                    _ = emqx_conf:update(
+                        [gateway, nats, authn_jwt],
+                        Prev,
+                        #{override_to => cluster}
+                    ),
+                    ok;
+                false ->
+                    ok
+            end;
+        nats ->
+            ok
+    end,
+    Config.
+
+build_test_jwt(Claims) ->
+    Header = base64url_encode(emqx_utils_json:encode(#{alg => <<"none">>, typ => <<"JWT">>})),
+    Payload = base64url_encode(emqx_utils_json:encode(Claims)),
+    <<Header/binary, ".", Payload/binary, ".sig">>.
+
+success_jwt(Config, Claims) ->
+    case target_from(Config) of
+        emqx -> build_test_jwt(Claims);
+        nats -> nats_jwt_token()
+    end.
+
+jwt_connect_opts(Config, InfoMsg, JWT) ->
+    jwt_connect_opts(Config, InfoMsg, JWT, #{}).
+
+jwt_connect_opts(Config, InfoMsg, JWT, Overrides) ->
+    Base =
+        case target_from(Config) of
+            emqx ->
+                #{jwt => JWT};
+            nats ->
+                Nonce = nkey_nonce(InfoMsg),
+                ?assert(is_binary(Nonce)),
+                #{
+                    jwt => JWT,
+                    nkey => nats_jwt_nkey(),
+                    sig => nats_jwt_sig(Nonce)
+                }
+        end,
+    maps:merge(Base, Overrides).
+
+base64url_encode(Bin) ->
+    base64:encode(Bin, #{mode => urlsafe, padding => false}).
+
+now_seconds() ->
+    erlang:system_time(second).
+
 ensure_token_type(plain, Token) ->
     Token;
 ensure_token_type(bcrypt, Token) ->
@@ -760,12 +1045,14 @@ authz_cleanup(Config) ->
 group_config(Target, GroupName, BaseOpts) ->
     AuthEnabled = auth_enabled_opts(Target, BaseOpts),
     AuthDisabled = auth_disabled_opts(Target, GroupName, BaseOpts),
+    JWTClientOpts = default_jwt_client_opts(Target, GroupName, BaseOpts),
     AuthzAllow = authz_allow_opts(Target, BaseOpts),
     AuthzDeny = authz_deny_opts(Target, BaseOpts),
     [
         {client_opts, BaseOpts},
         {auth_enabled_opts, AuthEnabled},
         {auth_disabled_opts, AuthDisabled},
+        {jwt_client_opts, JWTClientOpts},
         {authz_allow_opts, AuthzAllow},
         {authz_deny_opts, AuthzDeny},
         {group_name, GroupName}
@@ -1485,6 +1772,208 @@ t_token_auth_bcrypt(Config) ->
     assert_auth_failed(Msgs),
     emqx_nats_client:stop(Client2).
 
+t_jwt_auth_success(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_auth_success('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_auth_success(Config) ->
+    Claims = #{
+        <<"sub">> => <<"jwt_user">>
+    },
+    JWT = success_jwt(Config, Claims),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_jwt_auth_missing_token_failure(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_auth_missing_token_failure('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_auth_missing_token_failure(Config) ->
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_auth_expired_token_failure(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_auth_expired_token_failure('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_auth_expired_token_failure(Config) ->
+    Claims = #{
+        <<"sub">> => <<"jwt_user">>,
+        <<"exp">> => now_seconds() - 10
+    },
+    JWT = build_test_jwt(Claims),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_auth_not_before_failure(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_auth_not_before_failure('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_auth_not_before_failure(Config) ->
+    Claims = #{
+        <<"sub">> => <<"jwt_user">>,
+        <<"nbf">> => now_seconds() + 3600
+    },
+    JWT = build_test_jwt(Claims),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_auth_invalid_format_failure(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_auth_invalid_format_failure('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_auth_invalid_format_failure(Config) ->
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(
+        Client,
+        jwt_connect_opts(Config, InfoMsg, <<"invalid-jwt">>)
+    ),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_jwt_auth_exp_ignored_when_verify_exp_disabled(init, Config) ->
+    jwt_auth_setup(Config, #{verify_exp => false});
+t_jwt_auth_exp_ignored_when_verify_exp_disabled('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_auth_exp_ignored_when_verify_exp_disabled(Config) ->
+    Claims = #{
+        <<"sub">> => <<"jwt_user">>,
+        <<"exp">> => now_seconds() - 10
+    },
+    JWT = build_test_jwt(Claims),
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{jwt => JWT}),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_jwt_auth_nbf_ignored_when_verify_nbf_disabled(init, Config) ->
+    jwt_auth_setup(Config, #{verify_nbf => false});
+t_jwt_auth_nbf_ignored_when_verify_nbf_disabled('end', Config) ->
+    jwt_auth_cleanup(Config).
+
+t_jwt_auth_nbf_ignored_when_verify_nbf_disabled(Config) ->
+    Claims = #{
+        <<"sub">> => <<"jwt_user">>,
+        <<"nbf">> => now_seconds() + 3600
+    },
+    JWT = build_test_jwt(Claims),
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{jwt => JWT}),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_priority_over_jwt(init, Config) ->
+    jwt_auth_setup(token_auth_setup(Config, plain, token_plain()));
+t_token_auth_priority_over_jwt('end', Config) ->
+    token_auth_cleanup(jwt_auth_cleanup(Config)).
+
+t_token_auth_priority_over_jwt(Config) ->
+    Claims = #{<<"sub">> => <<"jwt_user">>},
+    JWT = success_jwt(Config, Claims),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(
+        Client,
+        jwt_connect_opts(Config, InfoMsg, JWT, #{auth_token => <<"bad-token">>})
+    ),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_fallback_to_jwt(init, Config) ->
+    jwt_auth_setup(token_auth_setup(Config, plain, token_plain()));
+t_token_auth_fallback_to_jwt('end', Config) ->
+    token_auth_cleanup(jwt_auth_cleanup(Config)).
+
+t_token_auth_fallback_to_jwt(Config) ->
+    Claims = #{<<"sub">> => <<"jwt_user">>},
+    JWT = success_jwt(Config, Claims),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_priority_over_nkey(init, Config) ->
+    nkey_auth_setup(token_auth_setup(Config, plain, token_plain()));
+t_token_auth_priority_over_nkey('end', Config) ->
+    token_auth_cleanup(nkey_auth_cleanup(Config)).
+
+t_token_auth_priority_over_nkey(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    Nonce = nkey_nonce(InfoMsg),
+    ?assert(is_binary(Nonce)),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{
+        auth_token => <<"bad-token">>,
+        nkey => nkey_pub(),
+        sig => nkey_sig(Nonce)
+    }),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_token_auth_fallback_to_nkey(init, Config) ->
+    nkey_auth_setup(token_auth_setup(Config, plain, token_plain()));
+t_token_auth_fallback_to_nkey('end', Config) ->
+    token_auth_cleanup(nkey_auth_cleanup(Config)).
+
+t_token_auth_fallback_to_nkey(Config) ->
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    Nonce = nkey_nonce(InfoMsg),
+    ?assert(is_binary(Nonce)),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{nkey => nkey_pub(), sig => nkey_sig(Nonce)}),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
 t_nkey_auth_success(init, Config) ->
     nkey_auth_setup(Config);
 t_nkey_auth_success('end', Config) ->
@@ -1510,14 +1999,99 @@ t_nkey_auth_failure(Config) ->
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
     InfoMsg = recv_info_frame(Client),
     Nonce = nkey_nonce(InfoMsg),
-    Sig = nkey_sig(Nonce),
-    SigBin = base64:decode(Sig, #{mode => urlsafe, padding => false}),
-    <<First:8, Rest/binary>> = SigBin,
-    BadSigBin = <<(First bxor 1), Rest/binary>>,
-    BadSig = base64:encode(BadSigBin, #{mode => urlsafe, padding => false}),
+    BadSig = invalid_nkey_sig(Nonce),
     ok = emqx_nats_client:connect(Client, #{nkey => nkey_pub(), sig => BadSig}),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_nkey_auth_priority_over_jwt(init, Config) ->
+    jwt_auth_setup(nkey_auth_setup(Config));
+t_nkey_auth_priority_over_jwt('end', Config) ->
+    nkey_auth_cleanup(jwt_auth_cleanup(Config)).
+
+t_nkey_auth_priority_over_jwt(Config) ->
+    Claims = #{<<"sub">> => <<"jwt_user">>},
+    JWT = success_jwt(Config, Claims),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    Nonce = nkey_nonce(InfoMsg),
+    ?assert(is_binary(Nonce)),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(
+        Client,
+        case target_from(Config) of
+            emqx ->
+                #{
+                    nkey => nkey_pub(),
+                    sig => invalid_nkey_sig(Nonce),
+                    jwt => JWT
+                };
+            nats ->
+                jwt_connect_opts(Config, InfoMsg, JWT, #{
+                    sig => invalid_nats_jwt_sig(Nonce)
+                })
+        end
+    ),
+    {ok, Msgs} = emqx_nats_client:receive_message(Client),
+    assert_auth_failed(Msgs),
+    emqx_nats_client:stop(Client).
+
+t_nkey_auth_fallback_to_jwt(init, Config) ->
+    jwt_auth_setup(nkey_auth_setup(Config));
+t_nkey_auth_fallback_to_jwt('end', Config) ->
+    nkey_auth_cleanup(jwt_auth_cleanup(Config)).
+
+t_nkey_auth_fallback_to_jwt(Config) ->
+    Claims = #{<<"sub">> => <<"jwt_user">>},
+    JWT = success_jwt(Config, Claims),
+    ClientOpts = maps:merge(jwt_client_opts(Config), #{verbose => true}),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    ?assert(is_binary(nkey_nonce(InfoMsg))),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
+    recv_ok_frame(Client),
+    emqx_nats_client:stop(Client).
+
+t_jwt_permissions_priority_over_acl(init, Config) ->
+    jwt_auth_setup(Config);
+t_jwt_permissions_priority_over_acl('end', Config) ->
+    authz_cleanup(jwt_auth_cleanup(Config)).
+
+t_jwt_permissions_priority_over_acl(Config) ->
+    ok = apply_authz_deny(Config),
+    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
+    Claims = #{
+        <<"sub">> => <<"jwt_user">>,
+        <<"permissions">> => #{
+            <<"pub">> => #{
+                <<"allow">> => [<<"other.>">>],
+                <<"deny">> => [<<"test.topic">>]
+            },
+            <<"sub">> => #{
+                <<"allow">> => [<<"bar.>">>],
+                <<"deny">> => [<<"foo.>">>]
+            }
+        }
+    },
+    JWT = build_test_jwt(Claims),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    InfoMsg = recv_info_frame(Client),
+    assert_auth_required(InfoMsg, true),
+    ok = emqx_nats_client:connect(Client, #{jwt => JWT}),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:publish(Client, <<"test.topic">>, <<"denied">>),
+    {ok, [Denied]} = emqx_nats_client:receive_message(Client),
+    assert_permissions_violation(Denied, publish, <<"test.topic">>),
+    ok = emqx_nats_client:publish(Client, <<"other.topic">>, <<"ok">>),
+    recv_ok_frame(Client),
+    ok = emqx_nats_client:subscribe(Client, <<"foo.topic">>, <<"sid-deny">>),
+    {ok, [SubDenied]} = emqx_nats_client:receive_message(Client),
+    assert_permissions_violation(SubDenied, subscribe, <<"foo.topic">>),
+    ok = emqx_nats_client:subscribe(Client, <<"bar.topic">>, <<"sid-allow">>),
+    recv_ok_frame(Client),
     emqx_nats_client:stop(Client).
 
 t_publish_authz(init, Config) ->
