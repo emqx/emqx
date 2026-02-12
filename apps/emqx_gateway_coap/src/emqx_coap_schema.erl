@@ -62,7 +62,10 @@ fields(coap) ->
         {blockwise,
             sc(
                 ref(coap_blockwise),
-                #{desc => ?DESC(coap_blockwise)}
+                #{
+                    desc => ?DESC(coap_blockwise),
+                    importance => ?IMPORTANCE_LOW
+                }
             )},
         {mountpoint, emqx_gateway_schema:mountpoint()},
         {listeners,
@@ -76,22 +79,38 @@ fields(coap_blockwise) ->
         {enable,
             sc(
                 boolean(),
-                #{default => true, desc => ?DESC(coap_blockwise_enable)}
+                #{
+                    default => true,
+                    desc => ?DESC(coap_blockwise_enable),
+                    importance => ?IMPORTANCE_LOW
+                }
             )},
         {max_block_size,
             sc(
                 block_size(),
-                #{default => 1024, desc => ?DESC(coap_blockwise_max_block_size)}
+                #{
+                    default => 1024,
+                    desc => ?DESC(coap_blockwise_max_block_size),
+                    importance => ?IMPORTANCE_LOW
+                }
             )},
         {max_body_size,
             sc(
                 emqx_schema:bytesize(),
-                #{default => <<"4MB">>, desc => ?DESC(coap_blockwise_max_body_size)}
+                #{
+                    default => <<"4MB">>,
+                    desc => ?DESC(coap_blockwise_max_body_size),
+                    importance => ?IMPORTANCE_LOW
+                }
             )},
         {exchange_lifetime,
             sc(
                 emqx_schema:timeout_duration_ms(),
-                #{default => <<"247s">>, desc => ?DESC(coap_blockwise_exchange_lifetime)}
+                #{
+                    default => <<"247s">>,
+                    desc => ?DESC(coap_blockwise_exchange_lifetime),
+                    importance => ?IMPORTANCE_LOW
+                }
             )}
     ].
 
