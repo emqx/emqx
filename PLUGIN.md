@@ -113,7 +113,7 @@ This mode uses **only `rebar3`** and does not involve Mix or `mix.exs`.
 
 ---
 
-## Plugin Development Inside the EMQX Monorepo (`contribute-*` Branches)
+## Plugin Development Inside the EMQX Monorepo (`plugins-*` Branches)
 
 This mode is intended for plugin development tightly coupled with a specific EMQX version.
 
@@ -124,8 +124,8 @@ This mode is intended for plugin development tightly coupled with a specific EMQ
    - Must also be the Erlang application name.
 
 2. **Check out the appropriate branch**
-   - Use a `contribute-??` branch matching the target EMQX version.
-   - Example: `contribute-61` for EMQX 6.1-based development.
+   - Use a `plugins-*` branch matching the target EMQX version.
+   - Example: `plugins-61` for EMQX 6.1-based development.
 
 3. **Generate the plugin application**
    ```bash

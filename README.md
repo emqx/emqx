@@ -1,6 +1,6 @@
 # EMQX
 
-You are looking at a `contribute-` branch. Contriute branches are used to develop non-GA
+You are looking at a `plugins-` branch. Plugins branches are used to develop non-GA
 EMQX plugins in the monorepo. These plugins are not included in the
 standard EMQX release package, but can be built as EMQX plugins and installed separately.
 
