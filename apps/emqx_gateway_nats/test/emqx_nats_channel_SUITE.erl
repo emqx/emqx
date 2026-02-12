@@ -422,6 +422,18 @@ t_nkey_decode_public_invalid_crc(_Config) ->
     Bad = toggle_last_base32_char(nkey_pub()),
     ?assertEqual({error, invalid_nkey_crc}, emqx_nats_nkey:decode_public(Bad)).
 
+t_nkey_decode_public_internal_prefix_mismatch(_Config) ->
+    %% Keep first 5 bits as "U", but use an invalid internal prefix byte.
+    Payload = <<16#A1, 0:256>>,
+    Crc = emqx_nats_nkey:crc16_xmodem(Payload),
+    BadNKey = emqx_nats_nkey:base32_encode(<<Payload/binary, Crc:16/little-unsigned>>),
+    ?assertMatch(<<$U, _/binary>>, BadNKey),
+    ?assertEqual({error, invalid_nkey_prefix}, emqx_nats_nkey:decode_public(BadNKey)).
+
+t_nkey_base32_encode_padding_branch(_Config) ->
+    %% Exercise the partial-bit branch in base32 encoding helper.
+    ?assertEqual(<<"A">>, emqx_nats_nkey:base32_encode(<<0:3>>)).
+
 t_nkey_verify_signature_ok(_Config) ->
     Nonce = <<"nonce">>,
     Sig = nkey_sig(Nonce),

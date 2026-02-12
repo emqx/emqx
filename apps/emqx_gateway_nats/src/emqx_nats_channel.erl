@@ -180,29 +180,19 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         auth_required => is_auth_required(ClientInfo),
         jetstream => false
     },
-    MsgContent = maybe_add_nkey_nonce(MsgContent0, ConnInfo),
+    MsgContent = emqx_nats_authn:maybe_add_nkey_nonce(MsgContent0, ConnInfo),
     #nats_frame{operation = ?OP_INFO, message = MsgContent}.
 
-is_auth_required(#{enable_authn := false}) ->
-    false;
-is_auth_required(#{enable_authn := true}) ->
-    nkey_auth_enabled() orelse token_auth_enabled() orelse gateway_auth_enabled().
+is_auth_required(ClientInfo) ->
+    emqx_nats_authn:is_auth_required(ClientInfo, nats_authn_ctx()).
 
-gateway_auth_enabled() ->
-    emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined.
-
-token_auth_enabled() ->
-    case token_auth_value() of
-        undefined -> false;
-        _ -> true
-    end.
-
-nkey_auth_enabled() ->
-    case nkey_auth_value() of
-        [] -> false;
-        undefined -> false;
-        _ -> true
-    end.
+nats_authn_ctx() ->
+    emqx_nats_authn:build_authn_ctx(
+        emqx_conf:get([gateway, nats, authn_token], undefined),
+        emqx_conf:get([gateway, nats, authn_nkeys], []),
+        emqx_conf:get([gateway, nats, authn_jwt], undefined),
+        emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined
+    ).
 
 tls_required_and_verify(ListenerId) ->
     F = fun(T, N) ->
@@ -405,65 +395,22 @@ auth_connect(
         false ->
             {ok, Channel};
         true ->
-            auth_connect_with_authn(
-                ConnParams,
-                ConnInfo,
-                Ctx,
-                ClientInfo,
-                Channel,
-                ClientId,
-                Username
-            )
-    end.
-
-auth_connect_with_authn(
-    ConnParams,
-    ConnInfo,
-    Ctx,
-    ClientInfo,
-    Channel,
-    ClientId,
-    Username
-) ->
-    case maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo) of
-        {ok, NClientInfo} ->
-            {ok, Channel#channel{clientinfo = NClientInfo}};
-        {skip, NClientInfo} ->
-            auth_connect_with_token(
-                ConnParams,
-                Ctx,
-                NClientInfo,
-                Channel,
-                ClientId,
-                Username
-            );
-        {error, Reason} ->
-            log_auth_failed("nkey_auth_failed", ClientId, Username, Reason),
-            {error, Reason}
-    end.
-
-auth_connect_with_token(
-    ConnParams,
-    Ctx,
-    ClientInfo,
-    Channel,
-    ClientId,
-    Username
-) ->
-    case maybe_token_auth(ConnParams, ClientInfo) of
-        {ok, NClientInfo} ->
-            {ok, Channel#channel{clientinfo = NClientInfo}};
-        {skip, NClientInfo} ->
-            auth_connect_with_gateway(
-                Ctx,
-                NClientInfo,
-                Channel,
-                ClientId,
-                Username
-            );
-        {error, Reason} ->
-            log_auth_failed("token_auth_failed", ClientId, Username, Reason),
-            {error, Reason}
+            Authn = nats_authn_ctx(),
+            case emqx_nats_authn:authenticate(ConnParams, ConnInfo, ClientInfo, Authn) of
+                {ok, NClientInfo} ->
+                    {ok, Channel#channel{clientinfo = NClientInfo}};
+                {continue, NClientInfo} ->
+                    auth_connect_with_gateway(
+                        Ctx,
+                        NClientInfo,
+                        Channel,
+                        ClientId,
+                        Username
+                    );
+                {error, {Method, Reason}} ->
+                    log_auth_failed(auth_failed_msg(Method), ClientId, Username, Reason),
+                    {error, Reason}
+            end
     end.
 
 auth_connect_with_gateway(Ctx, ClientInfo, Channel, ClientId, Username) ->
@@ -475,6 +422,13 @@ auth_connect_with_gateway(Ctx, ClientInfo, Channel, ClientId, Username) ->
             {error, Reason}
     end.
 
+auth_failed_msg(token) ->
+    "token_auth_failed";
+auth_failed_msg(nkey) ->
+    "nkey_auth_failed";
+auth_failed_msg(jwt) ->
+    "jwt_auth_failed".
+
 log_auth_failed(Msg, ClientId, Username, Reason) ->
     ?SLOG(warning, #{
         tag => ?TAG,
@@ -483,162 +437,6 @@ log_auth_failed(Msg, ClientId, Username, Reason) ->
         username => Username,
         reason => Reason
     }).
-
-maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo) ->
-    case nkey_auth_enabled() of
-        false ->
-            {skip, ClientInfo};
-        true ->
-            NKey = normalize_token(conn_param(ConnParams, <<"nkey">>)),
-            Sig = conn_param(ConnParams, <<"sig">>),
-            maybe_nkey_auth_params(NKey, Sig, ConnInfo, ClientInfo)
-    end.
-
-maybe_nkey_auth_params(undefined, _Sig, _ConnInfo, ClientInfo) ->
-    case token_auth_enabled() orelse gateway_auth_enabled() of
-        true -> {skip, ClientInfo};
-        false -> {error, nkey_required}
-    end;
-maybe_nkey_auth_params(_NKey, undefined, _ConnInfo, _ClientInfo) ->
-    {error, nkey_sig_required};
-maybe_nkey_auth_params(NKey, Sig, ConnInfo, ClientInfo) ->
-    case maps:get(nkey_nonce, ConnInfo, undefined) of
-        undefined ->
-            {error, nkey_nonce_unavailable};
-        Nonce ->
-            nkey_authenticate(NKey, Sig, Nonce, ClientInfo)
-    end.
-
-nkey_authenticate(NKey, Sig, Nonce, ClientInfo) ->
-    Allowed = nkey_auth_list(),
-    case nkey_allowed(NKey, Allowed) of
-        false ->
-            {error, invalid_nkey};
-        true ->
-            case emqx_nats_nkey:verify_signature(NKey, Sig, Nonce) of
-                {ok, _PubKey} ->
-                    {ok, ClientInfo#{
-                        auth_method => nkey,
-                        nkey => NKey,
-                        auth_expire_at => undefined
-                    }};
-                {error, Reason} ->
-                    {error, Reason}
-            end
-    end.
-
-maybe_token_auth(ConnParams, ClientInfo) ->
-    case token_auth_enabled() of
-        false ->
-            {skip, ClientInfo};
-        true ->
-            AuthToken = conn_param(ConnParams, <<"auth_token">>),
-            case normalize_token(AuthToken) of
-                undefined ->
-                    case gateway_auth_enabled() of
-                        true -> {skip, ClientInfo};
-                        false -> {error, token_required}
-                    end;
-                Token ->
-                    token_authenticate(Token, ClientInfo)
-            end
-    end.
-
-token_authenticate(Token, ClientInfo) ->
-    case token_auth_config() of
-        {ok, ConfigToken} ->
-            Type = token_type(ConfigToken),
-            case check_token(Type, ConfigToken, Token) of
-                true ->
-                    {ok, ClientInfo#{
-                        auth_method => token,
-                        token_type => Type,
-                        auth_expire_at => undefined
-                    }};
-                false ->
-                    {error, invalid_token}
-            end;
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-token_auth_config() ->
-    case token_auth_value() of
-        undefined ->
-            {error, token_disabled};
-        Token ->
-            {ok, Token}
-    end.
-
-check_token(plain, ConfigToken, Token) ->
-    emqx_passwd:compare_secure(ConfigToken, Token);
-check_token(bcrypt, ConfigToken, Token) ->
-    ensure_bcrypt_started(),
-    emqx_passwd:check_pass({bcrypt, ConfigToken}, ConfigToken, Token).
-
-ensure_bcrypt_started() ->
-    _ = application:ensure_all_started(bcrypt),
-    ok.
-
-normalize_token(undefined) ->
-    undefined;
-normalize_token(<<>>) ->
-    undefined;
-normalize_token(Token) when is_binary(Token) ->
-    Token;
-normalize_token(Token) ->
-    emqx_utils_conv:bin(Token).
-
-token_type(Token) ->
-    case is_bcrypt_token(Token) of
-        true -> bcrypt;
-        false -> plain
-    end.
-
-is_bcrypt_token(<<"$2a$", _/binary>>) ->
-    true;
-is_bcrypt_token(<<"$2b$", _/binary>>) ->
-    true;
-is_bcrypt_token(<<"$2y$", _/binary>>) ->
-    true;
-is_bcrypt_token(_) ->
-    false.
-
-token_auth_value() ->
-    Token0 = emqx_conf:get([gateway, nats, authn_token], undefined),
-    normalize_token(Token0).
-
-nkey_auth_value() ->
-    emqx_conf:get([gateway, nats, authn_nkeys], []).
-
-nkey_auth_list() ->
-    lists:map(fun emqx_nats_nkey:normalize/1, nkey_auth_value()).
-
-nkey_allowed(NKey, Allowed) ->
-    lists:member(emqx_nats_nkey:normalize(NKey), Allowed).
-
-ensure_nkey_nonce(Channel = #channel{conninfo = ConnInfo}) ->
-    case nkey_auth_enabled() of
-        true ->
-            case maps:get(nkey_nonce, ConnInfo, undefined) of
-                undefined ->
-                    Nonce = emqx_utils:rand_id(24),
-                    Channel#channel{conninfo = ConnInfo#{nkey_nonce => Nonce}};
-                _ ->
-                    Channel
-            end;
-        false ->
-            Channel
-    end.
-
-maybe_add_nkey_nonce(MsgContent, ConnInfo) ->
-    case maps:get(nkey_nonce, ConnInfo, undefined) of
-        undefined -> MsgContent;
-        Nonce -> MsgContent#{nonce => Nonce}
-    end.
-
-conn_param(ConnParams, Key) ->
-    maps:get(Key, ConnParams, undefined).
 
 ensure_connected(
     Channel = #channel{
@@ -749,7 +547,7 @@ handle_in(
 ) when (Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB) andalso ?ALLOW_PUB_SUB(ConnState) ->
     Subject = emqx_nats_frame:subject(Frame),
     Topic = nats_subject_to_pub_topic(Subject),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic) of
+    case authorize_with_jwt_first(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic, Subject) of
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         allow ->
@@ -782,11 +580,11 @@ handle_in(
                 fun check_subscribed_status/2,
                 fun check_sub_acl/2
             ],
-            {SId, Topic1},
+            {SId, Topic1, Subject},
             Channel
         )
     of
-        {ok, {_, TopicFilter}, NChannel} ->
+        {ok, {_, TopicFilter, _}, NChannel} ->
             TopicFilters = [TopicFilter],
             NTopicFilters = run_hooks(
                 Ctx,
@@ -904,7 +702,7 @@ to_atom_shutdown_reason({R, _}) when is_atom(R) ->
 %%--------------------------------------------------------------------
 %% Subs
 
-parse_topic_filter({SId, Topic}, Channel = #channel{conninfo = ConnInfo}) ->
+parse_topic_filter({SId, Topic, Subject}, Channel = #channel{conninfo = ConnInfo}) ->
     {ParsedTopic, SubOpts} = emqx_topic:parse(Topic),
     NSubOpts0 = SubOpts#{sub_props => #{sid => SId}},
     NSubOpts =
@@ -912,10 +710,10 @@ parse_topic_filter({SId, Topic}, Channel = #channel{conninfo = ConnInfo}) ->
             true -> NSubOpts0#{nl => 1};
             false -> NSubOpts0
         end,
-    {ok, {SId, {ParsedTopic, NSubOpts}}, Channel}.
+    {ok, {SId, {ParsedTopic, NSubOpts}, Subject}, Channel}.
 
 check_subscribed_status(
-    {SId, {ParsedTopic, _SubOpts}},
+    {SId, {ParsedTopic, _SubOpts}, _Subject},
     #channel{
         subscriptions = Subs,
         clientinfo = #{mountpoint := Mountpoint}
@@ -935,7 +733,7 @@ check_subscribed_status(
     end.
 
 check_sub_acl(
-    {_SId, {ParsedTopic, _SubOpts}},
+    {_SId, {ParsedTopic, _SubOpts}, Subject},
     #channel{
         ctx = Ctx,
         clientinfo = ClientInfo
@@ -943,7 +741,7 @@ check_sub_acl(
 ) ->
     %% QoS is not supported in stomp
     Action = ?AUTHZ_SUBSCRIBE,
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, ParsedTopic) of
+    case authorize_with_jwt_first(Ctx, ClientInfo, Action, ParsedTopic, Subject) of
         deny -> {error, acl_denied};
         allow -> ok
     end.
@@ -1133,7 +931,9 @@ handle_info(Info, Channel) ->
     {ok, Channel}.
 
 handle_after_init(Channel) ->
-    NChannel = ensure_nkey_nonce(Channel),
+    Authn = nats_authn_ctx(),
+    ConnInfo = emqx_nats_authn:ensure_nkey_nonce(Channel#channel.conninfo, Authn),
+    NChannel = Channel#channel{conninfo = ConnInfo},
     Replies = [{outgoing, info_frame(NChannel)}],
     {ok, Replies, NChannel}.
 
@@ -1418,6 +1218,111 @@ interval(keepalive_send_timer, #channel{conninfo = ConnInfo}) ->
 interval(keepalive_recv_timer, _) ->
     emqx_conf:get([gateway, nats, heartbeat_wait_timeout], ?KEEPALIVE_RECV_INTERVAL).
 
+authorize_with_jwt_first(Ctx, ClientInfo, Action, Topic, Subject) ->
+    case jwt_permissions_authorize(ClientInfo, Action, Subject) of
+        allow ->
+            allow;
+        deny ->
+            deny;
+        ignore ->
+            emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic)
+    end.
+
+jwt_permissions_authorize(
+    #{jwt_permissions := JWTPerms},
+    Action,
+    Subject
+) when is_map(JWTPerms) ->
+    JWTPermAction = action_to_jwt_permission(Action),
+    do_jwt_permissions_authorize(
+        JWTPermAction,
+        Subject,
+        map_get(JWTPerms, JWTPermAction, #{})
+    );
+jwt_permissions_authorize(_ClientInfo, _Action, _Subject) ->
+    ignore.
+
+action_to_jwt_permission(#{action_type := publish}) ->
+    publish;
+action_to_jwt_permission(#{action_type := subscribe}) ->
+    subscribe.
+
+do_jwt_permissions_authorize(Action, Subject, RuleMap0) ->
+    RuleMap = normalize_map(RuleMap0),
+    Allow = normalize_subject_list(map_get_any(RuleMap, [allow, <<"allow">>], [])),
+    Deny = normalize_subject_list(map_get_any(RuleMap, [deny, <<"deny">>], [])),
+    case {Allow, Deny} of
+        {[], []} ->
+            ignore;
+        _ ->
+            jwt_permission_decision(Action, Subject, Allow, Deny)
+    end.
+
+jwt_permission_decision(publish, Subject, Allow, Deny) ->
+    case jwt_publish_match_any(Subject, Deny) of
+        true ->
+            deny;
+        false ->
+            case Allow of
+                [] ->
+                    allow;
+                _ ->
+                    case jwt_publish_match_any(Subject, Allow) of
+                        true -> allow;
+                        false -> deny
+                    end
+            end
+    end;
+jwt_permission_decision(subscribe, Subject, Allow, Deny) ->
+    case jwt_subscribe_match_any(Subject, Deny, intersection) of
+        true ->
+            deny;
+        false ->
+            case Allow of
+                [] ->
+                    allow;
+                _ ->
+                    case jwt_subscribe_match_any(Subject, Allow, subset) of
+                        true -> allow;
+                        false -> deny
+                    end
+            end
+    end.
+
+jwt_publish_match_any(Subject, Rules) ->
+    Topic = nats_subject_to_pub_topic(Subject),
+    lists:any(
+        fun(Rule) ->
+            RuleFilter = nats_subject_to_filter(Rule),
+            try emqx_topic:match(Topic, RuleFilter) of
+                Result -> Result
+            catch
+                _:_ -> false
+            end
+        end,
+        Rules
+    ).
+
+jwt_subscribe_match_any(Subject, Rules, Mode) ->
+    TopicFilter = nats_subject_to_filter(Subject),
+    lists:any(
+        fun(Rule) ->
+            RuleFilter = nats_subject_to_filter(Rule),
+            try
+                case Mode of
+                    subset -> emqx_topic:is_subset(TopicFilter, RuleFilter);
+                    intersection -> emqx_topic:intersection(TopicFilter, RuleFilter) =/= false
+                end
+            catch
+                _:_ -> false
+            end
+        end,
+        Rules
+    ).
+
+nats_subject_to_filter(Subject) ->
+    emqx_nats_topic:nats_to_mqtt(Subject).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -1457,6 +1362,44 @@ is_no_local_enabled(#{conn_params := ConnParams}) ->
     end;
 is_no_local_enabled(_) ->
     false.
+
+normalize_subject_list(Values) when is_list(Values) ->
+    lists:filtermap(
+        fun
+            (undefined) ->
+                false;
+            (<<>>) ->
+                false;
+            (Value) when is_binary(Value) ->
+                {true, Value};
+            (Value) ->
+                case emqx_utils_conv:bin(Value) of
+                    <<>> -> false;
+                    Bin -> {true, Bin}
+                end
+        end,
+        Values
+    );
+normalize_subject_list(_) ->
+    [].
+
+map_get(Map, Key, Default) when is_map(Map) ->
+    maps:get(Key, Map, Default).
+
+map_get_any(Map, [Key | More], Default) when is_map(Map) ->
+    case maps:find(Key, Map) of
+        {ok, Value} ->
+            Value;
+        error ->
+            map_get_any(Map, More, Default)
+    end;
+map_get_any(_, [], Default) ->
+    Default.
+
+normalize_map(Map) when is_map(Map) ->
+    Map;
+normalize_map(_) ->
+    #{}.
 
 nats_subject_to_pub_topic(Subject) ->
     case emqx_nats_topic:validate_nats_subject(Subject) of
