@@ -85,11 +85,15 @@ open() ->
     Config = maps:merge(emqx_ds_schema:db_config_mq_messages(), #{
         storage => {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS}
     }),
-    maybe
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_LASTVALUE_DB, Config),
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, Config)
-    else
-        _ -> error(failed_to_open_mq_databases)
+    ok = open_db(?MQ_MESSAGE_LASTVALUE_DB, Config),
+    ok = open_db(?MQ_MESSAGE_REGULAR_DB, Config).
+
+open_db(DB, Config) ->
+    case emqx_ds:open_db(DB, Config) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            error({failed_to_open_mq_database, DB, Reason})
     end.
 
 -spec close() -> ok.
