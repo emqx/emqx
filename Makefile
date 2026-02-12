@@ -170,6 +170,19 @@ endif
 cover:
 	@env PROFILE=$(PROFILE)-test mix cover
 
+.PHONY: plugin-%
+plugin-%:
+	@if [ ! -d apps/$* ]; then \
+		echo "No such plugin app: apps/$*"; \
+		exit 1; \
+	fi
+	@if ! $(MAKE) -C apps/$* -n rel >/dev/null 2>&1; then \
+		echo "App apps/$* does not define a 'rel' target."; \
+		echo "Ensure it is generated from emqx-plugin-template or provides plugin packaging make rules."; \
+		exit 1; \
+	fi
+	@$(MAKE) -C apps/$* rel
+
 COMMON_DEPS := $(REBAR)
 
 .PHONY: $(REL_PROFILES)
