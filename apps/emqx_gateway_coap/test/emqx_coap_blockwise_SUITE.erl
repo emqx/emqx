@@ -377,8 +377,27 @@ t_blockwise_server_prepare_out_response_misc(_) ->
     {error, _ReplyErr, _BW5} =
         emqx_coap_blockwise:server_prepare_out_response(ReqOutRange, ReplyOk, {peer, 4}, BW0),
     ReplyNoToken = ReplyOk#coap_message{token = <<>>, payload = binary:copy(<<"B">>, 40)},
-    {chunked, _ReplyChunk, _BW6} =
+    {single, ReplyNoToken, _BW6} =
         emqx_coap_blockwise:server_prepare_out_response(undefined, ReplyNoToken, {peer, 4}, BW0),
+    ReqNoTokenBlock2 = Req#coap_message{
+        token = <<>>,
+        options = (Req#coap_message.options)#{block2 => {1, false, 16}}
+    },
+    {chunked, ReplyNoTokenBlock2, _BW7} =
+        emqx_coap_blockwise:server_prepare_out_response(
+            ReqNoTokenBlock2, ReplyNoToken, {peer, 4}, BW0
+        ),
+    ?assertEqual(
+        {1, true, 16}, emqx_coap_message:get_option(block2, ReplyNoTokenBlock2, undefined)
+    ),
+    ReqNoTokenOutRange = ReqNoTokenBlock2#coap_message{
+        options = (ReqNoTokenBlock2#coap_message.options)#{block2 => {5, false, 16}}
+    },
+    {error, ReplyNoTokenErr, _BW8} =
+        emqx_coap_blockwise:server_prepare_out_response(
+            ReqNoTokenOutRange, ReplyNoToken, {peer, 4}, BW0
+        ),
+    ?assertEqual({error, bad_option}, ReplyNoTokenErr#coap_message.method),
     ok.
 
 t_blockwise_client_in_response_branches(_) ->

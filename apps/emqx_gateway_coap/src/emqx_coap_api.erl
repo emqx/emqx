@@ -46,6 +46,7 @@ schema(?PREFIX ++ "/request") ->
             requestBody => request_body(),
             responses => #{
                 200 => coap_message(),
+                400 => error_codes(['BAD_REQUEST'], <<"Missing required parameter">>),
                 404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found")),
                 502 => error_codes(
                     ['CLIENT_BAD_RESPONSE'], <<"Client returned an invalid CoAP reply">>
@@ -60,36 +61,43 @@ schema(?PREFIX ++ "/request") ->
 request(post, #{body := Body, bindings := Bindings}) ->
     ClientId = maps:get(clientid, Bindings, undefined),
     Method = maps:get(<<"method">>, Body, get),
-    AtomCT = maps:get(<<"content_type">>, Body),
-    Token = maps:get(<<"token">>, Body, <<>>),
-    Payload = maps:get(<<"payload">>, Body, <<>>),
-    WaitTime = maps:get(<<"timeout">>, Body),
-    CT = erlang:atom_to_binary(AtomCT),
-    Payload2 = parse_payload(CT, Payload),
+    AtomCT = maps:get(<<"content_type">>, Body, undefined),
+    case AtomCT of
+        undefined ->
+            {400, #{code => 'BAD_REQUEST', message => <<"missing content_type">>}};
+        _ ->
+            Token = maps:get(<<"token">>, Body, <<>>),
+            Payload = maps:get(<<"payload">>, Body, <<>>),
+            WaitTime = maps:get(<<"timeout">>, Body),
+            CT = erlang:atom_to_binary(AtomCT),
+            Payload2 = parse_payload(CT, Payload),
 
-    Msg = emqx_coap_message:request(
-        con,
-        Method,
-        Payload2,
-        #{content_format => CT}
-    ),
+            Msg = emqx_coap_message:request(
+                con,
+                Method,
+                Payload2,
+                #{content_format => CT}
+            ),
 
-    Msg2 = Msg#coap_message{token = Token},
+            Msg2 = Msg#coap_message{token = Token},
 
-    case call_client(ClientId, Msg2, WaitTime) of
-        timeout ->
-            {504, #{code => 'CLIENT_NOT_RESPONSE'}};
-        not_found ->
-            {404, #{code => 'CLIENT_NOT_FOUND'}};
-        Response = #coap_message{} ->
-            {200, format_to_response(CT, Response)};
-        Other ->
-            ?SLOG(warning, #{
-                msg => "coap_client_bad_response",
-                clientid => ClientId,
-                response => Other
-            }),
-            {502, #{code => 'CLIENT_BAD_RESPONSE'}}
+            case call_client(ClientId, Msg2, WaitTime) of
+                timeout ->
+                    {504, #{code => 'CLIENT_NOT_RESPONSE'}};
+                not_found ->
+                    {404, #{code => 'CLIENT_NOT_FOUND'}};
+                {error, internal} ->
+                    {502, #{code => 'CLIENT_BAD_RESPONSE'}};
+                Response = #coap_message{} ->
+                    {200, format_to_response(CT, Response)};
+                Other ->
+                    ?SLOG(warning, #{
+                        msg => "coap_client_bad_response",
+                        clientid => ClientId,
+                        response => Other
+                    }),
+                    {502, #{code => 'CLIENT_BAD_RESPONSE'}}
+            end
     end.
 
 %%--------------------------------------------------------------------
@@ -168,7 +176,7 @@ call_client(ClientId, Msg, Timeout) ->
                 error => Error,
                 stacktrace => Trace
             }),
-            not_found
+            {error, internal}
     end.
 
 do_send_request(Channel, Msg, Timeout) ->
@@ -188,28 +196,35 @@ maybe_collect_block2(Channel, Req, Resp, Timeout) ->
 collect_block2(Channel, Ctx, Resp, Timeout, State0, N) ->
     case validate_block2_reply(Resp, N) of
         ok ->
-            case emqx_coap_blockwise:client_in_response(Ctx, Resp, State0) of
-                {deliver, FullResp, _State} ->
-                    FullResp;
-                {send_next, NextReq, State1} ->
-                    case block2_exceeds_max_body(Resp, State0, N) of
-                        true ->
-                            block2_too_large_reply(Ctx, Resp);
-                        false ->
-                            case do_send_request(Channel, NextReq, Timeout) of
-                                timeout ->
-                                    timeout;
-                                NextResp = #coap_message{} ->
-                                    collect_block2(Channel, Ctx, NextResp, Timeout, State1, N + 1);
-                                Other ->
-                                    Other
-                            end;
-                        {error, _} = Error ->
-                            Error
-                    end
-            end;
+            collect_block2_reply(Channel, Ctx, Resp, Timeout, State0, N);
         {error, _} = Error ->
             Error
+    end.
+
+collect_block2_reply(Channel, Ctx, Resp, Timeout, State0, N) ->
+    case emqx_coap_blockwise:client_in_response(Ctx, Resp, State0) of
+        {deliver, FullResp, _State} ->
+            FullResp;
+        {send_next, NextReq, State1} ->
+            maybe_send_next_block2(Channel, Ctx, Resp, NextReq, Timeout, State0, State1, N)
+    end.
+
+maybe_send_next_block2(Channel, Ctx, Resp, NextReq, Timeout, State0, State1, N) ->
+    case block2_exceeds_max_body(Resp, State0, N) of
+        true ->
+            block2_too_large_reply(Ctx, Resp);
+        false ->
+            send_next_block2(Channel, Ctx, NextReq, Timeout, State1, N)
+    end.
+
+send_next_block2(Channel, Ctx, NextReq, Timeout, State1, N) ->
+    case do_send_request(Channel, NextReq, Timeout) of
+        timeout ->
+            timeout;
+        NextResp = #coap_message{} ->
+            collect_block2(Channel, Ctx, NextResp, Timeout, State1, N + 1);
+        Other ->
+            Other
     end.
 
 validate_block2_reply(Resp, N) ->
@@ -227,14 +242,11 @@ validate_block2_reply(Resp, N) ->
 
 block2_exceeds_max_body(Resp, State, N) ->
     case emqx_coap_message:get_option(block2, Resp, undefined) of
-        {Num, true, Size} when is_integer(Num), Num >= 0, is_integer(Size), Size > 0 ->
+        {N, true, Size} when is_integer(Size), Size > 0 ->
             MaxBlocks = max_block2_blocks(State, Size),
-            case Num =:= N of
-                true -> (Num + 1) >= MaxBlocks;
-                false -> {error, invalid_block2_sequence}
-            end;
+            (N + 1) >= MaxBlocks;
         _ ->
-            {error, invalid_block2_option}
+            false
     end.
 
 max_block2_blocks(State, Size) ->

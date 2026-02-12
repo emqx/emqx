@@ -759,25 +759,20 @@ handle_request_protocol(
     Iter
 ) ->
     PeerKey = maps:get(peername, ConnInfo, undefined),
-    case emqx_coap_blockwise:server_followup_in(Msg, PeerKey, BW0) of
+    case emqx_coap_blockwise:server_incoming(Msg, PeerKey, BW0) of
         {reply, Reply, BW1} ->
             iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
         {error, Reply, BW1} ->
             iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
-        {pass, Msg1, BW1} ->
-            case emqx_coap_blockwise:server_in(Msg1, PeerKey, BW1) of
-                {continue, Reply, BW2} ->
-                    iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
-                {error, Reply, BW2} ->
-                    iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
-                {Tag, Msg2, BW2} when Tag =:= pass; Tag =:= complete ->
-                    do_handle_request_post(
-                        Msg2,
-                        Result#{request_msg => Msg2},
-                        Channel#channel{blockwise = BW2},
-                        Iter
-                    )
-            end
+        {continue, Reply, BW1} ->
+            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+        {Tag, Msg2, BW1} when Tag =:= pass; Tag =:= complete ->
+            do_handle_request_post(
+                Msg2,
+                Result#{request_msg => Msg2},
+                Channel#channel{blockwise = BW1},
+                Iter
+            )
     end;
 handle_request_protocol(
     delete,
@@ -867,7 +862,16 @@ maybe_prepare_block2_reply(Req, Reply, _PeerKey, BW) when
     {Reply, BW};
 maybe_prepare_block2_reply(Req, Reply, PeerKey, BW0) ->
     case emqx_coap_blockwise:server_prepare_out_response(Req, Reply, PeerKey, BW0) of
-        {_, Reply1, BW1} ->
+        {single, Reply1, BW1} ->
+            {Reply1, BW1};
+        {chunked, Reply1, BW1} ->
+            {Reply1, BW1};
+        {error, Reply1, BW1} ->
+            ?SLOG(warning, #{
+                msg => "blockwise_prepare_reply_error",
+                request => Req,
+                reply => Reply
+            }),
             {Reply1, BW1}
     end.
 

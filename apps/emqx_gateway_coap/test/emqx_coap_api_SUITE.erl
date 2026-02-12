@@ -248,6 +248,44 @@ t_send_request_api_block2_invalid_followup_sequence_fake_channel(_) ->
         erlang:exit(Pid, kill)
     end.
 
+t_send_request_api_block2_respects_disable_config(_) ->
+    KeyPath = [gateway, coap, blockwise, enable],
+    OldValue = emqx_config:find(KeyPath),
+    ok = emqx_config:force_put(KeyPath, false),
+    try
+        ClientId = <<"fake_block2_disabled">>,
+        Token = <<"fbdtok">>,
+        Resp0 = #coap_message{
+            type = ack,
+            method = {ok, content},
+            token = Token,
+            payload = <<"part">>,
+            options = #{block2 => {0, true, 16}}
+        },
+        {Pid, Cleanup} = start_fake_channel(ClientId, [Resp0]),
+        try
+            Body = #{
+                <<"method">> => get,
+                <<"token">> => Token,
+                <<"payload">> => <<>>,
+                <<"timeout">> => 50,
+                <<"content_type">> => 'text/plain'
+            },
+            {200, #{token := Token, payload := <<"part">>}} =
+                emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body})
+        after
+            Cleanup(),
+            erlang:exit(Pid, kill)
+        end
+    after
+        case OldValue of
+            {ok, Val} ->
+                ok = emqx_config:force_put(KeyPath, Val);
+            _ ->
+                ok = emqx_config:force_put(KeyPath, true)
+        end
+    end.
+
 t_send_request_api_non_coap_reply(_) ->
     ClientId = <<"fake_non_coap">>,
     Token = <<"nctok">>,
@@ -266,6 +304,17 @@ t_send_request_api_non_coap_reply(_) ->
         Cleanup(),
         erlang:exit(Pid, kill)
     end.
+
+t_send_request_api_missing_content_type(_) ->
+    ClientId = <<"fake_missing_ct">>,
+    Body = #{
+        <<"method">> => get,
+        <<"token">> => <<"mctok">>,
+        <<"payload">> => <<>>,
+        <<"timeout">> => 50
+    },
+    {400, #{code := 'BAD_REQUEST', message := <<"missing content_type">>}} =
+        emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body}).
 
 t_send_request_api_client_not_found(_) ->
     Path = emqx_mgmt_api_test_util:api_path(
@@ -360,7 +409,7 @@ t_send_request_api_exception(_) ->
             method => <<"get">>
         },
         Auth = emqx_mgmt_api_test_util:auth_header_(),
-        {error, {{"HTTP/1.1", 404, _}, _Headers, Body}} =
+        {error, {{"HTTP/1.1", 502, _}, _Headers, Body}} =
             emqx_mgmt_api_test_util:request_api(
                 post,
                 Path,
@@ -369,7 +418,7 @@ t_send_request_api_exception(_) ->
                 Req,
                 #{return_all => true}
             ),
-        #{<<"code">> := <<"CLIENT_NOT_FOUND">>} = emqx_utils_json:decode(Body)
+        #{<<"code">> := <<"CLIENT_BAD_RESPONSE">>} = emqx_utils_json:decode(Body)
     after
         ok = mria:create_table(Tab, [
             {type, bag},

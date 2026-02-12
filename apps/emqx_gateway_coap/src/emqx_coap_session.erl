@@ -154,7 +154,7 @@ deliver(
     Ctx,
     #session{} = Session
 ) ->
-    do_deliver(Delivers, Ctx, Session, #{blockwise => disabled}).
+    do_deliver(Delivers, Ctx, Session, undefined, undefined).
 
 deliver(
     Delivers,
@@ -163,7 +163,7 @@ deliver(
     BW0,
     PeerKey
 ) ->
-    do_deliver(Delivers, Ctx, Session, #{blockwise => {enabled, BW0, PeerKey}}).
+    do_deliver(Delivers, Ctx, Session, BW0, PeerKey).
 
 do_deliver(
     Delivers,
@@ -172,9 +172,9 @@ do_deliver(
         observe_manager = OM,
         transport_manager = TM
     } = Session,
-    Mode
+    BW0,
+    PeerKey
 ) ->
-    {BW0, PeerKey} = blockwise_ctx(Mode),
     Fun = fun({_, Topic, Message}, {OutAcc, OMAcc, TMAcc, BWAcc} = Acc) ->
         case emqx_coap_observe_res:res_changed(Topic, OMAcc) of
             undefined ->
@@ -186,24 +186,19 @@ do_deliver(
                 Msg0 = mqtt_to_coap(Message, Token, SeqId),
                 {Msg, BW2} = maybe_split_notify_block2(Msg0, PeerKey, BWAcc, Ctx),
                 #{out := Out, tm := TM2} = emqx_coap_tm:handle_out(Msg, TMAcc),
-                {Out ++ OutAcc, OM2, TM2, BW2}
+                {[Out | OutAcc], OM2, TM2, BW2}
         end
     end,
     {Outs, OM2, TM2, BW2} = lists:foldl(Fun, {[], OM, TM, BW0}, lists:reverse(Delivers)),
 
     BaseResult = #{
-        out => lists:reverse(Outs),
+        out => lists:flatten(lists:reverse(Outs)),
         session => Session#session{
             observe_manager = OM2,
             transport_manager = TM2
         }
     },
     maybe_attach_blockwise_result(BaseResult, BW0, BW2).
-
-blockwise_ctx(#{blockwise := {enabled, BW0, PeerKey}}) ->
-    {BW0, PeerKey};
-blockwise_ctx(_) ->
-    {undefined, undefined}.
 
 maybe_attach_blockwise_result(BaseResult, BW0, BW2) when is_map(BW0) ->
     BaseResult#{blockwise => BW2};

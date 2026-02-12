@@ -599,22 +599,17 @@ call_handler(
     request, Msg, Result, #channel{blockwise = BW0, conninfo = ConnInfo, ctx = Ctx} = Channel, Iter
 ) ->
     PeerKey = maps:get(peername, ConnInfo, undefined),
-    case emqx_coap_blockwise:server_followup_in(Msg, PeerKey, BW0) of
+    case emqx_coap_blockwise:server_incoming(Msg, PeerKey, BW0) of
         {reply, Reply, BW1} ->
             maybe_inc_block2_completed(Reply, Ctx),
             iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
         {error, Reply, BW1} ->
             metrics_inc('blockwise.tx_block2.failed', Ctx),
             iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
-        {pass, Msg1, BW1} ->
-            case emqx_coap_blockwise:server_in(Msg1, PeerKey, BW1) of
-                {continue, Reply, BW2} ->
-                    iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
-                {error, Reply, BW2} ->
-                    iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW2});
-                {Tag, Msg2, BW2} when Tag =:= pass; Tag =:= complete ->
-                    do_call_handler_request(Msg2, Result, Channel#channel{blockwise = BW2}, Iter)
-            end
+        {continue, Reply, BW1} ->
+            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+        {Tag, Msg2, BW1} when Tag =:= pass; Tag =:= complete ->
+            do_call_handler_request(Msg2, Result, Channel#channel{blockwise = BW1}, Iter)
     end;
 call_handler(response, {{send_request, From}, Response}, Result, Channel, Iter) ->
     gen_server:reply(From, Response),
