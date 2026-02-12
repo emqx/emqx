@@ -39,7 +39,7 @@ gateway_schema(_Method) ->
         'requestBody' => #{
             content => #{
                 'application/json' => #{
-                    schema => hoconsc:mk(map())
+                    schema => #{type => object}
                 }
             }
         }
