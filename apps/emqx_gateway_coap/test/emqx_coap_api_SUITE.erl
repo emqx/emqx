@@ -182,6 +182,72 @@ t_send_request_api_block2_other_followup_fake_channel(_) ->
         erlang:exit(Pid, kill)
     end.
 
+t_send_request_api_block2_invalid_followup_option_fake_channel(_) ->
+    ClientId = <<"fake_invalid_block2_option">>,
+    Token = <<"fivopt">>,
+    Resp0 = #coap_message{
+        type = ack,
+        method = {ok, content},
+        token = Token,
+        payload = <<"part1">>,
+        options = #{block2 => {0, true, 16}}
+    },
+    Resp1 = #coap_message{
+        type = ack,
+        method = {ok, content},
+        token = Token,
+        payload = <<"part2">>,
+        options = #{}
+    },
+    {Pid, Cleanup} = start_fake_channel(ClientId, [Resp0, Resp1]),
+    try
+        Body = #{
+            <<"method">> => get,
+            <<"token">> => Token,
+            <<"payload">> => <<>>,
+            <<"timeout">> => 50,
+            <<"content_type">> => 'text/plain'
+        },
+        {502, #{code := 'CLIENT_BAD_RESPONSE'}} =
+            emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body})
+    after
+        Cleanup(),
+        erlang:exit(Pid, kill)
+    end.
+
+t_send_request_api_block2_invalid_followup_sequence_fake_channel(_) ->
+    ClientId = <<"fake_invalid_block2_sequence">>,
+    Token = <<"fivseq">>,
+    Resp0 = #coap_message{
+        type = ack,
+        method = {ok, content},
+        token = Token,
+        payload = <<"part1">>,
+        options = #{block2 => {0, true, 16}}
+    },
+    Resp1 = #coap_message{
+        type = ack,
+        method = {ok, content},
+        token = Token,
+        payload = <<"part2">>,
+        options = #{block2 => {2, false, 16}}
+    },
+    {Pid, Cleanup} = start_fake_channel(ClientId, [Resp0, Resp1]),
+    try
+        Body = #{
+            <<"method">> => get,
+            <<"token">> => Token,
+            <<"payload">> => <<>>,
+            <<"timeout">> => 50,
+            <<"content_type">> => 'text/plain'
+        },
+        {502, #{code := 'CLIENT_BAD_RESPONSE'}} =
+            emqx_coap_api:request(post, #{bindings => #{clientid => ClientId}, body => Body})
+    after
+        Cleanup(),
+        erlang:exit(Pid, kill)
+    end.
+
 t_send_request_api_non_coap_reply(_) ->
     ClientId = <<"fake_non_coap">>,
     Token = <<"nctok">>,

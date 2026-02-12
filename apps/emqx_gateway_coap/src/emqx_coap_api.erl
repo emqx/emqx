@@ -184,29 +184,56 @@ maybe_collect_block2(Channel, Req, Resp, Timeout) ->
     collect_block2(Channel, Ctx, Resp, Timeout, State0, 0).
 
 collect_block2(Channel, Ctx, Resp, Timeout, State0, N) ->
-    case emqx_coap_blockwise:client_in_response(Ctx, Resp, State0) of
-        {deliver, FullResp, _State} ->
-            FullResp;
-        {send_next, NextReq, State1} ->
-            case block2_exceeds_max_body(Resp, State0) of
-                true ->
-                    block2_too_large_reply(Ctx, Resp);
-                false ->
-                    case do_send_request(Channel, NextReq, Timeout) of
-                        timeout ->
-                            timeout;
-                        NextResp = #coap_message{} ->
-                            collect_block2(Channel, Ctx, NextResp, Timeout, State1, N + 1);
-                        Other ->
-                            Other
+    case validate_block2_reply(Resp, N) of
+        ok ->
+            case emqx_coap_blockwise:client_in_response(Ctx, Resp, State0) of
+                {deliver, FullResp, _State} ->
+                    FullResp;
+                {send_next, NextReq, State1} ->
+                    case block2_exceeds_max_body(Resp, State0, N) of
+                        true ->
+                            block2_too_large_reply(Ctx, Resp);
+                        false ->
+                            case do_send_request(Channel, NextReq, Timeout) of
+                                timeout ->
+                                    timeout;
+                                NextResp = #coap_message{} ->
+                                    collect_block2(Channel, Ctx, NextResp, Timeout, State1, N + 1);
+                                Other ->
+                                    Other
+                            end;
+                        {error, _} = Error ->
+                            Error
                     end
-            end
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
-block2_exceeds_max_body(Resp, State) ->
-    {Num, true, Size} = emqx_coap_message:get_option(block2, Resp, undefined),
-    MaxBlocks = max_block2_blocks(State, Size),
-    (Num + 1) >= MaxBlocks.
+validate_block2_reply(Resp, N) ->
+    case emqx_coap_message:get_option(block2, Resp, undefined) of
+        undefined when N =:= 0 ->
+            ok;
+        {Num, _More, Size} when is_integer(Num), Num >= 0, is_integer(Size), Size > 0 ->
+            case Num =:= N of
+                true -> ok;
+                false -> {error, invalid_block2_sequence}
+            end;
+        _ ->
+            {error, invalid_block2_option}
+    end.
+
+block2_exceeds_max_body(Resp, State, N) ->
+    case emqx_coap_message:get_option(block2, Resp, undefined) of
+        {Num, true, Size} when is_integer(Num), Num >= 0, is_integer(Size), Size > 0 ->
+            MaxBlocks = max_block2_blocks(State, Size),
+            case Num =:= N of
+                true -> (Num + 1) >= MaxBlocks;
+                false -> {error, invalid_block2_sequence}
+            end;
+        _ ->
+            {error, invalid_block2_option}
+    end.
 
 max_block2_blocks(State, Size) ->
     MaxBody = emqx_coap_blockwise:max_body_size(State),
