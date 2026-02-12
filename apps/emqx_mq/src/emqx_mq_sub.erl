@@ -347,19 +347,16 @@ handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
     },
     reset_consumer_timeout_timer(reset_ping_timer(Sub)).
 
-handle_messages(Sub, Msgs) ->
-    lists:foldl(fun handle_message/2, Sub, Msgs).
-
-handle_message(
-    Msg,
+handle_messages(
     #{
         status := #connected{
             buffer = Buffer0, inflight = Inflight, publish_retry_tref = PublishRetryTRef, mq = MQ
         } = Status
-    } = Sub0
+    } = Sub0,
+    Msgs
 ) ->
-    ?tp_debug(mq_sub_messages, #{sub => inspect(Sub0), message => Msg}),
-    Buffer = emqx_mq_sub_buffer:add(Buffer0, Msg),
+    ?tp_debug(mq_sub_messages, #{sub => inspect(Sub0), messages => Msgs}),
+    Buffer = emqx_mq_sub_buffer:add(Buffer0, Msgs),
     Sub =
         case PublishRetryTRef of
             undefined ->
@@ -381,7 +378,7 @@ do_handle_ack(
 ) ->
     ?tp_debug(mq_sub_handle_nack, #{sub => inspect(Sub0), message_id => MessageId}),
     Message = maps:get(MessageId, Inflight0),
-    Buffer = emqx_mq_sub_buffer:add(Buffer0, Message),
+    Buffer = emqx_mq_sub_buffer:add(Buffer0, [Message]),
     Inflight = maps:remove(MessageId, Inflight0),
     Sub =
         case map_size(Inflight) of

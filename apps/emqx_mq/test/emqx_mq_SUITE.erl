@@ -1353,6 +1353,47 @@ t_allow_only_mqtt_v5(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+%% Verify the situation when the consumer accumulates a large number of messages in the buffer
+%% and then a client connects. It must not be overwhelmed by the messages.
+t_large_consumer_buffer(_Config) ->
+    %% Create a queue
+    #{id := MQId} = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"large_consumer_buffer">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        consumer_max_inactive => 900_000,
+        stream_max_buffer_size => 100_000,
+        stream_max_unacked => 100_000,
+        limits => #{
+            max_shard_message_count => infinity,
+            max_shard_message_bytes => infinity
+        }
+    }),
+
+    %% Ensure that the consumer is started
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"large_consumer_buffer">>),
+    emqtt:disconnect(CSub0),
+
+    %% Publish a large number of messages to the queue
+    emqx_mq_test_utils:populate(5000, #{topic_prefix => <<"t/">>, qos => ?QOS_0}),
+    ct:sleep(1000),
+
+    %% Verify that the consumer buffered enough messages in the outbound buffer
+    {ok, ConsumerRef} = emqx_mq_consumer:find(MQId),
+    ConsumerInfo = emqx_mq_consumer:inspect(ConsumerRef, 1000),
+    ?assertMatch(#{server := #{messages := 5000}}, ConsumerInfo),
+
+    %% Connect a new client and subscribe to the queue
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"large_consumer_buffer">>),
+
+    %% Drain the messages, we should receive all messages without problems
+    {ok, _Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 5000, _Timeout = 1000),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
