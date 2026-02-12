@@ -1,11 +1,5 @@
 # EMQX
 
-You are looking at a `plugins-` branch. Plugins branches are used to develop non-GA
-EMQX plugins in the monorepo. These plugins are not included in the
-standard EMQX release package, but can be built as EMQX plugins and installed separately.
-
-For plugin development details, see [PLUGIN.md](./PLUGIN.md).
-
 [![GitHub Release](https://img.shields.io/github/release/emqx/emqx?color=brightgreen&label=Release)](https://github.com/emqx/emqx/releases)
 [![Build Status](https://github.com/emqx/emqx/actions/workflows/_push-entrypoint.yaml/badge.svg)](https://github.com/emqx/emqx/actions/workflows/_push-entrypoint.yaml)
 [![Slack](https://img.shields.io/badge/Slack-EMQ-39AE85?logo=slack)](https://slack-invite.emqx.io/)
