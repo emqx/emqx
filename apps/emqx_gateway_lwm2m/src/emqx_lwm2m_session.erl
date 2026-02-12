@@ -572,11 +572,6 @@ deliver_auto_observe_to_coap(AlternatePath, TermData, _WithContext, Session) ->
     Req = alloc_token(Req0),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
-intersect_object_list(ObjectList, RegObjectList) when is_list(RegObjectList) ->
-    [Item || Item <- ObjectList, lists:member(Item, RegObjectList)];
-intersect_object_list(_ObjectList, _RegObjectList) ->
-    [].
-
 filter_ignore_object(ObjectList) when is_list(ObjectList) ->
     lists:filter(
         fun(ObjectPath) ->
@@ -596,7 +591,8 @@ auto_observe_object_list(false, _RegInfo) ->
 auto_observe_object_list(true, RegInfo) ->
     filter_ignore_object(maps:get(<<"objectList">>, RegInfo, []));
 auto_observe_object_list(ObjectList, RegInfo) when is_list(ObjectList) ->
-    intersect_object_list(ObjectList, maps:get(<<"objectList">>, RegInfo, [])).
+    RegObjectList = maps:get(<<"objectList">>, RegInfo, []),
+    [Item || Item <- ObjectList, lists:member(Item, RegObjectList)].
 
 auto_observe_mode() ->
     normalize_auto_observe(emqx:get_config([gateway, lwm2m, auto_observe])).

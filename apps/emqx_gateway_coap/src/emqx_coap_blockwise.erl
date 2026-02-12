@@ -730,10 +730,14 @@ expires_at(State) ->
 normalize_opts(Opts0) ->
     OptValues = [
         {enable, maps:get(enable, Opts0, true)},
-        {max_block_size, normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))},
-        {max_body_size, normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))},
+        {max_block_size,
+            normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))},
+        {max_body_size,
+            normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))},
         {exchange_lifetime,
-            normalize_exchange_lifetime(maps:get(exchange_lifetime, Opts0, ?DEFAULT_EXCHANGE_LIFETIME))}
+            normalize_exchange_lifetime(
+                maps:get(exchange_lifetime, Opts0, ?DEFAULT_EXCHANGE_LIFETIME)
+            )}
     ],
     lists:foldl(fun({Key, Value}, Acc) -> put_if_defined(Acc, Key, Value) end, #{}, OptValues).
 

@@ -47,7 +47,9 @@ schema(?PREFIX ++ "/request") ->
             responses => #{
                 200 => coap_message(),
                 404 => error_codes(['CLIENT_NOT_FOUND'], ?DESC("client_not_found")),
-                502 => error_codes(['CLIENT_BAD_RESPONSE'], <<"Client returned an invalid CoAP reply">>),
+                502 => error_codes(
+                    ['CLIENT_BAD_RESPONSE'], <<"Client returned an invalid CoAP reply">>
+                ),
                 504 => error_codes(
                     ['CLIENT_NOT_RESPONSE'], ?DESC("client_not_response_timeout")
                 )

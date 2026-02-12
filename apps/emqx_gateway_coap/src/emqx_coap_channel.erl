@@ -404,17 +404,17 @@ ensure_keepalive_timer(Fun, #channel{keepalive = KeepAlive} = Channel) ->
 check_auth_state(Msg, #channel{connection_required = false} = Channel) ->
     call_session(handle_request, Msg, Channel);
 check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
-            case is_create_connection_request(Msg) of
-                true ->
-                    call_session(handle_request, Msg, Channel);
-                false ->
-                    URIQuery = emqx_coap_message:extract_uri_query(Msg),
-                    case get_query_value(<<"token">>, URIQuery) of
-                        undefined ->
-                            %% Connection mode policy: reject requests without token/clientid.
-                            ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
-                            ErrMsg = <<"Missing token or clientid in connection mode">>,
-                            Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
+    case is_create_connection_request(Msg) of
+        true ->
+            call_session(handle_request, Msg, Channel);
+        false ->
+            URIQuery = emqx_coap_message:extract_uri_query(Msg),
+            case get_query_value(<<"token">>, URIQuery) of
+                undefined ->
+                    %% Connection mode policy: reject requests without token/clientid.
+                    ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
+                    ErrMsg = <<"Missing token or clientid in connection mode">>,
+                    Reply = emqx_coap_message:piggyback({error, bad_request}, ErrMsg, Msg),
                     {ok, {outgoing, Reply}, Channel};
                 _ ->
                     check_token(Msg, Channel)
