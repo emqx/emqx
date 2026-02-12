@@ -866,7 +866,9 @@ create_dry_run_helper(Namespace, ConfRootKey, BridgeV2Type, ConnectorRawConf, Br
                         #{status := ?status_connected} ->
                             ok;
                         #{status := Status, error := Error} ->
-                            {error, {Status, Error}}
+                            {error, {Status, Error}};
+                        {error, Reason} ->
+                            {error, {?status_disconnected, Reason}}
                     end
             end
         end,

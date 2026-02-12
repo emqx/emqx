@@ -504,10 +504,11 @@ list_group(Group) ->
 health_check(ResId) ->
     safe_call(ResId, #manual_resource_health_check{}, ?T_OPERATION).
 
-%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
-%% process.  Avoid doing manual health checks outside tests.
+%% N.B.: This ONLY for tests (and probes); actual health checks should be triggered by
+%% timers in the process.  Avoid doing manual health checks outside tests.
 -spec channel_health_check(resource_id(), channel_id()) ->
-    #{status := resource_status(), error := term()}.
+    #{status := resource_status(), error := term()}
+    | {error, not_found | timeout}.
 channel_health_check(ResId, ChannelId) ->
     %% Do normal health check first to trigger health checks for channels
     %% and update the cached health status for the channels
