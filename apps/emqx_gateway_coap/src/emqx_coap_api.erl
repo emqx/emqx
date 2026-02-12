@@ -179,7 +179,7 @@ do_send_request(Channel, Msg, Timeout) ->
     end.
 
 maybe_collect_block2(Channel, Req, Resp, Timeout) ->
-    State0 = emqx_coap_blockwise:new(coap_blockwise_opts()),
+    State0 = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(coap)),
     Ctx = #{request => Req},
     collect_block2(Channel, Ctx, Resp, Timeout, State0, 0).
 
@@ -214,15 +214,3 @@ max_block2_blocks(State, Size) ->
 
 block2_too_large_reply(#{request := Req0}, _Resp) when is_record(Req0, coap_message) ->
     emqx_coap_message:piggyback({error, request_entity_too_large}, Req0).
-
-coap_blockwise_opts() ->
-    BlockwiseCfg = emqx:get_config([gateway, coap, blockwise], #{}),
-    maps:merge(
-        #{
-            enable => true,
-            max_block_size => 1024,
-            max_body_size => 4 * 1024 * 1024,
-            exchange_lifetime => 247000
-        },
-        BlockwiseCfg
-    ).

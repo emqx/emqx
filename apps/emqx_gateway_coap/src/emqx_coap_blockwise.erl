@@ -6,6 +6,7 @@
 
 -export([
     new/1,
+    default_opts/1,
     server_in/3,
     server_followup_in/3,
     server_prepare_out_response/4,
@@ -51,6 +52,23 @@ new(Opts0) ->
         client_tx_block1 => #{},
         client_rx_block2 => #{},
         client_req => #{}
+    }.
+
+-spec default_opts(coap | lwm2m) -> map().
+default_opts(coap) ->
+    BlockwiseCfg = emqx:get_config([gateway, coap, blockwise], #{}),
+    maps:merge(base_default_opts(), BlockwiseCfg);
+default_opts(lwm2m) ->
+    BlockwiseCfg = emqx:get_config([gateway, lwm2m, blockwise], #{}),
+    LegacyMaxSize = emqx:get_config([gateway, lwm2m, coap_max_block_size], ?DEFAULT_MAX_BLOCK_SIZE),
+    maps:merge((base_default_opts())#{max_block_size => LegacyMaxSize}, BlockwiseCfg).
+
+base_default_opts() ->
+    #{
+        enable => true,
+        max_block_size => ?DEFAULT_MAX_BLOCK_SIZE,
+        max_body_size => ?DEFAULT_MAX_BODY_SIZE,
+        exchange_lifetime => ?DEFAULT_EXCHANGE_LIFETIME
     }.
 
 -spec enabled(state()) -> boolean().

@@ -152,7 +152,7 @@ init(
         keepalive = emqx_keepalive:init(Heartbeat),
         connection_required = maps:get(connection_required, Config, false),
         conn_state = idle,
-        blockwise = emqx_coap_blockwise:new(coap_blockwise_opts())
+        blockwise = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(coap))
     }.
 
 validator(Action, Topic, Ctx, ClientInfo) ->
@@ -638,17 +638,6 @@ do_call_handler_request(Msg, Result, Channel, Iter) ->
         Channel
     ).
 
-coap_blockwise_opts() ->
-    BlockwiseCfg = emqx:get_config([gateway, coap, blockwise], #{}),
-    maps:merge(
-        #{
-            enable => true,
-            max_block_size => 1024,
-            max_body_size => 4 * 1024 * 1024,
-            exchange_lifetime => 247000
-        },
-        BlockwiseCfg
-    ).
 process_session(Session, Result, Channel, Iter) ->
     iter(Iter, Result, Channel#channel{session = Session}).
 process_blockwise(BW, Result, Channel, Iter) ->

@@ -150,7 +150,7 @@ new() ->
         cmd_record = #{queue => queue:new()},
         lifetime = emqx:get_config([gateway, lwm2m, lifetime_max]),
         subscriptions = #{},
-        blockwise = emqx_coap_blockwise:new(lwm2m_blockwise_opts()),
+        blockwise = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(lwm2m)),
         blockwise_downlink = undefined
     }.
 
@@ -1009,19 +1009,6 @@ get_expiry_time(#message{
     Ts + Interval * 1000;
 get_expiry_time(_) ->
     0.
-
-lwm2m_blockwise_opts() ->
-    BlockwiseCfg = emqx:get_config([gateway, lwm2m, blockwise], #{}),
-    LegacyMaxSize = emqx:get_config([gateway, lwm2m, coap_max_block_size], 1024),
-    maps:merge(
-        #{
-            enable => true,
-            max_block_size => LegacyMaxSize,
-            max_body_size => 4 * 1024 * 1024,
-            exchange_lifetime => 247000
-        },
-        BlockwiseCfg
-    ).
 
 %%--------------------------------------------------------------------
 %% Send CMD

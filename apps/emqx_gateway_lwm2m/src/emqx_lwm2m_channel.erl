@@ -157,7 +157,7 @@ init(
         session = emqx_lwm2m_session:new(),
         conn_state = idle,
         with_context = with_context(Ctx, ClientInfo),
-        blockwise = emqx_coap_blockwise:new(lwm2m_blockwise_opts())
+        blockwise = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(lwm2m))
     }.
 
 lookup_cmd(Channel, Path, Action) ->
@@ -808,19 +808,6 @@ do_handle_request_post(#coap_message{options = Opts} = Msg, Result, Channel, Ite
         _ ->
             iter(Iter, reply({error, not_found}, Msg, Result), Channel)
     end.
-
-lwm2m_blockwise_opts() ->
-    BlockwiseCfg = emqx:get_config([gateway, lwm2m, blockwise], #{}),
-    LegacyMaxSize = emqx:get_config([gateway, lwm2m, coap_max_block_size], 1024),
-    maps:merge(
-        #{
-            enable => true,
-            max_block_size => LegacyMaxSize,
-            max_body_size => 4 * 1024 * 1024,
-            exchange_lifetime => 247000
-        },
-        BlockwiseCfg
-    ).
 
 do_update(
     Location,
