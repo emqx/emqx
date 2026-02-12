@@ -304,6 +304,8 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}
 
+  def common_dep(:egbk), do: {:egbk, github: "emqx/egbk-conv", tag: "0.1.1", override: true}
+
   def common_dep(:proper),
     # TODO: {:proper, "1.5.0"}, when it's published to hex.pm
     do: {:proper, github: "proper-testing/proper", tag: "v1.5.0", override: true}

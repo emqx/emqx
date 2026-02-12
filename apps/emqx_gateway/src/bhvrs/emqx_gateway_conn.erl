@@ -303,7 +303,7 @@ init_state(WrappedSock, Peername, Options, FrameMod, ChannMod) ->
     Limiter = undefined,
     FrameOpts = emqx_gateway_utils:frame_options(Options),
     ParseState = FrameMod:initial_parse_state(FrameOpts),
-    Serialize = FrameMod:serialize_opts(),
+    Serialize = get_serialize_opts(FrameMod, FrameOpts),
     Channel = ChannMod:init(ConnInfo, Options),
     GcState = emqx_gateway_utils:init_gc_state(Options),
     StatsTimer = emqx_gateway_utils:stats_timer(Options),
@@ -346,6 +346,14 @@ run_loop(
         {error, Reason} ->
             ok = esockd_close(Socket),
             exit_on_sock_error(Reason)
+    end.
+
+%% @doc Get serialize options from frame module.
+%% Try serialize_opts/1 first (with frame options), fall back to serialize_opts/0.
+get_serialize_opts(FrameMod, FrameOpts) ->
+    case erlang:function_exported(FrameMod, serialize_opts, 1) of
+        true -> FrameMod:serialize_opts(FrameOpts);
+        false -> FrameMod:serialize_opts()
     end.
 
 -spec exit_on_sock_error(atom()) -> no_return().
@@ -706,7 +714,12 @@ parse_incoming(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "received_data", data => Data}),
+    ?SLOG(debug, #{
+        msg => "received_data",
+        size => iolist_size(Data),
+        type => "hex",
+        bin => binary_to_list(binary:encode_hex(Data))
+    }),
     Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
@@ -729,7 +742,7 @@ parse_incoming(Data, Packets, State) ->
             ?SLOG(error, #{
                 msg => "parse_frame_failed",
                 at_state => ParseState,
-                input_bytes => Data,
+                input_bytes => binary_to_list(binary:encode_hex(Data)),
                 reason => Reason,
                 stacktrace => Stack
             }),
@@ -853,7 +866,12 @@ send(
         channel = Channel
     }
 ) ->
-    ?SLOG(debug, #{msg => "send_data", data => IoData}),
+    ?SLOG(debug, #{
+        msg => "send_data",
+        size => iolist_size(IoData),
+        type => "hex",
+        iodata => IoData
+    }),
     Ctx = ChannMod:info(ctx, Channel),
     Oct = iolist_size(IoData),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),
