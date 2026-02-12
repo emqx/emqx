@@ -562,7 +562,7 @@ observe_object(AlternatePath, ObjectPath, WithContext, Session) ->
     },
     deliver_auto_observe_to_coap(AlternatePath, Payload, WithContext, Session).
 
-deliver_auto_observe_to_coap(AlternatePath, TermData, WithContext, Session) ->
+deliver_auto_observe_to_coap(AlternatePath, TermData, _WithContext, Session) ->
     ?SLOG(info, #{
         msg => "send_auto_observe",
         path => AlternatePath,
@@ -570,7 +570,7 @@ deliver_auto_observe_to_coap(AlternatePath, TermData, WithContext, Session) ->
     }),
     {Req0, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     Req = alloc_token(Req0),
-    maybe_do_deliver_to_coap(Ctx, Req, 0, false, WithContext, Session).
+    maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
 
 intersect_object_list(ObjectList, RegObjectList) when is_list(RegObjectList) ->
     [Item || Item <- ObjectList, lists:member(Item, RegObjectList)];
@@ -931,7 +931,7 @@ deliver_to_coap(AlternatePath, TermData, MQTT, CacheMode, WithContext, Session) 
         {Req, Ctx} ->
             ExpiryTime = get_expiry_time(MQTT),
             Session2 = record_request(Ctx, Session),
-            maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, WithContext, Session2);
+            maybe_do_deliver_to_coap(Ctx, Req, ExpiryTime, CacheMode, Session2);
         {error, {bad_request, Reason}, Ctx} ->
             ?SLOG(warning, #{
                 msg => "lwm2m_cmd_bad_request",
@@ -949,7 +949,6 @@ maybe_do_deliver_to_coap(
     Req,
     ExpiryTime,
     CacheMode,
-    _WithContext,
     #session{
         wait_ack = WaitAck,
         queue = Queue
@@ -1013,13 +1012,13 @@ get_expiry_time(_) ->
 %%--------------------------------------------------------------------
 %% Send CMD
 %%--------------------------------------------------------------------
-send_cmd_impl(Cmd, WithContext, #session{reg_info = RegInfo} = Session) ->
+send_cmd_impl(Cmd, _WithContext, #session{reg_info = RegInfo} = Session) ->
     CacheMode = is_cache_mode(Session),
     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
     case emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd) of
         {Req, Ctx} ->
             Session2 = record_request(Ctx, Session),
-            maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, WithContext, Session2);
+            maybe_do_deliver_to_coap(Ctx, Req, 0, CacheMode, Session2);
         {error, {bad_request, Reason}, Ctx} ->
             ?SLOG(warning, #{
                 msg => "lwm2m_cmd_bad_request",
