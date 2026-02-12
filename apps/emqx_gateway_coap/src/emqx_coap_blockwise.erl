@@ -712,24 +712,14 @@ expires_at(State) ->
     erlang:monotonic_time(millisecond) + maps:get(exchange_lifetime, maps:get(opts, State)).
 
 normalize_opts(Opts0) ->
-    Map0 = #{},
-    Map1 = put_if_defined(Map0, enable, maps:get(enable, Opts0, true)),
-    Map2 = put_if_defined(
-        Map1,
-        max_block_size,
-        normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))
-    ),
-    Map3 = put_if_defined(
-        Map2,
-        max_body_size,
-        normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))
-    ),
-    Map4 = put_if_defined(
-        Map3,
-        exchange_lifetime,
-        normalize_exchange_lifetime(maps:get(exchange_lifetime, Opts0, ?DEFAULT_EXCHANGE_LIFETIME))
-    ),
-    Map4.
+    OptValues = [
+        {enable, maps:get(enable, Opts0, true)},
+        {max_block_size, normalize_block_size(maps:get(max_block_size, Opts0, ?DEFAULT_MAX_BLOCK_SIZE))},
+        {max_body_size, normalize_max_body_size(maps:get(max_body_size, Opts0, ?DEFAULT_MAX_BODY_SIZE))},
+        {exchange_lifetime,
+            normalize_exchange_lifetime(maps:get(exchange_lifetime, Opts0, ?DEFAULT_EXCHANGE_LIFETIME))}
+    ],
+    lists:foldl(fun({Key, Value}, Acc) -> put_if_defined(Acc, Key, Value) end, #{}, OptValues).
 
 put_if_defined(Map, _Key, undefined) ->
     Map;
