@@ -39,15 +39,6 @@ lwm2m_blockwise_max_body_size.desc:
 lwm2m_blockwise_exchange_lifetime.desc:
 """How long to keep block-wise exchange state."""
 
-lwm2m_blockwise_auto_tx_block1.desc:
-"""Automatically split outbound requests into Block1."""
-
-lwm2m_blockwise_auto_rx_block2.desc:
-"""Automatically reassemble inbound Block2 responses."""
-
-lwm2m_blockwise_auto_tx_block2.desc:
-"""Automatically split outbound responses into Block2."""
-
 lwm2m_translators_command.desc:
 """The topic for receiving downstream commands.
 For each new LwM2M client that succeeds in going online, the gateway creates a subscription relationship to receive downstream commands and send it to the LwM2M client"""

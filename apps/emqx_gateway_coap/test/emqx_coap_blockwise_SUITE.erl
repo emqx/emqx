@@ -103,7 +103,7 @@ t_client_rx_block2_reassemble(_) ->
     ?assertEqual(undefined, emqx_coap_message:get_option(block2, FullResp, undefined)).
 
 t_server_tx_block2_followup(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Req =
         (emqx_coap_message:request(con, get, <<>>, [{uri_path, [<<"ps">>, <<"topic">>]}]))#coap_message{
             id = 100,
@@ -131,7 +131,7 @@ t_server_tx_block2_followup(_) ->
     {pass, _Msg, _BW4} = emqx_coap_blockwise:server_followup_in(FollowReq3, {peer, 1}, BW3).
 
 t_server_tx_block2_observe_overwrite(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Notify0 = #coap_message{
         type = con,
         id = 200,
@@ -164,9 +164,7 @@ t_server_tx_block2_observe_overwrite(_) ->
 t_enable_false_disables_client_and_server_blockwise(_) ->
     BW0 = emqx_coap_blockwise:new(#{
         enable => false,
-        max_block_size => 16,
-        auto_rx_block2 => true,
-        auto_tx_block2 => true
+        max_block_size => 16
     }),
     Req =
         (emqx_coap_message:request(con, get, <<>>, [{uri_path, [<<"3">>, <<"0">>, <<"1">>]}]))#coap_message{
@@ -323,7 +321,7 @@ t_blockwise_server_in_sequences(_) ->
     ok.
 
 t_blockwise_server_followup_variants(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     {pass, _Msg0, _BW1} = emqx_coap_blockwise:server_followup_in(<<"bad">>, {peer, 3}, BW0),
     BadTuple = #coap_message{options = #{block2 => <<"bad">>}},
     {error, ReplyBadTuple, _BW2} = emqx_coap_blockwise:server_followup_in(BadTuple, {peer, 3}, BW0),
@@ -357,7 +355,7 @@ t_blockwise_server_followup_variants(_) ->
     ok.
 
 t_blockwise_server_prepare_out_response_misc(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     {single, <<"bad">>, _BW1} =
         emqx_coap_blockwise:server_prepare_out_response(undefined, <<"bad">>, {peer, 4}, BW0),
     Req =
@@ -384,7 +382,7 @@ t_blockwise_server_prepare_out_response_misc(_) ->
     ok.
 
 t_blockwise_client_in_response_branches(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_rx_block2 => false}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Ctx = #{ctx => <<"rx">>},
     Resp0 = #coap_message{
         type = ack,
@@ -393,7 +391,7 @@ t_blockwise_client_in_response_branches(_) ->
         payload = <<"hello">>,
         options = #{block2 => {0, true, 16}}
     },
-    {deliver, _Resp1, _BW1} = emqx_coap_blockwise:client_in_response(Ctx, Resp0, BW0),
+    {send_next, _NextReq0, _BW1} = emqx_coap_blockwise:client_in_response(Ctx, Resp0, BW0),
     BW1 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     BadResp = Resp0#coap_message{options = #{block2 => <<"bad">>}},
     {deliver, _Resp2, _BW2} = emqx_coap_blockwise:client_in_response(Ctx, BadResp, BW1),
@@ -416,7 +414,7 @@ t_blockwise_client_in_response_branches(_) ->
     ok.
 
 t_blockwise_followup_size_mismatch(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 32, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 32}),
     Req =
         (emqx_coap_message:request(con, get, <<>>, [{uri_path, [<<"ps">>, <<"topic">>]}]))#coap_message{
             id = 200,
@@ -437,7 +435,7 @@ t_blockwise_followup_size_mismatch(_) ->
     ?assertEqual({error, bad_option}, ReplyErr#coap_message.method).
 
 t_blockwise_invalid_block2_request(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Req =
         (emqx_coap_message:request(con, get, <<>>, [{uri_path, [<<"ps">>, <<"topic">>]}]))#coap_message{
             id = 210,
@@ -451,7 +449,7 @@ t_blockwise_invalid_block2_request(_) ->
     ok.
 
 t_blockwise_invalid_block2_option_type(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Req =
         (emqx_coap_message:request(con, get, <<>>, [{uri_path, [<<"ps">>, <<"topic">>]}]))#coap_message{
             id = 211,
@@ -465,7 +463,7 @@ t_blockwise_invalid_block2_option_type(_) ->
     ok.
 
 t_blockwise_has_block2_option_true(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Req =
         (emqx_coap_message:request(con, get, <<>>, [{uri_path, [<<"ps">>, <<"topic">>]}]))#coap_message{
             id = 220,
@@ -479,7 +477,7 @@ t_blockwise_has_block2_option_true(_) ->
     ?assertEqual({0, false, 16}, emqx_coap_message:get_option(block2, Reply1, undefined)).
 
 t_blockwise_has_block2_option_false(_) ->
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Reply0 = #coap_message{
         type = ack,
         method = {ok, content},

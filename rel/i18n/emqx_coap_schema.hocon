@@ -50,13 +50,4 @@ coap_blockwise_max_body_size.desc:
 coap_blockwise_exchange_lifetime.desc:
 """How long to keep block-wise exchange state."""
 
-coap_blockwise_auto_tx_block1.desc:
-"""Automatically split outbound requests into Block1."""
-
-coap_blockwise_auto_rx_block2.desc:
-"""Automatically reassemble inbound Block2 responses."""
-
-coap_blockwise_auto_tx_block2.desc:
-"""Automatically split outbound responses into Block2."""
-
 }

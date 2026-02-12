@@ -1018,10 +1018,7 @@ lwm2m_blockwise_opts() ->
             enable => true,
             max_block_size => LegacyMaxSize,
             max_body_size => 4 * 1024 * 1024,
-            exchange_lifetime => 247000,
-            auto_tx_block1 => true,
-            auto_rx_block2 => true,
-            auto_tx_block2 => false
+            exchange_lifetime => 247000
         },
         BlockwiseCfg
     ).

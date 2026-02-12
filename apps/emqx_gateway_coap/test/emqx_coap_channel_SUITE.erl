@@ -334,8 +334,8 @@ t_channel_connected_invalid_queries(_) ->
     ),
     ok.
 
-t_channel_auto_tx_block2_enabled_followup(_) ->
-    Channel0 = new_block2_channel(#{max_block_size => 16, auto_tx_block2 => true}),
+t_channel_block2_followup(_) ->
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
     Channel1 = Channel0#channel{
         conn_state = connected,
         clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
@@ -366,27 +366,6 @@ t_channel_auto_tx_block2_enabled_followup(_) ->
     },
     {ok, [{outgoing, [Reply2]}], _Channel4} = emqx_coap_channel:handle_in(Req2, Channel3),
     ?assertEqual({2, false, 16}, emqx_coap_message:get_option(block2, Reply2, undefined)),
-    ok.
-
-t_channel_auto_tx_block2_disabled(_) ->
-    Channel0 = new_block2_channel(#{max_block_size => 16, auto_tx_block2 => false}),
-    Channel1 = Channel0#channel{
-        conn_state = connected,
-        clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
-    },
-    Req0 = #coap_message{
-        type = con,
-        method = post,
-        id = 510,
-        token = <<"b2off">>,
-        options = #{
-            uri_path => [<<"mqtt">>, <<"connection">>],
-            uri_query => #{<<"clientid">> => <<"client2">>}
-        }
-    },
-    {ok, [{outgoing, [Reply0]}], _Channel2} = emqx_coap_channel:handle_in(Req0, Channel1),
-    ?assertEqual(undefined, emqx_coap_message:get_option(block2, Reply0, undefined)),
-    ?assert(byte_size(Reply0#coap_message.payload) > 16),
     ok.
 
 t_channel_query_value_normalization(_) ->
@@ -443,7 +422,7 @@ t_channel_query_value_normalization(_) ->
     ok.
 
 t_channel_blockwise_followup_error(_) ->
-    Channel0 = new_block2_channel(#{max_block_size => 16, auto_tx_block2 => true}),
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
     Channel1 = Channel0#channel{
         conn_state = connected,
         clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
@@ -481,7 +460,7 @@ t_channel_blockwise_server_in_error(_) ->
     ?assertEqual({error, request_entity_incomplete}, Reply#coap_message.method).
 
 t_channel_block2_reply_error(_) ->
-    Channel0 = new_block2_channel(#{max_block_size => 16, auto_tx_block2 => true}),
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
     Channel1 = Channel0#channel{
         conn_state = connected,
         clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
@@ -516,10 +495,7 @@ new_block2_channel(Opts) ->
                 enable => true,
                 max_block_size => 16,
                 max_body_size => 4 * 1024 * 1024,
-                exchange_lifetime => 247000,
-                auto_tx_block1 => true,
-                auto_rx_block2 => true,
-                auto_tx_block2 => true
+                exchange_lifetime => 247000
             },
             Opts
         )

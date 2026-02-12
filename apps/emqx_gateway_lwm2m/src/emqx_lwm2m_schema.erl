@@ -122,21 +122,6 @@ fields(lwm2m_blockwise) ->
             sc(
                 emqx_schema:timeout_duration_ms(),
                 #{default => <<"247s">>, desc => ?DESC(lwm2m_blockwise_exchange_lifetime)}
-            )},
-        {auto_tx_block1,
-            sc(
-                boolean(),
-                #{default => true, desc => ?DESC(lwm2m_blockwise_auto_tx_block1)}
-            )},
-        {auto_rx_block2,
-            sc(
-                boolean(),
-                #{default => true, desc => ?DESC(lwm2m_blockwise_auto_rx_block2)}
-            )},
-        {auto_tx_block2,
-            sc(
-                boolean(),
-                #{default => false, desc => ?DESC(lwm2m_blockwise_auto_tx_block2)}
             )}
     ];
 fields(lwm2m_translators) ->

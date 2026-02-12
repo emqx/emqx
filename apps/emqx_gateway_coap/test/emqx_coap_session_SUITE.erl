@@ -73,7 +73,7 @@ t_session_deliver_block2_notify(_) ->
     Msg = #coap_message{type = con, method = get, id = 1, token = <<"tokb2">>},
     Result = emqx_coap_session:process_subscribe(SubData, Msg, #{}, Session0),
     Session1 = maps:get(session, Result),
-    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+    BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     Ctx = #{gwname => coap, cm => self()},
     Deliver = {deliver, <<"tb2">>, emqx_message:make(<<"tb2">>, binary:copy(<<"Z">>, 40))},
     #{out := [Out0], blockwise := BW1} = emqx_coap_session:deliver(

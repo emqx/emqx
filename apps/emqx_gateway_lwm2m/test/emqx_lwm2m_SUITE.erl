@@ -5683,7 +5683,7 @@ case140_block2_auto_tx_response(_Config) ->
     try
         ok = emqx_config:put(
             [gateway, lwm2m, blockwise],
-            maps:merge(OldBlockwise, #{auto_tx_block2 => true, max_block_size => 16})
+            maps:merge(OldBlockwise, #{max_block_size => 16})
         ),
         CmPid = whereis(emqx_gateway_lwm2m_cm),
         ?assert(is_pid(CmPid)),
@@ -5729,7 +5729,7 @@ case141_channel_blockwise_server_paths(_Config) ->
     try
         ok = emqx_config:put(
             [gateway, lwm2m, blockwise],
-            maps:merge(OldBlockwise, #{auto_tx_block2 => true, max_block_size => 16})
+            maps:merge(OldBlockwise, #{max_block_size => 16})
         ),
         CmPid = whereis(emqx_gateway_lwm2m_cm),
         ?assert(is_pid(CmPid)),
@@ -5816,7 +5816,7 @@ case141_channel_blockwise_server_paths(_Config) ->
             expires_at => erlang:monotonic_time(millisecond) + 10000
         },
         Key = {server_tx_block2, PeerKey, TokenFollow},
-        BW0 = emqx_coap_blockwise:new(#{max_block_size => 16, auto_tx_block2 => true}),
+        BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
         BW1 = BW0#{server_tx_block2 => #{Key => Tx}},
         ChannelF = setelement(9, Channel0c, BW1),
         FollowReq = #coap_message{
@@ -5849,7 +5849,7 @@ case141_channel_blockwise_server_paths(_Config) ->
 
 case142_clear_blockwise_downlink(_Config) ->
     WithContext = with_context_stub(),
-    BW0 = emqx_coap_blockwise:new(#{auto_rx_block2 => false}),
+    BW0 = emqx_coap_blockwise:new(#{}),
     Ctx = #{
         <<"msgType">> => <<"execute">>,
         <<"data">> => #{<<"path">> => <<"/3/0/1">>}
@@ -5894,7 +5894,7 @@ case144_blockwise_consume_only(_Config) ->
         expires_at => erlang:monotonic_time(millisecond) + 10000
     },
     Key = {client_tx_block1, erlang:phash2(maps:without([request], Ctx))},
-    BW0 = emqx_coap_blockwise:new(#{auto_tx_block1 => true}),
+    BW0 = emqx_coap_blockwise:new(#{}),
     BW1 = BW0#{client_tx_block1 => #{Key => Tx}},
     Session0 = emqx_lwm2m_session:new(),
     Session1 = setelement(15, Session0, BW1),

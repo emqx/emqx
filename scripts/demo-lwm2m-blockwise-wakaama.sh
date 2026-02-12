@@ -503,10 +503,7 @@ configure_gateway() {
     "enable": true,
     "max_block_size": ${BLOCK_SIZE},
     "max_body_size": "1MB",
-    "exchange_lifetime": "60s",
-    "auto_tx_block1": true,
-    "auto_rx_block2": true,
-    "auto_tx_block2": false
+    "exchange_lifetime": "60s"
   }
 }
 JSON

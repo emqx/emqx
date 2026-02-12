@@ -16,10 +16,7 @@
     block1_required/2,
     blockwise_size/1,
     max_body_size/1,
-    enabled/1,
-    auto_tx_block1_enabled/1,
-    auto_rx_block2_enabled/1,
-    auto_tx_block2_enabled/1
+    enabled/1
 ]).
 
 -export_type([state/0]).
@@ -59,15 +56,6 @@ new(Opts0) ->
 -spec enabled(state()) -> boolean().
 enabled(#{opts := Opts}) -> maps:get(enable, Opts, true).
 
--spec auto_tx_block1_enabled(state()) -> boolean().
-auto_tx_block1_enabled(#{opts := Opts}) -> maps:get(auto_tx_block1, Opts, true).
-
--spec auto_rx_block2_enabled(state()) -> boolean().
-auto_rx_block2_enabled(#{opts := Opts}) -> maps:get(auto_rx_block2, Opts, true).
-
--spec auto_tx_block2_enabled(state()) -> boolean().
-auto_tx_block2_enabled(#{opts := Opts}) -> maps:get(auto_tx_block2, Opts, false).
-
 -spec blockwise_size(state()) -> pos_integer().
 blockwise_size(#{opts := Opts}) -> maps:get(max_block_size, Opts, ?DEFAULT_MAX_BLOCK_SIZE).
 
@@ -81,7 +69,6 @@ has_active_client_tx(Ctx, #{client_tx_block1 := TxMap}) ->
 -spec block1_required(coap_message(), state()) -> boolean().
 block1_required(#coap_message{payload = Payload, options = Opts}, State) ->
     enabled(State) andalso
-        auto_tx_block1_enabled(State) andalso
         byte_size(Payload) > blockwise_size(State) andalso
         not maps:is_key(block1, Opts).
 
@@ -112,7 +99,7 @@ server_followup_in(Msg, _PeerKey, State0) when not is_record(Msg, coap_message) 
     {pass, Msg, maybe_expire(State0)};
 server_followup_in(Msg, PeerKey, State0) ->
     State = maybe_expire(State0),
-    case enabled(State) andalso auto_tx_block2_enabled(State) of
+    case enabled(State) of
         false ->
             {pass, Msg, State};
         true ->
@@ -221,16 +208,11 @@ should_split_server_tx_block2(_Req, #coap_message{method = Method}, _State) when
 should_split_server_tx_block2(Req, #coap_message{payload = Payload}, State) when
     is_binary(Payload)
 ->
-    case auto_tx_block2_enabled(State) of
-        false ->
-            false;
-        true ->
-            case pick_server_tx_block2_params(Req, State) of
-                {ok, Num, Size} ->
-                    byte_size(Payload) > Size orelse Num > 0 orelse has_block2_option(Req);
-                error ->
-                    false
-            end
+    case pick_server_tx_block2_params(Req, State) of
+        {ok, Num, Size} ->
+            byte_size(Payload) > Size orelse Num > 0 orelse has_block2_option(Req);
+        error ->
+            false
     end;
 should_split_server_tx_block2(_Req, _Reply, _State) ->
     false.
@@ -516,25 +498,20 @@ send_next_client_tx_block(Ctx, Tx, State) ->
     end.
 
 maybe_handle_rx_block2(Ctx, Resp, State) ->
-    case auto_rx_block2_enabled(State) of
-        false ->
-            {deliver, Resp, clear_client_exchange(Ctx, State)};
-        true ->
-            case emqx_coap_message:get_option(block2, Resp, undefined) of
-                undefined ->
-                    {deliver, Resp, clear_client_request(Ctx, State)};
-                {Num, More, Size} when
-                    is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size)
-                ->
-                    case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
-                        true ->
-                            handle_client_rx_block2(Ctx, Num, More, Size, Resp, State);
-                        false ->
-                            {deliver, Resp, clear_client_exchange(Ctx, State)}
-                    end;
-                _ ->
+    case emqx_coap_message:get_option(block2, Resp, undefined) of
+        undefined ->
+            {deliver, Resp, clear_client_request(Ctx, State)};
+        {Num, More, Size} when
+            is_integer(Num), Num >= 0, is_boolean(More), is_integer(Size)
+        ->
+            case is_valid_block_size(Size) andalso Size =< blockwise_size(State) of
+                true ->
+                    handle_client_rx_block2(Ctx, Num, More, Size, Resp, State);
+                false ->
                     {deliver, Resp, clear_client_exchange(Ctx, State)}
-            end
+            end;
+        _ ->
+            {deliver, Resp, clear_client_exchange(Ctx, State)}
     end.
 
 handle_client_rx_block2(Ctx, Num, More, Size, Resp, State) ->
@@ -746,9 +723,7 @@ normalize_opts(Opts0) ->
         exchange_lifetime,
         normalize_exchange_lifetime(maps:get(exchange_lifetime, Opts0, ?DEFAULT_EXCHANGE_LIFETIME))
     ),
-    Map5 = put_if_defined(Map4, auto_tx_block1, maps:get(auto_tx_block1, Opts0, true)),
-    Map6 = put_if_defined(Map5, auto_rx_block2, maps:get(auto_rx_block2, Opts0, true)),
-    put_if_defined(Map6, auto_tx_block2, maps:get(auto_tx_block2, Opts0, false)).
+    Map4.
 
 put_if_defined(Map, _Key, undefined) ->
     Map;
