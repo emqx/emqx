@@ -191,26 +191,11 @@ client_in_response(Ctx, Resp, State0) ->
 
 -spec expire(integer(), state()) -> state().
 expire(Now, State) ->
-    ServerMap = maps:filter(
-        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
-        maps:get(server_rx_block1, State)
-    ),
-    ServerTx = maps:filter(
-        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
-        maps:get(server_tx_block2, State)
-    ),
-    ClientTx = maps:filter(
-        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
-        maps:get(client_tx_block1, State)
-    ),
-    ClientRx = maps:filter(
-        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
-        maps:get(client_rx_block2, State)
-    ),
-    ClientReq = maps:filter(
-        fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end,
-        maps:get(client_req, State)
-    ),
+    ServerMap = filter_expired(maps:get(server_rx_block1, State), Now),
+    ServerTx = filter_expired(maps:get(server_tx_block2, State), Now),
+    ClientTx = filter_expired(maps:get(client_tx_block1, State), Now),
+    ClientRx = filter_expired(maps:get(client_rx_block2, State), Now),
+    ClientReq = filter_expired(maps:get(client_req, State), Now),
     State#{
         server_rx_block1 => ServerMap,
         server_tx_block2 => ServerTx,
@@ -218,6 +203,9 @@ expire(Now, State) ->
         client_rx_block2 => ClientRx,
         client_req => ClientReq
     }.
+
+filter_expired(Map, Now) ->
+    maps:filter(fun(_, Tx) -> maps:get(expires_at, Tx, 0) > Now end, Map).
 
 should_split_server_tx_block2(_Req, #coap_message{method = Method}, _State) when
     not is_tuple(Method)
