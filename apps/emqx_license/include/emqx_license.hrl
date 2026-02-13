@@ -51,16 +51,23 @@
 -define(OFFICIAL, 1).
 -define(COMMUNITY, 2).
 
--define(SMALL_CUSTOMER, 0).
--define(MEDIUM_CUSTOMER, 1).
--define(LARGE_CUSTOMER, 2).
+-define(STANDARD_CUSTOMER, 0).
+-define(VIP_CUSTOMER_MEDIUM, 1).
+-define(VIP_CUSTOMER_LARGE, 2).
+%% Backward-compatible aliases for existing references.
+-define(SMALL_CUSTOMER, ?STANDARD_CUSTOMER).
+-define(MEDIUM_CUSTOMER, ?VIP_CUSTOMER_MEDIUM).
+-define(LARGE_CUSTOMER, ?VIP_CUSTOMER_LARGE).
 -define(BUSINESS_CRITICAL_CUSTOMER, 3).
 -define(BYOC_CUSTOMER, 4).
 -define(EDUCATION_NONPROFIT_CUSTOMER, 5).
 -define(EVALUATION_CUSTOMER, 10).
 -define(DEVELOPER_CUSTOMER, 11).
 
--define(EXPIRED_DAY, -90).
+%% Standard customers are restricted 15 days after license expiry.
+-define(STANDARD_CUSTOMER_EXPIRED_DAY, -15).
+%% Backward-compatible alias.
+-define(EXPIRED_DAY, ?STANDARD_CUSTOMER_EXPIRED_DAY).
 
 -define(ERR_EXPIRED, expired).
 -define(ERR_MAX_UPTIME, max_uptime_reached).

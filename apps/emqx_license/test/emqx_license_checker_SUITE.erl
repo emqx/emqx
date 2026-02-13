@@ -179,10 +179,10 @@ t_max_uptime_reached(_Config) ->
 
     meck:unload(emqx_license_parser_v20220101).
 
-t_overexpired_small_client(_Config) ->
+t_overexpired_standard_client(_Config) ->
     {NowDate, _} = calendar:universal_time(),
-    Date100DaysAgo = calendar:gregorian_days_to_date(
-        calendar:date_to_gregorian_days(NowDate) - 100
+    Date16DaysAgo = calendar:gregorian_days_to_date(
+        calendar:date_to_gregorian_days(NowDate) - 16
     ),
 
     License = mk_license(
@@ -193,7 +193,7 @@ t_overexpired_small_client(_Config) ->
             "Foo",
             "contact@foo.com",
             "bar",
-            format_date(Date100DaysAgo),
+            format_date(Date16DaysAgo),
             "1",
             "123"
         ]
@@ -205,10 +205,10 @@ t_overexpired_small_client(_Config) ->
         emqx_license_checker:limits()
     ).
 
-t_overexpired_medium_client(_Config) ->
+t_overexpired_vip_medium_client(_Config) ->
     {NowDate, _} = calendar:universal_time(),
-    Date100DaysAgo = calendar:gregorian_days_to_date(
-        calendar:date_to_gregorian_days(NowDate) - 100
+    Date16DaysAgo = calendar:gregorian_days_to_date(
+        calendar:date_to_gregorian_days(NowDate) - 16
     ),
 
     License = mk_license(
@@ -219,7 +219,7 @@ t_overexpired_medium_client(_Config) ->
             "Foo",
             "contact@foo.com",
             "bar",
-            format_date(Date100DaysAgo),
+            format_date(Date16DaysAgo),
             "1",
             "123"
         ]
@@ -231,7 +231,33 @@ t_overexpired_medium_client(_Config) ->
         emqx_license_checker:limits()
     ).
 
-t_recently_expired_small_client(_Config) ->
+t_overexpired_vip_large_client(_Config) ->
+    {NowDate, _} = calendar:universal_time(),
+    Date16DaysAgo = calendar:gregorian_days_to_date(
+        calendar:date_to_gregorian_days(NowDate) - 16
+    ),
+
+    License = mk_license(
+        [
+            "220111",
+            "1",
+            "2",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            format_date(Date16DaysAgo),
+            "1",
+            "123"
+        ]
+    ),
+    #{} = emqx_license_checker:update(License),
+
+    ?assertMatch(
+        {ok, #{max_sessions := 123}},
+        emqx_license_checker:limits()
+    ).
+
+t_recently_expired_standard_client(_Config) ->
     {NowDate, _} = calendar:universal_time(),
     Date10DaysAgo = calendar:gregorian_days_to_date(
         calendar:date_to_gregorian_days(NowDate) - 10
@@ -246,6 +272,32 @@ t_recently_expired_small_client(_Config) ->
             "contact@foo.com",
             "bar",
             format_date(Date10DaysAgo),
+            "1",
+            "123"
+        ]
+    ),
+    #{} = emqx_license_checker:update(License),
+
+    ?assertMatch(
+        {ok, #{max_sessions := 123}},
+        emqx_license_checker:limits()
+    ).
+
+t_expired_15_days_standard_client(_Config) ->
+    {NowDate, _} = calendar:universal_time(),
+    Date15DaysAgo = calendar:gregorian_days_to_date(
+        calendar:date_to_gregorian_days(NowDate) - 15
+    ),
+
+    License = mk_license(
+        [
+            "220111",
+            "1",
+            "0",
+            "Foo",
+            "contact@foo.com",
+            "bar",
+            format_date(Date15DaysAgo),
             "1",
             "123"
         ]

@@ -323,7 +323,7 @@ is_overdue(License, DaysLeft) ->
     CType = emqx_license_parser:customer_type(License),
     Type = emqx_license_parser:license_type(License),
 
-    small_customer_overdue(CType, DaysLeft) orelse
+    standard_customer_overdue(CType, DaysLeft) orelse
         non_official_license_overdue(Type, DaysLeft).
 
 is_max_uptime_reached(License, StartTime) ->
@@ -337,9 +337,11 @@ is_max_uptime_reached(License, StartTime) ->
 seconds_from_start(StartTime) ->
     erlang:monotonic_time(seconds) - StartTime.
 
-%% small customers overdue 90 days after license expiry date
-small_customer_overdue(?SMALL_CUSTOMER, DaysLeft) -> DaysLeft < ?EXPIRED_DAY;
-small_customer_overdue(_CType, _DaysLeft) -> false.
+%% Standard customers overdue 15 days after license expiry date.
+standard_customer_overdue(?STANDARD_CUSTOMER, DaysLeft) ->
+    DaysLeft < ?STANDARD_CUSTOMER_EXPIRED_DAY;
+standard_customer_overdue(_CType, _DaysLeft) ->
+    false.
 
 %% never restrict official license
 non_official_license_overdue(?OFFICIAL, _) -> false;
