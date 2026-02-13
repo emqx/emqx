@@ -710,7 +710,7 @@ examples_gateway_confs() ->
     #{
         stomp_gateway =>
             #{
-                summary => <<"A simple STOMP gateway config">>,
+                summary => ?DESC(example_stomp_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -738,7 +738,7 @@ examples_gateway_confs() ->
             },
         mqttsn_gateway =>
             #{
-                summary => <<"A simple MQTT-SN gateway config">>,
+                summary => ?DESC(example_mqttsn_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -774,7 +774,7 @@ examples_gateway_confs() ->
             },
         coap_gateway =>
             #{
-                summary => <<"A simple CoAP gateway config">>,
+                summary => ?DESC(example_coap_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -801,7 +801,7 @@ examples_gateway_confs() ->
             },
         lwm2m_gateway =>
             #{
-                summary => <<"A simple LwM2M gateway config">>,
+                summary => ?DESC(example_lwm2m_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -837,7 +837,7 @@ examples_gateway_confs() ->
             },
         exproto_gateway =>
             #{
-                summary => <<"A simple ExProto gateway config">>,
+                summary => ?DESC(example_exproto_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -863,7 +863,7 @@ examples_gateway_confs() ->
             },
         gbt32960_gateway =>
             #{
-                summary => <<"A simple GBT32960 gateway config">>,
+                summary => ?DESC(example_gbt32960_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -887,7 +887,7 @@ examples_gateway_confs() ->
             },
         ocpp_gateway =>
             #{
-                summary => <<"A simple OCPP gateway config">>,
+                summary => ?DESC(example_ocpp_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -920,7 +920,7 @@ examples_update_gateway_confs() ->
     #{
         stomp_gateway =>
             #{
-                summary => <<"A simple STOMP gateway config">>,
+                summary => ?DESC(example_update_stomp_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -937,7 +937,7 @@ examples_update_gateway_confs() ->
             },
         mqttsn_gateway =>
             #{
-                summary => <<"A simple MQTT-SN gateway config">>,
+                summary => ?DESC(example_update_mqttsn_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -958,7 +958,7 @@ examples_update_gateway_confs() ->
             },
         coap_gateway =>
             #{
-                summary => <<"A simple CoAP gateway config">>,
+                summary => ?DESC(example_update_coap_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -974,7 +974,7 @@ examples_update_gateway_confs() ->
             },
         lwm2m_gateway =>
             #{
-                summary => <<"A simple LwM2M gateway config">>,
+                summary => ?DESC(example_update_lwm2m_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -999,7 +999,7 @@ examples_update_gateway_confs() ->
             },
         exproto_gateway =>
             #{
-                summary => <<"A simple ExProto gateway config">>,
+                summary => ?DESC(example_update_exproto_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -1014,7 +1014,7 @@ examples_update_gateway_confs() ->
             },
         jt808_gateway =>
             #{
-                summary => <<"A simple JT808 gateway config">>,
+                summary => ?DESC(example_update_jt808_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -1038,7 +1038,7 @@ examples_update_gateway_confs() ->
             },
         gbt32960_gateway =>
             #{
-                summary => <<"A simple GBT32960 gateway config">>,
+                summary => ?DESC(example_update_gbt32960_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -1051,7 +1051,7 @@ examples_update_gateway_confs() ->
             },
         ocpp_gateway =>
             #{
-                summary => <<"A simple OCPP gateway config">>,
+                summary => ?DESC(example_update_ocpp_gateway_config),
                 value =>
                     #{
                         enable => true,
@@ -1070,7 +1070,7 @@ examples_update_gateway_confs() ->
             },
         nats_gateway =>
             #{
-                summary => <<"A simple NATS gateway config">>,
+                summary => ?DESC(example_update_nats_gateway_config),
                 value =>
                     #{
                         enable => true,

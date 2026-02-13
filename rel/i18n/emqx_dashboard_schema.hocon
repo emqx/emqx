@@ -207,4 +207,10 @@ unsuccessful_login_interval.desc:
 
 unsuccessful_login_interval.label:
 """Unsuccessful login accumulation time interval"""
+
+ssl_listener_settings.desc:
+"""TLS settings for the dashboard HTTPS listener."""
+ssl_listener_settings.label:
+"""SSL Listener Settings"""
+
 }

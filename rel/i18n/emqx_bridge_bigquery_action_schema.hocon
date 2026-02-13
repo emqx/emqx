@@ -23,4 +23,10 @@ emqx_bridge_bigquery_action_schema {
     """BigQuery Table."""
   }
 
+
+parameters.desc:
+"""Action-specific parameters."""
+parameters.label:
+"""Parameters"""
+
 }

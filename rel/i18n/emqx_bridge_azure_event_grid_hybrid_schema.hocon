@@ -1,0 +1,13 @@
+emqx_bridge_azure_event_grid_hybrid_schema {
+  action_config {
+    label: """Ingest to Azure Event Grid"""
+    desc:
+    """Action that takes incoming events and appends them to Azure Event Grid."""
+  }
+
+  source_config {
+    label: """Consume from Azure Event Grid"""
+    desc:
+    """Source that takes incoming events from Azure Event Grid."""
+  }
+}

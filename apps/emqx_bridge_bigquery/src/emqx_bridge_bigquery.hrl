@@ -11,5 +11,7 @@
 -define(ACTION_TYPE, bigquery).
 -define(ACTION_TYPE_BIN, <<"bigquery">>).
 
+-define(TOKEN_TAB, emqx_bridge_bigquery_tokens).
+
 %% END ifndef(__EMQX_BRIDGE_BIGQUERY_HRL__)
 -endif.

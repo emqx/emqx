@@ -47,6 +47,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_alloydb_action_info,
         emqx_bridge_aws_timestream_action_info,
         emqx_bridge_azure_blob_storage_action_info,
+        emqx_bridge_azure_event_grid_action_info,
         emqx_bridge_azure_event_hub_action_info,
         emqx_bridge_bigquery_action_info,
         emqx_bridge_cassandra_action_info,

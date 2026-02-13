@@ -16,7 +16,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    root_converter/1
 ]).
 
 %% `emqx_bridge_v2_schema' "unofficial" API
@@ -119,7 +120,8 @@ fields(Field) when
     emqx_connector_schema:api_fields(Field, ?CONNECTOR_TYPE, connector_config_fields()).
 
 connector_config_fields() ->
-    emqx_bridge_gcp_pubsub:fields(connector_config) ++
+    [emqx_bridge_gcp_pubsub_schema_lib:authentication_field()] ++
+        emqx_bridge_gcp_pubsub:fields(connector_config) ++
         emqx_connector_schema:resource_opts_ref(?MODULE, connector_resource_opts).
 
 desc("config_connector") ->
@@ -133,6 +135,15 @@ desc(connector_resource_opts) ->
 desc(source_resource_opts) ->
     ?DESC(emqx_resource_schema, "resource_opts");
 desc(_Name) ->
+    undefined.
+
+root_converter("config_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter("post_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter("put_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter(_X) ->
     undefined.
 
 %%-------------------------------------------------------------------------------------------------

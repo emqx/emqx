@@ -548,7 +548,7 @@ fields("conn_congestion") ->
             sc(
                 boolean(),
                 #{
-                    default => true,
+                    default => false,
                     desc => ?DESC(conn_congestion_enable_alarm)
                 }
             )},

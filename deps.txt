@@ -18,6 +18,7 @@ emqx_bridge: all
 emqx_bridge_alloydb: none
 emqx_bridge_aws_timestream: none
 emqx_bridge_azure_blob_storage: none
+emqx_bridge_azure_event_grid: none
 emqx_bridge_azure_event_hub: none
 emqx_bridge_bigquery: none
 emqx_bridge_cassandra: none
@@ -40,7 +41,7 @@ emqx_bridge_kafka: emqx_bridge_azure_event_hub emqx_bridge_confluent
 emqx_bridge_kinesis: none
 emqx_bridge_matrix: none
 emqx_bridge_mongodb: none
-emqx_bridge_mqtt: emqx_cluster_link
+emqx_bridge_mqtt: emqx_bridge_azure_event_grid emqx_cluster_link
 emqx_bridge_mysql: emqx_bridge_doris
 emqx_bridge_opents: none
 emqx_bridge_oracle: none

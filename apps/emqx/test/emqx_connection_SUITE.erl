@@ -487,7 +487,7 @@ t_cancel_congestion_alarm(_) ->
             State = sys:get_state(Pid),
             %% precondition
             Zone = emqx_connection:info({channel, zone}, State),
-            true = emqx_config:get_zone_conf(Zone, [conn_congestion, enable_alarm]),
+            false = emqx_config:get_zone_conf(Zone, [conn_congestion, enable_alarm]),
             %% should not raise errors
             ok = emqx_congestion:maybe_alarm_conn_congestion(emqx_connection, State),
             %% should not raise errors either

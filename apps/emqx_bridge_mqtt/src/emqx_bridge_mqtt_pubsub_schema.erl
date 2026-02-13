@@ -120,12 +120,6 @@ fields(Field) when
     emqx_bridge_v2_schema:api_fields(Field, ?SOURCE_TYPE, fields("mqtt_subscriber_source"));
 fields(What) ->
     error({?MODULE, missing_field_handler, What}).
-%% v2: api schema
-%% The parameter equls to
-%%   `get_bridge_v2`, `post_bridge_v2`, `put_bridge_v2` from emqx_bridge_v2_schema:api_schema/1
-%%   `get_connector`, `post_connector`, `put_connector` from emqx_connector_schema:api_schema/1
-%%--------------------------------------------------------------------
-%% v1/v2
 
 desc("config") ->
     ?DESC("desc_config");
