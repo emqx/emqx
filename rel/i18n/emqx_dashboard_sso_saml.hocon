@@ -25,4 +25,14 @@ sp_private_key.desc:
 sp_private_key.label:
 """SP Private Key"""
 
+idp_signs_envelopes.desc:
+"""Whether to require IDP to sign SAML Response envelopes (outer signature). For security, at least one of envelope or assertion signature should be enabled in production."""
+idp_signs_envelopes.label:
+"""Require Signed Response Envelopes from IDP"""
+
+idp_signs_assertions.desc:
+"""Whether to require IDP to sign SAML Assertions (inner signature). For security, at least one of envelope or assertion signature should be enabled in production."""
+idp_signs_assertions.label:
+"""Require Signed Assertions from IDP"""
+
 }
