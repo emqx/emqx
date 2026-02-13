@@ -78,7 +78,9 @@
     last_active_at :: non_neg_integer(),
     created_at :: non_neg_integer(),
     cmd_record :: cmd_record(),
-    subscriptions :: map()
+    subscriptions :: map(),
+    blockwise :: emqx_coap_blockwise:state(),
+    blockwise_downlink :: term() | undefined
 }).
 
 -type session() :: #session{}.
@@ -147,7 +149,9 @@ new() ->
         mountpoint = <<>>,
         cmd_record = #{queue => queue:new()},
         lifetime = emqx:get_config([gateway, lwm2m, lifetime_max]),
-        subscriptions = #{}
+        subscriptions = #{},
+        blockwise = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(lwm2m)),
+        blockwise_downlink = undefined
     }.
 
 -spec init(coap_message(), binary(), function(), session()) -> map().
@@ -283,8 +287,8 @@ set_reply(Msg, #session{coap = Coap} = Session) ->
     Coap2 = emqx_coap_tm:set_reply(Msg, Coap),
     Session#session{coap = Coap2}.
 
-send_cmd(Cmd, _, Session) ->
-    return(send_cmd_impl(Cmd, Session)).
+send_cmd(Cmd, WithContext, Session) ->
+    return(send_cmd_impl(Cmd, WithContext, Session)).
 
 set_subscriptions(Subs, Session) ->
     Session#session{subscriptions = Subs}.
@@ -451,7 +455,7 @@ should_publish_update(NewRegInfo) ->
     end.
 
 register_init(WithContext, #session{reg_info = RegInfo} = Session) ->
-    Session2 = send_auto_observe(RegInfo, Session),
+    Session2 = send_auto_observe(RegInfo, WithContext, Session),
     %% - subscribe to the downlink_topic and wait for commands
     #{topic := Topic, qos := Qos} = downlink_topic(),
     MountedTopic = mount(Topic, Session),
@@ -509,34 +513,23 @@ do_subscribe(
             Session#session{subscriptions = NSubs}
     end.
 
-send_auto_observe(RegInfo, Session) ->
+send_auto_observe(RegInfo, WithContext, Session) ->
     %% - auto observe the objects
     Mode = auto_observe_mode(),
-    case Mode of
-        false ->
+    ObjectList = auto_observe_object_list(RegInfo),
+    case {Mode, ObjectList} of
+        {false, []} ->
+            ?SLOG(info, #{msg => "skip_auto_observe_due_to_disabled"}),
             Session;
-        true ->
+        {_, []} ->
+            ?SLOG(info, #{msg => "skip_auto_observe_due_to_empty_list"}),
+            Session;
+        {_, _} ->
             AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-            ObjectList = maps:get(<<"objectList">>, RegInfo, []),
-            FilteredList = filter_ignore_object(ObjectList),
-            observe_object_list(AlternatePath, FilteredList, Session);
-        ObjectList when is_list(ObjectList) ->
-            FilteredList = intersect_object_list(
-                ObjectList,
-                maps:get(<<"objectList">>, RegInfo, [])
-            ),
-            case FilteredList of
-                [] ->
-                    Session;
-                _ ->
-                    AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
-                    observe_object_list(AlternatePath, FilteredList, Session)
-            end
+            observe_object_list(AlternatePath, ObjectList, WithContext, Session)
     end.
 
-observe_object_list(_, [], Session) ->
-    Session;
-observe_object_list(AlternatePath, ObjectList, Session) ->
+observe_object_list(AlternatePath, ObjectList, WithContext, Session) ->
     Fun = fun(ObjectPath, Acc) ->
         {[ObjId | _], _} = emqx_lwm2m_cmd:path_list(ObjectPath),
         case emqx_utils_binary:bin_to_int(ObjId) of
@@ -553,7 +546,7 @@ observe_object_list(AlternatePath, ObjectList, Session) ->
                         ),
                         Acc;
                     _ ->
-                        observe_object(AlternatePath, ObjectPath, Acc)
+                        observe_object(AlternatePath, ObjectPath, WithContext, Acc)
                 end;
             _ ->
                 Acc
@@ -561,23 +554,23 @@ observe_object_list(AlternatePath, ObjectList, Session) ->
     end,
     lists:foldl(Fun, Session, ObjectList).
 
-observe_object(AlternatePath, ObjectPath, Session) ->
+observe_object(AlternatePath, ObjectPath, WithContext, Session) ->
     Payload = #{
         <<"msgType">> => <<"observe">>,
         <<"data">> => #{<<"path">> => ObjectPath},
         <<"is_auto_observe">> => true
     },
-    deliver_auto_observe_to_coap(AlternatePath, Payload, Session).
+    deliver_auto_observe_to_coap(AlternatePath, Payload, WithContext, Session).
 
-deliver_auto_observe_to_coap(AlternatePath, TermData, Session) ->
+deliver_auto_observe_to_coap(AlternatePath, TermData, _WithContext, Session) ->
+    ?SLOG(info, #{
+        msg => "send_auto_observe",
+        path => AlternatePath,
+        data => TermData
+    }),
     {Req0, Ctx} = emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, TermData),
     Req = alloc_token(Req0),
     maybe_do_deliver_to_coap(Ctx, Req, 0, false, Session).
-
-intersect_object_list(ObjectList, RegObjectList) when is_list(RegObjectList) ->
-    [Item || Item <- ObjectList, lists:member(Item, RegObjectList)];
-intersect_object_list(_ObjectList, _RegObjectList) ->
-    [].
 
 filter_ignore_object(ObjectList) when is_list(ObjectList) ->
     lists:filter(
@@ -589,6 +582,17 @@ filter_ignore_object(ObjectList) when is_list(ObjectList) ->
     );
 filter_ignore_object(_ObjectList) ->
     [].
+
+auto_observe_object_list(RegInfo) ->
+    auto_observe_object_list(auto_observe_mode(), RegInfo).
+
+auto_observe_object_list(false, _RegInfo) ->
+    [];
+auto_observe_object_list(true, RegInfo) ->
+    filter_ignore_object(maps:get(<<"objectList">>, RegInfo, []));
+auto_observe_object_list(ObjectList, RegInfo) when is_list(ObjectList) ->
+    RegObjectList = maps:get(<<"objectList">>, RegInfo, []),
+    [Item || Item <- ObjectList, lists:member(Item, RegObjectList)].
 
 auto_observe_mode() ->
     normalize_auto_observe(emqx:get_config([gateway, lwm2m, auto_observe])).
@@ -629,33 +633,47 @@ alloc_token(Req = #coap_message{}) ->
 %%--------------------------------------------------------------------
 
 handle_coap_response(
-    {Ctx = #{<<"msgType">> := EventType}, #coap_message{
-        method = CoapMsgMethod,
-        type = CoapMsgType,
-        payload = CoapMsgPayload,
-        options = CoapMsgOpts
-    }},
+    {Ctx = #{<<"msgType">> := EventType}, Resp0},
     WithContext,
-    Session
+    #session{blockwise = BW0} = Session
 ) ->
-    MqttPayload = emqx_lwm2m_cmd:coap_to_mqtt(CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ctx),
-    {ReqPath, _} = emqx_lwm2m_cmd:path_list(emqx_lwm2m_cmd:extract_path(Ctx)),
-    Session2 = record_response(EventType, MqttPayload, Session),
-    Session3 =
-        case {ReqPath, MqttPayload, EventType, CoapMsgType} of
-            {[<<"5">> | _], _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
-                %% this is a notification for status update during NB firmware upgrade.
-                %% need to reply to DM http callbacks
-                send_to_mqtt(
-                    Ctx, <<"notify">>, MqttPayload, ?lwm2m_up_dm_topic, WithContext, Session2
-                );
-            {_ReqPath, _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
-                %% this is actually a notification, correct the msgType
-                send_to_mqtt(Ctx, <<"notify">>, MqttPayload, WithContext, Session2);
-            _ ->
-                send_to_mqtt(Ctx, EventType, MqttPayload, WithContext, Session2)
-        end,
-    send_dl_msg(Ctx, Session3).
+    case emqx_coap_blockwise:client_in_response(Ctx, Resp0, BW0) of
+        {send_next, NextReq, BW1} ->
+            send_to_coap(Ctx, NextReq, Session#session{blockwise = BW1});
+        {deliver,
+            #coap_message{
+                method = CoapMsgMethod,
+                type = CoapMsgType,
+                payload = CoapMsgPayload,
+                options = CoapMsgOpts
+            },
+            BW1} ->
+            MqttPayload = emqx_lwm2m_cmd:coap_to_mqtt(
+                CoapMsgMethod, CoapMsgPayload, CoapMsgOpts, Ctx
+            ),
+            {ReqPath, _} = emqx_lwm2m_cmd:path_list(emqx_lwm2m_cmd:extract_path(Ctx)),
+            Session2 = record_response(EventType, MqttPayload, Session#session{blockwise = BW1}),
+            Session3 =
+                case {ReqPath, MqttPayload, EventType, CoapMsgType} of
+                    {[<<"5">> | _], _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
+                        %% this is a notification for status update during NB firmware upgrade.
+                        %% need to reply to DM http callbacks
+                        send_to_mqtt(
+                            Ctx,
+                            <<"notify">>,
+                            MqttPayload,
+                            ?lwm2m_up_dm_topic,
+                            WithContext,
+                            Session2
+                        );
+                    {_ReqPath, _, <<"observe">>, CoapMsgType} when CoapMsgType =/= ack ->
+                        %% this is actually a notification, correct the msgType
+                        send_to_mqtt(Ctx, <<"notify">>, MqttPayload, WithContext, Session2);
+                    _ ->
+                        send_to_mqtt(Ctx, EventType, MqttPayload, WithContext, Session2)
+                end,
+            send_dl_msg(Ctx, clear_blockwise_downlink(Ctx, Session3))
+    end.
 
 %%--------------------------------------------------------------------
 %% Ack
@@ -686,11 +704,11 @@ handle_ack_failure(Ctx, MsgType, WithContext, Session) ->
 may_send_dl_msg(coap_timeout, Ctx, #session{wait_ack = WaitAck} = Session) ->
     case is_cache_mode(Session) of
         false ->
-            send_dl_msg(Ctx, Session);
+            send_dl_msg(Ctx, clear_blockwise_downlink(Ctx, Session));
         true ->
             case WaitAck of
                 Ctx ->
-                    Session#session{wait_ack = undefined};
+                    clear_blockwise_downlink(Ctx, Session#session{wait_ack = undefined});
                 _ ->
                     Session
             end
@@ -737,7 +755,7 @@ send_dl_msg(Ctx, Session) ->
         undefined ->
             send_to_coap(Session);
         Ctx ->
-            send_to_coap(Session#session{wait_ack = undefined});
+            send_to_coap(clear_blockwise_downlink(Ctx, Session#session{wait_ack = undefined}));
         _ ->
             Session
     end.
@@ -756,12 +774,38 @@ send_to_coap(#session{queue = Queue} = Session) ->
             Session
     end.
 
-send_to_coap(Ctx, Req, Session) ->
+send_to_coap(Ctx, Req, #session{blockwise = BW0} = Session) ->
     ?SLOG(debug, #{
         msg => "deliver_to_coap",
         coap_request => Req
     }),
-    out_to_coap(Ctx, Req, Session#session{wait_ack = Ctx}).
+    case emqx_coap_blockwise:client_prepare_out_request(Ctx, Req, BW0) of
+        {single, Req2, BW1} ->
+            ActiveKey =
+                case emqx_coap_blockwise:has_active_client_tx(Ctx, BW1) of
+                    true -> downlink_ctx_key(Ctx);
+                    false -> Session#session.blockwise_downlink
+                end,
+            out_to_coap(
+                Ctx,
+                Req2,
+                Session#session{
+                    wait_ack = Ctx,
+                    blockwise = BW1,
+                    blockwise_downlink = ActiveKey
+                }
+            );
+        {first_block, Req2, BW1} ->
+            out_to_coap(
+                Ctx,
+                Req2,
+                Session#session{
+                    wait_ack = Ctx,
+                    blockwise = BW1,
+                    blockwise_downlink = downlink_ctx_key(Ctx)
+                }
+            )
+    end.
 
 send_msg_not_waiting_ack(Ctx, Req, Session) ->
     ?SLOG(debug, #{
@@ -770,6 +814,15 @@ send_msg_not_waiting_ack(Ctx, Req, Session) ->
     }),
     %%    cmd_sent(Ref, LwM2MOpts).
     out_to_coap(Ctx, Req, Session).
+
+downlink_ctx_key(Ctx) when is_map(Ctx) ->
+    {downlink_ctx, maps:without([mheaders, <<"mheaders">>], Ctx)}.
+
+clear_blockwise_downlink(Ctx, #session{blockwise_downlink = ActiveKey} = Session) ->
+    case ActiveKey =:= downlink_ctx_key(Ctx) of
+        true -> Session#session{blockwise_downlink = undefined};
+        false -> Session
+    end.
 
 %%--------------------------------------------------------------------
 %% Send To MQTT
@@ -897,21 +950,38 @@ maybe_do_deliver_to_coap(
         queue = Queue
     } = Session
 ) ->
-    MHeaders = normalize_mheaders(Ctx),
-    TTL = maps:get(<<"ttl">>, MHeaders, maps:get(ttl, MHeaders, 7200)),
-    case TTL of
-        0 ->
-            send_msg_not_waiting_ack(Ctx, Req, Session);
-        _ ->
-            case
-                not CacheMode andalso
-                    queue:is_empty(Queue) andalso WaitAck =:= undefined
-            of
-                true ->
-                    send_to_coap(Ctx, Req, Session);
-                false ->
-                    Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)}
+    case is_blockwise_downlink_busy(Ctx, Req, Session) of
+        true ->
+            Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)};
+        false ->
+            MHeaders = normalize_mheaders(Ctx),
+            TTL = maps:get(<<"ttl">>, MHeaders, maps:get(ttl, MHeaders, 7200)),
+            case TTL of
+                0 ->
+                    %% TTL=0 means no timeout control; fire-and-forget without waiting for ACK.
+                    send_msg_not_waiting_ack(Ctx, Req, Session);
+                _ ->
+                    case
+                        not CacheMode andalso
+                            queue:is_empty(Queue) andalso WaitAck =:= undefined
+                    of
+                        true ->
+                            send_to_coap(Ctx, Req, Session);
+                        false ->
+                            Session#session{queue = queue:in({ExpiryTime, Ctx, Req}, Queue)}
+                    end
             end
+    end.
+
+is_blockwise_downlink_busy(Ctx, Req, #session{blockwise = BW, blockwise_downlink = ActiveKey}) ->
+    NeedBlockwise = emqx_coap_blockwise:block1_required(Req, BW),
+    case {NeedBlockwise, ActiveKey} of
+        {true, undefined} ->
+            false;
+        {true, _} ->
+            downlink_ctx_key(Ctx) =/= ActiveKey;
+        _ ->
+            false
     end.
 
 normalize_mheaders(Ctx) when is_map(Ctx) ->
@@ -938,7 +1008,7 @@ get_expiry_time(_) ->
 %%--------------------------------------------------------------------
 %% Send CMD
 %%--------------------------------------------------------------------
-send_cmd_impl(Cmd, #session{reg_info = RegInfo} = Session) ->
+send_cmd_impl(Cmd, _WithContext, #session{reg_info = RegInfo} = Session) ->
     CacheMode = is_cache_mode(Session),
     AlternatePath = maps:get(<<"alternatePath">>, RegInfo, <<"/">>),
     case emqx_lwm2m_cmd:mqtt_to_coap(AlternatePath, Cmd) of

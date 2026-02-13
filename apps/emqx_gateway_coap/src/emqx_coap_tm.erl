@@ -226,8 +226,6 @@ process_state_change(Next, Result, Machine, TM, Iter) ->
 process_transport_change(Transport, Result, Machine, TM, Iter) ->
     iter(Iter, Result, Machine#state_machine{transport = Transport}, TM).
 
-process_timeouts([], Result, Machine, TM, Iter) ->
-    iter(Iter, Result, Machine, TM);
 process_timeouts(
     Timeouts,
     Result,

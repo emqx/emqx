@@ -29,6 +29,15 @@ client_not_found.desc:
 client_not_found.label:
 """Client Not Found"""
 
+client_bad_response.desc:
+"""Client returned an invalid CoAP reply"""
+client_bad_response.label:
+"""Client Invalid Response"""
+
+missing_required_parameter.desc:
+"""missing required parameter"""
+
+
 client_not_response_timeout.desc:
 """Waiting for client response timeout"""
 client_not_response_timeout.label:

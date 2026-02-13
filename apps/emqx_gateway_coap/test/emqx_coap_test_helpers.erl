@@ -54,6 +54,7 @@ start_gateway(Config, Conf) ->
             {emqx_conf, Conf},
             emqx_gateway,
             emqx_auth,
+            emqx_auth_http,
             emqx_management,
             {emqx_dashboard, "dashboard.listeners.http { enable = true, bind = 18083 }"}
         ],
@@ -99,4 +100,4 @@ hook_capture(_ConnInfo, ConnProps, Pid, HookPoint) ->
     {ok, ConnProps}.
 
 hook_return_error(_ConnInfo, _ConnProps, Reason) ->
-    {ok, {error, Reason}}.
+    {stop, {error, Reason}}.

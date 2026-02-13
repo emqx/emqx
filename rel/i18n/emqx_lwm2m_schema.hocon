@@ -21,6 +21,24 @@ For example, after receiving an update message from a client, any messages withi
 lwm2m_translators.desc:
 """Topic configuration for LwM2M's gateway publishing and subscription."""
 
+lwm2m_coap_max_block_size.desc:
+"""Maximum CoAP block size used by the LwM2M gateway."""
+
+lwm2m_blockwise.desc:
+"""Block-wise transfer settings for the LwM2M gateway."""
+
+lwm2m_blockwise_enable.desc:
+"""Enable or disable block-wise transfer."""
+
+lwm2m_blockwise_max_block_size.desc:
+"""Maximum block size used for block-wise transfer."""
+
+lwm2m_blockwise_max_body_size.desc:
+"""Maximum size of the assembled message body."""
+
+lwm2m_blockwise_exchange_lifetime.desc:
+"""How long to keep block-wise exchange state."""
+
 lwm2m_translators_command.desc:
 """The topic for receiving downstream commands.
 For each new LwM2M client that succeeds in going online, the gateway creates a subscription relationship to receive downstream commands and send it to the LwM2M client"""

@@ -8,7 +8,7 @@
 -compile(nowarn_export_all).
 
 -include("emqx_coap.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
