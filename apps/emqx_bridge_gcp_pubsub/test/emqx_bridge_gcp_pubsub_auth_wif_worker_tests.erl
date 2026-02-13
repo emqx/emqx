@@ -6,6 +6,8 @@
 -compile([nowarn_export_all, export_all]).
 
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/asserts.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %%------------------------------------------------------------------------------
 %% Helper fns
@@ -81,8 +83,13 @@ simple_token_reply(Token) ->
     {ok, 200, [{<<"Content-Type">>, <<"application/json">>}],
         emqx_utils_json:encode(#{<<"access_token">> => Token})}.
 
-simple_reply(Code, Body) ->
-    {ok, Code, [{<<"Content-Type">>, <<"application/json">>}], emqx_utils_json:encode(Body)}.
+simple_reply(Code, Body0) ->
+    Body =
+        case Body0 of
+            {raw, B} -> B;
+            _ -> emqx_utils_json:encode(Body0)
+        end,
+    {ok, Code, [{<<"Content-Type">>, <<"application/json">>}], Body}.
 
 ask_time(TimeAgent) ->
     emqx_utils_agent:get_and_update(TimeAgent, fun(St0) ->
@@ -218,7 +225,17 @@ test_retry_step(StepToRetry, Ctx) ->
     {Replies1, Replies2} = lists:split(StepToRetry - 1, Replies0),
     Replies =
         Replies1 ++
-            [simple_reply(429, <<"calm down">>), simple_reply(429, <<"calm down!">>)] ++
+            [
+                simple_reply(429, <<"calm down">>),
+                {error, timeout},
+                simple_reply(
+                    200,
+                    emqx_utils_json:encode(#{<<"success, object">> => <<"but wrong shape">>})
+                ),
+                simple_reply(301, {raw, <<"<?xml><note>not a json</note>">>}),
+                simple_reply(200, {raw, <<"<?xml><note>not a json</note>">>}),
+                simple_reply(429, <<"calm down!">>)
+            ] ++
             Replies2,
     set_replies(StepAgent, Replies),
     Steps = sample_3_steps(),
@@ -232,7 +249,7 @@ test_retry_step(StepToRetry, Ctx) ->
     RetriedURL = emqx_bridge_v2_testlib:fmt(<<"http://auth.server/step${n}">>, #{n => StepToRetry}),
     ?assertMatch(
         #{
-            RetriedURL := [_, _, _]
+            RetriedURL := [_, _, _, _, _, _, _]
         },
         maps:groups_from_list(fun(#{url := U}) -> U end, get_requests(StepAgent))
     ),
@@ -326,3 +343,179 @@ test_refresh_it(Ctx) ->
     ?assertMatch({ok, <<"9">>}, RecvFn(1_000), #{reqs => get_requests(StepAgent)}),
     ok = gen_server:stop(Pid),
     ok.
+
+-doc """
+"Integration" test verifying that the `gen_server` process correctly retries (and later
+refreshes) the token chain periodically.
+""".
+retry_it_test_() ->
+    {setup, fun setup/0, fun cleanup/1, fun(Ctx) ->
+        ?_test(test_retry_it(Ctx))
+    end}.
+
+test_retry_it(Ctx) ->
+    #{step_agent := StepAgent} = Ctx,
+    {InsertFn, RecvFn} = insert_fn(#{alias_opts => []}),
+    Replies = [
+        simple_token_reply(<<"1">>),
+        simple_token_reply(<<"2">>),
+        %% Induce a retry
+        simple_reply(200, emqx_utils_json:encode(#{<<"request">> => <<"successfully failed">>})),
+        simple_token_reply(<<"3">>),
+        %% Test that the refresh works (the timers don't interfere with one another)
+        simple_token_reply(<<"4">>),
+        simple_token_reply(<<"5">>),
+        simple_token_reply(<<"6">>)
+    ],
+    set_replies(StepAgent, Replies),
+    Steps0 = sample_3_steps(),
+    Steps = lists:map(
+        fun
+            (#{name := step3} = Step) -> Step#{lifetime := timer:seconds(2)};
+            (Step) -> Step
+        end,
+        Steps0
+    ),
+    InitOpts = #{
+        resource_id => ?FUNCTION_NAME,
+        insert_fn => InsertFn,
+        steps => Steps
+    },
+    {ok, Pid} = emqx_bridge_gcp_pubsub_auth_wif_worker:start_link(?FUNCTION_NAME, InitOpts),
+    %% First time chain is evaluated (with retries)
+    ?assertMatch({ok, <<"3">>}, RecvFn(1_500), #{reqs => get_requests(StepAgent)}),
+    %% Refresh
+    ?assertMatch({ok, <<"6">>}, RecvFn(3_000), #{reqs => get_requests(StepAgent)}),
+    ok = gen_server:stop(Pid),
+    ok.
+
+-doc """
+Mainly covers the behavior of `ensure_token` when it's called before and after first token
+is fetched.
+""".
+ensure_token_it_test_() ->
+    {setup, fun setup/0, fun cleanup/1, fun(Ctx) ->
+        [
+            {"before", ?_test(test_ensure_token_before(Ctx))},
+            {"after", ?_test(test_ensure_token_after(Ctx))}
+        ]
+    end}.
+
+test_ensure_token_before(Ctx) ->
+    #{step_agent := StepAgent} = Ctx,
+    {InsertFn, RecvFn} = insert_fn(),
+    Replies = [
+        simple_token_reply(<<"1">>),
+        simple_token_reply(<<"2">>),
+        %% Induce a retry to allow for the call to be processed
+        {error, timeout},
+        simple_token_reply(<<"3">>)
+    ],
+    set_replies(StepAgent, Replies),
+    Steps = sample_3_steps(),
+    InitOpts = #{
+        resource_id => ?FUNCTION_NAME,
+        insert_fn => InsertFn,
+        steps => Steps
+    },
+    ?check_trace(
+        begin
+            ?force_ordering(
+                #{?snk_kind := "gcp_wif_worker_will_retry"},
+                #{?snk_kind := "go"}
+            ),
+            ?force_ordering(
+                #{?snk_kind := "gcp_wif_worker_ensure_token_before_first_token"},
+                #{?snk_kind := "gcp_wif_worker_info_advance_enter", step := step3}
+            ),
+            {ok, Pid} = emqx_bridge_gcp_pubsub_auth_wif_worker:start_link(?FUNCTION_NAME, InitOpts),
+            {_, Ref} = spawn_opt(
+                fun() ->
+                    ?assertMatch(
+                        ok,
+                        emqx_bridge_gcp_pubsub_auth_wif_worker:ensure_token(?FUNCTION_NAME, 2_000)
+                    )
+                end,
+                [link, monitor]
+            ),
+            ?tp("go", #{}),
+            ?assertMatch({ok, <<"3">>}, RecvFn(3_000), #{reqs => get_requests(StepAgent)}),
+            ?assertReceive({'DOWN', Ref, _, _, _}),
+            ok = gen_server:stop(Pid),
+            ok
+        end,
+        []
+    ),
+    snabbkaffe:stop(),
+    ok.
+
+test_ensure_token_after(Ctx) ->
+    #{step_agent := StepAgent} = Ctx,
+    {InsertFn, RecvFn} = insert_fn(),
+    Replies =
+        lists:map(
+            fun(N) -> simple_token_reply(integer_to_binary(N)) end,
+            lists:seq(1, 3)
+        ),
+    set_replies(StepAgent, Replies),
+    Steps = sample_3_steps(),
+    InitOpts = #{
+        resource_id => ?FUNCTION_NAME,
+        insert_fn => InsertFn,
+        steps => Steps
+    },
+    {ok, Pid} = emqx_bridge_gcp_pubsub_auth_wif_worker:start_link(?FUNCTION_NAME, InitOpts),
+    ?assertMatch({ok, <<"3">>}, RecvFn(3_000), #{reqs => get_requests(StepAgent)}),
+    ?assertMatch(
+        ok,
+        emqx_bridge_gcp_pubsub_auth_wif_worker:ensure_token(?FUNCTION_NAME, 1_000)
+    ),
+    ok = gen_server:stop(Pid),
+    ok.
+
+-doc """
+For coverage, makes some real HTTP calls without mocking.
+""".
+http_it_test_() ->
+    Setup = fun() ->
+        {ok, _} = application:ensure_all_started(hackney),
+        {ok, _} = application:ensure_all_started(ranch),
+        {ok, {Port, Server}} = emqx_utils_http_test_server:start_link(random, "/", false),
+        emqx_utils_http_test_server:set_handler(fun(Req, St) ->
+            Rep = cowboy_req:reply(
+                200,
+                #{<<"content-type">> => <<"application/json">>},
+                emqx_utils_json:encode(#{<<"access_token">> => <<"token">>}),
+                Req
+            ),
+            {ok, Rep, St}
+        end),
+        #{port => Port, server => Server}
+    end,
+    Cleanup = fun(_Ctx) ->
+        emqx_utils_http_test_server:stop(),
+        application:stop(hackney),
+        application:stop(ranch),
+        ok
+    end,
+    Case = fun(Ctx) ->
+        #{port := Port} = Ctx,
+        Steps = [
+            dummy_step(#{
+                name => step1,
+                url => fun(_StepContext) ->
+                    <<"http://127.0.0.1:", (integer_to_binary(Port))/binary>>
+                end
+            })
+        ],
+        {InsertFn, RecvFn} = insert_fn(),
+        InitOpts = #{
+            resource_id => ?FUNCTION_NAME,
+            insert_fn => InsertFn,
+            steps => Steps
+        },
+        ?assertMatch({done, _}, eval_steps(InitOpts)),
+        ?assertMatch({ok, <<"token">>}, RecvFn(100)),
+        ok
+    end,
+    {setup, Setup, Cleanup, fun(Ctx) -> ?_test(Case(Ctx)) end}.

@@ -2180,3 +2180,76 @@ t_wif_auth(TCConfig) ->
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     ensure_token_resources_cleared(),
     ok.
+
+-doc """
+Covers the path where waiting for the initial token times out while starting the client.
+""".
+t_wif_auth_initial_token_timeout() ->
+    [{matrix, true}].
+t_wif_auth_initial_token_timeout(matrix) ->
+    [[?mocked_gcp, ?wif_oidc]];
+t_wif_auth_initial_token_timeout(TCConfig) ->
+    mock_wif_auth_calls(),
+    %% Sanity check
+    ensure_token_resources_cleared(),
+
+    %% Make the initial token request timeout
+    Mod = emqx_bridge_gcp_pubsub_auth_wif_worker,
+    meck:expect(Mod, request, fun(_Method, URL, _Headers, _Body, _ReqOpts) ->
+        ct:sleep(1_000),
+        case URL of
+            <<"https://my.oidc.provider/oauth2/token/uri">> ->
+                simple_token_reply(<<"access_token">>, <<"initial_token">>);
+            <<"https://sts.googleapis.com/v1/token">> ->
+                simple_token_reply(<<"access_token">>, <<"gcp_access_token">>);
+            <<"https://iamcredentials.googleapis.com/v1/", _/binary>> ->
+                simple_token_reply(<<"accessToken">>, <<"sa_impersonation_token">>)
+        end
+    end),
+    meck:expect(Mod, ensure_token, fun(ResId, _Timeout) -> meck:passthrough([ResId, 1]) end),
+
+    ExpectedReason = iolist_to_binary(
+        io_lib:format("~p", [{failed_to_wait_for_initial_token, timeout}])
+    ),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"disconnected">>,
+            <<"status_reason">> := ExpectedReason,
+            <<"authentication">> := #{<<"type">> := <<"wif">>}
+        }},
+        create_connector_api(TCConfig, #{})
+    ),
+
+    ok.
+
+-doc """
+Verifies the path where the WIF auth worker is already started when starting GCP client.
+
+This is only for code coverage.  There's no known normal path to this scenario.
+""".
+t_wif_token_worker_already_started() ->
+    [{matrix, true}].
+t_wif_token_worker_already_started(matrix) ->
+    [[?mocked_gcp, ?wif_oidc]];
+t_wif_token_worker_already_started(TCConfig) ->
+    mock_wif_auth_calls(),
+    %% Sanity check
+    ensure_token_resources_cleared(),
+
+    Mod = emqx_bridge_gcp_pubsub_client,
+    meck:new(Mod, [passthrough]),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"type">> := <<"wif">>}
+        }},
+        create_connector_api(TCConfig, #{})
+    ),
+    [Args] = [
+        Args
+     || {_, {_Mod, start, Args}, _} <- meck:history(Mod)
+    ],
+
+    ?assertMatch({ok, _}, apply(Mod, start, Args)),
+
+    ok.

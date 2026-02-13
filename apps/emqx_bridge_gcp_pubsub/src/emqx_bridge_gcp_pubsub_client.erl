@@ -332,7 +332,7 @@ maybe_initialize_auth_resources(ResourceId, #{authentication := #{type := wif}} 
                 {error, Reason} ->
                     _ = supervisor:terminate_child(Sup, ResourceId),
                     _ = supervisor:delete_child(Sup, ResourceId),
-                    {error, Reason}
+                    {error, {failed_to_wait_for_initial_token, Reason}}
             end;
         {error, {already_started, _}} ->
             _ = supervisor:terminate_child(Sup, ResourceId),

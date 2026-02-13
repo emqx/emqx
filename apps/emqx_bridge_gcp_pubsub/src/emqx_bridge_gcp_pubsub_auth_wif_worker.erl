@@ -139,6 +139,7 @@ handle_cast(_Cast, State) ->
     {noreply, State}.
 
 handle_info({timeout, _TRef, #advance{}}, State0) ->
+    ?tp("gcp_wif_worker_info_advance_enter", #{}),
     %% Refresh or retry
     State1 = cancel_timer(?refresh_timer, State0),
     State2 = cancel_timer(?retry_timer, State1),
@@ -189,10 +190,12 @@ init_state(Opts) ->
 handle_ensure_token(From, State0) ->
     case State0 of
         #{?refresh_timer := ?undefined, ?callers := Callers} ->
+            ?tp("gcp_wif_worker_ensure_token_before_first_token", #{}),
             %% Haven't reached the end of the flow yet.
             State = State0#{?callers := [From | Callers]},
             {noreply, State};
         #{?refresh_timer := TRef} when is_reference(TRef) ->
+            ?tp("gcp_wif_worker_ensure_token_after_first_token", #{}),
             %% Wrote at least one token.
             {reply, ok, State0}
     end.
@@ -209,6 +212,7 @@ handle_advance(State0) ->
             State = schedule_refresh(Lifetime, State2),
             {noreply, State};
         {retry, State1} ->
+            ?tp("gcp_wif_worker_will_retry", #{}),
             State = schedule_retry_step(State1),
             {noreply, State};
         {continue, State} ->
