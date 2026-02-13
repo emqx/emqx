@@ -69,7 +69,7 @@
 %% N.B.: This ONLY for tests or initializing the channel; actual health checks should be
 %% triggered by timers in the process.  Avoid doing manual health checks in other
 %% situations.
--export([health_check/1, channel_health_check/2, cleanup_by_agent/3]).
+-export([health_check/1, channel_health_check/2, channel_health_check/3, cleanup_by_agent/3]).
 
 -ifdef(TEST).
 -export([summarize_query_mode/2]).
@@ -504,15 +504,24 @@ list_group(Group) ->
 health_check(ResId) ->
     safe_call(ResId, #manual_resource_health_check{}, ?T_OPERATION).
 
-%% N.B.: This ONLY for tests; actual health checks should be triggered by timers in the
-%% process.  Avoid doing manual health checks outside tests.
+%% N.B.: This ONLY for tests (and probes); actual health checks should be triggered by
+%% timers in the process.  Avoid doing manual health checks outside tests.
 -spec channel_health_check(resource_id(), channel_id()) ->
-    #{status := resource_status(), error := term()}.
+    #{status := resource_status(), error := term()}
+    | {error, not_found | timeout}.
 channel_health_check(ResId, ChannelId) ->
+    channel_health_check(ResId, ChannelId, ?T_OPERATION).
+
+%% N.B.: This ONLY for tests (and probes); actual health checks should be triggered by
+%% timers in the process.  Avoid doing manual health checks outside tests.
+-spec channel_health_check(resource_id(), channel_id(), timeout()) ->
+    #{status := resource_status(), error := term()}
+    | {error, not_found | timeout}.
+channel_health_check(ResId, ChannelId, Timeout) ->
     %% Do normal health check first to trigger health checks for channels
     %% and update the cached health status for the channels
     _ = health_check(ResId),
-    safe_call(ResId, {channel_health_check, ChannelId}, ?T_OPERATION).
+    safe_call(ResId, {channel_health_check, ChannelId}, Timeout).
 
 -spec add_channel(
     connector_resource_id(),

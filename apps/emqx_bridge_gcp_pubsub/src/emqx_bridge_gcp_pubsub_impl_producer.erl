@@ -7,12 +7,13 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("emqx_bridge_gcp_pubsub.hrl").
 
 -type connector_config() :: #{
     connect_timeout := emqx_schema:duration_ms(),
     max_retries := non_neg_integer(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
-    service_account_json := emqx_bridge_gcp_pubsub_client:service_account_json()
+    authentication := emqx_bridge_gcp_pubsub_client:authentication_config()
 }.
 -type action_config() :: #{
     parameters := #{
@@ -60,9 +61,12 @@
 
 -export([reply_delegator/4]).
 
+-define(SUP, emqx_bridge_gcp_pubsub_sup).
+
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
+
 resource_type() -> gcp_pubsub.
 
 callback_mode() -> async_if_possible.
@@ -76,21 +80,20 @@ on_start(InstanceId, Config0) ->
         msg => "starting_gcp_pubsub_bridge",
         instance_id => InstanceId
     }),
-    Config1 = maps:update_with(
-        service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
-    ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
-    Config = Config1#{
+    Config = Config0#{
         jwt_opts => #{
             %% fixed for pubsub; trailing slash is important.
             aud => <<"https://pubsub.googleapis.com/">>
         },
         transport => Transport,
         host => Host,
-        port => Port
+        port => Port,
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB
     },
-    #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
+    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(InstanceId, Config) of
         {ok, Client} ->
             State = #{
@@ -105,7 +108,7 @@ on_start(InstanceId, Config0) ->
 
 -spec on_stop(connector_resource_id(), connector_state()) -> ok | {error, term()}.
 on_stop(InstanceId, _State) ->
-    emqx_bridge_gcp_pubsub_client:stop(InstanceId).
+    emqx_bridge_gcp_pubsub_client:stop(InstanceId, ?SUP, ?TOKEN_TAB).
 
 -spec on_get_status(connector_resource_id(), connector_state()) ->
     ?status_connected | {?status_disconnected, term()}.

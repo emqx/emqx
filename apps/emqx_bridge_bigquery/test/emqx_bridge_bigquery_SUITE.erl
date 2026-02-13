@@ -15,11 +15,11 @@
 -include("../src/emqx_bridge_bigquery.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 %%------------------------------------------------------------------------------
 %% Defs
 %%------------------------------------------------------------------------------
+
+-import(emqx_common_test_helpers, [on_exit/1]).
 
 -define(PROXY_NAME, "bigquery").
 -define(PROXY_HOST, "toxiproxy").
@@ -30,10 +30,14 @@
     {prepared_request, {METHOD, PATH, BODY}, #{request_ttl => 1_000}}
 ).
 
+-define(SUP, emqx_bridge_bigquery_sup).
+
 -define(batching, batching).
 -define(not_batching, not_batching).
 -define(sync, sync).
 -define(async, async).
+-define(service_account_json, service_account_json).
+-define(wif_oidc, wif_oidc).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -89,7 +93,7 @@ end_per_suite(Config) ->
 init_per_testcase(TestCase, TCConfig0) ->
     reset_proxy(),
     Path = group_path(TCConfig0, no_groups),
-    ct:print(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
+    ct:pal(asciiart:visible($%, "~p - ~s", [Path, TestCase])),
     UniqueNum = integer_to_binary(
         erlang:monotonic_time() band 16#ffff
     ),
@@ -101,7 +105,19 @@ init_per_testcase(TestCase, TCConfig0) ->
     ServiceAccountJSON =
         #{<<"project_id">> := ProjectId} =
         emqx_bridge_gcp_pubsub_utils:generate_service_account_json(),
-    ConnectorConfig = connector_config(ServiceAccountJSON),
+    Authentication =
+        case auth_of(TCConfig0) of
+            ?service_account_json ->
+                #{
+                    <<"type">> => <<"service_account_json">>,
+                    <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON)
+                };
+            ?wif_oidc ->
+                wif_oidc_auth()
+        end,
+    ConnectorConfig = connector_config(#{
+        <<"authentication">> => Authentication
+    }),
     ActionName = ConnectorName,
     ActionConfig = action_config(
         #{
@@ -142,6 +158,7 @@ init_per_testcase(TestCase, TCConfig0) ->
 end_per_testcase(_TestCase, TCConfig) ->
     reset_proxy(),
     snabbkaffe:stop(),
+    emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
     stop_control_client(TCConfig),
@@ -151,10 +168,7 @@ end_per_testcase(_TestCase, TCConfig) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-connector_config(ServiceAccountJSON) ->
-    connector_config(ServiceAccountJSON, _Overrides = #{}).
-
-connector_config(ServiceAccountJSON, Overrides) ->
+connector_config(Overrides) ->
     Defaults = #{
         <<"enable">> => true,
         <<"description">> => <<"my connector">>,
@@ -164,7 +178,7 @@ connector_config(ServiceAccountJSON, Overrides) ->
         <<"max_retries">> => 2,
         <<"pipelining">> => 100,
         <<"pool_size">> => 8,
-        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON),
+        <<"authentication">> => <<"please override (this is the wrong type)">>,
         <<"resource_opts">> =>
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
@@ -187,7 +201,49 @@ action_config(Overrides, TCConfig) ->
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
     emqx_bridge_v2_testlib:parse_and_check(action, ?ACTION_TYPE_BIN, <<"x">>, InnerConfigMap).
 
+wif_oidc_auth() ->
+    #{
+        <<"type">> => <<"wif">>,
+        <<"gcp_project_id">> => <<"myproject">>,
+        <<"gcp_project_number">> => <<"123456789012">>,
+        <<"gcp_wif_pool_id">> => <<"my-wif">>,
+        <<"gcp_wif_pool_provider_id">> => <<"my-wif-provider">>,
+        <<"service_account_email">> => <<"sa@myproject.iam.gserviceaccount.com">>,
+        <<"initial_token">> => #{
+            <<"type">> => <<"oidc_client_credentials">>,
+            <<"client_id">> => <<"5e870489-067f-4a0d-aa4d-295563d8b2e9">>,
+            <<"client_secret">> => <<"super oidc secret">>,
+            <<"endpoint_uri">> => <<"https://my.oidc.provider/oauth2/token/uri">>,
+            <<"scope">> => <<"api://03e6cfaa-bf6d-4078-b748-cb73834e37f3/.default">>
+        }
+    }.
+
+mock_wif_auth_calls() ->
+    Mod = emqx_bridge_gcp_pubsub_auth_wif_worker,
+    on_exit(fun meck:unload/0),
+    meck:new(Mod, [passthrough]),
+    meck:expect(Mod, request, fun(_Method, URL, _Headers, _Body, _ReqOpts) ->
+        case URL of
+            <<"https://my.oidc.provider/oauth2/token/uri">> ->
+                simple_token_reply(<<"access_token">>, <<"initial_token">>);
+            <<"https://sts.googleapis.com/v1/token">> ->
+                simple_token_reply(<<"access_token">>, <<"gcp_access_token">>);
+            <<"https://iamcredentials.googleapis.com/v1/", _/binary>> ->
+                simple_token_reply(<<"accessToken">>, <<"sa_impersonation_token">>)
+        end
+    end),
+    ok.
+
+simple_token_reply(Key, Token) ->
+    {ok, 200, [{<<"Content-Type">>, <<"application/json">>}],
+        emqx_utils_json:encode(#{Key => Token})}.
+
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
+
+auth_of(TCConfig) ->
+    emqx_common_test_helpers:get_matrix_prop(
+        TCConfig, [?service_account_json, ?wif_oidc], ?service_account_json
+    ).
 
 group_path(Config, Default) ->
     case emqx_common_test_helpers:group_path(Config) of
@@ -266,7 +322,10 @@ start_control_client() ->
             connect_timeout => 5_000,
             max_retries => 0,
             pool_size => 1,
-            service_account_json => RawServiceAccount,
+            authentication => #{
+                type => service_account_json,
+                service_account_json => emqx_utils_json:encode(RawServiceAccount)
+            },
             jwt_opts => #{aud => <<"https://bigquery.googleapis.com/">>},
             transport => tcp,
             host => "bigquery",
@@ -278,7 +337,7 @@ start_control_client() ->
 
 stop_control_client(TCConfig) ->
     Client = get_value(client, TCConfig),
-    ok = emqx_bridge_gcp_pubsub_client:stop(Client),
+    ok = emqx_bridge_gcp_pubsub_client:stop(Client, ?SUP, ?TOKEN_TAB),
     ok.
 
 render(TemplateStr, Context) ->
@@ -451,10 +510,49 @@ create_action_api(TCConfig, Overrides) ->
         emqx_bridge_v2_testlib:create_action_api(TCConfig, Overrides)
     ).
 
+update_connector_api(TCConfig, Overrides) ->
+    #{
+        connector_type := Type,
+        connector_name := Name,
+        connector_config := Cfg0
+    } =
+        emqx_bridge_v2_testlib:get_common_values_with_configs(TCConfig),
+    Cfg = emqx_utils_maps:deep_merge(Cfg0, Overrides),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:update_connector_api(Name, Type, Cfg)
+    ).
+
 get_action_api(TCConfig) ->
     emqx_bridge_v2_testlib:simplify_result(
         emqx_bridge_v2_testlib:get_action_api(TCConfig)
     ).
+
+delete_connector_api(TCConfig) ->
+    emqx_bridge_v2_testlib:delete_connector_api(TCConfig).
+
+delete_action_api(TCConfig) ->
+    #{kind := Kind, type := Type, name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:delete_kind_api(Kind, Type, Name).
+
+simple_create_rule_api(TCConfig) ->
+    emqx_bridge_v2_testlib:simple_create_rule_api(TCConfig).
+
+start_client() ->
+    start_client(_Opts = #{}).
+
+start_client(Opts) ->
+    {ok, C} = emqtt:start_link(Opts),
+    on_exit(fun() -> emqtt:stop(C) end),
+    {ok, _} = emqtt:connect(C),
+    C.
+
+%% * Worker process is removed from supervisor.
+%% * Token is deleted from table.
+ensure_token_resources_cleared() ->
+    ?assertMatch([], supervisor:which_children(?SUP)),
+    ?assertMatch([], ets:tab2list(?TOKEN_TAB)),
+    ok.
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -672,4 +770,96 @@ t_health_check_drop_table(TCConfig) when is_list(TCConfig) ->
             get_action_api(TCConfig)
         )
     ),
+    ok.
+
+-doc """
+Verifies that an older version of the connector config (in which `service_account_json`
+was a root field) is correctly converted to the new schema (in which it is an union
+constructor of the new `authentication` field).
+""".
+t_legacy_connector_config(TCConfig) ->
+    ServiceAccountJSON = get_config(service_account_json, TCConfig),
+    LegacyConnConfig = #{
+        <<"enable">> => true,
+        <<"description">> => <<"my connector">>,
+        <<"tags">> => [<<"some">>, <<"tags">>],
+        <<"connect_timeout">> => <<"15s">>,
+        <<"max_inactive">> => <<"10s">>,
+        <<"max_retries">> => 2,
+        <<"pipelining">> => 100,
+        <<"pool_size">> => 8,
+        %% This is now deprecated (6.2.0)
+        <<"service_account_json">> => emqx_utils_json:encode(ServiceAccountJSON),
+        <<"resource_opts">> =>
+            emqx_bridge_v2_testlib:common_connector_resource_opts()
+    },
+    TCConfig1 = lists:keyreplace(
+        connector_config, 1, TCConfig, {connector_config, LegacyConnConfig}
+    ),
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"type">> := <<"service_account_json">>,
+                <<"service_account_json">> := <<_/binary>>
+            }
+        }},
+        create_connector_api(TCConfig1, #{})
+    ),
+    ?assertMatch(
+        {200, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{
+                <<"type">> := <<"service_account_json">>,
+                <<"service_account_json">> := <<_/binary>>
+            }
+        }},
+        update_connector_api(TCConfig1, #{})
+    ),
+    ok.
+
+-doc """
+Simple smoke test for using WIF (workload identity federation) authentication.
+
+It cannot really emulate the real GCP IAM authentication process, but it does emulate the
+calls to get a token and use the stored token.
+""".
+t_wif_auth() ->
+    [{matrix, true}].
+t_wif_auth(matrix) ->
+    [[?wif_oidc]];
+t_wif_auth(TCConfig) ->
+    mock_wif_auth_calls(),
+    %% Sanity check
+    ensure_token_resources_cleared(),
+
+    ?assertMatch(
+        {201, #{
+            <<"status">> := <<"connected">>,
+            <<"authentication">> := #{<<"type">> := <<"wif">>}
+        }},
+        create_connector_api(TCConfig, #{})
+    ),
+    ?assertMatch(
+        {201, #{<<"status">> := <<"connected">>}},
+        create_action_api(TCConfig, #{})
+    ),
+    #{topic := Topic} = simple_create_rule_api(TCConfig),
+    C = start_client(),
+    Payload = <<"payload">>,
+    emqtt:publish(C, Topic, Payload),
+    Payload64 = base64:encode(Payload),
+    ?retry(
+        200,
+        10,
+        ?assertMatch(
+            [[_ClientId, Payload64, Topic, _PublishedAt]],
+            scan_table(TCConfig)
+        )
+    ),
+
+    %% Verify resource cleanup
+    emqx_bridge_v2_testlib:delete_all_rules(),
+    emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
+    ensure_token_resources_cleared(),
     ok.

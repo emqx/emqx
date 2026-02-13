@@ -1,0 +1,89 @@
+emqx_bridge_gcp_pubsub_schema_lib {
+
+  service_account_json {
+    label: """GCP Service Account Credentials"""
+    desc: """JSON containing the GCP Service Account credentials to be used with GCP.
+When a GCP Service Account is created (as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), you have the option of downloading the credentials in JSON form.  That's the file needed."""
+  }
+
+  authentication {
+    label: "Authentication"
+    desc: "Authentication method to be used with GCP."
+  }
+
+  auth_service_account_json {
+    label: "Service Account JSON"
+    desc: "Authenticate using a JSON containing the GCP Service Account credentials."
+  }
+
+  auth_service_account_json_type {
+    label: "Service Account JSON"
+    desc: "Service Account JSON"
+  }
+
+  auth_wif {
+    label: "Workload Identity Federation (WIF)"
+    desc: "Authenticate using federated tokens via GCP's Workload Identity Federation."
+  }
+
+  auth_wif_oidc_client_credentials {
+    label: "OIDC with Client Credentials Grant Type"
+    desc: """OIDC with Client Credentials Grant Type"""
+  }
+
+  auth_wif_oidc_client_credentials_endpoint_uri {
+    label: "Endpoint URI"
+    desc: """OAuth Token Endpoint URI from the OIDC provider."""
+  }
+
+  auth_wif_oidc_client_credentials_client_id {
+    label: "OAuth Client ID"
+    desc: """Client ID used to request a token from the OAuth server."""
+  }
+
+  auth_wif_oidc_client_credentials_client_secret {
+    label: "OAuth Client Secret"
+    desc: """Client secret used to request a token from the OAuth server."""
+  }
+
+  auth_wif_oidc_client_credentials_scope {
+    label: "OAuth Request Scope"
+    desc: """If necessary, specify the `scope` to be provided when requesting the OAuth access token."""
+  }
+
+  auth_wif_initial_token {
+    label: "Initial Token Configuration"
+    desc: """Configuration to obtain the initial token for the WIF token exchange."""
+  }
+
+  auth_wif_service_account_email {
+    label: "Service Account Email"
+    desc: """The email of the service account that will be impersonated."""
+  }
+
+  auth_wif_gcp_project_id {
+    label: "GCP Project ID"
+    desc: """The Project ID for the resource being accessed by the connector."""
+  }
+
+  auth_wif_gcp_project_number {
+    label: "GCP Project Number"
+    desc: """The Project Number for the resource being accessed by the connector."""
+  }
+
+  auth_wif_gcp_wif_pool_id {
+    label: "Workload Identity Pool ID"
+    desc: """ID of the Workload Identity Pool being used in the WIF token exchange."""
+  }
+
+  auth_wif_gcp_wif_pool_provider_id {
+    label: "Workload Identity Provider ID"
+    desc: """ID of the Workload Identity Provider being used in the WIF token exchange."""
+  }
+
+  # auth_wif_oidc_client_credentials {
+  #   label: ""
+  #   desc: """"""
+  # }
+
+}

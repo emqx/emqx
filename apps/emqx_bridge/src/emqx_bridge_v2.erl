@@ -859,14 +859,17 @@ create_dry_run_helper(Namespace, ConfRootKey, BridgeV2Type, ConnectorRawConf, Br
                 {error, Reason} ->
                     {error, Reason};
                 ok ->
+                    ChanHCTimeout = get_channel_health_check_timeout(AugmentedConf),
                     HealthCheckResult = emqx_resource_manager:channel_health_check(
-                        ConnectorId, ChannelTestId
+                        ConnectorId, ChannelTestId, ChanHCTimeout
                     ),
                     case HealthCheckResult of
                         #{status := ?status_connected} ->
                             ok;
                         #{status := Status, error := Error} ->
-                            {error, {Status, Error}}
+                            {error, {Status, Error}};
+                        {error, Reason} ->
+                            {error, {?status_disconnected, Reason}}
                     end
             end
         end,
@@ -1473,6 +1476,15 @@ to_connector(ConnectorNameBin, BridgeType) ->
     catch
         _:_ ->
             {error, not_found}
+    end.
+
+get_channel_health_check_timeout(ChannelConfig) ->
+    case ChannelConfig of
+        #{resource_opts := #{health_check_timeout := ChanHCTimeout}} ->
+            ChanHCTimeout;
+        _ ->
+            %% Old default call timeout for `emqx_resource_manager`
+            5_000
     end.
 
 alarm_connector_not_found(Namespace, ActionType, ActionName, ConnectorName) ->
