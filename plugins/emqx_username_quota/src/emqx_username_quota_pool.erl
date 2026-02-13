@@ -33,6 +33,7 @@ add(Username, ClientId, Pid) ->
     ok.
 
 init([Pool, Id]) ->
+    process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 

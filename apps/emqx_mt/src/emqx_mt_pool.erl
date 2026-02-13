@@ -45,6 +45,7 @@ pick(Tns, ClientId) ->
     gproc_pool:pick_worker(?POOL, {Tns, ClientId}).
 
 init([Pool, Id]) ->
+    process_flag(trap_exit, true),
     true = gproc_pool:connect_worker(Pool, {Pool, Id}),
     {ok, #{pool => Pool, id => Id}}.
 
