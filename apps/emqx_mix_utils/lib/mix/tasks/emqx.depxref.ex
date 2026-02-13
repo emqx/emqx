@@ -8,10 +8,12 @@ defmodule Mix.Tasks.Emqx.Depxref do
   @xref_ignore_apps [:emqx_mix_utils]
   @xref_common_libs [:erts, :stdlib, :kernel, :elixir]
   @xref_ignore_missing [:snabbkaffe]
+  @ignorelist_limit 20
 
   @impl true
   def run(args) do
-    {:ok, app_names} = initialize()
+    ignorelist = depxref_ignores!()
+    {:ok, app_names} = initialize(ignorelist)
 
     {opts, rest} =
       OptionParser.parse!(
@@ -79,6 +81,12 @@ defmodule Mix.Tasks.Emqx.Depxref do
     Mix.Tasks.Emqx.Depxref.Report.produce(apps_issues, iodev, format)
 
     if opts[:summarize] do
+      n_ignores = length(ignorelist)
+
+      if n_ignores > 0 do
+        IO.puts("[Depxref] Ignored #{n_ignores} module dependencies via mix.exs")
+      end
+
       if issues? do
         n_apps = length(apps_issues)
         n_issues = Enum.sum_by(apps_issues, fn {_, issues} -> issues[:total] end)
@@ -113,9 +121,10 @@ defmodule Mix.Tasks.Emqx.Depxref do
       undeclared = dependencies -- declared
 
       Enum.map(undeclared, fn dep ->
-        {:ok, callsites} = query("ME * (App) [#{app} -> #{dep}]")
-        {dep, callsites}
+        {:ok, callsites} = query("(ME - IgnoreS) * (App) [#{app} -> #{dep}]")
+        if callsites != [], do: {dep, callsites}
       end)
+      |> Enum.reject(&is_nil/1)
     end
   end
 
@@ -125,10 +134,11 @@ defmodule Mix.Tasks.Emqx.Depxref do
         {:ok, backdeps} = query("domain (strict AE | #{as_set(dependencies)} || #{app})")
 
         Enum.map(backdeps, fn dep ->
-          {:ok, callsites} = query("ME * (App) [#{app} -> #{dep}]")
-          {:ok, backsites} = query("ME * (App) [#{dep} -> #{app}]")
-          {dep, callsites, backsites}
+          {:ok, callsites} = query("(ME - IgnoreS) * (App) [#{app} -> #{dep}]")
+          {:ok, backsites} = query("(ME - IgnoreS) * (App) [#{dep} -> #{app}]")
+          if callsites != [] or backsites != [], do: {dep, callsites, backsites}
         end)
+        |> Enum.reject(&is_nil/1)
 
       {:ok, []} ->
         []
@@ -139,13 +149,59 @@ defmodule Mix.Tasks.Emqx.Depxref do
     :xref.q(@xref, to_charlist(query))
   end
 
+  defp depxref_ignores!() do
+    Mix.Dep.Umbrella.cached()
+    |> Stream.reject(fn %Mix.Dep{app: app} -> app in @xref_ignore_apps end)
+    |> Stream.flat_map(fn %Mix.Dep{app: app, opts: opts} ->
+      Mix.Project.in_project(app, opts[:path], [], fn app_mix_mod ->
+        ignorelist =
+          if function_exported?(app_mix_mod, :depxref, 0) do
+            app_mix_mod.depxref() |> Keyword.get(:ignore, [])
+          else
+            []
+          end
+
+        limit = @ignorelist_limit
+
+        if length(ignorelist) > limit do
+          Mix.raise("Too many ignore statements: #{app}: #{length(ignorelist)} / #{limit}")
+        end
+
+        Enum.map(ignorelist, fn ignore ->
+          case ignore_to_modedge(ignore) do
+            {:ok, modedge} ->
+              modedge
+
+            {:error, reason} ->
+              Mix.raise("Invalid ignore statement (#{reason}): #{app}: #{inspect(ignore)}")
+          end
+        end)
+      end)
+    end)
+    |> Enum.to_list()
+  end
+
+  defp ignore_to_modedge([app_mod, :->, dep_mod | props]) do
+    reason = Keyword.get(props, :reason)
+
+    unless is_binary(reason) and String.trim(reason) != "" do
+      {:error, "missing reason"}
+    else
+      {:ok, {app_mod, :->, dep_mod}}
+    end
+  end
+
+  defp ignore_to_modedge(_) do
+    {:error, "bad format"}
+  end
+
   def apps() do
     Mix.Dep.Umbrella.cached()
     |> Stream.reject(fn app -> app.app in @xref_ignore_apps end)
     |> Enum.map(fn app -> app.app end)
   end
 
-  def initialize() do
+  def initialize(ignorelist) do
     :ok = ensure_xref()
 
     case query("EMQX") do
@@ -153,7 +209,9 @@ defmodule Mix.Tasks.Emqx.Depxref do
         ok
 
       _undefined ->
-        rebuild_xref()
+        ok = rebuild_xref()
+        build_ignore_set(ignorelist)
+        ok
     end
   end
 
@@ -197,14 +255,28 @@ defmodule Mix.Tasks.Emqx.Depxref do
     {:ok, app_names}
   end
 
+  defp build_ignore_set(edges) do
+    {:ok, modules} = query("(Mod) A")
+    edges = Enum.filter(edges, fn {m1, :->, m2} -> m1 in modules and m2 in modules end)
+
+    if edges != [] do
+      {:ok, _} = query("IgnoreS := #{as_set(edges)} : Mod")
+    else
+      {:ok, _} = query("IgnoreS := ME - ME")
+    end
+  end
+
   defp find_app_info(app) do
     apps = Mix.Dep.Umbrella.cached()
     Enum.find(apps, fn dep -> dep.app == app end)
   end
 
-  defp as_set(atoms) do
-    "[#{atoms |> Enum.map(&to_string/1) |> Enum.join(", ")}]"
+  defp as_set(xs) do
+    "[#{xs |> Enum.map(&as_elem/1) |> Enum.join(", ")}]"
   end
+
+  defp as_elem({a, :->, b}), do: "#{as_elem(a)} -> #{as_elem(b)}"
+  defp as_elem(a) when is_atom(a), do: to_string(a)
 
   def ensure_xref() do
     case :xref.start(@xref) do
