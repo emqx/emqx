@@ -36,7 +36,7 @@ opts(Overrides) ->
     ).
 
 appspec(emqx_durable_storage) ->
-    {emqx_durable_storage, #{override_env => [{egress_flush_interval, 1}]}};
+    {emqx_durable_storage, #{}};
 appspec(emqx_ds_builtin_raft) ->
     {emqx_ds_builtin_raft, #{}}.
 
