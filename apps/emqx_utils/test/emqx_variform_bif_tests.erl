@@ -82,7 +82,9 @@ system_test() ->
         ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)),
         %% read from persistent_term
         ?assertEqual(erlang:list_to_binary(EnvVal), emqx_variform_bif:getenv(EnvNameBin)),
-        ?assertEqual(<<"">>, emqx_variform_bif:getenv(<<"EMQXVAR_NOT_EXIST">>))
+        ?assertEqual(<<"">>, emqx_variform_bif:getenv(<<"EMQXVAR_NOT_EXIST">>)),
+        ?assert(is_integer(emqx_variform_bif:timestamp_s())),
+        ?assert(is_integer(emqx_variform_bif:timestamp_ms()))
     after
         os:unsetenv("EMQXVAR_" ++ EnvName)
     end.
