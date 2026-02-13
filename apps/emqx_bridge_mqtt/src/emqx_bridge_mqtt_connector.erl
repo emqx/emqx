@@ -92,7 +92,8 @@ resource_type() -> mqtt.
 callback_mode() -> async_if_possible.
 
 -spec on_start(connector_resource_id(), map()) -> {ok, connector_state()} | {error, term()}.
-on_start(ResourceId, #{server := Server} = Conf) ->
+on_start(ResourceId, #{server := Server} = Conf0) ->
+    Conf = maybe_set_sni(Conf0),
     ?tp(info, "starting_mqtt_connector", #{
         connector => ResourceId,
         config => emqx_utils:redact(Conf)
@@ -730,3 +731,15 @@ is_expected_to_have_workers(#{available_clientids := []} = _ConnState) ->
     false;
 is_expected_to_have_workers(_ConnState) ->
     true.
+
+%% Azure Event Grid (and other brokers) requires SNI to be set when connecting.  We copy
+%% it from `server` if unset and TLS is enabled.
+maybe_set_sni(#{ssl := #{enable := true} = SSLOpts0} = ConnConfig0) when
+    not is_map_key(server_name_indication, SSLOpts0)
+->
+    #{server := Server} = ConnConfig0,
+    #{hostname := Hostname} = emqx_schema:parse_server(Server, #{default_port => 8883}),
+    SSLOpts = SSLOpts0#{server_name_indication => Hostname},
+    ConnConfig0#{ssl := SSLOpts};
+maybe_set_sni(ConnConfig) ->
+    ConnConfig.

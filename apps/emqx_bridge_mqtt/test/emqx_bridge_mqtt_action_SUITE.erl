@@ -413,6 +413,28 @@ t_rule_action(TCConfig) when is_list(TCConfig) ->
     },
     emqx_bridge_v2_testlib:t_rule_action(TCConfig, Opts).
 
+-doc """
+Checks that we auto-fill Server Name Indication when using SSL and said field is not set.
+""".
+t_sni_autofill(TCConfig) when is_list(TCConfig) ->
+    ?check_trace(
+        begin
+            {201, _} = create_connector_api(TCConfig, #{
+                <<"server">> => <<"127.0.0.1:8883">>,
+                <<"ssl">> => #{<<"enable">> => true}
+            }),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch(
+                [#{config := #{ssl := #{server_name_indication := _}}} | _],
+                ?of_kind("starting_mqtt_connector", Trace)
+            ),
+            ok
+        end
+    ),
+    ok.
+
 t_static_clientids() ->
     [{matrix, true}].
 t_static_clientids(matrix) ->
