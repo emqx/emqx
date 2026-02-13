@@ -1,0 +1,2 @@
+max_sessions_per_username = 100
+username_white_list = []

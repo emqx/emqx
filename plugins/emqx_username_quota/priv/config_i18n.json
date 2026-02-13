@@ -1,0 +1,22 @@
+{
+  "$max_sessions_per_username_label": {
+    "en": "Max Sessions Per Username",
+    "zh": "单用户名最大会话数"
+  },
+  "$max_sessions_per_username_desc": {
+    "en": "Maximum concurrent sessions allowed for one username.",
+    "zh": "单个用户名允许的并发会话上限。"
+  },
+  "$username_white_list_label": {
+    "en": "Username Whitelist",
+    "zh": "用户名白名单"
+  },
+  "$username_white_list_desc": {
+    "en": "Usernames excluded from quota checks.",
+    "zh": "不参与配额校验的用户名。"
+  },
+  "$username_label": {
+    "en": "Username",
+    "zh": "用户名"
+  }
+}

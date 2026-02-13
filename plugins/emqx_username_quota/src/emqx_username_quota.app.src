@@ -2,7 +2,16 @@
     {description, "emqx_username_quota"},
     {vsn, "1.0.0"},
     {registered, []},
-    {modules, []},
+    {modules, [
+        emqx_username_quota,
+        emqx_username_quota_api,
+        emqx_username_quota_app,
+        emqx_username_quota_cluster_watch,
+        emqx_username_quota_config,
+        emqx_username_quota_pool,
+        emqx_username_quota_state,
+        emqx_username_quota_sup
+    ]},
     {applications, [kernel, stdlib, emqx_plugin_helper]},
     {mod, {emqx_username_quota_app, []}}
 ]}.
