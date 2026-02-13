@@ -278,7 +278,7 @@ get_cbm(Type) ->
 %%================================================================================
 
 enter_isolated(PrevState, NextEpoch, D0) ->
-    ok = ensure_tables(),
+    ok = emqx_durable_timer_dl:ensure_tables(),
     case PrevState of
         ?s_isolated(_) ->
             ok;
@@ -360,22 +360,6 @@ handle_heartbeat(
                     {keep_state, S}
             end
     end.
-
-ensure_tables() ->
-    Storage =
-        {emqx_ds_storage_skipstream_lts_v2, #{
-            lts_threshold_spec => {mf, emqx_durable_timer_dl, lts_threshold_cb},
-            timestamp_bytes => 8
-        }},
-    DBConf = emqx_ds_schema:db_config_timers(),
-    ok = emqx_ds:open_db(
-        ?DB_GLOB,
-        DBConf#{
-            storage => Storage,
-            reads => leader_preferred
-        }
-    ),
-    emqx_ds:wait_db(?DB_GLOB, all, infinity).
 
 check_peers(PeerInfo0) ->
     %% Note: we ignore errors since data accumulates in the ets. So

@@ -61,11 +61,12 @@ Collection of handlers for the external message sources.
 init() ->
     emqx_utils_ets:new(?TAB, [ordered_set, public, named_table, {read_concurrency, true}]).
 
--spec register(module(), emqx_extsub_types:handler_options()) -> ok.
+-spec register(module(), emqx_extsub_types:handler_options()) ->
+    ok | {error, extsub_handler_already_registered}.
 register(CBM, Options) ->
     case ets:insert_new(?TAB, {CBM, Options}) of
         true -> ok;
-        false -> error({extsub_handler_already_registered, CBM})
+        false -> {error, extsub_handler_already_registered}
     end.
 
 -spec unregister(module()) -> ok.

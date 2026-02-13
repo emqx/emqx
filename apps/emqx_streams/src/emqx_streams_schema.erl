@@ -12,7 +12,9 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
--export([stream_sctype_api_get/0, stream_sctype_api_put/0, stream_sctype_api_post/0]).
+-export([
+    stream_sctype_api_get/0, stream_sctype_api_put/0, stream_sctype_api_post/0, validate_name/1
+]).
 
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
@@ -25,13 +27,14 @@ roots() ->
     [?SCHEMA_ROOT].
 
 tags() ->
-    [<<"Durable Streams">>].
+    [<<"Message Streams">>].
 
 fields(?SCHEMA_ROOT) ->
     [
         {enable,
-            mk(boolean(), #{
+            mk(hoconsc:union([boolean(), auto]), #{
                 default => false,
+                required => true,
                 desc => ?DESC(enable)
             })},
         {max_stream_count,
@@ -113,10 +116,10 @@ fields(auto_create) ->
     ];
 fields(auto_create_regular) ->
     RegularMQFields = stream_fields(false),
-    without_fields([is_lastvalue, topic_filter], RegularMQFields);
+    without_fields([is_lastvalue, topic_filter, name], RegularMQFields);
 fields(auto_create_lastvalue) ->
     LastvalueMQFields = stream_fields(true),
-    without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
+    without_fields([is_lastvalue, topic_filter, name], LastvalueMQFields);
 %% Stream structs
 fields(stream_individual_limits) ->
     [
@@ -133,7 +136,7 @@ fields(stream_individual_limits) ->
 %% Lastvalue structs
 %%
 fields(stream_lastvalue_api_put) ->
-    without_fields([topic_filter], stream_fields(true));
+    without_fields([name, topic_filter], stream_fields(true));
 fields(stream_lastvalue_api_get) ->
     stream_fields(true);
 fields(stream_lastvalue_api_post) ->
@@ -142,7 +145,7 @@ fields(stream_lastvalue_api_post) ->
 %% Regular structs
 %%
 fields(stream_regular_api_put) ->
-    without_fields([topic_filter], stream_fields(false));
+    without_fields([name, topic_filter], stream_fields(false));
 fields(stream_regular_api_get) ->
     stream_fields(false);
 fields(stream_regular_api_post) ->
@@ -185,12 +188,23 @@ stream_sctype_api_put() ->
 stream_sctype_api_post() ->
     stream_sctype(ref(stream_lastvalue_api_post), ref(stream_regular_api_post)).
 
+validate_name(Name) ->
+    RE = "^[0-9a-zA-Z][\\-\\.0-9a-zA-Z_]*$",
+    case re:run(Name, RE, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error, invalid_name}
+    end.
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
 
 stream_fields(IsLastValue) ->
     [
+        {name,
+            mk(binary(), #{desc => ?DESC(name), required => true, validator => fun validate_name/1})},
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
         {is_lastvalue,
             mk(

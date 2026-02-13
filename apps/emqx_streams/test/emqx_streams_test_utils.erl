@@ -16,7 +16,13 @@
     emqtt_ack/1
 ]).
 
--export([create_stream/1, fill_stream_defaults/1]).
+-export([
+    create_stream/1,
+    ensure_stream_created/1,
+    create_legacy_stream/1,
+    ensure_legacy_stream_created/1,
+    fill_stream_defaults/1
+]).
 
 -export([populate/2, populate_lastvalue/2]).
 
@@ -92,12 +98,26 @@ emqtt_ack(Msgs) ->
         Msgs
     ).
 
-create_stream(#{topic_filter := TopicFilter} = Stream0) ->
-    Stream1 = fill_stream_defaults(Stream0),
+create_stream(Stream0) ->
+    Stream = fill_stream_defaults(Stream0),
+    emqx_streams_registry:create(Stream).
+
+create_legacy_stream(Stream0) ->
+    Stream = fill_stream_defaults(Stream0),
+    emqx_streams_registry:create_pre_611_stream(Stream).
+
+ensure_stream_created(Stream0) ->
+    {ok, Stream} = ?retry(50, 100, {ok, _} = create_stream(Stream0)),
+    wait_for_stream_created(Stream).
+
+ensure_legacy_stream_created(Stream0) ->
+    {ok, Stream} = ?retry(50, 100, {ok, _} = create_legacy_stream(Stream0)),
+    wait_for_stream_created(Stream).
+
+wait_for_stream_created(#{topic_filter := TopicFilter} = Stream) ->
     SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
-    {ok, Stream} = ?retry(50, 100, {ok, _} = emqx_streams_registry:create(Stream1)),
     ?retry(
         5,
         100,
@@ -122,6 +142,7 @@ fill_stream_defaults(#{topic_filter := _TopicFilter} = Stream0) ->
                 compile_key_expression(<<"message.from">>)
         end,
     Default = #{
+        name => <<"test-stream">>,
         is_lastvalue => IsLastValue,
         key_expression => KeyExpressionDefault,
         limits => #{
@@ -215,7 +236,7 @@ cth_config(emqx_streams, ConfigOverrides) ->
     Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
     #{
         config => Config,
-        after_start => fun() -> ok = emqx_streams_app:wait_readiness(15_000) end
+        after_start => fun() -> started = emqx_streams_controller:wait_status(15_000) end
     };
 cth_config(emqx_mq, ConfigOverrides) ->
     DefaultConfig = #{<<"mq">> => default_mq_config()},

@@ -90,10 +90,28 @@ open() ->
         _ -> error(failed_to_open_streams_databases)
     end.
 
--spec close() -> ok.
+-spec close() -> ok | {error, term()}.
 close() ->
-    ok = emqx_ds:close_db(?STREAMS_MESSAGE_LASTVALUE_DB),
-    ok = emqx_ds:close_db(?STREAMS_MESSAGE_REGULAR_DB).
+    LastValueErrors =
+        case emqx_ds:close_db(?STREAMS_MESSAGE_LASTVALUE_DB) of
+            ok ->
+                [];
+            LVError ->
+                [{?STREAMS_MESSAGE_LASTVALUE_DB, LVError}]
+        end,
+    RegularErrors =
+        case emqx_ds:close_db(?STREAMS_MESSAGE_REGULAR_DB) of
+            ok ->
+                [];
+            RegularError ->
+                [{?STREAMS_MESSAGE_REGULAR_DB, RegularError}]
+        end,
+    case LastValueErrors ++ RegularErrors of
+        [] ->
+            ok;
+        Errors ->
+            {error, Errors}
+    end.
 
 -spec wait_readiness(timeout()) -> ok | timeout.
 wait_readiness(Timeout) ->
@@ -112,9 +130,9 @@ insert(Stream, Message) ->
             insert(Stream, emqx_streams_prop:is_limited(Stream), Key, Message)
     end.
 
-insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
+insert(#{is_lastvalue := true, id := Id} = Stream, IsLimited, Key, Message) ->
     DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
-    Shard = emqx_ds:shard_of(DB, Key),
+    Shard = emqx_ds:shard_of(DB, Id),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
@@ -164,9 +182,9 @@ insert(#{is_lastvalue := true} = Stream, IsLimited, Key, Message) ->
             emqx_streams_metrics:inc_stream(Stream, insert_errors),
             {error, {IsRecoverable, Reason}}
     end;
-insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
+insert(#{is_lastvalue := false, id := Id} = Stream, true = _IsLimited, Key, Message) ->
     DB = ?STREAMS_MESSAGE_LASTVALUE_DB,
-    Shard = emqx_ds:shard_of(DB, Key),
+    Shard = emqx_ds:shard_of(DB, Id),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     Gen = ?STREAMS_MESSAGE_LASTVALUE_DB_INSERT_GENERATION,
@@ -203,9 +221,9 @@ insert(#{is_lastvalue := false} = Stream, true = _IsLimited, Key, Message) ->
             emqx_streams_metrics:inc_stream(Stream, insert_errors),
             {error, {IsRecoverable, Reason}}
     end;
-insert(#{is_lastvalue := false} = Stream, false = _IsLimited, Key, Message) ->
+insert(#{is_lastvalue := false, id := Id} = Stream, false = _IsLimited, Key, Message) ->
     DB = ?STREAMS_MESSAGE_REGULAR_DB,
-    Shard = emqx_ds:shard_of(DB, Key),
+    Shard = emqx_ds:shard_of(DB, Id),
     Topic = stream_message_topic(Stream, Key),
     MessageBin = encode_message(Message),
     NeedReply = need_reply(Message),
@@ -620,7 +638,9 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
                 db => DB,
                 shard => Shard,
                 generation => Generation,
-                sync => false
+                sync => false,
+                retries => ?STREAMS_MESSAGE_DB_DELETE_RETRY,
+                retry_interval => ?STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(

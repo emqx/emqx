@@ -266,9 +266,12 @@ dump_to_dot(#trie{trie = Trie, stats = Stats}, Filename) ->
     L = ets:tab2list(Trie),
     {Nodes0, Edges} =
         lists:foldl(
-            fun(#trans{key = {From, Label}, next = To}, {AccN, AccEdge}) ->
-                Edge = {From, To, Label},
-                {[From, To] ++ AccN, [Edge | AccEdge]}
+            fun
+                (#trans{key = {rlookup, _}}, Acc) ->
+                    Acc;
+                (#trans{key = {From, Label}, next = To}, {AccN, AccEdge}) ->
+                    Edge = {From, To, Label},
+                    {[From, To] ++ AccN, [Edge | AccEdge]}
             end,
             {[], []},
             L
@@ -287,7 +290,7 @@ dump_to_dot(#trie{trie = Trie, stats = Stats}, Filename) ->
     {ok, FD} = file:open(Filename, [write]),
     Print = fun
         (?PREFIX) -> "prefix";
-        (Bin) when is_binary(Bin) -> Bin;
+        (Bin) when is_binary(Bin) -> binary:encode_hex(Bin);
         (NodeId) when is_integer(NodeId) -> integer_to_binary(NodeId, 16)
     end,
     io:format(FD, "digraph {~n", []),

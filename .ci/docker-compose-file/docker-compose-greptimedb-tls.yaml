@@ -1,0 +1,25 @@
+services:
+  greptimedb_tls:
+    container_name: greptimedb_tls
+    hostname: greptimedb_tls
+    image: greptime/greptimedb:v0.17.2
+    expose:
+      - "4000"
+      - "4001"
+    # uncomment for local testing
+    # ports:
+    #   - "4100:4000"
+    #   - "4101:4001"
+    volumes:
+      - ./greptimedb/greptimedb_tls.toml:/etc/greptimedb/config.toml
+      - ./greptimedb/certs/server.crt:/etc/greptimedb/certs/server.crt
+      - ./greptimedb/certs/server.key:/etc/greptimedb/certs/server.key
+    restart: always
+    networks:
+      - emqx_bridge
+    command:
+      - standalone
+      - start
+      - -c
+      - /etc/greptimedb/config.toml
+      - --user-provider=static_user_provider:cmd:greptime_user=greptime_pwd

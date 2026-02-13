@@ -96,7 +96,10 @@ This is the entrypoint into the `builtin_raft` backend.
 %% Internal exports:
 -export([
     current_timestamp/2,
-    rpc_target_preference/1
+    rpc_target_preference/1,
+    full_shard_cleanup/2,
+    leader_shard_cleanup/2,
+    lookup_global_otx_leader/2
 ]).
 
 -ifdef(TEST).
@@ -313,11 +316,11 @@ add_generation(DB) ->
 -spec update_db_config(emqx_ds:db(), emqx_dsch:db_schema(), emqx_dsch:db_runtime_config()) ->
     ok | {error, _}.
 update_db_config(DB, NewSchema, NewRTConf) ->
-    %% TODO: broadcast to the peers
+    %% Note: configuration changes are propagated to the replicas via
+    %% `handle_schema_event' and `handle_db_config_change' callbacks.
     maybe
         ok ?= emqx_dsch:update_db_schema(DB, NewSchema),
-        ok ?= emqx_dsch:update_db_config(DB, NewRTConf),
-        emqx_ds_optimistic_tx:config_change(DB)
+        ok ?= emqx_dsch:update_db_config(DB, NewRTConf)
     end.
 
 -spec list_slabs(emqx_ds:db(), emqx_ds:list_slabs_opts()) -> emqx_ds:list_slabs_result().
@@ -640,9 +643,8 @@ db_info(_) ->
     {ok, ""}.
 
 -spec handle_db_config_change(emqx_ds:db(), db_runtime_config()) -> ok.
-handle_db_config_change(_, _) ->
-    %% FIXME:
-    ok.
+handle_db_config_change(DB, _Conf) ->
+    emqx_ds_optimistic_tx:config_change(DB).
 
 -spec handle_schema_event(emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:pending()) -> ok.
 handle_schema_event(DB, PendingId, Pending) ->
@@ -728,21 +730,18 @@ otx_get_latest_generation(DB, Shard) ->
     emqx_ds_storage_layer:generation_current({DB, Shard}).
 
 otx_become_leader(DB, Shard) ->
-    Command = emqx_ds_builtin_raft_machine:otx_new_leader(self()),
-    case local_raft_leader(DB, Shard) of
-        unknown ->
-            ?err_rec(leader_unavailable);
-        Leader ->
-            case ra:process_command(Leader, Command, 5_000) of
-                {ok, {Serial, Timestamp}, Leader} ->
-                    %% Announce this process in the global name registry:
-                    register_global_otx_leader(DB, Shard),
-                    {ok, Serial, Timestamp};
-                {ok, _, _AnotherLeader} ->
-                    ?err_rec(leadership_gone);
-                Err ->
-                    ?err_unrec({raft, Err})
-            end
+    maybe
+        {ok, Leader} ?= local_raft_leader(DB, Shard),
+        ok ?= check_min_rfsm_version(Leader, 1),
+        %% Propagate my schema:
+        SiteSchema = emqx_dsch:get_db_schema(DB),
+        Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema, emqx_ds:timestamp_us()),
+        {ok, _TxLastTimestamp} ?= ra_command(DB, Shard, Command, 5),
+        %% Establish presence:
+        {ok, TxSerial, TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
+        register_global_otx_leader(DB, Shard),
+        emqx_ds_builtin_raft_liveness:notify_shard_up(DB, Shard),
+        {ok, TxSerial, TxLastTimestamp}
     end.
 
 -spec otx_prepare_tx(
@@ -759,17 +758,17 @@ otx_prepare_tx(DBShard, Generation, SerialBin, Ops, Opts) ->
 otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     Command = emqx_ds_builtin_raft_machine:otx_commit(SerCtl, Serial, Timestamp, Batches, self()),
     case local_raft_leader(DB, Shard) of
-        unknown ->
-            ?err_rec(leader_unavailable);
-        Leader ->
+        {ok, Leader} ->
             case ra:process_command(Leader, Command, 5_000) of
                 {ok, ok, _Leader} ->
                     ok;
                 {ok, Err, _Leader} ->
                     Err;
                 Err ->
-                    ?err_unrec({raft, Err})
-            end
+                    ?err_rec({raft, Err, ?FUNCTION_NAME})
+            end;
+        Err ->
+            Err
     end.
 
 otx_add_generation(DB, Shard, Since) ->
@@ -791,14 +790,14 @@ register_global_otx_leader(DB, Shard) ->
     yes = global:re_register_name(RegName, self()),
     ok.
 
+%%================================================================================
+%% Internal exports
+%%================================================================================
+
 -spec lookup_global_otx_leader(emqx_ds:db(), emqx_ds:shard()) -> pid() | undefined.
 lookup_global_otx_leader(DB, Shard) ->
     ClusterId = emqx_ds_builtin_raft_meta:this_cluster(),
     global:whereis_name(?otx_global_regname(ClusterId, DB, Shard)).
-
-%%================================================================================
-%% Internal exports
-%%================================================================================
 
 -doc """
 Messages have been replicated up to this timestamp on the local replica.
@@ -811,6 +810,18 @@ current_timestamp(DB, Shard) ->
         undefined ->
             ?err_rec(replica_offline)
     end.
+
+-doc """
+Perform cleanup actions that fully tear down the shard (whether in
+leader or replica role).
+""".
+full_shard_cleanup(DB, Shard) ->
+    leader_shard_cleanup(DB, Shard),
+    emqx_dsch:gvar_unset_all(DB, Shard, '_').
+
+leader_shard_cleanup(DB, Shard) ->
+    emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader),
+    ok.
 
 %%================================================================================
 %% RPC targets
@@ -902,6 +913,30 @@ do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
 %% Internal functions
 %%================================================================================
 
+announce_otx_leader_pid(Leader, Timeout, Pid) ->
+    Command = emqx_ds_builtin_raft_machine:otx_new_leader(Pid),
+    case ra:process_command(Leader, Command, Timeout) of
+        {ok, {TxSerial, TxLastTimestamp}, Leader} ->
+            {ok, TxSerial, TxLastTimestamp};
+        {ok, {error, _, _} = Err, Leader} ->
+            Err;
+        {ok, _, OtherLeader} ->
+            ?err_unrec({leadership_gone, #{Leader => OtherLeader}});
+        Err ->
+            ?err_rec({raft, Err, ?FUNCTION_NAME})
+    end.
+
+-spec check_min_rfsm_version(ra:server_id(), non_neg_integer()) -> ok | emqx_ds:error(_).
+check_min_rfsm_version(Leader, MinVersion) ->
+    case get_leader_rfsm_vsn(Leader) of
+        {ok, Vsn} when Vsn >= MinVersion ->
+            ok;
+        {ok, Vsn} ->
+            ?err_rec({fsm_needs_upgrade, Vsn});
+        Other ->
+            Other
+    end.
+
 -spec add_generation_to_shard(emqx_ds:db(), emqx_ds:shard(), non_neg_integer()) -> ok.
 add_generation_to_shard(DB, Shard, Retries) ->
     Leader = lookup_global_otx_leader(DB, Shard),
@@ -919,12 +954,37 @@ add_generation_to_shard(DB, Shard, Retries) ->
     emqx_ds:db(), emqx_dsch:pending_id(), emqx_dsch:site(), Schema, Schema
 ) -> ok when
     Schema :: db_schema().
-update_shards_schema(DB, PendingId, Site, _OldSchema, NewSchema) ->
-    Command = emqx_ds_builtin_raft_machine:update_schema(PendingId, Site, NewSchema),
+update_shards_schema(DB, _PendingId, _Site, _OldSchema, NewSchema) ->
+    Fun = fun(Shard, Leader) ->
+        Command = emqx_ds_builtin_raft_machine:update_schema(NewSchema, undefined),
+        Result =
+            maybe
+                ok ?= check_min_rfsm_version(Leader, 1),
+                %% TODO:
+                %% 1. send command to Leader
+                %% 2. use leader term as a check?
+                ra_command(DB, Shard, Command, ra_retries(DB))
+            end,
+        case Result of
+            {ok, _} ->
+                ok;
+            Other ->
+                logger:warning("Failed to update schema for DS shard ~p/~s: ~p", [DB, Shard, Other])
+        end
+    end,
     foreach_shard(
         DB,
         fun(Shard) ->
-            ra_command(DB, Shard, Command, ra_retries(DB))
+            %% As a way to treat potential configuration
+            %% inconsistencies between nodes and avoid duplication
+            %% of updates, configuration changes are only applied
+            %% to the shards where the current node is the leader:
+            case emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred) of
+                [{_, Node} = Myself | _] when Node =:= node() ->
+                    Fun(Shard, Myself);
+                _ ->
+                    ok
+            end
         end
     ).
 
@@ -1045,15 +1105,19 @@ This internal function is used by the OTX leader process to
 communicate with the Raft machine.
 """.
 -spec local_raft_leader(emqx_ds:db(), emqx_ds:shard()) ->
-    ra:server_id() | unknown.
+    {ok, ra:server_id()} | {error, _, _}.
 local_raft_leader(DB, Shard) ->
     LocalServer = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
     case ra:ping(LocalServer, 1_000) of
         {pong, leader} ->
             %% Local server still considers itself a leader:
-            LocalServer;
-        _ ->
-            unknown
+            {ok, LocalServer};
+        {pong, State} ->
+            ?err_unrec({invalid_state_of_local_leader, State});
+        timeout ->
+            ?err_rec(local_leader_timeout);
+        Other ->
+            ?err_unrec({invalid_response_from_local_leader, Other})
     end.
 
 list_nodes() ->
@@ -1124,6 +1188,18 @@ leader_node(DB, Shard) ->
             {ok, Node};
         [] ->
             undefined
+    end.
+
+get_leader_rfsm_vsn(Leader) ->
+    case
+        ra:consistent_query(Leader, fun(State) -> emqx_ds_builtin_raft_machine:get_vsn(State) end)
+    of
+        {ok, Vsn, Leader} ->
+            {ok, Vsn};
+        {ok, _, OtherLeader} ->
+            ?err_unrec({leader_changed, #{Leader => OtherLeader}});
+        Err ->
+            ?err_rec({raft, Err, ?FUNCTION_NAME})
     end.
 
 -ifdef(TEST).

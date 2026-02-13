@@ -24,7 +24,9 @@
     put/4,
     del/2,
     run/2,
+    run/3,
     run_fold/3,
+    run_fold/4,
     lookup/1
 ]).
 
@@ -154,11 +156,25 @@ run(HookPoint, Args) ->
     ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     do_run(lookup(HookPoint), Args).
 
+-spec run(hookpoint(), map(), list(Arg :: term())) -> ok.
+run(HookPoint, Ctx, Args) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    ok = stash_context(HookPoint, Ctx),
+    do_run(lookup(HookPoint), Args),
+    ok = unstash_context(HookPoint).
+
 %% @doc Run hooks with Accumulator.
 -spec run_fold(hookpoint(), list(Arg :: term()), Acc :: term()) -> Acc :: term().
 run_fold(HookPoint, Args, Acc) ->
     ok = emqx_hookpoints:verify_hookpoint(HookPoint),
     do_run_fold(lookup(HookPoint), Args, Acc).
+
+run_fold(HookPoint, Ctx, Args, Acc) ->
+    ok = emqx_hookpoints:verify_hookpoint(HookPoint),
+    ok = stash_context(HookPoint, Ctx),
+    Result = do_run_fold(lookup(HookPoint), Args, Acc),
+    ok = unstash_context(HookPoint),
+    Result.
 
 do_run([#callback{action = Action, filter = Filter} | Callbacks], Args) ->
     case filter_passed(Filter, Args) andalso safe_execute(Action, Args) of

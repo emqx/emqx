@@ -48,20 +48,18 @@ start_top() ->
 when
     Create :: boolean().
 start_db(DB, Create, Schema, RTConf) ->
-    ChildSpec = #{
-        id => DB,
-        start => {emqx_ds_builtin_raft_db_sup, start_db, [DB, Create, Schema, RTConf]},
-        type => supervisor,
-        shutdown => infinity
-    },
-    supervisor:start_child(?databases, ChildSpec).
+    supervisor:start_child(?databases, [DB, Create, Schema, RTConf]).
 
 -spec stop_db(emqx_ds:db()) -> ok.
 stop_db(DB) ->
     case whereis(?databases) of
-        Pid when is_pid(Pid) ->
-            _ = supervisor:terminate_child(?databases, DB),
-            _ = supervisor:delete_child(?databases, DB);
+        DBsSup when is_pid(DBsSup) ->
+            case emqx_ds_builtin_raft_db_sup:whereis_db(DB) of
+                DBPid when is_pid(DBPid) ->
+                    supervisor:terminate_child(?databases, DBPid);
+                undefined ->
+                    {error, not_found}
+            end;
         undefined ->
             ok
     end.
@@ -70,7 +68,7 @@ stop_db(DB) ->
 which_dbs() ->
     case whereis(?databases) of
         Pid when is_pid(Pid) ->
-            [DB || {DB, _Child, _, _} <- supervisor:which_children(Pid)];
+            {ok, emqx_ds_builtin_raft_db_sup:which_dbs()};
         undefined ->
             {error, inactive}
     end.
@@ -121,11 +119,19 @@ init(?top) ->
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
-        strategy => one_for_one,
+        strategy => simple_one_for_one,
         intensity => 10,
         period => 1
     },
-    {ok, {SupFlags, []}}.
+    Children = [
+        #{
+            id => db,
+            start => {emqx_ds_builtin_raft_db_sup, start_link_db, []},
+            type => supervisor,
+            shutdown => infinity
+        }
+    ],
+    {ok, {SupFlags, Children}}.
 
 %%================================================================================
 %% Internal exports

@@ -35,4 +35,19 @@ This option specifies the QoS level for the CoAP Client when establishing a subs
     * qos0: If the subscribe request is non-confirmable<br/>
     * qos1: If the subscribe request is confirmable"""
 
+coap_blockwise.desc:
+"""Block-wise transfer settings for the CoAP gateway."""
+
+coap_blockwise_enable.desc:
+"""Enable or disable block-wise transfer."""
+
+coap_blockwise_max_block_size.desc:
+"""Maximum block size used for block-wise transfer."""
+
+coap_blockwise_max_body_size.desc:
+"""Maximum size of the assembled message body."""
+
+coap_blockwise_exchange_lifetime.desc:
+"""How long to keep block-wise exchange state."""
+
 }

@@ -8,6 +8,7 @@
 
 -export([
     nats_to_mqtt/1,
+    nats_to_mqtt_publish/1,
     mqtt_to_nats/1,
     validate_nats_subject/1
 ]).
@@ -32,6 +33,15 @@ nats_to_mqtt(Subject) ->
             Parts = binary:split(Subject, <<".">>, [global]),
             iolist_to_binary(lists:join(<<"/">>, [convert_nats_wildcard(Part) || Part <- Parts]))
     end.
+
+%% @doc Convert NATS subject to MQTT topic for publish path
+%% Preserve NATS wildcard tokens as literals.
+-spec nats_to_mqtt_publish(binary()) -> binary().
+nats_to_mqtt_publish(<<>>) ->
+    <<>>;
+nats_to_mqtt_publish(Subject) ->
+    Parts = binary:split(Subject, <<".">>, [global]),
+    iolist_to_binary(lists:join(<<"/">>, Parts)).
 
 %% @doc Convert MQTT topic to NATS subject
 %% MQTT topic format: foo/bar/baz

@@ -72,6 +72,7 @@ jobs:
           retention-days: 1
 
   ct_docker:
+    if: inputs.ct-docker != '[]'
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "${{ matrix.app }}-${{ matrix.suitegroup }}"
     strategy:
@@ -140,6 +141,7 @@ jobs:
           retention-days: 7
 
   ct:
+    if: inputs.ct-host != '[]'
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "${{ matrix.app }}-${{ matrix.suitegroup }}"
     strategy:
@@ -190,6 +192,66 @@ jobs:
           compression-level: 0
           retention-days: 7
 
+  ct_plugins:
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    name: "plugins-ct"
+
+    container: ${{ inputs.builder }}
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      PROFILE: emqx-enterprise
+      ENABLE_COVER_COMPILE: 1
+      CT_COVER_EXPORT_PREFIX: emqx-enterprise-plugins
+
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: emqx-enterprise-test
+      - name: extract artifact
+        run: |
+          unzip -o -q emqx-enterprise-test.zip
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: run plugin common tests
+        run: |
+          mapfile -t plugins < <(find plugins -mindepth 1 -maxdepth 1 -type d | sort)
+          mapfile -t plugin_apps < <(
+            for app in "${plugins[@]}"; do
+              [ -f "$app/mix.exs" ] && [ -d "$app/test" ] && echo "$app"
+            done
+          )
+          if [ "${#plugin_apps[@]}" -eq 0 ]; then
+            echo "No plugin apps with mix.exs and test/ found; skipping"
+            exit 0
+          fi
+          for app in "${plugin_apps[@]}"; do
+            echo "::group::${app}-ct"
+            make "${app}-ct"
+            echo "::endgroup::"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverdata-emqx-enterprise-plugins
+          path: _build/emqx-enterprise-test/cover/*.coverdata
+          compression-level: 0
+          retention-days: 1
+
+      - name: compress logs
+        if: failure()
+        run: tar -czf logs.tar.gz _build/emqx-enterprise-test/logs
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: logs-emqx-enterprise-plugins
+          path: logs.tar.gz
+          compression-level: 0
+          retention-days: 7
+
   pytest_boot_tests:
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "pytest_boot_tests"
@@ -233,6 +295,7 @@ jobs:
       - eunit_and_proper
       - ct
       - ct_docker
+      - ct_plugins
       - pytest_boot_tests
     runs-on: 'ubuntu-22.04'
     strategy:
