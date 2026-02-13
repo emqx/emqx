@@ -9,6 +9,10 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-define(NKEY_ACCOUNT_PREFIX, 16#00).
+-define(NKEY_OPERATOR_PREFIX, 16#70).
+-define(NKEY_USER_PREFIX, 16#A0).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -55,7 +59,11 @@ t_ensure_and_publish_nkey_nonce(_Config) ->
     MsgContent = #{auth_required => true},
     ?assertEqual(MsgContent, emqx_nats_authn:maybe_add_nkey_nonce(MsgContent, ConnInfo0)),
     MsgWithNonce = emqx_nats_authn:maybe_add_nkey_nonce(MsgContent, ConnInfo1),
-    ?assertEqual(Nonce, maps:get(nonce, MsgWithNonce)).
+    ?assertEqual(Nonce, maps:get(nonce, MsgWithNonce)),
+
+    JWTAuthn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    ConnInfo2 = emqx_nats_authn:ensure_nkey_nonce(ConnInfo0, JWTAuthn),
+    ?assert(is_binary(maps:get(nkey_nonce, ConnInfo2))).
 
 t_authenticate_token_plain_success(_Config) ->
     Authn = emqx_nats_authn:build_authn_ctx(
@@ -68,9 +76,10 @@ t_authenticate_token_plain_success(_Config) ->
         <<"auth_token">> => <<"nats-token">>,
         <<"jwt">> => <<"not-used">>
     },
-    ClientInfo = #{clientid => <<"c1">>, username => undefined},
+    ClientInfo = #{clientid => <<"c1">>, username => <<"spoofed-user">>},
     {ok, Result} = emqx_nats_authn:authenticate(ConnParams, #{}, ClientInfo, Authn),
     ?assertEqual(token, maps:get(auth_method, Result)),
+    ?assertEqual(<<"token">>, maps:get(username, Result)),
     ?assertEqual(plain, maps:get(token_type, Result)),
     ?assertEqual(undefined, maps:get(auth_expire_at, Result)).
 
@@ -89,7 +98,7 @@ t_authenticate_token_priority_over_jwt(_Config) ->
         jwt_conf(),
         false
     ),
-    JWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>}),
+    JWT = build_test_jwt(#{}),
     ConnParams = #{
         <<"auth_token">> => <<"bad-token">>,
         <<"jwt">> => JWT
@@ -106,11 +115,20 @@ t_authenticate_token_fallback_to_jwt(_Config) ->
         jwt_conf(),
         false
     ),
-    JWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>}),
-    ConnParams = #{<<"jwt">> => JWT},
-    {ok, Result} = emqx_nats_authn:authenticate(ConnParams, #{}, #{username => undefined}, Authn),
+    Nonce = <<"nonce-token-jwt-fallback">>,
+    JWT = build_test_jwt(#{}),
+    ConnParams = #{
+        <<"jwt">> => JWT,
+        <<"sig">> => nkey_sig(Nonce)
+    },
+    {ok, Result} = emqx_nats_authn:authenticate(
+        ConnParams,
+        #{nkey_nonce => Nonce},
+        #{username => undefined},
+        Authn
+    ),
     ?assertEqual(jwt, maps:get(auth_method, Result)),
-    ?assertEqual(<<"jwt-user">>, maps:get(username, Result)).
+    ?assertEqual(nkey_pub(), maps:get(username, Result)).
 
 t_authenticate_token_priority_over_nkey(_Config) ->
     Authn = emqx_nats_authn:build_authn_ctx(token_plain(), [nkey_pub()], undefined, false),
@@ -148,15 +166,21 @@ t_authenticate_nkey_success(_Config) ->
         <<"sig">> => nkey_sig(Nonce),
         <<"jwt">> => <<"not-used">>
     },
-    {ok, Result} = emqx_nats_authn:authenticate(ConnParams, #{nkey_nonce => Nonce}, #{}, Authn),
+    {ok, Result} = emqx_nats_authn:authenticate(
+        ConnParams,
+        #{nkey_nonce => Nonce},
+        #{username => <<"spoofed-user">>},
+        Authn
+    ),
     ?assertEqual(nkey, maps:get(auth_method, Result)),
+    ?assertEqual(nkey_pub(), maps:get(username, Result)),
     ?assertEqual(nkey_pub(), maps:get(nkey, Result)),
     ?assertEqual(undefined, maps:get(auth_expire_at, Result)).
 
 t_authenticate_nkey_priority_over_jwt(_Config) ->
     Authn = emqx_nats_authn:build_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
     Nonce = <<"nonce-2">>,
-    JWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>}),
+    JWT = build_test_jwt(#{}),
     ConnParams = #{
         <<"nkey">> => nkey_pub(),
         <<"sig">> => invalid_nkey_sig(Nonce),
@@ -169,11 +193,14 @@ t_authenticate_nkey_priority_over_jwt(_Config) ->
 
 t_authenticate_nkey_fallback_and_validation(_Config) ->
     Authn = emqx_nats_authn:build_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
-    JWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>}),
+    JWT = build_test_jwt(#{}),
     ConnInfo = #{nkey_nonce => <<"nonce-3">>},
 
     {ok, Result} = emqx_nats_authn:authenticate(
-        #{<<"jwt">> => JWT},
+        #{
+            <<"jwt">> => JWT,
+            <<"sig">> => nkey_sig(<<"nonce-3">>)
+        },
         ConnInfo,
         #{username => undefined},
         Authn
@@ -196,8 +223,8 @@ t_authenticate_nkey_fallback_and_validation(_Config) ->
     ).
 
 t_authenticate_jwt_time_validation(_Config) ->
-    ExpiredJWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>, <<"exp">> => now_seconds() - 10}),
-    FutureNbfJWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>, <<"nbf">> => now_seconds() + 3600}),
+    ExpiredJWT = build_test_jwt(#{<<"exp">> => now_seconds() - 10}),
+    FutureNbfJWT = build_test_jwt(#{<<"nbf">> => now_seconds() + 3600}),
     Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
 
     ?assertEqual(
@@ -214,8 +241,9 @@ t_authenticate_jwt_time_validation(_Config) ->
     ).
 
 t_authenticate_jwt_verify_options(_Config) ->
-    ExpiredJWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>, <<"exp">> => now_seconds() - 10}),
-    FutureNbfJWT = build_test_jwt(#{<<"sub">> => <<"jwt-user">>, <<"nbf">> => now_seconds() + 3600}),
+    Nonce = <<"nonce-jwt-verify-options">>,
+    ExpiredJWT = build_test_jwt(#{<<"exp">> => now_seconds() - 10}),
+    FutureNbfJWT = build_test_jwt(#{<<"nbf">> => now_seconds() + 3600}),
 
     IgnoreExpAuthn = emqx_nats_authn:build_authn_ctx(
         undefined,
@@ -224,12 +252,16 @@ t_authenticate_jwt_verify_options(_Config) ->
         false
     ),
     {ok, ExpResult} = emqx_nats_authn:authenticate(
-        #{<<"jwt">> => ExpiredJWT},
-        #{},
+        #{
+            <<"jwt">> => ExpiredJWT,
+            <<"sig">> => nkey_sig(Nonce)
+        },
+        #{nkey_nonce => Nonce},
         #{},
         IgnoreExpAuthn
     ),
     ?assertEqual(jwt, maps:get(auth_method, ExpResult)),
+    ?assertEqual(undefined, maps:get(auth_expire_at, ExpResult)),
 
     IgnoreNbfAuthn = emqx_nats_authn:build_authn_ctx(
         undefined,
@@ -238,17 +270,57 @@ t_authenticate_jwt_verify_options(_Config) ->
         false
     ),
     {ok, NbfResult} = emqx_nats_authn:authenticate(
-        #{<<"jwt">> => FutureNbfJWT},
-        #{},
+        #{
+            <<"jwt">> => FutureNbfJWT,
+            <<"sig">> => nkey_sig(Nonce)
+        },
+        #{nkey_nonce => Nonce},
         #{},
         IgnoreNbfAuthn
     ),
     ?assertEqual(jwt, maps:get(auth_method, NbfResult)).
 
+t_authenticate_jwt_signature_and_trust_chain_validation(_Config) ->
+    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    ValidJWT = build_test_jwt(#{}),
+    BadSigJWT = mutate_jwt_signature(ValidJWT),
+    NoneAlgJWT = build_none_jwt(#{}),
+
+    ?assertEqual(
+        {error, {jwt, invalid_jwt_signature}},
+        emqx_nats_authn:authenticate(#{<<"jwt">> => BadSigJWT}, #{}, #{}, Authn)
+    ),
+    ?assertEqual(
+        {error, {jwt, invalid_jwt_alg}},
+        emqx_nats_authn:authenticate(#{<<"jwt">> => NoneAlgJWT}, #{}, #{}, Authn)
+    ),
+
+    MissingAccountAuthn = emqx_nats_authn:build_authn_ctx(
+        undefined,
+        [],
+        jwt_conf(#{resolver => #{type => memory, resolver_preload => []}}),
+        false
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_account_not_found}},
+        emqx_nats_authn:authenticate(#{<<"jwt">> => ValidJWT}, #{}, #{}, MissingAccountAuthn)
+    ),
+
+    UntrustedOperatorAuthn = emqx_nats_authn:build_authn_ctx(
+        undefined,
+        [],
+        jwt_conf(#{trusted_operators => [<<"OP_TEST">>]}),
+        false
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_untrusted_operator}},
+        emqx_nats_authn:authenticate(#{<<"jwt">> => ValidJWT}, #{}, #{}, UntrustedOperatorAuthn)
+    ).
+
 t_authenticate_jwt_claim_projection(_Config) ->
     Exp = now_seconds() + 120,
+    Nonce = <<"nonce-jwt-claim-projection">>,
     Claims = #{
-        <<"sub">> => <<"jwt-user">>,
         <<"exp">> => Exp,
         <<"permissions">> => #{
             <<"pub">> => #{
@@ -264,14 +336,17 @@ t_authenticate_jwt_claim_projection(_Config) ->
     JWT = build_test_jwt(Claims),
     Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
     {ok, Result} = emqx_nats_authn:authenticate(
-        #{<<"jwt">> => JWT},
-        #{},
+        #{
+            <<"jwt">> => JWT,
+            <<"sig">> => nkey_sig(Nonce)
+        },
+        #{nkey_nonce => Nonce},
         #{username => undefined},
         Authn
     ),
 
     ?assertEqual(jwt, maps:get(auth_method, Result)),
-    ?assertEqual(<<"jwt-user">>, maps:get(username, Result)),
+    ?assertEqual(nkey_pub(), maps:get(username, Result)),
     ?assertEqual(
         erlang:convert_time_unit(Exp, second, millisecond), maps:get(auth_expire_at, Result)
     ),
@@ -279,6 +354,59 @@ t_authenticate_jwt_claim_projection(_Config) ->
         #{
             publish => #{allow => [<<"orders.*">>, <<"42">>], deny => [<<"orders.secret">>]},
             subscribe => #{allow => [<<"events.>">>], deny => [<<"events.internal">>]}
+        },
+        maps:get(jwt_permissions, Result)
+    ).
+
+t_authenticate_jwt_claim_projection_prefers_nats_permissions(_Config) ->
+    Nonce = <<"nonce-jwt-perm">>,
+    Claims = #{
+        <<"nats">> => #{
+            <<"pub">> => #{
+                <<"allow">> => [<<"nats.orders.*">>],
+                <<"deny">> => [<<"nats.orders.secret">>]
+            },
+            <<"sub">> => #{
+                <<"allow">> => [<<"nats.events.>">>],
+                <<"deny">> => [<<"nats.events.internal">>]
+            },
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        },
+        <<"permissions">> => #{
+            <<"pub">> => #{
+                <<"allow">> => [<<"legacy.orders.*">>],
+                <<"deny">> => [<<"legacy.orders.secret">>]
+            },
+            <<"sub">> => #{
+                <<"allow">> => [<<"legacy.events.>">>],
+                <<"deny">> => [<<"legacy.events.internal">>]
+            }
+        }
+    },
+    JWT = build_test_jwt(Claims),
+    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    {ok, Result} = emqx_nats_authn:authenticate(
+        #{
+            <<"jwt">> => JWT,
+            <<"sig">> => nkey_sig(Nonce)
+        },
+        #{nkey_nonce => Nonce},
+        #{username => undefined},
+        Authn
+    ),
+    ?assertEqual(
+        #{
+            publish =>
+                #{
+                    allow => [<<"nats.orders.*">>],
+                    deny => [<<"nats.orders.secret">>]
+                },
+            subscribe =>
+                #{
+                    allow => [<<"nats.events.>">>],
+                    deny => [<<"nats.events.internal">>]
+                }
         },
         maps:get(jwt_permissions, Result)
     ).
@@ -296,16 +424,64 @@ t_authenticate_jwt_missing_token_behavior(_Config) ->
         emqx_nats_authn:authenticate(#{}, #{}, #{}, JWTWithGatewayAuthn)
     ).
 
+t_authenticate_jwt_nonce_signature_validation(_Config) ->
+    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    Nonce = <<"nonce-jwt-proof">>,
+    JWT = build_test_jwt(#{}),
+    ?assertEqual(
+        {error, {jwt, jwt_sig_required}},
+        emqx_nats_authn:authenticate(#{<<"jwt">> => JWT}, #{nkey_nonce => Nonce}, #{}, Authn)
+    ),
+    ?assertEqual(
+        {error, {jwt, nkey_nonce_unavailable}},
+        emqx_nats_authn:authenticate(
+            #{
+                <<"jwt">> => JWT,
+                <<"sig">> => nkey_sig(Nonce)
+            },
+            #{},
+            #{},
+            Authn
+        )
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_nkey_mismatch}},
+        emqx_nats_authn:authenticate(
+            #{
+                <<"jwt">> => JWT,
+                <<"nkey">> => other_user_nkey(),
+                <<"sig">> => nkey_sig(Nonce)
+            },
+            #{nkey_nonce => Nonce},
+            #{},
+            Authn
+        )
+    ).
+
 t_authenticate_disabled_jwt_and_empty_authn(_Config) ->
     JWTDisabledAuthn = emqx_nats_authn:build_authn_ctx(
         undefined,
         [],
-        #{trusted_operators => []},
+        jwt_conf(#{trusted_operators => []}),
         false
     ),
+    JWT = build_test_jwt(#{}),
+    Nonce = <<"nonce-jwt-disabled">>,
     ?assertEqual(
-        {continue, #{}},
+        {error, {jwt, jwt_required}},
         emqx_nats_authn:authenticate(#{}, #{}, #{}, JWTDisabledAuthn)
+    ),
+    ?assertEqual(
+        {error, {jwt, jwt_trusted_operators_required}},
+        emqx_nats_authn:authenticate(
+            #{
+                <<"jwt">> => JWT,
+                <<"sig">> => nkey_sig(Nonce)
+            },
+            #{nkey_nonce => Nonce},
+            #{},
+            JWTDisabledAuthn
+        )
     ),
 
     EmptyAuthn = emqx_nats_authn:build_authn_ctx(undefined, [], undefined, false),
@@ -382,8 +558,12 @@ t_authn_internal_helper_branches(_Config) ->
         emqx_nats_authn:jwt_claim_expire_at(#{<<"exp">> => 10.9})
     ),
     ?assertEqual(
-        #{username => <<"u">>},
-        emqx_nats_authn:maybe_set_clientinfo_from_jwt_claims(#{username => <<"u">>}, #{})
+        {ok, nkey_pub()},
+        emqx_nats_authn:resolve_jwt_connect_nkey(nkey_pub(), undefined)
+    ),
+    ?assertMatch(
+        {error, _},
+        emqx_nats_authn:resolve_jwt_connect_nkey(nkey_pub(), <<"BAD_NKEY">>)
     ),
 
     ?assertEqual(true, emqx_nats_authn:to_bool(<<"true">>)),
@@ -400,10 +580,19 @@ jwt_conf() ->
     jwt_conf(#{}).
 
 jwt_conf(Overrides) ->
+    Fixture = jwt_fixture(),
     maps:merge(
         #{
-            trusted_operators => [<<"OP_TEST">>],
-            cache_ttl => <<"5m">>,
+            trusted_operators => [maps:get(operator_nkey, Fixture)],
+            resolver => #{
+                type => memory,
+                resolver_preload => [
+                    #{
+                        pubkey => maps:get(account_nkey, Fixture),
+                        jwt => maps:get(account_jwt, Fixture)
+                    }
+                ]
+            },
             verify_exp => true,
             verify_nbf => true
         },
@@ -411,15 +600,93 @@ jwt_conf(Overrides) ->
     ).
 
 build_test_jwt(Claims) ->
+    Fixture = jwt_fixture(),
+    DefaultClaims = #{
+        <<"iss">> => maps:get(account_nkey, Fixture),
+        <<"sub">> => nkey_pub(),
+        <<"iat">> => now_seconds(),
+        <<"nats">> => #{
+            <<"type">> => <<"user">>,
+            <<"version">> => 2
+        }
+    },
+    sign_jwt(maps:merge(DefaultClaims, Claims), jwt_account_priv()).
+
+build_none_jwt(Claims) ->
+    Fixture = jwt_fixture(),
+    DefaultClaims = #{
+        <<"iss">> => maps:get(account_nkey, Fixture),
+        <<"sub">> => nkey_pub()
+    },
     Header = base64url_encode(emqx_utils_json:encode(#{alg => <<"none">>, typ => <<"JWT">>})),
-    Payload = base64url_encode(emqx_utils_json:encode(Claims)),
+    Payload = base64url_encode(emqx_utils_json:encode(maps:merge(DefaultClaims, Claims))),
     <<Header/binary, ".", Payload/binary, ".sig">>.
+
+sign_jwt(Claims, PrivateKey) ->
+    Header = base64url_encode(
+        emqx_utils_json:encode(#{alg => <<"ed25519-nkey">>, typ => <<"JWT">>})
+    ),
+    Payload = base64url_encode(emqx_utils_json:encode(Claims)),
+    SigningInput = <<Header/binary, ".", Payload/binary>>,
+    Sig = crypto:sign(eddsa, none, SigningInput, [PrivateKey, ed25519]),
+    Signature = base64url_encode(Sig),
+    <<SigningInput/binary, ".", Signature/binary>>.
 
 base64url_encode(Bin) ->
     base64:encode(Bin, #{mode => urlsafe, padding => false}).
 
+base64url_decode(Bin) ->
+    base64:decode(Bin, #{mode => urlsafe, padding => false}).
+
 now_seconds() ->
     erlang:system_time(second).
+
+jwt_fixture() ->
+    OperatorNKey = operator_nkey(),
+    AccountNKey = account_nkey(),
+    #{
+        operator_nkey => OperatorNKey,
+        account_nkey => AccountNKey,
+        account_jwt => build_account_jwt(OperatorNKey, AccountNKey)
+    }.
+
+build_account_jwt(OperatorNKey, AccountNKey) ->
+    Claims = #{
+        <<"iss">> => OperatorNKey,
+        <<"sub">> => AccountNKey,
+        <<"iat">> => now_seconds(),
+        <<"nats">> => #{
+            <<"type">> => <<"account">>,
+            <<"version">> => 2
+        }
+    },
+    sign_jwt(Claims, jwt_operator_priv()).
+
+operator_nkey() ->
+    public_nkey(?NKEY_OPERATOR_PREFIX, jwt_operator_priv()).
+
+account_nkey() ->
+    public_nkey(?NKEY_ACCOUNT_PREFIX, jwt_account_priv()).
+
+other_user_nkey() ->
+    public_nkey(?NKEY_USER_PREFIX, jwt_account_priv()).
+
+public_nkey(Prefix, PrivateKey) ->
+    {PubKey, _} = crypto:generate_key(eddsa, ed25519, PrivateKey),
+    encode_nkey(Prefix, PubKey).
+
+encode_nkey(Prefix, PubKey) ->
+    Payload = <<Prefix:8, PubKey/binary>>,
+    Crc = emqx_nats_nkey:crc16_xmodem(Payload),
+    emqx_nats_nkey:base32_encode(<<Payload/binary, Crc:16/little-unsigned>>).
+
+jwt_operator_priv() ->
+    <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        27, 28, 29, 30, 31, 32>>.
+
+jwt_account_priv() ->
+    <<33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+        56, 57, 58, 59, 60, 61, 62, 63, 64>>.
 
 token_plain() ->
     <<"nats_token">>.
@@ -446,6 +713,13 @@ invalid_nkey_sig(Nonce) ->
     <<First:8, Rest/binary>> = SigBin,
     BadSigBin = <<(First bxor 1), Rest/binary>>,
     base64:encode(BadSigBin, #{mode => urlsafe, padding => false}).
+
+mutate_jwt_signature(JWT) ->
+    [Header, Payload, Signature] = binary:split(JWT, <<".">>, [global]),
+    SignatureBin = base64url_decode(Signature),
+    <<First:8, Rest/binary>> = SignatureBin,
+    BadSignature = base64url_encode(<<(First bxor 1), Rest/binary>>),
+    <<Header/binary, ".", Payload/binary, ".", BadSignature/binary>>.
 
 replace_first_char(<<_Old, Rest/binary>>, New) ->
     <<New, Rest/binary>>.

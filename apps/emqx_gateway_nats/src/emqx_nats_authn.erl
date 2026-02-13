@@ -46,7 +46,7 @@ is_auth_required(#{enable_authn := true}, Authn) ->
 
 -spec ensure_nkey_nonce(map(), authn_ctx()) -> map().
 ensure_nkey_nonce(ConnInfo, Authn) ->
-    case nkey_auth_enabled(Authn) of
+    case nonce_auth_enabled(Authn) of
         false ->
             ConnInfo;
         true ->
@@ -82,13 +82,13 @@ authenticate_with_nkey(ConnParams, ConnInfo, ClientInfo, Authn) ->
         {ok, NClientInfo} ->
             {ok, NClientInfo};
         {skip, NClientInfo} ->
-            authenticate_with_jwt(ConnParams, NClientInfo, Authn);
+            authenticate_with_jwt(ConnParams, ConnInfo, NClientInfo, Authn);
         {error, Reason} ->
             {error, {nkey, Reason}}
     end.
 
-authenticate_with_jwt(ConnParams, ClientInfo, Authn) ->
-    case maybe_jwt_auth(ConnParams, ClientInfo, Authn) of
+authenticate_with_jwt(ConnParams, ConnInfo, ClientInfo, Authn) ->
+    case maybe_jwt_auth(ConnParams, ConnInfo, ClientInfo, Authn) of
         {ok, NClientInfo} ->
             {ok, NClientInfo};
         {skip, NClientInfo} ->
@@ -150,11 +150,14 @@ nkey_authenticate(NKey, Sig, Nonce, ClientInfo, Authn) ->
         false ->
             {error, invalid_nkey};
         true ->
-            case emqx_nats_nkey:verify_signature(NKey, Sig, Nonce) of
+            CanonicalNKey = emqx_nats_nkey:normalize(NKey),
+            case emqx_nats_nkey:verify_signature(CanonicalNKey, Sig, Nonce) of
                 {ok, _PubKey} ->
                     {ok, ClientInfo#{
+                        username => CanonicalNKey,
+                        password => undefined,
                         auth_method => nkey,
-                        nkey => NKey,
+                        nkey => CanonicalNKey,
                         auth_expire_at => undefined
                     }};
                 {error, Reason} ->
@@ -162,7 +165,7 @@ nkey_authenticate(NKey, Sig, Nonce, ClientInfo, Authn) ->
             end
     end.
 
-maybe_jwt_auth(ConnParams, ClientInfo, Authn) ->
+maybe_jwt_auth(ConnParams, ConnInfo, ClientInfo, Authn) ->
     case jwt_auth_enabled(Authn) of
         false ->
             {skip, ClientInfo};
@@ -175,58 +178,105 @@ maybe_jwt_auth(ConnParams, ClientInfo, Authn) ->
                         false -> {error, jwt_required}
                     end;
                 _ ->
-                    jwt_authenticate(JWT, ClientInfo, Authn)
+                    NKey = normalize_token(conn_param(ConnParams, <<"nkey">>)),
+                    Sig = normalize_token(conn_param(ConnParams, <<"sig">>)),
+                    jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Authn)
             end
     end.
 
-jwt_authenticate(JWT, ClientInfo, Authn) ->
-    case decode_jwt_claims(JWT) of
-        {ok, Claims} ->
-            Opts = jwt_auth_options(Authn),
-            case verify_jwt_claims_time(Claims, Opts) of
-                ok ->
-                    JWTPerms = extract_jwt_permissions(Claims),
-                    NClientInfo = maybe_set_clientinfo_from_jwt_claims(ClientInfo, Claims),
-                    {ok, NClientInfo#{
-                        auth_method => jwt,
-                        jwt_claims => Claims,
-                        jwt_permissions => JWTPerms,
-                        auth_expire_at => jwt_claim_expire_at(Claims)
-                    }};
-                {error, _} = Error ->
-                    Error
-            end;
+jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Authn) ->
+    maybe
+        {ok, JWTToken = #{claims := Claims}} ?= decode_jwt(JWT),
+        ok ?= verify_jwt_signature_chain(JWTToken, Authn),
+        Opts = jwt_auth_options(Authn),
+        ok ?= verify_jwt_claims_time(Claims, Opts),
+        {ok, Username} ?= verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo),
+        JWTPerms = extract_jwt_permissions(Claims),
+        AuthExpireAt = jwt_claim_expire_at(Claims, Opts),
+        {ok, ClientInfo#{
+            username => Username,
+            password => undefined,
+            auth_method => jwt,
+            nkey => Username,
+            jwt_claims => Claims,
+            jwt_permissions => JWTPerms,
+            auth_expire_at => AuthExpireAt
+        }}
+    end.
+
+verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo) ->
+    maybe
+        {ok, Signature} ?= require_jwt_signature(Sig),
+        {ok, Nonce} ?= get_nkey_nonce(ConnInfo),
+        {ok, SubjectNKey} ?= jwt_claim_sub(Claims),
+        ok ?= verify_jwt_connect_nkey(SubjectNKey, NKey),
+        {ok, _PubKey} ?= emqx_nats_nkey:verify_signature(SubjectNKey, Signature, Nonce),
+        {ok, SubjectNKey}
+    end.
+
+require_jwt_signature(undefined) ->
+    {error, jwt_sig_required};
+require_jwt_signature(Signature) ->
+    {ok, Signature}.
+
+get_nkey_nonce(ConnInfo) ->
+    case maps:get(nkey_nonce, ConnInfo, undefined) of
+        undefined ->
+            {error, nkey_nonce_unavailable};
+        Nonce ->
+            {ok, Nonce}
+    end.
+
+verify_jwt_connect_nkey(SubjectNKey, NKey) ->
+    case resolve_jwt_connect_nkey(SubjectNKey, NKey) of
+        {ok, SubjectNKey} ->
+            ok;
+        {ok, _OtherNKey} ->
+            {error, jwt_nkey_mismatch};
         {error, _} = Error ->
             Error
     end.
 
-maybe_set_clientinfo_from_jwt_claims(ClientInfo, Claims) ->
-    case normalize_token(map_get(Claims, <<"sub">>, undefined)) of
-        undefined ->
-            ClientInfo;
-        Username ->
-            ClientInfo#{username => Username}
+resolve_jwt_connect_nkey(SubjectNKey, undefined) ->
+    {ok, SubjectNKey};
+resolve_jwt_connect_nkey(_SubjectNKey, NKey) ->
+    case emqx_nats_nkey:decode_public(NKey) of
+        {ok, _PubKey} ->
+            {ok, emqx_nats_nkey:normalize(NKey)};
+        {error, _} = Error ->
+            Error
     end.
 
-decode_jwt_claims(JWT) ->
+decode_jwt(JWT) ->
     case binary:split(JWT, <<".">>, [global]) of
-        [_Header, PayloadB64, SignatureB64] when
+        [HeaderB64, PayloadB64, SignatureB64] when
+            HeaderB64 =/= <<>>,
             PayloadB64 =/= <<>>,
             SignatureB64 =/= <<>>
         ->
-            case base64url_decode(PayloadB64) of
-                {ok, Payload} ->
-                    case emqx_utils_json:safe_decode(Payload, [return_maps]) of
-                        {ok, Claims} when is_map(Claims) ->
-                            {ok, Claims};
-                        _ ->
-                            {error, invalid_jwt_claims}
-                    end;
-                {error, _} = Error ->
-                    Error
+            maybe
+                {ok, HeaderJSON} ?= base64url_decode(HeaderB64),
+                {ok, Header} ?= decode_jwt_json(HeaderJSON, invalid_jwt_header),
+                {ok, PayloadJSON} ?= base64url_decode(PayloadB64),
+                {ok, Claims} ?= decode_jwt_json(PayloadJSON, invalid_jwt_claims),
+                {ok, Signature} ?= base64url_decode(SignatureB64),
+                {ok, #{
+                    header => Header,
+                    claims => Claims,
+                    signing_input => <<HeaderB64/binary, ".", PayloadB64/binary>>,
+                    signature => Signature
+                }}
             end;
         _ ->
             {error, invalid_jwt_format}
+    end.
+
+decode_jwt_json(JSONBin, ErrReason) ->
+    case emqx_utils_json:safe_decode(JSONBin, [return_maps]) of
+        {ok, Map} when is_map(Map) ->
+            {ok, Map};
+        _ ->
+            {error, ErrReason}
     end.
 
 base64url_decode(Value) ->
@@ -234,6 +284,207 @@ base64url_decode(Value) ->
         Bin -> {ok, Bin}
     catch
         _:_ -> {error, invalid_jwt_base64}
+    end.
+
+verify_jwt_signature_chain(#{claims := Claims} = UserToken, Authn) ->
+    Config = maps:get(jwt, Authn, #{}),
+    maybe
+        ok ?= ensure_jwt_trusted_operators(Config),
+        ok ?= verify_jwt_token_alg(UserToken),
+        {ok, UserIssuer} ?= jwt_claim_issuer(Claims),
+        AccountPubKey = jwt_claim_issuer_account(Claims, UserIssuer),
+        {ok, AccountJWT} ?= jwt_account_jwt(Config, AccountPubKey),
+        verify_jwt_account_chain(
+            UserToken,
+            UserIssuer,
+            AccountPubKey,
+            AccountJWT,
+            Config
+        )
+    end.
+
+verify_jwt_account_chain(UserToken, UserIssuer, AccountPubKey, AccountJWT, Config) ->
+    maybe
+        {ok, AccountToken = #{claims := AccountClaims}} ?= decode_jwt_account(AccountJWT),
+        ok ?= verify_jwt_account_token_alg(AccountToken),
+        ok ?= verify_jwt_account_subject(AccountClaims, AccountPubKey),
+        {ok, OperatorPubKey} ?= jwt_claim_account_issuer(AccountClaims),
+        ok ?= verify_jwt_operator_trusted(OperatorPubKey, Config),
+        ok ?= verify_jwt_token_signature(AccountToken, OperatorPubKey),
+        ok ?= verify_jwt_user_issuer_allowed(UserIssuer, AccountPubKey, AccountClaims),
+        verify_jwt_token_signature(UserToken, UserIssuer)
+    end.
+
+ensure_jwt_trusted_operators(Config) ->
+    case jwt_trusted_operators(Config) of
+        [] ->
+            {error, jwt_trusted_operators_required};
+        _ ->
+            ok
+    end.
+
+decode_jwt_account(AccountJWT) ->
+    case decode_jwt(AccountJWT) of
+        {ok, _} = OK ->
+            OK;
+        {error, _} ->
+            {error, invalid_jwt_account}
+    end.
+
+verify_jwt_account_token_alg(AccountToken) ->
+    case verify_jwt_token_alg(AccountToken) of
+        ok ->
+            ok;
+        {error, _} ->
+            {error, invalid_jwt_account}
+    end.
+
+verify_jwt_account_subject(AccountClaims, AccountPubKey) ->
+    case jwt_claim_sub(AccountClaims) of
+        {ok, AccountPubKey} ->
+            ok;
+        {ok, _OtherPubKey} ->
+            {error, invalid_jwt_account};
+        {error, _} ->
+            {error, invalid_jwt_account}
+    end.
+
+jwt_claim_account_issuer(AccountClaims) ->
+    case jwt_claim_issuer(AccountClaims) of
+        {ok, _} = OK ->
+            OK;
+        {error, _} ->
+            {error, invalid_jwt_account}
+    end.
+
+verify_jwt_operator_trusted(OperatorPubKey, Config) ->
+    case lists:member(OperatorPubKey, jwt_trusted_operators(Config)) of
+        true ->
+            ok;
+        false ->
+            {error, jwt_untrusted_operator}
+    end.
+
+verify_jwt_token_alg(#{header := Header}) ->
+    case normalize_token(map_get_any(Header, [<<"alg">>, alg], undefined)) of
+        <<"ed25519-nkey">> ->
+            ok;
+        _ ->
+            {error, invalid_jwt_alg}
+    end.
+
+verify_jwt_token_signature(#{signing_input := Input, signature := Signature}, IssuerPubKey) ->
+    case emqx_nats_nkey:decode_public_any(IssuerPubKey) of
+        {ok, PubKey} ->
+            try crypto:verify(eddsa, none, Input, Signature, [PubKey, ed25519]) of
+                true ->
+                    ok;
+                false ->
+                    {error, invalid_jwt_signature}
+            catch
+                _:_ ->
+                    {error, invalid_jwt_signature}
+            end;
+        {error, _} ->
+            {error, invalid_jwt_issuer}
+    end.
+
+verify_jwt_user_issuer_allowed(UserIssuer, AccountPubKey, AccountClaims) ->
+    case UserIssuer =:= AccountPubKey of
+        true ->
+            ok;
+        false ->
+            NATSClaims = normalize_map(map_get_any(AccountClaims, [<<"nats">>, nats], #{})),
+            SigningKeys = normalize_nkey_list(
+                map_get_any(NATSClaims, [<<"signing_keys">>, signing_keys], [])
+            ),
+            case lists:member(UserIssuer, SigningKeys) of
+                true ->
+                    ok;
+                false ->
+                    {error, jwt_untrusted_signing_key}
+            end
+    end.
+
+jwt_claim_issuer(Claims) ->
+    case jwt_normalize_nkey_claim(map_get_any(Claims, [<<"iss">>, iss], undefined)) of
+        undefined ->
+            {error, invalid_jwt_issuer};
+        Issuer ->
+            {ok, Issuer}
+    end.
+
+jwt_claim_issuer_account(Claims, DefaultIssuer) ->
+    case
+        jwt_normalize_nkey_claim(
+            map_get_any(Claims, [<<"issuer_account">>, issuer_account], undefined)
+        )
+    of
+        undefined ->
+            DefaultIssuer;
+        Account ->
+            Account
+    end.
+
+jwt_claim_sub(Claims) ->
+    case jwt_normalize_nkey_claim(map_get_any(Claims, [<<"sub">>, sub], undefined)) of
+        undefined ->
+            {error, invalid_jwt_subject};
+        Subject ->
+            {ok, Subject}
+    end.
+
+jwt_normalize_nkey_claim(Value) ->
+    case normalize_token(Value) of
+        undefined ->
+            undefined;
+        Bin ->
+            emqx_nats_nkey:normalize(Bin)
+    end.
+
+jwt_account_jwt(Config, AccountPubKey) ->
+    Accounts = jwt_resolver_accounts(Config),
+    case maps:get(AccountPubKey, Accounts, undefined) of
+        undefined ->
+            {error, jwt_account_not_found};
+        AccountJWT ->
+            {ok, AccountJWT}
+    end.
+
+jwt_resolver_accounts(Config) ->
+    Resolver = map_get_any(Config, [resolver, <<"resolver">>], undefined),
+    Preload0 =
+        case is_map(Resolver) of
+            true ->
+                map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], []);
+            false ->
+                map_get_any(Config, [resolver_preload, <<"resolver_preload">>], [])
+        end,
+    resolver_preload_entries(Preload0, #{}).
+
+resolver_preload_entries([Entry | Rest], Acc) ->
+    case normalize_resolver_preload_entry(Entry) of
+        {ok, {PubKey, JWT}} ->
+            resolver_preload_entries(Rest, Acc#{PubKey => JWT});
+        error ->
+            resolver_preload_entries(Rest, Acc)
+    end;
+resolver_preload_entries([], Acc) ->
+    Acc;
+resolver_preload_entries(_, Acc) ->
+    Acc.
+
+normalize_resolver_preload_entry(Entry0) ->
+    Entry = normalize_map(Entry0),
+    PubKey = jwt_normalize_nkey_claim(map_get_any(Entry, [pubkey, <<"pubkey">>], undefined)),
+    JWT = normalize_token(map_get_any(Entry, [jwt, <<"jwt">>], undefined)),
+    case {PubKey, JWT} of
+        {undefined, _} ->
+            error;
+        {_, undefined} ->
+            error;
+        _ ->
+            {ok, {PubKey, JWT}}
     end.
 
 verify_jwt_claims_time(Claims, Opts) ->
@@ -283,18 +534,34 @@ jwt_claim_expire_at(Claims) ->
             undefined
     end.
 
+jwt_claim_expire_at(_Claims, #{verify_exp := false}) ->
+    undefined;
+jwt_claim_expire_at(Claims, _Opts) ->
+    jwt_claim_expire_at(Claims).
+
 extract_jwt_permissions(Claims) ->
-    Perms0 = map_get(Claims, <<"permissions">>, #{}),
-    Perms = normalize_map(Perms0),
+    NATSClaims = normalize_map(map_get_any(Claims, [<<"nats">>, nats], #{})),
+    LegacyPerms = normalize_map(map_get_any(Claims, [<<"permissions">>, permissions], #{})),
     #{
-        publish => extract_jwt_action_permissions(Perms, publish),
-        subscribe => extract_jwt_action_permissions(Perms, subscribe)
+        publish => extract_jwt_action_permissions(NATSClaims, LegacyPerms, publish),
+        subscribe => extract_jwt_action_permissions(NATSClaims, LegacyPerms, subscribe)
     }.
 
-extract_jwt_action_permissions(Perms, publish) ->
-    extract_allow_deny(map_get_any(Perms, [<<"pub">>, <<"publish">>, pub, publish], #{}));
-extract_jwt_action_permissions(Perms, subscribe) ->
-    extract_allow_deny(map_get_any(Perms, [<<"sub">>, <<"subscribe">>, sub, subscribe], #{})).
+extract_jwt_action_permissions(NATSClaims, LegacyPerms, publish) ->
+    extract_jwt_action_permissions(
+        map_get_any(NATSClaims, [<<"pub">>, <<"publish">>, pub, publish], undefined),
+        map_get_any(LegacyPerms, [<<"pub">>, <<"publish">>, pub, publish], #{})
+    );
+extract_jwt_action_permissions(NATSClaims, LegacyPerms, subscribe) ->
+    extract_jwt_action_permissions(
+        map_get_any(NATSClaims, [<<"sub">>, <<"subscribe">>, sub, subscribe], undefined),
+        map_get_any(LegacyPerms, [<<"sub">>, <<"subscribe">>, sub, subscribe], #{})
+    ).
+
+extract_jwt_action_permissions(undefined, LegacyClaim) ->
+    extract_allow_deny(LegacyClaim);
+extract_jwt_action_permissions(NATSClaim, _LegacyClaim) ->
+    extract_allow_deny(NATSClaim).
 
 extract_allow_deny(Claim) ->
     ClaimMap = normalize_map(Claim),
@@ -325,6 +592,8 @@ token_authenticate(Token, ClientInfo, Authn) ->
             case check_token(Type, ConfigToken, Token) of
                 true ->
                     {ok, ClientInfo#{
+                        username => <<"token">>,
+                        password => undefined,
                         auth_method => token,
                         token_type => Type,
                         auth_expire_at => undefined
@@ -377,14 +646,14 @@ jwt_auth_options(Authn) ->
         verify_nbf => to_bool(map_get_any(Config, [verify_nbf, <<"verify_nbf">>], true))
     }.
 
+jwt_trusted_operators(Config) ->
+    normalize_nkey_list(map_get_any(Config, [trusted_operators, <<"trusted_operators">>], [])).
+
 jwt_has_trusted_operators(Config) ->
-    Operators = map_get_any(Config, [trusted_operators, <<"trusted_operators">>], []),
-    case Operators of
-        [_ | _] ->
-            true;
-        _ ->
-            false
-    end.
+    jwt_trusted_operators(Config) =/= [].
+
+jwt_has_resolver_accounts(Config) ->
+    maps:size(jwt_resolver_accounts(Config)) > 0.
 
 token_auth_enabled(Authn) ->
     maps:get(token, Authn, undefined) =/= undefined.
@@ -397,8 +666,11 @@ jwt_auth_enabled(Authn) ->
         undefined ->
             false;
         Config ->
-            jwt_has_trusted_operators(Config)
+            jwt_has_trusted_operators(Config) orelse jwt_has_resolver_accounts(Config)
     end.
+
+nonce_auth_enabled(Authn) ->
+    nkey_auth_enabled(Authn) orelse jwt_auth_enabled(Authn).
 
 gateway_auth_enabled(Authn) ->
     maps:get(gateway_auth_enabled, Authn, false) =:= true.
@@ -407,8 +679,23 @@ nkey_allowed(NKey, Allowed) ->
     lists:member(emqx_nats_nkey:normalize(NKey), Allowed).
 
 normalize_nkeys(NKeys) when is_list(NKeys) ->
-    lists:map(fun emqx_nats_nkey:normalize/1, NKeys);
+    normalize_nkey_list(NKeys);
 normalize_nkeys(_) ->
+    [].
+
+normalize_nkey_list(Values) when is_list(Values) ->
+    lists:filtermap(
+        fun(Value) ->
+            case normalize_token(Value) of
+                undefined ->
+                    false;
+                Bin ->
+                    {true, emqx_nats_nkey:normalize(Bin)}
+            end
+        end,
+        Values
+    );
+normalize_nkey_list(_) ->
     [].
 
 conn_param(ConnParams, Key) ->

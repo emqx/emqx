@@ -187,10 +187,12 @@ is_auth_required(ClientInfo) ->
     emqx_nats_authn:is_auth_required(ClientInfo, nats_authn_ctx()).
 
 nats_authn_ctx() ->
+    RawNATS = emqx:get_raw_config([gateway, nats], #{}),
+    JWTConf = maps:get(<<"authn_jwt">>, RawNATS, maps:get(authn_jwt, RawNATS, undefined)),
     emqx_nats_authn:build_authn_ctx(
         emqx_conf:get([gateway, nats, authn_token], undefined),
         emqx_conf:get([gateway, nats, authn_nkeys], []),
-        emqx_conf:get([gateway, nats, authn_jwt], undefined),
+        JWTConf,
         emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined
     ).
 
@@ -1220,12 +1222,20 @@ interval(keepalive_recv_timer, _) ->
 
 authorize_with_jwt_first(Ctx, ClientInfo, Action, Topic, Subject) ->
     case jwt_permissions_authorize(ClientInfo, Action, Subject) of
-        allow ->
-            allow;
         deny ->
             deny;
+        allow ->
+            authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic);
         ignore ->
-            emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic)
+            authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic)
+    end.
+
+authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic) ->
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            allow;
+        _ ->
+            deny
     end.
 
 jwt_permissions_authorize(

@@ -64,6 +64,7 @@ fields(nats) ->
                 ref(authn_jwt),
                 #{
                     required => false,
+                    validator => fun validate_authn_jwt/1,
                     desc => ?DESC(authn_jwt)
                 }
             )},
@@ -88,14 +89,6 @@ fields(authn_jwt) ->
                     default => memory,
                     required => false,
                     desc => ?DESC(resolver)
-                }
-            )},
-        {cache_ttl,
-            sc(
-                emqx_schema:duration(),
-                #{
-                    default => <<"5m">>,
-                    desc => ?DESC(cache_ttl)
                 }
             )},
         {verify_exp,
@@ -221,6 +214,30 @@ desc(websocket) ->
 %%--------------------------------------------------------------------
 %% internal functions
 
+validate_authn_jwt(Config) ->
+    case {jwt_has_trusted_operators(Config), jwt_has_resolver_preload(Config)} of
+        {true, true} ->
+            ok;
+        {false, false} ->
+            ok;
+        {false, true} ->
+            {error, <<"field `trusted_operators` is required">>};
+        {true, false} ->
+            {error, <<"field `resolver.resolver_preload` is required">>}
+    end.
+
+jwt_has_trusted_operators(Config) ->
+    has_non_empty_list(map_get_any(Config, [trusted_operators, <<"trusted_operators">>], [])).
+
+jwt_has_resolver_preload(Config) ->
+    Resolver = map_get_any(Config, [resolver, <<"resolver">>], #{}),
+    has_non_empty_list(map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], [])).
+
+has_non_empty_list(Value) when is_list(Value) ->
+    Value =/= [];
+has_non_empty_list(_) ->
+    false.
+
 sc(Type) ->
     sc(Type, #{}).
 
@@ -235,6 +252,18 @@ ref(Mod, Field) ->
 
 map(Name, Type) ->
     hoconsc:map(Name, Type).
+
+map_get_any(Map, [Key | More], Default) when is_map(Map) ->
+    case maps:find(Key, Map) of
+        {ok, Value} ->
+            Value;
+        error ->
+            map_get_any(Map, More, Default)
+    end;
+map_get_any(_, [_Key | _More], Default) ->
+    Default;
+map_get_any(_, [], Default) ->
+    Default.
 
 jwt_resolver_union_member_selector(all_union_members) ->
     [memory, ref(jwt_resolver_memory)];
