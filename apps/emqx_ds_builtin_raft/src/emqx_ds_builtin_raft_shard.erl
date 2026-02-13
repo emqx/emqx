@@ -550,10 +550,13 @@ init({DB, Shard, RTConf}) ->
         {_New = false, Server} ->
             NextStage = wait_leader
     end,
+    {Name, _} = Server,
+    MRef = erlang:monitor(process, Name),
     St = #st{
         db = DB,
         shard = Shard,
         server = Server,
+        mref = MRef,
         bootstrapped = false,
         stage = NextStage
     },
@@ -561,13 +564,12 @@ init({DB, Shard, RTConf}) ->
 
 handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
     {noreply, St};
-handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, server = {Name, _}, stage = Stage}) ->
+handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, stage = Stage}) ->
     ?tp(emqx_ds_replshard_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
     case bootstrap(St0) of
         St = #st{bootstrapped = true} ->
             ?tp(emqx_ds_replshard_bootstrapped, #{db => DB, shard => Shard}),
-            MRef = erlang:monitor(process, Name),
-            {noreply, St#st{mref = MRef}};
+            {noreply, St};
         St = #st{bootstrapped = false} ->
             {noreply, St, {continue, bootstrap}};
         {retry, Timeout, St} ->
