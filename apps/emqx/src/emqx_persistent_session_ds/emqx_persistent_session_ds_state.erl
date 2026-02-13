@@ -2,21 +2,21 @@
 %% Copyright (c) 2023-2026 EMQ Technologies Co., Ltd. All Rights Reserved.
 %%--------------------------------------------------------------------
 
-%% @doc CRUD interface for the persistent session
-%%
-%% This module encapsulates the data related to the state of the
-%% inflight messages for the persistent session based on DS.
-%%
-%% It is responsible for saving, caching, and restoring session state.
-%% It is completely devoid of business logic. Not even the default
-%% values should be set in this module.
-%%
-%% Session process MUST NOT use `cold_*' functions! They are reserved
-%% for use in the management APIs.
-%%
 -module(emqx_persistent_session_ds_state).
+-moduledoc """
+CRUD interface for the persistent session.
 
--feature(maybe_expr, enable).
+This module encapsulates the data related to the state of the
+inflight messages for the persistent session based on DS.
+
+It is responsible for saving, caching, and restoring session state.
+It is completely devoid of business logic. Not even the default
+values should be set in this module.
+
+Session process MUST NOT use `cold_*` functions! They are reserved
+for use in the management APIs.
+""".
+
 -compile(inline).
 
 -include_lib("emqx_durable_storage/include/emqx_ds.hrl").
@@ -26,6 +26,7 @@
 
 -export([
     open/1,
+    open/2,
     create_new/1,
     delete/1,
     commit/2,
@@ -36,7 +37,7 @@
     list_sessions/0
 ]).
 -export([is_dirty/1, checkpoint_ref/1]).
--export([get_id/1, get_created_at/1, set_created_at/2]).
+-export([get_id/1, get_guard/1, get_created_at/1, set_created_at/2]).
 -export([get_last_alive_at/1, set_last_alive_at/2]).
 -export([get_expiry_interval/1, set_expiry_interval/2]).
 -export([set_offline_info/2, get_offline_info/1]).
@@ -124,9 +125,6 @@
 
 -type guard() :: emqx_ds_pmap:guard().
 
-%% TODO: move this type to a different module and make it opaque,
-%% otherwise someone WILL absolutely use it in the session business
-%% code and bypass API.
 -type t() :: #{
     ?id := emqx_persistent_session_ds:id(),
     ?collection_guard := guard() | undefined,
@@ -178,15 +176,20 @@ open_db() ->
 
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | emqx_ds:error(_) | undefined.
 open(SessionId) ->
+    open(SessionId, '_').
+
+-spec open(emqx_persistent_session_ds:id(), guard() | '_') ->
+    {ok, t()} | emqx_ds:error(_) | undefined.
+open(SessionId, MaybeGuard) ->
     ?tp_span(
         psds_open,
         #{id => SessionId},
-        emqx_persistent_session_ds_state_v2:open(generation(), SessionId)
+        emqx_persistent_session_ds_state_v2:open(generation(), SessionId, MaybeGuard)
     ).
 
 -spec print_session(emqx_persistent_session_ds:id()) -> map() | undefined.
 print_session(SessionId) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId) of
+    case open(SessionId, '_') of
         undefined ->
             undefined;
         {ok, Session} ->
@@ -218,14 +221,7 @@ format(Rec) ->
 list_sessions() ->
     emqx_persistent_session_ds_state_v2:list_sessions(generation()).
 
--spec delete(emqx_persistent_session_ds:id() | t()) -> ok.
-delete(Id) when is_binary(Id) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), Id) of
-        {ok, Rec} ->
-            delete(Rec);
-        undefined ->
-            ok
-    end;
+-spec delete(t()) -> ok.
 delete(Rec) when is_map(Rec) ->
     emqx_persistent_session_ds_state_v2:delete(generation(), Rec).
 
@@ -297,6 +293,10 @@ checkpoint_ref(#{?checkpoint_ref := Dirty}) ->
 -spec get_id(t()) -> emqx_persistent_session_ds:id().
 get_id(#{?id := Id}) ->
     Id.
+
+-spec get_guard(t()) -> guard() | undefined.
+get_guard(#{?collection_guard := Guard}) ->
+    Guard.
 
 -spec get_created_at(t()) -> emqx_persistent_session_ds:timestamp() | undefined.
 get_created_at(Rec) ->

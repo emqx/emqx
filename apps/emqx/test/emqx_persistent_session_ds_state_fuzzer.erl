@@ -430,7 +430,10 @@ create_new(SessionId) ->
 
 delete(SessionId) ->
     print_cmd("*** ~p(~p)", [?FUNCTION_NAME, SessionId]),
-    emqx_persistent_session_ds_state:delete(SessionId),
+    maybe
+        {ok, Sess} ?= emqx_persistent_session_ds_state:open(SessionId),
+        emqx_persistent_session_ds_state:delete(Sess)
+    end,
     ets:delete(?tab, SessionId).
 
 commit(SessionId) ->
@@ -496,7 +499,7 @@ do_takeover(SessionId) ->
         test_takeover,
         #{sessid => SessionId},
         maybe
-            {ok, S} ?= emqx_persistent_session_ds_state:open(SessionId),
+            {ok, S} ?= emqx_persistent_session_ds_state:open(SessionId, '_'),
             {ok, emqx_persistent_session_ds_state:commit(S, #{lifetime => takeover, sync => true})}
         end
     ).
