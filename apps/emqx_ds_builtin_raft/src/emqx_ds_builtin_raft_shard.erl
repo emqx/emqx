@@ -695,6 +695,9 @@ create_start_server(DB, Shard, LocalServer, UID, RTConf) ->
         cluster_name => ClusterName,
         initial_members => Servers,
         machine => Machine,
+        %% TODO
+        %% Uncomment once upgrades from v0 are no longer expected, probably 6.3.0?
+        %% initial_machine_version => emqx_ds_builtin_raft_machine:version(),
         log_init_args => LogOpts#{uid => UID}
     }),
     {_NewServer = true, LocalServer}.
