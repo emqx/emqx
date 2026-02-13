@@ -1,9 +1,10 @@
 # EMQX Plugin Development Guide
 
 EMQX is organized as a set of Erlang/OTP applications under the `apps/` directory.
+Plugin applications in this monorepo should live under the `plugins/` directory.
 In the EMQX monorepo, **Mix** (Elixir build tooling) is used to compile and test all applications together.
 
-There are two project styles to build a EMQX plugin. Standalone project, or embedded in EMQX monorepo.
+There are two project styles to build an EMQX plugin: standalone project, or embedded in the EMQX monorepo.
 
 ---
 
@@ -113,7 +114,7 @@ This mode uses **only `rebar3`** and does not involve Mix or `mix.exs`.
 
 ---
 
-## Plugin Development Inside the EMQX Monorepo (`contribute-*` Branches)
+## Plugin Development Inside the EMQX Monorepo
 
 This mode is intended for plugin development tightly coupled with a specific EMQX version.
 
@@ -124,18 +125,24 @@ This mode is intended for plugin development tightly coupled with a specific EMQ
    - Must also be the Erlang application name.
 
 2. **Check out the appropriate branch**
-   - Use a `contribute-??` branch matching the target EMQX version.
-   - Example: `contribute-61` for EMQX 6.1-based development.
+   - Use a `release` branch matching the target EMQX version.
+   - Example: `release-61` for EMQX 6.1-based development.
 
 3. **Generate the plugin application**
    ```bash
-   cd apps/
+   cd plugins/
    rebar3 new emqx-plugin {plugin_name}
    ```
 
+   You can also keep the plugin in a separate repository and symlink it into `plugins/`.
+   Example:
+   ```bash
+   ln -s /path/to/{plugin_name} plugins/{plugin_name}
+   ```
+
 4. **Add `mix.exs`**
-   - Create `apps/{plugin_name}/mix.exs` so the plugin participates in monorepo build and test workflows.
-   - You can use `apps/emqx_username_quota/mix.exs` as a reference.
+   - Create `plugins/{plugin_name}/mix.exs` so the plugin participates in monorepo build and test workflows.
+   - You can use `plugins/emqx_username_quota/mix.exs` as a reference.
 
 ---
 
@@ -143,23 +150,23 @@ This mode is intended for plugin development tightly coupled with a specific EMQ
 
 - Implement plugin code under:
   ```
-  apps/{plugin_name}/src
+  plugins/{plugin_name}/src
   ```
 
 - Add Common Test suites under:
   ```
-  apps/{plugin_name}/test
+  plugins/{plugin_name}/test
   ```
 
 - Run Common Test for the plugin only:
   ```bash
-  make apps/{plugin_name}-ct
+  make plugins/{plugin_name}-ct
   ```
 
 Example:
 
 ```bash
-make apps/emqx_username_quota-ct
+make plugins/emqx_username_quota-ct
 ```
 
 ---
@@ -183,7 +190,7 @@ This produces a `.tar.gz` plugin artifact suitable for installation via `emqx ct
 ### Example
 
 - **Plugin name:** `emqx_username_quota`
-- **Application path:** `apps/emqx_username_quota`
+- **Application path:** `plugins/emqx_username_quota`
 - **Package build command:**
   ```bash
   make plugin-emqx_username_quota

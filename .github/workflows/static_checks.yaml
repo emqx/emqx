@@ -59,8 +59,7 @@ jobs:
             echo "Diff:"
             diff -u deps.txt.orig deps.txt || true
             rm -f deps.txt.orig
-            # do not fail in contribute-* branches
-            exit 0
+            exit 1
           fi
           echo "deps.txt is up to date"
           rm -f deps.txt.orig
