@@ -24,12 +24,12 @@
 -define(ACTION_TYPE_BIN, <<"greptimedb">>).
 
 -define(PROXY_NAME_GRPC, "greptimedb_grpc").
-%% -define(PROXY_NAME_TLS, "greptimedb_tls").
+-define(PROXY_NAME_TLS_GRPC, "greptimedb_tls_grpc").
 -define(PROXY_HOST, "toxiproxy").
 -define(PROXY_PORT, 8474).
 
 -define(tcp, tcp).
-%% -define(tls, tls).
+-define(tls, tls).
 -define(async, async).
 -define(sync, sync).
 -define(with_batch, with_batch).
@@ -84,6 +84,15 @@ init_per_group(?tcp, TCConfig) ->
         {proxy_port, ?PROXY_PORT}
         | TCConfig
     ];
+init_per_group(?tls, TCConfig) ->
+    [
+        {server, <<"toxiproxy:4003">>},
+        {enable_tls, true},
+        {proxy_name, ?PROXY_NAME_TLS_GRPC},
+        {proxy_host, ?PROXY_HOST},
+        {proxy_port, ?PROXY_PORT}
+        | TCConfig
+    ];
 init_per_group(?async, TCConfig) ->
     [{query_mode, async} | TCConfig];
 init_per_group(?sync, TCConfig) ->
@@ -105,7 +114,7 @@ init_per_testcase(TestCase, TCConfig) ->
     ConnectorName = atom_to_binary(TestCase),
     ConnectorConfig = connector_config(#{
         <<"server">> => get_config(server, TCConfig, <<"toxiproxy:4001">>),
-        <<"ssl">> => #{<<"enable">> => get_config(enable_tls, TCConfig, false)}
+        <<"ssl">> => tls_opts(TCConfig)
     }),
     ActionName = ConnectorName,
     ActionConfig = action_config(#{
@@ -210,17 +219,24 @@ with_failure(FailureType, TCConfig, Fn) ->
     emqx_common_test_helpers:with_failure(FailureType, ProxyName, ?PROXY_HOST, ?PROXY_PORT, Fn).
 
 start_ehttpc_pool(EHttpcPoolName) ->
-    EHttpcTransport = tcp,
-    EHttpcTransportOpts = [],
+    %% HTTP is always plain TCP (no TLS) - only gRPC uses TLS
     EHttpcPoolOpts = [
         {host, "greptimedb"},
         {port, 4000},
         {pool_size, 1},
-        {transport, EHttpcTransport},
-        {transport_opts, EHttpcTransportOpts}
+        {transport, tcp},
+        {transport_opts, []}
     ],
     {ok, _} = ehttpc_sup:start_pool(EHttpcPoolName, EHttpcPoolOpts),
     ok.
+
+tls_opts(TCConfig) ->
+    case get_config(enable_tls, TCConfig, false) of
+        true ->
+            #{<<"enable">> => true, <<"verify">> => <<"verify_none">>};
+        false ->
+            #{<<"enable">> => false}
+    end.
 
 drop_table(TCConfig) ->
     query_by_sql(<<"drop table mqtt">>, TCConfig).
@@ -241,15 +257,10 @@ query_by_sql(SQL, TCConfig) ->
     GreptimedbHost = "toxiproxy",
     GreptimedbPort = 4000,
     EHttpcPoolName = get_config(ehttpc_pool_name, TCConfig),
-    UseTLS = get_config(enable_tls, TCConfig, false),
     Path = <<"/v1/sql?db=public">>,
-    Scheme =
-        case UseTLS of
-            true -> <<"https://">>;
-            false -> <<"http://">>
-        end,
+    %% HTTP is always plain TCP (no TLS) - only gRPC uses TLS
     URI = iolist_to_binary([
-        Scheme,
+        <<"http://">>,
         list_to_binary(GreptimedbHost),
         ":",
         integer_to_binary(GreptimedbPort),
