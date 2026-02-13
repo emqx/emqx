@@ -80,6 +80,59 @@ t_load_badconf_listener_in_use(_Config) ->
         gen_tcp:close(LSock)
     end.
 
+t_load_badconf_partial_authn_jwt(_Config) ->
+    BaseConf1 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    MissingTrustedOperators = BaseConf1#{
+        <<"authn_jwt">> => #{
+            <<"resolver">> => #{
+                <<"type">> => <<"memory">>,
+                <<"resolver_preload">> => [
+                    #{
+                        <<"pubkey">> => <<"A">>,
+                        <<"jwt">> => <<"jwt-account">>
+                    }
+                ]
+            }
+        }
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error, path := "gateway.nats.authn_jwt"}},
+        emqx_gateway_conf:load_gateway(nats, MissingTrustedOperators)
+    ),
+
+    BaseConf2 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    MissingResolverPreload = BaseConf2#{
+        <<"authn_jwt">> => #{
+            <<"trusted_operators">> => [<<"OP">>]
+        }
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error, path := "gateway.nats.authn_jwt"}},
+        emqx_gateway_conf:load_gateway(nats, MissingResolverPreload)
+    ).
+
+t_load_badconf_authn_jwt_cache_ttl(_Config) ->
+    BaseConf = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    UnsupportedCacheTTL = BaseConf#{
+        <<"authn_jwt">> => #{
+            <<"trusted_operators">> => [<<"OP">>],
+            <<"resolver">> => #{
+                <<"type">> => <<"memory">>,
+                <<"resolver_preload">> => [
+                    #{
+                        <<"pubkey">> => <<"A">>,
+                        <<"jwt">> => <<"jwt-account">>
+                    }
+                ]
+            },
+            <<"cache_ttl">> => <<"5m">>
+        }
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error, path := "gateway.nats.authn_jwt"}},
+        emqx_gateway_conf:load_gateway(nats, UnsupportedCacheTTL)
+    ).
+
 t_load_update_unload(_Config) ->
     Port1 = emqx_common_test_helpers:select_free_port(tcp),
     Port2 = emqx_common_test_helpers:select_free_port(tcp),

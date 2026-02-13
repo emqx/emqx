@@ -39,9 +39,6 @@ trusted_operators.desc:
 resolver.desc:
 """Account JWT resolver configuration. Currently, only `memory` is supported."""
 
-cache_ttl.desc:
-"""How long resolved account JWTs are cached before refresh."""
-
 verify_exp.desc:
 """Whether to validate JWT `exp` (expiration) claim."""
 

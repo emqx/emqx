@@ -4,24 +4,28 @@
 
 -module(emqx_nats_nkey).
 
--export([decode_public/1, encode_public/1, normalize/1, verify_signature/3]).
+-export([decode_public/1, decode_public_any/1, encode_public/1, normalize/1, verify_signature/3]).
 
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
 -endif.
 
+-define(NKEY_ACCOUNT_PREFIX, 16#00).
+-define(NKEY_OPERATOR_PREFIX, 16#70).
 -define(NKEY_USER_PREFIX, 16#A0).
+-define(NKEY_PUBLIC_RAW_SIZE, 35).
+-define(NKEY_PUBLIC_ENCODED_SIZE, 56).
 -define(BASE32_ALPHABET, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567").
 
 decode_public(NKey0) ->
-    NKey = normalize(NKey0),
-    case NKey of
-        <<$U, _/binary>> ->
-            decode_public_user(NKey);
-        _ ->
-            {error, invalid_nkey_prefix}
-    end.
+    decode_public_with_allowed_prefixes(NKey0, [?NKEY_USER_PREFIX]).
+
+decode_public_any(NKey0) ->
+    decode_public_with_allowed_prefixes(
+        NKey0,
+        [?NKEY_ACCOUNT_PREFIX, ?NKEY_OPERATOR_PREFIX, ?NKEY_USER_PREFIX]
+    ).
 
 verify_signature(NKey, Sig0, Nonce) ->
     case decode_public(NKey) of
@@ -51,11 +55,47 @@ normalize(Value) when is_binary(Value) ->
 normalize(Value) ->
     normalize(emqx_utils_conv:bin(Value)).
 
-decode_public_user(NKey) ->
+decode_public_with_allowed_prefixes(NKey0, AllowedPrefixes) ->
+    NKey = normalize(NKey0),
+    case nkey_prefix_char(NKey) of
+        {ok, PrefixChar} ->
+            case prefix_from_char(PrefixChar) of
+                {ok, Prefix} ->
+                    case lists:member(Prefix, AllowedPrefixes) of
+                        true ->
+                            decode_public_with_prefix(NKey, Prefix);
+                        false ->
+                            {error, invalid_nkey_prefix}
+                    end;
+                _ ->
+                    {error, invalid_nkey_prefix}
+            end;
+        error ->
+            {error, invalid_nkey_prefix}
+    end.
+
+nkey_prefix_char(<<Prefix, _/binary>>) ->
+    {ok, Prefix};
+nkey_prefix_char(_) ->
+    error.
+
+prefix_from_char($A) ->
+    {ok, ?NKEY_ACCOUNT_PREFIX};
+prefix_from_char($O) ->
+    {ok, ?NKEY_OPERATOR_PREFIX};
+prefix_from_char($U) ->
+    {ok, ?NKEY_USER_PREFIX};
+prefix_from_char(_) ->
+    error.
+
+decode_public_with_prefix(NKey, PrefixByte) ->
     case base32_decode(NKey) of
-        {ok, Raw} when byte_size(Raw) =:= 35 ->
+        {ok, Raw} when
+            byte_size(Raw) =:= ?NKEY_PUBLIC_RAW_SIZE,
+            byte_size(NKey) =:= ?NKEY_PUBLIC_ENCODED_SIZE
+        ->
             <<Prefix:8, PubKey:32/binary, Crc:16/little-unsigned>> = Raw,
-            case Prefix =:= ?NKEY_USER_PREFIX of
+            case Prefix =:= PrefixByte of
                 false ->
                     {error, invalid_nkey_prefix};
                 true ->

@@ -12,6 +12,9 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-define(NKEY_ACCOUNT_PREFIX, 16#00).
+-define(NKEY_OPERATOR_PREFIX, 16#70).
+
 -define(CONF_FMT,
     ~b"""
 gateway.nats {
@@ -399,6 +402,12 @@ t_nkey_decode_public_ok(_Config) ->
     {ok, PubKey} = emqx_nats_nkey:decode_public(nkey_pub()),
     ?assertEqual(32, byte_size(PubKey)).
 
+t_nkey_decode_public_any_ok(_Config) ->
+    {ok, AccountPub} = emqx_nats_nkey:decode_public_any(account_nkey()),
+    ?assertEqual(32, byte_size(AccountPub)),
+    {ok, OperatorPub} = emqx_nats_nkey:decode_public_any(operator_nkey()),
+    ?assertEqual(32, byte_size(OperatorPub)).
+
 t_nkey_encode_public_roundtrip(_Config) ->
     {ok, PubKey} = emqx_nats_nkey:decode_public(nkey_pub()),
     Encoded = emqx_nats_nkey:encode_public(PubKey),
@@ -421,6 +430,11 @@ t_nkey_decode_public_invalid_size(_Config) ->
 t_nkey_decode_public_invalid_crc(_Config) ->
     Bad = toggle_last_base32_char(nkey_pub()),
     ?assertEqual({error, invalid_nkey_crc}, emqx_nats_nkey:decode_public(Bad)).
+
+t_nkey_decode_public_non_canonical_length(_Config) ->
+    %% Reject trailing base32 chars even when decoded payload bytes still match.
+    NonCanonical = <<(nkey_pub())/binary, "A">>,
+    ?assertEqual({error, invalid_nkey_size}, emqx_nats_nkey:decode_public(NonCanonical)).
 
 t_nkey_decode_public_internal_prefix_mismatch(_Config) ->
     %% Keep first 5 bits as "U", but use an invalid internal prefix byte.
@@ -486,6 +500,26 @@ nkey_priv() ->
 nkey_sig(Nonce) ->
     Sig = crypto:sign(eddsa, none, Nonce, [nkey_priv(), ed25519]),
     base64:encode(Sig, #{mode => urlsafe, padding => false}).
+
+account_nkey() ->
+    public_nkey(?NKEY_ACCOUNT_PREFIX, jwt_account_priv()).
+
+operator_nkey() ->
+    public_nkey(?NKEY_OPERATOR_PREFIX, jwt_operator_priv()).
+
+public_nkey(Prefix, PrivateKey) ->
+    {PubKey, _} = crypto:generate_key(eddsa, ed25519, PrivateKey),
+    Payload = <<Prefix:8, PubKey/binary>>,
+    Crc = emqx_nats_nkey:crc16_xmodem(Payload),
+    emqx_nats_nkey:base32_encode(<<Payload/binary, Crc:16/little-unsigned>>).
+
+jwt_operator_priv() ->
+    <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+        27, 28, 29, 30, 31, 32>>.
+
+jwt_account_priv() ->
+    <<33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+        56, 57, 58, 59, 60, 61, 62, 63, 64>>.
 
 replace_first_char(<<_Old, Rest/binary>>, New) ->
     <<New, Rest/binary>>.
