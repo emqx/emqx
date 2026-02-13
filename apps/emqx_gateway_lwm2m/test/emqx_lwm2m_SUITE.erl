@@ -405,7 +405,7 @@ default_config_with_update_condition_raw(UpdateConditionRaw) ->
         )
     ).
 
-default_config_with_coap_max_block_size(MaxSize) ->
+default_config_with_blockwise_max_block_size(MaxSize) ->
     XmlDir = filename:join(
         [
             emqx_common_test_helpers:proj_root(),
@@ -424,7 +424,7 @@ default_config_with_coap_max_block_size(MaxSize) ->
             "  qmode_time_window = 22s\n"
             "  auto_observe = false\n"
             "  mountpoint = \"lwm2m/${username}\"\n"
-            "  coap_max_block_size = ~w\n"
+            "  blockwise { max_block_size = ~w }\n"
             "  translators {\n"
             "    command = {topic = \"/dn/#\", qos = 0}\n"
             "    response = {topic = \"/up/resp\", qos = 0}\n"
@@ -5483,7 +5483,7 @@ case132_coap_max_block_size(_Config) ->
         )
     ),
     ok = emqx_conf_cli:load_config(
-        ?global_ns, default_config_with_coap_max_block_size(256), #{mode => replace}
+        ?global_ns, default_config_with_blockwise_max_block_size(256), #{mode => replace}
     ),
     ?assert(
         is_binary(
