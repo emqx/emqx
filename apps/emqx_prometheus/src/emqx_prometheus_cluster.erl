@@ -63,8 +63,9 @@ raw_data_ns(Module, Namespace, ?PROM_DATA_MODE__NODE = Mode) ->
 raw_data_ns(Module, Namespace, Mode) ->
     ClusterWideMetrics = Module:fetch_cluster_wide_namespaced_metrics(Namespace, Mode),
     Nodes = emqx_bpapi:nodes_supporting_bpapi_version(?BPAPI, 3),
-    RPCResults0 = emqx_prometheus_proto_v2:raw_prom_data(
-        Nodes, Module, fetch_namespaced_metrics_v1, [Namespace, Mode]
+    Timeout = 5_000,
+    RPCResults0 = emqx_prometheus_proto_v3:raw_prom_data(
+        Nodes, Module, fetch_namespaced_metrics_v1, [Namespace, Mode], Timeout
     ),
     {InitAcc, RPCResults} = initial_acc(RPCResults0, Module),
     Metrics =
