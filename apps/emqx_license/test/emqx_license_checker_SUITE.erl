@@ -181,8 +181,8 @@ t_max_uptime_reached(_Config) ->
 
 t_overexpired_standard_client(_Config) ->
     {NowDate, _} = calendar:universal_time(),
-    Date16DaysAgo = calendar:gregorian_days_to_date(
-        calendar:date_to_gregorian_days(NowDate) - 16
+    Date17DaysAgo = calendar:gregorian_days_to_date(
+        calendar:date_to_gregorian_days(NowDate) - 17
     ),
 
     License = mk_license(
@@ -193,7 +193,7 @@ t_overexpired_standard_client(_Config) ->
             "Foo",
             "contact@foo.com",
             "bar",
-            format_date(Date16DaysAgo),
+            format_date(Date17DaysAgo),
             "1",
             "123"
         ]
