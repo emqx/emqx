@@ -43,6 +43,7 @@ packet IDs can be reconstructed by "replaying" the stored SRSes.
     create/4,
     open/4,
     destroy/1,
+    destroy_session/2,
     kick_offline_session/1
 ]).
 
@@ -315,20 +316,30 @@ open(#{clientid := ClientID} = ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
             {true, do_expire(ClientInfo, Session), []}
     end.
 
--spec destroy(session() | clientinfo()) -> ok.
+-spec destroy(session() | clientinfo()) -> ok | emqx_ds:error(_).
 destroy(#{id := ClientID}) ->
     destroy_session(ClientID);
 destroy(#{clientid := ClientID}) ->
     destroy_session(ClientID).
 
+-spec destroy_session(emqx_types:clientid()) -> ok.
 destroy_session(ClientID) ->
-    session_drop(ClientID, destroy).
+    destroy_session(ClientID, '_').
+
+-doc """
+Destroy a session for the `ClientId` if its guard is equal to the argument `Guard`.
+`Guard` can be set to '_' to destroy any session with the given `ClientID`.
+""".
+-spec destroy_session(emqx_types:clientid(), emqx_persistent_session_ds_state:guard() | '_') ->
+    ok | emqx_ds:error(_).
+destroy_session(ClientID, MaybeGuard) ->
+    session_drop(ClientID, MaybeGuard, destroy).
 
 -spec kick_offline_session(emqx_types:clientid()) -> ok.
 kick_offline_session(ClientID) ->
     case emqx_persistent_message:is_persistence_enabled() of
         true ->
-            session_drop(ClientID, kicked);
+            session_drop(ClientID, '_', kicked);
         false ->
             ok
     end.
@@ -882,10 +893,11 @@ disconnect(Session = #{id := Id, s := S0, shared_sub_s := SharedSubS0}, ConnInfo
 
 -spec terminate(emqx_types:clientinfo(), Reason :: term(), session()) -> ok.
 terminate(ClientInfo, Reason, Session = #{s := S, id := Id, will_msg := MaybeWillMsg}) ->
+    Guard = emqx_persistent_session_ds_state:get_guard(S),
     _ = commit(Session#{s := S}, #{lifetime => terminate, sync => true}),
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S),
-    ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, SessExpiryInterval),
     ok = emqx_durable_will:on_disconnect(Id, ClientInfo, SessExpiryInterval, MaybeWillMsg),
+    ok = emqx_persistent_session_ds_gc_timer:on_disconnect(Id, Guard, SessExpiryInterval),
     ?tp(debug, ?sessds_terminate, #{id => Id, reason => Reason}),
     ok.
 
@@ -1076,7 +1088,7 @@ open_session_state(
     NewConnInfo = #{proto_name := ProtoName, proto_ver := ProtoVer}
 ) ->
     NowMs = now_ms(),
-    case emqx_persistent_session_ds_state:open(SessionId) of
+    case emqx_persistent_session_ds_state:open(SessionId, '_') of
         {ok, S0} ->
             EI = emqx_persistent_session_ds_state:get_expiry_interval(S0),
             ?tp(?sessds_open_session, #{ei => EI, now => NowMs}),
@@ -1122,16 +1134,20 @@ ensure_new_session_state(
 
 %% @doc Called when a client reconnects with `clean session=true' or
 %% during session GC
--spec session_drop(id(), _Reason) -> ok.
-session_drop(SessionId, Reason) ->
-    case emqx_persistent_session_ds_state:open(SessionId) of
+-spec session_drop(id(), emqx_persistent_session_ds_state:guard() | '_', _Reason) ->
+    ok | emqx_ds:error(_).
+session_drop(SessionId, MaybeGuard, Reason) ->
+    case emqx_persistent_session_ds_state:open(SessionId, MaybeGuard) of
         {ok, S0} ->
             ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
             S1 = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
             ok = emqx_persistent_session_ds_state:delete(S1),
-            emqx_persistent_session_ds_gc_timer:delete(SessionId);
+            emqx_persistent_session_ds_gc_timer:delete(SessionId),
+            ok;
         undefined ->
-            ok
+            ok;
+        {error, _, _} = Err ->
+            Err
     end.
 
 %%--------------------------------------------------------------------
@@ -1473,11 +1489,15 @@ create_session(Lifetime, ClientID, S0, ClientInfo, ConnInfo, MaybeWillMsg, Conf)
     ),
     %% Create durable timers for clean-up and will messages:
     SessExpiryInterval = emqx_persistent_session_ds_state:get_expiry_interval(S0),
-    ok = emqx_persistent_session_ds_gc_timer:on_connect(ClientID, SessExpiryInterval),
+    S = emqx_persistent_session_ds_state:commit(S0, #{lifetime => Lifetime, sync => true}),
+    ok = emqx_persistent_session_ds_gc_timer:on_connect(
+        ClientID,
+        emqx_persistent_session_ds_state:get_guard(S),
+        SessExpiryInterval
+    ),
     ok = emqx_durable_will:on_connect(
         ClientID, ClientInfo, SessExpiryInterval, MaybeWillMsg
     ),
-    S = emqx_persistent_session_ds_state:commit(S0, #{lifetime => Lifetime, sync => true}),
     #{
         id => ClientID,
         dscli => DSCli,

@@ -30,7 +30,7 @@
 
 %% API:
 -export([
-    open/2,
+    open/3,
     delete/2,
     commit/3,
 
@@ -109,10 +109,19 @@
 %% API functions
 %%================================================================================
 
-%% @doc Open a session
--spec open(emqx_ds:generation(), emqx_types:clientid()) ->
-    {ok, emqx_persistent_session_ds_state:t()} | undefined.
-open(Generation, ClientId) ->
+-doc """
+Open a session that belongs to `ClientId`.
+
+`Guard` argument can be set to the following values:
+
+- `'_'`: Do not check session guard.
+- `Binary`: Match the guard (session must exist).
+""".
+-spec open(
+    emqx_ds:generation(), emqx_types:clientid(), emqx_persistent_session_ds_state:guard() | '_'
+) ->
+    {ok, emqx_persistent_session_ds_state:t()} | emqx_ds:error(_) | undefined.
+open(Generation, ClientId, MaybeGuard) ->
     Opts = #{
         db => ?DB,
         generation => Generation,
@@ -123,13 +132,15 @@ open(Generation, ClientId) ->
     },
     Ret = emqx_ds:trans(
         Opts,
-        fun() -> open_tx(ClientId) end
+        fun() -> open_tx(ClientId, MaybeGuard) end
     ),
     case Ret of
         {atomic, _TXSerial, Result} ->
             Result;
         {nop, Result} ->
-            Result
+            Result;
+        {error, _, _} = Err ->
+            Err
     end.
 
 -spec commit(
@@ -417,7 +428,13 @@ total_subscription_count(Generation) ->
 %% Internal functions
 %%================================================================================
 
-open_tx(ClientId) ->
+open_tx(ClientId, MaybeOldGuard) ->
+    case MaybeOldGuard of
+        '_' ->
+            ok;
+        OldGuard when is_binary(OldGuard) ->
+            emqx_ds_pmap:tx_assert_guard(ClientId, OldGuard)
+    end,
     case emqx_ds_pmap:tx_guard(ClientId) of
         undefined ->
             undefined;

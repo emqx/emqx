@@ -26,6 +26,7 @@ for use in the management APIs.
 
 -export([
     open/1,
+    open/2,
     create_new/1,
     delete/1,
     commit/2,
@@ -175,15 +176,20 @@ open_db() ->
 
 -spec open(emqx_persistent_session_ds:id()) -> {ok, t()} | emqx_ds:error(_) | undefined.
 open(SessionId) ->
+    open(SessionId, '_').
+
+-spec open(emqx_persistent_session_ds:id(), guard() | '_') ->
+    {ok, t()} | emqx_ds:error(_) | undefined.
+open(SessionId, MaybeGuard) ->
     ?tp_span(
         psds_open,
         #{id => SessionId},
-        emqx_persistent_session_ds_state_v2:open(generation(), SessionId)
+        emqx_persistent_session_ds_state_v2:open(generation(), SessionId, MaybeGuard)
     ).
 
 -spec print_session(emqx_persistent_session_ds:id()) -> map() | undefined.
 print_session(SessionId) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), SessionId) of
+    case open(SessionId, '_') of
         undefined ->
             undefined;
         {ok, Session} ->
@@ -215,14 +221,7 @@ format(Rec) ->
 list_sessions() ->
     emqx_persistent_session_ds_state_v2:list_sessions(generation()).
 
--spec delete(emqx_persistent_session_ds:id() | t()) -> ok.
-delete(Id) when is_binary(Id) ->
-    case emqx_persistent_session_ds_state_v2:open(generation(), Id) of
-        {ok, Rec} ->
-            delete(Rec);
-        undefined ->
-            ok
-    end;
+-spec delete(t()) -> ok.
 delete(Rec) when is_map(Rec) ->
     emqx_persistent_session_ds_state_v2:delete(generation(), Rec).
 

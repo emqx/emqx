@@ -16,6 +16,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
 -include("../src/emqx_persistent_session_ds/session_internals.hrl").
+-include_lib("emqx_durable_storage/include/emqx_ds_pmap.hrl").
 
 -include("emqx_persistent_message.hrl").
 
@@ -835,7 +836,7 @@ t_state_commit_conflict(_Config) ->
             A4 = emqx_persistent_session_ds_state:commit(A3, #{lifetime => up, sync => true}),
             %% 2. Now C takes over the session. It should invalidate A's
             %% claim.
-            {ok, C1} = emqx_persistent_session_ds_state:open(Id),
+            {ok, C1} = emqx_persistent_session_ds_state:open(Id, '_'),
             C2 = emqx_persistent_session_ds_state:commit(C1, #{lifetime => takeover, sync => true}),
             %%   A loses:
             {1, A5} = emqx_persistent_session_ds_state:new_id(A4),
@@ -847,8 +848,8 @@ t_state_commit_conflict(_Config) ->
             %% and D and E take over simulataneously:
             {1, C3} = emqx_persistent_session_ds_state:new_id(C2),
             _ = emqx_persistent_session_ds_state:commit(C3, #{lifetime => terminate, sync => true}),
-            {ok, D1} = emqx_persistent_session_ds_state:open(Id),
-            {ok, E1} = emqx_persistent_session_ds_state:open(Id),
+            {ok, D1} = emqx_persistent_session_ds_state:open(Id, '_'),
+            {ok, E1} = emqx_persistent_session_ds_state:open(Id, '_'),
             %%   E commits first:
             {2, E2} = emqx_persistent_session_ds_state:new_id(E1),
             E3 = emqx_persistent_session_ds_state:commit(E2, #{lifetime => takeover, sync => true}),
@@ -861,7 +862,7 @@ t_state_commit_conflict(_Config) ->
             %% doesn't crash even when inconsistency is detected.
             %%
             %%   F takes over:
-            {ok, F1} = emqx_persistent_session_ds_state:open(Id),
+            {ok, F1} = emqx_persistent_session_ds_state:open(Id, '_'),
             _F2 = emqx_persistent_session_ds_state:commit(F1, #{lifetime => takeover, sync => true}),
             %%   E tries to commit, it silently fails with a warning:
             {3, E4} = emqx_persistent_session_ds_state:new_id(E3),
@@ -1208,6 +1209,47 @@ t_session_gc(Config) ->
     ),
     ok.
 
+%% This testcase verifies that session is protected from unintended
+%% deletion by `destroy_session/2'. This could happen, for example, if
+%% durable GC timer was not cancelled or due to takeover conflict.
+t_destroy_session_with_wrong_guard(init, Config) ->
+    start_local(?FUNCTION_NAME, Config).
+t_destroy_session_with_wrong_guard(Config) ->
+    %% 1. Connect client for the first time:
+    ClientId = mk_clientid(?FUNCTION_NAME, sub),
+    ClientSubOpts = #{clientid => ClientId},
+    ClientSub1 = start_connect_client(ClientSubOpts),
+    ?assertMatch(
+        {ok, _, [?RC_GRANTED_QOS_1]},
+        emqtt:subscribe(ClientSub1, <<"t/#">>, ?QOS_1)
+    ),
+    %% 2. Get guard of the first session incarnation:
+    #{s := #{?collection_guard := Guard1}} = emqx_persistent_session_ds:print_session(ClientId),
+    ?assert(is_binary(Guard1)),
+    %% 3. Re-connect the session. It should change the guard:
+    ok = emqtt:stop(ClientSub1),
+    ClientSub2 = start_connect_client(ClientSubOpts),
+    #{s := #{?collection_guard := Guard2}} = emqx_persistent_session_ds:print_session(ClientId),
+    ?assert(is_binary(Guard2)),
+    ?assert(Guard2 > Guard1),
+    %% 4. Try to delete session using the old guard:
+    ?assertMatch(
+        {error, unrecoverable, {precondition_failed, _}},
+        emqx_persistent_session_ds:destroy_session(ClientId, Guard1)
+    ),
+    %% 5. Session should survive unharmed:
+    ?assertMatch(
+        ok,
+        emqx_persistent_session_ds:sync(ClientId)
+    ),
+    #{s := #{?collection_guard := Guard2}} = emqx_persistent_session_ds:print_session(ClientId),
+    %% 6. Disconnect the session and kick it with the correct guard:
+    emqtt:stop(ClientSub2),
+    ?assertMatch(
+        ok,
+        emqx_persistent_session_ds:destroy_session(ClientId, Guard2)
+    ).
+
 t_crashed_node_session_gc(init, Config) ->
     start_cluster(?FUNCTION_NAME, Config, #{n => 3}).
 t_crashed_node_session_gc(Config) ->
@@ -1348,12 +1390,13 @@ t_delayed_will_message(_Config) ->
     ),
     ok.
 
-%% Verify that session handles restart of the shard (or the entire DB)
-%% smoothly:
+%% Verify that session handles transient errors in `messages' DB:
 t_ds_resubscribe(init, Config) ->
     %% Disable state checkpointing for the duration of the test:
     meck:new(emqx_persistent_session_ds_state, [passthrough, no_history]),
-    meck:expect(emqx_persistent_session_ds_state, commit, fun(Rec, _) -> Rec end),
+    meck:expect(emqx_persistent_session_ds_state, commit, fun(Rec, _) ->
+        Rec#{?collection_guard := <<"mocked tx serial">>}
+    end),
     Cleanup = fun() ->
         meck:unload(emqx_persistent_session_ds_state)
     end,
