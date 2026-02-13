@@ -74,6 +74,29 @@ Successful response shape:
   - busy: `Snapshot owner is busy handling another request`
   - rebuilding: `Snapshot owner is rebuilding snapshot`
 
+## Operational Notes
+
+### Quota overshoot under burst connects
+
+Quota decisions are made during authentication, while session counters are finalized on session lifecycle hooks.
+Under high concurrent connect bursts (especially in clusters), this creates a short synchronization window where
+the observed concurrent sessions for one username can temporarily exceed `max_sessions_per_username`.
+
+Practical implication:
+
+- This plugin provides cluster-wide quota enforcement with eventual consistency under burst load.
+- It is not a strict per-packet admission gate under extreme connection fan-in.
+
+### Handling `503` from list API
+
+When snapshot owner is busy or rebuilding, list API returns `503` with `retry_cursor`.
+
+API Client guidance:
+
+- Keep and reuse `retry_cursor` on retry to route back to the same snapshot owner node.
+- Retry with bounded backoff.
+- If retry cursor becomes invalid (for example, node changed), start over without `cursor`.
+
 ## Build plugin package
 
 From repository root:
