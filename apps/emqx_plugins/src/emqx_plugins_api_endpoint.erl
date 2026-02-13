@@ -25,24 +25,49 @@ paths() ->
 schema("/plugin_api/:plugin/[...]") ->
     #{
         'operationId' => gateway,
-        get => gateway_schema(),
-        post => gateway_schema(),
-        put => gateway_schema(),
-        patch => gateway_schema(),
-        delete => gateway_schema()
+        get => gateway_schema(get),
+        post => gateway_schema(post),
+        put => gateway_schema(put),
+        patch => gateway_schema(patch),
+        delete => gateway_schema(delete)
     }.
 
-gateway_schema() ->
-    #{
-        responses => #{
-            200 => hoconsc:mk(map()),
-            400 => hoconsc:mk(map()),
-            401 => hoconsc:mk(map()),
-            404 => hoconsc:mk(map()),
-            500 => hoconsc:mk(map()),
-            503 => hoconsc:mk(map())
+gateway_schema(Method) when Method =:= get; Method =:= delete ->
+    gateway_schema_base();
+gateway_schema(_Method) ->
+    gateway_schema_base(#{
+        'requestBody' => #{
+            content => #{
+                'application/json' => #{
+                    schema => #{type => object}
+                }
+            }
         }
-    }.
+    }).
+
+gateway_schema_base() ->
+    gateway_schema_base(#{}).
+
+gateway_schema_base(Extra) ->
+    maps:merge(
+        #{
+            tags => [<<"Plugins">>],
+            description => ?DESC("gateway_desc"),
+            parameters => [plugin_param()],
+            responses => #{
+                200 => hoconsc:mk(map()),
+                400 => hoconsc:mk(map()),
+                401 => hoconsc:mk(map()),
+                404 => hoconsc:mk(map()),
+                500 => hoconsc:mk(map()),
+                503 => hoconsc:mk(map())
+            }
+        },
+        Extra
+    ).
+
+plugin_param() ->
+    {plugin, hoconsc:mk(binary(), #{in => path, required => true, example => <<"my_plugin">>})}.
 
 gateway(Method, Params, Request) ->
     Bindings = maps:get(bindings, Params, #{}),

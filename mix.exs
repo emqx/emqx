@@ -175,7 +175,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.3", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.4", override: true}
 
   def common_dep(:esockd),
     do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
@@ -303,6 +303,8 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}
+
+  def common_dep(:egbk), do: {:egbk, github: "emqx/egbk-conv", tag: "0.1.1", override: true}
 
   def common_dep(:proper),
     do: {:proper, "1.5.0"}
