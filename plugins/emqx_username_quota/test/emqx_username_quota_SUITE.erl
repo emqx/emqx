@@ -122,3 +122,53 @@ t_api_list_get_delete(_Config) ->
         #{}
     ),
     ok = meck:unload(emqx_cm).
+
+t_api_list_busy_with_retry_cursor(_Config) ->
+    RetryCursor = <<"cursor-busy">>,
+    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:expect(
+        emqx_username_quota_state,
+        list_usernames,
+        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit) ->
+            {error, {busy, RetryCursor}}
+        end
+    ),
+    {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{}}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"SERVICE_UNAVAILABLE">>,
+            message := <<"Snapshot owner is busy handling another request">>,
+            retry_cursor := RetryCursor
+        },
+        Body
+    ),
+    ok = meck:unload(emqx_username_quota_state).
+
+t_api_list_rebuilding_with_retry_cursor(_Config) ->
+    RetryCursor = <<"cursor-rebuilding">>,
+    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:expect(
+        emqx_username_quota_state,
+        list_usernames,
+        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit) ->
+            {error, {rebuilding_snapshot, RetryCursor}}
+        end
+    ),
+    {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{}}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"SERVICE_UNAVAILABLE">>,
+            message := <<"Snapshot owner is rebuilding snapshot">>,
+            retry_cursor := RetryCursor
+        },
+        Body
+    ),
+    ok = meck:unload(emqx_username_quota_state).
