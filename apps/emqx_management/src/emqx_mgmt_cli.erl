@@ -1175,7 +1175,9 @@ print({?SUBOPTION, {{Topic, Pid}, Options}}) when is_pid(Pid) ->
     NL = maps:get(nl, Options, 0),
     RH = maps:get(rh, Options, 0),
     RAP = maps:get(rap, Options, 0),
-    emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [SubId, Topic, QoS, NL, RH, RAP]);
+    emqx_ctl:print("~ts -> topic:~ts qos:~p nl:~p rh:~p rap:~p~n", [
+        SubId, emqx_topic:maybe_format_share(Topic), QoS, NL, RH, RAP
+    ]);
 print({exclusive, {exclusive_subscription, Topic, ClientId}}) ->
     emqx_ctl:print("topic:~ts -> ClientId:~ts~n", [Topic, ClientId]).
 
