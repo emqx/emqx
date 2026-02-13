@@ -136,10 +136,30 @@ else
 endif
 endef
 
+define gen-plugin-ct-target
+$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
+	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
+ifneq ($(SUITES),)
+	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
+	    PROFILE=$(PROFILE)-test \
+	        $(MIX) emqx.ct_plugins \
+		$(call cover_args,$1) \
+		--suites $(SUITES) \
+		$(GROUPS_ARG) \
+		$(CASES_ARG)
+else
+	@echo 'No suites found for $1'
+endif
+endef
+
 ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
 app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
+ifneq ($(filter plugins/%,$(app_to_test)),)
+$(eval $(call gen-plugin-ct-target,$(app_to_test)))
+else
 $(eval $(call gen-app-ct-target,$(app_to_test)))
+endif
 endif
 
 ## apps/name-prop targets
@@ -170,6 +190,20 @@ endif
 .PHONY: cover
 cover:
 	@env PROFILE=$(PROFILE)-test mix cover
+
+.PHONY: plugin-%
+plugin-%:
+	@PLUGIN_APP_DIR="$$(if [ -d plugins/$* ]; then echo plugins/$*; fi)"; \
+	if [ -z "$$PLUGIN_APP_DIR" ]; then \
+		echo "No such plugin app: plugins/$*"; \
+		exit 1; \
+	fi; \
+	if ! $(MAKE) -C "$$PLUGIN_APP_DIR" -n rel >/dev/null 2>&1; then \
+		echo "App $$PLUGIN_APP_DIR does not define a 'rel' target."; \
+		echo "Ensure it is generated from emqx-plugin-template or provides plugin packaging make rules."; \
+		exit 1; \
+	fi; \
+	$(MAKE) -C "$$PLUGIN_APP_DIR" rel
 
 COMMON_DEPS := $(REBAR)
 
