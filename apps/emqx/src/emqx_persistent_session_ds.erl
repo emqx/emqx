@@ -1141,9 +1141,8 @@ session_drop(SessionId, MaybeGuard, Reason) ->
         {ok, S0} ->
             ?tp(debug, ?sessds_drop, #{client_id => SessionId, reason => Reason}),
             S1 = emqx_persistent_session_ds_subs:on_session_drop(SessionId, S0),
-            ok = emqx_persistent_session_ds_state:delete(S1),
             emqx_persistent_session_ds_gc_timer:delete(SessionId),
-            ok;
+            emqx_persistent_session_ds_state:delete(S1);
         undefined ->
             ok;
         {error, _, _} = Err ->
