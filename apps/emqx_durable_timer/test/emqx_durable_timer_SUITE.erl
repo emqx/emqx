@@ -13,6 +13,8 @@
 
 -define(ON(NODE, BODY), erpc:call(NODE, fun() -> BODY end)).
 
+-define(timetrap, 60_000).
+
 %%------------------------------------------------------------------------------
 %% Testcases
 %%------------------------------------------------------------------------------
@@ -47,7 +49,7 @@ t_010_lazy_initialization({stop, Config}) ->
 t_010_lazy_initialization(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             [Node] = emqx_cth_cluster:start(Cluster),
             %% Application is started but dormant. Databases don't exist yet:
@@ -260,7 +262,7 @@ t_020_normal_execution(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     Type = emqx_durable_test_timer:durable_timer_type(),
     ?check_trace(
-        #{timetrap => 15_000},
+        #{timetrap => ?timetrap},
         begin
             [Node] = emqx_cth_cluster:start(Cluster),
             ?assertMatch(ok, ?ON(Node, emqx_durable_test_timer:init())),
@@ -369,7 +371,7 @@ t_030_cancellation({stop, Config}) ->
 t_030_cancellation(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         try
             [Node] = emqx_cth_cluster:start(Cluster),
             ?assertMatch(ok, ?ON(Node, emqx_durable_test_timer:init())),
@@ -380,6 +382,7 @@ t_030_cancellation(Config) ->
             ?ON(
                 Node,
                 begin
+                    emqx_durable_timer_dl:wait_for_shards(all, infinity),
                     DHT = emqx_durable_timer_dl:dead_hand_topic(
                         emqx_durable_test_timer:durable_timer_type(),
                         emqx_durable_timer:epoch(),
@@ -451,7 +454,7 @@ t_040_dead_hand({stop, Config}) ->
 t_040_dead_hand(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             [N1, _N2, _N3] = Nodes = emqx_cth_cluster:start(Cluster),
@@ -512,17 +515,21 @@ t_050_apply_after_postmortem_replay({stop, Config}) ->
 t_050_apply_after_postmortem_replay(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             [N1, _N2, _N3] = Nodes = emqx_cth_cluster:start(Cluster),
             [?assertMatch(ok, ?ON(N, emqx_durable_test_timer:init())) || N <- Nodes],
+            %% Wait until the shard leader is ready to accept transactions:
+            ?block_until(#{?snk_kind := ds_otx_up, db := ?DB_GLOB}),
+            %% Schedule timers after a delay (which should be less
+            %% than time to add the timers and restart N1):
             [
                 ?assertMatch(
                     ok,
                     ?ON(
                         N1,
-                        emqx_durable_test_timer:apply_after(<<I>>, <<I>>, 1_000 + (I div 3) * 100)
+                        emqx_durable_test_timer:apply_after(<<I>>, <<I>>, 3_000 + (I div 3) * 100)
                     )
                 )
              || I <- lists:seq(0, 10)
@@ -576,7 +583,7 @@ t_060_standby({stop, Config}) ->
 t_060_standby(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             [N1 | _] = Nodes = emqx_cth_cluster:start(Cluster),
@@ -652,7 +659,7 @@ t_070_multiple_shards({stop, Config}) ->
 t_070_multiple_shards(Config) ->
     Cluster = proplists:get_value(cluster, Config),
     ?check_trace(
-        #{timetrap => 60_000},
+        #{timetrap => ?timetrap},
         begin
             %% Prepare system:
             Nodes = emqx_cth_cluster:start(Cluster),
@@ -910,8 +917,6 @@ db_dump(Node) ->
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
-
-suite() -> [{timetrap, {minutes, 1}}].
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).

@@ -60,6 +60,131 @@ t_metadata('end', Config) ->
     emqx_cth_suite:stop(?config(apps, Config)),
     Config.
 
+-doc """
+This testcase verifies that the shard leader supervises optimistic
+transaction server (OTX).
+
+1. ra server on the leader replica starts OTX.
+2. ra server stops OTX when it loses leadership.
+3. OTX gets restarted on the leader when it crashes or fails to start.
+""".
+t_leader_otx_supervion(init, Config) ->
+    Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    NodeSpecs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_leader_otx_supervion1, #{apps => Apps}},
+            {t_leader_otx_supervion2, #{apps => Apps}},
+            {t_leader_otx_supervion3, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(NodeSpecs),
+    [{nodes, Nodes}, {specs, NodeSpecs} | Config];
+t_leader_otx_supervion('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)),
+    ok = snabbkaffe:stop().
+
+t_leader_otx_supervion(Config) ->
+    DB = ?FUNCTION_NAME,
+    Shard = <<"0">>,
+    NShards = 1,
+    DBOpts = #{
+        backend => builtin_raft,
+        n_shards => NShards,
+        n_sites => 1,
+        replication_factor => 3,
+        replication_options => #{}
+    },
+    Nodes = proplists:get_value(nodes, Config),
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Open DB on all nodes:
+            [?assertMatch(ok, ?ON(N, emqx_ds:open_db(DB, DBOpts))) || N <- Nodes],
+            %% Find the leader:
+            {ok, #{?snk_meta := #{node := Leader0}}} = ?block_until(#{
+                ?snk_kind := ds_otx_up, db := DB, shard := Shard
+            }),
+            %% 1. Kill OTX process on the leader. It should get restarted:
+            ?tp(notice, test_otx_restarts, #{leader => Leader0}),
+            ?wait_async_action(
+                ?ON(
+                    Leader0,
+                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                ),
+                #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
+            ),
+            %% Repeat the same (leader shouldn't change):
+            ?wait_async_action(
+                ?ON(
+                    Leader0,
+                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                ),
+                #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
+            ),
+            %% 2. Test graceful stop of OTX when server role changes.
+            {ok, Sub0} = snabbkaffe:subscribe(
+                ?match_event(
+                    #{?snk_kind := K} when
+                        K =:= ds_otx_up; K =:= dsrepl_shut_down_otx; K =:= ds_otx_terminate
+                ),
+                3,
+                infinity
+            ),
+            %% Ask Leader0 to give up its leadership:
+            ?ON(
+                Leader0,
+                begin
+                    [Leader, Next | _] = emqx_ds_builtin_raft_shard:servers(
+                        DB, Shard, leader_preferred
+                    ),
+                    ?tp(notice, test_transfer_leaderhip, #{from => Leader, to => Next}),
+                    ok = ra:transfer_leadership(Leader, Next)
+                end
+            ),
+            {ok, Events} = snabbkaffe:receive_events(Sub0),
+            [
+                #{?snk_kind := dsrepl_shut_down_otx, db := DB, shard := Shard},
+                #{?snk_kind := ds_otx_terminate},
+                #{
+                    ?snk_kind := ds_otx_up,
+                    db := DB,
+                    shard := Shard,
+                    ?snk_meta := #{node := Leader1}
+                }
+            ] = Events,
+            %% 3. Make OTX fail to start on Leader1 and restart it. Ra
+            %% server should attempt to restart the leader:
+            ?tp(notice, test_inject_start_failure, #{node => Leader1}),
+            ?ON(
+                Leader1,
+                begin
+                    ok = meck:new(emqx_ds_optimistic_tx, [no_link, no_history, passthrough]),
+                    ok = meck:expect(
+                        emqx_ds_optimistic_tx,
+                        init,
+                        fun(_Parent, _DB, _Shard, _CBM) ->
+                            exit(mocked)
+                        end
+                    ),
+                    exit(emqx_ds_optimistic_tx:where(DB, Shard), shutdown)
+                end
+            ),
+            %% Wait for at least two attempts:
+            ?block_until(#{?snk_kind := dsrepl_optimistic_leader_start_fail}, infinity, 0),
+            ?block_until(#{?snk_kind := dsrepl_optimistic_leader_start_fail}, infinity, 0),
+            %% Remove injected error. OTX should start:
+            ?wait_async_action(
+                ?ON(
+                    Leader1,
+                    ok = meck:unload(emqx_ds_optimistic_tx)
+                ),
+                #{?snk_kind := ds_otx_up, db := DB, shard := Shard}
+            )
+        end,
+        []
+    ).
+
 t_metadata(_Config) ->
     DB = ?FUNCTION_NAME,
     NShards = 1,
@@ -618,6 +743,8 @@ t_rebalance_tolerate_lost(Config) ->
     [NS1, NS2, NS3] = ?config(nodespecs, Config),
     MsgStream = emqx_ds_test_helpers:topic_messages(?FUNCTION_NAME, <<"C1">>),
 
+    AppendOpts = #{db => ?DB, retries => 5},
+
     %% Start and initialize DB on a first node.
     %% The same usually happens with current defaults.
     [N1] = emqx_cth_cluster:start([NS1]),
@@ -669,8 +796,8 @@ t_rebalance_tolerate_lost(Config) ->
     %% Messages can now again be persisted successfully.
     {Msgs1, MsgStream1} = emqx_utils_stream:consume(50, MsgStream),
     {Msgs2, _MsgStream} = emqx_utils_stream:consume(50, MsgStream1),
-    ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(?DB, Msgs1))),
-    ?assertEqual(ok, ?ON(N3, emqx_ds_test_helpers:dirty_append(?DB, Msgs2))),
+    ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs1))),
+    ?assertEqual(ok, ?ON(N3, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs2))),
     MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
     ok = emqx_ds_test_helpers:diff_messages(Msgs1 ++ Msgs2, MsgsPersisted),
 
@@ -722,12 +849,14 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
     ct:pal("DS Status [healthy cluster]:", []),
     ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
 
+    AppendOpts = #{db => ?DB, retries => 5},
+
     ?check_trace(
         #{timetrap => 30_000},
         begin
             %% Store a bunch of messages.
             {Msgs1, MsgStream1} = emqx_utils_stream:consume(20, MsgStream),
-            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(?DB, Msgs1))),
+            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs1))),
 
             %% Stop N2.
             ok = emqx_cth_cluster:stop_node(N2),
@@ -735,7 +864,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
 
             %% Store another bunch of messages.
             {Msgs2, MsgStream2} = emqx_utils_stream:consume(20, MsgStream1),
-            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(?DB, Msgs2))),
+            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs2))),
 
             %% Stop N3 and N4 and expunge them out of the cluster.
             ok = emqx_cth_cluster:stop([N3, N4]),
@@ -808,7 +937,7 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
 
             %% Messages can now again be persisted successfully.
             {Msgs3, _MsgStream} = emqx_utils_stream:consume(20, MsgStream2),
-            ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(?DB, Msgs3))),
+            ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs3))),
             %% ...And the original messages still available in the DB.
             MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
             ok = emqx_ds_test_helpers:diff_messages(
@@ -876,7 +1005,7 @@ t_drop_generation(Config) ->
                     Nodes,
                     ?assertEqual(
                         [{<<"0">>, 1}, {<<"0">>, 2}],
-                        maps:keys(emqx_ds:list_slabs(?DB))
+                        maps:keys(emqx_ds:list_slabs(?DB, #{errors => crash}))
                     )
                 ),
                 %% Drop generation while all nodes are online:
@@ -886,7 +1015,7 @@ t_drop_generation(Config) ->
                     Nodes,
                     ?assertEqual(
                         [{<<"0">>, 2}],
-                        maps:keys(emqx_ds:list_slabs(?DB))
+                        maps:keys(emqx_ds:list_slabs(?DB, #{errors => crash}))
                     )
                 ),
                 %% Ston N3, then create and drop generation when it's offline:
@@ -913,7 +1042,7 @@ t_drop_generation(Config) ->
                     Nodes,
                     ?assertEqual(
                         [{<<"0">>, 3}],
-                        maps:keys(emqx_ds:list_slabs(?DB))
+                        maps:keys(emqx_ds:list_slabs(?DB, #{errors => crash}))
                     )
                 )
             after
@@ -1029,6 +1158,141 @@ t_crash_restart_recover(Config) ->
             lists:foreach(VerifyClient, TopicStreams)
         end,
         []
+    ).
+
+%% This testcase verifies that storage configuration can be updated
+%% using `emqx_ds' module and the configuration changes are propagated
+%% to the peers. It is expected that each node propagates
+%% configuration to replicas of all shards where it is the leader.
+%%
+%% This testcase also verifies that inconsistent configuration doesn't
+%% lead to replica divergence.
+t_inconsistent_config_update(init, Config) ->
+    Apps = [appspec(ra), appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
+    Specs = emqx_cth_cluster:mk_nodespecs(
+        [
+            {t_storage_config_change1, #{apps => Apps}},
+            {t_storage_config_change2, #{apps => Apps}},
+            {t_storage_config_change3, #{apps => Apps}}
+        ],
+        #{work_dir => ?config(work_dir, Config)}
+    ),
+    Nodes = emqx_cth_cluster:start(Specs),
+    [{nodes, Nodes}, {nodespecs, Specs} | Config];
+t_inconsistent_config_update('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
+t_inconsistent_config_update(Config) ->
+    Nodes = [N1, N2, N3] = ?config(nodes, Config),
+    DBOpts = opts(Config, #{
+        n_shards => 16, n_sites => 3, replication_factor => 3
+    }),
+    %% Initial configuration:
+    ConfN1 = DBOpts#{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {1, inf}}, wildcard_hash_bytes => 8
+            }}
+    },
+    ConfN2 = DBOpts#{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {2, inf}}, wildcard_hash_bytes => 9
+            }}
+    },
+    ConfN3 = DBOpts#{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {3, inf}}, wildcard_hash_bytes => 10
+            }}
+    },
+    %% New DB configurations to be applied on different nodes:
+    NewConfN1 = #{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {10, inf}}, wildcard_hash_bytes => 8
+            }}
+    },
+    NewConfN2 = #{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {20, inf}}, wildcard_hash_bytes => 9
+            }}
+    },
+    NewConfN3 = #{
+        storage =>
+            {emqx_ds_storage_skipstream_lts_v2, #{
+                lts_threshold_spec => {simple, {30, inf}}, wildcard_hash_bytes => 10
+            }}
+    },
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Initialize DB on all nodes. Initial configuration is
+            %% different on all nodes:
+            ?assertMatch(
+                ok,
+                ?ON(N1, emqx_ds:open_db(?DB, ConfN1))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N2, emqx_ds:open_db(?DB, ConfN2))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N3, emqx_ds:open_db(?DB, ConfN3))
+            ),
+            ?assertMatch(
+                [ok, ok, ok],
+                ?ON(Nodes, emqx_ds:wait_db(?DB, all, infinity))
+            ),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, DBOpts),
+            %% Apply config changes:
+            ?assertMatch(
+                ok,
+                ?ON(N1, emqx_ds:update_db_config(?DB, NewConfN1))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N2, emqx_ds:update_db_config(?DB, NewConfN2))
+            ),
+            ?assertMatch(
+                ok,
+                ?ON(N3, emqx_ds:update_db_config(?DB, NewConfN3))
+            ),
+            %% Add a generation:
+            ?assertMatch(
+                ok,
+                ?ON(N1, emqx_ds:add_generation(?DB))
+            ),
+            %% Verify schema consistency
+            [
+                verify_storage_schema(Nodes, ?DB, Shard)
+             || Shard <- ?ON(N1, emqx_ds:list_shards(?DB))
+            ]
+        end,
+        []
+    ).
+
+verify_storage_schema([N0 | _], DB, Shard) ->
+    [Leader | Replicas] = ?ON(N0, emqx_ds_builtin_raft_shard:servers(DB, Shard, leader_preferred)),
+    GetSchema = fun({_Name, Node}) ->
+        #{schema := Schema} = ?ON(Node, emqx_ds_storage_layer:print_state({DB, Shard})),
+        maps:remove(prototype, Schema)
+    end,
+    Expected = GetSchema(Leader),
+    lists:foreach(
+        fun(Replica) ->
+            ?assertEqual(
+                Expected,
+                GetSchema(Replica),
+                #{
+                    shard => Shard,
+                    leader => Leader,
+                    replica => Replica
+                }
+            )
+        end,
+        Replicas
     ).
 
 nodes_of_clientid(ClientId, Nodes) ->

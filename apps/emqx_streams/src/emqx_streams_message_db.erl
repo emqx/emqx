@@ -638,7 +638,9 @@ do_delete(DB, Topics, Retries, Slabs0, _Errors0) ->
                 db => DB,
                 shard => Shard,
                 generation => Generation,
-                sync => false
+                sync => false,
+                retries => ?STREAMS_MESSAGE_DB_DELETE_RETRY,
+                retry_interval => ?STREAMS_MESSAGE_DB_DELETE_RETRY_DELAY
             },
             {async, Ref, _} = emqx_ds:trans(TxOpts, fun() ->
                 lists:foreach(

@@ -56,6 +56,9 @@ Value: empty.
     lts_threshold_cb/2,
     shards/0,
 
+    ensure_tables/0,
+    wait_for_shards/2,
+
     update_epoch/4,
     last_heartbeat/1,
     delete_epoch_if_empty/1,
@@ -84,6 +87,8 @@ Value: empty.
 %% Type declarations
 %%================================================================================
 
+-define(trans_timeout, 10_000).
+
 %%================================================================================
 %% API functions
 %%================================================================================
@@ -98,6 +103,28 @@ lts_threshold_cb(N, Root) when Root =:= ?top_deadhand; Root =:= ?top_started ->
     end;
 lts_threshold_cb(_, _) ->
     0.
+
+ensure_tables() ->
+    Storage =
+        {emqx_ds_storage_skipstream_lts_v2, #{
+            lts_threshold_spec => {mf, emqx_durable_timer_dl, lts_threshold_cb},
+            timestamp_bytes => 8
+        }},
+    DBConf = emqx_ds_schema:db_config_timers(),
+    ok = emqx_ds:open_db(
+        ?DB_GLOB,
+        DBConf#{
+            storage => Storage,
+            reads => leader_preferred
+        }
+    ),
+    %% Note: don't wait for tables here, as it could create a deadlock
+    %% with business applications.
+    ok.
+
+-spec wait_for_shards([emqx_ds:shard()] | all, timeout()) -> ok | timeout.
+wait_for_shards(Shards, Timeout) ->
+    emqx_ds:wait_db(?DB_GLOB, Shards, Timeout).
 
 %%--------------------------------------------------------------------------------
 %% Heartbeats
@@ -248,39 +275,51 @@ delete_epoch_if_empty(Epoch) ->
 insert_dead_hand(Type, Epoch, Key, Val, Delay) when
     ?is_valid_timer(Type, Key, Val, Delay) andalso is_binary(Epoch)
 ->
-    Result = emqx_ds:trans(
-        epoch_tx_opts({auto, Key}, #{}),
-        fun() ->
-            tx_del_dead_hand(Type, Key),
-            tx_del_started(Type, Key),
-            emqx_ds:tx_write({
-                dead_hand_topic(Type, Epoch, Key),
-                Delay,
-                Val
-            })
-        end
-    ),
-    case Result of
-        {atomic, _, _} ->
-            ok;
+    maybe
+        Shard = emqx_ds:shard_of(?DB_GLOB, Key),
+        ok ?= wait_for_shards([Shard], ?trans_timeout),
+        {atomic, _, _} ?=
+            emqx_ds:trans(
+                epoch_tx_opts(Shard, #{}),
+                fun() ->
+                    tx_del_dead_hand(Type, Key),
+                    tx_del_started(Type, Key),
+                    emqx_ds:tx_write({
+                        dead_hand_topic(Type, Epoch, Key),
+                        Delay,
+                        Val
+                    })
+                end
+            ),
+        ok
+    else
+        timeout ->
+            ?err_rec(timeout_waiting_for_ds_shard);
         Err ->
             Err
     end.
 
 -spec cancel(emqx_durable_timer:type(), emqx_durable_timer:key()) -> ok.
 cancel(Type, Key) ->
-    Result = emqx_ds:trans(
-        epoch_tx_opts({auto, Key}, #{}),
-        fun() ->
-            tx_del_dead_hand(Type, Key),
-            tx_del_started(Type, Key)
+    Shard = emqx_ds:shard_of(?DB_GLOB, Key),
+    maybe
+        ok ?= wait_for_shards([Shard], ?trans_timeout),
+        Result = emqx_ds:trans(
+            epoch_tx_opts(Shard, #{}),
+            fun() ->
+                tx_del_dead_hand(Type, Key),
+                tx_del_started(Type, Key)
+            end
+        ),
+        case Result of
+            {atomic, _, _} ->
+                ok;
+            Err ->
+                Err
         end
-    ),
-    case Result of
-        {atomic, _, _} ->
-            ok;
-        Err ->
-            Err
+    else
+        timeout ->
+            ?err_rec(timeout_waiting_for_ds_shard)
     end.
 
 -spec insert_started_async(
@@ -385,7 +424,7 @@ epoch_tx_opts(Shard, Other) ->
         shard => Shard,
         retries => 10,
         retry_interval => 1000,
-        timeout => 10_000
+        timeout => ?trans_timeout
     }.
 
 has_data(Shard, Topic) ->

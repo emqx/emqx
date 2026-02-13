@@ -36,6 +36,7 @@
 -export_type([]).
 
 -include("emqx_ds.hrl").
+-include_lib("emqx_utils/include/emqx_record_to_map.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("../src/emqx_ds_client_internals.hrl").
 -include("emqx_ds_client_tests.hrl").

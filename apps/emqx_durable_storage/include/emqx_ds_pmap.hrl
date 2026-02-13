@@ -34,14 +34,20 @@
 
 -define(collection_guard, collection_guard).
 -define(collection_dirty, collection_dirty).
+-define(pmap_id, '_pmap_id').
+
+%% Uncomment to enable checking of sequential access.
+%% -define(CHECK_SEQNO, true).
 
 %% Enable this flag if you suspect some code breaks the sequence:
 -ifndef(CHECK_SEQNO).
 -define(set_dirty, ?collection_dirty := true).
 -define(unset_dirty, ?collection_dirty := false).
+-define(new_pmap_collection, ?pmap_id => 0).
 -else.
--define(set_dirty, ?collection_dirty := true, '_' => emqx_ds_pmap:do_seqno()).
--define(unset_dirty, ?collection_dirty := false, '_' => emqx_ds_pmap:do_seqno()).
+-define(set_dirty, ?collection_dirty := true, ?pmap_id := emqx_ds_pmap:do_seqno()).
+-define(unset_dirty, ?collection_dirty := false, ?pmap_id := emqx_ds_pmap:do_seqno()).
+-define(new_pmap_collection, ?pmap_id => emqx_ds_pmap:new_seqno()).
 -endif.
 
 -endif.
