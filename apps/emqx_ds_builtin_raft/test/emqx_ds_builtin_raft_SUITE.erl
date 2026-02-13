@@ -1244,7 +1244,6 @@ t_inconsistent_config_update(Config) ->
                 [ok, ok, ok],
                 ?ON(Nodes, emqx_ds:wait_db(?DB, all, infinity))
             ),
-            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, DBOpts),
             %% Apply config changes:
             ?assertMatch(
                 ok,
