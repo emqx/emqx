@@ -54,12 +54,17 @@ t_gc(_Config) ->
     emqx_config:put([streams, regular_stream_retention_period], 1000),
     ct:sleep(500),
     %% Create a lastvalue Stream
-    StreamLV = emqx_streams_test_utils:create_stream(#{
-        topic_filter => <<"tc/#">>, is_lastvalue => true
+    StreamLV = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_gc_lastvalue">>,
+        topic_filter => <<"tc/#">>,
+        is_lastvalue => true
     }),
     %% Create a non-lastvalue Stream
-    StreamR = emqx_streams_test_utils:create_stream(#{
-        topic_filter => <<"tr/#">>, is_lastvalue => false, data_retention_period => 1000
+    StreamR = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_gc_regular">>,
+        topic_filter => <<"tr/#">>,
+        is_lastvalue => false,
+        data_retention_period => 1000
     }),
 
     % Publish 10 messages to the streams
@@ -108,9 +113,10 @@ t_gc_noop(_Config) ->
 t_limited_regular(_Config) ->
     %% Create a regular stream limited by count
     %% 50 messages per shard maximum
-    %% We have ?N_SHARDS = 2 shards, so 50 * 2 = 100 messages maximum
-    StreamRC = emqx_streams_test_utils:create_stream(
+    %% Stream resides to a single shard
+    StreamRC = emqx_streams_test_utils:ensure_stream_created(
         #{
+            name => <<"t_limited_regular">>,
             topic_filter => <<"tc/#">>,
             is_lastvalue => false,
             limits => #{
@@ -120,23 +126,23 @@ t_limited_regular(_Config) ->
         }
     ),
 
-    %% Publish 200 messages to the stream and run GC
-    emqx_streams_test_utils:populate(200, #{
+    %% Publish 100 messages to the stream and run GC
+    emqx_streams_test_utils:populate(100, #{
         topic_prefix => <<"tc/">>, payload_prefix => <<"payload-">>, different_clients => true
     }),
     ct:sleep(1100),
     ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 1000),
 
-    %% Check that only the last 100 + threshold messages are available
+    %% Check that only the last 50 + threshold messages are available
     Records0 = emqx_streams_message_db:dirty_read_all(StreamRC),
     RecordCount0 = length(Records0),
     ct:pal("Record count: ~p", [RecordCount0]),
-    ?assert(RecordCount0 =< (100 + 10)),
+    ?assert(RecordCount0 =< (50 + 5)),
 
     %% Create a regular stream limited by bytes
     %% 50KB per shard maximum
-    %% We have ?N_SHARDS = 2 shards, so 50KB * 2 = 100KB maximum
-    StreamRB = emqx_streams_test_utils:create_stream(
+    %% Stream resides to a single shard
+    StreamRB = emqx_streams_test_utils:ensure_stream_created(
         #{
             topic_filter => <<"tb/#">>,
             is_lastvalue => false,
@@ -149,25 +155,26 @@ t_limited_regular(_Config) ->
 
     %% Publish 200KB messages to the stream and run GC
     Bin1K = <<1:512>>,
-    emqx_streams_test_utils:populate(400, #{
+    emqx_streams_test_utils:populate(200, #{
         topic_prefix => <<"tb/">>, payload_prefix => Bin1K, different_clients => true
     }),
     ok = emqx_mq_quota_buffer:flush(?STREAMS_QUOTA_BUFFER),
     ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 1000),
 
-    %% Check that only the last 100KB + threshold of messages are available
+    %% Check that only the last 50KB + threshold of messages are available
     Records1 = emqx_streams_message_db:dirty_read_all(StreamRB),
     RecordCount1 = length(Records1),
     TotalBytes1 = lists:sum([byte_size(Value) || {_Topic, _TS, Value} <- Records1]),
     ct:pal("Record count: ~p, total bytes: ~p", [RecordCount1, TotalBytes1]),
-    ?assert(TotalBytes1 =< (100 * 1024 * 1.1)).
+    ?assert(TotalBytes1 =< (50 * 1024 * 1.1)).
 
 %% Verify that the GC collects data of lastvalue streams limited by count or byte size
 t_limited_lastvalue(_Config) ->
     %% Create a lastvalue stream limited by count
     %% 100 messages per shard maximum
-    %% We have ?N_SHARDS = 2 shards, so 100 * 2 = 200 messages maximum
-    _StreamLV = emqx_streams_test_utils:create_stream(#{
+    %% Stream resides to a single shard
+    _StreamLV = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"t_limited_lastvalue">>,
         topic_filter => <<"tc/#">>,
         is_lastvalue => true,
         key_expression =>
@@ -177,29 +184,30 @@ t_limited_lastvalue(_Config) ->
             max_shard_message_bytes => infinity
         }
     }),
-    %% Publish 1st portion of 80 messages to the stream
-    emqx_streams_test_utils:populate_lastvalue(80, #{topic_prefix => <<"tc/1/">>}),
-    %% Publish 2nd portion of 80 messages to the stream
-    emqx_streams_test_utils:populate_lastvalue(80, #{topic_prefix => <<"tc/2/">>}),
-    %% Republish 1st portion of 80 messages to the stream with new payloads
-    emqx_streams_test_utils:populate_lastvalue(80, #{topic_prefix => <<"tc/1/">>}),
-    %% Publish 3rd portion of 80 messages to the stream
-    emqx_streams_test_utils:populate_lastvalue(80, #{topic_prefix => <<"tc/3/">>}),
+    %% Publish 1st portion of 40 messages to the stream
+    emqx_streams_test_utils:populate_lastvalue(40, #{topic_prefix => <<"tc/1/">>}),
+    %% Publish 2nd portion of 40 messages to the stream
+    emqx_streams_test_utils:populate_lastvalue(40, #{topic_prefix => <<"tc/2/">>}),
+    %% Republish 1st portion of 40 messages to the stream with new payloads
+    emqx_streams_test_utils:populate_lastvalue(40, #{topic_prefix => <<"tc/1/">>}),
+    %% Publish 3rd portion of 40 messages to the stream
+    emqx_streams_test_utils:populate_lastvalue(40, #{topic_prefix => <<"tc/3/">>}),
     ct:sleep(1100),
 
     %% Run GC
     ?assertWaitEvent(emqx_streams_gc:gc(), #{?snk_kind := streams_gc_done}, 1000),
 
-    %% Now we should have 200 + threshold messages in the stream.
+    %% Now we should have 100 + threshold messages in the stream.
     %%
     %% 3rd portion should be at the top of the stream
     %% the republished 1st portion should go next,
     %% and the 2nd portion should be partially evicted
     CSub = emqx_streams_test_utils:emqtt_connect([]),
-    emqx_streams_test_utils:emqtt_sub(CSub, <<"$sp/0/earliest/tc/#">>),
-    emqx_streams_test_utils:emqtt_sub(CSub, <<"$sp/1/earliest/tc/#">>),
-    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 200, _Timeout = 1000),
-    ?assert(length(Msgs) < 200 + 20),
+    emqx_streams_test_utils:emqtt_sub(CSub, <<"$stream/t_limited_lastvalue">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+    {ok, Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 1000),
+    ?assert(length(Msgs) < 100 + 10),
     PortionCounts = lists:foldl(
         fun(#{topic := Topic}, Acc) ->
             [<<"tc">>, Portion | _] = binary:split(Topic, <<"/">>, [global]),
@@ -208,10 +216,10 @@ t_limited_lastvalue(_Config) ->
         #{},
         Msgs
     ),
-    ?assertEqual(80, maps:get(<<"3">>, PortionCounts)),
-    ?assertEqual(80, maps:get(<<"1">>, PortionCounts)),
+    ?assertEqual(40, maps:get(<<"3">>, PortionCounts)),
+    ?assertEqual(40, maps:get(<<"1">>, PortionCounts)),
     %% Should be partially evicted
-    ?assert(maps:get(<<"2">>, PortionCounts) < 80),
+    ?assert(maps:get(<<"2">>, PortionCounts) < 40),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).

@@ -8,6 +8,7 @@
     emqtt_connect/1,
     emqtt_pub_mq/3,
     emqtt_pub_mq/4,
+    emqtt_sub_mq/3,
     emqtt_sub_mq/2,
     emqtt_drain/0,
     emqtt_drain/1,
@@ -15,7 +16,7 @@
     emqtt_ack/1
 ]).
 
--export([create_mq/1, fill_mq_defaults/1]).
+-export([create_mq/1, ensure_mq_created/1, fill_mq_defaults/1]).
 
 -export([populate/2, populate_lastvalue/2]).
 
@@ -28,6 +29,7 @@
 -include_lib("../src/emqx_mq_internal.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx/include/emqx_mqtt.hrl").
 
 emqtt_connect(Opts) ->
     BaseOpts = [{proto_ver, v5}],
@@ -48,9 +50,14 @@ emqtt_pub_mq(Client, Topic, Payload, Opts) ->
     PubOpts = [{qos, Qos}],
     emqtt:publish(Client, Topic, Properties, Payload, PubOpts).
 
-emqtt_sub_mq(Client, Topic) ->
-    FullTopic = <<"$q/", Topic/binary>>,
-    {ok, _, _} = emqtt:subscribe(Client, {FullTopic, 1}),
+emqtt_sub_mq(Client, Name, Topic) ->
+    FullTopic = <<"$queue/", Name/binary, "/", Topic/binary>>,
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client, {FullTopic, ?QOS_1}),
+    ok.
+
+emqtt_sub_mq(Client, Name) ->
+    FullTopic = <<"$queue/", Name/binary>>,
+    {ok, _, [?QOS_1]} = emqtt:subscribe(Client, {FullTopic, ?QOS_1}),
     ok.
 
 emqtt_drain() ->
@@ -83,12 +90,15 @@ emqtt_ack(Msgs) ->
         Msgs
     ).
 
-create_mq(#{topic_filter := TopicFilter} = MQ0) ->
-    MQ1 = fill_mq_defaults(MQ0),
+create_mq(MQ0) ->
+    MQ = fill_mq_defaults(MQ0),
+    emqx_mq_registry:create(MQ).
+
+ensure_mq_created(#{topic_filter := TopicFilter} = MQ0) ->
+    {ok, MQ} = ?retry(50, 100, {ok, _} = create_mq(MQ0)),
     SampleTopic0 = string:replace(TopicFilter, "#", "x", all),
     SampleTopic1 = string:replace(SampleTopic0, "+", "x", all),
     SampleTopic = iolist_to_binary(SampleTopic1),
-    {ok, MQ} = ?retry(50, 100, {ok, _} = emqx_mq_registry:create(MQ1)),
     ?retry(
         5,
         100,
@@ -105,6 +115,7 @@ create_mq(#{topic_filter := TopicFilter} = MQ0) ->
 
 fill_mq_defaults(#{topic_filter := _TopicFilter} = MQ0) ->
     Default = #{
+        name => <<"test-mq">>,
         is_lastvalue => false,
         consumer_max_inactive => 1000,
         ping_interval => 5000,
@@ -211,7 +222,7 @@ cth_config(emqx_mq, ConfigOverrides) ->
     Config = emqx_utils_maps:deep_merge(DefaultConfig, ConfigOverrides),
     #{
         config => Config,
-        after_start => fun() -> ok = emqx_mq_app:wait_readiness(15_000) end
+        after_start => fun() -> started = emqx_mq_controller:wait_status(15_000) end
     };
 cth_config(emqx, ConfigOverrides) ->
     DefaultConfig = #{
@@ -247,5 +258,6 @@ default_mq_config() ->
         <<"auto_create">> => #{
             <<"regular">> => false,
             <<"lastvalue">> => false
-        }
+        },
+        <<"enable">> => true
     }.

@@ -70,15 +70,10 @@ DS streams are explicity called `DS streams' here.
 %% DS Client subscription ID
 -type ds_sub_id() :: reference().
 
--define(all_shards, all).
--define(is_subscribed_to_shard(Shard, SubShard),
-    (SubShard =:= Shard orelse SubShard =:= ?all_shards)
-).
-
 -record(subscribe_params, {
-    partition :: binary(),
+    name :: binary(),
     start_from :: binary(),
-    topic_filter :: binary(),
+    topic_filter :: binary() | undefined,
     full_topic_filter :: binary()
 }).
 
@@ -93,7 +88,6 @@ DS streams are explicity called `DS streams' here.
 
 -record(stream_state, {
     stream :: emqx_streams_types:stream(),
-    shard :: emqx_ds:shard() | ?all_shards,
     start_time_us :: emqx_ds:time(),
     progress :: #{emqx_ds:shard() => shard_progress()},
     ds_sub_id :: ds_sub_id(),
@@ -133,13 +127,10 @@ DS streams are explicity called `DS streams' here.
 %% Self-initiated messages
 
 -record(check_stream_status, {}).
--record(complete_stream, {
-    ds_sub_id :: ds_sub_id(),
-    slab :: emqx_ds:slab(),
-    ds_stream :: emqx_ds:stream()
-}).
 
--define(START_FROM_USER_PROP, <<"$stream.start-from">>).
+-define(START_FROM_USER_PROP, <<"stream-offset">>).
+-define(START_FROM_USER_PROP_LEGACY, <<"$stream.start-from">>).
+-define(START_FROM_DEFAULT_VALUE, <<"latest">>).
 
 %%------------------------------------------------------------------------------------
 %% ExtSub Handler callbacks
@@ -258,37 +249,22 @@ on_advance_generation(
             error({unknown_subscription, #{ds_sub_id => DSSubId}})
     end.
 
-get_iterator(DSSubId, {Shard, _} = Slab, DSStream, #state{ds_subs = DSSubs, send_fn = SendFn}) ->
+get_iterator(DSSubId, {Shard, _} = _Slab, _DSStream, #state{ds_subs = DSSubs}) ->
     case DSSubs of
-        #{DSSubId := #stream_state{shard = SubShard} = StreamState} when
-            ?is_subscribed_to_shard(Shard, SubShard)
-        ->
+        #{DSSubId := #stream_state{} = StreamState} ->
             StartTimeUs = get_shard_start_time_us(StreamState, Shard),
             {undefined, #{start_time => StartTimeUs}};
-        #{DSSubId := _} ->
-            %% Other shards we are not interested in
-            SendFn(#complete_stream{
-                ds_sub_id = DSSubId, slab = Slab, ds_stream = DSStream
-            }),
-            {ok, end_of_stream};
         _ ->
             %% Should never happen
             error({unknown_subscription, #{ds_sub_id => DSSubId}})
     end.
 
 on_new_iterator(
-    DSSubId, {Shard, _} = Slab, DSStream, _It, #state{ds_subs = DSSubs, send_fn = SendFn} = State
+    DSSubId, _Slab, _DSStream, _It, #state{ds_subs = DSSubs} = State
 ) ->
     case DSSubs of
-        #{DSSubId := #stream_state{shard = SubShard}} when
-            SubShard =:= Shard orelse SubShard =:= ?all_shards
-        ->
+        #{DSSubId := #stream_state{}} ->
             {subscribe, State};
-        #{DSSubId := _} ->
-            SendFn(#complete_stream{
-                ds_sub_id = DSSubId, slab = Slab, ds_stream = DSStream
-            }),
-            {ignore, State};
         _ ->
             %% Should never happen
             error({unknown_subscription, #{ds_sub_id => DSSubId}})
@@ -323,8 +299,8 @@ on_subscription_down(DSSubId, Slab, _DSStream, #state{ds_subs = DSSubs} = State)
 subscribe(
     Handler,
     #subscribe_params{
-        topic_filter = TopicFilter,
-        partition = Partition,
+        name = Name,
+        topic_filter = MaybeTopicFilter,
         start_from = StartFromBin,
         full_topic_filter = FullTopicFilter
     } =
@@ -333,18 +309,19 @@ subscribe(
     maybe
         ok ?= validate_new_topic_filter(Handler, SubscribeParams),
         {ok, StartFrom} ?= parse_offset(StartFromBin),
-        {ok, Stream} ?= find_stream(TopicFilter),
-        {ok, SubShard} ?= validate_partition(Stream, Partition),
+        {ok, Stream} ?= find_stream(Name, MaybeTopicFilter),
         #h{
             state = #state{by_topic_filter = ByTopicFilter, ds_subs = DSSubs} = State0,
             ds_client = DSClient0
         } = Handler,
         DSSubId = make_ref(),
         StartTimeUs = start_time_us(Stream, StartFrom),
-        {ok, Progress} ?= init_progress(Stream, SubShard, StartTimeUs),
+        ?tp_debug(streams_extsub_handler_subscribe, #{
+            stream => Name, start_from => StartFrom, start_time_us => StartTimeUs
+        }),
+        {ok, Progress} ?= init_progress(Stream, StartTimeUs),
         StreamState = #stream_state{
             stream = Stream,
-            shard = SubShard,
             start_time_us = StartTimeUs,
             progress = Progress,
             ds_sub_id = DSSubId,
@@ -394,16 +371,6 @@ handle_info(
                 _ ->
                     {ok, Handler}
             end
-    end;
-handle_info(
-    #h{state = #state{ds_subs = DSSubs}} = Handler,
-    #complete_stream{ds_sub_id = DSSubId, slab = Slab, ds_stream = DSStream}
-) ->
-    case DSSubs of
-        #{DSSubId := _} ->
-            {ok, complete_skipped_dsstream(Handler, DSSubId, Slab, DSStream)};
-        _ ->
-            {ok, Handler}
     end;
 handle_info(Handler0, #check_stream_status{}) ->
     Handler1 = check_active_streams_status(Handler0),
@@ -504,12 +471,6 @@ unblock_stream(Handler, UnblockFns) ->
 
 %% Managament of DS streams in Stream states.
 
-complete_skipped_dsstream(
-    #h{state = State0, ds_client = DSClient0} = Handler, DSSubId, Slab, DSStream
-) ->
-    {DSClient, State} = emqx_ds_client:complete_stream(DSClient0, DSSubId, Slab, DSStream, State0),
-    Handler#h{ds_client = DSClient, state = State}.
-
 complete_subscribed_dsstream(
     #h{state = State0, ds_client = DSClient0} = Handler, _DSSubId, SubRef, _DSStream
 ) ->
@@ -521,11 +482,11 @@ get_shard_by_dsstream(#stream_state{stream = Stream}, DSStream) ->
     Shard.
 
 advance_shard_generation(
-    #stream_state{shard = SubShard, start_time_us = StartTimeUs, progress = Progress0} =
+    #stream_state{start_time_us = StartTimeUs, progress = Progress0} =
         StreamState0,
     Shard,
     Generation
-) when ?is_subscribed_to_shard(Shard, SubShard) ->
+) ->
     ShardProgress =
         case Progress0 of
             #{Shard := #shard_progress{} = ShardProgress0} ->
@@ -534,9 +495,7 @@ advance_shard_generation(
                 #shard_progress{generation = Generation, last_timestamp_us = StartTimeUs}
         end,
     Progress = Progress0#{Shard => ShardProgress},
-    StreamState0#stream_state{progress = Progress};
-advance_shard_generation(StreamState0, _Shard, _Generation) ->
-    StreamState0.
+    StreamState0#stream_state{progress = Progress}.
 
 advance_shard_last_time(
     #stream_state{progress = Progress0} = StreamState0,
@@ -622,12 +581,35 @@ split_topic_filter(TopicFilter) ->
         _ -> ?err_unrec(invalid_topic_filter)
     end.
 
-find_stream(TopicFilter) ->
-    case emqx_streams_registry:find(TopicFilter) of
-        {ok, Stream} ->
+split_name_topic(NameTopic) ->
+    case binary:split(NameTopic, <<"/">>) of
+        [Name, Topic] -> {Name, Topic};
+        _ -> {NameTopic, undefined}
+    end.
+
+find_stream(Name, TopicFilter) ->
+    case emqx_streams_registry:find(Name) of
+        {ok, Stream} when TopicFilter =:= undefined ->
             {ok, Stream};
+        {ok, #{topic_filter := TopicFilter} = Stream} ->
+            {ok, Stream};
+        {ok, #{topic_filter := ExistingTopicFilter}} ->
+            ?err_rec(
+                {stream_bound_to_different_topic_filter, #{
+                    name => Name,
+                    topic_filter => TopicFilter,
+                    bound_topic_filter => ExistingTopicFilter
+                }}
+            );
+        not_found when TopicFilter =:= undefined ->
+            ?err_rec(
+                {stream_not_found, #{
+                    name => Name,
+                    topic_filter => TopicFilter
+                }}
+            );
         not_found ->
-            case emqx_streams_config:auto_create(TopicFilter) of
+            case emqx_streams_config:auto_create(Name, TopicFilter) of
                 {true, DefaultStream} ->
                     case emqx_streams_registry:create(DefaultStream) of
                         {ok, Stream} ->
@@ -640,22 +622,8 @@ find_stream(TopicFilter) ->
                             )
                     end;
                 false ->
-                    ?err_rec({stream_not_found, #{topic_filter => TopicFilter}})
+                    ?err_rec({stream_not_found, #{name => Name, topic_filter => TopicFilter}})
             end
-    end.
-
--dialyzer([{nowarn_function, validate_partition/2}]).
-validate_partition(_Stream, <<"all">>) ->
-    {ok, ?all_shards};
-validate_partition(Stream, Partition) ->
-    case string:to_integer(Partition) of
-        {PartitionInt, <<>>} when PartitionInt >= 0 ->
-            case lists:member(Partition, emqx_streams_message_db:partitions(Stream)) of
-                true -> {ok, Partition};
-                false -> ?err_rec({invalid_partition, #{partition => Partition}})
-            end;
-        _ ->
-            ?err_unrec({invalid_partition, #{partition => Partition}})
     end.
 
 %% Other helpers
@@ -715,7 +683,7 @@ add_properties(Message, AddProperties) when is_map(AddProperties) ->
     UserProperties = maps:to_list(UserPropMap),
     emqx_message:set_header(properties, Props#{'User-Property' => UserProperties}, Message).
 
-init_progress(Stream, ?all_shards, StartTimeUs) ->
+init_progress(Stream, StartTimeUs) ->
     case emqx_streams_message_db:find_generations(Stream, StartTimeUs) of
         {ok, Generations} ->
             {ok,
@@ -727,17 +695,6 @@ init_progress(Stream, ?all_shards, StartTimeUs) ->
                 )};
         {error, Reason} ->
             ?err_rec({cannot_init_generations, #{stream => Stream, reason => Reason}})
-    end;
-init_progress(Stream, Shard, StartTimeUs) ->
-    case emqx_streams_message_db:find_generation(Stream, Shard, StartTimeUs) of
-        {ok, Generation} ->
-            {ok, #{
-                Shard => #shard_progress{generation = Generation, last_timestamp_us = StartTimeUs}
-            }};
-        {error, Reason} ->
-            ?err_rec(
-                {cannot_init_generations, #{stream => Stream, shard => Shard, reason => Reason}}
-            )
     end.
 
 inc_received_message_stat(#ds_sub_reply{payload = {ok, _It, _TTVs}, size = Size}) ->
@@ -802,7 +759,7 @@ check_unknown_stream_status(
                     %% Should never happen, however, do not retry on unrecoverable error
                     {HandlerAcc0, UnknownTopicFiltersAcc};
                 ?err_rec(Reason) ->
-                    ?tp(info, streams_extsub_handler_delayed_subscribe_error, #{
+                    ?tp(debug, streams_extsub_handler_delayed_subscribe_error, #{
                         reason => Reason,
                         topic_filter => FullTopicFilter,
                         recoverable => true
@@ -830,7 +787,7 @@ check_active_streams_status(
                 stream = #{id := Id} = Stream,
                 subscribe_params = SubscribeParams
             } = maps:get(DSSubId, DSSubs),
-            case emqx_streams_registry:find(emqx_streams_prop:topic_filter(Stream)) of
+            case emqx_streams_registry:find(emqx_streams_prop:name(Stream)) of
                 {ok, #{id := Id}} ->
                     {HandlerAcc0, UnknownTopicFiltersAcc};
                 _ ->
@@ -844,54 +801,61 @@ check_active_streams_status(
     #h{state = State} = Handler,
     Handler#h{state = State#state{unknown_topic_filters = UnknownTopicFilters}}.
 
-check_stream_subscribe_topic_filter(_Ctx, <<"$s/", TopicFilter0/binary>> = FullTopicFilter) ->
+check_stream_subscribe_topic_filter(Ctx, <<"$s/", TopicFilter0/binary>> = FullTopicFilter) ->
     maybe
+        ok ?= validate_protocol(Ctx),
         {ok, StartFrom, TopicFilter} ?= split_topic_filter(TopicFilter0),
+        Name = emqx_streams_prop:default_name_from_topic(TopicFilter),
         {ok, #subscribe_params{
-            partition = <<"all">>,
+            name = Name,
             start_from = StartFrom,
             topic_filter = TopicFilter,
             full_topic_filter = FullTopicFilter
         }}
     end;
-check_stream_subscribe_topic_filter(Ctx, <<"$stream/", TopicFilter/binary>> = FullTopicFilter) ->
+check_stream_subscribe_topic_filter(Ctx, <<"$stream/", NameTopicFilter/binary>> = FullTopicFilter) ->
     SubOpts = maps:get(subopts, Ctx, #{}),
     SubProps = maps:get(sub_props, SubOpts, #{}),
     UserProperties = maps:get('User-Property', SubProps, []),
-    StartFrom = proplists:get_value(?START_FROM_USER_PROP, UserProperties, <<"earliest">>),
+    StartFrom =
+        case proplists:lookup(?START_FROM_USER_PROP, UserProperties) of
+            none ->
+                proplists:get_value(
+                    ?START_FROM_USER_PROP_LEGACY,
+                    UserProperties,
+                    ?START_FROM_DEFAULT_VALUE
+                );
+            {?START_FROM_USER_PROP, Value} ->
+                Value
+        end,
     maybe
+        ok ?= validate_protocol(Ctx),
+        {Name, TopicFilter} = split_name_topic(NameTopicFilter),
+        ok ?= validate_name(Name),
         {ok, #subscribe_params{
-            partition = <<"all">>,
+            name = Name,
             start_from = StartFrom,
             topic_filter = TopicFilter,
             full_topic_filter = FullTopicFilter
         }}
     end;
-check_stream_subscribe_topic_filter(Ctx, <<"$sp/", _/binary>> = FullTopicFilter) ->
-    check_stream_subscribe_topic_filter_with_partition(Ctx, FullTopicFilter);
 check_stream_subscribe_topic_filter(_Ctx, _TopicFilter) ->
     ignore.
 
-%% Hide partitions from the user for now
--ifdef(TEST).
-
-check_stream_subscribe_topic_filter_with_partition(
-    _Ctx, <<"$sp/", TopicFilter0/binary>> = FullTopicFilter
-) ->
-    maybe
-        {ok, Partition, Rest1} ?= split_topic_filter(TopicFilter0),
-        {ok, StartFrom, TopicFilter} ?= split_topic_filter(Rest1),
-        {ok, #subscribe_params{
-            partition = Partition,
-            start_from = StartFrom,
-            topic_filter = TopicFilter,
-            full_topic_filter = FullTopicFilter
-        }}
+validate_name(Name) ->
+    case emqx_streams_schema:validate_name(Name) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            ?err_unrec({invalid_name, #{name => Name, reason => Reason}})
     end.
 
--else.
-
-check_stream_subscribe_topic_filter_with_partition(_Ctx, _TopicFilter) ->
-    ?err_unrec(invalid_topic_filter).
-
--endif.
+validate_protocol(#{conninfo_fn := ConnInfoFn, clientinfo := ClientInfo} = _SubscribeCtx) ->
+    ProtoVer = ConnInfoFn(proto_ver),
+    Protocol = maps:get(protocol, ClientInfo, undefined),
+    case {Protocol, ProtoVer} of
+        {mqtt, ?MQTT_PROTO_V5} ->
+            ok;
+        Unsupported ->
+            ?err_unrec({streams_not_supported_for_protocol, Unsupported})
+    end.

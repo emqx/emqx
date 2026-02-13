@@ -43,7 +43,7 @@ The module:
 -export([filter_saved_subopts/2]).
 
 -define(ST_PD_KEY, extsub_st).
--define(CAN_RECEIVE_ACKS_PD_KEY, extsub_can_receive_acks).
+-define(CHANNEL_INFO_PD_KEY, extsub_channel_info).
 
 -define(MAX_UNACKED_PT_KEY, extsub_max_unacked).
 
@@ -170,12 +170,14 @@ on_session_subscribed(ClientInfo, TopicFilter, SubOpts) ->
     on_subscribed(subscribe, ClientInfo, #{TopicFilter => SubOpts}).
 
 on_session_created(_ClientInfo, SessionInfo) ->
+    SessionCreatedCtx = emqx_hooks:context('session.created'),
     ?tp_debug(extsub_on_session_created, #{session_info => SessionInfo}),
-    ok = set_can_receive_acks(SessionInfo).
+    ok = save_channel_info(SessionCreatedCtx, SessionInfo).
 
 on_session_resumed(ClientInfo, #{subscriptions := Subs} = SessionInfo) ->
+    SessionResumedCtx = emqx_hooks:context('session.resumed'),
     ?tp_debug(extsub_on_session_resumed, #{client_info => ClientInfo, subscriptions => Subs}),
-    ok = set_can_receive_acks(SessionInfo),
+    ok = save_channel_info(SessionResumedCtx, SessionInfo),
     on_subscribed(resume, ClientInfo, Subs).
 
 on_subscribed(SubscribeType, ClientInfo, TopicFiltersToSubOpts) ->
@@ -534,10 +536,12 @@ deliver_count(SessionInfoFn, UnackedCnt) ->
     end.
 
 subscribe_ctx(ClientInfo) ->
-    #{
-        clientinfo => ClientInfo,
-        can_receive_acks => can_receive_acks()
-    }.
+    maps:merge(
+        #{
+            clientinfo => ClientInfo
+        },
+        get_channel_info()
+    ).
 
 info_ctx(State, Handler, HandlerRef) ->
     #{desired_message_count => desired_message_count(State, Handler, HandlerRef)}.
@@ -603,17 +607,16 @@ put_st(#st{} = St) ->
     _ = erlang:put(?ST_PD_KEY, St),
     ok.
 
-set_can_receive_acks(#{impl := emqx_session_mem} = _SessionInfo) ->
-    _ = erlang:put(?CAN_RECEIVE_ACKS_PD_KEY, true),
-    ok;
-set_can_receive_acks(_SessionInfo) ->
-    _ = erlang:put(?CAN_RECEIVE_ACKS_PD_KEY, false),
+save_channel_info(#{conn_info_fn := ConnInfoFn} = _Ctx, SessionInfo) ->
+    CanReceiveAcks = maps:get(impl, SessionInfo, undefined) =:= emqx_session_mem,
+    _ = erlang:put(?CHANNEL_INFO_PD_KEY, #{
+        can_receive_acks => CanReceiveAcks, conninfo_fn => ConnInfoFn
+    }),
     ok.
 
+get_channel_info() ->
+    #{} = erlang:get(?CHANNEL_INFO_PD_KEY).
+
 can_receive_acks() ->
-    case erlang:get(?CAN_RECEIVE_ACKS_PD_KEY) of
-        undefined ->
-            false;
-        CanReceiveAcks ->
-            CanReceiveAcks
-    end.
+    #{can_receive_acks := CanReceiveAcks} = get_channel_info(),
+    CanReceiveAcks.

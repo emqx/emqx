@@ -64,19 +64,19 @@ t_cluster_smoke(Config) ->
 
     %% Create Message Queue and make sure it is available on all nodes
     _Stream = erpc:call(PubNode, emqx_streams_test_utils, create_stream, [
-        #{topic_filter => <<"q/1">>, is_lastvalue => true}
+        #{name => <<"q1">>, topic_filter => <<"q/1">>, is_lastvalue => true}
     ]),
     ?retry(
         5,
         100,
         begin
             ?assertMatch(
-                {ok, #{topic_filter := <<"q/1">>}},
-                erpc:call(Sub0Node, emqx_streams_registry, find, [<<"q/1">>])
+                {ok, #{name := <<"q1">>, topic_filter := <<"q/1">>}},
+                erpc:call(Sub0Node, emqx_streams_registry, find, [<<"q1">>])
             ),
             ?assertMatch(
-                {ok, #{topic_filter := <<"q/1">>}},
-                erpc:call(Sub1Node, emqx_streams_registry, find, [<<"q/1">>])
+                {ok, #{name := <<"q1">>, topic_filter := <<"q/1">>}},
+                erpc:call(Sub1Node, emqx_streams_registry, find, [<<"q1">>])
             )
         end
     ),
@@ -84,10 +84,12 @@ t_cluster_smoke(Config) ->
     %% Create subscribers and subscribe to the stream
     SubClient0 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB0_PORT}]),
     SubClient1 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
-    SubClient2 = emqx_streams_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
-    ok = emqx_streams_test_utils:emqtt_sub(SubClient0, <<"$sp/0/earliest/q/1">>),
-    ok = emqx_streams_test_utils:emqtt_sub(SubClient1, <<"$sp/1/earliest/q/1">>),
-    ok = emqx_streams_test_utils:emqtt_sub(SubClient2, <<"$s/earliest/q/1">>),
+    ok = emqx_streams_test_utils:emqtt_sub(SubClient0, <<"$stream/q1/q/1">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+    ok = emqx_streams_test_utils:emqtt_sub(SubClient1, <<"$stream/q1">>, [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
 
     %% Publish 100 messages to the queue
     PubClient = emqx_streams_test_utils:emqtt_connect([{port, ?PUB_PORT}]),
@@ -113,14 +115,10 @@ t_cluster_smoke(Config) ->
     ),
     Client0Cnt = length(maps:get(SubClient0, MessagesByClient)),
     Client1Cnt = length(maps:get(SubClient1, MessagesByClient)),
-    Client2Cnt = length(maps:get(SubClient2, MessagesByClient)),
-    ?assert(Client0Cnt > 30),
-    ?assert(Client1Cnt > 30),
-    ?assertEqual(100, Client0Cnt + Client1Cnt),
-    ?assertEqual(100, Client2Cnt),
+    ?assertEqual(100, Client0Cnt),
+    ?assertEqual(100, Client1Cnt),
 
     %% Clean up
     ok = emqtt:disconnect(PubClient),
     ok = emqtt:disconnect(SubClient0),
-    ok = emqtt:disconnect(SubClient1),
-    ok = emqtt:disconnect(SubClient2).
+    ok = emqtt:disconnect(SubClient1).

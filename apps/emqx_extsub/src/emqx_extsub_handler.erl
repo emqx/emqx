@@ -26,12 +26,15 @@
 -type unsubscribe_type() :: unsubscribe | disconnect.
 
 -type subscribe_ctx() :: #{
+    %% Different info about the enclosing channel
     clientinfo := emqx_types:clientinfo(),
+    conninfo_fn := fun((atom()) -> term()),
     subopts := emqx_types:subopts(),
-    send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
-    send := fun((term()) -> ok),
     can_receive_acks := boolean(),
-    subopts := emqx_types:infos()
+
+    %% Functions to send messages to the handler itself
+    send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
+    send := fun((term()) -> ok)
 }.
 
 -type unsubscribe_ctx() :: #{

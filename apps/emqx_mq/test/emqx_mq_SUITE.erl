@@ -29,7 +29,8 @@ all() ->
         {group, random},
         {group, least_inflight},
         {group, round_robin}
-    ] ++ All.
+    ] ++
+        All.
 
 groups() ->
     [
@@ -88,11 +89,35 @@ end_per_testcase(_CaseName, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+t_smoke(_Config) ->
+    %% Create a non-lastvalue Queue
+    MQ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"smoke">>, topic_filter => <<"t/#">>, is_lastvalue => false
+    }),
+
+    %% Publish 100 messages to the queue
+    emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
+
+    AllMessages = emqx_mq_message_db:dirty_read_all(MQ),
+    ?assertEqual(100, length(AllMessages)),
+
+    % Consume the messages from the queue
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"smoke">>, <<"t/#">>),
+    {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 100, _Timeout = 1000),
+
+    %% Verify the messages
+    ?assertEqual(100, length(Msgs)),
+    ok.
+
 %% Consume some history messages from a non-lastvalue(regular) queue
 t_publish_and_consume_regular(Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false, limits => ?config(limits, Config)
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"regular">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        limits => ?config(limits, Config)
     }),
 
     %% Publish 100 messages to the queue
@@ -101,7 +126,7 @@ t_publish_and_consume_regular(Config) ->
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"regular">>, <<"t/#">>),
     {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 100, _Timeout0 = 5000),
 
     %% Verify the messages
@@ -128,8 +153,11 @@ t_publish_and_consume_regular(Config) ->
 %% Consume some history messages from a lastvalue queue
 t_publish_and_consume_lastvalue(Config) ->
     %% Create a lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{
-        topic_filter => <<"t/#">>, is_lastvalue => true, limits => ?config(limits, Config)
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"lastvalue">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => true,
+        limits => ?config(limits, Config)
     }),
 
     %% Publish 100 messages to the queue
@@ -141,21 +169,124 @@ t_publish_and_consume_lastvalue(Config) ->
 
     %% Consume the messages from the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"lastvalue">>, <<"t/#">>),
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
     ok = emqtt:disconnect(CSub),
 
     %% Verify the messages
     ?assertEqual(10, length(Msgs)).
 
-%% Verify that the consumer stops consuming DS messages once there is
-%% a critical amount of unacked messages
+%% Verify that the consumer redispatches the message to another subscriber
+%% immediately if a subscriber rejected the message
+t_redispatch(Config) ->
+    %% Create a non-lastvalue Queue
+    _ =
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"redispatch">>,
+            topic_filter => <<"t/#">>,
+            is_lastvalue => false,
+            dispatch_strategy => ?config(dispatch_strategy, Config),
+            redispatch_interval => 1000
+        }),
+
+    %% Connect two subscribers
+    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"redispatch">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"redispatch">>),
+
+    %% Publish 1 message to the queue
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+
+    %% Receive the message and reject it
+    CSub =
+        receive
+            {publish, #{
+                topic := <<"t/0">>,
+                client_pid := Pid,
+                packet_id := PacketId
+            }} ->
+                ok = emqtt:puback(Pid, PacketId, ?RC_UNSPECIFIED_ERROR),
+                Pid
+        after 100 ->
+            ct:fail("t/0 message from MQ not received")
+        end,
+
+    %% Verify that the message is re-delivered to the other subscriber
+    [OtherCSub] = [CSub0, CSub1] -- [CSub],
+    receive
+        {publish, #{topic := <<"t/0">>, client_pid := OtherCSub}} ->
+            ok
+    after 100 ->
+        ct:fail("t/0 message from MQ not received by the other subscriber")
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub0),
+    ok = emqtt:disconnect(CSub1).
+
+%% Verify that the consumer redispatches after a delay
+%% if a subscriber rejected the message and there are no other subscribers
+t_redispatch_delay(Config) ->
+    %% Create a non-lastvalue Queue
+    RedispatchInterval = 500,
+    _ =
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"redispatch_delay">>,
+            topic_filter => <<"t/#">>,
+            is_lastvalue => false,
+            dispatch_strategy => ?config(dispatch_strategy, Config),
+            redispatch_interval => RedispatchInterval
+        }),
+
+    %% Connect two subscribers
+    CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"redispatch_delay">>),
+
+    %% Publish 1 message to the queue
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
+
+    %% Receive the message and reject it
+    RecieveTime =
+        receive
+            {publish, #{
+                topic := <<"t/0">>,
+                client_pid := Pid,
+                packet_id := PacketId
+            }} ->
+                ok = emqtt:puback(Pid, PacketId, ?RC_UNSPECIFIED_ERROR),
+                now_ms()
+        after 100 ->
+            ct:fail("t/0 message from MQ not received")
+        end,
+
+    %% Verify that the message is re-delivered to the other subscriber
+    WaitTime = RedispatchInterval * 2,
+    receive
+        {publish, #{topic := <<"t/0">>, client_pid := CSub}} ->
+            ElapsedTime = now_ms() - RecieveTime,
+            ?assert(
+                ElapsedTime >= RedispatchInterval,
+                binfmt("Messsage received in ~p ms which is less than redispatch interval ~p ms", [
+                    ElapsedTime, RedispatchInterval
+                ])
+            )
+    after WaitTime ->
+        ct:fail("t/0 message from MQ not received by the other subscriber")
+    end,
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+% Verify that the consumer stops consuming DS messages once there is
+% a critical amount of unacked messages
 t_backpressure(_Config) ->
     StreamMaxUnacked = 5,
     StreamMaxBufferSize = 10,
     %% Create a non-lastvalue Queue
     _ =
-        emqx_mq_test_utils:create_mq(#{
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"backpressure">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             local_max_inflight => 100,
@@ -170,7 +301,7 @@ t_backpressure(_Config) ->
     %% Set max_inflight to 0 to avoid nacking messages by the client's session
     emqx_config:put([mqtt, max_inflight], 0),
     CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"backpressure">>),
     {ok, Msgs0} =
         emqx_mq_test_utils:emqtt_drain(_MinMsg = StreamMaxBufferSize, _Timeout = 200),
 
@@ -204,13 +335,15 @@ t_backpressure(_Config) ->
 %% if a subscriber received the message but disconnected before acknowledging it
 t_redispatch_on_disconnect(_Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"redispatch_on_disconnect">>, topic_filter => <<"t/#">>, is_lastvalue => false
+    }),
 
     %% Connect two subscribers
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
     CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"redispatch_on_disconnect">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"redispatch_on_disconnect">>),
 
     %% Publish just 1 message to the queue
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
@@ -240,13 +373,15 @@ t_redispatch_on_disconnect(_Config) ->
 %% Cooperatively consume online messages with random dispatching
 t_dispatch_random(_Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"dispatch_random">>, topic_filter => <<"t/#">>, is_lastvalue => false
+    }),
 
     %% Subscribe to the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"dispatch_random">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"dispatch_random">>),
 
     %% Publish 100 messages to the queue
     emqx_mq_test_utils:populate(100, #{topic_prefix => <<"t/">>}),
@@ -274,17 +409,21 @@ t_dispatch_random(_Config) ->
 %% Cooperatively consume online messages with round-robin dispatching
 t_dispatch_round_robin(_Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false, dispatch_strategy => round_robin
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"dispatch_round_robin">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        dispatch_strategy => round_robin
     }),
 
     %% Subscribe to the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
     CSub2 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub2, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"dispatch_round_robin">>),
+    %% Subscribe via full topic is also legal
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"dispatch_round_robin">>, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub2, <<"dispatch_round_robin">>),
 
     %% Verify with snabbkaffe because of much asynchrony.
     %% Messages may be received out of order
@@ -323,7 +462,8 @@ t_dispatch_round_robin(_Config) ->
 t_dispatch_least_inflight(_Config) ->
     %% Create a non-lastvalue Queue
     _ =
-        emqx_mq_test_utils:create_mq(#{
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"dispatch_least_inflight">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             dispatch_strategy => least_inflight
@@ -332,8 +472,8 @@ t_dispatch_least_inflight(_Config) ->
     %% Subscribe to the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
     CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"dispatch_least_inflight">>, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"dispatch_least_inflight">>, <<"t/#">>),
 
     %% Publish 100 messages to the queue
     CPub = emqx_mq_test_utils:emqtt_connect([]),
@@ -383,7 +523,8 @@ t_dispatch_least_inflight(_Config) ->
 t_busy_session(_Config) ->
     %% Create a non-lastvalue Queue
     _ =
-        emqx_mq_test_utils:create_mq(#{
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"busy_session">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             local_max_inflight => 4
@@ -409,10 +550,10 @@ t_busy_session(_Config) ->
     %% Now subscribe to the queue, check that the session is busy
     %% and prevents the queue's messages from being delivered
     ?assertWaitEvent(
-        emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+        emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"busy_session">>),
         #{
             ?snk_kind := mq_sub_handle_nack_session_busy,
-            sub := #{topic_filter := <<"t/#">>}
+            sub := #{name := <<"busy_session">>}
         },
         100
     ),
@@ -446,7 +587,8 @@ t_progress_restoration(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
     %% Create a non-lastvalue Queue
     MQ =
-        emqx_mq_test_utils:create_mq(#{
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"progress_restoration">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             consumer_max_inactive => 50
@@ -457,7 +599,7 @@ t_progress_restoration(_Config) ->
 
     %% Start to consume the messages from the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"progress_restoration">>),
 
     %% Receive first message and NOT acknowledge it
     receive
@@ -486,7 +628,7 @@ t_progress_restoration(_Config) ->
 
     %% Start the client and the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"progress_restoration">>),
 
     %% Verify that we receive unacknowledged messages from t/0, and t/2
     %% and DO NOT receive already acknowledged from t/1
@@ -518,7 +660,8 @@ t_progress_restoration_from_removed_gen(_Config) ->
     ok = emqx_mq_message_db:add_regular_db_generation(),
     %% Create a non-lastvalue Queue
     MQ =
-        emqx_mq_test_utils:create_mq(#{
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"progress_restoration_from_removed_gen">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             consumer_max_inactive => 50
@@ -532,8 +675,8 @@ t_progress_restoration_from_removed_gen(_Config) ->
 
     %% Start to consume the messages from the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 20, _Timeout1 = 500),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"progress_restoration_from_removed_gen">>),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 20, _Timeout0 = 500),
     ?assertEqual(20, length(Msgs0)),
 
     %% Disconnect the client and wait for the consumer to stop and save the progress
@@ -556,7 +699,7 @@ t_progress_restoration_from_removed_gen(_Config) ->
 
     %% Start the client and the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"progress_restoration_from_removed_gen">>),
 
     %% Verify that we receive all new messages
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 20, _Timeout1 = 500),
@@ -580,7 +723,8 @@ t_progress_restoration_from_removed_gen(_Config) ->
 t_progress_restoration_full_buffer(_Config) ->
     %% Create a non-lastvalue Queue
     MQ =
-        emqx_mq_test_utils:create_mq(#{
+        emqx_mq_test_utils:ensure_mq_created(#{
+            name => <<"progress_restoration_full_buffer">>,
             topic_filter => <<"t/#">>,
             is_lastvalue => false,
             consumer_max_inactive => 50,
@@ -593,10 +737,10 @@ t_progress_restoration_full_buffer(_Config) ->
     %% Start to consume the messages from the queue
     emqx_config:put([mqtt, max_inflight], 100),
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"progress_restoration_full_buffer">>),
 
     %% Receive all messages and acknowledge only the last one
-    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
+    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 100),
     #{packet_id := PacketId} = lists:last(Msgs0),
     ok = emqtt:puback(CSub0, PacketId),
 
@@ -606,118 +750,19 @@ t_progress_restoration_full_buffer(_Config) ->
 
     %% Start the client and the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"progress_restoration_full_buffer">>, <<"t/#">>),
 
     %% Verify that we receive all messages
-    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 100),
+    {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 100),
     ?assertEqual(99, length(Msgs1), binfmt("Expected 99 messages, got: ~p", [length(Msgs1)])),
 
     %% Clean up
     ok = emqtt:disconnect(CSub1).
 
-%% Verify that the consumer redispatches the message to another subscriber
-%% immediately if a subscriber rejected the message
-t_redispatch(Config) ->
-    %% Create a non-lastvalue Queue
-    _ =
-        emqx_mq_test_utils:create_mq(#{
-            topic_filter => <<"t/#">>,
-            is_lastvalue => false,
-            dispatch_strategy => ?config(dispatch_strategy, Config),
-            redispatch_interval => 1000
-        }),
-
-    %% Connect two subscribers
-    CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    CSub1 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
-
-    %% Publish 1 message to the queue
-    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
-
-    %% Receive the message and reject it
-    CSub =
-        receive
-            {publish, #{
-                topic := <<"t/0">>,
-                client_pid := Pid,
-                packet_id := PacketId
-            }} ->
-                ok = emqtt:puback(Pid, PacketId, ?RC_UNSPECIFIED_ERROR),
-                Pid
-        after 100 ->
-            ct:fail("t/0 message from MQ not received")
-        end,
-
-    %% Verify that the message is re-delivered to the other subscriber
-    [OtherCSub] = [CSub0, CSub1] -- [CSub],
-    receive
-        {publish, #{topic := <<"t/0">>, client_pid := OtherCSub}} ->
-            ok
-    after 100 ->
-        ct:fail("t/0 message from MQ not received by the other subscriber")
-    end,
-
-    %% Clean up
-    ok = emqtt:disconnect(CSub0),
-    ok = emqtt:disconnect(CSub1).
-
-%% Verify that the consumer redispatches after a delay
-%% if a subscriber rejected the message and there are no other subscribers
-t_redispatch_delay(Config) ->
-    %% Create a non-lastvalue Queue
-    RedispatchInterval = 500,
-    _ =
-        emqx_mq_test_utils:create_mq(#{
-            topic_filter => <<"t/#">>,
-            is_lastvalue => false,
-            dispatch_strategy => ?config(dispatch_strategy, Config),
-            redispatch_interval => RedispatchInterval
-        }),
-
-    %% Connect two subscribers
-    CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
-
-    %% Publish 1 message to the queue
-    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
-
-    %% Receive the message and reject it
-    RecieveTime =
-        receive
-            {publish, #{
-                topic := <<"t/0">>,
-                client_pid := Pid,
-                packet_id := PacketId
-            }} ->
-                ok = emqtt:puback(Pid, PacketId, ?RC_UNSPECIFIED_ERROR),
-                now_ms()
-        after 100 ->
-            ct:fail("t/0 message from MQ not received")
-        end,
-
-    %% Verify that the message is re-delivered to the other subscriber
-    WaitTime = RedispatchInterval * 2,
-    receive
-        {publish, #{topic := <<"t/0">>, client_pid := CSub}} ->
-            ElapsedTime = now_ms() - RecieveTime,
-            ?assert(
-                ElapsedTime >= RedispatchInterval,
-                binfmt("Messsage received in ~p ms which is less than redispatch interval ~p ms", [
-                    ElapsedTime, RedispatchInterval
-                ])
-            )
-    after WaitTime ->
-        ct:fail("t/0 message from MQ not received by the other subscriber")
-    end,
-
-    %% Clean up
-    ok = emqtt:disconnect(CSub).
-
 t_queue_deletion(_Config) ->
     %% Create a non-lastvalue Queue
-    #{id := Id} = emqx_mq_test_utils:create_mq(#{
+    #{id := Id} = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"queue_deletion">>,
         topic_filter => <<"t/#">>,
         is_lastvalue => false,
         dispatch_strategy => random
@@ -731,14 +776,14 @@ t_queue_deletion(_Config) ->
 
     %% Connect and start a consumer
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"queue_deletion">>),
 
     %% Find the consumer
     {ok, ConsumerRef} = emqx_mq_consumer:find(Id),
     MRef = erlang:monitor(process, ConsumerRef),
 
     %% Delete the queue
-    ok = emqx_mq_registry:delete(<<"t/#">>),
+    ok = emqx_mq_registry:delete(<<"queue_deletion">>),
     receive
         {'DOWN', MRef, process, ConsumerRef, _Reason} -> ok
     after 1000 ->
@@ -748,8 +793,9 @@ t_queue_deletion(_Config) ->
     %% Disconnect the consumer
     ok = emqtt:disconnect(CSub0),
 
-    %% Create a new queue with the same topic filter
-    _MQ1 = emqx_mq_test_utils:create_mq(#{
+    %% Create a new queue with the same name and topic filter
+    _MQ1 = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"queue_deletion">>,
         topic_filter => <<"t/#">>,
         is_lastvalue => false,
         dispatch_strategy => random
@@ -763,7 +809,7 @@ t_queue_deletion(_Config) ->
 
     %% Connect and start a consumer
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"queue_deletion">>),
 
     %% Verify that the old messages are not received
     receive
@@ -789,16 +835,24 @@ t_queue_deletion(_Config) ->
 %% Drop this test and the related workaround once the bug in tx manager is fixed
 t_queue_deletion_with_new_empty_generation(_Config) ->
     %% Create a non-lastvalue Queue and a new generation
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"queue_deletion_with_new_empty_generation">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
+    }),
     ok = emqx_mq_message_db:add_regular_db_generation(),
 
     %% Delete the queue
-    ok = emqx_mq_registry:delete(<<"t/#">>).
+    ok = emqx_mq_registry:delete(<<"queue_deletion_with_new_empty_generation">>).
 
 %% Check that a session of a disconnected client does not receive messages
 t_disconnected_session_does_not_receive_messages(_Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => false}),
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"disconnected_session_does_not_receive_messages">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false
+    }),
 
     %% Publish some messages to the queue
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
@@ -809,7 +863,7 @@ t_disconnected_session_does_not_receive_messages(_Config) ->
         {clientid, <<"c0">>},
         {properties, #{'Session-Expiry-Interval' => 1000}}
     ]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"disconnected_session_does_not_receive_messages">>),
 
     %% Assert that the message is received
     receive
@@ -827,7 +881,7 @@ t_disconnected_session_does_not_receive_messages(_Config) ->
 
     %% Verify that the message is redispatched to another subscriber
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"disconnected_session_does_not_receive_messages">>),
     receive
         {publish, #{payload := <<"payload-0">>, client_pid := CSub1}} ->
             ok
@@ -841,8 +895,11 @@ t_disconnected_session_does_not_receive_messages(_Config) ->
 %% Verify that the expired messages are not received
 t_expired_messages(_Config) ->
     %% Create a non-lastvalue Queue
-    _ = emqx_mq_test_utils:create_mq(#{
-        topic_filter => <<"t/#">>, is_lastvalue => false, data_retention_period => 1000
+    _ = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"expired_messages">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        data_retention_period => 1000
     }),
 
     %% Publish some messages to the queue
@@ -862,7 +919,7 @@ t_expired_messages(_Config) ->
 
     %% Connect a client
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"expired_messages">>),
 
     %% Verify that only new messages are received
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 5, _Timeout = 1000),
@@ -874,7 +931,8 @@ t_expired_messages(_Config) ->
 %% Verify the queue handles acking messages from the finished generation
 t_ack_from_finished_generation(_Config) ->
     %% Create a non-lastvalue Queue
-    emqx_mq_test_utils:create_mq(#{
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"ack_from_finished_generation">>,
         topic_filter => <<"t/#">>,
         is_lastvalue => false,
         local_max_inflight => 20,
@@ -886,7 +944,7 @@ t_ack_from_finished_generation(_Config) ->
 
     %% Connect a client
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"ack_from_finished_generation">>),
 
     %% Drain the messages
     {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 2000),
@@ -909,7 +967,7 @@ t_ack_from_finished_generation(_Config) ->
     %% The new client should receive the new messages, the old one
     %% should have been successfully acknowledged
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"ack_from_finished_generation">>),
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 10, _Timeout1 = 1000),
     ?assertEqual(10, length(Msgs1)),
     ok = emqtt:disconnect(CSub1).
@@ -918,7 +976,8 @@ t_ack_from_finished_generation(_Config) ->
 %% there are unacked messages in the finished generation
 t_save_and_restore_unacked_messages_in_finished_generation(_Config) ->
     %% Create a non-lastvalue Queue
-    emqx_mq_test_utils:create_mq(#{
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"save_and_restore_unacked_messages_in_finished_generation">>,
         topic_filter => <<"t/#">>,
         is_lastvalue => false,
         local_max_inflight => 100,
@@ -930,7 +989,9 @@ t_save_and_restore_unacked_messages_in_finished_generation(_Config) ->
 
     %% Connect a client
     CSub0 = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(
+        CSub0, <<"save_and_restore_unacked_messages_in_finished_generation">>
+    ),
 
     %% Drain the messages but do not acknowledge them
     {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 2000),
@@ -952,7 +1013,9 @@ t_save_and_restore_unacked_messages_in_finished_generation(_Config) ->
 
     %% Start the consumer again
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(
+        CSub1, <<"save_and_restore_unacked_messages_in_finished_generation">>
+    ),
 
     %% Verify we receive the unacknowledged messages both
     %% from the old generation and the new one
@@ -967,11 +1030,11 @@ t_find_queue(_Config) ->
 
     %% Connect a client and subscribe to a non-existent queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"noexistent/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"noexistent">>),
 
     %% Create the queue
-    emqx_mq_test_utils:create_mq(#{topic_filter => <<"noexistent/#">>}),
-    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"noexistent/">>}),
+    emqx_mq_test_utils:ensure_mq_created(#{name => <<"noexistent">>, topic_filter => <<"t/#">>}),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Verify that the message is received
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
@@ -983,9 +1046,9 @@ t_find_queue(_Config) ->
 %% Verify that the inspect functions work
 t_inspect(_Config) ->
     %% Create queue and a client
-    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
+    emqx_mq_test_utils:ensure_mq_created(#{name => <<"inspect">>, topic_filter => <<"t/#">>}),
     CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}, {clientid, <<"csub">>}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"inspect">>),
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Inspect the consumer and the subscriber
@@ -1002,7 +1065,7 @@ t_inspect(_Config) ->
         #{
             status := #{name := connected}
         },
-        emqx_mq:inspect(ChanPid, <<"t/#">>)
+        emqx_mq:inspect(ChanPid, <<"inspect">>)
     ),
 
     %% Clean up
@@ -1013,19 +1076,21 @@ t_inspect(_Config) ->
 %% * the client receives messages when it reconnects
 t_offline_session(_Config) ->
     %% Create a non-lastvalue Queue and two clients
-    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, dispatch_strategy => round_robin}),
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"offline_session">>, topic_filter => <<"t/#">>, dispatch_strategy => round_robin
+    }),
     CSub0 = emqx_mq_test_utils:emqtt_connect([
         {clientid, <<"csub0">>},
         {properties, #{'Session-Expiry-Interval' => 1000}},
         {clean_start, false}
     ]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"offline_session">>),
     CSub1 = emqx_mq_test_utils:emqtt_connect([
         {clientid, <<"csub1">>},
         {properties, #{'Session-Expiry-Interval' => 1000}},
         {clean_start, false}
     ]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"offline_session">>),
 
     %% Disconnect the first client
     ok = emqtt:disconnect(CSub0),
@@ -1068,10 +1133,10 @@ t_metrics(_Config) ->
         emqx_mq_metrics:get_counters(ds),
 
     %% Create a queue, publish and consume some messages
-    _MQ = emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
+    _MQ = emqx_mq_test_utils:ensure_mq_created(#{name => <<"metrics">>, topic_filter => <<"t/#">>}),
     emqx_mq_test_utils:populate(10, #{topic_prefix => <<"t/">>}),
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"metrics">>),
     {ok, Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 10, _Timeout = 1000),
     ok = emqtt:disconnect(CSub),
     ?assertEqual(10, length(Msgs)),
@@ -1092,8 +1157,10 @@ t_metrics(_Config) ->
     emqx_mq_metrics:print_common_hists(regular_limited).
 
 t_update_key_expression(_Config) ->
-    %% Create a non-lastvalue Queue
-    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+    %% Create a lastvalue Queue
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"update_key_expression">>, topic_filter => <<"t/#">>, is_lastvalue => true
+    }),
 
     %% Publish 10 messages to the queue, with 10 keys
     %% In tests, the default key is "mq-key" user property.
@@ -1105,13 +1172,12 @@ t_update_key_expression(_Config) ->
 
     %% Consume the messages from the queue
     CSub0 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    {ok, Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 100),
-    ?assertEqual(10, length(Msgs0)),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"update_key_expression">>),
+    {ok, _Msgs0} = emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 10, _Timeout0 = 1000),
     ok = emqtt:disconnect(CSub0),
 
     %% Update the key expression
-    {ok, _} = emqx_mq_registry:update(<<"t/#">>, #{
+    {ok, _} = emqx_mq_registry:update(<<"update_key_expression">>, #{
         is_lastvalue => true,
         key_expression =>
             <<"concat([message.from, message.headers.peername, message.headers.peerhost])">>
@@ -1132,7 +1198,7 @@ t_update_key_expression(_Config) ->
     %% Consume the messages from the queue
     %% We should receive only one message, because the key expression is the same for all messages.
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"update_key_expression">>),
     {ok, Msgs1} = emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 100),
     ?assertEqual(1, length(Msgs1)),
 
@@ -1141,11 +1207,11 @@ t_update_key_expression(_Config) ->
 
 t_unsubscribe(_Config) ->
     %% Create a non-lastvalue Queue
-    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>}),
+    emqx_mq_test_utils:ensure_mq_created(#{name => <<"unsubscribe">>, topic_filter => <<"t/#">>}),
 
     %% Connect a client and subscribe to the queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"unsubscribe">>),
 
     %% Verify that the client is subscribed to the queue
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>, payload_prefix => <<"payload-old-">>}),
@@ -1157,7 +1223,7 @@ t_unsubscribe(_Config) ->
     end,
 
     %% Unsubscribe from the queue
-    {ok, _, [0]} = emqtt:unsubscribe(CSub, <<"$q/t/#">>),
+    {ok, _, [0]} = emqtt:unsubscribe(CSub, <<"$queue/unsubscribe">>),
 
     %% Verify that the client is not subscribed to the queue
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>, payload_prefix => <<"payload-new-">>}),
@@ -1174,12 +1240,16 @@ t_unsubscribe(_Config) ->
 %% Verify that we gracefully handle acks to a message from a lost consumer.
 t_ack_to_message_from_lost_consumer(_Config) ->
     %% Create a non-lastvalue Queue
-    emqx_mq_test_utils:create_mq(#{topic_filter => <<"t/#">>, ping_interval => 100}),
+    emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"ack_to_message_from_lost_consumer">>,
+        topic_filter => <<"t/#">>,
+        ping_interval => 100
+    }),
     emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t/">>}),
 
     %% Connect a client and subscribe to the queue
     CSub = emqx_mq_test_utils:emqtt_connect([{auto_ack, false}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"ack_to_message_from_lost_consumer">>),
 
     %% Drain the message
     {ok, [#{packet_id := PacketId}]} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 1000),
@@ -1188,7 +1258,7 @@ t_ack_to_message_from_lost_consumer(_Config) ->
     [Pid] = emqx_mq_test_utils:all_consumers(),
     ?assertWaitEvent(
         exit(Pid, kill),
-        #{?snk_kind := mq_sub_consumer_timeout, mq_topic_filter := <<"t/#">>},
+        #{?snk_kind := mq_sub_consumer_timeout, mq_name := <<"ack_to_message_from_lost_consumer">>},
         1000
     ),
 
@@ -1209,10 +1279,10 @@ t_auto_create(_Config) ->
 
     %% Connect a client and subscribe to a non-existent queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"non-existent/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"auto_create">>, <<"non-existent/#">>),
 
     %% Verify that the queue was automatically created
-    ?assert(emqx_mq_registry:is_present(<<"non-existent/#">>)),
+    ?assertMatch({ok, #{name := <<"auto_create">>}}, emqx_mq_registry:find(<<"auto_create">>)),
 
     %% Publish and verfy some messages
     emqx_mq_test_utils:populate(10, #{topic_prefix => <<"non-existent/">>}),
@@ -1229,13 +1299,100 @@ t_auto_create_disabled(_Config) ->
 
     %% Connect a client and subscribe to a non-existent queue
     CSub = emqx_mq_test_utils:emqtt_connect([]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"non-existent/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"auto_create_disabled">>, <<"non-existent/#">>),
 
     %% Verify that the queue was not automatically created
-    ?assert(not emqx_mq_registry:is_present(<<"non-existent/#">>)),
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"auto_create_disabled">>)),
 
     %% Clean up
     ok = emqtt:disconnect(CSub).
+
+%% Subscribe to the same name under different topic filters
+t_conflicting_queues(_Config) ->
+    %% Enable automatic creation of regular queues
+    emqx:update_config([mq, auto_create], #{<<"regular">> => #{}, <<"lastvalue">> => false}),
+    emqx_config:put([mq, find_queue_retry_interval], 100),
+
+    %% Connect a client and subscribe to the queues
+    CSub = emqx_mq_test_utils:emqtt_connect([]),
+    %% This queue will be created
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"cq">>, <<"t1/#">>),
+    %% This queue will not be created, since cq is already created with topic filter t1/#
+    emqx_mq_test_utils:emqtt_sub_mq(CSub, <<"cq">>, <<"t2/#">>),
+
+    %% Publish a message to the queue and verify that it is received
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t1/">>}),
+    ?assertMatch(
+        {ok, [#{topic := <<"t1/", _/binary>>}]},
+        emqx_mq_test_utils:emqtt_drain(_MinMsg0 = 1, _Timeout0 = 1000)
+    ),
+
+    %% Now recreate the queue with the second topic filter and verify that the message is also received
+    %% without reconnecting the client
+    emqx_mq_test_utils:stop_all_consumers(),
+    emqx_mq_registry:delete(<<"cq">>),
+    emqx_mq_test_utils:ensure_mq_created(#{name => <<"cq">>, topic_filter => <<"t2/#">>}),
+    emqx_mq_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+    ?assertMatch(
+        {ok, [#{topic := <<"t2/", _/binary>>}]},
+        emqx_mq_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 1000)
+    ),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify that only MQTT v5 clients are allowed to subscribe to queues
+t_allow_only_mqtt_v5(_Config) ->
+    %% Connect a client and subscribe to a queue
+    {ok, CSub} = emqtt:start_link([{proto_ver, v3}]),
+    {ok, _} = emqtt:connect(CSub),
+
+    %% Try to subscribe to a queue with MQTT v3
+    {ok, _, [?RC_UNSPECIFIED_ERROR]} = emqtt:subscribe(CSub, {<<"$queue/some_queue/t/#">>, 1}),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
+%% Verify the situation when the consumer accumulates a large number of messages in the buffer
+%% and then a client connects. It must not be overwhelmed by the messages.
+t_large_consumer_buffer(_Config) ->
+    %% Create a queue
+    #{id := MQId} = emqx_mq_test_utils:ensure_mq_created(#{
+        name => <<"large_consumer_buffer">>,
+        topic_filter => <<"t/#">>,
+        is_lastvalue => false,
+        consumer_max_inactive => 900_000,
+        stream_max_buffer_size => 100_000,
+        stream_max_unacked => 100_000,
+        limits => #{
+            max_shard_message_count => infinity,
+            max_shard_message_bytes => infinity
+        }
+    }),
+
+    %% Ensure that the consumer is started
+    CSub0 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"large_consumer_buffer">>),
+    emqtt:disconnect(CSub0),
+
+    %% Publish a large number of messages to the queue
+    emqx_mq_test_utils:populate(5000, #{topic_prefix => <<"t/">>, qos => ?QOS_0}),
+    ct:sleep(1000),
+
+    %% Verify that the consumer buffered enough messages in the outbound buffer
+    {ok, ConsumerRef} = emqx_mq_consumer:find(MQId),
+    ConsumerInfo = emqx_mq_consumer:inspect(ConsumerRef, 1000),
+    ?assertMatch(#{server := #{messages := 5000}}, ConsumerInfo),
+
+    %% Connect a new client and subscribe to the queue
+    CSub1 = emqx_mq_test_utils:emqtt_connect([]),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"large_consumer_buffer">>),
+
+    %% Drain the messages, we should receive all messages without problems
+    {ok, _Msgs} = emqx_mq_test_utils:emqtt_drain(_MinMsg = 5000, _Timeout = 1000),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub1).
 
 %%--------------------------------------------------------------------
 %% Helpers
