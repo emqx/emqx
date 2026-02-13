@@ -12,8 +12,8 @@ services:
     #   - "4101:4001"
     volumes:
       - ./greptimedb/greptimedb_tls.toml:/etc/greptimedb/config.toml
-      - ./certs/server.crt:/etc/greptimedb/certs/server.crt
-      - ./certs/server.key:/etc/greptimedb/certs/server.key
+      - ./greptimedb/certs/server.crt:/etc/greptimedb/certs/server.crt
+      - ./greptimedb/certs/server.key:/etc/greptimedb/certs/server.key
     restart: always
     networks:
       - emqx_bridge
