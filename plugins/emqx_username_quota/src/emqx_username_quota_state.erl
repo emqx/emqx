@@ -10,12 +10,13 @@
     del_client/2,
     count/1,
     is_known_client/2,
-    list_usernames/1,
+    list_usernames/4,
     get_username/1,
     kick_username/1,
     clear_for_node/1,
     clear_self_node/0,
-    reset/0
+    reset/0,
+    fold_username_counts/2
 ]).
 
 -include("emqx_username_quota.hrl").
@@ -87,18 +88,22 @@ is_known_client(Username, ClientId) ->
         _ -> false
     end.
 
-list_usernames(SortByUsedDesc) ->
-    CountMap = count_map(),
-    Usernames = maps:keys(CountMap),
-    Details = [
-        #{
-            username => Username,
-            used => maps:get(Username, CountMap),
-            clientids => list_clientids(Username)
-        }
-     || Username <- Usernames, maps:get(Username, CountMap) > 0
-    ],
-    sort_usernames(SortByUsedDesc, Details).
+list_usernames(RequesterPid, DeadlineMs, Cursor, Limit) ->
+    case emqx_username_quota_snapshot:request_page(RequesterPid, DeadlineMs, Cursor, Limit) of
+        {ok, PageResult0} ->
+            SnapshotRows = maps:get(data, PageResult0, []),
+            Data = [
+                build_page_item(Username, SnapshotUsed)
+             || {{_Counter, Username}, SnapshotUsed} <- SnapshotRows
+            ],
+            {ok, PageResult0#{data => Data}};
+        {error, busy} ->
+            {error, busy};
+        {error, rebuilding_snapshot} ->
+            {error, rebuilding_snapshot};
+        {error, timeout} ->
+            {error, timeout}
+    end.
 
 get_username(Username) ->
     case count(Username) of
@@ -131,29 +136,20 @@ reset() ->
     _ = mria:clear_table(?COUNTER_TAB),
     true = ets:delete_all_objects(?MONITOR_TAB),
     true = ets:delete_all_objects(?CCACHE_TAB),
+    _ =
+        try emqx_username_quota_snapshot:reset() of
+            ok -> ok
+        catch
+            _:_ -> ok
+        end,
     ok.
 
-sort_usernames(true, Details) ->
-    lists:sort(
-        fun(#{username := U1, used := C1}, #{username := U2, used := C2}) ->
-            case C1 =:= C2 of
-                true -> U1 =< U2;
-                false -> C1 > C2
-            end
-        end,
-        Details
-    );
-sort_usernames(_Sort, Details) ->
-    lists:sort(fun(#{username := U1}, #{username := U2}) -> U1 =< U2 end, Details).
-
-count_map() ->
-    lists:foldl(
-        fun(#?COUNTER_TAB{key = ?COUNTER_KEY(Username, _Node), count = Cnt}, Acc) ->
-            maps:update_with(Username, fun(V) -> V + Cnt end, Cnt, Acc)
-        end,
-        #{},
-        ets:tab2list(?COUNTER_TAB)
-    ).
+fold_username_counts(Fun, Acc0) when is_function(Fun, 3) ->
+    TmpTab = ets:new(?MODULE, [set]),
+    ok = fold_counter_rows(ets:first(?COUNTER_TAB), TmpTab),
+    Acc = fold_counter_sums(ets:first(TmpTab), TmpTab, Fun, Acc0),
+    true = ets:delete(TmpTab),
+    Acc.
 
 list_clientids(Username) ->
     Start = ?RECORD_KEY(Username, ?MIN_CLIENTID, ?MIN_PID),
@@ -171,6 +167,19 @@ with_ccache(Username) ->
     case lookup_ccache(Username) of
         false -> update_ccache(Username);
         Cnt -> Cnt
+    end.
+
+build_page_item(Username, SnapshotUsed) ->
+    ClientIds = list_clientids(Username),
+    Used = length(ClientIds),
+    Base = #{
+        username => Username,
+        used => Used,
+        clientids => ClientIds
+    },
+    case Used =:= SnapshotUsed of
+        true -> Base;
+        false -> Base#{snapshot_used => SnapshotUsed}
     end.
 
 lookup_ccache(Username) ->
@@ -248,3 +257,27 @@ monitor_exists(Pid, Username, ClientId) ->
         end,
         ets:lookup(?MONITOR_TAB, Pid)
     ).
+
+fold_counter_rows('$end_of_table', _TmpTab) ->
+    ok;
+fold_counter_rows(Key, TmpTab) ->
+    case ets:lookup(?COUNTER_TAB, Key) of
+        [#?COUNTER_TAB{key = ?COUNTER_KEY(Username, _Node), count = Counter}] when Counter > 0 ->
+            _ = ets:update_counter(TmpTab, Username, {2, Counter}, {Username, 0}),
+            ok;
+        _ ->
+            ok
+    end,
+    fold_counter_rows(ets:next(?COUNTER_TAB, Key), TmpTab).
+
+fold_counter_sums('$end_of_table', _TmpTab, _Fun, Acc) ->
+    Acc;
+fold_counter_sums(Username, TmpTab, Fun, Acc0) ->
+    Acc =
+        case ets:lookup(TmpTab, Username) of
+            [{Username, Counter}] when Counter > 0 ->
+                Fun(Username, Counter, Acc0);
+            _ ->
+                Acc0
+        end,
+    fold_counter_sums(ets:next(TmpTab, Username), TmpTab, Fun, Acc).

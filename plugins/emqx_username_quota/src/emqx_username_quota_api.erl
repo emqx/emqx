@@ -9,16 +9,33 @@
 
 handle(get, [<<"quota">>, <<"usernames">>], Request) ->
     Query = maps:get(query_string, Request, #{}),
-    Page = get_page(Query, <<"page">>, ?DEFAULT_PAGE),
     Limit = get_pos_int(Query, <<"limit">>, ?DEFAULT_LIMIT),
-    Sort = get_bool(Query, <<"sort">>, false),
-    All = emqx_username_quota_state:list_usernames(Sort),
-    Total = length(All),
-    Data = paginate(All, Page, Limit),
-    {ok, 200, #{}, #{
-        data => Data,
-        meta => #{page => Page, limit => Limit, count => length(Data), total => Total}
-    }};
+    Cursor = get_cursor(Query),
+    TimeoutMs = emqx_username_quota_config:snapshot_request_timeout_ms(),
+    DeadlineMs = now_ms() + TimeoutMs,
+    case emqx_username_quota_state:list_usernames(self(), DeadlineMs, Cursor, Limit) of
+        {ok, PageResult} ->
+            Data = maps:get(data, PageResult, []),
+            {ok, 200, #{}, #{
+                data => Data,
+                meta => build_meta(Limit, Data, PageResult)
+            }};
+        {error, busy} ->
+            {error, 503, #{}, #{
+                code => <<"SERVICE_UNAVAILABLE">>,
+                message => <<"Snapshot owner is busy handling another request">>
+            }};
+        {error, rebuilding_snapshot} ->
+            {error, 503, #{}, #{
+                code => <<"SERVICE_UNAVAILABLE">>,
+                message => <<"Snapshot owner is rebuilding snapshot">>
+            }};
+        {error, timeout} ->
+            {error, 503, #{}, #{
+                code => <<"SERVICE_UNAVAILABLE">>,
+                message => <<"Snapshot owner request timed out">>
+            }}
+    end;
 handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
     Username = uri_string:percent_decode(Username0),
     case emqx_username_quota_state:get_username(Username) of
@@ -52,32 +69,6 @@ get_pos_int(Map, Key, Default) ->
         false -> Default
     end.
 
-get_page(Map, Key, Default) ->
-    Value = get_q(Map, Key, Default),
-    Int =
-        case Value of
-            V when is_integer(V) -> V;
-            V when is_binary(V) -> to_integer(V, Default);
-            V when is_list(V) -> to_integer(iolist_to_binary(V), Default);
-            _ -> Default
-        end,
-    case Int > 0 of
-        true -> Int;
-        false -> Default
-    end.
-
-get_bool(Map, Key, Default) ->
-    Value = get_q(Map, Key, Default),
-    case Value of
-        true -> true;
-        false -> false;
-        <<"true">> -> true;
-        <<"false">> -> false;
-        "true" -> true;
-        "false" -> false;
-        _ -> Default
-    end.
-
 get_q(Map, Key, Default) ->
     case maps:find(Key, Map) of
         {ok, V} -> V;
@@ -91,6 +82,27 @@ to_integer(Bin, Default) ->
         _:_ -> Default
     end.
 
-paginate(List, Page, Limit) ->
-    Start = (Page - 1) * Limit,
-    lists:sublist(lists:nthtail(min(Start, length(List)), List), Limit).
+now_ms() ->
+    erlang:system_time(millisecond).
+
+build_meta(Limit, Data, PageResult) ->
+    Base = #{
+        limit => Limit,
+        count => length(Data),
+        total => maps:get(total, PageResult, 0),
+        snapshot => maps:get(snapshot, PageResult, #{})
+    },
+    case maps:get(next_cursor, PageResult, undefined) of
+        undefined -> Base;
+        NextCursor -> Base#{next_cursor => NextCursor}
+    end.
+
+get_cursor(Query) ->
+    case maps:find(<<"cursor">>, Query) of
+        {ok, Cursor} when is_binary(Cursor) ->
+            Cursor;
+        {ok, Cursor} when is_list(Cursor) ->
+            iolist_to_binary(Cursor);
+        _ ->
+            undefined
+    end.

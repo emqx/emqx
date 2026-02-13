@@ -28,7 +28,10 @@ init_per_suite(Config) ->
     ),
     {ok, _} = application:ensure_all_started(emqx_username_quota),
     true = is_authn_hook_registered(),
-    ok = emqx_username_quota_config:update(#{<<"max_sessions_per_username">> => 100}),
+    ok = emqx_username_quota_config:update(#{
+        <<"max_sessions_per_username">> => 100,
+        <<"snapshot_request_timeout_ms">> => 60000
+    }),
     ok = emqx_username_quota:reset(),
     [{apps, Apps} | Config].
 

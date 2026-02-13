@@ -25,6 +25,13 @@ init([]) ->
     MFA = {PoolModule, start_link, []},
     SupArgs = [PoolModule, PoolType, MFA],
     ChildSpecs = [
+        #{
+            id => emqx_username_quota_snapshot,
+            start => {emqx_username_quota_snapshot, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 1_000
+        },
         emqx_pool_sup:spec(emqx_username_quota_pool_sup, SupArgs),
         #{
             id => emqx_username_quota_cluster_watch,

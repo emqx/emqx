@@ -19,12 +19,29 @@ init_per_suite(Config) ->
     [{apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    case whereis(emqx_username_quota_snapshot) of
+        undefined -> ok;
+        Pid -> exit(Pid, shutdown)
+    end,
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_Case, Config) ->
+    ok = ensure_snapshot_started(),
     ok = emqx_username_quota:reset(),
-    ok = emqx_username_quota_config:update(#{}),
+    ok = emqx_username_quota_config:update(#{
+        <<"snapshot_request_timeout_ms">> => 60000
+    }),
     Config.
+
+ensure_snapshot_started() ->
+    case whereis(emqx_username_quota_snapshot) of
+        undefined ->
+            {ok, Pid} = emqx_username_quota_snapshot:start_link(),
+            true = unlink(Pid),
+            ok;
+        _Pid ->
+            ok
+    end.
 
 t_register_unregister_counter(_Config) ->
     User = <<"alice">>,

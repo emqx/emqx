@@ -5,6 +5,8 @@
 -define(DEFAULT_PAGE, 1).
 -define(DEFAULT_LIMIT, 100).
 -define(MAX_LIMIT, 1000).
+-define(DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS, 5000).
+-define(DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS, 5000).
 -define(MIN_CLIENTID, <<>>).
 -define(MIN_PID, 0).
 
@@ -16,6 +18,7 @@
 -define(COUNTER_TAB, emqx_username_quota_counter).
 -define(MONITOR_TAB, emqx_username_quota_monitor).
 -define(CCACHE_TAB, emqx_username_quota_ccache).
+-define(SNAPSHOT_TAB, emqx_username_quota_snapshot).
 -define(DB_SHARD, emqx_username_quota_shard).
 
 -define(RECORD_KEY(Username, ClientId, Pid), {Username, ClientId, Pid}).

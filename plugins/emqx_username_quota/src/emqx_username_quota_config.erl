@@ -7,6 +7,8 @@
     load/0,
     update/1,
     max_sessions_per_username/0,
+    snapshot_refresh_interval_ms/0,
+    snapshot_request_timeout_ms/0,
     is_whitelisted/1,
     settings/0
 ]).
@@ -32,6 +34,12 @@ update(RawConfig) ->
 max_sessions_per_username() ->
     maps:get(max_sessions_per_username, settings(), ?DEFAULT_MAX_SESSIONS_PER_USERNAME).
 
+snapshot_refresh_interval_ms() ->
+    maps:get(snapshot_refresh_interval_ms, settings(), ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS).
+
+snapshot_request_timeout_ms() ->
+    maps:get(snapshot_request_timeout_ms, settings(), ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS).
+
 is_whitelisted(Username) when is_binary(Username) ->
     WhiteList = maps:get(username_white_list, settings(), #{}),
     maps:is_key(Username, WhiteList).
@@ -52,9 +60,25 @@ parse(RawConfig) when is_map(RawConfig) ->
         []
     ),
     WhiteList = normalize_whitelist(WhiteList0),
+    RefreshMs0 = get_value(
+        RawConfig,
+        [snapshot_refresh_interval_ms, <<"snapshot_refresh_interval_ms">>],
+        ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
+    ),
+    RequestTimeoutMs0 = get_value(
+        RawConfig,
+        [snapshot_request_timeout_ms, <<"snapshot_request_timeout_ms">>],
+        ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
+    ),
     #{
         max_sessions_per_username => Max,
-        username_white_list => WhiteList
+        username_white_list => WhiteList,
+        snapshot_refresh_interval_ms => normalize_ms(
+            RefreshMs0, ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
+        ),
+        snapshot_request_timeout_ms => normalize_ms(
+            RequestTimeoutMs0, ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
+        )
     };
 parse(_RawConfig) ->
     default_settings().
@@ -62,7 +86,9 @@ parse(_RawConfig) ->
 default_settings() ->
     #{
         max_sessions_per_username => ?DEFAULT_MAX_SESSIONS_PER_USERNAME,
-        username_white_list => #{}
+        username_white_list => #{},
+        snapshot_refresh_interval_ms => ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS,
+        snapshot_request_timeout_ms => ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
     }.
 
 normalize_max(Value) when is_integer(Value), Value > 0 ->
@@ -76,6 +102,18 @@ normalize_max(Value) when is_list(Value) ->
     normalize_max(iolist_to_binary(Value));
 normalize_max(_) ->
     ?DEFAULT_MAX_SESSIONS_PER_USERNAME.
+
+normalize_ms(Value, _Default) when is_integer(Value), Value > 0 ->
+    Value;
+normalize_ms(Value, Default) when is_binary(Value) ->
+    case binary_to_integer_safe(Value) of
+        Int when is_integer(Int), Int > 0 -> Int;
+        _ -> Default
+    end;
+normalize_ms(Value, Default) when is_list(Value) ->
+    normalize_ms(iolist_to_binary(Value), Default);
+normalize_ms(_Value, Default) ->
+    Default.
 
 normalize_whitelist(List) when is_list(List) ->
     maps:from_list(
