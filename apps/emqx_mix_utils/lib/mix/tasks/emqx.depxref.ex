@@ -4,6 +4,63 @@ defmodule Mix.Tasks.Emqx.Depxref do
   @shortdoc "Run depxref analysis"
   @requirements ["compile", "loadpaths"]
 
+  @moduledoc """
+  Analyzes application dependencies to detect issues in the EMQX umbrella project.
+
+  ## Purpose
+
+  This task performs cross-reference analysis on all applications in the umbrella
+  project to identify:
+  1. Undeclared dependencies: calling functions from applications not listed in `mix.exs`.
+  2. Unneeded dependencies: applications listed as dependencies but not actually used.
+  3. Cyclic dependencies: circular dependency chains between applications.
+
+  The task uses Erlang's XRef tool to analyze the call graph between modules.
+
+  ## Usage
+
+  Run the analysis on all applications:
+
+      mix emqx.depxref
+
+  Run on specific applications, with a one-line finishing summary:
+
+      mix emqx.depxref --summarize emqx emqx_utils
+
+  Generate a Markdown report:
+
+      mix emqx.depxref --report-md output.md
+
+  The task exits with code 1 if any issues are found (unless all issues are filtered
+  out via ignores).
+
+  ## Ignores
+
+  Sometimes there are legitimate reasons for a dependency edge to exist that
+  shouldn't be flagged as an issue.
+
+  Each application can define an optional `depxref/0` function in its `mix.exs`
+  that returns a keyword list with an `:ignore` key:
+
+      defmodule MyApp.MixProject do
+        use Mix.Project
+
+        [...]
+
+        def depxref do
+          [
+            ignore: [
+              [:emqx_mod1, :->, :emqx_app_mod2, reason: "Explanation of why this is ok"]
+            ]
+          ]
+        end
+      end
+
+  Each application is limited to 20 ignore entries to prevent excessive use of
+  ignores as a workaround for dependency issues.
+
+  """
+
   @xref :depxref
   @xref_ignore_apps [:emqx_mix_utils]
   @xref_common_libs [:erts, :stdlib, :kernel, :elixir]
