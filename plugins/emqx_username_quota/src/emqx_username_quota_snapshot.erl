@@ -46,13 +46,7 @@ request_page_local(RequesterPid, DeadlineMs, Cursor, Limit) ->
         )
     catch
         exit:{timeout, _} ->
-            {error, timeout};
-        exit:{noproc, _} ->
-            {error, timeout};
-        exit:{normal, _} ->
-            {error, timeout};
-        exit:_ ->
-            {error, timeout}
+            {error, {busy, pseudo_cursor(node())}}
     end.
 
 reset() ->
@@ -77,12 +71,12 @@ handle_call(
 ) ->
     case DeadlineMs =< now_ms() of
         true ->
-            {reply, {error, rebuilding_snapshot}, State0};
+            {reply, {error, {rebuilding_snapshot, pseudo_cursor(node())}}, State0};
         false ->
             State = maybe_refresh_snapshot(State0),
             case DeadlineMs =< now_ms() of
                 true ->
-                    {reply, {error, rebuilding_snapshot}, State};
+                    {reply, {error, {rebuilding_snapshot, pseudo_cursor(node())}}, State};
                 false ->
                     {reply, {ok, page_snapshot(State, Cursor, Limit)}, State}
             end
@@ -169,7 +163,7 @@ maybe_forward_request(RequesterPid, DeadlineMs, Cursor, Limit) ->
                     TimeoutMs
                 )
             catch
-                exit:_ ->
+                exit:{timeout, _} ->
                     local
             end;
         _ ->
@@ -218,3 +212,6 @@ decode_cursor(Cursor) when is_binary(Cursor) ->
     end;
 decode_cursor(_Other) ->
     error.
+
+pseudo_cursor(Node) ->
+    encode_cursor(Node, 0, {0, <<>>}).

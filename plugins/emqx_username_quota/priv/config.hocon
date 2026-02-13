@@ -1,2 +1,4 @@
 max_sessions_per_username = 100
 username_white_list = []
+snapshot_refresh_interval_ms = 5000
+snapshot_request_timeout_ms = 5000

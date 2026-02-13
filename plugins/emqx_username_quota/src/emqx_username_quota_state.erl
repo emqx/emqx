@@ -97,12 +97,8 @@ list_usernames(RequesterPid, DeadlineMs, Cursor, Limit) ->
              || {{_Counter, Username}, SnapshotUsed} <- SnapshotRows
             ],
             {ok, PageResult0#{data => Data}};
-        {error, busy} ->
-            {error, busy};
-        {error, rebuilding_snapshot} ->
-            {error, rebuilding_snapshot};
-        {error, timeout} ->
-            {error, timeout}
+        {error, Reason} ->
+            {error, Reason}
     end.
 
 get_username(Username) ->

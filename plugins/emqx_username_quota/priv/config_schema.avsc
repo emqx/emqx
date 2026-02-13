@@ -44,6 +44,30 @@
         "label": "$username_white_list_label",
         "description": "$username_white_list_desc"
       }
+    },
+    {
+      "name": "snapshot_refresh_interval_ms",
+      "type": "int",
+      "default": 5000,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$snapshot_refresh_interval_ms_label",
+        "description": "$snapshot_refresh_interval_ms_desc"
+      }
+    },
+    {
+      "name": "snapshot_request_timeout_ms",
+      "type": "int",
+      "default": 5000,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$snapshot_request_timeout_ms_label",
+        "description": "$snapshot_request_timeout_ms_desc"
+      }
     }
   ]
 }

@@ -20,20 +20,17 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
                 data => Data,
                 meta => build_meta(Limit, Data, PageResult)
             }};
-        {error, busy} ->
+        {error, {busy, RetryCursor}} ->
             {error, 503, #{}, #{
                 code => <<"SERVICE_UNAVAILABLE">>,
-                message => <<"Snapshot owner is busy handling another request">>
+                message => <<"Snapshot owner is busy handling another request">>,
+                retry_cursor => RetryCursor
             }};
-        {error, rebuilding_snapshot} ->
+        {error, {rebuilding_snapshot, RetryCursor}} ->
             {error, 503, #{}, #{
                 code => <<"SERVICE_UNAVAILABLE">>,
-                message => <<"Snapshot owner is rebuilding snapshot">>
-            }};
-        {error, timeout} ->
-            {error, 503, #{}, #{
-                code => <<"SERVICE_UNAVAILABLE">>,
-                message => <<"Snapshot owner request timed out">>
+                message => <<"Snapshot owner is rebuilding snapshot">>,
+                retry_cursor => RetryCursor
             }}
     end;
 handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
