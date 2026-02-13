@@ -65,6 +65,12 @@
 
 handle_subscribe(_SubscribeType, _SubscribeCtx, _Handler, #share{}) ->
     ignore;
+handle_subscribe(
+    _SubscribeType, #{clientinfo := #{protocol := Protocol}}, _Handler, _TopicFilter
+) when
+    Protocol =/= mqtt
+->
+    ignore;
 handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
     IsNew =
         case {SubscribeType, SubscribeCtx} of
