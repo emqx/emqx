@@ -188,11 +188,11 @@ is_auth_required(ClientInfo) ->
 
 nats_authn_ctx() ->
     RawNATS = emqx:get_raw_config([gateway, nats], #{}),
-    JWTConf = maps:get(<<"authn_jwt">>, RawNATS, maps:get(authn_jwt, RawNATS, undefined)),
+    InternalAuthn = maps:get(
+        <<"internal_authn">>, RawNATS, maps:get(internal_authn, RawNATS, [])
+    ),
     emqx_nats_authn:build_authn_ctx(
-        emqx_conf:get([gateway, nats, authn_token], undefined),
-        emqx_conf:get([gateway, nats, authn_nkeys], []),
-        JWTConf,
+        InternalAuthn,
         emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined
     ).
 

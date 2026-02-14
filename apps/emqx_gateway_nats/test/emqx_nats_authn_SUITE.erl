@@ -21,14 +21,14 @@ all() ->
 %%--------------------------------------------------------------------
 
 t_build_authn_ctx_and_auth_required(_Config) ->
-    Disabled = emqx_nats_authn:build_authn_ctx(undefined, [], undefined, false),
+    Disabled = mk_authn_ctx(undefined, [], undefined, false),
     ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => false}, Disabled)),
     ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, Disabled)),
 
-    GatewayOnly = emqx_nats_authn:build_authn_ctx(undefined, [], undefined, true),
+    GatewayOnly = mk_authn_ctx(undefined, [], undefined, true),
     ?assertEqual(true, emqx_nats_authn:is_auth_required(#{enable_authn => true}, GatewayOnly)),
 
-    JWTDisabled = emqx_nats_authn:build_authn_ctx(
+    JWTDisabled = mk_authn_ctx(
         undefined,
         [],
         #{enable => false, trusted_operators => [<<"OP_TEST">>]},
@@ -36,7 +36,7 @@ t_build_authn_ctx_and_auth_required(_Config) ->
     ),
     ?assertEqual(false, emqx_nats_authn:is_auth_required(#{enable_authn => true}, JWTDisabled)),
 
-    Enabled = emqx_nats_authn:build_authn_ctx(
+    Enabled = mk_authn_ctx(
         "token",
         [nkey_pub()],
         jwt_conf(),
@@ -46,10 +46,10 @@ t_build_authn_ctx_and_auth_required(_Config) ->
 
 t_ensure_and_publish_nkey_nonce(_Config) ->
     ConnInfo0 = #{clientid => <<"client-1">>},
-    NoNKeyAuthn = emqx_nats_authn:build_authn_ctx(undefined, [], undefined, false),
+    NoNKeyAuthn = mk_authn_ctx(undefined, [], undefined, false),
     ?assertEqual(ConnInfo0, emqx_nats_authn:ensure_nkey_nonce(ConnInfo0, NoNKeyAuthn)),
 
-    NKeyAuthn = emqx_nats_authn:build_authn_ctx(undefined, [nkey_pub()], undefined, false),
+    NKeyAuthn = mk_authn_ctx(undefined, [nkey_pub()], undefined, false),
     ConnInfo1 = emqx_nats_authn:ensure_nkey_nonce(ConnInfo0, NKeyAuthn),
     Nonce = maps:get(nkey_nonce, ConnInfo1),
     ?assert(is_binary(Nonce)),
@@ -61,12 +61,12 @@ t_ensure_and_publish_nkey_nonce(_Config) ->
     MsgWithNonce = emqx_nats_authn:maybe_add_nkey_nonce(MsgContent, ConnInfo1),
     ?assertEqual(Nonce, maps:get(nonce, MsgWithNonce)),
 
-    JWTAuthn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    JWTAuthn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     ConnInfo2 = emqx_nats_authn:ensure_nkey_nonce(ConnInfo0, JWTAuthn),
     ?assert(is_binary(maps:get(nkey_nonce, ConnInfo2))).
 
 t_authenticate_token_plain_success(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(
+    Authn = mk_authn_ctx(
         <<"nats-token">>,
         [],
         jwt_conf(),
@@ -84,7 +84,7 @@ t_authenticate_token_plain_success(_Config) ->
     ?assertEqual(undefined, maps:get(auth_expire_at, Result)).
 
 t_authenticate_token_bcrypt_success(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(token_bcrypt_hash(), [], undefined, false),
+    Authn = mk_authn_ctx(token_bcrypt_hash(), [], undefined, false),
     ConnParams = #{<<"auth_token">> => token_plain()},
     ClientInfo = #{clientid => <<"c1">>},
     {ok, Result} = emqx_nats_authn:authenticate(ConnParams, #{}, ClientInfo, Authn),
@@ -92,7 +92,7 @@ t_authenticate_token_bcrypt_success(_Config) ->
     ?assertEqual(bcrypt, maps:get(token_type, Result)).
 
 t_authenticate_token_priority_over_jwt(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(
+    Authn = mk_authn_ctx(
         token_plain(),
         [],
         jwt_conf(),
@@ -109,7 +109,7 @@ t_authenticate_token_priority_over_jwt(_Config) ->
     ).
 
 t_authenticate_token_fallback_to_jwt(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(
+    Authn = mk_authn_ctx(
         token_plain(),
         [],
         jwt_conf(),
@@ -130,8 +130,32 @@ t_authenticate_token_fallback_to_jwt(_Config) ->
     ?assertEqual(jwt, maps:get(auth_method, Result)),
     ?assertEqual(nkey_pub(), maps:get(username, Result)).
 
+t_authenticate_order_from_internal_authn(_Config) ->
+    Nonce = <<"nonce-order-authn">>,
+    JWT = build_test_jwt(#{}),
+    ConnParams = #{
+        <<"auth_token">> => <<"bad-token">>,
+        <<"jwt">> => JWT,
+        <<"sig">> => nkey_sig(Nonce)
+    },
+    TokenFirst = emqx_nats_authn:build_authn_ctx(
+        [token_method(token_plain()), jwt_method(jwt_conf())],
+        false
+    ),
+    ?assertEqual(
+        {error, {token, invalid_token}},
+        emqx_nats_authn:authenticate(ConnParams, #{nkey_nonce => Nonce}, #{}, TokenFirst)
+    ),
+    JWTFirst = emqx_nats_authn:build_authn_ctx(
+        [jwt_method(jwt_conf()), token_method(token_plain())],
+        false
+    ),
+    {ok, Result} = emqx_nats_authn:authenticate(ConnParams, #{nkey_nonce => Nonce}, #{}, JWTFirst),
+    ?assertEqual(jwt, maps:get(auth_method, Result)),
+    ?assertEqual(nkey_pub(), maps:get(username, Result)).
+
 t_authenticate_token_priority_over_nkey(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(token_plain(), [nkey_pub()], undefined, false),
+    Authn = mk_authn_ctx(token_plain(), [nkey_pub()], undefined, false),
     Nonce = <<"nonce-token-priority">>,
     ConnParams = #{
         <<"auth_token">> => <<"bad-token">>,
@@ -144,7 +168,7 @@ t_authenticate_token_priority_over_nkey(_Config) ->
     ).
 
 t_authenticate_token_fallback_to_nkey(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(token_plain(), [nkey_pub()], undefined, false),
+    Authn = mk_authn_ctx(token_plain(), [nkey_pub()], undefined, false),
     Nonce = <<"nonce-token-fallback">>,
     ConnParams = #{
         <<"nkey">> => nkey_pub(),
@@ -159,7 +183,7 @@ t_authenticate_token_fallback_to_nkey(_Config) ->
     ?assertEqual(nkey, maps:get(auth_method, Result)).
 
 t_authenticate_nkey_success(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
     Nonce = <<"nonce-1">>,
     ConnParams = #{
         <<"nkey">> => nkey_pub(),
@@ -178,7 +202,7 @@ t_authenticate_nkey_success(_Config) ->
     ?assertEqual(undefined, maps:get(auth_expire_at, Result)).
 
 t_authenticate_nkey_priority_over_jwt(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
     Nonce = <<"nonce-2">>,
     JWT = build_test_jwt(#{}),
     ConnParams = #{
@@ -192,7 +216,7 @@ t_authenticate_nkey_priority_over_jwt(_Config) ->
     ).
 
 t_authenticate_nkey_fallback_and_validation(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [nkey_pub()], jwt_conf(), false),
     JWT = build_test_jwt(#{}),
     ConnInfo = #{nkey_nonce => <<"nonce-3">>},
 
@@ -225,7 +249,7 @@ t_authenticate_nkey_fallback_and_validation(_Config) ->
 t_authenticate_jwt_time_validation(_Config) ->
     ExpiredJWT = build_test_jwt(#{<<"exp">> => now_seconds() - 10}),
     FutureNbfJWT = build_test_jwt(#{<<"nbf">> => now_seconds() + 3600}),
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
 
     ?assertEqual(
         {error, {jwt, jwt_expired}},
@@ -245,7 +269,7 @@ t_authenticate_jwt_verify_options(_Config) ->
     ExpiredJWT = build_test_jwt(#{<<"exp">> => now_seconds() - 10}),
     FutureNbfJWT = build_test_jwt(#{<<"nbf">> => now_seconds() + 3600}),
 
-    IgnoreExpAuthn = emqx_nats_authn:build_authn_ctx(
+    IgnoreExpAuthn = mk_authn_ctx(
         undefined,
         [],
         jwt_conf(#{verify_exp => false}),
@@ -263,7 +287,7 @@ t_authenticate_jwt_verify_options(_Config) ->
     ?assertEqual(jwt, maps:get(auth_method, ExpResult)),
     ?assertEqual(undefined, maps:get(auth_expire_at, ExpResult)),
 
-    IgnoreNbfAuthn = emqx_nats_authn:build_authn_ctx(
+    IgnoreNbfAuthn = mk_authn_ctx(
         undefined,
         [],
         jwt_conf(#{verify_nbf => false}),
@@ -281,7 +305,7 @@ t_authenticate_jwt_verify_options(_Config) ->
     ?assertEqual(jwt, maps:get(auth_method, NbfResult)).
 
 t_authenticate_jwt_signature_and_trust_chain_validation(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     ValidJWT = build_test_jwt(#{}),
     BadSigJWT = mutate_jwt_signature(ValidJWT),
     NoneAlgJWT = build_none_jwt(#{}),
@@ -295,7 +319,7 @@ t_authenticate_jwt_signature_and_trust_chain_validation(_Config) ->
         emqx_nats_authn:authenticate(#{<<"jwt">> => NoneAlgJWT}, #{}, #{}, Authn)
     ),
 
-    MissingAccountAuthn = emqx_nats_authn:build_authn_ctx(
+    MissingAccountAuthn = mk_authn_ctx(
         undefined,
         [],
         jwt_conf(#{resolver => #{type => memory, resolver_preload => []}}),
@@ -306,7 +330,7 @@ t_authenticate_jwt_signature_and_trust_chain_validation(_Config) ->
         emqx_nats_authn:authenticate(#{<<"jwt">> => ValidJWT}, #{}, #{}, MissingAccountAuthn)
     ),
 
-    UntrustedOperatorAuthn = emqx_nats_authn:build_authn_ctx(
+    UntrustedOperatorAuthn = mk_authn_ctx(
         undefined,
         [],
         jwt_conf(#{trusted_operators => [<<"OP_TEST">>]}),
@@ -334,7 +358,7 @@ t_authenticate_jwt_claim_projection(_Config) ->
         }
     },
     JWT = build_test_jwt(Claims),
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     {ok, Result} = emqx_nats_authn:authenticate(
         #{
             <<"jwt">> => JWT,
@@ -385,7 +409,7 @@ t_authenticate_jwt_claim_projection_prefers_nats_permissions(_Config) ->
         }
     },
     JWT = build_test_jwt(Claims),
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     {ok, Result} = emqx_nats_authn:authenticate(
         #{
             <<"jwt">> => JWT,
@@ -412,20 +436,20 @@ t_authenticate_jwt_claim_projection_prefers_nats_permissions(_Config) ->
     ).
 
 t_authenticate_jwt_missing_token_behavior(_Config) ->
-    JWTOnlyAuthn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    JWTOnlyAuthn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     ?assertEqual(
         {error, {jwt, jwt_required}},
         emqx_nats_authn:authenticate(#{}, #{}, #{}, JWTOnlyAuthn)
     ),
 
-    JWTWithGatewayAuthn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), true),
+    JWTWithGatewayAuthn = mk_authn_ctx(undefined, [], jwt_conf(), true),
     ?assertEqual(
         {continue, #{}},
         emqx_nats_authn:authenticate(#{}, #{}, #{}, JWTWithGatewayAuthn)
     ).
 
 t_authenticate_jwt_nonce_signature_validation(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     Nonce = <<"nonce-jwt-proof">>,
     JWT = build_test_jwt(#{}),
     ?assertEqual(
@@ -459,7 +483,7 @@ t_authenticate_jwt_nonce_signature_validation(_Config) ->
     ).
 
 t_authenticate_disabled_jwt_and_empty_authn(_Config) ->
-    JWTDisabledAuthn = emqx_nats_authn:build_authn_ctx(
+    JWTDisabledAuthn = mk_authn_ctx(
         undefined,
         [],
         jwt_conf(#{trusted_operators => []}),
@@ -484,20 +508,20 @@ t_authenticate_disabled_jwt_and_empty_authn(_Config) ->
         )
     ),
 
-    EmptyAuthn = emqx_nats_authn:build_authn_ctx(undefined, [], undefined, false),
+    EmptyAuthn = mk_authn_ctx(undefined, [], undefined, false),
     ?assertEqual(
         {continue, #{}},
         emqx_nats_authn:authenticate(#{}, #{}, #{}, EmptyAuthn)
     ).
 
 t_authenticate_required_errors_and_invalid_nkey(_Config) ->
-    TokenOnlyAuthn = emqx_nats_authn:build_authn_ctx(token_plain(), [], undefined, false),
+    TokenOnlyAuthn = mk_authn_ctx(token_plain(), [], undefined, false),
     ?assertEqual(
         {error, {token, token_required}},
         emqx_nats_authn:authenticate(#{}, #{}, #{}, TokenOnlyAuthn)
     ),
 
-    NKeyOnlyAuthn = emqx_nats_authn:build_authn_ctx(undefined, [nkey_pub()], undefined, false),
+    NKeyOnlyAuthn = mk_authn_ctx(undefined, [nkey_pub()], undefined, false),
     ?assertEqual(
         {error, {nkey, nkey_required}},
         emqx_nats_authn:authenticate(#{}, #{}, #{}, NKeyOnlyAuthn)
@@ -517,7 +541,7 @@ t_authenticate_required_errors_and_invalid_nkey(_Config) ->
     ).
 
 t_authenticate_jwt_decode_error_branches(_Config) ->
-    Authn = emqx_nats_authn:build_authn_ctx(undefined, [], jwt_conf(), false),
+    Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     Header = base64url_encode(emqx_utils_json:encode(#{alg => <<"none">>})),
     NonMapPayload = base64url_encode(<<"1">>),
     NonMapJWT = <<Header/binary, ".", NonMapPayload/binary, ".sig">>,
@@ -538,9 +562,145 @@ t_authn_internal_helper_branches(_Config) ->
     ?assert(emqx_nats_authn:is_bcrypt_token(<<"$2a$hash">>)),
     ?assert(emqx_nats_authn:is_bcrypt_token(<<"$2y$hash">>)),
 
+    DisabledTokenAuthn = emqx_nats_authn:build_authn_ctx([#{type => token}], false),
+    ?assertEqual(
+        {continue, #{}},
+        emqx_nats_authn:authenticate(#{}, #{}, #{}, DisabledTokenAuthn)
+    ),
+    DisabledNKeyAuthn = emqx_nats_authn:build_authn_ctx([#{type => nkey, nkeys => []}], false),
+    ?assertEqual(
+        {continue, #{}},
+        emqx_nats_authn:authenticate(#{}, #{}, #{}, DisabledNKeyAuthn)
+    ),
+    DisabledJWTAuthn = emqx_nats_authn:build_authn_ctx([#{type => jwt, enable => false}], false),
+    ?assertEqual(
+        {continue, #{}},
+        emqx_nats_authn:authenticate(#{}, #{}, #{}, DisabledJWTAuthn)
+    ),
+
+    ?assertEqual({error, invalid_jwt_account}, emqx_nats_authn:decode_jwt_account(<<"bad-jwt">>)),
+    ?assertEqual(
+        {error, invalid_jwt_account},
+        emqx_nats_authn:verify_jwt_account_token_alg(#{header => #{alg => <<"none">>}})
+    ),
+    ?assertEqual(
+        {error, invalid_jwt_account},
+        emqx_nats_authn:verify_jwt_account_subject(#{<<"sub">> => nkey_pub()}, other_user_nkey())
+    ),
+    ?assertEqual(
+        {error, invalid_jwt_account},
+        emqx_nats_authn:verify_jwt_account_subject(#{}, nkey_pub())
+    ),
+    ?assertEqual(
+        {error, invalid_jwt_account},
+        emqx_nats_authn:jwt_claim_account_issuer(#{})
+    ),
+
+    ?assertEqual(
+        {error, invalid_jwt_signature},
+        emqx_nats_authn:verify_jwt_token_signature(
+            #{
+                signing_input => <<"x">>,
+                signature => bad_signature
+            },
+            account_nkey()
+        )
+    ),
+    ?assertEqual(
+        {error, invalid_jwt_issuer},
+        emqx_nats_authn:verify_jwt_token_signature(
+            #{
+                signing_input => <<"x">>,
+                signature => <<"x">>
+            },
+            <<"BAD_NKEY">>
+        )
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_nats_authn:verify_jwt_user_issuer_allowed(
+            account_nkey(),
+            nkey_pub(),
+            #{
+                <<"nats">> => #{
+                    <<"signing_keys">> => [account_nkey()]
+                }
+            }
+        )
+    ),
+    ?assertEqual(
+        {error, jwt_untrusted_signing_key},
+        emqx_nats_authn:verify_jwt_user_issuer_allowed(
+            account_nkey(),
+            nkey_pub(),
+            #{
+                <<"nats">> => #{
+                    <<"signing_keys">> => []
+                }
+            }
+        )
+    ),
+
+    ?assertEqual({error, invalid_jwt_issuer}, emqx_nats_authn:jwt_claim_issuer(#{})),
+    ?assertEqual(
+        account_nkey(),
+        emqx_nats_authn:jwt_claim_issuer_account(
+            #{
+                <<"issuer_account">> => account_nkey()
+            },
+            nkey_pub()
+        )
+    ),
+    ?assertEqual({error, invalid_jwt_subject}, emqx_nats_authn:jwt_claim_sub(#{})),
+    ?assertMatch(
+        {error, _},
+        emqx_nats_authn:verify_jwt_connect_nkey(nkey_pub(), <<"BAD_NKEY">>)
+    ),
+
+    AccountsFromTopLevel = emqx_nats_authn:jwt_resolver_accounts(#{
+        resolver_preload => [
+            #{
+                pubkey => account_nkey(),
+                jwt => <<"jwt-account">>
+            }
+        ]
+    }),
+    ?assertEqual(<<"jwt-account">>, maps:get(account_nkey(), AccountsFromTopLevel)),
+    ?assertEqual(#{}, emqx_nats_authn:resolver_preload_entries([#{}], #{})),
+    ?assertEqual(
+        #{foo => bar},
+        emqx_nats_authn:resolver_preload_entries(invalid_preload, #{foo => bar})
+    ),
+    ?assertEqual(
+        error,
+        emqx_nats_authn:normalize_resolver_preload_entry(
+            #{
+                jwt => <<"jwt-account">>
+            }
+        )
+    ),
+    ?assertEqual(
+        error,
+        emqx_nats_authn:normalize_resolver_preload_entry(
+            #{
+                pubkey => account_nkey()
+            }
+        )
+    ),
+
+    ?assertEqual(undefined, emqx_nats_authn:normalize_jwt_config(#{enable => false})),
     ?assertEqual(undefined, emqx_nats_authn:normalize_jwt_config(#{<<"enable">> => false})),
-    ?assertEqual(undefined, emqx_nats_authn:normalize_jwt_config(42)),
+    ?assertEqual(#{enable => true}, emqx_nats_authn:normalize_jwt_config(#{enable => true})),
+    ?assertEqual([], emqx_nats_authn:normalize_authn_methods(not_a_list)),
+    ?assertEqual(false, emqx_nats_authn:normalize_authn_method(#{type => unsupported})),
+    ?assertEqual(token, emqx_nats_authn:normalize_method_type(<<"token">>)),
+    ?assertEqual(nkey, emqx_nats_authn:normalize_method_type(<<"nkey">>)),
+    ?assertEqual(jwt, emqx_nats_authn:normalize_method_type(<<"jwt">>)),
+    ?assertEqual(undefined, emqx_nats_authn:normalize_method_type(invalid)),
     ?assertEqual([], emqx_nats_authn:normalize_nkeys(<<"not-a-list">>)),
+    ?assertEqual([], emqx_nats_authn:normalize_nkey_list([<<>>])),
+    ?assertEqual([], emqx_nats_authn:normalize_nkey_list(<<"not-a-list">>)),
     ?assertEqual(undefined, emqx_nats_authn:normalize_token(<<>>)),
     ?assertEqual(#{}, emqx_nats_authn:normalize_map(not_a_map)),
 
@@ -575,6 +735,52 @@ t_authn_internal_helper_branches(_Config) ->
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
+
+mk_authn_ctx(Token, NKeys, JWT, GatewayAuthEnabled) ->
+    Methods =
+        maybe_token_method(Token) ++
+            maybe_nkey_method(NKeys) ++
+            maybe_jwt_method(JWT),
+    emqx_nats_authn:build_authn_ctx(Methods, GatewayAuthEnabled).
+
+maybe_token_method(Token0) ->
+    case normalize_test_token(Token0) of
+        undefined ->
+            [];
+        Token ->
+            [token_method(Token)]
+    end.
+
+maybe_nkey_method(NKeys) when is_list(NKeys), NKeys =/= [] ->
+    [#{type => nkey, nkeys => NKeys}];
+maybe_nkey_method(_NKeys) ->
+    [].
+
+maybe_jwt_method(undefined) ->
+    [];
+maybe_jwt_method(#{enable := false}) ->
+    [];
+maybe_jwt_method(#{<<"enable">> := false}) ->
+    [];
+maybe_jwt_method(JWTConf) when is_map(JWTConf) ->
+    [jwt_method(JWTConf)];
+maybe_jwt_method(_JWTConf) ->
+    [].
+
+token_method(Token) ->
+    #{type => token, token => normalize_test_token(Token)}.
+
+jwt_method(JWTConf) ->
+    maps:merge(#{type => jwt}, JWTConf).
+
+normalize_test_token(undefined) ->
+    undefined;
+normalize_test_token(<<>>) ->
+    undefined;
+normalize_test_token(Token) when is_binary(Token) ->
+    Token;
+normalize_test_token(Token) ->
+    emqx_utils_conv:bin(Token).
 
 jwt_conf() ->
     jwt_conf(#{}).

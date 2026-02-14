@@ -417,6 +417,10 @@ t_nkey_decode_public_invalid_prefix(_Config) ->
     Bad = replace_first_char(nkey_pub(), $A),
     ?assertEqual({error, invalid_nkey_prefix}, emqx_nats_nkey:decode_public(Bad)).
 
+t_nkey_decode_public_empty_nkey(_Config) ->
+    ?assertEqual({error, invalid_nkey_prefix}, emqx_nats_nkey:decode_public(<<>>)),
+    ?assertEqual({error, invalid_nkey_prefix}, emqx_nats_nkey:decode_public_any(<<>>)).
+
 t_nkey_decode_public_invalid_base32(_Config) ->
     ?assertEqual(
         {error, invalid_base32_char},
