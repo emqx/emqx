@@ -312,15 +312,7 @@ enrich_clientinfo(
         feedvar(Override, ConnParams, ConnInfo, ClientInfo0),
         ClientInfo0
     ),
-    {ok, _, ClientInfo2} = emqx_utils:pipeline(
-        [
-            %% FIXME: CALL After authentication successfully
-            fun fix_mountpoint/2
-        ],
-        ConnParams,
-        ClientInfo1
-    ),
-    {ok, Frame, Channel#channel{clientinfo = ClientInfo2}}.
+    {ok, Frame, Channel#channel{clientinfo = ClientInfo1}}.
 
 assign_clientid_to_conninfo(
     Packet,
@@ -395,15 +387,28 @@ auth_connect(
     } = ClientInfo,
     case maps:get(enable_authn, ClientInfo, true) of
         false ->
-            {ok, Channel};
+            auth_connect_with_gateway(
+                Ctx,
+                ConnParams,
+                ClientInfo,
+                Channel,
+                ClientId,
+                Username
+            );
         true ->
             Authn = nats_authn_ctx(),
             case emqx_nats_authn:authenticate(ConnParams, ConnInfo, ClientInfo, Authn) of
-                {ok, NClientInfo} ->
+                {ok, NClientInfo0} ->
+                    %% NOTE:
+                    %% Internal auth intentionally bypasses `emqx_gateway_ctx:authenticate/2`.
+                    %% This skips `client.authenticate`/`client.check_authn_complete` hooks
+                    %% as a known implementation trade-off for NATS internal auth.
+                    NClientInfo = normalize_mountpoint(ConnParams, NClientInfo0),
                     {ok, Channel#channel{clientinfo = NClientInfo}};
                 {continue, NClientInfo} ->
                     auth_connect_with_gateway(
                         Ctx,
+                        ConnParams,
                         NClientInfo,
                         Channel,
                         ClientId,
@@ -415,13 +420,22 @@ auth_connect(
             end
     end.
 
-auth_connect_with_gateway(Ctx, ClientInfo, Channel, ClientId, Username) ->
+auth_connect_with_gateway(Ctx, ConnParams, ClientInfo, Channel, ClientId, Username) ->
     case emqx_gateway_ctx:authenticate(Ctx, ClientInfo) of
-        {ok, NClientInfo} ->
+        {ok, NClientInfo0} ->
+            NClientInfo = normalize_mountpoint(ConnParams, NClientInfo0),
             {ok, Channel#channel{clientinfo = NClientInfo}};
         {error, Reason} ->
             log_auth_failed("client_login_failed", ClientId, Username, Reason),
             {error, Reason}
+    end.
+
+normalize_mountpoint(ConnParams, ClientInfo) ->
+    case fix_mountpoint(ConnParams, ClientInfo) of
+        ok ->
+            ClientInfo;
+        {ok, NClientInfo} ->
+            NClientInfo
     end.
 
 auth_failed_msg(token) ->

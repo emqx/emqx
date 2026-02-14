@@ -183,6 +183,61 @@ t_auth_expire_disconnect(Config) ->
     ?assertMatch(#nats_frame{operation = ?OP_ERR}, Err),
     emqx_nats_client:stop(Client).
 
+t_listener_authn_disabled_keeps_mountpoint_and_authn_hooks(Config) ->
+    ok = emqx_hooks:put(
+        'client.check_authn_complete',
+        {?MODULE, hook_authn_complete, [self()]},
+        0
+    ),
+    Username = <<"listener-auth-disabled-user">>,
+    update_nats_tcp_listener_authn_and_mountpoint(false, <<"${username}/">>),
+    ClientOpts = maps:merge(
+        tcp_client_opts(Config),
+        #{
+            verbose => true,
+            user => Username
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    [ClientInfo] = wait_for_client_by_username(Username),
+    ?assertEqual(<<Username/binary, "/">>, maps:get(mountpoint, ClientInfo)),
+    ?assertMatch(
+        #{is_anonymous := true, reason_code := success},
+        wait_for_authn_complete(Username)
+    ),
+    emqx_nats_client:stop(Client).
+
+t_internal_token_auth_recomputes_mountpoint(Config) ->
+    AuthToken = <<"internal-token">>,
+    update_nats_with_internal_authn_and_mountpoint(
+        [
+            #{
+                <<"type">> => <<"token">>,
+                <<"token">> => AuthToken
+            }
+        ],
+        <<"${username}/">>
+    ),
+    ClientOpts = maps:merge(
+        tcp_client_opts(Config),
+        #{
+            verbose => true,
+            user => <<"spoofed-user">>,
+            auth_token => AuthToken
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    recv_info_frame(Client),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    [ClientInfo] = wait_for_client_by_username(<<"token">>),
+    ?assertEqual(<<"token">>, maps:get(username, ClientInfo)),
+    ?assertEqual(<<"token/">>, maps:get(mountpoint, ClientInfo)),
+    emqx_nats_client:stop(Client).
+
 t_clean_authz_cache(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true, user => <<"cache_user">>}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
@@ -261,6 +316,10 @@ hook_subscribe_block(_ClientInfo, _Props, _Acc) ->
 hook_auth_expire(_Credential, _Acc, ExpireAt) ->
     {stop, {ok, #{is_superuser => false, expire_at => ExpireAt}}}.
 
+hook_authn_complete(Credential, Result, Parent) ->
+    Parent ! {client_check_authn_complete, maps:get(username, Credential, undefined), Result},
+    ok.
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
@@ -335,6 +394,21 @@ wait_for_chan_info(ClientId, Attempts) ->
             wait_for_chan_info(ClientId, Attempts - 1)
     end.
 
+wait_for_authn_complete(Username) ->
+    wait_for_authn_complete(Username, 10).
+
+wait_for_authn_complete(_Username, 0) ->
+    error(timeout_waiting_for_authn_complete);
+wait_for_authn_complete(Username, Attempts) ->
+    receive
+        {client_check_authn_complete, Username, Result} ->
+            Result;
+        {client_check_authn_complete, _OtherUsername, _Result} ->
+            wait_for_authn_complete(Username, Attempts)
+    after 1000 ->
+        wait_for_authn_complete(Username, Attempts - 1)
+    end.
+
 recv_err_frame(Client, Timeout) ->
     recv_err_frame(Client, Timeout, erlang:monotonic_time(millisecond)).
 
@@ -385,10 +459,37 @@ restore_nats_conf(Conf) ->
     _ = emqx_gateway_conf:update_gateway(nats, Conf),
     ok.
 
+update_nats_tcp_listener_authn_and_mountpoint(EnableAuthn, Mountpoint) ->
+    Conf = emqx:get_config([gateway, nats]),
+    Conf1 = emqx_utils_maps:deep_put([mountpoint], Conf, Mountpoint),
+    Conf2 = emqx_utils_maps:deep_put(
+        [listeners, tcp, default, enable_authn],
+        Conf1,
+        EnableAuthn
+    ),
+    ok =
+        case emqx_gateway:update(nats, Conf2) of
+            ok -> ok;
+            {ok, _} -> ok
+        end,
+    ok.
+
+update_nats_with_internal_authn_and_mountpoint(InternalAuthn, Mountpoint) ->
+    Conf = emqx:get_raw_config([gateway, nats]),
+    _ = emqx_gateway_conf:update_gateway(
+        nats,
+        Conf#{
+            <<"internal_authn">> => InternalAuthn,
+            <<"mountpoint">> => Mountpoint
+        }
+    ),
+    ok.
+
 cleanup_hooks() ->
     _ = emqx_hooks:del('client.connect', {?MODULE, hook_connect_error}),
     _ = emqx_hooks:del('client.subscribe', {?MODULE, hook_subscribe_block}),
     _ = emqx_hooks:del('client.authenticate', {?MODULE, hook_auth_expire}),
+    _ = emqx_hooks:del('client.check_authn_complete', {?MODULE, hook_authn_complete}),
     ok.
 
 %%--------------------------------------------------------------------
