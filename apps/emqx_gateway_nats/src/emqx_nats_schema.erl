@@ -237,7 +237,7 @@ desc(internal_authn_jwt) ->
 desc(authn_jwt) ->
     ?DESC(authn_jwt);
 desc(jwt_resolver_memory) ->
-    ?DESC(jwt_resolver);
+    ?DESC(jwt_resolver_memory);
 desc(jwt_resolver_preload_entry) ->
     ?DESC(jwt_resolver_preload_entry);
 desc(protocol) ->

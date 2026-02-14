@@ -238,6 +238,40 @@ t_internal_token_auth_recomputes_mountpoint(Config) ->
     ?assertEqual(<<"token/">>, maps:get(mountpoint, ClientInfo)),
     emqx_nats_client:stop(Client).
 
+t_internal_auth_continue_without_gateway_auth(Config) ->
+    disable_auth(),
+    update_nats_with_internal_authn_and_mountpoint(
+        [
+            #{
+                <<"type">> => <<"token">>,
+                <<"token">> => <<>>
+            }
+        ],
+        <<"${username}/">>
+    ),
+    Username = <<"internal-auth-continue-user">>,
+    ClientOpts = maps:merge(
+        tcp_client_opts(Config),
+        #{
+            verbose => true,
+            user => Username
+        }
+    ),
+    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
+    {ok, [InfoMsg]} = emqx_nats_client:receive_message(Client),
+    ?assertMatch(
+        #nats_frame{
+            operation = ?OP_INFO,
+            message = #{<<"auth_required">> := false}
+        },
+        InfoMsg
+    ),
+    ok = emqx_nats_client:connect(Client),
+    recv_ok_frame(Client),
+    [ClientInfo] = wait_for_client_by_username(Username),
+    ?assertEqual(<<Username/binary, "/">>, maps:get(mountpoint, ClientInfo)),
+    emqx_nats_client:stop(Client).
+
 t_clean_authz_cache(Config) ->
     ClientOpts = maps:merge(tcp_client_opts(Config), #{verbose => true, user => <<"cache_user">>}),
     {ok, Client} = emqx_nats_client:start_link(ClientOpts),
