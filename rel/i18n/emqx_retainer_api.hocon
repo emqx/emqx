@@ -25,7 +25,7 @@ get_config_api.label:
 list_retained_api.desc:
 """List retained messages."""
 list_retained_api.label:
-"""List retained messages."""
+"""List retained messages"""
 
 delete_messages.desc:
 """Delete all retained messages"""

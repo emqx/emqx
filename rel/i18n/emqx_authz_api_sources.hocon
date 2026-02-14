@@ -90,6 +90,31 @@ authorization_sources_order_updated.desc:
 authorization_sources_order_updated.label:
 """Authorization Sources Order Updated"""
 
+position_front_example.desc:
+"""Example payload to move an authorization source to the front."""
+position_front_example.label:
+"""Front Example"""
+
+position_rear_example.desc:
+"""Example payload to move an authorization source to the rear."""
+position_rear_example.label:
+"""Rear Example"""
+
+position_relative_before_example.desc:
+"""Example payload to move an authorization source before another source."""
+position_relative_before_example.label:
+"""Relative Before Example"""
+
+position_relative_after_example.desc:
+"""Example payload to move an authorization source after another source."""
+position_relative_after_example.label:
+"""Relative After Example"""
+
+metrics_example.desc:
+"""Example response showing authorization source metrics."""
+metrics_example.label:
+"""Metrics Example"""
+
 bad_request.desc:
 """Bad Request"""
 bad_request.label:
@@ -101,4 +126,3 @@ not_found.label:
 """Not Found"""
 
 }
-

@@ -60,6 +60,16 @@ external_registry_create.desc:
 external_registry_update.desc:
 """Update external schema registry"""
 
+example_avro.desc:
+"""Example Avro schema payload."""
+example_avro.label:
+"""Avro Example"""
+
+example_confluent.desc:
+"""Example external schema registry payload for Confluent."""
+example_confluent.label:
+"""Confluent Example"""
+
 schema_already_exists.desc:
 """Schema already exists."""
 schema_already_exists.label:
@@ -79,5 +89,27 @@ deleted.desc:
 """Deleted."""
 deleted.label:
 """Deleted"""
+
+external_registry_create.label:
+"""External Registry Create"""
+
+external_registry_delete.label:
+"""External Registry Delete"""
+
+external_registry_list.label:
+"""External Registry List"""
+
+external_registry_lookup.label:
+"""External Registry Lookup"""
+
+external_registry_update.label:
+"""External Registry Update"""
+
+protobuf_bundle_create.label:
+"""Protobuf Bundle Create"""
+
+protobuf_bundle_update.label:
+"""Protobuf Bundle Update"""
+
 
 }

@@ -35,4 +35,8 @@ get_status_api_format.desc:
 """Specify the response format, 'text' (default) to return the HTTP body in free text,
 or 'json' to return the HTTP body with a JSON object."""
 
+get_status_api_format.label:
+"""Get Status API Format"""
+
+
 }

@@ -20,6 +20,7 @@ defmodule EMQXBridgeGcpPubsub.MixProject do
   def application do
     [
       extra_applications: UMP.extra_applications(),
+      mod: {:emqx_bridge_gcp_pubsub_app, []},
       env: [
         emqx_action_info_modules: [
           :emqx_bridge_gcp_pubsub_producer_action_info,

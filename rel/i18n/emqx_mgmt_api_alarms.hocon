@@ -9,7 +9,7 @@ deactivate_at.desc:
 delete_alarms_api.desc:
 """Remove all historical alarms."""
 delete_alarms_api.label:
-"""Remove all historical alarms."""
+"""Remove all historical alarms"""
 
 delete_alarms_api_response204.desc:
 """Historical alarms have been cleared successfully."""
@@ -48,4 +48,8 @@ force_deactivate_alarm_api_response204.desc:
 
 force_deactivate_alarm_api_response400.desc:
 """The alarm does not exist or has already been deactivated."""
+force_deactivate_alarm_api.label:
+"""Force Deactivate Alarm API"""
+
+
 }

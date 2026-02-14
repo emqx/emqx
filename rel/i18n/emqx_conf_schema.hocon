@@ -930,4 +930,10 @@ Important:
 node_tls_stateless_tickets_seed.label:
 """TLS Stateless Tickets Seed"""
 
+
+log_throttling.desc:
+"""Log throttling configuration."""
+log_throttling.label:
+"""Log Throttling"""
+
 }

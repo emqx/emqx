@@ -17,7 +17,8 @@
     namespace/0,
     roots/0,
     fields/1,
-    desc/1
+    desc/1,
+    root_converter/1
 ]).
 
 %% `emqx_connector_examples' API
@@ -86,14 +87,16 @@ fields(connector_config) ->
                 }
             )},
         emqx_connector_schema:ehttpc_max_inactive_sc(),
+        emqx_bridge_gcp_pubsub_schema_lib:authentication_field(),
         {service_account_json,
             mk(
                 binary(),
                 #{
-                    required => true,
-                    validator => fun emqx_bridge_gcp_pubsub:service_account_json_validator/1,
+                    required => false,
+                    importance => ?IMPORTANCE_HIDDEN,
+                    validator => fun emqx_bridge_gcp_pubsub_schema_lib:service_account_json_validator/1,
                     sensitive => true,
-                    desc => ?DESC(emqx_bridge_gcp_pubsub, "service_account_json")
+                    desc => ?DESC(emqx_bridge_gcp_pubsub_schema_lib, "service_account_json")
                 }
             )}
     ] ++
@@ -102,6 +105,15 @@ fields(connector_config) ->
 desc("config_connector") ->
     ?DESC("config_connector");
 desc(_Name) ->
+    undefined.
+
+root_converter("config_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter("post_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter("put_connector") ->
+    fun emqx_bridge_gcp_pubsub_schema_lib:legacy_service_account_json_root_converter/2;
+root_converter(_) ->
     undefined.
 
 %%------------------------------------------------------------------------------

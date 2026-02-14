@@ -56,6 +56,9 @@ http_action_config(Overrides) ->
     emqx_bridge_v2_testlib:parse_and_check(action, <<"http">>, <<"x">>, InnerConfigMap).
 
 mqtt_connector_config(Overrides) ->
+    mqtt_connector_config(_Type = <<"mqtt">>, Overrides).
+
+mqtt_connector_config(Type, Overrides) ->
     Defaults = #{
         <<"enable">> => true,
         <<"description">> => <<"my connector">>,
@@ -68,7 +71,7 @@ mqtt_connector_config(Overrides) ->
             emqx_bridge_v2_testlib:common_connector_resource_opts()
     },
     InnerConfigMap = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    emqx_bridge_v2_testlib:parse_and_check_connector(<<"mqtt">>, <<"x">>, InnerConfigMap).
+    emqx_bridge_v2_testlib:parse_and_check_connector(Type, <<"x">>, InnerConfigMap).
 
 mqtt_action_config(Overrides) ->
     Defaults =

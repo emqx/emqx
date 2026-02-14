@@ -153,6 +153,7 @@
             emqx_bridge_cockroachdb,
             emqx_bridge_aws_timestream,
             emqx_bridge_emqx_tables,
+            emqx_bridge_azure_event_grid,
             emqx_auth_kerberos,
             emqx_cluster_link,
             emqx_ds_builtin_raft,

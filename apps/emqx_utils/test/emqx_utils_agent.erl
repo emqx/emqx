@@ -18,7 +18,7 @@
 -module(emqx_utils_agent).
 
 %% API
--export([start_link/1, get/1, get_and_update/2, update/2, set/2]).
+-export([start_link/1, stop/1, get/1, get_and_update/2, update/2, set/2]).
 
 %% `gen_server' API
 -export([init/1, handle_call/3]).
@@ -41,6 +41,10 @@
 -spec start_link(state()) -> gen_server:start_ret().
 start_link(InitState) ->
     gen_server:start_link(?MODULE, InitState, []).
+
+-spec stop(gen_server:server_ref()) -> ok.
+stop(ServerRef) ->
+    gen_server:stop(ServerRef).
 
 -spec get(gen_server:server_ref()) -> term().
 get(ServerRef) ->

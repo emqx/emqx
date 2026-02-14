@@ -83,4 +83,10 @@ emqx_bridge_s3tables_action_schema {
     """The size above which row groups are flushed.  The actual triggering of row group flushes uses estimates of the buffered data sizes, since the actual output may differ in size from the raw input data size."""
   }
 
+
+parameters.desc:
+"""Action-specific parameters."""
+parameters.label:
+"""Parameters"""
+
 }

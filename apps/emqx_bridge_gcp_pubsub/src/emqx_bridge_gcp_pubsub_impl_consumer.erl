@@ -31,6 +31,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_resource/include/emqx_resource.hrl").
+-include("emqx_bridge_gcp_pubsub.hrl").
 
 -type mqtt_config() :: #{
     mqtt_topic := emqx_types:topic(),
@@ -42,7 +43,7 @@
     max_retries := non_neg_integer(),
     pool_size := non_neg_integer(),
     resource_opts := #{request_ttl := infinity | emqx_schema:duration_ms(), any() => term()},
-    service_account_json := emqx_bridge_gcp_pubsub_client:service_account_json(),
+    authentication := emqx_bridge_gcp_pubsub_client:authentication_config(),
     any() => term()
 }.
 -type connector_state() :: #{
@@ -75,6 +76,8 @@
     "provided service account has the correct permissions configured."
 ).
 
+-define(SUP, emqx_bridge_gcp_pubsub_sup).
+
 %%-------------------------------------------------------------------------------------------------
 %% `emqx_resource' API
 %%-------------------------------------------------------------------------------------------------
@@ -90,21 +93,20 @@ query_mode(_Config) -> no_queries.
 -spec on_start(connector_resource_id(), connector_config()) ->
     {ok, connector_state()} | {error, term()}.
 on_start(ConnectorResId, Config0) ->
-    Config1 = maps:update_with(
-        service_account_json, fun(X) -> emqx_utils_json:decode(X) end, Config0
-    ),
     {Transport, HostPort} = emqx_bridge_gcp_pubsub_client:get_transport(pubsub),
     #{hostname := Host, port := Port} = emqx_schema:parse_server(HostPort, #{default_port => 443}),
-    Config = Config1#{
+    Config = Config0#{
         jwt_opts => #{
             %% fixed for pubsub; trailing slash is important.
             aud => <<"https://pubsub.googleapis.com/">>
         },
         transport => Transport,
         host => Host,
-        port => Port
+        port => Port,
+        supervisor => ?SUP,
+        token_table => ?TOKEN_TAB
     },
-    #{service_account_json := #{<<"project_id">> := ProjectId}} = Config,
+    ProjectId = emqx_bridge_gcp_pubsub_client:get_project_id(Config),
     case emqx_bridge_gcp_pubsub_client:start(ConnectorResId, Config) of
         {ok, Client} ->
             ConnectorState = #{
@@ -122,7 +124,7 @@ on_stop(ConnectorResId, ConnectorState) ->
     ?tp(gcp_pubsub_consumer_stop_enter, #{}),
     clear_unhealthy(ConnectorState),
     ok = stop_consumers(ConnectorState),
-    emqx_bridge_gcp_pubsub_client:stop(ConnectorResId).
+    emqx_bridge_gcp_pubsub_client:stop(ConnectorResId, ?SUP, ?TOKEN_TAB).
 
 -spec on_get_status(resource_id(), connector_state()) ->
     ?status_connected | ?status_connecting.

@@ -120,4 +120,10 @@ deleted_successfully.desc:
 deleted_successfully.label:
 """Deleted Successfully"""
 
+
+node_name.desc:
+"""Node name."""
+node_name.label:
+"""Node Name"""
+
 }

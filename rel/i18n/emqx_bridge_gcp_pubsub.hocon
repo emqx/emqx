@@ -96,13 +96,6 @@ kv_pair_value.desc:
 kv_pair_value.label:
 """Value"""
 
-service_account_json.desc:
-"""JSON containing the GCP Service Account credentials to be used with PubSub.
-When a GCP Service Account is created (as described in https://developers.google.com/identity/protocols/oauth2/service-account#creatinganaccount), you have the option of downloading the credentials in JSON form.  That's the file needed."""
-
-service_account_json.label:
-"""GCP Service Account Credentials"""
-
   consumer_opts {
     desc: "Local MQTT publish and GCP PubSub consumer configs."
     label: "GCP PubSub to MQTT"
@@ -145,5 +138,11 @@ consumer_mqtt_payload.label:
     desc: "GCP PubSub Consumer configuration."
     label: "GCP PubSub Consumer"
   }
+
+
+request_timeout.desc:
+"""Request timeout for calling GCP Pub/Sub."""
+request_timeout.label:
+"""Request Timeout"""
 
 }

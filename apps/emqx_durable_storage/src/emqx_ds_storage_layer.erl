@@ -109,6 +109,7 @@
         cache_size => non_neg_integer(),
         write_buffer_size => non_neg_integer(),
         max_open_files => non_neg_integer(),
+        allow_fallocate => boolean(),
         misc_options => [{atom(), _}]
     }.
 
@@ -841,11 +842,13 @@ rocksdb_open(Shard, Options) ->
     Defaults = #{
         cache_size => 8 * ?MB,
         max_open_files => 100,
+        allow_fallocate => false,
         misc_options => []
     },
     #{
         cache_size := CacheSize,
         max_open_files := MaxOpenFiles,
+        allow_fallocate := AllowFallocate,
         misc_options := MiscOptions
     } = maps:merge(Defaults, maps:get(rocksdb, Options, #{})),
     #db_group{
@@ -872,7 +875,8 @@ rocksdb_open(Shard, Options) ->
         {atomic_flush, true},
         {enable_write_thread_adaptive_yield, false},
         {cache_size, CacheSize},
-        {max_open_files, MaxOpenFiles}
+        {max_open_files, MaxOpenFiles},
+        {allow_fallocate, AllowFallocate}
         | MiscOptions
     ],
     DBDir = db_dir(Shard),
