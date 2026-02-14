@@ -5,7 +5,7 @@
 -module(emqx_nats_authn).
 
 -export([
-    build_authn_ctx/4,
+    build_authn_ctx/2,
     is_auth_required/2,
     ensure_nkey_nonce/2,
     maybe_add_nkey_nonce/2,
@@ -18,20 +18,29 @@
 -endif.
 
 -type authn_ctx() :: #{
-    token => undefined | binary(),
-    nkeys => [binary()],
-    jwt => undefined | map(),
+    methods => [authn_method_ctx()],
     gateway_auth_enabled => boolean()
 }.
 
 -type authn_method() :: token | nkey | jwt.
-
--spec build_authn_ctx(term(), term(), term(), boolean()) -> authn_ctx().
-build_authn_ctx(Token0, NKeys0, JWT0, GatewayAuthEnabled) ->
+-type authn_method_ctx() ::
     #{
-        token => normalize_token(Token0),
-        nkeys => normalize_nkeys(NKeys0),
-        jwt => normalize_jwt_config(JWT0),
+        type := token,
+        token := undefined | binary()
+    }
+    | #{
+        type := nkey,
+        nkeys := [binary()]
+    }
+    | #{
+        type := jwt,
+        config := undefined | map()
+    }.
+
+-spec build_authn_ctx(term(), boolean()) -> authn_ctx().
+build_authn_ctx(MethodConfs0, GatewayAuthEnabled) ->
+    #{
+        methods => normalize_authn_methods(MethodConfs0),
         gateway_auth_enabled => GatewayAuthEnabled =:= true
     }.
 
@@ -39,9 +48,7 @@ build_authn_ctx(Token0, NKeys0, JWT0, GatewayAuthEnabled) ->
 is_auth_required(#{enable_authn := false}, _Authn) ->
     false;
 is_auth_required(#{enable_authn := true}, Authn) ->
-    token_auth_enabled(Authn) orelse
-        nkey_auth_enabled(Authn) orelse
-        jwt_auth_enabled(Authn) orelse
+    has_enabled_internal_method(Authn) orelse
         gateway_auth_enabled(Authn).
 
 -spec ensure_nkey_nonce(map(), authn_ctx()) -> map().
@@ -68,85 +75,83 @@ maybe_add_nkey_nonce(MsgContent, ConnInfo) ->
 -spec authenticate(map(), map(), map(), authn_ctx()) ->
     {ok, map()} | {continue, map()} | {error, {authn_method(), term()}}.
 authenticate(ConnParams, ConnInfo, ClientInfo, Authn) ->
-    case maybe_token_auth(ConnParams, ClientInfo, Authn) of
+    do_authenticate(
+        maps:get(methods, Authn, []),
+        ConnParams,
+        ConnInfo,
+        ClientInfo,
+        Authn
+    ).
+
+do_authenticate([Method | Rest], ConnParams, ConnInfo, ClientInfo, Authn) ->
+    HasFallback = Rest =/= [] orelse gateway_auth_enabled(Authn),
+    case maybe_auth(Method, ConnParams, ConnInfo, ClientInfo, HasFallback) of
         {ok, NClientInfo} ->
             {ok, NClientInfo};
         {skip, NClientInfo} ->
-            authenticate_with_nkey(ConnParams, ConnInfo, NClientInfo, Authn);
+            do_authenticate(Rest, ConnParams, ConnInfo, NClientInfo, Authn);
         {error, Reason} ->
-            {error, {token, Reason}}
-    end.
+            {error, {method_type(Method), Reason}}
+    end;
+do_authenticate([], _ConnParams, _ConnInfo, ClientInfo, _Authn) ->
+    {continue, ClientInfo}.
 
-authenticate_with_nkey(ConnParams, ConnInfo, ClientInfo, Authn) ->
-    case maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo, Authn) of
-        {ok, NClientInfo} ->
-            {ok, NClientInfo};
-        {skip, NClientInfo} ->
-            authenticate_with_jwt(ConnParams, ConnInfo, NClientInfo, Authn);
-        {error, Reason} ->
-            {error, {nkey, Reason}}
-    end.
+maybe_auth(Method = #{type := token}, ConnParams, _ConnInfo, ClientInfo, HasFallback) ->
+    maybe_token_auth(ConnParams, ClientInfo, Method, HasFallback);
+maybe_auth(Method = #{type := nkey}, ConnParams, ConnInfo, ClientInfo, HasFallback) ->
+    maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo, Method, HasFallback);
+maybe_auth(Method = #{type := jwt}, ConnParams, ConnInfo, ClientInfo, HasFallback) ->
+    maybe_jwt_auth(ConnParams, ConnInfo, ClientInfo, Method, HasFallback).
 
-authenticate_with_jwt(ConnParams, ConnInfo, ClientInfo, Authn) ->
-    case maybe_jwt_auth(ConnParams, ConnInfo, ClientInfo, Authn) of
-        {ok, NClientInfo} ->
-            {ok, NClientInfo};
-        {skip, NClientInfo} ->
-            {continue, NClientInfo};
-        {error, Reason} ->
-            {error, {jwt, Reason}}
-    end.
-
-maybe_token_auth(ConnParams, ClientInfo, Authn) ->
-    case token_auth_enabled(Authn) of
+maybe_token_auth(ConnParams, ClientInfo, Method, HasFallback) ->
+    case token_method_enabled(Method) of
         false ->
             {skip, ClientInfo};
         true ->
             AuthToken = conn_param(ConnParams, <<"auth_token">>),
             case normalize_token(AuthToken) of
+                undefined when HasFallback ->
+                    {skip, ClientInfo};
                 undefined ->
-                    case
-                        nkey_auth_enabled(Authn) orelse jwt_auth_enabled(Authn) orelse
-                            gateway_auth_enabled(Authn)
-                    of
-                        true -> {skip, ClientInfo};
-                        false -> {error, token_required}
-                    end;
+                    {error, token_required};
                 Token ->
-                    token_authenticate(Token, ClientInfo, Authn)
+                    token_authenticate(Token, ClientInfo, Method)
             end
     end.
 
-maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo, Authn) ->
-    case nkey_auth_enabled(Authn) of
+maybe_nkey_auth(ConnParams, ConnInfo, ClientInfo, Method, HasFallback) ->
+    case nkey_method_enabled(Method) of
         false ->
             {skip, ClientInfo};
         true ->
             NKey = normalize_token(conn_param(ConnParams, <<"nkey">>)),
             Sig = conn_param(ConnParams, <<"sig">>),
-            maybe_nkey_auth_params(NKey, Sig, ConnInfo, ClientInfo, Authn)
+            maybe_nkey_auth_params(
+                NKey,
+                Sig,
+                ConnInfo,
+                ClientInfo,
+                maps:get(nkeys, Method, []),
+                HasFallback
+            )
     end.
 
-maybe_nkey_auth_params(undefined, _Sig, _ConnInfo, ClientInfo, Authn) ->
-    case
-        token_auth_enabled(Authn) orelse jwt_auth_enabled(Authn) orelse gateway_auth_enabled(Authn)
-    of
-        true -> {skip, ClientInfo};
-        false -> {error, nkey_required}
-    end;
-maybe_nkey_auth_params(_NKey, undefined, _ConnInfo, _ClientInfo, _Authn) ->
+maybe_nkey_auth_params(undefined, _Sig, _ConnInfo, ClientInfo, _AllowedNKeys, true) ->
+    {skip, ClientInfo};
+maybe_nkey_auth_params(undefined, _Sig, _ConnInfo, _ClientInfo, _AllowedNKeys, false) ->
+    {error, nkey_required};
+maybe_nkey_auth_params(_NKey, undefined, _ConnInfo, _ClientInfo, _AllowedNKeys, _HasFallback) ->
     {error, nkey_sig_required};
-maybe_nkey_auth_params(NKey, Sig, ConnInfo, ClientInfo, Authn) ->
+maybe_nkey_auth_params(NKey, Sig, ConnInfo, ClientInfo, AllowedNKeys, _HasFallback) ->
     case maps:get(nkey_nonce, ConnInfo, undefined) of
         undefined ->
             {error, nkey_nonce_unavailable};
         Nonce ->
-            nkey_authenticate(NKey, Sig, Nonce, ClientInfo, Authn)
+            nkey_authenticate(NKey, Sig, Nonce, ClientInfo, AllowedNKeys)
     end.
 
-nkey_authenticate(NKey, Sig, Nonce, ClientInfo, Authn) ->
-    Allowed = maps:get(nkeys, Authn, []),
-    case nkey_allowed(NKey, Allowed) of
+nkey_authenticate(NKey, Sig, Nonce, ClientInfo, AllowedNKeys) ->
+    case nkey_allowed(NKey, AllowedNKeys) of
         false ->
             {error, invalid_nkey};
         true ->
@@ -165,30 +170,30 @@ nkey_authenticate(NKey, Sig, Nonce, ClientInfo, Authn) ->
             end
     end.
 
-maybe_jwt_auth(ConnParams, ConnInfo, ClientInfo, Authn) ->
-    case jwt_auth_enabled(Authn) of
+maybe_jwt_auth(ConnParams, ConnInfo, ClientInfo, Method, HasFallback) ->
+    case jwt_method_enabled(Method) of
         false ->
             {skip, ClientInfo};
         true ->
             JWT = normalize_token(conn_param(ConnParams, <<"jwt">>)),
             case JWT of
+                undefined when HasFallback ->
+                    {skip, ClientInfo};
                 undefined ->
-                    case gateway_auth_enabled(Authn) of
-                        true -> {skip, ClientInfo};
-                        false -> {error, jwt_required}
-                    end;
+                    {error, jwt_required};
                 _ ->
                     NKey = normalize_token(conn_param(ConnParams, <<"nkey">>)),
                     Sig = normalize_token(conn_param(ConnParams, <<"sig">>)),
-                    jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Authn)
+                    jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Method)
             end
     end.
 
-jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Authn) ->
+jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Method) ->
     maybe
         {ok, JWTToken = #{claims := Claims}} ?= decode_jwt(JWT),
-        ok ?= verify_jwt_signature_chain(JWTToken, Authn),
-        Opts = jwt_auth_options(Authn),
+        JWTConfig = maps:get(config, Method, #{}),
+        ok ?= verify_jwt_signature_chain(JWTToken, JWTConfig),
+        Opts = jwt_auth_options(JWTConfig),
         ok ?= verify_jwt_claims_time(Claims, Opts),
         {ok, Username} ?= verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo),
         JWTPerms = extract_jwt_permissions(Claims),
@@ -286,8 +291,7 @@ base64url_decode(Value) ->
         _:_ -> {error, invalid_jwt_base64}
     end.
 
-verify_jwt_signature_chain(#{claims := Claims} = UserToken, Authn) ->
-    Config = maps:get(jwt, Authn, #{}),
+verify_jwt_signature_chain(#{claims := Claims} = UserToken, Config) ->
     maybe
         ok ?= ensure_jwt_trusted_operators(Config),
         ok ?= verify_jwt_token_alg(UserToken),
@@ -583,8 +587,8 @@ normalize_subject_list(Values) when is_list(Values) ->
 normalize_subject_list(_) ->
     [].
 
-token_authenticate(Token, ClientInfo, Authn) ->
-    case maps:get(token, Authn, undefined) of
+token_authenticate(Token, ClientInfo, Method) ->
+    case maps:get(token, Method, undefined) of
         undefined ->
             {error, token_disabled};
         ConfigToken ->
@@ -628,19 +632,14 @@ is_bcrypt_token(<<"$2y$", _/binary>>) ->
 is_bcrypt_token(_) ->
     false.
 
-normalize_jwt_config(undefined) ->
-    undefined;
 normalize_jwt_config(#{enable := false}) ->
     undefined;
 normalize_jwt_config(#{<<"enable">> := false}) ->
     undefined;
 normalize_jwt_config(Config) when is_map(Config) ->
-    Config;
-normalize_jwt_config(_) ->
-    undefined.
+    Config.
 
-jwt_auth_options(Authn) ->
-    Config = maps:get(jwt, Authn, #{}),
+jwt_auth_options(Config) ->
     #{
         verify_exp => to_bool(map_get_any(Config, [verify_exp, <<"verify_exp">>], true)),
         verify_nbf => to_bool(map_get_any(Config, [verify_nbf, <<"verify_nbf">>], true))
@@ -655,25 +654,90 @@ jwt_has_trusted_operators(Config) ->
 jwt_has_resolver_accounts(Config) ->
     maps:size(jwt_resolver_accounts(Config)) > 0.
 
-token_auth_enabled(Authn) ->
-    maps:get(token, Authn, undefined) =/= undefined.
+nonce_auth_enabled(Authn) ->
+    lists:any(fun nonce_method_enabled/1, maps:get(methods, Authn, [])).
 
-nkey_auth_enabled(Authn) ->
-    maps:get(nkeys, Authn, []) =/= [].
+gateway_auth_enabled(Authn) ->
+    maps:get(gateway_auth_enabled, Authn, false) =:= true.
 
-jwt_auth_enabled(Authn) ->
-    case maps:get(jwt, Authn, undefined) of
+has_enabled_internal_method(Authn) ->
+    lists:any(fun method_enabled/1, maps:get(methods, Authn, [])).
+
+method_enabled(Method = #{type := token}) ->
+    token_method_enabled(Method);
+method_enabled(Method = #{type := nkey}) ->
+    nkey_method_enabled(Method);
+method_enabled(Method = #{type := jwt}) ->
+    jwt_method_enabled(Method).
+
+nonce_method_enabled(Method = #{type := nkey}) ->
+    nkey_method_enabled(Method);
+nonce_method_enabled(Method = #{type := jwt}) ->
+    jwt_method_enabled(Method);
+nonce_method_enabled(_Method) ->
+    false.
+
+method_type(#{type := Type}) ->
+    Type.
+
+token_method_enabled(Method) ->
+    maps:get(token, Method, undefined) =/= undefined.
+
+nkey_method_enabled(Method) ->
+    maps:get(nkeys, Method, []) =/= [].
+
+jwt_method_enabled(Method) ->
+    case maps:get(config, Method, undefined) of
         undefined ->
             false;
         Config ->
             jwt_has_trusted_operators(Config) orelse jwt_has_resolver_accounts(Config)
     end.
 
-nonce_auth_enabled(Authn) ->
-    nkey_auth_enabled(Authn) orelse jwt_auth_enabled(Authn).
+normalize_authn_methods(MethodConfs) when is_list(MethodConfs) ->
+    lists:filtermap(fun normalize_authn_method/1, MethodConfs);
+normalize_authn_methods(_) ->
+    [].
 
-gateway_auth_enabled(Authn) ->
-    maps:get(gateway_auth_enabled, Authn, false) =:= true.
+normalize_authn_method(Method0) ->
+    Method = normalize_map(Method0),
+    case normalize_method_type(map_get_any(Method, [type, <<"type">>], undefined)) of
+        token ->
+            {true, #{
+                type => token,
+                token => normalize_token(map_get_any(Method, [token, <<"token">>], undefined))
+            }};
+        nkey ->
+            {true, #{
+                type => nkey,
+                nkeys => normalize_nkeys(map_get_any(Method, [nkeys, <<"nkeys">>], []))
+            }};
+        jwt ->
+            {true, #{
+                type => jwt,
+                config => normalize_jwt_method_config(Method)
+            }};
+        undefined ->
+            false
+    end.
+
+normalize_jwt_method_config(Method) ->
+    normalize_jwt_config(maps:remove(type, maps:remove(<<"type">>, Method))).
+
+normalize_method_type(token) ->
+    token;
+normalize_method_type(<<"token">>) ->
+    token;
+normalize_method_type(nkey) ->
+    nkey;
+normalize_method_type(<<"nkey">>) ->
+    nkey;
+normalize_method_type(jwt) ->
+    jwt;
+normalize_method_type(<<"jwt">>) ->
+    jwt;
+normalize_method_type(_) ->
+    undefined.
 
 nkey_allowed(NKey, Allowed) ->
     lists:member(emqx_nats_nkey:normalize(NKey), Allowed).

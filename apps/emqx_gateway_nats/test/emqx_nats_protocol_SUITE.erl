@@ -867,14 +867,21 @@ auth_cleanup(Config) ->
 token_auth_setup(Config, Type, Token) ->
     case target_from(Config) of
         emqx ->
-            PrevToken = emqx_conf:get([gateway, nats, authn_token], undefined),
+            Prev = emqx_conf:get_raw([gateway, nats, internal_authn], undefined),
+            Existing = normalize_internal_authn(Prev),
             TokenConf = ensure_token_type(Type, Token),
             _ = emqx_conf:update(
-                [gateway, nats, authn_token],
-                TokenConf,
+                [gateway, nats, internal_authn],
+                Existing ++
+                    [
+                        #{
+                            type => token,
+                            token => TokenConf
+                        }
+                    ],
                 #{override_to => cluster}
             ),
-            [{token_auth_prev, PrevToken} | Config];
+            [{token_auth_prev, Prev} | Config];
         nats ->
             Config
     end.
@@ -885,14 +892,14 @@ token_auth_cleanup(Config) ->
             case lists:keyfind(token_auth_prev, 1, Config) of
                 {token_auth_prev, undefined} ->
                     _ = emqx_conf:remove(
-                        [gateway, nats, authn_token],
+                        [gateway, nats, internal_authn],
                         #{override_to => cluster}
                     ),
                     ok;
-                {token_auth_prev, PrevToken} ->
+                {token_auth_prev, Prev} ->
                     _ = emqx_conf:update(
-                        [gateway, nats, authn_token],
-                        PrevToken,
+                        [gateway, nats, internal_authn],
+                        Prev,
                         #{override_to => cluster}
                     ),
                     ok;
@@ -907,10 +914,17 @@ token_auth_cleanup(Config) ->
 nkey_auth_setup(Config) ->
     case target_from(Config) of
         emqx ->
-            Prev = emqx_conf:get([gateway, nats, authn_nkeys], undefined),
+            Prev = emqx_conf:get_raw([gateway, nats, internal_authn], undefined),
+            Existing = normalize_internal_authn(Prev),
             _ = emqx_conf:update(
-                [gateway, nats, authn_nkeys],
-                [nkey_pub()],
+                [gateway, nats, internal_authn],
+                Existing ++
+                    [
+                        #{
+                            type => nkey,
+                            nkeys => [nkey_pub()]
+                        }
+                    ],
                 #{override_to => cluster}
             ),
             [{nkey_auth_prev, Prev} | Config];
@@ -924,13 +938,13 @@ nkey_auth_cleanup(Config) ->
             case lists:keyfind(nkey_auth_prev, 1, Config) of
                 {nkey_auth_prev, undefined} ->
                     _ = emqx_conf:remove(
-                        [gateway, nats, authn_nkeys],
+                        [gateway, nats, internal_authn],
                         #{override_to => cluster}
                     ),
                     ok;
                 {nkey_auth_prev, Prev} ->
                     _ = emqx_conf:update(
-                        [gateway, nats, authn_nkeys],
+                        [gateway, nats, internal_authn],
                         Prev,
                         #{override_to => cluster}
                     ),
@@ -949,9 +963,10 @@ jwt_auth_setup(Config) ->
 jwt_auth_setup(Config, Overrides) ->
     case target_from(Config) of
         emqx ->
-            Prev = emqx_conf:get_raw([gateway, nats, authn_jwt], undefined),
+            Prev = emqx_conf:get_raw([gateway, nats, internal_authn], undefined),
+            Existing = normalize_internal_authn(Prev),
             Fixture = jwt_fixture(),
-            JWTConf = maps:merge(
+            JWTConf0 = maps:merge(
                 #{
                     trusted_operators => [maps:get(operator_nkey, Fixture)],
                     resolver => #{
@@ -968,9 +983,10 @@ jwt_auth_setup(Config, Overrides) ->
                 },
                 Overrides
             ),
+            JWTConf = maps:merge(#{type => jwt}, JWTConf0),
             _ = emqx_conf:update(
-                [gateway, nats, authn_jwt],
-                JWTConf,
+                [gateway, nats, internal_authn],
+                Existing ++ [JWTConf],
                 #{override_to => cluster}
             ),
             [{jwt_auth_prev, Prev} | Config];
@@ -984,13 +1000,13 @@ jwt_auth_cleanup(Config) ->
             case lists:keyfind(jwt_auth_prev, 1, Config) of
                 {jwt_auth_prev, undefined} ->
                     _ = emqx_conf:remove(
-                        [gateway, nats, authn_jwt],
+                        [gateway, nats, internal_authn],
                         #{override_to => cluster}
                     ),
                     ok;
                 {jwt_auth_prev, Prev} ->
                     _ = emqx_conf:update(
-                        [gateway, nats, authn_jwt],
+                        [gateway, nats, internal_authn],
                         Prev,
                         #{override_to => cluster}
                     ),
@@ -1002,6 +1018,13 @@ jwt_auth_cleanup(Config) ->
             ok
     end,
     Config.
+
+normalize_internal_authn(undefined) ->
+    [];
+normalize_internal_authn(Methods) when is_list(Methods) ->
+    Methods;
+normalize_internal_authn(_) ->
+    [].
 
 build_test_jwt(Claims) ->
     Fixture = jwt_fixture(),

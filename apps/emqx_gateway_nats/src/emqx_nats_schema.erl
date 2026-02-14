@@ -42,35 +42,69 @@ fields(nats) ->
                 }
             )},
         {protocol, sc(ref(protocol))},
-        {authn_token,
+        {internal_authn,
             sc(
-                binary(),
+                hoconsc:array(hoconsc:union(fun internal_authn_union_member_selector/1)),
                 #{
                     required => false,
-                    desc => ?DESC(authn_token)
-                }
-            )},
-        {authn_nkeys,
-            sc(
-                hoconsc:array(binary()),
-                #{
-                    required => false,
-                    desc => ?DESC(authn_nkeys),
-                    default => []
-                }
-            )},
-        {authn_jwt,
-            sc(
-                ref(authn_jwt),
-                #{
-                    required => false,
-                    validator => fun validate_authn_jwt/1,
-                    desc => ?DESC(authn_jwt)
+                    default => [],
+                    validator => fun validate_internal_authn/1,
+                    desc => ?DESC(internal_authn)
                 }
             )},
         {mountpoint, emqx_gateway_schema:mountpoint()},
         {listeners, sc(ref(tcp_ws_listeners), #{})}
     ] ++ emqx_gateway_schema:gateway_common_options();
+fields(internal_authn_token) ->
+    [
+        {type,
+            sc(
+                hoconsc:enum([token]),
+                #{
+                    required => true,
+                    desc => ?DESC(type)
+                }
+            )},
+        {token,
+            sc(
+                binary(),
+                #{
+                    required => true,
+                    desc => ?DESC(authn_token)
+                }
+            )}
+    ];
+fields(internal_authn_nkey) ->
+    [
+        {type,
+            sc(
+                hoconsc:enum([nkey]),
+                #{
+                    required => true,
+                    desc => ?DESC(type)
+                }
+            )},
+        {nkeys,
+            sc(
+                hoconsc:array(binary()),
+                #{
+                    required => true,
+                    default => [],
+                    desc => ?DESC(authn_nkeys)
+                }
+            )}
+    ];
+fields(internal_authn_jwt) ->
+    [
+        {type,
+            sc(
+                hoconsc:enum([jwt]),
+                #{
+                    required => true,
+                    desc => ?DESC(type)
+                }
+            )}
+    ] ++ fields(authn_jwt);
 fields(authn_jwt) ->
     [
         {trusted_operators,
@@ -194,6 +228,12 @@ fields(websocket) ->
 
 desc(nats) ->
     ?DESC(nats);
+desc(internal_authn_token) ->
+    ?DESC(internal_authn_token);
+desc(internal_authn_nkey) ->
+    ?DESC(internal_authn_nkey);
+desc(internal_authn_jwt) ->
+    ?DESC(internal_authn_jwt);
 desc(authn_jwt) ->
     ?DESC(authn_jwt);
 desc(jwt_resolver_memory) ->
@@ -213,6 +253,31 @@ desc(websocket) ->
 
 %%--------------------------------------------------------------------
 %% internal functions
+
+validate_internal_authn(Methods) when is_list(Methods) ->
+    validate_internal_authn(Methods, 1);
+validate_internal_authn(_) ->
+    ok.
+
+validate_internal_authn([Method | Rest], Pos) ->
+    case map_get_any(Method, [type, <<"type">>], undefined) of
+        jwt ->
+            validate_internal_authn_jwt(Method, Rest, Pos);
+        <<"jwt">> ->
+            validate_internal_authn_jwt(Method, Rest, Pos);
+        _ ->
+            validate_internal_authn(Rest, Pos + 1)
+    end;
+validate_internal_authn([], _Pos) ->
+    ok.
+
+validate_internal_authn_jwt(Method, Rest, Pos) ->
+    case validate_authn_jwt(Method) of
+        ok ->
+            validate_internal_authn(Rest, Pos + 1);
+        {error, Reason} ->
+            {error, iolist_to_binary(io_lib:format("internal_authn[~B]: ~ts", [Pos, Reason]))}
+    end.
 
 validate_authn_jwt(Config) ->
     case {jwt_has_trusted_operators(Config), jwt_has_resolver_preload(Config)} of
@@ -252,6 +317,38 @@ ref(Mod, Field) ->
 
 map(Name, Type) ->
     hoconsc:map(Name, Type).
+
+internal_authn_union_member_selector(all_union_members) ->
+    [
+        ref(internal_authn_token),
+        ref(internal_authn_nkey),
+        ref(internal_authn_jwt)
+    ];
+internal_authn_union_member_selector({value, V0}) ->
+    V =
+        case is_map(V0) of
+            true -> emqx_utils_maps:binary_key_map(V0);
+            false -> V0
+        end,
+    case V of
+        #{<<"type">> := token} ->
+            [ref(internal_authn_token)];
+        #{<<"type">> := <<"token">>} ->
+            [ref(internal_authn_token)];
+        #{<<"type">> := nkey} ->
+            [ref(internal_authn_nkey)];
+        #{<<"type">> := <<"nkey">>} ->
+            [ref(internal_authn_nkey)];
+        #{<<"type">> := jwt} ->
+            [ref(internal_authn_jwt)];
+        #{<<"type">> := <<"jwt">>} ->
+            [ref(internal_authn_jwt)];
+        _ ->
+            throw(#{
+                field_name => internal_authn,
+                expected => "{type = token, ...} | {type = nkey, ...} | {type = jwt, ...}"
+            })
+    end.
 
 map_get_any(Map, [Key | More], Default) when is_map(Map) ->
     case maps:find(Key, Map) of
