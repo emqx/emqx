@@ -261,6 +261,10 @@ validate_internal_authn(_) ->
 
 validate_internal_authn([Method | Rest], Pos) ->
     case map_get_any(Method, [type, <<"type">>], undefined) of
+        nkey ->
+            validate_internal_authn_nkey(Method, Rest, Pos);
+        <<"nkey">> ->
+            validate_internal_authn_nkey(Method, Rest, Pos);
         jwt ->
             validate_internal_authn_jwt(Method, Rest, Pos);
         <<"jwt">> ->
@@ -271,24 +275,134 @@ validate_internal_authn([Method | Rest], Pos) ->
 validate_internal_authn([], _Pos) ->
     ok.
 
+validate_internal_authn_nkey(Method, Rest, Pos) ->
+    case validate_authn_nkeys(Method) of
+        ok ->
+            validate_internal_authn(Rest, Pos + 1);
+        {error, Reason} ->
+            {error, format_internal_authn_error(Pos, Reason)}
+    end.
+
 validate_internal_authn_jwt(Method, Rest, Pos) ->
     case validate_authn_jwt(Method) of
         ok ->
             validate_internal_authn(Rest, Pos + 1);
         {error, Reason} ->
-            {error, iolist_to_binary(io_lib:format("internal_authn[~B]: ~ts", [Pos, Reason]))}
+            {error, format_internal_authn_error(Pos, Reason)}
     end.
 
+format_internal_authn_error(Pos, Reason) ->
+    iolist_to_binary(io_lib:format("internal_authn[~B]: ~ts", [Pos, Reason])).
+
+validate_authn_nkeys(Config) ->
+    validate_nkey_list(
+        map_get_any(Config, [nkeys, <<"nkeys">>], []),
+        fun emqx_nats_nkey:decode_public/1,
+        fun(Index) ->
+            iolist_to_binary(
+                io_lib:format("field `nkeys[~B]` must be a valid user NKey", [Index])
+            )
+        end
+    ).
+
+validate_nkey_list(Values, DecodeFun, FormatError) when is_list(Values) ->
+    validate_nkey_list(Values, 1, DecodeFun, FormatError);
+validate_nkey_list(_Values, _DecodeFun, _FormatError) ->
+    ok.
+
+validate_nkey_list([Value | Rest], Index, DecodeFun, FormatError) ->
+    case DecodeFun(Value) of
+        {ok, _PubKey} ->
+            validate_nkey_list(Rest, Index + 1, DecodeFun, FormatError);
+        {error, _Reason} ->
+            {error, FormatError(Index)}
+    end;
+validate_nkey_list([], _Index, _DecodeFun, _FormatError) ->
+    ok.
+
+validate_nkey_with_prefix(Value, Prefix) ->
+    case emqx_nats_nkey:decode_public_any(Value) of
+        {ok, _PubKey} ->
+            case emqx_nats_nkey:normalize(Value) of
+                <<Prefix, _/binary>> ->
+                    {ok, Value};
+                _ ->
+                    {error, invalid_nkey_prefix}
+            end;
+        {error, _Reason} ->
+            {error, invalid_nkey_prefix}
+    end.
+
+validate_operator_nkey(Value) ->
+    validate_nkey_with_prefix(Value, $O).
+
+validate_account_nkey(Value) ->
+    validate_nkey_with_prefix(Value, $A).
+
+validate_resolver_preload_pubkeys(Values) when is_list(Values) ->
+    validate_resolver_preload_pubkeys(Values, 1);
+validate_resolver_preload_pubkeys(_Values) ->
+    ok.
+
+validate_resolver_preload_pubkeys([Entry | Rest], Index) ->
+    PubKey = map_get_any(Entry, [pubkey, <<"pubkey">>], undefined),
+    case validate_account_nkey(PubKey) of
+        {ok, _PubKey} ->
+            validate_resolver_preload_pubkeys(Rest, Index + 1);
+        {error, _Reason} ->
+            {error,
+                iolist_to_binary(
+                    io_lib:format(
+                        "field `resolver.resolver_preload[~B].pubkey` must be a valid account NKey",
+                        [Index]
+                    )
+                )}
+    end;
+validate_resolver_preload_pubkeys([], _Index) ->
+    ok.
+
 validate_authn_jwt(Config) ->
+    case validate_authn_jwt_required_fields(Config) of
+        ok ->
+            validate_authn_jwt_nkey_material(Config);
+        {error, _Reason} = Error ->
+            Error
+    end.
+
+validate_authn_jwt_required_fields(Config) ->
     case {jwt_has_trusted_operators(Config), jwt_has_resolver_preload(Config)} of
         {true, true} ->
             ok;
         {false, false} ->
-            ok;
+            {error, <<"fields `trusted_operators` and `resolver.resolver_preload` are required">>};
         {false, true} ->
             {error, <<"field `trusted_operators` is required">>};
         {true, false} ->
             {error, <<"field `resolver.resolver_preload` is required">>}
+    end.
+
+validate_authn_jwt_nkey_material(Config) ->
+    case
+        validate_nkey_list(
+            map_get_any(Config, [trusted_operators, <<"trusted_operators">>], []),
+            fun validate_operator_nkey/1,
+            fun(Index) ->
+                iolist_to_binary(
+                    io_lib:format(
+                        "field `trusted_operators[~B]` must be a valid operator NKey",
+                        [Index]
+                    )
+                )
+            end
+        )
+    of
+        ok ->
+            Resolver = map_get_any(Config, [resolver, <<"resolver">>], #{}),
+            validate_resolver_preload_pubkeys(
+                map_get_any(Resolver, [resolver_preload, <<"resolver_preload">>], [])
+            );
+        {error, _Reason} = Error ->
+            Error
     end.
 
 jwt_has_trusted_operators(Config) ->
