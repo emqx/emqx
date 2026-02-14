@@ -9,7 +9,7 @@
 
 -include("emqx_coap.hrl").
 -include("emqx_coap_test.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
@@ -55,7 +55,7 @@ t_channel_direct(_) ->
     ChannelRequired =
         emqx_coap_channel:init(ConnInfo, #{
             ctx => #{gwname => coap, cm => self()},
-            connection_required => true
+            connection_required => false
         }),
     _ = emqx_coap_channel:info(ctx, Channel0),
     {shutdown, bad_frame, _} = emqx_coap_channel:handle_frame_error(bad_frame, Channel0),
@@ -123,6 +123,47 @@ t_channel_frame_error_handling(_) ->
     ?assertMatch(#coap_message{method = {error, bad_option}}, ErrReply),
     ok.
 
+t_channel_block1_connection(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    Channel0 =
+        emqx_coap_channel:init(ConnInfo, #{
+            ctx => #{gwname => coap, cm => self()},
+            connection_required => false
+        }),
+    Msg0 = #coap_message{
+        type = con,
+        method = post,
+        id = 100,
+        token = <<"blk1">>,
+        payload = <<"part-a">>,
+        options = #{
+            uri_path => [<<"ps">>, <<"topic">>],
+            uri_query => #{},
+            block1 => {0, true, 16}
+        }
+    },
+    {ok, [{outgoing, [Continue]}], Channel1} = emqx_coap_channel:handle_in(Msg0, Channel0),
+    ?assertEqual({ok, continue}, Continue#coap_message.method),
+    Msg1 = Msg0#coap_message{
+        id = 101,
+        payload = <<"part-b">>,
+        options = (Msg0#coap_message.options)#{block1 => {1, false, 16}}
+    },
+    {ok, Replies, _Channel2} = emqx_coap_channel:handle_in(Msg1, Channel1),
+    ?assert(
+        lists:any(
+            fun
+                ({outgoing, [#coap_message{method = Method} | _]}) -> Method =/= {ok, continue};
+                (_) -> false
+            end,
+            Replies
+        )
+    ),
+    ok.
+
 t_channel_connection_hooks_error_direct(_) ->
     HookPoint = 'client.connect',
     HookAction = {emqx_coap_test_helpers, hook_return_error, [hook_failed]},
@@ -153,36 +194,63 @@ t_channel_connection_hooks_error_direct(_) ->
     ok.
 
 t_channel_connection_open_session_error_direct(_) ->
-    ok = meck:new(emqx_gateway_ctx, [passthrough]),
-    ok = meck:expect(
-        emqx_gateway_ctx,
-        open_session,
-        fun(_, _, _, _, _, _) ->
-            {error, session_error}
-        end
-    ),
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683},
+        conn_mod => emqx_gateway_conn
+    },
+    Channel0 =
+        emqx_coap_channel:init(ConnInfo, #{
+            ctx => #{gwname => coap, cm => self()},
+            connection_required => true
+        }),
+    ClientId = <<"client1">>,
+    Locker = list_to_atom("emqx_gateway_coap_locker"),
+    Parent = self(),
+    LockPid =
+        spawn_link(fun() ->
+            {true, _} = ekka_locker:acquire(Locker, ClientId, quorum),
+            Parent ! {locked, self()},
+            receive
+                release -> ok
+            after 30000 ->
+                ok
+            end,
+            _ = ekka_locker:release(Locker, ClientId, quorum),
+            Parent ! {released, self()}
+        end),
     try
-        ConnInfo = #{
-            peername => {{127, 0, 0, 1}, 9999},
-            sockname => {{127, 0, 0, 1}, 5683}
-        },
-        Channel0 =
-            emqx_coap_channel:init(ConnInfo, #{
-                ctx => #{gwname => coap, cm => self()},
-                connection_required => true
-            }),
+        receive
+            {locked, LockPid} -> ok
+        after 1000 ->
+            ?assert(false)
+        end,
         ConnReq = #coap_message{
             type = con,
             method = post,
             id = 8,
             options = #{
                 uri_path => [<<"mqtt">>, <<"connection">>],
-                uri_query => #{<<"clientid">> => <<"client1">>}
+                uri_query => #{<<"clientid">> => ClientId}
             }
         },
-        {ok, [{outgoing, [_]}], _} = emqx_coap_channel:handle_in(ConnReq, Channel0)
+        {ok, Replies, _} = emqx_coap_channel:handle_in(ConnReq, Channel0),
+        ?assert(
+            lists:any(
+                fun
+                    ({outgoing, [#coap_message{method = {error, bad_request}} | _]}) -> true;
+                    (_) -> false
+                end,
+                Replies
+            )
+        )
     after
-        ok = meck:unload(emqx_gateway_ctx)
+        LockPid ! release,
+        receive
+            {released, LockPid} -> ok
+        after 1000 ->
+            ok
+        end
     end,
     ok.
 
@@ -265,3 +333,180 @@ t_channel_connected_invalid_queries(_) ->
         CloseReq, Channel1#channel{connection_required = false}
     ),
     ok.
+
+t_channel_block2_followup(_) ->
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
+    Channel1 = Channel0#channel{
+        conn_state = connected,
+        clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
+    },
+    Req0 = #coap_message{
+        type = con,
+        method = post,
+        id = 500,
+        token = <<"b2tok">>,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client2">>}
+        }
+    },
+    {ok, [{outgoing, [Reply0]}], Channel2} = emqx_coap_channel:handle_in(Req0, Channel1),
+    ?assertEqual({0, true, 16}, emqx_coap_message:get_option(block2, Reply0, undefined)),
+
+    Req1 = Req0#coap_message{
+        id = 501,
+        options = (Req0#coap_message.options)#{block2 => {1, false, 16}}
+    },
+    {ok, [{outgoing, [Reply1]}], Channel3} = emqx_coap_channel:handle_in(Req1, Channel2),
+    ?assertEqual({1, true, 16}, emqx_coap_message:get_option(block2, Reply1, undefined)),
+
+    Req2 = Req0#coap_message{
+        id = 502,
+        options = (Req0#coap_message.options)#{block2 => {2, false, 16}}
+    },
+    {ok, [{outgoing, [Reply2]}], _Channel4} = emqx_coap_channel:handle_in(Req2, Channel3),
+    ?assertEqual({2, false, 16}, emqx_coap_message:get_option(block2, Reply2, undefined)),
+    ok.
+
+t_channel_query_value_normalization(_) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    Channel0 = emqx_coap_channel:init(
+        ConnInfo,
+        #{ctx => #{gwname => coap, cm => self()}, connection_required => true}
+    ),
+    Channel1 = Channel0#channel{
+        connection_required = true,
+        conn_state = connected,
+        token = <<"tok">>,
+        clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
+    },
+    Base = #coap_message{
+        type = con, method = get, options = #{uri_path => [<<"ps">>, <<"topic">>]}
+    },
+
+    ReqMissing = Base#coap_message{
+        id = 600,
+        options = #{uri_path => [<<"ps">>, <<"topic">>], uri_query => #{<<"token">> => <<"tok">>}}
+    },
+    {ok, _Replies1, _} = emqx_coap_channel:handle_in(ReqMissing, Channel1),
+
+    ReqList = Base#coap_message{
+        id = 601,
+        options = #{
+            uri_path => [<<"ps">>, <<"topic">>],
+            uri_query => #{<<"token">> => "tok", <<"clientid">> => "client1"}
+        }
+    },
+    {ok, _Replies2, _} = emqx_coap_channel:handle_in(ReqList, Channel1),
+
+    ReqInt = Base#coap_message{
+        id = 602,
+        options = #{
+            uri_path => [<<"ps">>, <<"topic">>],
+            uri_query => #{<<"token">> => 123, <<"clientid">> => 456}
+        }
+    },
+    {ok, _Replies3, _} = emqx_coap_channel:handle_in(ReqInt, Channel1),
+
+    ReqOther = Base#coap_message{
+        id = 603,
+        options = #{
+            uri_path => [<<"ps">>, <<"topic">>],
+            uri_query => #{<<"token">> => 1.2, <<"clientid">> => 3.4}
+        }
+    },
+    {ok, _Replies4, _} = emqx_coap_channel:handle_in(ReqOther, Channel1),
+    ok.
+
+t_channel_blockwise_followup_error(_) ->
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
+    Channel1 = Channel0#channel{
+        conn_state = connected,
+        clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
+    },
+    Req0 = #coap_message{
+        type = con,
+        method = post,
+        id = 700,
+        token = <<"f1">>,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client2">>}
+        }
+    },
+    {ok, [{outgoing, [Reply0]}], Channel2} = emqx_coap_channel:handle_in(Req0, Channel1),
+    ?assertMatch({0, true, 16}, emqx_coap_message:get_option(block2, Reply0, undefined)),
+    FollowBad = Req0#coap_message{
+        id = 701,
+        options = (Req0#coap_message.options)#{block2 => {1, false, 32}}
+    },
+    {ok, [{outgoing, [ReplyErr]}], _Channel3} = emqx_coap_channel:handle_in(FollowBad, Channel2),
+    ?assertEqual({error, bad_option}, ReplyErr#coap_message.method).
+
+t_channel_blockwise_server_in_error(_) ->
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
+    ReqBad = #coap_message{
+        type = con,
+        method = post,
+        id = 710,
+        token = <<"b1">>,
+        payload = <<"x">>,
+        options = #{uri_path => [<<"ps">>, <<"topic">>], block1 => {1, false, 16}}
+    },
+    {ok, [{outgoing, [Reply]}], _Channel1} = emqx_coap_channel:handle_in(ReqBad, Channel0),
+    ?assertEqual({error, request_entity_incomplete}, Reply#coap_message.method).
+
+t_channel_block2_reply_error(_) ->
+    Channel0 = new_block2_channel(#{max_block_size => 16}),
+    Channel1 = Channel0#channel{
+        conn_state = connected,
+        clientinfo = (Channel0#channel.clientinfo)#{clientid => <<"client1">>}
+    },
+    Req = #coap_message{
+        type = con,
+        method = post,
+        id = 720,
+        token = <<"br">>,
+        options = #{
+            uri_path => [<<"mqtt">>, <<"connection">>],
+            uri_query => #{<<"clientid">> => <<"client2">>},
+            block2 => {5, false, 16}
+        }
+    },
+    {ok, [{outgoing, [Reply]}], _Channel2} = emqx_coap_channel:handle_in(Req, Channel1),
+    ?assertEqual({error, bad_option}, Reply#coap_message.method).
+
+new_block2_channel(Opts) ->
+    ConnInfo = #{
+        peername => {{127, 0, 0, 1}, 9999},
+        sockname => {{127, 0, 0, 1}, 5683}
+    },
+    Channel0 =
+        emqx_coap_channel:init(ConnInfo, #{
+            ctx => #{gwname => coap, cm => self()},
+            connection_required => false
+        }),
+    BW = emqx_coap_blockwise:new(
+        maps:merge(
+            #{
+                enable => true,
+                max_block_size => 16,
+                max_body_size => 4 * 1024 * 1024,
+                exchange_lifetime => 247000
+            },
+            Opts
+        )
+    ),
+    Channel0#channel{connection_required = false, blockwise = BW}.
+
+ps_get_request(Id, Token, ExtraOpts) ->
+    #coap_message{
+        type = con,
+        method = get,
+        id = Id,
+        token = Token,
+        options = maps:merge(#{uri_path => [<<"ps">>, <<"topic">>], uri_query => #{}}, ExtraOpts)
+    }.

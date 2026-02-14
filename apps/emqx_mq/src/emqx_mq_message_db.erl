@@ -85,17 +85,39 @@ open() ->
     Config = maps:merge(emqx_ds_schema:db_config_mq_messages(), #{
         storage => {emqx_ds_storage_skipstream_lts_v2, ?MQ_MESSAGE_DB_LTS_SETTINGS}
     }),
-    maybe
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_LASTVALUE_DB, Config),
-        ok ?= emqx_ds:open_db(?MQ_MESSAGE_REGULAR_DB, Config)
-    else
-        _ -> error(failed_to_open_mq_databases)
+    ok = open_db(?MQ_MESSAGE_LASTVALUE_DB, Config),
+    ok = open_db(?MQ_MESSAGE_REGULAR_DB, Config).
+
+open_db(DB, Config) ->
+    case emqx_ds:open_db(DB, Config) of
+        ok ->
+            ok;
+        {error, Reason} ->
+            error({failed_to_open_mq_database, DB, Reason})
     end.
 
--spec close() -> ok.
+-spec close() -> ok | {error, term()}.
 close() ->
-    ok = emqx_ds:close_db(?MQ_MESSAGE_LASTVALUE_DB),
-    ok = emqx_ds:close_db(?MQ_MESSAGE_REGULAR_DB).
+    LastValueErrors =
+        case emqx_ds:close_db(?MQ_MESSAGE_LASTVALUE_DB) of
+            ok ->
+                [];
+            LVError ->
+                [{?MQ_MESSAGE_LASTVALUE_DB, LVError}]
+        end,
+    RegularErrors =
+        case emqx_ds:close_db(?MQ_MESSAGE_REGULAR_DB) of
+            ok ->
+                [];
+            RegularError ->
+                [{?MQ_MESSAGE_REGULAR_DB, RegularError}]
+        end,
+    case LastValueErrors ++ RegularErrors of
+        [] ->
+            ok;
+        Errors ->
+            {error, Errors}
+    end.
 
 -spec wait_readiness(timeout()) -> ok | timeout.
 wait_readiness(Timeout) ->
@@ -240,7 +262,7 @@ insert(#{is_lastvalue := false} = MQHandle, false = _IsLimited, Message) ->
             end
     end.
 
--spec drop(emqx_mq_types:mq_handle()) -> ok | {error, term()}.
+-spec drop(emqx_mq_types:mq_handle() | emqx_mq_types:mq()) -> ok | {error, term()}.
 drop(MQHandle) ->
     DB = db(MQHandle),
     delete(DB, delete_topics(DB, MQHandle)).

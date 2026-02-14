@@ -109,14 +109,15 @@ init_per_testcase(TestCase, TCConfig) ->
     SourceConfig = source_config(#{
         <<"connector">> => ConnectorName
     }),
-    Client = emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(#{
+    ClientOpts = #{
         host => get_config(host, TCConfig, <<"rabbitmq">>),
         port => get_config(port, TCConfig, 5672),
         use_tls => get_config(enable_tls, TCConfig, false),
         exchange => ?EXCHANGE,
         queue => ?QUEUE,
         routing_key => ?ROUTING_KEY
-    }),
+    },
+    emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts),
     snabbkaffe:start_trace(),
     [
         {bridge_kind, source},
@@ -126,14 +127,14 @@ init_per_testcase(TestCase, TCConfig) ->
         {source_type, ?SOURCE_TYPE},
         {source_name, SourceName},
         {source_config, SourceConfig},
-        {client, Client}
+        {client_opts, ClientOpts}
         | TCConfig
     ].
 
 end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
-    Client = get_config(client, TCConfig),
-    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(Client),
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(ClientOpts),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
@@ -168,8 +169,8 @@ get_tc_prop(TestCase, Key, Default) ->
     end.
 
 receive_message(TCConfig) ->
-    Client = get_config(client, TCConfig),
-    emqx_bridge_rabbitmq_testlib:receive_message(Client).
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:receive_message(ClientOpts).
 
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
@@ -213,8 +214,8 @@ unique_payload() ->
     integer_to_binary(erlang:unique_integer()).
 
 publish_message(Payload, TCConfig) ->
-    Client = get_config(client, TCConfig),
-    emqx_bridge_rabbitmq_testlib:publish_message(Payload, Client).
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:publish_message(Payload, ClientOpts).
 
 %%------------------------------------------------------------------------------
 %% Test cases

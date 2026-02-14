@@ -37,6 +37,7 @@ Host MUST call `emqx_ds:suback` function when it's done processing the batch.
 -include("emqx_ds.hrl").
 -include("emqx_ds_client_internals.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_utils/include/emqx_record_to_map.hrl").
 
 -ifdef(TEST).
 -compile(nowarn_export_all).

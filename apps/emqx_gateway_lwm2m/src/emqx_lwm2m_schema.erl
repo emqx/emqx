@@ -63,18 +63,17 @@ fields(lwm2m) ->
         %% TODO: Support config resource path
         {auto_observe,
             sc(
-                boolean(),
+                hoconsc:union([boolean(), binary(), hoconsc:array(binary())]),
                 #{
                     default => false,
                     desc => ?DESC(lwm2m_auto_observe)
                 }
             )},
-        %% FIXME: not working now
         {update_msg_publish_condition,
             sc(
                 hoconsc:enum([always, contains_object_list]),
                 #{
-                    default => contains_object_list,
+                    default => always,
                     desc => ?DESC(lwm2m_update_msg_publish_condition)
                 }
             )},
@@ -86,9 +85,45 @@ fields(lwm2m) ->
                     desc => ?DESC(lwm2m_translators)
                 }
             )},
+        {coap_max_block_size,
+            sc(
+                emqx_coap_schema:block_size(),
+                #{
+                    default => 1024,
+                    desc => ?DESC(lwm2m_coap_max_block_size)
+                }
+            )},
+        {blockwise,
+            sc(
+                ref(lwm2m_blockwise),
+                #{desc => ?DESC(lwm2m_blockwise)}
+            )},
         {mountpoint, emqx_gateway_schema:mountpoint("lwm2m/${endpoint_name}/")},
         {listeners, sc(ref(emqx_gateway_schema, udp_listeners), #{desc => ?DESC(udp_listeners)})}
     ] ++ emqx_gateway_schema:gateway_common_options();
+fields(lwm2m_blockwise) ->
+    [
+        {enable,
+            sc(
+                boolean(),
+                #{default => true, desc => ?DESC(lwm2m_blockwise_enable)}
+            )},
+        {max_block_size,
+            sc(
+                emqx_coap_schema:block_size(),
+                #{default => 1024, desc => ?DESC(lwm2m_blockwise_max_block_size)}
+            )},
+        {max_body_size,
+            sc(
+                emqx_schema:bytesize(),
+                #{default => <<"4MB">>, desc => ?DESC(lwm2m_blockwise_max_body_size)}
+            )},
+        {exchange_lifetime,
+            sc(
+                emqx_schema:timeout_duration_ms(),
+                #{default => <<"247s">>, desc => ?DESC(lwm2m_blockwise_exchange_lifetime)}
+            )}
+    ];
 fields(lwm2m_translators) ->
     [
         {command,
@@ -154,6 +189,8 @@ fields(translator) ->
 
 desc(lwm2m) ->
     "The LwM2M protocol gateway.";
+desc(lwm2m_blockwise) ->
+    "Block-wise transfer settings for the LwM2M gateway.";
 desc(lwm2m_translators) ->
     "MQTT topics that correspond to LwM2M events.";
 desc(translator) ->

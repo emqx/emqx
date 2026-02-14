@@ -44,6 +44,11 @@ init_per_testcase(TCName, Config) ->
         #{work_dir => emqx_cth_suite:work_dir(TCName, Config)}
     ),
     ok = snabbkaffe:start_trace(),
+    %% Wait for the cluster to stabilize. TODO: this should be avoided
+    %% by making `emqx_ds:wait_db' taking more readiness conditions
+    %% into account, and by better error propagation, in particular
+    %% between DS and MQTT publisher client.
+    ct:sleep(5_000),
     [{nodes, Nodes} | Config].
 
 end_per_testcase(_TCName, Config) ->
@@ -56,20 +61,25 @@ t_cluster_smoke(Config) ->
     [PubNode, Sub0Node, Sub1Node] = _Nodes = ?config(nodes, Config),
 
     %% Create Message Queue and make sure it is available on all nodes
-    _MQ = erpc:call(PubNode, emqx_mq_test_utils, create_mq, [
-        #{topic_filter => <<"q/1">>, is_lastvalue => false, dispatch_strategy => round_robin}
+    _MQ = erpc:call(PubNode, emqx_mq_test_utils, ensure_mq_created, [
+        #{
+            name => <<"cluster_smoke">>,
+            topic_filter => <<"q/1">>,
+            is_lastvalue => false,
+            dispatch_strategy => round_robin
+        }
     ]),
     ?retry(
         5,
         100,
         begin
             ?assertMatch(
-                {ok, #{topic_filter := <<"q/1">>}},
-                erpc:call(Sub0Node, emqx_mq_registry, find, [<<"q/1">>])
+                {ok, #{name := <<"cluster_smoke">>}},
+                erpc:call(Sub0Node, emqx_mq_registry, find, [<<"cluster_smoke">>])
             ),
             ?assertMatch(
-                {ok, #{topic_filter := <<"q/1">>}},
-                erpc:call(Sub1Node, emqx_mq_registry, find, [<<"q/1">>])
+                {ok, #{name := <<"cluster_smoke">>}},
+                erpc:call(Sub1Node, emqx_mq_registry, find, [<<"cluster_smoke">>])
             )
         end
     ),
@@ -77,8 +87,8 @@ t_cluster_smoke(Config) ->
     %% Create subscribers and subscribe to the queue
     SubClient0 = emqx_mq_test_utils:emqtt_connect([{port, ?SUB0_PORT}]),
     SubClient1 = emqx_mq_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
-    ok = emqx_mq_test_utils:emqtt_sub_mq(SubClient0, <<"q/1">>),
-    ok = emqx_mq_test_utils:emqtt_sub_mq(SubClient1, <<"q/1">>),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(SubClient0, <<"cluster_smoke">>),
+    ok = emqx_mq_test_utils:emqtt_sub_mq(SubClient1, <<"cluster_smoke">>),
 
     %% Publish 100 messages to the queue
     PubClient = emqx_mq_test_utils:emqtt_connect([{port, ?PUB_PORT}]),
@@ -113,8 +123,9 @@ t_ping_consumer(Config) ->
     [PubNode, Sub0Node, Sub1Node] = Nodes = ?config(nodes, Config),
 
     %% Create a non-lastvalue Queue
-    erpc:call(PubNode, emqx_mq_test_utils, create_mq, [
+    erpc:call(PubNode, emqx_mq_test_utils, ensure_mq_created, [
         #{
+            name => <<"ping_consumer">>,
             topic_filter => <<"t/#">>,
             ping_interval => 500
         }
@@ -125,11 +136,11 @@ t_ping_consumer(Config) ->
         begin
             ?assertMatch(
                 {ok, #{topic_filter := <<"t/#">>}},
-                erpc:call(Sub0Node, emqx_mq_registry, find, [<<"t/#">>])
+                erpc:call(Sub0Node, emqx_mq_registry, find, [<<"ping_consumer">>])
             ),
             ?assertMatch(
                 {ok, #{topic_filter := <<"t/#">>}},
-                erpc:call(Sub1Node, emqx_mq_registry, find, [<<"t/#">>])
+                erpc:call(Sub1Node, emqx_mq_registry, find, [<<"ping_consumer">>])
             )
         end
     ),
@@ -138,8 +149,8 @@ t_ping_consumer(Config) ->
     PubClient = emqx_mq_test_utils:emqtt_connect([{port, ?PUB_PORT}]),
     CSub0 = emqx_mq_test_utils:emqtt_connect([{port, ?SUB0_PORT}]),
     CSub1 = emqx_mq_test_utils:emqtt_connect([{port, ?SUB1_PORT}]),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"t/#">>),
-    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"t/#">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub0, <<"ping_consumer">>),
+    emqx_mq_test_utils:emqtt_sub_mq(CSub1, <<"ping_consumer">>),
     ?retry(
         10,
         100,

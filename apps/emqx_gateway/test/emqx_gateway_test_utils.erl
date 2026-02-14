@@ -7,7 +7,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 
 assert_confs(Expected0, Effected) ->
     Expected = maybe_unconvert_listeners(Expected0),
@@ -201,37 +201,37 @@ sn_client_disconnect(Socket) ->
     ok.
 
 meck_emqx_hook_calls() ->
-    Self = self(),
-    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_hooks,
-        run,
-        fun(A1, A2) ->
-            Self ! {hook_call, A1},
-            meck:passthrough([A1, A2])
-        end
-    ),
+    %% Keep the API but avoid mocks; register a real hook to capture calls.
+    HookPoint = 'client.connect',
+    Action = {?MODULE, hook_capture_fold, [self(), HookPoint]},
+    ok = emqx_hooks:add(HookPoint, Action, 1000),
+    put({hook_capture_action, HookPoint}, Action),
+    ok.
 
-    ok = meck:expect(
-        emqx_hooks,
-        run_fold,
-        fun(A1, A2, A3) ->
-            Self ! {hook_call, A1},
-            meck:passthrough([A1, A2, A3])
-        end
-    ).
+hook_capture_fold(_ConnInfo, ConnProps, Pid, HookPoint) ->
+    Pid ! {hook_call, HookPoint},
+    {ok, ConnProps}.
+
+hook_return_error(_ConnInfo, _ConnProps, Reason) ->
+    {stop, {error, Reason}}.
 
 collect_emqx_hooks_calls() ->
     collect_emqx_hooks_calls([]).
 
 collect_emqx_hooks_calls(Acc) ->
     receive
-        {hook_call, Args} ->
-            collect_emqx_hooks_calls([Args | Acc])
+        {hook_call, HookPoint} ->
+            collect_emqx_hooks_calls([HookPoint | Acc])
     after 1000 ->
-        L = lists:reverse(Acc),
-        meck:unload(emqx_hooks),
-        L
+        HookPoint = 'client.connect',
+        case get({hook_capture_action, HookPoint}) of
+            undefined ->
+                ok;
+            Action ->
+                emqx_hooks:del(HookPoint, Action),
+                erase({hook_capture_action, HookPoint})
+        end,
+        lists:reverse(Acc)
     end.
 
 %%--------------------------------------------------------------------

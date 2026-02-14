@@ -14,12 +14,15 @@
 
     %% Lifecycle
     start_link/2,
+    start_link_no_schema/2,
     drop_shard/1,
     shard_info/2,
+    ensure_schema/3,
 
     %% Generations
-    update_config/3,
+    update_config_v0/3,
     add_generation/2,
+    add_generation/3,
     list_slabs/1,
     drop_slab/2,
     find_generation/2,
@@ -34,9 +37,7 @@
     accept_snapshot/1,
 
     %% Custom events
-    handle_event/3,
-    %% Misc:
-    rid_of_dskeys/1
+    handle_event/3
 ]).
 
 %% gen_server
@@ -57,10 +58,11 @@
     generation_get/2,
     generation_current/1,
     generations_since/2,
-    get_gvars/1,
     ls_shards/1,
     get_stats/1,
-    db_group_stats/2
+    db_group_stats/2,
+    print_state/1,
+    has_schema/1
 ]).
 
 -export_type([
@@ -84,6 +86,7 @@
 -include("emqx_ds.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("../gen_src/DSBuiltinMetadata.hrl").
+-include_lib("emqx_utils/include/emqx_record_to_map.hrl").
 
 -elvis([
     {elvis_style, atom_naming_convention, disable},
@@ -112,11 +115,6 @@
         allow_fallocate => boolean(),
         misc_options => [{atom(), _}]
     }.
-
--type storage_layer_opts() :: #{
-    db_group := db_group(),
-    rocksdb => rocksdb_options()
-}.
 
 -type batch_prepare_opts() :: #{}.
 
@@ -208,15 +206,14 @@
 -type shard(GenData) :: #{
     %% ID of the current generation (where the new data is written):
     current_generation := gen_id(),
-    %% This data is used to create new generation:
+    %% This data WAS used to create new generation in raft
+    %% machine ver.0:
     prototype := prototype(),
     ptrans := emqx_ds_payload_transform:schema(),
     %% Generations:
     ?GEN_KEY(gen_id()) => GenData,
     %% DB handle (runtime only).
-    db => rocksdb:db_handle(),
-    %% Runtime global variables
-    gvars => ets:tid()
+    db => rocksdb:db_handle()
 }.
 
 %% Shard schema (persistent):
@@ -251,9 +248,28 @@
 
 -opaque db_group() :: #db_group{}.
 
+-record(call_ensure_schema, {options :: emqx_ds:create_db_opts(), created_at :: emqx_ds:time()}).
+-record(call_has_schema, {}).
+
 %%================================================================================
 %% API for the replication layer
 %%================================================================================
+
+-spec has_schema(dbshard()) -> boolean().
+has_schema(DBShard) ->
+    gen_server:call(?REF(DBShard), #call_has_schema{}).
+
+-doc """
+Create shard schema and the first generation.
+NOP if schema already exists.
+""".
+-spec ensure_schema(dbshard(), emqx_ds:create_db_opts(), emqx_ds:time()) -> ok | {error, _}.
+ensure_schema(ShardId, Options, CreatedAt) ->
+    gen_server:call(
+        ?REF(ShardId),
+        #call_ensure_schema{options = Options, created_at = CreatedAt},
+        infinity
+    ).
 
 -spec create_db_group(emqx_ds:db_group(), create_db_group_opts()) -> {ok, db_group()} | {error, _}.
 create_db_group(_GroupId, UserOpts) ->
@@ -314,8 +330,8 @@ check_soft_quota(#db_group{sst_file_mgr = SSTFM, conf = #{storage_quota := Quota
     Usage < Quota.
 
 %% Note: we specify gen_server requests as records to make use of Dialyzer:
--record(call_add_generation, {since :: emqx_ds:time()}).
--record(call_update_config, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
+-record(call_add_generation, {since :: emqx_ds:time(), prototype :: prototype() | undefined}).
+-record(call_update_config_v0, {options :: emqx_ds:create_db_opts(), since :: emqx_ds:time()}).
 -record(call_list_generations_with_lifetimes, {}).
 -record(call_drop_generation, {gen_id :: gen_id()}).
 -record(call_flush, {}).
@@ -378,21 +394,42 @@ fetch_global(ShardId, K) ->
         end
     end.
 
--spec update_config(dbshard(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
-    ok | {error, overlaps_existing_generations}.
-update_config(ShardId, Since, Options) ->
-    Call = #call_update_config{since = Since, options = Options},
+%% Deprecated. Kept for compatibility with ra machine version 0.
+-spec update_config_v0(dbshard(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
+    ok
+    | {error, overlaps_existing_generations | {no_schema, _}}.
+update_config_v0(ShardId, Since, Options) ->
+    Call = #call_update_config_v0{since = Since, options = Options},
     gen_server:call(?REF(ShardId), Call, infinity).
 
+-spec add_generation(dbshard(), emqx_ds:time(), prototype()) ->
+    ok
+    | {error, overlaps_existing_generations | {no_schema, _}}.
+add_generation(ShardId, Since, {_, _} = Prototype) ->
+    gen_server:call(
+        ?REF(ShardId),
+        #call_add_generation{since = Since, prototype = Prototype},
+        infinity
+    ).
+
+-doc """
+Deprecated. Use add_generation/3 instead.
+""".
 -spec add_generation(dbshard(), emqx_ds:time()) ->
-    ok | {error, overlaps_existing_generations}.
+    ok
+    | {error, overlaps_existing_generations | {no_schema, _}}.
 add_generation(ShardId, Since) ->
     gen_server:call(?REF(ShardId), #call_add_generation{since = Since}, infinity).
 
 -spec list_slabs(dbshard()) ->
-    #{gen_id() => slab_info()}.
+    #{gen_id() => slab_info()} | emqx_ds:error(_).
 list_slabs(ShardId) ->
-    gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity).
+    case gen_server:call(?REF(ShardId), #call_list_generations_with_lifetimes{}, infinity) of
+        {error, {no_schema, _} = Err} ->
+            ?err_rec(Err);
+        Other ->
+            Other
+    end.
 
 -spec drop_slab(dbshard(), gen_id()) -> ok | {error, _}.
 drop_slab(ShardId, GenId) ->
@@ -450,10 +487,28 @@ ls_shards(DB) ->
 %% gen_server for the shard
 %%================================================================================
 
--spec start_link(dbshard(), storage_layer_opts()) ->
+-doc """
+Start the stroage server and ensure schema.
+""".
+-spec start_link(dbshard(), emqx_ds:create_db_opts()) ->
     {ok, pid()}.
-start_link(Shard = {_, _}, Options = #{db_group := _}) ->
-    gen_server:start_link(?REF(Shard), ?MODULE, {Shard, Options}, []).
+start_link(ShardId, Options) ->
+    Ret = {ok, _} = start_link_no_schema(ShardId, Options),
+    ok = ensure_schema(ShardId, Options, emqx_ds:timestamp_us()),
+    Ret.
+
+-doc """
+Start the storage server.
+""".
+-spec start_link_no_schema(dbshard(), emqx_ds:create_db_opts()) -> {ok, pid()}.
+start_link_no_schema(ShardId, Options = #{db_group := _}) ->
+    gen_server:start_link(?REF(ShardId), ?MODULE, {ShardId, Options}, []).
+
+-record(s_no_schema, {
+    shard_id :: dbshard(),
+    db :: rocksdb:db_handle(),
+    cf_refs :: cf_refs()
+}).
 
 -record(s, {
     shard_id :: dbshard(),
@@ -465,7 +520,7 @@ start_link(Shard = {_, _}, Options = #{db_group := _}) ->
     shard :: shard()
 }).
 
--type server_state() :: #s{}.
+-type server_state() :: #s{} | #s_no_schema{}.
 
 -define(DEFAULT_CF, "default").
 -define(DEFAULT_CF_OPTS, []).
@@ -476,28 +531,31 @@ init({ShardId, Options}) ->
     logger:set_process_metadata(#{shard_id => ShardId, domain => [ds, storage_layer, shard]}),
     erase_schema_runtime(ShardId),
     clear_all_checkpoints(ShardId),
-    {ok, DB, CFRefs0} = rocksdb_open(ShardId, Options),
-    {Schema, CFRefs} =
-        case get_schema_persistent(DB) of
-            not_found ->
-                create_new_shard_schema(ShardId, DB, CFRefs0, Options);
-            Scm ->
-                {Scm, CFRefs0}
-        end,
-    Shard = open_shard(ShardId, DB, CFRefs, Schema),
-    CurrentGenId = maps:get(current_generation, Schema),
-    S = #s{
-        shard_id = ShardId,
-        db = DB,
-        db_opts = filter_layout_db_opts(Options),
-        cf_refs = CFRefs,
-        cf_need_flush = CurrentGenId,
-        schema = Schema,
-        shard = Shard
-    },
-    commit_metadata(S),
-    ?tp(debug, ds_storage_init_state, #{shard => ShardId, s => S}),
-    {ok, S, {continue, clean_orphans}}.
+    {ok, DB, CFRefs} = rocksdb_open(ShardId, Options),
+    case get_schema_persistent(DB) of
+        not_found ->
+            S = #s_no_schema{
+                shard_id = ShardId,
+                db = DB,
+                cf_refs = CFRefs
+            },
+            {ok, S};
+        Schema ->
+            Shard = open_shard(ShardId, DB, CFRefs, Schema),
+            CurrentGenId = maps:get(current_generation, Schema),
+            S = #s{
+                shard_id = ShardId,
+                db = DB,
+                db_opts = filter_layout_db_opts(Options),
+                cf_refs = CFRefs,
+                cf_need_flush = CurrentGenId,
+                schema = Schema,
+                shard = Shard
+            },
+            commit_metadata(S),
+            ?tp(debug, ds_storage_init_state, #{shard => ShardId, s => S}),
+            {ok, S, {continue, clean_orphans}}
+    end.
 
 handle_continue(
     clean_orphans,
@@ -556,16 +614,39 @@ format_status(Status) ->
         Status
     ).
 
-handle_call(#call_update_config{since = Since, options = Options}, _From, S0) ->
-    case handle_update_config(S0, Since, Options) of
+handle_call(#call_has_schema{}, _From, S) ->
+    Reply =
+        case S of
+            #s{} -> true;
+            #s_no_schema{} -> false
+        end,
+    {reply, Reply, S};
+handle_call(#call_ensure_schema{options = Opts, created_at = CreatedAt}, _From, S0) ->
+    case S0 of
+        #s{} ->
+            %% Already exists:
+            {reply, ok, S0};
+        #s_no_schema{shard_id = ShardId, db = DB, cf_refs = CFRefs} ->
+            case handle_create_schema(ShardId, DB, CFRefs, Opts, CreatedAt) of
+                {ok, S} ->
+                    {reply, ok, S};
+                {error, _} = Err ->
+                    {reply, Err, S0}
+            end
+    end;
+handle_call(_Call, _From, S = #s_no_schema{shard_id = Shard}) ->
+    Err = {error, {no_schema, Shard}},
+    {reply, Err, S};
+handle_call(#call_update_config_v0{since = Since, options = Options}, _From, S0) ->
+    case handle_update_config_v0(S0, Since, Options) of
         S = #s{} ->
             commit_metadata(S),
             {reply, ok, S};
         Error = {error, _} ->
             {reply, Error, S0}
     end;
-handle_call(#call_add_generation{since = Since}, _From, S0) ->
-    case handle_add_generation(S0, Since) of
+handle_call(#call_add_generation{since = Since, prototype = MaybePrototype}, _From, S0) ->
+    case handle_add_generation(S0, Since, MaybePrototype) of
         S = #s{} ->
             commit_metadata(S),
             {reply, ok, S};
@@ -602,7 +683,11 @@ handle_cast(_Cast, S) ->
 handle_info(_Info, S) ->
     {noreply, S}.
 
-terminate(_Reason, #s{db = DB, shard_id = ShardId}) ->
+terminate(_Reason, S) ->
+    case S of
+        #s{db = DB, shard_id = ShardId} -> ok;
+        #s_no_schema{db = DB, shard_id = ShardId} -> ok
+    end,
     erase_schema_runtime(ShardId),
     ok = rocksdb:close(DB).
 
@@ -631,7 +716,7 @@ clear_all_checkpoints(ShardId) ->
         CheckpointDirs
     ).
 
--spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema()) ->
+-spec open_shard(dbshard(), rocksdb:db_handle(), cf_refs(), shard_schema() | #{}) ->
     shard().
 open_shard(ShardId, DB, CFRefs, ShardSchema) ->
     %% Transform generation schemas to generation runtime data:
@@ -644,12 +729,9 @@ open_shard(ShardId, DB, CFRefs, ShardSchema) ->
         end,
         ShardSchema
     ),
-    Shard#{
-        db => DB,
-        gvars => ets:new(emqx_ds_storage_layer_gvars, [set, public, {read_concurrency, true}])
-    }.
+    Shard#{db => DB}.
 
--spec handle_add_generation(server_state(), emqx_ds:time()) ->
+-spec handle_add_generation(server_state(), emqx_ds:time(), prototype() | undefined) ->
     server_state() | {error, overlaps_existing_generations}.
 handle_add_generation(
     S0 = #s{
@@ -660,14 +742,15 @@ handle_add_generation(
         shard = Shard0,
         cf_refs = CFRefs0
     },
-    Since
+    Since,
+    MaybePrototype
 ) ->
     Schema1 = update_last_until(Schema0, Since),
     Shard1 = update_last_until(Shard0, Since),
     case Schema1 of
         _Updated = #{} ->
             {GenId, Schema, NewCFRefs} =
-                new_generation(ShardId, DB, Schema1, Shard0, Since, DBOpts),
+                new_generation(ShardId, DB, Schema1, MaybePrototype, Shard0, Since, Since, DBOpts),
             CFRefs = NewCFRefs ++ CFRefs0,
             Key = ?GEN_KEY(GenId),
             Generation = open_generation(ShardId, DB, CFRefs, GenId, maps:get(Key, Schema)),
@@ -683,12 +766,12 @@ handle_add_generation(
             {error, Reason}
     end.
 
--spec handle_update_config(server_state(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
+-spec handle_update_config_v0(server_state(), emqx_ds:time(), emqx_ds:create_db_opts()) ->
     server_state() | {error, overlaps_existing_generations}.
-handle_update_config(S0 = #s{schema = Schema}, Since, Options) ->
+handle_update_config_v0(S0 = #s{schema = Schema}, Since, Options) ->
     Prototype = maps:get(storage, Options),
     S = S0#s{schema = Schema#{prototype := Prototype}},
-    handle_add_generation(S, Since).
+    handle_add_generation(S, Since, undefined).
 
 -spec handle_list_generations_with_lifetimes(server_state()) -> #{gen_id() => map()}.
 handle_list_generations_with_lifetimes(#s{schema = ShardSchema}) ->
@@ -768,15 +851,42 @@ open_generation(ShardId, DB, CFRefs, GenId, GenSchema) ->
     RuntimeData = Mod:open(ShardId, DB, GenId, CFRefs, Schema),
     GenSchema#{data => RuntimeData}.
 
--spec create_new_shard_schema(dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts()) ->
-    {shard_schema(), cf_refs()}.
+-spec handle_create_schema(
+    dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts(), emqx_ds:time()
+) ->
+    {ok, server_state()} | {error, _}.
+handle_create_schema(ShardId, DB, CFRefs0, Options, CreatedAt) ->
+    maybe
+        {ok, Schema, CFRefs} ?= create_new_shard_schema(ShardId, DB, CFRefs0, Options, CreatedAt),
+        CurrentGenId = maps:get(current_generation, Schema),
+        Shard = open_shard(ShardId, DB, CFRefs, Schema),
+        S = #s{
+            shard_id = ShardId,
+            db = DB,
+            db_opts = filter_layout_db_opts(Options),
+            cf_refs = CFRefs,
+            cf_need_flush = CurrentGenId,
+            schema = Schema,
+            shard = Shard
+        },
+        commit_metadata(S),
+        {ok, S}
+    end.
+
+-spec create_new_shard_schema(
+    dbshard(), rocksdb:db_handle(), cf_refs(), emqx_ds:create_db_opts(), emqx_ds:time()
+) ->
+    {ok, shard_schema(), cf_refs()} | {error, {bad_options, _}}.
 create_new_shard_schema(
-    ShardId, DB, CFRefs, Options = #{storage := Prototype, payload_type := PType}
+    ShardId,
+    DB,
+    CFRefs,
+    Options = #{storage := Prototype, payload_type := PType},
+    CreatedAt
 ) ->
     ?tp(notice, ds_create_new_shard_schema, #{
         shard => ShardId, prototype => Prototype, payload_transform => PType
     }),
-    %% TODO: read prototype from options/config
     %% TODO: allow customization of the ptrans schema
     Schema0 = #{
         current_generation => 0,
@@ -785,20 +895,33 @@ create_new_shard_schema(
     },
     DBOpts = filter_layout_db_opts(Options),
     {_NewGenId, Schema, NewCFRefs} =
-        new_generation(ShardId, DB, Schema0, undefined, _Since = 0, DBOpts),
-    {Schema, NewCFRefs ++ CFRefs}.
+        new_generation(ShardId, DB, Schema0, Prototype, undefined, _Since = 0, CreatedAt, DBOpts),
+    {ok, Schema, NewCFRefs ++ CFRefs};
+create_new_shard_schema(_ShardId, _DB, _CFRefs, Options, _CreatedAt) ->
+    {error, {bad_options, Options}}.
 
 -spec new_generation(
     dbshard(),
     rocksdb:db_handle(),
     shard_schema(),
+    prototype() | undefined,
     shard() | undefined,
+    emqx_ds:time(),
     emqx_ds:time(),
     emqx_ds:db_opts()
 ) ->
     {gen_id(), shard_schema(), cf_refs()}.
-new_generation(ShardId, DB, Schema0, Shard0, Since, DBOpts) ->
-    #{current_generation := PrevGenId, prototype := {Mod, ModConf}} = Schema0,
+new_generation(ShardId, DB, Schema0, MaybePrototype, Shard0, Since, CreatedAt, DBOpts) ->
+    #{current_generation := PrevGenId, prototype := OldPrototype} = Schema0,
+    {Mod, ModConf} =
+        case MaybePrototype of
+            undefined ->
+                %% This behavior is kept for compatibility with
+                %% version 0 of raft state machine:
+                OldPrototype;
+            {_, _} ->
+                MaybePrototype
+        end,
     PTrans = maps:get(ptrans, Schema0, ?ds_pt_ttv),
     case Shard0 of
         #{?GEN_KEY(PrevGenId) := #{module := Mod} = PrevGen} ->
@@ -815,7 +938,7 @@ new_generation(ShardId, DB, Schema0, Shard0, Since, DBOpts) ->
         module => Mod,
         data => GenData,
         cf_names => cf_names(NewCFRefs),
-        created_at => emqx_ds:timestamp_us(),
+        created_at => CreatedAt,
         ptrans => PTrans,
         since => Since,
         until => undefined
@@ -1013,12 +1136,6 @@ handle_event(Shard, Time, Event) ->
     GenId = generation_current(Shard),
     handle_event(Shard, Time, ?mk_storage_event(GenId, Event)).
 
--spec rid_of_dskeys([{K, V}]) -> [V] when
-    K :: emqx_ds:message_key(),
-    V :: emqx_ds:payload().
-rid_of_dskeys(L) ->
-    [P || {_, P} <- L].
-
 filter_layout_db_opts(Options) ->
     maps:with(?STORAGE_LAYOUT_DB_OPTS, Options).
 
@@ -1036,13 +1153,6 @@ cf_ref(Name, CFRefs) ->
 -spec cf_handle(_Name :: string(), cf_refs()) -> rocksdb:cf_handle().
 cf_handle(Name, CFRefs) ->
     element(2, cf_ref(Name, CFRefs)).
-
-%%--------------------------------------------------------------------------------
-%% Metadata serialization
-%%--------------------------------------------------------------------------------
-
--define(meta_generic, 0:8).
--define(meta_lts_v1, 1:8).
 
 %%--------------------------------------------------------------------------------
 %% Schema access
@@ -1097,34 +1207,25 @@ list_generations_since(Schema, GenId, Since) ->
             []
     end.
 
-format_state(#s{shard_id = ShardId, db = DB, cf_refs = CFRefs, schema = Schema, shard = Shard}) ->
-    #{
-        id => ShardId,
-        db => DB,
-        cf_refs => CFRefs,
-        schema => Schema,
-        shard =>
-            maps:map(
-                fun
-                    (?GEN_KEY(_), _Schema) ->
-                        '...';
-                    (_K, Val) ->
-                        Val
-                end,
-                Shard
-            )
-    }.
+format_state(S = #s_no_schema{}) ->
+    ?record_to_map(s_no_schema, S);
+format_state(S = #s{shard = Shard0}) ->
+    Shard = maps:map(
+        fun
+            (?GEN_KEY(_), _Schema) ->
+                '...';
+            (_K, Val) ->
+                Val
+        end,
+        Shard0
+    ),
+    ?record_to_map(s, S#s{shard = Shard}).
 
 -define(PERSISTENT_TERM(SHARD), {emqx_ds_storage_layer, SHARD}).
 
 -spec get_schema_runtime(dbshard()) -> shard() | emqx_ds:error(_).
 get_schema_runtime(Shard = {_, _}) ->
     persistent_term:get(?PERSISTENT_TERM(Shard), ?err_rec(shard_unavailable)).
-
--spec get_gvars(dbshard()) -> ets:tid().
-get_gvars(DBShard) ->
-    #{gvars := GVars} = get_schema_runtime(DBShard),
-    GVars.
 
 -spec get_stats(emqx_ds:db()) -> map().
 get_stats(DB) ->
@@ -1140,6 +1241,12 @@ db_group_stats(_GroupId, #db_group{sst_file_mgr = SSTFM, write_buffer_mgr = WBM}
     Stats1 = sstfm_info(SSTFM),
     Stats = Stats1#{write_buffer_manager => rocksdb:write_buffer_manager_info(WBM)},
     {ok, Stats}.
+
+-doc """
+Format server state for debugging and inspection.
+""".
+print_state(DBShard) ->
+    format_state(sys:get_state(?REF(DBShard))).
 
 -spec put_schema_runtime(dbshard(), shard()) -> ok.
 put_schema_runtime(Shard = {_, _}, RuntimeSchema) ->

@@ -10,7 +10,7 @@
 %% `hocon_schema' API
 -export([namespace/0, roots/0, fields/1, desc/1, tags/0]).
 
--export([mq_sctype_api_get/0, mq_sctype_api_put/0, mq_sctype_api_post/0]).
+-export([mq_sctype_api_get/0, mq_sctype_api_put/0, mq_sctype_api_post/0, validate_name/1]).
 
 %%------------------------------------------------------------------------------
 %% `hocon_schema' APIs
@@ -31,8 +31,8 @@ tags() ->
 fields(mq) ->
     [
         {enable,
-            mk(boolean(), #{
-                default => true,
+            mk(hoconsc:union([boolean(), auto]), #{
+                default => auto,
                 required => true,
                 desc => ?DESC(enable)
             })},
@@ -116,10 +116,10 @@ fields(auto_create) ->
     ];
 fields(auto_create_regular) ->
     RegularMQFields = message_queue_fields(false),
-    without_fields([is_lastvalue, topic_filter], RegularMQFields);
+    without_fields([is_lastvalue, name, topic_filter], RegularMQFields);
 fields(auto_create_lastvalue) ->
     LastvalueMQFields = message_queue_fields(true) ++ message_queue_lastvalue_fields(),
-    without_fields([is_lastvalue, topic_filter], LastvalueMQFields);
+    without_fields([is_lastvalue, name, topic_filter], LastvalueMQFields);
 %% MQ structs
 fields(mq_individual_limits) ->
     [
@@ -136,7 +136,8 @@ fields(mq_individual_limits) ->
 %% Lastvalue structs
 %%
 fields(message_queue_api_lastvalue_put) ->
-    without_fields([topic_filter], message_queue_fields(true)) ++ message_queue_lastvalue_fields();
+    without_fields([name, topic_filter], message_queue_fields(true)) ++
+        message_queue_lastvalue_fields();
 fields(message_queue_lastvalue_api_get) ->
     message_queue_fields(true) ++ message_queue_lastvalue_fields();
 fields(message_queue_lastvalue_api_post) ->
@@ -145,7 +146,7 @@ fields(message_queue_lastvalue_api_post) ->
 %% Regular structs
 %%
 fields(message_queue_api_regular_put) ->
-    without_fields([topic_filter], message_queue_fields(false));
+    without_fields([name, topic_filter], message_queue_fields(false));
 fields(message_queue_regular_api_get) ->
     message_queue_fields(false);
 fields(message_queue_regular_api_post) ->
@@ -194,6 +195,10 @@ mq_sctype_api_post() ->
 
 message_queue_fields(IsLastvalue) ->
     [
+        %% TODO
+        %% name validation
+        {name,
+            mk(binary(), #{desc => ?DESC(name), required => true, validator => fun validate_name/1})},
         {topic_filter, mk(binary(), #{desc => ?DESC(topic_filter), required => true})},
         {is_lastvalue,
             mk(
@@ -333,4 +338,13 @@ compile_variform(Expression, _Opts) ->
             Compiled;
         {error, Reason} ->
             throw(#{expression => Expression, reason => Reason})
+    end.
+
+validate_name(Name) ->
+    RE = "^[0-9a-zA-Z][\\-\\.0-9a-zA-Z_]*$",
+    case re:run(Name, RE, [{capture, none}]) of
+        match ->
+            ok;
+        nomatch ->
+            {error, invalid_name}
     end.

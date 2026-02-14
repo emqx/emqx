@@ -59,15 +59,29 @@ defmodule EMQXUmbrella.MixProject do
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
   """
-  def deps(_profile_info, _version) do
+  def deps(profile_info, _version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     common_deps() ++
       quicer_dep() ++
       jq_dep() ++
+      plugin_deps(profile_info) ++
       extra_release_apps() ++
       overridden_deps()
   end
+
+  def plugin_deps(%{test?: true}) do
+    "plugins/*/mix.exs"
+    |> Path.wildcard()
+    |> Enum.map(&Path.dirname/1)
+    |> Enum.sort()
+    |> Enum.map(fn app_dir ->
+      app = app_dir |> Path.basename() |> String.to_atom()
+      {app, path: app_dir, env: :"emqx-enterprise-test"}
+    end)
+  end
+
+  def plugin_deps(_profile_info), do: []
 
   def overridden_deps() do
     [
@@ -175,7 +189,7 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.3", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.4", override: true}
 
   def common_dep(:esockd),
     do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
@@ -303,6 +317,8 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}
+
+  def common_dep(:egbk), do: {:egbk, github: "emqx/egbk-conv", tag: "0.1.1", override: true}
 
   def common_dep(:proper),
     do: {:proper, "1.5.0"}

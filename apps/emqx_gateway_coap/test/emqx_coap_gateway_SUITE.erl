@@ -7,7 +7,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
@@ -18,38 +18,30 @@ t_api_namespace(_) ->
     ok.
 
 t_schema_and_gateway_paths(_) ->
+    {ok, _} = application:ensure_all_started(esockd),
     _ = emqx_coap_schema:namespace(),
     _ = emqx_coap_schema:desc(other),
-    ok = meck:new(emqx_gateway_utils, [passthrough, no_history, no_link]),
-    ok = meck:new(emqx_gateway_utils_conf, [passthrough, no_history, no_link]),
-    ok = meck:expect(
-        emqx_gateway_utils_conf,
-        to_rt_listener_configs,
-        fun(_, _, _, _) -> [#{original_listener_config => #{}}] end
-    ),
-    ok = meck:expect(
-        emqx_gateway_utils,
-        start_listeners,
-        fun(_) -> {error, {bad_listener, #{original_listener_config => #{}}}} end
-    ),
-    ?assertThrow(
-        {badconf, _},
-        emqx_gateway_coap:on_gateway_load(
-            #{name => coap, config => #{connection_required => false}},
-            #{}
-        )
-    ),
-    ok = meck:expect(
-        emqx_gateway_utils,
-        update_gateway_listeners,
-        fun(_, _, _) -> {error, update_failed} end
-    ),
-    {error, update_failed} =
-        emqx_gateway_coap:on_gateway_update(
-            #{connection_required => false},
-            #{name => coap, config => #{connection_required => false}},
-            #{ctx => #{gwname => coap, cm => self()}}
+    Port = emqx_common_test_helpers:select_free_port(udp),
+    {ok, Sock} = gen_udp:open(Port, [binary, {active, false}]),
+    BadConfig = #{
+        connection_required => false,
+        listeners => #{udp => #{default => #{bind => {{127, 0, 0, 1}, Port}}}}
+    },
+    try
+        ?assertThrow(
+            {badconf, _},
+            emqx_gateway_coap:on_gateway_load(
+                #{name => coap, config => BadConfig},
+                #{}
+            )
         ),
-    meck:unload(emqx_gateway_utils_conf),
-    meck:unload(emqx_gateway_utils),
+        {error, _} =
+            emqx_gateway_coap:on_gateway_update(
+                BadConfig,
+                #{name => coap, config => #{connection_required => false, listeners => #{}}},
+                #{ctx => #{gwname => coap, cm => self()}}
+            )
+    after
+        gen_udp:close(Sock)
+    end,
     ok.

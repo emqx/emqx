@@ -260,6 +260,30 @@ t_position(Config) ->
     ?assertEqual([], emqx_plugins:list()),
     ok.
 
+t_resolve_active_name_vsn({init, Config}) ->
+    Config;
+t_resolve_active_name_vsn({'end', _Config}) ->
+    ok;
+t_resolve_active_name_vsn(_Config) ->
+    ?assertEqual(
+        {ok, <<"emqx_plugins_fake-1.0.0">>},
+        emqx_plugins:resolve_active_name_vsn(<<"emqx_plugins_fake">>, [
+            <<"emqx_plugins_fake-1.0.0">>
+        ])
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_plugins:resolve_active_name_vsn(<<"unknown_plugin">>, [
+            <<"emqx_plugins_fake-1.0.0">>
+        ])
+    ),
+    ?assertEqual(
+        {ok, <<"emqx_plugins_fake-1.0.0">>},
+        emqx_plugins:resolve_active_name_vsn(<<"emqx_plugins_fake-1.0.0">>, [
+            <<"emqx_plugins_fake-1.0.0">>
+        ])
+    ).
+
 t_start_restart_and_stop({init, Config}) ->
     #{package := Package} = get_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),

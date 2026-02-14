@@ -4,15 +4,18 @@
 
 -module(emqx_mq_config).
 
+-include("emqx_mq_internal.hrl").
+
 -export([
     mq_from_raw_post/1,
     mq_to_raw_get/1,
     mq_update_from_raw_put/1,
     raw_api_config/0,
     update_config/1,
-    is_enabled/0,
+    enabled/0,
     max_queue_count/0,
-    auto_create/1
+    auto_create/2,
+    quota_buffer_pool_size/0
 ]).
 
 -export([
@@ -63,17 +66,22 @@ update_config(UpdateRequest0) ->
         override_to => cluster
     }).
 
--spec is_enabled() -> boolean().
-is_enabled() ->
+-spec enabled() -> boolean() | auto.
+enabled() ->
     emqx:get_config(?MQ_CONFIG_PATH ++ [enable]).
 
 -spec max_queue_count() -> pos_integer().
 max_queue_count() ->
     emqx:get_config(?MQ_CONFIG_PATH ++ [max_queue_count]).
 
--spec auto_create(emqx_mq_types:mq_topic()) -> false | {true, emqx_mq_types:mq()}.
-auto_create(Topic) ->
-    auto_create(Topic, emqx:get_config(?MQ_CONFIG_PATH ++ [auto_create])).
+-spec auto_create(emqx_mq_types:mq_name(), emqx_mq_types:mq_topic()) ->
+    false | {true, emqx_mq_types:mq()}.
+auto_create(Name, Topic) ->
+    auto_create(Name, Topic, emqx:get_config(?MQ_CONFIG_PATH ++ [auto_create])).
+
+-spec quota_buffer_pool_size() -> pos_integer().
+quota_buffer_pool_size() ->
+    emqx:get_config(?MQ_CONFIG_PATH ++ [quota, buffer_pool_size], ?DEFAULT_QUOTA_BUFFER_POOL_SIZE).
 
 %%------------------------------------------------------------------------------
 %% Config hooks
@@ -93,21 +101,32 @@ post_config_update(?MQ_CONFIG_PATH, _Request, NewConf, OldConf, _AppEnvs) ->
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-auto_create(Topic, #{regular := #{} = RegularAutoCreate}) ->
-    MQ = RegularAutoCreate#{topic_filter => Topic, is_lastvalue => false},
+auto_create(Name, Topic, #{regular := #{} = RegularAutoCreate}) ->
+    MQ = RegularAutoCreate#{name => Name, topic_filter => Topic, is_lastvalue => false},
     {true, MQ};
-auto_create(Topic, #{lastvalue := #{} = LastvalueAutoCreate}) ->
-    MQ = LastvalueAutoCreate#{topic_filter => Topic, is_lastvalue => true},
+auto_create(Name, Topic, #{lastvalue := #{} = LastvalueAutoCreate}) ->
+    MQ = LastvalueAutoCreate#{name => Name, topic_filter => Topic, is_lastvalue => true},
     {true, MQ};
-auto_create(_Topic, _Config) ->
+auto_create(_Name, _Topic, _Config) ->
     false.
 
-maybe_enable(#{enable := Enable} = _NewConf, #{enable := Enable} = _OldConf) ->
+%% Enable state not changed, always allow and do nothing.
+maybe_enable(#{enable := NewEnable} = _NewConf, #{enable := NewEnable} = _OldConf) ->
     ok;
-maybe_enable(#{enable := false} = _NewConf, #{enable := true} = _OldConf) ->
-    {error, #{reason => cannot_disable_mq_in_runtime}};
-maybe_enable(#{enable := true} = _NewConf, #{enable := false} = _OldConf) ->
-    ok = emqx_mq_app:do_start().
+%% Always allow to change the enable state to auto. Do not need start if not started yet.
+maybe_enable(#{enable := auto} = _NewConf, _OldConf) ->
+    ok;
+%% Always allow to change the enable state to true.
+maybe_enable(#{enable := true} = _NewConf, _OldConf) ->
+    ok = emqx_mq_controller:start_mqs();
+%% Allow to disable if there are no queues.
+maybe_enable(#{enable := false} = _NewConf, _OldConf) ->
+    case emqx_mq_controller:stop_mqs() of
+        ok ->
+            ok;
+        {error, Reason} ->
+            {error, #{reason => Reason}}
+    end.
 
 maybe_reschedule_gc(
     #{gc_interval := GcInterval} = _NewConf, #{gc_interval := GcInterval} = _OldConf

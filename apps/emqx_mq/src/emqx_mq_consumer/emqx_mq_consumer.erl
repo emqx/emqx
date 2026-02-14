@@ -103,9 +103,12 @@ find(Id) ->
     | {error, already_registered}
     | {error, no_mq}
     | {error, term()}.
-connect(#{topic_filter := _MQTopicFilter} = MQ, SubscriberRef, ClientId) ->
+connect(#{topic_filter := _MQTopicFilter, name := _MQName} = MQ, SubscriberRef, ClientId) ->
     ?tp_debug(mq_consumer_connect, #{
-        mq_topic_filter => _MQTopicFilter, subscriber_ref => SubscriberRef, client_id => ClientId
+        mq_topic_filter => _MQTopicFilter,
+        mq_name => _MQName,
+        subscriber_ref => SubscriberRef,
+        client_id => ClientId
     }),
     case find_or_start(MQ) of
         {ok, ConsumerRef} ->
@@ -197,12 +200,18 @@ stop_v1(Pid) ->
 %% Gen Server Callbacks
 %%--------------------------------------------------------------------
 
-init([#{topic_filter := _MQTopicFilter, consumer_persistence_interval := PersistenceInterval} = MQ]) ->
+init([
+    #{
+        topic_filter := _MQTopicFilter,
+        name := _MQName,
+        consumer_persistence_interval := PersistenceInterval
+    } = MQ
+]) ->
     erlang:process_flag(trap_exit, true),
     case try_register_consumer(MQ) of
         ok ->
             ConsumerStateRes = emqx_mq_state_storage:open_consumer_state(MQ),
-            ?tp_debug(mq_consumer_init, #{mq_topic_filter => _MQTopicFilter}),
+            ?tp_debug(mq_consumer_init, #{mq_topic_filter => _MQTopicFilter, mq_name => _MQName}),
             case ConsumerStateRes of
                 {ok, ConsumerState} ->
                     erlang:send_after(
@@ -239,8 +248,10 @@ handle_info(#info_to_mq_server{message = Message}, State) ->
     handle_mq_server_info(Message, State);
 handle_info(#persist_consumer_data{}, State) ->
     handle_persist_consumer_data(State);
-handle_info(Request, #state{mq = #{topic_filter := _MQTopicFilter}} = State0) ->
-    ?tp_debug(mq_consumer_handle_info, #{request => Request, mq_topic_filter => _MQTopicFilter}),
+handle_info(Request, #state{mq = #{topic_filter := _MQTopicFilter, name := _MQName}} = State0) ->
+    ?tp_debug(mq_consumer_handle_info, #{
+        request => Request, mq_topic_filter => _MQTopicFilter, mq_name => _MQName
+    }),
     case handle_ds_info(Request, State0) of
         ignore ->
             ?tp_debug(mq_consumer_unknown_info, #{
@@ -327,12 +338,12 @@ persist_consumer_data(
 
 handle_shutdown(
     #state{
-        mq = #{topic_filter := _MQTopicFilter} = _MQ,
+        mq = #{topic_filter := _MQTopicFilter, name := _MQName} = _MQ,
         streams = Streams0,
         consumer_state = ConsumerState0
     } = State0
 ) ->
-    ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter}),
+    ?tp_debug(mq_consumer_shutdown, #{mq_topic_filter => _MQTopicFilter, mq_name => _MQName}),
     Streams1 = emqx_mq_consumer_streams:destroy(Streams0),
     {ProgressUpdates, Streams} = emqx_mq_consumer_streams:fetch_progress_updates(Streams1),
     ConsumerState = put_progress_updates(ConsumerState0, ProgressUpdates),
@@ -364,7 +375,7 @@ do_connect(ConsumerRef, SubscriberRef, ClientId) ->
         node(ConsumerRef), ConsumerRef, SubscriberRef, ClientId
     ).
 
-find_or_start(#{id := Id, topic_filter := _MQTopicFilter} = MQ) ->
+find_or_start(#{id := Id, topic_filter := _MQTopicFilter, name := _MQName} = MQ) ->
     case ?MODULE:find(Id) of
         {ok, ConsumerRef} ->
             {ok, ConsumerRef};
@@ -374,15 +385,15 @@ find_or_start(#{id := Id, topic_filter := _MQTopicFilter} = MQ) ->
                     {ok, ConsumerRef};
                 {error, _Reason} = Error ->
                     ?tp_debug(mq_consumer_find_consumer_error, #{
-                        reason => _Reason, mq_topic_filter => _MQTopicFilter
+                        reason => _Reason, mq_topic_filter => _MQTopicFilter, mq_name => _MQName
                     }),
                     Error
             end
     end.
 
-try_register_consumer(#{id := Id, topic_filter := MQTopicFilter} = _MQ) ->
-    case emqx_mq_registry:find(MQTopicFilter) of
-        {ok, #{id := Id}} ->
+try_register_consumer(#{id := Id} = _MQ) ->
+    case emqx_mq_registry:find_by_id(Id) of
+        {ok, _} ->
             case global:register_name(global_name(Id), self()) of
                 yes ->
                     ok;

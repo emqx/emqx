@@ -14,7 +14,7 @@
 
 %% Server API
 -export([
-    start_link/4,
+    start_link/3,
     server_info/2,
     server_metrics/1
 ]).
@@ -86,8 +86,8 @@
 %% @doc Starts a local server, an Erlang process running an instance of Raft
 %% protocol for a single shard on this node. Together with other servers of the shard
 %% it forms a Raft consensus group.
-start_link(DB, Shard, Schema, RTConf) ->
-    gen_server:start_link(?MODULE, {DB, Shard, Schema, RTConf}, []).
+start_link(DB, Shard, RTConf) ->
+    gen_server:start_link(?MODULE, {DB, Shard, RTConf}, []).
 
 %% @doc Return a list of servers comprising a shard, according to the information
 %% in the DB metadata storage.
@@ -542,9 +542,9 @@ ra_overview_termidx(Overview) ->
     stage :: term()
 }).
 
-init({DB, Shard, Schema, RTConf}) ->
+init({DB, Shard, RTConf}) ->
     _ = process_flag(trap_exit, true),
-    case start_server(DB, Shard, Schema, RTConf) of
+    case start_server(DB, Shard, RTConf) of
         {_New = true, Server} ->
             NextStage = trigger_election;
         {_New = false, Server} ->
@@ -643,7 +643,7 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
 
 %%
 
-start_server(DB, Shard, Schema, RTConf) ->
+start_server(DB, Shard, RTConf) ->
     LocalServer = local_server(DB, Shard),
     UID = server_uid(DB, Shard),
     case ra_directory:uid_of(DB, LocalServer) of
@@ -652,7 +652,7 @@ start_server(DB, Shard, Schema, RTConf) ->
             restart_server(DB, Shard, LocalServer);
         undefined ->
             %% Server is unknown, start a fresh one:
-            create_start_server(DB, Shard, LocalServer, UID, Schema, RTConf);
+            create_start_server(DB, Shard, LocalServer, UID, RTConf);
         ExistingUID ->
             %% Server has unexpected UID, might have been part of the previous cluster.
             %% Start a fresh server, effectively abandoning existing one:
@@ -662,7 +662,7 @@ start_server(DB, Shard, Schema, RTConf) ->
                 server_uid => UID,
                 existing_server_uid => ExistingUID
             }),
-            create_start_server(DB, Shard, LocalServer, UID, Schema, RTConf)
+            create_start_server(DB, Shard, LocalServer, UID, RTConf)
     end.
 
 restart_server(DB, _Shard, LocalServer) ->
@@ -674,13 +674,13 @@ restart_server(DB, _Shard, LocalServer) ->
             {_NewServer = false, LocalServer}
     end.
 
-create_start_server(DB, Shard, LocalServer, UID, Schema, RTConf) ->
+create_start_server(DB, Shard, LocalServer, UID, RTConf) ->
     #{replication_options := ReplicationOpts} = RTConf,
     ClusterName = cluster_name(DB, Shard),
     Servers = known_shard_servers(DB, Shard),
     Machine =
         {module, emqx_ds_builtin_raft_machine, #{
-            db => DB, shard => Shard, schema => Schema
+            db => DB, shard => Shard
         }},
     LogOpts = maps:with(
         [

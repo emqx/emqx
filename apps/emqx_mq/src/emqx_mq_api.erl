@@ -20,7 +20,7 @@
 %% API callbacks
 -export([
     '/message_queues/queues'/2,
-    '/message_queues/queues/:topic_filter'/2,
+    '/message_queues/queues/:name'/2,
     '/message_queues/config'/2
 ]).
 
@@ -44,7 +44,7 @@ api_spec() ->
 paths() ->
     [
         "/message_queues/queues",
-        "/message_queues/queues/:topic_filter",
+        "/message_queues/queues/:name",
         "/message_queues/config"
     ].
 
@@ -94,14 +94,14 @@ schema("/message_queues/queues") ->
             }
         }
     };
-schema("/message_queues/queues/:topic_filter") ->
+schema("/message_queues/queues/:name") ->
     #{
-        'operationId' => '/message_queues/queues/:topic_filter',
+        'operationId' => '/message_queues/queues/:name',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
             description => ?DESC(message_queues_get),
-            parameters => [topic_filter_param()],
+            parameters => [name_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     emqx_mq_schema:mq_sctype_api_get(),
@@ -118,7 +118,7 @@ schema("/message_queues/queues/:topic_filter") ->
         put => #{
             tags => ?TAGS,
             description => ?DESC(message_queues_update),
-            parameters => [topic_filter_param()],
+            parameters => [name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_mq_schema:mq_sctype_api_put(),
                 put_message_queue_example()
@@ -142,7 +142,7 @@ schema("/message_queues/queues/:topic_filter") ->
         delete => #{
             tags => ?TAGS,
             description => ?DESC(message_queues_delete),
-            parameters => [topic_filter_param()],
+            parameters => [name_param()],
             responses => #{
                 204 => ?DESC(message_queues_delete_success),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -190,21 +190,20 @@ schema("/message_queues/config") ->
 %% Schema
 %%--------------------------------------------------------------------
 
-topic_filter_param() ->
-    {topic_filter,
+name_param() ->
+    {name,
         hoconsc:mk(binary(), #{
-            default => <<>>,
             required => true,
-            desc => ?DESC(topic_filter),
-            validator => fun emqx_schema:non_empty_string/1,
+            desc => ?DESC(name),
             in => path
         })}.
 
 put_message_queue_example() ->
-    maps:without([<<"topic_filter">>], get_message_queue_example()).
+    maps:without([<<"name">>, <<"topic_filter">>], get_message_queue_example()).
 
 get_message_queue_example() ->
     #{
+        <<"name">> => <<"q1">>,
         <<"topic_filter">> => <<"t/1">>,
         <<"is_lastvalue">> => true,
         <<"data_retention_period">> => 604800000,
@@ -249,21 +248,21 @@ put_message_queue_config_example() ->
 %%--------------------------------------------------------------------
 
 '/message_queues/queues'(get, #{query_string := QString}) ->
-    EncodedCursor = maps:get(<<"cursor">>, QString, undefined),
+    Cursor = maps:get(<<"cursor">>, QString, undefined),
     Limit = maps:get(<<"limit">>, QString),
-    case decode_cursor(EncodedCursor) of
-        {ok, Cursor} ->
-            {MessageQueues, CursorNext} = get_message_queues(Cursor, Limit),
-            case CursorNext of
-                undefined ->
-                    ?OK(#{data => MessageQueues, meta => #{hasnext => false}});
-                _ ->
-                    ?OK(#{
-                        data => MessageQueues,
-                        meta => #{cursor => encode_cursor(CursorNext), hasnext => true}
-                    })
-            end;
-        bad_cursor ->
+    maybe
+        {ok, MessageQueues, CursorNext} ?= get_message_queues(Cursor, Limit),
+        case CursorNext of
+            undefined ->
+                ?OK(#{data => MessageQueues, meta => #{hasnext => false}});
+            _ ->
+                ?OK(#{
+                    data => MessageQueues,
+                    meta => #{cursor => CursorNext, hasnext => true}
+                })
+        end
+    else
+        {error, bad_cursor} ->
             ?BAD_REQUEST(<<"Invalid cursor">>)
     end;
 '/message_queues/queues'(post, #{body := NewMessageQueueRaw}) ->
@@ -278,17 +277,17 @@ put_message_queue_config_example() ->
             ?SERVICE_UNAVAILABLE(Reason)
     end.
 
-'/message_queues/queues/:topic_filter'(get, #{bindings := #{topic_filter := TopicFilter}}) ->
-    case get_message_queue(TopicFilter) of
+'/message_queues/queues/:name'(get, #{bindings := #{name := Name}}) ->
+    case get_message_queue(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message queue not found">>);
         {ok, MessageQueue} ->
             ?OK(MessageQueue)
     end;
-'/message_queues/queues/:topic_filter'(put, #{
-    body := UpdatedMessageQueue, bindings := #{topic_filter := TopicFilter}
+'/message_queues/queues/:name'(put, #{
+    body := UpdatedMessageQueue, bindings := #{name := Name}
 }) ->
-    case update_message_queue(TopicFilter, UpdatedMessageQueue) of
+    case update_message_queue(Name, UpdatedMessageQueue) of
         not_found ->
             ?NOT_FOUND(<<"Message queue not found">>);
         {ok, MQRaw} ->
@@ -302,8 +301,8 @@ put_message_queue_config_example() ->
         {error, _} = Error ->
             ?SERVICE_UNAVAILABLE(Error)
     end;
-'/message_queues/queues/:topic_filter'(delete, #{bindings := #{topic_filter := TopicFilter}}) ->
-    case delete_message_queue(TopicFilter) of
+'/message_queues/queues/:name'(delete, #{bindings := #{name := Name}}) ->
+    case delete_message_queue(Name) of
         not_found ->
             ?NOT_FOUND(<<"Message queue not found">>);
         {error, Reason} ->
@@ -318,8 +317,9 @@ put_message_queue_config_example() ->
     case emqx_mq_config:update_config(Body) of
         {ok, _} ->
             ?NO_CONTENT;
-        {error, {post_config_update, emqx_mq_config, #{reason := cannot_disable_mq_in_runtime}}} ->
-            ?BAD_REQUEST(<<"Cannot disable MQ subsystem via API">>);
+        {error,
+            {post_config_update, emqx_mq_config, #{reason := cannot_stop_mqs_with_existing_queues}}} ->
+            ?BAD_REQUEST(<<"Cannot disable MQ subsystem via API when there are existing queues">>);
         {error,
             {post_config_update, emqx_mq_config, #{
                 reason := cannot_enable_both_regular_and_lastvalue_auto_create
@@ -332,16 +332,10 @@ put_message_queue_config_example() ->
     end.
 
 check_ready(Request, _Meta) ->
-    case emqx_mq_config:is_enabled() of
-        true ->
-            case emqx_mq_app:is_ready() of
-                true ->
-                    {ok, Request};
-                false ->
-                    ?SERVICE_UNAVAILABLE(<<"Not ready">>)
-            end;
-        false ->
-            ?SERVICE_UNAVAILABLE(<<"Not enabled">>)
+    case emqx_mq_controller:status() of
+        stopped -> ?SERVICE_UNAVAILABLE(<<"Not enabled">>);
+        starting -> ?SERVICE_UNAVAILABLE(<<"Not ready">>);
+        started -> {ok, Request}
     end.
 
 %%--------------------------------------------------------------------
@@ -349,20 +343,11 @@ check_ready(Request, _Meta) ->
 %%--------------------------------------------------------------------
 
 get_message_queues(Cursor, Limit) ->
-    {MessageQueues, CursorNext} = emqx_mq_registry:list(Cursor, Limit),
-    {[emqx_mq_config:mq_to_raw_get(MQ) || MQ <- MessageQueues], CursorNext}.
-
-encode_cursor(Cursor) ->
-    emqx_base62:encode(Cursor).
-
-decode_cursor(undefined) ->
-    {ok, undefined};
-decode_cursor(EncodedCursor) ->
-    try
-        {ok, emqx_base62:decode(EncodedCursor)}
-    catch
-        _:_ ->
-            bad_cursor
+    case emqx_mq_registry:list(Cursor, Limit) of
+        {ok, MessageQueues, CursorNext} ->
+            {ok, [emqx_mq_config:mq_to_raw_get(MQ) || MQ <- MessageQueues], CursorNext};
+        {error, _} ->
+            {error, bad_cursor}
     end.
 
 add_message_queue(NewMessageQueueRaw) ->
@@ -374,17 +359,17 @@ add_message_queue(NewMessageQueueRaw) ->
             {error, Reason}
     end.
 
-get_message_queue(TopicFilter) ->
-    case emqx_mq_registry:find(TopicFilter) of
+get_message_queue(Name) ->
+    case emqx_mq_registry:find(Name) of
         not_found ->
             not_found;
         {ok, MQ} ->
             {ok, emqx_mq_config:mq_to_raw_get(MQ)}
     end.
 
-update_message_queue(TopicFilter, UpdatedMessageQueueRaw) ->
+update_message_queue(Name, UpdatedMessageQueueRaw) ->
     UpdatedMessageQueue = emqx_mq_config:mq_update_from_raw_put(UpdatedMessageQueueRaw),
-    case emqx_mq_registry:update(TopicFilter, UpdatedMessageQueue) of
+    case emqx_mq_registry:update(Name, UpdatedMessageQueue) of
         {ok, MQ} ->
             {ok, emqx_mq_config:mq_to_raw_get(MQ)};
         not_found ->
@@ -393,8 +378,8 @@ update_message_queue(TopicFilter, UpdatedMessageQueueRaw) ->
             Error
     end.
 
-delete_message_queue(TopicFilter) ->
-    emqx_mq_registry:delete(TopicFilter).
+delete_message_queue(Name) ->
+    emqx_mq_registry:delete(Name).
 
 ref(Module, Name) ->
     hoconsc:ref(Module, Name).
