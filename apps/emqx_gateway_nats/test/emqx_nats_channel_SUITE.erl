@@ -240,15 +240,7 @@ t_internal_token_auth_recomputes_mountpoint(Config) ->
 
 t_internal_auth_continue_without_gateway_auth(Config) ->
     disable_auth(),
-    update_nats_with_internal_authn_and_mountpoint(
-        [
-            #{
-                <<"type">> => <<"token">>,
-                <<"token">> => <<>>
-            }
-        ],
-        <<"${username}/">>
-    ),
+    update_nats_with_internal_authn_and_mountpoint([], <<"${username}/">>),
     Username = <<"internal-auth-continue-user">>,
     ClientOpts = maps:merge(
         tcp_client_opts(Config),

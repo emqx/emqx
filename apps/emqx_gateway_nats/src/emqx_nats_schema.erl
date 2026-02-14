@@ -70,6 +70,7 @@ fields(internal_authn_token) ->
                 binary(),
                 #{
                     required => true,
+                    validator => fun emqx_schema:non_empty_string/1,
                     desc => ?DESC(authn_token)
                 }
             )}
@@ -295,15 +296,21 @@ format_internal_authn_error(Pos, Reason) ->
     iolist_to_binary(io_lib:format("internal_authn[~B]: ~ts", [Pos, Reason])).
 
 validate_authn_nkeys(Config) ->
-    validate_nkey_list(
-        map_get_any(Config, [nkeys, <<"nkeys">>], []),
-        fun emqx_nats_nkey:decode_public/1,
-        fun(Index) ->
-            iolist_to_binary(
-                io_lib:format("field `nkeys[~B]` must be a valid user NKey", [Index])
+    NKeys = map_get_any(Config, [nkeys, <<"nkeys">>], []),
+    case NKeys of
+        [] ->
+            {error, <<"field `nkeys` must not be empty">>};
+        _ ->
+            validate_nkey_list(
+                NKeys,
+                fun emqx_nats_nkey:decode_public/1,
+                fun(Index) ->
+                    iolist_to_binary(
+                        io_lib:format("field `nkeys[~B]` must be a valid user NKey", [Index])
+                    )
+                end
             )
-        end
-    ).
+    end.
 
 validate_nkey_list(Values, DecodeFun, FormatError) when is_list(Values) ->
     validate_nkey_list(Values, 1, DecodeFun, FormatError);

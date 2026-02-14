@@ -134,6 +134,34 @@ t_load_badconf_partial_authn_jwt(_Config) ->
         emqx_gateway_conf:load_gateway(nats, MissingResolverPreload)
     ),
 
+    BaseConfToken = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    EmptyTokenMethod = BaseConfToken#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"token">>,
+                <<"token">> => <<>>
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, EmptyTokenMethod)
+    ),
+
+    BaseConfNKey = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    EmptyNKeysMethod = BaseConfNKey#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"nkey">>,
+                <<"nkeys">> => []
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, EmptyNKeysMethod)
+    ),
+
     BaseConf3 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
     InvalidNKeyMethod = BaseConf3#{
         <<"internal_authn">> => [
