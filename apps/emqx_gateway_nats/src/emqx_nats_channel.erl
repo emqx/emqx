@@ -406,14 +406,21 @@ auth_connect(
                     NClientInfo = normalize_mountpoint(ConnParams, NClientInfo0),
                     {ok, Channel#channel{clientinfo = NClientInfo}};
                 {continue, NClientInfo} ->
-                    auth_connect_with_gateway(
-                        Ctx,
-                        ConnParams,
-                        NClientInfo,
-                        Channel,
-                        ClientId,
-                        Username
-                    );
+                    case maps:get(gateway_auth_enabled, Authn, false) of
+                        true ->
+                            auth_connect_with_gateway(
+                                Ctx,
+                                ConnParams,
+                                NClientInfo,
+                                Channel,
+                                ClientId,
+                                Username
+                            );
+                        false ->
+                            NClientInfo0 = maps:put(auth_expire_at, undefined, NClientInfo),
+                            NClientInfo1 = normalize_mountpoint(ConnParams, NClientInfo0),
+                            {ok, Channel#channel{clientinfo = NClientInfo1}}
+                    end;
                 {error, {Method, Reason}} ->
                     log_auth_failed(auth_failed_msg(Method), ClientId, Username, Reason),
                     {error, Reason}

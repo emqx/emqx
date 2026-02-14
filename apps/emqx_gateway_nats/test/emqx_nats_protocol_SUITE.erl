@@ -524,13 +524,6 @@ should_skip(TestCase, Config) ->
             {skip, skip_reason(Target, Group, TestCase, MissingCaps)}
     end.
 
-nats_only_skips() ->
-    [
-        TestCase
-     || TestCase <- emqx_common_test_helpers:all(?MODULE),
-        missing_caps(TestCase, nats, tcp) =/= []
-    ].
-
 missing_caps(TestCase, Target, Group) ->
     RequiredCaps = required_caps(TestCase),
     TargetCaps = target_caps(Target, Group),
