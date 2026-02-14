@@ -667,6 +667,98 @@ t_quic_conn(Config) ->
         ok = quicer:close_connection(Conn)
     end).
 
+t_quic_conn_with_verify_peer(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(quic),
+    %% GIVEN: QUIC LISTENER verify_peer is set.
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"verify">> => <<"verify_peer">>,
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key")
+        }
+    },
+    with_listener(quic, ?FUNCTION_NAME, Conf, fun() ->
+        process_flag(trap_exit, true),
+        %% WHEN: Client connects with client cert
+        {ok, CTLS} = emqtt:start_link([
+            {proto_ver, v5},
+            {ssl, true},
+            {connect_timeout, 5},
+            {ssl_opts, [
+                {verify, verify_peer},
+                {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+                {certfile, filename:join(PrivDir, "client.pem")},
+                {keyfile, filename:join(PrivDir, "client.key")}
+            ]},
+            {port, Port}
+        ]),
+        {ok, _} = emqtt:quic_connect(CTLS),
+        {ok, _Prop, [1]} = emqtt:subscribe(CTLS, #{}, <<"topic/peercert">>, 1),
+
+        Cid = proplists:get_value(clientid, emqtt:info(CTLS)),
+        %% THEN: EMQX client info has CN and DN from the cert
+        ?assertMatch(
+            #{
+                clientinfo := #{
+                    cn := <<"client">>,
+                    dn := <<"CN=client,O=Internet Widgits Pty Ltd,C=SE">>
+                }
+            },
+            emqx_cm:get_chan_info(Cid)
+        ),
+        emqtt:stop(CTLS)
+    end).
+
+t_quic_conn_with_verify_none(Config) ->
+    PrivDir = ?config(priv_dir, Config),
+    Port = emqx_common_test_helpers:select_free_port(quic),
+    %% GIVEN: QUIC LISTENER verify_none
+    Conf = #{
+        <<"bind">> => format_bind({"127.0.0.1", Port}),
+        <<"ssl_options">> => #{
+            <<"verify">> => <<"verify_none">>,
+            <<"certfile">> => filename:join(PrivDir, "server.pem"),
+            <<"cacertfile">> => filename:join(PrivDir, "ca-next.pem"),
+            <<"keyfile">> => filename:join(PrivDir, "server.key")
+        }
+    },
+    with_listener(quic, ?FUNCTION_NAME, Conf, fun() ->
+        process_flag(trap_exit, true),
+        %% WHEN: Client connects with client cert
+        {ok, CTLS} = emqtt:start_link([
+            {proto_ver, v5},
+            {ssl, true},
+            {connect_timeout, 5},
+            {ssl_opts, [
+                {verify, verify_peer},
+                {cacertfile, filename:join(PrivDir, "ca-next.pem")},
+                {certfile, filename:join(PrivDir, "client.pem")},
+                {keyfile, filename:join(PrivDir, "client.key")}
+            ]},
+            {port, Port}
+        ]),
+
+        {ok, _} = emqtt:quic_connect(CTLS),
+        {ok, _Prop, [1]} = emqtt:subscribe(CTLS, #{}, <<"topic/peercert">>, 1),
+
+        Cid = proplists:get_value(clientid, emqtt:info(CTLS)),
+
+        %% THEN: EMQX has no info about the CN, DN from the cert.
+        ?assertNotMatch(
+            #{
+                clientinfo := #{
+                    cn := _,
+                    dn := _
+                }
+            },
+            emqx_cm:get_chan_info(Cid)
+        ),
+        emqtt:stop(CTLS)
+    end).
+
 -doc """
 Smoke test for using managed certificates (global ns) in a QUIC listener.
 """.
