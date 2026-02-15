@@ -221,12 +221,27 @@ t_check_subscribe(_) ->
             [{<<"topic">>, #{qos => ?QOS_0}}]
         )
     ),
+    ok = emqx_packet:check(
+        ?SUBSCRIBE_PACKET(
+            1,
+            #{'Subscription-Identifier' => 16#FFFFFFF},
+            [{<<"topic">>, #{qos => ?QOS_0}}]
+        )
+    ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(#mqtt_packet_subscribe{topic_filters = []}),
     {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED} =
         emqx_packet:check(
             ?SUBSCRIBE_PACKET(
                 1,
                 #{'Subscription-Identifier' => -1},
+                [{<<"topic">>, #{qos => ?QOS_0, rp => 0}}]
+            )
+        ),
+    {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED} =
+        emqx_packet:check(
+            ?SUBSCRIBE_PACKET(
+                1,
+                #{'Subscription-Identifier' => 16#10000000},
                 [{<<"topic">>, #{qos => ?QOS_0, rp => 0}}]
             )
         ).
