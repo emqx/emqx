@@ -21,6 +21,9 @@ init_per_suite(Config) ->
     %% Meck Transport
     ok = meck:new(emqx_transport, [non_strict, passthrough, no_history, no_link]),
     ok = meck:expect(emqx_transport, shutdown, fun(_, _) -> ok end),
+    %% Meck esockd_socket
+    ok = meck:new(esockd_socket, [non_strict, passthrough, no_history, no_link]),
+    ok = meck:expect(esockd_socket, fast_close, fun(_) -> ok end),
     %% Meck Channel
     ok = meck:new(emqx_channel, [passthrough, no_history, no_link]),
     %% Meck Cm
@@ -51,6 +54,7 @@ init_per_suite(Config) ->
 
 end_per_suite(Config) ->
     ok = meck:unload(emqx_transport),
+    ok = meck:unload(esockd_socket),
     catch meck:unload(emqx_channel),
     ok = meck:unload(emqx_cm),
     ok = meck:unload(emqx_pd),
@@ -84,6 +88,11 @@ init_per_testcase(TestCase, Config) when
     end),
     ok = meck:expect(emqx_transport, send, fun(_Sock, _Data) -> ok end),
     ok = meck:expect(emqx_transport, fast_close, fun(_Sock) -> ok end),
+    ok = meck:expect(esockd_socket, type, fun(_Sock) -> tcp end),
+    ok = meck:expect(esockd_socket, peername, fun(_Sock) -> {ok, {{127, 0, 0, 1}, 3456}} end),
+    ok = meck:expect(esockd_socket, sockname, fun(_Sock) -> {ok, {{127, 0, 0, 1}, 1883}} end),
+    ok = meck:expect(esockd_socket, peercert, fun(_Sock) -> undefined end),
+    ok = meck:expect(esockd_socket, peersni, fun(_Sock) -> undefined end),
     case erlang:function_exported(?MODULE, TestCase, 2) of
         true -> ?MODULE:TestCase(init, Config);
         _ -> Config
@@ -284,7 +293,82 @@ t_handle_timeout(_) ->
 
 t_parse_incoming(_) ->
     ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<>>, st())),
-    ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())).
+    ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())),
+    ?assertMatch(
+        {0, [{frame_error, #{cause := invalid_connect_packet, packet_type := ?SUBSCRIBE}}],
+            _NState},
+        emqx_connection:parse_incoming(<<16#82, 16#00>>, st(#{}, #{conn_state => idle}))
+    ),
+    ?assertMatch(
+        {0, [{frame_error, _Reason}], _NState},
+        emqx_connection:parse_incoming(<<16#10, 16#00>>, st(#{}, #{conn_state => idle}))
+    ),
+    ?assertMatch(
+        {0, [{frame_error, bad_subqos}], _NState},
+        emqx_connection:parse_incoming(
+            <<16#82, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>,
+            st()
+        )
+    ),
+    {some_more, ParsingState} = emqx_frame:parse(<<16#10>>, emqx_frame:initial_parse_state()),
+    ?assertEqual(true, emqx_connection:is_initial_parser_state({frame, #{}})),
+    ?assertEqual(false, emqx_connection:is_initial_parser_state(ParsingState)),
+    ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_frame, parse, fun(_, _) -> erlang:error(forced_parse_error) end),
+    ok = meck:expect(emqx_frame, describe_state, fun(_) -> #{state => clean} end),
+    ?assertMatch(
+        {0, [{frame_error, forced_parse_error}], _NState},
+        emqx_connection:parse_incoming(<<"for_testing">>, st())
+    ),
+    ok = meck:unload(emqx_frame),
+    ?assertEqual(
+        ok,
+        emqx_connection:maybe_log_first_packet_non_mqtt(emsgsize, st(#{}, #{conn_state => idle}))
+    ),
+    ?assertEqual(ok, emqx_connection:maybe_log_first_packet_non_mqtt(emsgsize, st())),
+    ?assertEqual(ok, emqx_connection:maybe_log_first_packet_non_mqtt(timeout, st())),
+    ?assertMatch(
+        {stop, {shutdown, emsgsize}, _NState},
+        emqx_connection:handle_info(
+            {sock_error, emsgsize},
+            st(#{sockstate => idle}, #{conn_state => idle})
+        )
+    ).
+
+t_socket_parse_incoming_first_packet_gate(_) ->
+    St0 = socket_st(#{}, #{conn_state => idle}),
+    ?assertMatch({0, 0, [], _NState}, emqx_socket_connection:parse_incoming(<<>>, St0)),
+    ?assertMatch(
+        {0, 0, [{frame_error, #{cause := invalid_connect_packet, packet_type := ?SUBSCRIBE}}],
+            _NState},
+        emqx_socket_connection:parse_incoming(<<16#82, 16#00>>, St0)
+    ),
+    ?assertMatch(
+        {0, 0, [{frame_error, _Reason}], _NState},
+        emqx_socket_connection:parse_incoming(<<16#10, 16#00>>, St0)
+    ),
+    ?assertMatch(
+        {0, 0, [{frame_error, bad_subqos}], _NState},
+        emqx_socket_connection:parse_incoming(
+            <<16#82, 16#06, 16#00, 16#01, 16#00, 16#01, $t, 16#03>>,
+            socket_st()
+        )
+    ),
+    InitialParsingState = emqx_frame:initial_parse_state(),
+    {some_more, ParsingState} = emqx_frame:parse(<<16#10>>, InitialParsingState),
+    ?assertEqual(true, emqx_socket_connection:is_initial_parser_state(InitialParsingState)),
+    ?assertEqual(
+        false,
+        emqx_socket_connection:is_initial_parser_state(ParsingState)
+    ),
+    ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
+    ok = meck:expect(emqx_frame, parse, fun(_, _) -> erlang:error(forced_parse_error) end),
+    ok = meck:expect(emqx_frame, describe_state, fun(_) -> #{state => clean} end),
+    ?assertMatch(
+        {0, 0, [{frame_error, forced_parse_error}], _NState},
+        emqx_socket_connection:parse_incoming(<<"for_testing">>, socket_st())
+    ),
+    ok = meck:unload(emqx_frame).
 
 t_next_incoming_msgs(_) ->
     ?assertEqual(
@@ -581,6 +665,21 @@ st(InitFields, ChannelFields) when is_map(InitFields) ->
     maps:fold(
         fun(N, V, S) -> emqx_connection:set_field(N, V, S) end,
         emqx_connection:set_field(channel, channel(ChannelFields), St),
+        InitFields
+    ).
+
+socket_st() -> socket_st(#{}, #{}).
+socket_st(InitFields) when is_map(InitFields) ->
+    socket_st(InitFields, #{}).
+socket_st(InitFields, ChannelFields) when is_map(InitFields) ->
+    St0 = emqx_socket_connection:init_state(sock, #{
+        zone => default,
+        limiter => undefined,
+        listener => {tcp, default}
+    }),
+    maps:fold(
+        fun(N, V, S) -> emqx_socket_connection:set_field(N, V, S) end,
+        emqx_socket_connection:set_field(channel, channel(ChannelFields), St0),
         InitFields
     ).
 

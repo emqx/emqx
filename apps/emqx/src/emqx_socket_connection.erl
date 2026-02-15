@@ -813,6 +813,14 @@ next_incoming_msgs(Packets) ->
     lists:foldl(Fun, [], Packets).
 
 parse_incoming(Data, State = #state{parser = Parser}) ->
+    parse_incoming_after_gate(
+        early_first_packet_gate(Data, Parser, State),
+        Data,
+        Parser,
+        State
+    ).
+
+parse_incoming_after_gate(pass, Data, Parser, State) ->
     try
         run_parser(Data, Parser, State)
     catch
@@ -834,7 +842,27 @@ parse_incoming(Data, State = #state{parser = Parser}) ->
                 stacktrace => Stacktrace
             }),
             {0, 0, [{frame_error, Reason}], State}
+    end;
+parse_incoming_after_gate({frame_error, Reason}, _Data, _Parser, State) ->
+    {0, 0, [{frame_error, Reason}], State}.
+
+early_first_packet_gate(<<>>, _Parser, _State) ->
+    pass;
+early_first_packet_gate(Data, Parser, #state{channel = Channel}) ->
+    case {emqx_channel:info(conn_state, Channel), is_initial_parser_state(Parser)} of
+        {idle, true} ->
+            case emqx_frame:ensure_first_packet_is_connect(Data) of
+                ok ->
+                    pass;
+                {error, Reason} ->
+                    {frame_error, Reason}
+            end;
+        _ ->
+            pass
     end.
+
+is_initial_parser_state(Parser) ->
+    maps:get(state, emqx_frame:describe_state(Parser)) =:= clean.
 
 init_parser(FrameOpts) ->
     %% Go with regular streaming parser.
