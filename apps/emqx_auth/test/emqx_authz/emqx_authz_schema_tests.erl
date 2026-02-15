@@ -18,6 +18,18 @@ bad_authz_type_test() ->
         check(Txt)
     ).
 
+missing_authz_type_test() ->
+    Txt = "[{enable: true}]",
+    ?assertThrow(
+        [
+            #{
+                reason := "missing_type_field",
+                missing_field := <<"type">>
+            }
+        ],
+        check(Txt)
+    ).
+
 bad_mongodb_type_test() ->
     Txt = "[{type: mongodb, mongo_type: foobar}]",
     ?assertThrow(
