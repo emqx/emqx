@@ -651,7 +651,14 @@ rx_block2_abort(Ctx, Key, Resp, RxMap, State, Reason) ->
         reason => Reason
     }),
     State1 = State#{client_rx_block2 => maps:remove(Key, RxMap)},
-    {deliver, Resp, clear_client_request(Ctx, State1)}.
+    {deliver, block2_abort_reply(Resp, Reason), clear_client_request(Ctx, State1)}.
+
+block2_abort_reply(Resp = #coap_message{}, body_too_large) ->
+    Resp#coap_message{method = {error, request_entity_too_large}};
+block2_abort_reply(Resp = #coap_message{}, sequence_mismatch) ->
+    Resp#coap_message{method = {error, request_entity_incomplete}};
+block2_abort_reply(Resp = #coap_message{}, _Reason) ->
+    Resp#coap_message{method = {error, bad_request}}.
 
 next_block2_request(Ctx, Resp, Num, Size, State) ->
     Req0 = block2_template(Ctx, Resp, State),
