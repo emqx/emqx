@@ -275,6 +275,43 @@ t_kick_session(_) ->
     ?assertMatch({error, not_found}, emqx_gateway_http:kickout_client(?GWNAME, <<"i-dont-exist">>)),
     meck:unload(emqx_gateway_cm_registry).
 
+t_session_created_hook_ctx(_) ->
+    Self = self(),
+    ok = meck:new(emqx_hooks, [passthrough, no_history, no_link]),
+    ok = meck:expect(
+        emqx_hooks,
+        run,
+        fun
+            ('session.created', Ctx, Args) ->
+                Self ! {session_created_hook, Ctx, Args},
+                meck:passthrough(['session.created', Ctx, Args]);
+            (HookPoint, Ctx, Args) ->
+                meck:passthrough([HookPoint, Ctx, Args])
+        end
+    ),
+    try
+        {ok, #{
+            present := false,
+            session := #{}
+        }} = emqx_gateway_cm:open_session(
+            ?GWNAME,
+            false,
+            clientinfo(),
+            conninfo(),
+            fun(_, _) -> #{} end
+        ),
+        receive
+            {session_created_hook, Ctx, _Args} ->
+                ConnInfoFn = maps:get(conn_info_fn, Ctx),
+                ?assertEqual(?CLIENTID, ConnInfoFn(clientid)),
+                ?assertEqual(<<"1.2">>, ConnInfoFn(proto_ver))
+        after 100 ->
+            ?assert(false, "waiting session.created hook context timeout")
+        end
+    after
+        meck:unload(emqx_hooks)
+    end.
+
 t_unexpected_handle(Conf) ->
     Pid = proplists:get_value(cm, Conf),
     _ = Pid ! unexpected_info,
