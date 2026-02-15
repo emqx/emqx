@@ -1324,7 +1324,7 @@ t_schema_check_json_hanging_ref_timeout(_Config) ->
             ok
         end,
         fun(Trace) ->
-            ?assertMatch([_ | _], ?of_kind(schema_check_timeout, Trace)),
+            ?assertMatch([_ | _], ?of_kind(schema_validation_failed, Trace)),
             ok
         end
     ),

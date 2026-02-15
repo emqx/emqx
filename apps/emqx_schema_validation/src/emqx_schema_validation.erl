@@ -214,14 +214,10 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
             }),
             false;
         exit:timeout ->
-            ?tp(schema_check_timeout, #{
+            trace_failure(Validation, validation_schema_check_failure, #{
                 validation => Name,
                 schema_name => SerdeName,
-                timeout_ms => ?SCHEMA_CHECK_TIMEOUT_MS
-            }),
-            trace_failure(Validation, validation_schema_check_timeout, #{
-                validation => Name,
-                schema_name => SerdeName,
+                cause => timeout,
                 timeout_ms => ?SCHEMA_CHECK_TIMEOUT_MS
             }),
             false;
