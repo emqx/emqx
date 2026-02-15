@@ -310,6 +310,34 @@ json_create_serde(SerdeName) ->
     on_exit(fun() -> ok = emqx_schema_registry:delete_schema(SerdeName) end),
     ok.
 
+json_create_ref_serde(SerdeName, RefURL) ->
+    Source = #{<<"$ref">> => RefURL},
+    Schema = #{type => json, source => emqx_utils_json:encode(Source)},
+    ok = emqx_schema_registry:add_schema(SerdeName, Schema),
+    on_exit(fun() -> ok = emqx_schema_registry:delete_schema(SerdeName) end),
+    ok.
+
+start_hanging_http_endpoint() ->
+    {ok, LSock} = gen_tcp:listen(
+        0,
+        [{ip, {127, 0, 0, 1}}, binary, {packet, raw}, {reuseaddr, true}, {active, false}]
+    ),
+    {ok, {_, Port}} = inet:sockname(LSock),
+    Acceptor = spawn(fun() -> hanging_http_acceptor(LSock, []) end),
+    on_exit(fun() ->
+        catch exit(Acceptor, kill),
+        catch gen_tcp:close(LSock)
+    end),
+    {ok, Port}.
+
+hanging_http_acceptor(LSock, AcceptedSocks) ->
+    case gen_tcp:accept(LSock) of
+        {ok, Sock} ->
+            hanging_http_acceptor(LSock, [Sock | AcceptedSocks]);
+        {error, closed} ->
+            ok
+    end.
+
 avro_valid_payloads(SerdeName) ->
     lists:map(
         fun(Payload) -> emqx_schema_registry_serde:encode(SerdeName, Payload) end,
@@ -1250,6 +1278,56 @@ t_schema_check_json(_Config) ->
         json_invalid_payloads()
     ),
 
+    ok.
+
+t_schema_check_json_hanging_ref_timeout(_Config) ->
+    ?check_trace(
+        begin
+            SerdeName = <<"myserde">>,
+            Name1 = <<"foo">>,
+            {ok, Port} = start_hanging_http_endpoint(),
+            RefURL = iolist_to_binary(["http://127.0.0.1:", integer_to_list(Port), "/blocked.json#"]),
+            ok = json_create_ref_serde(SerdeName, RefURL),
+
+            Check1 = schema_check(json, SerdeName),
+            Validation1 = validation(Name1, [Check1]),
+            {201, _} = insert(Validation1),
+
+            C = connect(<<"c1">>),
+            {ok, _, [_]} = emqtt:subscribe(C, <<"t/#">>),
+
+            T0 = erlang:monotonic_time(millisecond),
+            ok = publish(C, <<"t/1">>, #{i => 10}, 1),
+            Elapsed = erlang:monotonic_time(millisecond) - T0,
+            ?assert(Elapsed < 10000),
+            ?assertNotReceive({publish, _}),
+
+            ?retry(
+                100,
+                20,
+                begin
+                    {200, #{<<"metrics">> := Metrics}} = get_metrics(Name1),
+                    ?assertMatch(
+                        #{
+                            <<"matched">> := 1,
+                            <<"succeeded">> := 0,
+                            <<"failed">> := 1
+                        },
+                        Metrics
+                    ),
+                    Matched = maps:get(<<"matched">>, Metrics),
+                    Succeeded = maps:get(<<"succeeded">>, Metrics),
+                    Failed = maps:get(<<"failed">>, Metrics),
+                    ?assertEqual(Matched, Succeeded + Failed)
+                end
+            ),
+            ok
+        end,
+        fun(Trace) ->
+            ?assertMatch([_ | _], ?of_kind(schema_check_timeout, Trace)),
+            ok
+        end
+    ),
     ok.
 
 t_schema_check_avro(_Config) ->

@@ -41,6 +41,7 @@
 %%------------------------------------------------------------------------------
 
 -define(TRACE_TAG, "SCHEMA_VALIDATION").
+-define(SCHEMA_CHECK_TIMEOUT_MS, 5000).
 
 -type validation_name() :: binary().
 -type raw_validation() :: #{binary() => _}.
@@ -204,12 +205,24 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
                 []
         end,
     try
-        emqx_schema_registry_serde:schema_check(SerdeName, Data, ExtraArgs)
+        schema_check_with_timeout(SerdeName, Data, ExtraArgs)
     catch
         error:{serde_not_found, _} ->
             trace_failure(Validation, validation_schema_check_schema_not_found, #{
                 validation => Name,
                 schema_name => SerdeName
+            }),
+            false;
+        exit:timeout ->
+            ?tp(schema_check_timeout, #{
+                validation => Name,
+                schema_name => SerdeName,
+                timeout_ms => ?SCHEMA_CHECK_TIMEOUT_MS
+            }),
+            trace_failure(Validation, validation_schema_check_timeout, #{
+                validation => Name,
+                schema_name => SerdeName,
+                timeout_ms => ?SCHEMA_CHECK_TIMEOUT_MS
             }),
             false;
         Class:Error:Stacktrace ->
@@ -222,6 +235,14 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
             }),
             false
     end.
+
+schema_check_with_timeout(SerdeName, Data, ExtraArgs) ->
+    emqx_utils:nolink_apply(
+        fun() ->
+            emqx_schema_registry_serde:schema_check(SerdeName, Data, ExtraArgs)
+        end,
+        ?SCHEMA_CHECK_TIMEOUT_MS
+    ).
 
 run_validations(Validations, Message) ->
     try
