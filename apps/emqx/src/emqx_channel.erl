@@ -1207,7 +1207,7 @@ handle_frame_error(
     is_map(Reason) andalso
         (ConnState == idle orelse ConnState == connecting)
 ->
-    ShutdownCount = shutdown_count(frame_error, Reason, Channel),
+    ShutdownCount = shutdown_count(invalid_connect_packet, Reason, Channel),
     ProtoVer = proto_ver(Reason, ConnInfo),
     NChannel = Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}},
     case ProtoVer of
@@ -1221,8 +1221,16 @@ handle_frame_error(
     Channel = #channel{conn_state = connecting}
 ) ->
     shutdown(
-        shutdown_count(frame_error, Reason, Channel),
+        shutdown_count(invalid_connect_packet, Reason, Channel),
         ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
+        Channel
+    );
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = idle}
+) ->
+    shutdown(
+        shutdown_count(invalid_connect_packet, Reason, Channel),
         Channel
     );
 handle_frame_error(
