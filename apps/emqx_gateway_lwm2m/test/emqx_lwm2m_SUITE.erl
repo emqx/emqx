@@ -174,6 +174,7 @@ groups() ->
             case133_mountpoint_peerhost_placeholder,
             case134_auto_observe_empty_list,
             case145_auto_observe_normalize_edges,
+            case146_deliver_unsupported_msg_type,
             case136_update_publish_condition_legacy,
             case137_cmd_error_paths,
             case138_blockwise_downlink_busy,
@@ -5612,6 +5613,38 @@ case136_update_publish_condition_legacy(_Config) ->
     after
         ok = emqx_config:put([gateway, lwm2m, update_msg_publish_condition], OldValue)
     end.
+
+case146_deliver_unsupported_msg_type(_Config) ->
+    WithContext = capture_with_context(self()),
+    Session0 = emqx_lwm2m_session:new(),
+    Session1 = setelement(7, Session0, #{<<"alternatePath">> => <<"/">>}),
+    flush_publish_msgs(),
+    NotifyCmd = #{
+        <<"reqID">> => 10086,
+        <<"msgType">> => <<"notify">>,
+        <<"seqNum">> => 99,
+        <<"data">> => #{
+            <<"code">> => <<"2.01">>,
+            <<"codeMsg">> => <<"content">>,
+            <<"reqPath">> => <<"/31024/11">>,
+            <<"content">> => [#{<<"path">> => <<"/31024/11/1">>, <<"value">> => <<"26.8">>}]
+        }
+    },
+    Msg0 = emqx_message:make(<<"lwm2m_internal">>, 0, <<"topic">>, <<>>, #{}, #{}),
+    Msg = Msg0#message{payload = emqx_utils_json:encode(NotifyCmd)},
+    #{return := {Outs, _Session2}} = emqx_lwm2m_session:handle_deliver(
+        [{deliver, <<"topic">>, Msg}],
+        WithContext,
+        Session1
+    ),
+    ?assertEqual([], Outs),
+    Payload = wait_publish_payload(),
+    Data = maps:get(<<"data">>, Payload),
+    ?assertEqual(<<"notify">>, maps:get(<<"msgType">>, Payload)),
+    ?assertEqual(<<"4.00">>, maps:get(<<"code">>, Data)),
+    ?assertEqual(<<"bad_request">>, maps:get(<<"codeMsg">>, Data)),
+    ?assertEqual(<<"/31024/11">>, maps:get(<<"reqPath">>, Data)),
+    expect_no_publish().
 
 case137_cmd_error_paths(_Config) ->
     WithContext = with_context_stub(),

@@ -190,7 +190,9 @@ mqtt_to_coap(
             ]
         ),
         InputCmd
-    }.
+    };
+mqtt_to_coap(_AlternatePath, InputCmd = #{<<"msgType">> := MsgType}) ->
+    {error, {bad_request, {unsupported_msg_type, MsgType}}, InputCmd}.
 
 coap_to_mqtt(_Method = {_, Code}, _CoapPayload, _Options, Ref = #{<<"msgType">> := <<"create">>}) ->
     make_response(Code, Ref);
@@ -392,17 +394,27 @@ add_alternate_path_prefix(AlternatePath, PathList) ->
     [emqx_utils_binary:trim(AlternatePath, $/) | PathList].
 
 extract_path(Ref = #{}) ->
-    drop_query(
+    Path =
         case Ref of
             #{<<"data">> := Data} ->
-                case maps:get(<<"path">>, Data, undefined) of
-                    undefined -> maps:get(<<"basePath">>, Data, undefined);
-                    Path -> Path
-                end;
-            #{<<"path">> := Path} ->
-                Path
-        end
-    ).
+                extract_path_from_data(Data);
+            #{<<"path">> := Path0} ->
+                Path0;
+            _ ->
+                null
+        end,
+    drop_query(Path).
+
+extract_path_from_data(Data) ->
+    case maps:get(<<"path">>, Data, undefined) of
+        undefined ->
+            case maps:get(<<"basePath">>, Data, undefined) of
+                undefined -> maps:get(<<"reqPath">>, Data, null);
+                BasePath -> BasePath
+            end;
+        Path ->
+            Path
+    end.
 
 batch_write_request(AlternatePath, BasePath, Content, Encoding) ->
     {PathList, QueryList} = path_list(BasePath),
@@ -444,11 +456,13 @@ single_write_request(AlternatePath, Data, Encoding) ->
         ]
     ).
 
-drop_query(Path) ->
+drop_query(Path) when is_binary(Path) ->
     case binary:split(Path, [<<$?>>]) of
         [Path] -> Path;
         [PathOnly, _Query] -> PathOnly
-    end.
+    end;
+drop_query(Path) ->
+    Path.
 
 decode_write_content(<<"hex">>, Datas) when is_list(Datas) ->
     lists:map(

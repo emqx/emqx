@@ -656,9 +656,7 @@ rx_block2_abort(Ctx, Key, Resp, RxMap, State, Reason) ->
 block2_abort_reply(Resp = #coap_message{}, body_too_large) ->
     Resp#coap_message{method = {error, request_entity_too_large}};
 block2_abort_reply(Resp = #coap_message{}, sequence_mismatch) ->
-    Resp#coap_message{method = {error, request_entity_incomplete}};
-block2_abort_reply(Resp = #coap_message{}, _Reason) ->
-    Resp#coap_message{method = {error, bad_request}}.
+    Resp#coap_message{method = {error, request_entity_incomplete}}.
 
 next_block2_request(Ctx, Resp, Num, Size, State) ->
     Req0 = block2_template(Ctx, Resp, State),
