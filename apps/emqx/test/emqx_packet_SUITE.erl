@@ -199,11 +199,7 @@ t_check_publish(_) ->
     {error, ?RC_TOPIC_ALIAS_INVALID} = emqx_packet:check(
         ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Topic-Alias' => 0}, <<"payload">>)
     ),
-    %% TODO::
-    %% {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
-    %%    ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Subscription-Identifier' => 10}, <<"payload">>)
-    %%),
-    ok = emqx_packet:check(
+    {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
         ?PUBLISH_PACKET(1, <<"topic">>, 1, #{'Subscription-Identifier' => 10}, <<"payload">>)
     ),
     {error, ?RC_PROTOCOL_ERROR} = emqx_packet:check(
