@@ -385,7 +385,7 @@ check_will_msg(#mqtt_packet_connect{will_flag = false}, _Caps) ->
     ok;
 check_will_msg(
     #mqtt_packet_connect{will_retain = true},
-    _Opts = #{mqtt_retain_available := false}
+    _Opts = #{retain_available := false}
 ) ->
     {error, ?RC_RETAIN_NOT_SUPPORTED};
 check_will_msg(

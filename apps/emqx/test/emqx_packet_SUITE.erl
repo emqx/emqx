@@ -236,7 +236,7 @@ t_check_unsubscribe(_) ->
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(?UNSUBSCRIBE_PACKET(1, [])).
 
 t_check_connect(_) ->
-    Opts = #{max_clientid_len => 5, mqtt_retain_available => false},
+    Opts = #{max_clientid_len => 5, retain_available => false},
     ok = emqx_packet:check(#mqtt_packet_connect{}, Opts),
     ok = emqx_packet:check(
         ?CONNECT_PACKET(#mqtt_packet_connect{
