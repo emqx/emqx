@@ -30,7 +30,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: emqx/macos-erlang@f744c98139c0db83a10619587d4bae4fc49765a8 # v1.0.0
+    - uses: emqx/macos-erlang@1e65a0125f99969fd5623999fe52e49f4fa542d5 # v1.2.0
       with:
         otp-version: ${{ inputs.otp }}
         install-elixir: true
