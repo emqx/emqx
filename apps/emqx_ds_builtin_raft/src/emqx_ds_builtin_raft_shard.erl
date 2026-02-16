@@ -258,19 +258,19 @@ try_servers([Server | Rest], Fun, Args) ->
         {ok, R, Leader} ->
             {ok, R, Leader};
         _Online = false ->
-            ?tp(emqx_ds_replshard_try_next_servers, #{server => Server, reason => offline}),
+            ?tp("dsrepl_shard_try_next_servers", #{server => Server, reason => offline}),
             try_servers(Rest, Fun, Args);
         {error, Reason = noproc} ->
-            ?tp(emqx_ds_replshard_try_next_servers, #{server => Server, reason => Reason}),
+            ?tp("dsrepl_shard_try_next_servers", #{server => Server, reason => Reason}),
             try_servers(Rest, Fun, Args);
         {error, Reason} when Reason =:= nodedown orelse Reason =:= shutdown ->
             %% NOTE
             %% Conceptually, those error conditions basically mean the same as a plain
             %% timeout: "it's impossible to tell if operation has succeeded or not".
-            ?tp(emqx_ds_replshard_try_servers_timeout, #{server => Server, reason => Reason}),
+            ?tp("dsrepl_shard_try_servers_timeout", #{server => Server, reason => Reason}),
             {timeout, Server};
         {timeout, _} = Timeout ->
-            ?tp(emqx_ds_replshard_try_servers_timeout, #{server => Server, reason => timeout}),
+            ?tp("dsrepl_shard_try_servers_timeout", #{server => Server, reason => timeout}),
             Timeout;
         {error, Reason} ->
             {error, Server, Reason}
@@ -553,10 +553,10 @@ init({DB, Shard, RTConf}) ->
 handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
     {noreply, St};
 handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, stage = Stage}) ->
-    ?tp(emqx_ds_replshard_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
+    ?tp("dsrepl_shard_replica_bootstrapping", #{db => DB, shard => Shard, stage => Stage}),
     case bootstrap(St0) of
         St = #st{bootstrapped = true} ->
-            ?tp(emqx_ds_replshard_bootstrapped, #{db => DB, shard => Shard}),
+            ?tp("dsrepl_shard_replica_bootstrapped", #{db => DB, shard => Shard}),
             {noreply, St};
         St = #st{bootstrapped = false} ->
             {noreply, St, {continue, bootstrap}};
@@ -705,7 +705,7 @@ trigger_election(Server) ->
         %% Tolerating exceptions because server might be occupied with log replay for
         %% a while.
         exit:{timeout, _} ->
-            ?tp(emqx_ds_replshard_trigger_election, #{server => Server, error => timeout}),
+            ?tp("dsrepl_shard_trigger_election", #{server => Server, error => timeout}),
             ok
     end.
 

@@ -319,7 +319,7 @@ t_replication_transfers_snapshots(Config) ->
             [NodeOffline] = emqx_cth_cluster:restart(SpecOffline),
             {ok, SRef} = snabbkaffe:subscribe(
                 ?match_event(#{
-                    ?snk_kind := dsrepl_snapshot_accepted,
+                    ?snk_kind := "dsrepl_snapshot_accept_complete",
                     ?snk_meta := #{node := NodeOffline}
                 })
             ),

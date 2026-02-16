@@ -63,7 +63,7 @@ prepare(Index, State) ->
 ) ->
     ok | {ok, _BytesWritten :: non_neg_integer()} | {error, ra_snapshot:file_err()}.
 write(Dir, Meta, MachineState, Sync) ->
-    ?tp(dsrepl_snapshot_write, #{meta => Meta, state => MachineState}),
+    ?tp("dsrepl_snapshot_write", #{meta => Meta, state => MachineState}),
     ok = emqx_ds_storage_layer:flush(shard_id(MachineState)),
     ra_log_snapshot:write(Dir, Meta, MachineState, Sync).
 
@@ -122,17 +122,15 @@ read_chunk(RS = #rs{phase = storage_snapshot, reader = SnapReader0}, Size, _Dir)
     ShardId = shard_id(RS),
     case emqx_ds_storage_snapshot:read_chunk(SnapReader0, Size) of
         {next, Chunk, SnapReader} ->
-            ?tp(dsrepl_snapshot_read, #{shard => ShardId, reader => SnapReader, last => false}),
             emqx_ds_builtin_raft_metrics:snapshot_chunk_read(ShardId, Chunk),
             {ok, Chunk, {next, RS#rs{reader = SnapReader}}};
         {last, Chunk, SnapReader} ->
             %% TODO: idempotence?
-            ?tp(dsrepl_snapshot_read, #{shard => ShardId, reader => SnapReader, last => true}),
             emqx_ds_builtin_raft_metrics:snapshot_chunk_read(ShardId, Chunk),
             _ = complete_read(RS#rs{reader = SnapReader}),
             {ok, Chunk, last};
         {error, Reason} ->
-            ?tp(dsrepl_snapshot_read_error, #{reason => Reason, reader => SnapReader0}),
+            ?tp("dsrepl_snapshot_chunk_read_error", #{reason => Reason, reader => SnapReader0}),
             emqx_ds_builtin_raft_metrics:snapshot_reader_error(ShardId, Reason),
             _ = emqx_ds_storage_snapshot:release_reader(SnapReader0),
             error(Reason)
@@ -170,7 +168,7 @@ complete_read(RS = #rs{reader = SnapReader, started_at = StartedAt}) ->
 -spec begin_accept(_SnapshotDir :: file:filename(), ra_snapshot:meta()) ->
     {ok, ws()}.
 begin_accept(Dir, Meta) ->
-    ?tp(dsrepl_snapshot_accept_started, #{meta => Meta}),
+    ?tp("dsrepl_snapshot_accept_started", #{meta => Meta}),
     WS = #ws{
         phase = machine_state,
         started_at = erlang:monotonic_time(millisecond),
@@ -187,11 +185,10 @@ accept_chunk(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0}) ->
     ShardId = shard_id(WS),
     case emqx_ds_storage_snapshot:write_chunk(SnapWriter0, Chunk) of
         {next, SnapWriter} ->
-            ?tp(dsrepl_snapshot_write, #{shard => ShardId, writer => SnapWriter, last => false}),
             emqx_ds_builtin_raft_metrics:snapshot_chunk_written(ShardId, Chunk),
             {ok, WS#ws{writer = SnapWriter}};
         {error, Reason} ->
-            ?tp(dsrepl_snapshot_write_error, #{
+            ?tp("dsrepl_snapshot_accept_chunk_error", #{
                 shard => ShardId,
                 reason => Reason,
                 writer => SnapWriter0
@@ -204,7 +201,7 @@ accept_chunk(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0}) ->
 start_snapshot_writer(Chunk, WS) ->
     MachineState = binary_to_term(Chunk),
     ShardId = shard_id(MachineState),
-    ?tp(info, "dsrepl_snapshot_write_started", #{shard => ShardId}),
+    ?tp(info, "dsrepl_snapshot_accept_started", #{shard => ShardId}),
     emqx_ds_builtin_raft_metrics:snapshot_writer_started(ShardId),
     _ = emqx_ds_builtin_raft_db_sup:terminate_storage(ShardId),
     {ok, SnapWriter} = emqx_ds_storage_layer:accept_snapshot(ShardId),
@@ -216,14 +213,12 @@ complete_accept(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0})
     ShardId = shard_id(WS),
     case emqx_ds_storage_snapshot:write_chunk(SnapWriter0, Chunk) of
         {last, SnapWriter} ->
-            ?tp(dsrepl_snapshot_write, #{shard => ShardId, writer => SnapWriter, last => true}),
             emqx_ds_builtin_raft_metrics:snapshot_chunk_written(ShardId, Chunk),
             _ = emqx_ds_storage_snapshot:release_writer(SnapWriter),
             Result = complete_accept(WS#ws{writer = SnapWriter}),
-            ?tp(dsrepl_snapshot_accepted, #{shard => ShardId, state => WS#ws.state}),
             Result;
         {error, Reason} ->
-            ?tp(dsrepl_snapshot_write_error, #{
+            ?tp("dsrepl_snapshot_accept_chunk_error", #{
                 shard => shard_id(WS),
                 reason => Reason,
                 writer => SnapWriter0
@@ -235,7 +230,7 @@ complete_accept(Chunk, WS = #ws{phase = storage_snapshot, writer = SnapWriter0})
 
 complete_accept(WS = #ws{started_at = StartedAt, writer = SnapWriter}) ->
     ShardId = shard_id(WS),
-    ?tp(info, "dsrepl_snapshot_write_complete", #{
+    ?tp(info, "dsrepl_snapshot_accept_complete", #{
         shard => ShardId,
         duration_ms => erlang:monotonic_time(millisecond) - StartedAt,
         bytes_written => emqx_ds_storage_snapshot:writer_info(bytes_written, SnapWriter)
