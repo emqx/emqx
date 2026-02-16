@@ -15,7 +15,6 @@
 
     start_shard/1,
     stop_shard/1,
-    shard_info/2,
     shard_sup/1,
     terminate_storage/1,
     restart_storage/1,
@@ -31,8 +30,6 @@
 
 %% internal exports:
 -export([start_link_shard/2, start_link_sup/2]).
-
--include("emqx_ds_builtin_raft.hrl").
 
 %%================================================================================
 %% Type declarations
@@ -76,13 +73,6 @@ stop_shard({DB, Shard}) ->
             supervisor:terminate_child(ShardsSup, Pid);
         undefined ->
             {error, not_found}
-    end.
-
--spec shard_info(emqx_ds_storage_layer:dbshard(), ready) -> boolean() | down.
-shard_info({DB, Shard}, Info) ->
-    case emqx_ds:is_shard_up(DB, Shard) of
-        true -> emqx_ds_builtin_raft_shard:shard_info(DB, Shard, Info);
-        false -> down
     end.
 
 -spec shard_sup(emqx_ds_storage_layer:dbshard()) -> pid() | undefined.

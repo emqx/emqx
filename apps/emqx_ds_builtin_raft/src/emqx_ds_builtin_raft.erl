@@ -99,7 +99,11 @@ This is the entrypoint into the `builtin_raft` backend.
     rpc_target_preference/1,
     full_shard_cleanup/2,
     leader_shard_cleanup/2,
-    lookup_global_otx_leader/2
+    lookup_global_otx_leader/2,
+
+    wait_replicas/2,
+    set_replica_ready/3,
+    is_replica_ready/2
 ]).
 
 -ifdef(TEST).
@@ -225,17 +229,20 @@ This is the entrypoint into the `builtin_raft` backend.
     end
 ).
 
+%% Optvars:
+-record(dsraft_replica_ready_optvar, {db :: emqx_ds:db(), shard :: emqx_ds:shard()}).
+
 %% NOTE
 %% Target node may still be in the process of starting up when RPCs arrive, it's
 %% good to have them handled gracefully.
 %% TODO
 %% There's a possibility of race condition: storage may shut down right after we
 %% ask for its status.
--define(IF_SHARD_READY(DB, SHARD, EXPR),
+-define(IF_SHARD_REPLICA_READY(DB, SHARD, EXPR),
     %% NOTE: Tolerates when the backend and/or dependencies has not yet started.
-    case emqx_ds_builtin_raft_shard:shard_info(DB, SHARD, ready) of
+    case is_replica_ready(DB, SHARD) of
         true -> EXPR;
-        _Unready -> ?err_rec(shard_unavailable)
+        _Unready -> ?err_rec(shard_replica_not_ready)
     end
 ).
 
@@ -675,7 +682,7 @@ high_watermark(DBShard = {DB, Shard}, Stream = #'Stream'{}) ->
     end.
 
 fast_forward(DBShard = {DB, Shard}, It = #'Iterator'{}, Key, BatchSize) ->
-    ?IF_SHARD_READY(
+    ?IF_SHARD_REPLICA_READY(
         DB,
         Shard,
         maybe
@@ -691,7 +698,7 @@ iterator_match_context(DBShard, Iterator = #'Iterator'{}) ->
     emqx_ds_storage_layer_ttv:iterator_match_context(DBShard, Iterator).
 
 scan_stream(DBShard = {DB, Shard}, Stream = #'Stream'{}, TopicFilter, StartMsg, BatchSize) ->
-    ?IF_SHARD_READY(
+    ?IF_SHARD_REPLICA_READY(
         DB,
         Shard,
         maybe
@@ -823,6 +830,43 @@ leader_shard_cleanup(DB, Shard) ->
     emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader),
     ok.
 
+-doc """
+Set replica ready state for the shard.
+
+Replica is considered ready when the backend is running, the shard process is up,
+and replica has bootstrapped and caught up with the leader (including when it is
+the leader itself).
+
+This is called by the shard process when it has bootstrapped and caught up.
+""".
+-spec set_replica_ready(emqx_ds:db(), emqx_ds:shard(), boolean()) -> ok.
+set_replica_ready(DB, Shard, true) ->
+    optvar:set(#dsraft_replica_ready_optvar{db = DB, shard = Shard}, true);
+set_replica_ready(DB, Shard, false) ->
+    optvar:unset(#dsraft_replica_ready_optvar{db = DB, shard = Shard}).
+
+-doc """
+Check if the replica for the shard is ready.
+""".
+-spec is_replica_ready(emqx_ds:db(), emqx_ds:shard()) -> boolean().
+is_replica_ready(DB, Shard) ->
+    optvar:is_set(#dsraft_replica_ready_optvar{db = DB, shard = Shard}).
+
+-doc """
+Wait for all local replicas to become ready.
+""".
+-spec wait_replicas(emqx_ds:db(), timeout()) -> ok | timeout.
+wait_replicas(DB, Timeout) ->
+    Optvars = [
+        #dsraft_replica_ready_optvar{db = DB, shard = Shard}
+     || Shard <- emqx_ds_builtin_raft_meta:my_shards(DB)
+    ],
+    maybe
+        ok ?= optvar:wait_vars(Optvars, Timeout)
+    else
+        _ -> timeout
+    end.
+
 %%================================================================================
 %% RPC targets
 %%================================================================================
@@ -849,8 +893,7 @@ do_drop_db_v1(DB) ->
     | emqx_ds:error(storage_down).
 do_get_streams_v1(DB, Shard, TopicFilter, StartTime, MinGeneration) ->
     maybe
-        true ?= emqx_ds_builtin_raft_shard:shard_info(DB, Shard, ready) orelse
-            ?err_rec(shard_unavailable),
+        true ?= is_replica_ready(DB, Shard) orelse ?err_rec(shard_replica_not_ready),
         {ok, Streams} ?=
             emqx_ds_storage_layer_ttv:get_streams(
                 {DB, Shard}, TopicFilter, StartTime, MinGeneration
@@ -867,7 +910,7 @@ do_get_streams_v1(DB, Shard, TopicFilter, StartTime, MinGeneration) ->
 ) ->
     emqx_ds:make_iterator_result().
 do_make_iterator_v1(DB, Shard, Stream = #'Stream'{}, TopicFilter, Time) ->
-    ?IF_SHARD_READY(
+    ?IF_SHARD_REPLICA_READY(
         DB,
         Shard,
         emqx_ds_storage_layer_ttv:make_iterator(DB, Stream, TopicFilter, Time)
@@ -876,7 +919,7 @@ do_make_iterator_v1(DB, Shard, Stream = #'Stream'{}, TopicFilter, Time) ->
 -spec do_list_slabs_v1(emqx_ds:db(), emqx_ds:shard()) ->
     #{emqx_ds:generation() => emqx_ds:slab_info()} | emqx_ds:error(_).
 do_list_slabs_v1(DB, Shard) ->
-    ?IF_SHARD_READY(
+    ?IF_SHARD_REPLICA_READY(
         DB,
         Shard,
         emqx_ds_storage_layer:list_slabs({DB, Shard})
@@ -889,7 +932,7 @@ do_list_slabs_v1(DB, Shard) ->
 ) ->
     emqx_ds:next_result().
 do_next_v1(DB, Iter = #'Iterator'{shard = Shard}, NextLimit) ->
-    ?IF_SHARD_READY(
+    ?IF_SHARD_REPLICA_READY(
         DB,
         Shard,
         begin
@@ -903,7 +946,7 @@ do_next_v1(DB, Iter = #'Iterator'{shard = Shard}, NextLimit) ->
 ) ->
     {ok, tx_context()} | emqx_ds:error(_).
 do_new_kv_tx_ctx_v1(DB, Shard, Generation, Options) ->
-    ?IF_SHARD_READY(
+    ?IF_SHARD_REPLICA_READY(
         DB,
         Shard,
         emqx_ds_optimistic_tx:new_kv_tx_ctx(?MODULE, DB, Shard, Generation, Options)

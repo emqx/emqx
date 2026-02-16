@@ -32,8 +32,7 @@
 
 %% Dynamic server location API
 -export([
-    servers/3,
-    shard_info/3
+    servers/3
 ]).
 
 %% Safe Process Command API
@@ -244,17 +243,6 @@ get_shard_servers(DB, Shard) ->
 
 local_site() ->
     emqx_ds_builtin_raft_meta:this_site().
-
-%%
-
-%% @doc Shard information.
-%% * `ready` :: boolean()
-%%    Shard is considered ready when the backend is running, the shard process is up,
-%%    and shard has bootstrapped and caught up with the leader (including when it is
-%%    the leader).
--spec shard_info(emqx_ds:db(), emqx_ds:shard(), _Info) -> _Value.
-shard_info(DB, Shard, ready) ->
-    get_shard_info(DB, Shard, ready, false).
 
 %%
 
@@ -601,7 +589,7 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #st{db = DB, shard = Shard}) ->
     %% NOTE: Mark as not ready right away.
-    ok = erase_shard_info(DB, Shard),
+    ok = emqx_ds_builtin_raft:set_replica_ready(DB, Shard, false),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
     catch prep_stop_server(DB, Shard),
     ok = ra:stop_server(DB, local_server(DB, Shard)).
@@ -629,7 +617,7 @@ bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, se
     Overview = ra_overview(Server),
     case maps:get(last_applied, Overview, 0) of
         LastApplied when LastApplied >= RaftIdx ->
-            ok = announce_shard_ready(DB, Shard),
+            ok = emqx_ds_builtin_raft:set_replica_ready(DB, Shard, true),
             St#st{bootstrapped = true, stage = undefined};
         LastApplied ->
             %% NOTE
@@ -721,9 +709,6 @@ trigger_election(Server) ->
             ok
     end.
 
-announce_shard_ready(DB, Shard) ->
-    set_shard_info(DB, Shard, ready, true).
-
 server_uid(DB, Shard) ->
     %% NOTE
     %% Each new "instance" of a server should have a unique identifier. Otherwise,
@@ -731,22 +716,6 @@ server_uid(DB, Shard) ->
     %% back, `ra` will be very confused by it having the same UID as before.
     ClusterID = emqx_ds_builtin_raft_meta:this_cluster(),
     iolist_to_binary([atom_to_binary(DB), Shard, $_, ClusterID]).
-
-%%
-
-get_shard_info(DB, Shard, K, Default) ->
-    persistent_term:get(?PTERM(DB, Shard, K), Default).
-
-set_shard_info(DB, Shard, K, V) ->
-    persistent_term:put(?PTERM(DB, Shard, K), V).
-
-erase_shard_info(DB, Shard) ->
-    lists:foreach(fun(K) -> erase_shard_info(DB, Shard, K) end, [
-        ready
-    ]).
-
-erase_shard_info(DB, Shard, K) ->
-    persistent_term:erase(?PTERM(DB, Shard, K)).
 
 %%
 
