@@ -10,11 +10,6 @@ list_listeners.desc:
 list_listeners.label:
 """List listeners per type"""
 
-listener_type.desc:
-"""Listener type"""
-listener_type.label:
-"""Listener type"""
-
 create_on_all_nodes.desc:
 """Create the specified listener on all nodes."""
 create_on_all_nodes.label:
