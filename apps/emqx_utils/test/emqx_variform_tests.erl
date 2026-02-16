@@ -211,6 +211,14 @@ literal_test_() ->
         ?_assertEqual({ok, <<"string">>}, render(<<"\"string\"">>, #{}))
     ].
 
+jq1_test_() ->
+    [
+        ?_assertEqual(
+            {ok, <<"6">>},
+            render("jq1('.+1', '5')", #{})
+        )
+    ].
+
 boolean_literal_test_() ->
     [
         ?_assertEqual({ok, <<"T">>}, render("iif(true,'T','F')", #{}))
@@ -304,6 +312,9 @@ maps_test_() ->
 
 render(Expression, Bindings) ->
     emqx_variform:render(Expression, Bindings).
+
+render(Expression, Bindings, Opts) ->
+    emqx_variform:render(Expression, Bindings, Opts).
 
 hash_pick_test() ->
     lists:foreach(

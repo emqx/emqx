@@ -73,6 +73,15 @@ base64_encode_decode_test() ->
     Encoded = emqx_variform_bif:base64_encode(RandBytes),
     ?assertEqual(RandBytes, emqx_variform_bif:base64_decode(Encoded)).
 
+jq1_test_() ->
+    [
+        ?_assertEqual(#{<<"b">> => 2}, emqx_variform_bif:jq1(<<".">>, <<"{\"b\":2}">>)),
+        ?_assertEqual(6, emqx_variform_bif:jq1(<<".+1">>, <<"5">>)),
+        ?_assertEqual(#{<<"b">> => 2}, emqx_variform_bif:jq1(<<".">>, #{<<"b">> => 2})),
+        ?_assertEqual(#{<<"b">> => 2}, emqx_variform_bif:jq1(<<".">>, <<"{\"b\":2}">>, 10000)),
+        ?_assertEqual(<<"">>, emqx_variform_bif:jq1(<<".[]">>, <<"[]">>))
+    ].
+
 system_test() ->
     EnvName = erlang:atom_to_list(?MODULE),
     EnvVal = erlang:atom_to_list(?FUNCTION_NAME),
@@ -161,6 +170,11 @@ null_badarg_test_() ->
         ?ASSERT_BADARG(emqx_variform_bif:regex_replace(null, <<"a">>, <<"b">>)),
         ?ASSERT_BADARG(emqx_variform_bif:regex_extract(undefined, <<"a">>)),
         ?ASSERT_BADARG(emqx_variform_bif:regex_extract(null, <<"a">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:jq1(undefined, <<"{}">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:jq1(null, <<"{}">>)),
+        ?ASSERT_BADARG(emqx_variform_bif:jq1(<<".">>, undefined)),
+        ?ASSERT_BADARG(emqx_variform_bif:jq1(<<".">>, null)),
+        ?ASSERT_BADARG(emqx_variform_bif:jq1(<<".">>, <<"{}">>, -1)),
         ?ASSERT_BADARG(emqx_variform_bif:ascii(undefined)),
         ?ASSERT_BADARG(emqx_variform_bif:ascii(null)),
         ?ASSERT_BADARG(emqx_variform_bif:find(undefined, <<"a">>)),

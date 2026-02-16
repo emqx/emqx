@@ -65,6 +65,7 @@ groups() ->
             t_certdn_as_alias,
             t_client_attr_from_user_property,
             t_client_attr_from_password,
+            t_client_attr_role_from_jq_jwt_scp,
             t_certcn_as_clientid_default_config_tls,
             t_certcn_as_clientid_tlsv1_3,
             t_certcn_as_clientid_tlsv1_2,
@@ -453,6 +454,46 @@ t_client_attr_from_password(_Config) ->
     ClientInfo = maps:get(clientinfo, ChanInfo),
     ?assertNot(maps:is_key(password, ClientInfo)),
     emqtt:disconnect(Client).
+
+t_client_attr_role_from_jq_jwt_scp(_Config) ->
+    Expr =
+        "jq1('if (type == \"array\") and index(\"write\") then \"writer\" else \"reader\" end', "
+        "jwt_value(password, 'scp'))",
+    {ok, Compiled} = emqx_variform:compile(Expr),
+    emqx_config:put_zone_conf(default, [mqtt, client_attrs_init], [
+        #{
+            expression => Compiled,
+            set_as_attr => <<"role">>
+        }
+    ]),
+
+    WriterClientId = <<"t_client_attr_role_writer">>,
+    WriterToken = create_jwt_token(#{<<"scp">> => [<<"read">>, <<"write">>]}),
+    {ok, WriterClient} = emqtt:start_link([
+        {clientid, WriterClientId},
+        {username, <<"user">>},
+        {password, WriterToken}
+    ]),
+    {ok, _} = emqtt:connect(WriterClient),
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := #{<<"role">> := <<"writer">>}}},
+        emqx_cm:get_chan_info(WriterClientId)
+    ),
+    emqtt:disconnect(WriterClient),
+
+    ReaderClientId = <<"t_client_attr_role_reader">>,
+    ReaderToken = create_jwt_token(#{<<"scp">> => [<<"read">>]}),
+    {ok, ReaderClient} = emqtt:start_link([
+        {clientid, ReaderClientId},
+        {username, <<"user">>},
+        {password, ReaderToken}
+    ]),
+    {ok, _} = emqtt:connect(ReaderClient),
+    ?assertMatch(
+        #{clientinfo := #{client_attrs := #{<<"role">> := <<"reader">>}}},
+        emqx_cm:get_chan_info(ReaderClientId)
+    ),
+    emqtt:disconnect(ReaderClient).
 
 t_sock_keepalive(Config) ->
     %% Configure TCP Keepalive:
@@ -936,3 +977,19 @@ tls_certcn_as_clientid(TLSVsn, RequiredTLSVsn) ->
 meck_sched_delay(X) ->
     erlang:yield(),
     meck:passthrough([X]).
+
+create_jwt_token(PayloadMap) ->
+    Header = base64url_encode(<<"{\"alg\":\"none\",\"typ\":\"JWT\"}">>),
+    Payload = base64url_encode(emqx_utils_json:encode(PayloadMap)),
+    Signature = <<"signature">>,
+    <<Header/binary, ".", Payload/binary, ".", Signature/binary>>.
+
+base64url_encode(Bin) ->
+    Base64 = base64:encode(Bin),
+    Base64Url = binary:replace(
+        binary:replace(Base64, <<"+">>, <<"-">>, [global]),
+        <<"/">>,
+        <<"_">>,
+        [global]
+    ),
+    binary:replace(Base64Url, <<"=">>, <<>>, [global]).

@@ -75,6 +75,8 @@
     base64_decode/1,
     base64_decode/2,
     base64_decode/3,
+    jq1/2,
+    jq1/3,
     json_value/2,
     jwt_value/2
 ]).
@@ -679,6 +681,41 @@ base64_decode(Data, Opt1, Opt2) ->
     Options0 = base64_opts(#{}, Opt1),
     Options = base64_opts(Options0, Opt2),
     base64:decode(Data, Options).
+
+-spec jq1(binary(), binary() | term()) -> term().
+jq1(_FilterProgram, NULL) when ?IS_NULL(NULL) ->
+    ?BADARG();
+jq1(NULL, _JSON) when ?IS_NULL(NULL) ->
+    ?BADARG();
+jq1(FilterProgram, JsonBin) when is_binary(FilterProgram), is_binary(JsonBin) ->
+    jq_decode_first(jq:process_json(FilterProgram, JsonBin));
+jq1(FilterProgram, JSONTerm) when is_binary(FilterProgram) ->
+    JsonBin = emqx_utils_json:encode(JSONTerm),
+    jq1(FilterProgram, JsonBin);
+jq1(_FilterProgram, _JSON) ->
+    ?BADARG().
+
+-spec jq1(binary(), binary() | term(), non_neg_integer()) -> term().
+jq1(_FilterProgram, _JSON, TimeoutMS) when not is_integer(TimeoutMS); TimeoutMS < 0 ->
+    ?BADARG();
+jq1(_FilterProgram, NULL, _TimeoutMS) when ?IS_NULL(NULL) ->
+    ?BADARG();
+jq1(NULL, _JSON, _TimeoutMS) when ?IS_NULL(NULL) ->
+    ?BADARG();
+jq1(FilterProgram, JsonBin, TimeoutMS) when is_binary(FilterProgram), is_binary(JsonBin) ->
+    jq_decode_first(jq:process_json(FilterProgram, JsonBin, TimeoutMS));
+jq1(FilterProgram, JSONTerm, TimeoutMS) when is_binary(FilterProgram) ->
+    JsonBin = emqx_utils_json:encode(JSONTerm),
+    jq1(FilterProgram, JsonBin, TimeoutMS);
+jq1(_FilterProgram, _JSON, _TimeoutMS) ->
+    ?BADARG().
+
+jq_decode_first({ok, [First | _Rest]}) ->
+    emqx_utils_json:decode(First, [return_maps]);
+jq_decode_first({ok, []}) ->
+    <<"">>;
+jq_decode_first({error, ErrorReason}) ->
+    throw({jq_exception, ErrorReason}).
 
 -doc """
 Extract a value from a JSON binary using a dot-separated key path.
