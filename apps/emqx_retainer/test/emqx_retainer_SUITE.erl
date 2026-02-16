@@ -1318,6 +1318,36 @@ test_takeover_or_resume(Kind, TCConfig) ->
     ),
     ok.
 
+t_extsub_ignore_non_mqtt(_Config) ->
+    SendTag = make_ref(),
+    SendAfterTag = make_ref(),
+    SubCtx = #{
+        clientinfo => #{protocol => lwm2m},
+        subopts => #{rh => 0},
+        send => fun(_Info) ->
+            self() ! {unexpected_send, SendTag},
+            ok
+        end,
+        send_after => fun(_Delay, _Info) ->
+            self() ! {unexpected_send_after, SendAfterTag},
+            ok
+        end
+    },
+    ?assertEqual(
+        ignore,
+        emqx_retainer_extsub_handler:handle_subscribe(
+            subscribe, SubCtx, undefined, <<"retained/test">>
+        )
+    ),
+    receive
+        {unexpected_send, SendTag} ->
+            ?assert(false, unexpected_send);
+        {unexpected_send_after, SendAfterTag} ->
+            ?assert(false, unexpected_send_after)
+    after 100 ->
+        ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
