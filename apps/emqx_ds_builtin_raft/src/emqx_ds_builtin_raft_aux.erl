@@ -34,7 +34,7 @@ transaction leader process.
 
 -type otx_state() :: ?stopped | #starting{} | #running{} | #stopping{}.
 
--record(cast_manage_otx, {delay = 0 :: non_neg_integer()}).
+-record(cast_manage_otx, {}).
 -record(cast_otx_started, {result}).
 
 %% AUX server state:
@@ -154,12 +154,11 @@ set_cache(_, _) ->
     otx_state()
 ) ->
     {ok, otx_state(), ra_machine:effects()} | {postpone, otx_manage_event()} | ignore.
-manage_otx(DB, Shard, leader, #cast_manage_otx{delay = Delay}, ?stopped) ->
+manage_otx(DB, Shard, leader, #cast_manage_otx{}, ?stopped) ->
     %% Start OTX leader process:
     Server = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
     AsyncStarter = spawn_link(
         fun() ->
-            timer:sleep(Delay),
             Result = ?tp_span(
                 debug,
                 dsrepl_start_otx_leader,
@@ -188,8 +187,8 @@ manage_otx(DB, Shard, leader, #cast_otx_started{result = Err}, #starting{}) ->
             result => Err
         }
     ),
-    %% Retry:
-    manage_otx(DB, Shard, leader, #cast_manage_otx{delay = ?restart_delay}, ?stopped);
+    %% Will be retried on `tick` event:
+    {ok, ?stopped, []};
 manage_otx(_DB, _Shard, _State, #cast_otx_started{}, #starting{}) ->
     %% Failed to start, but we are not the leader. Ignore.
     {ok, ?stopped, []};
@@ -229,7 +228,8 @@ manage_otx(DB, Shard, leader, {down, Pid, Reason}, #running{pid = Pid}) ->
         }
     ),
     emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
-    manage_otx(DB, Shard, leader, #cast_manage_otx{delay = ?restart_delay}, ?stopped);
+    %% Will be restarted on `tick` event:
+    {ok, ?stopped, []};
 manage_otx(DB, Shard, _State, {down, Pid, _Reason}, #stopping{pid = Pid}) ->
     emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
     {ok, ?stopped, []};
@@ -241,6 +241,12 @@ manage_otx(_DB, _Shard, _State, Event = #cast_manage_otx{}, Otx) when
     %% For example, if OTX is `#stopping{}` and by the time it stops
     %% there's a postponed event, OTX needs to be quickly restarted.
     {postpone, Event};
+manage_otx(DB, Shard, State, tick, Otx) when
+    Otx =:= ?stopped;
+    is_record(Otx, running)
+->
+    %% Reconcile the current state with the state of OTX leader process:
+    manage_otx(DB, Shard, State, #cast_manage_otx{}, Otx);
 manage_otx(DB, Shard, State, Event, Otx) when
     is_record(Event, cast_manage_otx);
     is_record(Event, cast_otx_started)
