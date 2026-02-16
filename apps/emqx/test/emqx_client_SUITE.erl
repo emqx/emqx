@@ -469,10 +469,9 @@ t_sock_keepalive(Config) ->
     %% Connect MQTT client:
     ClientId = atom_to_binary(?FUNCTION_NAME),
     {ok, C} = emqtt:start_link([{clientid, ClientId} | Config]),
-    {
-        {ok, _},
-        {ok, #{?snk_meta := #{pid := CPid}}}
-    } = ?wait_async_action(emqtt:connect(C), #{?snk_kind := connection_started}),
+    {ok, _} = emqtt:connect(C),
+    ?WAIT([_CPid] = emqx_cm:lookup_channels(ClientId), 5),
+    [CPid] = emqx_cm:lookup_channels(ClientId),
     %% Verify TCP settings handled smoothly:
     %% If actual keepalive probes are going around is notoriously difficult to verify.
     MRef = erlang:monitor(process, CPid),
