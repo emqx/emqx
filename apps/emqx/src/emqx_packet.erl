@@ -285,7 +285,7 @@ check(#mqtt_packet_unsubscribe{topic_filters = TopicFilters}) ->
 
 check_pub_props(#{'Topic-Alias' := 0}) ->
     {error, ?RC_TOPIC_ALIAS_INVALID};
-check_pub_props(#{'Subscription-Identifier' := 0}) ->
+check_pub_props(#{'Subscription-Identifier' := _}) ->
     {error, ?RC_PROTOCOL_ERROR};
 check_pub_props(#{'Response-Topic' := ResponseTopic}) ->
     try emqx_topic:validate(name, ResponseTopic) of

@@ -218,6 +218,15 @@ t_handle_in_unexpected_packet(_) ->
     {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
         emqx_channel:handle_in(?PUBLISH_PACKET(?QOS_0), Channel).
 
+t_handle_in_publish_with_subscription_identifier(_) ->
+    Channel = channel(#{conn_state => connected}),
+    Publish = ?PUBLISH_PACKET(
+        ?QOS_1, <<"topic">>, 1, #{'Subscription-Identifier' => 1}, <<"payload">>
+    ),
+    Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
+    {ok, [{outgoing, Packet}, {close, protocol_error}], Channel} =
+        emqx_channel:handle_in(Publish, Channel).
+
 % t_handle_in_connect_auth_failed(_) ->
 %     ConnPkt = #mqtt_packet_connect{
 %                                 proto_name  = <<"MQTT">>,

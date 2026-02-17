@@ -1,11 +1,5 @@
 emqx_connector_schema {
 
-config_enable.desc:
-"""Enable (true) or disable (false) this connector."""
-
-config_enable.label:
-"""Enable or Disable"""
-
 desc_connectors.desc:
 """Connectors that are used to connect to external systems"""
 desc_connectors.label:

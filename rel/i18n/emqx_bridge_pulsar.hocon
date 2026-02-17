@@ -67,11 +67,6 @@ buffer_per_partition_limit.desc:
  buffer_per_partition_limit.label:
 """Per-partition Buffer Limit"""
 
-desc_name.desc:
-"""Action name, a human-readable identifier."""
-desc_name.label:
-"""Action Name"""
-
 buffer_segment_bytes.desc:
 """Applicable when buffer mode is set to <code>disk</code> or <code>hybrid</code>.
 This value is to specify the size of each on-disk buffer file."""
@@ -89,9 +84,9 @@ connect_timeout.label:
 """Connect Timeout"""
 
 desc_name.desc:
-"""Bridge name, used as a human-readable description of the bridge."""
+"""Action name, a human-readable identifier."""
 desc_name.label:
-"""Bridge Name"""
+"""Action Name"""
 
 desc_type.desc:
 """The Bridge Type"""
