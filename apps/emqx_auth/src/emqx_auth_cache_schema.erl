@@ -30,7 +30,7 @@ roots() -> [].
 
 fields(config) ->
     [
-        {enable, mk(boolean(), #{desc => ?DESC(enable), default => false})},
+        {enable, mk(boolean(), #{desc => ?DESC(enable), default => true})},
         {cache_ttl,
             mk(emqx_schema:timeout_duration_ms(), #{
                 desc => ?DESC(cache_ttl), default => <<"1m">>
@@ -100,7 +100,7 @@ fill_defaults(Config) ->
 
 default_config() ->
     #{
-        <<"enable">> => false
+        <<"enable">> => true
     }.
 
 %%------------------------------------------------------------------------------
