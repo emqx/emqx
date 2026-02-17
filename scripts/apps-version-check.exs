@@ -110,7 +110,8 @@ defmodule AppsVersionCheck do
   end
 
   def with_tmp_file(contents, fun) do
-    tmp_file = Path.join(System.tmp_dir!(), "apps-version-check-#{System.unique_integer([:positive])}")
+    tmp_file =
+      Path.join(System.tmp_dir!(), "apps-version-check-#{System.unique_integer([:positive])}")
 
     try do
       File.write!(tmp_file, contents)
