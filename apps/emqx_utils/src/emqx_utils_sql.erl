@@ -32,14 +32,12 @@
 -type statement_type() :: select | insert | delete | update.
 -type value() :: null | binary() | number() | boolean() | [value()].
 
-%% The type Copied from stdlib/src/re.erl to compatibility with OTP 26
-%% Since `re:mp()` exported after OTP 27
--type mp() :: {re_pattern, _, _, _, _}.
+-type mp() :: re:mp().
 
 -define(INSERT_RE_MP_KEY, {?MODULE, insert_re_mp}).
 -define(INSERT_RE_BIN, <<
     %% case-insensitive
-    "(?i)^\\s*"
+    "(?is)^\\s*"
     %% Group-1: insert into, table name and columns (when existed).
     %% All space characters suffixed to <TABLE_NAME> will be kept
     %% `INSERT INTO <TABLE_NAME> [(<COLUMN>, ..)]`
