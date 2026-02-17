@@ -266,15 +266,16 @@ t_cluster_watch_immediate_node_clear(_Config) ->
     ok = meck:expect(emqx, running_nodes, fun() -> [] end),
     ok = meck:expect(emqx_username_quota_state, clear_for_node, fun(_N) -> ok end),
     {ok, Pid} = emqx_username_quota_cluster_watch:start_link(),
+    MRef = erlang:monitor(process, Pid),
     true = unlink(Pid),
     Node = 'node4@127.0.0.1',
     ?assertEqual(async, emqx_username_quota_cluster_watch:immediate_node_clear(Node)),
     ok = wait_until(fun() -> meck:called(emqx_username_quota_state, clear_for_node, [Node]) end),
     exit(Pid, shutdown),
     receive
-        {'EXIT', Pid, shutdown} -> ok
+        {'DOWN', MRef, process, Pid, shutdown} -> ok
     after 1000 ->
-        ok
+        ?assert(false)
     end.
 
 wait_until(Pred) ->
