@@ -34,16 +34,14 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
             }}
     end;
 handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
-    Username = uri_string:percent_decode(Username0),
-    case emqx_username_quota_state:get_username(Username) of
+    case emqx_username_quota_state:get_username(Username0) of
         {ok, Info} ->
             {ok, 200, #{}, Info};
         {error, not_found} ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
     end;
 handle(delete, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
-    Username = uri_string:percent_decode(Username0),
-    case emqx_username_quota_state:kick_username(Username) of
+    case emqx_username_quota_state:kick_username(Username0) of
         {ok, N} ->
             {ok, 200, #{}, #{kicked => N}};
         {error, not_found} ->
@@ -53,25 +51,15 @@ handle(_Method, _Path, _Request) ->
     {error, not_found}.
 
 get_pos_int(Map, Key, Default) ->
-    Value = get_q(Map, Key, Default),
-    Int =
-        case Value of
-            V when is_integer(V) -> V;
-            V when is_binary(V) -> to_integer(V, Default);
-            V when is_list(V) -> to_integer(iolist_to_binary(V), Default);
-            _ -> Default
-        end,
+    Value = maps:get(Key, Map, Default),
+    Int = to_integer(Value, Default),
     case Int > 0 andalso Int =< ?MAX_LIMIT of
         true -> Int;
         false -> Default
     end.
 
-get_q(Map, Key, Default) ->
-    case maps:find(Key, Map) of
-        {ok, V} -> V;
-        error -> Default
-    end.
-
+to_integer(Int, _Default) when is_integer(Int) ->
+    Int;
 to_integer(Bin, Default) ->
     try binary_to_integer(Bin) of
         Int -> Int
