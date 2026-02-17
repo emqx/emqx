@@ -40,8 +40,8 @@ create_tables() ->
         {attributes, record_info(fields, ?COUNTER_TAB)}
     ]),
     ok = mria:wait_for_tables([?RECORD_TAB, ?COUNTER_TAB]),
-    ensure_ets_table(?MONITOR_TAB),
-    ensure_ets_table(?CCACHE_TAB),
+    ok = emqx_utils_ets:new(?MONITOR_TAB, [bag, public]),
+    ok = emqx_utils_ets:new(?CCACHE_TAB, [ordered_set, public]),
     ok.
 
 add(Username, ClientId, Pid) ->
@@ -219,20 +219,6 @@ do_clear_for_node(Node) ->
     _ = mria:match_delete(?COUNTER_TAB, M2),
     true = ets:delete_all_objects(?CCACHE_TAB),
     ok.
-
-ensure_ets_table(Tab) ->
-    case ets:info(Tab) of
-        undefined ->
-            Opts =
-                case Tab of
-                    ?MONITOR_TAB -> [bag, named_table, public];
-                    _ -> [ordered_set, named_table, public]
-                end,
-            _ = ets:new(Tab, Opts),
-            ok;
-        _ ->
-            ok
-    end.
 
 dec_counter(Username) ->
     Key = ?COUNTER_KEY(Username, node()),
