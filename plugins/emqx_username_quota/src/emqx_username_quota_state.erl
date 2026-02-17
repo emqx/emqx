@@ -20,7 +20,6 @@
 ]).
 
 -include("emqx_username_quota.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 
 %% @doc Create the two core Mria tables used by username quota state.
 %% ?RECORD_TAB stores one row per active session, keyed by {Username, ClientId, Pid}.
@@ -190,14 +189,25 @@ lookup_ccache(Username) ->
     end.
 
 update_ccache(Username) ->
-    MS = ets:fun2ms(fun(#?COUNTER_TAB{key = ?COUNTER_KEY(U0, _), count = Count}) when
-        U0 =:= Username
-    ->
-        Count
-    end),
-    Cnt = lists:sum(ets:select(?COUNTER_TAB, MS)),
+    Cnt = sum_username_counters(Username),
     _ = ets:insert(?CCACHE_TAB, ?CCACHE(Username, erlang:system_time(millisecond), Cnt)),
     Cnt.
+
+sum_username_counters(Username) ->
+    StartKey = ?COUNTER_KEY(Username, 0),
+    sum_username_counters(Username, ets:next(?COUNTER_TAB, StartKey), 0).
+
+sum_username_counters(Username, ?COUNTER_KEY(Username, _Node) = Key, Acc) ->
+    Acc1 =
+        case ets:lookup(?COUNTER_TAB, Key) of
+            [#?COUNTER_TAB{count = Count}] when is_integer(Count), Count > 0 ->
+                Acc + Count;
+            _ ->
+                Acc
+        end,
+    sum_username_counters(Username, ets:next(?COUNTER_TAB, Key), Acc1);
+sum_username_counters(_Username, _Key, Acc) ->
+    Acc.
 
 evict_ccache(Username) ->
     ets:delete(?CCACHE_TAB, Username),
