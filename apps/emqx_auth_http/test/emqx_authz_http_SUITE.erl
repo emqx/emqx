@@ -51,6 +51,7 @@ init_per_testcase(t_bad_response = TestCase, TCConfig) ->
     init_per_testcase(common, [{tc_apps, TCApps} | TCConfig]);
 init_per_testcase(_TestCase, TCConfig) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
+    ok = emqx_authz_test_lib:reset_node_cache(),
     HTTPPort = emqx_common_test_helpers:select_free_port(tcp),
     {ok, _} = emqx_utils_http_test_server:start_link(HTTPPort, ?HTTP_PATH),
     [{http_port, HTTPPort} | TCConfig].
