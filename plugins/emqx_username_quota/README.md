@@ -7,6 +7,10 @@ This plugin enforces a per-username session quota.
 - Reconnects with an existing `clientid` do not consume additional quota.
 - Whitelisted usernames bypass quota checks.
 
+> [!NOTE]
+> Per-username session count lmit can be achievend by setting username as namespace (set `client_attrs.tns` in `client_attrs_init` config).
+> This plugin is only needed when there is adifferent scheme for namespace.
+
 ## Configuration
 
 Plugin config fields:
