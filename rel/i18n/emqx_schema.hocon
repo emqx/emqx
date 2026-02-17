@@ -1076,14 +1076,14 @@ fields_ws_opts_supported_subprotocols.label:
 mqtt_shared_subscription_strategy.desc: """~
   Dispatch strategy for shared subscription.
   EMQX keeps **dispatch state** (such as random seeds, round-robin position, and sticky subscriber choice) as part of the **publishing client’s connection state**.
-  If the publishing client disconnects and reconnects, this state is lost and must be re-initialized
+  If the publishing client disconnects and reconnects, this state is lost and must be re-initialized.
 
-  - `random`: Randomly select a subscriber for dispatch;
-  - `round_robin`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each publisher, so two adjacent messages from **different publishers** may be consumed by the same client in the subscription group;
-  - `round_robin_per_group`: Clients in a shared subscription group will consume messages in turn, and the progress of the loop is recorded independently in each node, so two adjacent messages from **different nodes** may be consumed by the same client in the subscription group;
-  - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster;
-  - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial selection is made based on `mqtt_shared_subscription_initial_sticky_pick`;
-  - `hash_clientid`: Hash the publisher's client ID to select a subscriber;
+  - `random`: Randomly select a subscriber for dispatch.
+  - `round_robin`: Deliver messages to subscribers in turn within each shared subscription group. The round-robin progress is maintained per publishing client, so messages from different publishers may be delivered to the same subscriber consecutively.
+  - `round_robin_per_group`: Similar to `round_robin`, but the round-robin progress is tracked independently on each node. This means messages published from different nodes in a cluster may be delivered to the same subscriber.
+  - `local`: Randomly select a subscriber on the current node, if there are no subscribers on the current node, then randomly select within the cluster.
+  - `sticky`: Continuously dispatch messages to the initially selected subscriber until their session ends. The initial subscriber is chosen based on `mqtt_shared_subscription_initial_sticky_pick`.
+  - `hash_clientid`: Hash the publisher's client ID to select a subscriber.
   - `hash_topic`: Hash the publishing topic to select a subscriber.~"""
 
 mqtt_shared_subscription_initial_sticky_pick.desc:
