@@ -194,6 +194,9 @@ on_info(#{id := Id, share_topic_filter := ShareTopicFilter} = St, ?find_leader_t
 on_info(St, ?find_leader_timer) when ?is_connected(St) ->
     %% Handle late delivery of the timer.
     {ok, [], St};
+on_info(#{leader := Leader} = St, ?leader_connect_response_match(Leader)) when ?is_connected(St) ->
+    %% Tolerate duplicate messages from the same leader:
+    {ok, [], St};
 %%
 %% Ping leader, status independent
 %%
