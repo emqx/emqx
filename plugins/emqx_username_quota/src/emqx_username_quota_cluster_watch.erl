@@ -23,8 +23,10 @@
 
 -ifdef(TEST).
 -define(CLEAR_NODE_DELAY_SECONDS, 0).
+-define(CLEAR_NODE_JITTER_MAX_SECONDS, 0).
 -else.
 -define(CLEAR_NODE_DELAY_SECONDS, 600).
+-define(CLEAR_NODE_JITTER_MAX_SECONDS, 30).
 -endif.
 
 start_link() ->
@@ -59,7 +61,7 @@ handle_info({nodedown, Node}, State) ->
     case mria_rlog:role() of
         core ->
             _ = erlang:send_after(
-                timer:seconds(?CLEAR_NODE_DELAY_SECONDS), self(), {clear_for_node, Node}
+                clear_node_delay_ms(Node), self(), {clear_for_node, Node}
             ),
             ok;
         replicant ->
@@ -80,3 +82,13 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+clear_node_delay_ms(Node) ->
+    BaseS = ?CLEAR_NODE_DELAY_SECONDS,
+    MaxJitterS = ?CLEAR_NODE_JITTER_MAX_SECONDS,
+    JitterS =
+        case MaxJitterS > 0 of
+            true -> erlang:phash2({node(), Node}, MaxJitterS + 1);
+            false -> 0
+        end,
+    timer:seconds(BaseS + JitterS).
