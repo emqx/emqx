@@ -344,6 +344,10 @@ jobs:
         pattern: "${{ matrix.profile }}-*"
         path: packages/${{ matrix.profile }}
         merge-multiple: true
+    - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+      with:
+        name: plugins
+        path: packages/plugins
     - uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 # v5.0.0
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -358,4 +362,5 @@ jobs:
       run: |
         set -eu
         aws s3 cp --recursive packages/$PROFILE s3://$AWS_S3_BUCKET/emqx-ee/$REF_NAME
-        aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/emqx-ee/$REF_NAME/*"
+        aws s3 cp --recursive packages/plugins s3://$AWS_S3_BUCKET/emqx-plugins/$REF_NAME/
+        aws cloudfront create-invalidation --distribution-id "$AWS_CLOUDFRONT_ID" --paths "/emqx-ee/$REF_NAME/*" "/emqx-plugins/$REF_NAME/*"
