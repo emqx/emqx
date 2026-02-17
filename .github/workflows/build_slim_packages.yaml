@@ -15,6 +15,25 @@ permissions:
   contents: read
 
 jobs:
+  plugins-linux-amd64:
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    env:
+      PROFILE: emqx-enterprise
+      ARCH: amd64
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        fetch-depth: 0
+    - name: build plugins
+      run: |
+        make plugins
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: "plugins"
+        path: _packages/plugins/*.tar.gz
+        retention-days: 7
+        compression-level: 0
+
   linux:
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     env:

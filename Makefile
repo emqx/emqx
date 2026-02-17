@@ -202,7 +202,27 @@ plugin-%:
 		echo "Ensure it is generated from emqx-plugin-template or provides plugin packaging make rules."; \
 		exit 1; \
 	fi; \
-	$(MAKE) -C "$$PLUGIN_APP_DIR" rel
+	$(MAKE) -C "$$PLUGIN_APP_DIR" REBAR="$(REBAR)" rel
+
+.PHONY: plugins
+plugins: $(REBAR)
+	@mkdir -p _packages/plugins
+	@rm -f _packages/plugins/*.tar.gz
+	@set -e; \
+	for PLUGIN_APP_DIR in plugins/*; do \
+		if [ ! -d "$$PLUGIN_APP_DIR" ] || [ ! -f "$$PLUGIN_APP_DIR/Makefile" ]; then \
+			continue; \
+		fi; \
+		PLUGIN_APP="$$(basename "$$PLUGIN_APP_DIR")"; \
+		echo "Building plugin $$PLUGIN_APP"; \
+		$(MAKE) "plugin-$$PLUGIN_APP"; \
+		PLUGIN_PKGS="$$(find "$$PLUGIN_APP_DIR/_build" -maxdepth 4 -type f -name '*.tar.gz' | sort)"; \
+		if [ -z "$$PLUGIN_PKGS" ]; then \
+			echo "No plugin package (*.tar.gz) found under $$PLUGIN_APP_DIR/_build"; \
+			exit 1; \
+		fi; \
+		cp $$PLUGIN_PKGS _packages/plugins/; \
+	done
 
 COMMON_DEPS := $(REBAR)
 
