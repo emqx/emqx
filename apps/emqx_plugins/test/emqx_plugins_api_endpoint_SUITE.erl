@@ -79,6 +79,15 @@ t_plugin_api_callback_crash(_Config) ->
         Body
     ).
 
+t_plugin_api_path_remainder_is_percent_decoded(_Config) ->
+    ok = meck:expect(
+        emqx_plugins,
+        handle_api_call,
+        fun(<<"fake">>, #{path := [<<"user/name">>]}, _Timeout) -> {200, #{ok => true}} end
+    ),
+    {200, Body} = request(get, ?SERVER ++ "/plugin_api/fake/user%2Fname"),
+    ?assertEqual(#{<<"ok">> => true}, Body).
+
 request(Method, Url) ->
     request(Method, Url, emqx_mgmt_api_test_util:auth_header_()).
 

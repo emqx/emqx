@@ -8,8 +8,37 @@
 -export([start_link/0]).
 -export([init/1]).
 
+-define(SERVER, ?MODULE).
+
 start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link({local, ?SERVER}, ?MODULE, []).
 
 init([]) ->
-    {ok, {#{strategy => one_for_one, intensity => 100, period => 10}, []}}.
+    ok = emqx_username_quota_state:create_tables(),
+    SupFlags = #{
+        strategy => one_for_all,
+        intensity => 10,
+        period => 10
+    },
+    PoolModule = emqx_username_quota_pool,
+    PoolType = hash,
+    MFA = {PoolModule, start_link, []},
+    SupArgs = [PoolModule, PoolType, MFA],
+    ChildSpecs = [
+        #{
+            id => emqx_username_quota_snapshot,
+            start => {emqx_username_quota_snapshot, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 1_000
+        },
+        emqx_pool_sup:spec(emqx_username_quota_pool_sup, SupArgs),
+        #{
+            id => emqx_username_quota_cluster_watch,
+            start => {emqx_username_quota_cluster_watch, start_link, []},
+            type => worker,
+            restart => transient,
+            shutdown => 1_000
+        }
+    ],
+    {ok, {SupFlags, ChildSpecs}}.
