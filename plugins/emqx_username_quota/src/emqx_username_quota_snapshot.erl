@@ -3,6 +3,19 @@
 %%--------------------------------------------------------------------
 -module(emqx_username_quota_snapshot).
 
+-moduledoc """
+Snapshot owner process for paginated username-quota listing.
+
+This server keeps an ETS snapshot sorted by `{used, username}` and serves pages by
+cursor. Cursors encode `{node, generation, last_key}` so follow-up requests can be
+routed back to the same node and generation.
+
+`rebuilding_snapshot` is returned when a request's `DeadlineMs` is already exhausted
+or becomes exhausted while a snapshot rebuild is in progress. This is expected for
+stale requests, for example when clients retry late with an old cursor/deadline while
+the owner is refreshing the snapshot.
+""".
+
 -behaviour(gen_server).
 
 -export([

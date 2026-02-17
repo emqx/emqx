@@ -213,11 +213,9 @@ delete_client_records(_Username, _ClientId, _Key) ->
     ok.
 
 do_clear_for_node(Node) ->
-    M1 = erlang:make_tuple(record_info(size, ?RECORD_TAB), '_', [{#?RECORD_TAB.node, Node}]),
+    M1 = #?RECORD_TAB{node = Node, _ = '_'},
     _ = mria:match_delete(?RECORD_TAB, M1),
-    M2 = erlang:make_tuple(record_info(size, ?COUNTER_TAB), '_', [
-        {#?COUNTER_TAB.key, ?COUNTER_KEY('_', Node)}
-    ]),
+    M2 = #?COUNTER_TAB{key = ?COUNTER_KEY('_', Node), _ = '_'},
     _ = mria:match_delete(?COUNTER_TAB, M2),
     true = ets:delete_all_objects(?CCACHE_TAB),
     ok.
