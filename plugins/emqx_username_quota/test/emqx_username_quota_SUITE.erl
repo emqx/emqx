@@ -108,7 +108,7 @@ t_whitelist_bypass(_Config) ->
         )
     ).
 
-t_api_list_get_delete(_Config) ->
+t_api_list_get_kick(_Config) ->
     User = <<"api-user">>,
     ok = emqx_username_quota:register_session(User, <<"c1">>),
     ok = emqx_username_quota:register_session(User, <<"c2">>),
@@ -133,9 +133,9 @@ t_api_list_get_delete(_Config) ->
     ok = meck:new(emqx_cm, [non_strict, passthrough]),
     ok = meck:expect(emqx_cm, kick_session, fun(_ClientId) -> ok end),
     {ok, 200, _Headers3, #{kicked := 2}} = emqx_username_quota_api:handle(
-        delete,
+        post,
         [
-            <<"quota">>, <<"usernames">>, User
+            <<"kick">>, User
         ],
         #{}
     ),

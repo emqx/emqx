@@ -40,7 +40,7 @@ handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
         {error, not_found} ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
     end;
-handle(delete, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
+handle(post, [<<"kick">>, Username0], _Request) ->
     case emqx_username_quota_state:kick_username(Username0) of
         {ok, N} ->
             {ok, 200, #{}, #{kicked => N}};

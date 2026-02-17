@@ -42,7 +42,7 @@ The plugin exposes runtime APIs through plugin API gateway:
 
 - `GET /api/v5/plugin_api/emqx_username_quota/quota/usernames`
 - `GET /api/v5/plugin_api/emqx_username_quota/quota/usernames/:username`
-- `DELETE /api/v5/plugin_api/emqx_username_quota/quota/usernames/:username`
+- `POST /api/v5/plugin_api/emqx_username_quota/kick/:username`
 
 ### `GET /quota/usernames`
 
