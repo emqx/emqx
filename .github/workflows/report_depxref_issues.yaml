@@ -1,0 +1,156 @@
+name: Report dependency issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        required: true
+        type: string
+      workflow-run-id:
+        required: true
+        type: string
+  workflow_run:
+    workflows: ["PR Entrypoint"]
+    types:
+      - completed
+
+env:
+  IS_CI: "yes"
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  init:
+    outputs:
+      proceed: ${{ steps.decide.outputs.proceed }}
+      pr-number: ${{ steps.decide.outputs.pr-number }}
+      run-id: ${{ steps.decide.outputs.run-id }}
+      base-sha: ${{ steps.decide.outputs.base-sha }}
+      head-sha: ${{ steps.decide.outputs.head-sha }}
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    steps:
+      - name: inspect event
+        run: cat ${GITHUB_EVENT_PATH} | jq
+      - name: check preconditions
+        id: decide
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GH_REPO="${{ github.repository }}"
+          GH_PR_NUMBER="${{ inputs.pr-number || github.event.workflow_run.pull_requests[0].number }}"
+
+          if [ "${GH_PR_NUMBER}" == "" ]; then
+            echo 'Skipping: no associated pull request' && exit 0
+          fi
+
+          GH_RUN_CONCLUSION=${{ github.event.workflow_run.conclusion }}
+          if [ -n "${GH_RUN_CONCLUSION}" ] && [ "${GH_RUN_CONCLUSION}" != "success" ]; then
+            echo 'Skipping: pull request run finished with:' "${GH_RUN_CONCLUSION}" && exit 0
+          fi
+
+          GH_PR_LABEL="$(gh --repo ${GH_REPO} pr view ${GH_PR_NUMBER} --json labels --jq '.labels[].name | select(. == "no-depxref")')"
+          if [ "${GH_PR_LABEL}" != "" ]; then
+            echo 'Skipping: pull request has `no-depxref` label' && exit 0
+          fi
+
+          GH_RUN_ID="${{ inputs.workflow-run-id || github.event.workflow_run.id }}"
+
+          GH_PR_REFS="$(gh pr --repo ${GH_REPO} view ${GH_PR_NUMBER} --json baseRefOid,headRefOid)"
+          GH_BASE_SHA="${{ github.event.workflow_run.pull_requests[0].base.sha }}"
+          GH_BASE_SHA="${GH_BASE_SHA:-$(echo ${GH_PR_REFS} | jq -r .baseRefOid)}"
+          GH_HEAD_SHA="${{ github.event.workflow_run.head_sha }}"
+          GH_HEAD_SHA="${GH_HEAD_SHA:-$(echo ${GH_PR_REFS} | jq -r .headRefOid)}"
+
+          echo "proceed=true"              | tee -a $GITHUB_OUTPUT
+          echo "pr-number=${GH_PR_NUMBER}" | tee -a $GITHUB_OUTPUT
+          echo "run-id=${GH_RUN_ID}"       | tee -a $GITHUB_OUTPUT
+          echo "base-sha=${GH_BASE_SHA}"   | tee -a $GITHUB_OUTPUT
+          echo "head-sha=${GH_HEAD_SHA}"   | tee -a $GITHUB_OUTPUT
+
+  # Main job:
+  depxref:
+    needs: init
+    if: needs.init.outputs.proceed == 'true'
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    steps:
+      - name: issue GitHub App token
+        id: token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: ${{ vars.AUTH_APP_ID }}
+          private-key: ${{ secrets.AUTH_APP_PRIVATE_KEY }}
+
+      - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
+        with:
+          name: emqx-enterprise-release
+          run-id: ${{ needs.init.outputs.run-id }}
+          github-token: ${{ steps.token.outputs.token }} # ${{ secrets.GITHUB_TOKEN }}
+
+      - name: extract artifact
+        id: artifact
+        run: |
+          if [ -f emqx-enterprise-release.zip ]; then
+            unzip -o -q emqx-enterprise-release.zip
+          fi
+
+      # Relies on `.git` directory being present:
+      - name: compile report
+        id: report
+        run: |
+          source ./env.sh
+          docker run --rm -v $PWD:$PWD --workdir $PWD "${EMQX_BUILDER}" bash -c '
+            # workaround safe directory error
+            git config --global --add safe.directory $PWD
+            # run analysis
+            make elixir-common-deps
+            ./scripts/report-depxref-issues.sh ${{ needs.init.outputs.base-sha }} | tee depxref.out || true
+          '
+          if [ -s "depxref-report.md" ]; then
+            ( tail -n1 depxref.out || true ) > depxref-summary
+            echo "issues-found=true" | tee -a $GITHUB_OUTPUT
+          fi
+
+      - name: upload depxref report
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        if: steps.report.outputs.issues-found == 'true'
+        with:
+          path: depxref-report.md
+
+      - name: report check result
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }} # ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          GH_CHECK_CONCLUSION="${{ steps.report.outputs.issues-found == 'true' && 'neutral' || 'success' }}"
+          if [ "${GH_CHECK_CONCLUSION}" = "neutral" ]; then
+            GH_API_ARGS=(
+              -f 'output[title]=Application dependency issues found'
+              -F 'output[summary]=@depxref-summary'
+              -F 'output[text]=@depxref-report.md'
+            )
+          else
+            GH_API_ARGS=(-f 'output[title]=Everything good')
+          fi
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/check-runs \
+             -f 'name=depxref' \
+             -f 'head_sha=${{ needs.init.outputs.head-sha }}' \
+             -f 'status=completed' \
+             -f 'conclusion='${GH_CHECK_CONCLUSION} \
+             "${GH_API_ARGS[@]}"
+
+      - name: leave comment
+        if: steps.report.outputs.issues-found == 'true'
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }} # ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "## Depxref"                                  > depxref-comment.md
+          echo "Application dependency issues were found."  >> depxref-comment.md
+          echo ""                                           >> depxref-comment.md
+          cat depxref-report.md                             >> depxref-comment.md
+          gh --repo ${{ github.repository }} pr comment ${{ needs.init.outputs.pr-number }} --create-if-none --edit-last --body-file depxref-comment.md
