@@ -13,8 +13,7 @@
     handle_call/3,
     handle_cast/2,
     handle_info/2,
-    terminate/2,
-    code_change/3
+    terminate/2
 ]).
 
 -define(POOL, ?MODULE).
@@ -55,6 +54,3 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #{pool := Pool, id := Id}) ->
     gproc_pool:disconnect_worker(Pool, {Pool, Id}).
-
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.

@@ -86,8 +86,6 @@ get_cursor(Query) ->
     case maps:find(<<"cursor">>, Query) of
         {ok, Cursor} when is_binary(Cursor) ->
             Cursor;
-        {ok, Cursor} when is_list(Cursor) ->
-            iolist_to_binary(Cursor);
-        _ ->
+        error ->
             undefined
     end.
