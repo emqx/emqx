@@ -964,7 +964,7 @@ announce_otx_leader_pid(Leader, Timeout, Pid) ->
         {ok, {error, _, _} = Err, Leader} ->
             Err;
         {ok, _, OtherLeader} ->
-            ?err_unrec({leadership_gone, #{Leader => OtherLeader}});
+            ?err_rec({leadership_gone, #{Leader => OtherLeader}});
         Err ->
             ?err_rec({raft, Err, ?FUNCTION_NAME})
     end.
@@ -1156,7 +1156,7 @@ local_raft_leader(DB, Shard) ->
             %% Local server still considers itself a leader:
             {ok, LocalServer};
         {pong, State} ->
-            ?err_unrec({invalid_state_of_local_leader, State});
+            ?err_rec({local_leadership_gone, #{current_state => State}});
         timeout ->
             ?err_rec(local_leader_timeout);
         Other ->
