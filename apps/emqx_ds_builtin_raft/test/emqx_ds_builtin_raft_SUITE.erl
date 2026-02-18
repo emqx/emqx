@@ -23,13 +23,12 @@ opts(_Config, Overrides) ->
     emqx_utils_maps:deep_merge(
         #{
             backend => builtin_raft,
+            payload_type => ?ds_pt_mqtt,
             n_shards => 16,
             n_sites => 1,
             replication_factor => 3,
             replication_options => #{
-                wal_max_size_bytes => 64,
-                wal_max_batch_size => 1024,
-                snapshot_interval => 128
+                wal_max_size_bytes => 1_000_000
             }
         },
         Overrides
@@ -291,60 +290,72 @@ t_replication_transfers_snapshots('end', Config) ->
     ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
 t_replication_transfers_snapshots(Config) ->
-    NMsgs = 400,
-    NClients = 5,
+    %% NOTE
+    %% This amounts to 1200 single-record OTX batches, which is enough to trigger
+    %% Ra machine snapshot, see `?RA_RELEASE_LOG_MIN_FREQ` definition.
+    %% TODO
+    %% Introduce explicit snapshotting to the API and rely on it instead.
+    NMsgs = 200,
+    NClients = 6,
+    ReplicationOpts = #{snapshot_interval => 100},
     {Stream, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
         ?FUNCTION_NAME, NClients, NMsgs
     ),
-    Nodes = [Node, NodeOffline | _] = ?config(nodes, Config),
-    _Specs = [_, SpecOffline | _] = ?config(specs, Config),
     ?check_trace(
-        #{timetrap => 30_000},
+        #{timetrap => 20_000},
         begin
+            Nodes = [Node, NodeOffline | _] = ?config(nodes, Config),
+            [_, SpecOffline | _] = ?config(specs, Config),
+
             %% Initialize DB on all nodes and wait for it to be online.
-            Opts = opts(Config, #{n_shards => 1, n_sites => 3, payload_type => ?ds_pt_mqtt}),
+            Opts = opts(
+                Config,
+                #{n_shards => 1, n_sites => 3, replication_options => ReplicationOpts}
+            ),
             emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
 
             %% Stop the DB on the "offline" node.
-            ?wait_async_action(
-                ok = emqx_cth_cluster:stop_node(NodeOffline),
-                #{?snk_kind := ds_ra_state_enter, state := leader},
-                5_000
-            ),
+            ok = emqx_cth_cluster:stop_node(NodeOffline),
+            ?retry(200, 5, [NodeOffline] = [NodeOffline] -- ?ON(Node, mria:cluster_nodes(running))),
 
-            %% Fill the storage with messages and few additional generations.
+            %% Fill the storage with enough messages to trigger snapshotting.
             emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes -- [NodeOffline], Stream),
 
             %% Restart the node.
+            %% Wait the replica to be restored from a snapshot.
             [NodeOffline] = emqx_cth_cluster:restart(SpecOffline),
-            {ok, SRef} = snabbkaffe:subscribe(
-                ?match_event(#{
-                    ?snk_kind := "dsrepl_snapshot_accept_complete",
-                    ?snk_meta := #{node := NodeOffline}
-                })
-            ),
-
-            ok = ?ON(
-                NodeOffline,
-                open_db(?DB, opts(Config, #{n_shards => 1, payload_type => ?ds_pt_mqtt}))
-            ),
-
-            %% Trigger storage operation and wait the replica to be restored.
-            ok = ?ON(Node, emqx_ds:add_generation(?DB)),
-            ?assertMatch(
-                {ok, _},
-                snabbkaffe:receive_events(SRef)
-            ),
+            ok = ?ON(NodeOffline, open_db(?DB, opts(Config, #{n_shards => 1}))),
 
             %% Wait until any pending replication activities are finished (e.g. Raft log entries).
-            ok = timer:sleep(3_000),
+            ?ON(NodeOffline, emqx_ds_builtin_raft:wait_replicas(?DB, 5_000)),
 
             %% Check that the DB has been restored:
             emqx_ds_raft_test_helpers:verify_stream_effects(
                 ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
-            )
+            ),
+
+            {NodeOffline, Nodes}
         end,
-        []
+        [
+            {"snapshot taken on live nodes", fun({NodeOffline, Nodes}, Trace) ->
+                NodesLive = Nodes -- [NodeOffline],
+                Events = ?of_kind("dsrepl_snapshot_write", Trace),
+                ?assertMatch([[_], [_]], [?of_node(N, Events) || N <- NodesLive])
+            end},
+            {"single snapshot transfer to the node that was offline", fun({NodeOffline, _}, Trace) ->
+                ?assertMatch(
+                    [#{?snk_meta := #{node := NodeOffline}}],
+                    ?of_kind("dsrepl_snapshot_accept_complete", Trace)
+                )
+            end},
+            {"no incomplete snapshot transfers", fun(Trace) ->
+                ?strict_causality(
+                    #{?snk_kind := "dsrepl_snapshot_read_started"},
+                    #{?snk_kind := "dsrepl_snapshot_accept_complete"},
+                    Trace
+                )
+            end}
+        ]
     ).
 
 t_rebalance(init, Config) ->
