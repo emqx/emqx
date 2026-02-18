@@ -3,6 +3,8 @@
 %%--------------------------------------------------------------------
 -module(emqx_username_quota).
 
+-include("emqx_hooks.hrl").
+
 -export([
     hook/0,
     unhook/0,
@@ -16,8 +18,6 @@
     session_count/1,
     reset/0
 ]).
-
--include_lib("emqx_plugin_helper/include/emqx_hooks.hrl").
 
 -define(AUTHN_HOOK, {?MODULE, on_client_authenticate, []}).
 -define(SESSION_CREATED_HOOK, {?MODULE, on_session_created, []}).

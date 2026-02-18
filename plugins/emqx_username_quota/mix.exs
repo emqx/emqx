@@ -7,7 +7,7 @@ defmodule EMQXUsernameQuota.MixProject do
       app: :emqx_username_quota,
       version: "6.1.0",
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
+      erlc_options: UMP.erlc_options() ++ [{:i, "../../apps/emqx/include"}],
       erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
@@ -22,8 +22,6 @@ defmodule EMQXUsernameQuota.MixProject do
   end
 
   def deps() do
-    UMP.deps([
-      {:emqx_plugin_helper, github: "emqx/emqx-plugin-helper", tag: "v5.9.2", manager: :rebar3}
-    ])
+    UMP.deps([])
   end
 end
