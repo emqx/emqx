@@ -1,0 +1,73 @@
+{
+  "type": "record",
+  "name": "ExtendedConfig",
+  "fields": [
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "default": true,
+      "$ui": {
+        "component": "switch",
+        "flex": 12,
+        "required": true,
+        "label": "$enabled_label",
+        "description": "$enabled_desc"
+      }
+    },
+    {
+      "name": "on_mismatch",
+      "type": "string",
+      "default": "deny",
+      "$ui": {
+        "component": "select",
+        "options": [
+          {"label": "deny", "value": "deny"},
+          {"label": "ignore", "value": "ignore"}
+        ],
+        "flex": 12,
+        "required": true,
+        "label": "$on_mismatch_label",
+        "description": "$on_mismatch_desc"
+      }
+    },
+    {
+      "name": "allow_intermediate_publish",
+      "type": "boolean",
+      "default": false,
+      "$ui": {
+        "component": "switch",
+        "flex": 12,
+        "required": true,
+        "label": "$allow_intermediate_publish_label",
+        "description": "$allow_intermediate_publish_desc"
+      }
+    },
+    {
+      "name": "validate_payload",
+      "type": "boolean",
+      "default": true,
+      "$ui": {
+        "component": "switch",
+        "flex": 12,
+        "required": true,
+        "label": "$validate_payload_label",
+        "description": "$validate_payload_desc"
+      }
+    },
+    {
+      "name": "exempt_topics",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": ["$SYS/#", "$share/#"],
+      "$ui": {
+        "component": "array",
+        "flex": 24,
+        "required": false,
+        "label": "$exempt_topics_label",
+        "description": "$exempt_topics_desc"
+      }
+    }
+  ]
+}

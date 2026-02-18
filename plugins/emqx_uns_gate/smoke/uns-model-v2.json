@@ -1,0 +1,81 @@
+{
+  "id": "smoke-model-v2",
+  "name": "Smoke UNS Model V2",
+  "variable_types": {
+    "site_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$"},
+    "area_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$"},
+    "process_cell_id": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,31}$"},
+    "line_id": {"type": "string", "pattern": "^Line[0-9]{1,4}$"}
+  },
+  "payload_types": {
+    "line_control": {
+      "type": "object",
+      "required": ["Status", "Mode"],
+      "properties": {
+        "Status": {"type": "string", "enum": ["running", "stopped", "faulted", "idle"]},
+        "Mode": {"type": "string", "enum": ["auto", "manual", "maintenance"]},
+        "ActiveJob": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "production_metrics": {
+      "type": "object",
+      "required": ["TotalParts", "GoodParts"],
+      "properties": {
+        "TotalParts": {"type": "integer"},
+        "GoodParts": {"type": "integer"},
+        "OEE": {"type": "number"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "tree": {
+    "default": {
+      "_type": "namespace",
+      "children": {
+        "{site_id}": {
+          "_type": "variable",
+          "_var_type": "site_id",
+          "children": {
+            "{area_id}": {
+              "_type": "variable",
+              "_var_type": "area_id",
+              "children": {
+                "Furnaces": {
+                  "_type": "namespace",
+                  "children": {
+                    "{process_cell_id}": {
+                      "_type": "variable",
+                      "_var_type": "process_cell_id",
+                      "children": {
+                        "Lines": {
+                          "_type": "namespace",
+                          "children": {
+                            "{line_id}": {
+                              "_type": "variable",
+                              "_var_type": "line_id",
+                              "children": {
+                                "LineControl": {
+                                  "_type": "endpoint",
+                                  "_payload": "line_control"
+                                },
+                                "Production": {
+                                  "_type": "endpoint",
+                                  "_payload": "production_metrics"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

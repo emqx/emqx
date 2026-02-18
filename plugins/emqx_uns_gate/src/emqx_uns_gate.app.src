@@ -1,0 +1,8 @@
+{application, emqx_uns_gate, [
+    {description, "emqx_uns_gate"},
+    {vsn, "1.0.0"},
+    {registered, []},
+    {modules, []},
+    {applications, [kernel, stdlib, emqx_plugin_helper]},
+    {mod, {emqx_uns_gate_app, []}}
+]}.

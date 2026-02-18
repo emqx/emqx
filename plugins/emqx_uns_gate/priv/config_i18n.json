@@ -1,0 +1,12 @@
+{
+  "$enabled_label": {"en": "Enable UNS Gate", "zh": "启用 UNS Gate"},
+  "$enabled_desc": {"en": "Enable unified namespace topic validation.", "zh": "启用统一命名空间主题校验。"},
+  "$on_mismatch_label": {"en": "Mismatch Action", "zh": "不匹配动作"},
+  "$on_mismatch_desc": {"en": "Action when topic does not match active model.", "zh": "主题不匹配激活模型时的动作。"},
+  "$allow_intermediate_publish_label": {"en": "Allow Intermediate Publish", "zh": "允许中间节点发布"},
+  "$allow_intermediate_publish_desc": {"en": "Allow publish to non-endpoint tree nodes.", "zh": "允许发布到模型树中的非端点节点。"},
+  "$validate_payload_label": {"en": "Validate Payload", "zh": "校验载荷"},
+  "$validate_payload_desc": {"en": "Validate payload JSON against endpoint payload schema on publish.", "zh": "发布时按端点 payload schema 校验 JSON 载荷。"},
+  "$exempt_topics_label": {"en": "Exempt Topics", "zh": "豁免主题"},
+  "$exempt_topics_desc": {"en": "Topic filters bypassing UNS Gate validation.", "zh": "绕过 UNS Gate 校验的主题过滤器。"}
+}

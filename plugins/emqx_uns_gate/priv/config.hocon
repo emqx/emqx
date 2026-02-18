@@ -1,0 +1,5 @@
+enabled = true
+on_mismatch = deny
+allow_intermediate_publish = false
+validate_payload = true
+exempt_topics = ["$SYS/#", "$share/#"]
