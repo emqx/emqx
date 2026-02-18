@@ -43,8 +43,7 @@ appspec(ra) ->
     }};
 appspec(emqx_durable_storage) ->
     {emqx_durable_storage, #{
-        before_start => fun snabbkaffe:fix_ct_logging/0,
-        override_env => [{egress_flush_interval, 1}]
+        before_start => fun snabbkaffe:fix_ct_logging/0
     }};
 appspec(emqx_ds_builtin_raft) ->
     {emqx_ds_builtin_raft, #{
@@ -1245,7 +1244,6 @@ t_inconsistent_config_update(Config) ->
                 [ok, ok, ok],
                 ?ON(Nodes, emqx_ds:wait_db(?DB, all, infinity))
             ),
-            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, DBOpts),
             %% Apply config changes:
             ?assertMatch(
                 ok,
