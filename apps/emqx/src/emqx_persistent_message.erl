@@ -9,6 +9,7 @@
 
 -include("emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([start_link/0, init/1, terminate/2, handle_continue/2, handle_call/3, handle_cast/2]).
 -export([

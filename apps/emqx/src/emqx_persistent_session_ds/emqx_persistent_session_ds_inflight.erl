@@ -23,6 +23,7 @@
 
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -ifdef(TEST).
 -include_lib("proper/include/proper.hrl").

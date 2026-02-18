@@ -13,6 +13,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_external_trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 

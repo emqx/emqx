@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_gateway_coap/include/emqx_coap.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% API
 -export([

@@ -7,6 +7,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% API
 -export([

@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
 

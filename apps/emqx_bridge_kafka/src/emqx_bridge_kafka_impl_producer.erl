@@ -9,6 +9,7 @@
 
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% callbacks of behaviour emqx_resource
 -export([

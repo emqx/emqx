@@ -12,6 +12,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(NOW, erlang:system_time(millisecond)).
 -define(LANTENCY, 101).

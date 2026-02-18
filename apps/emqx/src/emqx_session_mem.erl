@@ -39,6 +39,7 @@
 -include("emqx_session_mem.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -ifdef(TEST).
 -compile(export_all).

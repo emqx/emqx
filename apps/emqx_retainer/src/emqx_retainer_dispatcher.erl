@@ -9,6 +9,7 @@
 -include("emqx_retainer.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% API
 -export([

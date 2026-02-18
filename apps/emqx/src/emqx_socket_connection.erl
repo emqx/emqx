@@ -17,6 +17,7 @@
 -include("emqx_external_trace.hrl").
 -include("emqx_instr.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -ifdef(TEST).
 -compile(export_all).

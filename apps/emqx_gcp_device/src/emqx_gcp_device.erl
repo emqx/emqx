@@ -7,6 +7,7 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% NOTE
 %% We share the shard with `emqx_auth_mnesia` to ensure backward compatibility

@@ -10,6 +10,7 @@
 -include("logger.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 -export([

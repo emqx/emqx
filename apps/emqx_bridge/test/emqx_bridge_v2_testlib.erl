@@ -15,6 +15,7 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 

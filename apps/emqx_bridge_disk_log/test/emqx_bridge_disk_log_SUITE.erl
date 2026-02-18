@@ -13,6 +13,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include("../src/emqx_bridge_disk_log.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -import(emqx_common_test_helpers, [on_exit/1]).
 

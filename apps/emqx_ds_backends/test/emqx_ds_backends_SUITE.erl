@@ -13,6 +13,7 @@
 -include_lib("stdlib/include/assert.hrl").
 -include("../../emqx/include/asserts.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(msg_fields, [topic, from, payload]).
 

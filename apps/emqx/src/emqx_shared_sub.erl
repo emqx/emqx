@@ -16,6 +16,7 @@
 -include("emqx_shared_sub.hrl").
 -include("logger.hrl").
 -include("types.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
 

@@ -12,6 +12,7 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx_auth/include/emqx_authn.hrl").
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(PATH, [authentication]).
 

@@ -39,13 +39,11 @@
 
 -record(subscription, {topic, subid, subopts}).
 
--include_lib("emqx_utils/include/emqx_message.hrl").
-
 -record(delivery, {
     %% Sender of the delivery
     sender :: pid(),
     %% The message delivered
-    message :: #message{}
+    message :: emqx_types:message()
 }).
 
 %%--------------------------------------------------------------------

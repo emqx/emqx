@@ -20,6 +20,7 @@
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(CONF_DEFAULT, <<
     "\n"

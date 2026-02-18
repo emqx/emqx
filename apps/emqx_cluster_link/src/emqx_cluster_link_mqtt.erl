@@ -5,6 +5,7 @@
 
 -include("emqx_cluster_link.hrl").
 -include("emqx_cluster_link_internal.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").

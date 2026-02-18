@@ -10,6 +10,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_slow_subs/include/emqx_slow_subs.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([
     start_link/0,

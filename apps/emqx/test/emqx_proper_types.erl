@@ -10,6 +10,7 @@
 -include("emqx.hrl").
 -include("emqx_session_mem.hrl").
 -include("emqx_access_control.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% High level Types
 -export([

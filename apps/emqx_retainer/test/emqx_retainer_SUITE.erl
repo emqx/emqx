@@ -8,6 +8,7 @@
 -compile(nowarn_export_all).
 
 -include("emqx_retainer.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include_lib("emqx/include/asserts.hrl").
 -include_lib("eunit/include/eunit.hrl").

@@ -10,6 +10,7 @@
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx/include/emqx_access_control.hrl").
 -include_lib("emqx_bridge/include/emqx_bridge_resource.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([
     reload/0,

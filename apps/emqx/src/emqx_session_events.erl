@@ -6,6 +6,7 @@
 
 -include("emqx.hrl").
 -include("logger.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([handle_event/2]).
 

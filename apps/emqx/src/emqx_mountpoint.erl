@@ -8,6 +8,7 @@
 -include("emqx_mqtt.hrl").
 -include("emqx_placeholder.hrl").
 -include("types.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([
     mount/2,

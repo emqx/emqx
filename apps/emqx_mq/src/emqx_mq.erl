@@ -9,6 +9,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([register_hooks/0, unregister_hooks/0]).
 

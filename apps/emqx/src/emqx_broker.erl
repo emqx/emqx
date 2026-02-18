@@ -9,6 +9,7 @@
 -include("emqx.hrl").
 -include("emqx_router.hrl").
 -include("emqx_external_trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include("logger.hrl").
 -include("emqx_instr.hrl").

@@ -9,6 +9,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("emqx_trace.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% Header APIs
 -export([

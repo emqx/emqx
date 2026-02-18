@@ -11,6 +11,7 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("emqx/include/types.hrl").
 -include_lib("emqx/include/logger.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -logger_header("[OCPP-Chann]").
 

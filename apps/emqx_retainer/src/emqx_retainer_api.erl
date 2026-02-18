@@ -8,6 +8,7 @@
 
 -include("emqx_retainer.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 %% API
 -export([api_spec/0, paths/0, schema/1, namespace/0, fields/1]).

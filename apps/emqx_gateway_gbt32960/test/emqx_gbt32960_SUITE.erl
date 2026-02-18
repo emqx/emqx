@@ -12,6 +12,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/asserts.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(BYTE, 8 / big - integer).
 -define(WORD, 16 / big - integer).

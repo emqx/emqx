@@ -40,6 +40,7 @@
 -include("emqx.hrl").
 -include("types.hrl").
 -include("emqx_mqtt.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export([
     init/1,

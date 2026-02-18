@@ -37,6 +37,7 @@
 -include("emqx_session.hrl").
 -include("emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -ifdef(TEST).
 -compile(export_all).

@@ -15,6 +15,7 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_utils/include/emqx_http_api.hrl").
 -include_lib("emqx/include/emqx_durable_session_metadata.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 

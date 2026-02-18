@@ -7,6 +7,7 @@
 -include("logger.hrl").
 -include("emqx_trace.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -include_lib("kernel/include/file.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").

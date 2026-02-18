@@ -82,6 +82,7 @@
 -include_lib("emqx/include/emqx_external_trace.hrl").
 -include_lib("opentelemetry_api/include/otel_tracer.hrl").
 -include_lib("opentelemetry_api/include/opentelemetry.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -define(EMQX_OTEL_CTX, emqx_otel_ctx).
 

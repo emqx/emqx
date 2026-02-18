@@ -9,6 +9,7 @@
 -include("emqx.hrl").
 -include("emqx_mqtt.hrl").
 -include("types.hrl").
+-include_lib("emqx_utils/include/emqx_message.hrl").
 
 -export_type([
     proto_ver/0,
