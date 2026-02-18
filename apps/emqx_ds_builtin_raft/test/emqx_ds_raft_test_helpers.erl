@@ -48,23 +48,23 @@ shard_leadership(DB, Shard) ->
     ReplicaSet = emqx_ds_builtin_raft_meta:replica_set(DB, Shard),
     Nodes = [emqx_ds_builtin_raft_meta:node(Site) || Site <- ReplicaSet],
     lists:foldl(
-        fun({Site, SN}, Acc) -> Acc#{shard_leader(SN, DB, Shard, Site) => SN} end,
+        fun(Node, Acc) -> Acc#{shard_leader(Node, DB, Shard) => Node} end,
         #{},
-        lists:zip(ReplicaSet, Nodes)
+        Nodes
     ).
 
-shard_leader(Node, DB, Shard, Site) ->
-    shard_server_info(Node, DB, Shard, Site, leader).
+shard_leader(Node, DB, Shard) ->
+    shard_server_info(Node, DB, Shard, leader).
 
-shard_readiness(Node, DB, Shard, Site) ->
-    shard_server_info(Node, DB, Shard, Site, readiness).
+shard_readiness(Node, DB, Shard) ->
+    shard_server_info(Node, DB, Shard, readiness).
 
-shard_server_info(Node, DB, Shard, Site, Info) ->
+shard_server_info(Node, DB, Shard, Info) ->
     ?ON(
         Node,
         emqx_ds_builtin_raft_shard:server_info(
             Info,
-            emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site)
+            emqx_ds_builtin_raft_shard:local_server(DB, Shard)
         )
     ).
 
@@ -121,20 +121,8 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
             %% Apply the transition.
             ?assertMatch(
                 {ok, _},
-                ?ON(
-                    Node,
-                    emqx_ds_builtin_raft_meta:Operation(DB, Arg)
-                )
+                ?ON(Node, emqx_ds_builtin_raft_meta:Operation(DB, Arg))
             ),
-            %% Give some time for at least one transition to complete.
-            Transitions = ?ON(Node, db_transitions(DB)),
-            ct:pal("Transitions after ~p: ~p", [Operation, Transitions]),
-            case Transitions of
-                [_ | _] ->
-                    ?retry(200, 10, ?assertNotEqual(Transitions, ?ON(Node, db_transitions(DB))));
-                [] ->
-                    ok
-            end,
             apply_stream(DB, NodeStream0, Stream, N);
         [Fun | Stream] when is_function(Fun) ->
             Fun(),
