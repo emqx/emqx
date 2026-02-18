@@ -144,7 +144,7 @@ terminate(_Reason, State = #{db := DB, shards := Shards}) ->
     unsubscribe_db_changes(State),
     clear_shard_cache(DB, Shards),
     erase_db_meta(DB);
-terminate(_Reason, #{}) ->
+terminate(_Reason, _) ->
     ok.
 
 %%
