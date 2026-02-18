@@ -26,3 +26,23 @@
 %     supervisor:start_child(emqx_sup, ChildSpec);
 % pr20000_ensure_sup_started(_FromVsn, _TargetVsn, _) ->
 %     ok.
+
+-export([pr_16802_restart_rabbitmq_connectors/1]).
+
+pr_16802_restart_rabbitmq_connectors(_FromVsn) ->
+    ConnResIds0 = emqx_resource:list_instances_by_type(emqx_bridge_rabbitmq_connector),
+    ConnResIds =
+        lists:filter(
+            fun(ConnResId) ->
+                case emqx_resource:get_instance(ConnResId) of
+                    {ok, _, #{status := stopped}} ->
+                        false;
+                    {ok, _, _} ->
+                        true;
+                    _ ->
+                        false
+                end
+            end,
+            ConnResIds0
+        ),
+    lists:foreach(fun emqx_resource:restart/1, ConnResIds).
