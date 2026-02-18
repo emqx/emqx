@@ -2,7 +2,7 @@
 
 ## This script runs CT (and necessary dependencies) in docker container(s)
 
-set -euo pipefail
+set -euox pipefail
 
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/../.."
@@ -315,22 +315,34 @@ if [ "$STOP" = 'no' ]; then
 fi
 
 if [ "$DOCKER_USER" != "root" ]; then
-    # the user must exist inside the container for `whoami` to work
+  # the user must exist inside the container for `whoami` to work
+  echo "Adding user $DOCKER_USER to container"
   docker exec -i $TTY -u root:root \
          -e "SFACCOUNT=${SFACCOUNT:-myorg-myacc}" \
          "$ERLANG_CONTAINER" bash -c \
-         "useradd --uid $DOCKER_USER -M -d / emqx || true && \
-          mkdir -p /.cache /.hex /.mix && \
-          chown $DOCKER_USER /.cache /.hex /.mix && \
-          chown $DOCKER_USER -R /usr/local/lib/rustup /usr/local/cargo && \
-          openssl rand -base64 -hex 16 > /.erlang.cookie && \
-          chown $DOCKER_USER /.erlang.cookie && \
-          chmod 0400 /.erlang.cookie && \
-          $INSTALL_SQLSERVER_ODBC && \
-          $INSTALL_SNOWFLAKE_ODBC" || true
+         "time useradd --uid $DOCKER_USER -M -d / emqx || true && \
+          echo 'User $DOCKER_USER added to container' && \
+          time mkdir -p /.cache /.hex /.mix && \
+          echo 'Created cache, hex, and mix directories' && \
+          time chown $DOCKER_USER /.cache /.hex /.mix && \
+          echo 'Set ownership of cache, hex, and mix directories' && \
+          time chown $DOCKER_USER -R /usr/local/lib/rustup /usr/local/cargo && \
+          echo 'Set ownership of rustup and cargo directories' && \
+          time openssl rand -base64 -hex 16 > /.erlang.cookie && \
+          echo 'Created erlang cookie' && \
+          time chown $DOCKER_USER /.erlang.cookie && \
+          echo 'Set ownership of erlang cookie' && \
+          time chmod 0400 /.erlang.cookie && \
+          echo 'Set permissions of erlang cookie' && \
+          time $INSTALL_SQLSERVER_ODBC && \
+          echo 'Installed SQL Server ODBC drivers' && \
+          time $INSTALL_SNOWFLAKE_ODBC && \
+          echo 'Installed Snowflake ODBC drivers'" || true
+    echo "User $DOCKER_USER added to container"
 fi
 
 if [ "$ONLY_UP" = 'yes' ]; then
+    echo "Only up requested, exiting"
     exit 0
 fi
 
