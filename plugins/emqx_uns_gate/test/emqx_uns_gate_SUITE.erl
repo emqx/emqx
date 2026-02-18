@@ -20,6 +20,10 @@ end_per_suite(Config) ->
         undefined -> ok;
         Pid -> exit(Pid, shutdown)
     end,
+    case whereis(emqx_uns_gate_metrics) of
+        undefined -> ok;
+        Pid2 -> exit(Pid2, shutdown)
+    end,
     Config.
 
 init_per_testcase(_Case, Config) ->
@@ -31,7 +35,16 @@ init_per_testcase(_Case, Config) ->
         _ ->
             ok
     end,
+    case whereis(emqx_uns_gate_metrics) of
+        undefined ->
+            {ok, Pid2} = emqx_uns_gate_metrics:start_link(),
+            true = unlink(Pid2),
+            ok;
+        _ ->
+            ok
+    end,
     ok = emqx_uns_gate_store:reset(),
+    ok = emqx_uns_gate_metrics:reset(),
     ok = emqx_uns_gate_config:update(#{
         <<"enabled">> => true,
         <<"on_mismatch">> => <<"deny">>,
@@ -92,7 +105,9 @@ t_plugin_api_get_put_post(_Config) ->
                 <<"topic">> => <<"default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl">>
             }
         }
-    ).
+    ),
+    {ok, 200, _, #{messages_total := _, messages_allowed := _, messages_dropped := _}} =
+        emqx_uns_gate_api:handle(get, [<<"stats">>], #{}).
 
 sample_model() ->
     #{

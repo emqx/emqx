@@ -56,6 +56,10 @@ echo "[smoke] GET /status"
 status_json="$(http GET /status "" "$TOKEN")"
 echo "$status_json" | grep -q '"plugin"'
 
+echo "[smoke] GET /stats"
+stats_json="$(http GET /stats "" "$TOKEN")"
+echo "$stats_json" | grep -q '"messages_total"'
+
 echo "[smoke] POST /models (create+activate v1)"
 post_v1_json="$(http POST /models "$(printf '{"activate":true,"model":%s}' "$(cat "$MODEL_V1")")" "$TOKEN")"
 echo "$post_v1_json" | grep -q '"id":"smoke-model-v1"'

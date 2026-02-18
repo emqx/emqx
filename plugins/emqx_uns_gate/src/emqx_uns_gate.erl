@@ -26,6 +26,7 @@ on_client_authorize(_ClientInfo, #{action_type := publish}, Topic, Result) ->
             TopicBin = emqx_utils_conv:bin(Topic),
             case emqx_uns_gate_config:is_exempt_topic(TopicBin) of
                 true ->
+                    emqx_uns_gate_metrics:record_exempt(),
                     {ok, Result};
                 false ->
                     case emqx_uns_gate_store:validate_topic(TopicBin) of
@@ -36,6 +37,7 @@ on_client_authorize(_ClientInfo, #{action_type := publish}, Topic, Result) ->
                                 ignore ->
                                     {ok, Result};
                                 deny ->
+                                    emqx_uns_gate_metrics:record_drop(TopicBin, Reason, Reason),
                                     {stop, #{
                                         result => deny,
                                         from => emqx_uns_gate,
@@ -61,8 +63,10 @@ on_message_publish(Message) ->
                 false ->
                     case emqx_uns_gate_store:validate_message(Topic, Payload) of
                         allow ->
+                            emqx_uns_gate_metrics:record_allowed(),
                             {ok, Message};
-                        {deny, _Reason} ->
+                        {deny, Reason} ->
+                            emqx_uns_gate_metrics:record_drop(Topic, Reason, Reason),
                             {stop, emqx_message:set_headers(#{allow_publish => false}, Message)}
                     end
             end

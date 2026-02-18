@@ -18,6 +18,13 @@ init([]) ->
     },
     ChildSpecs = [
         #{
+            id => emqx_uns_gate_metrics,
+            start => {emqx_uns_gate_metrics, start_link, []},
+            type => worker,
+            restart => permanent,
+            shutdown => 1_000
+        },
+        #{
             id => emqx_uns_gate_store,
             start => {emqx_uns_gate_store, start_link, []},
             type => worker,
