@@ -316,18 +316,12 @@ fi
 
 if [ "$DOCKER_USER" != "root" ]; then
     # the user must exist inside the container for `whoami` to work
-    #
-    # NOTE
-    # rm -rf /usr/local/lib/rustup/toolchains/*/share
-    # is a workaround to avoid an extremely slow chown.
-    # Remove when build image is updated to use minimal rust toolchain profile.
     docker exec -i $TTY -u root:root \
          -e "SFACCOUNT=${SFACCOUNT:-myorg-myacc}" \
          "$ERLANG_CONTAINER" bash -c \
          "useradd --uid $DOCKER_USER -M -d / emqx || true && \
           mkdir -p /.cache /.hex /.mix && \
           chown $DOCKER_USER /.cache /.hex /.mix && \
-          rm -rf /usr/local/lib/rustup/toolchains/*/share && \
           chown $DOCKER_USER -R /usr/local/lib/rustup /usr/local/cargo && \
           openssl rand -base64 -hex 16 > /.erlang.cookie && \
           chown $DOCKER_USER /.erlang.cookie && \
