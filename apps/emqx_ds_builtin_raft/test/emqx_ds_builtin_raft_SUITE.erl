@@ -1003,14 +1003,10 @@ t_drop_generation(Config) ->
             try
                 %% Initialize DB on all 3 nodes.
                 Opts = opts(Config, #{n_shards => 1, n_sites => 3, replication_factor => 3}),
-                ?assertEqual(
-                    [{ok, ok} || _ <- Nodes],
-                    erpc:multicall(Nodes, ?MODULE, open_db, [?DB, Opts])
-                ),
-                ct:sleep(3000),
+                emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
                 %% Create a generation while all nodes are online:
                 ?ON(N1, ?assertMatch(ok, emqx_ds:add_generation(?DB))),
-                ct:sleep(100),
+                ct:sleep(200),
                 ?ON(
                     Nodes,
                     ?assertEqual(
@@ -1020,7 +1016,7 @@ t_drop_generation(Config) ->
                 ),
                 %% Drop generation while all nodes are online:
                 ?ON(N1, ?assertMatch(ok, emqx_ds:drop_slab(?DB, {<<"0">>, 1}))),
-                timer:sleep(1000),
+                ct:sleep(200),
                 ?ON(
                     Nodes,
                     ?assertEqual(
@@ -1028,9 +1024,9 @@ t_drop_generation(Config) ->
                         maps:keys(emqx_ds:list_slabs(?DB, #{errors => crash}))
                     )
                 ),
-                %% Ston N3, then create and drop generation when it's offline:
+                %% Stop N3, then create and drop generation when it's offline:
                 ok = emqx_cth_cluster:stop_node(N3),
-                ct:sleep(3000),
+                ct:sleep(1000),
                 ?ON(
                     N1,
                     begin
@@ -1040,14 +1036,13 @@ t_drop_generation(Config) ->
                 ),
                 %% Restart N3 and verify that it reached the consistent state:
                 emqx_cth_cluster:restart(NS3),
-                ok = ?ON(N3, open_db(?DB, Opts)),
-                %% N3 can be in unstalbe state right now, but it still
+                emqx_ds_raft_test_helpers:assert_db_open([N3], ?DB, Opts),
+                %% N3 can be in unstable state right now, but it still
                 %% must successfully return streams:
                 ?ON(
                     Nodes,
                     ?assertEqual([], emqx_ds:get_streams(?DB, ['#'], 0))
                 ),
-                ct:sleep(1000),
                 ?ON(
                     Nodes,
                     ?assertEqual(
@@ -1059,10 +1054,8 @@ t_drop_generation(Config) ->
                 emqx_cth_cluster:stop(Nodes)
             end
         end,
-        fun(_Trace) ->
-            %% TODO: some idempotency errors still happen
-            %% ?assertMatch([], ?of_kind(ds_storage_layer_failed_to_drop_generation, Trace)),
-            true
+        fun(Trace) ->
+            ?assertMatch([], ?of_kind(ds_storage_layer_failed_to_drop_generation, Trace))
         end
     ).
 
