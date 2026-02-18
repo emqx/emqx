@@ -70,18 +70,16 @@ defmodule EMQXUmbrella.MixProject do
       overridden_deps()
   end
 
-  def plugin_deps(%{test?: true}) do
+  def plugin_deps(_profile_info) do
     "plugins/*/mix.exs"
     |> Path.wildcard()
     |> Enum.map(&Path.dirname/1)
     |> Enum.sort()
     |> Enum.map(fn app_dir ->
       app = app_dir |> Path.basename() |> String.to_atom()
-      {app, path: app_dir, env: :"emqx-enterprise-test"}
+      {app, path: app_dir, env: Mix.env()}
     end)
   end
-
-  def plugin_deps(_profile_info), do: []
 
   def overridden_deps() do
     [

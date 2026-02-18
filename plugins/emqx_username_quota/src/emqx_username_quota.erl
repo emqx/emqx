@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_username_quota).
 
--include("emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -export([
     hook/0,
