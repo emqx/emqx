@@ -73,7 +73,6 @@ lux_logs/
 /.prepare
 bom.json
 ct_run*/
-plugins/*/VERSION
 apps/emqx_conf/etc/emqx.conf.all.rendered*
 rebar-git-cache.tar
 # build docker image locally

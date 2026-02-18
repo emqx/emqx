@@ -71,24 +71,11 @@ defmodule AppsVersionCheck do
     Version.parse!(vsn)
   end
 
-  def get_plugin_release_version(rebar_config_file) do
-    {:ok, terms} = :file.consult(String.to_charlist(rebar_config_file))
-
-    relx_config =
-      terms
-      |> Enum.find_value(fn
-        {:relx, conf} -> conf
-        _ -> nil
-      end)
-
-    {_name, vsn} =
-      relx_config
-      |> Enum.find_value(fn
-        {:release, {name, release_vsn}, _apps} -> {name, release_vsn}
-        _ -> nil
-      end)
-
-    Version.parse!(to_string(vsn))
+  def get_plugin_release_version(file) do
+    file
+    |> File.read!()
+    |> String.trim()
+    |> Version.parse!()
   end
 
   def app_version_at(filepath, git_ref) do
@@ -100,24 +87,12 @@ defmodule AppsVersionCheck do
   end
 
   def plugin_release_version_at(filepath, git_ref) do
-    with {:ok, rebar_config_contents} <- mix_exs_at(filepath, git_ref) do
-      with_tmp_file(rebar_config_contents, fn tmpfile ->
-        get_plugin_release_version(tmpfile)
-      end)
+    with {:ok, content} <- mix_exs_at(filepath, git_ref) do
+      content
+      |> String.trim()
+      |> Version.parse!()
     else
       _ -> :error
-    end
-  end
-
-  def with_tmp_file(contents, fun) do
-    tmp_file =
-      Path.join(System.tmp_dir!(), "apps-version-check-#{System.unique_integer([:positive])}")
-
-    try do
-      File.write!(tmp_file, contents)
-      fun.(tmp_file)
-    after
-      File.rm(tmp_file)
     end
   end
 
@@ -131,28 +106,12 @@ defmodule AppsVersionCheck do
     src_file = Path.join(["apps", app, "mix.exs"])
 
     cond do
-      is_plugin_app?(app) ->
-        log("IGNORE: apps/#{app} is a plugin app (detected by emqx_plugrel in rebar.config)")
-        true
-
       File.exists?(src_file) ->
         do_has_valid_app_vsn?(app, context)
 
       true ->
         log("IGNORE: #{src_file} was deleted")
         true
-    end
-  end
-
-  def is_plugin_app?(app) do
-    rebar_config = Path.join(["apps", app, "rebar.config"])
-
-    case File.read(rebar_config) do
-      {:ok, content} ->
-        String.contains?(content, "{emqx_plugrel")
-
-      {:error, _} ->
-        false
     end
   end
 
@@ -209,7 +168,7 @@ defmodule AppsVersionCheck do
           "--",
           ":(exclude)#{plugin_path}/mix.exs",
           "--",
-          ":(exclude)#{plugin_path}/rebar.config",
+          ":(exclude)#{plugin_path}/VERSION",
           "--",
           "#{plugin_path}/priv",
           "--",
@@ -242,14 +201,8 @@ defmodule AppsVersionCheck do
     |> then(&File.write!(src_file, &1))
   end
 
-  def fix_plugin_release_vsn(src_file, current_vsn, desired_vsn) do
-    src_file
-    |> File.read!()
-    |> String.replace(
-      ~r/(\{release,\s*\{[^,]+,\s*")#{Regex.escape(to_string(current_vsn))}("\}\s*,)/,
-      ~s/\\1#{to_string(desired_vsn)}\\2/
-    )
-    |> then(&File.write!(src_file, &1))
+  def fix_plugin_vsn(src_file, _current_vsn, desired_vsn) do
+    File.write!(src_file, "#{desired_vsn}\n")
   end
 
   def do_has_valid_app_vsn?(app, context) do
@@ -331,20 +284,35 @@ defmodule AppsVersionCheck do
   end
 
   def has_valid_plugin_release_vsn?(plugin, context) do
-    src_file = Path.join(["plugins", plugin, "rebar.config"])
+    plugin_dir = Path.join(["plugins", plugin])
+    src_file = plugin_version_source(plugin_dir)
 
-    if File.exists?(src_file) do
-      do_has_valid_plugin_release_vsn?(plugin, context)
-    else
-      log("IGNORE: #{src_file} was deleted")
-      true
+    cond do
+      src_file == :none ->
+        log("IGNORE: plugins/#{plugin} has no VERSION")
+        true
+
+      File.exists?(src_file) ->
+        do_has_valid_plugin_release_vsn?(plugin, src_file, context)
+
+      true ->
+        log("IGNORE: #{src_file} was deleted")
+        true
     end
   end
 
-  def do_has_valid_plugin_release_vsn?(plugin, context) do
+  def plugin_version_source(plugin_dir) do
+    version_file = Path.join(plugin_dir, "VERSION")
+
+    cond do
+      File.exists?(version_file) -> version_file
+      true -> :none
+    end
+  end
+
+  def do_has_valid_plugin_release_vsn?(plugin, src_file, context) do
     %{git_ref: git_ref} = context
 
-    src_file = Path.join(["plugins", plugin, "rebar.config"])
     current_release_version = get_plugin_release_version(src_file)
     old_release_version = plugin_release_version_at(src_file, git_ref)
     has_changes? = has_changed_plugin_files?(plugin, context)
@@ -356,13 +324,14 @@ defmodule AppsVersionCheck do
         true
 
       old_release_version == current_release_version && has_changes? ->
-        log_err("ERROR: #{src_file} needs a relx release vsn bump")
+        log_err("ERROR: #{src_file} needs a plugin release version bump")
 
         desired_version =
           old_release_version
           |> Map.update!(:patch, &(&1 + 1))
 
-        auto_fix? && fix_plugin_release_vsn(src_file, current_release_version, desired_version)
+        auto_fix? && fix_plugin_vsn(src_file, current_release_version, desired_version)
+
         false
 
       :otherwise ->

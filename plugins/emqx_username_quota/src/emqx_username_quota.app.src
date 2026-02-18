@@ -1,8 +1,0 @@
-{application, emqx_username_quota, [
-    {description, "emqx_username_quota"},
-    {vsn, {file, "VERSION"}},
-    {registered, []},
-    {modules, []},
-    {applications, [kernel, stdlib]},
-    {mod, {emqx_username_quota_app, []}}
-]}.

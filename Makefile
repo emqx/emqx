@@ -197,31 +197,29 @@ plugin-%:
 		echo "No such plugin app: plugins/$*"; \
 		exit 1; \
 	fi; \
-	if ! $(MAKE) -C "$$PLUGIN_APP_DIR" -n rel >/dev/null 2>&1; then \
-		echo "App $$PLUGIN_APP_DIR does not define a 'rel' target."; \
-		echo "Ensure it is generated from emqx-plugin-template or provides plugin packaging make rules."; \
+	if [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
+		echo "App $$PLUGIN_APP_DIR does not define mix.exs."; \
+		echo "Ensure it is a monorepo plugin app with Mix support."; \
 		exit 1; \
 	fi; \
-	$(MAKE) -C "$$PLUGIN_APP_DIR" REBAR="$(REBAR)" rel
+	PROFILE="$(PROFILE)" $(MIX) emqx.plugin --app "$$PLUGIN_APP_DIR"
 
 .PHONY: plugins
 plugins: $(REBAR)
-	@mkdir -p _packages/plugins
-	@rm -f _packages/plugins/*.tar.gz
+	@mkdir -p _build/plugins
 	@set -e; \
 	for PLUGIN_APP_DIR in plugins/*; do \
-		if [ ! -d "$$PLUGIN_APP_DIR" ] || [ ! -f "$$PLUGIN_APP_DIR/Makefile" ]; then \
+		if [ ! -d "$$PLUGIN_APP_DIR" ] || [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
 			continue; \
 		fi; \
 		PLUGIN_APP="$$(basename "$$PLUGIN_APP_DIR")"; \
 		echo "Building plugin $$PLUGIN_APP"; \
 		$(MAKE) "plugin-$$PLUGIN_APP"; \
-		PLUGIN_PKGS="$$(find "$$PLUGIN_APP_DIR/_build" -maxdepth 4 -type f -name '*.tar.gz' | sort)"; \
-		if [ -z "$$PLUGIN_PKGS" ]; then \
-			echo "No plugin package (*.tar.gz) found under $$PLUGIN_APP_DIR/_build"; \
+		PLUGIN_PKGS_GLOB="_build/plugins/$$PLUGIN_APP-*.tar.gz"; \
+		if ! ls $$PLUGIN_PKGS_GLOB >/dev/null 2>&1; then \
+			echo "No plugin package (*.tar.gz) found under _build/plugins for $$PLUGIN_APP"; \
 			exit 1; \
 		fi; \
-		cp $$PLUGIN_PKGS _packages/plugins/; \
 	done
 
 COMMON_DEPS := $(REBAR)
