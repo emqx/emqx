@@ -24,27 +24,7 @@ assert_db_open(Nodes, DB, Opts) ->
         erpc:multicall(Nodes, emqx_ds, open_db, [DB, Opts])
     ),
     erpc:multicall(Nodes, emqx_ds, wait_db, [DB, all, infinity]),
-    wait_db_bootstrapped(Nodes, DB).
-
-wait_db_bootstrapped(Nodes, DB) ->
-    wait_db_bootstrapped(Nodes, DB, infinity, infinity).
-
-wait_db_bootstrapped(Nodes, DB, Timeout, BackInTime) ->
-    [
-        ?block_until(
-            #{
-                ?snk_kind := emqx_ds_replshard_bootstrapped,
-                ?snk_meta := #{node := Node},
-                db := DB,
-                shard := Shard
-            },
-            Timeout,
-            BackInTime
-        )
-     || Node <- Nodes,
-        Shard <- ?ON(Node, emqx_ds_builtin_raft_meta:my_shards(DB))
-    ],
-    ct:pal("DS DB ~p has been bootstrapped on ~p", [DB, Nodes]).
+    erpc:multicall(Nodes, emqx_ds_builtin_raft, wait_replicas, [DB, infinity]).
 
 -spec assert_db_stable([node()], emqx_ds:db()) -> _Ok.
 assert_db_stable([Node | _], DB) ->
