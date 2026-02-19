@@ -17,7 +17,7 @@
     reset/0
 ]).
 
--include_lib("emqx_plugin_helper/include/emqx_hooks.hrl").
+-include_lib("emqx/include/emqx_hooks.hrl").
 
 -define(AUTHN_HOOK, {?MODULE, on_client_authenticate, []}).
 -define(SESSION_CREATED_HOOK, {?MODULE, on_session_created, []}).
