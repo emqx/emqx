@@ -338,7 +338,10 @@ defmodule EMQXUmbrella.MixProject do
       singleton(not test_env?(), :compressed) ++
       singleton(not test_env?(), :deterministic) ++
       singleton(test_env?(), {:d, :TEST}) ++
-      singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
+      singleton(
+        test_env?() && cth_readable_available?(),
+        {:parse_transform, :cth_readable_transform}
+      ) ++
       singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
@@ -350,6 +353,16 @@ defmodule EMQXUmbrella.MixProject do
 
   defp store_state_in_ds?() do
     "1" == System.get_env("STORE_STATE_IN_DS")
+  end
+
+  defp cth_readable_available?() do
+    case Application.ensure_loaded(:cth_readable) do
+      :ok ->
+        true
+
+      {:error, _} ->
+        false
+    end
   end
 
   defp singleton(false, _value), do: []
