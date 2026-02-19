@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Emqx.Plugin do
 
   Example:
 
-      mix emqx.plugin --app plugins/emqx_username_quota
+      mix emqx.plugin --app apps/emqx_username_quota
   """
 
   @requirements ["loadpaths"]
@@ -57,7 +57,7 @@ defmodule Mix.Tasks.Emqx.Plugin do
     app = Keyword.get(opts, :app)
 
     if is_nil(app) or app == "" do
-      Mix.raise("Missing required --app argument, e.g. --app plugins/emqx_username_quota")
+      Mix.raise("Missing required --app argument, e.g. --app apps/emqx_username_quota")
     end
 
     %{app: app}

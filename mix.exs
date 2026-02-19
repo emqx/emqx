@@ -59,26 +59,14 @@ defmodule EMQXUmbrella.MixProject do
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
   """
-  def deps(profile_info, _version) do
+  def deps(_profile_info, _version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     common_deps() ++
       quicer_dep() ++
       jq_dep() ++
-      plugin_deps(profile_info) ++
       extra_release_apps() ++
       overridden_deps()
-  end
-
-  def plugin_deps(_profile_info) do
-    "plugins/*/mix.exs"
-    |> Path.wildcard()
-    |> Enum.map(&Path.dirname/1)
-    |> Enum.sort()
-    |> Enum.map(fn app_dir ->
-      app = app_dir |> Path.basename() |> String.to_atom()
-      {app, path: app_dir, env: Mix.env()}
-    end)
   end
 
   def overridden_deps() do

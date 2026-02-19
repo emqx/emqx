@@ -103,15 +103,20 @@ defmodule AppsVersionCheck do
   end
 
   def has_valid_app_vsn?(app, context) do
-    src_file = Path.join(["apps", app, "mix.exs"])
+    if plugin_app?(app) do
+      log("IGNORE: apps/#{app} is a plugin app")
+      true
+    else
+      src_file = Path.join(["apps", app, "mix.exs"])
 
-    cond do
-      File.exists?(src_file) ->
-        do_has_valid_app_vsn?(app, context)
+      cond do
+        File.exists?(src_file) ->
+          do_has_valid_app_vsn?(app, context)
 
-      true ->
-        log("IGNORE: #{src_file} was deleted")
-        true
+        true ->
+          log("IGNORE: #{src_file} was deleted")
+          true
+      end
     end
   end
 
@@ -150,7 +155,7 @@ defmodule AppsVersionCheck do
 
   def has_changed_plugin_files?(plugin, context) do
     %{git_ref: git_ref} = context
-    plugin_path = Path.join(["plugins", plugin])
+    plugin_path = Path.join(["apps", plugin])
 
     {out, 0} =
       System.cmd(
@@ -284,12 +289,12 @@ defmodule AppsVersionCheck do
   end
 
   def has_valid_plugin_release_vsn?(plugin, context) do
-    plugin_dir = Path.join(["plugins", plugin])
+    plugin_dir = Path.join(["apps", plugin])
     src_file = plugin_version_source(plugin_dir)
 
     cond do
       src_file == :none ->
-        log("IGNORE: plugins/#{plugin} has no VERSION")
+        log("IGNORE: apps/#{plugin} has no VERSION")
         true
 
       File.exists?(src_file) ->
@@ -355,14 +360,7 @@ defmodule AppsVersionCheck do
         |> File.dir?()
       end)
 
-    plugins =
-      "plugins"
-      |> File.ls!()
-      |> Enum.filter(fn plugin ->
-        ["plugins", plugin]
-        |> Path.join()
-        |> File.dir?()
-      end)
+    plugins = Enum.filter(apps, &plugin_app?/1)
 
     invalid_apps =
       apps
@@ -372,7 +370,7 @@ defmodule AppsVersionCheck do
     invalid_plugins =
       plugins
       |> Enum.reject(&has_valid_plugin_release_vsn?(&1, context))
-      |> Enum.map(&"plugins/#{&1}")
+      |> Enum.map(&"apps/#{&1}")
 
     (invalid_apps ++ invalid_plugins)
     |> case do
@@ -382,7 +380,7 @@ defmodule AppsVersionCheck do
       invalid_entries ->
         log_err([
           "Errors were found\n",
-          "Invalid apps/plugins: \n",
+          "Invalid apps/plugin-apps: \n",
           [inspect(invalid_entries, pretty: true), "\n"],
           "Run this script again with `--auto-fix` to automatically fix issues,",
           " or fix them manually."
@@ -390,6 +388,15 @@ defmodule AppsVersionCheck do
 
         System.halt(1)
     end
+  end
+
+  def plugin_app?(app) do
+    mix_exs = Path.join(["apps", app, "mix.exs"])
+
+    File.regular?(mix_exs) and
+      mix_exs
+      |> File.read!()
+      |> String.contains?("emqx_plugin:")
   end
 end
 

@@ -135,30 +135,10 @@ else
 endif
 endef
 
-define gen-plugin-ct-target
-$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
-	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
-ifneq ($(SUITES),)
-	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
-	    PROFILE=$(PROFILE)-test \
-	        $(MIX) emqx.ct_plugins \
-		$(call cover_args,$1) \
-		--suites $(SUITES) \
-		$(GROUPS_ARG) \
-		$(CASES_ARG)
-else
-	@echo 'No suites found for $1'
-endif
-endef
-
 ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
 app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
-ifneq ($(filter plugins/%,$(app_to_test)),)
-$(eval $(call gen-plugin-ct-target,$(app_to_test)))
-else
 $(eval $(call gen-app-ct-target,$(app_to_test)))
-endif
 endif
 
 ## apps/name-prop targets
@@ -192,14 +172,18 @@ cover:
 
 .PHONY: plugin-%
 plugin-%:
-	@PLUGIN_APP_DIR="$$(if [ -d plugins/$* ]; then echo plugins/$*; fi)"; \
+	@PLUGIN_APP_DIR="$$(if [ -d apps/$* ]; then echo apps/$*; fi)"; \
 	if [ -z "$$PLUGIN_APP_DIR" ]; then \
-		echo "No such plugin app: plugins/$*"; \
+		echo "No such plugin app: apps/$*"; \
 		exit 1; \
 	fi; \
 	if [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
 		echo "App $$PLUGIN_APP_DIR does not define mix.exs."; \
 		echo "Ensure it is a monorepo plugin app with Mix support."; \
+		exit 1; \
+	fi; \
+	if ! grep -q "emqx_plugin:" "$$PLUGIN_APP_DIR/mix.exs"; then \
+		echo "App $$PLUGIN_APP_DIR is not an EMQX plugin app (missing :emqx_plugin)."; \
 		exit 1; \
 	fi; \
 	PROFILE="$(PROFILE)" $(MIX) emqx.plugin --app "$$PLUGIN_APP_DIR"
@@ -208,15 +192,17 @@ plugin-%:
 plugins: $(REBAR)
 	@mkdir -p _build/plugins
 	@set -e; \
-	for PLUGIN_APP_DIR in plugins/*; do \
+	for PLUGIN_APP_DIR in apps/*; do \
 		if [ ! -d "$$PLUGIN_APP_DIR" ] || [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
+			continue; \
+		fi; \
+		if ! grep -q "emqx_plugin:" "$$PLUGIN_APP_DIR/mix.exs"; then \
 			continue; \
 		fi; \
 		PLUGIN_APP="$$(basename "$$PLUGIN_APP_DIR")"; \
 		echo "Building plugin $$PLUGIN_APP"; \
 		$(MAKE) "plugin-$$PLUGIN_APP"; \
-		PLUGIN_PKGS_GLOB="_build/plugins/$$PLUGIN_APP-*.tar.gz"; \
-		if ! ls $$PLUGIN_PKGS_GLOB >/dev/null 2>&1; then \
+		if ! find _build/plugins -maxdepth 1 -type f -name "$$PLUGIN_APP-*.tar.gz" | grep -q .; then \
 			echo "No plugin package (*.tar.gz) found under _build/plugins for $$PLUGIN_APP"; \
 			exit 1; \
 		fi; \

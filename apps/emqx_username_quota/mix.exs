@@ -28,7 +28,8 @@ defmodule EMQXUsernameQuota.MixProject do
 
   def deps() do
     UMP.deps([
-      {:emqx, path: "../../apps/emqx", from_umbrella: true, env: Mix.env()}
+      {:emqx, in_umbrella: true},
+      {:emqx_utils, in_umbrella: true}
     ])
   end
 
