@@ -20,10 +20,9 @@
         result := authz_result(),
         from := term(),
         %% Optional cache control for authorization result.
-        %% no_cache=true (or cache=false) tells EMQX not to store this result
+        %% is_cacheable=false tells EMQX not to store this result
         %% in authz cache for the current topic/action.
-        no_cache => boolean(),
-        cache => boolean()
+        is_cacheable => boolean()
     }.
 
 -type authn_result() :: #{
@@ -258,9 +257,7 @@ do_authorize_with_cache_policy(ClientInfo, Action, Topic) ->
     end.
 
 should_cache_authz_result(AuthzResult) ->
-    NoCache = maps:get(no_cache, AuthzResult, false),
-    Cache = maps:get(cache, AuthzResult, true),
-    not NoCache andalso Cache =/= false.
+    maps:get(is_cacheable, AuthzResult, true).
 
 log_result(Topic, Action, From, Result) ->
     LogMeta = fun() ->

@@ -31,7 +31,7 @@ init_per_testcase(_, Config) ->
 end_per_testcase(_, _Config) ->
     ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub}),
     ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub_cache}),
-    ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub_no_cache}),
+    ok = emqx_hooks:del('client.authorize', {?MODULE, authz_stub_non_cacheable}),
     ok = emqx_hooks:del('client.authenticate', {?MODULE, quick_deny_anonymous_authn}).
 
 t_authenticate(_) ->
@@ -70,10 +70,10 @@ t_authorize_cache_store(_) ->
     ?assertEqual(deny, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, Topic)),
     ?assertEqual(deny, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
 
-t_authorize_cache_skip_no_cache(_) ->
+t_authorize_cache_skip_non_cacheable(_) ->
     Topic = <<"cache/skip">>,
     ok = emqx_authz_cache:empty_authz_cache(),
-    ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub_no_cache, []}, ?HP_AUTHZ),
+    ok = emqx_hooks:put('client.authorize', {?MODULE, authz_stub_non_cacheable, []}, ?HP_AUTHZ),
     ?assertEqual(deny, emqx_access_control:authorize(clientinfo(), ?AUTHZ_PUBLISH, Topic)),
     ?assertEqual(not_found, emqx_authz_cache:get_authz_cache(?AUTHZ_PUBLISH, Topic)).
 
@@ -118,8 +118,8 @@ authz_stub(_Client, _Action, _Topic, _DefaultResult, _ValidTopic) -> {stop, #{re
 authz_stub_cache(_Client, _Action, _Topic, _DefaultResult) ->
     {stop, #{result => deny, from => test}}.
 
-authz_stub_no_cache(_Client, _Action, _Topic, _DefaultResult) ->
-    {stop, #{result => deny, from => test, no_cache => true}}.
+authz_stub_non_cacheable(_Client, _Action, _Topic, _DefaultResult) ->
+    {stop, #{result => deny, from => test, is_cacheable => false}}.
 
 quick_deny_anonymous_authn(#{username := <<"badname">>}, _AuthResult) ->
     {stop, {error, not_authorized}};
