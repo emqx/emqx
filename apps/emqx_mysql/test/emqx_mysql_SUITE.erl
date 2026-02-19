@@ -70,16 +70,6 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
     }} =
         emqx_resource:get_instance(ResourceId),
     ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
-    % % Perform query as further check that the resource is working as expected
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_no_params())),
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_with_params())),
-    ?assertMatch(
-        {ok, _, [[1]]},
-        emqx_resource:query(
-            ResourceId,
-            test_query_with_params_and_timeout()
-        )
-    ),
     ?assertEqual(ok, emqx_resource:stop(ResourceId)),
     % Resource will be listed still, but state will be changed and healthcheck will fail
     % as the worker no longer exists.
@@ -101,16 +91,8 @@ perform_lifecycle_check(ResourceId, InitialConfig) ->
     {ok, ?CONNECTOR_RESOURCE_GROUP, #{status := InitialStatus}} =
         emqx_resource:get_instance(ResourceId),
     ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_no_params())),
-    ?assertMatch({ok, _, [[1]]}, emqx_resource:query(ResourceId, test_query_with_params())),
-    ?assertMatch(
-        {ok, _, [[1]]},
-        emqx_resource:query(
-            ResourceId,
-            test_query_with_params_and_timeout()
-        )
-    ),
     % Stop and remove the resource in one go.
+    ?assertEqual({ok, connected}, emqx_resource:health_check(ResourceId)),
     ?assertEqual(ok, emqx_resource:remove_local(ResourceId)),
     ?assertEqual({error, not_found}, ecpool:stop_sup_pool(PoolName)),
     % Should not even be able to get the resource data out of ets now unlike just stopping.
@@ -169,12 +151,3 @@ connect_mysql() ->
     ],
     {ok, Pid} = mysql:start_link(Opts),
     Pid.
-
-test_query_no_params() ->
-    {sql, <<"SELECT 1">>}.
-
-test_query_with_params() ->
-    {sql, <<"SELECT ?">>, [1]}.
-
-test_query_with_params_and_timeout() ->
-    {sql, <<"SELECT ?">>, [1], 1000}.
