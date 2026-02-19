@@ -1,0 +1,62 @@
+name: Monitor Test Durations
+
+on:
+  # temporary to trigger first run
+  pull_request:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  analyze_durations:
+    runs-on: ubuntu-22.04
+    name: Analyze and plot test durations
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install matplotlib pandas requests tqdm
+
+      - name: Fetch and analyze workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DAYS: 2
+        run: |
+          python3 scripts/ct/monitor_duration.py
+
+      - name: Upload graph image
+        id: upload-graph
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-duration-graph
+          path: test_durations.png
+          retention-days: 90
+
+      - name: Display summary
+        run: |
+          echo "## Test Duration Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### :framed_picture: Graph Image" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[Download test_durations.png](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/${{ steps.upload-graph.outputs.artifact-id }})" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload analysis data
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-duration-data-${{ github.run_number }}
+          path: |
+            runs.json
+            durations.json
+          retention-days: 90
