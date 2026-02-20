@@ -210,7 +210,7 @@ plugin-%:
 		echo "App $$PLUGIN_APP_DIR is not an EMQX plugin app (missing :emqx_plugin)."; \
 		exit 1; \
 	fi; \
-	cd "$$PLUGIN_APP_DIR" && PROFILE="$(PROFILE)" $(MIX) emqx.plugin
+	cd "$$PLUGIN_APP_DIR" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) emqx.plugin
 
 .PHONY: plugins
 plugins: $(REBAR)

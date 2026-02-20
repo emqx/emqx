@@ -19,8 +19,7 @@ defmodule EMQXUsernameQuota.MixProject do
 
   def test_env?() do
     env = to_string(Mix.env())
-    profile = System.get_env("PROFILE", "")
-    env =~ ~r/-test$/ or String.ends_with?(profile, "-test")
+    env =~ ~r/-test$/
   end
 
   def erlc_paths() do

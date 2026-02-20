@@ -87,10 +87,9 @@ defmodule AppsVersionCheck do
   end
 
   def plugin_release_version_at(filepath, git_ref) do
-    with {:ok, content} <- mix_exs_at(filepath, git_ref) do
-      content
-      |> String.trim()
-      |> Version.parse!()
+    with {:ok, content} <- mix_exs_at(filepath, git_ref),
+         {:ok, vsn} <- content |> String.trim() |> Version.parse() do
+      vsn
     else
       _ -> :error
     end
@@ -155,7 +154,7 @@ defmodule AppsVersionCheck do
 
   def has_changed_plugin_files?(plugin, context) do
     %{git_ref: git_ref} = context
-    plugin_path = Path.join(["apps", plugin])
+    plugin_path = Path.join(["plugins", plugin])
 
     {out, 0} =
       System.cmd(
@@ -289,12 +288,12 @@ defmodule AppsVersionCheck do
   end
 
   def has_valid_plugin_release_vsn?(plugin, context) do
-    plugin_dir = Path.join(["apps", plugin])
+    plugin_dir = Path.join(["plugins", plugin])
     src_file = plugin_version_source(plugin_dir)
 
     cond do
       src_file == :none ->
-        log("IGNORE: apps/#{plugin} has no VERSION")
+        log("IGNORE: plugins/#{plugin} has no VERSION")
         true
 
       File.exists?(src_file) ->
@@ -360,7 +359,14 @@ defmodule AppsVersionCheck do
         |> File.dir?()
       end)
 
-    plugins = Enum.filter(apps, &plugin_app?/1)
+    plugins =
+      "plugins"
+      |> File.ls!()
+      |> Enum.filter(fn plugin ->
+        ["plugins", plugin]
+        |> Path.join()
+        |> File.dir?()
+      end)
 
     invalid_apps =
       apps
@@ -370,7 +376,7 @@ defmodule AppsVersionCheck do
     invalid_plugins =
       plugins
       |> Enum.reject(&has_valid_plugin_release_vsn?(&1, context))
-      |> Enum.map(&"apps/#{&1}")
+      |> Enum.map(&"plugins/#{&1}")
 
     (invalid_apps ++ invalid_plugins)
     |> case do
@@ -390,14 +396,6 @@ defmodule AppsVersionCheck do
     end
   end
 
-  def plugin_app?(app) do
-    mix_exs = Path.join(["apps", app, "mix.exs"])
-
-    File.regular?(mix_exs) and
-      mix_exs
-      |> File.read!()
-      |> String.contains?("emqx_plugin:")
-  end
 end
 
 System.argv()

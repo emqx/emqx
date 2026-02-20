@@ -30,25 +30,10 @@ defmodule Mix.Tasks.Emqx.Plugin do
 
     System.put_env("PROFILE", build_profile)
 
-    ensure_prebuilt_plugin_exists!(plugin_name)
-
     info = collect_info(plugin_dir, plugin_name, plugin_vsn)
     make_tar(plugin_dir, info)
 
     Mix.shell().info("Built plugin package: #{info.name}-#{info.rel_vsn}.tar.gz")
-  end
-
-  defp ensure_prebuilt_plugin_exists!(plugin_name) do
-    app_file = Path.join([plugin_build_lib_dir(), plugin_name, "ebin", "#{plugin_name}.app"])
-
-    if not File.regular?(app_file) do
-      Mix.raise("""
-      Missing prebuilt plugin artifact: #{app_file}
-      This task only packages existing build outputs from _build/$MIX_ENV/lib.
-      Build first, e.g.:
-        mix compile
-      """)
-    end
   end
 
   defp collect_info(plugin_dir, plugin_name, plugin_vsn) do
@@ -264,8 +249,14 @@ defmodule Mix.Tasks.Emqx.Plugin do
   end
 
   defp plugin_build_lib_dir() do
-    Mix.Project.app_path()
-    |> Path.dirname()
+    profile = System.get_env("PROFILE", "emqx-enterprise")
+
+    build_path =
+      Mix.Project.config()
+      |> Keyword.fetch!(:build_path)
+      |> Path.expand()
+
+    Path.join([build_path, profile, "lib"])
   end
 
   defp plugin_pkg_out_dir() do

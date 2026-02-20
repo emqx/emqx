@@ -62,18 +62,9 @@ defmodule Mix.Tasks.Emqx.Ct do
 
     # unmangle PROFILE env because some places (`:emqx_conf.resolve_schema_module`) expect
     # the version without the `-test` suffix.
-    profile = System.fetch_env!("PROFILE")
-
-    apps_path =
-      Mix.Project.project_file()
-      |> Path.dirname()
-      |> Path.join("apps")
-
-    if File.dir?(apps_path) do
-      profile
-      |> String.replace_suffix("-test", "")
-      |> then(&System.put_env("PROFILE", &1))
-    end
+    System.fetch_env!("PROFILE")
+    |> String.replace_suffix("-test", "")
+    |> then(&System.put_env("PROFILE", &1))
 
     maybe_start_cover()
     if cover_enabled?(), do: cover_compile_files()
@@ -256,12 +247,7 @@ defmodule Mix.Tasks.Emqx.Ct do
 
   def load_common_helpers!() do
     [:emqx_common_test_helpers, :emqx_bridge_v2_testlib, :emqx_utils_http_test_server]
-    |> Enum.each(fn mod ->
-      case Code.ensure_loaded(mod) do
-        {:module, _} -> :ok
-        _ -> :ok
-      end
-    end)
+    |> Enum.each(&Code.ensure_loaded/1)
   end
 
   # Links `test/*_data` directories inside the build dir, so that CT picks them up.
