@@ -669,7 +669,7 @@ install(NameVsn, Mode) ->
     end.
 
 get_from_cluster(NameVsn) ->
-    Nodes = [N || N <- mria:running_nodes(), N /= node()],
+    Nodes = peer_nodes(),
     case get_package_from_any_node(Nodes, NameVsn, []) of
         {ok, TarContent} ->
             emqx_plugins_fs:write_tar(NameVsn, TarContent);
@@ -839,18 +839,25 @@ ensure_local_config(NameVsn, Mode) ->
 do_ensure_local_config(NameVsn, ?fresh_install) ->
     emqx_plugins_local_config:copy_default(NameVsn);
 do_ensure_local_config(NameVsn, ?normal) ->
-    Nodes = mria:running_nodes(),
-    case get_config_from_any_node(Nodes, NameVsn, []) of
-        {ok, Config} when is_map(Config) ->
-            emqx_plugins_local_config:update(NameVsn, Config);
-        {error, Reason} ->
-            ?SLOG(warning, #{
-                msg => "failed_to_get_plugin_config_from_cluster",
-                name_vsn => NameVsn,
-                reason => Reason
-            }),
-            emqx_plugins_local_config:copy_default(NameVsn)
+    case peer_nodes() of
+        [] ->
+            emqx_plugins_local_config:copy_default(NameVsn);
+        Nodes ->
+            case get_config_from_any_node(Nodes, NameVsn, []) of
+                {ok, Config} when is_map(Config) ->
+                    emqx_plugins_local_config:update(NameVsn, Config);
+                {error, Reason} ->
+                    ?SLOG(warning, #{
+                        msg => "failed_to_get_plugin_config_from_cluster",
+                        name_vsn => NameVsn,
+                        reason => Reason
+                    }),
+                    emqx_plugins_local_config:copy_default(NameVsn)
+            end
     end.
+
+peer_nodes() ->
+    [N || N <- mria:running_nodes(), N /= node()].
 
 configure_from_local_config(NameVsn, RunningSt) ->
     case validated_local_config(NameVsn) of
