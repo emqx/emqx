@@ -22,7 +22,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx_auth_redis,
-            emqx_auth,
+            {emqx_auth, #{after_start => fun() -> ok end}},
             emqx_management
         ],
         #{

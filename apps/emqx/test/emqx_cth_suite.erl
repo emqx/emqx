@@ -370,6 +370,13 @@ default_appspec(App, _SuiteOpts) when
 ->
     %% NOTE: Start those apps with default configuration.
     #{config => #{}};
+default_appspec(emqx_auth, _SuiteOpts) ->
+    #{
+        after_start => fun() ->
+            ok = emqx_authn_test_lib:enable_node_cache(false),
+            ok = emqx_authz_test_lib:enable_node_cache(false)
+        end
+    };
 default_appspec(_, _) ->
     #{}.
 

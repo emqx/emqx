@@ -55,7 +55,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx,
-            emqx_auth,
+            {emqx_auth, #{after_start => fun() -> ok end}},
             %% to load schema
             {emqx_auth_mnesia, #{start => false}},
             emqx_management,
