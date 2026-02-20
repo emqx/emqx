@@ -18,7 +18,11 @@
 -type authorize_hook_result() ::
     #{
         result := authz_result(),
-        from := term()
+        from := term(),
+        %% Optional cache control for authorization result.
+        %% is_cacheable=false tells EMQX not to store this result
+        %% in authz cache for the current topic/action.
+        is_cacheable => boolean()
     }.
 
 -type authn_result() :: #{
@@ -145,10 +149,10 @@ authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
             deny
     end;
 authorize(ClientInfo, Action, Topic) ->
-    Result =
+    {Result, _Cacheable} =
         case emqx_authz_cache:is_enabled(Topic) of
             true -> check_authorization_cache(ClientInfo, Action, Topic);
-            false -> do_authorize(ClientInfo, Action, Topic)
+            false -> do_authorize_with_cache_policy(ClientInfo, Action, Topic)
         end,
     inc_authz_metrics(Result),
     Result.
@@ -212,19 +216,22 @@ check_authorization_cache(ClientInfo, Action, Topic) ->
     case emqx_authz_cache:get_authz_cache(Action, Topic) of
         not_found ->
             inc_authz_metrics(cache_miss),
-            AuthzResult = do_authorize(ClientInfo, Action, Topic),
-            emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult),
-            AuthzResult;
+            {AuthzResult, Cacheable} = do_authorize_with_cache_policy(ClientInfo, Action, Topic),
+            case Cacheable of
+                true -> emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult);
+                false -> ok
+            end,
+            {AuthzResult, Cacheable};
         AuthzResult ->
             emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, AuthzResult, cache]
             ),
             inc_authz_metrics(cache_hit),
-            AuthzResult
+            {AuthzResult, true}
     end.
 
-do_authorize(ClientInfo, Action, Topic) ->
+do_authorize_with_cache_policy(ClientInfo, Action, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], deny),
     Default = #{result => NoMatch, from => default},
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
@@ -235,7 +242,7 @@ do_authorize(ClientInfo, Action, Topic) ->
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, Result, From]
             ),
-            Result;
+            {Result, should_cache_authz_result(AuthzResult)};
         Other ->
             ?SLOG(error, #{
                 msg => "unknown_authorization_return_format",
@@ -246,8 +253,11 @@ do_authorize(ClientInfo, Action, Topic) ->
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, deny, unknown_return_format]
             ),
-            deny
+            {deny, true}
     end.
+
+should_cache_authz_result(AuthzResult) ->
+    maps:get(is_cacheable, AuthzResult, true).
 
 log_result(Topic, Action, From, Result) ->
     LogMeta = fun() ->
