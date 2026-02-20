@@ -1,0 +1,5 @@
+# hint for scripts/find-suites.py to put slow suites into separate groups
+emqx_persistent_messages_SUITE
+emqx_persistent_session_SUITE
+emqx_persistent_session_ds_SUITE
+emqx_quic_multistreams_SUITE
