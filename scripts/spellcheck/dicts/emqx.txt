@@ -190,6 +190,10 @@ natively
 NATS
 nif
 NIF
+NKEY
+nkey
+NKEYs
+nkeys
 nodelay
 nodetool
 now_us

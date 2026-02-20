@@ -51,6 +51,7 @@
     tls_required => boolean(),
     ssl_opts => map() | list(),
     starttls => boolean(),
+    jwt => binary() | undefined,
     %% Client's own options
     auto_respond_ping => boolean()
 }.
@@ -319,6 +320,10 @@ connect_opts(#{options := Options}, Overrides) ->
         tls_required => maps:get(tls_required, Options, false),
         user => maps:get(user, Options, undefined),
         pass => maps:get(pass, Options, undefined),
+        auth_token => maps:get(auth_token, Options, undefined),
+        nkey => maps:get(nkey, Options, undefined),
+        sig => maps:get(sig, Options, undefined),
+        jwt => maps:get(jwt, Options, undefined),
         no_responders => maps:get(no_responders, Options, undefined),
         headers => maps:get(headers, Options, undefined)
     },

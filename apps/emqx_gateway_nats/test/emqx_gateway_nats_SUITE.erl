@@ -11,6 +11,10 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-define(VALID_USER_NKEY, <<"UB4G32YJ2GVZG3KTC3Z7BLIU3PXPJC2Y4QF6SNJUN2XIF3M3E3NDEUCZ">>).
+-define(VALID_OPERATOR_NKEY, <<"OB43KVROR7TFJ6KAPCYRF2FJROTZAH4FHLTJLPWX4DRZCC5NASLGIT25">>).
+-define(VALID_ACCOUNT_NKEY, <<"ADT7CYVBBPWFLGX6UGK6JXHIJNUVNDK5FSYJMPVUI3AGQXRLC7ZPAOJZ">>).
+
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
@@ -79,6 +83,192 @@ t_load_badconf_listener_in_use(_Config) ->
     after
         gen_tcp:close(LSock)
     end.
+
+t_load_badconf_partial_authn_jwt(_Config) ->
+    BaseConf0 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    EmptyJWTMethod = BaseConf0#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, EmptyJWTMethod)
+    ),
+
+    BaseConf1 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    MissingTrustedOperators = BaseConf1#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => <<"A">>,
+                            <<"jwt">> => <<"jwt-account">>
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, MissingTrustedOperators)
+    ),
+
+    BaseConf2 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    MissingResolverPreload = BaseConf2#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [<<"OP">>]
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, MissingResolverPreload)
+    ),
+
+    BaseConfToken = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    EmptyTokenMethod = BaseConfToken#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"token">>,
+                <<"token">> => <<>>
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, EmptyTokenMethod)
+    ),
+
+    BaseConfNKey = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    EmptyNKeysMethod = BaseConfNKey#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"nkey">>,
+                <<"nkeys">> => []
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, EmptyNKeysMethod)
+    ),
+
+    BaseConf3 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    InvalidNKeyMethod = BaseConf3#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"nkey">>,
+                <<"nkeys">> => [<<"bad-nkey">>]
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, InvalidNKeyMethod)
+    ),
+
+    BaseConf4 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    InvalidTrustedOperators = BaseConf4#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [<<"bad-nkey">>],
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => ?VALID_USER_NKEY,
+                            <<"jwt">> => <<"jwt-account">>
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, InvalidTrustedOperators)
+    ),
+
+    BaseConf5 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    InvalidTrustedOperatorClass = BaseConf5#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [?VALID_USER_NKEY],
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => ?VALID_ACCOUNT_NKEY,
+                            <<"jwt">> => <<"jwt-account">>
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, InvalidTrustedOperatorClass)
+    ),
+
+    BaseConf6 = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    InvalidResolverPubKeyClass = BaseConf6#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [?VALID_OPERATOR_NKEY],
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => ?VALID_USER_NKEY,
+                            <<"jwt">> => <<"jwt-account">>
+                        }
+                    ]
+                }
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, InvalidResolverPubKeyClass)
+    ).
+
+t_load_badconf_authn_jwt_cache_ttl(_Config) ->
+    BaseConf = nats_conf(emqx_common_test_helpers:select_free_port(tcp)),
+    UnsupportedCacheTTL = BaseConf#{
+        <<"internal_authn">> => [
+            #{
+                <<"type">> => <<"jwt">>,
+                <<"trusted_operators">> => [<<"OP">>],
+                <<"resolver">> => #{
+                    <<"type">> => <<"memory">>,
+                    <<"resolver_preload">> => [
+                        #{
+                            <<"pubkey">> => <<"A">>,
+                            <<"jwt">> => <<"jwt-account">>
+                        }
+                    ]
+                },
+                <<"cache_ttl">> => <<"5m">>
+            }
+        ]
+    },
+    ?assertMatch(
+        {error, #{kind := validation_error}},
+        emqx_gateway_conf:load_gateway(nats, UnsupportedCacheTTL)
+    ).
 
 t_load_update_unload(_Config) ->
     Port1 = emqx_common_test_helpers:select_free_port(tcp),
