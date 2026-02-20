@@ -4,27 +4,6 @@ defmodule Emqx.GenDeps.DB do
   """
 
   @doc """
-  Get plugin app names from umbrella apps.
-
-  A plugin app is identified by `emqx_plugin:` in its `mix.exs`.
-  """
-  def plugin_apps(app_names \\ nil) do
-    plugin_apps =
-      Mix.Dep.Umbrella.cached()
-      |> Enum.filter(&plugin_app?/1)
-      |> Enum.map(& &1.app)
-
-    case app_names do
-      nil ->
-        plugin_apps
-
-      names when is_list(names) ->
-        name_set = MapSet.new(names)
-        Enum.filter(plugin_apps, &MapSet.member?(name_set, &1))
-    end
-  end
-
-  @doc """
   Get all transitive "used-by" dependencies between applications.
 
   ## Returns
@@ -228,12 +207,5 @@ defmodule Emqx.GenDeps.DB do
   defp warn(message, loc, %{app: app, file: path}) do
     app_path = app.opts[:dest]
     "#{app.app}: #{Path.relative_to(path, app_path)}:#{loc}: #{message}"
-  end
-
-  defp plugin_app?(app) do
-    app.opts[:dest]
-    |> Path.join("mix.exs")
-    |> File.read!()
-    |> String.contains?("emqx_plugin:")
   end
 end
