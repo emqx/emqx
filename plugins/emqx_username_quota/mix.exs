@@ -9,6 +9,7 @@ defmodule EMQXUsernameQuota.MixProject do
       build_path: "../../_build",
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
+      erlc_options: erlc_options(),
       erlc_paths: erlc_paths(),
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
@@ -30,6 +31,14 @@ defmodule EMQXUsernameQuota.MixProject do
     end
   end
 
+  def erlc_options() do
+    if test_env?() do
+      [:debug_info, {:d, :TEST}, {:parse_transform, :cth_readable_transform}]
+    else
+      [:debug_info]
+    end
+  end
+
   def version do
     File.read!("VERSION") |> String.trim()
   end
@@ -43,7 +52,7 @@ defmodule EMQXUsernameQuota.MixProject do
 
   def deps() do
     [
-      {:emqx_mix, path: "../..", env: emqx_mix_env()}
+      {:emqx_mix, path: "../..", env: emqx_mix_env(), runtime: false}
     ] ++
       if test_env?() do
         [{:cth_readable, "1.5.1"}]
