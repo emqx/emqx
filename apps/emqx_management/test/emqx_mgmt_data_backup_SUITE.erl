@@ -100,7 +100,8 @@ t_empty_export_import(_Config) ->
     {ok, #{filename := FileName}} = emqx_mgmt_data_backup:export(),
     Exp = {ok, #{db_errors => #{}, config_errors => #{}}},
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
-    ?assertEqual(ExpRawConf, emqx:get_raw_config([])),
+    Diff = deep_diff_maps(ExpRawConf, emqx:get_raw_config([])),
+    ?assertEqual(ExpRawConf, emqx:get_raw_config([]), #{diff => Diff}),
     %% idempotent update assert
     ?assertEqual(Exp, emqx_mgmt_data_backup:import(basename(FileName))),
     ?assertEqual(ExpRawConf, emqx:get_raw_config([])).
@@ -864,7 +865,7 @@ apps_to_start() ->
         {emqx_license, ""},
         emqx_psk,
         emqx_management,
-        emqx_auth,
+        {emqx_auth, #{after_start => fun() -> ok end}},
         emqx_auth_http,
         emqx_auth_jwt,
         emqx_auth_mnesia,

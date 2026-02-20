@@ -55,7 +55,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx,
-            emqx_auth,
+            {emqx_auth, #{after_start => fun() -> ok end}},
             %% to load schema
             {emqx_auth_mnesia, #{start => false}},
             emqx_management,
@@ -680,7 +680,7 @@ t_cache(_Config) ->
         uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"node_cache">> := #{<<"enable">> := false}},
+        #{<<"node_cache">> := #{<<"enable">> := true}},
         emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
