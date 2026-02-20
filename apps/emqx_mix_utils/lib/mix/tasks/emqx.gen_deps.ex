@@ -49,8 +49,7 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     Mix.shell().info("Found #{length(emqx_apps)} apps")
 
     # Build used_by relationships (reverse dependency direction)
-    transitive_deps = Emqx.GenDeps.DB.transitive_dependents()
-    deps_list = build_deps_map(emqx_apps, transitive_deps)
+    deps_list = build_deps_map(emqx_apps)
 
     # Write to file
     File.write!(output_file, deps_list)
@@ -58,10 +57,12 @@ defmodule Mix.Tasks.Emqx.GenDeps do
     Mix.shell().info("Used-by relationships written to #{output_file}")
   end
 
-  defp build_deps_map(emqx_apps, transitive_deps) do
+  defp build_deps_map(emqx_apps) do
     # Convert sets to sorted lists and format output
     # Format: app1: app2 app3 (where app2 and app3 transitively use app1, space-separated)
     # If UsedBySet + {App} = AllApps, output "all" instead
+    transitive_deps = Emqx.GenDeps.DB.transitive_dependents()
+
     emqx_apps
     |> Enum.sort()
     |> Enum.reduce([], fn app, acc ->
