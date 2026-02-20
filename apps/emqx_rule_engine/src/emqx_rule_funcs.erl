@@ -1160,7 +1160,7 @@ term_encode(Term) ->
     erlang:term_to_binary(Term).
 
 term_decode(Data) when is_binary(Data) ->
-    erlang:binary_to_term(Data).
+    erlang:binary_to_term(Data, [safe]).
 
 %%------------------------------------------------------------------------------
 %% Random Funcs

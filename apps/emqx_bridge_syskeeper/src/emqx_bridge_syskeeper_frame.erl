@@ -122,7 +122,7 @@ int2bool(_) ->
     false.
 
 marshaller(Item) when is_binary(Item) ->
-    erlang:binary_to_term(Item);
+    erlang:binary_to_term(Item, [safe]);
 marshaller(Item) ->
     erlang:term_to_binary(Item).
 
