@@ -15,7 +15,7 @@ What it does:
 USAGE
 }
 
-while [[ $# -gt 0 ]]; do
+if [[ $# -gt 0 ]]; then
     case "$1" in
         -h|--help)
             usage
@@ -27,8 +27,7 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
     esac
-    shift
-done
+fi
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 PROFILE="${PROFILE:-emqx-enterprise}"
