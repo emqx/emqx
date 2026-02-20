@@ -18,7 +18,11 @@
 -type authorize_hook_result() ::
     #{
         result := authz_result(),
-        from := term()
+        from := term(),
+        %% Optional cache control for authorization result.
+        %% is_cacheable=false tells EMQX not to store this result
+        %% in authz cache for the current topic/action.
+        is_cacheable => boolean()
     }.
 
 -type authn_result() :: #{
@@ -144,13 +148,11 @@ authorize(ClientInfo, Action, <<"$delayed/", Data/binary>> = RawTopic) ->
             inc_authz_metrics(deny),
             deny
     end;
-authorize(ClientInfo, Action, Topic0) ->
-    IncludeMountpoint = emqx:get_config([authorization, include_mountpoint], false),
-    Topic = maybe_mount_prefix(IncludeMountpoint, ClientInfo, Topic0),
-    Result =
+authorize(ClientInfo, Action, Topic) ->
+    {Result, _Cacheable} =
         case emqx_authz_cache:is_enabled(Topic) of
             true -> check_authorization_cache(ClientInfo, Action, Topic);
-            false -> do_authorize(ClientInfo, Action, Topic)
+            false -> do_authorize_with_cache_policy(ClientInfo, Action, Topic)
         end,
     inc_authz_metrics(Result),
     Result.
@@ -214,19 +216,22 @@ check_authorization_cache(ClientInfo, Action, Topic) ->
     case emqx_authz_cache:get_authz_cache(Action, Topic) of
         not_found ->
             inc_authz_metrics(cache_miss),
-            AuthzResult = do_authorize(ClientInfo, Action, Topic),
-            emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult),
-            AuthzResult;
+            {AuthzResult, Cacheable} = do_authorize_with_cache_policy(ClientInfo, Action, Topic),
+            case Cacheable of
+                true -> emqx_authz_cache:put_authz_cache(Action, Topic, AuthzResult);
+                false -> ok
+            end,
+            {AuthzResult, Cacheable};
         AuthzResult ->
             emqx_hooks:run(
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, AuthzResult, cache]
             ),
             inc_authz_metrics(cache_hit),
-            AuthzResult
+            {AuthzResult, true}
     end.
 
-do_authorize(ClientInfo, Action, Topic) ->
+do_authorize_with_cache_policy(ClientInfo, Action, Topic) ->
     NoMatch = emqx:get_config([authorization, no_match], deny),
     Default = #{result => NoMatch, from => default},
     case run_hooks('client.authorize', [ClientInfo, Action, Topic], Default) of
@@ -237,7 +242,7 @@ do_authorize(ClientInfo, Action, Topic) ->
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, Result, From]
             ),
-            Result;
+            {Result, should_cache_authz_result(AuthzResult)};
         Other ->
             ?SLOG(error, #{
                 msg => "unknown_authorization_return_format",
@@ -248,19 +253,11 @@ do_authorize(ClientInfo, Action, Topic) ->
                 'client.check_authz_complete',
                 [ClientInfo, Action, Topic, deny, unknown_return_format]
             ),
-            deny
+            {deny, true}
     end.
 
-maybe_mount_prefix(false = _IncludeMountpoint, _ClientInfo, Topic0) ->
-    Topic0;
-maybe_mount_prefix(
-    true = _IncludeMountpoint, #{mountpoint := Mountpoint} = _ClientInfo, Topic0
-) when
-    is_binary(Mountpoint)
-->
-    emqx_mountpoint:mount(Mountpoint, Topic0);
-maybe_mount_prefix(true = _IncludeMountpoint, _ClientInfo, Topic0) ->
-    Topic0.
+should_cache_authz_result(AuthzResult) ->
+    maps:get(is_cacheable, AuthzResult, true).
 
 log_result(Topic, Action, From, Result) ->
     LogMeta = fun() ->
@@ -308,7 +305,7 @@ format_retain_flag(false) ->
     "R0".
 
 run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.authorize' ->
-    ok = emqx_metrics:inc_global(Name),
+    ok = emqx_metrics:inc(Name),
     {Time, Value} = timer:tc(
         fun() -> emqx_hooks:run_fold(Name, Args, Acc) end
     ),
@@ -327,22 +324,22 @@ run_hooks(Name, Args, Acc) when Name == 'client.authenticate'; Name == 'client.a
 
 -compile({inline, [inc_authz_metrics/1]}).
 inc_authz_metrics(allow) ->
-    emqx_metrics:inc_global('authorization.allow');
+    emqx_metrics:inc('authorization.allow');
 inc_authz_metrics(deny) ->
-    emqx_metrics:inc_global('authorization.deny');
+    emqx_metrics:inc('authorization.deny');
 inc_authz_metrics(cache_hit) ->
-    emqx_metrics:inc_global('authorization.cache_hit');
+    emqx_metrics:inc('authorization.cache_hit');
 inc_authz_metrics(cache_miss) ->
-    emqx_metrics:inc_global('authorization.cache_miss').
+    emqx_metrics:inc('authorization.cache_miss').
 
 inc_authn_metrics(error) ->
-    emqx_metrics:inc_global('authentication.failure');
+    emqx_metrics:inc('authentication.failure');
 inc_authn_metrics(ok) ->
-    emqx_metrics:inc_global('authentication.success');
+    emqx_metrics:inc('authentication.success');
 inc_authn_metrics(anonymous) ->
-    emqx_metrics:inc_global('client.auth.anonymous'),
-    emqx_metrics:inc_global('authentication.success.anonymous'),
-    emqx_metrics:inc_global('authentication.success').
+    emqx_metrics:inc('client.auth.anonymous'),
+    emqx_metrics:inc('authentication.success.anonymous'),
+    emqx_metrics:inc('authentication.success').
 
 on_authentication_complete_no_hooks(#{enable_authn := false} = Credential, Extra) ->
     on_authentication_complete_success(Credential, Extra, anonymous),
