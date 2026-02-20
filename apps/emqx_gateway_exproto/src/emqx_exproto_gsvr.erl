@@ -184,7 +184,7 @@ unsubscribe(Req = #{conn := Conn, topic := Topic}, Md) ->
 %%--------------------------------------------------------------------
 
 to_pid(ConnStr) ->
-    binary_to_term(base64:decode(ConnStr)).
+    binary_to_term(base64:decode(ConnStr), [safe]).
 
 call(ConnStr, Req) ->
     try
