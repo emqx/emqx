@@ -8,22 +8,18 @@ defmodule Mix.Tasks.Emqx.Plugin do
 
   Example:
 
-      mix emqx.plugin --app apps/emqx_username_quota
+      mix emqx.plugin
   """
 
-  @requirements ["loadpaths"]
+  @requirements ["loadpaths", "compile"]
 
   @metadata_vsn "0.2.0"
 
   @impl true
-  # Entrypoint: validate plugin app path, read release metadata, and package tarball.
-  def run(args) do
-    opts = parse_args!(args)
-    plugin_dir = Path.expand(opts[:app])
-
-    validate_plugin_dir!(plugin_dir)
-
-    plugin_name = Path.basename(plugin_dir)
+  def run(_args) do
+    plugin_dir = "."
+    plugin_name = Mix.Project.config()[:app] |> to_string()
+    plugin_vsn = Mix.Project.config()[:version]
 
     build_profile =
       System.get_env("PROFILE")
@@ -34,7 +30,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
 
     System.put_env("PROFILE", build_profile)
 
-    plugin_vsn = plugin_mix_version!(plugin_dir, plugin_name)
     ensure_prebuilt_plugin_exists!(plugin_name)
 
     info = collect_info(plugin_dir, plugin_name, plugin_vsn)
@@ -43,41 +38,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     Mix.shell().info("Built plugin package: #{info.name}-#{info.rel_vsn}.tar.gz")
   end
 
-  # Parse and validate CLI arguments accepted by `mix emqx.plugin`.
-  defp parse_args!(args) do
-    {opts, rest} =
-      OptionParser.parse!(args,
-        strict: [app: :string]
-      )
-
-    if rest != [] do
-      Mix.raise("Unknown arguments: #{Enum.join(rest, " ")}")
-    end
-
-    app = Keyword.get(opts, :app)
-
-    if is_nil(app) or app == "" do
-      Mix.raise("Missing required --app argument, e.g. --app apps/emqx_username_quota")
-    end
-
-    %{app: app}
-  end
-
-  # Ensure the target plugin path exists and has expected source layout.
-  defp validate_plugin_dir!(plugin_dir) do
-    cond do
-      not File.dir?(plugin_dir) ->
-        Mix.raise("Plugin dir not found: #{plugin_dir}")
-
-      not File.exists?(Path.join(plugin_dir, "src")) ->
-        Mix.raise("Plugin src/ not found: #{plugin_dir}")
-
-      true ->
-        :ok
-    end
-  end
-
-  # Packaging is build-output-only; this asserts plugin ebin has already been compiled.
   defp ensure_prebuilt_plugin_exists!(plugin_name) do
     app_file = Path.join([plugin_build_lib_dir(), plugin_name, "ebin", "#{plugin_name}.app"])
 
@@ -91,9 +51,8 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Build release.json payload using plugin config plus build/runtime metadata.
   defp collect_info(plugin_dir, plugin_name, plugin_vsn) do
-    emqx_plugin = plugin_package_config!(plugin_dir, plugin_name)
+    emqx_plugin = plugin_package_config!()
     release_name = emqx_plugin[:name] || plugin_name
     release_vsn = emqx_plugin[:rel_vsn] || plugin_vsn
     release_apps = emqx_plugin[:rel_apps] || [String.to_atom(plugin_name)]
@@ -131,7 +90,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     }
   end
 
-  # Validate optional config artifacts when they are present in plugin priv/.
   defp validate_optional_files!(plugin_dir) do
     avsc = Path.join(plugin_dir, "priv/config_schema.avsc")
     hocon = Path.join(plugin_dir, "priv/config.hocon")
@@ -146,7 +104,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Validate AVSC schema against config.hocon by decoding HOCON through avro_json_decoder.
   defp validate_avsc!(avsc_file, hocon_file) do
     name = "TryDecodeDefaultAvro"
     {:ok, hocon_map} = hocon_load!(String.to_charlist(hocon_file))
@@ -168,7 +125,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     :ok
   end
 
-  # Resolve an app entry in rel_apps to "<app>-<vsn>" from compiled .app file.
   defp resolve_app_vsn!(app) do
     app_name = Atom.to_string(app)
     props = compiled_app_props!(app_name)
@@ -176,7 +132,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     to_bin([app_name, "-", to_string(vsn)])
   end
 
-  # Expand rel_apps with transitive packageable dependencies from app metadata.
   defp expand_release_apps!(release_apps) do
     do_expand_release_apps!(release_apps, MapSet.new(), [])
   end
@@ -208,7 +163,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     File.dir?(Path.join([plugin_build_lib_dir(), app_name, "ebin"]))
   end
 
-  # Load application properties from compiled .app file under _build/$PROFILE/lib.
   defp compiled_app_props!(app_name) do
     app_file = Path.join([plugin_build_lib_dir(), app_name, "ebin", "#{app_name}.app"])
 
@@ -224,7 +178,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Assemble package directory content, generate tar.gz and sha256 checksum in _build/plugins.
   defp make_tar(plugin_dir, info) do
     name_vsn = "#{info.name}-#{info.rel_vsn}"
     out_dir = plugin_pkg_out_dir()
@@ -261,7 +214,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     File.write!(sha_file, sha)
   end
 
-  # Copy packaged payload for one release app using compiled ebin and include/priv resources.
   defp copy_payload!(plugin_dir, plugin_name, app_name, dst) do
     File.rm_rf!(dst)
     File.mkdir_p!(dst)
@@ -293,7 +245,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     if File.dir?(priv_src), do: File.cp_r!(priv_src, Path.join(dst, "priv"))
   end
 
-  # Create compressed tarball from the staged package directory entries.
   defp create_tar!(cwd, root_name, tar_file) do
     File.rm_rf!(tar_file)
 
@@ -312,43 +263,32 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Root build output path where precompiled app artifacts are expected.
   defp plugin_build_lib_dir() do
     profile = System.get_env("PROFILE", "emqx-enterprise")
-    Path.join([project_root(), "_build", profile, "lib"])
+
+    build_path =
+      Mix.Project.config()
+      |> Keyword.fetch!(:build_path)
+      |> Path.expand()
+
+    Path.join([build_path, profile, "lib"])
   end
 
-  # Root output path for plugin release artifacts.
   defp plugin_pkg_out_dir() do
-    Path.join([project_root(), "_build", "plugins"])
+    build_path =
+      Mix.Project.config()
+      |> Keyword.fetch!(:build_path)
+      |> Path.expand()
+
+    Path.join([build_path, "plugins"])
   end
 
-  # Read plugin release version from plugin mix project config.
-  defp plugin_mix_version!(plugin_dir, plugin_name) do
-    app = String.to_atom(plugin_name)
-
-    config =
-      Mix.Project.in_project(app, plugin_dir, fn _module ->
-        Mix.Project.config()
-      end)
-
-    case config[:version] do
-      version when is_binary(version) and version != "" ->
-        version
-
-      other ->
-        Mix.raise("Invalid plugin mix.exs version: #{inspect(other)}")
-    end
-  end
-
-  # Extract app name from "<app>-<vsn>" release app entry.
   defp app_name_from_vsn(name_vsn) do
     name_vsn
     |> String.split("-")
     |> List.first()
   end
 
-  # Build date used in release metadata, preferring latest commit date.
   defp build_date() do
     case cmd_output(["log", "-1", "--pretty=format:%cd", "--date=format:%Y-%m-%d"]) do
       nil -> Date.utc_today() |> Date.to_iso8601() |> to_bin()
@@ -356,7 +296,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Git commit hash used in release metadata.
   defp git_ref() do
     case cmd_output(["rev-parse", "HEAD"]) do
       nil -> "unknown"
@@ -364,7 +303,6 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Run a git command and return trimmed output on success.
   defp cmd_output(args) do
     case System.cmd("git", args, stderr_to_stdout: true) do
       {out, 0} -> String.trim(out)
@@ -372,18 +310,10 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Load plugin package configuration from plugin mix project.
-  defp plugin_package_config!(plugin_dir, plugin_name) do
-    app = String.to_atom(plugin_name)
-
-    config =
-      Mix.Project.in_project(app, plugin_dir, fn _module ->
-        Mix.Project.config()
-      end)
-
-    case config[:emqx_plugin] do
+  defp plugin_package_config!() do
+    case Mix.Project.config()[:emqx_plugin] do
       nil ->
-        Mix.raise("Missing :emqx_plugin config in #{Path.join(plugin_dir, "mix.exs")} project()")
+        Mix.raise("Missing :emqx_plugin config in the plugins' `mix.exs` project()")
 
       cfg when is_list(cfg) ->
         cfg
@@ -393,14 +323,12 @@ defmodule Mix.Tasks.Emqx.Plugin do
     end
   end
 
-  # Convert plugin metadata keyword list into a map with normalized field encodings.
   defp info_map(info_list) do
     info_list
     |> Enum.map(fn {k, v} -> {k, info_field(k, v)} end)
     |> Map.new()
   end
 
-  # Field-level metadata encoding rules aligned with release.json conventions.
   defp info_field(:compatibility, values), do: info_map(values)
   defp info_field(:builder, values), do: info_map(values)
   defp info_field(:authors, values), do: to_bin(values)
@@ -408,20 +336,14 @@ defmodule Mix.Tasks.Emqx.Plugin do
   defp info_field(:hidden, value) when is_boolean(value), do: value
   defp info_field(_key, value), do: to_bin(value)
 
-  # Convert common Erlang/Elixir value types to binary for JSON serialization.
   defp to_bin(v) when is_binary(v), do: v
   defp to_bin(v) when is_atom(v), do: Atom.to_string(v)
   defp to_bin(v) when is_list(v), do: IO.iodata_to_binary(v)
   defp to_bin(v), do: to_string(v)
 
-  # Use Erlang/OTP native JSON encoder for release payload generation.
   defp json_encode!(input), do: :json.encode(input) |> IO.iodata_to_binary()
-
-  # Use Erlang/OTP native JSON decoder for JSON schema/i18n validation.
   defp json_decode!(input), do: :json.decode(input)
 
-  # These Erlang modules may be absent from emqx_mix_utils compile path.
-  # Use apply/3 to avoid undefined-module warnings under --warnings-as-errors.
   defp hocon_load!(path), do: apply(:hocon, :load, [path])
 
   defp avro_schema_store_new!(opts),
@@ -434,9 +356,4 @@ defmodule Mix.Tasks.Emqx.Plugin do
 
   defp avro_json_decode_value!(json, name, store, opts),
     do: apply(:avro_json_decoder, :decode_value, [json, name, store, opts])
-
-  # Resolve monorepo root from the current Mix project file.
-  defp project_root() do
-    Mix.Project.project_file() |> Path.dirname()
-  end
 end

@@ -135,10 +135,31 @@ else
 endif
 endef
 
+define gen-plugin-ct-target
+$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
+	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1 | sed 's#^$1/##'))
+ifneq ($(SUITES),)
+	cd $1 && env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
+	    TEST=1 \
+	    PROFILE=$(PROFILE)-test \
+	        $(MIX) do deps.get, emqx.ct \
+		$(call cover_args,$1) \
+		--suites $(SUITES) \
+		$(GROUPS_ARG) \
+		$(CASES_ARG)
+else
+	@echo 'No suites found for $1'
+endif
+endef
+
 ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
 app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
+ifneq ($(filter plugins/%,$(app_to_test)),)
+$(eval $(call gen-plugin-ct-target,$(app_to_test)))
+else
 $(eval $(call gen-app-ct-target,$(app_to_test)))
+endif
 endif
 
 ## apps/name-prop targets
@@ -172,9 +193,9 @@ cover:
 
 .PHONY: plugin-%
 plugin-%:
-	@PLUGIN_APP_DIR="$$(if [ -d apps/$* ]; then echo apps/$*; fi)"; \
+	@PLUGIN_APP_DIR="$$(if [ -d plugins/$* ]; then echo plugins/$*; fi)"; \
 	if [ -z "$$PLUGIN_APP_DIR" ]; then \
-		echo "No such plugin app: apps/$*"; \
+		echo "No such plugin app: plugins/$*"; \
 		exit 1; \
 	fi; \
 	if [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
@@ -186,13 +207,13 @@ plugin-%:
 		echo "App $$PLUGIN_APP_DIR is not an EMQX plugin app (missing :emqx_plugin)."; \
 		exit 1; \
 	fi; \
-	PROFILE="$(PROFILE)" $(MIX) emqx.plugin --app "$$PLUGIN_APP_DIR"
+	cd "$$PLUGIN_APP_DIR" && PROFILE="$(PROFILE)" $(MIX) emqx.plugin
 
 .PHONY: plugins
 plugins: $(REBAR)
 	@mkdir -p _build/plugins
 	@set -e; \
-	for PLUGIN_APP_DIR in apps/*; do \
+	for PLUGIN_APP_DIR in plugins/*; do \
 		if [ ! -d "$$PLUGIN_APP_DIR" ] || [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
 			continue; \
 		fi; \

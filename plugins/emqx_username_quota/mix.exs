@@ -1,6 +1,5 @@
 defmodule EMQXUsernameQuota.MixProject do
   use Mix.Project
-  alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
@@ -8,14 +7,27 @@ defmodule EMQXUsernameQuota.MixProject do
       version: version(),
       emqx_plugin: emqx_plugin(),
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
-      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
+      erlc_paths: erlc_paths(),
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
+  end
+
+  def test_env?() do
+    env = to_string(Mix.env())
+    profile = System.get_env("PROFILE", "")
+    env =~ ~r/-test$/ or String.ends_with?(profile, "-test")
+  end
+
+  def erlc_paths() do
+    if test_env?() do
+      ["src", "test"]
+    else
+      ["src"]
+    end
   end
 
   def version do
@@ -23,14 +35,29 @@ defmodule EMQXUsernameQuota.MixProject do
   end
 
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_username_quota_app, []}]
+    [
+      extra_applications: [],
+      mod: {:emqx_username_quota_app, []}
+    ]
   end
 
   def deps() do
-    UMP.deps([
-      {:emqx, in_umbrella: true},
-      {:emqx_utils, in_umbrella: true}
-    ])
+    [
+      {:emqx_mix, path: "../..", env: emqx_mix_env()}
+    ] ++
+      if test_env?() do
+        [{:cth_readable, "1.5.1"}]
+      else
+        []
+      end
+  end
+
+  defp emqx_mix_env() do
+    if test_env?() do
+      :"emqx-enterprise-test"
+    else
+      :"emqx-enterprise"
+    end
   end
 
   defp emqx_plugin do
