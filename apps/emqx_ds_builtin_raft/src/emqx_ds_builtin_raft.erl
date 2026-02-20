@@ -153,6 +153,7 @@ This is the entrypoint into the `builtin_raft` backend.
 
 -type db_runtime_config() :: #{
     db_group := emqx_ds:db_group(),
+    backup_priority := integer(),
     reads => leader_preferred | local_preferred,
     %% TODO: clarify type
     replication_options := #{},
@@ -924,6 +925,7 @@ verify_db_opts(Opts) ->
         #{
             backend := builtin_raft,
             db_group := DBGroup,
+            backup_priority := BUPp,
             payload_type := PType,
             n_shards := NShards,
             n_sites := NSites,
@@ -957,6 +959,7 @@ verify_db_opts(Opts) ->
         },
         RTOpts = #{
             db_group => DBGroup,
+            backup_priority => BUPp,
             reads => Reads,
             replication_options => ReplOpts,
             subscriptions => Subs,
