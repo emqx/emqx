@@ -11,6 +11,8 @@
 
 -elvis([{elvis_style, god_modules, disable}]).
 
+%% Dummy change
+
 %% Start/Stop the application
 -export([
     start/0,
