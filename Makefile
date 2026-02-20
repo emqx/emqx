@@ -211,23 +211,7 @@ plugin-%:
 
 .PHONY: plugins
 plugins: $(REBAR)
-	@mkdir -p _build/plugins
-	@set -e; \
-	for PLUGIN_APP_DIR in plugins/*; do \
-		if [ ! -d "$$PLUGIN_APP_DIR" ] || [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
-			continue; \
-		fi; \
-		if ! grep -q "emqx_plugin:" "$$PLUGIN_APP_DIR/mix.exs"; then \
-			continue; \
-		fi; \
-		PLUGIN_APP="$$(basename "$$PLUGIN_APP_DIR")"; \
-		echo "Building plugin $$PLUGIN_APP"; \
-		$(MAKE) "plugin-$$PLUGIN_APP"; \
-		if ! find _build/plugins -maxdepth 1 -type f -name "$$PLUGIN_APP-*.tar.gz" | grep -q .; then \
-			echo "No plugin package (*.tar.gz) found under _build/plugins for $$PLUGIN_APP"; \
-			exit 1; \
-		fi; \
-	done
+	@$(SCRIPTS)/build-plugins.sh
 
 COMMON_DEPS := $(REBAR)
 
