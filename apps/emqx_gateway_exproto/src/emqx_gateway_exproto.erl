@@ -7,12 +7,14 @@
 
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_gateway/include/emqx_gateway.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 %% define a gateway named stomp
 -gateway(#{
     name => exproto,
     callback_module => ?MODULE,
-    config_schema_module => emqx_exproto_schema
+    config_schema_module => emqx_exproto_schema,
+    config_schema_importance => ?IMPORTANCE_NO_DOC
 }).
 
 %% callback_module must implement the emqx_gateway_impl behaviour
