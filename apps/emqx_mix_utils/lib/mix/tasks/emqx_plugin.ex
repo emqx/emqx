@@ -44,9 +44,9 @@ defmodule Mix.Tasks.Emqx.Plugin do
     if not File.regular?(app_file) do
       Mix.raise("""
       Missing prebuilt plugin artifact: #{app_file}
-      This task only packages existing build outputs from _build/$PROFILE/lib.
+      This task only packages existing build outputs from _build/$MIX_ENV/lib.
       Build first, e.g.:
-        PROFILE=#{System.get_env("PROFILE", "emqx-enterprise")} mix compile
+        mix compile
       """)
     end
   end
@@ -264,14 +264,8 @@ defmodule Mix.Tasks.Emqx.Plugin do
   end
 
   defp plugin_build_lib_dir() do
-    profile = System.get_env("PROFILE", "emqx-enterprise")
-
-    build_path =
-      Mix.Project.config()
-      |> Keyword.fetch!(:build_path)
-      |> Path.expand()
-
-    Path.join([build_path, profile, "lib"])
+    Mix.Project.app_path()
+    |> Path.dirname()
   end
 
   defp plugin_pkg_out_dir() do
