@@ -258,7 +258,7 @@ check(#mqtt_packet_publish{topic_name = TopicName, properties = Props}) ->
             {error, ?RC_TOPIC_NAME_INVALID}
     end;
 check(#mqtt_packet_subscribe{properties = #{'Subscription-Identifier' := I}}) when
-    I =< 0; I >= 16#FFFFFFF
+    I =< 0; I > 16#FFFFFFF
 ->
     {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED};
 check(#mqtt_packet_subscribe{topic_filters = []}) ->
