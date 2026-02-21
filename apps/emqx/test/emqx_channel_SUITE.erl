@@ -143,6 +143,21 @@ t_handle_in_connect_packet_success(_) ->
     ),
     ?assertEqual(connected, emqx_channel:info(conn_state, Channel)).
 
+t_handle_in_connect_reject_will_retain_when_retain_unavailable(_) ->
+    OldRetainAvailable = emqx_config:get_zone_conf(default, [mqtt, retain_available]),
+    emqx_config:put_zone_conf(default, [mqtt, retain_available], false),
+    try
+        ConnPkt = (connpkt())#mqtt_packet_connect{
+            proto_ver = ?MQTT_PROTO_V5,
+            will_flag = true,
+            will_retain = true
+        },
+        {shutdown, retain_not_supported, ?CONNACK_PACKET(?RC_RETAIN_NOT_SUPPORTED, 0, _), _} =
+            emqx_channel:handle_in(?CONNECT_PACKET(ConnPkt), channel(#{conn_state => idle}))
+    after
+        emqx_config:put_zone_conf(default, [mqtt, retain_available], OldRetainAvailable)
+    end.
+
 t_handle_in_unexpected_connect_packet(_) ->
     Channel = emqx_channel:set_field(conn_state, connected, channel()),
     Packet = ?DISCONNECT_PACKET(?RC_PROTOCOL_ERROR),
