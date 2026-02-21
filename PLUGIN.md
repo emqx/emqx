@@ -23,11 +23,10 @@ This mode is recommended for independent plugin development outside the EMQX mon
 
 ### Plugin Inside the EMQX Monorepo
 
-When a plugin is developed inside the EMQX monorepo, the plugin application typically contains **both** build files:
+When a plugin is developed inside the EMQX monorepo, the plugin application should contain:
 
-- `mix.exs`: Required so the plugin participates in the monorepo compile and test workflows.
-
-- `rebar.config`: Used to build the distributable plugin package.
+- `mix.exs`: Required for compile/test/package workflows in the monorepo.
+- `VERSION`: Single source of truth for plugin version. `mix.exs` reads this file, and Mix generates the `.app` metadata from `mix.exs`.
 
 > **Note**
 > Building a plugin package does **not** automatically load or start the plugin in EMQX.
@@ -41,7 +40,8 @@ When a plugin is developed inside the EMQX monorepo, the plugin application typi
 
 ## Preparation
 
-To build an EMQX plugin, you need:
+For plugin development inside this monorepo, package build is driven by Mix via root `make plugin-*` targets.
+If you are creating a standalone plugin project outside this monorepo, you still need:
 
 - `rebar3`
 - the **emqx-plugin** project template
@@ -140,8 +140,11 @@ This mode is intended for plugin development tightly coupled with a specific EMQ
    ln -s /path/to/{plugin_name} plugins/{plugin_name}
    ```
 
-4. **Add `mix.exs`**
+4. **Add `mix.exs` and `VERSION`**
    - Create `plugins/{plugin_name}/mix.exs` so the plugin participates in monorepo build and test workflows.
+   - Create `plugins/{plugin_name}/VERSION` and keep plugin version in this single-line file.
+   - In `mix.exs`, set `version` from `File.read!("VERSION") |> String.trim()`.
+   - Define OTP application metadata in `application/0` of `mix.exs` (for example `mod`, `extra_applications`).
    - You can use `plugins/emqx_username_quota/mix.exs` as a reference.
 
 ---
@@ -178,12 +181,12 @@ make plugins/emqx_username_quota-ct
   scripts/run-plugin-dev.sh {plugin_name} [--attach]
   ```
 
-- Build the plugin package from the repository root:
+- Build the plugin package from the repository root (Mix-driven packaging):
   ```bash
   make plugin-{plugin_name}
   ```
 
-This produces a `.tar.gz` plugin artifact suitable for installation via `emqx ctl plugins`.
+This produces a `.tar.gz` plugin artifact under `_build/plugins/`, suitable for installation via `emqx ctl plugins`.
 
 ---
 

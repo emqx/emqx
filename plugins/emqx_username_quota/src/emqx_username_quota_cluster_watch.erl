@@ -86,9 +86,5 @@ code_change(_OldVsn, State, _Extra) ->
 clear_node_delay_ms(Node) ->
     BaseS = ?CLEAR_NODE_DELAY_SECONDS,
     MaxJitterS = ?CLEAR_NODE_JITTER_MAX_SECONDS,
-    JitterS =
-        case MaxJitterS > 0 of
-            true -> erlang:phash2({node(), Node}, MaxJitterS + 1);
-            false -> 0
-        end,
+    JitterS = erlang:phash2({node(), Node}, MaxJitterS + 1),
     timer:seconds(BaseS + JitterS).

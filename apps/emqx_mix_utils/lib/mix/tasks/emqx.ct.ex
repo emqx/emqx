@@ -200,14 +200,22 @@ defmodule Mix.Tasks.Emqx.Ct do
       |> Path.dirname()
       |> Path.join("apps")
 
-    apps_path
-    |> File.ls!()
-    |> Stream.filter(fn app_name ->
-      apps_path
-      |> Path.join(app_name)
-      |> File.dir?()
-    end)
-    |> Stream.map(&String.to_atom/1)
+    apps =
+      if File.dir?(apps_path) do
+        apps_path
+        |> File.ls!()
+        |> Stream.filter(fn app_name ->
+          apps_path
+          |> Path.join(app_name)
+          |> File.dir?()
+        end)
+        |> Stream.map(&String.to_atom/1)
+      else
+        ## inside plugin dir
+        [Mix.Project.config()[:app]]
+      end
+
+    apps
     |> Enum.flat_map(fn app ->
       case :application.get_key(app, :modules) do
         {:ok, mods} ->
@@ -238,11 +246,8 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   def load_common_helpers!() do
-    Code.ensure_all_loaded!([
-      :emqx_common_test_helpers,
-      :emqx_bridge_v2_testlib,
-      :emqx_utils_http_test_server
-    ])
+    [:emqx_common_test_helpers, :emqx_bridge_v2_testlib, :emqx_utils_http_test_server]
+    |> Enum.each(&Code.ensure_loaded/1)
   end
 
   # Links `test/*_data` directories inside the build dir, so that CT picks them up.
