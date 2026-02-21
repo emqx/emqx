@@ -254,7 +254,10 @@ select_union_member(#{<<"type">> := _} = Value, [Mod | Mods], Type) ->
             Member
     end;
 select_union_member(_Value, _Mods, _Type) ->
-    throw("missing_type_field").
+    throw(#{
+        reason => "missing_type_field",
+        missing_field => <<"type">>
+    }).
 
 default_authz() ->
     #{
