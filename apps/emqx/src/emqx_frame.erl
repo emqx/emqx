@@ -16,6 +16,7 @@
     parse/1,
     parse/2,
     parse_complete/2,
+    ensure_first_packet_is_connect/1,
     serialize_fun/0,
     serialize_fun/1,
     initial_serialize_opts/1,
@@ -174,6 +175,85 @@ parse_complete(
             {_RemLen, Rest2} = parse_variable_byte_integer(Rest1),
             parse_packet_complete(Rest2, Header, Options)
     end.
+
+-spec ensure_first_packet_is_connect(binary()) -> ok | {error, map()}.
+ensure_first_packet_is_connect(<<>>) ->
+    ok;
+ensure_first_packet_is_connect(<<Type:4, _Flags:4, _/binary>>) when Type =:= ?CONNECT ->
+    ok;
+ensure_first_packet_is_connect(<<Type:4, _Flags:4, _/binary>> = Data) ->
+    {Preview, PreviewEncoding} = format_data_prefix(Data, 32),
+    {error, #{
+        cause => invalid_connect_packet,
+        packet_type => Type,
+        packet_type_name => emqx_packet:type_name(Type),
+        resemble_protocol => guess_plaintext_protocol(Data),
+        received_prefix => Preview,
+        received_prefix_encoding => PreviewEncoding
+    }}.
+
+guess_plaintext_protocol(Data) ->
+    Prefix = binary:part(Data, 0, min(byte_size(Data), 16)),
+    case Prefix of
+        <<"GET ", _/binary>> ->
+            http;
+        <<"POST ", _/binary>> ->
+            http;
+        <<"PUT ", _/binary>> ->
+            http;
+        <<"HEAD ", _/binary>> ->
+            http;
+        <<"DELETE ", _/binary>> ->
+            http;
+        <<"OPTIONS ", _/binary>> ->
+            http;
+        <<"CONNECT ", _/binary>> ->
+            http;
+        <<"TRACE ", _/binary>> ->
+            http;
+        <<"PATCH ", _/binary>> ->
+            http;
+        <<"PRI * HTTP/2.0", _/binary>> ->
+            http2_preface;
+        <<"PROXY ", _/binary>> ->
+            proxy_protocol_v1;
+        <<16#0D, 16#0A, 16#0D, 16#0A, 16#00, 16#0D, 16#0A, 16#51, 16#55, 16#49, 16#54, 16#0A,
+            _/binary>> ->
+            proxy_protocol_v2;
+        <<"SSH-", _/binary>> ->
+            ssh;
+        <<"EHLO ", _/binary>> ->
+            smtp;
+        <<"HELO ", _/binary>> ->
+            smtp;
+        <<"*1\r\n", _/binary>> ->
+            redis_resp;
+        <<"*2\r\n", _/binary>> ->
+            redis_resp;
+        <<"*3\r\n", _/binary>> ->
+            redis_resp;
+        <<C, _/binary>> when C >= 32 andalso C =< 126 -> plain_text;
+        _ ->
+            unknown
+    end.
+
+format_data_prefix(Data, Limit) ->
+    Prefix = binary:part(Data, 0, min(byte_size(Data), Limit)),
+    case is_printable_ascii(Prefix) of
+        true -> {Prefix, printable};
+        false -> {binary:encode_hex(Prefix), hex}
+    end.
+
+is_printable_ascii(Bin) ->
+    lists:all(
+        fun(C) ->
+            C =:= $\r orelse
+                C =:= $\n orelse
+                C =:= $\t orelse
+                (C >= 32 andalso C =< 126)
+        end,
+        binary:bin_to_list(Bin)
+    ).
 
 parse_remaining_len(<<>>, Header, Mult, Length, Options) ->
     {some_more, #remlen{hdr = Header, len = Length, mult = Mult, opts = Options}};
