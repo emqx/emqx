@@ -195,22 +195,19 @@ cover:
 	@env PROFILE=$(PROFILE)-test mix cover
 
 .PHONY: plugin-%
+plugin-%: PLUGIN_APP_DIR = plugins/$*
 plugin-%:
-	@PLUGIN_APP_DIR="$$(if [ -d plugins/$* ]; then echo plugins/$*; fi)"; \
-	if [ -z "$$PLUGIN_APP_DIR" ]; then \
-		echo "No such plugin app: plugins/$*"; \
-		exit 1; \
-	fi; \
-	if [ ! -f "$$PLUGIN_APP_DIR/mix.exs" ]; then \
-		echo "App $$PLUGIN_APP_DIR does not define mix.exs."; \
+	@test -d $(PLUGIN_APP_DIR) || { echo "Error: No such plugin app: $(PLUGIN_APP_DIR)"; exit 1; }
+	@test -f $(PLUGIN_APP_DIR)/mix.exs || { \
+		echo "Error: $(PLUGIN_APP_DIR) does not define mix.exs."; \
 		echo "Ensure it is a monorepo plugin app with Mix support."; \
 		exit 1; \
-	fi; \
-	if ! grep -q "emqx_plugin:" "$$PLUGIN_APP_DIR/mix.exs"; then \
-		echo "App $$PLUGIN_APP_DIR is not an EMQX plugin app (missing :emqx_plugin)."; \
+	}
+	@grep -q "emqx_plugin:" $(PLUGIN_APP_DIR)/mix.exs || { \
+		echo "Error: $(PLUGIN_APP_DIR) is not an EMQX plugin app (missing :emqx_plugin)."; \
 		exit 1; \
-	fi; \
-	cd "$$PLUGIN_APP_DIR" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) emqx.plugin
+	}
+	cd "$(PLUGIN_APP_DIR)" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) emqx.plugin
 
 .PHONY: plugins
 plugins: $(REBAR)
