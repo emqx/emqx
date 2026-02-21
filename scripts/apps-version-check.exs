@@ -390,7 +390,6 @@ defmodule AppsVersionCheck do
         System.halt(1)
     end
   end
-
 end
 
 System.argv()
