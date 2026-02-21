@@ -265,9 +265,23 @@ t_swagger_json(_Config) ->
 
 t_disable_swagger_json(_Config) ->
     Url = ?HOST ++ "/api-docs/index.html",
+    ApiSpecUrls = [
+        ?HOST ++ "/api-spec.html",
+        ?HOST ++ "/api-spec.md",
+        ?HOST ++ "/api-spec.json"
+    ],
     ?assertMatch(
         {ok, {{"HTTP/1.1", 200, "OK"}, __, _}},
         httpc:request(get, {Url, []}, [], [{body_format, binary}])
+    ),
+    lists:foreach(
+        fun(ApiSpecUrl) ->
+            ?assertMatch(
+                {ok, {{"HTTP/1.1", 200, "OK"}, _, _}},
+                httpc:request(get, {ApiSpecUrl, []}, [], [{body_format, binary}])
+            )
+        end,
+        ApiSpecUrls
     ),
     DashboardCfg = emqx:get_raw_config([dashboard]),
     ?check_trace(
@@ -285,6 +299,15 @@ t_disable_swagger_json(_Config) ->
         {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
         httpc:request(get, {Url, []}, [], [{body_format, binary}])
     ),
+    lists:foreach(
+        fun(ApiSpecUrl) ->
+            ?assertMatch(
+                {ok, {{"HTTP/1.1", 404, "Not Found"}, _, _}},
+                httpc:request(get, {ApiSpecUrl, []}, [], [{body_format, binary}])
+            )
+        end,
+        ApiSpecUrls
+    ),
     ?check_trace(
         {_, {ok, _}} = ?wait_async_action(
             begin
@@ -299,6 +322,15 @@ t_disable_swagger_json(_Config) ->
     ?assertMatch(
         {ok, {{"HTTP/1.1", 200, "OK"}, _, _}},
         httpc:request(get, {Url, []}, [], [{body_format, binary}])
+    ),
+    lists:foreach(
+        fun(ApiSpecUrl) ->
+            ?assertMatch(
+                {ok, {{"HTTP/1.1", 200, "OK"}, _, _}},
+                httpc:request(get, {ApiSpecUrl, []}, [], [{body_format, binary}])
+            )
+        end,
+        ApiSpecUrls
     ).
 
 t_cli(_Config) ->
@@ -394,7 +426,7 @@ t_cli(_Config) ->
             "short-secret"
         ])
     ),
-    ?assertMatch([<<"Error: ", _/binary>>], ShortSecretError),
+    ?assertMatch(<<"Error: ", _/binary>>, ShortSecretError),
     ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-3">>)),
     {ok, [BadValidDaysError]} = ?CAPTURE(
         emqx_dashboard_cli:api_keys([
@@ -405,7 +437,7 @@ t_cli(_Config) ->
             "0"
         ])
     ),
-    ?assertMatch([<<"Error: ", _/binary>>], BadValidDaysError),
+    ?assertMatch(<<"Error: ", _/binary>>, BadValidDaysError),
     ?assertMatch({error, not_found}, emqx_mgmt_auth:read(<<"test-key-4">>)).
 
 t_lookup_by_username_jwt(_Config) ->
