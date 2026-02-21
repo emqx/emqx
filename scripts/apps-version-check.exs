@@ -102,20 +102,15 @@ defmodule AppsVersionCheck do
   end
 
   def has_valid_app_vsn?(app, context) do
-    if plugin_app?(app) do
-      log("IGNORE: apps/#{app} is a plugin app")
-      true
-    else
-      src_file = Path.join(["apps", app, "mix.exs"])
+    src_file = Path.join(["apps", app, "mix.exs"])
 
-      cond do
-        File.exists?(src_file) ->
-          do_has_valid_app_vsn?(app, context)
+    cond do
+      File.exists?(src_file) ->
+        do_has_valid_app_vsn?(app, context)
 
-        true ->
-          log("IGNORE: #{src_file} was deleted")
-          true
-      end
+      true ->
+        log("IGNORE: #{src_file} was deleted")
+        true
     end
   end
 
