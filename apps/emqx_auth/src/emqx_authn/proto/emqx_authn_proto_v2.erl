@@ -13,7 +13,7 @@
 
 -include_lib("emqx/include/bpapi.hrl").
 
--define(TIMEOUT, 15000).
+-define(TIMEOUT, 5000).
 
 introduced_in() ->
     "6.2.0".
