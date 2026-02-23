@@ -1,0 +1,16 @@
+emqx_a2a_registry_schema {
+  a2a_registry {
+    label: "A2A Registry"
+    desc: """Agent-to-Agent Card Registry."""
+  }
+
+  enable {
+    label: "Enable"
+    desc: """Whether to enable the A2A Registry feature.  Default is disabled."""
+  }
+
+  validate_schema {
+    label: "Validate Schema"
+    desc: """Whether to enable validation of Agent Card Schema during writes."""
+  }
+}

@@ -33,7 +33,11 @@
 %% Internal exports for `emqx_schema_registry_config'
 -export([
     async_delete_serdes/1,
-    ensure_serde_absent/1,
+    ensure_serde_absent/1
+]).
+%% Internal exports for other applications to register internal (memory only, not
+%% config-based) serdes
+-export([
     build_serdes/1
 ]).
 
