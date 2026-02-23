@@ -263,7 +263,7 @@ do_load_external_registries() ->
     ).
 
 maybe_build_sparkplug_b_serde() ->
-    case get_schema(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) of
+    case get_serde(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) of
         {error, not_found} ->
             do_build_serde(
                 ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME,
