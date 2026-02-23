@@ -743,7 +743,7 @@ otx_become_leader(DB, Shard) ->
         %% Propagate my schema:
         SiteSchema = emqx_dsch:get_db_schema(DB),
         Command = emqx_ds_builtin_raft_machine:update_schema(SiteSchema, emqx_ds:timestamp_us()),
-        {ok, _TxLastTimestamp} ?= ra_command(DB, Shard, Command, 5),
+        {ok, _TxLastTimestamp, Leader} ?= ra:process_command(Leader, Command, ra_timeout(DB)),
         %% Establish presence:
         {ok, TxSerial, TxLastTimestamp} ?= announce_otx_leader_pid(Leader, 5_000, self()),
         register_global_otx_leader(DB, Shard),
