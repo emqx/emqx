@@ -766,11 +766,15 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     Command = emqx_ds_builtin_raft_machine:otx_commit(SerCtl, Serial, Timestamp, Batches, self()),
     case local_raft_leader(DB, Shard) of
         {ok, Leader} ->
-            case ra:process_command(Leader, Command, 5_000) of
+            case ra:process_command(Leader, Command, ra_timeout(DB)) of
                 {ok, ok, _Leader} ->
                     ok;
                 {ok, Err, _Leader} ->
                     Err;
+                {error, noproc} ->
+                    ?err_rec(local_leader_stopped);
+                {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+                    ?err_rec(local_leader_terminated);
                 Err ->
                     ?err_rec({raft, Err, ?FUNCTION_NAME})
             end;
@@ -965,6 +969,10 @@ announce_otx_leader_pid(Leader, Timeout, Pid) ->
             Err;
         {ok, _, OtherLeader} ->
             ?err_rec({leadership_gone, #{Leader => OtherLeader}});
+        {error, noproc} ->
+            ?err_rec(local_leader_stopped);
+        {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+            ?err_rec(local_leader_terminated);
         Err ->
             ?err_rec({raft, Err, ?FUNCTION_NAME})
     end.
@@ -1159,6 +1167,10 @@ local_raft_leader(DB, Shard) ->
             ?err_rec({local_leadership_gone, #{current_state => State}});
         timeout ->
             ?err_rec(local_leader_timeout);
+        {error, noproc} ->
+            ?err_rec(local_leader_stopped);
+        {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+            ?err_rec(local_leader_terminated);
         Other ->
             ?err_unrec({invalid_response_from_local_leader, Other})
     end.
