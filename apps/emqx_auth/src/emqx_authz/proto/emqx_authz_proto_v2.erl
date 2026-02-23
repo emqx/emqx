@@ -16,7 +16,7 @@
 -define(TIMEOUT, 15000).
 
 introduced_in() ->
-    "6.1.0".
+    "6.2.0".
 
 -spec reset_metrics([node()], atom()) ->
     emqx_rpc:erpc_multicall(ok).
