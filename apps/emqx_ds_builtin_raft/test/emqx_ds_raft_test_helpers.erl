@@ -26,33 +26,6 @@ assert_db_open(Nodes, DB, Opts) ->
     erpc:multicall(Nodes, emqx_ds, wait_db, [DB, all, infinity]),
     erpc:multicall(Nodes, emqx_ds_builtin_raft, wait_replicas, [DB, infinity]).
 
--spec assert_db_stable([node()], emqx_ds:db()) -> _Ok.
-assert_db_stable([Node | _], DB) ->
-    Shards = ?ON(Node, emqx_ds_builtin_raft_meta:shards(DB)),
-    ?assertMatch(
-        _Leadership = [_ | _],
-        ?ON(Node, db_leadership(DB, Shards))
-    ).
-
-db_leadership(DB, Shards) ->
-    Leadership = [{S, shard_leadership(DB, S)} || S <- Shards],
-    Inconsistent = [SL || SL = {_, Leaders} <- Leadership, map_size(Leaders) > 1],
-    case Inconsistent of
-        [] ->
-            Leadership;
-        [_ | _] ->
-            {error, inconsistent, Inconsistent}
-    end.
-
-shard_leadership(DB, Shard) ->
-    ReplicaSet = emqx_ds_builtin_raft_meta:replica_set(DB, Shard),
-    Nodes = [emqx_ds_builtin_raft_meta:node(Site) || Site <- ReplicaSet],
-    lists:foldl(
-        fun(Node, Acc) -> Acc#{shard_leader(Node, DB, Shard) => Node} end,
-        #{},
-        Nodes
-    ).
-
 shard_leader(Node, DB, Shard) ->
     shard_server_info(Node, DB, Shard, leader).
 

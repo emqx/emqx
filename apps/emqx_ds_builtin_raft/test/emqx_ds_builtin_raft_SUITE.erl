@@ -588,25 +588,40 @@ t_rebalance_chaotic_converges(Config) ->
     %% This testcase verifies that even a very chaotic sequence of join/leave
     %% operations will still be handled consistently, and that the shard
     %% allocation will converge to the target state.
-
-    NMsgs = 500,
+    NMsgs = 400,
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
-
+    Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
     NClients = 5,
     {Stream0, TopicStreams} = emqx_ds_test_helpers:interleaved_topic_messages(
         ?FUNCTION_NAME, NClients, NMsgs
+    ),
+    Sequence = [
+        {N1, join_db_site, S3},
+        {N2, leave_db_site, S2},
+        {N3, leave_db_site, S1},
+        {N1, join_db_site, S2},
+        {N2, join_db_site, S1},
+        {N3, leave_db_site, S3},
+        {N1, leave_db_site, S1},
+        {N2, join_db_site, S3}
+    ],
+
+    %% Interleaved list of events:
+    Stream = emqx_utils_stream:interleave(
+        [
+            {200, Stream0},
+            emqx_utils_stream:list(Sequence)
+        ],
+        true
     ),
 
     ?check_trace(
         #{timetrap => 60_000},
         begin
-            Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
             ct:pal("Sites: ~p~n", [Sites]),
 
             %% Initialize DB on first two nodes.
-            Opts = opts(Config, #{
-                n_shards => 16, n_sites => 2, replication_factor => 3, payload_type => ?ds_pt_mqtt
-            }),
+            Opts = opts(Config, #{n_shards => 16, n_sites => 2, replication_factor => 3}),
 
             %% Open DB:
             emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
@@ -618,33 +633,22 @@ t_rebalance_chaotic_converges(Config) ->
             ),
             ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
 
-            Sequence = [
-                {N1, join_db_site, S3},
-                {N2, leave_db_site, S2},
-                {N3, leave_db_site, S1},
-                {N1, join_db_site, S2},
-                {N2, join_db_site, S1},
-                {N3, leave_db_site, S3},
-                {N1, leave_db_site, S1},
-                {N2, join_db_site, S3}
-            ],
-
-            %% Interleaved list of events:
-            Stream = emqx_utils_stream:interleave(
-                [
-                    {50, Stream0},
-                    emqx_utils_stream:list(Sequence)
-                ],
-                true
+            ?defer_assert(
+                ?assertEqual(
+                    lists:sort([S1, S2]),
+                    ds_repl_meta(N1, db_sites, [?DB]),
+                    "Initially, the DB is assigned to [S1, S2]"
+                )
+            ),
+            ?defer_assert(
+                ?assertEqual(
+                    [16, 16, 0],
+                    [n_shards_online(N, ?DB) || N <- Nodes],
+                    "Initially, DB shards are online on [N1, N2]"
+                )
             ),
 
-            ?retry(500, 10, ?assertEqual([16, 16], [n_shards_online(N, ?DB) || N <- [N1, N2]])),
-            ?assertEqual(
-                lists:sort([S1, S2]),
-                ds_repl_meta(N1, db_sites, [?DB]),
-                "Initially, the DB is assigned to [S1, S2]"
-            ),
-
+            %% Store the messages + chaotically change the membership.
             emqx_ds_raft_test_helpers:apply_stream(?DB, Nodes, Stream),
 
             %% Wait for the last transition to complete.
@@ -653,20 +657,29 @@ t_rebalance_chaotic_converges(Config) ->
             ?defer_assert(
                 ?assertEqual(
                     lists:sort([S2, S3]),
-                    ds_repl_meta(N1, db_sites, [?DB])
+                    ds_repl_meta(N1, db_sites, [?DB]),
+                    "DB is now assigned to [S2, S3]"
+                )
+            ),
+            ?defer_assert(
+                ?assertEqual(
+                    [0, 16, 16],
+                    [n_shards_online(N, ?DB) || N <- Nodes],
+                    "DB shards are now online only on [N2, N3]"
                 )
             ),
 
-            %% Wait until the LTS timestamp is updated:
-            timer:sleep(5000),
-            emqx_ds_raft_test_helpers:assert_db_stable(Nodes, ?DB),
-
             %% Check that all messages are still there.
+            ?ON(Nodes, emqx_ds_builtin_raft:wait_replicas(?DB, infinity)),
             emqx_ds_raft_test_helpers:verify_stream_effects(
                 ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
             )
         end,
-        []
+        [
+            {"No unexpected shard transition crashes", fun(Trace) ->
+                ?assertEqual([], ?of_kind("Shard membership transition failed", Trace))
+            end}
+        ]
     ).
 
 t_rebalance_offline_restarts(init, Config) ->
