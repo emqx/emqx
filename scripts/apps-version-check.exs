@@ -104,13 +104,11 @@ defmodule AppsVersionCheck do
   def has_valid_app_vsn?(app, context) do
     src_file = Path.join(["apps", app, "mix.exs"])
 
-    cond do
-      File.exists?(src_file) ->
-        do_has_valid_app_vsn?(app, context)
-
-      true ->
-        log("IGNORE: #{src_file} was deleted")
-        true
+    if File.exists?(src_file) do
+      do_has_valid_app_vsn?(app, context)
+    else
+      log("IGNORE: #{src_file} was deleted")
+      true
     end
   end
 
@@ -294,7 +292,7 @@ defmodule AppsVersionCheck do
       File.exists?(src_file) ->
         do_has_valid_plugin_release_vsn?(plugin, src_file, context)
 
-      true ->
+      :otherwise ->
         log("IGNORE: #{src_file} was deleted")
         true
     end
@@ -303,9 +301,10 @@ defmodule AppsVersionCheck do
   def plugin_version_source(plugin_dir) do
     version_file = Path.join(plugin_dir, "VERSION")
 
-    cond do
-      File.exists?(version_file) -> version_file
-      true -> :none
+    if File.exists?(version_file) do
+      version_file
+    else
+      :none
     end
   end
 

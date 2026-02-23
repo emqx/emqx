@@ -246,8 +246,11 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   def load_common_helpers!() do
-    [:emqx_common_test_helpers, :emqx_bridge_v2_testlib, :emqx_utils_http_test_server]
-    |> Enum.each(&Code.ensure_loaded/1)
+    Code.ensure_all_loaded!([
+      :emqx_common_test_helpers,
+      :emqx_bridge_v2_testlib,
+      :emqx_utils_http_test_server
+    ])
   end
 
   # Links `test/*_data` directories inside the build dir, so that CT picks them up.
