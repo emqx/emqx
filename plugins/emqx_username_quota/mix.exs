@@ -1,29 +1,75 @@
 defmodule EMQXUsernameQuota.MixProject do
   use Mix.Project
-  alias EMQXUmbrella.MixProject, as: UMP
 
   def project do
     [
       app: :emqx_username_quota,
-      version: "6.1.0",
+      version: version(),
+      emqx_plugin: emqx_plugin(),
       build_path: "../../_build",
-      erlc_options: UMP.erlc_options(),
-      erlc_paths: UMP.erlc_paths(),
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
+      erlc_paths: erlc_paths(),
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
   end
 
+  def test_env?() do
+    to_string(Mix.env()) =~ ~r/-test$/
+  end
+
+  def erlc_paths() do
+    if test_env?() do
+      ["src", "test"]
+    else
+      ["src"]
+    end
+  end
+
+  def version do
+    File.read!("VERSION") |> String.trim()
+  end
+
   def application do
-    [extra_applications: UMP.extra_applications(), mod: {:emqx_username_quota_app, []}]
+    [
+      extra_applications: [],
+      mod: {:emqx_username_quota_app, []}
+    ]
   end
 
   def deps() do
-    UMP.deps([
-      {:emqx_plugin_helper, github: "emqx/emqx-plugin-helper", tag: "v5.9.2", manager: :rebar3}
-    ])
+    [
+      {:emqx_mix, path: "../..", env: emqx_mix_env()},
+    ]
+  end
+
+  defp emqx_mix_env() do
+    if test_env?() do
+      :"emqx-enterprise-test"
+    else
+      :"emqx-enterprise"
+    end
+  end
+
+  defp emqx_plugin do
+    [
+      rel_vsn: version(),
+      metadata: [
+        authors: ["EMQX"],
+        builder: [
+          name: "EMQX",
+          contact: "developer@emqx.io",
+          website: "https://www.emqx.com"
+        ],
+        repo: "https://github.com/emqx/emqx",
+        functionality: ["Username Quota"],
+        compatibility: [
+          emqx: "~> 6.0"
+        ],
+        description: "Plugin for username-based quota checks."
+      ]
+    ]
   end
 end

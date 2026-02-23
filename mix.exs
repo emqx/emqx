@@ -59,29 +59,15 @@ defmodule EMQXUmbrella.MixProject do
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
   """
-  def deps(profile_info, _version) do
+  def deps(_profile_info, _version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     common_deps() ++
       quicer_dep() ++
       jq_dep() ++
-      plugin_deps(profile_info) ++
       extra_release_apps() ++
       overridden_deps()
   end
-
-  def plugin_deps(%{test?: true}) do
-    "plugins/*/mix.exs"
-    |> Path.wildcard()
-    |> Enum.map(&Path.dirname/1)
-    |> Enum.sort()
-    |> Enum.map(fn app_dir ->
-      app = app_dir |> Path.basename() |> String.to_atom()
-      {app, path: app_dir, env: :"emqx-enterprise-test"}
-    end)
-  end
-
-  def plugin_deps(_profile_info), do: []
 
   def overridden_deps() do
     [
@@ -352,7 +338,10 @@ defmodule EMQXUmbrella.MixProject do
       singleton(not test_env?(), :compressed) ++
       singleton(not test_env?(), :deterministic) ++
       singleton(test_env?(), {:d, :TEST}) ++
-      singleton(test_env?(), {:parse_transform, :cth_readable_transform}) ++
+      singleton(
+        test_env?() && cth_readable_available?(),
+        {:parse_transform, :cth_readable_transform}
+      ) ++
       singleton(enable_broker_instr?(), {:d, :EMQX_BROKER_INSTR}) ++
       singleton(not enable_quicer?(), {:d, :BUILD_WITHOUT_QUIC}) ++
       singleton(store_state_in_ds?(), {:d, :STORE_STATE_IN_DS, true})
@@ -364,6 +353,16 @@ defmodule EMQXUmbrella.MixProject do
 
   defp store_state_in_ds?() do
     "1" == System.get_env("STORE_STATE_IN_DS")
+  end
+
+  defp cth_readable_available?() do
+    case Application.ensure_loaded(:cth_readable) do
+      :ok ->
+        true
+
+      {:error, _} ->
+        false
+    end
   end
 
   defp singleton(false, _value), do: []
