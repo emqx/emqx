@@ -726,7 +726,7 @@ prep_stop_server(DB, Shard, Timeout) ->
     LocalServer = local_server(DB, Shard),
     Servers = shard_servers(DB, Shard),
     Candidates = [S || S <- Servers, S =/= LocalServer, is_server_known(S), is_server_online(S)],
-    HasQuorum = length(Candidates) >= (length(Servers) div 2 + 1),
+    HasQuorum = length(Candidates) >= length(Servers) div 2,
     case lookup_leader(DB, Shard) of
         LocalServer when HasQuorum andalso Candidates =/= [] ->
             %% NOTE
