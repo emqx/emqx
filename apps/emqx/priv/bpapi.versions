@@ -4,7 +4,9 @@
 {emqx,3}.
 {emqx_auth_cache,1}.
 {emqx_authn,1}.
+{emqx_authn,2}.
 {emqx_authz,1}.
+{emqx_authz,2}.
 {emqx_bridge,8}.
 {emqx_bridge,9}.
 {emqx_bridge_kinesis,1}.

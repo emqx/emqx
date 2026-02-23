@@ -395,7 +395,7 @@ source_metrics_reset(post, #{bindings := #{type := Type}}) ->
         fun(_) ->
             Nodes = mria:running_nodes(),
             TypeAtom = binary_to_existing_atom(Type, utf8),
-            case is_ok(emqx_authz_proto_v1:reset_metrics(Nodes, TypeAtom)) of
+            case is_ok(emqx_authz_proto_v2:reset_metrics(Nodes, TypeAtom)) of
                 {ok, _} ->
                     {204};
                 {error, ErrL} ->

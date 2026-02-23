@@ -847,7 +847,7 @@ authenticator_metrics_reset(post, #{bindings := #{id := AuthenticatorID}}) ->
         [authentication],
         fun(_) ->
             Nodes = mria:running_nodes(),
-            case is_ok(emqx_authn_proto_v1:reset_metrics(Nodes, ?GLOBAL, AuthenticatorID)) of
+            case is_ok(emqx_authn_proto_v2:reset_metrics(Nodes, ?GLOBAL, AuthenticatorID)) of
                 {ok, _} ->
                     {204};
                 {error, ErrL} ->

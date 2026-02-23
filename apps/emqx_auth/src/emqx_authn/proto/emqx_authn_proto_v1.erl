@@ -8,8 +8,7 @@
 
 -export([
     introduced_in/0,
-    lookup_from_all_nodes/3,
-    reset_metrics/3
+    lookup_from_all_nodes/3
 ]).
 
 -include_lib("emqx/include/bpapi.hrl").
@@ -24,11 +23,4 @@ introduced_in() ->
 lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID) ->
     erpc:multicall(
         Nodes, emqx_authn_api, lookup_from_local_node, [ChainName, AuthenticatorID], ?TIMEOUT
-    ).
-
--spec reset_metrics([node()], atom(), binary()) ->
-    emqx_rpc:erpc_multicall(ok).
-reset_metrics(Nodes, ChainName, AuthenticatorID) ->
-    erpc:multicall(
-        Nodes, emqx_authn_api, reset_metrics_local, [ChainName, AuthenticatorID], ?TIMEOUT
     ).
