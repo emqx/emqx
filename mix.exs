@@ -59,29 +59,15 @@ defmodule EMQXUmbrella.MixProject do
   application dependency simply won't satisfy mix.  In such cases, it's fine to add it
   here.
   """
-  def deps(profile_info, _version) do
+  def deps(_profile_info, _version) do
     # we need several overrides here because dependencies specify
     # other exact versions, and not ranges.
     common_deps() ++
       quicer_dep() ++
       jq_dep() ++
-      plugin_deps(profile_info) ++
       extra_release_apps() ++
       overridden_deps()
   end
-
-  def plugin_deps(%{test?: true}) do
-    "plugins/*/mix.exs"
-    |> Path.wildcard()
-    |> Enum.map(&Path.dirname/1)
-    |> Enum.sort()
-    |> Enum.map(fn app_dir ->
-      app = app_dir |> Path.basename() |> String.to_atom()
-      {app, path: app_dir, env: :"emqx-enterprise-test"}
-    end)
-  end
-
-  def plugin_deps(_profile_info), do: []
 
   def overridden_deps() do
     [
@@ -195,7 +181,7 @@ defmodule EMQXUmbrella.MixProject do
     do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.7", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
