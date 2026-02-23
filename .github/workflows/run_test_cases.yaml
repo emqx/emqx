@@ -212,22 +212,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: run plugin common tests
-        run: |
-          mapfile -t plugins < <(find plugins -mindepth 1 -maxdepth 1 -type d | sort)
-          mapfile -t plugin_apps < <(
-            for app in "${plugins[@]}"; do
-              [ -f "$app/mix.exs" ] && [ -d "$app/test" ] && echo "$app"
-            done
-          )
-          if [ "${#plugin_apps[@]}" -eq 0 ]; then
-            echo "No plugin apps with mix.exs and test/ found; skipping"
-            exit 0
-          fi
-          for app in "${plugin_apps[@]}"; do
-            echo "::group::${app}-ct"
-            make "${app}-ct"
-            echo "::endgroup::"
-          done
+        run: make plugins-ct
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
