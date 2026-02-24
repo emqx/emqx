@@ -122,7 +122,7 @@ endif
 ## env SUITES=apps/appname/test/test_SUITE.erl CASES=t_foo make apps/appname-ct
 define gen-app-ct-target
 $1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
-	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
+	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.py $1))
 ifneq ($(SUITES),)
 	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
 	    PROFILE=$(PROFILE)-test \
@@ -138,7 +138,7 @@ endef
 
 define gen-plugin-ct-target
 $1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
-	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
+	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.py $1))
 ifneq ($(SUITES),)
 	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
 	    PROFILE=$(PROFILE)-test \
