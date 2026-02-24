@@ -125,22 +125,6 @@ fields(authn_jwt) ->
                     required => false,
                     desc => ?DESC(resolver)
                 }
-            )},
-        {verify_exp,
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(verify_exp)
-                }
-            )},
-        {verify_nbf,
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(verify_nbf)
-                }
             )}
     ];
 fields(jwt_resolver_memory) ->

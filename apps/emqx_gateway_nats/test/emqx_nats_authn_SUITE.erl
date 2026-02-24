@@ -264,46 +264,6 @@ t_authenticate_jwt_time_validation(_Config) ->
         emqx_nats_authn:authenticate(#{<<"jwt">> => <<"invalid-jwt">>}, #{}, #{}, Authn)
     ).
 
-t_authenticate_jwt_verify_options(_Config) ->
-    Nonce = <<"nonce-jwt-verify-options">>,
-    ExpiredJWT = build_test_jwt(#{<<"exp">> => now_seconds() - 10}),
-    FutureNbfJWT = build_test_jwt(#{<<"nbf">> => now_seconds() + 3600}),
-
-    IgnoreExpAuthn = mk_authn_ctx(
-        undefined,
-        [],
-        jwt_conf(#{verify_exp => false}),
-        false
-    ),
-    {ok, ExpResult} = emqx_nats_authn:authenticate(
-        #{
-            <<"jwt">> => ExpiredJWT,
-            <<"sig">> => nkey_sig(Nonce)
-        },
-        #{nkey_nonce => Nonce},
-        #{},
-        IgnoreExpAuthn
-    ),
-    ?assertEqual(jwt, maps:get(auth_method, ExpResult)),
-    ?assertEqual(undefined, maps:get(auth_expire_at, ExpResult)),
-
-    IgnoreNbfAuthn = mk_authn_ctx(
-        undefined,
-        [],
-        jwt_conf(#{verify_nbf => false}),
-        false
-    ),
-    {ok, NbfResult} = emqx_nats_authn:authenticate(
-        #{
-            <<"jwt">> => FutureNbfJWT,
-            <<"sig">> => nkey_sig(Nonce)
-        },
-        #{nkey_nonce => Nonce},
-        #{},
-        IgnoreNbfAuthn
-    ),
-    ?assertEqual(jwt, maps:get(auth_method, NbfResult)).
-
 t_authenticate_jwt_signature_and_trust_chain_validation(_Config) ->
     Authn = mk_authn_ctx(undefined, [], jwt_conf(), false),
     ValidJWT = build_test_jwt(#{}),
@@ -710,9 +670,9 @@ t_authn_internal_helper_branches(_Config) ->
     ),
     ?assertEqual([], emqx_nats_authn:normalize_subject_list(<<"not-a-list">>)),
 
-    ?assertEqual(ok, emqx_nats_authn:verify_jwt_exp(#{<<"exp">> => 10.9}, true, 9)),
-    ?assertEqual(ok, emqx_nats_authn:verify_jwt_nbf(#{<<"nbf">> => 10}, true, 10)),
-    ?assertEqual(ok, emqx_nats_authn:verify_jwt_nbf(#{<<"nbf">> => 10.9}, true, 10)),
+    ?assertEqual(ok, emqx_nats_authn:verify_jwt_exp(#{<<"exp">> => 10.9}, 9)),
+    ?assertEqual(ok, emqx_nats_authn:verify_jwt_nbf(#{<<"nbf">> => 10}, 10)),
+    ?assertEqual(ok, emqx_nats_authn:verify_jwt_nbf(#{<<"nbf">> => 10.9}, 10)),
     ?assertEqual(
         erlang:convert_time_unit(10, second, millisecond),
         emqx_nats_authn:jwt_claim_expire_at(#{<<"exp">> => 10.9})
@@ -724,13 +684,7 @@ t_authn_internal_helper_branches(_Config) ->
     ?assertMatch(
         {error, _},
         emqx_nats_authn:resolve_jwt_connect_nkey(nkey_pub(), <<"BAD_NKEY">>)
-    ),
-
-    ?assertEqual(true, emqx_nats_authn:to_bool(<<"true">>)),
-    ?assertEqual(false, emqx_nats_authn:to_bool(<<"false">>)),
-    ?assertEqual(true, emqx_nats_authn:to_bool("true")),
-    ?assertEqual(false, emqx_nats_authn:to_bool("false")),
-    ?assertEqual(false, emqx_nats_authn:to_bool(<<"TRUE">>)).
+    ).
 
 %%--------------------------------------------------------------------
 %% Helpers
@@ -798,9 +752,7 @@ jwt_conf(Overrides) ->
                         jwt => maps:get(account_jwt, Fixture)
                     }
                 ]
-            },
-            verify_exp => true,
-            verify_nbf => true
+            }
         },
         Overrides
     ).

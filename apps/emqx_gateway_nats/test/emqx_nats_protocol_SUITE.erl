@@ -532,7 +532,6 @@ missing_caps(TestCase, Target, Group) ->
 target_caps(emqx, _Group) ->
     [
         jwt_auth,
-        jwt_verify_toggle,
         jwt_acl_intersection,
         mixed_auth_priority
     ];
@@ -571,12 +570,6 @@ required_caps(t_jwt_auth_invalid_format_failure) ->
     [jwt_auth];
 required_caps(t_jwt_auth_invalid_signature_failure) ->
     [jwt_auth];
-required_caps(t_jwt_auth_exp_ignored_when_verify_exp_disabled) ->
-    %% NATS server has no per-listener toggle equivalent to EMQX verify_exp/verify_nbf.
-    [jwt_auth, jwt_verify_toggle];
-required_caps(t_jwt_auth_nbf_ignored_when_verify_nbf_disabled) ->
-    %% NATS server has no per-listener toggle equivalent to EMQX verify_exp/verify_nbf.
-    [jwt_auth, jwt_verify_toggle];
 required_caps(t_jwt_permissions_intersection_with_acl) ->
     [jwt_auth, jwt_acl_intersection];
 required_caps(t_nkey_auth_priority_over_jwt) ->
@@ -970,9 +963,7 @@ jwt_auth_setup(Config, Overrides) ->
                                 jwt => maps:get(account_jwt, Fixture)
                             }
                         ]
-                    },
-                    verify_exp => true,
-                    verify_nbf => true
+                    }
                 },
                 Overrides
             ),
@@ -1981,51 +1972,6 @@ t_jwt_auth_invalid_signature_failure(Config) ->
     ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
     {ok, Msgs} = emqx_nats_client:receive_message(Client),
     assert_auth_failed(Msgs),
-    emqx_nats_client:stop(Client).
-
-t_jwt_auth_exp_ignored_when_verify_exp_disabled(init, Config) ->
-    jwt_auth_setup(Config, #{verify_exp => false});
-t_jwt_auth_exp_ignored_when_verify_exp_disabled('end', Config) ->
-    jwt_auth_cleanup(Config).
-
-t_jwt_auth_exp_ignored_when_verify_exp_disabled(Config) ->
-    Claims = #{
-        <<"exp">> => now_seconds() - 10
-    },
-    JWT = build_test_jwt(Claims),
-    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    InfoMsg = recv_info_frame(Client),
-    assert_auth_required(InfoMsg, true),
-    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
-    recv_ok_frame(Client),
-    ct:sleep(200),
-    ok = emqx_nats_client:ping(Client),
-    PongMsg = recv_non_ping_frame(Client),
-    ?assertMatch(
-        #nats_frame{
-            operation = ?OP_PONG
-        },
-        PongMsg
-    ),
-    emqx_nats_client:stop(Client).
-
-t_jwt_auth_nbf_ignored_when_verify_nbf_disabled(init, Config) ->
-    jwt_auth_setup(Config, #{verify_nbf => false});
-t_jwt_auth_nbf_ignored_when_verify_nbf_disabled('end', Config) ->
-    jwt_auth_cleanup(Config).
-
-t_jwt_auth_nbf_ignored_when_verify_nbf_disabled(Config) ->
-    Claims = #{
-        <<"nbf">> => now_seconds() + 3600
-    },
-    JWT = build_test_jwt(Claims),
-    ClientOpts = maps:merge(strip_creds(?config(client_opts, Config)), #{verbose => true}),
-    {ok, Client} = emqx_nats_client:start_link(ClientOpts),
-    InfoMsg = recv_info_frame(Client),
-    assert_auth_required(InfoMsg, true),
-    ok = emqx_nats_client:connect(Client, jwt_connect_opts(Config, InfoMsg, JWT)),
-    recv_ok_frame(Client),
     emqx_nats_client:stop(Client).
 
 t_token_auth_priority_over_jwt(init, Config) ->

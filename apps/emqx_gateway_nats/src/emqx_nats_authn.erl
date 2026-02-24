@@ -193,11 +193,10 @@ jwt_authenticate(JWT, NKey, Sig, ConnInfo, ClientInfo, Method) ->
         {ok, JWTToken = #{claims := Claims}} ?= decode_jwt(JWT),
         JWTConfig = maps:get(config, Method, #{}),
         ok ?= verify_jwt_signature_chain(JWTToken, JWTConfig),
-        Opts = jwt_auth_options(JWTConfig),
-        ok ?= verify_jwt_claims_time(Claims, Opts),
+        ok ?= verify_jwt_claims_time(Claims),
         {ok, Username} ?= verify_jwt_nonce_signature(Claims, NKey, Sig, ConnInfo),
         JWTPerms = extract_jwt_permissions(Claims),
-        AuthExpireAt = jwt_claim_expire_at(Claims, Opts),
+        AuthExpireAt = jwt_claim_expire_at(Claims),
         {ok, ClientInfo#{
             username => Username,
             password => undefined,
@@ -491,18 +490,16 @@ normalize_resolver_preload_entry(Entry0) ->
             {ok, {PubKey, JWT}}
     end.
 
-verify_jwt_claims_time(Claims, Opts) ->
+verify_jwt_claims_time(Claims) ->
     Now = erlang:system_time(second),
-    case verify_jwt_exp(Claims, maps:get(verify_exp, Opts), Now) of
+    case verify_jwt_exp(Claims, Now) of
         ok ->
-            verify_jwt_nbf(Claims, maps:get(verify_nbf, Opts), Now);
+            verify_jwt_nbf(Claims, Now);
         {error, _} = Error ->
             Error
     end.
 
-verify_jwt_exp(_Claims, false, _Now) ->
-    ok;
-verify_jwt_exp(Claims, true, Now) ->
+verify_jwt_exp(Claims, Now) ->
     case map_get(Claims, <<"exp">>, undefined) of
         undefined ->
             ok;
@@ -514,9 +511,7 @@ verify_jwt_exp(Claims, true, Now) ->
             {error, jwt_expired}
     end.
 
-verify_jwt_nbf(_Claims, false, _Now) ->
-    ok;
-verify_jwt_nbf(Claims, true, Now) ->
+verify_jwt_nbf(Claims, Now) ->
     case map_get(Claims, <<"nbf">>, undefined) of
         undefined ->
             ok;
@@ -537,11 +532,6 @@ jwt_claim_expire_at(Claims) ->
         _ ->
             undefined
     end.
-
-jwt_claim_expire_at(_Claims, #{verify_exp := false}) ->
-    undefined;
-jwt_claim_expire_at(Claims, _Opts) ->
-    jwt_claim_expire_at(Claims).
 
 extract_jwt_permissions(Claims) ->
     NATSClaims = normalize_map(map_get_any(Claims, [<<"nats">>, nats], #{})),
@@ -638,12 +628,6 @@ normalize_jwt_config(#{<<"enable">> := false}) ->
     undefined;
 normalize_jwt_config(Config) when is_map(Config) ->
     Config.
-
-jwt_auth_options(Config) ->
-    #{
-        verify_exp => to_bool(map_get_any(Config, [verify_exp, <<"verify_exp">>], true)),
-        verify_nbf => to_bool(map_get_any(Config, [verify_nbf, <<"verify_nbf">>], true))
-    }.
 
 jwt_trusted_operators(Config) ->
     normalize_nkey_list(map_get_any(Config, [trusted_operators, <<"trusted_operators">>], [])).
@@ -791,18 +775,3 @@ normalize_map(Map) when is_map(Map) ->
     Map;
 normalize_map(_) ->
     #{}.
-
-to_bool(true) ->
-    true;
-to_bool(false) ->
-    false;
-to_bool(<<"true">>) ->
-    true;
-to_bool(<<"false">>) ->
-    false;
-to_bool("true") ->
-    true;
-to_bool("false") ->
-    false;
-to_bool(_) ->
-    false.
