@@ -634,6 +634,7 @@ do_ensure_started(NameVsn) ->
     maybe
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
+        ok ?= maybe_initialize_cached_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
@@ -644,6 +645,17 @@ do_ensure_started(NameVsn) ->
                 reason => Reason
             }),
             {error, Reason}
+    end.
+
+maybe_initialize_cached_config(NameVsn) ->
+    case get_cached_config(NameVsn, ?plugin_conf_not_found) of
+        ?plugin_conf_not_found ->
+            maybe
+                ok ?= ensure_local_config(NameVsn, ?normal),
+                configure_from_local_config(NameVsn, stopped)
+            end;
+        _ ->
+            ok
     end.
 
 %%--------------------------------------------------------------------
