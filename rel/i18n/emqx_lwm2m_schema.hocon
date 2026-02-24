@@ -22,7 +22,7 @@ lwm2m_translators.desc:
 """Topic configuration for LwM2M's gateway publishing and subscription."""
 
 lwm2m_coap_max_block_size.desc:
-"""Maximum CoAP block size used by the LwM2M gateway."""
+"""Deprecated since 6.1.0. Use `blockwise.max_block_size` instead."""
 
 lwm2m_blockwise.desc:
 """Block-wise transfer settings for the LwM2M gateway."""

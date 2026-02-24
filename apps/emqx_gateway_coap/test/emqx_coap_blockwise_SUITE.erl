@@ -238,7 +238,10 @@ t_client_rx_invalid_or_mismatched_block2_clears_client_request(_) ->
     },
     {send_next, _NextReq, BW4} = emqx_coap_blockwise:client_in_response(CtxMismatch, Resp0, BW3),
     RespBad = Resp0#coap_message{payload = <<"world">>, options = #{block2 => {2, false, 16}}},
-    {deliver, RespBad, BW5} = emqx_coap_blockwise:client_in_response(CtxMismatch, RespBad, BW4),
+    {deliver, MismatchReply, BW5} = emqx_coap_blockwise:client_in_response(
+        CtxMismatch, RespBad, BW4
+    ),
+    ?assertEqual({error, request_entity_incomplete}, MismatchReply#coap_message.method),
     ?assertEqual(#{}, maps:get(client_req, BW5)),
     ?assertEqual(#{}, maps:get(client_rx_block2, BW5)).
 
@@ -428,7 +431,8 @@ t_blockwise_client_in_response_branches(_) ->
     {deliver, _Resp2, _BW2} = emqx_coap_blockwise:client_in_response(Ctx, BadResp, BW1),
     BW2 = emqx_coap_blockwise:new(#{max_block_size => 16, max_body_size => 1}),
     BigResp = Resp0#coap_message{payload = <<"too-big">>},
-    {deliver, _Resp3, _BW3} = emqx_coap_blockwise:client_in_response(Ctx, BigResp, BW2),
+    {deliver, RespTooLarge0, _BW3} = emqx_coap_blockwise:client_in_response(Ctx, BigResp, BW2),
+    ?assertEqual({error, request_entity_too_large}, RespTooLarge0#coap_message.method),
     BW3 = emqx_coap_blockwise:new(#{max_block_size => 16}),
     DoneResp = Resp0#coap_message{options = #{block2 => {0, false, 16}}},
     {deliver, DoneResp2, _BW4} = emqx_coap_blockwise:client_in_response(Ctx, DoneResp, BW3),
@@ -441,7 +445,8 @@ t_blockwise_client_in_response_branches(_) ->
     {send_next, NextReq, BW6} = emqx_coap_blockwise:client_in_response(Ctx, StartResp, BW5),
     ?assertMatch(#coap_message{}, NextReq),
     NextResp = Resp0#coap_message{payload = <<"5678">>, options = #{block2 => {1, true, 16}}},
-    {deliver, _Resp5, _BW7} = emqx_coap_blockwise:client_in_response(Ctx, NextResp, BW6),
+    {deliver, RespTooLarge1, _BW7} = emqx_coap_blockwise:client_in_response(Ctx, NextResp, BW6),
+    ?assertEqual({error, request_entity_too_large}, RespTooLarge1#coap_message.method),
     ok.
 
 t_blockwise_followup_size_mismatch(_) ->
