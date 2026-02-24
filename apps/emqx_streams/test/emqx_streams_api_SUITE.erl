@@ -538,6 +538,72 @@ t_update_legacy_stream(_Config) ->
         api_get([message_streams, streams])
     ).
 
+%% Verify that /streams/* alias paths work identically to /message_streams/* paths.
+t_streams_alias_crud(_Config) ->
+    %% List via /streams
+    ?assertMatch(
+        {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
+        api_get([streams])
+    ),
+    %% Create via /streams
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([streams], #{
+            <<"name">> => <<"alias_s1">>,
+            <<"topic_filter">> => <<"t/alias/1">>
+        })
+    ),
+    %% Get via /stream/:name
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{<<"name">> := <<"alias_s1">>, <<"topic_filter">> := <<"t/alias/1">>}},
+            api_get([stream, <<"alias_s1">>])
+        )
+    ),
+    %% Update via /stream/:name
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{<<"name">> := <<"alias_s1">>, <<"read_max_unacked">> := 8888}},
+            api_put([stream, <<"alias_s1">>], #{<<"read_max_unacked">> => 8888})
+        )
+    ),
+    %% Verify stream is visible via old /message_streams path too
+    ?assertMatch(
+        {ok, 200, #{<<"name">> := <<"alias_s1">>}},
+        api_get([message_streams, streams, <<"alias_s1">>])
+    ),
+    %% Delete via /stream/:name
+    ?assertMatch(
+        {ok, 204},
+        api_delete([stream, <<"alias_s1">>])
+    ),
+    %% Verify deleted
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([stream, <<"alias_s1">>])
+    ).
+
+%% Verify that /streams/config alias path works identically to /message_streams/config.
+t_streams_alias_config(_Config) ->
+    ?assertMatch(
+        {ok, 200, _},
+        api_get([streams, config])
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([streams, config], #{
+            <<"gc_interval">> => <<"3h">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"gc_interval">> := <<"3h">>}},
+        api_get([streams, config])
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------

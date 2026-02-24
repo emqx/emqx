@@ -541,6 +541,72 @@ t_update_legacy_queue(_Config) ->
         api_get([message_queues, queues])
     ).
 
+%% Verify that /queues/* alias paths work identically to /message_queues/* paths.
+t_queues_alias_crud(_Config) ->
+    %% List via /queues
+    ?assertMatch(
+        {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
+        api_get([queues])
+    ),
+    %% Create via /queues
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([queues], #{
+            <<"name">> => <<"alias_q1">>,
+            <<"topic_filter">> => <<"t/alias/1">>
+        })
+    ),
+    %% Get via /queue/:name
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{<<"name">> := <<"alias_q1">>, <<"topic_filter">> := <<"t/alias/1">>}},
+            api_get([queue, <<"alias_q1">>])
+        )
+    ),
+    %% Update via /queue/:name
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{<<"name">> := <<"alias_q1">>, <<"ping_interval">> := 8888}},
+            api_put([queue, <<"alias_q1">>], #{<<"ping_interval">> => 8888})
+        )
+    ),
+    %% Verify queue is visible via old /message_queues path too
+    ?assertMatch(
+        {ok, 200, #{<<"name">> := <<"alias_q1">>}},
+        api_get([message_queues, queues, <<"alias_q1">>])
+    ),
+    %% Delete via /queue/:name
+    ?assertMatch(
+        {ok, 204},
+        api_delete([queue, <<"alias_q1">>])
+    ),
+    %% Verify deleted
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([queue, <<"alias_q1">>])
+    ).
+
+%% Verify that /queues/config alias path works identically to /message_queues/config.
+t_queues_alias_config(_Config) ->
+    ?assertMatch(
+        {ok, 200, _},
+        api_get([queues, config])
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([queues, config], #{
+            <<"gc_interval">> => <<"3h">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"gc_interval">> := <<"3h">>}},
+        api_get([queues, config])
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
