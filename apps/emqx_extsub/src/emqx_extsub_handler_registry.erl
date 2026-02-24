@@ -25,6 +25,7 @@ Collection of handlers for the external message sources.
     update/3,
     recreate/3,
     destroy/3,
+    destroy_all/2,
     generic_message_handlers/1
 ]).
 
@@ -139,6 +140,13 @@ destroy(#registry{} = Registry0, HandlerRef, TopicFilters) ->
         Registry0,
         maps:with(TopicFilters, TopicFiltersToSubOpts)
     ).
+
+-spec destroy_all(t(), emqx_extsub_types:handler_ref()) -> t().
+destroy_all(#registry{} = Registry0, HandlerRef) ->
+    #registry{by_ref = ByRef0} = Registry0,
+    #extsub{topic_filters = TopicFiltersToSubOpts} = maps:get(HandlerRef, ByRef0),
+    TopicFilters = maps:keys(TopicFiltersToSubOpts),
+    destroy(Registry0, HandlerRef, TopicFilters).
 
 save_subopts(#registry{by_topic_cbm = ByTopicCBM} = Registry0, Context, SubOpts) ->
     #{topic_filter := TopicFilter} = Context,

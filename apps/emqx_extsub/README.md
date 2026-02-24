@@ -91,7 +91,7 @@ For single-topic handlers, unsubscribe and terminate may be used interchangeably
 
 ```erlang
 -callback handle_delivered(state(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) ->
-    {ok, state()} | {destroy, [emqx_extsub_types:topic_filter()]}.
+    {ok, state()} | {destroy, [emqx_extsub_types:topic_filter()]} | destroy.
 ```
 
 `handle_delivered` callback is called when a message provided by the handler has been delivered to the client.
@@ -99,7 +99,7 @@ For QoS 0 messages this happens when the message is pushed to the inflight. For 
 
 If the `ack_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 
-If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources.
+If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources for the specified topic filters.  With `destroy`, it signals that all of this handler's topic filters should be freed up.
 
 #### `handle_info` callback
 
@@ -118,7 +118,7 @@ If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signa
 
 If the `info_ctx()` the handler is informed about the desired number of messages that the ExtSub application wants the handler to provide.
 
-If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources.
+If the handler returns `{destroy, [emqx_extsub_types:topic_filter()]}`, it signals that it is done and should be removed from the state to free up resources for the specified topic filters.  With `destroy`, it signals that all of this handler's topic filters should be freed up.
 
 ### How the callbacks of the `emqx_extsub_handler` behaviour are coordinated
 

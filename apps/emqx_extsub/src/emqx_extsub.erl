@@ -141,7 +141,13 @@ on_delivered(Msg, ReasonCode) ->
                         seq_id => SeqId, unacked_cnt => map_size(Unacked)
                     }),
                     St = ensure_deliver_retry_timer(0, St1#st{unacked = Unacked}),
-                    {destroy, St, TopicFilters}
+                    {destroy, St, TopicFilters};
+                destroy ->
+                    ?tp_debug(extsub_on_delivered_remove_unacked, #{
+                        seq_id => SeqId, unacked_cnt => map_size(Unacked)
+                    }),
+                    St = ensure_deliver_retry_timer(0, St1#st{unacked = Unacked}),
+                    {destroy, St}
             end
         end
     ).
@@ -330,6 +336,8 @@ do_handle_info(St0, #{chan_info_fn := ChanInfoFn} = _HookContext, HandlerRef, In
                     {ok, St#st{buffer = Buffer}, Handler, try_deliver};
                 {destroy, TopicFilters} ->
                     {destroy, St, TopicFilters};
+                destroy ->
+                    {destroy, St};
                 recreate ->
                     {ok, St, Handler0, recreate}
             end
@@ -533,6 +541,14 @@ with_handler(#st{registry = HandlerRegistry0} = St0, HandlerRef, Fun, Args, Defa
                     ),
                     St = St1#st{registry = HandlerRegistry},
                     {St, Result};
+                {destroy, St1} ->
+                    Buffer0 = St0#st.buffer,
+                    Buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef),
+                    HandlerRegistry = emqx_extsub_handler_registry:destroy_all(
+                        HandlerRegistry0, HandlerRef
+                    ),
+                    St = St1#st{registry = HandlerRegistry, buffer = Buffer},
+                    {St, DefaultResult};
                 {destroy, St1, TopicFilters} ->
                     Buffer0 = St0#st.buffer,
                     Buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef),

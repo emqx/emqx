@@ -187,13 +187,17 @@ terminate(#handler{cbm = CBM, st = State}) ->
     end.
 
 -spec delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) ->
-    {ok, t()} | {destroy, [emqx_extsub_types:topic_filter()]}.
+    {ok, t()}
+    | {destroy, [emqx_extsub_types:topic_filter()]}
+    | destroy.
 delivered(#handler{cbm = CBM, st = State0} = Handler, AckCtx, Msg, Ack) ->
     case CBM:handle_delivered(State0, AckCtx, Msg, Ack) of
         {ok, State} ->
             {ok, Handler#handler{st = State}};
         {destroy, TopicFilters} ->
-            {destroy, TopicFilters}
+            {destroy, TopicFilters};
+        destroy ->
+            destroy
     end.
 
 -spec info(t(), info_ctx(), term()) ->
@@ -213,6 +217,8 @@ info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
             {ok, Handler#handler{st = State}, Messages};
         {destroy, TopicFilters} ->
             {destroy, TopicFilters};
+        destroy ->
+            destroy;
         recreate ->
             recreate
     end.
