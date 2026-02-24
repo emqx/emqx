@@ -71,9 +71,25 @@ defmodule AppsVersionCheck do
     Version.parse!(vsn)
   end
 
+  def get_plugin_release_version(file) do
+    file
+    |> File.read!()
+    |> String.trim()
+    |> Version.parse!()
+  end
+
   def app_version_at(filepath, git_ref) do
     with {:ok, mix_exs_contents} <- mix_exs_at(filepath, git_ref) do
       get_version(mix_exs_contents)
+    else
+      _ -> :error
+    end
+  end
+
+  def plugin_release_version_at(filepath, git_ref) do
+    with {:ok, content} <- mix_exs_at(filepath, git_ref),
+         {:ok, vsn} <- content |> String.trim() |> Version.parse() do
+      vsn
     else
       _ -> :error
     end
@@ -88,29 +104,11 @@ defmodule AppsVersionCheck do
   def has_valid_app_vsn?(app, context) do
     src_file = Path.join(["apps", app, "mix.exs"])
 
-    cond do
-      is_plugin_app?(app) ->
-        log("IGNORE: apps/#{app} is a plugin app (detected by emqx_plugrel in rebar.config)")
-        true
-
-      File.exists?(src_file) ->
-        do_has_valid_app_vsn?(app, context)
-
-      true ->
-        log("IGNORE: #{src_file} was deleted")
-        true
-    end
-  end
-
-  def is_plugin_app?(app) do
-    rebar_config = Path.join(["apps", app, "rebar.config"])
-
-    case File.read(rebar_config) do
-      {:ok, content} ->
-        String.contains?(content, "{emqx_plugrel")
-
-      {:error, _} ->
-        false
+    if File.exists?(src_file) do
+      do_has_valid_app_vsn?(app, context)
+    else
+      log("IGNORE: #{src_file} was deleted")
+      true
     end
   end
 
@@ -147,6 +145,41 @@ defmodule AppsVersionCheck do
     |> Kernel.>(0)
   end
 
+  def has_changed_plugin_files?(plugin, context) do
+    %{git_ref: git_ref} = context
+    plugin_path = Path.join(["plugins", plugin])
+
+    {out, 0} =
+      System.cmd(
+        "git",
+        [
+          "diff",
+          git_ref,
+          "--ignore-blank-lines",
+          "-G",
+          "(^[^\\s?%])",
+          "--",
+          "#{plugin_path}/src",
+          "--",
+          "#{plugin_path}/include",
+          "--",
+          ":(exclude)#{plugin_path}/mix.exs",
+          "--",
+          ":(exclude)#{plugin_path}/VERSION",
+          "--",
+          "#{plugin_path}/priv",
+          "--",
+          "#{plugin_path}/c_src"
+        ]
+      )
+
+    out
+    |> String.trim()
+    |> String.split("\n", trim: true)
+    |> Enum.count()
+    |> Kernel.>(0)
+  end
+
   def log_err(args) do
     IO.puts(IO.ANSI.format([:red, args]))
   end
@@ -163,6 +196,10 @@ defmodule AppsVersionCheck do
       ~s/version: "#{to_string(desired_vsn)}"/
     )
     |> then(&File.write!(src_file, &1))
+  end
+
+  def fix_plugin_vsn(src_file, _current_vsn, desired_vsn) do
+    File.write!(src_file, "#{desired_vsn}\n")
   end
 
   def do_has_valid_app_vsn?(app, context) do
@@ -247,6 +284,63 @@ defmodule AppsVersionCheck do
     end
   end
 
+  def has_valid_plugin_release_vsn?(plugin, context) do
+    plugin_dir = Path.join(["plugins", plugin])
+    src_file = plugin_version_source(plugin_dir)
+
+    cond do
+      src_file == :none ->
+        log("IGNORE: plugins/#{plugin} has no VERSION")
+        true
+
+      File.exists?(src_file) ->
+        do_has_valid_plugin_release_vsn?(plugin, src_file, context)
+
+      :otherwise ->
+        log("IGNORE: #{src_file} was deleted")
+        true
+    end
+  end
+
+  def plugin_version_source(plugin_dir) do
+    version_file = Path.join(plugin_dir, "VERSION")
+
+    if File.exists?(version_file) do
+      version_file
+    else
+      :none
+    end
+  end
+
+  def do_has_valid_plugin_release_vsn?(plugin, src_file, context) do
+    %{git_ref: git_ref} = context
+
+    current_release_version = get_plugin_release_version(src_file)
+    old_release_version = plugin_release_version_at(src_file, git_ref)
+    has_changes? = has_changed_plugin_files?(plugin, context)
+    auto_fix? = Map.get(context, :auto_fix, false)
+
+    cond do
+      old_release_version == :error ->
+        log("IGNORE: #{src_file} is newly added")
+        true
+
+      old_release_version == current_release_version && has_changes? ->
+        log_err("ERROR: #{src_file} needs a plugin release version bump")
+
+        desired_version =
+          old_release_version
+          |> Map.update!(:patch, &(&1 + 1))
+
+        auto_fix? && fix_plugin_vsn(src_file, current_release_version, desired_version)
+
+        false
+
+      :otherwise ->
+        true
+    end
+  end
+
   def main(argv) do
     {opts, _rest} = OptionParser.parse!(argv, strict: [auto_fix: :boolean])
 
@@ -265,17 +359,35 @@ defmodule AppsVersionCheck do
         |> File.dir?()
       end)
 
-    apps
-    |> Enum.reject(&has_valid_app_vsn?(&1, context))
+    plugins =
+      "plugins"
+      |> File.ls!()
+      |> Enum.filter(fn plugin ->
+        ["plugins", plugin]
+        |> Path.join()
+        |> File.dir?()
+      end)
+
+    invalid_apps =
+      apps
+      |> Enum.reject(&has_valid_app_vsn?(&1, context))
+      |> Enum.map(&"apps/#{&1}")
+
+    invalid_plugins =
+      plugins
+      |> Enum.reject(&has_valid_plugin_release_vsn?(&1, context))
+      |> Enum.map(&"plugins/#{&1}")
+
+    (invalid_apps ++ invalid_plugins)
     |> case do
       [] ->
         :ok
 
-      invalid_apps ->
+      invalid_entries ->
         log_err([
           "Errors were found\n",
-          "Invalid apps: \n",
-          [inspect(invalid_apps, pretty: true), "\n"],
+          "Invalid apps/plugin-apps: \n",
+          [inspect(invalid_entries, pretty: true), "\n"],
           "Run this script again with `--auto-fix` to automatically fix issues,",
           " or fix them manually."
         ])
