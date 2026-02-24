@@ -180,6 +180,12 @@ authentication_node_cache_reset_post.desc:
 authentication_node_cache_reset_post.label:
 """Reset node-wise authentication cache"""
 
+authentication_id_metrics_reset_post.desc:
+"""Reset metrics counters for a specific authenticator in the global authentication chain."""
+
+authentication_id_metrics_reset_post.label:
+"""Reset authenticator metrics"""
+
 param_clientid.desc:
 """Client ID"""
 

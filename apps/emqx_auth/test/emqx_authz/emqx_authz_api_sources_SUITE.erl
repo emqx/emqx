@@ -725,6 +725,47 @@ t_aggregate_metrics(_) ->
         Res
     ).
 
+t_metrics_reset(_) ->
+    %% 404 for non-existent source
+    {ok, 404, _} = request(
+        post,
+        uri(["authorization", "sources", "http", "metrics", "reset"]),
+        []
+    ),
+
+    %% Create a source
+    {ok, 204, _} = request(
+        post,
+        uri(["authorization", "sources"]),
+        ?SOURCE_HTTP
+    ),
+
+    %% Check that metrics start at zero
+    {ok, 200, StatusData0} = request(
+        get,
+        uri(["authorization", "sources", "http", "status"]),
+        []
+    ),
+    #{<<"metrics">> := #{<<"total">> := 0}} = emqx_utils_json:decode(StatusData0),
+
+    %% Reset (even when already zero)
+    {ok, 204, _} = request(
+        post,
+        uri(["authorization", "sources", "http", "metrics", "reset"]),
+        []
+    ),
+
+    %% Verify still zero after reset
+    {ok, 200, StatusData1} = request(
+        get,
+        uri(["authorization", "sources", "http", "status"]),
+        []
+    ),
+    #{<<"metrics">> := #{<<"total">> := 0}} = emqx_utils_json:decode(StatusData1),
+
+    %% Cleanup
+    {ok, 204, _} = request(delete, uri(["authorization", "sources", "http"]), []).
+
 get_sources(Result) ->
     maps:get(<<"sources">>, emqx_utils_json:decode(Result)).
 

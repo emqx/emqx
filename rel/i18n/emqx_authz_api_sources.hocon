@@ -125,4 +125,14 @@ not_found.desc:
 not_found.label:
 """Not Found"""
 
+authorization_sources_type_metrics_reset_post.desc:
+"""Reset metrics counters for a specific authorization source."""
+authorization_sources_type_metrics_reset_post.label:
+"""Reset authorization source metrics"""
+
+no_content.desc:
+"""No Content"""
+no_content.label:
+"""No Content"""
+
 }

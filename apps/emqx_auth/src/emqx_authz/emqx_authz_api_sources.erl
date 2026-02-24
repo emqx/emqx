@@ -38,7 +38,9 @@
     source/2,
     source_move/2,
     sources_order/2,
-    aggregate_metrics/1
+    aggregate_metrics/1,
+    source_metrics_reset/2,
+    reset_metrics_local/1
 ]).
 
 -export([with_source/2]).
@@ -57,7 +59,8 @@ paths() ->
         "/authorization/sources/:type",
         "/authorization/sources/:type/status",
         "/authorization/sources/:type/move",
-        "/authorization/sources/order"
+        "/authorization/sources/order",
+        "/authorization/sources/:type/metrics/reset"
     ].
 
 fields(sources) ->
@@ -221,6 +224,19 @@ schema("/authorization/sources/order") ->
                 400 => emqx_dashboard_swagger:error_codes([?BAD_REQUEST], ?DESC("bad_request"))
             }
         }
+    };
+schema("/authorization/sources/:type/metrics/reset") ->
+    #{
+        'operationId' => source_metrics_reset,
+        post => #{
+            tags => ?TAGS,
+            description => ?DESC(authorization_sources_type_metrics_reset_post),
+            parameters => parameters_field(),
+            responses => #{
+                204 => ?DESC("no_content"),
+                404 => emqx_dashboard_swagger:error_codes([?NOT_FOUND], ?DESC("not_found"))
+            }
+        }
     }.
 
 %%--------------------------------------------------------------------
@@ -368,6 +384,31 @@ sources_order(put, #{body := AuthzOrder}) ->
         {error, Reason} ->
             {400, #{code => <<"BAD_REQUEST">>, message => bin(Reason)}}
     end.
+
+source_metrics_reset(Method, #{bindings := #{type := Type} = Bindings} = Req) when
+    is_atom(Type)
+->
+    source_metrics_reset(Method, Req#{bindings => Bindings#{type => atom_to_binary(Type, utf8)}});
+source_metrics_reset(post, #{bindings := #{type := Type}}) ->
+    with_source(
+        Type,
+        fun(_) ->
+            Nodes = mria:running_nodes(),
+            TypeAtom = binary_to_existing_atom(Type, utf8),
+            case is_ok(emqx_authz_proto_v2:reset_metrics(Nodes, TypeAtom)) of
+                {ok, _} ->
+                    {204};
+                {error, ErrL} ->
+                    {500, #{
+                        code => <<"INTERNAL_ERROR">>,
+                        message => bin(ErrL)
+                    }}
+            end
+        end
+    ).
+
+reset_metrics_local(Type) ->
+    ok = emqx_metrics_worker:reset_metrics(authz_metrics, Type).
 
 %%--------------------------------------------------------------------
 %% Internal functions
