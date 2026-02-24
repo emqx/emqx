@@ -19,6 +19,10 @@
 
 %% API callbacks
 -export([
+    '/streams'/2,
+    '/streams/:name'/2,
+    '/streams/config'/2,
+    %% Backward-compatible aliases (hidden from swagger)
     '/message_streams/streams'/2,
     '/message_streams/streams/:name'/2,
     '/message_streams/config'/2
@@ -43,14 +47,18 @@ api_spec() ->
 
 paths() ->
     [
+        "/streams",
+        "/streams/:name",
+        "/streams/config",
+        %% Backward-compatible aliases (hidden from swagger)
         "/message_streams/streams",
         "/message_streams/streams/:name",
         "/message_streams/config"
     ].
 
-schema("/message_streams/streams") ->
+schema("/streams") ->
     #{
-        'operationId' => '/message_streams/streams',
+        'operationId' => '/streams',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
@@ -94,9 +102,9 @@ schema("/message_streams/streams") ->
             }
         }
     };
-schema("/message_streams/streams/:name") ->
+schema("/streams/:name") ->
     #{
-        'operationId' => '/message_streams/streams/:name',
+        'operationId' => '/streams/:name',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
@@ -157,9 +165,9 @@ schema("/message_streams/streams/:name") ->
             }
         }
     };
-schema("/message_streams/config") ->
+schema("/streams/config") ->
     #{
-        'operationId' => '/message_streams/config',
+        'operationId' => '/streams/config',
         get => #{
             tags => ?TAGS,
             description => ?DESC(message_streams_config_get),
@@ -184,7 +192,14 @@ schema("/message_streams/config") ->
                 )
             }
         }
-    }.
+    };
+%% Backward-compatible aliases (hidden from swagger)
+schema("/message_streams/streams") ->
+    hidden_alias(schema("/streams"), '/message_streams/streams');
+schema("/message_streams/streams/:name") ->
+    hidden_alias(schema("/streams/:name"), '/message_streams/streams/:name');
+schema("/message_streams/config") ->
+    hidden_alias(schema("/streams/config"), '/message_streams/config').
 
 %%--------------------------------------------------------------------
 %% Schema
@@ -237,6 +252,15 @@ put_message_stream_config_example() ->
 %%--------------------------------------------------------------------
 %% Minirest handlers
 %%--------------------------------------------------------------------
+
+'/streams'(Method, Params) ->
+    '/message_streams/streams'(Method, Params).
+
+'/streams/:name'(Method, Params) ->
+    '/message_streams/streams/:name'(Method, Params).
+
+'/streams/config'(Method, Params) ->
+    '/message_streams/config'(Method, Params).
 
 '/message_streams/streams'(get, #{query_string := QString}) ->
     Cursor = maps:get(<<"cursor">>, QString, undefined),
@@ -336,6 +360,22 @@ check_ready(Request, _Meta) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+hidden_alias(Schema, OperationId) ->
+    Methods = [get, post, put, delete],
+    Schema1 = Schema#{'operationId' => OperationId},
+    lists:foldl(
+        fun(Method, Acc) ->
+            case Acc of
+                #{Method := MethodSpec} ->
+                    Acc#{Method => MethodSpec#{hidden => true}};
+                _ ->
+                    Acc
+            end
+        end,
+        Schema1,
+        Methods
+    ).
 
 get_message_streams(Cursor, Limit) ->
     case emqx_streams_registry:list(Cursor, Limit) of
