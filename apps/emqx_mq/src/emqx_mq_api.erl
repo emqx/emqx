@@ -20,7 +20,7 @@
 %% API callbacks
 -export([
     '/queues'/2,
-    '/queues/:name'/2,
+    '/queue/:name'/2,
     '/queues/config'/2,
     %% Backward-compatible aliases (hidden from swagger)
     '/message_queues/queues'/2,
@@ -48,7 +48,7 @@ api_spec() ->
 paths() ->
     [
         "/queues",
-        "/queues/:name",
+        "/queue/:name",
         "/queues/config",
         %% Backward-compatible aliases (hidden from swagger)
         "/message_queues/queues",
@@ -102,9 +102,9 @@ schema("/queues") ->
             }
         }
     };
-schema("/queues/:name") ->
+schema("/queue/:name") ->
     #{
-        'operationId' => '/queues/:name',
+        'operationId' => '/queue/:name',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
@@ -197,7 +197,7 @@ schema("/queues/config") ->
 schema("/message_queues/queues") ->
     hidden_alias(schema("/queues"), '/message_queues/queues');
 schema("/message_queues/queues/:name") ->
-    hidden_alias(schema("/queues/:name"), '/message_queues/queues/:name');
+    hidden_alias(schema("/queue/:name"), '/message_queues/queues/:name');
 schema("/message_queues/config") ->
     hidden_alias(schema("/queues/config"), '/message_queues/config').
 
@@ -265,7 +265,7 @@ put_message_queue_config_example() ->
 '/queues'(Method, Params) ->
     '/message_queues/queues'(Method, Params).
 
-'/queues/:name'(Method, Params) ->
+'/queue/:name'(Method, Params) ->
     '/message_queues/queues/:name'(Method, Params).
 
 '/queues/config'(Method, Params) ->

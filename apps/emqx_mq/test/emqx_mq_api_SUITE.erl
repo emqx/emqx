@@ -528,22 +528,22 @@ t_queues_alias_crud(_Config) ->
             <<"topic_filter">> => <<"t/alias/1">>
         })
     ),
-    %% Get via /queues/:name
+    %% Get via /queue/:name
     ?retry(
         5,
         20,
         ?assertMatch(
             {ok, 200, #{<<"name">> := <<"alias_q1">>, <<"topic_filter">> := <<"t/alias/1">>}},
-            api_get([queues, <<"alias_q1">>])
+            api_get([queue, <<"alias_q1">>])
         )
     ),
-    %% Update via /queues/:name
+    %% Update via /queue/:name
     ?retry(
         5,
         20,
         ?assertMatch(
             {ok, 200, #{<<"name">> := <<"alias_q1">>, <<"ping_interval">> := 8888}},
-            api_put([queues, <<"alias_q1">>], #{<<"ping_interval">> => 8888})
+            api_put([queue, <<"alias_q1">>], #{<<"ping_interval">> => 8888})
         )
     ),
     %% Verify queue is visible via old /message_queues path too
@@ -551,15 +551,15 @@ t_queues_alias_crud(_Config) ->
         {ok, 200, #{<<"name">> := <<"alias_q1">>}},
         api_get([message_queues, queues, <<"alias_q1">>])
     ),
-    %% Delete via /queues/:name
+    %% Delete via /queue/:name
     ?assertMatch(
         {ok, 204},
-        api_delete([queues, <<"alias_q1">>])
+        api_delete([queue, <<"alias_q1">>])
     ),
     %% Verify deleted
     ?assertMatch(
         {ok, 404, _},
-        api_get([queues, <<"alias_q1">>])
+        api_get([queue, <<"alias_q1">>])
     ).
 
 %% Verify that /queues/config alias path works identically to /message_queues/config.

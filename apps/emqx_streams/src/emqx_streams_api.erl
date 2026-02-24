@@ -20,7 +20,7 @@
 %% API callbacks
 -export([
     '/streams'/2,
-    '/streams/:name'/2,
+    '/stream/:name'/2,
     '/streams/config'/2,
     %% Backward-compatible aliases (hidden from swagger)
     '/message_streams/streams'/2,
@@ -48,7 +48,7 @@ api_spec() ->
 paths() ->
     [
         "/streams",
-        "/streams/:name",
+        "/stream/:name",
         "/streams/config",
         %% Backward-compatible aliases (hidden from swagger)
         "/message_streams/streams",
@@ -102,9 +102,9 @@ schema("/streams") ->
             }
         }
     };
-schema("/streams/:name") ->
+schema("/stream/:name") ->
     #{
-        'operationId' => '/streams/:name',
+        'operationId' => '/stream/:name',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
@@ -197,7 +197,7 @@ schema("/streams/config") ->
 schema("/message_streams/streams") ->
     hidden_alias(schema("/streams"), '/message_streams/streams');
 schema("/message_streams/streams/:name") ->
-    hidden_alias(schema("/streams/:name"), '/message_streams/streams/:name');
+    hidden_alias(schema("/stream/:name"), '/message_streams/streams/:name');
 schema("/message_streams/config") ->
     hidden_alias(schema("/streams/config"), '/message_streams/config').
 
@@ -256,7 +256,7 @@ put_message_stream_config_example() ->
 '/streams'(Method, Params) ->
     '/message_streams/streams'(Method, Params).
 
-'/streams/:name'(Method, Params) ->
+'/stream/:name'(Method, Params) ->
     '/message_streams/streams/:name'(Method, Params).
 
 '/streams/config'(Method, Params) ->
