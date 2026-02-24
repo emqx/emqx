@@ -359,6 +359,10 @@ t_start_restart_and_stop(Config) ->
     ?assertEqual([], emqx_plugins:list()),
     ok.
 
+%% Regression guard:
+%% A plugin unpacked before startup can be started directly via ensure_started/1.
+%% Starting from that path must initialize plugin config cache so Dashboard config API
+%% does not return BAD_CONFIG immediately after start.
 t_start_preinstalled_plugin_inits_config_cache({init, Config}) ->
     #{package := Package} = get_demo_plugin_package(),
     NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
