@@ -24,6 +24,7 @@ Collection of handlers for the external message sources.
     find/2,
     update/3,
     recreate/3,
+    destroy/3,
     generic_message_handlers/1
 ]).
 
@@ -119,6 +120,24 @@ unsubscribe(
         end,
         Registry,
         ByTopicCBM
+    ).
+
+-spec destroy(t(), emqx_extsub_types:handler_ref(), [emqx_extsub_types:topic_filter()]) -> t().
+destroy(#registry{} = Registry0, HandlerRef, TopicFilters) ->
+    #registry{by_ref = ByRef0} = Registry0,
+    #extsub{topic_filters = TopicFiltersToSubOpts, handler = Handler} = maps:get(
+        HandlerRef, ByRef0
+    ),
+    Module = emqx_extsub_handler:get_module(Handler),
+    UnsubscribeType = disconnect,
+    maps:fold(
+        fun(TopicFilter, SubOpts, RegistryAcc) ->
+            unsubscribe(
+                RegistryAcc, UnsubscribeType, SubOpts, Module, TopicFilter, HandlerRef
+            )
+        end,
+        Registry0,
+        maps:with(TopicFilters, TopicFiltersToSubOpts)
     ).
 
 save_subopts(#registry{by_topic_cbm = ByTopicCBM} = Registry0, Context, SubOpts) ->

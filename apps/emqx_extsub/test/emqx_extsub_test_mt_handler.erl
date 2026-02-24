@@ -84,7 +84,7 @@ handle_delivered(
         _ ->
             SendFn(#push_messages{})
     end,
-    State.
+    {ok, State}.
 
 handle_info(
     #{buffer := Buffer0} = State,

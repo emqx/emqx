@@ -124,16 +124,25 @@ on_delivered(Msg, ReasonCode) ->
                 seq_id = SeqId, handler_ref = HandlerRef, original_qos = OriginalQos
             }
         ) ->
-            Buffer = emqx_extsub_buffer:set_delivered(Buffer0, HandlerRef, SeqId),
-            St = St0#st{buffer = Buffer},
-            AckCtx = ack_ctx(St, Handler0, HandlerRef, OriginalQos),
-            Handler = emqx_extsub_handler:delivered(Handler0, AckCtx, Msg, ReasonCode),
+            Buffer1 = emqx_extsub_buffer:set_delivered(Buffer0, HandlerRef, SeqId),
+            St1 = St0#st{buffer = Buffer1},
             %% Update the unacked window
             Unacked = maps:remove(SeqId, Unacked0),
-            ?tp_debug(extsub_on_delivered_remove_unacked, #{
-                seq_id => SeqId, unacked_cnt => map_size(Unacked)
-            }),
-            {ok, ensure_deliver_retry_timer(0, St#st{unacked = Unacked}), Handler}
+            AckCtx = ack_ctx(St1, Handler0, HandlerRef, OriginalQos, Unacked),
+            case emqx_extsub_handler:delivered(Handler0, AckCtx, Msg, ReasonCode) of
+                {ok, Handler} ->
+                    ?tp_debug(extsub_on_delivered_remove_unacked, #{
+                        seq_id => SeqId, unacked_cnt => map_size(Unacked)
+                    }),
+                    St = ensure_deliver_retry_timer(0, St1#st{unacked = Unacked}),
+                    {ok, St, Handler};
+                {destroy, TopicFilters} ->
+                    ?tp_debug(extsub_on_delivered_remove_unacked, #{
+                        seq_id => SeqId, unacked_cnt => map_size(Unacked)
+                    }),
+                    St = ensure_deliver_retry_timer(0, St1#st{unacked = Unacked}),
+                    {destroy, St, TopicFilters}
+            end
         end
     ).
 
@@ -319,6 +328,8 @@ do_handle_info(St0, #{chan_info_fn := ChanInfoFn} = _HookContext, HandlerRef, In
                     }),
                     Buffer = emqx_extsub_buffer:add_new(Buffer0, HandlerRef, Messages),
                     {ok, St#st{buffer = Buffer}, Handler, try_deliver};
+                {destroy, TopicFilters} ->
+                    {destroy, St, TopicFilters};
                 recreate ->
                     {ok, St, Handler0, recreate}
             end
@@ -510,16 +521,26 @@ with_handler(#st{registry = HandlerRegistry0} = St0, HandlerRef, Fun, Args, Defa
             {St0, DefaultResult};
         Handler0 ->
             case erlang:apply(Fun, [St0, Handler0 | Args]) of
-                {ok, St, Handler} ->
+                {ok, St1, Handler} ->
                     HandlerRegistry = emqx_extsub_handler_registry:update(
                         HandlerRegistry0, HandlerRef, Handler
                     ),
-                    {St#st{registry = HandlerRegistry}, DefaultResult};
-                {ok, St, Handler, Result} ->
+                    St = St1#st{registry = HandlerRegistry},
+                    {St, DefaultResult};
+                {ok, St1, Handler, Result} ->
                     HandlerRegistry = emqx_extsub_handler_registry:update(
                         HandlerRegistry0, HandlerRef, Handler
                     ),
-                    {St#st{registry = HandlerRegistry}, Result}
+                    St = St1#st{registry = HandlerRegistry},
+                    {St, Result};
+                {destroy, St1, TopicFilters} ->
+                    Buffer0 = St0#st.buffer,
+                    Buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef),
+                    HandlerRegistry = emqx_extsub_handler_registry:destroy(
+                        HandlerRegistry0, HandlerRef, TopicFilters
+                    ),
+                    St = St1#st{registry = HandlerRegistry, buffer = Buffer},
+                    {St, DefaultResult}
             end
     end.
 
@@ -546,8 +567,12 @@ subscribe_ctx(ClientInfo) ->
 info_ctx(State, Handler, HandlerRef) ->
     #{desired_message_count => desired_message_count(State, Handler, HandlerRef)}.
 
-ack_ctx(State, Handler, HandlerRef, OriginalQos) ->
+ack_ctx(State, Handler, HandlerRef, OriginalQos, Unacked) ->
+    #st{buffer = Buffer} = State,
+    DeliveringCnt = emqx_extsub_buffer:delivering_count(Buffer, HandlerRef),
     #{
+        unacked_count => map_size(Unacked),
+        delivering_count => DeliveringCnt,
         desired_message_count => desired_message_count(State, Handler, HandlerRef),
         qos => OriginalQos
     }.
