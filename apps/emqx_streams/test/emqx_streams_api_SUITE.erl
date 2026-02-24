@@ -510,6 +510,34 @@ t_max_stream_count(_Config) ->
         })
     ).
 
+%% Verify that a legacy stream can be updated and subsequently deleted via API.
+t_update_legacy_stream(_Config) ->
+    %% Create a legacy stream
+    Stream0 = emqx_streams_test_utils:fill_stream_defaults(#{topic_filter => <<"t/#">>}),
+    {ok, _} = emqx_streams_registry:create_pre_611_stream(Stream0),
+
+    %% Update the legacy stream via API
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_streams, streams, urlencode(<<"/t/#">>)], #{
+            <<"is_lastvalue">> => false,
+            <<"read_max_unacked">> => 10000
+        })
+    ),
+
+    %% Delete the legacy stream
+    ?assertMatch(
+        {ok, 204},
+        api_delete([message_streams, streams, urlencode(<<"/t/#">>)])
+    ),
+    ?assertEqual(not_found, emqx_streams_registry:find(<<"/t/#">>)),
+
+    %% Check list is empty
+    ?assertMatch(
+        {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
+        api_get([message_streams, streams])
+    ).
+
 %% Verify that /streams/* alias paths work identically to /message_streams/* paths.
 t_streams_alias_crud(_Config) ->
     %% List via /streams
@@ -576,9 +604,9 @@ t_streams_alias_config(_Config) ->
         api_get([streams, config])
     ).
 
-% %%--------------------------------------------------------------------
-% %% Internal functions
-% %%--------------------------------------------------------------------
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 
 sort_by(Fun, List) ->
     lists:sort(fun(A, B) -> Fun(A) < Fun(B) end, List).

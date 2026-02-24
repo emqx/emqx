@@ -513,6 +513,34 @@ t_max_queue_count(_Config) ->
         })
     ).
 
+%% Verify that a legacy queue can be updated and subsequently deleted via API.
+t_update_legacy_queue(_Config) ->
+    %% Create a legacy lastvalue queue directly in the database
+    MQ0 = emqx_mq_test_utils:fill_mq_defaults(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+    ok = emqx_mq_registry:create_pre_611_queue(MQ0),
+
+    %% Update the legacy queue via API
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_queues, queues, urlencode(<<"/t/#">>)], #{
+            <<"is_lastvalue">> => true,
+            <<"key_expression">> => <<"message.from">>
+        })
+    ),
+
+    %% Delete the legacy queue via API
+    ?assertMatch(
+        {ok, 204},
+        api_delete([message_queues, queues, urlencode(<<"/t/#">>)])
+    ),
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>)),
+
+    %% Check list is empty
+    ?assertMatch(
+        {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
+        api_get([message_queues, queues])
+    ).
+
 %% Verify that /queues/* alias paths work identically to /message_queues/* paths.
 t_queues_alias_crud(_Config) ->
     %% List via /queues
