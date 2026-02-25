@@ -266,15 +266,15 @@ on_client_handle_info(
     #info_to_extsub{handler_ref = HandlerRef, info = InfoMsg},
     #{deliver := Delivers} = Acc
 ) ->
+    ?tp_debug(extsub_on_client_handle_info_to_extsub, #{handler_ref => HandlerRef, info => InfoMsg}),
     %% Message to a specific handler
     with_st(
         fun(#st{registry = HandlerRegistry0} = St0) ->
             #{session_info_fn := SessionInfoFn} =
                 HookContext = emqx_hooks:context('client.handle_info'),
             InfoCtx = info_ctx(HandlerRegistry0, HandlerRef, HookContext),
-            case
-                emqx_extsub_handler_registry:info(HandlerRegistry0, HandlerRef, InfoCtx, InfoMsg)
-            of
+            Res = emqx_extsub_handler_registry:info(HandlerRegistry0, HandlerRef, InfoCtx, InfoMsg),
+            case Res of
                 {ok, HandlerRegistry} ->
                     {ok, St0#st{registry = HandlerRegistry}};
                 {ok, HandlerRegistry, Messages} ->
@@ -299,6 +299,7 @@ on_client_handle_info(
     #info_extsub_inspect{receiver = Receiver},
     Acc
 ) ->
+    ?tp_debug(extsub_on_client_handle_info_inspect, #{}),
     with_st(fun(St) ->
         Info = do_inspect(St),
         erlang:send(Receiver, {Receiver, Info}),
@@ -308,6 +309,7 @@ on_client_handle_info(
 on_client_handle_info(
     _ClientInfo, Info, #{deliver := Delivers} = Acc0
 ) ->
+    ?tp_debug(extsub_on_client_handle_info_generic, #{info => Info}),
     %% Generic info
     with_st(fun(#st{registry = HandlerRegistry0} = St0) ->
         #{session_info_fn := SessionInfoFn} =
@@ -338,7 +340,7 @@ on_client_handle_info(
                 [] ->
                     {St1, Acc0};
                 _ ->
-                    {St2, NewDelivers} = try_deliver(St1, SessionInfoFn, Messages),
+                    {St2, NewDelivers} = try_deliver(SessionInfoFn, St1, Messages),
                     {St2, Acc0#{deliver => NewDelivers ++ Delivers}}
             end,
         {ok, St, {ok, Acc}}
@@ -446,7 +448,7 @@ try_deliver(SessionInfoFn, #st{unacked = Unacked0, registry = HandlerRegistry0} 
             %% * No room but noting to deliver (BufferSize =:= 0)
             %% * No room and there are unacked messages (UnackedCnt > 0) — we will retry
             %% on their ack callback.
-            {St, []};
+            {St#st{registry = HandlerRegistry1}, []};
         Room ->
             {MessageEntries, HandlerRegistry} = emqx_extsub_handler_registry:buffer_take(
                 HandlerRegistry1, Room

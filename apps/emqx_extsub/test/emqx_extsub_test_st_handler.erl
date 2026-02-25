@@ -8,6 +8,7 @@
 
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("../src/emqx_extsub_internal.hrl").
 
 -export([
     handle_subscribe/4,
@@ -91,12 +92,20 @@ handle_info(
     #{desired_message_count := DesiredCount} = _InfoCtx,
     #fake_msg{} = Msg
 ) ->
+    ?tp_debug(handle_info_fake_msg, #{msg => Msg, buffer_size => queue:len(Buffer0)}),
     Buffer = buffer_in(Buffer0, make_messages(State, Msg)),
     push_messages(State#{buffer => Buffer}, DesiredCount);
-handle_info(State, #{desired_message_count := DesiredCount} = _InfoCtx, #push_messages{}) ->
+handle_info(
+    #{buffer := Buffer} = State,
+    #{desired_message_count := DesiredCount} = _InfoCtx,
+    #push_messages{}
+) ->
+    ?tp_debug(handle_info_push_messages, #{
+        desired_message_count => DesiredCount, buffer_size => queue:len(Buffer)
+    }),
     push_messages(State, DesiredCount);
 handle_info(State, _InfoCtx, Info) ->
-    ?tp(warning, handle_info_unknown, #{info => Info, state => State}),
+    ?tp_debug(handle_info_unknown, #{info => Info, state => State}),
     {ok, State}.
 
 push_messages(#{buffer := Buffer0} = State, DesiredCount) ->

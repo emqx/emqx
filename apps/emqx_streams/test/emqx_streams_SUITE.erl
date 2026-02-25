@@ -817,7 +817,6 @@ t_subscribe_unsubscribe_to_many_streams(_Config) ->
     %% Create NStreams streams with different names
     lists:foreach(
         fun(N) ->
-            ct:print("Creating stream ~p", [N]),
             NBin = integer_to_binary(N),
             emqx_streams_test_utils:ensure_stream_created(#{
                 name => <<"stream_", NBin/binary>>,
@@ -851,11 +850,12 @@ t_subscribe_unsubscribe_to_many_streams(_Config) ->
     {ok, Info} = emqx_extsub:inspect(ChannelPid),
 
     %% Verify that there are no leftovers
+
     #{
-        buffer := #{delivering := Delivering, message_buffer_size := MessageBufferSize},
         unacked_count := UnackedCount,
         deliver_retry_scheduled := DeliverRetryScheduled,
         registry := #{
+            buffer := #{delivering := Delivering, message_buffer_size := MessageBufferSize},
             by_ref := ByRef,
             by_topic_cbm := ByTopicCBM,
             generic_message_handlers := GenericMessageHandlers
@@ -865,7 +865,7 @@ t_subscribe_unsubscribe_to_many_streams(_Config) ->
     ?assertEqual(0, UnackedCount),
     ?assertEqual(false, DeliverRetryScheduled),
     ?assertEqual([], ByRef),
-    ?assertEqual([], ByTopicCBM),
+    ?assertEqual(0, maps:size(ByTopicCBM)),
     ?assertEqual([], GenericMessageHandlers),
     ?assertEqual(0, MessageBufferSize),
 

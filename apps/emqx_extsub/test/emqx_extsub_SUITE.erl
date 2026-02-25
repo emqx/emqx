@@ -123,6 +123,23 @@ test_smoke(_Config, NBatches, BatchSize, IntervalMs) ->
     ),
     ExpectedMessages = NBatches * BatchSize * length(lists:usort(TopicFilters)),
     {ok, Msgs} = emqx_extsub_test_utils:emqtt_drain(0, 5000),
-    ?tp(warning, test_smoke_drain, #{msgs => Msgs}),
+    CountsByTopic = lists:foldl(
+        fun(#{topic := Topic}, Acc) ->
+            case Acc of
+                #{Topic := Cnt} ->
+                    Acc#{Topic => Cnt + 1};
+                _ ->
+                    Acc#{Topic => 1}
+            end
+        end,
+        #{},
+        Msgs
+    ),
+    Payloads = [Payload || #{payload := Payload} <- Msgs],
+    ?tp(warning, test_smoke_drain, #{
+        counts_by_topic => CountsByTopic,
+        expected_by_topic => NBatches * BatchSize,
+        payloads => lists:sort(Payloads)
+    }),
     ?assertEqual(ExpectedMessages, length(Msgs)),
     ok = emqtt:disconnect(CSub).
