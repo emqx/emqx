@@ -53,7 +53,9 @@
     %% Timer
     timers :: #{atom() => disable | undefined | reference()},
     %% Transaction
-    transaction :: #{binary() => list()}
+    transaction :: #{binary() => list()},
+    %% Cached max payload for publish hot path
+    max_payload_size :: non_neg_integer()
 }).
 
 -type channel() :: #channel{}.
@@ -131,6 +133,7 @@ init(
         ?DEFAULT_OVERRIDE,
         maps:get(clientinfo_override, Option, #{})
     ),
+    MaxPayloadSize = extract_max_payload_size(Option),
     Channel = #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
@@ -138,6 +141,7 @@ init(
         clientinfo_override = Override,
         timers = #{},
         transaction = #{},
+        max_payload_size = MaxPayloadSize,
         conn_state = idle,
         subscriptions = []
     },
@@ -193,6 +197,18 @@ nats_authn_ctx() ->
     emqx_nats_authn:build_authn_ctx(
         InternalAuthn,
         emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined
+    ).
+
+extract_max_payload_size(Option) ->
+    Protocol = maps:get(protocol, Option, maps:get(<<"protocol">>, Option, #{})),
+    maps:get(
+        max_payload_size,
+        Protocol,
+        maps:get(
+            <<"max_payload_size">>,
+            Protocol,
+            emqx_conf:get([gateway, nats, protocol, max_payload_size])
+        )
     ).
 
 tls_required_and_verify(ListenerId) ->
@@ -1434,14 +1450,15 @@ frame_payload_headers_reply(#nats_frame{operation = ?OP_HPUB, message = Msg}) ->
     }.
 
 nats_subject_to_pub_topic(Subject) ->
-    case emqx_nats_topic:validate_nats_subject(Subject) of
-        {ok, true} -> emqx_nats_topic:nats_to_mqtt_publish(Subject);
-        {ok, false} -> emqx_nats_topic:nats_to_mqtt(Subject);
-        {error, _} -> emqx_nats_topic:nats_to_mqtt_publish(Subject)
+    case maybe_has_nats_wildcards(Subject) of
+        true -> emqx_nats_topic:nats_to_mqtt_publish(Subject);
+        false -> emqx_nats_topic:nats_to_mqtt(Subject)
     end.
 
-check_max_payload(Frame, _Channel) ->
-    MaxPayload = emqx_conf:get([gateway, nats, protocol, max_payload_size]),
+maybe_has_nats_wildcards(Subject) ->
+    binary:match(Subject, <<"*">>) =/= nomatch orelse binary:match(Subject, <<">">>) =/= nomatch.
+
+check_max_payload(Frame, #channel{max_payload_size = MaxPayload}) ->
     PayloadSize = emqx_nats_frame:payload_total_size(Frame),
     case PayloadSize > MaxPayload of
         true ->

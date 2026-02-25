@@ -47,7 +47,8 @@ inc(GwName, Name) ->
 
 -spec inc(gateway_name(), atom(), integer()) -> ok.
 inc(GwName, Name, Oct) ->
-    _ = ets:update_counter(tabname(GwName), Name, {2, Oct}, {Name, 0}),
+    Tab = tabname_cached(GwName),
+    _ = ets:update_counter(Tab, Name, {2, Oct}, {Name, 0}),
     ok.
 
 -spec dec(gateway_name(), atom()) -> ok.
@@ -70,6 +71,17 @@ lookup(GwName) ->
 
 tabname(GwName) ->
     list_to_atom(lists:concat([emqx_gateway_, GwName, '_metrics'])).
+
+tabname_cached(GwName) ->
+    Key = {?MODULE, tabname, GwName},
+    case erlang:get(Key) of
+        undefined ->
+            Tab = tabname(GwName),
+            _ = erlang:put(Key, Tab),
+            Tab;
+        Tab ->
+            Tab
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
