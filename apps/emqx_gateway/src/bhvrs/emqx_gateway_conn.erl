@@ -993,7 +993,7 @@ do_inc_incoming_stats(Type, Ctx, FrameMod, Packet) ->
         false ->
             ok
     end,
-    Name = list_to_atom(lists:concat(["packets.", Type, ".received"])),
+    Name = packet_metric_name(received, Type),
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 inc_outgoing_stats(Ctx, FrameMod, Packet) ->
@@ -1005,9 +1005,7 @@ inc_outgoing_stats(Ctx, FrameMod, Packet) ->
         false ->
             ok
     end,
-    Name = list_to_atom(
-        lists:concat(["packets.", FrameMod:type(Packet), ".sent"])
-    ),
+    Name = packet_metric_name(sent, FrameMod:type(Packet)),
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 %%--------------------------------------------------------------------
@@ -1033,3 +1031,19 @@ stop(Reason, Reply, State) ->
 inc_counter(Name, Value) ->
     _ = emqx_pd:inc_counter(Name, Value),
     ok.
+
+packet_metric_name(Direction, Type) ->
+    Key = {?MODULE, packet_metric_name, Direction, Type},
+    case erlang:get(Key) of
+        undefined ->
+            Name = build_packet_metric_name(Direction, Type),
+            _ = erlang:put(Key, Name),
+            Name;
+        Name ->
+            Name
+    end.
+
+build_packet_metric_name(received, Type) ->
+    list_to_atom(lists:concat(["packets.", Type, ".received"]));
+build_packet_metric_name(sent, Type) ->
+    list_to_atom(lists:concat(["packets.", Type, ".sent"])).

@@ -141,8 +141,7 @@ init(
         conn_state = idle,
         subscriptions = []
     },
-    Channel1 = init_conn_state(Channel),
-    trigger_post_init(Channel1).
+    trigger_post_init(init_conn_state(Channel)).
 
 trigger_post_init(Channel) ->
     case Channel#channel.conninfo of
@@ -575,7 +574,7 @@ handle_in(
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         allow ->
             case check_max_payload(Frame, Channel) of
-                ok -> process_pub_frame(Frame, Channel);
+                ok -> process_pub_frame(Frame, Topic, Channel);
                 {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
             end
     end;
@@ -1131,6 +1130,7 @@ error_frame(Msg) ->
 
 frame2message(
     Frame,
+    Topic,
     Channel = #channel{
         conninfo = ConnInfo,
         clientinfo = #{
@@ -1143,39 +1143,31 @@ frame2message(
     }
 ) ->
     ProtoVer = maps:get(proto_ver, ConnInfo, <<"1">>),
-    Subject = emqx_nats_frame:subject(Frame),
-    Topic = nats_subject_to_pub_topic(Subject),
-    Payload = emqx_nats_frame:payload(Frame),
-    Headers = emqx_nats_frame:headers(Frame),
-    ReplyTo = emqx_nats_frame:reply_to(Frame),
+    {Payload, Headers, ReplyTo} = frame_payload_headers_reply(Frame),
     QoS =
         case is_verbose_mode(Channel) of
             true -> 1;
             false -> 0
         end,
-    Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
-    %% Pass-through of custom headers on the sending side
-    Headers0 = #{
+    BaseHeaders = #{
         proto_ver => ProtoVer,
         protocol => Protocol,
         username => Username,
         peerhost => PeerHost,
-        nats_headers => Headers,
-        reply_to => ReplyTo
+        nats_headers => Headers
     },
     Headers1 =
         case ReplyTo of
             undefined ->
-                Headers0;
+                BaseHeaders;
             _ ->
-                Headers0#{reply_to => ReplyTo}
+                BaseHeaders#{reply_to => ReplyTo}
         end,
-    NMsg = emqx_message:set_headers(Headers1, Msg),
-    emqx_mountpoint:mount(Mountpoint, NMsg).
+    Msg = emqx_message:make(ClientId, QoS, Topic, Payload, #{}, Headers1),
+    {emqx_mountpoint:mount(Mountpoint, Msg), ReplyTo}.
 
-process_pub_frame(Frame, Channel) ->
-    Msg = frame2message(Frame, Channel),
-    ReplyToSubject = emqx_nats_frame:reply_to(Frame),
+process_pub_frame(Frame, Topic, Channel) ->
+    {Msg, ReplyToSubject} = frame2message(Frame, Topic, Channel),
     PubResult = emqx_broker:publish(Msg),
     Replies = no_responders_fastfails(PubResult, ReplyToSubject, Channel),
     handle_out(ok, Replies, Channel).
@@ -1431,6 +1423,15 @@ normalize_map(Map) when is_map(Map) ->
     Map;
 normalize_map(_) ->
     #{}.
+
+frame_payload_headers_reply(#nats_frame{operation = ?OP_PUB, message = Msg}) ->
+    {maps:get(payload, Msg), #{}, maps:get(reply_to, Msg, undefined)};
+frame_payload_headers_reply(#nats_frame{operation = ?OP_HPUB, message = Msg}) ->
+    {
+        maps:get(payload, Msg),
+        maps:get(headers, Msg, #{}),
+        maps:get(reply_to, Msg, undefined)
+    }.
 
 nats_subject_to_pub_topic(Subject) ->
     case emqx_nats_topic:validate_nats_subject(Subject) of
