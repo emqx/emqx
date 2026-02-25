@@ -14,6 +14,8 @@
 -export([
     inc/2,
     inc/3,
+    inc_tab/2,
+    inc_tab/3,
     dec/2,
     dec/3
 ]).
@@ -48,6 +50,14 @@ inc(GwName, Name) ->
 -spec inc(gateway_name(), atom(), integer()) -> ok.
 inc(GwName, Name, Oct) ->
     Tab = tabname_cached(GwName),
+    inc_tab(Tab, Name, Oct).
+
+-spec inc_tab(ets:tab(), atom()) -> ok.
+inc_tab(Tab, Name) ->
+    inc_tab(Tab, Name, 1).
+
+-spec inc_tab(ets:tab(), atom(), integer()) -> ok.
+inc_tab(Tab, Name, Oct) ->
     _ = ets:update_counter(Tab, Name, {2, Oct}, {Name, 0}),
     ok.
 

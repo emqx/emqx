@@ -85,6 +85,7 @@
     username => <<"${Packet.user}">>,
     password => <<"${Packet.pass}">>
 }).
+-define(JWT_RULE_FILTERS_CACHE_KEY, {?MODULE, jwt_rule_filters_cache}).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 -define(RAND_CLIENTID_BYETS, 16).
@@ -1276,7 +1277,7 @@ jwt_permissions_authorize(
     do_jwt_permissions_authorize(
         JWTPermAction,
         Subject,
-        map_get(JWTPerms, JWTPermAction, #{})
+        jwt_rule_filters(JWTPerms, JWTPermAction)
     );
 jwt_permissions_authorize(_ClientInfo, _Action, _Subject) ->
     ignore.
@@ -1286,67 +1287,79 @@ action_to_jwt_permission(#{action_type := publish}) ->
 action_to_jwt_permission(#{action_type := subscribe}) ->
     subscribe.
 
-do_jwt_permissions_authorize(Action, Subject, RuleMap0) ->
-    RuleMap = normalize_map(RuleMap0),
-    Allow = normalize_subject_list(map_get_any(RuleMap, [allow, <<"allow">>], [])),
-    Deny = normalize_subject_list(map_get_any(RuleMap, [deny, <<"deny">>], [])),
-    case {Allow, Deny} of
-        {[], []} ->
-            ignore;
-        _ ->
-            jwt_permission_decision(Action, Subject, Allow, Deny)
-    end.
+do_jwt_permissions_authorize(
+    _Action,
+    _Subject,
+    #{allow_empty := true, deny_empty := true}
+) ->
+    ignore;
+do_jwt_permissions_authorize(Action, Subject, RuleFilters) ->
+    jwt_permission_decision(Action, Subject, RuleFilters).
 
-jwt_permission_decision(publish, Subject, Allow, Deny) ->
-    case jwt_publish_match_any(Subject, Deny) of
+jwt_permission_decision(
+    publish,
+    Subject,
+    #{
+        allow_empty := AllowEmpty,
+        allow_filters := AllowFilters,
+        deny_filters := DenyFilters
+    }
+) ->
+    Topic = nats_subject_to_pub_topic(Subject),
+    case jwt_publish_match_any(Topic, DenyFilters) of
         true ->
             deny;
         false ->
-            case Allow of
-                [] ->
+            case AllowEmpty of
+                true ->
                     allow;
-                _ ->
-                    case jwt_publish_match_any(Subject, Allow) of
+                false ->
+                    case jwt_publish_match_any(Topic, AllowFilters) of
                         true -> allow;
                         false -> deny
                     end
             end
     end;
-jwt_permission_decision(subscribe, Subject, Allow, Deny) ->
-    case jwt_subscribe_match_any(Subject, Deny, intersection) of
+jwt_permission_decision(
+    subscribe,
+    Subject,
+    #{
+        allow_empty := AllowEmpty,
+        allow_filters := AllowFilters,
+        deny_filters := DenyFilters
+    }
+) ->
+    TopicFilter = nats_subject_to_filter(Subject),
+    case jwt_subscribe_match_any(TopicFilter, DenyFilters, intersection) of
         true ->
             deny;
         false ->
-            case Allow of
-                [] ->
+            case AllowEmpty of
+                true ->
                     allow;
-                _ ->
-                    case jwt_subscribe_match_any(Subject, Allow, subset) of
+                false ->
+                    case jwt_subscribe_match_any(TopicFilter, AllowFilters, subset) of
                         true -> allow;
                         false -> deny
                     end
             end
     end.
 
-jwt_publish_match_any(Subject, Rules) ->
-    Topic = nats_subject_to_pub_topic(Subject),
+jwt_publish_match_any(Topic, RuleFilters) ->
     lists:any(
-        fun(Rule) ->
-            RuleFilter = nats_subject_to_filter(Rule),
+        fun(RuleFilter) ->
             try emqx_topic:match(Topic, RuleFilter) of
                 Result -> Result
             catch
                 _:_ -> false
             end
         end,
-        Rules
+        RuleFilters
     ).
 
-jwt_subscribe_match_any(Subject, Rules, Mode) ->
-    TopicFilter = nats_subject_to_filter(Subject),
+jwt_subscribe_match_any(TopicFilter, RuleFilters, Mode) ->
     lists:any(
-        fun(Rule) ->
-            RuleFilter = nats_subject_to_filter(Rule),
+        fun(RuleFilter) ->
             try
                 case Mode of
                     subset -> emqx_topic:is_subset(TopicFilter, RuleFilter);
@@ -1356,8 +1369,64 @@ jwt_subscribe_match_any(Subject, Rules, Mode) ->
                 _:_ -> false
             end
         end,
+        RuleFilters
+    ).
+
+jwt_rule_filters(JWTPerms, Action) ->
+    RuleFiltersByAction =
+        case erlang:get(?JWT_RULE_FILTERS_CACHE_KEY) of
+            {JWTPerms, Cached} ->
+                Cached;
+            _ ->
+                Built = build_jwt_rule_filters(JWTPerms),
+                _ = erlang:put(?JWT_RULE_FILTERS_CACHE_KEY, {JWTPerms, Built}),
+                Built
+        end,
+    maps:get(Action, RuleFiltersByAction, default_jwt_rule_filters()).
+
+build_jwt_rule_filters(JWTPerms) ->
+    #{
+        publish => build_action_rule_filters(publish, JWTPerms),
+        subscribe => build_action_rule_filters(subscribe, JWTPerms)
+    }.
+
+build_action_rule_filters(Action, JWTPerms) ->
+    RuleMap = normalize_map(map_get(JWTPerms, Action, #{})),
+    AllowRules = normalize_subject_list(map_get_any(RuleMap, [allow, <<"allow">>], [])),
+    DenyRules = normalize_subject_list(map_get_any(RuleMap, [deny, <<"deny">>], [])),
+    #{
+        allow_empty => AllowRules =:= [],
+        allow_filters => normalize_rule_filters(AllowRules),
+        deny_empty => DenyRules =:= [],
+        deny_filters => normalize_rule_filters(DenyRules)
+    }.
+
+default_jwt_rule_filters() ->
+    #{
+        allow_empty => true,
+        allow_filters => [],
+        deny_empty => true,
+        deny_filters => []
+    }.
+
+normalize_rule_filters(Rules) ->
+    lists:filtermap(
+        fun(Rule) ->
+            case safe_nats_subject_to_filter(Rule) of
+                {ok, RuleFilter} -> {true, RuleFilter};
+                error -> false
+            end
+        end,
         Rules
     ).
+
+safe_nats_subject_to_filter(Subject) ->
+    try
+        {ok, nats_subject_to_filter(Subject)}
+    catch
+        _:_ ->
+            error
+    end.
 
 nats_subject_to_filter(Subject) ->
     emqx_nats_topic:nats_to_mqtt(Subject).
@@ -1450,13 +1519,7 @@ frame_payload_headers_reply(#nats_frame{operation = ?OP_HPUB, message = Msg}) ->
     }.
 
 nats_subject_to_pub_topic(Subject) ->
-    case maybe_has_nats_wildcards(Subject) of
-        true -> emqx_nats_topic:nats_to_mqtt_publish(Subject);
-        false -> emqx_nats_topic:nats_to_mqtt(Subject)
-    end.
-
-maybe_has_nats_wildcards(Subject) ->
-    binary:match(Subject, <<"*">>) =/= nomatch orelse binary:match(Subject, <<">">>) =/= nomatch.
+    emqx_nats_topic:nats_to_mqtt_publish(Subject).
 
 check_max_payload(Frame, #channel{max_payload_size = MaxPayload}) ->
     PayloadSize = emqx_nats_frame:payload_total_size(Frame),

@@ -21,7 +21,9 @@
         gwname := gateway_name(),
         %% FIXME: use process name instead of pid()
         %% The ConnectionManager PID
-        cm := pid()
+        cm := pid(),
+        %% Cached metrics table for hot-path updates
+        metrics_tab => ets:table()
     }.
 
 %% Authentication circle
@@ -169,9 +171,13 @@ authorize(_Ctx, ClientInfo, Action, Topic) ->
 %%--------------------------------------------------------------------
 %% Metrics & Stats
 
+metrics_inc(_Ctx = #{metrics_tab := Tab}, Name) ->
+    emqx_gateway_metrics:inc_tab(Tab, Name);
 metrics_inc(_Ctx = #{gwname := GwName}, Name) ->
     emqx_gateway_metrics:inc(GwName, Name).
 
+metrics_inc(_Ctx = #{metrics_tab := Tab}, Name, Oct) ->
+    emqx_gateway_metrics:inc_tab(Tab, Name, Oct);
 metrics_inc(_Ctx = #{gwname := GwName}, Name, Oct) ->
     emqx_gateway_metrics:inc(GwName, Name, Oct).
 
