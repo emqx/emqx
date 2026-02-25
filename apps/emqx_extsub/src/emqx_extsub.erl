@@ -50,7 +50,6 @@ The module:
 
 -record(st, {
     registry :: emqx_extsub_handler_registry:t(),
-    buffer :: emqx_extsub_buffer:t(),
     deliver_retry_tref :: reference() | undefined,
     unacked :: #{emqx_extsub_buffer:seq_id() => true},
     tombstone :: #{
@@ -125,72 +124,67 @@ on_delivery_completed(Msg, Info) ->
     ReasonCode = maps:get(reason_code, Info, ?RC_SUCCESS),
     ok = on_delivered(Msg, ReasonCode).
 
-on_delivered(Msg, ReasonCode) ->
-    ?tp_debug(extsub_on_delivered, #{message => Msg, reason_code => ReasonCode}),
-    with_msg_handler(
-        Msg,
-        fun(
-            #st{unacked = Unacked0, buffer = Buffer0} = St0,
-            Handler0,
-            #extsub_info{
-                seq_id = SeqId, handler_ref = HandlerRef, original_qos = OriginalQos
-            }
-        ) ->
-            Buffer1 = emqx_extsub_buffer:set_delivered(Buffer0, HandlerRef, SeqId),
-            St1 = St0#st{buffer = Buffer1},
-            %% Update the unacked window
-            Unacked = maps:remove(SeqId, Unacked0),
-            AckCtx = ack_ctx(St1, Handler0, HandlerRef, OriginalQos, Unacked),
-            case emqx_extsub_handler:delivered(Handler0, AckCtx, Msg, ReasonCode) of
-                {ok, Handler} ->
-                    ?tp_debug(extsub_on_delivered_remove_unacked, #{
-                        seq_id => SeqId, unacked_cnt => map_size(Unacked)
-                    }),
-                    St = ensure_deliver_retry_timer(0, St1#st{unacked = Unacked}),
-                    {ok, St, Handler};
-                {destroy, TopicFilters} ->
-                    ?tp_debug(extsub_on_delivered_remove_unacked, #{
-                        seq_id => SeqId, unacked_cnt => map_size(Unacked)
-                    }),
-                    St = ensure_deliver_retry_timer(0, St1#st{unacked = Unacked}),
-                    {destroy, St, TopicFilters};
-                destroy ->
-                    ?tp_debug(extsub_on_delivered_remove_unacked, #{
-                        seq_id => SeqId, unacked_cnt => map_size(Unacked)
-                    }),
-                    St = ensure_deliver_retry_timer(0, St1#st{unacked = Unacked}),
-                    {destroy, St}
-            end
-        end
-    ).
+on_delivered(#message{} = Msg, ReasonCode) ->
+    case emqx_message:get_header(?EXTSUB_HEADER_INFO, Msg) of
+        undefined ->
+            ok;
+        #extsub_info{} = ExtSubInfo ->
+            with_st(fun(#st{} = St) ->
+                do_on_delivered(St, ExtSubInfo, Msg, ReasonCode)
+            end)
+    end.
+
+do_on_delivered(
+    #st{unacked = Unacked0, registry = HandlerRegistry0} = St0,
+    #extsub_info{seq_id = SeqId, handler_ref = HandlerRef, original_qos = OriginalQos},
+    Msg,
+    ReasonCode
+) ->
+    ?tp_debug(extsub_on_delivered, #{
+        seq_id => SeqId, unacked_cnt => map_size(Unacked0)
+    }),
+    Unacked = maps:remove(SeqId, Unacked0),
+    AckCtx = ack_ctx(HandlerRegistry0, HandlerRef, OriginalQos, Unacked),
+    Registry = emqx_extsub_handler_registry:delivered(
+        HandlerRegistry0, HandlerRef, AckCtx, Msg, SeqId, ReasonCode
+    ),
+    St1 = St0#st{unacked = Unacked, registry = Registry},
+    St = ensure_deliver_retry_timer(0, St1),
+    {ok, St}.
 
 on_message_nack(Msg, false) ->
-    ?tp_debug(extsub_on_message_nack, #{message => Msg}),
-    with_msg_handler(
-        Msg,
-        fun(
-            #st{unacked = Unacked0, buffer = Buffer0} = St0,
-            Handler,
-            #extsub_info{seq_id = SeqId, handler_ref = HandlerRef}
-        ) ->
-            Unacked = maps:remove(SeqId, Unacked0),
-            UnackedCnt = map_size(Unacked),
-            Buffer = emqx_extsub_buffer:add_back(Buffer0, HandlerRef, SeqId, Msg),
-            St = St0#st{unacked = Unacked, buffer = Buffer},
-            case UnackedCnt of
-                0 ->
-                    ?tp_debug(extsub_on_message_nack_schedule_retry, #{seq_id => SeqId}),
-                    {ok, ensure_deliver_retry_timer(St), Handler, true};
-                _ ->
-                    ?tp_debug(extsub_on_message_nack_no_schedule_retry, #{seq_id => SeqId}),
-                    {ok, St, Handler, true}
-            end
-        end,
-        ok
-    );
+    case emqx_message:get_header(?EXTSUB_HEADER_INFO, Msg) of
+        undefined ->
+            ok;
+        #extsub_info{} = ExtSubInfo ->
+            with_st(fun(#st{} = St) ->
+                do_on_message_nack(St, ExtSubInfo, Msg)
+            end),
+            {ok, true}
+    end;
 %% Already nacked by some other hook
 on_message_nack(_Msg, true) ->
     ok.
+
+do_on_message_nack(
+    #st{unacked = Unacked0, registry = HandlerRegistry0} = St0,
+    #extsub_info{seq_id = SeqId, handler_ref = HandlerRef} = _ExtSubInfo,
+    Msg
+) ->
+    Unacked = maps:remove(SeqId, Unacked0),
+    UnackedCnt = map_size(Unacked),
+    Registry = emqx_extsub_handler_registry:buffer_add_back(
+        HandlerRegistry0, HandlerRef, SeqId, Msg
+    ),
+    St = St0#st{unacked = Unacked, registry = Registry},
+    case UnackedCnt of
+        0 ->
+            ?tp_debug(extsub_on_message_nack_schedule_retry, #{seq_id => SeqId}),
+            {ok, ensure_deliver_retry_timer(St)};
+        _ ->
+            ?tp_debug(extsub_on_message_nack_no_schedule_retry, #{seq_id => SeqId}),
+            {ok, St}
+    end.
 
 on_session_subscribed(ClientInfo, TopicFilter, SubOpts) ->
     ?tp_debug(extsub_on_session_subscribed, #{topic_filter => TopicFilter}),
@@ -274,14 +268,19 @@ on_client_handle_info(
 ) ->
     %% Message to a specific handler
     with_st(
-        fun(St0) ->
-            HookContext = emqx_hooks:context('client.handle_info'),
-            #{session_info_fn := SessionInfoFn} = HookContext,
-            case do_handle_info(St0, HookContext, HandlerRef, InfoMsg) of
-                {ok, St1} ->
-                    {ok, St1};
-                {try_deliver, St1} ->
-                    {St, NewDelivers} = try_deliver(SessionInfoFn, St1),
+        fun(#st{registry = HandlerRegistry0} = St0) ->
+            #{session_info_fn := SessionInfoFn} =
+                HookContext = emqx_hooks:context('client.handle_info'),
+            InfoCtx = info_ctx(HandlerRegistry0, HandlerRef, HookContext),
+            case
+                emqx_extsub_handler_registry:info(HandlerRegistry0, HandlerRef, InfoCtx, InfoMsg)
+            of
+                {ok, HandlerRegistry} ->
+                    {ok, St0#st{registry = HandlerRegistry}};
+                {ok, HandlerRegistry, Messages} ->
+                    {St, NewDelivers} = try_deliver(
+                        SessionInfoFn, St0#st{registry = HandlerRegistry}, [{HandlerRef, Messages}]
+                    ),
                     {ok, St, {ok, Acc#{deliver := NewDelivers ++ Delivers}}}
             end
         end,
@@ -310,72 +309,40 @@ on_client_handle_info(
     _ClientInfo, Info, #{deliver := Delivers} = Acc0
 ) ->
     %% Generic info
-    with_st(fun(#st{registry = HandlerRegistry} = St0) ->
-        HookContext = emqx_hooks:context('client.handle_info'),
-        #{session_info_fn := SessionInfoFn} = HookContext,
+    with_st(fun(#st{registry = HandlerRegistry0} = St0) ->
+        #{session_info_fn := SessionInfoFn} =
+            HookContext = emqx_hooks:context('client.handle_info'),
         GenericMessageHandlers = emqx_extsub_handler_registry:generic_message_handlers(
-            HandlerRegistry
+            HandlerRegistry0
         ),
-        {St1, NeedTryDeliver} = lists:foldl(
-            fun(HandlerRef, {StAcc0, NeedTryDeliverAcc}) ->
-                case do_handle_info(StAcc0, HookContext, HandlerRef, {generic, Info}) of
-                    {ok, StAcc} ->
-                        {StAcc, NeedTryDeliverAcc};
-                    {try_deliver, StAcc} ->
-                        {StAcc, true}
+        {HandlerRegistry, Messages} = lists:foldl(
+            fun(HandlerRef, {HandlerRegistryAcc0, MessagesAcc}) ->
+                InfoCtx = info_ctx(HandlerRegistryAcc0, HandlerRef, HookContext),
+                case
+                    emqx_extsub_handler_registry:info(
+                        HandlerRegistryAcc0, HandlerRef, InfoCtx, {generic, Info}
+                    )
+                of
+                    {ok, HandlerRegistryAcc} ->
+                        {HandlerRegistryAcc, MessagesAcc};
+                    {ok, HandlerRegistryAcc, Messages} ->
+                        {HandlerRegistryAcc, [{HandlerRef, Messages} | MessagesAcc]}
                 end
             end,
-            {St0, false},
+            {HandlerRegistry0, []},
             GenericMessageHandlers
         ),
+        St1 = St0#st{registry = HandlerRegistry},
         {St, Acc} =
-            case NeedTryDeliver of
-                true ->
-                    {St2, NewDelivers} = try_deliver(SessionInfoFn, St1),
-                    {St2, Acc0#{deliver => NewDelivers ++ Delivers}};
-                false ->
-                    {St1, Acc0}
+            case Messages of
+                [] ->
+                    {St1, Acc0};
+                _ ->
+                    {St2, NewDelivers} = try_deliver(St1, SessionInfoFn, Messages),
+                    {St2, Acc0#{deliver => NewDelivers ++ Delivers}}
             end,
         {ok, St, {ok, Acc}}
     end).
-
-do_handle_info(St0, #{chan_info_fn := ChanInfoFn} = _HookContext, HandlerRef, InfoMsg) ->
-    {St1, InfoHandleResult} = with_handler(
-        St0,
-        HandlerRef,
-        fun(#st{buffer = Buffer0} = St, Handler0) ->
-            case
-                emqx_extsub_handler:info(
-                    Handler0, info_ctx(St, Handler0, HandlerRef), InfoMsg
-                )
-            of
-                {ok, Handler} ->
-                    {ok, St, Handler, ok};
-                {ok, Handler, Messages} ->
-                    ?tp_debug(extsub_on_client_handle_info_add_new, #{
-                        handler_ref => HandlerRef, messages => length(Messages)
-                    }),
-                    Buffer = emqx_extsub_buffer:add_new(Buffer0, HandlerRef, Messages),
-                    {ok, St#st{buffer = Buffer}, Handler, try_deliver};
-                {destroy, TopicFilters} ->
-                    {destroy, St, TopicFilters};
-                destroy ->
-                    {destroy, St};
-                recreate ->
-                    {ok, St, Handler0, recreate}
-            end
-        end,
-        ok
-    ),
-    case InfoHandleResult of
-        recreate ->
-            ClientInfo = ChanInfoFn(clientinfo),
-            {ok, recreate_handler(St1, ClientInfo, HandlerRef)};
-        ok ->
-            {ok, St1};
-        try_deliver ->
-            {try_deliver, St1}
-    end.
 
 set_max_unacked(MaxUnacked) ->
     _ = persistent_term:put(?MAX_UNACKED_PT_KEY, MaxUnacked),
@@ -450,24 +417,23 @@ tombstone_subopts(Subs) ->
     end),
     ok.
 
-recreate_handler(#st{registry = HandlerRegistry, buffer = Buffer} = St, ClientInfo, OldHandlerRef) ->
-    SubscribeCtx = subscribe_ctx(ClientInfo),
-    St#st{
-        registry = emqx_extsub_handler_registry:recreate(
-            HandlerRegistry, SubscribeCtx, OldHandlerRef
-        ),
-        buffer = emqx_extsub_buffer:drop_handler(Buffer, OldHandlerRef)
-    }.
-
 try_deliver(SessionInfoFn) ->
     with_st(fun(St0) ->
-        {St, Delivers} = try_deliver(SessionInfoFn, St0),
+        {St, Delivers} = try_deliver(SessionInfoFn, St0, []),
         {ok, St, Delivers}
     end).
 
-try_deliver(SessionInfoFn, #st{buffer = Buffer0, unacked = Unacked0} = St0) ->
+try_deliver(SessionInfoFn, #st{unacked = Unacked0, registry = HandlerRegistry0} = St0, Messages) ->
+    HandlerRegistry1 = lists:foldl(
+        %% Messages is a list of lists of messages
+        fun({HandlerRef, Msgs}, HandlerRegistryAcc) ->
+            emqx_extsub_handler_registry:buffer_add(HandlerRegistryAcc, HandlerRef, Msgs)
+        end,
+        HandlerRegistry0,
+        Messages
+    ),
     St = cancel_deliver_retry_timer(St0),
-    BufferSize = emqx_extsub_buffer:size(Buffer0),
+    BufferSize = emqx_extsub_handler_registry:buffer_size(HandlerRegistry1),
     UnackedCnt = map_size(Unacked0),
     DeliverCnt = deliver_count(SessionInfoFn, UnackedCnt),
     ?tp_debug(extsub_try_deliver, #{
@@ -482,9 +448,11 @@ try_deliver(SessionInfoFn, #st{buffer = Buffer0, unacked = Unacked0} = St0) ->
             %% on their ack callback.
             {St, []};
         Room ->
-            {MessageEntries, Buffer} = emqx_extsub_buffer:take(Buffer0, Room),
+            {MessageEntries, HandlerRegistry} = emqx_extsub_handler_registry:buffer_take(
+                HandlerRegistry1, Room
+            ),
             Unacked = add_unacked(Unacked0, MessageEntries),
-            {St#st{buffer = Buffer, unacked = Unacked}, delivers(MessageEntries)}
+            {St#st{registry = HandlerRegistry, unacked = Unacked}, delivers(MessageEntries)}
     end.
 
 add_unacked(Unacked, MessageEntries) ->
@@ -529,60 +497,6 @@ with_st(Fun, DefaultResult) ->
             Result
     end.
 
-with_msg_handler(Msgs, Fun) ->
-    with_msg_handler(Msgs, Fun, ok).
-
-with_msg_handler(#message{} = Msg, Fun, DefaultResult) ->
-    case emqx_message:get_header(?EXTSUB_HEADER_INFO, Msg) of
-        undefined ->
-            DefaultResult;
-        #extsub_info{handler_ref = HandlerRef} = ExtSubInfo ->
-            with_st(fun(St0) ->
-                {St, Result} = with_handler(St0, HandlerRef, Fun, [ExtSubInfo], DefaultResult),
-                {ok, St, Result}
-            end)
-    end.
-
-with_handler(St, HandlerRef, Fun, DefaultResult) when is_reference(HandlerRef) ->
-    with_handler(St, HandlerRef, Fun, [], DefaultResult).
-
-with_handler(#st{registry = HandlerRegistry0} = St0, HandlerRef, Fun, Args, DefaultResult) ->
-    case emqx_extsub_handler_registry:find(HandlerRegistry0, HandlerRef) of
-        undefined ->
-            {St0, DefaultResult};
-        Handler0 ->
-            case erlang:apply(Fun, [St0, Handler0 | Args]) of
-                {ok, St1, Handler} ->
-                    HandlerRegistry = emqx_extsub_handler_registry:update(
-                        HandlerRegistry0, HandlerRef, Handler
-                    ),
-                    St = St1#st{registry = HandlerRegistry},
-                    {St, DefaultResult};
-                {ok, St1, Handler, Result} ->
-                    HandlerRegistry = emqx_extsub_handler_registry:update(
-                        HandlerRegistry0, HandlerRef, Handler
-                    ),
-                    St = St1#st{registry = HandlerRegistry},
-                    {St, Result};
-                {destroy, St1} ->
-                    Buffer0 = St0#st.buffer,
-                    Buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef),
-                    HandlerRegistry = emqx_extsub_handler_registry:destroy_all(
-                        HandlerRegistry0, HandlerRef
-                    ),
-                    St = St1#st{registry = HandlerRegistry, buffer = Buffer},
-                    {St, DefaultResult};
-                {destroy, St1, TopicFilters} ->
-                    Buffer0 = St0#st.buffer,
-                    Buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef),
-                    HandlerRegistry = emqx_extsub_handler_registry:destroy(
-                        HandlerRegistry0, HandlerRef, TopicFilters
-                    ),
-                    St = St1#st{registry = HandlerRegistry, buffer = Buffer},
-                    {St, DefaultResult}
-            end
-    end.
-
 deliver_count(SessionInfoFn, UnackedCnt) ->
     InflightMax = SessionInfoFn(inflight_max),
     InflightCnt = SessionInfoFn(inflight_cnt),
@@ -603,37 +517,39 @@ subscribe_ctx(ClientInfo) ->
         get_channel_info()
     ).
 
-info_ctx(State, Handler, HandlerRef) ->
-    #{desired_message_count => desired_message_count(State, Handler, HandlerRef)}.
+info_ctx(
+    HandlerRegistry,
+    HandlerRef,
+    #{chan_info_fn := ClientInfoFn} = _HookContext
+) ->
+    {DeliveringCnt, DesiredMsgCount} = emqx_extsub_handler_registry:message_counts(
+        HandlerRegistry, HandlerRef
+    ),
+    #{
+        desired_message_count => DesiredMsgCount,
+        delivering_count => DeliveringCnt,
+        can_receive_acks => can_receive_acks(),
+        clientinfo => ClientInfoFn(clientinfo)
+    }.
 
-ack_ctx(State, Handler, HandlerRef, OriginalQos, Unacked) ->
-    #st{buffer = Buffer} = State,
-    DeliveringCnt = emqx_extsub_buffer:delivering_count(Buffer, HandlerRef),
+ack_ctx(HandlerRegistry, HandlerRef, OriginalQos, Unacked) ->
+    {DeliveringCnt, DesiredMsgCount} = emqx_extsub_handler_registry:message_counts(
+        HandlerRegistry, HandlerRef
+    ),
     #{
         unacked_count => map_size(Unacked),
         delivering_count => DeliveringCnt,
-        desired_message_count => desired_message_count(State, Handler, HandlerRef),
+        desired_message_count => DesiredMsgCount,
         qos => OriginalQos
     }.
-
-desired_message_count(#st{buffer = Buffer}, Handler, HandlerRef) ->
-    BufferSize = emqx_extsub_handler:get_option(buffer_size, Handler, ?EXTSUB_BUFFER_SIZE),
-    DeliveringCnt = emqx_extsub_buffer:delivering_count(Buffer, HandlerRef),
-    ?tp_debug(extsub_desired_message_count, #{
-        configured_buffer_size => BufferSize, delivering_cnt => DeliveringCnt
-    }),
-    case DeliveringCnt of
-        N when N < BufferSize ->
-            BufferSize;
-        _ ->
-            0
-    end.
 
 ensure_deliver_retry_timer(St) ->
     ensure_deliver_retry_timer(?EXTSUB_DELIVER_RETRY_INTERVAL, St).
 
-ensure_deliver_retry_timer(Interval, #st{deliver_retry_tref = undefined, buffer = Buffer} = St) ->
-    case emqx_extsub_buffer:size(Buffer) > 0 of
+ensure_deliver_retry_timer(
+    Interval, #st{deliver_retry_tref = undefined, registry = HandlerRegistry} = St
+) ->
+    case emqx_extsub_handler_registry:buffer_size(HandlerRegistry) > 0 of
         true ->
             ?tp_debug(extsub_ensure_deliver_retry_timer_schedule, #{interval => Interval}),
             TRef = erlang:send_after(Interval, self(), #info_extsub_try_deliver{}),
@@ -661,7 +577,6 @@ get_st() ->
 new_st() ->
     #st{
         registry = emqx_extsub_handler_registry:new(),
-        buffer = emqx_extsub_buffer:new(),
         deliver_retry_tref = undefined,
         unacked = #{},
         tombstone = #{}
@@ -686,14 +601,12 @@ can_receive_acks() ->
     CanReceiveAcks.
 
 do_inspect(#st{
-    buffer = Buffer,
     unacked = Unacked,
     deliver_retry_tref = DeliverRetryTRef,
     tombstone = Tombstone,
     registry = HandlerRegistry
 }) ->
     #{
-        buffer => emqx_extsub_buffer:inspect(Buffer),
         unacked_count => maps:size(Unacked),
         deliver_retry_scheduled => DeliverRetryTRef =/= undefined,
         tombstone => Tombstone,

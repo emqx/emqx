@@ -34,7 +34,8 @@
 
     %% Functions to send messages to the handler itself
     send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
-    send := fun((term()) -> ok)
+    send := fun((term()) -> ok),
+    _ => _
 }.
 
 -type unsubscribe_ctx() :: #{
@@ -42,14 +43,17 @@
 }.
 
 -type info_ctx() :: #{
-    desired_message_count := non_neg_integer()
+    desired_message_count := non_neg_integer(),
+    delivering_count := non_neg_integer(),
+    _ => _
 }.
 
 -type ack_ctx() :: #{
     unacked_count := non_neg_integer(),
     delivering_count => non_neg_integer(),
     desired_message_count := non_neg_integer(),
-    qos := emqx_types:qos()
+    qos := emqx_types:qos(),
+    _ => _
 }.
 
 -record(handler, {
@@ -89,11 +93,16 @@
     ack_ctx(),
     emqx_types:message(),
     emqx_extsub_types:ack()
-) -> {ok, state()} | {destroy, [emqx_extsub_types:topic_filter()]}.
+) ->
+    {ok, state()}
+    | {destroy, [emqx_extsub_types:topic_filter()]}
+    | destroy.
 -callback handle_info(state(), info_ctx(), term()) ->
     {ok, state()}
     | {ok, state(), [emqx_types:message()]}
-    | recreate.
+    | recreate
+    | {destroy, [emqx_extsub_types:topic_filter()]}
+    | destroy.
 
 -optional_callbacks([
     handle_unsubscribe/4,
