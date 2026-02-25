@@ -166,11 +166,15 @@ maybe_enable(#{enable := auto} = _NewConf, _OldConf) ->
     ok;
 %% Always allow to change the enable state to true.
 maybe_enable(#{enable := true} = _NewConf, _OldConf) ->
-    ok = emqx_streams_controller:start_streams();
+    %% Streams components are starting.
+    %% Streams are not yet fully functional, but should be eventually.
+    %% Return as soon as `starting` is reached to propagate the intention through the cluster.
+    starting = emqx_streams_controller:start_streams(),
+    ok;
 %% Allow to disable if there are no streams.
 maybe_enable(#{enable := false} = _NewConf, _OldConf) ->
     case emqx_streams_controller:stop_streams() of
-        ok ->
+        stopped ->
             ok;
         {error, Reason} ->
             {error, #{reason => Reason}}

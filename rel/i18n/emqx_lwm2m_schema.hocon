@@ -28,8 +28,7 @@ lwm2m_translators.desc:
 """MQTT topic mappings between LwM2M events and MQTT commands."""
 
 lwm2m_coap_max_block_size.desc:
-"""Default CoAP block size in bytes for LwM2M traffic.
-It controls chunk size when large payloads are split."""
+"""Deprecated since 6.1.0. Use `blockwise.max_block_size` instead."""
 
 lwm2m_blockwise.desc:
 """Settings for large payload transfer.

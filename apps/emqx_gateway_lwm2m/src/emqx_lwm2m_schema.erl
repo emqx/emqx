@@ -90,6 +90,8 @@ fields(lwm2m) ->
                 emqx_coap_schema:block_size(),
                 #{
                     default => 1024,
+                    deprecated => {since, "6.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(lwm2m_coap_max_block_size)
                 }
             )},

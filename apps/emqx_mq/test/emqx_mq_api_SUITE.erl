@@ -513,6 +513,100 @@ t_max_queue_count(_Config) ->
         })
     ).
 
+%% Verify that a legacy queue can be updated and subsequently deleted via API.
+t_update_legacy_queue(_Config) ->
+    %% Create a legacy lastvalue queue directly in the database
+    MQ0 = emqx_mq_test_utils:fill_mq_defaults(#{topic_filter => <<"t/#">>, is_lastvalue => true}),
+    ok = emqx_mq_registry:create_pre_611_queue(MQ0),
+
+    %% Update the legacy queue via API
+    ?assertMatch(
+        {ok, 200, _},
+        api_put([message_queues, queues, urlencode(<<"/t/#">>)], #{
+            <<"is_lastvalue">> => true,
+            <<"key_expression">> => <<"message.from">>
+        })
+    ),
+
+    %% Delete the legacy queue via API
+    ?assertMatch(
+        {ok, 204},
+        api_delete([message_queues, queues, urlencode(<<"/t/#">>)])
+    ),
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"/t/#">>)),
+
+    %% Check list is empty
+    ?assertMatch(
+        {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
+        api_get([message_queues, queues])
+    ).
+
+%% Verify that /queues/* alias paths work identically to /message_queues/* paths.
+t_queues_alias_crud(_Config) ->
+    %% List via /queues
+    ?assertMatch(
+        {ok, 200, #{<<"data">> := [], <<"meta">> := #{<<"hasnext">> := false}}},
+        api_get([queues])
+    ),
+    %% Create via /queues
+    ?assertMatch(
+        {ok, 200, _},
+        api_post([queues], #{
+            <<"name">> => <<"alias_q1">>,
+            <<"topic_filter">> => <<"t/alias/1">>
+        })
+    ),
+    %% Get via /queue/:name
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{<<"name">> := <<"alias_q1">>, <<"topic_filter">> := <<"t/alias/1">>}},
+            api_get([queue, <<"alias_q1">>])
+        )
+    ),
+    %% Update via /queue/:name
+    ?retry(
+        5,
+        20,
+        ?assertMatch(
+            {ok, 200, #{<<"name">> := <<"alias_q1">>, <<"ping_interval">> := 8888}},
+            api_put([queue, <<"alias_q1">>], #{<<"ping_interval">> => 8888})
+        )
+    ),
+    %% Verify queue is visible via old /message_queues path too
+    ?assertMatch(
+        {ok, 200, #{<<"name">> := <<"alias_q1">>}},
+        api_get([message_queues, queues, <<"alias_q1">>])
+    ),
+    %% Delete via /queue/:name
+    ?assertMatch(
+        {ok, 204},
+        api_delete([queue, <<"alias_q1">>])
+    ),
+    %% Verify deleted
+    ?assertMatch(
+        {ok, 404, _},
+        api_get([queue, <<"alias_q1">>])
+    ).
+
+%% Verify that /queues/config alias path works identically to /message_queues/config.
+t_queues_alias_config(_Config) ->
+    ?assertMatch(
+        {ok, 200, _},
+        api_get([queues, config])
+    ),
+    ?assertMatch(
+        {ok, 204},
+        api_put([queues, config], #{
+            <<"gc_interval">> => <<"3h">>
+        })
+    ),
+    ?assertMatch(
+        {ok, 200, #{<<"gc_interval">> := <<"3h">>}},
+        api_get([queues, config])
+    ).
+
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
