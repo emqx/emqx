@@ -34,7 +34,8 @@
 
     %% Functions to send messages to the handler itself
     send_after := fun((emqx_extsub_types:interval_ms(), term()) -> reference()),
-    send := fun((term()) -> ok)
+    send := fun((term()) -> ok),
+    _ => _
 }.
 
 -type unsubscribe_ctx() :: #{
@@ -42,12 +43,17 @@
 }.
 
 -type info_ctx() :: #{
-    desired_message_count := non_neg_integer()
+    desired_message_count := non_neg_integer(),
+    delivering_count := non_neg_integer(),
+    _ => _
 }.
 
 -type ack_ctx() :: #{
+    unacked_count := non_neg_integer(),
+    delivering_count => non_neg_integer(),
     desired_message_count := non_neg_integer(),
-    qos := emqx_types:qos()
+    qos := emqx_types:qos(),
+    _ => _
 }.
 
 -record(handler, {
@@ -87,11 +93,16 @@
     ack_ctx(),
     emqx_types:message(),
     emqx_extsub_types:ack()
-) -> state().
+) ->
+    {ok, state()}
+    | {destroy, [emqx_extsub_types:topic_filter()]}
+    | destroy.
 -callback handle_info(state(), info_ctx(), term()) ->
     {ok, state()}
     | {ok, state(), [emqx_types:message()]}
-    | recreate.
+    | recreate
+    | {destroy, [emqx_extsub_types:topic_filter()]}
+    | destroy.
 
 -optional_callbacks([
     handle_unsubscribe/4,
@@ -184,12 +195,26 @@ terminate(#handler{cbm = CBM, st = State}) ->
             ok
     end.
 
--spec delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) -> t().
-delivered(#handler{cbm = CBM, st = State} = Handler, AckCtx, Msg, Ack) ->
-    Handler#handler{st = CBM:handle_delivered(State, AckCtx, Msg, Ack)}.
+-spec delivered(t(), ack_ctx(), emqx_types:message(), emqx_extsub_types:ack()) ->
+    {ok, t()}
+    | {destroy, [emqx_extsub_types:topic_filter()]}
+    | destroy.
+delivered(#handler{cbm = CBM, st = State0} = Handler, AckCtx, Msg, Ack) ->
+    case CBM:handle_delivered(State0, AckCtx, Msg, Ack) of
+        {ok, State} ->
+            {ok, Handler#handler{st = State}};
+        {destroy, TopicFilters} ->
+            {destroy, TopicFilters};
+        destroy ->
+            destroy
+    end.
 
 -spec info(t(), info_ctx(), term()) ->
-    {ok, t()} | {ok, t(), [emqx_types:message()]} | recreate.
+    {ok, t()}
+    | {ok, t(), [emqx_types:message()]}
+    | {destroy, [emqx_extsub_types:topic_filter()]}
+    | destroy
+    | recreate.
 info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
     {TimeUs, Result} = timer:tc(CBM, handle_info, [State0, InfoCtx, Info]),
     TimeMs = erlang:convert_time_unit(TimeUs, microsecond, millisecond),
@@ -199,6 +224,10 @@ info(#handler{cbm = CBM, st = State0} = Handler, InfoCtx, Info) ->
             {ok, Handler#handler{st = State}};
         {ok, State, Messages} ->
             {ok, Handler#handler{st = State}, Messages};
+        {destroy, TopicFilters} ->
+            {destroy, TopicFilters};
+        destroy ->
+            destroy;
         recreate ->
             recreate
     end.
