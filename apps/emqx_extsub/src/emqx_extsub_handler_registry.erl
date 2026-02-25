@@ -65,7 +65,7 @@ Collection of handlers for the external message sources.
 
 %% This is a subset of `emqx_extsub_handler:ack_ctx` and incremented with info from
 %% registry before calling handler.
--type outer_ack_ctx() :: #{
+-type init_ack_ctx() :: #{
     unacked_count := non_neg_integer(),
     qos := emqx_types:qos(),
     _ => _
@@ -182,7 +182,7 @@ save_subopts(#registry{by_topic_cbm = ByTopicCBM} = Registry0, Context, SubOpts)
 -spec delivered(
     t(),
     emqx_extsub_types:handler_ref(),
-    outer_ack_ctx(),
+    init_ack_ctx(),
     emqx_types:message(),
     emqx_extsub_buffer:seq_id(),
     emqx_types:reason_code()
@@ -190,7 +190,7 @@ save_subopts(#registry{by_topic_cbm = ByTopicCBM} = Registry0, Context, SubOpts)
 delivered(
     #registry{buffer = Buffer0, by_ref = ByRef} = Registry0,
     HandlerRef,
-    AckCtx0,
+    InitAckCtx,
     SeqId,
     Msg,
     ReasonCode
@@ -199,7 +199,7 @@ delivered(
         #{HandlerRef := #extsub{handler = Handler0} = ExtSub} ->
             Buffer = emqx_extsub_buffer:set_delivered(Buffer0, HandlerRef, SeqId),
             Registry1 = Registry0#registry{buffer = Buffer},
-            AckCtx = ack_ctx(Registry1, HandlerRef, AckCtx0),
+            AckCtx = ack_ctx(Registry1, HandlerRef, InitAckCtx),
             case emqx_extsub_handler:delivered(Handler0, AckCtx, Msg, ReasonCode) of
                 {ok, Handler} ->
                     Registry0#registry{

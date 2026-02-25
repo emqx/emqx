@@ -144,9 +144,9 @@ do_on_delivered(
         seq_id => SeqId, unacked_cnt => map_size(Unacked0)
     }),
     Unacked = maps:remove(SeqId, Unacked0),
-    AckCtx = ack_ctx(OriginalQos, Unacked),
+    InitAckCtx = init_ack_ctx(OriginalQos, Unacked),
     Registry = emqx_extsub_handler_registry:delivered(
-        HandlerRegistry0, HandlerRef, AckCtx, Msg, SeqId, ReasonCode
+        HandlerRegistry0, HandlerRef, InitAckCtx, Msg, SeqId, ReasonCode
     ),
     St1 = St0#st{unacked = Unacked, registry = Registry},
     St = ensure_deliver_retry_timer(0, St1),
@@ -534,7 +534,7 @@ info_ctx(
         clientinfo => ClientInfoFn(clientinfo)
     }.
 
-ack_ctx(OriginalQos, Unacked) ->
+init_ack_ctx(OriginalQos, Unacked) ->
     #{
         unacked_count => map_size(Unacked),
         qos => OriginalQos
