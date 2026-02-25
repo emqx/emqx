@@ -359,6 +359,22 @@ t_start_restart_and_stop(Config) ->
     ?assertEqual([], emqx_plugins:list()),
     ok.
 
+t_start_preinstalled_plugin_inits_config_cache({init, Config}) ->
+    #{package := Package} = get_demo_plugin_package(),
+    NameVsn = filename:basename(Package, ?PACKAGE_SUFFIX),
+    [{name_vsn, NameVsn} | Config];
+t_start_preinstalled_plugin_inits_config_cache({'end', _Config}) ->
+    ok;
+t_start_preinstalled_plugin_inits_config_cache(Config) ->
+    NameVsn = proplists:get_value(name_vsn, Config),
+    ok = emqx_plugins_fs:ensure_installed_from_tar(NameVsn, fun() -> ok end),
+    ?assertEqual(plugin_conf_not_found, emqx_plugins:get_config(NameVsn, plugin_conf_not_found)),
+    ok = emqx_plugins:ensure_started(NameVsn),
+    Config0 = emqx_plugins:get_config(NameVsn, plugin_conf_not_found),
+    ?assert(is_map(Config0), #{config => Config0}),
+    ok = emqx_plugins:ensure_stopped(NameVsn),
+    ok = emqx_plugins:ensure_uninstalled(NameVsn).
+
 t_legacy_plugins({init, Config}) ->
     Config;
 t_legacy_plugins({'end', _Config}) ->
