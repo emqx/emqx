@@ -22,6 +22,62 @@ protocol.desc:
 max_payload_size.desc:
 """The maximum number of bytes of Payload allowed per NATS PUB/HPUB message."""
 
+internal_authn.desc:
+"""Internal authentication methods for NATS clients. Methods are evaluated in array order and stop at the first successful match."""
+
+internal_authn_token.desc:
+"""Token-based authentication method."""
+
+internal_authn_nkey.desc:
+"""NKEY challenge/response authentication method."""
+
+internal_authn_jwt.desc:
+"""NATS JWT authentication method."""
+
+authn_token.desc:
+"""Authentication Token. Optional. Token authentication and username/password
+authentication can be configured simultaneously."""
+
+authn_nkeys.desc:
+"""Authenticate via allowed NKEY public keys (NATS nkey starting with “U...”). Optional. When configured, only clients with matching NKEYs are allowed to connect and authentication is performed via signed challenge/response (recommended to use nkeys tool to generate keys). Can be used alongside authn_token; if neither is set, username/password authentication applies by default.
+Multiple NKEYs can be configured, one public key per line."""
+
+authn_jwt.desc:
+"""Authenticate clients by NATS-style JWT credentials. Optional. This mode is compatible with NATS Server account JWT workflows and can be used together with token and nkey authentication."""
+
+trusted_operators.desc:
+"""A list of trusted operator public keys. The resolver only accepts account JWTs that can be validated from these operators."""
+
+resolver.desc:
+"""Account JWT resolver configuration. Currently, only `memory` is supported."""
+
+verify_exp.desc:
+"""Whether to validate JWT `exp` (expiration) claim."""
+
+verify_nbf.desc:
+"""Whether to validate JWT `nbf` (not-before) claim."""
+
+jwt_resolver.desc:
+"""Resolver settings used to fetch account JWTs for client authentication."""
+
+jwt_resolver_memory.desc:
+"""In-memory JWT resolver settings."""
+
+type.desc:
+"""Resolver type. Only `memory` is supported."""
+
+resolver_preload.desc:
+"""Preloaded account JWT entries for the memory resolver."""
+
+jwt_resolver_preload_entry.desc:
+"""One preloaded account JWT entry."""
+
+pubkey.desc:
+"""Account public key used as the lookup key in resolver preload."""
+
+jwt.desc:
+"""Account JWT content associated with the account public key."""
+
 tcp_ws_listeners.desc:
 """The gateway's Websocket listener adopts the same structure as the MQTT Websocket listener."""
 
