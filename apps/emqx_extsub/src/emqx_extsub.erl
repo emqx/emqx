@@ -144,7 +144,7 @@ do_on_delivered(
         seq_id => SeqId, unacked_cnt => map_size(Unacked0)
     }),
     Unacked = maps:remove(SeqId, Unacked0),
-    AckCtx = ack_ctx(HandlerRegistry0, HandlerRef, OriginalQos, Unacked),
+    AckCtx = ack_ctx(OriginalQos, Unacked),
     Registry = emqx_extsub_handler_registry:delivered(
         HandlerRegistry0, HandlerRef, AckCtx, Msg, SeqId, ReasonCode
     ),
@@ -157,7 +157,7 @@ on_message_nack(Msg, false) ->
         undefined ->
             ok;
         #extsub_info{} = ExtSubInfo ->
-            with_st(fun(#st{} = St) ->
+            _ = with_st(fun(#st{} = St) ->
                 do_on_message_nack(St, ExtSubInfo, Msg)
             end),
             {ok, true}
@@ -300,7 +300,7 @@ on_client_handle_info(
     Acc
 ) ->
     ?tp_debug(extsub_on_client_handle_info_inspect, #{}),
-    with_st(fun(St) ->
+    _ = with_st(fun(St) ->
         Info = do_inspect(St),
         erlang:send(Receiver, {Receiver, Info}),
         {ok, St}
@@ -534,14 +534,9 @@ info_ctx(
         clientinfo => ClientInfoFn(clientinfo)
     }.
 
-ack_ctx(HandlerRegistry, HandlerRef, OriginalQos, Unacked) ->
-    {DeliveringCnt, DesiredMsgCount} = emqx_extsub_handler_registry:message_counts(
-        HandlerRegistry, HandlerRef
-    ),
+ack_ctx(OriginalQos, Unacked) ->
     #{
         unacked_count => map_size(Unacked),
-        delivering_count => DeliveringCnt,
-        desired_message_count => DesiredMsgCount,
         qos => OriginalQos
     }.
 

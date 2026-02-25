@@ -112,9 +112,9 @@ handle_delivered(Handler0, AckCtx, _Msg, _Ack) ->
             {ok, Handler}
     end.
 
-handle_info(Handler0, _InfoCtx, #next{n = N}) ->
+handle_info(Handler0, InfoCtx, #next{n = N}) ->
     Handler = Handler0#h{nudge_enqueued = false},
-    handle_next(Handler, N);
+    handle_next(Handler, N, InfoCtx);
 handle_info(Handler, _InfoCtx, _Info) ->
     {ok, Handler}.
 
@@ -164,32 +164,35 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
 subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
     {ok, Handler}.
 
-handle_next(#h{cursor = ?done} = Handler0, _N) ->
+handle_next(#h{cursor = ?done} = Handler0, _N, _InfoCtx) ->
     %% Impossible?
     {ok, Handler0};
-handle_next(#h{cursor = ?init} = Handler0, N) ->
+handle_next(#h{cursor = ?init} = Handler0, N, InfoCtx) ->
     #h{topic_filter = TopicFilter} = Handler0,
     case emqx_topic:wildcard(TopicFilter) of
         true ->
             Handler = Handler0#h{cursor = ?cursor(?no_cursor)},
-            handle_next(Handler, N);
+            handle_next(Handler, N, InfoCtx);
         false ->
             Handler = Handler0#h{cursor = ?no_wildcard},
-            handle_next(Handler, N)
+            handle_next(Handler, N, InfoCtx)
     end;
-handle_next(#h{cursor = ?no_wildcard} = Handler0, _N) ->
+handle_next(#h{cursor = ?no_wildcard} = Handler0, _N, _InfoCtx) ->
     case try_consume(Handler0, 1) of
+        {ok, Handler, []} ->
+            {destroy, [Handler#h.topic_filter]};
         {ok, Handler, Messages} ->
             {ok, Handler, Messages};
         {error, Handler1} ->
             Handler = enqueue_nudge(Handler1, 1, delay),
             {ok, Handler}
     end;
-handle_next(#h{cursor = ?cursor(_)} = Handler0, N) ->
+handle_next(#h{cursor = ?cursor(_)} = Handler0, N, InfoCtx) ->
     case try_consume(Handler0, N) of
         {ok, Handler1, []} ->
+            #{delivering_count := DeliveringCount} = InfoCtx,
             case Handler1#h.cursor of
-                ?done when Handler1#h.fetched == 0 ->
+                ?done when Handler1#h.fetched == 0 orelse DeliveringCount == 0 ->
                     {destroy, [Handler1#h.topic_filter]};
                 _ ->
                     Handler = enqueue_nudge(Handler1, batch_read_num(), now),
