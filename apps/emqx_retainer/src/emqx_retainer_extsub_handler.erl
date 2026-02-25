@@ -11,6 +11,7 @@
 %% `emqx_extsub_handler' API
 -export([
     handle_subscribe/4,
+    handle_unsubscribe/4,
     handle_delivered/4,
     handle_info/3,
     handle_save_subopts/3
@@ -90,6 +91,10 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
             ignore
     end.
 
+handle_unsubscribe(_UnsubscribeType, _UnsubscribeCtx, Handler, _TopicFilter) ->
+    ensure_cursor_deleted(Handler),
+    Handler.
+
 handle_delivered(Handler0, AckCtx, _Msg, _Ack) ->
     #{
         desired_message_count := DesiredMsgCount,
@@ -117,10 +122,12 @@ handle_save_subopts(#h{cursor = ?cursor(_)} = Handler0, _Context, _SubOpts) ->
     Res = #{delivered => Handler0#h.delivered},
     %% Make the handler stop, since take over/disconnect persistence is ongoing.
     Handler = Handler0#h{cursor = ?done},
+    ensure_cursor_deleted(Handler),
     {ok, Handler, Res};
 handle_save_subopts(Handler0, _Context, _SubOpts) ->
     %% Make the handler stop, since take over/disconnect persistence is ongoing.
     Handler = Handler0#h{cursor = ?done},
+    ensure_cursor_deleted(Handler),
     {ok, Handler}.
 
 %%------------------------------------------------------------------------------
@@ -350,3 +357,10 @@ batch_read_num() ->
         N when is_integer(N) ->
             N
     end.
+
+ensure_cursor_deleted(#h{cursor = ?cursor(InnerCursor)} = Handler) ->
+    #h{mod = Mod, state = State} = Handler,
+    _ = Mod:delete_cursor(State, InnerCursor),
+    ok;
+ensure_cursor_deleted(#h{}) ->
+    ok.
