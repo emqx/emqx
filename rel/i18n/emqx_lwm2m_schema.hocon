@@ -1,76 +1,94 @@
 emqx_lwm2m_schema {
 
 lwm2m.desc:
-"""The LwM2M Gateway configuration. This gateway only supports the v1.0.1 protocol."""
+"""LwM2M gateway settings (v1.0.1).
+Start with defaults, then tune lifetime and topic mappings."""
 
 lwm2m_auto_observe.desc:
-"""Automatically observe the object list of REGISTER packet.
-Accepts true/false, "on"/"off", a comma-separated string ("/3/0,/3/0/1"),
-or an explicit object list (e.g. ["/3/0","/3/0/1"])."""
+"""Auto-create Observe subscriptions from REGISTER object list.
+Supported values:<br/>
+  - false / "off": disable auto observe<br/>
+  - true / "on": observe all paths from REGISTER object list<br/>
+  - "/3/0,/3/0/1" or ["/3/0", "/3/0/1"]: observe only listed paths"""
 
 lwm2m_lifetime_max.desc:
-"""Maximum value of lifetime allowed to be set by the LwM2M client."""
+"""Upper bound of client lifetime accepted by gateway.
+Use it to prevent very long keepalive settings from devices."""
 
 lwm2m_lifetime_min.desc:
-"""Minimum value of lifetime allowed to be set by the LwM2M client."""
+"""Lower bound of client lifetime accepted by gateway.
+Use it to prevent overly frequent update traffic from devices."""
 
 lwm2m_qmode_time_window.desc:
-"""The value of the time window during which the network link is considered valid by the LwM2M Gateway in QMode mode.
-For example, after receiving an update message from a client, any messages within this time window are sent directly to the LwM2M client, and all messages beyond this time window are temporarily stored in memory."""
+"""In QMode, this is the 'link still valid' window after an UPDATE.
+Inside window: send messages directly.
+Outside window: buffer messages in memory until client is reachable."""
 
 lwm2m_translators.desc:
-"""Topic configuration for LwM2M's gateway publishing and subscription."""
+"""MQTT topic mappings between LwM2M events and MQTT commands."""
 
 lwm2m_coap_max_block_size.desc:
 """Deprecated since 6.1.0. Use `blockwise.max_block_size` instead."""
 
 lwm2m_blockwise.desc:
-"""Block-wise transfer settings for the LwM2M gateway."""
+"""Settings for large payload transfer.
+Block-wise transfer splits one large payload into smaller CoAP blocks.
+Use defaults unless you see payload-size or packet-loss issues."""
 
 lwm2m_blockwise_enable.desc:
-"""Enable or disable block-wise transfer."""
+"""Enable block-wise transfer for large payloads.
+Keep enabled unless all payloads are small and fixed."""
 
 lwm2m_blockwise_max_block_size.desc:
-"""Maximum block size used for block-wise transfer."""
+"""Size of each CoAP block in bytes.
+Larger value: fewer packets, but retransmission cost is higher on loss.
+Smaller value: more packets, but loss impact is smaller."""
 
 lwm2m_blockwise_max_body_size.desc:
-"""Maximum size of the assembled message body."""
+"""Maximum final payload size after reassembly.
+If exceeded, the message is rejected to protect memory."""
 
 lwm2m_blockwise_exchange_lifetime.desc:
-"""How long to keep block-wise exchange state."""
+"""How long temporary block-wise state is kept.
+Too short can break slow transfers; too long consumes memory longer."""
 
 lwm2m_translators_command.desc:
-"""The topic for receiving downstream commands.
-For each new LwM2M client that succeeds in going online, the gateway creates a subscription relationship to receive downstream commands and send it to the LwM2M client"""
+"""MQTT topic for downstream commands to LwM2M clients.
+Direction: MQTT -> LwM2M device."""
 
 lwm2m_translators_notify.desc:
-"""The topic for gateway to publish the notify events from LwM2M client.
-After succeed observe a resource of LwM2M client, Gateway will send the notify events via this topic, if the client reports any resource changes"""
+"""MQTT topic for publishing NOTIFY events from LwM2M clients.
+Direction: LwM2M device -> MQTT."""
 
 lwm2m_translators_register.desc:
-"""The topic for gateway to publish the register events from LwM2M client."""
+"""MQTT topic for publishing REGISTER events.
+Direction: LwM2M device -> MQTT."""
 
 lwm2m_translators_response.desc:
-"""The topic for gateway to publish the acknowledge events from LwM2M client"""
+"""MQTT topic for publishing command response/ACK events.
+Direction: LwM2M device -> MQTT."""
 
 lwm2m_translators_update.desc:
-"""The topic for gateway to publish the update events from LwM2M client"""
+"""MQTT topic for publishing UPDATE events.
+Direction: LwM2M device -> MQTT."""
 
 lwm2m_update_msg_publish_condition.desc:
-"""Policy for publishing UPDATE event message.<br/>
-  - always: send update events as long as the UPDATE request is received.<br/>
-  - contains_object_list: send update events only if the UPDATE request carries any Object List"""
+"""When to publish UPDATE events.<br/>
+  - always: publish every UPDATE request<br/>
+  - contains_object_list: publish only when UPDATE includes Object List<br/>
+Use <code>contains_object_list</code> to reduce noisy updates."""
 
 lwm2m_xml_dir.desc:
-"""The Directory for LwM2M Resource definition."""
+"""Directory of LwM2M resource-definition XML files.
+Set this to your local XML directory (required)."""
 
 translator.desc:
-"""MQTT topic that corresponds to a particular type of event."""
+"""One topic mapping item (topic + qos) for one event type."""
 
 translator_qos.desc:
-"""QoS Level"""
+"""QoS used when publishing this event topic."""
 
 translator_topic.desc:
-"""Topic Name"""
+"""MQTT topic name/template."""
 
 }
