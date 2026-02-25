@@ -17,6 +17,10 @@
 
 -record(info_extsub_try_deliver, {}).
 
+-record(info_extsub_inspect, {
+    receiver :: reference()
+}).
+
 -define(EXTSUB_HEADER_INFO, extsub).
 
 -define(EXTSUB_DELIVER_RETRY_INTERVAL, 100).

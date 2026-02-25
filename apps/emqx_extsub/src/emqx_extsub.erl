@@ -36,7 +36,8 @@ The module:
 
 -export([
     set_max_unacked/1,
-    max_unacked/0
+    max_unacked/0,
+    inspect/1
 ]).
 
 %% Internal exports (for `emqx_extsub` application)
@@ -92,6 +93,17 @@ unregister_hooks() ->
     emqx_hooks:del('message.nack', {?MODULE, on_message_nack}),
     emqx_hooks:del('client.handle_info', {?MODULE, on_client_handle_info}),
     ok.
+
+-spec inspect(pid()) -> {ok, map()} | {error, timeout}.
+inspect(ChannelPid) ->
+    Self = alias([reply]),
+    erlang:send(ChannelPid, #info_extsub_inspect{receiver = Self}),
+    receive
+        {Self, Info} ->
+            {ok, Info}
+    after 5000 ->
+        {error, timeout}
+    end.
 
 %%--------------------------------------------------------------------
 %% Hooks callbacks
@@ -283,6 +295,17 @@ on_client_handle_info(
     ?tp_debug(extsub_on_client_handle_info_try_deliver, #{}),
     #{session_info_fn := SessionInfoFn} = emqx_hooks:context('client.handle_info'),
     {ok, Acc#{deliver := try_deliver(SessionInfoFn) ++ Delivers}};
+on_client_handle_info(
+    _ClientInfo,
+    #info_extsub_inspect{receiver = Receiver},
+    Acc
+) ->
+    with_st(fun(St) ->
+        Info = do_inspect(St),
+        erlang:send(Receiver, {Receiver, Info}),
+        {ok, St}
+    end),
+    {ok, Acc};
 on_client_handle_info(
     _ClientInfo, Info, #{deliver := Delivers} = Acc0
 ) ->
@@ -661,3 +684,18 @@ get_channel_info() ->
 can_receive_acks() ->
     #{can_receive_acks := CanReceiveAcks} = get_channel_info(),
     CanReceiveAcks.
+
+do_inspect(#st{
+    buffer = Buffer,
+    unacked = Unacked,
+    deliver_retry_tref = DeliverRetryTRef,
+    tombstone = Tombstone,
+    registry = HandlerRegistry
+}) ->
+    #{
+        buffer => emqx_extsub_buffer:inspect(Buffer),
+        unacked_count => maps:size(Unacked),
+        deliver_retry_scheduled => DeliverRetryTRef =/= undefined,
+        tombstone => Tombstone,
+        registry => emqx_extsub_handler_registry:inspect(HandlerRegistry)
+    }.

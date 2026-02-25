@@ -26,7 +26,8 @@ Collection of handlers for the external message sources.
     recreate/3,
     destroy/3,
     destroy_all/2,
-    generic_message_handlers/1
+    generic_message_handlers/1,
+    inspect/1
 ]).
 
 -record(extsub, {
@@ -230,6 +231,16 @@ recreate(
 -spec generic_message_handlers(t()) -> [emqx_extsub_types:handler_ref()].
 generic_message_handlers(#registry{generic_message_handlers = GenericMessageHandlers}) ->
     GenericMessageHandlers.
+
+-spec inspect(t()) -> map().
+inspect(#registry{
+    by_ref = ByRef, by_topic_cbm = ByTopicCBM, generic_message_handlers = GenericMessageHandlers
+}) ->
+    #{
+        by_ref => maps:keys(ByRef),
+        by_topic_cbm => ByTopicCBM,
+        generic_message_handlers => GenericMessageHandlers
+    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions

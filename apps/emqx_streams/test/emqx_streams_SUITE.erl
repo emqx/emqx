@@ -811,6 +811,66 @@ t_allow_only_mqtt_v5(_Config) ->
     %% Clean up
     ok = emqtt:disconnect(CSub).
 
+t_subscribe_unsubscribe_to_many_streams(_Config) ->
+    NStreams = 5,
+
+    %% Create NStreams streams with different names
+    lists:foreach(
+        fun(N) ->
+            ct:print("Creating stream ~p", [N]),
+            NBin = integer_to_binary(N),
+            emqx_streams_test_utils:ensure_stream_created(#{
+                name => <<"stream_", NBin/binary>>,
+                topic_filter => <<"t/", NBin/binary>>
+            })
+        end,
+        lists:seq(1, NStreams)
+    ),
+
+    %% Subscribe to each stream, receive and unsubscribe from the stream,
+    %% all by the same client.
+    CSub = emqx_streams_test_utils:emqtt_connect([{clientid, <<"csub">>}]),
+    CPub = emqx_streams_test_utils:emqtt_connect([{clientid, <<"cpub">>}]),
+    lists:foreach(
+        fun(N) ->
+            NBin = integer_to_binary(N),
+            Topic = <<"$stream/stream_", NBin/binary>>,
+            emqx_streams_test_utils:emqtt_sub(CSub, [Topic], [
+                {<<"stream-offset">>, <<"earliest">>}
+            ]),
+            emqtt:publish(CPub, <<"t/", NBin/binary>>, <<"payload">>, ?QOS_1),
+            {ok, _Msgs} = emqx_streams_test_utils:emqtt_drain(_MinMsg = 1, _Timeout = 5000),
+            emqtt:unsubscribe(CSub, Topic)
+        end,
+        lists:seq(1, NStreams)
+    ),
+    ok = emqtt:disconnect(CPub),
+
+    %% Obtain the extsub info
+    [ChannelPid] = emqx_cm:lookup_channels(<<"csub">>),
+    {ok, Info} = emqx_extsub:inspect(ChannelPid),
+
+    %% Verify that there are no leftovers
+    #{
+        buffer := #{delivering := Delivering, message_buffer_size := MessageBufferSize},
+        unacked_count := UnackedCount,
+        deliver_retry_scheduled := DeliverRetryScheduled,
+        registry := #{
+            by_ref := ByRef,
+            by_topic_cbm := ByTopicCBM,
+            generic_message_handlers := GenericMessageHandlers
+        }
+    } = Info,
+    ?assertEqual(0, maps:size(Delivering)),
+    ?assertEqual(0, UnackedCount),
+    ?assertEqual(false, DeliverRetryScheduled),
+    ?assertEqual([], ByRef),
+    ?assertEqual([], ByTopicCBM),
+    ?assertEqual([], GenericMessageHandlers),
+    ?assertEqual(0, MessageBufferSize),
+
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
