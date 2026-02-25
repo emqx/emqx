@@ -445,7 +445,7 @@ unsubscribe(
         buffer = Buffer0,
         by_ref = ByRef0,
         by_topic_cbm = ByTopicCBM0,
-        generic_message_handlers = GenericMessageHandlers
+        generic_message_handlers = GenericMessageHandlers0
     } = Registry,
     UnsubscribeType,
     SubOpts,
@@ -465,21 +465,23 @@ unsubscribe(
         0 ->
             ok = emqx_extsub_handler:terminate(Handler),
             ByRef = maps:remove(HandlerRef, ByRef0),
-            Buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef);
+            Buffer = emqx_extsub_buffer:drop_handler(Buffer0, HandlerRef),
+            GenericMessageHandlers = remove_from_generic_message_handlers(
+                GenericMessageHandlers0, HandlerRef
+            );
         _ ->
             ByRef = ByRef0#{
                 HandlerRef => #extsub{handler = Handler, topic_filters = HandlerTopicFilters}
             },
-            Buffer = Buffer0
+            Buffer = Buffer0,
+            GenericMessageHandlers = GenericMessageHandlers0
     end,
     ByTopicCBM = maps:remove({Module, TopicFilter}, ByTopicCBM0),
     Registry#registry{
         buffer = Buffer,
         by_ref = ByRef,
         by_topic_cbm = ByTopicCBM,
-        generic_message_handlers = remove_from_generic_message_handlers(
-            GenericMessageHandlers, HandlerRef
-        )
+        generic_message_handlers = GenericMessageHandlers
     }.
 
 destroy(#registry{} = Registry0, HandlerRef, TopicFilters) ->

@@ -871,6 +871,39 @@ t_subscribe_unsubscribe_to_many_streams(_Config) ->
 
     ok = emqtt:disconnect(CSub).
 
+t_subscribe_two_unsubscribe_one_stream(_Config) ->
+    %% Create two streams
+    _Stream0 = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"s1">>,
+        topic_filter => <<"t1/#">>
+    }),
+    _Stream1 = emqx_streams_test_utils:ensure_stream_created(#{
+        name => <<"s2">>,
+        topic_filter => <<"t2/#">>
+    }),
+    %% Subscribe to both streams
+    CSub = emqx_streams_test_utils:emqtt_connect([]),
+    emqx_streams_test_utils:emqtt_sub(CSub, [<<"$stream/s1">>, <<"$stream/s2">>], [
+        {<<"stream-offset">>, <<"earliest">>}
+    ]),
+    %% Publish a message to both streams
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t1/">>}),
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+    %% Receive the messages
+    {ok, _Msgs0} = emqx_streams_test_utils:emqtt_drain(_MinMsg0 = 2, _Timeout0 = 5000),
+
+    %% Unsubscribe from one stream
+    emqtt:unsubscribe(CSub, <<"$stream/s1">>),
+
+    %% Publish a message to the remaining stream
+    emqx_streams_test_utils:populate(1, #{topic_prefix => <<"t2/">>}),
+
+    %% Receive the message
+    {ok, _Msgs1} = emqx_streams_test_utils:emqtt_drain(_MinMsg1 = 1, _Timeout1 = 5000),
+
+    %% Clean up
+    ok = emqtt:disconnect(CSub).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
