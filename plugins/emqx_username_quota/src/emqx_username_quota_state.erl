@@ -58,14 +58,14 @@ add(Username, ClientId, Pid) ->
     Key = ?RECORD_KEY(Username, ClientId, Pid),
     case monitor_exists(Pid, Username, ClientId) of
         true ->
-            ok;
+            existing;
         false ->
             Record = #?RECORD_TAB{key = Key, node = node(), extra = #{}},
             _ = ets:insert(?MONITOR_TAB, ?MONITOR(Pid, Username, ClientId)),
             _ = mria:dirty_update_counter(?COUNTER_TAB, ?COUNTER_KEY(Username, node()), 1),
             ok = mria:dirty_write(?RECORD_TAB, Record),
             evict_ccache(Username),
-            ok
+            new
     end.
 
 del(Pid) ->

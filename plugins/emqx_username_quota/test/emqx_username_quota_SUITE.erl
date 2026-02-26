@@ -342,6 +342,11 @@ t_cluster_watch_init_terminate(_Config) ->
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),
     {ok, State} = emqx_username_quota_cluster_watch:init([]),
     ?assertEqual(#{}, State),
+    %% Drain the bootstrap message sent by init to self()
+    receive
+        bootstrap -> ok
+    after 0 -> ok
+    end,
     ok = emqx_username_quota_cluster_watch:terminate(normal, State).
 
 t_cluster_watch_clear_for_node(_Config) ->
@@ -402,11 +407,13 @@ t_cluster_watch_call_cast_code_change(_Config) ->
 t_cluster_watch_immediate_node_clear(_Config) ->
     ok = meck:new(ekka, [non_strict, passthrough]),
     ok = meck:new(emqx, [non_strict, passthrough]),
+    ok = meck:new(emqx_cm, [non_strict, passthrough]),
     ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
     ok = meck:expect(ekka, monitor, fun(membership) -> ok end),
     ok = meck:expect(ekka, unmonitor, fun(membership) -> ok end),
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),
     ok = meck:expect(emqx, running_nodes, fun() -> [] end),
+    ok = meck:expect(emqx_cm, all_channels_stream, fun(_) -> [] end),
     ok = meck:expect(emqx_username_quota_state, clear_for_node, fun(_N) -> ok end),
     {ok, Pid} = emqx_username_quota_cluster_watch:start_link(),
     MRef = erlang:monitor(process, Pid),

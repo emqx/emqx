@@ -66,7 +66,8 @@ on_session_terminated(ClientInfo, _Reason, _SessionInfo) ->
     maybe_unregister(ClientInfo).
 
 register_session(Username, ClientId) ->
-    emqx_username_quota_state:add(Username, ClientId, self()).
+    _ = emqx_username_quota_state:add(Username, ClientId, self()),
+    ok.
 
 unregister_session(Username, ClientId) ->
     emqx_username_quota_state:del_client(Username, ClientId).

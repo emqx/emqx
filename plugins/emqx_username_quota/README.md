@@ -145,6 +145,19 @@ Practical implication:
 - This plugin provides cluster-wide quota enforcement with eventual consistency under burst load.
 - It is not a strict per-packet admission gate under extreme connection fan-in.
 
+### Bootstrap on plugin startup
+
+When the plugin is installed on a running cluster, existing client sessions were established before hooks were registered.
+On startup, the plugin bootstraps quota state by traversing all local channels and registering each session.
+
+To avoid overloading the Core nodes with a storm of DB write operations (especially when replicant nodes have a large number of existing connections),
+the bootstrap loop is throttled:
+
+- Sessions are registered in batches of 100.
+- After each batch, the bootstrap waits for the last written record to be replicated back to the local table before continuing. It polls every 10ms.
+- If replication does not complete within 10 seconds, an error is logged and bootstrap is aborted with an `error` level log.
+  Sessions registered before the timeout are retained; remaining sessions will be picked up naturally through subsequent hook-based registration on reconnect.
+
 ### Handling `503` from list API
 
 When snapshot owner is busy or rebuilding, list API returns `503` with `retry_cursor`.
