@@ -402,16 +402,12 @@ force_forget_server(Server, ShardServers = [_ | _]) ->
         %% Proceed only if all known servers respond. We can't risk a "down" replica
         %% having higher log index, as it may just refuse votes later.
         [] ->
-            %% Find the highest-term-index server among known servers.
-            {Candidate, _Overview} = lists:foldl(
-                fun(SO = {_, Overview}, SOAcc = {_, OAcc}) ->
-                    case ra_overview_termidx(Overview) > ra_overview_termidx(OAcc) of
-                        true -> SO;
-                        false -> SOAcc
-                    end
-                end,
-                hd(Overviews),
-                tl(Overviews)
+            %% Find the highest-index-term server among known servers.
+            {_, _, Candidate} = lists:last(
+                lists:sort([
+                    {ra_last_written_index_term(O), Node =:= node(), S}
+                 || {S = {_, Node}, O} <- Overviews
+                ])
             ),
             Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
             case ra_server_proc:force_forget_member(Candidate, Server, Timeout) of
@@ -434,6 +430,24 @@ force_forget_server(_Server, []) ->
     %% No active servers to ask to forget it. Shouldn't end up here anyway, this
     %% situation will likely be handled by `add_local_server/3` first.
     ok.
+
+ra_last_written_index_term(Overview) ->
+    %% NOTE
+    %% Using `last_written_index_term` from the log overview that is the last entry
+    %% written to the Raft log. This is critical for `force_forget_server/2` safety:
+    %% after `force_forget_member` appends a cluster change entry and initiates a
+    %% pre-vote election, the candidate must have a log at least as up-to-date as any
+    %% other remaining server's log to win the election.
+    maybe
+        #{log := #{last_written_index_term := LWIT}} ?= Overview,
+        {Idx, Term} ?= LWIT,
+        true = is_integer(Idx),
+        true = is_integer(Term),
+        LWIT
+    else
+        _ ->
+            {-1, -1}
+    end.
 
 -spec server_metrics(server()) ->
     #{atom() => integer()} | undefined.
@@ -509,11 +523,6 @@ ra_overview(Server) ->
         _Error ->
             #{}
     end.
-
-ra_overview_termidx(Overview) ->
-    Term = maps:get(current_term, Overview, 0),
-    Idx = maps:get(commit_index, Overview, -1),
-    {Term, Idx}.
 
 %%
 
