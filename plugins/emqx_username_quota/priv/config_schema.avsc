@@ -15,15 +15,15 @@
       }
     },
     {
-      "name": "snapshot_refresh_interval_ms",
+      "name": "snapshot_min_age_ms",
       "type": "int",
-      "default": 5000,
+      "default": 300000,
       "$ui": {
         "component": "input-number",
         "flex": 12,
         "required": true,
-        "label": "$snapshot_refresh_interval_ms_label",
-        "description": "$snapshot_refresh_interval_ms_desc"
+        "label": "$snapshot_min_age_ms_label",
+        "description": "$snapshot_min_age_ms_desc"
       }
     },
     {

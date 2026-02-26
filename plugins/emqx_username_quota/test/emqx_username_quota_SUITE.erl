@@ -252,13 +252,12 @@ t_api_list_get_kick(_Config) ->
     User = <<"api-user">>,
     ok = emqx_username_quota:register_session(User, <<"c1">>),
     ok = emqx_username_quota:register_session(User, <<"c2">>),
-    {ok, 200, _Headers, ListBody} = emqx_username_quota_api:handle(
-        get,
-        [
-            <<"quota">>, <<"usernames">>
-        ],
+    %% Trigger and wait for async snapshot build to complete
+    {ok, 200, _Headers, ListBody} = await_list_usernames(
         #{
-            query_string => #{<<"page">> => <<"1">>, <<"limit">> => <<"10">>}
+            <<"page">> => <<"1">>,
+            <<"limit">> => <<"10">>,
+            <<"used_gte">> => <<"1">>
         }
     ),
     ?assertMatch(#{data := [_ | _], meta := #{}}, ListBody),
@@ -290,14 +289,14 @@ t_api_list_busy_with_retry_cursor(_Config) ->
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
-        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit) ->
+        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
             {error, {busy, RetryCursor}}
         end
     ),
     {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
         get,
         [<<"quota">>, <<"usernames">>],
-        #{query_string => #{}}
+        #{query_string => #{<<"used_gte">> => <<"1">>}}
     ),
     ?assertMatch(
         #{
@@ -315,20 +314,80 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
-        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit) ->
+        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
             {error, {rebuilding_snapshot, RetryCursor}}
         end
     ),
     {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
         get,
         [<<"quota">>, <<"usernames">>],
-        #{query_string => #{}}
+        #{query_string => #{<<"used_gte">> => <<"1">>}}
     ),
     ?assertMatch(
         #{
             code := <<"SERVICE_UNAVAILABLE">>,
             message := <<"Snapshot owner is rebuilding snapshot">>,
+            snapshot_build_in_progress := true,
             retry_cursor := RetryCursor
+        },
+        Body
+    ),
+    ok = meck:unload(emqx_username_quota_state).
+
+t_api_list_missing_used_gte(_Config) ->
+    {error, 400, _Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"limit">> => <<"10">>}}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"BAD_REQUEST">>,
+            message := <<"'used_gte' query parameter is required when no cursor is provided">>
+        },
+        Body
+    ).
+
+t_api_list_used_gte_with_cursor_conflict(_Config) ->
+    {error, 400, _Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"used_gte">> => <<"1">>, <<"cursor">> => <<"some-cursor">>}}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"BAD_REQUEST">>,
+            message := <<"'used_gte' must not be provided together with 'cursor'">>
+        },
+        Body
+    ).
+
+t_api_delete_snapshot(_Config) ->
+    {ok, 200, _Headers, Body} = emqx_username_quota_api:handle(
+        delete,
+        [<<"quota">>, <<"snapshot">>],
+        #{}
+    ),
+    ?assertMatch(#{status := <<"ok">>}, Body).
+
+t_api_list_invalid_cursor(_Config) ->
+    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:expect(
+        emqx_username_quota_state,
+        list_usernames,
+        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
+            {error, invalid_cursor}
+        end
+    ),
+    {error, 400, _Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"cursor">> => <<"bad-cursor">>}}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"INVALID_CURSOR">>,
+            message := <<"Cursor is invalid or references an unavailable node">>
         },
         Body
     ),
@@ -440,4 +499,29 @@ wait_until(Pred, N) ->
         false ->
             timer:sleep(25),
             wait_until(Pred, N - 1)
+    end.
+
+%% @doc Retry list_usernames API call until snapshot is ready (async build may be in progress).
+await_list_usernames(QueryString) ->
+    await_list_usernames(QueryString, 40).
+
+await_list_usernames(QueryString, 0) ->
+    emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => QueryString}
+    );
+await_list_usernames(QueryString, N) ->
+    case
+        emqx_username_quota_api:handle(
+            get,
+            [<<"quota">>, <<"usernames">>],
+            #{query_string => QueryString}
+        )
+    of
+        {ok, 200, Headers, Body} ->
+            {ok, 200, Headers, Body};
+        {error, 503, _, _} ->
+            timer:sleep(25),
+            await_list_usernames(QueryString, N - 1)
     end.

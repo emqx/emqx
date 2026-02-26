@@ -16,13 +16,13 @@ This plugin enforces a per-username session quota.
 Plugin config fields:
 
 - `max_sessions_per_username` (default: `100`) — must be a positive integer (>= 1).
-- `snapshot_refresh_interval_ms` (default: `5000`)
+- `snapshot_min_age_ms` (default: `300000`, range: `120000`–`900000`) — minimum age of a snapshot before it can be rebuilt. Values outside the range are clamped.
 - `snapshot_request_timeout_ms` (default: `5000`)
 
 Config semantics:
 
 - `max_sessions_per_username`: default maximum concurrent sessions per username. Individual usernames can override this via the overrides API.
-- `snapshot_refresh_interval_ms`: minimum interval between snapshot rebuilds used by list API.
+- `snapshot_min_age_ms`: minimum age (in milliseconds) of a snapshot before a rebuild is triggered. Prevents frequent rebuilds on large clusters.
 - `snapshot_request_timeout_ms`: timeout budget for list API snapshot request handling.
 
 Validation:
@@ -46,6 +46,10 @@ Base path: `/api/v5/plugin_api/emqx_username_quota`
 - `GET /quota/usernames/:username` — get details for a single username
 - `POST /kick/:username` — kick all sessions for a username
 
+### Snapshot management
+
+- `DELETE /quota/snapshot` — force snapshot rebuild
+
 ### Quota overrides
 
 - `POST /quota/overrides` — set per-username quota overrides
@@ -57,7 +61,15 @@ Base path: `/api/v5/plugin_api/emqx_username_quota`
 Query params:
 
 - `limit`: positive integer, capped at `100` (default `100`)
+- `used_gte`: **required** (when no cursor) — minimum session count filter. Only usernames with at least this many sessions are included. Must be a positive integer >= 1.
 - `cursor`: optional opaque cursor returned by previous list call. If missing, the first page is returned.
+
+Parameter rules:
+
+- `used_gte` without `cursor`: OK (first page)
+- `cursor` without `used_gte`: OK (`used_gte` is embedded in the cursor)
+- Both `used_gte` and `cursor`: **400** `BAD_REQUEST` — the filter is locked in the cursor
+- Neither `used_gte` nor `cursor`: **400** `BAD_REQUEST`
 
 Behavior:
 
@@ -78,13 +90,17 @@ Successful response shape:
   - `generation` (incremental snapshot id)
   - `taken_at_ms` (snapshot timestamp in milliseconds)
 
-`503 SERVICE_UNAVAILABLE` response behavior:
+Error responses:
 
-- Body includes `retry_cursor`.
-- Retry with this cursor to route to the same snapshot owner node and avoid rebuilding snapshot on another node.
-- Error shapes:
-  - busy: `Snapshot owner is busy handling another request`
-  - rebuilding: `Snapshot owner is rebuilding snapshot`
+- `400 BAD_REQUEST`: missing `used_gte`, or `used_gte` provided with cursor
+- `400 INVALID_CURSOR`: cursor references an unavailable node or is malformed
+- `503 SERVICE_UNAVAILABLE`: snapshot is being rebuilt
+  - Body includes `snapshot_build_in_progress: true` and `retry_cursor`
+  - Retry with `retry_cursor` to route to the same snapshot owner node
+
+### `DELETE /quota/snapshot`
+
+Force an immediate snapshot rebuild. Returns `200` with `{"status": "ok"}` after initiating the rebuild asynchronously. The snapshot will be rebuilt in the background.
 
 ### `GET /quota/usernames/:username`
 
@@ -131,6 +147,20 @@ Delete overrides by username. Body is a JSON array of username strings:
 ### `GET /quota/overrides`
 
 List all overrides. Returns `{"data": [{"username": "...", "quota": ...}, ...]}`.
+
+## Architecture
+
+### Core-only snapshot ownership
+
+Snapshots are only built and owned by core nodes. Replicant nodes forward list requests to the leader core node (the lexicographically smallest core node in the cluster). This avoids redundant snapshot builds across the cluster.
+
+### Blue/green ETS tables
+
+The snapshot uses two ETS tables (blue and green). While one table serves read requests, the other is used for building the next snapshot. Once a build completes, the tables are swapped atomically. This eliminates any data gap during rebuilds.
+
+### Async background build
+
+Snapshot rebuilds happen in a separate spawned process with yield-based throttling. The gen_server remains responsive to other requests while a build is in progress.
 
 ## Operational Notes
 

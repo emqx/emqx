@@ -11,27 +11,49 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
     Query = maps:get(query_string, Request, #{}),
     Limit = get_pos_int(Query, <<"limit">>, ?DEFAULT_LIMIT),
     Cursor = get_cursor(Query),
-    TimeoutMs = emqx_username_quota_config:snapshot_request_timeout_ms(),
-    DeadlineMs = now_ms() + TimeoutMs,
-    case emqx_username_quota_state:list_usernames(self(), DeadlineMs, Cursor, Limit) of
-        {ok, PageResult} ->
-            Data = maps:get(data, PageResult, []),
-            {ok, 200, #{}, #{
-                data => Data,
-                meta => build_meta(Limit, Data, PageResult)
+    UsedGte0 = get_used_gte(Query),
+    case validate_used_gte_cursor(UsedGte0, Cursor) of
+        {error, missing_used_gte} ->
+            {error, 400, #{}, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"'used_gte' query parameter is required when no cursor is provided">>
             }};
-        {error, {busy, RetryCursor}} ->
-            {error, 503, #{}, #{
-                code => <<"SERVICE_UNAVAILABLE">>,
-                message => <<"Snapshot owner is busy handling another request">>,
-                retry_cursor => RetryCursor
+        {error, used_gte_with_cursor} ->
+            {error, 400, #{}, #{
+                code => <<"BAD_REQUEST">>,
+                message => <<"'used_gte' must not be provided together with 'cursor'">>
             }};
-        {error, {rebuilding_snapshot, RetryCursor}} ->
-            {error, 503, #{}, #{
-                code => <<"SERVICE_UNAVAILABLE">>,
-                message => <<"Snapshot owner is rebuilding snapshot">>,
-                retry_cursor => RetryCursor
-            }}
+        {ok, UsedGte} ->
+            TimeoutMs = emqx_username_quota_config:snapshot_request_timeout_ms(),
+            DeadlineMs = now_ms() + TimeoutMs,
+            case
+                emqx_username_quota_state:list_usernames(self(), DeadlineMs, Cursor, Limit, UsedGte)
+            of
+                {ok, PageResult} ->
+                    Data = maps:get(data, PageResult, []),
+                    {ok, 200, #{}, #{
+                        data => Data,
+                        meta => build_meta(Limit, Data, PageResult)
+                    }};
+                {error, invalid_cursor} ->
+                    {error, 400, #{}, #{
+                        code => <<"INVALID_CURSOR">>,
+                        message => <<"Cursor is invalid or references an unavailable node">>
+                    }};
+                {error, {busy, RetryCursor}} ->
+                    {error, 503, #{}, #{
+                        code => <<"SERVICE_UNAVAILABLE">>,
+                        message => <<"Snapshot owner is busy handling another request">>,
+                        retry_cursor => RetryCursor
+                    }};
+                {error, {rebuilding_snapshot, RetryCursor}} ->
+                    {error, 503, #{}, #{
+                        code => <<"SERVICE_UNAVAILABLE">>,
+                        message => <<"Snapshot owner is rebuilding snapshot">>,
+                        snapshot_build_in_progress => true,
+                        retry_cursor => RetryCursor
+                    }}
+            end
     end;
 handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
     case emqx_username_quota_state:get_username(Username0) of
@@ -47,6 +69,9 @@ handle(post, [<<"kick">>, Username0], _Request) ->
         {error, not_found} ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
     end;
+handle(delete, [<<"quota">>, <<"snapshot">>], _Request) ->
+    ok = emqx_username_quota_snapshot:invalidate(),
+    {ok, 200, #{}, #{status => <<"ok">>}};
 handle(post, [<<"quota">>, <<"overrides">>], Request) ->
     Body = maps:get(body, Request, []),
     case validate_override_list(Body) of
@@ -109,6 +134,32 @@ get_cursor(Query) ->
             Cursor;
         error ->
             undefined
+    end.
+
+get_used_gte(Query) ->
+    case maps:find(<<"used_gte">>, Query) of
+        {ok, Value} when is_binary(Value) ->
+            case to_integer(Value, undefined) of
+                Int when is_integer(Int), Int >= 1 -> {ok, Int};
+                _ -> undefined
+            end;
+        {ok, Value} when is_integer(Value), Value >= 1 ->
+            {ok, Value};
+        _ ->
+            undefined
+    end.
+
+validate_used_gte_cursor(UsedGte, Cursor) ->
+    case {UsedGte, Cursor} of
+        {undefined, undefined} ->
+            {error, missing_used_gte};
+        {{ok, _}, Bin} when is_binary(Bin) ->
+            {error, used_gte_with_cursor};
+        {{ok, Val}, undefined} ->
+            {ok, Val};
+        {undefined, Bin} when is_binary(Bin) ->
+            %% Cursor present, used_gte comes from cursor
+            {ok, 1}
     end.
 
 validate_override_list(List) when is_list(List) ->

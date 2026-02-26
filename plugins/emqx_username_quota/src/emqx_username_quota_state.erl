@@ -10,13 +10,14 @@
     del_client/2,
     count/1,
     is_known_client/2,
-    list_usernames/4,
+    list_usernames/5,
     get_username/1,
     kick_username/1,
     clear_for_node/1,
     clear_self_node/0,
     reset/0,
     fold_username_counts/2,
+    build_snapshot_into/3,
     set_overrides/1,
     get_override/1,
     delete_overrides/1,
@@ -98,8 +99,10 @@ is_known_client(Username, ClientId) ->
         _ -> false
     end.
 
-list_usernames(RequesterPid, DeadlineMs, Cursor, Limit) ->
-    case emqx_username_quota_snapshot:request_page(RequesterPid, DeadlineMs, Cursor, Limit) of
+list_usernames(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
+    case
+        emqx_username_quota_snapshot:request_page(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte)
+    of
         {ok, PageResult0} ->
             SnapshotRows = maps:get(data, PageResult0, []),
             Data = [
@@ -198,6 +201,33 @@ fold_username_counts(Fun, Acc0) when is_function(Fun, 3) ->
     Acc = fold_counter_sums(ets:first(TmpTab), TmpTab, Fun, Acc0),
     true = ets:delete(TmpTab),
     Acc.
+
+%% @doc Build snapshot into TargetTab, filtering by UsedGte, yielding every YieldInterval inserts.
+build_snapshot_into(TargetTab, UsedGte, YieldInterval) ->
+    TmpTab = ets:new(snapshot_build_tmp, [set]),
+    try
+        ok = fold_counter_rows(ets:first(?COUNTER_TAB), TmpTab),
+        insert_snapshot_rows(ets:first(TmpTab), TmpTab, TargetTab, UsedGte, YieldInterval, 0)
+    after
+        ets:delete(TmpTab)
+    end.
+
+insert_snapshot_rows('$end_of_table', _TmpTab, _TargetTab, _UsedGte, _YieldInterval, _N) ->
+    ok;
+insert_snapshot_rows(Username, TmpTab, TargetTab, UsedGte, YieldInterval, N) ->
+    N1 =
+        case ets:lookup(TmpTab, Username) of
+            [{Username, Counter}] when Counter >= UsedGte ->
+                ets:insert(TargetTab, {{Counter, Username}, Counter}),
+                case (N + 1) rem YieldInterval of
+                    0 -> erlang:yield();
+                    _ -> ok
+                end,
+                N + 1;
+            _ ->
+                N
+        end,
+    insert_snapshot_rows(ets:next(TmpTab, Username), TmpTab, TargetTab, UsedGte, YieldInterval, N1).
 
 list_clientids(Username) ->
     Start = ?RECORD_KEY(Username, ?MIN_CLIENTID, ?MIN_PID),

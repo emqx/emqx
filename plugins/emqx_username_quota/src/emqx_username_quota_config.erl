@@ -7,7 +7,7 @@
     load/0,
     update/1,
     max_sessions_per_username/0,
-    snapshot_refresh_interval_ms/0,
+    snapshot_min_age_ms/0,
     snapshot_request_timeout_ms/0,
     settings/0
 ]).
@@ -38,8 +38,8 @@ update(RawConfig) ->
 max_sessions_per_username() ->
     maps:get(max_sessions_per_username, settings(), ?DEFAULT_MAX_SESSIONS_PER_USERNAME).
 
-snapshot_refresh_interval_ms() ->
-    maps:get(snapshot_refresh_interval_ms, settings(), ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS).
+snapshot_min_age_ms() ->
+    maps:get(snapshot_min_age_ms, settings(), ?DEFAULT_SNAPSHOT_MIN_AGE_MS).
 
 snapshot_request_timeout_ms() ->
     maps:get(snapshot_request_timeout_ms, settings(), ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS).
@@ -55,10 +55,10 @@ parse(RawConfig) when is_map(RawConfig) ->
     ),
     case normalize_max(Max0) of
         {ok, Max} ->
-            RefreshMs0 = get_value(
+            MinAgeMs0 = get_value(
                 RawConfig,
-                [snapshot_refresh_interval_ms, <<"snapshot_refresh_interval_ms">>],
-                ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
+                [snapshot_min_age_ms, <<"snapshot_min_age_ms">>],
+                ?DEFAULT_SNAPSHOT_MIN_AGE_MS
             ),
             RequestTimeoutMs0 = get_value(
                 RawConfig,
@@ -67,8 +67,8 @@ parse(RawConfig) when is_map(RawConfig) ->
             ),
             #{
                 max_sessions_per_username => Max,
-                snapshot_refresh_interval_ms => normalize_ms(
-                    RefreshMs0, ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
+                snapshot_min_age_ms => normalize_min_age_ms(
+                    normalize_ms(MinAgeMs0, ?DEFAULT_SNAPSHOT_MIN_AGE_MS)
                 ),
                 snapshot_request_timeout_ms => normalize_ms(
                     RequestTimeoutMs0, ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
@@ -83,7 +83,7 @@ parse(_RawConfig) ->
 default_settings() ->
     #{
         max_sessions_per_username => ?DEFAULT_MAX_SESSIONS_PER_USERNAME,
-        snapshot_refresh_interval_ms => ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS,
+        snapshot_min_age_ms => ?DEFAULT_SNAPSHOT_MIN_AGE_MS,
         snapshot_request_timeout_ms => ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
     }.
 
@@ -100,6 +100,13 @@ normalize_max(Value) when is_list(Value) ->
     normalize_max(iolist_to_binary(Value));
 normalize_max(Value) ->
     {error, {invalid_max_sessions_per_username, Value}}.
+
+normalize_min_age_ms(Value) when is_integer(Value), Value < ?MIN_SNAPSHOT_MIN_AGE_MS ->
+    ?MIN_SNAPSHOT_MIN_AGE_MS;
+normalize_min_age_ms(Value) when is_integer(Value), Value > ?MAX_SNAPSHOT_MIN_AGE_MS ->
+    ?MAX_SNAPSHOT_MIN_AGE_MS;
+normalize_min_age_ms(Value) when is_integer(Value) ->
+    Value.
 
 normalize_ms(Value, _Default) when is_integer(Value), Value > 0 ->
     Value;
