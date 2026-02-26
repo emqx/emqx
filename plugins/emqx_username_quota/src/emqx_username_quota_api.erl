@@ -47,7 +47,7 @@ handle(post, [<<"kick">>, Username0], _Request) ->
         {error, not_found} ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
     end;
-handle(post, [<<"quota">>, <<"usernames">>], Request) ->
+handle(post, [<<"quota">>, <<"overrides">>], Request) ->
     Body = maps:get(body, Request, []),
     case validate_override_list(Body) of
         ok ->
@@ -56,7 +56,7 @@ handle(post, [<<"quota">>, <<"usernames">>], Request) ->
         {error, Reason} ->
             {error, 400, #{}, #{code => <<"BAD_REQUEST">>, message => Reason}}
     end;
-handle(delete, [<<"quota">>, <<"usernames">>], Request) ->
+handle(delete, [<<"quota">>, <<"overrides">>], Request) ->
     Body = maps:get(body, Request, []),
     case validate_username_list(Body) of
         ok ->

@@ -182,7 +182,7 @@ t_api_overrides_crud(_Config) ->
     %% POST overrides
     {ok, 200, _, #{set := 2}} = emqx_username_quota_api:handle(
         post,
-        [<<"quota">>, <<"usernames">>],
+        [<<"quota">>, <<"overrides">>],
         #{
             body => [
                 #{<<"username">> => <<"u1">>, <<"quota">> => 50},
@@ -204,7 +204,7 @@ t_api_overrides_crud(_Config) ->
     %% DELETE overrides
     {ok, 200, _, #{deleted := 1}} = emqx_username_quota_api:handle(
         delete,
-        [<<"quota">>, <<"usernames">>],
+        [<<"quota">>, <<"overrides">>],
         #{body => [<<"u1">>]}
     ),
     %% Verify only u2 remains
@@ -220,31 +220,31 @@ t_api_overrides_validation(_Config) ->
     %% Invalid: missing quota
     {error, 400, _, _} = emqx_username_quota_api:handle(
         post,
-        [<<"quota">>, <<"usernames">>],
+        [<<"quota">>, <<"overrides">>],
         #{body => [#{<<"username">> => <<"u1">>}]}
     ),
     %% Invalid: empty username
     {error, 400, _, _} = emqx_username_quota_api:handle(
         post,
-        [<<"quota">>, <<"usernames">>],
+        [<<"quota">>, <<"overrides">>],
         #{body => [#{<<"username">> => <<>>, <<"quota">> => 10}]}
     ),
     %% Invalid: negative quota
     {error, 400, _, _} = emqx_username_quota_api:handle(
         post,
-        [<<"quota">>, <<"usernames">>],
+        [<<"quota">>, <<"overrides">>],
         #{body => [#{<<"username">> => <<"u1">>, <<"quota">> => -1}]}
     ),
     %% Invalid: not a list
     {error, 400, _, _} = emqx_username_quota_api:handle(
         post,
-        [<<"quota">>, <<"usernames">>],
+        [<<"quota">>, <<"overrides">>],
         #{body => <<"not a list">>}
     ),
     %% Invalid delete: not strings
     {error, 400, _, _} = emqx_username_quota_api:handle(
         delete,
-        [<<"quota">>, <<"usernames">>],
+        [<<"quota">>, <<"overrides">>],
         #{body => [123]}
     ).
 
