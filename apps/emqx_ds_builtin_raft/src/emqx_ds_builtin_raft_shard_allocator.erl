@@ -314,7 +314,7 @@ do_add_local(readiness = Stage, DB, Shard, Trans) ->
                 status => Status,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
+            timer:sleep(?TRANS_RETRY_TIMEOUT),
             do_add_local(Stage, DB, Shard, Trans)
     end.
 
@@ -325,8 +325,8 @@ trans_drop_local(DB, Shard, Trans = {del, Site}) ->
 do_drop_local(DB, Shard, Trans) ->
     case emqx_ds_builtin_raft_shard:drop_local_server(DB, Shard) of
         ok ->
-            ok = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
-            ok = emqx_ds_storage_layer:drop_shard({DB, Shard}),
+            _ = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
+            emqx_ds_storage_layer:drop_shard({DB, Shard}),
             ?tp(notice, "Local shard replica dropped", #{db => DB, shard => Shard});
         {error, recoverable, Reason} ->
             ?tp(warning, "Dropping local shard replica failed", #{
@@ -336,7 +336,7 @@ do_drop_local(DB, Shard, Trans) ->
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
             emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
+            timer:sleep(?TRANS_RETRY_TIMEOUT),
             do_drop_local(DB, Shard, Trans)
     end.
 
