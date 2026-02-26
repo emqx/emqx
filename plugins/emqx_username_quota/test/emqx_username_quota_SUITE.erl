@@ -94,6 +94,22 @@ t_authenticate_quota_enforced(_Config) ->
         )
     ).
 
+t_config_reject_invalid_max_sessions(_Config) ->
+    ?assertMatch(
+        {error, {invalid_max_sessions_per_username, 0}},
+        emqx_username_quota_config:update(#{<<"max_sessions_per_username">> => 0})
+    ),
+    ?assertMatch(
+        {error, {invalid_max_sessions_per_username, -5}},
+        emqx_username_quota_config:update(#{<<"max_sessions_per_username">> => -5})
+    ),
+    ?assertMatch(
+        {error, {invalid_max_sessions_per_username, <<"abc">>}},
+        emqx_username_quota_config:update(#{<<"max_sessions_per_username">> => <<"abc">>})
+    ),
+    %% Settings unchanged after rejected update
+    ?assertEqual(100, emqx_username_quota_config:max_sessions_per_username()).
+
 t_override_quota_enforcement(_Config) ->
     User = <<"custom-user">>,
     ok = emqx_username_quota_config:update(#{

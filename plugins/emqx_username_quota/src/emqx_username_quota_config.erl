@@ -27,8 +27,13 @@ load() ->
     update(Raw).
 
 update(RawConfig) ->
-    persistent_term:put(?SETTINGS_KEY, parse(RawConfig)),
-    ok.
+    case parse(RawConfig) of
+        {error, _} = Error ->
+            Error;
+        Settings when is_map(Settings) ->
+            persistent_term:put(?SETTINGS_KEY, Settings),
+            ok
+    end.
 
 max_sessions_per_username() ->
     maps:get(max_sessions_per_username, settings(), ?DEFAULT_MAX_SESSIONS_PER_USERNAME).
@@ -48,26 +53,30 @@ parse(RawConfig) when is_map(RawConfig) ->
         [max_sessions_per_username, <<"max_sessions_per_username">>],
         ?DEFAULT_MAX_SESSIONS_PER_USERNAME
     ),
-    Max = normalize_max(Max0),
-    RefreshMs0 = get_value(
-        RawConfig,
-        [snapshot_refresh_interval_ms, <<"snapshot_refresh_interval_ms">>],
-        ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
-    ),
-    RequestTimeoutMs0 = get_value(
-        RawConfig,
-        [snapshot_request_timeout_ms, <<"snapshot_request_timeout_ms">>],
-        ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
-    ),
-    #{
-        max_sessions_per_username => Max,
-        snapshot_refresh_interval_ms => normalize_ms(
-            RefreshMs0, ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
-        ),
-        snapshot_request_timeout_ms => normalize_ms(
-            RequestTimeoutMs0, ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
-        )
-    };
+    case normalize_max(Max0) of
+        {ok, Max} ->
+            RefreshMs0 = get_value(
+                RawConfig,
+                [snapshot_refresh_interval_ms, <<"snapshot_refresh_interval_ms">>],
+                ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
+            ),
+            RequestTimeoutMs0 = get_value(
+                RawConfig,
+                [snapshot_request_timeout_ms, <<"snapshot_request_timeout_ms">>],
+                ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
+            ),
+            #{
+                max_sessions_per_username => Max,
+                snapshot_refresh_interval_ms => normalize_ms(
+                    RefreshMs0, ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
+                ),
+                snapshot_request_timeout_ms => normalize_ms(
+                    RequestTimeoutMs0, ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
+                )
+            };
+        {error, _} = Error ->
+            Error
+    end;
 parse(_RawConfig) ->
     default_settings().
 
@@ -79,16 +88,18 @@ default_settings() ->
     }.
 
 normalize_max(Value) when is_integer(Value), Value > 0 ->
-    Value;
+    {ok, Value};
+normalize_max(Value) when is_integer(Value) ->
+    {error, {invalid_max_sessions_per_username, Value}};
 normalize_max(Value) when is_binary(Value) ->
     case binary_to_integer_safe(Value) of
-        Int when is_integer(Int), Int > 0 -> Int;
-        _ -> ?DEFAULT_MAX_SESSIONS_PER_USERNAME
+        Int when is_integer(Int) -> normalize_max(Int);
+        _ -> {error, {invalid_max_sessions_per_username, Value}}
     end;
 normalize_max(Value) when is_list(Value) ->
     normalize_max(iolist_to_binary(Value));
-normalize_max(_) ->
-    ?DEFAULT_MAX_SESSIONS_PER_USERNAME.
+normalize_max(Value) ->
+    {error, {invalid_max_sessions_per_username, Value}}.
 
 normalize_ms(Value, _Default) when is_integer(Value), Value > 0 ->
     Value;
