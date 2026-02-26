@@ -5,32 +5,30 @@ This plugin enforces a per-username session quota.
 - Session counters are maintained per username and synchronized cluster-wide.
 - Authentication is rejected with `quota_exceeded` when the configured quota is reached.
 - Reconnects with an existing `clientid` do not consume additional quota.
-- Whitelisted usernames bypass quota checks.
+- Per-username quota overrides allow custom limits, unlimited sessions, or connection blocking.
 
 > [!NOTE]
-> Per-username session count lmit can be achievend by setting username as namespace (set `client_attrs.tns` in `client_attrs_init` config).
-> This plugin is only needed when there is adifferent scheme for namespace.
+> Per-username session count limit can be achieved by setting username as namespace (set `client_attrs.tns` in `client_attrs_init` config).
+> This plugin is only needed when there is a different scheme for namespace.
 
 ## Configuration
 
 Plugin config fields:
 
-- `max_sessions_per_username` (default: `100`)
-- `username_white_list` (default: `[]`)
+- `max_sessions_per_username` (default: `100`) — must be a positive integer (>= 1).
 - `snapshot_refresh_interval_ms` (default: `5000`)
 - `snapshot_request_timeout_ms` (default: `5000`)
 
 Config semantics:
 
-- `max_sessions_per_username`: maximum concurrent sessions per username.
-- `username_white_list`: usernames that bypass quota checks.
+- `max_sessions_per_username`: default maximum concurrent sessions per username. Individual usernames can override this via the overrides API.
 - `snapshot_refresh_interval_ms`: minimum interval between snapshot rebuilds used by list API.
 - `snapshot_request_timeout_ms`: timeout budget for list API snapshot request handling.
 
-Normalization:
+Validation:
 
-- non-positive or invalid values fall back to defaults.
-- string values are accepted for numeric items if convertible to integers.
+- `max_sessions_per_username` must be >= 1. Values less than 1 or non-numeric values are rejected.
+- String values are accepted for numeric fields if convertible to positive integers.
 
 Update plugin config through the standard plugin config API:
 
@@ -38,11 +36,21 @@ Update plugin config through the standard plugin config API:
 
 ## Runtime API
 
-The plugin exposes runtime APIs through plugin API gateway:
+The plugin exposes runtime APIs through plugin API gateway.
 
-- `GET /api/v5/plugin_api/emqx_username_quota/quota/usernames`
-- `GET /api/v5/plugin_api/emqx_username_quota/quota/usernames/:username`
-- `POST /api/v5/plugin_api/emqx_username_quota/kick/:username`
+Base path: `/api/v5/plugin_api/emqx_username_quota`
+
+### Session queries
+
+- `GET /quota/usernames` — list all usernames with active sessions
+- `GET /quota/usernames/:username` — get details for a single username
+- `POST /kick/:username` — kick all sessions for a username
+
+### Quota overrides
+
+- `POST /quota/overrides` — set per-username quota overrides
+- `DELETE /quota/overrides` — delete per-username quota overrides
+- `GET /quota/overrides` — list all quota overrides
 
 ### `GET /quota/usernames`
 
@@ -55,13 +63,13 @@ Behavior:
 
 - Results are always sorted in deterministic snapshot key order (`{used, username}`).
 - Pagination is cursor-based. Omit `cursor` for the first page.
-- Each item includes realtime `used` and `clientids`.
+- Each item includes `username`, realtime `used`, `limit` (effective quota), and `clientids`.
 - If realtime `used` differs from snapshot count, `snapshot_used` is included.
 
 Successful response shape:
 
 - `data`: username quota entries
-- `meta.limit`: effective limit
+- `meta.limit`: page size (pagination limit)
 - `meta.count`: number of entries in this page
 - `meta.total`: total entries in snapshot
 - `meta.next_cursor`: cursor for next page (when available)
@@ -77,6 +85,52 @@ Successful response shape:
 - Error shapes:
   - busy: `Snapshot owner is busy handling another request`
   - rebuilding: `Snapshot owner is rebuilding snapshot`
+
+### `GET /quota/usernames/:username`
+
+Returns details for a single username. Response fields: `username`, `used`, `limit`, `clientids`.
+
+Returns `404 NOT_FOUND` if the username has no active sessions.
+
+### `POST /kick/:username`
+
+Kicks all sessions for a username. Returns `{"kicked": N}` where N is the number of sessions kicked.
+
+Returns `404 NOT_FOUND` if the username has no active sessions.
+
+### `POST /quota/overrides`
+
+Set per-username quota overrides. Body is a JSON array:
+
+```json
+[
+  {"username": "user1", "quota": 1000},
+  {"username": "vip", "quota": "nolimit"},
+  {"username": "blocked", "quota": 0}
+]
+```
+
+Override semantics:
+
+| `quota` value    | Meaning                                        |
+|------------------|------------------------------------------------|
+| positive integer | Custom session limit for this username         |
+| `"nolimit"`      | Unlimited sessions (no quota enforcement)      |
+| `0`              | Ban — reject all new connections               |
+
+Overrides are persisted to disc and replicated cluster-wide. When no override exists for a username, the global `max_sessions_per_username` config is used.
+
+### `DELETE /quota/overrides`
+
+Delete overrides by username. Body is a JSON array of username strings:
+
+```json
+["user1", "blocked"]
+```
+
+### `GET /quota/overrides`
+
+List all overrides. Returns `{"data": [{"username": "...", "quota": ...}, ...]}`.
 
 ## Operational Notes
 
