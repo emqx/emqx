@@ -54,7 +54,8 @@
 -ifdef(TEST).
 -export([
     reason/1,
-    hook_fun/1
+    hook_fun/1,
+    msgid_to_hex/1
 ]).
 -endif.
 
@@ -362,7 +363,7 @@ eventmsg_publish(
     with_basic_columns(
         'message.publish',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msgid_to_hex(Id),
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
             payload => Payload,
@@ -628,7 +629,7 @@ eventmsg_dropped(
     with_basic_columns(
         'message.dropped',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msgid_to_hex(Id),
             reason => Reason,
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
@@ -663,7 +664,7 @@ eventmsg_transformation_failed(
     with_basic_columns(
         'message.transformation_failed',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msgid_to_hex(Id),
             transformation => TransformationName,
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
@@ -697,7 +698,7 @@ eventmsg_validation_failed(
     with_basic_columns(
         'schema.validation_failed',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msgid_to_hex(Id),
             validation => ValidationName,
             clientid => ClientId,
             username => emqx_message:get_header(username, Message, undefined),
@@ -736,7 +737,7 @@ eventmsg_delivered(
     with_basic_columns(
         'message.delivered',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msgid_to_hex(Id),
             from_clientid => ClientId,
             from_username => emqx_message:get_header(username, Message, undefined),
             clientid => ReceiverCId,
@@ -776,7 +777,7 @@ eventmsg_acked(
     with_basic_columns(
         'message.acked',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msgid_to_hex(Id),
             from_clientid => ClientId,
             from_username => emqx_message:get_header(username, Message, undefined),
             clientid => ReceiverCId,
@@ -820,7 +821,7 @@ eventmsg_delivery_dropped(
     with_basic_columns(
         'delivery.dropped',
         #{
-            id => emqx_guid:to_hexstr(Id),
+            id => msgid_to_hex(Id),
             reason => Reason,
             from_clientid => ClientId,
             from_username => emqx_message:get_header(username, Message, undefined),
@@ -852,6 +853,12 @@ with_basic_columns(EventName, Columns, Envs) when is_map(Columns) ->
         },
         Envs
     }.
+
+-spec msgid_to_hex(binary()) -> binary().
+msgid_to_hex(Id) when byte_size(Id) =:= 16 ->
+    emqx_guid:to_hexstr(Id);
+msgid_to_hex(Id) ->
+    emqx_utils:bin_to_hexstr(Id, upper).
 
 %%--------------------------------------------------------------------
 %% rules applying

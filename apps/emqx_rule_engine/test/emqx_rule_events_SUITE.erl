@@ -38,6 +38,12 @@ t_special_events_name_topic_conversion(_) ->
     ?assertEqual('message.publish', emqx_rule_events:event_name(NonExisting)),
     ?assertEqual(NonExisting, emqx_rule_events:event_topic('message.publish')).
 
+t_msgid_to_hex(_) ->
+    MsgId = emqx_guid:gen(),
+    ?assertEqual(emqx_guid:to_hexstr(MsgId), emqx_rule_events:msgid_to_hex(MsgId)),
+    ?assertEqual(<<>>, emqx_rule_events:msgid_to_hex(<<>>)),
+    ?assertEqual(<<"A1FF">>, emqx_rule_events:msgid_to_hex(<<16#a1, 16#ff>>)).
+
 %% Checks that `emqx_rule_events:event_topics_enum`, `_:event_names` and `_:event_info`
 %% are consistent amongst themselves.
 t_event_topics_enum_and_names_consistency(_Config) ->
