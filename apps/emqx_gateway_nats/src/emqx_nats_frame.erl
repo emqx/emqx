@@ -433,41 +433,43 @@ do_parse_pub_args(Line, Rest, State) ->
 do_parse_hpub_args(Line, Rest, State) ->
     case split_once(Line) of
         {pair, Subject, Tail1} ->
-            case split_once(Tail1) of
-                {single, _} ->
-                    error(invalid_args);
-                {pair, A, Tail2} ->
-                    case split_once(Tail2) of
-                        {single, B} ->
-                            ok = validate_subject(Subject),
-                            HeadersSize = binary_to_integer(A),
-                            TotalSize = binary_to_integer(B),
-                            M0 = #{
-                                subject => Subject,
-                                headers_size => HeadersSize,
-                                payload_size => TotalSize - HeadersSize
-                            },
-                            parse_headers(Rest, to_header_state(State, M0));
-                        {pair, B, C} ->
-                            case binary:match(C, <<" ">>) of
-                                nomatch ->
-                                    ok = validate_subject(Subject),
-                                    HeadersSize = binary_to_integer(B),
-                                    TotalSize = binary_to_integer(C),
-                                    M0 = #{
-                                        subject => Subject,
-                                        reply_to => A,
-                                        headers_size => HeadersSize,
-                                        payload_size => TotalSize - HeadersSize
-                                    },
-                                    parse_headers(Rest, to_header_state(State, M0));
-                                _ ->
-                                    error(invalid_args)
-                            end
-                    end
-            end;
+            do_parse_hpub_subject_args(Subject, Tail1, Rest, State);
         {single, _} ->
             error(invalid_args)
+    end.
+
+do_parse_hpub_subject_args(Subject, Tail1, Rest, State) ->
+    case split_once(Tail1) of
+        {single, _} ->
+            error(invalid_args);
+        {pair, A, Tail2} ->
+            do_parse_hpub_sizes(Subject, A, Tail2, Rest, State)
+    end.
+
+do_parse_hpub_sizes(Subject, A, Tail2, Rest, State) ->
+    case split_once(Tail2) of
+        {single, B} ->
+            ok = validate_subject(Subject),
+            HeadersSize = binary_to_integer(A),
+            TotalSize = binary_to_integer(B),
+            M0 = #{
+                subject => Subject,
+                headers_size => HeadersSize,
+                payload_size => TotalSize - HeadersSize
+            },
+            parse_headers(Rest, to_header_state(State, M0));
+        {pair, B, C} ->
+            ok = ensure_no_space(C),
+            ok = validate_subject(Subject),
+            HeadersSize = binary_to_integer(B),
+            TotalSize = binary_to_integer(C),
+            M0 = #{
+                subject => Subject,
+                reply_to => A,
+                headers_size => HeadersSize,
+                payload_size => TotalSize - HeadersSize
+            },
+            parse_headers(Rest, to_header_state(State, M0))
     end.
 
 do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
@@ -651,6 +653,14 @@ split_once(Bin) ->
                 binary:part(Bin, 0, Pos),
                 binary:part(Bin, Pos + 1, byte_size(Bin) - Pos - 1)
             }
+    end.
+
+ensure_no_space(Bin) ->
+    case binary:match(Bin, <<" ">>) of
+        nomatch ->
+            ok;
+        _ ->
+            error(invalid_args)
     end.
 
 validate_non_wildcard_subject(Subject) ->
