@@ -177,7 +177,7 @@ servers(DB, Shard, _Order = undefined) ->
     get_shard_servers(DB, Shard).
 
 get_servers_leader_only(DB, Shard) ->
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     case ra_leaderboard:lookup_leader(ClusterName) of
         Leader when Leader /= undefined ->
             [Leader];
@@ -186,7 +186,7 @@ get_servers_leader_only(DB, Shard) ->
     end.
 
 get_servers_leader_preferred(DB, Shard) ->
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     case ra_leaderboard:lookup_leader(ClusterName) of
         Leader when Leader /= undefined ->
             Servers = ra_leaderboard:lookup_members(ClusterName),
@@ -196,7 +196,7 @@ get_servers_leader_preferred(DB, Shard) ->
     end.
 
 get_servers_local_preferred(DB, Shard) ->
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     case ra_leaderboard:lookup_members(ClusterName) of
         undefined ->
             Servers = get_online_servers(DB, Shard);
@@ -214,7 +214,7 @@ lookup_leader(DB, Shard) ->
     %% NOTE
     %% Does not block, but the result may be outdated or even unknown when there's
     %% no servers on the local node.
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     ra_leaderboard:lookup_leader(ClusterName).
 
 get_online_servers(DB, Shard) ->
@@ -234,9 +234,6 @@ is_server_online({_Name, Node}) ->
 
 is_server_known({_Name, Node}) ->
     mria:is_node_in_cluster(Node).
-
-get_cluster_name(DB, Shard) ->
-    memoize(fun cluster_name/2, [DB, Shard]).
 
 get_shard_servers(DB, Shard) ->
     persistent_term:get(?PTERM(DB, Shard, servers), []).
@@ -772,17 +769,4 @@ prep_stop_server(DB, Shard, Timeout) ->
         _ ->
             %% Not a leader
             ok
-    end.
-
-%%
-
-memoize(Fun, Args) ->
-    %% NOTE: Assuming that the function is pure and never returns `undefined`.
-    case persistent_term:get([Fun | Args], undefined) of
-        undefined ->
-            Result = erlang:apply(Fun, Args),
-            _ = persistent_term:put([Fun | Args], Result),
-            Result;
-        Result ->
-            Result
     end.
