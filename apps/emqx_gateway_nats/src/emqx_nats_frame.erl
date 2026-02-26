@@ -472,35 +472,6 @@ do_parse_hpub_sizes(Subject, A, Tail2, Rest, State) ->
             parse_headers(Rest, to_header_state(State, M0))
     end.
 
-do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
-    ok = validate_subject(Subject),
-    M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
-    parse_payload(Rest, to_payload_state(State, M0));
-do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
-    ok = validate_subject(Subject),
-    M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
-    parse_payload(Rest, to_payload_state(State, M0));
-do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_subject(Subject),
-    HeadersSize = binary_to_integer(HeadersSize0),
-    TotalSize = binary_to_integer(TotalSize0),
-    M0 = #{
-        subject => Subject,
-        headers_size => HeadersSize,
-        payload_size => TotalSize - HeadersSize
-    },
-    parse_headers(Rest, to_header_state(State, M0));
-do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_subject(Subject),
-    HeadersSize = binary_to_integer(HeadersSize0),
-    TotalSize = binary_to_integer(TotalSize0),
-    M0 = #{
-        subject => Subject,
-        reply_to => ReplyTo,
-        headers_size => HeadersSize,
-        payload_size => TotalSize - HeadersSize
-    },
-    parse_headers(Rest, to_header_state(State, M0));
 do_parse_args(sub, [Subject, Sid], Rest, State) ->
     ok = validate_subject(Subject),
     Msg = #{subject => Subject, sid => Sid},
