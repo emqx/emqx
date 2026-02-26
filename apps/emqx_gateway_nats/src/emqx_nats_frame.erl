@@ -52,17 +52,13 @@ initial_parse_state(_) ->
     }.
 
 parse(Data0, ?INIT_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_operation(Data, State);
+    parse_operation(append_parse_buffer(Buffer, Data0), State);
 parse(Data0, ?ARGS_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_args(Data, State#{buffer => <<>>});
+    parse_args(append_parse_buffer(Buffer, Data0), State#{buffer => <<>>});
 parse(Data0, ?HEADERS_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_headers(Data, State#{buffer => <<>>});
+    parse_headers(append_parse_buffer(Buffer, Data0), State#{buffer => <<>>});
 parse(Data0, ?PAYLOAD_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_payload(Data, State#{buffer => <<>>}).
+    parse_payload(append_parse_buffer(Buffer, Data0), State#{buffer => <<>>}).
 
 %%--------------------------------------------------------------------
 %% Control frames
@@ -400,9 +396,79 @@ pre_do_parse_args(Op, JsonStr, Rest, State) when Op == ?OP_INFO; Op == ?OP_CONNE
     end;
 pre_do_parse_args(?OP_ERR, ErrorMessage, Rest, State) ->
     {ok, #nats_frame{operation = ?OP_ERR, message = ErrorMessage}, Rest, reset(State)};
+pre_do_parse_args(?OP_PUB, Line, Rest, State) ->
+    do_parse_pub_args(Line, Rest, State);
+pre_do_parse_args(?OP_HPUB, Line, Rest, State) ->
+    do_parse_hpub_args(Line, Rest, State);
 pre_do_parse_args(Op, Line, Rest, State) ->
     Args = binary:split(Line, <<" ">>, [global]),
     do_parse_args(Op, Args, Rest, State).
+
+do_parse_pub_args(Line, Rest, State) ->
+    case split_once(Line) of
+        {pair, Subject, Tail1} ->
+            case split_once(Tail1) of
+                {single, PayloadSize} ->
+                    ok = validate_subject(Subject),
+                    M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
+                    parse_payload(Rest, to_payload_state(State, M0));
+                {pair, ReplyTo, PayloadSize} ->
+                    case binary:match(PayloadSize, <<" ">>) of
+                        nomatch ->
+                            ok = validate_subject(Subject),
+                            M0 = #{
+                                subject => Subject,
+                                reply_to => ReplyTo,
+                                payload_size => binary_to_integer(PayloadSize)
+                            },
+                            parse_payload(Rest, to_payload_state(State, M0));
+                        _ ->
+                            error(invalid_args)
+                    end
+            end;
+        {single, _} ->
+            error(invalid_args)
+    end.
+
+do_parse_hpub_args(Line, Rest, State) ->
+    case split_once(Line) of
+        {pair, Subject, Tail1} ->
+            case split_once(Tail1) of
+                {single, _} ->
+                    error(invalid_args);
+                {pair, A, Tail2} ->
+                    case split_once(Tail2) of
+                        {single, B} ->
+                            ok = validate_subject(Subject),
+                            HeadersSize = binary_to_integer(A),
+                            TotalSize = binary_to_integer(B),
+                            M0 = #{
+                                subject => Subject,
+                                headers_size => HeadersSize,
+                                payload_size => TotalSize - HeadersSize
+                            },
+                            parse_headers(Rest, to_header_state(State, M0));
+                        {pair, B, C} ->
+                            case binary:match(C, <<" ">>) of
+                                nomatch ->
+                                    ok = validate_subject(Subject),
+                                    HeadersSize = binary_to_integer(B),
+                                    TotalSize = binary_to_integer(C),
+                                    M0 = #{
+                                        subject => Subject,
+                                        reply_to => A,
+                                        headers_size => HeadersSize,
+                                        payload_size => TotalSize - HeadersSize
+                                    },
+                                    parse_headers(Rest, to_header_state(State, M0));
+                                _ ->
+                                    error(invalid_args)
+                            end
+                    end
+            end;
+        {single, _} ->
+            error(invalid_args)
+    end.
 
 do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
     ok = validate_subject(Subject),
@@ -568,6 +634,23 @@ split_to_first_linefeed(Bin) when is_binary(Bin) ->
             {binary:part(Bin, 0, Pos), binary:part(Bin, Pos + 2, byte_size(Bin) - Pos - 2)};
         nomatch ->
             false
+    end.
+
+append_parse_buffer(<<>>, Data) ->
+    Data;
+append_parse_buffer(Buffer, Data) ->
+    <<Buffer/binary, Data/binary>>.
+
+split_once(Bin) ->
+    case binary:match(Bin, <<" ">>) of
+        nomatch ->
+            {single, Bin};
+        {Pos, 1} ->
+            {
+                pair,
+                binary:part(Bin, 0, Pos),
+                binary:part(Bin, Pos + 1, byte_size(Bin) - Pos - 1)
+            }
     end.
 
 validate_non_wildcard_subject(Subject) ->
