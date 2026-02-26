@@ -27,7 +27,14 @@
 -define(CCACHE(Username, Ts, Cnt), {Username, Ts, Cnt}).
 -define(CCACHE_VALID_MS, 5000).
 
+-define(OVERRIDE_TAB, emqx_username_quota_override).
+
 -define(LOCK(Node), {emqx_username_quota_clear_node_lock, Node}).
+
+-record(?OVERRIDE_TAB, {
+    username,   %% binary
+    quota       %% non_neg_integer() | nolimit
+}).
 
 -record(?RECORD_TAB, {
     key,

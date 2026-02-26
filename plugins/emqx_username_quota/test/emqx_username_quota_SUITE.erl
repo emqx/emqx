@@ -94,18 +94,142 @@ t_authenticate_quota_enforced(_Config) ->
         )
     ).
 
-t_whitelist_bypass(_Config) ->
+t_override_quota_enforcement(_Config) ->
+    User = <<"custom-user">>,
     ok = emqx_username_quota_config:update(#{
-        <<"max_sessions_per_username">> => 1,
-        <<"username_white_list">> => [#{<<"username">> => <<"vip">>}]
+        <<"max_sessions_per_username">> => 100
     }),
-    ok = emqx_username_quota:register_session(<<"vip">>, <<"c1">>),
+    %% Set a custom override of 2 sessions
+    {ok, 1} = emqx_username_quota_state:set_overrides([
+        #{<<"username">> => User, <<"quota">> => 2}
+    ]),
+    ok = emqx_username_quota:register_session(User, <<"c1">>),
+    ok = emqx_username_quota:register_session(User, <<"c2">>),
+    %% Third connection should be rejected (custom limit = 2)
+    ?assertEqual(
+        {stop, {error, quota_exceeded}},
+        emqx_username_quota:on_client_authenticate(
+            #{username => User, clientid => <<"c3">>},
+            ignore
+        )
+    ),
+    %% Existing client should still be allowed
     ?assertEqual(
         ignore,
         emqx_username_quota:on_client_authenticate(
-            #{username => <<"vip">>, clientid => <<"c2">>},
+            #{username => User, clientid => <<"c1">>},
             ignore
         )
+    ).
+
+t_override_nolimit(_Config) ->
+    User = <<"vip">>,
+    ok = emqx_username_quota_config:update(#{
+        <<"max_sessions_per_username">> => 1
+    }),
+    {ok, 1} = emqx_username_quota_state:set_overrides([
+        #{<<"username">> => User, <<"quota">> => <<"nolimit">>}
+    ]),
+    ok = emqx_username_quota:register_session(User, <<"c1">>),
+    %% Even though global limit is 1, nolimit override allows unlimited sessions
+    ?assertEqual(
+        ignore,
+        emqx_username_quota:on_client_authenticate(
+            #{username => User, clientid => <<"c2">>},
+            ignore
+        )
+    ),
+    ok = emqx_username_quota:register_session(User, <<"c2">>),
+    ?assertEqual(
+        ignore,
+        emqx_username_quota:on_client_authenticate(
+            #{username => User, clientid => <<"c3">>},
+            ignore
+        )
+    ).
+
+t_override_blacklist(_Config) ->
+    User = <<"blocked-user">>,
+    {ok, 1} = emqx_username_quota_state:set_overrides([
+        #{<<"username">> => User, <<"quota">> => 0}
+    ]),
+    %% quota=0 means reject all new connections
+    ?assertEqual(
+        {stop, {error, quota_exceeded}},
+        emqx_username_quota:on_client_authenticate(
+            #{username => User, clientid => <<"c1">>},
+            ignore
+        )
+    ).
+
+t_api_overrides_crud(_Config) ->
+    %% POST overrides
+    {ok, 200, _, #{set := 2}} = emqx_username_quota_api:handle(
+        post,
+        [<<"quota">>, <<"usernames">>],
+        #{
+            body => [
+                #{<<"username">> => <<"u1">>, <<"quota">> => 50},
+                #{<<"username">> => <<"u2">>, <<"quota">> => <<"nolimit">>}
+            ]
+        }
+    ),
+    %% GET overrides
+    {ok, 200, _, #{data := Overrides}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"overrides">>],
+        #{}
+    ),
+    ?assertEqual(2, length(Overrides)),
+    %% Verify override values
+    OverrideMap = maps:from_list([{maps:get(username, O), maps:get(quota, O)} || O <- Overrides]),
+    ?assertEqual(50, maps:get(<<"u1">>, OverrideMap)),
+    ?assertEqual(nolimit, maps:get(<<"u2">>, OverrideMap)),
+    %% DELETE overrides
+    {ok, 200, _, #{deleted := 1}} = emqx_username_quota_api:handle(
+        delete,
+        [<<"quota">>, <<"usernames">>],
+        #{body => [<<"u1">>]}
+    ),
+    %% Verify only u2 remains
+    {ok, 200, _, #{data := Remaining}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"overrides">>],
+        #{}
+    ),
+    ?assertEqual(1, length(Remaining)),
+    ?assertMatch([#{username := <<"u2">>, quota := nolimit}], Remaining).
+
+t_api_overrides_validation(_Config) ->
+    %% Invalid: missing quota
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        post,
+        [<<"quota">>, <<"usernames">>],
+        #{body => [#{<<"username">> => <<"u1">>}]}
+    ),
+    %% Invalid: empty username
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        post,
+        [<<"quota">>, <<"usernames">>],
+        #{body => [#{<<"username">> => <<>>, <<"quota">> => 10}]}
+    ),
+    %% Invalid: negative quota
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        post,
+        [<<"quota">>, <<"usernames">>],
+        #{body => [#{<<"username">> => <<"u1">>, <<"quota">> => -1}]}
+    ),
+    %% Invalid: not a list
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        post,
+        [<<"quota">>, <<"usernames">>],
+        #{body => <<"not a list">>}
+    ),
+    %% Invalid delete: not strings
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        delete,
+        [<<"quota">>, <<"usernames">>],
+        #{body => [123]}
     ).
 
 t_api_list_get_kick(_Config) ->
@@ -122,6 +246,9 @@ t_api_list_get_kick(_Config) ->
         }
     ),
     ?assertMatch(#{data := [_ | _], meta := #{}}, ListBody),
+    %% Verify list items include limit field
+    [FirstItem | _] = maps:get(data, ListBody),
+    ?assert(maps:is_key(limit, FirstItem)),
     {ok, 200, _Headers2, OneBody} = emqx_username_quota_api:handle(
         get,
         [
@@ -129,7 +256,7 @@ t_api_list_get_kick(_Config) ->
         ],
         #{}
     ),
-    ?assertMatch(#{username := User, used := 2}, OneBody),
+    ?assertMatch(#{username := User, used := 2, limit := _}, OneBody),
     ok = meck:new(emqx_cm, [non_strict, passthrough]),
     ok = meck:expect(emqx_cm, kick_session, fun(_ClientId) -> ok end),
     {ok, 200, _Headers3, #{kicked := 2}} = emqx_username_quota_api:handle(

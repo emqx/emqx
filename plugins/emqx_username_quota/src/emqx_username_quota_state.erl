@@ -16,7 +16,12 @@
     clear_for_node/1,
     clear_self_node/0,
     reset/0,
-    fold_username_counts/2
+    fold_username_counts/2,
+    set_overrides/1,
+    get_override/1,
+    delete_overrides/1,
+    list_overrides/0,
+    get_effective_limit/1
 ]).
 
 -include("emqx_username_quota.hrl").
@@ -38,7 +43,13 @@ create_tables() ->
         {storage, ram_copies},
         {attributes, record_info(fields, ?COUNTER_TAB)}
     ]),
-    ok = mria:wait_for_tables([?RECORD_TAB, ?COUNTER_TAB]),
+    ok = mria:create_table(?OVERRIDE_TAB, [
+        {type, set},
+        {rlog_shard, ?DB_SHARD},
+        {storage, disc_copies},
+        {attributes, record_info(fields, ?OVERRIDE_TAB)}
+    ]),
+    ok = mria:wait_for_tables([?RECORD_TAB, ?COUNTER_TAB, ?OVERRIDE_TAB]),
     ok = emqx_utils_ets:new(?MONITOR_TAB, [bag, public]),
     ok = emqx_utils_ets:new(?CCACHE_TAB, [ordered_set, public]),
     ok.
@@ -105,7 +116,12 @@ get_username(Username) ->
         0 ->
             {error, not_found};
         Used ->
-            {ok, #{username => Username, used => Used, clientids => list_clientids(Username)}}
+            {ok, #{
+                username => Username,
+                used => Used,
+                limit => get_effective_limit(Username),
+                clientids => list_clientids(Username)
+            }}
     end.
 
 kick_username(Username) ->
@@ -129,6 +145,7 @@ reset() ->
     create_tables(),
     _ = mria:clear_table(?RECORD_TAB),
     _ = mria:clear_table(?COUNTER_TAB),
+    _ = mria:clear_table(?OVERRIDE_TAB),
     true = ets:delete_all_objects(?MONITOR_TAB),
     true = ets:delete_all_objects(?CCACHE_TAB),
     _ =
@@ -138,6 +155,42 @@ reset() ->
             _:_ -> ok
         end,
     ok.
+
+%% @doc Batch upsert per-username quota overrides.
+%% Each entry: #{<<"username">> => binary(), <<"quota">> => non_neg_integer() | <<"nolimit">>}
+set_overrides(List) when is_list(List) ->
+    Records = lists:map(fun parse_override_entry/1, List),
+    {atomic, ok} = mria:transaction(?DB_SHARD, fun() ->
+        lists:foreach(fun(Rec) -> mnesia:write(Rec) end, Records)
+    end),
+    {ok, length(Records)}.
+
+%% @doc Look up a single override.
+get_override(Username) ->
+    case mnesia:dirty_read(?OVERRIDE_TAB, Username) of
+        [#?OVERRIDE_TAB{quota = Quota}] -> {ok, Quota};
+        [] -> undefined
+    end.
+
+%% @doc Batch delete overrides by username list.
+delete_overrides(Usernames) when is_list(Usernames) ->
+    N = length(Usernames),
+    {atomic, ok} = mria:transaction(?DB_SHARD, fun() ->
+        lists:foreach(fun(U) -> mnesia:delete({?OVERRIDE_TAB, U}) end, Usernames)
+    end),
+    {ok, N}.
+
+%% @doc List all overrides.
+list_overrides() ->
+    Records = mnesia:dirty_select(?OVERRIDE_TAB, [{'_', [], ['$_']}]),
+    [#{username => U, quota => Q} || #?OVERRIDE_TAB{username = U, quota = Q} <- Records].
+
+%% @doc Get the effective limit for a username: override if present, else global config.
+get_effective_limit(Username) ->
+    case get_override(Username) of
+        {ok, Quota} -> Quota;
+        undefined -> emqx_username_quota_config:max_sessions_per_username()
+    end.
 
 fold_username_counts(Fun, Acc0) when is_function(Fun, 3) ->
     TmpTab = ets:new(?MODULE, [set]),
@@ -170,6 +223,7 @@ build_page_item(Username, SnapshotUsed) ->
     Base = #{
         username => Username,
         used => Used,
+        limit => get_effective_limit(Username),
         clientids => ClientIds
     },
     case Used =:= SnapshotUsed of
@@ -271,3 +325,10 @@ fold_counter_sums(Username, TmpTab, Fun, Acc0) ->
                 Acc0
         end,
     fold_counter_sums(ets:next(TmpTab, Username), TmpTab, Fun, Acc).
+
+parse_override_entry(#{<<"username">> := Username, <<"quota">> := <<"nolimit">>}) ->
+    #?OVERRIDE_TAB{username = Username, quota = nolimit};
+parse_override_entry(#{<<"username">> := Username, <<"quota">> := Quota}) when
+    is_integer(Quota), Quota >= 0
+->
+    #?OVERRIDE_TAB{username = Username, quota = Quota}.

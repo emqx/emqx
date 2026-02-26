@@ -9,7 +9,6 @@
     max_sessions_per_username/0,
     snapshot_refresh_interval_ms/0,
     snapshot_request_timeout_ms/0,
-    is_whitelisted/1,
     settings/0
 ]).
 
@@ -40,10 +39,6 @@ snapshot_refresh_interval_ms() ->
 snapshot_request_timeout_ms() ->
     maps:get(snapshot_request_timeout_ms, settings(), ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS).
 
-is_whitelisted(Username) when is_binary(Username) ->
-    WhiteList = maps:get(username_white_list, settings(), #{}),
-    maps:is_key(Username, WhiteList).
-
 settings() ->
     persistent_term:get(?SETTINGS_KEY, default_settings()).
 
@@ -54,12 +49,6 @@ parse(RawConfig) when is_map(RawConfig) ->
         ?DEFAULT_MAX_SESSIONS_PER_USERNAME
     ),
     Max = normalize_max(Max0),
-    WhiteList0 = get_value(
-        RawConfig,
-        [username_white_list, <<"username_white_list">>],
-        []
-    ),
-    WhiteList = normalize_whitelist(WhiteList0),
     RefreshMs0 = get_value(
         RawConfig,
         [snapshot_refresh_interval_ms, <<"snapshot_refresh_interval_ms">>],
@@ -72,7 +61,6 @@ parse(RawConfig) when is_map(RawConfig) ->
     ),
     #{
         max_sessions_per_username => Max,
-        username_white_list => WhiteList,
         snapshot_refresh_interval_ms => normalize_ms(
             RefreshMs0, ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS
         ),
@@ -86,7 +74,6 @@ parse(_RawConfig) ->
 default_settings() ->
     #{
         max_sessions_per_username => ?DEFAULT_MAX_SESSIONS_PER_USERNAME,
-        username_white_list => #{},
         snapshot_refresh_interval_ms => ?DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS,
         snapshot_request_timeout_ms => ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
     }.
@@ -115,28 +102,6 @@ normalize_ms(Value, Default) when is_list(Value) ->
 normalize_ms(_Value, Default) ->
     Default.
 
-normalize_whitelist(List) when is_list(List) ->
-    maps:from_list(
-        lists:filtermap(
-            fun(Entry) ->
-                case normalize_whitelist_entry(Entry) of
-                    <<>> -> false;
-                    Username -> {true, {Username, true}}
-                end
-            end,
-            List
-        )
-    );
-normalize_whitelist(_) ->
-    #{}.
-
-normalize_whitelist_entry(#{username := Username}) ->
-    to_bin(Username);
-normalize_whitelist_entry(#{<<"username">> := Username}) ->
-    to_bin(Username);
-normalize_whitelist_entry(Username) ->
-    to_bin(Username).
-
 get_value(Map, [K | Ks], Default) ->
     case maps:find(K, Map) of
         {ok, V} -> V;
@@ -151,19 +116,6 @@ binary_to_integer_safe(Bin) ->
     catch
         _:_ -> invalid
     end.
-
-to_bin(Value) when is_binary(Value) ->
-    Value;
-to_bin(Value) when is_list(Value) ->
-    try iolist_to_binary(Value) of
-        Bin -> Bin
-    catch
-        _:_ -> <<>>
-    end;
-to_bin(Value) when is_integer(Value) ->
-    integer_to_binary(Value);
-to_bin(_) ->
-    <<>>.
 
 plugin_name_vsn() ->
     App = <<"emqx_username_quota">>,

@@ -47,6 +47,27 @@ handle(post, [<<"kick">>, Username0], _Request) ->
         {error, not_found} ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
     end;
+handle(post, [<<"quota">>, <<"usernames">>], Request) ->
+    Body = maps:get(body, Request, []),
+    case validate_override_list(Body) of
+        ok ->
+            {ok, N} = emqx_username_quota_state:set_overrides(Body),
+            {ok, 200, #{}, #{set => N}};
+        {error, Reason} ->
+            {error, 400, #{}, #{code => <<"BAD_REQUEST">>, message => Reason}}
+    end;
+handle(delete, [<<"quota">>, <<"usernames">>], Request) ->
+    Body = maps:get(body, Request, []),
+    case validate_username_list(Body) of
+        ok ->
+            {ok, N} = emqx_username_quota_state:delete_overrides(Body),
+            {ok, 200, #{}, #{deleted => N}};
+        {error, Reason} ->
+            {error, 400, #{}, #{code => <<"BAD_REQUEST">>, message => Reason}}
+    end;
+handle(get, [<<"quota">>, <<"overrides">>], _Request) ->
+    Data = emqx_username_quota_state:list_overrides(),
+    {ok, 200, #{}, #{data => Data}};
 handle(_Method, _Path, _Request) ->
     {error, not_found}.
 
@@ -89,3 +110,30 @@ get_cursor(Query) ->
         error ->
             undefined
     end.
+
+validate_override_list(List) when is_list(List) ->
+    case lists:all(fun is_valid_override_entry/1, List) of
+        true -> ok;
+        false -> {error, <<"Each entry must have non-empty 'username' and valid 'quota'">>}
+    end;
+validate_override_list(_) ->
+    {error, <<"Expected a JSON array">>}.
+
+is_valid_override_entry(#{<<"username">> := U, <<"quota">> := <<"nolimit">>}) when
+    is_binary(U), U =/= <<>>
+->
+    true;
+is_valid_override_entry(#{<<"username">> := U, <<"quota">> := Q}) when
+    is_binary(U), U =/= <<>>, is_integer(Q), Q >= 0
+->
+    true;
+is_valid_override_entry(_) ->
+    false.
+
+validate_username_list(List) when is_list(List) ->
+    case lists:all(fun(U) -> is_binary(U) andalso U =/= <<>> end, List) of
+        true -> ok;
+        false -> {error, <<"Expected a list of non-empty username strings">>}
+    end;
+validate_username_list(_) ->
+    {error, <<"Expected a JSON array">>}.
