@@ -16,7 +16,6 @@
     clear_for_node/1,
     clear_self_node/0,
     reset/0,
-    fold_username_counts/2,
     build_snapshot_into/3,
     set_overrides/1,
     get_override/1,
@@ -199,44 +198,52 @@ get_effective_limit(Username) ->
         undefined -> emqx_username_quota_config:max_sessions_per_username()
     end.
 
-fold_username_counts(Fun, Acc0) when is_function(Fun, 3) ->
-    TmpTab = ets:new(?MODULE, [set]),
-    ok = fold_counter_rows(ets:first(?COUNTER_TAB), TmpTab),
-    Acc = fold_counter_sums(ets:first(TmpTab), TmpTab, Fun, Acc0),
-    true = ets:delete(TmpTab),
-    Acc.
-
--doc "Build snapshot into TargetTab, filtering by UsedGte, yielding every YieldInterval inserts.".
+-doc "Build snapshot into TargetTab, filtering by UsedGte, yielding every YieldInterval reads.".
 build_snapshot_into(TargetTab, UsedGte, YieldInterval) ->
-    TmpTab = ets:new(snapshot_build_tmp, [set]),
-    try
-        ok = fold_counter_rows(ets:first(?COUNTER_TAB), TmpTab),
-        insert_snapshot_rows(ets:first(TmpTab), TmpTab, TargetTab, UsedGte, YieldInterval, 0)
-    after
-        ets:delete(TmpTab)
-    end.
+    scan_counters(ets:first(?COUNTER_TAB), undefined, 0, TargetTab, UsedGte, YieldInterval, 0).
 
-insert_snapshot_rows('$end_of_table', _TmpTab, _TargetTab, _UsedGte, _YieldInterval, _N) ->
+%% End of table — flush last accumulated username.
+scan_counters('$end_of_table', Username, Sum, TargetTab, UsedGte, _YieldInterval, _N) ->
+    maybe_insert(TargetTab, Username, Sum, UsedGte),
     ok;
-insert_snapshot_rows(Username, TmpTab, TargetTab, UsedGte, YieldInterval, N) ->
-    N1 = maybe_insert_one(TmpTab, TargetTab, Username, UsedGte, YieldInterval, N),
-    insert_snapshot_rows(ets:next(TmpTab, Username), TmpTab, TargetTab, UsedGte, YieldInterval, N1).
+%% Same username — accumulate count.
+scan_counters(
+    ?COUNTER_KEY(Username, _Node) = Key, Username, Sum, TargetTab, UsedGte, YieldInterval, N
+) ->
+    Count = read_counter(Key),
+    N1 = maybe_yield(N + 1, YieldInterval),
+    scan_counters(
+        ets:next(?COUNTER_TAB, Key), Username, Sum + Count, TargetTab, UsedGte, YieldInterval, N1
+    );
+%% New username — flush previous, start new accumulation.
+scan_counters(
+    ?COUNTER_KEY(NewUser, _Node) = Key, PrevUser, PrevSum, TargetTab, UsedGte, YieldInterval, N
+) ->
+    maybe_insert(TargetTab, PrevUser, PrevSum, UsedGte),
+    Count = read_counter(Key),
+    N1 = maybe_yield(N + 1, YieldInterval),
+    scan_counters(
+        ets:next(?COUNTER_TAB, Key), NewUser, Count, TargetTab, UsedGte, YieldInterval, N1
+    ).
 
-maybe_insert_one(TmpTab, TargetTab, Username, UsedGte, YieldInterval, N) ->
-    case ets:lookup(TmpTab, Username) of
-        [{Username, Counter}] when Counter >= UsedGte ->
-            ets:insert(TargetTab, {{Counter, Username}, Counter}),
-            maybe_yield(N + 1, YieldInterval);
-        _ ->
-            N
+read_counter(Key) ->
+    case ets:lookup(?COUNTER_TAB, Key) of
+        [#?COUNTER_TAB{count = C}] when C > 0 -> C;
+        _ -> 0
     end.
 
-maybe_yield(N, YieldInterval) ->
-    case N rem YieldInterval of
-        0 -> erlang:yield();
-        _ -> ok
-    end,
+maybe_yield(N, YieldInterval) when N rem YieldInterval =:= 0 ->
+    erlang:yield(),
+    N;
+maybe_yield(N, _YieldInterval) ->
     N.
+
+maybe_insert(_TargetTab, undefined, _Sum, _UsedGte) ->
+    ok;
+maybe_insert(TargetTab, Username, Sum, UsedGte) when Sum >= UsedGte ->
+    ets:insert(TargetTab, {{Sum, Username}, Sum});
+maybe_insert(_TargetTab, _Username, _Sum, _UsedGte) ->
+    ok.
 
 list_clientids(Username) ->
     Start = ?RECORD_KEY(Username, ?MIN_CLIENTID, ?MIN_PID),
@@ -340,30 +347,6 @@ monitor_exists(Pid, Username, ClientId) ->
         end,
         ets:lookup(?MONITOR_TAB, Pid)
     ).
-
-fold_counter_rows('$end_of_table', _TmpTab) ->
-    ok;
-fold_counter_rows(Key, TmpTab) ->
-    case ets:lookup(?COUNTER_TAB, Key) of
-        [#?COUNTER_TAB{key = ?COUNTER_KEY(Username, _Node), count = Counter}] when Counter > 0 ->
-            _ = ets:update_counter(TmpTab, Username, {2, Counter}, {Username, 0}),
-            ok;
-        _ ->
-            ok
-    end,
-    fold_counter_rows(ets:next(?COUNTER_TAB, Key), TmpTab).
-
-fold_counter_sums('$end_of_table', _TmpTab, _Fun, Acc) ->
-    Acc;
-fold_counter_sums(Username, TmpTab, Fun, Acc0) ->
-    Acc =
-        case ets:lookup(TmpTab, Username) of
-            [{Username, Counter}] when Counter > 0 ->
-                Fun(Username, Counter, Acc0);
-            _ ->
-                Acc0
-        end,
-    fold_counter_sums(ets:next(TmpTab, Username), TmpTab, Fun, Acc).
 
 parse_override_entry(#{<<"username">> := Username, <<"quota">> := <<"nolimit">>}) ->
     #?OVERRIDE_TAB{username = Username, quota = nolimit};

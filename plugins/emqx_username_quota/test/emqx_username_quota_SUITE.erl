@@ -416,6 +416,112 @@ t_api_list_invalid_cursor(_Config) ->
     ),
     ok = meck:unload(emqx_username_quota_state).
 
+t_api_list_invalid_used_gte(_Config) ->
+    %% Non-numeric string: treated as missing used_gte
+    {error, 400, _, #{code := <<"BAD_REQUEST">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"used_gte">> => <<"abc">>}}
+    ),
+    %% Zero: rejected (must be >= 1)
+    {error, 400, _, #{code := <<"BAD_REQUEST">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"used_gte">> => <<"0">>}}
+    ),
+    %% Negative: rejected
+    {error, 400, _, #{code := <<"BAD_REQUEST">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"used_gte">> => <<"-5">>}}
+    ).
+
+t_api_list_not_core_node(_Config) ->
+    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:expect(
+        emqx_username_quota_state,
+        list_usernames,
+        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
+            {error, not_core_node}
+        end
+    ),
+    {error, 404, _, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"used_gte">> => <<"1">>}}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"NOT_AVAILABLE">>,
+            message := <<"Snapshot is only available on core nodes">>
+        },
+        Body
+    ),
+    ok = meck:unload(emqx_username_quota_state).
+
+t_api_list_malformed_cursor(_Config) ->
+    %% Garbage base64: triggers invalid_cursor
+    {error, 400, _, #{code := <<"INVALID_CURSOR">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"cursor">> => <<"not-valid-base64!@#">>}}
+    ),
+    %% Valid base64 but wrong Erlang term structure inside
+    BadCursor = base64:encode(term_to_binary({wrong, structure}), #{
+        mode => urlsafe, padding => false
+    }),
+    {error, 400, _, #{code := <<"INVALID_CURSOR">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"cursor">> => BadCursor}}
+    ),
+    %% Valid cursor format but references a different node
+    RemoteCursor = base64:encode(
+        term_to_binary({'other@host', 1, 1, {0, <<"u">>}}),
+        #{mode => urlsafe, padding => false}
+    ),
+    {error, 400, _, #{code := <<"INVALID_CURSOR">>}} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"cursor">> => RemoteCursor}}
+    ).
+
+t_api_unknown_route(_Config) ->
+    ?assertEqual(
+        {error, not_found},
+        emqx_username_quota_api:handle(get, [<<"unknown">>], #{})
+    ),
+    ?assertEqual(
+        {error, not_found},
+        emqx_username_quota_api:handle(put, [<<"quota">>, <<"usernames">>], #{})
+    ).
+
+t_api_overrides_validation_edge_cases(_Config) ->
+    %% Float quota
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        post,
+        [<<"quota">>, <<"overrides">>],
+        #{body => [#{<<"username">> => <<"u1">>, <<"quota">> => 10.5}]}
+    ),
+    %% String quota (not "nolimit")
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        post,
+        [<<"quota">>, <<"overrides">>],
+        #{body => [#{<<"username">> => <<"u1">>, <<"quota">> => <<"100">>}]}
+    ),
+    %% Delete with empty string in list
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        delete,
+        [<<"quota">>, <<"overrides">>],
+        #{body => [<<"u1">>, <<>>]}
+    ),
+    %% Delete with non-list body
+    {error, 400, _, _} = emqx_username_quota_api:handle(
+        delete,
+        [<<"quota">>, <<"overrides">>],
+        #{body => #{<<"username">> => <<"u1">>}}
+    ).
+
 t_cluster_watch_init_terminate(_Config) ->
     ok = meck:new(ekka, [non_strict, passthrough]),
     ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
