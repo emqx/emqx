@@ -36,21 +36,19 @@
 -define(LOCK(Node), {emqx_username_quota_clear_node_lock, Node}).
 
 -record(?OVERRIDE_TAB, {
-    %% binary
-    username,
-    %% non_neg_integer() | nolimit
-    quota
+    username :: binary(),
+    quota :: non_neg_integer() | nolimit
 }).
 
 -record(?RECORD_TAB, {
-    key,
-    node,
-    extra = #{}
+    key :: {_Username :: binary(), _ClientId :: binary(), _Pid :: pid()},
+    node :: node(),
+    extra = #{} :: map()
 }).
 
 -record(?COUNTER_TAB, {
-    key,
-    count = 0
+    key :: {_Username :: binary() | '$repl_watermark$', _Node :: node()},
+    count = 0 :: integer()
 }).
 
 -endif.

@@ -154,7 +154,7 @@ after_add(Rest, Count, BatchCount, BatchSeq) when BatchCount >= ?BOOTSTRAP_BATCH
 after_add(Rest, Count, BatchCount, BatchSeq) ->
     bootstrap_loop(Rest, Count, BatchCount, BatchSeq).
 
--define(REPL_WATERMARK_KEY, {<<"$repl_watermark$">>, node()}).
+-define(REPL_WATERMARK_KEY, {'$repl_watermark$', node()}).
 
 -doc """
 Write a monotonically increasing watermark to COUNTER_TAB and wait for it

@@ -238,9 +238,7 @@ maybe_yield(N, YieldInterval) when N rem YieldInterval =:= 0 ->
 maybe_yield(N, _YieldInterval) ->
     N.
 
-maybe_insert(_TargetTab, undefined, _Sum, _UsedGte) ->
-    ok;
-maybe_insert(TargetTab, Username, Sum, UsedGte) when Sum >= UsedGte ->
+maybe_insert(TargetTab, Username, Sum, UsedGte) when is_binary(Username), Sum >= UsedGte ->
     ets:insert(TargetTab, {{Sum, Username}, Sum});
 maybe_insert(_TargetTab, _Username, _Sum, _UsedGte) ->
     ok.
