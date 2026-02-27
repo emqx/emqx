@@ -324,7 +324,7 @@ t_api_list_busy_with_retry_cursor(_Config) ->
     ?assertMatch(
         #{
             code := <<"SERVICE_UNAVAILABLE">>,
-            message := <<"Snapshot owner is busy handling another request">>,
+            message := <<"Server is busy, please retry">>,
             retry_cursor := RetryCursor
         },
         Body
@@ -349,7 +349,7 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
     ?assertMatch(
         #{
             code := <<"SERVICE_UNAVAILABLE">>,
-            message := <<"Snapshot owner is rebuilding snapshot">>,
+            message := <<"Server is busy building snapshot, please retry">>,
             snapshot_build_in_progress := true,
             retry_cursor := RetryCursor
         },

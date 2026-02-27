@@ -43,13 +43,13 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
                 {error, {busy, RetryCursor}} ->
                     {error, 503, #{}, #{
                         code => <<"SERVICE_UNAVAILABLE">>,
-                        message => <<"Snapshot owner is busy handling another request">>,
+                        message => <<"Server is busy, please retry">>,
                         retry_cursor => RetryCursor
                     }};
                 {error, {rebuilding_snapshot, RetryCursor}} ->
                     {error, 503, #{}, #{
                         code => <<"SERVICE_UNAVAILABLE">>,
-                        message => <<"Snapshot owner is rebuilding snapshot">>,
+                        message => <<"Server is busy building snapshot, please retry">>,
                         snapshot_build_in_progress => true,
                         retry_cursor => RetryCursor
                     }}

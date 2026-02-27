@@ -40,6 +40,8 @@ The plugin exposes runtime APIs through plugin API gateway.
 
 Base path: `/api/v5/plugin_api/emqx_username_quota`
 
+**Snapshot**: The `GET /quota/usernames` endpoint serves results from a pre-built snapshot rather than scanning the live session data on every request. A snapshot is a point-in-time copy of per-username session counts, sorted by count for efficient cursor-based pagination. Snapshots are built asynchronously in the background and cached; a new build is only triggered when the current snapshot is older than `snapshot_min_age_ms`. Each response item includes a `snapshot_used` field when the realtime count has drifted from the snapshot value, so the caller can see both the cached and current counts.
+
 ### Session queries
 
 - `GET /quota/usernames` — list all usernames with active sessions
@@ -73,7 +75,7 @@ Parameter rules:
 
 Behavior:
 
-- Results are always sorted in deterministic snapshot key order (`{used, username}`).
+- Results are always sorted by session count then username.
 - Pagination is cursor-based. Omit `cursor` for the first page.
 - Each item includes `username`, realtime `used`, `limit` (effective quota), and `clientids`.
 - If realtime `used` differs from snapshot count, `snapshot_used` is included.
@@ -134,7 +136,7 @@ Override semantics:
 | `"nolimit"`      | Unlimited sessions (no quota enforcement)      |
 | `0`              | Ban — reject all new connections               |
 
-Overrides are persisted to disc and replicated cluster-wide. When no override exists for a username, the global `max_sessions_per_username` config is used.
+Overrides are persisted to disk and replicated cluster-wide. When no override exists for a username, the global `max_sessions_per_username` config is used.
 
 ### `DELETE /quota/overrides`
 
@@ -154,13 +156,13 @@ List all overrides. Returns `{"data": [{"username": "...", "quota": ...}, ...]}`
 
 Snapshots are only built and owned by core nodes. Replicant nodes forward list requests to the leader core node (the lexicographically smallest core node in the cluster). This avoids redundant snapshot builds across the cluster.
 
-### Blue/green ETS tables
+### Blue/green snapshots
 
-The snapshot uses two ETS tables (blue and green). While one table serves read requests, the other is used for building the next snapshot. Once a build completes, the tables are swapped atomically. This eliminates any data gap during rebuilds.
+Two snapshot buffers (blue and green) are maintained. While one serves read requests, the other is used for building the next snapshot. Once a build completes, the roles are swapped. This eliminates any data gap during rebuilds — the old snapshot remains available until the new one is ready.
 
-### Async background build
+### Background snapshot build
 
-Snapshot rebuilds happen in a separate spawned process with yield-based throttling. The gen_server remains responsive to other requests while a build is in progress.
+Snapshot rebuilds run in a background process with yield-based throttling to avoid blocking the server. The list API remains responsive while a build is in progress.
 
 ## Operational Notes
 
@@ -190,7 +192,7 @@ the bootstrap loop is throttled:
 
 ### Handling `503` from list API
 
-When snapshot owner is busy or rebuilding, list API returns `503` with `retry_cursor`.
+When the server is busy or building a snapshot, the list API returns `503` with `retry_cursor`.
 
 API Client guidance:
 
