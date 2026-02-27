@@ -9,7 +9,6 @@
 -module(emqx_ds_builtin_raft_shard_allocator).
 
 -include_lib("snabbkaffe/include/trace.hrl").
-%%-include("emqx_ds_replication_layer.hrl").
 
 -export([start_link/1]).
 
@@ -48,7 +47,7 @@
 
 %%
 
--record(trigger_transitions, {}).
+-record(trigger_transitions, {scope = any :: local | any}).
 
 -spec start_link(emqx_ds:db()) -> {ok, pid()}.
 start_link(DB) ->
@@ -105,8 +104,8 @@ handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
 -spec handle_cast(_Cast, state()) -> {noreply, state()}.
-handle_cast(#trigger_transitions{}, State0) ->
-    State1 = handle_pending_transitions(State0),
+handle_cast(#trigger_transitions{scope = Scope}, State0) ->
+    State1 = handle_pending_transitions(Scope, State0),
     State = restart_fallback_timer(State1),
     {noreply, State};
 handle_cast(_Cast, State) ->
@@ -135,7 +134,7 @@ handle_timer(allocate, _TRef, State0) ->
     State = handle_allocate_shards(State0),
     {noreply, State};
 handle_timer(fallback, _TRef, State0) ->
-    State1 = handle_pending_transitions(State0),
+    State1 = handle_pending_transitions(any, State0),
     State = restart_fallback_timer(State1),
     {noreply, State}.
 
@@ -155,7 +154,7 @@ handle_allocate_shards(State0) ->
             %% NOTE
             %% Subscribe to shard changes and trigger any yet unhandled transitions.
             ok = subscribe_db_changes(State),
-            ok = trigger_transitions(self()),
+            ok = gen_server:cast(self(), #trigger_transitions{scope = local}),
             start_fallback_timer(State);
         {error, Data} ->
             _ = logger:notice(
@@ -201,10 +200,10 @@ handle_shard_changed(Shard, State = #{db := DB}) ->
     ok = cache_shard_info(DB, Shard),
     handle_shard_transitions(Shard, local, next_transitions(DB, Shard), State).
 
-handle_pending_transitions(State = #{db := DB, shards := Shards}) ->
+handle_pending_transitions(Scope, State = #{db := DB, shards := Shards}) ->
     lists:foldl(
         fun(Shard, StateAcc) ->
-            handle_shard_transitions(Shard, any, next_transitions(DB, Shard), StateAcc)
+            handle_shard_transitions(Shard, Scope, next_transitions(DB, Shard), StateAcc)
         end,
         State,
         Shards
