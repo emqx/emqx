@@ -44,7 +44,27 @@ t_parse_insert(_) ->
         {<<"INSERT INTO Values_таблица (идентификатор, имя, возраст)"/utf8>>,
             <<"(${id}, 'Иван', 25)"/utf8>>}
     ),
-
+    run_pi(
+        ~b"""
+        INSERT INTO test_batch_upsert (device_id, temperature)
+        VALUES (${device_id}, ${temperature})
+        ON DUPLICATE KEY UPDATE
+        temperature = 123
+        """,
+        {<<"INSERT INTO test_batch_upsert (device_id, temperature)"/utf8>>,
+            <<"(${device_id}, ${temperature})"/utf8>>,
+            <<"DUPLICATE KEY UPDATE\ntemperature = 123"/utf8>>}
+    ),
+    run_pi(
+        ~b"""
+        insert into t_mqtt_msg(msgid, topic, qos, payload, arrived)
+        values (${id}, ${topic}, ${qos}, ${payload}, FROM_UNIXTIME(${timestamp}/1000))
+        on duplicate key update topic='123';
+        """,
+        {<<"insert into t_mqtt_msg(msgid, topic, qos, payload, arrived)"/utf8>>,
+            <<"(${id}, ${topic}, ${qos}, ${payload}, FROM_UNIXTIME(${timestamp}/1000))"/utf8>>,
+            <<"duplicate key update topic='123';"/utf8>>}
+    ),
     %% `values` in column name
     run_pi(
         <<"insert into PI.dbo.tags(tag_values,Timestamp) values (${tagvalues},${date}  )"/utf8>>,
@@ -81,7 +101,6 @@ t_parse_insert(_) ->
         {<<"insert into PI.dbo.tags(tag_value , Timestamp )"/utf8>>,
             <<"(${tagvalues},${date})"/utf8>>}
     ),
-
     run_pi(
         <<"inSErt  INTO  table75 (column1, column2, column3) values (${one}, ${two},${three})"/utf8>>,
         {<<"inSErt  INTO  table75 (column1, column2, column3)"/utf8>>,
@@ -162,14 +181,13 @@ t_parse_insert_failed(_) ->
     incorrect_insert("insert into (a,val)values(1,'val')").
 
 incorrect_insert(SQL) ->
-    ?assertEqual({error, <<"Not an INSERT statement or incorrect SQL syntax">>}, split_insert(SQL)),
-    ct:pal("SQL:~n~ts~n", [SQL]).
+    ct:pal("SQL:~n~ts~n", [SQL]),
+    ?assertEqual({error, <<"Not an INSERT statement or incorrect SQL syntax">>}, split_insert(SQL)).
 
 placeholders_not_allowed(SQL) ->
-    ?assertEqual({error, <<"Placeholders are only allowed in VALUES part">>}, split_insert(SQL)),
-    ct:pal("SQL:~n~ts~n", [SQL]).
+    ct:pal("SQL:~n~ts~n", [SQL]),
+    ?assertEqual({error, <<"Placeholders are only allowed in VALUES part">>}, split_insert(SQL)).
 
 run_pi(SQL, Expected) ->
-    {ok, Parsed} = split_insert(SQL),
-    ?assertEqual(Expected, Parsed),
-    ct:pal("SQL: ~ts~n", [SQL]).
+    ct:pal("SQL: ~ts~n", [SQL]),
+    ?assertEqual({ok, Expected}, split_insert(SQL)).

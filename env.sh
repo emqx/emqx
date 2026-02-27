@@ -1,7 +1,7 @@
 # https://github.com/emqx/emqx-builder
-export EMQX_BUILDER_VSN=6.0-9
-export OTP_VSN=28.2-2
-export ELIXIR_VSN=1.19.1
+export EMQX_BUILDER_VSN=6.0-12
+export OTP_VSN=27.3.4.2-6
+export ELIXIR_VSN=1.18.3
 export EMQX_BUILDER=ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-${OTP_VSN}-ubuntu24.04
 export EMQX_DOCKER_BUILD_FROM=ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-${OTP_VSN}-debian13
 export EMQX_DOCKER_RUN_FROM=debian:13-slim
