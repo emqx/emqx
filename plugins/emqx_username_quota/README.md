@@ -154,7 +154,7 @@ List all overrides. Returns `{"data": [{"username": "...", "quota": ...}, ...]}`
 
 ### Core-only snapshot ownership
 
-Snapshots are only built and owned by core nodes. Replicant nodes forward list requests to the leader core node (the lexicographically smallest core node in the cluster). This avoids redundant snapshot builds across the cluster.
+Snapshots are only built and served by core nodes. The `GET /quota/usernames` endpoint returns `404 NOT_AVAILABLE` when called on a replicant node. Direct list API requests to a core node.
 
 ### Blue/green snapshots
 

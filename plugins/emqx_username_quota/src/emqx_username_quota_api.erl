@@ -46,6 +46,12 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
                 <<"Server is busy building snapshot, please retry">>,
                 RetryCursor,
                 #{snapshot_build_in_progress => true}
+            );
+        {error, not_core_node} ->
+            error_response(
+                404,
+                <<"NOT_AVAILABLE">>,
+                <<"Snapshot is only available on core nodes">>
             )
     end;
 handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->

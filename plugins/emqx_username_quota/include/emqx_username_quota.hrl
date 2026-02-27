@@ -36,8 +36,10 @@
 -define(LOCK(Node), {emqx_username_quota_clear_node_lock, Node}).
 
 -record(?OVERRIDE_TAB, {
-    username,   %% binary
-    quota       %% non_neg_integer() | nolimit
+    %% binary
+    username,
+    %% non_neg_integer() | nolimit
+    quota
 }).
 
 -record(?RECORD_TAB, {

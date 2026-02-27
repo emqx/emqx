@@ -10,7 +10,7 @@ Uses blue/green ETS tables to avoid data gaps during rebuild. Snapshots are buil
 asynchronously in a spawned process. Cursors encode `{node, generation, used_gte, last_key}`
 so follow-up requests can be routed back to the same node and generation.
 
-Only core nodes own snapshots; replicants forward requests to the leader core node.
+Only core nodes own snapshots; replicant nodes receive a `not_core_node` error.
 """.
 
 -behaviour(gen_server).
@@ -20,7 +20,8 @@ Only core nodes own snapshots; replicants forward requests to the leader core no
     request_page/5,
     request_page_local/5,
     invalidate/0,
-    reset/0
+    reset/0,
+    builder_main/4
 ]).
 
 -export([
@@ -43,10 +44,8 @@ request_page(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
     case resolve_target(Cursor) of
         local ->
             request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
-        {forward_cursor, Node} ->
-            forward_or_invalid(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
-        {forward, Node} ->
-            forward_or_local(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte)
+        {error, _} = Err ->
+            Err
     end.
 
 request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
@@ -95,24 +94,13 @@ handle_call(_Req, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({build_complete, Pid}, State) ->
-    case maps:get(building, State) of
-        Pid -> {noreply, complete_build(State)};
-        _ -> {noreply, State}
-    end;
-handle_info({'EXIT', Pid, normal}, State) ->
-    case maps:get(building, State) of
-        Pid -> {noreply, clear_building(State)};
-        _ -> {noreply, State}
-    end;
-handle_info({'EXIT', Pid, Reason}, State) ->
-    case maps:get(building, State) of
-        Pid ->
-            logger:error(#{msg => "snapshot_builder_crashed", reason => Reason}),
-            {noreply, clear_building(State)};
-        _ ->
-            {noreply, State}
-    end;
+handle_info({build_complete, Pid}, #{building := Pid} = State) ->
+    {noreply, complete_build(State)};
+handle_info({'EXIT', Pid, normal}, #{building := Pid} = State) ->
+    {noreply, clear_building(State)};
+handle_info({'EXIT', Pid, Reason}, #{building := Pid} = State) ->
+    logger:error(#{msg => "snapshot_builder_crashed", reason => Reason}),
+    {noreply, clear_building(State)};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -127,51 +115,15 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 resolve_target(undefined) ->
-    resolve_target_no_cursor();
+    case is_core_node() of
+        true -> local;
+        false -> {error, not_core_node}
+    end;
 resolve_target(Cursor) ->
     case decode_cursor(Cursor) of
-        {ok, {RemoteNode, _, _, _}} when RemoteNode =/= node() ->
-            {forward_cursor, RemoteNode};
-        _ ->
-            local
-    end.
-
-resolve_target_no_cursor() ->
-    case is_core_node() of
-        true ->
-            local;
-        false ->
-            case leader_node() of
-                undefined -> local;
-                Leader -> {forward, Leader}
-            end
-    end.
-
-forward_or_invalid(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
-    case forward_to_node(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) of
-        {error, forward_failed} -> {error, invalid_cursor};
-        Result -> Result
-    end.
-
-forward_or_local(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
-    case forward_to_node(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) of
-        {error, forward_failed} ->
-            request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
-        Result ->
-            Result
-    end.
-
-forward_to_node(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
-    TimeoutMs = erlang:max(1, DeadlineMs - now_ms()),
-    try
-        gen_server:call(
-            {?SERVER, Node},
-            {request_page, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte},
-            TimeoutMs
-        )
-    catch
-        exit:{timeout, _} -> {error, forward_failed};
-        exit:_ -> {error, forward_failed}
+        {ok, {Node, _, _, _}} when Node =:= node() -> local;
+        {ok, _} -> {error, invalid_cursor};
+        error -> {error, invalid_cursor}
     end.
 
 %%--------------------------------------------------------------------
@@ -267,17 +219,17 @@ start_build(State, UsedGte) ->
     InactiveColor = inactive_color(maps:get(current, State)),
     InactiveTab = color_to_tab(InactiveColor),
     ets:delete_all_objects(InactiveTab),
-    Owner = self(),
     YieldInterval = ?SNAPSHOT_BUILD_YIELD_INTERVAL,
-    BuilderPid = spawn_link(fun() ->
-        ok = emqx_username_quota_state:build_snapshot_into(InactiveTab, UsedGte, YieldInterval),
-        Owner ! {build_complete, self()}
-    end),
+    BuilderPid = spawn_link(?MODULE, builder_main, [self(), InactiveTab, UsedGte, YieldInterval]),
     State#{
         building => BuilderPid,
         building_color => InactiveColor,
         building_used_gte => UsedGte
     }.
+
+builder_main(Owner, Tab, UsedGte, YieldInterval) ->
+    ok = emqx_username_quota_state:build_snapshot_into(Tab, UsedGte, YieldInterval),
+    Owner ! {build_complete, self()}.
 
 complete_build(State) ->
     NewColor = maps:get(building_color, State),
@@ -350,12 +302,6 @@ ensure_table(Tab) ->
 is_core_node() ->
     mria_rlog:role() =:= core.
 
-leader_node() ->
-    case lists:sort(mria:cluster_nodes(cores)) of
-        [Leader | _] -> Leader;
-        [] -> undefined
-    end.
-
 now_ms() ->
     erlang:system_time(millisecond).
 
@@ -364,14 +310,16 @@ now_ms() ->
 %%--------------------------------------------------------------------
 
 encode_cursor(Node, Generation, UsedGte, LastKey) ->
-    base64:encode(term_to_binary({Node, Generation, UsedGte, LastKey})).
+    base64:encode(term_to_binary({Node, Generation, UsedGte, LastKey}), #{
+        mode => urlsafe, padding => false
+    }).
 
 decode_cursor(undefined) ->
     error;
 decode_cursor(Cursor) when is_list(Cursor) ->
     decode_cursor(iolist_to_binary(Cursor));
 decode_cursor(Cursor) when is_binary(Cursor) ->
-    try binary_to_term(base64:decode(Cursor), [safe]) of
+    try binary_to_term(base64:decode(Cursor, #{mode => urlsafe, padding => false}), [safe]) of
         {Node, Generation, UsedGte, {Counter, Username} = LastKey} when
             is_atom(Node),
             is_integer(Generation),
