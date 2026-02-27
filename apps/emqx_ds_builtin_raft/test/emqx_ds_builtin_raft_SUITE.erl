@@ -748,80 +748,74 @@ t_rebalance_tolerate_lost(init, Config) ->
         ],
         #{work_dir => ?config(work_dir, Config)}
     ),
-    ok = snabbkaffe:start_trace(),
-    [{nodespecs, Specs} | Config];
-t_rebalance_tolerate_lost('end', _Config) ->
-    ok = snabbkaffe:stop().
+    Nodes = emqx_cth_cluster:start(Specs),
+    [{nodes, Nodes}, {nodespecs, Specs} | Config];
+t_rebalance_tolerate_lost('end', Config) ->
+    ok = emqx_cth_cluster:stop(?config(nodes, Config)).
 
 %% This testcase verifies that rebalancing can conclude if there are shards
 %% with replicas residing exclusively on nodes that left the cluster (w/o
 %% handing the data off first).
 t_rebalance_tolerate_lost(Config) ->
-    [NS1, NS2, NS3] = ?config(nodespecs, Config),
-    MsgStream = emqx_ds_test_helpers:topic_messages(?FUNCTION_NAME, <<"C1">>),
-
-    AppendOpts = #{db => ?DB, retries => 5},
-
-    %% Start and initialize DB on a first node.
-    %% The same usually happens with current defaults.
-    [N1] = emqx_cth_cluster:start([NS1]),
-    Opts = opts(Config, #{
-        n_shards => 4, n_sites => 1, replication_factor => 3, payload_type => ?ds_pt_mqtt
-    }),
-    emqx_ds_raft_test_helpers:assert_db_open([N1], ?DB, Opts),
-
-    %% Start and initialize DB on rest of the nodes.
-    [N2, N3] = emqx_cth_cluster:start([NS2, NS3]),
-    emqx_ds_raft_test_helpers:assert_db_open([N2, N3], ?DB, Opts),
+    Nodes = [N1 | NodesAlive = [N2, N3]] = ?config(nodes, Config),
+    NMsgs = 10,
+    {MsgStream, TopicStreams} =
+        emqx_ds_test_helpers:interleaved_topic_messages(?FUNCTION_NAME, 10, NMsgs),
 
     %% Find out which sites are there.
-    Nodes = [N1, N2, N3],
     Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
     ct:pal("Sites: ~p", [Sites]),
 
-    ct:pal("DS Status [healthy cluster]:", []),
-    ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Start and initialize DB.
+            Opts = opts(Config, #{n_shards => 8, n_sites => 1, replication_factor => 3}),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
 
-    %% Shut down N1 and then make it leave the cluster.
-    %% This will lead to a situation when DB is residing on out-of-cluster nodes only.
-    ok = emqx_cth_cluster:stop_node(N1),
-    _ = ?retry(200, 5, [N2, N3] = ?ON(N2, mria:cluster_nodes(running))),
-    ok = ?ON(N2, emqx_cluster:force_leave(N1)),
-    ok = timer:sleep(1_000),
+            %% Make S1 exclusively responsible for all data.
+            {ok, _} = ds_repl_meta(N1, assign_db_sites, [?DB, [S1]]),
+            ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+            ?assertEqual([S1], ds_repl_meta(N2, db_sites, [?DB])),
+            ?assertEqual([8, 0, 0], [n_shards_online(N, ?DB) || N <- Nodes]),
 
-    ct:pal("DS Status [lost node holding the data]:", []),
-    ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
+            %% Shut down N1 and then make it leave the cluster.
+            %% This will lead to a situation when DB is residing on out-of-cluster nodes only.
+            ok = emqx_cth_cluster:stop_node(N1),
+            ?retry(200, 5, ?assertSameSet(NodesAlive, ?ON(N2, mria:cluster_nodes(running)))),
+            ok = ?ON(N2, emqx_cluster:force_leave(N1)),
+            ?retry(200, 5, ?assertSameSet(NodesAlive, ?ON(N2, mria:cluster_nodes(cores)))),
 
-    %% Attempt to forget S1 should fail.
-    ?assertEqual(
-        {error, {member_of_replica_sets, [?DB]}},
-        ?ON(N2, emqx_ds_builtin_raft_meta:forget_site(S1))
-    ),
+            %% Attempt to forget S1 should fail.
+            ?assertEqual(
+                {error, {member_of_replica_sets, [?DB]}},
+                ?ON(N2, emqx_ds_builtin_raft_meta:forget_site(S1))
+            ),
 
-    %% Now turn S2 and S3 into members of DB replica set, excluding S1 in effect.
-    {ok, _} = ds_repl_meta(N2, assign_db_sites, [?DB, [S2, S3]]),
-    ct:pal("DS Status [rebalancing planned]:", []),
-    ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
+            %% Now turn S2 and S3 into members of DB replica set, excluding S1 in effect.
+            {ok, _} = ds_repl_meta(N2, assign_db_sites, [?DB, [S2, S3]]),
+            ct:pal("DS Status [lost node rebalancing]:", []),
+            ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
 
-    %% Target state should still be reached eventually.
-    ?ON(N2, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
-    ?assertEqual(lists:sort([S2, S3]), ds_repl_meta(N2, db_sites, [?DB])),
+            %% Target state should still be reached eventually.
+            ?ON(N2, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+            ?assertSameSet([S2, S3], ds_repl_meta(N2, db_sites, [?DB])),
+            ?assertEqual([8, 8], [n_shards_online(N, ?DB) || N <- NodesAlive]),
 
-    ct:pal("DS Status [rebalancing concluded]:", []),
-    ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
+            %% Messages can now again be persisted successfully.
+            ?assertEqual(ok, emqx_ds_raft_test_helpers:apply_stream(?DB, NodesAlive, MsgStream)),
+            emqx_ds_raft_test_helpers:verify_stream_effects(
+                ?DB, ?FUNCTION_NAME, NodesAlive, TopicStreams
+            ),
 
-    %% Messages can now again be persisted successfully.
-    {Msgs1, MsgStream1} = emqx_utils_stream:consume(50, MsgStream),
-    {Msgs2, _MsgStream} = emqx_utils_stream:consume(50, MsgStream1),
-    ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs1))),
-    ?assertEqual(ok, ?ON(N3, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs2))),
-    MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
-    ok = emqx_ds_test_helpers:diff_messages(Msgs1 ++ Msgs2, MsgsPersisted),
-
-    %% Attempt to forget S1 should now succeed.
-    ?assertEqual(ok, ?ON(N2, emqx_ds_builtin_raft_meta:forget_site(S1))),
-
-    ok = emqx_cth_cluster:stop(Nodes).
+            %% Attempt to forget S1 should now succeed.
+            ?assertEqual(ok, ?ON(N2, emqx_ds_builtin_raft_meta:forget_site(S1)))
+        end,
+        [
+            check_no_transition_crashes(),
+            check_membership_consistent(?DB, [N2, N3])
+        ]
+    ).
 
 t_rebalance_tolerate_permanently_lost_quorum(init, Config) ->
     Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
