@@ -405,8 +405,8 @@ force_forget_server(Server, ShardServers = [_ | _]) ->
             %% Find the highest-index-term server among known servers.
             {_, _, Candidate} = lists:last(
                 lists:sort([
-                    {ra_last_written_index_term(O), Node =:= node(), S}
-                 || {S = {_, Node}, O} <- Overviews
+                    {ra_last_written_index_term(O), ra_is_leader(O), S}
+                 || {S, O} <- Overviews
                 ])
             ),
             Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
@@ -448,6 +448,11 @@ ra_last_written_index_term(Overview) ->
         _ ->
             {-1, -1}
     end.
+
+ra_is_leader(#{id := Server, leader_id := Server}) ->
+    true;
+ra_is_leader(#{}) ->
+    false.
 
 -spec server_metrics(server()) ->
     #{atom() => integer()} | undefined.
