@@ -698,45 +698,44 @@ t_rebalance_offline_restarts('end', Config) ->
 t_rebalance_offline_restarts(Config) ->
     %% This testcase verifies that rebalancing progresses if nodes restart or
     %% go offline and never come back.
-    ok = snabbkaffe:start_trace(),
-
     Nodes = [N1, N2, N3] = ?config(nodes, Config),
     _Specs = [NS1, NS2, _] = ?config(nodespecs, Config),
 
-    %% Initialize DB on all 3 nodes.
-    Opts = opts(Config, #{n_shards => 8, n_sites => 3, replication_factor => 3}),
-    emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+    ?check_trace(
+        #{timetrap => 30_000},
+        begin
+            %% Initialize DB on all 3 nodes.
+            Opts = opts(Config, #{n_shards => 8, n_sites => 3, replication_factor => 3}),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+            ?assertEqual([8 || _ <- Nodes], [n_shards_online(N, ?DB) || N <- Nodes]),
 
-    ?retry(
-        1000,
-        5,
-        ?assertEqual([8 || _ <- Nodes], [n_shards_online(N, ?DB) || N <- Nodes])
-    ),
+            %% Find out which sites are there.
+            Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
+            ct:pal("Sites: ~p~n", [Sites]),
 
-    %% Find out which sites are there.
-    Sites = [S1, S2, S3] = [ds_repl_meta(N, this_site) || N <- Nodes],
-    ct:pal("Sites: ~p~n", [Sites]),
+            %% Shut down N3 and then remove it from the DB.
+            ok = emqx_cth_cluster:stop_node(N3),
+            ?assertMatch({ok, _}, ds_repl_meta(N1, leave_db_site, [?DB, S3])),
+            ct:pal("Transitions: ~p~n", [?ON(N1, emqx_ds_raft_test_helpers:db_transitions(?DB))]),
 
-    %% Shut down N3 and then remove it from the DB.
-    ok = emqx_cth_cluster:stop_node(N3),
-    ?assertMatch({ok, _}, ds_repl_meta(N1, leave_db_site, [?DB, S3])),
-    Transitions = ?ON(N1, emqx_ds_raft_test_helpers:db_transitions(?DB)),
-    ct:pal("Transitions: ~p~n", [Transitions]),
+            %% Wait until at least one transition completes.
+            ?block_until(#{?snk_kind := dsrepl_shard_transition_end}),
 
-    %% Wait until at least one transition completes.
-    ?block_until(#{?snk_kind := dsrepl_shard_transition_end}),
+            %% Restart N1 and N2.
+            [N1] = emqx_cth_cluster:restart(NS1),
+            [N2] = emqx_cth_cluster:restart(NS2),
+            ?assertEqual([ok, ok], ?ON([N1, N2], emqx_ds:open_db(?DB, Opts))),
 
-    %% Restart N1 and N2.
-    [N1] = emqx_cth_cluster:restart(NS1),
-    [N2] = emqx_cth_cluster:restart(NS2),
-    ?assertEqual(
-        [{ok, ok}, {ok, ok}],
-        erpc:multicall([N1, N2], emqx_ds, open_db, [?DB, Opts])
-    ),
-
-    %% Target state should still be reached eventually.
-    ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
-    ?assertEqual(lists:sort([S1, S2]), ds_repl_meta(N1, db_sites, [?DB])).
+            %% Target state should still be reached eventually.
+            ?ON([N1, N2], emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
+            ?ON([N1, N2], emqx_ds_builtin_raft:wait_replicas(?DB, infinity)),
+            ?assertEqual(lists:sort([S1, S2]), ds_repl_meta(N1, db_sites, [?DB]))
+        end,
+        [
+            check_no_transition_crashes(),
+            check_membership_consistent(?DB, [N1, N2])
+        ]
+    ).
 
 t_rebalance_tolerate_lost(init, Config) ->
     Apps = [appspec(emqx_durable_storage), appspec(emqx_ds_builtin_raft)],
