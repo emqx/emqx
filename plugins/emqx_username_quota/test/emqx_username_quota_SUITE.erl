@@ -216,6 +216,29 @@ t_api_overrides_crud(_Config) ->
     ?assertEqual(1, length(Remaining)),
     ?assertMatch([#{username := <<"u2">>, quota := nolimit}], Remaining).
 
+t_list_overrides_ordered(_Config) ->
+    {ok, 3} = emqx_username_quota_state:set_overrides([
+        #{<<"username">> => <<"charlie">>, <<"quota">> => 10},
+        #{<<"username">> => <<"alice">>, <<"quota">> => 20},
+        #{<<"username">> => <<"bob">>, <<"quota">> => <<"nolimit">>}
+    ]),
+    Result = emqx_username_quota_state:list_overrides(),
+    ?assertEqual(3, length(Result)),
+    %% ordered_set guarantees username-sorted order
+    ?assertMatch(
+        [
+            #{username := <<"alice">>, quota := 20},
+            #{username := <<"bob">>, quota := nolimit},
+            #{username := <<"charlie">>, quota := 10}
+        ],
+        Result
+    ),
+    %% Clean up
+    {ok, 3} = emqx_username_quota_state:delete_overrides(
+        [<<"alice">>, <<"bob">>, <<"charlie">>]
+    ),
+    ?assertEqual([], emqx_username_quota_state:list_overrides()).
+
 t_api_overrides_validation(_Config) ->
     %% Invalid: missing quota
     {error, 400, _, _} = emqx_username_quota_api:handle(

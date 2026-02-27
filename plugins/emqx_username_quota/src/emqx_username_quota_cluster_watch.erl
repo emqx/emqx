@@ -105,63 +105,89 @@ code_change(_OldVsn, State, _Extra) ->
 
 bootstrap_local_sessions() ->
     Stream = emqx_cm:all_channels_stream([emqx_connection, emqx_ws_connection]),
-    bootstrap_loop(Stream, 0, 0, undefined).
+    try
+        bootstrap_loop(Stream, 0, 0, 0)
+    after
+        cleanup_repl_watermark()
+    end.
 
-%% @doc Iterate the channel stream in batches of ?BOOTSTRAP_BATCH_SIZE.
-%% After each batch, wait for the last written record to be replicated
-%% back to the local RECORD_TAB before continuing. This prevents
-%% overloading core nodes with a storm of dirty writes from replicants.
-bootstrap_loop(Stream, Count, BatchCount, LastKey) ->
+-doc """
+Iterate the channel stream in batches of ?BOOTSTRAP_BATCH_SIZE.
+After each batch, write a replication watermark to COUNTER_TAB and wait
+for it to appear locally. This confirms the replication pipeline has
+caught up without depending on any specific session record (which could
+be deleted by a concurrent client disconnect).
+""".
+bootstrap_loop(Stream, Count, BatchCount, BatchSeq) ->
     case emqx_utils_stream:next(Stream) of
         [] ->
-            %% Stream exhausted — wait for final batch if needed
-            case wait_for_replication(LastKey) of
-                ok -> {ok, Count};
-                timeout -> {error, replication_timeout, Count}
+            %% Stream exhausted — wait for final partial batch if needed
+            case BatchCount > 0 of
+                true ->
+                    case wait_for_replication(BatchSeq + 1) of
+                        ok -> {ok, Count};
+                        timeout -> {error, replication_timeout, Count}
+                    end;
+                false ->
+                    {ok, Count}
             end;
         [{ClientId, ChanPid, _ConnState, _ConnInfo, ClientInfo} | Rest] ->
             Username = emqx_utils_conv:bin(maps:get(username, ClientInfo, <<>>)),
             ClientIdBin = emqx_utils_conv:bin(ClientId),
             case Username =:= <<>> orelse ClientIdBin =:= <<>> of
                 true ->
-                    bootstrap_loop(Rest, Count, BatchCount, LastKey);
+                    bootstrap_loop(Rest, Count, BatchCount, BatchSeq);
                 false ->
                     emqx_username_quota_pool:add(Username, ClientIdBin, ChanPid),
-                    NewKey = ?RECORD_KEY(Username, ClientIdBin, ChanPid),
                     NewCount = Count + 1,
                     NewBatchCount = BatchCount + 1,
                     case NewBatchCount >= ?BOOTSTRAP_BATCH_SIZE of
                         true ->
-                            case wait_for_replication(NewKey) of
+                            NewBatchSeq = BatchSeq + 1,
+                            case wait_for_replication(NewBatchSeq) of
                                 ok ->
-                                    bootstrap_loop(Rest, NewCount, 0, undefined);
+                                    bootstrap_loop(Rest, NewCount, 0, NewBatchSeq);
                                 timeout ->
                                     {error, replication_timeout, NewCount}
                             end;
                         false ->
-                            bootstrap_loop(Rest, NewCount, NewBatchCount, NewKey)
+                            bootstrap_loop(Rest, NewCount, NewBatchCount, BatchSeq)
                     end
             end
     end.
 
-wait_for_replication(undefined) ->
-    ok;
-wait_for_replication(Key) ->
-    Deadline = erlang:monotonic_time(millisecond) + ?BOOTSTRAP_REPL_TIMEOUT_MS,
-    wait_for_replication(Key, Deadline).
+-define(REPL_WATERMARK_KEY, {<<"$repl_watermark$">>, node()}).
 
-wait_for_replication(Key, Deadline) ->
-    case ets:lookup(?RECORD_TAB, Key) of
-        [_ | _] ->
+-doc """
+Write a monotonically increasing watermark to COUNTER_TAB and wait for it
+to appear in the local ETS replica. Unlike polling for a specific session
+record, this watermark key is never touched by client disconnect hooks,
+so it cannot be deleted out from under the poll loop.
+""".
+wait_for_replication(BatchSeq) ->
+    mria:dirty_write(?COUNTER_TAB, #?COUNTER_TAB{key = ?REPL_WATERMARK_KEY, count = BatchSeq}),
+    Deadline = erlang:monotonic_time(millisecond) + ?BOOTSTRAP_REPL_TIMEOUT_MS,
+    poll_watermark(BatchSeq, Deadline).
+
+poll_watermark(BatchSeq, Deadline) ->
+    case ets:lookup(?COUNTER_TAB, ?REPL_WATERMARK_KEY) of
+        [#?COUNTER_TAB{count = N}] when N >= BatchSeq ->
             ok;
-        [] ->
+        _ ->
             case erlang:monotonic_time(millisecond) < Deadline of
                 true ->
                     timer:sleep(?BOOTSTRAP_REPL_POLL_INTERVAL_MS),
-                    wait_for_replication(Key, Deadline);
+                    poll_watermark(BatchSeq, Deadline);
                 false ->
                     timeout
             end
+    end.
+
+cleanup_repl_watermark() ->
+    try
+        mria:dirty_delete(?COUNTER_TAB, ?REPL_WATERMARK_KEY)
+    catch
+        _:_ -> ok
     end.
 
 clear_node_delay_ms(Node) ->

@@ -27,10 +27,12 @@
 
 -include("emqx_username_quota.hrl").
 
-%% @doc Create the two core Mria tables used by username quota state.
-%% ?RECORD_TAB stores one row per active session, keyed by {Username, ClientId, Pid}.
-%% ?COUNTER_TAB stores per-node counters, keyed by {Username, Node};
-%% global count per username is derived by summing all node counters.
+-doc """
+Create the two core Mria tables used by username quota state.
+?RECORD_TAB stores one row per active session, keyed by {Username, ClientId, Pid}.
+?COUNTER_TAB stores per-node counters, keyed by {Username, Node};
+global count per username is derived by summing all node counters.
+""".
 create_tables() ->
     ok = mria:create_table(?RECORD_TAB, [
         {type, ordered_set},
@@ -45,7 +47,7 @@ create_tables() ->
         {attributes, record_info(fields, ?COUNTER_TAB)}
     ]),
     ok = mria:create_table(?OVERRIDE_TAB, [
-        {type, set},
+        {type, ordered_set},
         {rlog_shard, ?DB_SHARD},
         {storage, disc_copies},
         {attributes, record_info(fields, ?OVERRIDE_TAB)}
@@ -159,8 +161,10 @@ reset() ->
         end,
     ok.
 
-%% @doc Batch upsert per-username quota overrides.
-%% Each entry: #{<<"username">> => binary(), <<"quota">> => non_neg_integer() | <<"nolimit">>}
+-doc """
+Batch upsert per-username quota overrides.
+Each entry: #{<<"username">> => binary(), <<"quota">> => non_neg_integer() | <<"nolimit">>}
+""".
 set_overrides(List) when is_list(List) ->
     Records = lists:map(fun parse_override_entry/1, List),
     {atomic, ok} = mria:transaction(?DB_SHARD, fun() ->
@@ -168,14 +172,14 @@ set_overrides(List) when is_list(List) ->
     end),
     {ok, length(Records)}.
 
-%% @doc Look up a single override.
+-doc "Look up a single override.".
 get_override(Username) ->
     case mnesia:dirty_read(?OVERRIDE_TAB, Username) of
         [#?OVERRIDE_TAB{quota = Quota}] -> {ok, Quota};
         [] -> undefined
     end.
 
-%% @doc Batch delete overrides by username list.
+-doc "Batch delete overrides by username list.".
 delete_overrides(Usernames) when is_list(Usernames) ->
     N = length(Usernames),
     {atomic, ok} = mria:transaction(?DB_SHARD, fun() ->
@@ -183,12 +187,12 @@ delete_overrides(Usernames) when is_list(Usernames) ->
     end),
     {ok, N}.
 
-%% @doc List all overrides.
+-doc "List all overrides.".
 list_overrides() ->
     Records = mnesia:dirty_select(?OVERRIDE_TAB, [{'_', [], ['$_']}]),
     [#{username => U, quota => Q} || #?OVERRIDE_TAB{username = U, quota = Q} <- Records].
 
-%% @doc Get the effective limit for a username: override if present, else global config.
+-doc "Get the effective limit for a username: override if present, else global config.".
 get_effective_limit(Username) ->
     case get_override(Username) of
         {ok, Quota} -> Quota;
@@ -202,7 +206,7 @@ fold_username_counts(Fun, Acc0) when is_function(Fun, 3) ->
     true = ets:delete(TmpTab),
     Acc.
 
-%% @doc Build snapshot into TargetTab, filtering by UsedGte, yielding every YieldInterval inserts.
+-doc "Build snapshot into TargetTab, filtering by UsedGte, yielding every YieldInterval inserts.".
 build_snapshot_into(TargetTab, UsedGte, YieldInterval) ->
     TmpTab = ets:new(snapshot_build_tmp, [set]),
     try
