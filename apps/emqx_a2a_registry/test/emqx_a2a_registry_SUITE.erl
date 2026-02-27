@@ -111,7 +111,7 @@ init_per_testcase(_TestCase, TCConfig) ->
 
 end_per_testcase(_TestCase, _TCConfig) ->
     snabbkaffe:stop(),
-    clear_all_cards(),
+    emqx_a2a_registry_cth:clear_all_cards(),
     emqx_common_test_helpers:call_janitor(),
     ok.
 
@@ -119,63 +119,22 @@ end_per_testcase(_TestCase, _TCConfig) ->
 %% Helper fns
 %%------------------------------------------------------------------------------
 
-clear_all_cards() ->
-    emqx_retainer:clean(),
-    ok.
-
 card_count() ->
-    emqx_retainer:with_backend(fun(Mod, State) ->
-        {ok, Msgs, undefined} = Mod:match_messages(
-            State,
-            discovery_topic(<<"+">>, <<"+">>, <<"+">>),
-            undefined,
-            #{batch_read_number => all_remaining}
-        ),
-        length(Msgs)
-    end).
-
-sample_card() ->
-    #{
-        <<"name">> => <<"some_agent">>,
-        <<"description">> => <<"description">>,
-        <<"version">> => <<"1">>,
-        <<"url">> => <<"http://httbin.org/get">>,
-        <<"skills">> => []
-    }.
+    emqx_a2a_registry_cth:card_count().
 
 sample_card_bin() ->
-    emqx_utils_json:encode(sample_card()).
+    emqx_utils_json:encode(emqx_a2a_registry_cth:sample_card()).
 
 start_client(Overrides) ->
-    Defaults = #{
-        proto_ver => v5,
-        clean_start => true,
-        properties => #{'Session-Expiry-Interval' => 30}
-    },
-    Opts = emqx_utils_maps:deep_merge(Defaults, Overrides),
-    {ok, C} = emqtt:start_link(Opts),
-    on_exit(fun() -> catch emqtt:stop(C) end),
-    {ok, _} = emqtt:connect(C),
-    C.
+    emqx_a2a_registry_cth:start_client(Overrides).
 
 get_config(K, TCConfig) -> emqx_bridge_v2_testlib:get_value(K, TCConfig).
 
 discovery_topic(OrgId, UnitId, AgentId) ->
-    emqx_topic:join([
-        ?A2A_TOPIC_NS,
-        ?A2A_TOPIC_V1,
-        ?A2A_TOPIC_DISCOVERY,
-        OrgId,
-        UnitId,
-        AgentId
-    ]).
+    emqx_a2a_registry:discovery_topic(OrgId, UnitId, AgentId).
 
 agent_clientid(OrgId, UnitId, AgentId) ->
-    emqx_topic:join([
-        OrgId,
-        UnitId,
-        AgentId
-    ]).
+    emqx_a2a_registry_cth:agent_clientid(OrgId, UnitId, AgentId).
 
 publish_card(C, OrgId, UnitId, AgentId, Card) ->
     emqtt:publish(
