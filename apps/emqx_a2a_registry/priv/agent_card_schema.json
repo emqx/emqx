@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-06/schema#",
+  "title": "A2A Agent Card",
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "version",
+    "url",
+    "skills"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Human-readable name of the agent"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of the agent’s purpose and capabilities"
+    },
+    "version": {
+      "type": "string",
+      "description": "Version of the agent implementation (e.g., semver)"
+    },
+    "url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Base endpoint URL where the A2A service is reachable"
+    },
+    "protocol_version": {
+      "type": "string",
+      "description": "The A2A protocol version supported by this agent"
+    },
+    "preferred_transport": {
+      "type": "string",
+      "description": "Preferred communication transport (e.g., JSONRPC, HTTP, gRPC)"
+    },
+    "capabilities": {
+      "type": "object",
+      "description": "Agent-wide supported capabilities/features",
+      "properties": {
+        "streaming": { "type": "boolean" },
+        "pushNotifications": { "type": "boolean" },
+        "extendedAgentCard": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "defaultInputModes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Default MIME input types accepted by this agent"
+    },
+    "defaultOutputModes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Default MIME output types produced by this agent"
+    },
+    "provider": {
+      "type": "object",
+      "description": "Information about the agent provider organization",
+      "properties": {
+        "organization": { "type": "string" },
+        "url": { "type": "string", "format": "uri" },
+        "contactEmail": { "type": "string", "format": "email" }
+      },
+      "additionalProperties": true
+    },
+    "documentationUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL to human-readable documentation for the agent"
+    },
+    "iconUrl": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of an optional icon representing the agent"
+    },
+    "skills": {
+      "type": "array",
+      "description": "List of skills/capabilities exposed by this agent",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "description"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique skill identifier within the agent"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable skill name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of what this skill does"
+          },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "examples": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "inputModes": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "outputModes": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional free-form metadata for extensions",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
