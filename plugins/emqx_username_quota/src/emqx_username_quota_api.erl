@@ -12,48 +12,41 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
     Limit = get_pos_int(Query, <<"limit">>, ?DEFAULT_LIMIT),
     Cursor = get_cursor(Query),
     UsedGte0 = get_used_gte(Query),
-    case validate_used_gte_cursor(UsedGte0, Cursor) of
+    maybe
+        {ok, UsedGte} ?= validate_used_gte_cursor(UsedGte0, Cursor),
+        TimeoutMs = emqx_username_quota_config:snapshot_request_timeout_ms(),
+        DeadlineMs = now_ms() + TimeoutMs,
+        {ok, PageResult} ?=
+            emqx_username_quota_state:list_usernames(self(), DeadlineMs, Cursor, Limit, UsedGte),
+        Data = maps:get(data, PageResult, []),
+        {ok, 200, #{}, #{data => Data, meta => build_meta(Limit, Data, PageResult)}}
+    else
         {error, missing_used_gte} ->
-            {error, 400, #{}, #{
-                code => <<"BAD_REQUEST">>,
-                message => <<"'used_gte' query parameter is required when no cursor is provided">>
-            }};
+            error_response(
+                400,
+                <<"BAD_REQUEST">>,
+                <<"'used_gte' query parameter is required when no cursor is provided">>
+            );
         {error, used_gte_with_cursor} ->
-            {error, 400, #{}, #{
-                code => <<"BAD_REQUEST">>,
-                message => <<"'used_gte' must not be provided together with 'cursor'">>
-            }};
-        {ok, UsedGte} ->
-            TimeoutMs = emqx_username_quota_config:snapshot_request_timeout_ms(),
-            DeadlineMs = now_ms() + TimeoutMs,
-            case
-                emqx_username_quota_state:list_usernames(self(), DeadlineMs, Cursor, Limit, UsedGte)
-            of
-                {ok, PageResult} ->
-                    Data = maps:get(data, PageResult, []),
-                    {ok, 200, #{}, #{
-                        data => Data,
-                        meta => build_meta(Limit, Data, PageResult)
-                    }};
-                {error, invalid_cursor} ->
-                    {error, 400, #{}, #{
-                        code => <<"INVALID_CURSOR">>,
-                        message => <<"Cursor is invalid or references an unavailable node">>
-                    }};
-                {error, {busy, RetryCursor}} ->
-                    {error, 503, #{}, #{
-                        code => <<"SERVICE_UNAVAILABLE">>,
-                        message => <<"Server is busy, please retry">>,
-                        retry_cursor => RetryCursor
-                    }};
-                {error, {rebuilding_snapshot, RetryCursor}} ->
-                    {error, 503, #{}, #{
-                        code => <<"SERVICE_UNAVAILABLE">>,
-                        message => <<"Server is busy building snapshot, please retry">>,
-                        snapshot_build_in_progress => true,
-                        retry_cursor => RetryCursor
-                    }}
-            end
+            error_response(
+                400,
+                <<"BAD_REQUEST">>,
+                <<"'used_gte' must not be provided together with 'cursor'">>
+            );
+        {error, invalid_cursor} ->
+            error_response(
+                400,
+                <<"INVALID_CURSOR">>,
+                <<"Cursor is invalid or references an unavailable node">>
+            );
+        {error, {busy, RetryCursor}} ->
+            error_response_503(<<"Server is busy, please retry">>, RetryCursor, #{});
+        {error, {rebuilding_snapshot, RetryCursor}} ->
+            error_response_503(
+                <<"Server is busy building snapshot, please retry">>,
+                RetryCursor,
+                #{snapshot_build_in_progress => true}
+            )
     end;
 handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
     case emqx_username_quota_state:get_username(Username0) of
@@ -188,3 +181,14 @@ validate_username_list(List) when is_list(List) ->
     end;
 validate_username_list(_) ->
     {error, <<"Expected a JSON array">>}.
+
+error_response(StatusCode, Code, Message) ->
+    {error, StatusCode, #{}, #{code => Code, message => Message}}.
+
+error_response_503(Message, RetryCursor, Extra) ->
+    Body = Extra#{
+        code => <<"SERVICE_UNAVAILABLE">>,
+        message => Message,
+        retry_cursor => RetryCursor
+    },
+    {error, 503, #{}, Body}.

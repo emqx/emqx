@@ -40,41 +40,13 @@ start_link() ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
 
 request_page(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
-    case decode_cursor(Cursor) of
-        {ok, {RemoteNode, _Generation, _UsedGte, _LastKey}} when RemoteNode =/= node() ->
-            case forward_to_node(RemoteNode, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) of
-                {error, forward_failed} ->
-                    {error, invalid_cursor};
-                Result ->
-                    Result
-            end;
-        _ when Cursor =/= undefined ->
-            %% Cursor present but decodes to local or old format — try local
+    case resolve_target(Cursor) of
+        local ->
             request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
-        _ ->
-            %% No cursor: route to leader if not core
-            case is_core_node() of
-                true ->
-                    request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
-                false ->
-                    case leader_node() of
-                        undefined ->
-                            request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
-                        Leader ->
-                            case
-                                forward_to_node(
-                                    Leader, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte
-                                )
-                            of
-                                {error, forward_failed} ->
-                                    request_page_local(
-                                        RequesterPid, DeadlineMs, Cursor, Limit, UsedGte
-                                    );
-                                Result ->
-                                    Result
-                            end
-                    end
-            end
+        {forward_cursor, Node} ->
+            forward_or_invalid(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
+        {forward, Node} ->
+            forward_or_local(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte)
     end.
 
 request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
@@ -86,10 +58,8 @@ request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
             TimeoutMs
         )
     catch
-        exit:{timeout, _} ->
-            {error, {busy, pseudo_cursor(node())}};
-        exit:{noproc, _} ->
-            {error, {rebuilding_snapshot, pseudo_cursor(node())}}
+        exit:{timeout, _} -> {error, {busy, pseudo_cursor(node())}};
+        exit:{noproc, _} -> {error, {rebuilding_snapshot, pseudo_cursor(node())}}
     end.
 
 invalidate() ->
@@ -99,8 +69,7 @@ reset() ->
     try gen_server:call(?SERVER, reset, infinity) of
         ok -> ok
     catch
-        exit:_ ->
-            ok
+        exit:_ -> ok
     end.
 
 init([]) ->
@@ -109,33 +78,16 @@ init([]) ->
     {ok, initial_state()}.
 
 handle_call(reset, _From, State) ->
-    NewState = do_reset(State),
-    {reply, ok, NewState};
+    {reply, ok, do_reset(State)};
 handle_call(invalidate, _From, State0) ->
-    State = maybe_start_build(State0),
-    {reply, ok, State};
-handle_call(
-    {request_page, _RequesterPid, DeadlineMs, Cursor, Limit, UsedGte},
-    _From,
-    State0
-) ->
-    case DeadlineMs =< now_ms() of
-        true ->
-            {reply, {error, {rebuilding_snapshot, pseudo_cursor(node())}}, State0};
+    {reply, ok, maybe_start_build(State0)};
+handle_call({request_page, _RequesterPid, DeadlineMs, Cursor, Limit, UsedGte}, _From, State0) ->
+    case deadline_ok(DeadlineMs) of
         false ->
+            {reply, rebuilding_reply(), State0};
+        true ->
             State = maybe_trigger_rebuild(State0, UsedGte),
-            case maps:get(current, State) of
-                undefined ->
-                    %% No snapshot yet, must be building
-                    {reply, {error, {rebuilding_snapshot, pseudo_cursor(node())}}, State};
-                _Color ->
-                    case DeadlineMs =< now_ms() of
-                        true ->
-                            {reply, {error, {rebuilding_snapshot, pseudo_cursor(node())}}, State};
-                        false ->
-                            {reply, {ok, page_snapshot(State, Cursor, Limit)}, State}
-                    end
-            end
+            {reply, serve_snapshot(DeadlineMs, Cursor, Limit, State), State}
     end;
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
@@ -145,49 +97,19 @@ handle_cast(_Msg, State) ->
 
 handle_info({build_complete, Pid}, State) ->
     case maps:get(building, State) of
-        Pid ->
-            NewColor = maps:get(building_color, State),
-            OldColor = maps:get(current, State),
-            %% Clear old table if there was one
-            ok = maybe_clear_table(OldColor),
-            {noreply, State#{
-                current => NewColor,
-                generation => maps:get(generation, State) + 1,
-                taken_at_ms => now_ms(),
-                used_gte => maps:get(building_used_gte, State),
-                building => undefined,
-                building_color => undefined,
-                building_used_gte => undefined
-            }};
-        _ ->
-            %% Stale message from old builder
-            {noreply, State}
+        Pid -> {noreply, complete_build(State)};
+        _ -> {noreply, State}
     end;
 handle_info({'EXIT', Pid, normal}, State) ->
-    %% Builder finished normally, build_complete already handled
     case maps:get(building, State) of
-        Pid ->
-            %% build_complete should have arrived first; if not, just clean up
-            {noreply, State#{
-                building => undefined,
-                building_color => undefined,
-                building_used_gte => undefined
-            }};
-        _ ->
-            {noreply, State}
+        Pid -> {noreply, clear_building(State)};
+        _ -> {noreply, State}
     end;
 handle_info({'EXIT', Pid, Reason}, State) ->
     case maps:get(building, State) of
         Pid ->
-            logger:error(#{
-                msg => "snapshot_builder_crashed",
-                reason => Reason
-            }),
-            {noreply, State#{
-                building => undefined,
-                building_color => undefined,
-                building_used_gte => undefined
-            }};
+            logger:error(#{msg => "snapshot_builder_crashed", reason => Reason}),
+            {noreply, clear_building(State)};
         _ ->
             {noreply, State}
     end;
@@ -201,96 +123,74 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%--------------------------------------------------------------------
-%% Internal functions
+%% Request routing
 %%--------------------------------------------------------------------
 
-initial_state() ->
-    #{
-        current => undefined,
-        generation => 0,
-        taken_at_ms => 0,
-        used_gte => undefined,
-        building => undefined,
-        building_color => undefined,
-        building_used_gte => undefined
-    }.
-
-do_reset(State) ->
-    %% Kill builder if running
-    case maps:get(building, State) of
-        undefined -> ok;
-        BuilderPid -> exit(BuilderPid, kill)
-    end,
-    clear_table(blue),
-    clear_table(green),
-    initial_state().
-
-maybe_trigger_rebuild(State, UsedGte) ->
-    case maps:get(building, State) of
-        undefined ->
-            case maps:get(current, State) of
-                undefined ->
-                    %% No snapshot, start building
-                    start_build(State, UsedGte);
-                _Color ->
-                    MinAgeMs = emqx_username_quota_config:snapshot_min_age_ms(),
-                    Age = now_ms() - maps:get(taken_at_ms, State),
-                    case Age >= MinAgeMs of
-                        true ->
-                            start_build(State, UsedGte);
-                        false ->
-                            %% Snapshot is fresh enough, serve it
-                            State
-                    end
-            end;
-        _Pid ->
-            %% Already building
-            State
+resolve_target(undefined) ->
+    resolve_target_no_cursor();
+resolve_target(Cursor) ->
+    case decode_cursor(Cursor) of
+        {ok, {RemoteNode, _, _, _}} when RemoteNode =/= node() ->
+            {forward_cursor, RemoteNode};
+        _ ->
+            local
     end.
 
-maybe_start_build(State) ->
-    case maps:get(building, State) of
-        undefined ->
-            UsedGte =
-                case maps:get(used_gte, State) of
-                    undefined -> 1;
-                    V -> V
-                end,
-            start_build(State, UsedGte);
-        _Pid ->
-            State
+resolve_target_no_cursor() ->
+    case is_core_node() of
+        true ->
+            local;
+        false ->
+            case leader_node() of
+                undefined -> local;
+                Leader -> {forward, Leader}
+            end
     end.
 
-start_build(State, UsedGte) ->
-    InactiveColor = inactive_color(maps:get(current, State)),
-    InactiveTab = color_to_tab(InactiveColor),
-    ets:delete_all_objects(InactiveTab),
-    Owner = self(),
-    YieldInterval = ?SNAPSHOT_BUILD_YIELD_INTERVAL,
-    BuilderPid = spawn_link(fun() ->
-        ok = emqx_username_quota_state:build_snapshot_into(InactiveTab, UsedGte, YieldInterval),
-        Owner ! {build_complete, self()}
-    end),
-    State#{
-        building => BuilderPid,
-        building_color => InactiveColor,
-        building_used_gte => UsedGte
-    }.
+forward_or_invalid(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
+    case forward_to_node(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) of
+        {error, forward_failed} -> {error, invalid_cursor};
+        Result -> Result
+    end.
 
-inactive_color(undefined) -> blue;
-inactive_color(blue) -> green;
-inactive_color(green) -> blue.
+forward_or_local(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
+    case forward_to_node(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) of
+        {error, forward_failed} ->
+            request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte);
+        Result ->
+            Result
+    end.
 
-color_to_tab(blue) -> ?SNAPSHOT_TAB_BLUE;
-color_to_tab(green) -> ?SNAPSHOT_TAB_GREEN.
+forward_to_node(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
+    TimeoutMs = erlang:max(1, DeadlineMs - now_ms()),
+    try
+        gen_server:call(
+            {?SERVER, Node},
+            {request_page, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte},
+            TimeoutMs
+        )
+    catch
+        exit:{timeout, _} -> {error, forward_failed};
+        exit:_ -> {error, forward_failed}
+    end.
 
-maybe_clear_table(undefined) -> ok;
-maybe_clear_table(Color) -> clear_table(Color).
+%%--------------------------------------------------------------------
+%% Snapshot serving
+%%--------------------------------------------------------------------
 
-clear_table(Color) ->
-    Tab = color_to_tab(Color),
-    true = ets:delete_all_objects(Tab),
-    ok.
+serve_snapshot(_DeadlineMs, _Cursor, _Limit, #{current := undefined}) ->
+    rebuilding_reply();
+serve_snapshot(DeadlineMs, Cursor, Limit, State) ->
+    case deadline_ok(DeadlineMs) of
+        true -> {ok, page_snapshot(State, Cursor, Limit)};
+        false -> rebuilding_reply()
+    end.
+
+deadline_ok(DeadlineMs) ->
+    DeadlineMs > now_ms().
+
+rebuilding_reply() ->
+    {error, {rebuilding_snapshot, pseudo_cursor(node())}}.
 
 page_snapshot(State, Cursor, Limit) ->
     Color = maps:get(current, State),
@@ -318,8 +218,8 @@ page_snapshot(State, Cursor, Limit) ->
 
 resolve_start_key(Tab, Cursor, Generation) ->
     case decode_cursor(Cursor) of
-        {ok, {CursorNode, CursorGeneration, _UsedGte, LastKey}} when
-            CursorNode =:= node() andalso CursorGeneration =:= Generation
+        {ok, {CursorNode, CursorGen, _UsedGte, LastKey}} when
+            CursorNode =:= node(), CursorGen =:= Generation
         ->
             ets:next(Tab, LastKey);
         _ ->
@@ -334,6 +234,106 @@ collect_page(Tab, {Counter, _Username} = Key, Limit, Acc, _LastKey) ->
     Row = {Key, Counter},
     collect_page(Tab, ets:next(Tab, Key), Limit - 1, [Row | Acc], Key).
 
+%%--------------------------------------------------------------------
+%% Build lifecycle
+%%--------------------------------------------------------------------
+
+maybe_trigger_rebuild(#{building := Pid} = State, _UsedGte) when is_pid(Pid) ->
+    State;
+maybe_trigger_rebuild(#{current := undefined} = State, UsedGte) ->
+    start_build(State, UsedGte);
+maybe_trigger_rebuild(State, UsedGte) ->
+    maybe_rebuild_if_stale(State, UsedGte).
+
+maybe_rebuild_if_stale(State, UsedGte) ->
+    MinAgeMs = emqx_username_quota_config:snapshot_min_age_ms(),
+    Age = now_ms() - maps:get(taken_at_ms, State),
+    case Age >= MinAgeMs of
+        true -> start_build(State, UsedGte);
+        false -> State
+    end.
+
+maybe_start_build(#{building := Pid} = State) when is_pid(Pid) ->
+    State;
+maybe_start_build(State) ->
+    UsedGte =
+        case maps:get(used_gte, State) of
+            undefined -> 1;
+            V -> V
+        end,
+    start_build(State, UsedGte).
+
+start_build(State, UsedGte) ->
+    InactiveColor = inactive_color(maps:get(current, State)),
+    InactiveTab = color_to_tab(InactiveColor),
+    ets:delete_all_objects(InactiveTab),
+    Owner = self(),
+    YieldInterval = ?SNAPSHOT_BUILD_YIELD_INTERVAL,
+    BuilderPid = spawn_link(fun() ->
+        ok = emqx_username_quota_state:build_snapshot_into(InactiveTab, UsedGte, YieldInterval),
+        Owner ! {build_complete, self()}
+    end),
+    State#{
+        building => BuilderPid,
+        building_color => InactiveColor,
+        building_used_gte => UsedGte
+    }.
+
+complete_build(State) ->
+    NewColor = maps:get(building_color, State),
+    ok = maybe_clear_table(maps:get(current, State)),
+    (clear_building(State))#{
+        current => NewColor,
+        generation => maps:get(generation, State) + 1,
+        taken_at_ms => now_ms(),
+        used_gte => maps:get(building_used_gte, State)
+    }.
+
+clear_building(State) ->
+    State#{
+        building => undefined,
+        building_color => undefined,
+        building_used_gte => undefined
+    }.
+
+%%--------------------------------------------------------------------
+%% State helpers
+%%--------------------------------------------------------------------
+
+initial_state() ->
+    #{
+        current => undefined,
+        generation => 0,
+        taken_at_ms => 0,
+        used_gte => undefined,
+        building => undefined,
+        building_color => undefined,
+        building_used_gte => undefined
+    }.
+
+do_reset(State) ->
+    case maps:get(building, State) of
+        undefined -> ok;
+        BuilderPid -> exit(BuilderPid, kill)
+    end,
+    clear_table(blue),
+    clear_table(green),
+    initial_state().
+
+inactive_color(undefined) -> blue;
+inactive_color(blue) -> green;
+inactive_color(green) -> blue.
+
+color_to_tab(blue) -> ?SNAPSHOT_TAB_BLUE;
+color_to_tab(green) -> ?SNAPSHOT_TAB_GREEN.
+
+maybe_clear_table(undefined) -> ok;
+maybe_clear_table(Color) -> clear_table(Color).
+
+clear_table(Color) ->
+    true = ets:delete_all_objects(color_to_tab(Color)),
+    ok.
+
 ensure_snapshot_tables() ->
     ensure_table(?SNAPSHOT_TAB_BLUE),
     ensure_table(?SNAPSHOT_TAB_GREEN).
@@ -345,21 +345,6 @@ ensure_table(Tab) ->
             ok;
         _ ->
             ok
-    end.
-
-forward_to_node(Node, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
-    TimeoutMs = erlang:max(1, DeadlineMs - now_ms()),
-    try
-        gen_server:call(
-            {?SERVER, Node},
-            {request_page, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte},
-            TimeoutMs
-        )
-    catch
-        exit:{timeout, _} ->
-            {error, forward_failed};
-        exit:_ ->
-            {error, forward_failed}
     end.
 
 is_core_node() ->
@@ -374,6 +359,10 @@ leader_node() ->
 now_ms() ->
     erlang:system_time(millisecond).
 
+%%--------------------------------------------------------------------
+%% Cursor encoding/decoding
+%%--------------------------------------------------------------------
+
 encode_cursor(Node, Generation, UsedGte, LastKey) ->
     base64:encode(term_to_binary({Node, Generation, UsedGte, LastKey})).
 
@@ -384,26 +373,25 @@ decode_cursor(Cursor) when is_list(Cursor) ->
 decode_cursor(Cursor) when is_binary(Cursor) ->
     try binary_to_term(base64:decode(Cursor), [safe]) of
         {Node, Generation, UsedGte, {Counter, Username} = LastKey} when
-            is_atom(Node) andalso
-                is_integer(Generation) andalso
-                is_integer(UsedGte) andalso
-                is_integer(Counter) andalso
-                is_binary(Username)
+            is_atom(Node),
+            is_integer(Generation),
+            is_integer(UsedGte),
+            is_integer(Counter),
+            is_binary(Username)
         ->
             {ok, {Node, Generation, UsedGte, LastKey}};
         %% Accept old 3-tuple format — will cause generation mismatch → page 1
         {Node, Generation, {Counter, Username} = LastKey} when
-            is_atom(Node) andalso
-                is_integer(Generation) andalso
-                is_integer(Counter) andalso
-                is_binary(Username)
+            is_atom(Node),
+            is_integer(Generation),
+            is_integer(Counter),
+            is_binary(Username)
         ->
             {ok, {Node, Generation, undefined, LastKey}};
         _ ->
             error
     catch
-        _:_ ->
-            error
+        _:_ -> error
     end;
 decode_cursor(_Other) ->
     error.

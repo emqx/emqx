@@ -219,19 +219,24 @@ build_snapshot_into(TargetTab, UsedGte, YieldInterval) ->
 insert_snapshot_rows('$end_of_table', _TmpTab, _TargetTab, _UsedGte, _YieldInterval, _N) ->
     ok;
 insert_snapshot_rows(Username, TmpTab, TargetTab, UsedGte, YieldInterval, N) ->
-    N1 =
-        case ets:lookup(TmpTab, Username) of
-            [{Username, Counter}] when Counter >= UsedGte ->
-                ets:insert(TargetTab, {{Counter, Username}, Counter}),
-                case (N + 1) rem YieldInterval of
-                    0 -> erlang:yield();
-                    _ -> ok
-                end,
-                N + 1;
-            _ ->
-                N
-        end,
+    N1 = maybe_insert_one(TmpTab, TargetTab, Username, UsedGte, YieldInterval, N),
     insert_snapshot_rows(ets:next(TmpTab, Username), TmpTab, TargetTab, UsedGte, YieldInterval, N1).
+
+maybe_insert_one(TmpTab, TargetTab, Username, UsedGte, YieldInterval, N) ->
+    case ets:lookup(TmpTab, Username) of
+        [{Username, Counter}] when Counter >= UsedGte ->
+            ets:insert(TargetTab, {{Counter, Username}, Counter}),
+            maybe_yield(N + 1, YieldInterval);
+        _ ->
+            N
+    end.
+
+maybe_yield(N, YieldInterval) ->
+    case N rem YieldInterval of
+        0 -> erlang:yield();
+        _ -> ok
+    end,
+    N.
 
 list_clientids(Username) ->
     Start = ?RECORD_KEY(Username, ?MIN_CLIENTID, ?MIN_PID),

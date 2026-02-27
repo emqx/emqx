@@ -121,40 +121,38 @@ be deleted by a concurrent client disconnect).
 bootstrap_loop(Stream, Count, BatchCount, BatchSeq) ->
     case emqx_utils_stream:next(Stream) of
         [] ->
-            %% Stream exhausted — wait for final partial batch if needed
-            case BatchCount > 0 of
-                true ->
-                    case wait_for_replication(BatchSeq + 1) of
-                        ok -> {ok, Count};
-                        timeout -> {error, replication_timeout, Count}
-                    end;
-                false ->
-                    {ok, Count}
-            end;
+            finish_bootstrap(Count, BatchCount, BatchSeq);
         [{ClientId, ChanPid, _ConnState, _ConnInfo, ClientInfo} | Rest] ->
-            Username = emqx_utils_conv:bin(maps:get(username, ClientInfo, <<>>)),
-            ClientIdBin = emqx_utils_conv:bin(ClientId),
-            case Username =:= <<>> orelse ClientIdBin =:= <<>> of
-                true ->
-                    bootstrap_loop(Rest, Count, BatchCount, BatchSeq);
-                false ->
-                    emqx_username_quota_pool:add(Username, ClientIdBin, ChanPid),
-                    NewCount = Count + 1,
-                    NewBatchCount = BatchCount + 1,
-                    case NewBatchCount >= ?BOOTSTRAP_BATCH_SIZE of
-                        true ->
-                            NewBatchSeq = BatchSeq + 1,
-                            case wait_for_replication(NewBatchSeq) of
-                                ok ->
-                                    bootstrap_loop(Rest, NewCount, 0, NewBatchSeq);
-                                timeout ->
-                                    {error, replication_timeout, NewCount}
-                            end;
-                        false ->
-                            bootstrap_loop(Rest, NewCount, NewBatchCount, BatchSeq)
-                    end
-            end
+            process_channel(Rest, Count, BatchCount, BatchSeq, ClientId, ChanPid, ClientInfo)
     end.
+
+finish_bootstrap(Count, 0, _BatchSeq) ->
+    {ok, Count};
+finish_bootstrap(Count, _BatchCount, BatchSeq) ->
+    case wait_for_replication(BatchSeq + 1) of
+        ok -> {ok, Count};
+        timeout -> {error, replication_timeout, Count}
+    end.
+
+process_channel(Rest, Count, BatchCount, BatchSeq, ClientId, ChanPid, ClientInfo) ->
+    Username = emqx_utils_conv:bin(maps:get(username, ClientInfo, <<>>)),
+    ClientIdBin = emqx_utils_conv:bin(ClientId),
+    case Username =:= <<>> orelse ClientIdBin =:= <<>> of
+        true ->
+            bootstrap_loop(Rest, Count, BatchCount, BatchSeq);
+        false ->
+            emqx_username_quota_pool:add(Username, ClientIdBin, ChanPid),
+            after_add(Rest, Count + 1, BatchCount + 1, BatchSeq)
+    end.
+
+after_add(Rest, Count, BatchCount, BatchSeq) when BatchCount >= ?BOOTSTRAP_BATCH_SIZE ->
+    NewBatchSeq = BatchSeq + 1,
+    case wait_for_replication(NewBatchSeq) of
+        ok -> bootstrap_loop(Rest, Count, 0, NewBatchSeq);
+        timeout -> {error, replication_timeout, Count}
+    end;
+after_add(Rest, Count, BatchCount, BatchSeq) ->
+    bootstrap_loop(Rest, Count, BatchCount, BatchSeq).
 
 -define(REPL_WATERMARK_KEY, {<<"$repl_watermark$">>, node()}).
 
