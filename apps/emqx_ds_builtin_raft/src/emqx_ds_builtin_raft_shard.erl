@@ -486,7 +486,9 @@ server_info(readiness, Server) ->
 server_info(leader, Server) ->
     current_leader(Server);
 server_info(uid, Server) ->
-    maps:get(uid, ra_overview(Server), unknown).
+    maps:get(uid, ra_overview(Server), unknown);
+server_info(membership, Server) ->
+    maps:keys(maps:get(cluster, ra_overview(Server), #{})).
 
 member_info(readiness, Server, Leader) ->
     case ra:member_overview(Leader) of

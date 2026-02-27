@@ -491,9 +491,7 @@ t_rebalance(Config) ->
             )
         end,
         [
-            {"No unexpected shard transition crashes", fun(Trace) ->
-                ?assertEqual([], ?of_kind("Shard membership transition failed", Trace))
-            end}
+            check_no_transition_crashes()
         ]
     ).
 
@@ -676,9 +674,7 @@ t_rebalance_chaotic_converges(Config) ->
             )
         end,
         [
-            {"No unexpected shard transition crashes", fun(Trace) ->
-                ?assertEqual([], ?of_kind("Shard membership transition failed", Trace))
-            end}
+            check_no_transition_crashes()
         ]
     ).
 
@@ -849,48 +845,41 @@ t_rebalance_tolerate_permanently_lost_quorum('end', Config) ->
 t_rebalance_tolerate_permanently_lost_quorum(Config) ->
     Nodes = [N1, N2, N3, N4] = ?config(nodes, Config),
     [_NS1, NS2 | _] = ?config(nodespecs, Config),
-    CIDs = [<<"C1">>, <<"C2">>, <<"C3">>, <<"C4">>, <<"C5">>],
-    MsgStream = emqx_utils_stream:interleave(
-        [emqx_ds_test_helpers:topic_messages(?FUNCTION_NAME, CID) || CID <- CIDs],
-        false
-    ),
 
-    %% Start and initialize DB on all 4 nodes.
-    NShards = 3,
-    Opts = opts(Config, #{
-        n_shards => NShards, n_sites => 4, replication_factor => 4, payload_type => ?ds_pt_mqtt
-    }),
-    emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+    NMsgs = 10,
+    Clients = [<<"C1">>, <<"C2">>, <<"C3">>, <<"C4">>, <<"C5">>],
+    {MsgStream, TopicStreams} =
+        emqx_ds_test_helpers:interleaved_topic_messages(?FUNCTION_NAME, Clients, NMsgs),
 
     %% Find out which sites are there.
     [S1, S2, S3, S4] = [ds_repl_meta(N, this_site) || N <- Nodes],
 
-    ct:pal("DS Status [healthy cluster]:", []),
-    ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
-
-    AppendOpts = #{db => ?DB, retries => 5},
-
     ?check_trace(
         #{timetrap => 30_000},
         begin
+            %% Start and initialize DB on all 4 nodes.
+            Opts = opts(Config, #{n_shards => 2, n_sites => 4, replication_factor => 4}),
+            emqx_ds_raft_test_helpers:assert_db_open(Nodes, ?DB, Opts),
+            ?ON(N1, emqx_ds_builtin_raft_meta:print_status()),
+
             %% Store a bunch of messages.
             {Msgs1, MsgStream1} = emqx_utils_stream:consume(20, MsgStream),
-            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs1))),
+            emqx_ds_raft_test_helpers:apply_stream(?DB, [N1, N2], emqx_utils_stream:list(Msgs1)),
 
             %% Stop N2.
             ok = emqx_cth_cluster:stop_node(N2),
-            ok = timer:sleep(1_000),
+            ?retry(200, 5, [N1, N3, N4] = ?ON(N1, mria:cluster_nodes(running))),
 
             %% Store another bunch of messages.
             {Msgs2, MsgStream2} = emqx_utils_stream:consume(20, MsgStream1),
-            ?assertEqual(ok, ?ON(N1, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs2))),
+            emqx_ds_raft_test_helpers:apply_stream(?DB, [N1], emqx_utils_stream:list(Msgs2)),
 
             %% Stop N3 and N4 and expunge them out of the cluster.
             ok = emqx_cth_cluster:stop([N3, N4]),
-            ?retry(200, 5, [N1] = ?ON(N1, mria:cluster_nodes(running))),
+            ?retry(200, 5, ?assertSameSet([N1], ?ON(N1, mria:cluster_nodes(running)))),
             ok = ?ON(N1, emqx_cluster:force_leave(N3)),
             ok = ?ON(N1, emqx_cluster:force_leave(N4)),
-            ok = timer:sleep(1_000),
+            ?retry(200, 5, ?assertSameSet([N1, N2], ?ON(N1, mria:cluster_nodes(cores)))),
 
             %% Tell the cluster that S3 is not responsible for the data anymore.
             %% Since that can lead to transitions involving other lost sites, it should
@@ -906,26 +895,10 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
                 ds_repl_meta(N1, assign_db_sites, [?DB, [S1, S2]])
             ),
 
-            ct:pal("DS Status [told S4 to leave]:", []),
-            ?ON(N1, emqx_ds_builtin_raft_meta:print_status()),
-
-            %% Either S3 or S4.
-            [{del, SL1} | _] = ds_repl_meta(N1, replica_set_transitions, [?DB, <<"0">>]),
-
-            %% Regular means of removing unresponsive replica will fail (likely, time out).
-            {ok, #{site := SLost1}} = ?block_until(#{
-                ?snk_kind := "Removing shard replica failed",
-                shard := <<"0">>,
-                site := _,
-                attempt := 2
-            }),
-
             %% Force-forget kicks in, but refuses to proceed since S2 is down, it's too
             %% unsafe.
-            ?block_until(#{
+            {ok, _} = ?block_until(#{
                 ?snk_kind := "Forgetting shard replica failed",
-                shard := <<"0">>,
-                site := SLost1,
                 reason := {member_overview_unavailable, [{_Server, N2}]}
             }),
 
@@ -934,62 +907,58 @@ t_rebalance_tolerate_permanently_lost_quorum(Config) ->
             %% N3 and N4 back into the cluster.
             ok = emqx_cth_suite:clean_work_dir(filename:join(maps:get(work_dir, NS2), mnesia)),
             [N2] = emqx_cth_cluster:start([NS2#{work_dir_dirty => true}]),
-            emqx_ds_raft_test_helpers:assert_db_open([N2], ?DB, Opts),
+            ?assertEqual(ok, ?ON(N2, emqx_ds:open_db(?DB, Opts))),
 
-            %% But the force-forgetting should now succeed.
-            ?block_until(#{
-                ?snk_kind := "Unresponsive shard replica forcefully forgotten",
-                shard := <<"0">>,
-                site := SL1
-            }),
-
-            %% Let's see how the allocation looks right after that.
-            ct:pal("DS Status [forgot one lost node]:", []),
-            ?ON(N2, emqx_ds_builtin_raft_meta:print_status()),
-
+            %% Force-forgetting should now succeed.
             %% Target state should still be reached eventually.
             ?ON(N1, emqx_ds_raft_test_helpers:wait_db_transitions_done(?DB)),
-            ?assertEqual(lists:sort([S1, S2]), ds_repl_meta(N1, db_sites, [?DB])),
-
-            ct:pal("DS Status [rebalancing concluded]:", []),
             ?ON(N1, emqx_ds_builtin_raft_meta:print_status()),
+            ?assertSameSet([S1, S2], ds_repl_meta(N1, db_sites, [?DB])),
 
             %% Messages can now again be persisted successfully.
-            {Msgs3, _MsgStream} = emqx_utils_stream:consume(20, MsgStream2),
-            ?assertEqual(ok, ?ON(N2, emqx_ds_test_helpers:dirty_append(AppendOpts, Msgs3))),
+            emqx_ds_raft_test_helpers:apply_stream(?DB, [N1, N2], MsgStream2),
             %% ...And the original messages still available in the DB.
-            MsgsPersisted = ?ON(N2, emqx_ds_test_helpers:consume(?DB, ['#'])),
-            ok = emqx_ds_test_helpers:diff_messages(
-                [from, topic, payload],
-                sort_canonical_forms(Msgs1 ++ Msgs2 ++ Msgs3),
-                sort_canonical_forms(MsgsPersisted)
+            emqx_ds_raft_test_helpers:verify_stream_effects(
+                ?DB, ?FUNCTION_NAME, Nodes, TopicStreams
             ),
 
             %% Attempt to forget lost sites should succeed.
-            ?assertEqual(ok, ?ON(N2, emqx_ds_builtin_raft_meta:forget_site(S3))),
-            ?assertEqual(ok, ?ON(N2, emqx_ds_builtin_raft_meta:forget_site(S4)))
+            ?assertEqual(ok, ?ON(N1, emqx_ds_builtin_raft_meta:forget_site(S3))),
+            ?assertEqual(ok, ?ON(N1, emqx_ds_builtin_raft_meta:forget_site(S4))),
+
+            ?ON(N1, emqx_ds_builtin_raft_meta:shards(?DB))
         end,
-        fun(Trace) ->
-            %% Servers only on N1 should have been responsible for "force-forgetting",
-            %% because their log is ahead. Also, in rare circumstances membership
-            %% changes can actually conclude without resorting to force-forgetting.
-            EvsForgotMember = ?of_kind(emqx_ds_replshard_forgot_member, Trace),
-            case EvsForgotMember of
-                [_ | _] ->
-                    ?assertMatch(
-                        [#{server := {_Server, N1}} | _],
-                        EvsForgotMember,
-                        N1
-                    ),
-                    ?assertMatch(
-                        [],
-                        [E || #{server := {_Server, N}} = E <- EvsForgotMember, N =/= N1]
-                    );
-                [] ->
-                    %% No force-forgets were performed.
-                    ok
-            end
-        end
+        [
+            check_no_transition_crashes(),
+            check_membership_consistent(?DB, [N1, N2]),
+            {"Each shard had lost replicas removed / force-forgotten", fun(Shards, Trace) ->
+                Events = lists:append([
+                    ?of_kind("Unresponsive shard replica forcefully forgotten", Trace),
+                    ?of_kind("Unresponsive shard replica removed", Trace)
+                ]),
+                ?assertMatch(
+                    %% Accounting for concurrent removal attempts:
+                    [[_, _ | _], [_, _ | _]],
+                    [[E || E = #{shard := SE} <- Events, SE =:= S] || S <- Shards]
+                )
+            end},
+            {"Each shard has seen dirty appends", fun(Shards, Trace) ->
+                Events = ?of_kind(emqx_ds_storage_layer_prepare_kv_tx, Trace),
+                ?assertSameSet(
+                    [{?DB, S} || S <- Shards],
+                    lists:usort(?projection(shard, Events))
+                )
+            end},
+            {"Only N1 performed force-forgets", fun(Trace) ->
+                %% Servers only on N1 should have been responsible for "force-forgetting",
+                %% because their log is ahead (assuming previous check evaluated to true).
+                Events = ?of_kind(emqx_ds_replshard_forgot_member, Trace),
+                ?assertMatch(
+                    [],
+                    [E || #{server := {_Server, N}} = E <- Events, N =/= N1]
+                )
+            end}
+        ]
     ).
 
 t_drop_generation(Config) ->
@@ -1312,14 +1281,6 @@ nodes_of_clientid(ClientId, Nodes) ->
 ds_topic_stream(ClientId, ClientTopic, Node) ->
     emqx_ds_raft_test_helpers:ds_topic_stream(?DB, ClientId, ClientTopic, Node).
 
-is_message_lost(Message, MessagesLost) ->
-    lists:any(
-        fun(ML) ->
-            emqx_ds_test_helpers:message_eq([clientid, topic, payload], Message, ML)
-        end,
-        MessagesLost
-    ).
-
 kill_restart_node_async(Node, Spec, DBOpts) ->
     erlang:spawn_link(?MODULE, kill_restart_node, [Node, Spec, DBOpts]).
 
@@ -1328,6 +1289,39 @@ kill_restart_node(Node, Spec, DBOpts) ->
     ?tp(test_cluster_node_killed, #{node => Node}),
     _ = emqx_cth_cluster:restart(Spec),
     ok = erpc:call(Node, emqx_ds, open_db, [?DB, DBOpts]).
+
+%%
+
+check_no_transition_crashes() ->
+    {"No unexpected shard transition crashes", fun(Trace) ->
+        ?assertEqual([], ?of_kind("Shard membership transition failed", Trace))
+    end}.
+
+check_membership_consistent(DB, Nodes) ->
+    {"Shard membership consistent with shard metadata", fun(_Trace) ->
+        lists:foreach(
+            fun(N) ->
+                Shards = ?ON(N, emqx_ds_builtin_raft_meta:my_shards(DB)),
+                ShardServers = ?ON(N, [
+                    emqx_ds_builtin_raft_shard:shard_servers(DB, S)
+                 || S <- Shards
+                ]),
+                Memberships = ?ON(N, [
+                    emqx_ds_builtin_raft_shard:server_info(
+                        membership,
+                        emqx_ds_builtin_raft_shard:local_server(DB, S)
+                    )
+                 || S <- Shards
+                ]),
+                ?assertEqual(
+                    lists:map(fun lists:sort/1, ShardServers),
+                    lists:map(fun lists:sort/1, Memberships),
+                    {"Shard membership inconsistent", DB, N}
+                )
+            end,
+            Nodes
+        )
+    end}.
 
 %%
 
@@ -1365,9 +1359,6 @@ consume(Node, DB, TopicFilter, StartTime) ->
 
 consume_shard(Node, DB, Shard, TopicFilter, StartTime) ->
     erpc:call(Node, emqx_ds_test_helpers, storage_consume, [{DB, Shard}, TopicFilter, StartTime]).
-
-sort_canonical_forms(Msgs) ->
-    lists:sort([emqx_ds_test_helpers:message_canonical_form(I) || I <- Msgs]).
 
 %%
 
