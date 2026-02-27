@@ -342,9 +342,9 @@ do_drop_local(DB, Shard, Trans) ->
 
 trans_rm_unresponsive(DB, Shard, Trans = {del, Site}) ->
     ?tp(notice, "Removing unresponsive shard replica", #{site => Site, db => DB, shard => Shard}),
-    do_rm_unresponsive(DB, Shard, Trans, 1).
+    do_rm_unresponsive(DB, Shard, Trans).
 
-do_rm_unresponsive(DB, Shard, Trans = {del, Site}, NAttempt) ->
+do_rm_unresponsive(DB, Shard, Trans = {del, Site}) ->
     Server = emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site),
     case emqx_ds_builtin_raft_shard:remove_server(DB, Shard, Server) of
         ok ->
@@ -358,13 +358,27 @@ do_rm_unresponsive(DB, Shard, Trans = {del, Site}, NAttempt) ->
                 db => DB,
                 shard => Shard,
                 site => Site,
-                reason => Reason,
-                attempt => NAttempt,
-                retry_in => ?TRANS_RETRY_TIMEOUT
+                reason => Reason
             }),
             emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            retry_rm_unresponsive(DB, Shard, Trans, Reason, NAttempt)
+            %% If unsuccessful, perhaps it's time to tell cluster to "forget" it forcefully.
+            %% We only do that if quorum is lost and unreachable anymore, and:
+            IsQuorumReachable = emqx_ds_builtin_raft_shard:is_quorum_reachable(DB, Shard),
+            case Reason of
+                _Any when IsQuorumReachable ->
+                    exit({shutdown, skipped});
+                %% Cluster change times out, due to no quorum:
+                %% 1. Either existing leader failed to commit the cluster change.
+                %% 2. ...Or there's no leader.
+                {timeout, _Server} ->
+                    do_forget_lost(DB, Shard, Trans);
+                %% Cluster change is in the Ra log, but couldn't be confirmed.
+                {error, _Server, cluster_change_not_permitted} ->
+                    do_forget_lost(DB, Shard, Trans);
+                %% Otherwise, let's try the safe way.
+                _Otherwise ->
+                    exit({shutdown, skipped})
+            end
     end.
 
 do_forget_lost(DB, Shard, Trans = {del, Site}) ->
@@ -381,12 +395,10 @@ do_forget_lost(DB, Shard, Trans = {del, Site}) ->
                 db => DB,
                 shard => Shard,
                 site => Site,
-                reason => Reason,
-                retry_in => ?TRANS_RETRY_TIMEOUT
+                reason => Reason
             }),
             emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            do_forget_lost(DB, Shard, Trans);
+            exit({shutdown, skipped});
         {error, unrecoverable, Reason} ->
             %% NOTE: Revert to `rm_unresponsive/3` on next `?TRIGGER_PENDING_TIMEOUT`.
             ?tp(warning, "Forgetting shard replica error", #{
@@ -396,25 +408,6 @@ do_forget_lost(DB, Shard, Trans = {del, Site}) ->
                 reason => Reason
             }),
             exit({shutdown, {forget_lost_error, Reason}})
-    end.
-
-retry_rm_unresponsive(DB, Shard, Trans, _Reason, NAttempt) when NAttempt < 2 ->
-    %% Retry regular safe replica removal first couple of times.
-    do_rm_unresponsive(DB, Shard, Trans, NAttempt + 1);
-retry_rm_unresponsive(DB, Shard, Trans, Reason, NAttempt) ->
-    %% If unsuccessful, perhaps it's time to tell cluster to "forget" it forcefully.
-    %% We only do that if:
-    case Reason of
-        %% Cluster change times out, quorum is probably lost and unreachable.
-        {timeout, _Server} ->
-            do_forget_lost(DB, Shard, Trans);
-        %% Cluster change is in the Ra log, but couldn't be confired, quorum is
-        %% probably lost and unreachable.
-        {error, _Server, cluster_change_not_permitted} ->
-            do_forget_lost(DB, Shard, Trans);
-        %% Otherwise, let's try the safe way.
-        _Otherwise ->
-            do_rm_unresponsive(DB, Shard, Trans, NAttempt + 1)
     end.
 
 %%

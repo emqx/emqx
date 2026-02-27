@@ -46,7 +46,8 @@
     add_local_server/2,
     drop_local_server/2,
     remove_server/3,
-    forget_server/3
+    forget_server/3,
+    is_quorum_reachable/2
 ]).
 
 -behaviour(gen_server).
@@ -111,7 +112,10 @@ shard_servers(_DB, _Shard, []) ->
 %% in the DB metadata storage, but excluding any servers residing on nodes not
 %% considered to be in the cluster.
 known_shard_servers(DB, Shard) ->
-    [Server || Server <- shard_servers(DB, Shard), is_server_known(Server)].
+    known_shard_servers(shard_servers(DB, Shard)).
+
+known_shard_servers(ShardServers) ->
+    [Server || Server <- ShardServers, is_server_known(Server)].
 
 %% @doc Return a term identifying a server for the shard located on specified site.
 -spec shard_server(
@@ -371,20 +375,15 @@ remove_server(_Server, _ShardServers = []) ->
     ok | emqx_ds:error(_Reason).
 forget_server(DB, Shard, Server) ->
     ShardServers = shard_servers(DB, Shard),
-    KnownShardServers = known_shard_servers(DB, Shard),
-    IsMember = lists:member(Server, ShardServers),
+    KnownShardServers = known_shard_servers(ShardServers),
     IsKnownMember = lists:member(Server, KnownShardServers),
-    IsQuorumReachable = length(KnownShardServers) * 2 > length(ShardServers),
-    case IsMember of
-        true when not IsKnownMember andalso not IsQuorumReachable ->
+    case is_quorum_reachable(ShardServers) of
+        false when not IsKnownMember ->
             force_forget_server(Server, KnownShardServers);
-        true when IsKnownMember ->
+        false when IsKnownMember ->
             {error, unrecoverable, server_known};
-        true when IsQuorumReachable ->
-            {error, unrecoverable, quorum_still_reachable};
-        false ->
-            %% Nothing to do.
-            ok
+        true ->
+            {error, unrecoverable, quorum_still_reachable}
     end.
 
 force_forget_server(Server, ShardServers = [_ | _]) ->
@@ -453,6 +452,14 @@ ra_is_leader(#{id := Server, leader_id := Server}) ->
     true;
 ra_is_leader(#{}) ->
     false.
+
+-spec is_quorum_reachable(emqx_ds:db(), emqx_ds:shard()) -> boolean().
+is_quorum_reachable(DB, Shard) ->
+    is_quorum_reachable(shard_servers(DB, Shard)).
+
+is_quorum_reachable(ShardServers) ->
+    KnownShardServers = known_shard_servers(ShardServers),
+    length(KnownShardServers) * 2 > length(ShardServers).
 
 -spec server_metrics(server()) ->
     #{atom() => integer()} | undefined.
