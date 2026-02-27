@@ -491,7 +491,8 @@ t_rebalance(Config) ->
             )
         end,
         [
-            check_no_transition_crashes()
+            check_no_transition_crashes(),
+            check_membership_consistent(?DB, Nodes)
         ]
     ).
 
@@ -674,7 +675,8 @@ t_rebalance_chaotic_converges(Config) ->
             )
         end,
         [
-            check_no_transition_crashes()
+            check_no_transition_crashes(),
+            check_membership_consistent(?DB, Nodes)
         ]
     ).
 
