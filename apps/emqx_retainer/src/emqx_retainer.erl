@@ -21,6 +21,7 @@
     read_message/1,
     page_read/3,
     page_read/4,
+    match_messages/3,
     retained_count/0,
     is_enabled/0,
     is_started/0,
@@ -208,6 +209,16 @@ page_read(Topic, Deadline, Page, Limit) ->
     with_backend(
         fun(Mod, BackendState) -> Mod:page_read(BackendState, Topic, Deadline, Page, Limit) end,
         {ok, false, []}
+    ).
+
+-spec match_messages(topic(), cursor(), match_opts()) ->
+    {ok, [message()], cursor()} | {error, any()}.
+match_messages(TopicFilter, Cursor, Opts) ->
+    emqx_retainer:with_backend(
+        fun(Mod, State) ->
+            Mod:match_messages(State, TopicFilter, Cursor, Opts)
+        end,
+        {error, no_backend}
     ).
 
 -spec context() -> context().

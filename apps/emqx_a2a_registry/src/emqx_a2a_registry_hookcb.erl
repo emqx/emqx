@@ -117,7 +117,7 @@ validate_id(Id) ->
     end.
 
 do_validate_id(Id, Field) when is_binary(Id) ->
-    case re:run(Id, <<"^[A-Za-z0-9._-]+$">>, [{capture, none}]) of
+    case re:run(Id, ?SEGMENT_ID_RE, [{capture, none}]) of
         match ->
             ok;
         nomatch ->
@@ -165,14 +165,7 @@ augment_message_metadata(Msg0) ->
     ClientId = emqx_message:from(Msg0),
     Props0 = emqx_message:get_header(properties, Msg0, #{}),
     UserProperties0 = maps:get('User-Property', Props0, []),
-    FormatFn = undefined,
-    Status =
-        case emqx_mgmt:lookup_client({clientid, ClientId}, FormatFn) of
-            [{_Chan, #{conn_state := connected} = _Info, _Stats}] ->
-                ?A2A_PROP_ONLINE_VAL;
-            _ ->
-                ?A2A_PROP_OFFLINE_VAL
-        end,
+    Status = emqx_a2a_registry:lookup_agent_status(ClientId),
     UserProperties = [{?A2A_PROP_STATUS_KEY, Status} | UserProperties0],
     Props = maps:put('User-Property', UserProperties, Props0),
     emqx_message:set_header(properties, Props, Msg0).

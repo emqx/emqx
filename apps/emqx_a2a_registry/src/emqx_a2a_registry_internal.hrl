@@ -14,5 +14,7 @@
 
 -define(A2A_SCHEMA_REGISTRY_SERDE_NAME, <<"__sdKn7w9B3UuI7LAmkQSHP__a2a_agent_card">>).
 
+-define(SEGMENT_ID_RE, <<"^[A-Za-z0-9._-]+$">>).
+
 %% END ifndef(__EMQX_A2A_REGISTRY_HRL__)
 -endif.
