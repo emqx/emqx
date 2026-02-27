@@ -48,22 +48,14 @@ settings() ->
     persistent_term:get(?SETTINGS_KEY, default_settings()).
 
 parse(RawConfig) when is_map(RawConfig) ->
-    Max0 = get_value(
-        RawConfig,
-        [max_sessions_per_username, <<"max_sessions_per_username">>],
-        ?DEFAULT_MAX_SESSIONS_PER_USERNAME
-    ),
+    Max0 = maps:get(<<"max_sessions_per_username">>, RawConfig, ?DEFAULT_MAX_SESSIONS_PER_USERNAME),
     case normalize_max(Max0) of
         {ok, Max} ->
-            MinAgeMs0 = get_value(
-                RawConfig,
-                [snapshot_min_age_ms, <<"snapshot_min_age_ms">>],
-                ?DEFAULT_SNAPSHOT_MIN_AGE_MS
+            MinAgeMs0 = maps:get(
+                <<"snapshot_min_age_ms">>, RawConfig, ?DEFAULT_SNAPSHOT_MIN_AGE_MS
             ),
-            RequestTimeoutMs0 = get_value(
-                RawConfig,
-                [snapshot_request_timeout_ms, <<"snapshot_request_timeout_ms">>],
-                ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
+            RequestTimeoutMs0 = maps:get(
+                <<"snapshot_request_timeout_ms">>, RawConfig, ?DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS
             ),
             #{
                 max_sessions_per_username => Max,
@@ -118,14 +110,6 @@ normalize_ms(Value, Default) when is_binary(Value) ->
 normalize_ms(Value, Default) when is_list(Value) ->
     normalize_ms(iolist_to_binary(Value), Default);
 normalize_ms(_Value, Default) ->
-    Default.
-
-get_value(Map, [K | Ks], Default) ->
-    case maps:find(K, Map) of
-        {ok, V} -> V;
-        error -> get_value(Map, Ks, Default)
-    end;
-get_value(_Map, [], Default) ->
     Default.
 
 binary_to_integer_safe(Bin) ->
