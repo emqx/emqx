@@ -79,6 +79,34 @@ t_plugin_api_callback_crash(_Config) ->
         Body
     ).
 
+t_plugin_api_headers_passthrough(_Config) ->
+    ok = meck:expect(
+        emqx_plugins,
+        handle_api_call,
+        fun(<<"fake">>, #{request := ReqInfo}, _Timeout) ->
+            Headers = maps:get(headers, ReqInfo, #{}),
+            %% cowboy lowercases all header names
+            HasContentType = maps:is_key(<<"content-type">>, Headers),
+            {200, #{has_content_type => HasContentType, header_count => map_size(Headers)}}
+        end
+    ),
+    {200, Body} = request(get, ?SERVER ++ "/plugin_api/fake/ping"),
+    %% Headers should be populated from the cowboy request, not empty
+    ?assert(maps:get(<<"header_count">>, Body) > 0).
+
+t_plugin_api_query_string_passthrough(_Config) ->
+    ok = meck:expect(
+        emqx_plugins,
+        handle_api_call,
+        fun(<<"fake">>, #{request := ReqInfo}, _Timeout) ->
+            Qs = maps:get(query_string, ReqInfo, #{}),
+            {200, Qs}
+        end
+    ),
+    {200, Body} = request(get, ?SERVER ++ "/plugin_api/fake/ping?foo=bar&used_gte=1"),
+    ?assertEqual(<<"bar">>, maps:get(<<"foo">>, Body)),
+    ?assertEqual(<<"1">>, maps:get(<<"used_gte">>, Body)).
+
 t_plugin_api_path_remainder_is_percent_decoded(_Config) ->
     ok = meck:expect(
         emqx_plugins,
