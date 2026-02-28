@@ -217,12 +217,27 @@ t_check_subscribe(_) ->
             [{<<"topic">>, #{qos => ?QOS_0}}]
         )
     ),
+    ok = emqx_packet:check(
+        ?SUBSCRIBE_PACKET(
+            1,
+            #{'Subscription-Identifier' => 16#FFFFFFF},
+            [{<<"topic">>, #{qos => ?QOS_0}}]
+        )
+    ),
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(#mqtt_packet_subscribe{topic_filters = []}),
     {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED} =
         emqx_packet:check(
             ?SUBSCRIBE_PACKET(
                 1,
                 #{'Subscription-Identifier' => -1},
+                [{<<"topic">>, #{qos => ?QOS_0, rp => 0}}]
+            )
+        ),
+    {error, ?RC_SUBSCRIPTION_IDENTIFIERS_NOT_SUPPORTED} =
+        emqx_packet:check(
+            ?SUBSCRIBE_PACKET(
+                1,
+                #{'Subscription-Identifier' => 16#10000000},
                 [{<<"topic">>, #{qos => ?QOS_0, rp => 0}}]
             )
         ).
@@ -232,7 +247,7 @@ t_check_unsubscribe(_) ->
     {error, ?RC_TOPIC_FILTER_INVALID} = emqx_packet:check(?UNSUBSCRIBE_PACKET(1, [])).
 
 t_check_connect(_) ->
-    Opts = #{max_clientid_len => 5, mqtt_retain_available => false},
+    Opts = #{max_clientid_len => 5, retain_available => false},
     ok = emqx_packet:check(#mqtt_packet_connect{}, Opts),
     ok = emqx_packet:check(
         ?CONNECT_PACKET(#mqtt_packet_connect{

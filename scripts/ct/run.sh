@@ -320,7 +320,7 @@ fi
 
 if [ "$DOCKER_USER" != "root" ]; then
     # the user must exist inside the container for `whoami` to work
-  docker exec -i $TTY -u root:root \
+    docker exec -i $TTY -u root:root \
          -e "SFACCOUNT=${SFACCOUNT:-myorg-myacc}" \
          "$ERLANG_CONTAINER" bash -c \
          "useradd --uid $DOCKER_USER -M -d / emqx || true && \
