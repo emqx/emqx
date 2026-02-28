@@ -39,9 +39,16 @@ t_schema_and_gateway_paths(_) ->
             emqx_gateway_coap:on_gateway_update(
                 BadConfig,
                 #{name => coap, config => #{connection_required => false, listeners => #{}}},
-                #{ctx => #{gwname => coap, cm => self()}}
+                #{ctx => coap_ctx()}
             )
     after
         gen_udp:close(Sock)
     end,
     ok.
+
+coap_ctx() ->
+    #{
+        gwname => coap,
+        cm => self(),
+        metrics_tab => emqx_gateway_metrics:tabname(coap)
+    }.

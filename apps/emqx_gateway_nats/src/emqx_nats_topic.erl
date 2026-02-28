@@ -22,16 +22,23 @@
 nats_to_mqtt(<<>>) ->
     <<>>;
 nats_to_mqtt(Subject) ->
-    case binary:last(Subject) of
-        $> ->
-            %% Convert NATS '>' to MQTT '#'
-            Base = binary:part(Subject, 0, byte_size(Subject) - 1),
-            BaseMqtt = nats_to_mqtt(Base),
-            <<BaseMqtt/binary, "#">>;
-        _ ->
-            %% Convert NATS '*' to MQTT '+'
-            Parts = binary:split(Subject, <<".">>, [global]),
-            iolist_to_binary(lists:join(<<"/">>, [convert_nats_wildcard(Part) || Part <- Parts]))
+    case has_nats_wildcard_chars(Subject) of
+        false ->
+            replace_dot_with_slash_if_needed(Subject);
+        true ->
+            case binary:last(Subject) of
+                $> ->
+                    %% Convert NATS '>' to MQTT '#'
+                    Base = binary:part(Subject, 0, byte_size(Subject) - 1),
+                    BaseMqtt = nats_to_mqtt(Base),
+                    <<BaseMqtt/binary, "#">>;
+                _ ->
+                    %% Convert NATS '*' to MQTT '+'
+                    Parts = binary:split(Subject, <<".">>, [global]),
+                    iolist_to_binary(
+                        lists:join(<<"/">>, [convert_nats_wildcard(Part) || Part <- Parts])
+                    )
+            end
     end.
 
 %% @doc Convert NATS subject to MQTT topic for publish path
@@ -40,8 +47,7 @@ nats_to_mqtt(Subject) ->
 nats_to_mqtt_publish(<<>>) ->
     <<>>;
 nats_to_mqtt_publish(Subject) ->
-    Parts = binary:split(Subject, <<".">>, [global]),
-    iolist_to_binary(lists:join(<<"/">>, Parts)).
+    replace_dot_with_slash_if_needed(Subject).
 
 %% @doc Convert MQTT topic to NATS subject
 %% MQTT topic format: foo/bar/baz
@@ -84,35 +90,45 @@ convert_mqtt_wildcard(Part) -> Part.
 validate_nats_subject(<<>>) ->
     {error, empty_subject};
 validate_nats_subject(Subject) ->
-    case validate_utf8_char(Subject) of
-        false ->
-            {error, invalid_utf8_string};
-        _ ->
-            Tokens = binary:split(Subject, <<".">>, [global]),
-            case validate_nats_subject_tokens(Tokens, 0, false) of
-                true -> {ok, true};
-                false -> {ok, false};
-                {error, Error} -> {error, Error}
-            end
+    case fast_validate_plain_ascii_subject(Subject) of
+        {ok, false} ->
+            {ok, false};
+        fallback ->
+            case validate_utf8_char(Subject) of
+                false ->
+                    {error, invalid_utf8_string};
+                _ ->
+                    Tokens = binary:split(Subject, <<".">>, [global]),
+                    case validate_nats_subject_tokens(Tokens, 0, false) of
+                        true -> {ok, true};
+                        false -> {ok, false};
+                        {error, Error} -> {error, Error}
+                    end
+            end;
+        Error ->
+            Error
     end.
 
 validate_nats_subject_tokens([], _Lv, HasWildcard) ->
     HasWildcard;
-validate_nats_subject_tokens([<<">">>], _Lv, _HasWildcard) ->
-    true;
 validate_nats_subject_tokens([<<>>], _Lv, _HasWildcard) ->
     {error, ends_with_dot};
-validate_nats_subject_tokens([<<>> | Rest], Lv, _HasWildcard) when length(Rest) > 0 ->
-    case Lv of
-        0 -> {error, starts_with_dot};
-        _ -> {error, consecutive_dots}
-    end;
+validate_nats_subject_tokens([<<>> | _Rest], 0, _HasWildcard) ->
+    {error, starts_with_dot};
+validate_nats_subject_tokens([<<>> | _Rest], _Lv, _HasWildcard) ->
+    {error, consecutive_dots};
+validate_nats_subject_tokens([<<">">>], _Lv, _HasWildcard) ->
+    true;
+validate_nats_subject_tokens([<<">">> | _Rest], _Lv, _HasWildcard) ->
+    {error, special_chars_in_middle};
 validate_nats_subject_tokens([<<"*">> | Rest], Lv, _HasWildcard) ->
     validate_nats_subject_tokens(Rest, Lv + 1, true);
 validate_nats_subject_tokens([Token | Rest], Lv, HasWildcard) ->
-    case re:run(Token, "[ \\*\\>\\.]") of
-        {match, _} -> {error, special_chars_in_middle};
-        nomatch -> validate_nats_subject_tokens(Rest, Lv + 1, HasWildcard)
+    case has_forbidden_chars_in_token(Token) of
+        true ->
+            {error, special_chars_in_middle};
+        false ->
+            validate_nats_subject_tokens(Rest, Lv + 1, HasWildcard)
     end.
 
 validate_utf8_char(<<>>) ->
@@ -126,3 +142,49 @@ validate_utf8_char(<<_H/utf8, Rest/binary>>) ->
     validate_utf8_char(Rest);
 validate_utf8_char(<<_BadUtf8, _Rest/binary>>) ->
     false.
+
+has_nats_wildcard_chars(Subject) ->
+    binary:match(Subject, <<"*">>) =/= nomatch orelse binary:match(Subject, <<">">>) =/= nomatch.
+
+replace_dot_with_slash(Bin) ->
+    binary:replace(Bin, <<".">>, <<"/">>, [global]).
+
+replace_dot_with_slash_if_needed(Bin) ->
+    case binary:match(Bin, <<".">>) of
+        nomatch -> Bin;
+        _ -> replace_dot_with_slash(Bin)
+    end.
+
+fast_validate_plain_ascii_subject(Bin) ->
+    fast_validate_plain_ascii_subject_loop(Bin).
+
+fast_validate_plain_ascii_subject_loop(<<>>) ->
+    {ok, false};
+fast_validate_plain_ascii_subject_loop(<<C, _/binary>>) when C < 16#20 ->
+    {error, invalid_utf8_string};
+fast_validate_plain_ascii_subject_loop(<<C, _/binary>>) when C >= 16#7F, C =< 16#9F ->
+    {error, invalid_utf8_string};
+fast_validate_plain_ascii_subject_loop(<<$\s, _/binary>>) ->
+    {error, special_chars_in_middle};
+fast_validate_plain_ascii_subject_loop(<<$., _/binary>>) ->
+    fallback;
+fast_validate_plain_ascii_subject_loop(<<$*, _/binary>>) ->
+    fallback;
+fast_validate_plain_ascii_subject_loop(<<$>, _/binary>>) ->
+    fallback;
+fast_validate_plain_ascii_subject_loop(<<C, _/binary>>) when C >= 16#80 ->
+    fallback;
+fast_validate_plain_ascii_subject_loop(<<_C, Rest/binary>>) ->
+    fast_validate_plain_ascii_subject_loop(Rest).
+
+has_forbidden_chars_in_token(<<>>) ->
+    false;
+has_forbidden_chars_in_token(<<C, _Rest/binary>>) when
+    C =:= $\s;
+    C =:= $*;
+    C =:= $>;
+    C =:= $.
+->
+    true;
+has_forbidden_chars_in_token(<<_C, Rest/binary>>) ->
+    has_forbidden_chars_in_token(Rest).

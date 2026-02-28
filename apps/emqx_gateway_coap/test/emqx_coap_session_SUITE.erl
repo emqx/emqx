@@ -32,7 +32,7 @@ t_session_info_and_deliver(_) ->
     _ = emqx_coap_session:process_subscribe(undefined, Msg, #{}, Session0),
     Result = emqx_coap_session:process_subscribe(SubData, Msg, #{}, Session0),
     Session1 = maps:get(session, Result),
-    Ctx = #{gwname => coap, cm => self()},
+    Ctx = coap_ctx(),
     Deliver1 = {deliver, <<"t0">>, emqx_message:make(<<"t0">>, <<"p0">>)},
     Deliver2 = {deliver, <<"t1">>, emqx_message:make(<<"t1">>, <<"p1">>)},
     #{out := Out} = emqx_coap_session:deliver([Deliver1, Deliver2], Ctx, Session1),
@@ -49,7 +49,7 @@ t_session_notify_qos_types(_) ->
         Msg = #coap_message{type = con, method = get, id = 1, token = <<"tok">>},
         Result = emqx_coap_session:process_subscribe(SubData, Msg, #{}, Session0),
         Session1 = maps:get(session, Result),
-        Ctx = #{gwname => coap, cm => self()},
+        Ctx = coap_ctx(),
         Deliver0 = {deliver, <<"tq">>, emqx_message:make(undefined, 0, <<"tq">>, <<"p0">>)},
         Deliver1 = {deliver, <<"tq">>, emqx_message:make(undefined, 1, <<"tq">>, <<"p1">>)},
         #{out := [Out0], session := Session2} =
@@ -74,7 +74,7 @@ t_session_deliver_block2_notify(_) ->
     Result = emqx_coap_session:process_subscribe(SubData, Msg, #{}, Session0),
     Session1 = maps:get(session, Result),
     BW0 = emqx_coap_blockwise:new(#{max_block_size => 16}),
-    Ctx = #{gwname => coap, cm => self()},
+    Ctx = coap_ctx(),
     Deliver = {deliver, <<"tb2">>, emqx_message:make(<<"tb2">>, binary:copy(<<"Z">>, 40))},
     #{out := [Out0], blockwise := BW1} = emqx_coap_session:deliver(
         [Deliver], Ctx, Session1, BW0, {peer, 7}
@@ -104,7 +104,14 @@ t_session_notify_block2_prepare_error_mapping(_) ->
         {error, fake_reply, BW},
         Msg,
         {peer, 8},
-        #{gwname => coap, cm => self()}
+        coap_ctx()
     ),
     ?assertEqual(Msg, MappedMsg),
     ?assertEqual(BW, MappedBW).
+
+coap_ctx() ->
+    #{
+        gwname => coap,
+        cm => self(),
+        metrics_tab => emqx_gateway_metrics:tabname(coap)
+    }.

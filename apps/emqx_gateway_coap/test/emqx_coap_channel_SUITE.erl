@@ -22,7 +22,7 @@ end_per_suite(Config) ->
     emqx_coap_test_helpers:stop_gateway(Config).
 
 t_pubsub_handler_direct(_) ->
-    Ctx = #{gwname => coap, cm => self()},
+    Ctx = coap_ctx(),
     CInfo = #{clientid => <<"client">>, mountpoint => <<>>},
     Msg1 = #coap_message{method = get, token = <<>>, options = #{observe => 0}},
     #{reply := Reply1} =
@@ -51,10 +51,10 @@ t_channel_direct(_) ->
         sockname => {{127, 0, 0, 1}, 5683},
         peercert => [{pp2_ssl_cn, <<"CN">>}]
     },
-    Channel0 = emqx_coap_channel:init(ConnInfo, #{ctx => #{gwname => coap, cm => self()}}),
+    Channel0 = emqx_coap_channel:init(ConnInfo, #{ctx => coap_ctx()}),
     ChannelRequired =
         emqx_coap_channel:init(ConnInfo, #{
-            ctx => #{gwname => coap, cm => self()},
+            ctx => coap_ctx(),
             connection_required => false
         }),
     _ = emqx_coap_channel:info(ctx, Channel0),
@@ -104,7 +104,7 @@ t_channel_frame_error_handling(_) ->
         peername => {{127, 0, 0, 1}, 9999},
         sockname => {{127, 0, 0, 1}, 5683}
     },
-    Channel0 = emqx_coap_channel:init(ConnInfo, #{ctx => #{gwname => coap, cm => self()}}),
+    Channel0 = emqx_coap_channel:init(ConnInfo, #{ctx => coap_ctx()}),
     {ok, Channel1} = emqx_coap_channel:handle_in({coap_ignore, ignore}, Channel0),
     {ok, [{outgoing, Reset}], Channel2} = emqx_coap_channel:handle_in(
         {coap_format_error, con, 300, bad_format},
@@ -130,7 +130,7 @@ t_channel_block1_connection(_) ->
     },
     Channel0 =
         emqx_coap_channel:init(ConnInfo, #{
-            ctx => #{gwname => coap, cm => self()},
+            ctx => coap_ctx(),
             connection_required => false
         }),
     Msg0 = #coap_message{
@@ -175,7 +175,7 @@ t_channel_connection_hooks_error_direct(_) ->
         },
         Channel0 =
             emqx_coap_channel:init(ConnInfo, #{
-                ctx => #{gwname => coap, cm => self()},
+                ctx => coap_ctx(),
                 connection_required => true
             }),
         ConnReq = #coap_message{
@@ -201,7 +201,7 @@ t_channel_connection_open_session_error_direct(_) ->
     },
     Channel0 =
         emqx_coap_channel:init(ConnInfo, #{
-            ctx => #{gwname => coap, cm => self()},
+            ctx => coap_ctx(),
             connection_required => true
         }),
     ClientId = <<"client1">>,
@@ -261,7 +261,7 @@ t_channel_check_token_paths(_) ->
     },
     Channel0 =
         emqx_coap_channel:init(ConnInfo, #{
-            ctx => #{gwname => coap, cm => self()},
+            ctx => coap_ctx(),
             connection_required => true
         }),
     DelReq = #coap_message{
@@ -295,7 +295,7 @@ t_channel_connected_invalid_queries(_) ->
     },
     BaseChannel =
         emqx_coap_channel:init(ConnInfo, #{
-            ctx => #{gwname => coap, cm => self()},
+            ctx => coap_ctx(),
             connection_required => true
         }),
     Channel1 = BaseChannel#channel{
@@ -375,7 +375,7 @@ t_channel_query_value_normalization(_) ->
     },
     Channel0 = emqx_coap_channel:init(
         ConnInfo,
-        #{ctx => #{gwname => coap, cm => self()}, connection_required => true}
+        #{ctx => coap_ctx(), connection_required => true}
     ),
     Channel1 = Channel0#channel{
         connection_required = true,
@@ -486,7 +486,7 @@ new_block2_channel(Opts) ->
     },
     Channel0 =
         emqx_coap_channel:init(ConnInfo, #{
-            ctx => #{gwname => coap, cm => self()},
+            ctx => coap_ctx(),
             connection_required => false
         }),
     BW = emqx_coap_blockwise:new(
@@ -509,4 +509,11 @@ ps_get_request(Id, Token, ExtraOpts) ->
         id = Id,
         token = Token,
         options = maps:merge(#{uri_path => [<<"ps">>, <<"topic">>], uri_query => #{}}, ExtraOpts)
+    }.
+
+coap_ctx() ->
+    #{
+        gwname => coap,
+        cm => self(),
+        metrics_tab => emqx_gateway_metrics:tabname(coap)
     }.

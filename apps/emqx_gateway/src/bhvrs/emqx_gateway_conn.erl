@@ -714,13 +714,13 @@ parse_incoming(
         channel = Channel
     }
 ) ->
+    Oct = iolist_size(Data),
     ?SLOG(debug, #{
         msg => "received_data",
-        size => iolist_size(Data),
+        size => Oct,
         type => "hex",
         bin => binary_to_list(binary:encode_hex(Data))
     }),
-    Oct = iolist_size(Data),
     inc_counter(incoming_bytes, Oct),
     Ctx = ChannMod:info(ctx, Channel),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.received', Oct),
@@ -773,7 +773,7 @@ do_handle_incoming(Packet, FrameMod, State) ->
 %% With Channel
 
 with_channel(Fun, Args, State = #state{chann_mod = ChannMod, channel = Channel}) ->
-    case erlang:apply(ChannMod, Fun, Args ++ [Channel]) of
+    case call_channel(ChannMod, Fun, Args, Channel) of
         ok ->
             {ok, State};
         {ok, NChannel} ->
@@ -787,6 +787,13 @@ with_channel(Fun, Args, State = #state{chann_mod = ChannMod, channel = Channel})
             {ok, NState1} = handle_outgoing(Packet, NState),
             shutdown(Reason, NState1)
     end.
+
+call_channel(ChannMod, Fun, [Arg1], Channel) ->
+    ChannMod:Fun(Arg1, Channel);
+call_channel(ChannMod, Fun, [Arg1, Arg2], Channel) ->
+    ChannMod:Fun(Arg1, Arg2, Channel);
+call_channel(ChannMod, Fun, Args, Channel) ->
+    erlang:apply(ChannMod, Fun, lists:append(Args, [Channel])).
 
 %%--------------------------------------------------------------------
 %% Handle outgoing packets
@@ -866,14 +873,14 @@ send(
         channel = Channel
     }
 ) ->
+    Oct = iolist_size(IoData),
     ?SLOG(debug, #{
         msg => "send_data",
-        size => iolist_size(IoData),
+        size => Oct,
         type => "hex",
         iodata => IoData
     }),
     Ctx = ChannMod:info(ctx, Channel),
-    Oct = iolist_size(IoData),
     ok = emqx_gateway_ctx:metrics_inc(Ctx, 'bytes.sent', Oct),
     inc_counter(outgoing_bytes, Oct),
     case esockd_send(IoData, State) of
@@ -993,7 +1000,7 @@ do_inc_incoming_stats(Type, Ctx, FrameMod, Packet) ->
         false ->
             ok
     end,
-    Name = list_to_atom(lists:concat(["packets.", Type, ".received"])),
+    Name = packet_metric_name(received, Type),
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 inc_outgoing_stats(Ctx, FrameMod, Packet) ->
@@ -1005,9 +1012,7 @@ inc_outgoing_stats(Ctx, FrameMod, Packet) ->
         false ->
             ok
     end,
-    Name = list_to_atom(
-        lists:concat(["packets.", FrameMod:type(Packet), ".sent"])
-    ),
+    Name = packet_metric_name(sent, FrameMod:type(Packet)),
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
 %%--------------------------------------------------------------------
@@ -1033,3 +1038,19 @@ stop(Reason, Reply, State) ->
 inc_counter(Name, Value) ->
     _ = emqx_pd:inc_counter(Name, Value),
     ok.
+
+packet_metric_name(Direction, Type) ->
+    Key = {?MODULE, packet_metric_name, Direction, Type},
+    case erlang:get(Key) of
+        undefined ->
+            Name = build_packet_metric_name(Direction, Type),
+            _ = erlang:put(Key, Name),
+            Name;
+        Name ->
+            Name
+    end.
+
+build_packet_metric_name(received, Type) ->
+    list_to_atom(lists:concat(["packets.", Type, ".received"]));
+build_packet_metric_name(sent, Type) ->
+    list_to_atom(lists:concat(["packets.", Type, ".sent"])).

@@ -5362,7 +5362,7 @@ case126_message_insert_resource(_Config) ->
 case127_channel_internal_branches(_Config) ->
     CmPid = whereis(emqx_gateway_lwm2m_cm),
     ?assert(is_pid(CmPid)),
-    Ctx = #{gwname => lwm2m, cm => CmPid},
+    Ctx = lwm2m_ctx(CmPid),
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 56830},
         sockname => {{127, 0, 0, 1}, 56830},
@@ -5505,7 +5505,7 @@ case132_coap_max_block_size(_Config) ->
 case133_mountpoint_peerhost_placeholder(_Config) ->
     CmPid = whereis(emqx_gateway_lwm2m_cm),
     ?assert(is_pid(CmPid)),
-    Ctx = #{gwname => lwm2m, cm => CmPid},
+    Ctx = lwm2m_ctx(CmPid),
     ConnInfo = #{
         peername => {{127, 0, 0, 1}, 56830},
         sockname => {{127, 0, 0, 1}, 56830}
@@ -5745,7 +5745,7 @@ case140_block2_auto_tx_response(_Config) ->
         ),
         CmPid = whereis(emqx_gateway_lwm2m_cm),
         ?assert(is_pid(CmPid)),
-        Ctx = #{gwname => lwm2m, cm => CmPid},
+        Ctx = lwm2m_ctx(CmPid),
         ConnInfo = #{
             peername => {{127, 0, 0, 1}, 56830},
             sockname => {{127, 0, 0, 1}, 56830},
@@ -5791,7 +5791,7 @@ case141_channel_blockwise_server_paths(_Config) ->
         ),
         CmPid = whereis(emqx_gateway_lwm2m_cm),
         ?assert(is_pid(CmPid)),
-        Ctx = #{gwname => lwm2m, cm => CmPid},
+        Ctx = lwm2m_ctx(CmPid),
         ConnInfo = #{
             peername => {{127, 0, 0, 1}, 56830},
             sockname => {{127, 0, 0, 1}, 56830},
@@ -6356,3 +6356,10 @@ session_from_result(Result) ->
         _ ->
             error({missing_return, Result})
     end.
+
+lwm2m_ctx(CmPid) ->
+    #{
+        gwname => lwm2m,
+        cm => CmPid,
+        metrics_tab => emqx_gateway_metrics:tabname(lwm2m)
+    }.
