@@ -1185,6 +1185,7 @@ not_nacked_by_hook({deliver, _Topic, Msg}) ->
 %% Handle Frame Error
 %%--------------------------------------------------------------------
 
+%% Packet too large on an already-established connection.
 handle_frame_error(
     Reason = #{cause := frame_too_large},
     Channel = #channel{conn_state = ConnState, conninfo = ConnInfo}
@@ -1198,33 +1199,10 @@ handle_frame_error(
         _ ->
             shutdown(ShutdownCount, Channel)
     end;
-%% Only send CONNACK with reason code `frame_too_large` for MQTT-v5.0 when connecting,
-%% otherwise DONOT send any CONNACK or DISCONNECT packet.
-handle_frame_error(
-    Reason,
-    Channel = #channel{conn_state = ConnState, conninfo = ConnInfo}
-) when
-    is_map(Reason) andalso
-        (ConnState == idle orelse ConnState == connecting)
-->
-    ShutdownCount = shutdown_count(invalid_connect_packet, Reason, Channel),
-    ProtoVer = proto_ver(Reason, ConnInfo),
-    NChannel = Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}},
-    case ProtoVer of
-        ?MQTT_PROTO_V5 ->
-            shutdown(ShutdownCount, ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), NChannel);
-        _ ->
-            shutdown(ShutdownCount, NChannel)
-    end;
-handle_frame_error(
-    Reason,
-    Channel = #channel{conn_state = connecting}
-) ->
-    shutdown(
-        shutdown_count(invalid_connect_packet, Reason, Channel),
-        ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
-        Channel
-    );
+%% Frame error before CONNECT is parsed (conn_state still idle).
+%% This happens when the first packet is not a valid MQTT CONNECT,
+%% e.g. an HTTP request or other non-MQTT protocol sent to the MQTT port.
+%% No CONNACK is sent because no MQTT version has been negotiated yet.
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = idle}
@@ -1233,6 +1211,23 @@ handle_frame_error(
         shutdown_count(invalid_connect_packet, Reason, Channel),
         Channel
     );
+%% Frame error while parsing CONNECT.
+%% For MQTT-v5.0, reply with CONNACK carrying the appropriate reason code.
+%% For older protocol versions, silently shut down.
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = connecting, conninfo = ConnInfo}
+) ->
+    ShutdownCount = shutdown_count(frame_error, Reason, Channel),
+    ProtoVer = proto_ver(Reason, ConnInfo),
+    NChannel = Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}},
+    case ProtoVer of
+        ?MQTT_PROTO_V5 ->
+            RC = frame_error_reason_code(Reason),
+            shutdown(ShutdownCount, ?CONNACK_PACKET(RC), NChannel);
+        _ ->
+            shutdown(ShutdownCount, NChannel)
+    end;
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = ConnState}
@@ -3367,6 +3362,9 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
+
+frame_error_reason_code(#{cause := frame_too_large}) -> ?RC_PACKET_TOO_LARGE;
+frame_error_reason_code(_) -> ?RC_MALFORMED_PACKET.
 
 connect_attrs(Packet, Channel) ->
     emqx_external_trace:connect_attrs(Packet, Channel).

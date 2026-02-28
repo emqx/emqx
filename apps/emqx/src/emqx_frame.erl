@@ -16,7 +16,7 @@
     parse/1,
     parse/2,
     parse_complete/2,
-    ensure_first_packet_is_connect/1,
+    guess_first_packet_protocol/1,
     serialize_fun/0,
     serialize_fun/1,
     initial_serialize_opts/1,
@@ -176,21 +176,18 @@ parse_complete(
             parse_packet_complete(Rest2, Header, Options)
     end.
 
--spec ensure_first_packet_is_connect(binary()) -> ok | {error, map()}.
-ensure_first_packet_is_connect(<<>>) ->
-    ok;
-ensure_first_packet_is_connect(<<Type:4, _Flags:4, _/binary>>) when Type =:= ?CONNECT ->
-    ok;
-ensure_first_packet_is_connect(<<Type:4, _Flags:4, _/binary>> = Data) ->
+-spec guess_first_packet_protocol(binary()) -> map().
+guess_first_packet_protocol(<<Type:4, _Flags:4, _/binary>> = Data) ->
     {Preview, PreviewEncoding} = format_data_prefix(Data, 32),
-    {error, #{
-        cause => invalid_connect_packet,
+    #{
         packet_type => Type,
         packet_type_name => emqx_packet:type_name(Type),
         resemble_protocol => guess_plaintext_protocol(Data),
         received_prefix => Preview,
         received_prefix_encoding => PreviewEncoding
-    }}.
+    };
+guess_first_packet_protocol(_Data) ->
+    #{}.
 
 guess_plaintext_protocol(Data) ->
     Prefix = binary:part(Data, 0, min(byte_size(Data), 16)),

@@ -294,15 +294,26 @@ t_handle_timeout(_) ->
 t_parse_incoming(_) ->
     ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<>>, st())),
     ?assertMatch({0, [], _NState}, emqx_connection:parse_incoming(<<"for_testing">>, st())),
+    %% SUBSCRIBE with remaining_len=0 in idle state:
+    %% parser throws zero_remaining_len, enriched with protocol hints
     ?assertMatch(
-        {0, [{frame_error, #{cause := invalid_connect_packet, packet_type := ?SUBSCRIBE}}],
+        {0,
+            [
+                {frame_error, #{
+                    cause := zero_remaining_len,
+                    packet_type := ?SUBSCRIBE,
+                    resemble_protocol := _
+                }}
+            ],
             _NState},
         emqx_connection:parse_incoming(<<16#82, 16#00>>, st(#{}, #{conn_state => idle}))
     ),
+    %% CONNECT with remaining_len=0 in idle state
     ?assertMatch(
-        {0, [{frame_error, _Reason}], _NState},
+        {0, [{frame_error, #{cause := zero_remaining_len}}], _NState},
         emqx_connection:parse_incoming(<<16#10, 16#00>>, st(#{}, #{conn_state => idle}))
     ),
+    %% bad_subqos in connected state: no enrichment
     ?assertMatch(
         {0, [{frame_error, bad_subqos}], _NState},
         emqx_connection:parse_incoming(
@@ -310,12 +321,8 @@ t_parse_incoming(_) ->
             st()
         )
     ),
-    {some_more, ParsingState} = emqx_frame:parse(<<16#10>>, emqx_frame:initial_parse_state()),
-    ?assertEqual(true, emqx_connection:is_initial_parser_state({frame, #{}})),
-    ?assertEqual(false, emqx_connection:is_initial_parser_state(ParsingState)),
     ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_frame, parse, fun(_, _) -> erlang:error(forced_parse_error) end),
-    ok = meck:expect(emqx_frame, describe_state, fun(_) -> #{state => clean} end),
     ?assertMatch(
         {0, [{frame_error, forced_parse_error}], _NState},
         emqx_connection:parse_incoming(<<"for_testing">>, st())
@@ -335,18 +342,28 @@ t_parse_incoming(_) ->
         )
     ).
 
-t_socket_parse_incoming_first_packet_gate(_) ->
+t_socket_parse_incoming_first_packet_hints(_) ->
     St0 = socket_st(#{}, #{conn_state => idle}),
     ?assertMatch({0, 0, [], _NState}, emqx_socket_connection:parse_incoming(<<>>, St0)),
+    %% SUBSCRIBE with remaining_len=0 in idle state: enriched with hints
     ?assertMatch(
-        {0, 0, [{frame_error, #{cause := invalid_connect_packet, packet_type := ?SUBSCRIBE}}],
+        {0, 0,
+            [
+                {frame_error, #{
+                    cause := zero_remaining_len,
+                    packet_type := ?SUBSCRIBE,
+                    resemble_protocol := _
+                }}
+            ],
             _NState},
         emqx_socket_connection:parse_incoming(<<16#82, 16#00>>, St0)
     ),
+    %% CONNECT with remaining_len=0 in idle state
     ?assertMatch(
-        {0, 0, [{frame_error, _Reason}], _NState},
+        {0, 0, [{frame_error, #{cause := zero_remaining_len}}], _NState},
         emqx_socket_connection:parse_incoming(<<16#10, 16#00>>, St0)
     ),
+    %% bad_subqos in connected state: no enrichment
     ?assertMatch(
         {0, 0, [{frame_error, bad_subqos}], _NState},
         emqx_socket_connection:parse_incoming(
@@ -354,16 +371,8 @@ t_socket_parse_incoming_first_packet_gate(_) ->
             socket_st()
         )
     ),
-    InitialParsingState = emqx_frame:initial_parse_state(),
-    {some_more, ParsingState} = emqx_frame:parse(<<16#10>>, InitialParsingState),
-    ?assertEqual(true, emqx_socket_connection:is_initial_parser_state(InitialParsingState)),
-    ?assertEqual(
-        false,
-        emqx_socket_connection:is_initial_parser_state(ParsingState)
-    ),
     ok = meck:new(emqx_frame, [passthrough, no_history, no_link]),
     ok = meck:expect(emqx_frame, parse, fun(_, _) -> erlang:error(forced_parse_error) end),
-    ok = meck:expect(emqx_frame, describe_state, fun(_) -> #{state => clean} end),
     ?assertMatch(
         {0, 0, [{frame_error, forced_parse_error}], _NState},
         emqx_socket_connection:parse_incoming(<<"for_testing">>, socket_st())
