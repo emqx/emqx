@@ -43,8 +43,10 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({add, Username, ClientId, Pid}, State) ->
-    _ = erlang:monitor(process, Pid),
-    ok = emqx_username_quota_state:add(Username, ClientId, Pid),
+    case emqx_username_quota_state:add(Username, ClientId, Pid) of
+        new -> _ = erlang:monitor(process, Pid);
+        existing -> ok
+    end,
     {noreply, State};
 handle_info({'DOWN', _Ref, process, Pid, _Reason}, State) ->
     ok = emqx_username_quota_state:del(Pid),

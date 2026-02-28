@@ -7,21 +7,13 @@
     "en": "Maximum concurrent sessions allowed for one username.",
     "zh": "单个用户名允许的并发会话上限。"
   },
-  "$username_white_list_label": {
-    "en": "Username Whitelist",
-    "zh": "用户名白名单"
+  "$snapshot_min_age_ms_label": {
+    "en": "Snapshot Minimum Age (ms)",
+    "zh": "快照最小有效期（毫秒）"
   },
-  "$username_white_list_desc": {
-    "en": "Usernames excluded from quota checks.",
-    "zh": "不参与配额校验的用户名。"
-  },
-  "$snapshot_refresh_interval_ms_label": {
-    "en": "Snapshot Refresh Interval (ms)",
-    "zh": "快照刷新间隔（毫秒）"
-  },
-  "$snapshot_refresh_interval_ms_desc": {
-    "en": "Minimum interval between snapshot rebuilds for list API.",
-    "zh": "列表接口快照重建的最小时间间隔。"
+  "$snapshot_min_age_ms_desc": {
+    "en": "Minimum age of a snapshot before it can be rebuilt. Clamped to 120000-900000ms.",
+    "zh": "快照在可以重建之前的最小有效期。取值范围为120000-900000毫秒。"
   },
   "$snapshot_request_timeout_ms_label": {
     "en": "Snapshot Request Timeout (ms)",
@@ -30,9 +22,5 @@
   "$snapshot_request_timeout_ms_desc": {
     "en": "Timeout budget for list API snapshot requests.",
     "zh": "列表接口快照请求的超时预算。"
-  },
-  "$username_label": {
-    "en": "Username",
-    "zh": "用户名"
   }
 }

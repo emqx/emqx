@@ -5,7 +5,10 @@
 -define(DEFAULT_PAGE, 1).
 -define(DEFAULT_LIMIT, 100).
 -define(MAX_LIMIT, 100).
--define(DEFAULT_SNAPSHOT_REFRESH_INTERVAL_MS, 5000).
+-define(DEFAULT_SNAPSHOT_MIN_AGE_MS, 300000).
+-define(MIN_SNAPSHOT_MIN_AGE_MS, 120000).
+-define(MAX_SNAPSHOT_MIN_AGE_MS, 900000).
+-define(SNAPSHOT_BUILD_YIELD_INTERVAL, 1000).
 -define(DEFAULT_SNAPSHOT_REQUEST_TIMEOUT_MS, 5000).
 -define(MIN_CLIENTID, <<>>).
 -define(MIN_PID, 0).
@@ -18,7 +21,8 @@
 -define(COUNTER_TAB, emqx_username_quota_counter).
 -define(MONITOR_TAB, emqx_username_quota_monitor).
 -define(CCACHE_TAB, emqx_username_quota_ccache).
--define(SNAPSHOT_TAB, emqx_username_quota_snapshot).
+-define(SNAPSHOT_TAB_BLUE, emqx_username_quota_snapshot_blue).
+-define(SNAPSHOT_TAB_GREEN, emqx_username_quota_snapshot_green).
 -define(DB_SHARD, emqx_username_quota_shard).
 
 -define(RECORD_KEY(Username, ClientId, Pid), {Username, ClientId, Pid}).
@@ -27,17 +31,24 @@
 -define(CCACHE(Username, Ts, Cnt), {Username, Ts, Cnt}).
 -define(CCACHE_VALID_MS, 5000).
 
+-define(OVERRIDE_TAB, emqx_username_quota_override).
+
 -define(LOCK(Node), {emqx_username_quota_clear_node_lock, Node}).
 
+-record(?OVERRIDE_TAB, {
+    username :: binary(),
+    quota :: non_neg_integer() | nolimit
+}).
+
 -record(?RECORD_TAB, {
-    key,
-    node,
-    extra = #{}
+    key :: {_Username :: binary(), _ClientId :: binary(), _Pid :: pid()},
+    node :: node(),
+    extra = #{} :: map()
 }).
 
 -record(?COUNTER_TAB, {
-    key,
-    count = 0
+    key :: {_Username :: binary() | '$repl_watermark$', _Node :: node()},
+    count = 0 :: integer()
 }).
 
 -endif.

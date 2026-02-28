@@ -21,6 +21,7 @@ init_per_suite(Config) ->
             wss => #{default => #{bind => 0}}
         }
     },
+    application:stop(emqx_username_quota),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
@@ -80,13 +81,15 @@ t_config_change_max_sessions_runtime(_Config) ->
         stop_client(C1)
     end.
 
-t_config_change_whitelist_runtime(_Config) ->
+t_override_nolimit_runtime(_Config) ->
     Port = mqtt_tcp_port(),
     User = <<"cfg-vip-user">>,
     ok = emqx_username_quota_config:update(#{
-        <<"max_sessions_per_username">> => 1,
-        <<"username_white_list">> => [#{<<"username">> => User}]
+        <<"max_sessions_per_username">> => 1
     }),
+    {ok, 1} = emqx_username_quota_state:set_overrides([
+        #{<<"username">> => User, <<"quota">> => <<"nolimit">>}
+    ]),
     C1 = connect_client(Port, User, <<"vip-c1">>),
     C2 = connect_client(Port, User, <<"vip-c2">>),
     try
@@ -95,6 +98,18 @@ t_config_change_whitelist_runtime(_Config) ->
         stop_client(C1),
         stop_client(C2)
     end.
+
+t_config_reject_invalid_max_sessions(_Config) ->
+    ?assertMatch(
+        {error, {invalid_max_sessions_per_username, 0}},
+        emqx_username_quota_config:update(#{<<"max_sessions_per_username">> => 0})
+    ),
+    ?assertMatch(
+        {error, {invalid_max_sessions_per_username, -1}},
+        emqx_username_quota_config:update(#{<<"max_sessions_per_username">> => -1})
+    ),
+    %% Verify the settings were not changed
+    ?assertEqual(100, emqx_username_quota_config:max_sessions_per_username()).
 
 t_api_404_without_mocks(_Config) ->
     Missing = <<"no_existed_clientid">>,
