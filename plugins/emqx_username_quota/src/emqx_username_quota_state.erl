@@ -17,6 +17,7 @@
     clear_self_node/0,
     reset/0,
     build_snapshot_into/3,
+    build_page_item/2,
     set_overrides/1,
     get_override/1,
     delete_overrides/1,

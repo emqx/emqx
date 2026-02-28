@@ -334,7 +334,7 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
         emqx_username_quota_state,
         list_usernames,
         fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
-            {error, {rebuilding_snapshot, RetryCursor}}
+            {error, {rebuilding_snapshot, RetryCursor, []}}
         end
     ),
     {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
@@ -347,7 +347,40 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
             code := <<"SERVICE_UNAVAILABLE">>,
             message := <<"Server is busy building snapshot, please retry">>,
             snapshot_build_in_progress := true,
-            retry_cursor := RetryCursor
+            retry_cursor := RetryCursor,
+            data := [],
+            meta := #{count := 0, partial := true}
+        },
+        Body
+    ),
+    ok = meck:unload(emqx_username_quota_state).
+
+t_api_list_rebuilding_with_partial_data(_Config) ->
+    RetryCursor = <<"cursor-rebuilding-partial">>,
+    PartialItems = [
+        #{username => <<"alice">>, used => 5, limit => 100, clientids => [<<"c1">>, <<"c2">>]},
+        #{username => <<"bob">>, used => 3, limit => 100, clientids => [<<"c3">>]}
+    ],
+    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:expect(
+        emqx_username_quota_state,
+        list_usernames,
+        fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
+            {error, {rebuilding_snapshot, RetryCursor, PartialItems}}
+        end
+    ),
+    {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"quota">>, <<"usernames">>],
+        #{query_string => #{<<"used_gte">> => <<"1">>}}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"SERVICE_UNAVAILABLE">>,
+            snapshot_build_in_progress := true,
+            retry_cursor := RetryCursor,
+            data := [#{username := <<"alice">>}, #{username := <<"bob">>}],
+            meta := #{count := 2, partial := true}
         },
         Body
     ),

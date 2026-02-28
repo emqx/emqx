@@ -58,7 +58,7 @@ request_page_local(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
         )
     catch
         exit:{timeout, _} -> {error, {busy, pseudo_cursor(node())}};
-        exit:{noproc, _} -> {error, {rebuilding_snapshot, pseudo_cursor(node())}}
+        exit:{noproc, _} -> {error, {rebuilding_snapshot, pseudo_cursor(node()), []}}
     end.
 
 invalidate() ->
@@ -80,13 +80,18 @@ handle_call(reset, _From, State) ->
     {reply, ok, do_reset(State)};
 handle_call(invalidate, _From, State0) ->
     {reply, ok, maybe_start_build(State0)};
-handle_call({request_page, _RequesterPid, DeadlineMs, Cursor, Limit, UsedGte}, _From, State0) ->
+handle_call({request_page, _Pid, DeadlineMs, Cursor, Limit, UsedGte}, _From, State0) ->
     case deadline_ok(DeadlineMs) of
         false ->
-            {reply, rebuilding_reply(), State0};
+            {reply, rebuilding_reply(Limit, State0), State0};
         true ->
             State = maybe_trigger_rebuild(State0, UsedGte),
-            {reply, serve_snapshot(DeadlineMs, Cursor, Limit, State), State}
+            case maps:get(current, State) of
+                undefined ->
+                    wait_for_first_build(DeadlineMs, Cursor, Limit, State);
+                _ ->
+                    {reply, serve_snapshot(DeadlineMs, Cursor, Limit, State), State}
+            end
     end;
 handle_call(_Req, _From, State) ->
     {reply, ignored, State}.
@@ -130,19 +135,30 @@ resolve_target(Cursor) ->
 %% Snapshot serving
 %%--------------------------------------------------------------------
 
-serve_snapshot(_DeadlineMs, _Cursor, _Limit, #{current := undefined}) ->
-    rebuilding_reply();
+serve_snapshot(_DeadlineMs, _Cursor, Limit, #{current := undefined} = State) ->
+    rebuilding_reply(Limit, State);
 serve_snapshot(DeadlineMs, Cursor, Limit, State) ->
     case deadline_ok(DeadlineMs) of
         true -> {ok, page_snapshot(State, Cursor, Limit)};
-        false -> rebuilding_reply()
+        false -> rebuilding_reply(Limit, State)
     end.
 
 deadline_ok(DeadlineMs) ->
     DeadlineMs > now_ms().
 
-rebuilding_reply() ->
-    {error, {rebuilding_snapshot, pseudo_cursor(node())}}.
+rebuilding_reply(Limit, State) ->
+    Partial = partial_from_building(Limit, State),
+    {error, {rebuilding_snapshot, pseudo_cursor(node()), Partial}}.
+
+partial_from_building(Limit, #{building_color := Color}) when Color =/= undefined ->
+    Tab = color_to_tab(Color),
+    {Rows, _LastKey, _HasMore} = collect_page(Tab, ets:first(Tab), Limit, [], undefined),
+    [
+        emqx_username_quota_state:build_page_item(Username, SnapshotUsed)
+     || {{_Counter, Username}, SnapshotUsed} <- Rows
+    ];
+partial_from_building(_Limit, _State) ->
+    [].
 
 page_snapshot(State, Cursor, Limit) ->
     Color = maps:get(current, State),
@@ -240,6 +256,16 @@ complete_build(State) ->
         taken_at_ms => now_ms(),
         used_gte => maps:get(building_used_gte, State)
     }.
+
+wait_for_first_build(DeadlineMs, Cursor, Limit, #{building := BuildPid} = State) ->
+    WaitMs = erlang:max(0, DeadlineMs - now_ms() - 1000),
+    receive
+        {build_complete, BuildPid} ->
+            State1 = complete_build(State),
+            {reply, serve_snapshot(DeadlineMs, Cursor, Limit, State1), State1}
+    after WaitMs ->
+        {reply, rebuilding_reply(Limit, State), State}
+    end.
 
 clear_building(State) ->
     State#{

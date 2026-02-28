@@ -41,11 +41,15 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
             );
         {error, {busy, RetryCursor}} ->
             error_response_503(<<"Server is busy, please retry">>, RetryCursor, #{});
-        {error, {rebuilding_snapshot, RetryCursor}} ->
+        {error, {rebuilding_snapshot, RetryCursor, PartialData}} ->
             error_response_503(
                 <<"Server is busy building snapshot, please retry">>,
                 RetryCursor,
-                #{snapshot_build_in_progress => true}
+                #{
+                    snapshot_build_in_progress => true,
+                    data => PartialData,
+                    meta => #{count => length(PartialData), partial => true}
+                }
             );
         {error, not_core_node} ->
             error_response(
