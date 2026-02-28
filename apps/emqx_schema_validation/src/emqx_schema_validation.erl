@@ -232,6 +232,9 @@ evaluate_schema_check(Check, Validation, #message{payload = Data}) ->
             false
     end.
 
+%% Run schema check in a spawned process with a timeout.
+%% JSON schemas may contain external `$ref` URLs that trigger HTTP fetches
+%% which can hang indefinitely, so we need the timeout to fail fast.
 schema_check_with_timeout(SerdeName, Data, ExtraArgs) ->
     emqx_utils:nolink_apply(
         fun() ->
