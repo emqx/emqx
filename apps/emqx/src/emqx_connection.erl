@@ -776,58 +776,48 @@ next_incoming_msgs(Packets) ->
     lists:foldl(Fun, [], Packets).
 
 parse_incoming(Data, State = #state{parser = Parser}) ->
-    parse_incoming_after_gate(
-        early_first_packet_gate(Data, Parser, State),
-        Data,
-        Parser,
-        State
-    ).
-
-parse_incoming_after_gate(pass, Data, Parser, State) ->
     try
         run_parser(Data, Parser, State)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
+            NReason = maybe_enrich_first_packet_error(Data, Reason, State),
             ?LOG(info, #{
                 msg => "frame_parse_error",
-                reason => Reason,
+                reason => NReason,
                 at_state => describe_parser_state(Parser),
                 input_bytes => Data
             }),
-            NState = update_state_on_parse_error(Parser, Reason, State),
-            {0, [{frame_error, Reason}], NState};
+            NState = update_state_on_parse_error(Parser, NReason, State),
+            {0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
+            NReason = maybe_enrich_first_packet_error(Data, Reason, State),
             ?LOG(error, #{
                 msg => "frame_parse_failed",
                 at_state => describe_parser_state(Parser),
                 input_bytes => Data,
-                reason => Reason,
+                reason => NReason,
                 stacktrace => Stacktrace
             }),
-            {0, [{frame_error, Reason}], State}
-    end;
-parse_incoming_after_gate({frame_error, Reason}, _Data, _Parser, State) ->
-    {0, [{frame_error, Reason}], State}.
-
-early_first_packet_gate(<<>>, _Parser, _State) ->
-    pass;
-early_first_packet_gate(Data, Parser, #state{channel = Channel}) ->
-    case {emqx_channel:info(conn_state, Channel), is_initial_parser_state(Parser)} of
-        {idle, true} ->
-            case emqx_frame:ensure_first_packet_is_connect(Data) of
-                ok ->
-                    pass;
-                {error, Reason} ->
-                    {frame_error, Reason}
-            end;
-        _ ->
-            pass
+            {0, [{frame_error, NReason}], State}
     end.
 
-is_initial_parser_state({frame, _ParserOpts}) ->
-    true;
-is_initial_parser_state(Parser) ->
-    maps:get(state, emqx_frame:describe_state(Parser)) =:= clean.
+maybe_enrich_first_packet_error(Data, Reason, #state{channel = Channel}) when
+    byte_size(Data) > 0
+->
+    case emqx_channel:info(conn_state, Channel) of
+        idle ->
+            Hints = emqx_frame:guess_first_packet_protocol(Data),
+            enrich_reason(Reason, Hints);
+        _ ->
+            Reason
+    end;
+maybe_enrich_first_packet_error(_Data, Reason, _State) ->
+    Reason.
+
+enrich_reason(Reason, Hints) when is_map(Reason) ->
+    maps:merge(Hints, Reason);
+enrich_reason(Reason, Hints) ->
+    Hints#{reason => Reason}.
 
 init_parser(Transport, Socket, FrameOpts) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
