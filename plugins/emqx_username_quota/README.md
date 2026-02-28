@@ -42,6 +42,8 @@ Base path: `/api/v5/plugin_api/emqx_username_quota`
 
 **Snapshot**: The `GET /quota/usernames` endpoint serves results from a pre-built snapshot rather than scanning the live session data on every request. A snapshot is a point-in-time copy of per-username session counts, sorted by count for efficient cursor-based pagination. Snapshots are built asynchronously in the background and cached; a new build is only triggered when the current snapshot is older than `snapshot_min_age_ms`. Each response item includes a `snapshot_used` field when the realtime count has drifted from the snapshot value, so the caller can see both the cached and current counts.
 
+**First-request wait**: When the very first request arrives and no snapshot exists yet, the server waits (up to the request deadline minus 1 second) for the in-progress build to complete. If the build finishes in time, a normal `200` response is returned. If not, a `503` is returned with partial data (see below).
+
 ### Session queries
 
 - `GET /quota/usernames` — list all usernames with active sessions
@@ -97,7 +99,9 @@ Error responses:
 - `400 BAD_REQUEST`: missing `used_gte`, or `used_gte` provided with cursor
 - `400 INVALID_CURSOR`: cursor references an unavailable node or is malformed
 - `503 SERVICE_UNAVAILABLE`: snapshot is being rebuilt
-  - Body includes `snapshot_build_in_progress: true` and `retry_cursor`
+  - Body includes `snapshot_build_in_progress: true`, `retry_cursor`, `data`, and `meta`
+  - `data`: partial first page read from the in-progress snapshot (may be empty if the build just started)
+  - `meta.count`: number of partial entries, `meta.partial: true`
   - Retry with `retry_cursor` to route to the same snapshot owner node
 
 ### `DELETE /quota/snapshot`
@@ -194,8 +198,11 @@ the bootstrap loop is throttled:
 
 When the server is busy or building a snapshot, the list API returns `503` with `retry_cursor`.
 
+The `503` response body includes a `data` array with a partial first page read from the in-progress snapshot table. This gives callers best-effort data immediately rather than an empty response. The `meta.partial: true` flag indicates the data is incomplete. The partial page may be empty if the build has just started.
+
 API Client guidance:
 
+- Inspect `data` for any partial results available immediately.
 - Keep and reuse `retry_cursor` on retry to route back to the same snapshot owner node.
 - Retry with bounded backoff.
 - If retry cursor becomes invalid (for example, node changed), start over without `cursor`.
