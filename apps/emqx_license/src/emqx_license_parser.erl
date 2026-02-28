@@ -23,9 +23,9 @@
 
 -type license_data() :: term().
 -type customer_type() ::
-    ?SMALL_CUSTOMER
-    | ?MEDIUM_CUSTOMER
-    | ?LARGE_CUSTOMER
+    ?STANDARD_CUSTOMER
+    | ?VIP_CUSTOMER_MEDIUM
+    | ?VIP_CUSTOMER_LARGE
     | ?BUSINESS_CRITICAL_CUSTOMER
     | ?BYOC_CUSTOMER
     | ?EDUCATION_NONPROFIT_CUSTOMER
