@@ -21,7 +21,7 @@ init_per_suite(Config) ->
 end_per_suite(Config) ->
     case whereis(emqx_username_quota_snapshot) of
         undefined -> ok;
-        Pid -> exit(Pid, shutdown)
+        Pid -> gen_server:stop(Pid)
     end,
     ok = emqx_cth_suite:stop(?config(apps, Config)).
 
@@ -38,10 +38,6 @@ init_per_testcase(_Case, Config) ->
             Config
     end.
 
-is_cluster_watch_case({testcase, Case}) ->
-    is_cluster_watch_case(Case);
-is_cluster_watch_case({testcase, Case, _Opts}) ->
-    is_cluster_watch_case(Case);
 is_cluster_watch_case(Case) when is_atom(Case) ->
     lists:prefix("t_cluster_watch_", atom_to_list(Case));
 is_cluster_watch_case(_Case) ->

@@ -21,6 +21,7 @@ init_per_suite(Config) ->
             wss => #{default => #{bind => 0}}
         }
     },
+    application:stop(emqx_username_quota),
     Apps = emqx_cth_suite:start(
         [
             emqx_conf,
