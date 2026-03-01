@@ -815,8 +815,7 @@ get_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
         )
     of
         {ok, ?plugin_conf_not_found} ->
-            Err = {error, {config_not_found_on_node, Node, NameVsn}},
-            get_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors]);
+            get_config_from_any_node(RestNodes, NameVsn, [{Node, config_not_found} | Errors]);
         {ok, _} = Res ->
             ?SLOG(debug, #{
                 msg => "get_plugin_config_from_cluster_successfully",
@@ -939,18 +938,38 @@ do_ensure_local_config(NameVsn, ?normal) ->
             case get_config_from_any_node(Nodes, NameVsn, []) of
                 {ok, Config} when is_map(Config) ->
                     emqx_plugins_local_config:update(NameVsn, Config);
-                {error, Reason} ->
-                    ?SLOG(warning, #{
-                        msg => "failed_to_get_plugin_config_from_cluster",
-                        name_vsn => NameVsn,
-                        reason => Reason
-                    }),
+                {error, Errors} ->
+                    log_config_not_found(NameVsn, Errors),
                     emqx_plugins_local_config:copy_default(NameVsn)
             end
     end.
 
 peer_nodes() ->
     [N || N <- mria:running_nodes(), N /= node()].
+
+log_config_not_found(NameVsn, Errors) ->
+    case is_all_config_not_found(Errors) of
+        true ->
+            ?SLOG(debug, #{
+                msg => "plugin_config_not_found_in_cluster",
+                name_vsn => NameVsn,
+                hint =>
+                    "This is expected when this plugin has not been started in the cluster before"
+            });
+        false ->
+            ?SLOG(warning, #{
+                msg => "failed_to_get_plugin_config_from_cluster",
+                name_vsn => NameVsn,
+                reason => Errors
+            })
+    end.
+
+is_all_config_not_found([]) ->
+    true;
+is_all_config_not_found([{_Node, config_not_found} | Rest]) ->
+    is_all_config_not_found(Rest);
+is_all_config_not_found([_ | _]) ->
+    false.
 
 configure_from_local_config(NameVsn, RunningSt) ->
     case validated_local_config(NameVsn) of
