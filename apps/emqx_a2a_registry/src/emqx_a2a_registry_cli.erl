@@ -38,6 +38,10 @@ a2a(["get" | Args]) ->
     if_enabled(fun() -> handle_get(Args) end);
 a2a(["delete" | Args]) ->
     if_enabled(fun() -> handle_delete(Args) end);
+a2a(["register" | Args]) ->
+    if_enabled(fun() -> handle_register(Args) end);
+a2a(["stats"]) ->
+    if_enabled(fun handle_stats/0);
 a2a(_) ->
     usage().
 
@@ -56,7 +60,10 @@ usage() ->
             "List registered agent cards"
         },
         {"a2a_registry get ORG_ID UNIT_ID AGENT_ID", "Lookup one registered agent card"},
-        {"a2a_registry delete ORG_ID UNIT_ID AGENT_ID", "Delete one registered agent card"}
+        {"a2a_registry delete ORG_ID UNIT_ID AGENT_ID", "Delete one registered agent card"},
+        {"a2a_registry register ORG_ID UNIT_ID AGENT_ID <agent-card.json>",
+            "Insert/update agent card"},
+        {"a2a_registry stats", "Print agent card registry statistics"}
     ]).
 
 if_enabled(Fn) ->
@@ -103,6 +110,36 @@ handle_delete(Args) ->
             false
     end.
 
+handle_register(Args) ->
+    case register_args(Args) of
+        {ok, Opts0} ->
+            #{filepath := Filepath} = Opts0,
+            maybe
+                {ok, CardBin} ?= read_card_file(Filepath),
+                Opts1 = maps:remove(filepath, Opts0),
+                Opts = Opts1#{card_bin => CardBin},
+                ok ?= emqx_a2a_registry:write_card(Opts)
+            else
+                {error, Reason} ->
+                    ?PRINT("Invalid register args: ~s\n", [Reason]),
+                    false
+            end;
+        {error, Reason} ->
+            ?PRINT("Invalid register args: ~s\n", [Reason]),
+            false
+    end.
+
+handle_stats() ->
+    AllCards = emqx_a2a_registry:list_cards(),
+    NumAllCards = length(AllCards),
+    ?PRINT("Total cards: ~b\n", [NumAllCards]).
+
+read_card_file(Filepath) ->
+    maybe
+        {error, Reason} ?= file:read_file(Filepath),
+        {error, emqx_utils:explain_posix(Reason)}
+    end.
+
 list_args(Args) ->
     case collect_args(Args, #{}) of
         {ok, Collected} ->
@@ -110,13 +147,13 @@ list_args(Args) ->
                 maps:fold(
                     fun
                         ("--org-id", OrgId, Acc) ->
-                            Acc#{org_id => OrgId};
+                            Acc#{org_id => bin(OrgId)};
                         ("--unit-id", UnitId, Acc) ->
-                            Acc#{unit_id => UnitId};
+                            Acc#{unit_id => bin(UnitId)};
                         ("--agent-id", AgentId, Acc) ->
-                            Acc#{agent_id => AgentId};
+                            Acc#{agent_id => bin(AgentId)};
                         ("--status", Status, Acc) ->
-                            Acc#{status => Status};
+                            Acc#{status => bin(Status)};
                         (_, _, Acc) ->
                             Acc
                     end,
@@ -135,11 +172,11 @@ get_args(Args) ->
                 maps:fold(
                     fun
                         ("--org-id", OrgId, Acc) ->
-                            Acc#{org_id => OrgId};
+                            Acc#{org_id => bin(OrgId)};
                         ("--unit-id", UnitId, Acc) ->
-                            Acc#{unit_id => UnitId};
+                            Acc#{unit_id => bin(UnitId)};
                         ("--agent-id", AgentId, Acc) ->
-                            Acc#{agent_id => AgentId};
+                            Acc#{agent_id => bin(AgentId)};
                         (_, _, Acc) ->
                             Acc
                     end,
@@ -153,6 +190,31 @@ get_args(Args) ->
 
 delete_args(Args) ->
     get_args(Args).
+
+register_args(Args) ->
+    case collect_register_args(Args, #{}) of
+        {ok, Collected} ->
+            Opts =
+                maps:fold(
+                    fun
+                        ("--org-id", OrgId, Acc) ->
+                            Acc#{org_id => bin(OrgId)};
+                        ("--unit-id", UnitId, Acc) ->
+                            Acc#{unit_id => bin(UnitId)};
+                        ("--agent-id", AgentId, Acc) ->
+                            Acc#{agent_id => bin(AgentId)};
+                        ("--file", Filepath, Acc) ->
+                            Acc#{filepath => bin(Filepath)};
+                        (_, _, Acc) ->
+                            Acc
+                    end,
+                    #{},
+                    Collected
+                ),
+            {ok, Opts};
+        {error, _} = Error ->
+            Error
+    end.
 
 filter_by_status(Cards, #{status := Status} = _Opts) ->
     lists:filter(
@@ -194,8 +256,9 @@ collect_args(["--status", Status0 | Args], Map) ->
         false ->
             {error, io_lib:format("invalid status: ~s", [Status])}
     end;
-collect_args(["--migrate-to", MigrateTo | Args], Map) ->
-    collect_args(Args, Map#{"--migrate-to" => MigrateTo});
+%% register
+collect_args(["--file", Filepath | Args], Map) ->
+    collect_args(Args, Map#{"--file" => Filepath});
 %% fallback
 collect_args(Args, _Map) ->
     {error, io_lib:format("unknown arguments: ~p", [Args])}.
@@ -204,6 +267,25 @@ collect_get_args([OrgId, UnitId, AgentId | Rest], Map) ->
     %% Converting positional arguments to named ones
     collect_args(["--org-id", OrgId, "--unit-id", UnitId, "--agent-id", AgentId | Rest], Map);
 collect_get_args(Args, _Map) ->
+    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+
+collect_register_args([OrgId, UnitId, AgentId, Filepath | Rest], Map) ->
+    %% Converting positional arguments to named ones
+    collect_args(
+        [
+            "--org-id",
+            OrgId,
+            "--unit-id",
+            UnitId,
+            "--agent-id",
+            AgentId,
+            "--file",
+            Filepath
+            | Rest
+        ],
+        Map
+    );
+collect_register_args(Args, _Map) ->
     {error, io_lib:format("unknown arguments: ~p", [Args])}.
 
 is_valid_segment_id(Id0) ->
@@ -227,3 +309,5 @@ print_card(Card) ->
         "Status: ~s\n\n",
         [Name, Description, Status]
     ).
+
+bin(X) -> emqx_utils_conv:bin(X).

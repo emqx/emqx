@@ -109,6 +109,13 @@ delete_card(Args0) ->
     Args = lists:map(fun emqx_utils_conv:str/1, Args0),
     emqx_a2a_registry_cli:a2a(["delete" | Args]).
 
+register_card(Args0) ->
+    Args = lists:map(fun emqx_utils_conv:str/1, Args0),
+    emqx_a2a_registry_cli:a2a(["register" | Args]).
+
+card_stats() ->
+    emqx_a2a_registry_cli:a2a(["stats"]).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -244,6 +251,51 @@ t_delete_card(_TCConfig) ->
     ?assertMatch(
         [#{<<"name">> := Id2}],
         emqx_a2a_registry_cth:all_cards()
+    ),
+
+    ok.
+
+%% Smoke test for calling register
+t_register_card(TCConfig) ->
+    ?assertEqual(0, emqx_a2a_registry_cth:card_count()),
+
+    PrivDir = get_config(priv_dir, TCConfig),
+    Name = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+    Card = sample_card_bin(#{<<"name">> => Name}),
+    Filepath = filename:join([PrivDir, ?FUNCTION_NAME, "agent-card.json"]),
+    ok = filelib:ensure_dir(Filepath),
+    ok = file:write_file(Filepath, Card),
+
+    ?assertMatch(ok, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, Filepath])),
+    ?assertEqual(1, emqx_a2a_registry_cth:card_count()),
+    Id = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+    ?assertMatch(
+        [#{<<"name">> := Id}],
+        emqx_a2a_registry_cth:all_cards()
+    ),
+
+    %% Invalid ids
+    ?assertMatch(false, register_card(["/", ?UNIT_ID, ?AGENT_ID, Filepath])),
+    ?assertMatch(false, register_card([?ORG_ID, "/", ?AGENT_ID, Filepath])),
+    ?assertMatch(false, register_card([?ORG_ID, ?UNIT_ID, "/", Filepath])),
+
+    %% Invalid file path
+    ?assertMatch(false, register_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID, "i-dont-exist.json"])),
+
+    ok.
+
+%% Smoke test for calling stats
+t_card_stats(_TCConfig) ->
+    ?assertEqual(0, emqx_a2a_registry_cth:card_count()),
+    ?assertMatch(
+        {ok, [<<"Total cards: 0", _/binary>>]},
+        ?CAPTURE(card_stats())
+    ),
+
+    simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+    ?assertMatch(
+        {ok, [<<"Total cards: 1", _/binary>>]},
+        ?CAPTURE(card_stats())
     ),
 
     ok.

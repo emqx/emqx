@@ -109,22 +109,7 @@ validate_card_message(Msg, Id) ->
 
 validate_id(Id) ->
     {OrgId, UnitId, AgentId} = Id,
-    maybe
-        ok ?= do_validate_id(OrgId, org_id),
-        ok ?= do_validate_id(UnitId, unit_id),
-        ok ?= do_validate_id(AgentId, agent_id),
-        ok
-    end.
-
-do_validate_id(Id, Field) when is_binary(Id) ->
-    case re:run(Id, ?SEGMENT_ID_RE, [{capture, none}]) of
-        match ->
-            ok;
-        nomatch ->
-            {error, {bad_id, Field, Id}}
-    end;
-do_validate_id(Id, Field) ->
-    {error, {bad_id, Field, Id}}.
+    emqx_a2a_registry_utils:validate_id(OrgId, UnitId, AgentId).
 
 validate_publishing_agent_clientid(#message{from = From} = _Msg, Id) ->
     {OrgId, UnitId, AgentId} = Id,
@@ -135,23 +120,8 @@ validate_publishing_agent_clientid(#message{from = From} = _Msg, Id) ->
             {error, {bad_clientid, From, Id}}
     end.
 
-validate_card_schema(Msg) ->
-    case emqx_a2a_registry_config:is_schema_validation_enabled() of
-        false ->
-            ok;
-        true ->
-            do_validate_card_schema(Msg)
-    end.
-
-do_validate_card_schema(#message{payload = Payload} = _Msg) ->
-    IsValid = emqx_schema_registry_serde:schema_check(?A2A_SCHEMA_REGISTRY_SERDE_NAME, Payload, []),
-    case IsValid of
-        true ->
-            ok;
-        false ->
-            %% Reason is already logged at debug level by `schema_check`.
-            {error, bad_payload}
-    end.
+validate_card_schema(#message{payload = Payload} = _Msg) ->
+    emqx_a2a_registry_utils:validate_card_schema(Payload).
 
 maybe_augment_message_metadata(#message{topic = Topic} = Msg0) ->
     case parse_a2a_discovery_topic(Topic) of
