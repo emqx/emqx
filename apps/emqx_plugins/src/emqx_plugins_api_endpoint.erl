@@ -78,10 +78,19 @@ gateway(Method, Params, Request) ->
             [] -> PathRemainder0;
             R -> R
         end,
-    Headers = maps:get(headers, Params, #{}),
+    Headers =
+        case maps:get(headers, Params, undefined) of
+            undefined -> cowboy_req:headers(Request);
+            H -> H
+        end,
+    QueryString =
+        case maps:get(query_string, Params, undefined) of
+            undefined -> maps:from_list(cowboy_req:parse_qs(Request));
+            Qs -> Qs
+        end,
     ReqInfo = #{
         method => Method,
-        query_string => maps:get(query_string, Params, #{}),
+        query_string => QueryString,
         headers => Headers,
         body => maps:get(body, Params, #{})
     },
