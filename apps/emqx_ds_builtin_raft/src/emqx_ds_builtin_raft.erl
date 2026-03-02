@@ -783,7 +783,22 @@ otx_commit_tx_batch({DB, Shard}, SerCtl, Serial, Timestamp, Batches) ->
     end.
 
 otx_add_generation(DB, Shard, Since) ->
-    ra_command(DB, Shard, emqx_ds_builtin_raft_machine:add_generation(Since), ra_retries(DB)).
+    Command = emqx_ds_builtin_raft_machine:add_generation(Since),
+    case local_raft_leader(DB, Shard) of
+        {ok, Leader} ->
+            case ra:process_command(Leader, Command, ra_timeout(DB)) of
+                {ok, Ret, _Leader} ->
+                    Ret;
+                {error, noproc} ->
+                    ?err_rec(local_leader_stopped);
+                {error, Reason} when Reason =:= normal orelse Reason =:= shutdown ->
+                    ?err_rec(local_leader_terminated);
+                Err ->
+                    ?err_rec({raft, Err, ?FUNCTION_NAME})
+            end;
+        Err ->
+            Err
+    end.
 
 otx_lookup_ttv(DBShard, GenId, Topic, Timestamp) ->
     emqx_ds_storage_layer_ttv:lookup(DBShard, GenId, Topic, Timestamp).
