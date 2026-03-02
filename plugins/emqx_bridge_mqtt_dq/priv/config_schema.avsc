@@ -1,0 +1,308 @@
+{
+  "type": "record",
+  "name": "ExtendedConfig",
+  "fields": [
+    {
+      "name": "bridges",
+      "type": {
+        "type": "map",
+        "values": {
+          "type": "record",
+          "name": "BridgeConfig",
+          "fields": [
+            {
+              "name": "enable",
+              "type": "boolean",
+              "default": false,
+              "$ui": {
+                "component": "switch",
+                "flex": 12,
+                "required": true,
+                "label": "$bridge_enable_label",
+                "description": "$bridge_enable_desc"
+              }
+            },
+            {
+              "name": "server",
+              "type": "string",
+              "default": "127.0.0.1:1883",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": true,
+                "label": "$server_label",
+                "description": "$server_desc"
+              }
+            },
+            {
+              "name": "proto_ver",
+              "type": "string",
+              "default": "v4",
+              "$ui": {
+                "component": "select",
+                "options": [
+                  {"label": "v3", "value": "v3"},
+                  {"label": "v4", "value": "v4"},
+                  {"label": "v5", "value": "v5"}
+                ],
+                "flex": 12,
+                "required": true,
+                "label": "$proto_ver_label",
+                "description": "$proto_ver_desc"
+              }
+            },
+            {
+              "name": "clientid_prefix",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": false,
+                "label": "$clientid_prefix_label",
+                "description": "$clientid_prefix_desc"
+              }
+            },
+            {
+              "name": "username",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": false,
+                "label": "$username_label",
+                "description": "$username_desc"
+              }
+            },
+            {
+              "name": "password",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input-password",
+                "flex": 12,
+                "required": false,
+                "label": "$password_label",
+                "description": "$password_desc"
+              }
+            },
+            {
+              "name": "clean_start",
+              "type": "boolean",
+              "default": true,
+              "$ui": {
+                "component": "switch",
+                "flex": 12,
+                "required": false,
+                "label": "$clean_start_label",
+                "description": "$clean_start_desc"
+              }
+            },
+            {
+              "name": "keepalive_s",
+              "type": "int",
+              "default": 60,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$keepalive_label",
+                "description": "$keepalive_desc"
+              }
+            },
+            {
+              "name": "pool_size",
+              "type": "int",
+              "default": 4,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": true,
+                "label": "$pool_size_label",
+                "description": "$pool_size_desc"
+              }
+            },
+            {
+              "name": "buffer_pool_size",
+              "type": "int",
+              "default": 4,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$buffer_pool_size_label",
+                "description": "$buffer_pool_size_desc"
+              }
+            },
+            {
+              "name": "filter_topic",
+              "type": "string",
+              "default": "#",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": true,
+                "label": "$filter_topic_label",
+                "description": "$filter_topic_desc"
+              }
+            },
+            {
+              "name": "remote_topic",
+              "type": "string",
+              "default": "fwd/${topic}",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": true,
+                "label": "$remote_topic_label",
+                "description": "$remote_topic_desc"
+              }
+            },
+            {
+              "name": "enqueue_timeout_ms",
+              "type": "int",
+              "default": 5000,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$enqueue_timeout_ms_label",
+                "description": "$enqueue_timeout_ms_desc"
+              }
+            },
+            {
+              "name": "remote_qos",
+              "type": "int",
+              "default": 1,
+              "$ui": {
+                "component": "select",
+                "options": [
+                  {"label": "0", "value": 0},
+                  {"label": "1", "value": 1},
+                  {"label": "2", "value": 2}
+                ],
+                "flex": 12,
+                "required": true,
+                "label": "$remote_qos_label",
+                "description": "$remote_qos_desc"
+              }
+            },
+            {
+              "name": "remote_retain",
+              "type": "boolean",
+              "default": false,
+              "$ui": {
+                "component": "switch",
+                "flex": 12,
+                "required": false,
+                "label": "$remote_retain_label",
+                "description": "$remote_retain_desc"
+              }
+            },
+            {
+              "name": "ssl",
+              "type": {
+                "type": "record",
+                "name": "SslConfig",
+                "fields": [
+                  {
+                    "name": "enable",
+                    "type": "boolean",
+                    "default": false,
+                    "$ui": {
+                      "component": "switch",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$ssl_enable_label",
+                      "description": "$ssl_enable_desc"
+                    }
+                  },
+                  {
+                    "name": "sni",
+                    "type": "string",
+                    "default": "",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$ssl_sni_label",
+                      "description": "$ssl_sni_desc"
+                    }
+                  }
+                ]
+              },
+              "$ui": {
+                "component": "object",
+                "flex": 24,
+                "required": false,
+                "label": "$ssl_label",
+                "description": "$ssl_desc"
+              }
+            },
+            {
+              "name": "queue",
+              "type": {
+                "type": "record",
+                "name": "QueueConfig",
+                "fields": [
+                  {
+                    "name": "dir",
+                    "type": "string",
+                    "default": "",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$queue_dir_label",
+                      "description": "$queue_dir_desc"
+                    }
+                  },
+                  {
+                    "name": "seg_bytes",
+                    "type": "string",
+                    "default": "100MB",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$queue_seg_bytes_label",
+                      "description": "$queue_seg_bytes_desc"
+                    }
+                  },
+                  {
+                    "name": "max_total_bytes",
+                    "type": "string",
+                    "default": "1GB",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$queue_max_total_bytes_label",
+                      "description": "$queue_max_total_bytes_desc"
+                    }
+                  }
+                ]
+              },
+              "$ui": {
+                "component": "object",
+                "flex": 24,
+                "required": false,
+                "label": "$queue_label",
+                "description": "$queue_desc"
+              }
+            }
+          ]
+        }
+      },
+      "default": {},
+      "$ui": {
+        "component": "maps",
+        "flex": 24,
+        "required": false,
+        "label": "$bridges_label",
+        "description": "$bridges_desc"
+      }
+    }
+  ]
+}

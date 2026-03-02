@@ -1,0 +1,28 @@
+bridges {
+  example {
+    enable = false
+    server = "127.0.0.1:1883"
+    proto_ver = "v4"
+    clientid_prefix = "emqx_dq_bridge_example"
+    username = ""
+    password = ""
+    clean_start = true
+    keepalive_s = 60
+    ssl {
+      enable = false
+      # sni = "hostname.example.com"
+    }
+    pool_size = 4
+    buffer_pool_size = 4
+    filter_topic = "devices/#"
+    remote_topic = "fwd/${topic}"
+    enqueue_timeout_ms = 5000
+    remote_qos = 1
+    remote_retain = false
+    queue {
+      dir = "data/bridge_mqtt_dq/example"
+      seg_bytes = "100MB"
+      max_total_bytes = "1GB"
+    }
+  }
+}
