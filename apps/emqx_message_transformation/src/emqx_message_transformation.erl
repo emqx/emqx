@@ -177,7 +177,7 @@ prettify_operation(Operation0) ->
     %% TODO: remove injected bif module
     Operation = maps:update_with(
         value,
-        fun(V) -> iolist_to_binary(emqx_variform:decompile(V)) end,
+        fun(V) -> unicode:characters_to_binary(emqx_variform:decompile(V)) end,
         Operation0
     ),
     maps:update_with(
