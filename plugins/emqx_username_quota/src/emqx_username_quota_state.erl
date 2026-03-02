@@ -28,10 +28,13 @@
 -include("emqx_username_quota.hrl").
 
 -doc """
-Create the two core Mria tables used by username quota state.
+Create the 3 core Mria tables used by username quota state.
 ?RECORD_TAB stores one row per active session, keyed by {Username, ClientId, Pid}.
+
 ?COUNTER_TAB stores per-node counters, keyed by {Username, Node};
 global count per username is derived by summing all node counters.
+
+?OVERRIDE_TAB stores the per-username quota overrides, keyed by Username.
 """.
 create_tables() ->
     ok = mria:create_table(?RECORD_TAB, [

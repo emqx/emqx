@@ -136,12 +136,11 @@ finish_bootstrap(Count, _BatchCount, BatchSeq) ->
 
 process_channel(Rest, Count, BatchCount, BatchSeq, ClientId, ChanPid, ClientInfo) ->
     Username = emqx_utils_conv:bin(maps:get(username, ClientInfo, <<>>)),
-    ClientIdBin = emqx_utils_conv:bin(ClientId),
-    case Username =:= <<>> orelse ClientIdBin =:= <<>> of
+    case Username =:= <<>> of
         true ->
             bootstrap_loop(Rest, Count, BatchCount, BatchSeq);
         false ->
-            emqx_username_quota_pool:add(Username, ClientIdBin, ChanPid),
+            emqx_username_quota_pool:add(Username, ClientId, ChanPid),
             after_add(Rest, Count + 1, BatchCount + 1, BatchSeq)
     end.
 

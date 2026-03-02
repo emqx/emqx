@@ -30,7 +30,7 @@
 -define(MONITOR(Pid, Username, ClientId), {Pid, Username, ClientId}).
 -define(CCACHE(Username, Ts, Cnt), {Username, Ts, Cnt}).
 -define(CCACHE_VALID_MS, 5000).
-
+%% ?OVERRIDE_TAB stores the per-username quota overrides.
 -define(OVERRIDE_TAB, emqx_username_quota_override).
 
 -define(LOCK(Node), {emqx_username_quota_clear_node_lock, Node}).
