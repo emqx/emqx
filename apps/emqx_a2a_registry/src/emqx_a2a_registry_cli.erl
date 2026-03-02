@@ -54,7 +54,9 @@ usage() ->
             "  [--agent-id AGENT_ID] \\\n"
             "  [--status STATUS]",
             "List registered agent cards"
-        }
+        },
+        {"a2a_registry get ORG_ID UNIT_ID AGENT_ID", "Lookup one registered agent card"},
+        {"a2a_registry delete ORG_ID UNIT_ID AGENT_ID", "Delete one registered agent card"}
     ]).
 
 if_enabled(Fn) ->
@@ -72,7 +74,7 @@ handle_list(Args) ->
             Cards = filter_by_status(Cards0, Opts),
             lists:foreach(fun print_card/1, Cards);
         {error, Reason} ->
-            ?PRINT("Invalid list args: ~s", [Reason]),
+            ?PRINT("Invalid list args: ~s\n", [Reason]),
             false
     end.
 
@@ -87,7 +89,7 @@ handle_get(Args) ->
                     print_card(Card)
             end;
         {error, Reason} ->
-            ?PRINT("Invalid get args: ~s", [Reason]),
+            ?PRINT("Invalid get args: ~s\n", [Reason]),
             false
     end.
 
@@ -97,7 +99,7 @@ handle_delete(Args) ->
             ok = emqx_a2a_registry:delete_card(Opts),
             ok;
         {error, Reason} ->
-            ?PRINT("Invalid get args: ~s", [Reason]),
+            ?PRINT("Invalid delete args: ~s\n", [Reason]),
             false
     end.
 
