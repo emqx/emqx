@@ -271,6 +271,14 @@ trans_claim(DB, Shard, Trans, TransHandler) ->
     case claim_transition(DB, Shard, Trans) of
         ok ->
             apply_handler(TransHandler, DB, Shard, Trans);
+        {error, {conflict, TransPending}} ->
+            ?tp(debug, "Transition superseded", #{
+                db => DB,
+                shard => Shard,
+                trans => Trans,
+                by => TransPending
+            }),
+            exit({shutdown, skipped});
         {error, {outdated, Expected}} ->
             ?tp(debug, "Transition became outdated", #{
                 db => DB,
