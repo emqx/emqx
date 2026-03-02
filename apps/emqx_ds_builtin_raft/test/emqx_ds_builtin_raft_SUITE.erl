@@ -1357,7 +1357,7 @@ consume_shard(Node, DB, Shard, TopicFilter, StartTime) ->
 
 %%
 
-suite() -> [{timetrap, {seconds, 120}}, {ct_hooks, [emqx_cth_ct_hook_flaky]}].
+suite() -> [{timetrap, {seconds, 120}}].
 
 all() ->
     Broken = [
@@ -1366,14 +1366,6 @@ all() ->
         t_crash_restart_recover
     ],
     emqx_common_test_helpers:all(?MODULE) -- Broken.
-
-flaky_tests() ->
-    #{
-        t_rebalance => 3,
-        t_rebalance_tolerate_permanently_lost_quorum => 3,
-        %% t_crash_restart_recover => 3,
-        t_rebalance_chaotic_converges => 3
-    }.
 
 init_per_testcase(TCName, Config0) ->
     Config1 = [{work_dir, emqx_cth_suite:work_dir(TCName, Config0)} | Config0],
