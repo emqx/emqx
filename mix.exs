@@ -330,6 +330,7 @@ defmodule EMQXUmbrella.MixProject do
   defp erlc_options(version) do
     [
       :debug_info,
+      :warnings_as_errors,
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
       {:d, :EMQX_ELIXIR},
       {:d, :EMQX_FLAVOR, get_emqx_flavor()},
