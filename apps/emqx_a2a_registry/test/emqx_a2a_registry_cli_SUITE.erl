@@ -216,13 +216,21 @@ t_get_card(_TCConfig) ->
 
     ?assertMatch(
         {ok, [
-            <<"Name: ", Id1:SId1/binary, _/binary>>
+            <<"Name: ", Id1:SId1/binary, _/binary>>,
+            %% Raw JSON card
+            <<"{", _/binary>>
         ]},
         ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID]))
     ),
+    {ok, [_, RawCard1]} = ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID])),
+    Name1 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+    Card1 = sample_card_bin(#{<<"name">> => Name1}),
+    ?assertEqual(emqx_utils_json:decode(Card1), emqx_utils_json:decode(RawCard1)),
     ?assertMatch(
         {ok, [
-            <<"Name: ", Id2:SId2/binary, _/binary>>
+            <<"Name: ", Id2:SId2/binary, _/binary>>,
+            %% Raw JSON card
+            <<"{", _/binary>>
         ]},
         ?CAPTURE(get_card([?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2]))
     ),

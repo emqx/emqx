@@ -93,7 +93,10 @@ handle_get(Args) ->
                 [] ->
                     ?PRINT("Not found\n");
                 [Card | _] ->
-                    print_card(Card)
+                    print_card(Card),
+                    CardRaw = maps:get(<<"raw">>, Card),
+                    CardRawBin = emqx_utils_json:encode(CardRaw),
+                    ?PRINT("~s\n", [CardRawBin])
             end;
         {error, Reason} ->
             ?PRINT("Invalid get args: ~s\n", [Reason]),
