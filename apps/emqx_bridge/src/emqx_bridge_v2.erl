@@ -1199,9 +1199,11 @@ pre_config_update([ConfRootKey], Conf = #{}, OldConfs) when
 
 %% This top level handler will be triggered when the actions path is updated
 %% with calls to emqx_conf:update([actions], BridgesConf, #{}).
-post_config_update([ConfRootKey], _Req, NewConf, OldConf, _AppEnv) when
+post_config_update([ConfRootKey], _Req, NewConf0, OldConf0, _AppEnv) when
     ConfRootKey =:= ?ROOT_KEY_ACTIONS; ConfRootKey =:= ?ROOT_KEY_SOURCES
 ->
+    NewConf = remove_computed_fields(NewConf0),
+    OldConf = remove_computed_fields(OldConf0),
     #{added := Added, removed := Removed, changed := Updated} =
         diff_confs(NewConf, OldConf),
     RemoveFun = fun(Type, Name, Conf) ->
@@ -1290,6 +1292,14 @@ flatten_confs(Conf0) ->
 
 do_flatten_confs(Type, Conf0) ->
     [{{Type, Name}, Conf} || {Name, Conf} <- maps:to_list(Conf0)].
+
+remove_computed_fields(#{} = Map) ->
+    maps:map(
+        fun(_K, V) -> remove_computed_fields(V) end,
+        maps:remove(?COMPUTED, Map)
+    );
+remove_computed_fields(X) ->
+    X.
 
 perform_bridge_changes(Tasks) ->
     perform_bridge_changes(Tasks, []).
