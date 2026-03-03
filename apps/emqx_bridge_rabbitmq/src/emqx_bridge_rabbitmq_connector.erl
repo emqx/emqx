@@ -59,6 +59,8 @@ fields(config) ->
 %% Less than ?T_OPERATION of emqx_resource_manager
 -define(CHANNEL_CLOSE_TIMEOUT, 4_000).
 
+-define(AUTO_RECONNECT_INTERVAL_S, 2).
+
 %% ===================================================================
 %% Callbacks defined in emqx_resource
 %% ===================================================================
@@ -78,7 +80,8 @@ on_start(InstanceId, Config) ->
     Options = [
         {config, Config},
         {pool_size, maps:get(pool_size, Config)},
-        {pool, InstanceId}
+        {pool, InstanceId},
+        {auto_reconnect, ?AUTO_RECONNECT_INTERVAL_S}
     ],
     case emqx_resource_pool:start(InstanceId, ?MODULE, Options) of
         ok ->
@@ -108,13 +111,14 @@ on_add_channel(
                     Channel = #{param => ProcParam, rabbitmq => RabbitChannels},
                     NewChannels = maps:put(ChannelId, Channel, Channels),
                     {ok, State#{channels => NewChannels}};
-                {error, Error} ->
+                {{error, Error}, PartialRabbitChannels} ->
                     ?SLOG(error, #{
                         msg => "failed_to_start_rabbitmq_channel",
                         instance_id => InstanceId,
                         params => emqx_utils:redact(Config),
                         error => Error
                     }),
+                    close_channels(maps:values(PartialRabbitChannels)),
                     {error, Error}
             end
     end.
@@ -185,14 +189,22 @@ connect(Options) ->
 -spec on_get_status(resource_id(), term()) ->
     ?status_connected | {?status_disconnected, binary()}.
 on_get_status(PoolName, #{channels := Channels}) ->
+    ?tp("rabbitmq_on_get_status_enter0", #{}),
+    ?tp("rabbitmq_on_get_status_enter1", #{}),
     ChannelNum = maps:size(Channels),
     Conns = get_rabbitmq_connections(PoolName),
+    %% TODO: should disentangle channel and connector health checks; channels should be
+    %% restarted independently, instead of relying on full connector restart...
     try actual_channel_nums(Conns) of
         ActualNums ->
             Check = lists:all(fun(ActualNum) -> ActualNum >= ChannelNum end, ActualNums),
             case Check of
                 true when Conns =/= [] ->
-                    ?status_connected;
+                    ?tp_span(
+                        "rabbitmq_on_get_status_connected",
+                        #{},
+                        ?status_connected
+                    );
                 _ ->
                     {?status_disconnected, <<"not_connected">>}
             end
@@ -218,6 +230,7 @@ actual_channel_nums(Conns) ->
     ).
 
 on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
+    ?tp("rabbitmq_on_get_channel_status_enter", #{channel_id => ChannelId}),
     case emqx_utils_maps:deep_find([ChannelId, rabbitmq], Channels) of
         {ok, RabbitMQ} ->
             case lists:all(fun is_process_alive/1, maps:values(RabbitMQ)) of
@@ -460,27 +473,46 @@ make_channel([], _ChannelId, _Param, Acc) ->
     {ok, Acc};
 make_channel([Conn | Conns], ChannelId, Params, Acc) ->
     maybe
-        {ok, RabbitMQChannel} ?= amqp_connection:open_channel(Conn),
+        ?tp("rabbitmq_will_make_channel", #{}),
+        {ok, RabbitMQChannel} ?= open_channel(Conn),
+        make_channel_cont([Conn | Conns], RabbitMQChannel, ChannelId, Params, Acc)
+    else
+        Error ->
+            {Error, Acc}
+    end.
+
+make_channel_cont([Conn | Conns], RabbitMQChannel, ChannelId, Params, Acc) ->
+    NewAcc = Acc#{Conn => RabbitMQChannel},
+    maybe
         ok ?= try_confirm_channel(Params, RabbitMQChannel),
         ok ?= try_subscribe(Params, RabbitMQChannel, ChannelId),
-        NewAcc = Acc#{Conn => RabbitMQChannel},
         make_channel(Conns, ChannelId, Params, NewAcc)
+    else
+        Error ->
+            {Error, NewAcc}
     end.
 
 %% We need to enable confirmations if we want to wait for them
+
 try_confirm_channel(#{wait_for_publish_confirmations := true}, Channel) ->
-    case amqp_channel:call(Channel, #'confirm.select'{}) of
-        #'confirm.select_ok'{} ->
-            ok;
-        Error ->
-            Reason =
-                iolist_to_binary(
-                    io_lib:format(
-                        "Could not enable RabbitMQ confirmation mode ~p",
-                        [Error]
-                    )
-                ),
-            {error, Reason}
+    try
+        ?tp("rabbitmq_will_confirm_channel", #{}),
+        case amqp_channel:call(Channel, #'confirm.select'{}) of
+            #'confirm.select_ok'{} ->
+                ok;
+            Error ->
+                Reason =
+                    iolist_to_binary(
+                        io_lib:format(
+                            "Could not enable RabbitMQ confirmation mode ~p",
+                            [Error]
+                        )
+                    ),
+                {error, Reason}
+        end
+    catch
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
     end;
 try_confirm_channel(#{wait_for_publish_confirmations := false}, _Channel) ->
     ok.
@@ -632,17 +664,30 @@ get_rabbitmq_connections(PoolName) ->
         ecpool:workers(PoolName)
     ).
 
+open_channel(Conn) ->
+    try
+        amqp_connection:open_channel(Conn)
+    catch
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
+    end.
+
 try_subscribe(
     #{queue := Queue, no_ack := NoAck, config_root := sources} = Params,
     RabbitChan,
     ChannelId
 ) ->
-    WorkState = {RabbitChan, ChannelId, Params},
-    {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
-    BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
-    #'basic.consume_ok'{consumer_tag = _} =
-        amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
-    ok;
+    try
+        WorkState = {RabbitChan, ChannelId, Params},
+        {ok, ConsumePid} = emqx_bridge_rabbitmq_sup:ensure_started(ChannelId, WorkState),
+        BasicConsume = #'basic.consume'{queue = Queue, no_ack = NoAck},
+        #'basic.consume_ok'{consumer_tag = _} =
+            amqp_channel:subscribe(RabbitChan, BasicConsume, ConsumePid),
+        ok
+    catch
+        Kind:Reason0:Stacktrace ->
+            {error, #{kind => Kind, reason => Reason0, stacktrace => Stacktrace}}
+    end;
 try_subscribe(#{config_root := actions}, _RabbitChan, _ChannelId) ->
     ok.
 

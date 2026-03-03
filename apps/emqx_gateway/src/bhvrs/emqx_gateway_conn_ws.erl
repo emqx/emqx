@@ -259,8 +259,9 @@ init_state_and_channel([Req, Opts, _WsOpts], _State = undefined) ->
     ChannMod = maps:get(chann_mod, Opts),
     ActiveN = emqx_gateway_utils:active_n(Opts),
     Piggyback = emqx_utils_maps:deep_get([websocket, piggyback], Opts, multiple),
-    ParseState = FrameMod:initial_parse_state(#{}),
-    Serialize = FrameMod:serialize_opts(),
+    FrameOpts = emqx_gateway_utils:frame_options(Opts),
+    ParseState = FrameMod:initial_parse_state(FrameOpts),
+    Serialize = get_serialize_opts(FrameMod, FrameOpts),
     Channel = ChannMod:init(ConnInfo, Opts),
     GcState = emqx_gateway_utils:init_gc_state(Opts),
     StatsTimer = emqx_gateway_utils:stats_timer(Opts),
@@ -353,6 +354,14 @@ pick_subprotocol([Subprotocol | Rest], SupportedSubprotocols) ->
             {ok, Subprotocol};
         false ->
             pick_subprotocol(Rest, SupportedSubprotocols)
+    end.
+
+%% @doc Get serialize options from frame module.
+%% Try serialize_opts/1 first (with frame options), fall back to serialize_opts/0.
+get_serialize_opts(FrameMod, FrameOpts) ->
+    case erlang:function_exported(FrameMod, serialize_opts, 1) of
+        true -> FrameMod:serialize_opts(FrameOpts);
+        false -> FrameMod:serialize_opts()
     end.
 
 parse_header_fun_origin(Req, Opts) ->

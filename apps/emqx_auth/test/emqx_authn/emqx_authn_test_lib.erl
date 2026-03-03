@@ -76,6 +76,7 @@ enable_node_cache(Enable) ->
         [authentication_settings, node_cache],
         #{<<"enable">> => Enable}
     ),
+    emqx_auth_cache:reset(?AUTHN_CACHE),
     ok.
 
 -doc """

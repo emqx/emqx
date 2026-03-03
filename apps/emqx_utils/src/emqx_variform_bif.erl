@@ -89,7 +89,7 @@
 -export([num_comp/2, num_eq/2, num_neq/2, num_lt/2, num_lte/2, num_gt/2, num_gte/2]).
 
 %% System
--export([getenv/1]).
+-export([getenv/1, timestamp_s/0, timestamp_ms/0]).
 
 -define(CACHE(Key), {?MODULE, Key}).
 -define(ENV_CACHE(Env), ?CACHE({env, Env})).
@@ -947,3 +947,9 @@ getenv(Bin) when is_binary(Bin) ->
         Result ->
             Result
     end.
+
+timestamp_s() ->
+    os:system_time(second).
+
+timestamp_ms() ->
+    os:system_time(millisecond).

@@ -335,6 +335,50 @@ cases() ->
             ]
         },
         #{
+            name => v4_acl_values,
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username",
+                    "a",
+                    "1",
+                    "b",
+                    "2",
+                    "d",
+                    "3"
+                ]
+            ],
+            cmd => "HGETALL acl:${username}",
+            compatibility_mode => <<"v4">>,
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"a">>},
+                {allow, ?AUTHZ_PUBLISH, <<"b">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"b">>},
+                {allow, ?AUTHZ_PUBLISH, <<"d">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"d">>}
+            ]
+        },
+        #{
+            name => v4_placeholders_in_cmd_and_topic_filter,
+            setup => [
+                [
+                    "HMSET",
+                    "mqtt_acl:username",
+                    "pub/%u",
+                    "2",
+                    "sub/%c",
+                    "1"
+                ]
+            ],
+            cmd => "HGETALL mqtt_acl:%u",
+            compatibility_mode => <<"v4">>,
+            checks => [
+                {allow, ?AUTHZ_PUBLISH, <<"pub/username">>},
+                {allow, ?AUTHZ_SUBSCRIBE, <<"sub/clientid">>}
+            ]
+        },
+        #{
             name => invalid_query,
             setup => [
                 ["SET", "acl:username", 1]
@@ -342,6 +386,30 @@ cases() ->
             cmd => "HGETALL acl:${username}",
             checks => [
                 {deny, ?AUTHZ_PUBLISH, <<"a">>}
+            ]
+        },
+        #{
+            name => v4_acl_values_ignored_without_compat,
+            setup => [
+                [
+                    "HMSET",
+                    "acl:username",
+                    "a",
+                    "1",
+                    "b",
+                    "2",
+                    "d",
+                    "3"
+                ]
+            ],
+            cmd => "HGETALL acl:${username}",
+            checks => [
+                {deny, ?AUTHZ_PUBLISH, <<"a">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"a">>},
+                {deny, ?AUTHZ_PUBLISH, <<"b">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"b">>},
+                {deny, ?AUTHZ_PUBLISH, <<"d">>},
+                {deny, ?AUTHZ_SUBSCRIBE, <<"d">>}
             ]
         }
     ].
@@ -358,11 +426,23 @@ setup_source_data(#{setup := Queries}) ->
         Queries
     ).
 
-setup_authz_source(#{cmd := Cmd}) ->
+setup_authz_source(Case) ->
+    Cmd = maps:get(cmd, Case),
+    ACLCompatibilityMode = maps:get(compatibility_mode, Case, undefined),
+    SpecialParams0 = #{
+        <<"cmd">> => Cmd
+    },
+    SpecialParams =
+        case ACLCompatibilityMode of
+            undefined ->
+                SpecialParams0;
+            _ ->
+                SpecialParams0#{
+                    <<"compatibility_mode">> => ACLCompatibilityMode
+                }
+        end,
     setup_config(
-        #{
-            <<"cmd">> => Cmd
-        }
+        SpecialParams
     ).
 
 setup_config(SpecialParams) ->

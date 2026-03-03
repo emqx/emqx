@@ -369,14 +369,20 @@ broker_unsubscribe(InitAttrs, ProcessFun, Args) ->
     Args :: emqx_external_trace:t_args()
 ) ->
     Res :: emqx_external_trace:t_res().
-client_publish(InitAttrs, ProcessFun, [Packet] = Args) ->
+client_publish(InitAttrs, ProcessFun, [PacketOrMsg] = Args) ->
     ?with_trace_mode(
-        trace_process_publish(
-            Packet, #{clientid => maps:get('client.clientid', InitAttrs)}, ProcessFun
-        ),
+        case PacketOrMsg of
+            #message{} = Msg ->
+                ProcessFun(Msg);
+            #mqtt_packet{} = Packet ->
+                trace_process_publish(
+                    Packet, #{clientid => maps:get('client.clientid', InitAttrs)}, ProcessFun
+                )
+        end,
+
         begin
             %% XXX: should trace for durable sessions?
-            RootCtx = e2e_mode_root_ctx(Packet),
+            RootCtx = e2e_mode_root_ctx(PacketOrMsg),
             SpanCtx = otel_tracer:start_span(
                 RootCtx,
                 ?current_tracer,
@@ -390,13 +396,13 @@ client_publish(InitAttrs, ProcessFun, [Packet] = Args) ->
             %% Attach in process dictionary for outgoing/awaiting packets
             %% for PUBACK/PUBREC/PUBREL/PUBCOMP
             %% TODO: CONNACK, AUTH, SUBACK, UNSUBACK, DISCONNECT
-            attach_outgoing(Packet, Ctx),
+            attach_outgoing(PacketOrMsg, Ctx),
 
             try
                 erlang:apply(ProcessFun, Args)
             after
                 _ = ?end_span(),
-                erase_outgoing(Packet),
+                erase_outgoing(PacketOrMsg),
                 clear()
             end
         end
@@ -416,6 +422,10 @@ attach_outgoing(?PUBLISH_PACKET(?QOS_2, PacketId), Ctx) ->
         {?PUBREC, PacketId},
         Ctx
     ),
+    ok;
+attach_outgoing(#message{}, _) ->
+    %% for http_api published messages
+    %% no awaiting PUBACK or PUBREC
     ok.
 
 erase_outgoing(?PUBLISH_PACKET(?QOS_0)) ->
@@ -425,6 +435,8 @@ erase_outgoing(?PUBLISH_PACKET(?QOS_1, PacketId)) ->
     ok;
 erase_outgoing(?PUBLISH_PACKET(?QOS_2, PacketId)) ->
     earse_internal_ctx({?PUBREC, PacketId}),
+    ok;
+erase_outgoing(#message{}) ->
     ok.
 
 -spec client_puback(
@@ -1136,19 +1148,26 @@ packets_list(Packet) ->
 legacy_mode_root_ctx(#mqtt_packet{variable = PktVar}) ->
     case should_trace_packet(PktVar) of
         true ->
-            Ctx = extract_traceparent_from_packet(PktVar),
+            Ctx = from_properties(emqx_packet:info(properties, PktVar)),
             should_trace_context(Ctx) andalso Ctx;
         false ->
             false
     end.
 
-e2e_mode_root_ctx(#mqtt_packet{variable = PktVar}) ->
+-define(with_follow_traceparent(DoExtract),
     case persistent_term:get(?TRACE_FOLLOW_TRACEPARENT_KEY, true) of
-        true ->
-            extract_traceparent_from_packet(PktVar);
-        false ->
-            otel_ctx:new()
-    end;
+        true -> DoExtract;
+        false -> otel_ctx:new()
+    end
+).
+e2e_mode_root_ctx(#message{headers = Headers}) ->
+    ?with_follow_traceparent(
+        from_properties(maps:get(properties, Headers, #{}))
+    );
+e2e_mode_root_ctx(#mqtt_packet{variable = PktVar}) ->
+    ?with_follow_traceparent(
+        from_properties(emqx_packet:info(properties, PktVar))
+    );
 e2e_mode_root_ctx(#{metadata := #{?EMQX_OTEL_CTX := Ctx}}) ->
     Ctx;
 e2e_mode_root_ctx(#{reply_to := {_, _, #{metadata := #{?EMQX_OTEL_CTX := Ctx}}}} = _RequestContext) ->
@@ -1156,14 +1175,10 @@ e2e_mode_root_ctx(#{reply_to := {_, _, #{metadata := #{?EMQX_OTEL_CTX := Ctx}}}}
 e2e_mode_root_ctx(_) ->
     otel_ctx:new().
 
-extract_traceparent_from_packet(PktVar) ->
-    Ctx = otel_ctx:new(),
-    case emqx_packet:info(properties, PktVar) of
-        #{?USER_PROPERTY := UserProps} ->
-            otel_propagator_text_map:extract_to(Ctx, UserProps);
-        _ ->
-            Ctx
-    end.
+from_properties(#{?USER_PROPERTY := UserProps}) ->
+    otel_propagator_text_map:extract_to(otel_ctx:new(), UserProps);
+from_properties(_) ->
+    otel_ctx:new().
 
 should_trace_context(RootCtx) ->
     map_size(RootCtx) > 0 orelse ?SHOULD_TRACE_ALL.

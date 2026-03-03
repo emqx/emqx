@@ -753,7 +753,7 @@ t_uninitialized_prepared_statement(TCConfig) ->
                     #{?snk_kind := mysql_connector_prepare_query_failed, error := not_prepared},
                     #{
                         ?snk_kind := mysql_connector_on_query_prepared_sql,
-                        type_or_key := ActionResId
+                        key := ActionResId
                     },
                     Trace
                 )
@@ -835,7 +835,7 @@ t_batch_update_is_forbidden(TCConfig) when is_list(TCConfig) ->
                 match,
                 re:run(
                     Msg,
-                    <<"UPDATE statements are not supported for batch operations">>,
+                    <<"Only INSERT statements are supported for batch operations">>,
                     [global, {capture, none}]
                 )
             ),
@@ -847,7 +847,53 @@ t_batch_update_is_forbidden(TCConfig) when is_list(TCConfig) ->
                 match,
                 re:run(
                     Msg2,
-                    <<"UPDATE statements are not supported for batch operations">>,
+                    <<"Only INSERT statements are supported for batch operations">>,
+                    [global, {capture, none}]
+                )
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
+
+t_placeholders_in_on_clause_are_forbidden() ->
+    [{matrix, true}].
+t_placeholders_in_on_clause_are_forbidden(matrix) ->
+    [[?tcp, ?sync, ?with_batch]];
+t_placeholders_in_on_clause_are_forbidden(TCConfig) when is_list(TCConfig) ->
+    {201, _} = create_connector_api(TCConfig, #{}),
+    ?check_trace(
+        begin
+            Overrides = #{
+                <<"parameters">> => #{
+                    <<"sql">> =>
+                        ~b"""
+                        INSERT INTO mqtt_test(payload, arrived)
+                        VALUES (${payload}, FROM_UNIXTIME(${timestamp}/1000))
+                        ON DUPLICATE KEY UPDATE arrived = ${timestamp}/1000
+                        """
+                }
+            },
+            {400, #{<<"message">> := Msg}} =
+                probe_action_api(TCConfig, Overrides),
+            ?assertEqual(
+                match,
+                re:run(
+                    Msg,
+                    <<"Placeholders are only allowed in VALUES part">>,
+                    [global, {capture, none}]
+                )
+            ),
+            {201, #{
+                <<"status">> := <<"disconnected">>,
+                <<"status_reason">> := Msg2
+            }} = create_action_api(TCConfig, Overrides),
+            ?assertEqual(
+                match,
+                re:run(
+                    Msg2,
+                    <<"Placeholders are only allowed in VALUES part">>,
                     [global, {capture, none}]
                 )
             ),
@@ -980,68 +1026,6 @@ t_unprepared_statement_query(TCConfig) when is_list(TCConfig) ->
                 #{result := {error, {unrecoverable_error, prepared_statement_invalid}}},
                 Event
             )
-    end,
-    ok.
-
-t_bad_sql_parameter() ->
-    [{matrix, true}].
-t_bad_sql_parameter(matrix) ->
-    [
-        [?tcp, Sync, Batch]
-     || Sync <- [?sync, ?async],
-        Batch <- [?without_batch, ?with_batch]
-    ];
-t_bad_sql_parameter(TCConfig) ->
-    BatchSize = get_config(batch_size, TCConfig),
-    {201, _} = create_connector_api(TCConfig, #{}),
-    {201, _} = create_action_api(TCConfig, #{}),
-    Request = {sql, <<"">>, [bad_parameter]},
-    {_, {ok, Event}} =
-        ?wait_async_action(
-            directly_query_resource_even_if_it_should_be_avoided(TCConfig, Request),
-            #{?snk_kind := buffer_worker_flush_ack},
-            2_000
-        ),
-    IsBatch = BatchSize > 1,
-    case IsBatch of
-        true ->
-            ?assertMatch(#{result := {error, {unrecoverable_error, invalid_request}}}, Event);
-        false ->
-            ?assertMatch(
-                #{result := {error, {unrecoverable_error, {invalid_params, [bad_parameter]}}}},
-                Event
-            )
-    end,
-    ok.
-
-t_simple_sql_query() ->
-    [{matrix, true}].
-t_simple_sql_query(matrix) ->
-    [
-        [?tcp, Sync, Batch]
-     || Sync <- [?sync, ?async],
-        Batch <- [?without_batch, ?with_batch]
-    ];
-t_simple_sql_query(TCConfig) ->
-    BatchSize = get_config(batch_size, TCConfig),
-    QueryMode = get_config(query_mode, TCConfig),
-    {201, _} = create_connector_api(TCConfig, #{}),
-    {201, _} = create_action_api(TCConfig, #{}),
-    Request = {sql, <<"SELECT count(1) AS T">>},
-    Result =
-        case QueryMode of
-            sync ->
-                directly_query_resource_even_if_it_should_be_avoided(TCConfig, Request);
-            async ->
-                {_, Ref} =
-                    directly_query_resource_async_even_if_it_should_be_avoided(TCConfig, Request),
-                {ok, Res} = receive_result(Ref, 2_000),
-                Res
-        end,
-    IsBatch = BatchSize > 1,
-    case IsBatch of
-        true -> ?assertEqual({error, {unrecoverable_error, batch_select_not_implemented}}, Result);
-        false -> ?assertEqual({ok, [<<"T">>], [[1]]}, Result)
     end,
     ok.
 

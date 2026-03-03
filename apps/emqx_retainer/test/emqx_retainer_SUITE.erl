@@ -34,7 +34,14 @@ groups() ->
             t_disable_then_start,
             t_start_stop_on_setting_change,
             t_takeover,
-            t_resume
+            t_resume,
+            t_extsub_ignore_non_mqtt,
+            t_extsub_no_leak_wildcard_multi_batch,
+            t_extsub_no_leak_wildcard_single_batch,
+            t_extsub_no_leak_wildcard_empty,
+            t_extsub_no_leak_no_wildcard,
+            t_extsub_no_leak_no_wildcard_empty,
+            t_extsub_no_leak_subscribe_unsubscribe
         ]},
         {index_agnostic_ds, [sequence], [t_takeover, t_resume]},
         {disabled, [t_disabled]}
@@ -48,7 +55,14 @@ index_related_tests() ->
             t_disabled,
             t_start_stop_on_setting_change,
             t_takeover,
-            t_resume
+            t_resume,
+            t_extsub_ignore_non_mqtt,
+            t_extsub_no_leak_wildcard_multi_batch,
+            t_extsub_no_leak_wildcard_single_batch,
+            t_extsub_no_leak_wildcard_empty,
+            t_extsub_no_leak_no_wildcard,
+            t_extsub_no_leak_no_wildcard_empty,
+            t_extsub_no_leak_subscribe_unsubscribe
         ].
 
 %% erlfmt-ignore
@@ -1316,6 +1330,245 @@ test_takeover_or_resume(Kind, TCConfig) ->
         end,
         []
     ),
+    ok.
+
+t_extsub_ignore_non_mqtt(_Config) ->
+    SendTag = make_ref(),
+    SendAfterTag = make_ref(),
+    SubCtx = #{
+        clientinfo => #{protocol => lwm2m},
+        subopts => #{rh => 0},
+        send => fun(_Info) ->
+            self() ! {unexpected_send, SendTag},
+            ok
+        end,
+        send_after => fun(_Delay, _Info) ->
+            self() ! {unexpected_send_after, SendAfterTag},
+            ok
+        end
+    },
+    ?assertEqual(
+        ignore,
+        emqx_retainer_extsub_handler:handle_subscribe(
+            subscribe, SubCtx, undefined, <<"retained/test">>
+        )
+    ),
+    receive
+        {unexpected_send, SendTag} ->
+            ?assert(false, unexpected_send);
+        {unexpected_send_after, SendAfterTag} ->
+            ?assert(false, unexpected_send_after)
+    after 100 ->
+        ok
+    end.
+
+-doc """
+Checks that the extsub handler removes itself after it finishes iterating over wildcard
+subscription.
+
+This test uses a batch read number of 1, so it requires a nudge that returns no results
+and does not have a corresponding `handle_delivered` call.
+""".
+t_extsub_no_leak_wildcard_multi_batch(TCConfig) ->
+    Opts = #{
+        batch_read_number => 1,
+        expected_retained => 5,
+        topic_filter => <<"retained/+">>
+    },
+    test_extsub_no_leak(TCConfig, Opts).
+
+-doc """
+Checks that the extsub handler removes itself after it finishes iterating over wildcard
+subscription.
+
+This test uses a batch read number of 10, so it retrieves all results in a single batch.
+""".
+t_extsub_no_leak_wildcard_single_batch(TCConfig) ->
+    Opts = #{
+        batch_read_number => 10,
+        expected_retained => 5,
+        topic_filter => <<"retained/+">>
+    },
+    test_extsub_no_leak(TCConfig, Opts).
+
+-doc """
+Checks that the extsub handler removes itself after it finishes iterating over wildcard
+subscription.
+
+This test uses a topic filter that has no results.
+""".
+t_extsub_no_leak_wildcard_empty(TCConfig) ->
+    Opts = #{
+        batch_read_number => 10,
+        expected_retained => 0,
+        topic_filter => <<"not_retained/+">>
+    },
+    test_extsub_no_leak(TCConfig, Opts).
+
+-doc """
+Checks that the extsub handler removes itself after it finishes iterating over wildcard
+subscription.
+
+This test uses a topic filter that has a returned message.
+""".
+t_extsub_no_leak_no_wildcard(TCConfig) ->
+    Opts = #{
+        batch_read_number => 10,
+        expected_retained => 1,
+        topic_filter => <<"retained/01">>
+    },
+    test_extsub_no_leak(TCConfig, Opts).
+
+-doc """
+Checks that the extsub handler removes itself after it finishes iterating over wildcard
+subscription.
+
+This test uses a topic filter that has no results.
+""".
+t_extsub_no_leak_no_wildcard_empty(TCConfig) ->
+    Opts = #{
+        batch_read_number => 10,
+        expected_retained => 0,
+        topic_filter => <<"not_retained/01">>
+    },
+    test_extsub_no_leak(TCConfig, Opts).
+
+test_extsub_no_leak(_TCConfig, Opts) ->
+    #{
+        batch_read_number := BatchReadNumber,
+        expected_retained := ExpectedRetained,
+        topic_filter := TopicFilter
+    } = Opts,
+    update_retainer_config(#{
+        <<"flow_control">> => #{<<"batch_read_number">> => BatchReadNumber}
+    }),
+    NumRetained = 5,
+    lists:foreach(
+        fun(N) ->
+            Topic = iolist_to_binary(io_lib:format("retained/~2..0w", [N])),
+            Message = emqx_message:make(Topic, <<"payload">>),
+            ok = emqx_retainer_publisher:store_retained(Message)
+        end,
+        lists:seq(1, NumRetained)
+    ),
+    ClientId = <<"no_leak">>,
+    ClientOpts = #{
+        clientid => ClientId,
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 30}
+    },
+    {ok, C0} = emqtt:start_link(ClientOpts#{clean_start := true}),
+    {ok, _} = emqtt:connect(C0),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+
+    %% Sanity check
+    EmptyMap = #{},
+    ?assertMatch(
+        {ok, #{
+            registry := #{
+                buffer := #{
+                    message_buffer_size := 0,
+                    delivering := EmptyMap
+                },
+                by_ref := [],
+                by_topic_cbm := EmptyMap
+            }
+        }},
+        emqx_extsub:inspect(ChanPid)
+    ),
+
+    {ok, _, _} = emqtt:subscribe(C0, TopicFilter, 1),
+    Msgs = receive_messages(ExpectedRetained),
+
+    ?assertMatch(
+        {ok, #{
+            registry := #{
+                buffer := #{
+                    message_buffer_size := 0,
+                    delivering := EmptyMap
+                },
+                by_ref := [],
+                by_topic_cbm := EmptyMap
+            }
+        }},
+        emqx_extsub:inspect(ChanPid)
+    ),
+    ?assertEqual(ExpectedRetained, length(Msgs)),
+    ?assertNotReceive({publish, _}),
+
+    emqtt:stop(C0),
+
+    ok.
+
+-doc """
+Checks that the extsub handler removes itself after we unsubscribe.
+""".
+t_extsub_no_leak_subscribe_unsubscribe(_TCConfig) ->
+    update_retainer_config(#{
+        <<"delivery_rate">> => <<"1/1s">>,
+        <<"flow_control">> => #{<<"batch_read_number">> => 1}
+    }),
+    NumRetained = 5,
+    lists:foreach(
+        fun(N) ->
+            Topic = iolist_to_binary(io_lib:format("retained/~2..0w", [N])),
+            Message = emqx_message:make(Topic, <<"payload">>),
+            ok = emqx_retainer_publisher:store_retained(Message)
+        end,
+        lists:seq(1, NumRetained)
+    ),
+    ClientId = <<"no_leak">>,
+    ClientOpts = #{
+        clientid => ClientId,
+        clean_start => true,
+        proto_ver => v5,
+        properties => #{'Session-Expiry-Interval' => 30}
+    },
+    {ok, C0} = emqtt:start_link(ClientOpts#{clean_start := true}),
+    {ok, _} = emqtt:connect(C0),
+    [ChanPid] = emqx_cm:lookup_channels(ClientId),
+
+    %% Sanity check
+    EmptyMap = #{},
+    ?assertMatch(
+        {ok, #{
+            registry := #{
+                buffer := #{
+                    message_buffer_size := 0,
+                    delivering := EmptyMap
+                },
+                by_ref := [],
+                by_topic_cbm := EmptyMap
+            }
+        }},
+        emqx_extsub:inspect(ChanPid)
+    ),
+
+    TopicFilter = <<"retained/+">>,
+    {ok, _, _} = emqtt:subscribe(C0, TopicFilter, 1),
+    %% Receive a message and hit rate limit
+    [_] = receive_messages(1),
+
+    %% Unsubscribe
+    {ok, _, _} = emqtt:unsubscribe(C0, TopicFilter),
+
+    ?assertMatch(
+        {ok, #{
+            registry := #{
+                buffer := #{
+                    message_buffer_size := 0,
+                    delivering := EmptyMap
+                },
+                by_ref := [],
+                by_topic_cbm := EmptyMap
+            }
+        }},
+        emqx_extsub:inspect(ChanPid)
+    ),
+
+    emqtt:stop(C0),
+
     ok.
 
 %%--------------------------------------------------------------------

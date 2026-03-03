@@ -10,6 +10,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
+-include("../src/emqx_mq_internal.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -39,17 +40,17 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 t_crud(_Config) ->
-    _ = create_mq(<<"a/b/c">>),
-    _ = create_mq(<<"a/b/#">>),
-    _ = create_mq(<<"a/#">>),
-    _ = create_mq(<<"a/+/d">>),
+    {ok, _} = create_mq(<<"mq-1">>, <<"a/b/c">>),
+    {ok, _} = create_mq(<<"mq-2">>, <<"a/b/#">>),
+    {ok, _} = create_mq(<<"mq-3">>, <<"a/#">>),
+    {ok, _} = create_mq(<<"mq-4">>, <<"a/+/d">>),
     ?assertMatch(
-        {ok, #{topic_filter := <<"a/b/c">>}},
-        emqx_mq_registry:find(<<"a/b/c">>)
+        {ok, #{name := <<"mq-1">>}},
+        emqx_mq_registry:find(<<"mq-1">>)
     ),
     ?assertEqual(
         not_found,
-        emqx_mq_registry:find(<<"a/x/c">>)
+        emqx_mq_registry:find(<<"nonexistent-mq">>)
     ),
     ?assertMatch(
         [
@@ -60,8 +61,8 @@ t_crud(_Config) ->
         emqx_mq_registry:match(<<"a/b/c">>)
     ),
     ?assertMatch(
-        {ok, #{topic_filter := <<"a/+/d">>}},
-        emqx_mq_registry:find(<<"a/+/d">>)
+        {ok, #{name := <<"mq-4">>}},
+        emqx_mq_registry:find(<<"mq-4">>)
     ),
     ?assertMatch(
         [
@@ -70,7 +71,7 @@ t_crud(_Config) ->
         ],
         emqx_mq_registry:match(<<"a/x/d">>)
     ),
-    ok = emqx_mq_registry:delete(<<"a/#">>),
+    ok = emqx_mq_registry:delete(<<"mq-3">>),
     ?assertMatch(
         [
             #{topic_filter := <<"a/+/d">>}
@@ -81,6 +82,20 @@ t_crud(_Config) ->
     ?assertMatch(
         [],
         emqx_mq_registry:match(<<"a/x/d">>)
+    ).
+
+t_validate_name(_Config) ->
+    ?assertMatch(
+        {ok, _},
+        emqx_mq_registry:create(
+            emqx_mq_test_utils:fill_mq_defaults(#{name => <<"mq-1">>, topic_filter => <<"a/b/c">>})
+        )
+    ),
+    ?assertEqual(
+        {error, invalid_name},
+        emqx_mq_registry:create(
+            emqx_mq_test_utils:fill_mq_defaults(#{name => <<"mq-1/2">>, topic_filter => <<"a/b/c">>})
+        )
     ).
 
 %% Verify that index is cleaned up if queue state creation fails with error.
@@ -111,9 +126,19 @@ t_create_exception(_Config) ->
     ),
     ok = meck:unload(emqx_ds).
 
+%% Verify that we are able to operate with pre-6.1.1 MQs
+t_pre_611(_Config) ->
+    MQ0 = emqx_mq_test_utils:fill_mq_defaults(#{topic_filter => <<"a/b/c">>}),
+    ok = emqx_mq_registry:create_pre_611_queue(MQ0),
+    {ok, #{topic_filter := <<"a/b/c">>} = MQ} = emqx_mq_registry:find(<<"/a/b/c">>),
+    ?assertEqual(<<"/a/b/c">>, emqx_mq_prop:name(MQ)),
+    ?assertEqual(ok, emqx_mq_registry:delete(<<"/a/b/c">>)),
+    ?assertEqual(not_found, emqx_mq_registry:find(<<"/a/b/c">>)),
+    ?assertEqual([], emqx_mq_registry:match(<<"a/b/c">>)).
+
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
-create_mq(TopicFilter) ->
-    emqx_mq_test_utils:create_mq(#{topic_filter => TopicFilter}).
+create_mq(Name, TopicFilter) ->
+    emqx_mq_test_utils:create_mq(#{name => Name, topic_filter => TopicFilter}).

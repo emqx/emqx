@@ -66,7 +66,7 @@ emqx_schema_validation_schema {
 
   name.desc:
   """The name for this validation.  Must be unique among all validations.  It must be a combination of alphanumeric characters and underscores, and cannot start with neither number nor an underscore."""
-  name.desc:
+  name.label:
   """Name"""
 
   strategy.desc:
@@ -74,7 +74,7 @@ emqx_schema_validation_schema {
 
   <code>all_pass</code>: All checks will be evaluated and must pass.
   <code>any_pass</code>: Any passing check will suffice.  Stops at the first success."""
-  strategy.desc:
+  strategy.label:
   """Strategy"""
 
   failure_action.desc:

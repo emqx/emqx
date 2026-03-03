@@ -162,7 +162,6 @@ init([WorkerKind, Type, Epoch, Shard]) ->
     }),
     case WorkerKind of
         active ->
-            emqx_durable_timer_dl:insert_epoch_marker(Shard, Epoch),
             D = #s{
                 type = Type,
                 cbm = CBM,
@@ -190,8 +189,10 @@ init([WorkerKind, Type, Epoch, Shard]) ->
     end.
 
 %% Active:
-handle_event(enter, From, ?s_active, _) ->
+handle_event(enter, From, ?s_active, #s{shard = Shard, epoch = Epoch}) ->
     ?tp(debug, ?tp_state_change, #{from => From, to => ?s_active}),
+    emqx_durable_timer_dl:wait_for_shards([Shard], infinity),
+    emqx_durable_timer_dl:insert_epoch_marker(Shard, Epoch),
     keep_state_and_data;
 handle_event({call, From}, #call_apply_after{k = Key, v = Value, t = NotEarlierThan}, ?s_active, S) ->
     handle_apply_after(From, Key, Value, NotEarlierThan, S);

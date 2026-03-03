@@ -517,8 +517,7 @@ save_db_meta(DB, Shards) ->
 cache_shard_info(DB, Shards) when is_list(Shards) ->
     lists:foreach(fun(Shard) -> cache_shard_info(DB, Shard) end, Shards);
 cache_shard_info(DB, Shard) ->
-    emqx_ds_builtin_raft_shard:cache_shard_servers(DB, Shard),
-    emqx_ds:set_shard_ready(DB, Shard, true).
+    emqx_ds_builtin_raft_shard:cache_shard_servers(DB, Shard).
 
 erase_db_meta(DB) ->
     emqx_ds:set_db_ready(DB, false),
@@ -527,5 +526,4 @@ erase_db_meta(DB) ->
 clear_shard_cache(DB, Shards) when is_list(Shards) ->
     lists:foreach(fun(Shard) -> clear_shard_cache(DB, Shard) end, Shards);
 clear_shard_cache(DB, Shard) ->
-    emqx_ds:set_shard_ready(DB, Shard, false),
     emqx_ds_builtin_raft_shard:clear_cache(DB, Shard).

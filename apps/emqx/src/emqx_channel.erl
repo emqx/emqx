@@ -1115,18 +1115,18 @@ process_kick(
 
 process_maybe_shutdown(
     Reason,
-    Channel =
+    Channel0 =
         #channel{
             clientinfo = ClientInfo,
             conninfo = ConnInfo,
-            session = Session
+            session = Session0
         }
 ) ->
-    {Intent, Session1} = session_disconnect(ClientInfo, ConnInfo, Session),
-    Channel1 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel)),
-    Channel2 = Channel1#channel{session = Session1},
+    {Intent, Session} = session_disconnect(ClientInfo, ConnInfo, Session0),
+    Channel1 = Channel0#channel{session = Session},
+    Channel2 = ensure_disconnected(Reason, maybe_publish_will_msg(sock_closed, Channel1)),
     case maybe_shutdown(Reason, Intent, Channel2) of
-        {ok, Channel3} -> {ok, ?REPLY_EVENT(disconnected), Channel3};
+        {ok, Channel} -> {ok, ?REPLY_EVENT(disconnected), Channel};
         Shutdown -> Shutdown
     end.
 
@@ -3345,7 +3345,7 @@ reason_code(discarded) -> ?RC_SESSION_TAKEN_OVER.
 %% Helper functions
 %%--------------------------------------------------------------------
 
--compile({inline, [run_hooks/3, run_hooks/4]}).
+-compile({inline, [run_hooks/3, run_hooks/4, run_hook_with_context/3, run_fold_with_context/4]}).
 run_hooks(Name, Args, Channel) ->
     ok = inc_metrics(Name, Channel),
     emqx_hooks:run(Name, Args).
@@ -3354,21 +3354,13 @@ run_hooks(Name, Args, Acc, Channel) ->
     ok = inc_metrics(Name, Channel),
     emqx_hooks:run_fold(Name, Args, Acc).
 
--compile({inline, [run_hook_with_context/3]}).
 run_hook_with_context(Name, Args, Channel) ->
     HookContext = mk_common_hook_context(Channel),
-    emqx_hooks:stash_context(Name, HookContext),
-    Res = emqx_hooks:run(Name, Args),
-    emqx_hooks:unstash_context(Name),
-    Res.
+    emqx_hooks:run(Name, HookContext, Args).
 
--compile({inline, [run_fold_with_context/4]}).
 run_fold_with_context(Name, Args, Acc, Channel) ->
     HookContext = mk_common_hook_context(Channel),
-    emqx_hooks:stash_context(Name, HookContext),
-    Res = emqx_hooks:run_fold(Name, Args, Acc),
-    emqx_hooks:unstash_context(Name),
-    Res.
+    emqx_hooks:run_fold(Name, HookContext, Args, Acc).
 
 -compile({inline, [find_alias/3, save_alias/4]}).
 
@@ -3505,8 +3497,7 @@ sub_authz_attrs(AuthzResult) ->
 disconnect_attrs(Reason, Channel) ->
     emqx_external_trace:disconnect_attrs(Reason, Channel).
 
-mk_common_hook_context(Channel) ->
-    Session = Channel#channel.session,
+mk_common_hook_context(#channel{session = Session} = Channel) ->
     #{
         chan_info_fn => fun(Prop) -> emqx_channel:info(Prop, Channel) end,
         session_info_fn => fun(Prop) -> emqx_session:info(Prop, Session) end

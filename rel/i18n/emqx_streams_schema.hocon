@@ -2,7 +2,8 @@ emqx_streams_schema {
 
 enable {
     desc: """~
-        Enable Message Streams feature."""
+        Enable Message Streams feature. If set to `auto`, the Message Streams will be disabled
+        by default and enabled only if there are already any Message Streams created."""
     label: "Enable Message Streams"
 }
 
@@ -32,18 +33,14 @@ stream_individual_limits {
 
 max_shard_message_count {
     desc: """~
-        The maximum number of messages in a shard for the Message Stream. The number of shards is configured
-        for all Message Streams in the Durable Storage settings.
-        The total count limit for the Message Stream is `n_shards * max_shard_message_count`."""
-    label: "Max Shard Message Count"
+        The maximum number of messages for the Message Stream."""
+    label: "Max Message Count"
 }
 
 max_shard_message_bytes {
     desc: """~
-        The maximum number of bytes in a shard for the Message Stream. The number of shards is configured
-        for all Message Streams in the Durable Storage settings. Note that this limit is not aware of the replication factor.
-        So the total byte limit for the Message Stream is `n_shards * replication_factor * max_shard_message_bytes`."""
-    label: "Max Shard Message Bytes"
+        The maximum number of bytes for the Message Stream."""
+    label: "Max Message Bytes"
 }
 
 auto_create {
@@ -69,6 +66,12 @@ streams {
     desc: """~
         Global settings for the Message Streams."""
     label: "Message Streams Settings"
+}
+
+name {
+    desc: """~
+        The name of the Message Stream."""
+    label: "Name"
 }
 
 topic_filter {

@@ -96,6 +96,7 @@ It takes care of forwarding calls to the underlying DBMS.
 -export([start_link/0, init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -export_type([
+    error_handling_style/0,
     backend/0,
     create_db_opts/0,
     verify_db_opts_result/0,
@@ -168,6 +169,19 @@ It takes care of forwarding calls to the underlying DBMS.
 %% type declarations
 %%================================================================================
 
+-doc """
+Error handling method for functions that work with multiple shards.
+
+- `crash`: Throw an exception if any shard reports an error.
+   This error handling style disables partial fault tolerance.
+
+- `report`: Return a tuple containing results and errors.
+  This option may alter return value of the function.
+
+- `ignore`: Return all successful results and ignore errors.
+""".
+-type error_handling_style() :: crash | report | ignore.
+
 -doc "Identifier of the DB.".
 -type db() :: atom().
 
@@ -197,13 +211,15 @@ the group.
 
 -opaque iterator() :: ds_specific_iterator().
 
--type list_slabs_opts() :: #{shard => shard()}.
+-type list_slabs_opts() :: #{shard => shard(), errors => error_handling_style()}.
 
 -type list_slabs_result() ::
     {
         _Slabs :: #{slab() => slab_info()},
         _Errors :: [{shard(), error(_)}]
-    }.
+    }
+    | #{slab() => slab_info()}
+    | {error, recoverable, {database_is_not_open, db()}}.
 
 -doc """
 Options for limiting the number of streams.
@@ -427,7 +443,7 @@ Options for the `subscribe` API.
         shard => shard(),
         generation => generation(),
 
-        errors => crash | report | ignore,
+        errors => error_handling_style(),
         batch_size => pos_integer(),
         start_time => time(),
         end_time => time() | infinity,
@@ -447,7 +463,7 @@ Options for the `subscribe` API.
     tf :: topic_filter(),
     start_time :: time(),
     batch_size :: pos_integer(),
-    errors :: crash | report | ignore
+    errors :: error_handling_style()
 }).
 
 -type fold_ctx() :: #fold_ctx{}.
@@ -821,18 +837,47 @@ update_db_config(DB, Patch) ->
         end
     ).
 
+-doc """
+Equivalent to `list_slabs(DB, #{errors => ignore})`.
+""".
 -spec list_slabs(db()) -> #{slab() => slab_info()}.
 list_slabs(DB) ->
     {Ret, _Err} = list_slabs(DB, #{}),
     Ret.
 
+-doc """
+List slabs of the DB.
+
+Options:
+
+- `shard`: If specified, limit query to a particular shard.
+   Default: unspecified, query all shards.
+
+- `errors`: Error handling style.
+   Default: `report`.
+""".
 -spec list_slabs(db(), list_slabs_opts()) -> list_slabs_result().
 list_slabs(DB, Opts) ->
-    ?with_dsch(
-        DB,
-        #{cbm := Mod},
-        Mod:list_slabs(DB, Opts)
-    ).
+    Result =
+        ?with_dsch(
+            DB,
+            #{cbm := Mod},
+            Mod:list_slabs(DB, Opts)
+        ),
+    case maps:get(errors, Opts, report) of
+        report ->
+            Result;
+        crash ->
+            case Result of
+                {Slabs, []} ->
+                    Slabs;
+                {_Slabs, Errors} ->
+                    exit({?FUNCTION_NAME, DB, Errors})
+            end;
+        ignore ->
+            {Slabs, _Errros} = Result,
+            Slabs
+    end.
 
 -doc """
 Delete an entire slab `Slab` from the database `DB`.
@@ -1736,7 +1781,7 @@ fold_topic(Fun, AccIn, TopicFilter, UserOpts = #{db := DB}) ->
         {[], crash} ->
             Result;
         {_, crash} ->
-            error(Errors);
+            exit({?FUNCTION_NAME, DB, Errors});
         {_, report} ->
             {Result, Errors}
     end.

@@ -103,6 +103,8 @@ init_per_suite(Config) ->
             emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
         end
     ),
+    ACLConfPath = acl_conf_path(),
+    {ok, ACLConfBackup} = file:read_file(ACLConfPath),
 
     Apps = emqx_cth_suite:start(
         [
@@ -119,9 +121,10 @@ init_per_suite(Config) ->
     ),
     ok = emqx_authz_test_lib:register_fake_sources([http, mongodb, mysql, postgresql, redis]),
     _ = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    [{acl_conf_backup, ACLConfBackup}, {suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    ok = restore_acl_conf(Config),
     {ok, _} = emqx:update_config(
         [authorization],
         #{
@@ -148,16 +151,19 @@ init_per_testcase(t_api, Config) ->
             Data
         end
     ),
+    ok = restore_acl_conf(Config),
     Config;
 init_per_testcase(_, Config) ->
+    ok = restore_acl_conf(Config),
     Config.
 
-end_per_testcase(t_api, _Config) ->
+end_per_testcase(t_api, Config) ->
+    ok = restore_acl_conf(Config),
     meck:unload(emqx_utils),
     meck:unload(emqx),
     ok;
-end_per_testcase(_, _Config) ->
-    ok.
+end_per_testcase(_, Config) ->
+    restore_acl_conf(Config).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -171,6 +177,15 @@ t_api(_) ->
     ?assertMatch(
         #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found: http">>},
         emqx_utils_json:decode(ErrResult)
+    ),
+    {ok, 400, MissingTypeResp} = request(
+        post,
+        uri(["authorization", "sources"]),
+        #{<<"code">> => <<"NOT_FOUND">>, <<"message">> => <<"Not found: file">>}
+    ),
+    ?assertMatch(
+        #{<<"code">> := <<"BAD_REQUEST">>},
+        emqx_utils_json:decode(MissingTypeResp)
     ),
 
     [
@@ -732,7 +747,56 @@ t_aggregate_metrics(_) ->
         Res
     ).
 
+t_metrics_reset(_) ->
+    %% 404 for non-existent source
+    {ok, 404, _} = request(
+        post,
+        uri(["authorization", "sources", "http", "metrics", "reset"]),
+        []
+    ),
+
+    %% Create a source
+    {ok, 204, _} = request(
+        post,
+        uri(["authorization", "sources"]),
+        ?SOURCE_HTTP
+    ),
+
+    %% Check that metrics start at zero
+    {ok, 200, StatusData0} = request(
+        get,
+        uri(["authorization", "sources", "http", "status"]),
+        []
+    ),
+    #{<<"metrics">> := #{<<"total">> := 0}} = emqx_utils_json:decode(StatusData0),
+
+    %% Reset (even when already zero)
+    {ok, 204, _} = request(
+        post,
+        uri(["authorization", "sources", "http", "metrics", "reset"]),
+        []
+    ),
+
+    %% Verify still zero after reset
+    {ok, 200, StatusData1} = request(
+        get,
+        uri(["authorization", "sources", "http", "status"]),
+        []
+    ),
+    #{<<"metrics">> := #{<<"total">> := 0}} = emqx_utils_json:decode(StatusData1),
+
+    %% Cleanup
+    {ok, 204, _} = request(delete, uri(["authorization", "sources", "http"]), []).
+
 get_sources(Result) ->
     maps:get(<<"sources">>, emqx_utils_json:decode(Result)).
+
+acl_conf_path() ->
+    emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf").
+
+restore_acl_conf(Config) ->
+    ACLConfPath = acl_conf_path(),
+    ACLConfBackup = ?config(acl_conf_backup, Config),
+    file:write_file(ACLConfPath, ACLConfBackup).
 
 data_dir() -> emqx:data_dir().

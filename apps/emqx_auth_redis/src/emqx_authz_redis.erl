@@ -24,6 +24,8 @@
 -endif.
 
 -define(ALLOWED_VARS, ?AUTHZ_DEFAULT_ALLOWED_VARS).
+-define(ACL_COMPAT_MODE_DISABLED, disabled).
+-define(ACL_COMPAT_MODE_V4, v4).
 
 create(Source) ->
     ResourceId = emqx_authz_utils:make_resource_id(?AUTHZ_TYPE),
@@ -46,7 +48,8 @@ authorize(
     #{
         resource_id := ResourceId,
         cmd_template := CmdTemplate,
-        cache_key_template := CacheKeyTemplate
+        cache_key_template := CacheKeyTemplate,
+        compatibility_mode := ACLCompatibilityMode
     }
 ) ->
     Vars = emqx_authz_utils:vars_for_rule_query(Client, Action),
@@ -54,7 +57,7 @@ authorize(
     CacheKey = emqx_auth_template:cache_key(Vars, CacheKeyTemplate),
     case emqx_authz_utils:cached_simple_sync_query(CacheKey, ResourceId, {cmd, Cmd}) of
         {ok, Rows} ->
-            do_authorize(Client, Action, Topic, Rows);
+            do_authorize(Client, Action, Topic, Rows, ACLCompatibilityMode);
         {error, Reason} ->
             ?SLOG(error, #{
                 msg => "query_redis_error",
@@ -70,28 +73,34 @@ authorize(
 %%--------------------------------------------------------------------
 
 new_state(ResourceId, #{cmd := CmdStr} = Source) ->
-    {Vars, CmdTemplate} = parse_cmd(CmdStr),
+    ACLCompatibilityMode = normalize_acl_compatibility_mode(
+        maps:get(compatibility_mode, Source, ?ACL_COMPAT_MODE_DISABLED)
+    ),
+    {Vars, CmdTemplate} = parse_cmd(normalize_legacy_placeholders(CmdStr, ACLCompatibilityMode)),
     CacheKeyTemplate = emqx_auth_template:cache_key_template(Vars),
     ResourceConfig = emqx_authz_utils:cleanup_resource_config(
-        [cmd], Source
+        [cmd, compatibility_mode], Source
     ),
     emqx_authz_utils:init_state(Source, #{
         resource_config => ResourceConfig,
         resource_id => ResourceId,
         cmd_template => CmdTemplate,
-        cache_key_template => CacheKeyTemplate
+        cache_key_template => CacheKeyTemplate,
+        compatibility_mode => ACLCompatibilityMode
     }).
 
-do_authorize(_Client, _Action, _Topic, []) ->
+do_authorize(_Client, _Action, _Topic, [], _ACLCompatibilityMode) ->
     nomatch;
-do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
-    case parse_rule(RuleEncoded) of
+do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail], ACLCompatibilityMode) ->
+    case parse_rule(RuleEncoded, ACLCompatibilityMode) of
         {ok, RuleMap0} ->
             RuleMap =
                 maps:merge(
                     #{
                         <<"permission">> => <<"allow">>,
-                        <<"topic">> => TopicFilterRaw
+                        <<"topic">> => normalize_legacy_placeholders(
+                            TopicFilterRaw, ACLCompatibilityMode
+                        )
                     },
                     RuleMap0
                 ),
@@ -101,7 +110,7 @@ do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
                 )
             of
                 nomatch ->
-                    do_authorize(Client, Action, Topic, Tail);
+                    do_authorize(Client, Action, Topic, Tail, ACLCompatibilityMode);
                 {matched, Permission} ->
                     {matched, Permission}
             end;
@@ -110,7 +119,7 @@ do_authorize(Client, Action, Topic, [TopicFilterRaw, RuleEncoded | Tail]) ->
                 msg => "parse_rule_error",
                 rule => RuleEncoded
             }),
-            do_authorize(Client, Action, Topic, Tail)
+            do_authorize(Client, Action, Topic, Tail, ACLCompatibilityMode)
     end.
 
 parse_cmd(Query) ->
@@ -136,13 +145,19 @@ validate_cmd(Cmd) ->
         {error, Reason} -> error({invalid_redis_cmd, Reason, Cmd})
     end.
 
-parse_rule(<<"publish">>) ->
-    {ok, #{<<"action">> => <<"publish">>}};
-parse_rule(<<"subscribe">>) ->
+parse_rule(<<"1">>, ?ACL_COMPAT_MODE_V4) ->
     {ok, #{<<"action">> => <<"subscribe">>}};
-parse_rule(<<"all">>) ->
+parse_rule(<<"2">>, ?ACL_COMPAT_MODE_V4) ->
+    {ok, #{<<"action">> => <<"publish">>}};
+parse_rule(<<"3">>, ?ACL_COMPAT_MODE_V4) ->
     {ok, #{<<"action">> => <<"all">>}};
-parse_rule(Bin) when is_binary(Bin) ->
+parse_rule(<<"publish">>, _ACLCompatibilityMode) ->
+    {ok, #{<<"action">> => <<"publish">>}};
+parse_rule(<<"subscribe">>, _ACLCompatibilityMode) ->
+    {ok, #{<<"action">> => <<"subscribe">>}};
+parse_rule(<<"all">>, _ACLCompatibilityMode) ->
+    {ok, #{<<"action">> => <<"all">>}};
+parse_rule(Bin, _ACLCompatibilityMode) when is_binary(Bin) ->
     case emqx_utils_json:safe_decode(Bin) of
         {ok, Map} when is_map(Map) ->
             {ok, maps:with([<<"qos">>, <<"action">>, <<"retain">>], Map)};
@@ -151,3 +166,20 @@ parse_rule(Bin) when is_binary(Bin) ->
         {error, _Error} ->
             {error, #{reason => invalid_topic_rule_not_json, value => Bin}}
     end.
+
+normalize_acl_compatibility_mode(<<"v4">>) ->
+    ?ACL_COMPAT_MODE_V4;
+normalize_acl_compatibility_mode(v4) ->
+    ?ACL_COMPAT_MODE_V4;
+normalize_acl_compatibility_mode(_) ->
+    ?ACL_COMPAT_MODE_DISABLED.
+
+normalize_legacy_placeholders(Bin, ?ACL_COMPAT_MODE_V4) when is_binary(Bin) ->
+    binary:replace(
+        binary:replace(Bin, <<"%u">>, <<"${username}">>, [global]),
+        <<"%c">>,
+        <<"${clientid}">>,
+        [global]
+    );
+normalize_legacy_placeholders(Value, _ACLCompatibilityMode) ->
+    Value.

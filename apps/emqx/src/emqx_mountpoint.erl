@@ -26,6 +26,7 @@
     ?VAR_CLIENTID,
     ?VAR_USERNAME,
     ?VAR_ENDPOINT_NAME,
+    ?VAR_PEERHOST,
     ?VAR_ZONE,
     ?VAR_NS_CLIENT_ATTRS
 ]).
@@ -96,6 +97,8 @@ lookup([<<?VAR_USERNAME>>], #{username := Username}) when is_binary(Username) ->
     {ok, Username};
 lookup([<<?VAR_ENDPOINT_NAME>>], #{endpoint_name := Name}) when is_binary(Name) ->
     {ok, Name};
+lookup([<<?VAR_PEERHOST>>], #{peerhost := PeerHost}) ->
+    {ok, peerhost_to_binary(PeerHost)};
 lookup([<<?VAR_ZONE>>], #{zone := Zone}) ->
     {ok, atom_to_binary(Zone)};
 lookup([<<"client_attrs">>, AttrName], #{client_attrs := Attrs}) when is_map(Attrs) ->
@@ -103,6 +106,21 @@ lookup([<<"client_attrs">>, AttrName], #{client_attrs := Attrs}) when is_map(Att
     {ok, maps:get(AttrName, Attrs, Original)};
 lookup(Accessor, _) ->
     {ok, iolist_to_binary(["${", lists:join(".", Accessor), "}"])}.
+
+peerhost_to_binary({_, _, _, _} = PeerHost) ->
+    iolist_to_binary(inet:ntoa(PeerHost));
+peerhost_to_binary({_, _, _, _, _, _, _, _} = PeerHost) ->
+    iolist_to_binary(inet:ntoa(PeerHost));
+peerhost_to_binary(undefined) ->
+    <<>>;
+peerhost_to_binary(PeerHost) when is_atom(PeerHost) ->
+    atom_to_binary(PeerHost, utf8);
+peerhost_to_binary(PeerHost) when is_binary(PeerHost) ->
+    PeerHost;
+peerhost_to_binary(PeerHost) when is_list(PeerHost) ->
+    list_to_binary(PeerHost);
+peerhost_to_binary(PeerHost) ->
+    iolist_to_binary(io_lib:format("~p", [PeerHost])).
 
 parse(Template) ->
     Parsed = emqx_template:parse(Template),

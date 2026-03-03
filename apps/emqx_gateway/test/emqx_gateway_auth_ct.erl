@@ -27,7 +27,6 @@
 ).
 
 -include_lib("emqx_auth/include/emqx_authn.hrl").
--include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 
@@ -122,9 +121,15 @@ on_start_auth(authn_http) ->
     %% set authn for gateway
     Setup = fun(Gateway) ->
         Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
-        {204, _} = request(delete, Path),
+        case request(delete, Path) of
+            {204, _} -> ok;
+            {404, _} -> ok
+        end,
         timer:sleep(200),
-        {201, _} = request(post, Path, http_authn_config()),
+        case request(post, Path, http_authn_config()) of
+            {201, _} -> ok;
+            {404, _} -> ok
+        end,
         timer:sleep(200)
     end,
     lists:foreach(Setup, ?GATEWAYS),
@@ -133,12 +138,20 @@ on_start_auth(authn_http) ->
     Handler = fun(Req0, State) ->
         ct:pal("Authn Req:~p~nState:~p~n", [Req0, State]),
         Headers = #{<<"content-type">> => <<"application/json">>},
-        Response = emqx_utils_json:encode(#{result => allow, is_superuser => false}),
         case cowboy_req:match_qs([username, password], Req0) of
-            #{
-                username := <<"admin">>,
-                password := <<"public">>
-            } ->
+            #{username := <<"expire">>, password := <<"public">>} ->
+                ExpireAt = erlang:system_time(second) + 1,
+                Response = emqx_utils_json:encode(#{
+                    result => allow,
+                    is_superuser => false,
+                    expire_at => ExpireAt
+                }),
+                Req = cowboy_req:reply(200, Headers, Response, Req0);
+            #{username := <<"deny">>, password := <<"public">>} ->
+                Response = emqx_utils_json:encode(#{result => deny}),
+                Req = cowboy_req:reply(200, Headers, Response, Req0);
+            #{username := _Username, password := <<"public">>} ->
+                Response = emqx_utils_json:encode(#{result => allow, is_superuser => false}),
                 Req = cowboy_req:reply(200, Headers, Response, Req0);
             _ ->
                 Req = cowboy_req:reply(400, Req0)
@@ -161,6 +174,8 @@ on_start_auth(authz_http) ->
     %% set handler for test server
     Handler = fun(Req0, State) ->
         case cowboy_req:match_qs([topic, action, username], Req0) of
+            #{topic := <<"deny">>} ->
+                Req = ?AUTHZ_HTTP_RESP(deny, Req0);
             #{topic := <<"/publish">>, action := <<"publish">>} ->
                 Req = ?AUTHZ_HTTP_RESP(allow, Req0);
             #{topic := <<"/subscribe">>, action := <<"subscribe">>} ->
@@ -168,6 +183,8 @@ on_start_auth(authz_http) ->
             %% for lwm2m
             #{username := <<"lwm2m">>} ->
                 Req = ?AUTHZ_HTTP_RESP(allow, Req0);
+            #{username := <<"authz_deny">>} ->
+                Req = ?AUTHZ_HTTP_RESP(deny, Req0);
             _ ->
                 Req = cowboy_req:reply(400, Req0)
         end,
@@ -179,7 +196,10 @@ on_start_auth(authz_http) ->
 on_stop_auth(authn_http) ->
     Delete = fun(Gateway) ->
         Path = io_lib:format("/gateways/~ts/authentication", [Gateway]),
-        {204, _} = request(delete, Path)
+        case request(delete, Path) of
+            {204, _} -> ok;
+            {404, _} -> ok
+        end
     end,
     lists:foreach(Delete, ?GATEWAYS),
     ok = emqx_utils_http_test_server:stop();

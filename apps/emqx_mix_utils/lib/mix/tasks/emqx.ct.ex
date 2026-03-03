@@ -200,14 +200,22 @@ defmodule Mix.Tasks.Emqx.Ct do
       |> Path.dirname()
       |> Path.join("apps")
 
-    apps_path
-    |> File.ls!()
-    |> Stream.filter(fn app_name ->
-      apps_path
-      |> Path.join(app_name)
-      |> File.dir?()
-    end)
-    |> Stream.map(&String.to_atom/1)
+    apps =
+      if File.dir?(apps_path) do
+        apps_path
+        |> File.ls!()
+        |> Stream.filter(fn app_name ->
+          apps_path
+          |> Path.join(app_name)
+          |> File.dir?()
+        end)
+        |> Stream.map(&String.to_atom/1)
+      else
+        ## inside plugin dir
+        [Mix.Project.config()[:app]]
+      end
+
+    apps
     |> Enum.flat_map(fn app ->
       case :application.get_key(app, :modules) do
         {:ok, mods} ->
@@ -237,7 +245,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     end
   end
 
-  defp load_common_helpers!() do
+  def load_common_helpers!() do
     Code.ensure_all_loaded!([
       :emqx_common_test_helpers,
       :emqx_bridge_v2_testlib,
@@ -246,7 +254,7 @@ defmodule Mix.Tasks.Emqx.Ct do
   end
 
   # Links `test/*_data` directories inside the build dir, so that CT picks them up.
-  defp hack_test_data_dirs!(suites) do
+  def hack_test_data_dirs!(suites) do
     project_root = Path.dirname(Mix.Project.project_file())
 
     suites
@@ -305,7 +313,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     |> :code.add_path(:cache)
   end
 
-  defp enable_sasl_report_logging do
+  def enable_sasl_report_logging do
     filters =
       :logger.get_primary_config()
       |> Map.fetch!(:filters)
@@ -320,7 +328,9 @@ defmodule Mix.Tasks.Emqx.Ct do
     :logger.set_primary_config(:filters, filters)
   end
 
-  defp parse_args!(args) do
+  def parse_args!(args, opts \\ []) do
+    allow_spec? = Keyword.get(opts, :allow_spec, true)
+
     {opts, rest} =
       OptionParser.parse!(
         args,
@@ -348,6 +358,10 @@ defmodule Mix.Tasks.Emqx.Ct do
     cases = get_name_list(opts, :cases)
 
     spec = opts[:spec]
+
+    if !allow_spec? && !!spec do
+      Mix.raise("`--spec` is not supported for this task")
+    end
 
     if Enum.any?(suites ++ group_paths ++ cases) && !!spec do
       Mix.raise(
@@ -398,7 +412,7 @@ defmodule Mix.Tasks.Emqx.Ct do
     end
   end
 
-  defp symlink_to_last_run(logdir) do
+  def symlink_to_last_run(logdir) do
     last_dir =
       logdir
       |> File.ls!()

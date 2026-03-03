@@ -26,6 +26,17 @@ t_00_smoke_open_drop(Config) ->
             ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
             %% Reopen the DB and make sure the operation is idempotent:
             ?assertMatch(ok, emqx_ds_open_db(DB, opts_mqtt(Config))),
+            %% Each shard of a newly created DBs should contain
+            %% exactly one generation:
+            lists:foreach(
+                fun(Shard) ->
+                    ?assertMatch(
+                        [{{Shard, _Generation = 1}, _}],
+                        maps:to_list(emqx_ds:list_slabs(DB, #{shard => Shard, errors => crash}))
+                    )
+                end,
+                emqx_ds:list_shards(DB)
+            ),
             %% Drop the DB:
             ?assertMatch(ok, emqx_ds:drop_db(DB)),
             ?assertMatch(undefined, emqx_dsch:get_db_schema(DB))
@@ -161,11 +172,10 @@ t_06_smoke_add_generation(Config) ->
 
     ?assertMatch(ok, emqx_ds:add_generation(DB)),
     [
-        {Gen1, #{created_at := Created1, since := Since1, until := Until1}},
+        {Gen1, #{created_at := _Created1, since := Since1, until := Until1}},
         {_Gen2, #{created_at := Created2, since := Since2, until := undefined}}
     ] = maps:to_list(emqx_ds:list_slabs(DB)),
-    %% Check units of the return values (+/- 10s from test begin time):
-    ?give_or_take(BeginTime, 10_000_000, Created1),
+    %% Check units of the return values (+/- 10s from test begin time).
     ?give_or_take(BeginTime, 10_000_000, Created2),
     ?give_or_take(BeginTime, 10_000_000, Since2),
     ?give_or_take(BeginTime, 10_000_000, Until1).
@@ -2590,6 +2600,64 @@ t_invalid_data(Config) ->
         [{[], _, <<"success">>}],
         emqx_ds:dirty_read(DB, ['#'])
     ).
+
+%% Test boundary conditions for subscribe. Create iterator with a
+%% timestamp that matches exactly with a timestamp of an existing
+%% message. Subscription should report such message.
+t_bug_16614(Config) ->
+    DB = ?FUNCTION_NAME,
+    ?assertMatch(
+        ok,
+        emqx_ds_open_db(
+            DB,
+            maps:merge(
+                opts(Config),
+                #{
+                    storage => {emqx_ds_storage_skipstream_lts_v2, #{}},
+                    subscriptions => #{batch_size => 1}
+                }
+            )
+        )
+    ),
+    Topic = [<<"topic">>],
+    %% Insert the first message into the database and save its timestamp to StartTime
+    ?assertMatch(
+        ok,
+        emqx_ds_test_helpers:dirty_append(
+            DB,
+            [{Topic, ?ds_tx_ts_monotonic, <<"hello1">>}]
+        )
+    ),
+    [{_, StartTime, _}] = emqx_ds:dirty_read(DB, Topic),
+    %% Publish second message:
+    ?assertMatch(
+        ok,
+        emqx_ds_test_helpers:dirty_append(
+            DB,
+            [{Topic, ?ds_tx_ts_monotonic, <<"hello2">>}]
+        )
+    ),
+    %% Make iterator precisely at `StartTime':
+    [{_Slab, Stream}] = emqx_ds:get_streams(DB, Topic, 0),
+    {ok, It0} = emqx_ds:make_iterator(DB, Stream, Topic, StartTime),
+    %% Verify backend behavior using emqx_ds:next:
+    {ok, It1, [{_, _, <<"hello1">>}]} = emqx_ds:next(DB, It0, 1),
+    {ok, It2, [{_, _, <<"hello2">>}]} = emqx_ds:next(DB, It1, 1),
+    {ok, It2, []} = emqx_ds:next(DB, It2, 1),
+    %% Now repeat the same via subscription:
+    {ok, SubHandle, SubRef} = emqx_ds:subscribe(DB, It0, #{max_unacked => 1}),
+    [
+        #ds_sub_reply{
+            seqno = SN1,
+            payload = {ok, _, [{_, _, <<"hello1">>}]}
+        }
+    ] = recv(SubRef, 1),
+    emqx_ds:suback(DB, SubHandle, SN1),
+    [
+        #ds_sub_reply{
+            payload = {ok, _, [{_, _, <<"hello2">>}]}
+        }
+    ] = recv(SubRef, 1).
 
 message(ClientId, Topic, Payload, PublishedAt) ->
     Msg = message(Topic, Payload, PublishedAt),

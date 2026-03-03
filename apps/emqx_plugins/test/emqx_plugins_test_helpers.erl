@@ -12,6 +12,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -define(PACKAGE_SUFFIX, ".tar.gz").
+-define(DOWNLOAD_RETRIES, 3).
+-define(HTTP_TIMEOUT, 30_000).
 
 get_demo_plugin_package(
     #{
@@ -24,7 +26,7 @@ get_demo_plugin_package(
 ) ->
     TargetName = lists:flatten([ReleaseName, "-", PluginVsn, ?PACKAGE_SUFFIX]),
     FileURI = lists:flatten(lists:join("/", [GitUrl, ReleaseTag, TargetName])),
-    {ok, {_Status, _Headers, PluginBin}} = httpc:request(FileURI),
+    PluginBin = download_plugin_package(FileURI, ?DOWNLOAD_RETRIES),
     Pkg = filename:join([
         WorkDir,
         TargetName
@@ -34,6 +36,27 @@ get_demo_plugin_package(
         package => Pkg,
         name_vsn => bin([ReleaseName, "-", PluginVsn])
     }.
+
+download_plugin_package(_FileURI, 0) ->
+    error({failed_to_download_plugin_package, retries_exhausted});
+download_plugin_package(FileURI, RetriesLeft) ->
+    case httpc:request(get, {FileURI, []}, [{timeout, ?HTTP_TIMEOUT}], [{body_format, binary}]) of
+        {ok, {{_HTTP, 200, _Reason}, _Headers, PluginBin}} when is_binary(PluginBin) ->
+            case is_valid_tar_gz(PluginBin) of
+                true ->
+                    PluginBin;
+                false ->
+                    download_plugin_package(FileURI, RetriesLeft - 1)
+            end;
+        _ ->
+            download_plugin_package(FileURI, RetriesLeft - 1)
+    end.
+
+is_valid_tar_gz(PluginBin) ->
+    case erl_tar:extract({binary, PluginBin}, [compressed, memory]) of
+        {ok, _} -> true;
+        {error, _} -> false
+    end.
 
 purge_plugins() ->
     emqx_plugins:put_configured([]),

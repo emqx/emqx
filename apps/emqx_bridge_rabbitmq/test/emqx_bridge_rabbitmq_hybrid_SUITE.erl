@@ -36,6 +36,11 @@
 -define(without_batch, without_batch).
 -define(with_batch, with_batch).
 
+-define(tpal(MSG, ARGS), begin
+    ct:pal(lists:flatten(io_lib:format(MSG, ARGS))),
+    ?tp(notice, lists:flatten(io_lib:format(MSG, ARGS)), #{})
+end).
+
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------
@@ -125,14 +130,15 @@ init_per_testcase(TestCase, TCConfig) ->
     SourceConfig = source_config(#{
         <<"connector">> => ConnectorName
     }),
-    Client = emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(#{
+    ClientOpts = #{
         host => get_config(host, TCConfig, <<"rabbitmq">>),
         port => get_config(port, TCConfig, 5672),
         use_tls => get_config(enable_tls, TCConfig, false),
         exchange => ?EXCHANGE,
         queue => ?QUEUE,
         routing_key => ?ROUTING_KEY
-    }),
+    },
+    emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts),
     snabbkaffe:start_trace(),
     [
         {connector_type, ?CONNECTOR_TYPE},
@@ -144,14 +150,14 @@ init_per_testcase(TestCase, TCConfig) ->
         {source_type, ?SOURCE_TYPE},
         {source_name, SourceName},
         {source_config, SourceConfig},
-        {client, Client}
+        {client_opts, ClientOpts}
         | TCConfig
     ].
 
 end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
-    Client = get_config(client, TCConfig),
-    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(Client),
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(ClientOpts),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
@@ -208,6 +214,13 @@ create_source_api(TCConfig, Overrides) ->
 get_action_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_action_api2(TCConfig).
 
+get_source_api(TCConfig) ->
+    #{type := Type, name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_source_api(Type, Name)
+    ).
+
 get_action_metrics_api(TCConfig) ->
     emqx_bridge_v2_testlib:get_action_metrics_api(TCConfig).
 
@@ -218,6 +231,13 @@ delete_action_api(TCConfig) ->
     #{kind := Kind, type := Type, name := Name} =
         emqx_bridge_v2_testlib:get_common_values(TCConfig),
     emqx_bridge_v2_testlib:delete_kind_api(Kind, Type, Name).
+
+get_connector_api(TCConfig) ->
+    #{connector_type := Type, connector_name := Name} =
+        emqx_bridge_v2_testlib:get_common_values(TCConfig),
+    emqx_bridge_v2_testlib:simplify_result(
+        emqx_bridge_v2_testlib:get_connector_api(Type, Name)
+    ).
 
 start_client() ->
     start_client(_Opts = #{}).
@@ -242,6 +262,79 @@ payload(Overrides) ->
 
 unique_payload() ->
     integer_to_binary(erlang:unique_integer()).
+
+%% Attempts to list all rabbitmq connections processes (`amqp_connection:start`) without
+%% relying on details about how it's started/managed by emqx.
+list_rabbitmq_connection_processes() ->
+    [
+        Pid
+     || Pid <- erlang:processes(),
+        case proc_lib:initial_call(Pid) of
+            {amqp_gen_connection, init, [_]} ->
+                true;
+            _ ->
+                false
+        end
+    ].
+
+%% Attempts to list all rabbitmq channel processes (`amqp_connection:open_channel`)
+%% without relying on details about how it's started/managed by emqx.
+list_rabbitmq_channel_processes() ->
+    [
+        Pid
+     || Pid <- erlang:processes(),
+        case proc_lib:initial_call(Pid) of
+            {amqp_channel, init, [_]} ->
+                true;
+            _ ->
+                false
+        end
+    ].
+
+random(List) ->
+    lists:nth(rand:uniform(length(List)), List).
+
+get_common_values_action(TCConfig) ->
+    emqx_bridge_v2_testlib:get_common_values([{bridge_kind, action} | TCConfig]).
+
+get_common_values_source(TCConfig) ->
+    emqx_bridge_v2_testlib:get_common_values([{bridge_kind, source} | TCConfig]).
+
+%% Must be called after action and source are created.
+snk_subscribe_to_health_checks(TCConfig) ->
+    #{
+        resource_namespace := Ns,
+        name := ActionName
+    } = get_common_values_action(TCConfig),
+    #{name := SourceName} = get_common_values_source(TCConfig),
+    {ok, {_ConnResId, ActionResId}} =
+        emqx_bridge_v2:get_resource_ids(Ns, actions, ?ACTION_TYPE, ActionName),
+    {ok, {_ConnResId, SourceResId}} =
+        emqx_bridge_v2:get_resource_ids(Ns, sources, ?SOURCE_TYPE, SourceName),
+    {ok, SRef1} = snabbkaffe:subscribe(
+        ?match_event(#{?snk_kind := "rabbitmq_on_get_status_enter0"})
+    ),
+    {ok, SRef2} = snabbkaffe:subscribe(
+        ?match_event(#{
+            ?snk_kind := "rabbitmq_on_get_channel_status_enter",
+            channel_id := ActionResId
+        })
+    ),
+    {ok, SRef3} = snabbkaffe:subscribe(
+        ?match_event(#{
+            ?snk_kind := "rabbitmq_on_get_channel_status_enter",
+            channel_id := SourceResId
+        })
+    ),
+    #{connector => SRef1, action => SRef2, source => SRef3}.
+
+snk_receive_health_check_events(SRefs) ->
+    maps:map(
+        fun(_K, SRef) ->
+            snabbkaffe:receive_events(SRef)
+        end,
+        SRefs
+    ).
 
 %%------------------------------------------------------------------------------
 %% Test cases
@@ -301,5 +394,189 @@ t_replace_action_source(TCConfig) ->
         #{<<"rabbitmq">> := #{ConnectorName := _}},
         emqx_config:get_raw([<<"connectors">>]),
         Connector
+    ),
+    ok.
+
+-doc """
+Verifies that actions/sources/connectors recovers themselves when a rabbitmq
+connection process crashes.
+""".
+t_connection_crash_recovery(TCConfig) ->
+    test_crash_recovery(_CrashWhat = connection_pid, TCConfig).
+
+-doc """
+Verifies that actions/sources/connectors recovers themselves when a rabbitmq action
+channel process crashes.
+""".
+t_action_channel_crash_recovery(TCConfig) ->
+    test_crash_recovery(_CrashWhat = action_chan_pid, TCConfig).
+
+-doc """
+Verifies that actions/sources/connectors recovers themselves when a rabbitmq source
+channel process crashes.
+""".
+t_source_channel_crash_recovery(TCConfig) ->
+    test_crash_recovery(_CrashWhat = source_chan_pid, TCConfig).
+
+-doc """
+Verifies that actions/sources/connectors recovers themselves when a rabbitmq connection or
+channel process crashes.
+""".
+test_crash_recovery(CrashWhat, TCConfig) ->
+    %% Sanity check
+    ?assertEqual([], list_rabbitmq_channel_processes()),
+    ?assertEqual([], list_rabbitmq_connection_processes()),
+
+    {201, #{<<"status">> := <<"connected">>}} = create_connector_api(TCConfig, #{}),
+    ConnectionPidsBefore = list_rabbitmq_connection_processes(),
+    {201, #{<<"status">> := <<"connected">>}} = create_action_api(TCConfig, #{}),
+    ActionChanPidsBefore = list_rabbitmq_channel_processes(),
+    {201, #{<<"status">> := <<"connected">>}} = create_source_api(TCConfig, #{}),
+    ChanPidsBefore = list_rabbitmq_channel_processes(),
+    SourceChanPidsBefore = ChanPidsBefore -- ActionChanPidsBefore,
+    ?assertMatch([_ | _], ChanPidsBefore),
+    ?assertMatch([_ | _], ConnectionPidsBefore),
+
+    ct:timetrap({seconds, 15}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            %% ∙ Connection/channel crashes and is detected by connector/channel health check.
+            PidToKill =
+                case CrashWhat of
+                    connection_pid ->
+                        random(ConnectionPidsBefore);
+                    action_chan_pid ->
+                        random(ActionChanPidsBefore);
+                    source_chan_pid ->
+                        random(SourceChanPidsBefore)
+                end,
+            ?force_ordering(
+                #{?snk_kind := "rabbitmq_on_get_status_enter0"},
+                #{?snk_kind := kill_connection, ?snk_span := start}
+            ),
+            ?force_ordering(
+                #{?snk_kind := kill_connection, ?snk_span := {complete, _}},
+                #{?snk_kind := "rabbitmq_on_get_status_enter1"}
+            ),
+            SRefs1 = snk_subscribe_to_health_checks(TCConfig),
+            spawn_link(fun() ->
+                ?tp_span(kill_connection, #{}, begin
+                    ?tpal("killing pid ~p", [PidToKill]),
+                    exit(PidToKill, boom),
+                    %% Allow some time for exit signal to propagate to ecpool
+                    %% worker (assuming it's monitoring the pid).  Otherwise,
+                    %% assertion might succeed because (current) `gen_server` call
+                    %% could fail due to the same exit signal, propagating to the
+                    %% health check pid instead.
+                    ct:sleep(100)
+                end)
+            end),
+            ?assertMatch(
+                #{
+                    connector := {ok, _},
+                    action := {ok, _},
+                    source := {ok, _}
+                },
+                snk_receive_health_check_events(SRefs1)
+            ),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_action_api(TCConfig)
+                )
+            ),
+            ?retry(
+                100,
+                20,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"disconnected">>}},
+                    get_source_api(TCConfig)
+                )
+            ),
+            %%   ∙ Should be eventually restarted/recover.
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    length(ConnectionPidsBefore),
+                    length(list_rabbitmq_connection_processes())
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertEqual(
+                    length(ChanPidsBefore),
+                    length(list_rabbitmq_channel_processes())
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_connector_api(TCConfig)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_action_api(TCConfig)
+                )
+            ),
+            ?retry(
+                200,
+                10,
+                ?assertMatch(
+                    {200, #{<<"status">> := <<"connected">>}},
+                    get_source_api(TCConfig)
+                )
+            ),
+
+            ok
+        end,
+        []
+    ),
+    ok.
+
+-doc """
+Asserts that we don't leak channel processes if, for whatever reason, creating a list of
+channels fails midway.
+""".
+t_start_channel_no_leak(TCConfig) ->
+    %% Sanity check
+    ?assertEqual([], list_rabbitmq_channel_processes()),
+    ?assertEqual([], list_rabbitmq_connection_processes()),
+
+    {201, #{
+        <<"status">> := <<"connected">>,
+        <<"pool_size">> := PoolSize
+    }} = create_connector_api(TCConfig, #{}),
+    ct:timetrap({seconds, 5}),
+    ?check_trace(
+        emqx_bridge_v2_testlib:snk_timetrap(),
+        begin
+            ?inject_crash(
+                #{?snk_kind := "rabbitmq_will_confirm_channel"},
+                snabbkaffe_nemesis:periodic_crash(
+                    _Period = PoolSize,
+                    _DutyCycle = 0.5,
+                    _Phase = 0
+                )
+            ),
+            {201, #{<<"status">> := <<"disconnected">>}} = create_action_api(TCConfig, #{
+                <<"resource_opts">> => #{
+                    <<"health_check_interval">> => <<"2s">>
+                }
+            }),
+            ?assertEqual(0, length(list_rabbitmq_channel_processes())),
+            ok
+        end,
+        []
     ),
     ok.

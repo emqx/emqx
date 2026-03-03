@@ -9,7 +9,7 @@
 
 -include_lib("er_coap_client/include/coap.hrl").
 -include_lib("emqx/include/asserts.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 -define(CONF_DEFAULT, """
@@ -53,11 +53,10 @@ end_per_suite(Config) ->
     ok.
 
 init_per_testcase(_CaseName, Config) ->
-    ok = meck:new(emqx_access_control, [passthrough]),
     Config.
 
-end_per_testcase(_CaseName, _Config) ->
-    ok = meck:unload(emqx_access_control).
+end_per_testcase(_CaseName, Config) ->
+    Config.
 
 %%--------------------------------------------------------------------
 %% Test Cases

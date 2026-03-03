@@ -23,7 +23,8 @@ But the amount of messages from each handler is tracked separately.
     size/1,
     delivering_count/2,
     set_delivered/3,
-    drop_handler/2
+    drop_handler/2,
+    inspect/1
 ]).
 
 -type seq_id() :: non_neg_integer().
@@ -110,6 +111,14 @@ drop_handler(#buffer{delivering = Delivering0} = Buffer, HandlerRef) ->
 -spec size(t()) -> non_neg_integer().
 size(#buffer{message_buffer = MessageBuffer}) ->
     gb_trees:size(MessageBuffer).
+
+-spec inspect(t()) -> map().
+inspect(#buffer{message_buffer = MessageBuffer, delivering = Delivering, seq = Seq}) ->
+    #{
+        message_buffer_size => gb_trees:size(MessageBuffer),
+        delivering => Delivering,
+        seq => Seq
+    }.
 
 %%--------------------------------------------------------------------
 %% Internal functions

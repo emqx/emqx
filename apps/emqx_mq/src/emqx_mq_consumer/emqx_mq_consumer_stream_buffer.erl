@@ -238,10 +238,10 @@ handle_ack(
 handle_ack(
     #{status := restoring, unacked := Unacked0, actual_unacked := ActualUnacked0} = SB, MessageId
 ) ->
-    SB#{
+    {ok, SB#{
         unacked => maps:remove(MessageId, Unacked0),
         actual_unacked => maps:remove(MessageId, ActualUnacked0)
-    }.
+    }}.
 
 -spec progress(t()) -> progress().
 progress(

@@ -42,20 +42,26 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 
 %% API:
 -export([
+    get_vsn/1,
     add_generation/1,
     otx_new_leader/1,
     otx_commit/5,
     drop_generation/1,
-    update_schema/3
+    update_schema/2
 ]).
 
 %% behavior callbacks:
 -export([
+    version/0,
+    which_module/1,
     init/1,
     apply/3,
     tick/2,
     state_enter/2,
-    snapshot_module/0
+    snapshot_module/0,
+
+    init_aux/1,
+    handle_aux/5
 ]).
 
 %% internal exports:
@@ -80,20 +86,14 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 -define(batches, 4).
 -define(otx_leader_pid, 5).
 -define(otx_timestamp, 6).
-%% Storage event:
--define(storage_event_payload, 2).
--define(now, 3).
 
 %% Core state of the replication, i.e. the state of ra machine.
 -type ra_state() :: #{
+    vsn := 1,
     %% Shard ID.
     db_shard := {emqx_ds:db(), emqx_ds:shard()},
 
-    %% Map that stores last schema change id for each site, it is used
-    %% to discard obsolete schema updates.
-    last_schema_changes := #{emqx_dsch:site() => emqx_dsch:pending_id()},
-
-    schema := emqx_ds_builtin_raft:db_schema(),
+    schema := emqx_ds_builtin_raft:db_schema() | undefined,
 
     %% Unique timestamp tracking real time closely.
     %% With microsecond granularity it should be nearly impossible for it to run
@@ -124,10 +124,9 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 }.
 
 -type cmd_update_schema() :: #{
-    ?tag := update_schema,
-    pending_id := emqx_dsch:pending_id(),
-    originator := emqx_dsch:site(),
-    schema := map()
+    ?tag := update_schema_v1,
+    schema := map(),
+    latest := emqx_ds:time()
 }.
 
 -type cmd_add_generation() :: #{
@@ -171,20 +170,53 @@ dictionary, see `?pd_ra_*` macrodefs for details.
 %% API functions
 %%================================================================================
 
+-doc """
+# Version history
+
+## 0 (e6.0.0)
+Initial version. Removed backward-compatibility with 5.* data.
+
+## 1 (e6.1.1)
+
+- Changed initialization procedure. State machine starts with an empty
+  schema, which then gets explicitly initialized by the leader.
+
+- Changed behavior of `update_schema' operation. Previously it
+  attempted to automatically add a generation, and the implementation
+  contained a bug that didn't actually apply schema updates to the
+  runtime state. New version doesn't have such side effects.
+
+- Changed behavior of `emqx_ds_storage_layer:add_generation'. Now it
+  takes storage prototype as an explicit argument instead of reading
+  it from its own builtin metadata.
+""".
+version() ->
+    1.
+
+which_module(0) -> emqx_ds_builtin_raft_machine_v0;
+which_module(1) -> ?MODULE.
+
 -spec add_generation(emqx_ds:time()) -> cmd_add_generation().
 add_generation(Since) when is_integer(Since) ->
     #{?tag => add_generation, since => Since}.
 
--spec update_schema(emqx_dsch:pending_id(), emqx_dsch:site(), emqx_ds_builtin_raft:db_schema()) ->
+-doc """
+Side effects:
+
+- If `Timestamp` is not `undefined', and it happens to be greater than
+  the shard timestamp, then the latter is set to `Timestamp`.
+  Otherwise this value is ignored.
+""".
+-spec update_schema(
+    emqx_ds_builtin_raft:db_schema(),
+    emqx_ds:time() | undefined
+) ->
     cmd_update_schema().
-update_schema(PendingId, Originator, NewSchema) when
-    is_integer(PendingId), is_binary(Originator), is_map(NewSchema)
-->
+update_schema(NewSchema, Timestamp) when is_map(NewSchema) ->
     #{
-        ?tag => update_schema,
-        pending_id => PendingId,
-        originator => Originator,
-        schema => NewSchema
+        ?tag => update_schema_v1,
+        schema => NewSchema,
+        latest => Timestamp
     }.
 
 -spec drop_generation(emqx_ds:generation()) -> cmd_drop_generation().
@@ -214,21 +246,23 @@ otx_commit(PrevSerial, Serial, Time, Batch, Leader) when
         ?otx_leader_pid => Leader
     }.
 
+-spec get_vsn(ra_state() | emqx_ds_builtin_raft_machine_v0:ra_state()) -> non_neg_integer().
+get_vsn(#{vsn := Vsn}) ->
+    Vsn;
+get_vsn(#{}) ->
+    %% v0 didn't have an explicit version:
+    0.
+
 %%================================================================================
 %% behavior callbacks
 %%================================================================================
 
--spec init(#{
-    name := _,
-    db := emqx_ds:db(),
-    shard := emqx_ds:shard(),
-    schema := emqx_ds_builtin_raft:db_schema()
-}) -> ra_state().
-init(#{db := DB, shard := Shard, schema := Schema}) ->
+-spec init(#{db := emqx_ds:db(), shard := emqx_ds:shard(), _ => _}) -> ra_state().
+init(#{db := DB, shard := Shard}) ->
     #{
+        vsn => 1,
         db_shard => {DB, Shard},
-        last_schema_changes => #{},
-        schema => Schema,
+        schema => undefined,
         latest => 0,
         tx_serial => 0,
         otx_leader_pid => undefined
@@ -237,8 +271,67 @@ init(#{db := DB, shard := Shard, schema := Schema}) ->
 snapshot_module() ->
     emqx_ds_builtin_raft_server_snapshot.
 
--spec apply(ra_machine:command_meta_data(), ra_command(), ra_state()) ->
+-spec apply(
+    ra_machine:command_meta_data(),
+    ra_command(),
+    ra_state() | emqx_ds_builtin_raft_machine_v0:ra_state()
+) ->
     {ra_state(), _Reply, _Effects}.
+apply(
+    _RaftMeta,
+    {machine_version, 0, 1},
+    #{
+        db_shard := DBShard,
+        latest := Latest,
+        tx_serial := TxSerial,
+        otx_leader_pid := OtxLeader
+    }
+) ->
+    ?tp(info, upgrading_state_machine, #{shard => DBShard}),
+    %% Reset the schema:
+    State = #{
+        vsn => 1,
+        db_shard => DBShard,
+        schema => undefined,
+        latest => Latest,
+        tx_serial => TxSerial,
+        otx_leader_pid => OtxLeader
+    },
+    {State, ok, []};
+apply(
+    RaftMeta,
+    #{?tag := update_schema_v1, schema := Schema, latest := NewLatest},
+    #{db_shard := DBShard} = State0
+) ->
+    ?tp(
+        debug,
+        ds_ra_update_schema,
+        #{
+            shard => DBShard,
+            schema => Schema
+        }
+    ),
+    State = #{latest := Latest} = safe_update_latest(NewLatest, State0#{schema := Schema}),
+    ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema, Latest),
+    Effect = release_log(RaftMeta, State),
+    {State, {ok, Latest}, [Effect]};
+apply(
+    _RaftMeta,
+    #{
+        ?tag := new_otx_leader,
+        pid := Pid
+    },
+    State = #{db_shard := DBShard, tx_serial := Serial, latest := Timestamp}
+) ->
+    emqx_ds_builtin_raft_aux:set_otx_leader(DBShard, Pid),
+    Reply = {Serial, Timestamp},
+    {State#{otx_leader_pid := Pid}, Reply};
+apply(
+    _RaftMeta,
+    _Command,
+    State = #{schema := undefined}
+) ->
+    {State, ?err_rec(shard_not_initialized), []};
 apply(
     RaftMeta,
     #{
@@ -249,16 +342,40 @@ apply(
         ?batches := Batches,
         ?otx_leader_pid := From
     },
-    State0 = #{db_shard := DBShard, tx_serial := ExpectedSerial, otx_leader_pid := Leader}
+    State0 = #{
+        db_shard := DBShard,
+        tx_serial := CurrentSerial,
+        otx_leader_pid := Leader,
+        latest := OldLatest
+    }
 ) ->
     case From of
-        Leader when SerCtl =:= ExpectedSerial ->
+        Leader when SerCtl =/= CurrentSerial ->
+            %% Leader pid matches, but not the control serial:
+            State = State0,
+            Result = ?err_unrec({serial_mismatch, SerCtl, CurrentSerial}),
+            Effects = [];
+        Leader when Serial < CurrentSerial ->
+            %% Leader pid matches, but serial is not monotonic. Note:
+            %% new serial can be equal to the old one when batch is
+            %% empty, so check is relaxed. Here we trust
+            %% `optimistic_tx' to do the right thing.
+            State = State0,
+            Result = ?err_unrec({non_monotonic_serial, Serial, CurrentSerial}),
+            Effects = [];
+        Leader when Timestamp < OldLatest ->
+            %% Leader pid matches, but timestamp is not monotonic.
+            %% Again, when batch is empty the timestamp may stay the
+            %% same.
+            State = State0,
+            Result = ?err_unrec({non_monotonic_timestamp, Timestamp, OldLatest}),
+            Effects = [];
+        Leader ->
             case emqx_ds_storage_layer_ttv:commit_batch(DBShard, Batches, #{durable => false}) of
                 ok ->
                     emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial),
-                    State = State0#{tx_serial := Serial, latest := Timestamp},
+                    State = safe_update_latest(Timestamp, State0#{tx_serial := Serial}),
                     Result = ok,
-                    set_ts(DBShard, Timestamp + 1),
                     DispatchF = fun(Stream) ->
                         emqx_ds_beamformer:shard_event(DBShard, [Stream])
                     end,
@@ -269,23 +386,17 @@ apply(
                     Result = Err,
                     Effects = []
             end;
-        Leader ->
-            %% Leader pid matches, but not the serial:
-            State = State0,
-            Result = ?err_unrec({serial_mismatch, SerCtl, ExpectedSerial}),
-            Effects = [];
         _ ->
             %% Leader mismatch:
             State = State0,
             Result = ?err_unrec({not_the_leader, #{got => From, expect => Leader}}),
             Effects = []
     end,
-    Effects =/= [] andalso ?tp(ds_ra_effects, #{effects => Effects, meta => RaftMeta}),
     {State, Result, Effects};
 apply(
-    RaftMeta,
+    RaftMeta = #{machine_version := Vsn},
     #{?tag := add_generation, since := Since},
-    #{db_shard := DBShard} = State
+    #{db_shard := DBShard, schema := #{storage := Prototype}} = State
 ) ->
     ?tp(
         info,
@@ -295,19 +406,19 @@ apply(
             since => Since
         }
     ),
-    Result = emqx_ds_storage_layer:add_generation(DBShard, Since),
+    Result = emqx_ds_storage_layer:add_generation(DBShard, Since, Prototype),
     emqx_ds_beamformer:generation_event(DBShard),
     Effect = release_log(RaftMeta, State),
-    Effect =/= {release_cursor, 0, State} andalso
-        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
     {State, Result, [Effect]};
 apply(
-    RaftMeta,
+    _RaftMeta,
     #{?tag := update_schema, pending_id := PendingId, originator := Site, schema := Schema},
-    #{db_shard := DBShard, last_schema_changes := LSC, latest := Latest} = State0
+    #{db_shard := DBShard} = State0
 ) ->
+    %% Obsolete version of update_config command. It is issued by v0
+    %% version of the code.
     ?tp(
-        notice,
+        warning,
         ds_ra_update_config,
         #{
             shard => DBShard,
@@ -316,20 +427,7 @@ apply(
             pending_id => PendingId
         }
     ),
-    State =
-        case LSC of
-            #{Site := NewerId} when NewerId >= PendingId ->
-                %% This update has been already applied. Ignore
-                %% it:
-                State0;
-            #{} ->
-                ok = emqx_ds_storage_layer:update_config(DBShard, Latest, Schema),
-                State0#{schema := Schema, last_schema_changes := LSC#{Site => PendingId}}
-        end,
-    Effect = release_log(RaftMeta, State),
-    Effect =/= {release_cursor, 0, State} andalso
-        ?tp(ds_ra_effects, #{effects => [Effect], meta => RaftMeta}),
-    {State, ok, [Effect]};
+    {State0, {error, unrecoverable, not_supported}, []};
 apply(
     _RaftMeta,
     #{?tag := drop_generation, generation := GenId},
@@ -344,40 +442,21 @@ apply(
         }
     ),
     Result = emqx_ds_storage_layer:drop_slab(DBShard, GenId),
-    {State, Result};
-apply(
-    _RaftMeta,
-    #{
-        ?tag := new_otx_leader,
-        pid := Pid
-    },
-    State = #{db_shard := DBShard, tx_serial := Serial, latest := Timestamp}
-) ->
-    set_otx_leader(DBShard, Pid),
-    Reply = {Serial, Timestamp},
-    {State#{otx_leader_pid => Pid}, Reply}.
+    {State, Result}.
 
 -spec tick(integer(), ra_state()) -> ra_machine:effects().
 tick(_TimeMs, #{db_shard := _DBShard}) ->
     [].
 
--spec state_enter(ra_server:ra_state() | eol, ra_state()) -> ra_machine:effects().
-state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
-    ?tp(
-        debug,
-        ds_ra_state_enter,
-        State#{state => MemberState}
-    ),
-    emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
-    set_cache(MemberState, State),
-    _ =
-        case MemberState of
-            leader ->
-                emqx_ds_builtin_raft_db_lifecycle:async_start_leader_sup(DB, Shard);
-            _ ->
-                emqx_ds_builtin_raft_db_lifecycle:async_stop_leader_sup(DB, Shard)
-        end,
-    [].
+init_aux(Name) ->
+    emqx_ds_builtin_raft_aux:init(Name).
+
+%% Called when the ra server changes state (e.g. leader -> follower).
+state_enter(MemberState, State) ->
+    emqx_ds_builtin_raft_aux:state_enter(MemberState, State).
+
+handle_aux(State, Call, Command, Aux, Int) ->
+    emqx_ds_builtin_raft_aux:handle_aux(State, Call, Command, Aux, Int).
 
 %%================================================================================
 %% Internal exports
@@ -387,41 +466,13 @@ state_enter(MemberState, State = #{db_shard := {DB, Shard}}) ->
 %% Internal functions
 %%================================================================================
 
-set_cache(MemberState, State = #{db_shard := DBShard, latest := Latest}) when
-    MemberState =:= leader; MemberState =:= follower
+safe_update_latest(NewLatest, #{db_shard := DBShard, latest := OldLatest} = State) when
+    is_integer(NewLatest), NewLatest > OldLatest
 ->
-    set_ts(DBShard, Latest),
-    case State of
-        #{tx_serial := Serial} ->
-            emqx_ds_storage_layer_ttv:set_read_tx_serial(DBShard, Serial);
-        #{} ->
-            ok
-    end,
-    case State of
-        #{otx_leader_pid := Pid} ->
-            set_otx_leader(DBShard, Pid);
-        #{} ->
-            ok
-    end;
-set_cache(_, _) ->
-    ok.
-
--doc """
-Set PID of the optimistic transaction leader at the time of the last
-Raft log entry applied locally. Since log replication may be delayed,
-this pid may belong to a process long gone, and the pid can be even
-reclaimed by other process if the node had restarted. Because of that,
-DON'T SEND MESSAGES to this pid.
-
-This pid is used ONLY to verify that the transaction context has been
-created during the term of the current leader.
-""".
-set_otx_leader({DB, Shard}, Pid) ->
-    ?tp(info, dsrepl_set_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
-    emqx_dsch:gvar_set(DB, Shard, ?gv_sc_replica, ?gv_otx_leader_pid, Pid).
-
-set_ts({DB, Shard}, TS) ->
-    emqx_dsch:gvar_set(DB, Shard, ?gv_sc_replica, ?gv_timestamp, TS).
+    emqx_ds_builtin_raft_aux:set_ts(DBShard, NewLatest + 1),
+    State#{latest := NewLatest};
+safe_update_latest(_, State) ->
+    State.
 
 try_release_log({_N, BatchSize}, RaftMeta = #{index := CurrentIdx}, State) ->
     %% NOTE

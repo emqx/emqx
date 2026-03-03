@@ -8,8 +8,12 @@
 The module contains accessor functions for the Streams.
 """.
 
+-include("emqx_streams_internal.hrl").
+
 -export([
     id/1,
+    name/1,
+    default_name_from_topic/1,
     is_limited/1,
     is_lastvalue/1,
     is_append_only/1,
@@ -45,6 +49,16 @@ topic_filter(#{topic_filter := TopicFilter} = _Stream) ->
     emqx_streams_types:stream_id().
 id(#{id := ID} = _Stream) ->
     ID.
+
+-spec name(emqx_streams_types:stream()) ->
+    emqx_streams_types:stream_name().
+name(#{name := Name} = _Stream) ->
+    Name.
+
+-spec default_name_from_topic(emqx_types:topic()) ->
+    emqx_streams_types:stream_name().
+default_name_from_topic(TopicFilter) ->
+    ?LEGACY_STREAM_NAME(TopicFilter).
 
 -spec is_append_only(emqx_streams_types:stream()) -> boolean().
 is_append_only(Stream) ->

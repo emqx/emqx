@@ -55,7 +55,9 @@
     %% Connection State
     conn_state :: conn_state(),
     %% Session token to identity this connection
-    token :: binary() | undefined
+    token :: binary() | undefined,
+    %% CoAP block-wise transfer state
+    blockwise :: emqx_coap_blockwise:state()
 }).
 
 -type channel() :: #channel{}.
@@ -149,7 +151,8 @@ init(
         session = emqx_coap_session:new(),
         keepalive = emqx_keepalive:init(Heartbeat),
         connection_required = maps:get(connection_required, Config, false),
-        conn_state = idle
+        conn_state = idle,
+        blockwise = emqx_coap_blockwise:new(emqx_coap_blockwise:default_opts(coap))
     }.
 
 validator(Action, Topic, Ctx, ClientInfo) ->
@@ -205,10 +208,13 @@ handle_deliver(
     Delivers,
     #channel{
         session = Session,
-        ctx = Ctx
+        ctx = Ctx,
+        blockwise = BW,
+        conninfo = ConnInfo
     } = Channel
 ) ->
-    handle_result(emqx_coap_session:deliver(Delivers, Ctx, Session), Channel).
+    PeerKey = maps:get(peername, ConnInfo, undefined),
+    handle_result(emqx_coap_session:deliver(Delivers, Ctx, Session, BW, PeerKey), Channel).
 
 %%--------------------------------------------------------------------
 %% Handle timeout
@@ -403,7 +409,7 @@ check_auth_state(Msg, #channel{connection_required = true} = Channel) ->
             call_session(handle_request, Msg, Channel);
         false ->
             URIQuery = emqx_coap_message:extract_uri_query(Msg),
-            case maps:get(<<"token">>, URIQuery, undefined) of
+            case get_query_value(<<"token">>, URIQuery) of
                 undefined ->
                     %% Connection mode policy: reject requests without token/clientid.
                     ?SLOG(debug, #{msg => "token_required_in_conn_mode", message => Msg}),
@@ -423,8 +429,11 @@ is_delete_connection_request(#coap_message{method = Method} = Msg) ->
 check_token(Msg, Channel) ->
     #channel{token = Token, clientinfo = ClientInfo} = Channel,
     #{clientid := ClientId} = ClientInfo,
-    case emqx_coap_message:extract_uri_query(Msg) of
-        #{<<"clientid">> := ClientId, <<"token">> := Token} ->
+    URIQuery = emqx_coap_message:extract_uri_query(Msg),
+    ReqClientId = get_query_value(<<"clientid">>, URIQuery),
+    ReqToken = get_query_value(<<"token">>, URIQuery),
+    case {ReqClientId, ReqToken} of
+        {ClientId, Token} when ReqClientId =/= undefined, ReqToken =/= undefined ->
             call_session(handle_request, Msg, Channel);
         _ ->
             case Token =:= undefined andalso is_delete_connection_request(Msg) of
@@ -437,6 +446,27 @@ check_token(Msg, Channel) ->
                     {ok, {outgoing, Reply}, Channel}
             end
     end.
+
+get_query_value(Key, URIQuery) ->
+    RawValue =
+        case maps:find(Key, URIQuery) of
+            {ok, Value} ->
+                Value;
+            error ->
+                maps:get(binary_to_list(Key), URIQuery, undefined)
+        end,
+    normalize_query_value(RawValue).
+
+normalize_query_value(undefined) ->
+    undefined;
+normalize_query_value(Value) when is_binary(Value) ->
+    Value;
+normalize_query_value(Value) when is_list(Value) ->
+    list_to_binary(Value);
+normalize_query_value(Value) when is_integer(Value) ->
+    integer_to_binary(Value);
+normalize_query_value(Value) ->
+    Value.
 run_conn_hooks(Input, Channel) ->
     #channel{ctx = Ctx, conninfo = ConnInfo} = Channel,
     ConnProps = #{},
@@ -552,6 +582,8 @@ handle_result(Result, Channel) ->
         [
             session,
             fun process_session/4,
+            blockwise,
+            fun process_blockwise/4,
             proto,
             fun process_protocol/4,
             reply,
@@ -563,8 +595,31 @@ handle_result(Result, Channel) ->
         Result,
         Channel
     ).
-call_handler(request, Msg, Result, Channel, Iter) ->
+call_handler(
+    request, Msg, Result, #channel{blockwise = BW0, conninfo = ConnInfo, ctx = Ctx} = Channel, Iter
+) ->
+    PeerKey = maps:get(peername, ConnInfo, undefined),
+    case emqx_coap_blockwise:server_incoming(Msg, PeerKey, BW0) of
+        {reply, Reply, BW1} ->
+            maybe_inc_block2_completed(Reply, Ctx),
+            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+        {error, Reply, BW1} ->
+            metrics_inc('blockwise.tx_block2.failed', Ctx),
+            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+        {continue, Reply, BW1} ->
+            iter(Iter, reply(Reply, Result), Channel#channel{blockwise = BW1});
+        {Tag, Msg2, BW1} when Tag =:= pass; Tag =:= complete ->
+            do_call_handler_request(Msg2, Result, Channel#channel{blockwise = BW1}, Iter)
+    end;
+call_handler(response, {{send_request, From}, Response}, Result, Channel, Iter) ->
+    gen_server:reply(From, Response),
+    iter(Iter, Result, Channel);
+call_handler(_, _, Result, Channel, Iter) ->
+    iter(Iter, Result, Channel).
+
+do_call_handler_request(Msg, Result, Channel, Iter) ->
     #channel{ctx = Ctx, clientinfo = ClientInfo} = Channel,
+    Result0 = Result#{request_msg => Msg},
     HandlerResult =
         case emqx_coap_message:get_option(uri_path, Msg) of
             [<<"ps">> | RestPath] ->
@@ -576,16 +631,14 @@ call_handler(request, Msg, Result, Channel, Iter) ->
         end,
     iter(
         [connection, fun process_connection/4, subscribe, fun process_subscribe/4 | Iter],
-        maps:merge(Result, HandlerResult),
+        maps:merge(Result0, HandlerResult),
         Channel
-    );
-call_handler(response, {{send_request, From}, Response}, Result, Channel, Iter) ->
-    gen_server:reply(From, Response),
-    iter(Iter, Result, Channel);
-call_handler(_, _, Result, Channel, Iter) ->
-    iter(Iter, Result, Channel).
+    ).
+
 process_session(Session, Result, Channel, Iter) ->
     iter(Iter, Result, Channel#channel{session = Session}).
+process_blockwise(BW, Result, Channel, Iter) ->
+    iter(Iter, Result, Channel#channel{blockwise = BW}).
 process_protocol({Type, Msg}, Result, Channel, Iter) ->
     call_handler(Type, Msg, Result, Channel, Iter).
 process_out(Outs, Result, Channel, _) ->
@@ -640,11 +693,44 @@ process_connection({close, Msg}, _, Channel, _) ->
 process_subscribe({Sub, Msg}, Result, #channel{session = Session} = Channel, Iter) ->
     Result2 = emqx_coap_session:process_subscribe(Sub, Msg, Result, Session),
     iter([session, fun process_session/4 | Iter], Result2, Channel).
-process_reply(Reply, Result, #channel{session = Session} = Channel, _) ->
-    Session2 = emqx_coap_session:set_reply(Reply, Session),
+process_reply(
+    Reply,
+    Result,
+    #channel{session = Session, blockwise = BW0, conninfo = ConnInfo, ctx = Ctx} = Channel,
+    _
+) ->
+    Req = maps:get(request_msg, Result, undefined),
+    PeerKey = maps:get(peername, ConnInfo, undefined),
+    {Reply1, BW1} = maybe_prepare_block2_reply(Req, Reply, PeerKey, Ctx, BW0),
+    Session2 = emqx_coap_session:set_reply(Reply1, Session),
     Outs = maps:get(out, Result, []),
     Outs2 = lists:reverse(Outs),
     Events = maps:get(events, Result, []),
-    {ok, [{outgoing, [Reply | Outs2]}] ++ Events, Channel#channel{session = Session2}}.
+    {ok, [{outgoing, [Reply1 | Outs2]}] ++ Events, Channel#channel{
+        session = Session2, blockwise = BW1
+    }}.
 
 process_shutdown(Reply, _Result, Channel, _) -> {shutdown, normal, Reply, Channel}.
+
+maybe_prepare_block2_reply(Req, Reply, _PeerKey, _Ctx, BW) when
+    not is_record(Req, coap_message); not is_record(Reply, coap_message)
+->
+    {Reply, BW};
+maybe_prepare_block2_reply(Req, Reply, PeerKey, Ctx, BW0) ->
+    case emqx_coap_blockwise:server_prepare_out_response(Req, Reply, PeerKey, BW0) of
+        {single, Reply1, BW1} ->
+            {Reply1, BW1};
+        {chunked, Reply1, BW1} ->
+            metrics_inc('blockwise.tx_block2.started', Ctx),
+            maybe_inc_block2_completed(Reply1, Ctx),
+            {Reply1, BW1};
+        {error, Reply1, BW1} ->
+            metrics_inc('blockwise.tx_block2.failed', Ctx),
+            {Reply1, BW1}
+    end.
+
+maybe_inc_block2_completed(Reply, Ctx) ->
+    case emqx_coap_message:get_option(block2, Reply, undefined) of
+        {_, false, _} -> metrics_inc('blockwise.tx_block2.completed', Ctx);
+        _ -> ok
+    end.

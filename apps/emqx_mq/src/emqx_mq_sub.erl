@@ -29,13 +29,13 @@ It uses timers:
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -export([
-    mq_topic_filter/1,
+    name_topic/1,
     subscriber_ref/1,
     inspect/1
 ]).
 
 -export([
-    handle_connect/2,
+    handle_connect/3,
     handle_ack/3,
     handle_info/2,
     handle_disconnect/1
@@ -77,6 +77,7 @@ It uses timers:
     status := status(),
     clientid := emqx_types:clientid(),
     topic_filter := emqx_mq_types:mq_topic(),
+    name := emqx_mq_types:mq_name(),
     subscriber_ref := emqx_mq_types:subscriber_ref()
 }.
 
@@ -104,9 +105,9 @@ It uses timers:
 %% API
 %%--------------------------------------------------------------------
 
--spec mq_topic_filter(t()) -> emqx_mq_types:mq_topic().
-mq_topic_filter(#{topic_filter := TopicFilter}) ->
-    TopicFilter.
+-spec name_topic(t()) -> {emqx_mq_types:mq_name(), emqx_mq_types:mq_topic() | undefined}.
+name_topic(#{name := Name, topic_filter := TopicFilter}) ->
+    {Name, TopicFilter}.
 
 -spec subscriber_ref(t()) -> emqx_mq_types:subscriber_ref().
 subscriber_ref(#{subscriber_ref := SubscriberRef}) ->
@@ -114,30 +115,25 @@ subscriber_ref(#{subscriber_ref := SubscriberRef}) ->
 
 -spec inspect(t()) -> map().
 inspect(#{status := Status} = Sub) ->
-    Info = maps:with([clientid, topic_filter, subscriber_ref], Sub),
+    Info = maps:with([clientid, topic_filter, subscriber_ref, name], Sub),
     Info#{status => status_inspect(Status)}.
 
--spec handle_connect(emqx_types:clientinfo(), emqx_mq_types:mq_topic()) -> t().
-handle_connect(#{clientid := ClientId}, MQTopic) ->
+-spec handle_connect(
+    emqx_types:clientinfo(), emqx_mq_types:mq_name(), emqx_mq_types:mq_topic() | undefined
+) ->
+    t().
+handle_connect(#{clientid := ClientId}, Name, MQTopic) ->
     SubscriberRef = alias(),
     Sub = #{
         clientid => ClientId,
         topic_filter => MQTopic,
+        name => Name,
         subscriber_ref => SubscriberRef
     },
-    case emqx_mq_registry:find(MQTopic) of
-        not_found ->
-            %% No queue found, we will retry to find it later.
-            %% NOTE
-            %% We may register the subscription finders somewhere
-            %% and react on queue creation immediately.
-            Status = #finding_mq{
-                find_mq_retry_tref = send_after(
-                    Sub, find_mq_retry_interval(), #find_mq_retry{}
-                )
-            },
-            Sub#{status => Status};
-        {ok, MQ} ->
+    case emqx_mq_registry:find(Name) of
+        {ok, #{topic_filter := FoundMQTopic} = MQ} when
+            FoundMQTopic =:= MQTopic orelse MQTopic =:= undefined
+        ->
             case emqx_mq_consumer:connect(MQ, SubscriberRef, ClientId) of
                 {error, Reason} ->
                     %% MQ found but something went wrong with the consumer.
@@ -177,7 +173,18 @@ handle_connect(#{clientid := ClientId}, MQTopic) ->
                         )
                     },
                     Sub#{status => Status}
-            end
+            end;
+        _ ->
+            %% No queue found, or currently the queue is associated with a different topic filter.
+            %% NOTE
+            %% We may register the subscription finders somewhere
+            %% and react on queue creation immediately.
+            Status = #finding_mq{
+                find_mq_retry_tref = send_after(
+                    Sub, find_mq_retry_interval(), #find_mq_retry{}
+                )
+            },
+            Sub#{status => Status}
     end.
 
 -spec handle_ack(t(), emqx_types:message(), emqx_mq_types:ack()) -> ok.
@@ -224,9 +231,11 @@ handle_info(
     }),
     {error, recreate};
 handle_info(
-    #{status := #connected{}, topic_filter := TopicFilter} = Sub, #consumer_timeout{}
+    #{status := #connected{}, topic_filter := TopicFilter, name := Name} = Sub, #consumer_timeout{}
 ) ->
-    ?tp(error, mq_sub_consumer_timeout, #{mq_topic_filter => TopicFilter, sub => inspect(Sub)}),
+    ?tp(error, mq_sub_consumer_timeout, #{
+        mq_topic_filter => TopicFilter, mq_name => Name, sub => inspect(Sub)
+    }),
     {error, recreate};
 handle_info(
     #{status := #connected{consumer_ref = ConsumerRef}, subscriber_ref := SubscriberRef} = Sub,
@@ -338,19 +347,16 @@ handle_connected(#{status := #connecting{mq = MQ}} = Sub0, ConsumerRef) ->
     },
     reset_consumer_timeout_timer(reset_ping_timer(Sub)).
 
-handle_messages(Sub, Msgs) ->
-    lists:foldl(fun handle_message/2, Sub, Msgs).
-
-handle_message(
-    Msg,
+handle_messages(
     #{
         status := #connected{
             buffer = Buffer0, inflight = Inflight, publish_retry_tref = PublishRetryTRef, mq = MQ
         } = Status
-    } = Sub0
+    } = Sub0,
+    Msgs
 ) ->
-    ?tp_debug(mq_sub_messages, #{sub => inspect(Sub0), message => Msg}),
-    Buffer = emqx_mq_sub_buffer:add(Buffer0, Msg),
+    ?tp_debug(mq_sub_messages, #{sub => inspect(Sub0), messages => Msgs}),
+    Buffer = emqx_mq_sub_buffer:add(Buffer0, Msgs),
     Sub =
         case PublishRetryTRef of
             undefined ->
@@ -372,7 +378,7 @@ do_handle_ack(
 ) ->
     ?tp_debug(mq_sub_handle_nack, #{sub => inspect(Sub0), message_id => MessageId}),
     Message = maps:get(MessageId, Inflight0),
-    Buffer = emqx_mq_sub_buffer:add(Buffer0, Message),
+    Buffer = emqx_mq_sub_buffer:add(Buffer0, [Message]),
     Inflight = maps:remove(MessageId, Inflight0),
     Sub =
         case map_size(Inflight) of

@@ -156,6 +156,18 @@ schema_test_() ->
             )}
     ].
 
+%% Variform expressions containing non-ASCII unicode characters should not
+%% crash prettify_operation/1.  emqx_variform:compile/1 stores the expression
+%% as a unicode codepoint list, and emqx_variform:decompile/1 returns it as-is.
+%% iolist_to_binary/1 cannot handle codepoints > 255, so prettify_operation
+%% must use unicode:characters_to_binary/1 instead.
+prettify_unicode_operation_test() ->
+    Expr = <<"concat(['你好世界'])"/utf8>>,
+    {ok, Compiled} = emqx_variform:compile(Expr),
+    Operation = #{key => [<<"payload">>, <<"msg">>], value => Compiled},
+    Result = emqx_message_transformation:prettify_operation(Operation),
+    ?assertMatch(#{key := <<"payload.msg">>, value := <<"concat(['你好世界'])"/utf8>>}, Result).
+
 invalid_names_test_() ->
     [
         {InvalidName,

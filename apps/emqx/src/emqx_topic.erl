@@ -29,6 +29,10 @@
 ]).
 
 -export([
+    enable_queue_alias_to_share/1
+]).
+
+-export([
     maybe_format_share/1,
     get_shared_real_topic/1,
     make_shared_record/2
@@ -45,6 +49,7 @@
 ).
 
 -define(IS_WILDCARD(W), W =:= '+' orelse W =:= '#').
+-define(QUEUE_ALIAS_SUPPORTED_PT, {?MODULE, enable_queue_alias_to_share}).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -379,8 +384,13 @@ parse(#share{} = T, #{nl := 1} = _Options) ->
     %% Protocol Error and Should Disconnect
     %% MQTT-5.0 [MQTT-3.8.3-4] and [MQTT-4.13.1-1]
     error({invalid_subopts_nl, maybe_format_share(T)});
-parse(<<?QUEUE, "/", Topic/binary>>, Options) ->
-    parse(#share{group = <<?QUEUE>>, topic = Topic}, Options);
+parse(<<?QUEUE, "/", Topic/binary>> = FullTopic, Options) ->
+    case is_queue_alias_to_share_enabled() of
+        true ->
+            parse(#share{group = <<?QUEUE>>, topic = Topic}, Options);
+        false ->
+            {FullTopic, Options}
+    end;
 parse(TopicFilter = <<?SHARE, "/", Rest/binary>>, Options) ->
     case binary:split(Rest, <<"/">>) of
         [_Any] ->
@@ -418,3 +428,11 @@ maybe_format_share(#share{group = Group, topic = Topic}) ->
     join([<<?SHARE>>, Group, Topic]);
 maybe_format_share(Topic) ->
     join([Topic]).
+
+-spec enable_queue_alias_to_share(boolean()) -> ok.
+enable_queue_alias_to_share(Enable) ->
+    persistent_term:put(?QUEUE_ALIAS_SUPPORTED_PT, Enable).
+
+is_queue_alias_to_share_enabled() ->
+    %% For backward compatibility, defaults to true.
+    persistent_term:get(?QUEUE_ALIAS_SUPPORTED_PT, true).

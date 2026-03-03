@@ -175,13 +175,13 @@ defmodule EMQXUmbrella.MixProject do
     end
   end
 
-  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.3", override: true}
+  def common_dep(:ekka), do: {:ekka, github: "emqx/ekka", tag: "0.23.4", override: true}
 
   def common_dep(:esockd),
     do: {:esockd, github: "emqx/esockd", tag: "5.16.1", override: true}
 
   def common_dep(:gproc), do: {:gproc, "1.0.0", override: true}
-  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.8", override: true}
+  def common_dep(:hocon), do: {:hocon, github: "emqx/hocon", tag: "0.45.9", override: true}
   def common_dep(:lc), do: {:lc, github: "emqx/lc", tag: "0.3.4", override: true}
   # in conflict by ehttpc and emqtt
   def common_dep(:gun), do: {:gun, "2.1.0", override: true}
@@ -213,7 +213,7 @@ defmodule EMQXUmbrella.MixProject do
   def common_dep(:telemetry), do: {:telemetry, "1.3.0", manager: :rebar3, override: true}
   # in conflict by grpc and eetcd
   def common_dep(:gpb), do: {:gpb, "4.21.5", override: true, runtime: false}
-  def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-1", override: true}
+  def common_dep(:ra), do: {:ra, github: "emqx/ra", tag: "v2.16.13-emqx-2", override: true}
 
   def common_dep(:epgsql), do: {:epgsql, github: "emqx/epgsql", tag: "4.7.1.4", override: true}
   def common_dep(:sasl_auth), do: {:sasl_auth, "2.3.3", override: true}
@@ -303,6 +303,8 @@ defmodule EMQXUmbrella.MixProject do
 
   def common_dep(:unicode_util_compat),
     do: {:unicode_util_compat, "0.7.1", override: true}
+
+  def common_dep(:egbk), do: {:egbk, github: "emqx/egbk-conv", tag: "0.1.1", override: true}
 
   def common_dep(:proper),
     do: {:proper, "1.5.0"}

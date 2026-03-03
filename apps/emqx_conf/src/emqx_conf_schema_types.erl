@@ -259,6 +259,12 @@ readable("qos()") ->
         dashboard => #{type => enum, symbols => [0, 1, 2]},
         docgen => #{type => "Integer(0..2)", example => 0}
     };
+readable("block_size()") ->
+    #{
+        swagger => #{type => integer, minimum => 16, maximum => 1024, example => 1024},
+        dashboard => #{type => enum, symbols => [16, 32, 64, 128, 256, 512, 1024]},
+        docgen => #{type => "Enum(16, 32, 64, 128, 256, 512, 1024)", example => 1024}
+    };
 readable("comma_separated_list()") ->
     #{
         swagger => #{type => string, example => <<"item1,item2">>},

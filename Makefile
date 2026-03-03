@@ -97,7 +97,7 @@ ct: $(REBAR) merge-config
 static_checks: $(ELIXIR_COMMON_DEPS)
 	@env BPAPI_BUILD_PROFILE=$(PROFILE:%-test=%) \
 	    $(MIX) do \
-	    emqx.xref, dialyzer --mode classic, \
+	    emqx.xref + dialyzer --mode classic + \
 	    emqx.static_checks
 	./scripts/check-i18n-style.sh
 	./scripts/check_missing_reboot_apps.exs
@@ -112,6 +112,8 @@ ifneq ($(GROUPS),)
 GROUPS_ARG := --group-paths $(GROUPS)
 endif
 
+CT_MIX_ENV := $(PROFILE)-test
+
 ifeq ($(ENABLE_COVER_COMPILE),1)
 cover_args = --cover-export-name $(CT_COVER_EXPORT_PREFIX)-$(subst /,-,$1)
 else
@@ -122,13 +124,13 @@ endif
 ## env SUITES=apps/appname/test/test_SUITE.erl CASES=t_foo make apps/appname-ct
 define gen-app-ct-target
 $1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
-	$(eval SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
-ifneq ($(SUITES),)
+	$(eval RESOLVED_SUITES := $(shell $(SCRIPTS)/find-suites.sh $1))
+ifneq ($(RESOLVED_SUITES),)
 	env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
 	    PROFILE=$(PROFILE)-test \
 	        $(MIX) ct \
 		$(call cover_args,$1) \
-		--suites $(SUITES) \
+		--suites $(RESOLVED_SUITES) \
 		$(GROUPS_ARG) \
 		$(CASES_ARG)
 else
@@ -136,10 +138,32 @@ else
 endif
 endef
 
-ifneq ($(filter %-ct,$(MAKECMDGOALS)),)
-app_to_test := $(patsubst %-ct,%,$(filter %-ct,$(MAKECMDGOALS)))
+define gen-plugin-ct-target
+$1-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
+	$(eval RESOLVED_SUITES := $(shell $(SCRIPTS)/find-suites.sh --relative $1))
+ifneq ($(RESOLVED_SUITES),)
+	cd $1 && env ERL_FLAGS="-kernel prevent_overlapping_partitions false" \
+	    TEST=1 \
+	    MIX_ENV=$(CT_MIX_ENV) \
+	    PROFILE=$(PROFILE)-test \
+	        $(MIX) do deps.get, compile --force, emqx.ct \
+		$(call cover_args,$1) \
+		--suites $(RESOLVED_SUITES) \
+		$(GROUPS_ARG) \
+		$(CASES_ARG)
+else
+	@echo 'No suites found for $1'
+endif
+endef
+
+ifneq ($(filter-out plugins-ct plugin-ct,$(filter %-ct,$(MAKECMDGOALS))),)
+app_to_test := $(patsubst %-ct,%,$(filter-out plugins-ct plugin-ct,$(filter %-ct,$(MAKECMDGOALS))))
 $(call DEBUG_INFO,app_to_test $(app_to_test))
+ifneq ($(filter plugins/%,$(app_to_test)),)
+$(eval $(call gen-plugin-ct-target,$(app_to_test)))
+else
 $(eval $(call gen-app-ct-target,$(app_to_test)))
+endif
 endif
 
 ## apps/name-prop targets
@@ -170,6 +194,29 @@ endif
 .PHONY: cover
 cover:
 	@env PROFILE=$(PROFILE)-test mix cover
+
+.PHONY: plugin-%
+plugin-%: PLUGIN_APP_DIR = plugins/$*
+plugin-%:
+	@test -d $(PLUGIN_APP_DIR) || { echo "Error: No such plugin app: $(PLUGIN_APP_DIR)"; exit 1; }
+	@test -f $(PLUGIN_APP_DIR)/mix.exs || { \
+		echo "Error: $(PLUGIN_APP_DIR) does not define mix.exs."; \
+		echo "Ensure it is a monorepo plugin app with Mix support."; \
+		exit 1; \
+	}
+	@grep -q "emqx_plugin:" $(PLUGIN_APP_DIR)/mix.exs || { \
+		echo "Error: $(PLUGIN_APP_DIR) is not an EMQX plugin app (missing :emqx_plugin)."; \
+		exit 1; \
+	}
+	cd "$(PLUGIN_APP_DIR)" && MIX_ENV="$(PROFILE)" PROFILE="$(PROFILE)" $(MIX) emqx.plugin
+
+.PHONY: plugins
+plugins: $(REBAR)
+	@$(SCRIPTS)/build-plugins.sh
+
+.PHONY: plugins-ct
+plugins-ct: $(REBAR) $(ELIXIR_COMMON_DEPS) merge-config clean-test-cluster-config
+	@$(SCRIPTS)/run-plugins-ct.sh
 
 COMMON_DEPS := $(REBAR)
 

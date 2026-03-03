@@ -69,11 +69,19 @@ t_http_api(_) ->
     process_flag(trap_exit, true),
     AuditPath = emqx_mgmt_api_test_util:api_path(["audit"]),
     AuthHeader = emqx_mgmt_api_test_util:auth_header_(),
+    StartAt = erlang:system_time(microsecond),
     {ok, Zones} = emqx_mgmt_api_configs_SUITE:get_global_zone(),
     NewZones = emqx_utils_maps:deep_put([<<"mqtt">>, <<"max_qos_allowed">>], Zones, 1),
     {ok, #{<<"mqtt">> := Res}} = emqx_mgmt_api_configs_SUITE:update_global_zone(NewZones),
     ?assertMatch(#{<<"max_qos_allowed">> := 1}, Res),
-    {ok, Res1} = emqx_mgmt_api_test_util:request_api(get, AuditPath, "limit=1", AuthHeader),
+    Query =
+        lists:flatten(
+            io_lib:format(
+                "from=rest_api&operation_id=/configs/global_zone&gte_created_at=~B&limit=1",
+                [StartAt]
+            )
+        ),
+    Res1 = wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, 2000),
     ?assertMatch(
         #{
             <<"data">> := [
@@ -327,4 +335,23 @@ wait_for_dirty_write_log_done(Prev, RemainMs) ->
             Prev;
         New ->
             wait_for_dirty_write_log_done(New, RemainMs - SleepMs)
+    end.
+
+wait_for_matching_audit_entry(_AuditPath, _Query, _AuthHeader, RemainMs) when RemainMs =< 0 ->
+    ct:fail(audit_entry_not_found_in_time);
+wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, RemainMs) ->
+    case emqx_mgmt_api_test_util:request_api(get, AuditPath, Query, AuthHeader) of
+        {ok, Res} ->
+            case emqx_utils_json:decode(Res) of
+                #{<<"data">> := [_ | _]} ->
+                    Res;
+                _ ->
+                    SleepMs = 100,
+                    ct:sleep(SleepMs),
+                    wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, RemainMs - SleepMs)
+            end;
+        _ ->
+            SleepMs = 100,
+            ct:sleep(SleepMs),
+            wait_for_matching_audit_entry(AuditPath, Query, AuthHeader, RemainMs - SleepMs)
     end.

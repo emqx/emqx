@@ -8,7 +8,7 @@ cd -P -- "$(dirname -- "$0")"
 
 help() {
     echo
-    echo "$0 PROFILE [options]"
+    echo "$0 [options]"
     echo
     echo "-h|--help:       To display this usage information"
     echo "--release:       Print release version from emqx_release.hrl"
@@ -19,13 +19,20 @@ help() {
     echo "                 so it can be used in find commands"
 }
 
-PROFILE="${1:-}"
-if [ -z "$PROFILE" ]; then
-    echo "ERROR: missing profile"
-    help
-    exit 1
-fi
-shift
+# PROFILE is no longer in use, TODO: clean up
+case $1 in
+    opensource)
+        shift
+        ;;
+    enterprise)
+        shift
+        ;;
+    emqx-*)
+        shift
+        ;;
+    *)
+        ;;
+esac
 
 while [ "$#" -gt 0 ]; do
     case $1 in

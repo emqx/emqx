@@ -55,7 +55,7 @@ init_per_suite(Config) ->
         [
             emqx_conf,
             emqx,
-            emqx_auth,
+            {emqx_auth, #{after_start => fun() -> ok end}},
             %% to load schema
             {emqx_auth_mnesia, #{start => false}},
             emqx_management,
@@ -680,7 +680,7 @@ t_cache(_Config) ->
         uri(["authentication", "settings"])
     ),
     ?assertMatch(
-        #{<<"node_cache">> := #{<<"enable">> := false}},
+        #{<<"node_cache">> := #{<<"enable">> := true}},
         emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
@@ -739,6 +739,42 @@ t_cache_reset(_) ->
         post,
         uri(["authentication", "node_cache", "reset"])
     ).
+
+t_metrics_reset(_) ->
+    %% 404 for non-existent authenticator
+    {ok, 404, _} = request(
+        post,
+        uri([?CONF_NS, "password_based:built_in_database", "metrics", "reset"])
+    ),
+
+    %% Create authenticator
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        emqx_authn_test_lib:http_example()
+    ),
+
+    %% Check that metrics start at zero
+    {ok, 200, StatusData0} = request(
+        get,
+        uri([?CONF_NS, "password_based:http", "status"])
+    ),
+    Status0 = emqx_utils_json:decode(StatusData0),
+    ?assertEqual(0, emqx_utils_maps:deep_get([<<"metrics">>, <<"total">>], Status0)),
+
+    %% Reset (even when already zero)
+    {ok, 204, _} = request(
+        post,
+        uri([?CONF_NS, "password_based:http", "metrics", "reset"])
+    ),
+
+    %% Verify still zero after reset
+    {ok, 200, StatusData1} = request(
+        get,
+        uri([?CONF_NS, "password_based:http", "status"])
+    ),
+    Status1 = emqx_utils_json:decode(StatusData1),
+    ?assertEqual(0, emqx_utils_maps:deep_get([<<"metrics">>, <<"total">>], Status1)).
 
 %%------------------------------------------------------------------------------
 %% Helpers

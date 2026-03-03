@@ -23,10 +23,15 @@ on(Nodes, Fun) ->
             ({_Node, {ok, Result}}) ->
                 Result;
             ({Node, Error}) ->
-                ct:pal("Error on node ~p", [Node]),
                 case Error of
                     {error, {exception, Reason, Stack}} ->
-                        erlang:raise(error, Reason, Stack);
+                        error(
+                            {failed_call_to_node, #{
+                                node => Node,
+                                reason => Reason,
+                                remote_stacktrace => Stack
+                            }}
+                        );
                     _ ->
                         error(Error)
                 end
@@ -298,12 +303,13 @@ retry_dirty_append(Shard, Opts, TTVs, Retries) ->
                         Other
                 end
         after 5_000 ->
-            {error, recoverable, timeout}
+            %% We've entered unknown territory, do not retry:
+            {error, unrecoverable, timeout}
         end,
     case Result of
         ok ->
             ok;
-        _ when Retries > 0 ->
+        {error, recoverable, _} when Retries > 0 ->
             timer:sleep(500),
             retry_dirty_append(Shard, Opts, TTVs, Retries - 1);
         _ ->

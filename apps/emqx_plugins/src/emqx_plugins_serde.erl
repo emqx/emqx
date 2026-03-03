@@ -58,8 +58,8 @@ start_link() ->
 add_schema(NameVsn, AvscBin) ->
     case lookup_serde(NameVsn) of
         {ok, _Serde} ->
-            ?SLOG(warning, #{msg => "plugin_schema_already_exists", plugin => NameVsn}),
-            {error, already_exists};
+            ?SLOG(debug, #{msg => "plugin_schema_already_exists", plugin => NameVsn}),
+            ok;
         {error, not_found} ->
             case
                 gen_server:call(

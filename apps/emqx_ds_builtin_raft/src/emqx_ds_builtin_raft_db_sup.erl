@@ -10,7 +10,9 @@
 
 %% API:
 -export([
-    start_db/4,
+    start_link_db/4,
+    whereis_db/1,
+
     start_shard/1,
     stop_shard/1,
     shard_info/2,
@@ -19,21 +21,16 @@
     restart_storage/1,
     ensure_shard/1,
 
-    start_shard_leader_sup/2,
-    stop_shard_leader_sup/2
+    start_otx_leader/2,
+    stop_otx_leader/2
 ]).
 -export([which_dbs/0, which_shards/1]).
-
-%% Debug:
--export([
-    get_shard_workers/1
-]).
 
 %% behaviour callbacks:
 -export([init/1]).
 
 %% internal exports:
--export([start_link_sup/2]).
+-export([start_link_shard/2, start_link_sup/2]).
 
 -include("emqx_ds_builtin_raft.hrl").
 
@@ -47,36 +44,38 @@
 -define(db_sup, ?MODULE).
 -define(shards_sup, emqx_ds_builtin_raft_db_shards_sup).
 -define(shard_sup, emqx_ds_builtin_raft_db_shard_sup).
--define(shard_leader_sup, emqx_ds_builtin_raft_db_shard_leader_sup).
 
 -record(?db_sup, {db}).
 -record(?shards_sup, {db}).
 -record(?shard_sup, {db, shard}).
--record(?shard_leader_sup, {db, shard}).
 
 %%================================================================================
 %% API functions
 %%================================================================================
 
--spec start_db(
+-spec start_link_db(
     emqx_ds:db(), Create, emqx_ds_builtin_raft:db_schema(), emqx_ds_builtin_raft:db_runtime_config()
 ) -> {ok, pid()} when Create :: boolean().
-start_db(DB, Create, Schema, RTConf) ->
+start_link_db(DB, Create, Schema, RTConf) ->
     start_link_sup(#?db_sup{db = DB}, [Create, Schema, RTConf]).
+
+-spec whereis_db(emqx_ds:db()) -> pid() | undefined.
+whereis_db(DB) ->
+    gproc:where(?name(#?db_sup{db = DB})).
 
 -spec start_shard(emqx_ds_storage_layer:dbshard()) ->
     supervisor:startchild_ret().
 start_shard({DB, Shard}) ->
-    supervisor:start_child(?via(#?shards_sup{db = DB}), shard_spec(DB, Shard)).
+    supervisor:start_child(?via(#?shards_sup{db = DB}), [Shard]).
 
 -spec stop_shard(emqx_ds_storage_layer:dbshard()) -> ok | {error, not_found}.
 stop_shard({DB, Shard}) ->
-    Sup = ?via(#?shards_sup{db = DB}),
-    case supervisor:terminate_child(Sup, Shard) of
-        ok ->
-            supervisor:delete_child(Sup, Shard);
-        {error, Reason} ->
-            {error, Reason}
+    ShardsSup = ?via(#?shards_sup{db = DB}),
+    case gproc:where(?name(#?shard_sup{db = DB, shard = Shard})) of
+        Pid when is_pid(Pid) ->
+            supervisor:terminate_child(ShardsSup, Pid);
+        undefined ->
+            {error, not_found}
     end.
 
 -spec shard_info(emqx_ds_storage_layer:dbshard(), ready) -> boolean() | down.
@@ -117,46 +116,32 @@ which_dbs() ->
     Key = {n, l, #?db_sup{_ = '_', db = '$1'}},
     gproc:select({local, names}, [{{Key, '_', '_'}, [], ['$1']}]).
 
-%% @doc Get pids of all local shard servers for the given DB.
--spec get_shard_workers(emqx_ds:db()) -> #{_Shard => pid()}.
-get_shard_workers(DB) ->
-    Shards = supervisor:which_children(?via(#?shards_sup{db = DB})),
-    L = lists:flatmap(
-        fun
-            ({_Shard, Sup, _, _}) when is_pid(Sup) ->
-                [{Id, Pid} || {Id, Pid, _, _} <- supervisor:which_children(Sup), is_pid(Pid)];
-            (_) ->
-                []
-        end,
-        Shards
-    ),
-    maps:from_list(L).
-
 %% @doc Start a supervisor for processes that should only run on the
 %% shard leader.
--spec start_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) ->
+-spec start_otx_leader(emqx_ds:db(), emqx_ds:shard()) ->
     {ok, pid()} | {error, _}.
-start_shard_leader_sup(DB, Shard) ->
+start_otx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    _ = stop_shard_leader_sup(DB, Shard),
-    case supervisor:start_child(Sup, shard_leader_spec(DB, Shard)) of
+    case supervisor:start_child(Sup, shard_optimistic_tx_spec(DB, Shard)) of
         {ok, Pid} ->
             {ok, Pid};
-        Err ->
-            Err
+        {error, {already_started, Pid}} ->
+            {ok, Pid};
+        Other ->
+            Other
     end.
 
 %% @doc Shut down the leader-specific processes when the node loses
 %% leader status
--spec stop_shard_leader_sup(emqx_ds:db(), emqx_ds:shard()) -> ok.
-stop_shard_leader_sup(DB, Shard) ->
+-spec stop_otx_leader(emqx_ds:db(), emqx_ds:shard()) -> ok | {error, _}.
+stop_otx_leader(DB, Shard) ->
     Sup = ?via(#?shard_sup{db = DB, shard = Shard}),
-    Child = ?shard_leader_sup,
-    case supervisor:terminate_child(Sup, Child) of
-        ok ->
-            supervisor:delete_child(Sup, Child);
-        {error, Reason} ->
-            {error, Reason}
+    Child = optimistic_tx,
+    try
+        supervisor:terminate_child(Sup, Child)
+    catch
+        exit:{noproc, _} ->
+            {error, shard_sup_is_not_running}
     end.
 
 %%================================================================================
@@ -173,9 +158,9 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
     Opts = emqx_ds_builtin_raft_meta:open_db(DB, DefaultOpts),
     ok = start_ra_system(DB, Opts),
     Children = [
+        liveness_spec(DB),
         sup_spec(#?shards_sup{db = DB}, []),
-        shard_allocator_spec(DB),
-        db_lifecycle_spec(DB)
+        shard_allocator_spec(DB)
     ],
     SupFlags = #{
         strategy => one_for_all,
@@ -183,15 +168,25 @@ init({#?db_sup{db = DB}, [_Create, Schema, RTConf]}) ->
         period => 1
     },
     {ok, {SupFlags, Children}};
-init({#?shards_sup{db = _DB}, _}) ->
+init({#?shards_sup{db = DB}, _}) ->
     %% Spec for the supervisor that manages the supervisors for
     %% each local shard of the DB:
     SupFlags = #{
-        strategy => one_for_one,
+        strategy => simple_one_for_one,
         intensity => 10,
         period => 1
     },
-    {ok, {SupFlags, []}};
+    Children =
+        [
+         #{
+           id => shard,
+           start => {?MODULE, start_link_shard, [DB]},
+           shutdown => infinity,
+           restart => transient,
+           type => supervisor
+          }
+        ],
+    {ok, {SupFlags, Children}};
 init({#?shard_sup{db = DB, shard = Shard}, _}) ->
     ok = emqx_ds_builtin_raft_metrics:init_local_shard(DB, Shard),
     SupFlags = #{
@@ -199,28 +194,16 @@ init({#?shard_sup{db = DB, shard = Shard}, _}) ->
         intensity => 10,
         period => 100
     },
-    Schema = emqx_dsch:get_db_schema(DB),
-    #{runtime := RTConf} = emqx_dsch:get_db_runtime(DB),
-    Opts = maps:merge(Schema, RTConf),
-    Children =
-        [shard_storage_spec(DB, Shard, Opts),
-         shard_replication_spec(DB, Shard, Schema, RTConf)] ++
-         shard_beamformers_spec(DB, Shard, Opts),
-    {ok, {SupFlags, Children}};
-init({#?shard_leader_sup{db = DB, shard = Shard}, _}) ->
-    %% Spec for a temporary supervisor that runs on the node only when
-    %% it happens to be the raft leader for the shard.
-    SupFlags = #{
-                 strategy => one_for_all,
-                 intensity => 10,
-                 period => 100
-                },
     Setup = fun() -> ok end,
-    Teardown = fun() -> emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader) end,
-    Children = [
-                emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
-                shard_optimistic_tx_spec(DB, Shard)
-               ],
+    Teardown = fun() ->
+                       emqx_ds_builtin_raft:full_shard_cleanup(DB, Shard)
+               end,
+    #{runtime := RTConf} = emqx_dsch:get_db_runtime(DB),
+    Children =
+        [emqx_ds_lib:autoclean(shard_autoclean, 5_000, Setup, Teardown),
+         shard_storage_spec(DB, Shard, RTConf),
+         shard_replication_spec(DB, Shard, RTConf)] ++
+         shard_beamformers_spec(DB, Shard),
     {ok, {SupFlags, Children}}.
 
 start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
@@ -255,6 +238,9 @@ start_ra_system(DB, #{replication_options := ReplicationOpts}) ->
 %% Internal exports
 %%================================================================================
 
+start_link_shard(DB, Shard) ->
+    start_link_sup(#?shard_sup{db = DB, shard = Shard}, []).
+
 start_link_sup(Id, Options) ->
     supervisor:start_link(?via(Id), ?MODULE, {Id, Options}).
 
@@ -270,43 +256,22 @@ sup_spec(Id, Options) ->
         shutdown => infinity
     }.
 
-shard_spec(DB, Shard) ->
-    #{
-        id => Shard,
-        start => {?MODULE, start_link_sup, [#?shard_sup{db = DB, shard = Shard}, []]},
-        shutdown => infinity,
-        restart => transient,
-        type => supervisor
-    }.
-
-shard_leader_spec(DB, Shard) ->
-    %% Note: ra machines have some rudimentary facilities for process
-    %% supervision, however they aren't very reliable and/or easy to
-    %% use. Since some features will break if the leader-specific
-    %% processes die while the node assumes leadership, we address
-    %% this problem using a traditional supervisor.
-    #{
-        id => ?shard_leader_sup,
-        start => {?MODULE, start_link_sup, [#?shard_leader_sup{db = DB, shard = Shard}, []]},
-        shutdown => infinity,
-        restart => transient,
-        type => supervisor
-    }.
-
 shard_storage_spec(DB, Shard, Opts) ->
     #{
         id => {Shard, storage},
         start =>
-            {emqx_ds_storage_layer, start_link, [{DB, Shard}, emqx_ds_lib:resolve_db_group(Opts)]},
+            {emqx_ds_storage_layer, start_link_no_schema, [
+                {DB, Shard}, emqx_ds_lib:resolve_db_group(Opts)
+            ]},
         shutdown => 5_000,
         restart => permanent,
         type => worker
     }.
 
-shard_replication_spec(DB, Shard, Schema, RTConf) ->
+shard_replication_spec(DB, Shard, RTConf) ->
     #{
         id => {Shard, replication},
-        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, Schema, RTConf]},
+        start => {emqx_ds_builtin_raft_shard, start_link, [DB, Shard, RTConf]},
         shutdown => 10_000,
         restart => transient,
         type => worker
@@ -320,15 +285,15 @@ shard_allocator_spec(DB) ->
         type => worker
     }.
 
-db_lifecycle_spec(DB) ->
+liveness_spec(DB) ->
     #{
-        id => lifecycle,
-        start => {emqx_ds_builtin_raft_db_lifecycle, start_link, [DB]},
+        id => liveness,
+        start => {emqx_ds_builtin_raft_liveness, start_link, [DB]},
         restart => permanent,
         type => worker
     }.
 
-shard_beamformers_spec(DB, Shard, _Opts) ->
+shard_beamformers_spec(DB, Shard) ->
     %% TODO: don't hardcode value
     BeamformerOpts = #{
         n_workers => 5
@@ -346,11 +311,14 @@ shard_beamformers_spec(DB, Shard, _Opts) ->
     ].
 
 shard_optimistic_tx_spec(DB, Shard) ->
+    %% Note: supervision and restarting of this server is handled by
+    %% the ra process. We just attach it to this supervisor just for the
+    %% cleanup reasons.
     #{
         id => optimistic_tx,
         type => worker,
-        shutdown => 1_000,
-        restart => permanent,
+        shutdown => 5_000,
+        restart => temporary,
         start => {emqx_ds_optimistic_tx, start_link, [DB, Shard, emqx_ds_builtin_raft]}
     }.
 

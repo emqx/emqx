@@ -9,7 +9,7 @@
 
 -include("emqx_coap.hrl").
 -include("emqx_coap_test.hrl").
--include_lib("eunit/include/eunit.hrl").
+-include_lib("stdlib/include/assert.hrl").
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
@@ -113,6 +113,18 @@ t_transport_observe_retransmit_request_no_update(_) ->
     ?assertEqual(1, emqx_coap_message:get_option(observe, OutMsg)),
     ok.
 
+t_transport_observe_retransmit_response_no_observe(_) ->
+    Msg = #coap_message{
+        type = con,
+        method = {ok, content},
+        id = 203,
+        token = <<"rtok">>
+    },
+    Transport = #transport{cache = Msg, retry_interval = 1, retry_count = 0},
+    #{out := [OutMsg]} = emqx_coap_transport:wait_ack(state_timeout, ack_timeout, Transport),
+    ?assertEqual(undefined, emqx_coap_message:get_option(observe, OutMsg, undefined)),
+    ok.
+
 t_tm_paths(_) ->
     TM0 = emqx_coap_tm:new(),
     Msg = #coap_message{type = con, method = get, token = <<"tok">>, id = 1},
@@ -177,6 +189,58 @@ t_tm_paths(_) ->
         TMMax
     ),
     ?assertEqual(1, maps:get(next_msg_id, TMMax1)),
+    ok.
+
+t_tm_cancel_state_timer(_) ->
+    TM0 = emqx_coap_tm:new(),
+    Msg = #coap_message{type = con, method = get, token = <<"ctok">>, id = 10},
+    #{tm := TM1} = emqx_coap_tm:handle_out(Msg, TM0),
+    TokenKey = {token, <<"ctok">>},
+    SeqId = maps:get(TokenKey, TM1),
+    Machine = maps:get(SeqId, TM1),
+    Timers = (Machine#state_machine.timers)#{state_timer => make_ref()},
+    TM2 = TM1#{SeqId => Machine#state_machine{timers = Timers}},
+    Resp = #coap_message{
+        type = ack,
+        method = {ok, content},
+        id = Msg#coap_message.id,
+        token = <<"ctok">>
+    },
+    Result = emqx_coap_tm:handle_response(Resp, TM2),
+    TM3 = maps:get(tm, Result, TM2),
+    case maps:get(SeqId, TM3, undefined) of
+        undefined ->
+            ok;
+        Machine2 ->
+            ?assertEqual(false, maps:is_key(state_timer, Machine2#state_machine.timers))
+    end,
+    ok.
+
+t_tm_observe_delete_token(_) ->
+    TM0 = emqx_coap_tm:new(),
+    Msg = #coap_message{
+        type = con, method = get, token = <<"obsdel">>, id = 20, options = #{observe => 1}
+    },
+    #{tm := TM1} = emqx_coap_tm:handle_out(Msg, TM0),
+    ?assertEqual(false, maps:is_key({token, <<"obsdel">>}, TM1)),
+    ok.
+
+t_tm_cancel_state_timer_manual(_) ->
+    TM0 = emqx_coap_tm:new(),
+    MsgId = 77,
+    Machine = #state_machine{
+        seq_id = 1,
+        id = {in, MsgId},
+        state = idle,
+        timers = #{state_timer => make_ref()},
+        transport = emqx_coap_transport:new()
+    },
+    TM1 = TM0#{seq_id := 2, 1 => Machine, {in, MsgId} => 1},
+    Msg = #coap_message{type = con, method = get, id = MsgId},
+    Result = emqx_coap_tm:handle_request(Msg, TM1),
+    TM2 = maps:get(tm, Result, TM1),
+    Machine2 = maps:get(1, TM2),
+    ?assertEqual(false, maps:is_key(state_timer, Machine2#state_machine.timers)),
     ok.
 
 t_tm_timer_cleanup(_) ->
