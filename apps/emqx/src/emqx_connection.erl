@@ -780,24 +780,44 @@ parse_incoming(Data, State = #state{parser = Parser}) ->
         run_parser(Data, Parser, State)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
+            NReason = maybe_enrich_first_packet_error(Data, Reason, State),
             ?LOG(info, #{
                 msg => "frame_parse_error",
-                reason => Reason,
+                reason => NReason,
                 at_state => describe_parser_state(Parser),
                 input_bytes => Data
             }),
-            NState = update_state_on_parse_error(Parser, Reason, State),
-            {0, [{frame_error, Reason}], NState};
+            NState = update_state_on_parse_error(Parser, NReason, State),
+            {0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
+            NReason = maybe_enrich_first_packet_error(Data, Reason, State),
             ?LOG(error, #{
                 msg => "frame_parse_failed",
                 at_state => describe_parser_state(Parser),
                 input_bytes => Data,
-                reason => Reason,
+                reason => NReason,
                 stacktrace => Stacktrace
             }),
-            {0, [{frame_error, Reason}], State}
+            {0, [{frame_error, NReason}], State}
     end.
+
+maybe_enrich_first_packet_error(Data, Reason, #state{channel = Channel}) when
+    byte_size(Data) > 0
+->
+    case emqx_channel:info(conn_state, Channel) of
+        idle ->
+            Hints = emqx_frame:guess_first_packet_protocol(Data),
+            enrich_reason(Reason, Hints);
+        _ ->
+            Reason
+    end;
+maybe_enrich_first_packet_error(_Data, Reason, _State) ->
+    Reason.
+
+enrich_reason(Reason, Hints) when is_map(Reason) ->
+    maps:merge(Hints, Reason);
+enrich_reason(Reason, Hints) ->
+    Hints#{reason => Reason}.
 
 init_parser(Transport, Socket, FrameOpts) ->
     {ok, SocketOpts} = Transport:getopts(Socket, [packet]),
@@ -1048,6 +1068,7 @@ handle_info(activate_socket, State = #state{sockstate = OldSst}) ->
     end;
 handle_info({sock_error, Reason}, State) ->
     %% Do not log warning for econnreset
+    maybe_log_first_packet_non_mqtt(Reason, State),
     case ?IS_NORMAL_SOCKET_ERROR(Reason) orelse Reason =:= econnreset of
         true ->
             ok;
@@ -1065,6 +1086,19 @@ handle_info({quic, Event, Handle, Prop}, State) when is_atom(Event) ->
     end;
 handle_info(Info, State) ->
     with_channel(handle_info, [Info], State).
+
+maybe_log_first_packet_non_mqtt(emsgsize, #state{channel = Channel}) ->
+    case emqx_channel:info(conn_state, Channel) of
+        idle ->
+            ?SLOG(info, #{
+                msg => "first_packet_probably_not_mqtt",
+                reason => emsgsize
+            });
+        _ ->
+            ok
+    end;
+maybe_log_first_packet_non_mqtt(_Reason, _State) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Handle Info

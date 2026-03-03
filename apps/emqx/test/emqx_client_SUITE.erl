@@ -80,7 +80,8 @@ groups() ->
             t_sock_closed_on_kick_shutdown,
             t_sub_non_utf8_topic,
             t_congestion_send_timeout,
-            t_congestion_decongested
+            t_congestion_decongested,
+            t_first_packet_not_connect
         ]},
         {socket, [], [
             t_sock_keepalive,
@@ -891,6 +892,17 @@ t_congestion_decongested(_) ->
     exit(PublisherPid, shutdown),
     exit(ConsumerPid, shutdown),
     ok = gen_tcp:close(Socket).
+
+t_first_packet_not_connect(_) ->
+    {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
+    %% Use a complete non-CONNECT MQTT packet to avoid packet=mqtt transport
+    %% buffering an incomplete frame forever.
+    ok = gen_tcp:send(Socket, <<?PINGREQ:4, 0:1, 0:2, 0:1, 0>>),
+    receive
+        {tcp_closed, Socket} -> ok
+    after 5000 ->
+        ct:fail("Expected socket to be closed")
+    end.
 
 %%--------------------------------------------------------------------
 %% Helper functions

@@ -817,24 +817,44 @@ parse_incoming(Data, State = #state{parser = Parser}) ->
         run_parser(Data, Parser, State)
     catch
         throw:{?FRAME_PARSE_ERROR, Reason} ->
+            NReason = maybe_enrich_first_packet_error(Data, Reason, State),
             ?LOG(info, #{
                 msg => "frame_parse_error",
-                reason => Reason,
+                reason => NReason,
                 at_state => describe_parser_state(Parser),
                 input_bytes => Data
             }),
-            NState = update_state_on_parse_error(Reason, State),
-            {0, 0, [{frame_error, Reason}], NState};
+            NState = update_state_on_parse_error(NReason, State),
+            {0, 0, [{frame_error, NReason}], NState};
         error:Reason:Stacktrace ->
+            NReason = maybe_enrich_first_packet_error(Data, Reason, State),
             ?LOG(error, #{
                 msg => "frame_parse_failed",
                 at_state => describe_parser_state(Parser),
                 input_bytes => Data,
-                reason => Reason,
+                reason => NReason,
                 stacktrace => Stacktrace
             }),
-            {0, 0, [{frame_error, Reason}], State}
+            {0, 0, [{frame_error, NReason}], State}
     end.
+
+maybe_enrich_first_packet_error(Data, Reason, #state{channel = Channel}) when
+    byte_size(Data) > 0
+->
+    case emqx_channel:info(conn_state, Channel) of
+        idle ->
+            Hints = emqx_frame:guess_first_packet_protocol(Data),
+            enrich_reason(Reason, Hints);
+        _ ->
+            Reason
+    end;
+maybe_enrich_first_packet_error(_Data, Reason, _State) ->
+    Reason.
+
+enrich_reason(Reason, Hints) when is_map(Reason) ->
+    maps:merge(Hints, Reason);
+enrich_reason(Reason, Hints) ->
+    Hints#{reason => Reason}.
 
 init_parser(FrameOpts) ->
     %% Go with regular streaming parser.
