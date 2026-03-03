@@ -19,6 +19,10 @@
 
 %% API callbacks
 -export([
+    '/queues'/2,
+    '/queue/:name'/2,
+    '/queues/config'/2,
+    %% Backward-compatible aliases (hidden from swagger)
     '/message_queues/queues'/2,
     '/message_queues/queues/:name'/2,
     '/message_queues/config'/2
@@ -43,14 +47,18 @@ api_spec() ->
 
 paths() ->
     [
+        "/queues",
+        "/queue/:name",
+        "/queues/config",
+        %% Backward-compatible aliases (hidden from swagger)
         "/message_queues/queues",
         "/message_queues/queues/:name",
         "/message_queues/config"
     ].
 
-schema("/message_queues/queues") ->
+schema("/queues") ->
     #{
-        'operationId' => '/message_queues/queues',
+        'operationId' => '/queues',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
@@ -94,9 +102,9 @@ schema("/message_queues/queues") ->
             }
         }
     };
-schema("/message_queues/queues/:name") ->
+schema("/queue/:name") ->
     #{
-        'operationId' => '/message_queues/queues/:name',
+        'operationId' => '/queue/:name',
         filter => fun ?MODULE:check_ready/2,
         get => #{
             tags => ?TAGS,
@@ -157,9 +165,9 @@ schema("/message_queues/queues/:name") ->
             }
         }
     };
-schema("/message_queues/config") ->
+schema("/queues/config") ->
     #{
-        'operationId' => '/message_queues/config',
+        'operationId' => '/queues/config',
         get => #{
             tags => ?TAGS,
             description => ?DESC(message_queues_config_get),
@@ -184,7 +192,14 @@ schema("/message_queues/config") ->
                 )
             }
         }
-    }.
+    };
+%% Backward-compatible aliases (hidden from swagger)
+schema("/message_queues/queues") ->
+    hidden_alias(schema("/queues"), '/message_queues/queues');
+schema("/message_queues/queues/:name") ->
+    hidden_alias(schema("/queue/:name"), '/message_queues/queues/:name');
+schema("/message_queues/config") ->
+    hidden_alias(schema("/queues/config"), '/message_queues/config').
 
 %%--------------------------------------------------------------------
 %% Schema
@@ -246,6 +261,15 @@ put_message_queue_config_example() ->
 %%--------------------------------------------------------------------
 %% Minirest handlers
 %%--------------------------------------------------------------------
+
+'/queues'(Method, Params) ->
+    '/message_queues/queues'(Method, Params).
+
+'/queue/:name'(Method, Params) ->
+    '/message_queues/queues/:name'(Method, Params).
+
+'/queues/config'(Method, Params) ->
+    '/message_queues/config'(Method, Params).
 
 '/message_queues/queues'(get, #{query_string := QString}) ->
     Cursor = maps:get(<<"cursor">>, QString, undefined),
@@ -341,6 +365,22 @@ check_ready(Request, _Meta) ->
 %%--------------------------------------------------------------------
 %% Internal functions
 %%--------------------------------------------------------------------
+
+hidden_alias(Schema, OperationId) ->
+    Methods = [get, post, put, delete],
+    Schema1 = Schema#{'operationId' => OperationId},
+    lists:foldl(
+        fun(Method, Acc) ->
+            case Acc of
+                #{Method := MethodSpec} ->
+                    Acc#{Method => MethodSpec#{hidden => true}};
+                _ ->
+                    Acc
+            end
+        end,
+        Schema1,
+        Methods
+    ).
 
 get_message_queues(Cursor, Limit) ->
     case emqx_mq_registry:list(Cursor, Limit) of

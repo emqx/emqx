@@ -90,6 +90,8 @@ fields(lwm2m) ->
                 emqx_coap_schema:block_size(),
                 #{
                     default => 1024,
+                    deprecated => {since, "6.1.0"},
+                    importance => ?IMPORTANCE_HIDDEN,
                     desc => ?DESC(lwm2m_coap_max_block_size)
                 }
             )},
@@ -188,13 +190,13 @@ fields(translator) ->
     ].
 
 desc(lwm2m) ->
-    "The LwM2M protocol gateway.";
+    "LwM2M gateway settings.";
 desc(lwm2m_blockwise) ->
-    "Block-wise transfer settings for the LwM2M gateway.";
+    "Large payload transfer settings (split payload into CoAP blocks).";
 desc(lwm2m_translators) ->
-    "MQTT topics that correspond to LwM2M events.";
+    "MQTT topic mappings for LwM2M events and commands.";
 desc(translator) ->
-    "MQTT topic that corresponds to a particular type of event.";
+    "MQTT topic mapping for one event type.";
 desc(_) ->
     undefined.
 

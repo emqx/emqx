@@ -177,8 +177,17 @@ max_attempts_reached(Username, MinTimeUs, MaxCount, CurrentKey, Count) ->
     end.
 
 lock(Username, NowUs) ->
-    LockedUntil = lock_duration_s() + erlang:convert_time_unit(NowUs, microsecond, second),
-    {ok, _} = emqx_dashboard_admin:set_login_lock(Username, LockedUntil).
+    MaxAttempts = max_attempts(),
+    LockDurationS = lock_duration_s(),
+    LockedUntil = LockDurationS + erlang:convert_time_unit(NowUs, microsecond, second),
+    {ok, _} = emqx_dashboard_admin:set_login_lock(Username, LockedUntil),
+    ?SLOG(warning, #{
+        msg => dashboard_user_login_locked,
+        username => Username,
+        max_attempts => MaxAttempts,
+        lock_duration => LockDurationS,
+        locked_until => LockedUntil
+    }).
 
 cleanup_all() ->
     {atomic, ok} = mria:clear_table(?TAB_ATTEMPTS),

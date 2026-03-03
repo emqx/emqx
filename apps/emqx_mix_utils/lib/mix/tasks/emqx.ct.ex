@@ -200,14 +200,22 @@ defmodule Mix.Tasks.Emqx.Ct do
       |> Path.dirname()
       |> Path.join("apps")
 
-    apps_path
-    |> File.ls!()
-    |> Stream.filter(fn app_name ->
-      apps_path
-      |> Path.join(app_name)
-      |> File.dir?()
-    end)
-    |> Stream.map(&String.to_atom/1)
+    apps =
+      if File.dir?(apps_path) do
+        apps_path
+        |> File.ls!()
+        |> Stream.filter(fn app_name ->
+          apps_path
+          |> Path.join(app_name)
+          |> File.dir?()
+        end)
+        |> Stream.map(&String.to_atom/1)
+      else
+        ## inside plugin dir
+        [Mix.Project.config()[:app]]
+      end
+
+    apps
     |> Enum.flat_map(fn app ->
       case :application.get_key(app, :modules) do
         {:ok, mods} ->

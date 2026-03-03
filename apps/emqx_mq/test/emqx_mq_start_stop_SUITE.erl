@@ -23,6 +23,25 @@
 all() ->
     emqx_common_test_helpers:all(?MODULE).
 
+init_per_testcase(TestCase = t_cluster_runtime_enable, Config) ->
+    Apps = [
+        emqx_conf,
+        emqx_durable_storage,
+        {emqx, emqx_mq_test_utils:cth_config(emqx)},
+        {emqx_mq, #{config => mq_initial_config(TestCase)}},
+        emqx_management
+    ],
+    ClusterSpec = [
+        {t_cluster_runtime_enable1, #{apps => Apps ++ [emqx_mgmt_api_test_util:emqx_dashboard()]}},
+        {t_cluster_runtime_enable2, #{apps => Apps}},
+        {t_cluster_runtime_enable3, #{apps => Apps}}
+    ],
+    Nodes = emqx_cth_cluster:start(
+        ClusterSpec,
+        #{work_dir => emqx_cth_suite:work_dir(TestCase, Config)}
+    ),
+    snabbkaffe:start_trace(),
+    [{cluster_nodes, Nodes} | Config];
 init_per_testcase(TestCase, Config) ->
     Apps = emqx_cth_suite:start(
         [
@@ -37,6 +56,9 @@ init_per_testcase(TestCase, Config) ->
     snabbkaffe:start_trace(),
     [{suite_apps, Apps} | Config].
 
+end_per_testcase(t_cluster_runtime_enable, Config) ->
+    ok = snabbkaffe:stop(),
+    ok = emqx_cth_cluster:stop(?config(cluster_nodes, Config));
 end_per_testcase(_TestCase, Config) ->
     ok = snabbkaffe:stop(),
     ok = emqx_cth_suite:stop(?config(suite_apps, Config)).
@@ -48,11 +70,35 @@ mq_initial_config(t_auto_no_queues) ->
 mq_initial_config(t_auto_with_queues) ->
     #{<<"mq">> => #{<<"enable">> => true}};
 mq_initial_config(t_idempotency) ->
-    #{<<"mq">> => #{<<"enable">> => true}}.
+    #{<<"mq">> => #{<<"enable">> => true}};
+mq_initial_config(t_cluster_runtime_enable) ->
+    #{<<"mq">> => #{<<"enable">> => false}}.
 
 %%--------------------------------------------------------------------
 %% Test cases
 %%--------------------------------------------------------------------
+
+%% Verify that enabling MQ at runtime in a cluster reaches readiness on all nodes.
+t_cluster_runtime_enable(Config) ->
+    [N1 | _] = Nodes = ?config(cluster_nodes, Config),
+
+    %% Enable MQ via config (multicalls to all nodes)
+    {ok, _} = erpc:call(N1, emqx_mq_config, update_config, [
+        #{<<"enable">> => true}
+    ]),
+
+    %% Wait for all nodes to reach ready
+    Timeout = 5_000,
+    ?assertEqual(
+        [{ok, started} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_mq_controller, wait_status, [Timeout])
+    ),
+
+    %% Verify status on each node
+    ?assertEqual(
+        [{ok, started} || _ <- Nodes],
+        erpc:multicall(Nodes, emqx_mq_controller, status, [])
+    ).
 
 %% Verify that MQ subsystem may be started in runtime.
 t_config(_Config) ->

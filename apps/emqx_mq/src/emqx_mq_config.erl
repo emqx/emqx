@@ -118,11 +118,15 @@ maybe_enable(#{enable := auto} = _NewConf, _OldConf) ->
     ok;
 %% Always allow to change the enable state to true.
 maybe_enable(#{enable := true} = _NewConf, _OldConf) ->
-    ok = emqx_mq_controller:start_mqs();
+    %% MQ components are starting.
+    %% MQ is not yet fully functional, but should be eventually.
+    %% Return as soon as `starting` is reached to propagate the intention through the cluster.
+    starting = emqx_mq_controller:start_mqs(),
+    ok;
 %% Allow to disable if there are no queues.
 maybe_enable(#{enable := false} = _NewConf, _OldConf) ->
     case emqx_mq_controller:stop_mqs() of
-        ok ->
+        stopped ->
             ok;
         {error, Reason} ->
             {error, #{reason => Reason}}

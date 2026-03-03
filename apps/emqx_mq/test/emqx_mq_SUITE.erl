@@ -1377,12 +1377,14 @@ t_large_consumer_buffer(_Config) ->
 
     %% Publish a large number of messages to the queue
     emqx_mq_test_utils:populate(5000, #{topic_prefix => <<"t/">>, qos => ?QOS_0}),
-    ct:sleep(1000),
 
     %% Verify that the consumer buffered enough messages in the outbound buffer
     {ok, ConsumerRef} = emqx_mq_consumer:find(MQId),
-    ConsumerInfo = emqx_mq_consumer:inspect(ConsumerRef, 1000),
-    ?assertMatch(#{server := #{messages := 5000}}, ConsumerInfo),
+    ?retry(
+        500,
+        50,
+        ?assertMatch(#{server := #{messages := 5000}}, emqx_mq_consumer:inspect(ConsumerRef, 1000))
+    ),
 
     %% Connect a new client and subscribe to the queue
     CSub1 = emqx_mq_test_utils:emqtt_connect([]),

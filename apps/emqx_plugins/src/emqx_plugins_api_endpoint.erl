@@ -78,10 +78,19 @@ gateway(Method, Params, Request) ->
             [] -> PathRemainder0;
             R -> R
         end,
-    Headers = maps:get(headers, Params, #{}),
+    Headers =
+        case maps:get(headers, Params, undefined) of
+            undefined -> cowboy_req:headers(Request);
+            H -> H
+        end,
+    QueryString =
+        case maps:get(query_string, Params, undefined) of
+            undefined -> maps:from_list(cowboy_req:parse_qs(Request));
+            Qs -> Qs
+        end,
     ReqInfo = #{
         method => Method,
-        query_string => maps:get(query_string, Params, #{}),
+        query_string => QueryString,
         headers => Headers,
         body => maps:get(body, Params, #{})
     },
@@ -116,17 +125,17 @@ parse_request_path(Request) ->
     %% * "/..." for direct/non-base-path routing in tests or fallback paths.
     PathSegs = binary:split(cowboy_req:path(Request), <<"/">>, [global, trim_all]),
     case PathSegs of
-        [<<"api">>, <<"v5">>, <<"plugin_api">>, Plugin | PathRemainder] ->
-            {Plugin, PathRemainder};
-        [<<"plugin_api">>, Plugin | PathRemainder] ->
-            {Plugin, PathRemainder};
+        [<<"api">>, <<"v5">>, <<"plugin_api">>, Plugin0 | PathRemainder0] ->
+            {decode_path_segment(Plugin0), decode_path_remainder(PathRemainder0)};
+        [<<"plugin_api">>, Plugin0 | PathRemainder0] ->
+            {decode_path_segment(Plugin0), decode_path_remainder(PathRemainder0)};
         _ ->
             {undefined, []}
     end.
 
 parse_bindings_path_remainder(Bindings) ->
     case maps:values(maps:remove(plugin, Bindings)) of
-        [V | _] -> normalize_path_remainder(V);
+        [V | _] -> decode_path_remainder(normalize_path_remainder(V));
         [] -> []
     end.
 
@@ -142,6 +151,16 @@ normalize_path_remainder(V) ->
 to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);
 to_bin(B) when is_binary(B) -> B.
+
+decode_path_remainder(PathRemainder) ->
+    [decode_path_segment(Segment) || Segment <- PathRemainder].
+
+decode_path_segment(Segment) ->
+    try uri_string:percent_decode(Segment) of
+        Decoded -> Decoded
+    catch
+        _:_ -> Segment
+    end.
 
 request_namespace(#{auth_meta := #{namespace := Namespace}}) when is_binary(Namespace) ->
     Namespace;

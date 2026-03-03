@@ -333,12 +333,6 @@ producer_kafka_opts.desc:
 producer_kafka_opts.label:
 """Azure Event Hubs Producer"""
 
-desc_config.desc:
-"""Configuration for an Azure Event Hubs bridge."""
-
-desc_config.label:
-"""Azure Event Hubs Bridge Configuration"""
-
 ssl_client_opts.desc:
 """TLS/SSL options for Azure Event Hubs client."""
 ssl_client_opts.label:

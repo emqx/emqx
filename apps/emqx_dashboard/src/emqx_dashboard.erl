@@ -275,6 +275,29 @@ authorize(Req, HandlerInfo) ->
         {bearer, Token} ->
             jwt_token_bearer_authorize(Req, HandlerInfo, Token);
         _ ->
+            %% Fallback to emqx_auth cookie (set by dashboard for plugin UI iframes).
+            case is_plugin_api(Req) of
+                true ->
+                    cookie_authorize(Req, HandlerInfo);
+                false ->
+                    return_unauthorized(
+                        <<"AUTHORIZATION_HEADER_ERROR">>,
+                        <<"Support authorization: basic/bearer ">>
+                    )
+            end
+    end.
+
+is_plugin_api(Req) ->
+    case cowboy_req:path(Req) of
+        <<"/api/v5/plugin_api/", _/binary>> -> true;
+        _ -> false
+    end.
+
+cookie_authorize(Req, HandlerInfo) ->
+    case cowboy_req:match_cookies([{emqx_auth, [], undefined}], Req) of
+        #{emqx_auth := Token} when is_binary(Token), Token =/= <<>> ->
+            jwt_token_bearer_authorize(Req, HandlerInfo, Token);
+        _ ->
             return_unauthorized(
                 <<"AUTHORIZATION_HEADER_ERROR">>,
                 <<"Support authorization: basic/bearer ">>

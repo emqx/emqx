@@ -80,7 +80,7 @@ msg_publish_at.label:
 
 msg_from_clientid.desc:
 """Message publisher's client ID."""
-msg_from_clientid.desc:
+msg_from_clientid.label:
 """Message publisher's Client ID"""
 
 msg_from_username.desc:
@@ -148,11 +148,6 @@ clientid_not_found.desc:
 clientid_not_found.label:
 """Client ID not found"""
 
-bad_request.desc:
-"""Cannot handle this request."""
-bad_request.label:
-"""Bad Request"""
-
 since.desc:
 """Include sessions expired after this time (UNIX Epoch in seconds precision)"""
 since.label:
@@ -173,20 +168,10 @@ node_name.desc:
 node_name.label:
 """Node name"""
 
-username.desc:
-"""User name, multiple values can be specified by repeating the parameter: username=u1&username=u2"""
-username.label:
-"""Username"""
-
 conn_state.desc:
 """The current connection status of the client, the possible values are connected,idle,disconnected"""
 conn_state.label:
 """Connection State"""
-
-clean_start.desc:
-"""Indicate whether the client is using a brand new session"""
-clean_start.label:
-"""Clean Start"""
 
 proto_ver.desc:
 """Protocol version"""
@@ -323,11 +308,6 @@ mqueue_max.desc:
 """Maximum length of send-buffer queue"""
 mqueue_max.label:
 """Mqueue Max"""
-
-mqueue_dropped.desc:
-"""Number of messages dropped by the message queue due to exceeding the length"""
-mqueue_dropped.label:
-"""Mqueue Dropped"""
 
 client_port.desc:
 """Client's port"""

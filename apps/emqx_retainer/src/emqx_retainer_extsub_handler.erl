@@ -11,6 +11,7 @@
 %% `emqx_extsub_handler' API
 -export([
     handle_subscribe/4,
+    handle_unsubscribe/4,
     handle_delivered/4,
     handle_info/3,
     handle_save_subopts/3
@@ -49,6 +50,7 @@
     cursor,
     nudge_enqueued = false,
     times_throttled = 0,
+    fetched = 0,
     delivered = 0
 }).
 
@@ -89,19 +91,30 @@ handle_subscribe(SubscribeType, SubscribeCtx, Handler, TopicFilter) ->
             ignore
     end.
 
-handle_delivered(Handler0, #{desired_message_count := DesiredMsgCount}, _Msg, _Ack) ->
+handle_unsubscribe(_UnsubscribeType, _UnsubscribeCtx, Handler, _TopicFilter) ->
+    ensure_cursor_deleted(Handler),
+    Handler.
+
+handle_delivered(Handler0, AckCtx, _Msg, _Ack) ->
+    #{
+        desired_message_count := DesiredMsgCount,
+        delivering_count := DeliveringCount,
+        unacked_count := UnackedCount
+    } = AckCtx,
     #h{delivered = Delivered} = Handler0,
     Handler = Handler0#h{delivered = Delivered + 1},
-    case DesiredMsgCount > 0 of
-        true ->
-            enqueue_nudge(Handler, batch_read_num(), now);
-        false ->
-            Handler
+    case Handler#h.cursor of
+        ?done when UnackedCount == 0 andalso DeliveringCount == 0 ->
+            {destroy, [Handler#h.topic_filter]};
+        _ when DesiredMsgCount > 0 ->
+            {ok, enqueue_nudge(Handler, batch_read_num(), now)};
+        _ ->
+            {ok, Handler}
     end.
 
-handle_info(Handler0, _InfoCtx, #next{n = N}) ->
+handle_info(Handler0, InfoCtx, #next{n = N}) ->
     Handler = Handler0#h{nudge_enqueued = false},
-    handle_next(Handler, N);
+    handle_next(Handler, N, InfoCtx);
 handle_info(Handler, _InfoCtx, _Info) ->
     {ok, Handler}.
 
@@ -109,10 +122,12 @@ handle_save_subopts(#h{cursor = ?cursor(_)} = Handler0, _Context, _SubOpts) ->
     Res = #{delivered => Handler0#h.delivered},
     %% Make the handler stop, since take over/disconnect persistence is ongoing.
     Handler = Handler0#h{cursor = ?done},
+    ensure_cursor_deleted(Handler),
     {ok, Handler, Res};
 handle_save_subopts(Handler0, _Context, _SubOpts) ->
     %% Make the handler stop, since take over/disconnect persistence is ongoing.
     Handler = Handler0#h{cursor = ?done},
+    ensure_cursor_deleted(Handler),
     {ok, Handler}.
 
 %%------------------------------------------------------------------------------
@@ -141,6 +156,7 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
         state = State,
         limiter = Limiter,
         cursor = ?init,
+        fetched = 0,
         delivered = Delivered
     },
     Handler = enqueue_nudge(Handler0, batch_read_num(), now),
@@ -148,29 +164,40 @@ subscribe(undefined = _Handler, SubscribeCtx, TopicFilter, SubOpts) ->
 subscribe(#h{} = Handler, _SubscribeCtx, _TopicFilter, _SubOpts) ->
     {ok, Handler}.
 
-handle_next(#h{cursor = ?done} = Handler0, _N) ->
+handle_next(#h{cursor = ?done} = Handler0, _N, _InfoCtx) ->
     %% Impossible?
     {ok, Handler0};
-handle_next(#h{cursor = ?init} = Handler0, N) ->
+handle_next(#h{cursor = ?init} = Handler0, N, InfoCtx) ->
     #h{topic_filter = TopicFilter} = Handler0,
     case emqx_topic:wildcard(TopicFilter) of
         true ->
             Handler = Handler0#h{cursor = ?cursor(?no_cursor)},
-            handle_next(Handler, N);
+            handle_next(Handler, N, InfoCtx);
         false ->
             Handler = Handler0#h{cursor = ?no_wildcard},
-            handle_next(Handler, N)
+            handle_next(Handler, N, InfoCtx)
     end;
-handle_next(#h{cursor = ?no_wildcard} = Handler0, _N) ->
+handle_next(#h{cursor = ?no_wildcard} = Handler0, _N, _InfoCtx) ->
     case try_consume(Handler0, 1) of
+        {ok, Handler, []} ->
+            {destroy, [Handler#h.topic_filter]};
         {ok, Handler, Messages} ->
             {ok, Handler, Messages};
         {error, Handler1} ->
             Handler = enqueue_nudge(Handler1, 1, delay),
             {ok, Handler}
     end;
-handle_next(#h{cursor = ?cursor(_)} = Handler0, N) ->
+handle_next(#h{cursor = ?cursor(_)} = Handler0, N, InfoCtx) ->
     case try_consume(Handler0, N) of
+        {ok, Handler1, []} ->
+            #{delivering_count := DeliveringCount} = InfoCtx,
+            case Handler1#h.cursor of
+                ?done when Handler1#h.fetched == 0 orelse DeliveringCount == 0 ->
+                    {destroy, [Handler1#h.topic_filter]};
+                _ ->
+                    Handler = enqueue_nudge(Handler1, batch_read_num(), now),
+                    {ok, Handler}
+            end;
         {ok, Handler1, Messages} ->
             Handler =
                 case Handler1#h.cursor of
@@ -231,7 +258,12 @@ try_consume(#h{} = Handler0, N0) when is_integer(N0) ->
             Limiter = emqx_limiter_client:put_back(Limiter1, Surplus),
             Messages = filter_delivery(Messages0),
             Cursor = next_cursor(InnerCursor, NumFetchedMessages, Handler0),
-            Handler = Handler0#h{limiter = Limiter, cursor = Cursor, times_throttled = 0},
+            Handler = Handler0#h{
+                limiter = Limiter,
+                cursor = Cursor,
+                fetched = Handler0#h.fetched + NumFetchedMessages,
+                times_throttled = 0
+            },
             {ok, Handler, Messages};
         {error, N, Limiter1, Reason} ->
             ?tp(retained_fetch_rate_limit_exceeded, #{topic => TopicFilter}),
@@ -328,3 +360,10 @@ batch_read_num() ->
         N when is_integer(N) ->
             N
     end.
+
+ensure_cursor_deleted(#h{cursor = ?cursor(InnerCursor)} = Handler) ->
+    #h{mod = Mod, state = State} = Handler,
+    _ = Mod:delete_cursor(State, InnerCursor),
+    ok;
+ensure_cursor_deleted(#h{}) ->
+    ok.

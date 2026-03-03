@@ -214,7 +214,7 @@ handle_delivered(
     _Message,
     _Ack
 ) ->
-    update_blocking_status(Handler, DesiredCount).
+    {ok, update_blocking_status(Handler, DesiredCount)}.
 
 handle_info(Handler, #{desired_message_count := DesiredCount} = _InfoCtx, Info) ->
     handle_info(update_blocking_status(Handler, DesiredCount), Info).

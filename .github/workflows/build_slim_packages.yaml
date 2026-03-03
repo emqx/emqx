@@ -15,6 +15,37 @@ permissions:
   contents: read
 
 jobs:
+  plugins-linux-amd64:
+    runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        ref: ${{ github.event.inputs.ref }}
+        fetch-depth: 0
+    - name: Set up environment
+      id: env
+      run: |
+        source env.sh
+        echo "BUILDER=$EMQX_DOCKER_BUILD_FROM" >> "$GITHUB_OUTPUT"
+    - name: build plugins in builder
+      env:
+        BUILDER: ${{ steps.env.outputs.BUILDER }}
+      run: |
+        docker run --rm \
+          -v "$PWD:/emqx" \
+          -w /emqx \
+          "$BUILDER" \
+          bash -lc "git config --global --add safe.directory /emqx && make emqx-enterprise-compile && make plugins"
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: "plugins"
+        path: _build/plugins/*.tar.gz
+        retention-days: 7
+        compression-level: 0
+
   linux:
     runs-on: ${{ github.repository_owner == 'emqx' && format('aws-ubuntu22.04-{0}', matrix.arch) || (matrix.arch == 'arm64' && 'ubuntu-22.04-arm' || 'ubuntu-22.04') }}
     env:

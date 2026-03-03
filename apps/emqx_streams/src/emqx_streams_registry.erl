@@ -425,7 +425,9 @@ update_index(Key, Id, UpdateFields) ->
             [#?STREAMS_REGISTRY_INDEX_TAB{id = Id} = Rec] ->
                 Stream0 = record_to_stream(Rec),
                 Stream = emqx_utils_maps:deep_merge(Stream0, UpdateFields),
-                mnesia:write(stream_to_record(Stream)),
+                Record = stream_to_record(Stream),
+                %% Important: preserve the key
+                mnesia:write(Record#?STREAMS_REGISTRY_INDEX_TAB{key = Key}),
                 {ok, Stream#{topic_filter => emqx_topic_index:get_topic(Key)}};
             _ ->
                 not_found
