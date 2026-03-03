@@ -120,7 +120,8 @@ ctx(Sup, Name) ->
     {ok, CM} = emqx_gateway_utils:find_sup_child(Sup, emqx_gateway_cm),
     #{
         gwname => Name,
-        cm => CM
+        cm => CM,
+        metrics_tab => emqx_gateway_metrics:tabname(Name)
     }.
 
 is_gateway_insta_id(emqx_gateway_cm) ->

@@ -124,10 +124,6 @@ The following application environment variables are available:
 
 - `emqx_durable_storage.db_data_dir`: directory where the databases are located
 
-- `emqx_durable_storage.egress_batch_size`: number of messages stored in the batch before it is committed to the durable storage.
-
-- `emqx_durable_storage.egress_flush_interval`: period at which the batches of messages are committed to the durable storage.
-
 # HTTP APIs
 
 None

@@ -43,23 +43,19 @@ start_top() ->
 ) ->
     supervisor:startchild_ret().
 start_db(DB, Create, Schema, RTOpts) ->
-    ChildSpec = #{
-        id => DB,
-        start => {?databases, start_db, [DB, Create, Schema, RTOpts]},
-        type => supervisor,
-        shutdown => infinity
-    },
-    supervisor:start_child(?databases, ChildSpec).
+    supervisor:start_child(?databases, [DB, Create, Schema, RTOpts]).
 
 -spec stop_db(emqx_ds:db()) -> ok.
 stop_db(DB) ->
-    case whereis(?databases) of
-        Pid when is_pid(Pid) ->
-            _ = supervisor:terminate_child(?databases, DB),
-            _ = supervisor:delete_child(?databases, DB),
-            ok;
-        undefined ->
-            ok
+    maybe
+        Sup = whereis(?databases),
+        true ?= is_pid(Sup),
+        DBPid = emqx_ds_builtin_local_db_sup:whereis_db(DB),
+        true ?= is_pid(DBPid),
+        _ = supervisor:terminate_child(Sup, DBPid),
+        ok
+    else
+        _ -> ok
     end.
 
 %%================================================================================
@@ -102,11 +98,19 @@ init(?top) ->
 init(?databases) ->
     %% Children are added dynamically:
     SupFlags = #{
-        strategy => one_for_one,
+        strategy => simple_one_for_one,
         intensity => 10,
         period => 1
     },
-    {ok, {SupFlags, []}}.
+    Children = [
+        #{
+            id => db,
+            start => {?databases, start_link_db, []},
+            type => supervisor,
+            shutdown => infinity
+        }
+    ],
+    {ok, {SupFlags, Children}}.
 
 %%================================================================================
 %% Internal exports

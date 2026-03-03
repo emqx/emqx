@@ -5,7 +5,7 @@ defmodule EMQXBridgeAzureEventGrid.MixProject do
   def project do
     [
       app: :emqx_bridge_azure_event_grid,
-      version: "6.1.0",
+      version: "6.2.0",
       build_path: "../../_build",
       compilers: Mix.compilers() ++ [:copy_srcs],
       # used by our `Mix.Tasks.Compile.CopySrcs` compiler

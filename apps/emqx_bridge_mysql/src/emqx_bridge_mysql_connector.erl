@@ -67,9 +67,10 @@ on_add_channel(
     ChannelConfig0
 ) ->
     ChannelConfig1 = emqx_utils_maps:unindent(parameters, ChannelConfig0),
-    QueryTemplates = emqx_mysql:parse_prepare_sql(ChannelId, ChannelConfig1),
-    case validate_sql_type(ChannelId, ChannelConfig1, QueryTemplates) of
-        ok ->
+    SQL = maps:get(sql, ChannelConfig1),
+    NeedsBatch = needs_batch_query(ChannelConfig1),
+    case emqx_mysql:parse_prepare_sql(ChannelId, SQL, NeedsBatch) of
+        {ok, QueryTemplates} ->
             ChannelConfig2 = maps:merge(ChannelConfig1, QueryTemplates),
             ChannelConfig = set_prepares(ChannelConfig2, ConnectorState),
             case maps:get(prepares, ChannelConfig) of
@@ -90,7 +91,7 @@ on_add_channel(
                     {ok, State}
             end;
         {error, Error} ->
-            {error, Error}
+            {error, explain_error(Error)}
     end.
 
 on_get_channel_status(_InstanceId, ChannelId, #{channels := Channels}) ->
@@ -107,13 +108,11 @@ on_get_channels(InstanceId) ->
 on_get_status(InstanceId, #{connector_state := ConnectorState}) ->
     emqx_mysql:on_get_status(InstanceId, ConnectorState).
 
-on_query(InstId, {TypeOrKey, SQLOrKey}, State) ->
-    on_query(InstId, {TypeOrKey, SQLOrKey, [], default_timeout}, State);
-on_query(InstId, {TypeOrKey, SQLOrKey, Params}, State) ->
-    on_query(InstId, {TypeOrKey, SQLOrKey, Params, default_timeout}, State);
+on_query(InstId, {Channel, Message}, State) ->
+    on_query(InstId, {Channel, Message, default_timeout}, State);
 on_query(
     InstanceId,
-    {Channel, _Message, _Params, _Timeout} = Request,
+    {Channel, _Message, _Timeout} = Request,
     #{channels := Channels, connector_state := ConnectorState}
 ) when is_binary(Channel) ->
     ChannelConfig = maps:get(Channel, Channels),
@@ -167,42 +166,23 @@ set_prepares(ChannelConfig, ConnectorState) ->
         emqx_mysql:init_prepare(maps:merge(ConnectorState, ChannelConfig)),
     ChannelConfig#{prepares => Prepares}.
 
-validate_sql_type(ChannelId, ChannelConfig, #{query_templates := QueryTemplates}) ->
-    Batch =
-        case emqx_utils_maps:deep_get([resource_opts, batch_size], ChannelConfig) of
-            N when N > 1 -> batch;
-            _ -> single
-        end,
-    BatchKey = {ChannelId, batch},
-    SingleKey = {ChannelId, prepstmt},
-    case {QueryTemplates, Batch} of
-        {#{BatchKey := _}, batch} ->
-            ok;
-        {#{SingleKey := _}, single} ->
-            ok;
-        {_, batch} ->
-            %% try to provide helpful info
-            SQL = maps:get(sql, ChannelConfig),
-            Type = emqx_utils_sql:get_statement_type(SQL),
-            ErrorContext0 = #{
-                reason => failed_to_prepare_statement,
-                statement_type => Type,
-                operation_type => Batch
-            },
-            ErrorContext = emqx_utils_maps:put_if(
-                ErrorContext0,
-                hint,
-                <<"UPDATE statements are not supported for batch operations">>,
-                Type =:= update
-            ),
-            {error, ErrorContext};
-        _ ->
-            SQL = maps:get(sql, ChannelConfig),
-            Type = emqx_utils_sql:get_statement_type(SQL),
-            ErrorContext = #{
-                reason => failed_to_prepare_statement,
-                statement_type => Type,
-                operation_type => Batch
-            },
-            {error, ErrorContext}
+explain_error(#{msg := mysql_parse_batch_sql_invalid_insert_statement, reason := Reason}) ->
+    #{
+        reason => failed_to_prepare_statement,
+        statement_type => insert,
+        operation_type => batch,
+        hint => Reason
+    };
+explain_error(#{msg := mysql_parse_batch_sql_invalid_statement_type, type := Type}) ->
+    #{
+        reason => failed_to_prepare_statement,
+        statement_type => Type,
+        operation_type => batch,
+        hint => <<"Only INSERT statements are supported for batch operations">>
+    }.
+
+needs_batch_query(ChannelConfig) ->
+    case emqx_utils_maps:deep_get([resource_opts, batch_size], ChannelConfig) of
+        N when N > 1 -> true;
+        _ -> false
     end.

@@ -26,6 +26,7 @@
     reply_to/1,
     headers/1,
     payload/1,
+    payload_total_size/1,
     max_msgs/1
 ]).
 
@@ -51,17 +52,13 @@ initial_parse_state(_) ->
     }.
 
 parse(Data0, ?INIT_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_operation(Data, State);
+    parse_operation(append_parse_buffer(Buffer, Data0), State);
 parse(Data0, ?ARGS_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_args(Data, State#{buffer => <<>>});
+    parse_args(append_parse_buffer(Buffer, Data0), State#{buffer => <<>>});
 parse(Data0, ?HEADERS_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_headers(Data, State#{buffer => <<>>});
+    parse_headers(append_parse_buffer(Buffer, Data0), State#{buffer => <<>>});
 parse(Data0, ?PAYLOAD_STATE(State, Buffer)) ->
-    Data = <<Buffer/binary, Data0/binary>>,
-    parse_payload(Data, State#{buffer => <<>>}).
+    parse_payload(append_parse_buffer(Buffer, Data0), State#{buffer => <<>>}).
 
 %%--------------------------------------------------------------------
 %% Control frames
@@ -180,7 +177,7 @@ serialize_message(?OP_PUB, Message) ->
     Subject = maps:get(subject, Message),
     Payload = maps:get(payload, Message),
     PayloadSize = integer_to_list(byte_size(Payload)),
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", PayloadSize, "\r\n", Payload];
@@ -195,7 +192,7 @@ serialize_message(?OP_HPUB, Message) ->
     HeadersSize = integer_to_list(byte_size(HeadersBin)),
     Payload = maps:get(payload, Message),
     TotalSize = integer_to_list(byte_size(Payload) + byte_size(HeadersBin)),
-    ok = validate_non_wildcard_subject(Subject),
+    ok = validate_subject(Subject),
     case maps:get(reply_to, Message, undefined) of
         undefined ->
             [Subject, " ", HeadersSize, " ", TotalSize, "\r\n", HeadersBin, Payload];
@@ -329,10 +326,28 @@ payload(#nats_frame{operation = Op, message = M}) when ?HAS_PAYLOAD_OP(Op) ->
 payload(_) ->
     error(badarg).
 
+payload_total_size(#nats_frame{operation = Op} = Frame) when ?HAS_PAYLOAD_OP(Op) ->
+    Payload = payload(Frame),
+    case Op of
+        ?OP_HPUB ->
+            payload_and_headers_size(Frame, Payload);
+        ?OP_HMSG ->
+            payload_and_headers_size(Frame, Payload);
+        _ ->
+            byte_size(Payload)
+    end;
+payload_total_size(_) ->
+    error(badarg).
+
 max_msgs(#nats_frame{operation = ?OP_UNSUB, message = M}) ->
     maps:get(max_msgs, M, 0);
 max_msgs(_) ->
     error(badarg).
+
+payload_and_headers_size(Frame, Payload) ->
+    Headers = headers(Frame),
+    HeadersBinSize = byte_size(serialize_headers(Headers)) + 2,
+    HeadersBinSize + byte_size(Payload).
 
 %%--------------------------------------------------------------------
 %% utils
@@ -381,39 +396,82 @@ pre_do_parse_args(Op, JsonStr, Rest, State) when Op == ?OP_INFO; Op == ?OP_CONNE
     end;
 pre_do_parse_args(?OP_ERR, ErrorMessage, Rest, State) ->
     {ok, #nats_frame{operation = ?OP_ERR, message = ErrorMessage}, Rest, reset(State)};
+pre_do_parse_args(?OP_PUB, Line, Rest, State) ->
+    do_parse_pub_args(Line, Rest, State);
+pre_do_parse_args(?OP_HPUB, Line, Rest, State) ->
+    do_parse_hpub_args(Line, Rest, State);
 pre_do_parse_args(Op, Line, Rest, State) ->
     Args = binary:split(Line, <<" ">>, [global]),
     do_parse_args(Op, Args, Rest, State).
 
-do_parse_args(pub, [Subject, PayloadSize], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
-    M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
-    parse_payload(Rest, to_payload_state(State, M0));
-do_parse_args(pub, [Subject, ReplyTo, PayloadSize], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
-    M0 = #{subject => Subject, reply_to => ReplyTo, payload_size => binary_to_integer(PayloadSize)},
-    parse_payload(Rest, to_payload_state(State, M0));
-do_parse_args(hpub, [Subject, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
-    HeadersSize = binary_to_integer(HeadersSize0),
-    TotalSize = binary_to_integer(TotalSize0),
-    M0 = #{
-        subject => Subject,
-        headers_size => HeadersSize,
-        payload_size => TotalSize - HeadersSize
-    },
-    parse_headers(Rest, to_header_state(State, M0));
-do_parse_args(hpub, [Subject, ReplyTo, HeadersSize0, TotalSize0], Rest, State) ->
-    ok = validate_non_wildcard_subject(Subject),
-    HeadersSize = binary_to_integer(HeadersSize0),
-    TotalSize = binary_to_integer(TotalSize0),
-    M0 = #{
-        subject => Subject,
-        reply_to => ReplyTo,
-        headers_size => HeadersSize,
-        payload_size => TotalSize - HeadersSize
-    },
-    parse_headers(Rest, to_header_state(State, M0));
+do_parse_pub_args(Line, Rest, State) ->
+    case split_once(Line) of
+        {pair, Subject, Tail1} ->
+            case split_once(Tail1) of
+                {single, PayloadSize} ->
+                    ok = validate_subject(Subject),
+                    M0 = #{subject => Subject, payload_size => binary_to_integer(PayloadSize)},
+                    parse_payload(Rest, to_payload_state(State, M0));
+                {pair, ReplyTo, PayloadSize} ->
+                    case binary:match(PayloadSize, <<" ">>) of
+                        nomatch ->
+                            ok = validate_subject(Subject),
+                            M0 = #{
+                                subject => Subject,
+                                reply_to => ReplyTo,
+                                payload_size => binary_to_integer(PayloadSize)
+                            },
+                            parse_payload(Rest, to_payload_state(State, M0));
+                        _ ->
+                            error(invalid_args)
+                    end
+            end;
+        {single, _} ->
+            error(invalid_args)
+    end.
+
+do_parse_hpub_args(Line, Rest, State) ->
+    case split_once(Line) of
+        {pair, Subject, Tail1} ->
+            do_parse_hpub_subject_args(Subject, Tail1, Rest, State);
+        {single, _} ->
+            error(invalid_args)
+    end.
+
+do_parse_hpub_subject_args(Subject, Tail1, Rest, State) ->
+    case split_once(Tail1) of
+        {single, _} ->
+            error(invalid_args);
+        {pair, A, Tail2} ->
+            do_parse_hpub_sizes(Subject, A, Tail2, Rest, State)
+    end.
+
+do_parse_hpub_sizes(Subject, A, Tail2, Rest, State) ->
+    case split_once(Tail2) of
+        {single, B} ->
+            ok = validate_subject(Subject),
+            HeadersSize = binary_to_integer(A),
+            TotalSize = binary_to_integer(B),
+            M0 = #{
+                subject => Subject,
+                headers_size => HeadersSize,
+                payload_size => TotalSize - HeadersSize
+            },
+            parse_headers(Rest, to_header_state(State, M0));
+        {pair, B, C} ->
+            ok = ensure_no_space(C),
+            ok = validate_subject(Subject),
+            HeadersSize = binary_to_integer(B),
+            TotalSize = binary_to_integer(C),
+            M0 = #{
+                subject => Subject,
+                reply_to => A,
+                headers_size => HeadersSize,
+                payload_size => TotalSize - HeadersSize
+            },
+            parse_headers(Rest, to_header_state(State, M0))
+    end.
+
 do_parse_args(sub, [Subject, Sid], Rest, State) ->
     ok = validate_subject(Subject),
     Msg = #{subject => Subject, sid => Sid},
@@ -549,6 +607,31 @@ split_to_first_linefeed(Bin) when is_binary(Bin) ->
             {binary:part(Bin, 0, Pos), binary:part(Bin, Pos + 2, byte_size(Bin) - Pos - 2)};
         nomatch ->
             false
+    end.
+
+append_parse_buffer(<<>>, Data) ->
+    Data;
+append_parse_buffer(Buffer, Data) ->
+    <<Buffer/binary, Data/binary>>.
+
+split_once(Bin) ->
+    case binary:match(Bin, <<" ">>) of
+        nomatch ->
+            {single, Bin};
+        {Pos, 1} ->
+            {
+                pair,
+                binary:part(Bin, 0, Pos),
+                binary:part(Bin, Pos + 1, byte_size(Bin) - Pos - 1)
+            }
+    end.
+
+ensure_no_space(Bin) ->
+    case binary:match(Bin, <<" ">>) of
+        nomatch ->
+            ok;
+        _ ->
+            error(invalid_args)
     end.
 
 validate_non_wildcard_subject(Subject) ->

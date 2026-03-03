@@ -18,7 +18,8 @@
     describe/1,
     describe/2,
     plugin_schema/1,
-    plugin_i18n/1
+    plugin_i18n/1,
+    handle_api_call/3
 ]).
 
 %% Package operations
@@ -120,6 +121,37 @@ plugin_schema(NameVsn) ->
 -spec plugin_i18n(name_vsn()) -> {ok, i18n_json_map()} | {error, any()}.
 plugin_i18n(NameVsn) ->
     ?CATCH(emqx_plugins_fs:read_i18n(NameVsn)).
+
+-spec handle_api_call(binary() | string() | atom(), map(), timeout()) ->
+    {integer(), map() | term()} | {integer(), map(), term()}.
+handle_api_call(Plugin0, Request, Timeout) ->
+    Plugin = bin(Plugin0),
+    case resolve_active_name_vsn(Plugin) of
+        {ok, NameVsn} ->
+            try
+                Result = emqx_utils:nolink_apply(
+                    fun() -> emqx_plugins_apps:on_handle_api_call(NameVsn, Request) end,
+                    Timeout
+                ),
+                map_plugin_api_result(Result)
+            catch
+                exit:{timeout, _} ->
+                    {503, #{code => <<"PLUGIN_API_TIMEOUT">>, message => <<"Plugin API Timeout">>}};
+                Class:Reason:Stacktrace ->
+                    ?SLOG(error, #{
+                        msg => "plugin_api_callback_crash",
+                        plugin => Plugin,
+                        class => Class,
+                        reason => Reason,
+                        stacktrace => Stacktrace
+                    }),
+                    {500, #{
+                        code => <<"INTERNAL_ERROR">>, message => <<"Plugin API Callback Crash">>
+                    }}
+            end;
+        {error, not_found} ->
+            {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}}
+    end.
 
 %% Note: this is only used for the HTTP API.
 %% We could use `application:set_env', but the typespec for it makes dialyzer sad when it
@@ -316,9 +348,16 @@ ensure_started(NameVsn) ->
     case ?CATCH(do_ensure_started(NameVsn)) of
         ok ->
             ok;
-        {error, ReasonMap} ->
-            ?SLOG(error, ReasonMap#{msg => "failed_to_start_plugin"}),
-            {error, ReasonMap}
+        {error, Reason} when is_map(Reason) ->
+            ?SLOG(error, Reason#{msg => "failed_to_start_plugin"}),
+            {error, Reason};
+        {error, Reason} ->
+            ?SLOG(error, #{
+                msg => "failed_to_start_plugin",
+                name_vsn => NameVsn,
+                reason => Reason
+            }),
+            {error, Reason}
     end.
 
 %% @doc Stop all plugins before broker stops.
@@ -432,6 +471,42 @@ filter_plugin_of_type(hidden, #{hidden := true} = Info) ->
     {true, Info};
 filter_plugin_of_type(hidden, _Info) ->
     false.
+
+resolve_active_name_vsn(Plugin) ->
+    resolve_active_name_vsn(Plugin, list_active()).
+
+resolve_active_name_vsn(Plugin0, ActiveNameVsns) ->
+    Plugin = bin(Plugin0),
+    case lists:member(Plugin, ActiveNameVsns) of
+        true ->
+            {ok, Plugin};
+        false ->
+            Matches = lists:filter(
+                fun(NameVsn) -> plugin_name(NameVsn) =:= Plugin end, ActiveNameVsns
+            ),
+            case Matches of
+                [NameVsn | _] -> {ok, NameVsn};
+                [] -> {error, not_found}
+            end
+    end.
+
+map_plugin_api_result({ok, Status, Headers, Body}) when is_integer(Status) ->
+    {Status, normalize_headers(Headers), Body};
+map_plugin_api_result({error, Code, Msg}) ->
+    {400, #{code => to_bin(Code), message => to_bin(Msg)}};
+map_plugin_api_result({error, Status, Headers, Body}) when is_integer(Status) ->
+    {Status, normalize_headers(Headers), Body};
+map_plugin_api_result({error, not_found}) ->
+    {404, #{code => <<"NOT_FOUND">>, message => <<"Plugin API Not Found">>}};
+map_plugin_api_result(_Other) ->
+    {500, #{code => <<"INTERNAL_ERROR">>, message => <<"Invalid Plugin API Response">>}}.
+
+normalize_headers(Headers) when is_map(Headers) ->
+    maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- maps:to_list(Headers)]);
+normalize_headers(Headers) when is_list(Headers) ->
+    maps:from_list([{to_bin(K), iolist_to_binary(V)} || {K, V} <- Headers]);
+normalize_headers(_) ->
+    #{}.
 
 %%--------------------------------------------------------------------
 %% Package utils
@@ -566,6 +641,7 @@ do_ensure_started(NameVsn) ->
     maybe
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
+        ok ?= maybe_initialize_cached_config(NameVsn),
         {ok, Plugin} ?= emqx_plugins_info:read(NameVsn),
         ok ?= emqx_plugins_apps:start(Plugin)
     else
@@ -576,6 +652,23 @@ do_ensure_started(NameVsn) ->
                 reason => Reason
             }),
             {error, Reason}
+    end.
+
+maybe_initialize_cached_config(NameVsn) ->
+    case get_cached_config(NameVsn, ?plugin_conf_not_found) of
+        ?plugin_conf_not_found ->
+            case ensure_local_config(NameVsn, ?normal) of
+                ok ->
+                    configure_from_local_config(NameVsn, stopped);
+                {error, no_source_file} ->
+                    %% Some plugins intentionally do not ship a default config file.
+                    %% Keep start behavior backward compatible for them.
+                    ok;
+                {error, _} = Error ->
+                    Error
+            end;
+        _ ->
+            ok
     end.
 
 %%--------------------------------------------------------------------
@@ -669,7 +762,7 @@ install(NameVsn, Mode) ->
     end.
 
 get_from_cluster(NameVsn) ->
-    Nodes = [N || N <- mria:running_nodes(), N /= node()],
+    Nodes = peer_nodes(),
     case get_package_from_any_node(Nodes, NameVsn, []) of
         {ok, TarContent} ->
             emqx_plugins_fs:write_tar(NameVsn, TarContent);
@@ -722,8 +815,7 @@ get_config_from_any_node([Node | RestNodes], NameVsn, Errors) ->
         )
     of
         {ok, ?plugin_conf_not_found} ->
-            Err = {error, {config_not_found_on_node, Node, NameVsn}},
-            get_config_from_any_node(RestNodes, NameVsn, [{Node, Err} | Errors]);
+            get_config_from_any_node(RestNodes, NameVsn, [{Node, config_not_found} | Errors]);
         {ok, _} = Res ->
             ?SLOG(debug, #{
                 msg => "get_plugin_config_from_cluster_successfully",
@@ -839,18 +931,45 @@ ensure_local_config(NameVsn, Mode) ->
 do_ensure_local_config(NameVsn, ?fresh_install) ->
     emqx_plugins_local_config:copy_default(NameVsn);
 do_ensure_local_config(NameVsn, ?normal) ->
-    Nodes = mria:running_nodes(),
-    case get_config_from_any_node(Nodes, NameVsn, []) of
-        {ok, Config} when is_map(Config) ->
-            emqx_plugins_local_config:update(NameVsn, Config);
-        {error, Reason} ->
+    case peer_nodes() of
+        [] ->
+            emqx_plugins_local_config:copy_default(NameVsn);
+        Nodes ->
+            case get_config_from_any_node(Nodes, NameVsn, []) of
+                {ok, Config} when is_map(Config) ->
+                    emqx_plugins_local_config:update(NameVsn, Config);
+                {error, Errors} ->
+                    log_config_not_found(NameVsn, Errors),
+                    emqx_plugins_local_config:copy_default(NameVsn)
+            end
+    end.
+
+peer_nodes() ->
+    [N || N <- mria:running_nodes(), N /= node()].
+
+log_config_not_found(NameVsn, Errors) ->
+    case is_all_config_not_found(Errors) of
+        true ->
+            ?SLOG(debug, #{
+                msg => "plugin_config_not_found_in_cluster",
+                name_vsn => NameVsn,
+                hint =>
+                    "This is expected when this plugin has not been started in the cluster before"
+            });
+        false ->
             ?SLOG(warning, #{
                 msg => "failed_to_get_plugin_config_from_cluster",
                 name_vsn => NameVsn,
-                reason => Reason
-            }),
-            emqx_plugins_local_config:copy_default(NameVsn)
+                reason => Errors
+            })
     end.
+
+is_all_config_not_found([]) ->
+    true;
+is_all_config_not_found([{_Node, config_not_found} | Rest]) ->
+    is_all_config_not_found(Rest);
+is_all_config_not_found([_ | _]) ->
+    false.
 
 configure_from_local_config(NameVsn, RunningSt) ->
     case validated_local_config(NameVsn) of
@@ -950,6 +1069,15 @@ bin_key(Term) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+to_bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
+to_bin(S) when is_list(S) -> unicode:characters_to_binary(S);
+to_bin(B) when is_binary(B) -> B;
+to_bin(T) -> iolist_to_binary(io_lib:format("~0p", [T])).
+
+plugin_name(NameVsn) ->
+    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    bin(Name).
 
 name_vsn(Name, Vsn) ->
     emqx_plugins_utils:make_name_vsn_binary(Name, Vsn).

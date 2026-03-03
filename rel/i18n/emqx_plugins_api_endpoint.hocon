@@ -1,0 +1,8 @@
+emqx_plugins_api_endpoint {
+
+gateway_desc.desc:
+"""Requests to this endpoint are passed through to the plugin implementation. Refer to the plugin documentation for request and response details."""
+gateway_desc.label:
+"""Plugin API Gateway"""
+
+}

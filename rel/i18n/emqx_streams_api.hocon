@@ -69,4 +69,7 @@ emqx_streams_api {
     topic_filter {
         desc: "Topic filter"
     }
+    name {
+        desc: "Message stream name"
+    }
 }

@@ -39,7 +39,10 @@ init_per_testcase(_Case, Config) ->
         [
             emqx,
             {emqx_conf,
-                "authentication = [{mechanism = password_based, backend = built_in_database}]"}
+                ~b"""
+                authentication = [{mechanism = password_based, backend = built_in_database}]
+                authentication_settings.node_cache.enable = false
+                """}
         ],
         #{
             work_dir => ?config(priv_dir, Config)

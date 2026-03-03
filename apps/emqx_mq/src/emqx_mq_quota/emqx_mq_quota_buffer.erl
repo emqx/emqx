@@ -105,7 +105,7 @@ like (slab, mq_topic) in case of MQs in DS storage.
     cbm :: module()
 }).
 
--spec start(name(), options()) -> ok.
+-spec start(name(), options()) -> ok | {error, supervisor:startchild_err()}.
 start(Name, Options) ->
     PoolSize = maps:get(pool_size, Options, ?DEFAULT_QUOTA_BUFFER_POOL_SIZE),
     PoolOptions = [
@@ -114,8 +114,11 @@ start(Name, Options) ->
         {pool_type, hash},
         {options, Options}
     ],
-    {ok, _} = ecpool:start_sup_pool(Name, ?MODULE, PoolOptions),
-    ok.
+    case ecpool:start_sup_pool(Name, ?MODULE, PoolOptions) of
+        {ok, _} -> ok;
+        {error, {already_started, _}} -> ok;
+        {error, Reason} -> {error, Reason}
+    end.
 
 -spec stop(name()) -> ok.
 stop(Name) ->

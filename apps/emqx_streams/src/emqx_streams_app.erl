@@ -6,75 +6,17 @@
 
 -behaviour(application).
 
--include("emqx_streams_internal.hrl").
-
--export([start/2, stop/1, do_start/0]).
--export([is_ready/0, wait_readiness/1]).
-
--export([start_link_post_start/0]).
--export([post_start/0]).
-
--define(OPTVAR_READY, emqx_streams_app_ready).
+-export([start/2, stop/1]).
 
 %% Behaviour callbacks
 
 start(_StartType, _StartArgs) ->
-    {ok, Sup} = emqx_streams_sup:start_link(),
     emqx_conf:add_handler(emqx_streams_schema:roots(), emqx_streams_config),
-    emqx_streams_config:is_enabled() andalso do_start(),
+    ok = mria:wait_for_tables(emqx_streams_registry:create_tables()),
+    %% The rest of the startup is orchestrated by `emqx_streams_controller` running under the main supervisor.
+    {ok, Sup} = emqx_streams_sup:start_link(),
     {ok, Sup}.
 
-do_start() ->
-    ok = mria:wait_for_tables(emqx_streams_registry:create_tables()),
-    ok = emqx_streams_message_db:open(),
-    {ok, _} = emqx_streams_sup:start_post_starter({?MODULE, start_link_post_start, []}),
-    ok.
-
 stop(_State) ->
-    ok = optvar:unset(?OPTVAR_READY),
     ok = emqx_conf:remove_handler(emqx_streams_schema:roots()),
-    ok = emqx_streams:unregister_hooks(),
-    ok = emqx_mq_quota_buffer:stop(?STREAMS_QUOTA_BUFFER),
     ok.
-
-%% Readiness
-
--spec is_ready() -> boolean().
-is_ready() ->
-    case optvar:peek(?OPTVAR_READY) of
-        {ok, _} ->
-            true;
-        undefined ->
-            false
-    end.
-
--spec wait_readiness(timeout()) -> ok | timeout.
-wait_readiness(Timeout) ->
-    case optvar:read(?OPTVAR_READY, Timeout) of
-        {ok, _} ->
-            ok;
-        timeout ->
-            timeout
-    end.
-
-%% Post-start phase
-
-start_link_post_start() ->
-    {ok, proc_lib:spawn_link(?MODULE, post_start, [])}.
-
-post_start() ->
-    ok = emqx_streams_message_db:wait_readiness(infinity),
-    complete_start(),
-    optvar:set(?OPTVAR_READY, true).
-
-complete_start() ->
-    ok = emqx_streams_sup:start_metrics(),
-    ok = emqx_mq_quota_buffer:start(?STREAMS_QUOTA_BUFFER, quota_buffer_options()),
-    ok = emqx_streams_sup:start_gc_scheduler(),
-    ok = emqx_streams:register_hooks().
-
-quota_buffer_options() ->
-    #{
-        cbm => emqx_streams_message_db,
-        pool_size => emqx_streams_config:quota_buffer_pool_size()
-    }.

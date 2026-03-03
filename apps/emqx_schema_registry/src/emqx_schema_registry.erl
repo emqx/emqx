@@ -33,7 +33,11 @@
 %% Internal exports for `emqx_schema_registry_config'
 -export([
     async_delete_serdes/1,
-    ensure_serde_absent/1,
+    ensure_serde_absent/1
+]).
+%% Internal exports for other applications to register internal (memory only, not
+%% config-based) serdes
+-export([
     build_serdes/1
 ]).
 
@@ -263,7 +267,7 @@ do_load_external_registries() ->
     ).
 
 maybe_build_sparkplug_b_serde() ->
-    case get_schema(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) of
+    case get_serde(?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME) of
         {error, not_found} ->
             do_build_serde(
                 ?EMQX_SCHEMA_REGISTRY_SPARKPLUGB_SCHEMA_NAME,

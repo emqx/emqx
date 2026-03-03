@@ -55,7 +55,9 @@
     lookup_from_all_nodes/2,
     authentication_settings/2,
     authentication_node_cache_status/2,
-    authentication_node_cache_reset/2
+    authentication_node_cache_reset/2,
+    authenticator_metrics_reset/2,
+    reset_metrics_local/2
 ]).
 
 -export([
@@ -106,7 +108,8 @@ paths() ->
         "/authentication/order",
         "/authentication/settings",
         "/authentication/node_cache/status",
-        "/authentication/node_cache/reset"
+        "/authentication/node_cache/reset",
+        "/authentication/:id/metrics/reset"
 
         %% hide listener authn api since 5.1.0
         %% "/listeners/:listener_id/authentication",
@@ -623,6 +626,19 @@ schema("/authentication/node_cache/reset") ->
                         500 => error_codes([?INTERNAL_ERROR], ?DESC("internal_service_error"))
                     }
             }
+    };
+schema("/authentication/:id/metrics/reset") ->
+    #{
+        'operationId' => authenticator_metrics_reset,
+        post => #{
+            tags => ?API_TAGS_GLOBAL,
+            description => ?DESC(authentication_id_metrics_reset_post),
+            parameters => [param_auth_id()],
+            responses => #{
+                204 => ?DESC("no_content"),
+                404 => error_codes([?NOT_FOUND], ?DESC(?NOT_FOUND))
+            }
+        }
     }.
 
 param_auth_id() ->
@@ -824,6 +840,28 @@ authentication_node_cache_reset(post, _) ->
                 message => bin(ErrL)
             }}
     end.
+
+authenticator_metrics_reset(post, #{bindings := #{id := AuthenticatorID}}) ->
+    with_authenticator(
+        AuthenticatorID,
+        [authentication],
+        fun(_) ->
+            Nodes = mria:running_nodes(),
+            case is_ok(emqx_authn_proto_v2:reset_metrics(Nodes, ?GLOBAL, AuthenticatorID)) of
+                {ok, _} ->
+                    {204};
+                {error, ErrL} ->
+                    {500, #{
+                        code => <<"INTERNAL_ERROR">>,
+                        message => bin(ErrL)
+                    }}
+            end
+        end
+    ).
+
+reset_metrics_local(ChainName, AuthenticatorID) ->
+    MetricsId = emqx_authn_chains:metrics_id(ChainName, AuthenticatorID),
+    ok = emqx_metrics_worker:reset_metrics(authn_metrics, MetricsId).
 
 authenticator_position(
     put,

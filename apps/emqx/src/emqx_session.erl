@@ -250,8 +250,7 @@ create(ClientInfo, ConnInfo, MaybeWillMsg) ->
 create(Mod, ClientInfo, ConnInfo, MaybeWillMsg, Conf) ->
     % FIXME error conditions
     Session = Mod:create(ClientInfo, ConnInfo, MaybeWillMsg, Conf),
-    ok = emqx_metrics:inc_global('session.created'),
-    ok = emqx_hooks:run('session.created', [ClientInfo, info(Session)]),
+    ok = run_hook_with_conninfo('session.created', ConnInfo, [ClientInfo, info(Session)]),
     Session.
 
 -spec open(clientinfo(), conninfo(), emqx_maybe:t(message())) ->
@@ -264,8 +263,7 @@ open(ClientInfo, ConnInfo, MaybeWillMsg) ->
     %% `Mods` in order, starting from the last one.
     case try_open(Mods, ClientInfo, ConnInfo, MaybeWillMsg, Conf) of
         {_IsPresent = true, Session, _} = Present ->
-            ok = emqx_metrics:inc_global('session.resumed'),
-            ok = emqx_hooks:run('session.resumed', [ClientInfo, info(Session)]),
+            ok = run_hook_with_conninfo('session.resumed', ConnInfo, [ClientInfo, info(Session)]),
             Present;
         false ->
             %% NOTE
@@ -754,6 +752,14 @@ choose_impl_candidates(#{zone := Zone}, #{expiry_interval := EI}) ->
 run_hook(Name, Args) ->
     ok = emqx_metrics:inc_global(Name),
     emqx_hooks:run(Name, Args).
+
+-compile({inline, [run_hook_with_conninfo/3]}).
+run_hook_with_conninfo(Name, ConnInfo, Args) ->
+    ok = emqx_metrics:inc_global(Name),
+    Ctx = #{
+        conn_info_fn => fun(Prop) -> maps:get(Prop, ConnInfo) end
+    },
+    emqx_hooks:run(Name, Ctx, Args).
 
 %%--------------------------------------------------------------------
 %% Will message handling

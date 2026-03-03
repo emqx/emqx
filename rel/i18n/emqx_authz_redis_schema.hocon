@@ -24,4 +24,10 @@ cmd.desc:
 cmd.label:
 """cmd"""
 
+compatibility_mode.desc:
+"""Redis ACL compatibility mode. Set to `v4` to accept legacy ACL values `1|2|3` and placeholders `%u/%c`."""
+
+compatibility_mode.label:
+"""Compatibility Mode"""
+
 }

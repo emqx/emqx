@@ -21,6 +21,18 @@ by anyone except <code>emqx</code> (or any user which runs EMQX)."""
 install_dir.label:
 """Install Directory"""
 
+api_endpoint.desc:
+"""Configuration for plugin API endpoint forwarding."""
+
+api_endpoint.label:
+"""Plugin API Endpoint"""
+
+api_endpoint_timeout.desc:
+"""Request timeout for plugin API callback handling."""
+
+api_endpoint_timeout.label:
+"""Plugin API Timeout"""
+
 name_vsn.desc:
 """The `{name}-{version}` of the plugin.<br/>
 It should match the plugin application name-version as plugin release package name<br/>

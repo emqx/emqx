@@ -25,6 +25,7 @@ jobs:
           - ['emqx-enterprise', 'release-510']
           - ['emqx-enterprise', 'release-60']
           - ['emqx-enterprise', 'release-61']
+          - ['emqx-enterprise', 'release-62']
         os:
           - ubuntu22.04
           - amzn2023
@@ -84,6 +85,7 @@ jobs:
           - release-510
           - release-60
           - release-61
+          - release-62
         os:
           - macos-15
 

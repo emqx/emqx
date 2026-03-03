@@ -24,6 +24,11 @@ fields(?CONF_ROOT) ->
         fields => root_fields(),
         desc => ?DESC(?CONF_ROOT)
     };
+fields(api_endpoint) ->
+    #{
+        fields => api_endpoint_fields(),
+        desc => ?DESC(api_endpoint)
+    };
 fields(state) ->
     #{
         fields => state_fields(),
@@ -56,7 +61,13 @@ root_fields() ->
     [
         {states, fun states/1},
         {install_dir, fun install_dir/1},
+        {api_endpoint, ?HOCON(?R_REF(api_endpoint), #{desc => ?DESC(api_endpoint)})},
         {check_interval, fun check_interval/1}
+    ].
+
+api_endpoint_fields() ->
+    [
+        {timeout, fun api_endpoint_timeout/1}
     ].
 
 states(type) -> ?ARRAY(?R_REF(state));
@@ -79,3 +90,8 @@ check_interval(default) -> <<"5s">>;
 check_interval(desc) -> ?DESC(check_interval);
 check_interval(deprecated) -> {since, "5.0.24"};
 check_interval(_) -> undefined.
+
+api_endpoint_timeout(type) -> emqx_schema:timeout_duration_ms();
+api_endpoint_timeout(default) -> <<"5s">>;
+api_endpoint_timeout(desc) -> ?DESC(api_endpoint_timeout);
+api_endpoint_timeout(_) -> undefined.

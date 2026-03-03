@@ -35,6 +35,19 @@
     terminate/2
 ]).
 
+-ifdef(TEST).
+-export([
+    try_insert_inflight/7,
+    ack_msg/4,
+    set_msg_ack/2,
+    get_msg_ack/2,
+    custom_msg_ack_key/2,
+    custom_get_msg_ack/2,
+    make_test_channel/0,
+    normalize_queue_item/1
+]).
+-endif.
+
 -record(channel, {
     %% Context
     ctx :: emqx_gateway_ctx:context(),
@@ -100,6 +113,10 @@
 -dialyzer({nowarn_function, init/2}).
 
 -define(IGNORE_UNSUPPORTED_FRAMES, true).
+
+%% Downlink message sequence number types
+-define(SN_AUTO, auto).
+-define(SN_CUSTOM, custom).
 
 %%--------------------------------------------------------------------
 %% Info, Attrs and Caps
@@ -268,8 +285,8 @@ handle_frame_error(Reason, Channel = #channel{clientinfo = ClientInfo}) ->
 %% @private
 do_handle_in(Frame = ?MSG(?MC_GENERAL_RESPONSE), Channel = #channel{inflight = Inflight}) ->
     #{<<"body">> := #{<<"seq">> := Seq, <<"id">> := Id}} = Frame,
-    NewInflight = ack_msg(?MC_GENERAL_RESPONSE, {Id, Seq}, Inflight),
-    {ok, Channel#channel{inflight = NewInflight}};
+    NewInflight = ack_msg(?MC_GENERAL_RESPONSE, {Id, Seq}, Inflight, Channel),
+    dispatch_and_reply(Channel#channel{inflight = NewInflight});
 do_handle_in(Frame = ?MSG(?MC_REGISTER), Channel0) ->
     #{<<"header">> := #{<<"msg_sn">> := MsgSn}} = Frame,
     case
@@ -316,6 +333,14 @@ do_handle_in(Frame = ?MSG(?MC_AUTH), Channel0) ->
     end;
 do_handle_in(Frame = ?MSG(?MC_HEARTBEAT), Channel) ->
     handle_out({?MS_GENERAL_RESPONSE, 0, ?MC_HEARTBEAT}, msgsn(Frame), Channel);
+do_handle_in(?MSG(?MC_QUERY_SERVER_TIME), Channel) ->
+    %% 2019: Client requests server time, respond with 0x8004 (Server Time ACK)
+    %% Time format: BCD[6] UTC time as YYMMDDHHMMSS
+    Response = #{
+        <<"header">> => build_frame_header(?MS_SERVER_TIME_ACK, Channel),
+        <<"body">> => #{<<"time">> => current_utc_time()}
+    },
+    {ok, [{outgoing, Response}], state_inc_sn(Channel)};
 do_handle_in(?MSG(?MC_RSA_KEY), Channel = #channel{rsa_key = [E, N]}) ->
     Response = #{
         <<"header">> => build_frame_header(?MS_RSA_KEY, Channel),
@@ -345,20 +370,33 @@ do_handle_in(
             handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
         % this is a response to MS_REQ_DRIVER_ID(0x8702)
         true ->
-            {ok, Channel#channel{inflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight)}}
+            NewInflight = ack_msg(?MC_DRIVER_ID_REPORT, none, Inflight, Channel),
+            dispatch_and_reply(Channel#channel{inflight = NewInflight})
     end;
 do_handle_in(?MSG(?MC_DEREGISTER), Channel) ->
     {shutdown, normal, Channel};
-do_handle_in(Frame = #{}, Channel = #channel{up_topic = Topic, inflight = Inflight}) ->
-    {MsgId, MsgSn} = msgidsn(Frame),
-    _ = do_publish(Topic, Frame),
-    case is_general_response_needed(MsgId) of
-        % these frames device passive request
-        true ->
-            handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
-        % these frames are response to server's request
+do_handle_in(
+    Frame = #{},
+    Channel = #channel{up_topic = Topic, inflight = Inflight}
+) ->
+    IsUnknownMessage = emqx_utils_maps:deep_get([<<"body">>, <<"unknown_id">>], Frame, false),
+    case IsUnknownMessage of
+        %% Normal message, handle it
         false ->
-            {ok, Channel#channel{inflight = ack_msg(MsgId, seq(Frame), Inflight)}}
+            _ = do_publish(Topic, Frame),
+            {MsgId, MsgSn} = msgidsn(Frame),
+            case is_general_response_needed(MsgId) of
+                % these frames device passive request
+                true ->
+                    handle_out({?MS_GENERAL_RESPONSE, 0, MsgId}, MsgSn, Channel);
+                % these frames are response to server's request
+                false ->
+                    NewInflight = ack_msg(MsgId, seq(Frame), Inflight, Channel),
+                    dispatch_and_reply(Channel#channel{inflight = NewInflight})
+            end;
+        true ->
+            _ = do_publish(Topic, Frame),
+            {ok, Channel}
     end;
 do_handle_in(Frame, Channel) ->
     ?SLOG(error, #{msg => "ignore_unknown_frame", frame => Frame}),
@@ -398,9 +436,9 @@ handle_deliver(
             log(debug, #{msg => "enqueue_messages", messages => NMessages}, Channel),
             metrics_inc('messages.delivered', Channel, erlang:length(NMessages)),
             discard_downlink_messages(Dropped, Channel),
-            Frames = msgs2frame(NMessages, Channel),
+            {Frames, NChannel1} = msgs2frame(NMessages, Channel),
             NQueue = lists:foldl(fun(F, Q) -> queue:in(F, Q) end, Queue, Frames),
-            {Outgoings, NChannel} = dispatch_frame(Channel#channel{mqueue = NQueue}),
+            {Outgoings, NChannel} = dispatch_frame(NChannel1#channel{mqueue = NQueue}),
             {ok, [{outgoing, Outgoings}], NChannel}
     end.
 
@@ -415,33 +453,37 @@ split_by_pos([E | L], N, A1) ->
     split_by_pos(L, N - 1, [E | A1]).
 
 msgs2frame(Messages, Channel) ->
-    lists:filtermap(
-        fun(#message{payload = Payload}) ->
+    {Frames, NChannel} = lists:foldl(
+        fun(#message{payload = Payload}, {AccFrames, AccChannel}) ->
             case emqx_utils_json:safe_decode(Payload) of
-                {ok, Map = #{<<"header">> := #{<<"msg_id">> := MsgId}}} ->
-                    NewHeader = build_frame_header(MsgId, Channel),
-                    Frame = maps:put(<<"header">>, NewHeader, Map),
-                    {true, Frame};
+                {ok, PayloadJson = #{<<"header">> := Header = #{<<"msg_id">> := MsgId}}} ->
+                    {NewHeader, SnType, NAccChannel} = build_downlink_header(
+                        MsgId, Header, AccChannel
+                    ),
+                    Frame = PayloadJson#{<<"header">> => NewHeader},
+                    {[{Frame, SnType} | AccFrames], NAccChannel};
                 {ok, _} ->
                     tp(
                         error,
                         invalid_dl_message,
                         #{reasons => "missing_msg_id", payload => Payload},
-                        Channel
+                        AccChannel
                     ),
-                    false;
+                    {AccFrames, AccChannel};
                 {error, _Reason} ->
                     tp(
                         error,
                         invalid_dl_message,
                         #{reason => "invalid_json", payload => Payload},
-                        Channel
+                        AccChannel
                     ),
-                    false
+                    {AccFrames, AccChannel}
             end
         end,
+        {[], Channel},
         Messages
-    ).
+    ),
+    {lists:reverse(Frames), NChannel}.
 
 authack(
     {Code, MsgSn,
@@ -606,7 +648,6 @@ retry_delivery([{Key, {Frame, RetxCount, Ts}} | Frames], Now, Interval, Inflight
 
 dispatch_frame(
     Channel = #channel{
-        msg_sn = TxMsgSn,
         mqueue = Queue,
         inflight = Inflight,
         retx_max_times = RetxMax
@@ -616,17 +657,110 @@ dispatch_frame(
         true ->
             {[], Channel};
         false ->
-            {{value, Frame}, NewQueue} = queue:out(Queue),
+            {{value, Item}, NewQueue} = queue:out(Queue),
+            %% Handle both old format (Frame) and new format ({Frame, SnType})
+            %% for hot upgrade compatibility
+            {Frame, SnType} = normalize_queue_item(Item),
 
-            log(debug, #{msg => "delivery", frame => Frame}, Channel),
+            log(debug, #{msg => "delivery", frame => Frame, sn_type => SnType}, Channel),
 
-            NewInflight = emqx_inflight:insert(
-                set_msg_ack(msgid(Frame), TxMsgSn),
-                {Frame, RetxMax, erlang:system_time(millisecond)},
-                Inflight
+            MsgId = msgid(Frame),
+            MsgSn = msgsn(Frame),
+            case try_insert_inflight(MsgId, MsgSn, SnType, Frame, RetxMax, Inflight, Channel) of
+                {ok, NewInflight} ->
+                    NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
+                    {[Frame], ensure_timer(retry_timer, NChannel)};
+                {ok_duplicate, NewInflight} ->
+                    %% Duplicate detected but still deliver (as a gateway should ensure delivery)
+                    %% The message is not added to inflight since it's already being tracked
+                    NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
+                    {[Frame], ensure_timer(retry_timer, NChannel)}
+            end
+    end.
+
+%% @doc Normalize queue item for hot upgrade compatibility.
+%% Old format: Frame (map)
+%% New format: {Frame, SnType}
+normalize_queue_item({Frame, SnType}) when is_atom(SnType) ->
+    {Frame, SnType};
+normalize_queue_item(Frame) when is_map(Frame) ->
+    %% Legacy format - treat as auto msg_sn
+    {Frame, ?SN_AUTO}.
+
+dispatch_and_reply(Channel) ->
+    case dispatch_frame(Channel) of
+        {[], NChannel} -> {ok, NChannel};
+        {Outgoings, NChannel} -> {ok, [{outgoing, Outgoings}], NChannel}
+    end.
+
+%% @doc Try to insert a frame into inflight, handling race conditions
+%% for custom msg_sn messages.
+%%
+%% For auto msg_sn: use key {AckMsgId, {MsgId, MsgSn}} or {AckMsgId, MsgSn}
+%% For custom msg_sn: use key {custom, AckMsgId, {MsgId, MsgSn}} or {custom, AckMsgId, MsgSn}
+%%
+%% Race condition handling:
+%% - If custom key already exists: duplicate custom msg, discard
+%% - If auto key exists when inserting custom: record ?SN_AUTO in process dict
+%% - If no key exists for custom: record ?SN_CUSTOM in process dict
+try_insert_inflight(MsgId, MsgSn, ?SN_AUTO, Frame, RetxMax, Inflight, _Channel) ->
+    %% Auto msg_sn: standard insertion
+    Key = set_msg_ack(MsgId, MsgSn),
+    NewInflight = emqx_inflight:insert(
+        Key,
+        {Frame, RetxMax, erlang:system_time(millisecond)},
+        Inflight
+    ),
+    {ok, NewInflight};
+try_insert_inflight(MsgId, MsgSn, ?SN_CUSTOM, Frame, RetxMax, Inflight, Channel) ->
+    %% Custom msg_sn: check for conflicts
+    AutoKey = set_msg_ack(MsgId, MsgSn),
+    CustomKey = custom_msg_ack_key(MsgId, MsgSn),
+    %% Use AutoKey in OrderKey to distinguish different message types with same MsgSn
+    OrderKey = {msg_sn_order, AutoKey},
+    case emqx_inflight:contain(CustomKey, Inflight) of
+        true ->
+            %% Duplicate custom msg_sn detected, but still deliver
+            %% (as a gateway should ensure message delivery as much as possible)
+            log(
+                warning,
+                #{msg => "duplicate_custom_msg_sn_delivered", msg_id => MsgId, msg_sn => MsgSn},
+                Channel
             ),
-            NChannel = Channel#channel{mqueue = NewQueue, inflight = NewInflight},
-            {[Frame], ensure_timer(retry_timer, NChannel)}
+            {ok_duplicate, Inflight};
+        false ->
+            case emqx_inflight:contain(AutoKey, Inflight) of
+                true ->
+                    %% Auto msg sent first, record ordering
+                    log(
+                        debug,
+                        #{msg => "custom_msg_sn_after_auto", msg_id => MsgId, msg_sn => MsgSn},
+                        Channel
+                    ),
+                    put(OrderKey, ?SN_AUTO),
+                    NewInflight = emqx_inflight:insert(
+                        CustomKey,
+                        {Frame, RetxMax, erlang:system_time(millisecond)},
+                        Inflight
+                    ),
+                    {ok, NewInflight};
+                false ->
+                    %% Custom sent first (or alone), record ordering
+                    put(OrderKey, ?SN_CUSTOM),
+                    NewInflight = emqx_inflight:insert(
+                        CustomKey,
+                        {Frame, RetxMax, erlang:system_time(millisecond)},
+                        Inflight
+                    ),
+                    {ok, NewInflight}
+            end
+    end.
+
+%% Build custom msg ack key
+custom_msg_ack_key(MsgId, MsgSn) ->
+    case set_msg_ack(MsgId, MsgSn) of
+        {AckMsgId, AckParam} -> {custom, AckMsgId, AckParam};
+        Other -> {custom, Other}
     end.
 
 %%--------------------------------------------------------------------
@@ -752,12 +886,60 @@ ensure_disconnected(
     ),
     Channel#channel{conninfo = NConnInfo, conn_state = disconnected}.
 
-ack_msg(MsgId, KeyParam, Inflight) ->
-    Key = get_msg_ack(MsgId, KeyParam),
-    case emqx_inflight:contain(Key, Inflight) of
-        true -> emqx_inflight:delete(Key, Inflight);
-        false -> Inflight
+%% @doc Handle ACK message, considering both auto and custom msg_sn keys.
+%% When there's a race condition (both auto and custom keys exist for same MsgSn),
+%% use process dictionary to determine which message was sent first and delete that one.
+ack_msg(AckMsgId, KeyParam, Inflight, Channel) ->
+    AutoKey = get_msg_ack(AckMsgId, KeyParam),
+    CustomKey = custom_get_msg_ack(AckMsgId, KeyParam),
+    %% Use AutoKey in OrderKey to match the key used in try_insert_inflight
+    OrderKey = {msg_sn_order, AutoKey},
+    HasAuto = emqx_inflight:contain(AutoKey, Inflight),
+    HasCustom = emqx_inflight:contain(CustomKey, Inflight),
+    case {HasAuto, HasCustom} of
+        {true, true} ->
+            %% Both exist - race condition, check ordering
+            case erase(OrderKey) of
+                ?SN_CUSTOM ->
+                    %% Custom was sent first, delete it
+                    emqx_inflight:delete(CustomKey, Inflight);
+                ?SN_AUTO ->
+                    %% Auto was sent first, delete it
+                    emqx_inflight:delete(AutoKey, Inflight);
+                undefined ->
+                    %% No ordering info, delete auto first (default)
+                    emqx_inflight:delete(AutoKey, Inflight)
+            end;
+        {true, false} ->
+            %% Only auto exists
+            _ = erase(OrderKey),
+            emqx_inflight:delete(AutoKey, Inflight);
+        {false, true} ->
+            %% Only custom exists
+            _ = erase(OrderKey),
+            emqx_inflight:delete(CustomKey, Inflight);
+        {false, false} ->
+            %% Neither exists - ACK for message not in inflight
+            %% This can happen when duplicate messages are delivered and client sends multiple ACKs
+            _ = erase(OrderKey),
+            log(
+                warning,
+                #{
+                    msg => "ack_for_unknown_msg",
+                    ack_msg_id => AckMsgId,
+                    key_param => KeyParam,
+                    auto_key => AutoKey,
+                    custom_key => CustomKey
+                },
+                Channel
+            ),
+            Inflight
     end.
+
+%% Build custom get_msg_ack key
+custom_get_msg_ack(MsgId, KeyParam) ->
+    {AckMsgId, AckParam} = get_msg_ack(MsgId, KeyParam),
+    {custom, AckMsgId, AckParam}.
 
 set_msg_ack(?MS_SET_CLIENT_PARAM, MsgSn) ->
     {?MC_GENERAL_RESPONSE, {?MS_SET_CLIENT_PARAM, MsgSn}};
@@ -832,6 +1014,8 @@ set_msg_ack(?MS_SINGLE_MM_DATA_CTRL, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 set_msg_ack(?MS_SEND_TRANSPARENT_DATA, MsgSn) ->
     {?MC_GENERAL_RESPONSE, {?MS_SEND_TRANSPARENT_DATA, MsgSn}};
+set_msg_ack(?MS_QUERY_AREA_ROUTE, _MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, none};
 set_msg_ack(MsgId, Param) ->
     error({invalid_message_type, MsgId, Param}).
 
@@ -857,19 +1041,46 @@ get_msg_ack(?MC_MM_DATA_SEARCH_ACK, MsgSn) ->
     {?MC_MM_DATA_SEARCH_ACK, MsgSn};
 get_msg_ack(?MC_DRIVER_ID_REPORT, _MsgSn) ->
     {?MC_DRIVER_ID_REPORT, none};
+get_msg_ack(?MC_QUERY_AREA_ROUTE_ACK, _MsgSn) ->
+    {?MC_QUERY_AREA_ROUTE_ACK, none};
 get_msg_ack(MsgId, MsgSn) ->
     error({invalid_message_type, MsgId, MsgSn}).
 
-build_frame_header(MsgId, #channel{clientinfo = #{phone := Phone}, msg_sn = TxMsgSn}) ->
-    build_frame_header(MsgId, 0, Phone, TxMsgSn).
+build_frame_header(MsgId, #channel{clientinfo = ClientInfo, msg_sn = TxMsgSn}) ->
+    #{phone := Phone} = ClientInfo,
+    ProtoVer = maps:get(proto_ver, ClientInfo, ?PROTO_VER_2013),
+    build_frame_header(MsgId, 0, Phone, TxMsgSn, ProtoVer).
 
-build_frame_header(MsgId, Encrypt, Phone, TxMsgSn) ->
-    #{
+build_frame_header_with_sn(MsgId, MsgSn, #channel{clientinfo = ClientInfo}) ->
+    #{phone := Phone} = ClientInfo,
+    ProtoVer = maps:get(proto_ver, ClientInfo, ?PROTO_VER_2013),
+    build_frame_header(MsgId, 0, Phone, MsgSn, ProtoVer).
+
+build_downlink_header(MsgId, PayloadHeader, Channel) ->
+    case maps:get(<<"msg_sn">>, PayloadHeader, undefined) of
+        undefined ->
+            log(debug, #{msg => "downlink_use_channel_msg_sn", msg_id => MsgId}, Channel),
+            {build_frame_header(MsgId, Channel), ?SN_AUTO, state_inc_sn(Channel)};
+        PayloadMsgSn ->
+            log(
+                info,
+                #{msg => "downlink_use_payload_msg_sn", msg_id => MsgId, msg_sn => PayloadMsgSn},
+                Channel
+            ),
+            {build_frame_header_with_sn(MsgId, PayloadMsgSn, Channel), ?SN_CUSTOM, Channel}
+    end.
+
+build_frame_header(MsgId, Encrypt, Phone, TxMsgSn, ProtoVer) ->
+    Header = #{
         <<"msg_id">> => MsgId,
         <<"encrypt">> => Encrypt,
         <<"phone">> => Phone,
         <<"msg_sn">> => TxMsgSn
-    }.
+    },
+    case ProtoVer >= ?PROTO_VER_2019 of
+        true -> Header#{<<"proto_ver">> => ProtoVer};
+        false -> Header
+    end.
 
 seq(#{<<"body">> := #{<<"seq">> := MsgSn}}) -> MsgSn;
 seq(#{}) -> 0.
@@ -892,6 +1103,18 @@ state_inc_sn(Channel = #channel{msg_sn = Sn}) ->
 next_msg_sn(16#FFFF) -> 0;
 next_msg_sn(Sn) -> Sn + 1.
 
+%% @doc Returns current UTC time as binary string in YYMMDDHHMMSS format
+%% Used for 0x8004 (Server Time ACK) response
+current_utc_time() ->
+    {{Year, Month, Day}, {Hour, Min, Sec}} = calendar:universal_time(),
+    YY = Year rem 100,
+    iolist_to_binary(
+        io_lib:format(
+            "~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B~2.10.0B",
+            [YY, Month, Day, Hour, Min, Sec]
+        )
+    ).
+
 is_general_response_needed(?MC_EVENT_REPORT) -> true;
 is_general_response_needed(?MC_LOCATION_REPORT) -> true;
 is_general_response_needed(?MC_INFO_REQ_CANCEL) -> true;
@@ -901,6 +1124,7 @@ is_general_response_needed(?MC_CAN_BUS_REPORT) -> true;
 is_general_response_needed(?MC_MULTIMEDIA_EVENT_REPORT) -> true;
 is_general_response_needed(?MC_SEND_TRANSPARENT_DATA) -> true;
 is_general_response_needed(?MC_SEND_ZIP_DATA) -> true;
+is_general_response_needed(?MC_REQUEST_FRAGMENT) -> true;
 is_general_response_needed(_) -> false.
 
 is_driver_id_req_exist(#channel{inflight = Inflight}) ->
@@ -940,12 +1164,14 @@ authenticate(
     InCode == AuthCode.
 
 enrich_conninfo(
-    #{<<"header">> := #{<<"phone">> := Phone}},
+    #{<<"header">> := Header = #{<<"phone">> := Phone}},
     Channel = #channel{conninfo = ConnInfo}
 ) ->
+    ProtoVerInt = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
+    ProtoVerStr = proto_ver_to_string(ProtoVerInt),
     NConnInfo = ConnInfo#{
         proto_name => <<"jt808">>,
-        proto_ver => <<"2013">>,
+        proto_ver => ProtoVerStr,
         clean_start => true,
         clientid => Phone,
         username => undefined,
@@ -957,6 +1183,9 @@ enrich_conninfo(
         expiry_interval => 0
     },
     {ok, Channel#channel{conninfo = NConnInfo}}.
+
+proto_ver_to_string(Ver) when Ver >= ?PROTO_VER_2019 -> <<"2019">>;
+proto_ver_to_string(_) -> <<"2013">>.
 
 run_conn_hooks(
     Input,
@@ -974,7 +1203,7 @@ run_conn_hooks(
 %% Register
 enrich_clientinfo(
     #{
-        <<"header">> := #{<<"phone">> := Phone},
+        <<"header">> := Header = #{<<"phone">> := Phone},
         <<"body">> := #{
             <<"manufacturer">> := Manu,
             <<"dev_id">> := DevId
@@ -982,21 +1211,25 @@ enrich_clientinfo(
     },
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
+    ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
     NClientInfo = maybe_fix_mountpoint(ClientInfo#{
         phone => Phone,
         clientid => Phone,
         manufacturer => Manu,
-        terminal_id => DevId
+        terminal_id => DevId,
+        proto_ver => ProtoVer
     }),
     {ok, Channel#channel{clientinfo = NClientInfo}};
 %% Auth
 enrich_clientinfo(
-    #{<<"header">> := #{<<"phone">> := Phone}},
+    #{<<"header">> := Header = #{<<"phone">> := Phone}},
     Channel = #channel{clientinfo = ClientInfo}
 ) ->
+    ProtoVer = maps:get(<<"proto_ver">>, Header, ?PROTO_VER_2013),
     NClientInfo = ClientInfo#{
         phone => Phone,
-        clientid => Phone
+        clientid => Phone,
+        proto_ver => ProtoVer
     },
     {ok, Channel#channel{clientinfo = NClientInfo}}.
 
@@ -1099,3 +1332,31 @@ shutdown(Reason, Reply, Channel) ->
 
 disconnect_and_shutdown(Reason, Reply, Channel) ->
     shutdown(Reason, Reply, Channel).
+
+-ifdef(TEST).
+%% @doc Create a minimal channel record for unit testing
+make_test_channel() ->
+    #channel{
+        ctx = undefined,
+        conninfo = #{},
+        clientinfo = #{
+            clientid => <<"test_client">>,
+            username => undefined
+        },
+        session = undefined,
+        conn_state = connected,
+        timers = #{},
+        authcode = undefined,
+        keepalive = undefined,
+        msg_sn = 0,
+        dn_topic = undefined,
+        up_topic = undefined,
+        auth = undefined,
+        inflight = emqx_inflight:new(128),
+        mqueue = queue:new(),
+        max_mqueue_len = 100,
+        rsa_key = undefined,
+        retx_interval = 8000,
+        retx_max_times = 5
+    }.
+-endif.

@@ -30,27 +30,21 @@ wait_db_bootstrapped(Nodes, DB) ->
     wait_db_bootstrapped(Nodes, DB, infinity, infinity).
 
 wait_db_bootstrapped(Nodes, DB, Timeout, BackInTime) ->
-    SRefs = [
-        snabbkaffe:subscribe(
-            ?match_event(#{
+    [
+        ?block_until(
+            #{
                 ?snk_kind := emqx_ds_replshard_bootstrapped,
                 ?snk_meta := #{node := Node},
                 db := DB,
                 shard := Shard
-            }),
-            1,
+            },
             Timeout,
             BackInTime
         )
      || Node <- Nodes,
         Shard <- ?ON(Node, emqx_ds_builtin_raft_meta:my_shards(DB))
     ],
-    lists:foreach(
-        fun({ok, SRef}) ->
-            ?assertMatch({ok, [_]}, snabbkaffe:receive_events(SRef))
-        end,
-        SRefs
-    ).
+    ct:pal("DS DB ~p has been bootstrapped on ~p", [DB, Nodes]).
 
 -spec assert_db_stable([node()], emqx_ds:db()) -> _Ok.
 assert_db_stable([Node | _], DB) ->

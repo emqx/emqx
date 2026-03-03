@@ -44,7 +44,7 @@ init_per_suite(Config) ->
                         }
                 }
             }},
-            emqx_auth,
+            {emqx_auth, #{after_start => fun() -> ok end}},
             emqx_bridge_http,
             emqx_management,
             emqx_mgmt_api_test_util:emqx_dashboard()
@@ -95,7 +95,7 @@ t_node_cache(_) ->
         uri(["authorization", "node_cache"])
     ),
     ?assertMatch(
-        #{<<"enable">> := false},
+        #{<<"enable">> := true},
         emqx_utils_json:decode(CacheData0)
     ),
     {ok, 200, MetricsData0} = request(
@@ -159,7 +159,7 @@ t_node_cache_get(_Config) ->
         uri(["authorization", "node_cache"])
     ),
     ?assertMatch(
-        #{<<"enable">> := false},
+        #{<<"enable">> := true},
         emqx_utils_json:decode(CacheData0)
     ).
 

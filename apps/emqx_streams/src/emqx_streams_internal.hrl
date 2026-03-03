@@ -38,4 +38,6 @@
     lts_threshold_spec => {simple, {100, 0, 0, 100, 0}}
 }).
 
+-define(LEGACY_STREAM_NAME(TF), <<"/", (TF)/binary>>).
+
 -endif.

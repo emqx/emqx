@@ -119,14 +119,15 @@ init_per_testcase(TestCase, TCConfig) ->
             <<"batch_time">> => get_config(batch_time, TCConfig, <<"0ms">>)
         }
     }),
-    Client = emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(#{
+    ClientOpts = #{
         host => get_config(host, TCConfig, <<"rabbitmq">>),
         port => get_config(port, TCConfig, 5672),
         use_tls => get_config(enable_tls, TCConfig, false),
         exchange => ?EXCHANGE,
         queue => ?QUEUE,
         routing_key => ?ROUTING_KEY
-    }),
+    },
+    emqx_bridge_rabbitmq_testlib:connect_and_setup_exchange_and_queue(ClientOpts),
     snabbkaffe:start_trace(),
     [
         {bridge_kind, action},
@@ -136,14 +137,14 @@ init_per_testcase(TestCase, TCConfig) ->
         {action_type, ?ACTION_TYPE},
         {action_name, ActionName},
         {action_config, ActionConfig},
-        {client, Client}
+        {client_opts, ClientOpts}
         | TCConfig
     ].
 
 end_per_testcase(_TestCase, TCConfig) ->
     snabbkaffe:stop(),
-    Client = get_config(client, TCConfig),
-    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(Client),
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:cleanup_client_and_queue(ClientOpts),
     emqx_bridge_v2_testlib:delete_all_rules(),
     emqx_bridge_v2_testlib:delete_all_bridges_and_connectors(),
     emqx_common_test_helpers:call_janitor(),
@@ -178,8 +179,8 @@ get_tc_prop(TestCase, Key, Default) ->
     end.
 
 receive_message(TCConfig) ->
-    Client = get_config(client, TCConfig),
-    emqx_bridge_rabbitmq_testlib:receive_message(Client).
+    ClientOpts = get_config(client_opts, TCConfig),
+    emqx_bridge_rabbitmq_testlib:receive_message(ClientOpts).
 
 create_connector_api(TCConfig, Overrides) ->
     emqx_bridge_v2_testlib:simplify_result(
@@ -302,6 +303,7 @@ t_heavy_batching() ->
 t_heavy_batching(matrix) ->
     [[?tcp, ?with_batch]];
 t_heavy_batching(TCConfig) ->
+    ClientOpts = get_config(client_opts, TCConfig),
     {201, _} = create_connector_api(TCConfig, #{}),
     {201, _} = create_action_api(TCConfig, #{}),
     #{topic := Topic} = simple_create_rule_api(TCConfig),
@@ -312,14 +314,19 @@ t_heavy_batching(TCConfig) ->
         end,
         lists:seq(1, NumberOfMessages)
     ),
+    {Connection, Channel} = emqx_bridge_rabbitmq_testlib:connect_client(ClientOpts),
     AllMessages = lists:foldl(
         fun(_, Acc) ->
-            #{payload := Key} = receive_message(TCConfig),
+            #{payload := Key} = emqx_bridge_rabbitmq_testlib:receive_message(
+                Connection, Channel, ClientOpts
+            ),
             Acc#{Key => true}
         end,
         #{},
         lists:seq(1, NumberOfMessages)
     ),
+    amqp_channel:close(Channel),
+    amqp_connection:close(Connection),
     ?assertEqual(NumberOfMessages, maps:size(AllMessages)),
     ok.
 

@@ -3,6 +3,18 @@ emqx_jt808_schema {
 jt808_frame_max_length.desc:
 """The maximum length of the JT/T 808 frame."""
 
+parse_unknown_message.desc:
+"""Whether to process and forward unrecognized Message IDs. <br/>
+- <code>true</code>: Unrecognized Message IDs are processed, and their body is encoded in Base64 and forwarded.<br/>
+- <code>false</code>: An error is reported and logged when an unrecognized Message ID is received.<br/>
+Default is true."""
+
+string_encoding.desc:
+"""Character encoding for STRING type fields on the JT/T 808 wire protocol.<br/>
+- <code>utf8</code>: Strings are treated as UTF-8 encoded (legacy behavior, default).<br/>
+- <code>gbk</code>: Strings are treated as GBK encoded per JT/T 808 specification; converted to/from UTF-8 for MQTT payloads.<br/>
+Note: MQTT payloads always use UTF-8 regardless of this setting. Set to <code>gbk</code> if Chinese text appears garbled (Mojibake)."""
+
 jt808_auth.desc:
 """Authentication settings of the JT/T 808 Gateway."""
 

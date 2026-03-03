@@ -32,10 +32,16 @@ Buffer of messages received from the Message Queue consumer by a channel
 new() ->
     gb_trees:empty().
 
--spec add(t(), emqx_types:message()) -> t().
-add(Tree, Msg) ->
-    {Slab, SlabMessageId} = emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg),
-    gb_trees:insert({SlabMessageId, Slab}, Msg, Tree).
+-spec add(t(), [emqx_types:message()]) -> t().
+add(Tree, Msgs) ->
+    lists:foldl(
+        fun(Msg, TreeAcc) ->
+            {Slab, SlabMessageId} = emqx_message:get_header(?MQ_HEADER_MESSAGE_ID, Msg),
+            gb_trees:insert({SlabMessageId, Slab}, Msg, TreeAcc)
+        end,
+        Tree,
+        Msgs
+    ).
 
 -spec take(t(), non_neg_integer()) -> {[{emqx_mq_types:message_id(), emqx_types:message()}], t()}.
 take(Tree, N) when N >= 0 ->

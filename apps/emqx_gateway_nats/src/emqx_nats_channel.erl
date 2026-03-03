@@ -53,7 +53,15 @@
     %% Timer
     timers :: #{atom() => disable | undefined | reference()},
     %% Transaction
-    transaction :: #{binary() => list()}
+    transaction :: #{binary() => list()},
+    %% Cached max payload for publish hot path
+    max_payload_size :: non_neg_integer(),
+    %% Cached CONNECT verbose mode for ack + publish QoS
+    verbose_mode :: boolean(),
+    %% Cached QoS derived from verbose mode
+    publish_qos :: 0 | 1,
+    %% Cached static publish headers (excluding dynamic reply_to / headers)
+    pub_headers_base :: map()
 }).
 
 -type channel() :: #channel{}.
@@ -83,10 +91,12 @@
     username => <<"${Packet.user}">>,
     password => <<"${Packet.pass}">>
 }).
+-define(JWT_RULE_FILTERS_CACHE_KEY, {?MODULE, jwt_rule_filters_cache}).
 
 -define(INFO_KEYS, [conninfo, conn_state, clientinfo, session, will_msg]).
 -define(RAND_CLIENTID_BYETS, 16).
 -define(ALLOW_PUB_SUB(S), (S =:= connected orelse S =:= anonymous)).
+-define(OK_REPLY, {outgoing, #nats_frame{operation = ?OP_OK}}).
 
 %%--------------------------------------------------------------------
 %% Init the channel
@@ -131,18 +141,23 @@ init(
         ?DEFAULT_OVERRIDE,
         maps:get(clientinfo_override, Option, #{})
     ),
-    Channel = #channel{
+    MaxPayloadSize = extract_max_payload_size(Option),
+    Channel0 = #channel{
         ctx = Ctx,
         conninfo = ConnInfo,
         clientinfo = ClientInfo,
         clientinfo_override = Override,
         timers = #{},
         transaction = #{},
+        max_payload_size = MaxPayloadSize,
+        verbose_mode = true,
+        publish_qos = 1,
+        pub_headers_base = #{},
         conn_state = idle,
         subscriptions = []
     },
-    Channel1 = init_conn_state(Channel),
-    trigger_post_init(Channel1).
+    Channel = refresh_publish_hotpath_state(Channel0),
+    trigger_post_init(init_conn_state(Channel)).
 
 trigger_post_init(Channel) ->
     case Channel#channel.conninfo of
@@ -168,7 +183,7 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
     {SockHost, SockPort} = maps:get(sockname, ConnInfo),
     {ok, Vsn} = application:get_key(emqx_gateway_nats, vsn),
     TlsOptions = tls_required_and_verify(maps:get(listener, ClientInfo)),
-    MsgContent = TlsOptions#{
+    MsgContent0 = TlsOptions#{
         server_id => emqx_conf:get([gateway, nats, server_id]),
         server_name => emqx_conf:get([gateway, nats, server_name]),
         version => list_to_binary(Vsn),
@@ -180,17 +195,33 @@ info_frame(#channel{conninfo = ConnInfo, clientinfo = ClientInfo}) ->
         auth_required => is_auth_required(ClientInfo),
         jetstream => false
     },
+    MsgContent = emqx_nats_authn:maybe_add_nkey_nonce(MsgContent0, ConnInfo),
     #nats_frame{operation = ?OP_INFO, message = MsgContent}.
 
-is_auth_required(#{enable_authn := false}) ->
-    false;
-is_auth_required(#{enable_authn := true}) ->
-    case emqx_conf:get([gateway, nats, authentication], undefined) of
-        undefined ->
-            false;
-        _ ->
-            true
-    end.
+is_auth_required(ClientInfo) ->
+    emqx_nats_authn:is_auth_required(ClientInfo, nats_authn_ctx()).
+
+nats_authn_ctx() ->
+    RawNATS = emqx:get_raw_config([gateway, nats], #{}),
+    InternalAuthn = maps:get(
+        <<"internal_authn">>, RawNATS, maps:get(internal_authn, RawNATS, [])
+    ),
+    emqx_nats_authn:build_authn_ctx(
+        InternalAuthn,
+        emqx_conf:get([gateway, nats, authentication], undefined) =/= undefined
+    ).
+
+extract_max_payload_size(Option) ->
+    Protocol = maps:get(protocol, Option, maps:get(<<"protocol">>, Option, #{})),
+    maps:get(
+        max_payload_size,
+        Protocol,
+        maps:get(
+            <<"max_payload_size">>,
+            Protocol,
+            emqx_conf:get([gateway, nats, protocol, max_payload_size])
+        )
+    ).
 
 tls_required_and_verify(ListenerId) ->
     F = fun(T, N) ->
@@ -280,7 +311,7 @@ enrich_conninfo(
         no_responders => maps:get(no_responders, ConnParams, 0),
         conn_params => ConnParams
     },
-    {ok, Channel#channel{conninfo = NConnInfo}}.
+    {ok, refresh_publish_hotpath_state(Channel#channel{conninfo = NConnInfo})}.
 
 run_conn_hooks(
     Packet,
@@ -308,15 +339,7 @@ enrich_clientinfo(
         feedvar(Override, ConnParams, ConnInfo, ClientInfo0),
         ClientInfo0
     ),
-    {ok, _, ClientInfo2} = emqx_utils:pipeline(
-        [
-            %% FIXME: CALL After authentication successfully
-            fun fix_mountpoint/2
-        ],
-        ConnParams,
-        ClientInfo1
-    ),
-    {ok, Frame, Channel#channel{clientinfo = ClientInfo2}}.
+    {ok, Frame, set_clientinfo(Channel, ClientInfo1)}.
 
 assign_clientid_to_conninfo(
     Packet,
@@ -378,9 +401,10 @@ set_log_meta(_Packet, #channel{clientinfo = #{clientid := ClientId}}) ->
     ok.
 
 auth_connect(
-    _Packet,
+    #nats_frame{message = ConnParams},
     Channel = #channel{
         ctx = Ctx,
+        conninfo = ConnInfo,
         clientinfo = ClientInfo
     }
 ) ->
@@ -388,19 +412,81 @@ auth_connect(
         clientid := ClientId,
         username := Username
     } = ClientInfo,
+    case maps:get(enable_authn, ClientInfo, true) of
+        false ->
+            auth_connect_with_gateway(
+                Ctx,
+                ConnParams,
+                ClientInfo,
+                Channel,
+                ClientId,
+                Username
+            );
+        true ->
+            Authn = nats_authn_ctx(),
+            case emqx_nats_authn:authenticate(ConnParams, ConnInfo, ClientInfo, Authn) of
+                {ok, NClientInfo0} ->
+                    %% NOTE:
+                    %% Internal auth intentionally bypasses `emqx_gateway_ctx:authenticate/2`.
+                    %% This skips `client.authenticate`/`client.check_authn_complete` hooks
+                    %% as a known implementation trade-off for NATS internal auth.
+                    NClientInfo = normalize_mountpoint(ConnParams, NClientInfo0),
+                    {ok, set_clientinfo(Channel, NClientInfo)};
+                {continue, NClientInfo} ->
+                    case maps:get(gateway_auth_enabled, Authn, false) of
+                        true ->
+                            auth_connect_with_gateway(
+                                Ctx,
+                                ConnParams,
+                                NClientInfo,
+                                Channel,
+                                ClientId,
+                                Username
+                            );
+                        false ->
+                            NClientInfo0 = maps:put(auth_expire_at, undefined, NClientInfo),
+                            NClientInfo1 = normalize_mountpoint(ConnParams, NClientInfo0),
+                            {ok, set_clientinfo(Channel, NClientInfo1)}
+                    end;
+                {error, {Method, Reason}} ->
+                    log_auth_failed(auth_failed_msg(Method), ClientId, Username, Reason),
+                    {error, Reason}
+            end
+    end.
+
+auth_connect_with_gateway(Ctx, ConnParams, ClientInfo, Channel, ClientId, Username) ->
     case emqx_gateway_ctx:authenticate(Ctx, ClientInfo) of
-        {ok, NClientInfo} ->
-            {ok, Channel#channel{clientinfo = NClientInfo}};
+        {ok, NClientInfo0} ->
+            NClientInfo = normalize_mountpoint(ConnParams, NClientInfo0),
+            {ok, set_clientinfo(Channel, NClientInfo)};
         {error, Reason} ->
-            ?SLOG(warning, #{
-                tag => ?TAG,
-                msg => "client_login_failed",
-                clientid => ClientId,
-                username => Username,
-                reason => Reason
-            }),
+            log_auth_failed("client_login_failed", ClientId, Username, Reason),
             {error, Reason}
     end.
+
+normalize_mountpoint(ConnParams, ClientInfo) ->
+    case fix_mountpoint(ConnParams, ClientInfo) of
+        ok ->
+            ClientInfo;
+        {ok, NClientInfo} ->
+            NClientInfo
+    end.
+
+auth_failed_msg(token) ->
+    "token_auth_failed";
+auth_failed_msg(nkey) ->
+    "nkey_auth_failed";
+auth_failed_msg(jwt) ->
+    "jwt_auth_failed".
+
+log_auth_failed(Msg, ClientId, Username, Reason) ->
+    ?SLOG(warning, #{
+        tag => ?TAG,
+        msg => Msg,
+        clientid => ClientId,
+        username => Username,
+        reason => Reason
+    }).
 
 ensure_connected(
     Channel = #channel{
@@ -510,12 +596,15 @@ handle_in(
     }
 ) when (Op =:= ?OP_PUB orelse Op =:= ?OP_HPUB) andalso ?ALLOW_PUB_SUB(ConnState) ->
     Subject = emqx_nats_frame:subject(Frame),
-    Topic = emqx_nats_topic:nats_to_mqtt(Subject),
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic) of
+    Topic = nats_subject_to_pub_topic(Subject),
+    case authorize_with_jwt_first(Ctx, ClientInfo, ?AUTHZ_PUBLISH, Topic, Subject) of
         deny ->
             handle_out(error, err_msg_publish_denied(Subject), Channel);
         allow ->
-            process_pub_frame(Frame, Channel)
+            case check_max_payload(Frame, Channel) of
+                ok -> process_pub_frame(Frame, Topic, Channel);
+                {error, ErrMsg} -> handle_out(error, ErrMsg, Channel)
+            end
     end;
 handle_in(
     Frame = ?PACKET(?OP_SUB),
@@ -541,11 +630,11 @@ handle_in(
                 fun check_subscribed_status/2,
                 fun check_sub_acl/2
             ],
-            {SId, Topic1},
+            {SId, Topic1, Subject},
             Channel
         )
     of
-        {ok, {_, TopicFilter}, NChannel} ->
+        {ok, {_, TopicFilter, _}, NChannel} ->
             TopicFilters = [TopicFilter],
             NTopicFilters = run_hooks(
                 Ctx,
@@ -555,9 +644,14 @@ handle_in(
             ),
             case do_subscribe(NTopicFilters, NChannel) of
                 [] ->
+                    TopicText =
+                        case TopicFilter of
+                            {ParsedTopic, _SubOpts} -> ParsedTopic;
+                            _ -> TopicFilter
+                        end,
                     ErrMsg = io_lib:format(
                         "The client.subscribe hook blocked the ~s subscription request",
-                        [TopicFilter]
+                        [TopicText]
                     ),
                     handle_out(error, ErrMsg, NChannel);
                 [{MountedTopic, SubOpts} | _] ->
@@ -658,13 +752,18 @@ to_atom_shutdown_reason({R, _}) when is_atom(R) ->
 %%--------------------------------------------------------------------
 %% Subs
 
-parse_topic_filter({SId, Topic}, Channel) ->
+parse_topic_filter({SId, Topic, Subject}, Channel = #channel{conninfo = ConnInfo}) ->
     {ParsedTopic, SubOpts} = emqx_topic:parse(Topic),
-    NSubOpts = SubOpts#{sub_props => #{sid => SId}},
-    {ok, {SId, {ParsedTopic, NSubOpts}}, Channel}.
+    NSubOpts0 = SubOpts#{sub_props => #{sid => SId}},
+    NSubOpts =
+        case is_no_local_enabled(ConnInfo) of
+            true -> NSubOpts0#{nl => 1};
+            false -> NSubOpts0
+        end,
+    {ok, {SId, {ParsedTopic, NSubOpts}, Subject}, Channel}.
 
 check_subscribed_status(
-    {SId, {ParsedTopic, _SubOpts}},
+    {SId, {ParsedTopic, _SubOpts}, _Subject},
     #channel{
         subscriptions = Subs,
         clientinfo = #{mountpoint := Mountpoint}
@@ -684,7 +783,7 @@ check_subscribed_status(
     end.
 
 check_sub_acl(
-    {_SId, {ParsedTopic, _SubOpts}},
+    {_SId, {ParsedTopic, _SubOpts}, Subject},
     #channel{
         ctx = Ctx,
         clientinfo = ClientInfo
@@ -692,7 +791,7 @@ check_sub_acl(
 ) ->
     %% QoS is not supported in stomp
     Action = ?AUTHZ_SUBSCRIBE,
-    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, ParsedTopic) of
+    case authorize_with_jwt_first(Ctx, ClientInfo, Action, ParsedTopic, Subject) of
         deny -> {error, acl_denied};
         allow -> ok
     end.
@@ -882,8 +981,11 @@ handle_info(Info, Channel) ->
     {ok, Channel}.
 
 handle_after_init(Channel) ->
-    Replies = [{outgoing, info_frame(Channel)}],
-    {ok, Replies, Channel}.
+    Authn = nats_authn_ctx(),
+    ConnInfo = emqx_nats_authn:ensure_nkey_nonce(Channel#channel.conninfo, Authn),
+    NChannel = Channel#channel{conninfo = ConnInfo},
+    Replies = [{outgoing, info_frame(NChannel)}],
+    {ok, Replies, NChannel}.
 
 %%--------------------------------------------------------------------
 %% Ensure disconnected
@@ -922,49 +1024,57 @@ handle_deliver(
     Delivers,
     Channel = #channel{
         ctx = Ctx,
-        clientinfo = ClientInfo = #{mountpoint := Mountpoint},
+        clientinfo = ClientInfo = #{clientid := ClientId, mountpoint := Mountpoint},
         subscriptions = Subs
     }
 ) ->
+    EchoDisabled = is_no_local_enabled(Channel#channel.conninfo),
     {Frames0, NSubs} = lists:foldl(
         fun({deliver, SubTopic, Message}, {FrameAcc, SubsAcc}) ->
-            ReplyTo = emqx_message:get_header(reply_to, Message),
-            case find_sub_by_topic(SubTopic, SubsAcc) of
-                #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
-                    Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
-                    metrics_inc('messages.delivered', Channel),
-                    NMessage = run_hooks_without_metrics(
-                        Ctx,
-                        'message.delivered',
-                        [ClientInfo],
-                        Message1
-                    ),
-                    MsgContent = #{
-                        subject => emqx_nats_topic:mqtt_to_nats(emqx_message:topic(NMessage)),
-                        sid => SId,
-                        reply_to => ReplyTo,
-                        payload => emqx_message:payload(NMessage)
-                    },
-                    Frame = #nats_frame{
-                        operation = ?OP_MSG,
-                        message = MsgContent
-                    },
-                    {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
-                #{max_msgs := 0} ->
-                    metrics_inc('delivery.dropped', Channel),
-                    metrics_inc('delivery.dropped.max_msgs', Channel),
+            case EchoDisabled andalso emqx_message:from(Message) =:= ClientId of
+                true ->
                     {FrameAcc, SubsAcc};
                 false ->
-                    ?SLOG(error, #{
-                        tag => ?TAG,
-                        msg => "dropped_message_due_to_subscription_not_found",
-                        message => Message,
-                        matched_subscription_topic => SubTopic,
-                        message_topic => emqx_message:topic(Message)
-                    }),
-                    metrics_inc('delivery.dropped', Channel),
-                    metrics_inc('delivery.dropped.no_subid', Channel),
-                    {FrameAcc, SubsAcc}
+                    ReplyTo = emqx_message:get_header(reply_to, Message),
+                    case find_sub_by_topic(SubTopic, SubsAcc) of
+                        #{sid := SId, max_msgs := MaxMsgs} when MaxMsgs > 0 ->
+                            Message1 = emqx_mountpoint:unmount(Mountpoint, Message),
+                            metrics_inc('messages.delivered', Channel),
+                            NMessage = run_hooks_without_metrics(
+                                Ctx,
+                                'message.delivered',
+                                [ClientInfo],
+                                Message1
+                            ),
+                            MsgContent = #{
+                                subject => emqx_nats_topic:mqtt_to_nats(
+                                    emqx_message:topic(NMessage)
+                                ),
+                                sid => SId,
+                                reply_to => ReplyTo,
+                                payload => emqx_message:payload(NMessage)
+                            },
+                            Frame = #nats_frame{
+                                operation = ?OP_MSG,
+                                message = MsgContent
+                            },
+                            {[Frame | FrameAcc], reduce_sub_max_msgs(SId, SubsAcc)};
+                        #{max_msgs := 0} ->
+                            metrics_inc('delivery.dropped', Channel),
+                            metrics_inc('delivery.dropped.max_msgs', Channel),
+                            {FrameAcc, SubsAcc};
+                        false ->
+                            ?SLOG(error, #{
+                                tag => ?TAG,
+                                msg => "dropped_message_due_to_subscription_not_found",
+                                message => Message,
+                                matched_subscription_topic => SubTopic,
+                                message_topic => emqx_message:topic(Message)
+                            }),
+                            metrics_inc('delivery.dropped', Channel),
+                            metrics_inc('delivery.dropped.no_subid', Channel),
+                            {FrameAcc, SubsAcc}
+                    end
             end
         end,
         {[], Subs},
@@ -1048,54 +1158,42 @@ error_frame(Msg) ->
 
 frame2message(
     Frame,
-    Channel = #channel{
-        conninfo = ConnInfo,
+    Topic,
+    #channel{
         clientinfo = #{
-            protocol := Protocol,
             clientid := ClientId,
-            username := Username,
-            peerhost := PeerHost,
             mountpoint := Mountpoint
-        }
+        },
+        publish_qos = QoS,
+        pub_headers_base = BaseHeaders
     }
 ) ->
-    ProtoVer = maps:get(proto_ver, ConnInfo, <<"1">>),
-    Subject = emqx_nats_frame:subject(Frame),
-    Topic = emqx_nats_topic:nats_to_mqtt(Subject),
-    Payload = emqx_nats_frame:payload(Frame),
-    Headers = emqx_nats_frame:headers(Frame),
-    ReplyTo = emqx_nats_frame:reply_to(Frame),
-    QoS =
-        case is_verbose_mode(Channel) of
-            true -> 1;
-            false -> 0
+    {Payload, Headers, ReplyTo} = frame_payload_headers_reply(Frame),
+    BaseHeaders1 =
+        case Headers =:= #{} of
+            true -> BaseHeaders;
+            false -> BaseHeaders#{nats_headers => Headers}
         end,
-    Msg = emqx_message:make(ClientId, QoS, Topic, Payload),
-    %% Pass-through of custom headers on the sending side
-    Headers0 = #{
-        proto_ver => ProtoVer,
-        protocol => Protocol,
-        username => Username,
-        peerhost => PeerHost,
-        nats_headers => Headers,
-        reply_to => ReplyTo
-    },
     Headers1 =
         case ReplyTo of
             undefined ->
-                Headers0;
+                BaseHeaders1;
             _ ->
-                Headers0#{reply_to => ReplyTo}
+                BaseHeaders1#{reply_to => ReplyTo}
         end,
-    NMsg = emqx_message:set_headers(Headers1, Msg),
-    emqx_mountpoint:mount(Mountpoint, NMsg).
+    Msg = emqx_message:make(ClientId, QoS, Topic, Payload, #{}, Headers1),
+    {emqx_mountpoint:mount(Mountpoint, Msg), ReplyTo}.
 
-process_pub_frame(Frame, Channel) ->
-    Msg = frame2message(Frame, Channel),
-    ReplyToSubject = emqx_nats_frame:reply_to(Frame),
+process_pub_frame(Frame, Topic, Channel) ->
+    {Msg, ReplyToSubject} = frame2message(Frame, Topic, Channel),
     PubResult = emqx_broker:publish(Msg),
     Replies = no_responders_fastfails(PubResult, ReplyToSubject, Channel),
-    handle_out(ok, Replies, Channel).
+    finalize_pub_replies(Replies, Channel).
+
+finalize_pub_replies(Replies, #channel{verbose_mode = true} = Channel) ->
+    {ok, [?OK_REPLY | Replies], Channel};
+finalize_pub_replies(Replies, Channel) ->
+    {ok, Replies, Channel}.
 
 no_responders_fastfails([], ReplyToSubject, Channel = #channel{conninfo = ConnInfo}) when
     is_binary(ReplyToSubject)
@@ -1158,6 +1256,199 @@ interval(keepalive_send_timer, #channel{conninfo = ConnInfo}) ->
 interval(keepalive_recv_timer, _) ->
     emqx_conf:get([gateway, nats, heartbeat_wait_timeout], ?KEEPALIVE_RECV_INTERVAL).
 
+authorize_with_jwt_first(Ctx, ClientInfo, Action, Topic, Subject) ->
+    case jwt_permissions_authorize(ClientInfo, Action, Topic, Subject) of
+        deny ->
+            deny;
+        allow ->
+            authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic);
+        ignore ->
+            authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic)
+    end.
+
+authorize_with_gateway_acl(Ctx, ClientInfo, Action, Topic) ->
+    case emqx_gateway_ctx:authorize(Ctx, ClientInfo, Action, Topic) of
+        allow ->
+            allow;
+        _ ->
+            deny
+    end.
+
+jwt_permissions_authorize(
+    #{jwt_permissions := JWTPerms},
+    Action,
+    Topic,
+    Subject
+) when is_map(JWTPerms) ->
+    JWTPermAction = action_to_jwt_permission(Action),
+    do_jwt_permissions_authorize(
+        JWTPermAction,
+        Topic,
+        Subject,
+        jwt_rule_filters(JWTPerms, JWTPermAction)
+    );
+jwt_permissions_authorize(_ClientInfo, _Action, _Topic, _Subject) ->
+    ignore.
+
+action_to_jwt_permission(#{action_type := publish}) ->
+    publish;
+action_to_jwt_permission(#{action_type := subscribe}) ->
+    subscribe.
+
+do_jwt_permissions_authorize(
+    _Action,
+    _Topic,
+    _Subject,
+    #{allow_empty := true, deny_empty := true}
+) ->
+    ignore;
+do_jwt_permissions_authorize(Action, Topic, Subject, RuleFilters) ->
+    jwt_permission_decision(Action, Topic, Subject, RuleFilters).
+
+jwt_permission_decision(
+    publish,
+    Topic,
+    _Subject,
+    #{
+        allow_empty := AllowEmpty,
+        allow_filters := AllowFilters,
+        deny_filters := DenyFilters
+    }
+) ->
+    case jwt_publish_match_any(Topic, DenyFilters) of
+        true ->
+            deny;
+        false ->
+            case AllowEmpty of
+                true ->
+                    allow;
+                false ->
+                    case jwt_publish_match_any(Topic, AllowFilters) of
+                        true -> allow;
+                        false -> deny
+                    end
+            end
+    end;
+jwt_permission_decision(
+    subscribe,
+    _Topic,
+    Subject,
+    #{
+        allow_empty := AllowEmpty,
+        allow_filters := AllowFilters,
+        deny_filters := DenyFilters
+    }
+) ->
+    TopicFilter = nats_subject_to_filter(Subject),
+    case jwt_subscribe_match_any(TopicFilter, DenyFilters, intersection) of
+        true ->
+            deny;
+        false ->
+            case AllowEmpty of
+                true ->
+                    allow;
+                false ->
+                    case jwt_subscribe_match_any(TopicFilter, AllowFilters, subset) of
+                        true -> allow;
+                        false -> deny
+                    end
+            end
+    end.
+
+jwt_publish_match_any(Topic, RuleFilters) ->
+    try jwt_publish_match_any_unsafe(Topic, RuleFilters) of
+        Result -> Result
+    catch
+        _:_ -> false
+    end.
+
+jwt_publish_match_any_unsafe(_Topic, []) ->
+    false;
+jwt_publish_match_any_unsafe(Topic, [RuleFilter | Rest]) ->
+    case emqx_topic:match(Topic, RuleFilter) of
+        true -> true;
+        false -> jwt_publish_match_any_unsafe(Topic, Rest)
+    end.
+
+jwt_subscribe_match_any(TopicFilter, RuleFilters, Mode) ->
+    try jwt_subscribe_match_any_unsafe(TopicFilter, RuleFilters, Mode) of
+        Result -> Result
+    catch
+        _:_ -> false
+    end.
+
+jwt_subscribe_match_any_unsafe(_TopicFilter, [], _Mode) ->
+    false;
+jwt_subscribe_match_any_unsafe(TopicFilter, [RuleFilter | Rest], subset) ->
+    case emqx_topic:is_subset(TopicFilter, RuleFilter) of
+        true -> true;
+        false -> jwt_subscribe_match_any_unsafe(TopicFilter, Rest, subset)
+    end;
+jwt_subscribe_match_any_unsafe(TopicFilter, [RuleFilter | Rest], intersection) ->
+    case emqx_topic:intersection(TopicFilter, RuleFilter) =/= false of
+        true -> true;
+        false -> jwt_subscribe_match_any_unsafe(TopicFilter, Rest, intersection)
+    end.
+
+jwt_rule_filters(JWTPerms, Action) ->
+    RuleFiltersByAction =
+        case erlang:get(?JWT_RULE_FILTERS_CACHE_KEY) of
+            {JWTPerms, Cached} ->
+                Cached;
+            _ ->
+                Built = build_jwt_rule_filters(JWTPerms),
+                _ = erlang:put(?JWT_RULE_FILTERS_CACHE_KEY, {JWTPerms, Built}),
+                Built
+        end,
+    maps:get(Action, RuleFiltersByAction, default_jwt_rule_filters()).
+
+build_jwt_rule_filters(JWTPerms) ->
+    #{
+        publish => build_action_rule_filters(publish, JWTPerms),
+        subscribe => build_action_rule_filters(subscribe, JWTPerms)
+    }.
+
+build_action_rule_filters(Action, JWTPerms) ->
+    RuleMap = normalize_map(map_get(JWTPerms, Action, #{})),
+    AllowRules = normalize_subject_list(map_get_any(RuleMap, [allow, <<"allow">>], [])),
+    DenyRules = normalize_subject_list(map_get_any(RuleMap, [deny, <<"deny">>], [])),
+    #{
+        allow_empty => AllowRules =:= [],
+        allow_filters => normalize_rule_filters(AllowRules),
+        deny_empty => DenyRules =:= [],
+        deny_filters => normalize_rule_filters(DenyRules)
+    }.
+
+default_jwt_rule_filters() ->
+    #{
+        allow_empty => true,
+        allow_filters => [],
+        deny_empty => true,
+        deny_filters => []
+    }.
+
+normalize_rule_filters(Rules) ->
+    lists:filtermap(
+        fun(Rule) ->
+            case safe_nats_subject_to_filter(Rule) of
+                {ok, RuleFilter} -> {true, RuleFilter};
+                error -> false
+            end
+        end,
+        Rules
+    ).
+
+safe_nats_subject_to_filter(Subject) ->
+    try
+        {ok, nats_subject_to_filter(Subject)}
+    catch
+        _:_ ->
+            error
+    end.
+
+nats_subject_to_filter(Subject) ->
+    emqx_nats_topic:nats_to_mqtt(Subject).
+
 %%--------------------------------------------------------------------
 %% Helper functions
 %%--------------------------------------------------------------------
@@ -1176,10 +1467,122 @@ run_hooks_without_metrics(_Ctx, Name, Args, Acc) ->
 metrics_inc(Name, #channel{ctx = Ctx}) ->
     emqx_gateway_ctx:metrics_inc(Ctx, Name).
 
-is_verbose_mode(_Channel = #channel{conninfo = #{conn_params := ConnParams}}) ->
+set_clientinfo(Channel, ClientInfo) ->
+    refresh_publish_hotpath_state(Channel#channel{clientinfo = ClientInfo}).
+
+refresh_publish_hotpath_state(
+    Channel = #channel{
+        conninfo = ConnInfo,
+        clientinfo = #{
+            protocol := Protocol,
+            username := Username,
+            peerhost := PeerHost
+        }
+    }
+) ->
+    VerboseMode = conn_verbose_mode(ConnInfo),
+    PublishQoS = bool_to_qos(VerboseMode),
+    BaseHeaders = #{
+        proto_ver => maps:get(proto_ver, ConnInfo, <<"1">>),
+        protocol => Protocol,
+        username => Username,
+        peerhost => PeerHost,
+        nats_headers => #{}
+    },
+    Channel#channel{
+        verbose_mode = VerboseMode,
+        publish_qos = PublishQoS,
+        pub_headers_base = BaseHeaders
+    }.
+
+conn_verbose_mode(#{conn_params := ConnParams}) when is_map(ConnParams) ->
     maps:get(<<"verbose">>, ConnParams, true);
-is_verbose_mode(_) ->
+conn_verbose_mode(_) ->
     true.
+
+bool_to_qos(true) ->
+    1;
+bool_to_qos(false) ->
+    0.
+
+is_verbose_mode(#channel{verbose_mode = VerboseMode}) ->
+    VerboseMode.
+
+is_no_local_enabled(#{conn_params := ConnParams}) ->
+    Echo =
+        case ConnParams of
+            #{<<"echo">> := Val} -> Val;
+            #{echo := Val} -> Val;
+            #{"echo" := Val} -> Val;
+            _ -> true
+        end,
+    case Echo of
+        false -> true;
+        <<"false">> -> true;
+        "false" -> true;
+        _ -> false
+    end;
+is_no_local_enabled(_) ->
+    false.
+
+normalize_subject_list(Values) when is_list(Values) ->
+    lists:filtermap(
+        fun
+            (undefined) ->
+                false;
+            (<<>>) ->
+                false;
+            (Value) when is_binary(Value) ->
+                {true, Value};
+            (Value) ->
+                case emqx_utils_conv:bin(Value) of
+                    <<>> -> false;
+                    Bin -> {true, Bin}
+                end
+        end,
+        Values
+    );
+normalize_subject_list(_) ->
+    [].
+
+map_get(Map, Key, Default) when is_map(Map) ->
+    maps:get(Key, Map, Default).
+
+map_get_any(Map, [Key | More], Default) when is_map(Map) ->
+    case maps:find(Key, Map) of
+        {ok, Value} ->
+            Value;
+        error ->
+            map_get_any(Map, More, Default)
+    end;
+map_get_any(_, [], Default) ->
+    Default.
+
+normalize_map(Map) when is_map(Map) ->
+    Map;
+normalize_map(_) ->
+    #{}.
+
+frame_payload_headers_reply(#nats_frame{operation = ?OP_PUB, message = Msg}) ->
+    {maps:get(payload, Msg), #{}, maps:get(reply_to, Msg, undefined)};
+frame_payload_headers_reply(#nats_frame{operation = ?OP_HPUB, message = Msg}) ->
+    {
+        maps:get(payload, Msg),
+        maps:get(headers, Msg, #{}),
+        maps:get(reply_to, Msg, undefined)
+    }.
+
+nats_subject_to_pub_topic(Subject) ->
+    emqx_nats_topic:nats_to_mqtt_publish(Subject).
+
+check_max_payload(Frame, #channel{max_payload_size = MaxPayload}) ->
+    PayloadSize = emqx_nats_frame:payload_total_size(Frame),
+    case PayloadSize > MaxPayload of
+        true ->
+            {error, <<"Maximum Payload Violation">>};
+        false ->
+            ok
+    end.
 
 find_sub_by_topic(_Topic, []) ->
     false;

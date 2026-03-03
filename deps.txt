@@ -1,4 +1,5 @@
 emqx: all
+emqx_a2a_registry: none
 emqx_ai_completion: none
 emqx_audit: all
 emqx_auth: all

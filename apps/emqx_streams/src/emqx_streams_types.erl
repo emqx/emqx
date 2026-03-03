@@ -12,6 +12,7 @@ The module contains basic types for the Streams application.
 
 -type stream_topic() :: binary().
 -type stream_id() :: binary().
+-type stream_name() :: binary().
 -type interval_ms() :: pos_integer().
 
 -type limits() :: #{
@@ -24,6 +25,7 @@ The module contains basic types for the Streams application.
 
 -type stream() :: #{
     id := stream_id(),
+    name := stream_name(),
     topic_filter := stream_topic(),
     is_lastvalue := boolean(),
     key_expression := emqx_variform:compiled(),
@@ -35,6 +37,7 @@ The module contains basic types for the Streams application.
 -export_type([
     stream_topic/0,
     stream_id/0,
+    stream_name/0,
     stream/0,
     limits/0,
     partition/0,

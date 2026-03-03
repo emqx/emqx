@@ -180,6 +180,9 @@ for dep in ${CT_DEPS}; do
         opents)
             FILES+=( '.ci/docker-compose-file/docker-compose-opents.yaml' )
             ;;
+        nats)
+            FILES+=( '.ci/docker-compose-file/docker-compose-nats.yaml' )
+            ;;
         pulsar)
             FILES+=( '.ci/docker-compose-file/docker-compose-pulsar.yaml' )
             ;;
@@ -203,13 +206,17 @@ for dep in ${CT_DEPS}; do
             FILES+=( '.ci/docker-compose-file/docker-compose-kinesis.yaml' )
             ;;
         greptimedb)
-            FILES+=( '.ci/docker-compose-file/docker-compose-greptimedb.yaml' )
+            FILES+=( '.ci/docker-compose-file/docker-compose-greptimedb.yaml'
+                     '.ci/docker-compose-file/docker-compose-greptimedb-tls.yaml' )
             ;;
         ldap)
             FILES+=( '.ci/docker-compose-file/docker-compose-ldap.yaml' )
             ;;
         dex)
             FILES+=( '.ci/docker-compose-file/docker-compose-dex-oidc.yaml' )
+            ;;
+        keycloak)
+            FILES+=( '.ci/docker-compose-file/docker-compose-keycloak.yaml' )
             ;;
         otel)
             FILES+=( '.ci/docker-compose-file/docker-compose-otel.yaml' )
@@ -313,7 +320,7 @@ fi
 
 if [ "$DOCKER_USER" != "root" ]; then
     # the user must exist inside the container for `whoami` to work
-  docker exec -i $TTY -u root:root \
+    docker exec -i $TTY -u root:root \
          -e "SFACCOUNT=${SFACCOUNT:-myorg-myacc}" \
          "$ERLANG_CONTAINER" bash -c \
          "useradd --uid $DOCKER_USER -M -d / emqx || true && \

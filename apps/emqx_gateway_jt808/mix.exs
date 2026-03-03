@@ -5,7 +5,7 @@ defmodule EMQXGatewayJt808.MixProject do
   def project do
     [
       app: :emqx_gateway_jt808,
-      version: "6.1.0",
+      version: "6.2.0",
       build_path: "../../_build",
       erlc_options: UMP.erlc_options(),
       erlc_paths: UMP.erlc_paths(),
@@ -25,7 +25,8 @@ defmodule EMQXGatewayJt808.MixProject do
     UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_utils, in_umbrella: true},
-      {:emqx_gateway, in_umbrella: true}
+      {:emqx_gateway, in_umbrella: true},
+      UMP.common_dep(:egbk)
     ])
   end
 end

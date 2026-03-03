@@ -53,13 +53,16 @@ roots() ->
 
 fields(gateway) ->
     lists:map(
-        fun(#{name := Name, config_schema_module := Mod}) ->
+        fun(#{name := Name, config_schema_module := Mod} = GatewayDef) ->
             {Name,
                 sc(
                     ref(Mod, Name),
                     #{
                         required => {false, recursively},
-                        desc => ?DESC(Name)
+                        desc => ?DESC(Name),
+                        importance => maps:get(
+                            config_schema_importance, GatewayDef, ?IMPORTANCE_LOW
+                        )
                     }
                 )}
         end,

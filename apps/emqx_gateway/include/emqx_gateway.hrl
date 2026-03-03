@@ -29,7 +29,8 @@
     #{
         name := gateway_name(),
         callback_module := module(),
-        config_schema_module := module()
+        config_schema_module := module(),
+        config_schema_importance => term()
     }.
 
 -define(GATEWAY_SUP_NAME, emqx_gateway_sup).

@@ -55,14 +55,4 @@
     retry = []
 }).
 
--define(record_to_map(RECORD, VALUE),
-    (fun(Val) ->
-        Fields = record_info(fields, RECORD),
-        [_Tag | Values] = tuple_to_list(Val),
-        maps:from_list(lists:zip(Fields, Values))
-    end)(
-        VALUE
-    )
-).
-
 -endif.

@@ -25,7 +25,10 @@ type() -> ?AUTHZ_TYPE.
 fields(Type) ->
     emqx_authz_schema:authz_common_fields(?AUTHZ_TYPE) ++
         emqx_redis:fields(Type) ++
-        [{cmd, cmd()}].
+        [
+            {cmd, cmd()},
+            {compatibility_mode, compatibility_mode()}
+        ].
 
 desc(redis_single) ->
     ?DESC(redis_single);
@@ -73,4 +76,12 @@ cmd() ->
             end
         end,
         example => <<"HGETALL mqtt_authz">>
+    }).
+
+compatibility_mode() ->
+    ?HOCON(hoconsc:enum([disabled, v4]), #{
+        required => false,
+        default => disabled,
+        desc => ?DESC(compatibility_mode),
+        example => v4
     }).

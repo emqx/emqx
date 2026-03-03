@@ -216,7 +216,7 @@ is_existing_type(SchemaName, Path) ->
         _ -> false
     end.
 
--spec schema_check(schema_name(), decoded_data() | encoded_data(), [term()]) -> decoded_data().
+-spec schema_check(schema_name(), decoded_data() | encoded_data(), [term()]) -> boolean().
 schema_check(SerdeName, Data, VarArgs) when is_list(VarArgs), is_binary(Data) ->
     with_serde(
         SerdeName,

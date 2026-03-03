@@ -104,9 +104,6 @@ legacy_vm_statistics_collector.desc:
 legacy_vm_system_info_collector.desc:
 """Deprecated, use `prometheus.collectors.vm_system_info` instead"""
 
-legacy_deprecated_setting.desc:
-"""Deprecated since 5.4.0"""
-
 latency_buckets.desc:
 """Comma separated duration values for latency histogram buckets."""
 

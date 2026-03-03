@@ -35,16 +35,18 @@
 
 -spec register_hooks() -> ok.
 register_hooks() ->
-    ok = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
-    ok = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
-    ok = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
-    ok = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST).
+    %% Idempotent hooks registration
+    _ = emqx_hooks:add('client.authorize', {?MODULE, on_client_authorize, []}, ?HP_AUTHZ + 1),
+    _ = emqx_hooks:add('message.publish', {?MODULE, on_message_publish, []}, ?HP_RETAINER + 1),
+    _ = emqx_hooks:add('delivery.completed', {?MODULE, on_delivery_completed, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('session.created', {?MODULE, on_session_created, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('session.subscribed', {?MODULE, on_session_subscribed, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('session.unsubscribed', {?MODULE, on_session_unsubscribed, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('session.resumed', {?MODULE, on_session_resumed, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('session.disconnected', {?MODULE, on_session_disconnected, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('message.nack', {?MODULE, on_message_nack, []}, ?HP_LOWEST),
+    _ = emqx_hooks:add('client.handle_info', {?MODULE, on_client_handle_info, []}, ?HP_LOWEST),
+    ok.
 
 -spec unregister_hooks() -> ok.
 unregister_hooks() ->
@@ -67,29 +69,29 @@ on_message_publish(#message{topic = <<"$SYS/", _/binary>>} = Message) ->
     {ok, Message};
 on_message_publish(#message{topic = Topic} = Message) ->
     ?tp_mq_client(mq_on_message_publish, #{topic => Topic}),
-    Queues = emqx_mq_registry:match(Topic),
+    MQHandles = emqx_mq_registry:match(Topic),
     ok = lists:foreach(
-        fun(Queue) ->
-            {Time, Result} = timer:tc(fun() -> publish_to_queue(Queue, Message) end),
+        fun(MQHandle) ->
+            {Time, Result} = timer:tc(fun() -> publish_to_queue(MQHandle, Message) end),
             case Result of
                 ok ->
                     emqx_mq_metrics:inc(ds, inserted_messages),
                     ?tp_mq_client(mq_on_message_publish_to_queue, #{
-                        topic_filter => emqx_mq_prop:topic_filter(Queue),
+                        topic_filter => emqx_mq_prop:topic_filter(MQHandle),
                         message_topic => emqx_message:topic(Message),
                         time_us => Time,
                         result => ok
                     });
                 {error, Reason} ->
                     ?tp(error, mq_on_message_publish_queue_error, #{
-                        topic_filter => emqx_mq_prop:topic_filter(Queue),
+                        topic_filter => emqx_mq_prop:topic_filter(MQHandle),
                         message_topic => emqx_message:topic(Message),
                         time_us => Time,
                         reason => Reason
                     })
             end
         end,
-        Queues
+        MQHandles
     ),
     {ok, Message}.
 
@@ -111,51 +113,79 @@ on_delivery_completed(Msg, Info) ->
             end
     end.
 
-on_session_subscribed(ClientInfo, <<"$q/", Topic/binary>> = _FullTopic, _SubOpts) ->
-    ?tp_mq_client(mq_on_session_subscribed, #{
-        full_topic => _FullTopic, handle => true, client_info => ClientInfo
-    }),
-    case is_mq_supported() of
-        true ->
-            case emqx_mq_sub_registry:find(Topic) of
-                undefined ->
-                    ok = maybe_auto_create(Topic),
-                    Sub = emqx_mq_sub:handle_connect(ClientInfo, Topic),
-                    ok = emqx_mq_sub_registry:register(Sub);
-                _Sub ->
-                    ok
-            end;
-        false ->
-            ?tp(info, mq_cannot_subscribe_to_mq, #{
-                reason => "mq is not supported for this type of session"
+on_session_subscribed(ClientInfo, <<"$queue/", NameTopicBin/binary>> = _FullTopic, SubOpts) ->
+    case split_name_topic(NameTopicBin) of
+        {ok, Name, TopicFilter} ->
+            do_on_session_subscribed(ClientInfo, Name, TopicFilter, SubOpts);
+        {error, Reason} ->
+            ?tp(warning, mq_cannot_subscribe_to_mq, #{
+                reason => Reason
             }),
             ok
     end;
+%% Legacy queue name
+on_session_subscribed(ClientInfo, <<"$q/", TopicFilter/binary>> = _FullTopic, SubOpts) ->
+    Name = emqx_mq_prop:default_name_from_topic(TopicFilter),
+    do_on_session_subscribed(ClientInfo, Name, TopicFilter, SubOpts);
 on_session_subscribed(_ClientInfo, _FullTopic, _SubOpts) ->
     ?tp_mq_client(mq_on_session_subscribed, #{full_topic => _FullTopic, handle => false}),
     ok.
 
-on_session_unsubscribed(ClientInfo, Topic, _SubOpts) ->
-    on_session_unsubscribed(ClientInfo, Topic).
+do_on_session_subscribed(ClientInfo, Name, TopicFilter, _SubOpts) ->
+    ?tp_mq_client(mq_on_session_subscribed, #{
+        name => Name, topic_filter => TopicFilter, client_info => ClientInfo
+    }),
+    case validate_mq_supported() of
+        ok ->
+            case emqx_mq_sub_registry:find({Name, TopicFilter}) of
+                undefined ->
+                    ok = maybe_auto_create(Name, TopicFilter),
+                    Sub = emqx_mq_sub:handle_connect(ClientInfo, Name, TopicFilter),
+                    ok = emqx_mq_sub_registry:register(Sub);
+                _Sub ->
+                    ok
+            end;
+        {error, Reason} ->
+            ?tp(warning, mq_cannot_subscribe_to_mq, #{reason => Reason}),
+            ok
+    end.
 
-on_session_unsubscribed(_ClientInfo, <<"$q/", Topic/binary>> = _FullTopic) ->
-    ?tp_mq_client(mq_on_session_unsubscribed, #{full_topic => _FullTopic}),
-    case emqx_mq_sub_registry:delete(Topic) of
+on_session_unsubscribed(ClientInfo, <<"$queue/", NameTopicBin/binary>> = _FullTopic, _SubOpts) ->
+    case split_name_topic(NameTopicBin) of
+        {ok, Name, Topic} ->
+            do_on_session_unsubscribed(ClientInfo, Name, Topic);
+        {error, Reason} ->
+            ?tp(warning, mq_cannot_unsubscribe_from_mq, #{reason => Reason}),
+            ok
+    end;
+%% Legacy queue name
+on_session_unsubscribed(ClientInfo, <<"$q/", TopicFilter/binary>> = _FullTopic, _SubOpts) ->
+    Name = emqx_mq_prop:default_name_from_topic(TopicFilter),
+    do_on_session_unsubscribed(ClientInfo, Name, TopicFilter);
+on_session_unsubscribed(_ClientInfo, _FullTopic, _SubOpts) ->
+    ?tp_mq_client(mq_on_session_unsubscribed, #{full_topic => _FullTopic, handle => false}),
+    ok.
+
+do_on_session_unsubscribed(_ClientInfo, Name, Topic) ->
+    ?tp_mq_client(mq_on_session_unsubscribed, #{name => Name, topic_filter => Topic}),
+    case emqx_mq_sub_registry:delete({Name, Topic}) of
         undefined ->
             ok;
         Sub ->
-            ?tp_mq_client(mq_on_session_unsubscribed_sub_deleted, #{full_topic => _FullTopic}),
+            ?tp_mq_client(mq_on_session_unsubscribed_sub_deleted, #{
+                name => Name, topic_filter => Topic
+            }),
             ok = emqx_mq_sub:handle_disconnect(Sub)
-    end;
-on_session_unsubscribed(_ClientInfo, _FullTopic) ->
-    ?tp_mq_client(mq_on_session_unsubscribed_unknown, #{full_topic => _FullTopic}),
-    ok.
+    end.
 
 on_session_resumed(ClientInfo, #{subscriptions := Subs} = SessionInfo) ->
+    SessionResumedCtx = emqx_hooks:context('session.resumed'),
     ?tp_mq_client(mq_on_session_resumed, #{subscriptions => Subs, session_info => SessionInfo}),
-    ok = set_mq_supported(SessionInfo),
+    ok = set_mq_supported(SessionResumedCtx, SessionInfo),
     ok = maps:foreach(
         fun
+            (<<"$queue/", _/binary>> = FullTopic, SubOpts) ->
+                on_session_subscribed(ClientInfo, FullTopic, SubOpts);
             (<<"$q/", _/binary>> = FullTopic, SubOpts) ->
                 on_session_subscribed(ClientInfo, FullTopic, SubOpts);
             (_Topic, _SubOpts) ->
@@ -180,11 +210,11 @@ on_message_nack(_Msg, true) ->
     ok.
 
 on_client_handle_info(
-    _ClientInfo, #info_mq_inspect{receiver = Receiver, topic_filter = TopicFilter}, Acc
+    _ClientInfo, #info_mq_inspect{receiver = Receiver, topic_filter = Topic, name = Name}, Acc
 ) ->
-    ?tp_mq_client(mq_on_client_handle_info_inspect, #{topic_filter => TopicFilter}),
+    ?tp_mq_client(mq_on_client_handle_info_inspect, #{topic_filter => Topic, name => Name}),
     Info =
-        case emqx_mq_sub_registry:find(TopicFilter) of
+        case emqx_mq_sub_registry:find({Name, Topic}) of
             undefined ->
                 undefined;
             Sub ->
@@ -217,8 +247,10 @@ on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ?tp_mq_client(mq_on_session_disconnected, #{subscriptions => Subs}),
     ok = maps:foreach(
         fun
-            (<<"$q/", _/binary>> = FullTopic, _SubOpts) ->
-                on_session_unsubscribed(ClientInfo, FullTopic);
+            (<<"$queue/", _/binary>> = FullTopic, SubOpts) ->
+                on_session_unsubscribed(ClientInfo, FullTopic, SubOpts);
+            (<<"$q/", _/binary>> = FullTopic, SubOpts) ->
+                on_session_unsubscribed(ClientInfo, FullTopic, SubOpts);
             (_Topic, _SubOpts) ->
                 ok
         end,
@@ -226,34 +258,50 @@ on_session_disconnected(ClientInfo, #{subscriptions := Subs} = _SessionInfo) ->
     ).
 
 on_session_created(_ClientInfo, SessionInfo) ->
+    SessionCreatedCtx = emqx_hooks:context('session.created'),
     ?tp_mq_client(mq_on_session_created, #{client_info => _ClientInfo, session_info => SessionInfo}),
-    ok = set_mq_supported(SessionInfo).
+    ok = set_mq_supported(SessionCreatedCtx, SessionInfo).
 
 on_client_authorize(
-    _ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = _Topic, Result
+    ClientInfo, #{action_type := subscribe} = _Action, <<"$q/", _/binary>> = Topic, Result
 ) ->
-    ?tp_mq_client(mq_on_client_authorize, #{
-        client_info => _ClientInfo, action => _Action, topic => _Topic
-    }),
-    case is_mq_supported() of
-        true ->
-            {ok, Result};
-        false ->
-            {stop, #{result => deny, from => mq}}
-    end;
+    deny_if_mq_not_supported(ClientInfo, Topic, Result);
+on_client_authorize(
+    ClientInfo, #{action_type := subscribe} = _Action, <<"$queue/", _/binary>> = Topic, Result
+) ->
+    deny_if_mq_not_supported(ClientInfo, Topic, Result);
 on_client_authorize(_ClientInfo, _Action, _Topic, Result) ->
     {ok, Result}.
+
+deny_if_mq_not_supported(_ClientInfo, _Topic, Result) ->
+    ?tp_mq_client(mq_on_client_authorize, #{
+        client_info => _ClientInfo, topic => _Topic
+    }),
+    case validate_mq_supported() of
+        ok ->
+            {ok, Result};
+        {error, Reason} ->
+            ?tp(warning, mq_cannot_subscribe_to_mq, #{reason => Reason}),
+            {stop, #{result => deny, from => mq}}
+    end.
 
 %%
 %% Introspection
 %%
 
-inspect(ChannelPid, TopicFilter) ->
-    Self = alias([reply]),
-    erlang:send(ChannelPid, #info_mq_inspect{receiver = Self, topic_filter = TopicFilter}),
-    receive
-        {Self, Info} ->
-            Info
+inspect(ChannelPid, NameTopic) ->
+    case split_name_topic(NameTopic) of
+        {ok, Name, Topic} ->
+            Self = alias([reply]),
+            erlang:send(ChannelPid, #info_mq_inspect{
+                receiver = Self, name = Name, topic_filter = Topic
+            }),
+            receive
+                {Self, Info} ->
+                    Info
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
 %%--------------------------------------------------------------------
@@ -282,16 +330,21 @@ with_sub(SubscriberRef, Handler, Args) ->
     end.
 
 recreate_sub(SubscriberRef, ClientInfo) ->
-    OldSub = emqx_mq_sub_registry:delete(SubscriberRef),
-    ok = emqx_mq_sub:handle_disconnect(OldSub),
-    NewSub = emqx_mq_sub:handle_connect(ClientInfo, emqx_mq_sub:mq_topic_filter(OldSub)),
-    emqx_mq_sub_registry:register(NewSub).
+    case emqx_mq_sub_registry:delete(SubscriberRef) of
+        undefined ->
+            error({mq_sub_registry_not_found, SubscriberRef});
+        OldSub ->
+            ok = emqx_mq_sub:handle_disconnect(OldSub),
+            {Name, Topic} = emqx_mq_sub:name_topic(OldSub),
+            NewSub = emqx_mq_sub:handle_connect(ClientInfo, Name, Topic),
+            emqx_mq_sub_registry:register(NewSub)
+    end.
 
 ack_from_rc(?RC_SUCCESS) -> ?MQ_ACK;
 ack_from_rc(_) -> ?MQ_REJECTED.
 
-publish_to_queue(MQ, #message{} = Message) ->
-    emqx_mq_message_db:insert(MQ, Message).
+publish_to_queue(MQHandle, #message{} = Message) ->
+    emqx_mq_message_db:insert(MQHandle, Message).
 
 delivers(SubscriberRef, Messages) ->
     lists:map(
@@ -307,36 +360,74 @@ delivers(SubscriberRef, Messages) ->
         Messages
     ).
 
-set_mq_supported(#{impl := emqx_session_mem} = _SessionInfo) ->
-    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, true),
-    ok;
-set_mq_supported(_SessionInfo) ->
-    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, false),
+set_mq_supported(Ctx, SessionInfo) ->
+    ProtoVer =
+        case Ctx of
+            #{conn_info_fn := ConnInfoFn} ->
+                ConnInfoFn(proto_ver);
+            _ ->
+                undefined
+        end,
+    SessionImpl = maps:get(impl, SessionInfo, undefined),
+    MQSupported =
+        case {SessionImpl, ProtoVer} of
+            {emqx_session_mem, ?MQTT_PROTO_V5} ->
+                ok;
+            {emqx_session_mem, _} ->
+                {error, not_mqtt_v5_protocol};
+            {_, _} ->
+                {error, {not_supported_for_session_impl, SessionImpl}}
+        end,
+    _ = erlang:put(?IS_MQ_SUPPORTED_PD_KEY, MQSupported),
     ok.
 
-is_mq_supported() ->
+validate_mq_supported() ->
     case erlang:get(?IS_MQ_SUPPORTED_PD_KEY) of
         undefined ->
-            false;
-        IsSupported ->
-            IsSupported
+            %% Should never happen
+            {error, unknown};
+        MQSupported ->
+            MQSupported
     end.
 
-maybe_auto_create(Topic) ->
-    case emqx_mq_config:auto_create(Topic) of
+maybe_auto_create(_Name, undefined) ->
+    ok;
+maybe_auto_create(Name, Topic) ->
+    case emqx_mq_config:auto_create(Name, Topic) of
         {true, MQ} ->
-            case emqx_mq_registry:is_present(Topic) of
-                true ->
-                    ok;
-                false ->
-                    case emqx_mq_registry:create(MQ) of
-                        {ok, _} ->
-                            ok;
-                        {error, Reason} ->
-                            ?tp(error, mq_auto_create_error, #{mq => MQ, reason => Reason}),
-                            ok
-                    end
-            end;
+            auto_create_mq(MQ);
         false ->
             ok
+    end.
+
+auto_create_mq(#{name := Name} = MQ) ->
+    case emqx_mq_registry:find(Name) of
+        {ok, _MQ} ->
+            ok;
+        not_found ->
+            case emqx_mq_registry:create(MQ) of
+                {ok, _} ->
+                    ok;
+                {error, {queue_exists, _MQHandle}} ->
+                    %% Race condition, another client created the MQ before us, ignore.
+                    ok;
+                {error, Reason} ->
+                    ?tp(error, mq_auto_create_error, #{mq => MQ, reason => Reason}),
+                    ok
+            end
+    end.
+
+split_name_topic(NameTopic) ->
+    case binary:split(NameTopic, <<"/">>) of
+        [Name, Topic] ->
+            ok;
+        _ ->
+            Name = NameTopic,
+            Topic = undefined
+    end,
+    case emqx_mq_schema:validate_name(Name) of
+        ok ->
+            {ok, Name, Topic};
+        {error, _} = Error ->
+            Error
     end.

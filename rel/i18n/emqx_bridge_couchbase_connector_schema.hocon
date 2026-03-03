@@ -14,11 +14,6 @@ emqx_bridge_couchbase_connector_schema {
   password.desc:
   """Password for Couchbase service."""
 
-  password.label:
-  """Password"""
-  password.desc:
-  """Password for Couchbase service."""
-
   server.label:
   """Server Host"""
   server.desc:

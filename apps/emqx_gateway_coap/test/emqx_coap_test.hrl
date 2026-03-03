@@ -11,7 +11,8 @@
     timers,
     connection_required,
     conn_state,
-    token
+    token,
+    blockwise
 }).
 
 -record(transport, {

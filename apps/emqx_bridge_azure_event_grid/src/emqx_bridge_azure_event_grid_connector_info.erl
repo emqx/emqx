@@ -42,7 +42,7 @@ bridge_types() ->
     [?ACTION_TYPE].
 
 resource_callback_module() ->
-    emqx_bridge_azure_event_grid_impl.
+    emqx_bridge_mqtt_connector.
 
 config_schema() ->
     {?CONNECTOR_TYPE,

@@ -21,6 +21,12 @@ The module contains basic types for the Message Queue application.
 }.
 -type ack() :: ?MQ_ACK | ?MQ_NACK | ?MQ_REJECTED.
 -type mq_topic() :: binary().
+%% Name of the MQ, used to identify MQs by users.
+%% Names are unique in a moment of time.
+-type mq_name() :: binary().
+%% Unique identifier of the MQ, used internally by the MQ server.
+%% If a queue is deleted and then another one is created with the same name,
+%% they are different queues with different identifiers.
 -type mqid() :: binary().
 -type consumer_sup_id() :: mq_topic().
 
@@ -33,6 +39,7 @@ The module contains basic types for the Message Queue application.
 
 -type mq() :: #{
     id => mqid(),
+    name := mq_name(),
     topic_filter := mq_topic(),
     is_lastvalue := boolean(),
     consumer_max_inactive := interval_ms(),
@@ -70,6 +77,7 @@ The module contains basic types for the Message Queue application.
     consumer_sup_id/0,
     ack/0,
     mq_topic/0,
+    mq_name/0,
     mqid/0,
     mq/0,
     mq_handle/0,
