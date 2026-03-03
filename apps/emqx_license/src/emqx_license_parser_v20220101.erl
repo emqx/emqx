@@ -131,7 +131,18 @@ parse_payload(Payload) ->
         string:split(string:trim(Payload), <<"\n">>, all)
     ),
     case Lines of
-        [?LICENSE_VERSION, Type, CType, Customer, Email, Deployment, DateStart, Days, MaxConns] ->
+        [
+            ?LICENSE_VERSION,
+            Type,
+            CType,
+            Customer,
+            Email,
+            Deployment,
+            DateStart,
+            Days,
+            MaxConns
+            | _
+        ] ->
             collect_fields([
                 {type, parse_type(Type)},
                 {customer_type, parse_customer_type(CType)},
@@ -142,7 +153,18 @@ parse_payload(Payload) ->
                 {days, parse_days(Days)},
                 {max_connections, parse_max_connections(MaxConns)}
             ]);
-        [_Version, _Type, _CType, _Customer, _Email, _Deployment, _DateStart, _Days, _MaxConns] ->
+        [
+            _Version,
+            _Type,
+            _CType,
+            _Customer,
+            _Email,
+            _Deployment,
+            _DateStart,
+            _Days,
+            _MaxConns
+            | _
+        ] ->
             {error, invalid_version};
         _ ->
             {error, unexpected_number_of_fields}
