@@ -46,10 +46,25 @@ defmodule AppsVersionCheck do
       |> String.replace(~r/^(e|v)/, "")
       |> Version.parse!()
 
+    target = target_release()
+
     %{
       git_ref: git_ref,
-      latest_release: vsn
+      latest_release: vsn,
+      target_release: target
     }
+  end
+
+  @doc """
+  Determine the target major.minor from `./pkg-vsn.sh enterprise`.
+  """
+  def target_release() do
+    {out, 0} = System.cmd("bash", ["-c", "./pkg-vsn.sh enterprise"])
+
+    out
+    |> String.trim()
+    |> String.replace(~r/-.*$/, "")
+    |> Version.parse!()
   end
 
   def mix_exs_at(filepath, git_ref) do
@@ -96,9 +111,10 @@ defmodule AppsVersionCheck do
   end
 
   def follows_convention?(vsn, context) do
-    %{latest_release: latest_release} = context
+    %{target_release: target, latest_release: latest_release} = context
 
-    vsn.major == latest_release.major && vsn.minor == latest_release.minor
+    vsn.major == target.major &&
+      (vsn.minor == target.minor || vsn.minor == latest_release.minor)
   end
 
   def has_valid_app_vsn?(app, context) do
@@ -205,12 +221,14 @@ defmodule AppsVersionCheck do
   def do_has_valid_app_vsn?(app, context) do
     %{
       latest_release: latest_release,
+      target_release: target,
       git_ref: git_ref
     } = context
 
     src_file = Path.join(["apps", app, "mix.exs"])
     current_app_version = src_file |> File.read!() |> get_version()
     is_first_v6_release = latest_release.major < 6
+
     old_app_version = app_version_at(src_file, git_ref)
     current_follows_convention? = follows_convention?(current_app_version, context)
 
@@ -218,7 +236,7 @@ defmodule AppsVersionCheck do
       old_app_version != :error && follows_convention?(old_app_version, context)
 
     has_changes? = has_changed_files?(app, context)
-    convention = "#{latest_release.major}.#{latest_release.minor}.PATCH_NUM"
+    convention = "#{target.major}.#{target.minor}.PATCH_NUM"
     auto_fix? = Map.get(context, :auto_fix, false)
 
     cond do
@@ -237,7 +255,7 @@ defmodule AppsVersionCheck do
         log_err("#{src_file}: app version must be of form `#{convention}`")
 
         desired_version =
-          latest_release
+          target
           |> Map.put(:patch, 0)
           |> Map.put(:pre, [])
 
@@ -266,7 +284,8 @@ defmodule AppsVersionCheck do
         log("IGNORE: #{src_file}: old app version did not follow the convention #{convention}")
         true
 
-      current_app_version.patch != old_app_version.patch + 1 && has_changes? ->
+      old_app_version.minor == current_app_version.minor &&
+        current_app_version.patch != old_app_version.patch + 1 && has_changes? ->
         log_err([
           "#{src_file} non-strict semver version bump from ",
           "#{old_app_version} to #{current_app_version}"
@@ -348,7 +367,9 @@ defmodule AppsVersionCheck do
       latest_release!()
       |> Map.put(:auto_fix, !!opts[:auto_fix])
 
-    log("Context: #{inspect(context, pretty: true)}")
+    if System.get_env("DEBUG") == "1" do
+      log("Context: #{inspect(context, pretty: true)}")
+    end
 
     apps =
       "apps"
