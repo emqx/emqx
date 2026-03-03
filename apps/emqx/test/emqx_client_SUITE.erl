@@ -895,7 +895,9 @@ t_congestion_decongested(_) ->
 
 t_first_packet_not_connect(_) ->
     {ok, Socket} = gen_tcp:connect({127, 0, 0, 1}, 1883, [{active, true}, binary]),
-    ok = gen_tcp:send(Socket, <<"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n">>),
+    %% Use a complete non-CONNECT MQTT packet to avoid packet=mqtt transport
+    %% buffering an incomplete frame forever.
+    ok = gen_tcp:send(Socket, <<?PINGREQ:4, 0:1, 0:2, 0:1, 0>>),
     receive
         {tcp_closed, Socket} -> ok
     after 5000 ->
