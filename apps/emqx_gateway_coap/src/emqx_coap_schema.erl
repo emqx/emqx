@@ -115,11 +115,9 @@ fields(coap_blockwise) ->
     ].
 
 desc(coap) ->
-    "The CoAP protocol gateway provides EMQX with the access capability of the CoAP protocol.\n"
-    "It allows publishing, subscribing, and receiving messages to EMQX in accordance\n"
-    "with a certain defined CoAP message format.";
+    "CoAP gateway settings.";
 desc(coap_blockwise) ->
-    "Block-wise transfer settings for the CoAP gateway.";
+    "Large payload transfer settings (split payload into CoAP blocks).";
 desc(_) ->
     undefined.
 

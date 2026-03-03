@@ -1,0 +1,73 @@
+{
+  "type": "record",
+  "name": "ExtendedConfig",
+  "fields": [
+    {
+      "name": "max_sessions_per_username",
+      "type": "int",
+      "default": 100,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$max_sessions_per_username_label",
+        "description": "$max_sessions_per_username_desc"
+      }
+    },
+    {
+      "name": "username_white_list",
+      "type": {
+        "type": "array",
+        "items": {
+          "name": "username_white_list_item",
+          "type": "record",
+          "fields": [
+            {
+              "name": "username",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": true,
+                "label": "$username_label"
+              }
+            }
+          ]
+        }
+      },
+      "default": [],
+      "$ui": {
+        "component": "array",
+        "flex": 24,
+        "required": false,
+        "label": "$username_white_list_label",
+        "description": "$username_white_list_desc"
+      }
+    },
+    {
+      "name": "snapshot_refresh_interval_ms",
+      "type": "int",
+      "default": 5000,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$snapshot_refresh_interval_ms_label",
+        "description": "$snapshot_refresh_interval_ms_desc"
+      }
+    },
+    {
+      "name": "snapshot_request_timeout_ms",
+      "type": "int",
+      "default": 5000,
+      "$ui": {
+        "component": "input-number",
+        "flex": 12,
+        "required": true,
+        "label": "$snapshot_request_timeout_ms_label",
+        "description": "$snapshot_request_timeout_ms_desc"
+      }
+    }
+  ]
+}

@@ -96,6 +96,15 @@ init_per_suite(Config) ->
     meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, health_check, fun(St) -> {ok, St} end),
     meck:expect(emqx_resource, remove_local, fun(_) -> ok end),
+    meck:expect(
+        emqx_authz_file,
+        acl_conf_file,
+        fun() ->
+            emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf")
+        end
+    ),
+    ACLConfPath = acl_conf_path(),
+    {ok, ACLConfBackup} = file:read_file(ACLConfPath),
 
     Apps = emqx_cth_suite:start(
         [
@@ -112,9 +121,10 @@ init_per_suite(Config) ->
     ),
     ok = emqx_authz_test_lib:register_fake_sources([http, mongodb, mysql, postgresql, redis]),
     _ = emqx_common_test_http:create_default_app(),
-    [{suite_apps, Apps} | Config].
+    [{acl_conf_backup, ACLConfBackup}, {suite_apps, Apps} | Config].
 
 end_per_suite(Config) ->
+    ok = restore_acl_conf(Config),
     {ok, _} = emqx:update_config(
         [authorization],
         #{
@@ -141,16 +151,19 @@ init_per_testcase(t_api, Config) ->
             Data
         end
     ),
+    ok = restore_acl_conf(Config),
     Config;
 init_per_testcase(_, Config) ->
+    ok = restore_acl_conf(Config),
     Config.
 
-end_per_testcase(t_api, _Config) ->
+end_per_testcase(t_api, Config) ->
+    ok = restore_acl_conf(Config),
     meck:unload(emqx_utils),
     meck:unload(emqx),
     ok;
-end_per_testcase(_, _Config) ->
-    ok.
+end_per_testcase(_, Config) ->
+    restore_acl_conf(Config).
 
 %%------------------------------------------------------------------------------
 %% Testcases
@@ -164,6 +177,15 @@ t_api(_) ->
     ?assertMatch(
         #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found: http">>},
         emqx_utils_json:decode(ErrResult)
+    ),
+    {ok, 400, MissingTypeResp} = request(
+        post,
+        uri(["authorization", "sources"]),
+        #{<<"code">> => <<"NOT_FOUND">>, <<"message">> => <<"Not found: file">>}
+    ),
+    ?assertMatch(
+        #{<<"code">> := <<"BAD_REQUEST">>},
+        emqx_utils_json:decode(MissingTypeResp)
     ),
 
     [
@@ -768,5 +790,13 @@ t_metrics_reset(_) ->
 
 get_sources(Result) ->
     maps:get(<<"sources">>, emqx_utils_json:decode(Result)).
+
+acl_conf_path() ->
+    emqx_common_test_helpers:deps_path(emqx_auth, "etc/acl.conf").
+
+restore_acl_conf(Config) ->
+    ACLConfPath = acl_conf_path(),
+    ACLConfBackup = ?config(acl_conf_backup, Config),
+    file:write_file(ACLConfPath, ACLConfBackup).
 
 data_dir() -> emqx:data_dir().

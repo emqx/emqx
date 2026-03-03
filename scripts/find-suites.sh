@@ -12,18 +12,36 @@ set -euo pipefail
 # ensure dir
 cd -P -- "$(dirname -- "$0")/.."
 
+RELATIVE_OUTPUT=0
+if [[ "${1:-}" == "--relative" ]]; then
+    RELATIVE_OUTPUT=1
+    shift
+fi
+
 DIR="$1"
 
 complete_path() {
     local filename="$1"
+    local base_dir="$DIR/test"
+
+    if [[ "$RELATIVE_OUTPUT" == "1" ]]; then
+        base_dir="test"
+    fi
+
     # Check if path prefix is present
     if [[ "$filename" != */* ]]; then
-        filename="$DIR/test/$filename"
+        filename="$base_dir/$filename"
     fi
 
     # Check if suffix is present
     if [[ "$filename" != *.erl ]]; then
         filename="$filename.erl"
+    fi
+
+    if [[ "$RELATIVE_OUTPUT" == "1" ]]; then
+        filename="${filename#"${DIR}"/}"
+        filename="${filename#./"${DIR}"/}"
+        filename="${filename#./}"
     fi
 
     echo "$filename"
@@ -35,9 +53,13 @@ if [ -n "${EMQX_CT_SUITES:-}" ]; then
     IFS=',' read -ra FILE_ARRAY <<< "$EMQX_CT_SUITES"
     for file in "${FILE_ARRAY[@]}"; do
         path=$(complete_path "$file")
-        if [ ! -f "$path" ]; then
+        check_path="$path"
+        if [[ "$RELATIVE_OUTPUT" == "1" ]]; then
+            check_path="$DIR/$path"
+        fi
+        if [ ! -f "$check_path" ]; then
             echo ''
-            echo "ERROR: '$path' is not a file. Ignored!" >&2
+            echo "ERROR: '$check_path' is not a file. Ignored!" >&2
             exit 1
         fi
         if [ -z "$OUTPUT" ]; then
@@ -81,7 +103,12 @@ END_INDEX=$(( START_INDEX + FILES_PER_GROUP ))
 sep=''
 for (( i=START_INDEX; i<END_INDEX; i++ )); do
     if (( i < FILE_COUNT )); then
-        echo -n "${sep}${FILES[$i]}"
+        path="${FILES[$i]}"
+        if [[ "$RELATIVE_OUTPUT" == "1" ]]; then
+            path="${path#"${DIR}"/}"
+            path="${path#./}"
+        fi
+        echo -n "${sep}${path}"
         sep=','
     fi
 done

@@ -110,6 +110,17 @@ to_rfc3339(Sec) ->
 
 bin(X) -> emqx_utils_conv:bin(X).
 
+create_superuser_token() ->
+    emqx_common_test_http:create_default_app(),
+    Username = <<"superuser">>,
+    Password = <<"secretP@ss1">>,
+    {ok, _} = emqx_dashboard_admin:add_user(Username, Password, ?ROLE_SUPERUSER, <<"desc">>),
+    {200, #{<<"token">> := Token}} = login(#{<<"username">> => Username, <<"password">> => Password}),
+    Token.
+
+fake_req(Path, Headers) ->
+    #{path => Path, headers => Headers}.
+
 umbrella_apps() ->
     [
         App
@@ -681,3 +692,41 @@ t_namespace_immutable(_TCConfig) ->
     ),
 
     ok.
+
+%%------------------------------------------------------------------------------
+%% Cookie auth for plugin API
+%%------------------------------------------------------------------------------
+
+t_cookie_auth_plugin_api(_TCConfig) ->
+    Token = create_superuser_token(),
+    HandlerInfo = #{method => get, module => any, function => any},
+    CookieHeader = <<"emqx_auth=", Token/binary>>,
+    Req = fake_req(<<"/api/v5/plugin_api/my_plugin/foo">>, #{<<"cookie">> => CookieHeader}),
+    ?assertMatch({ok, _}, emqx_dashboard:authorize(Req, HandlerInfo)).
+
+t_cookie_auth_non_plugin_api(_TCConfig) ->
+    Token = create_superuser_token(),
+    HandlerInfo = #{method => get, module => any, function => any},
+    CookieHeader = <<"emqx_auth=", Token/binary>>,
+    Req = fake_req(<<"/api/v5/users">>, #{<<"cookie">> => CookieHeader}),
+    ?assertMatch({401, _, _}, emqx_dashboard:authorize(Req, HandlerInfo)).
+
+t_cookie_auth_no_cookie(_TCConfig) ->
+    _Token = create_superuser_token(),
+    HandlerInfo = #{method => get, module => any, function => any},
+    Req = fake_req(<<"/api/v5/plugin_api/my_plugin/foo">>, #{}),
+    ?assertMatch({401, _, _}, emqx_dashboard:authorize(Req, HandlerInfo)).
+
+t_cookie_auth_empty_token(_TCConfig) ->
+    _Token = create_superuser_token(),
+    HandlerInfo = #{method => get, module => any, function => any},
+    CookieHeader = <<"emqx_auth=">>,
+    Req = fake_req(<<"/api/v5/plugin_api/my_plugin/foo">>, #{<<"cookie">> => CookieHeader}),
+    ?assertMatch({401, _, _}, emqx_dashboard:authorize(Req, HandlerInfo)).
+
+t_cookie_auth_bad_token(_TCConfig) ->
+    _Token = create_superuser_token(),
+    HandlerInfo = #{method => get, module => any, function => any},
+    CookieHeader = <<"emqx_auth=bad_token">>,
+    Req = fake_req(<<"/api/v5/plugin_api/my_plugin/foo">>, #{<<"cookie">> => CookieHeader}),
+    ?assertMatch({401, _, _}, emqx_dashboard:authorize(Req, HandlerInfo)).

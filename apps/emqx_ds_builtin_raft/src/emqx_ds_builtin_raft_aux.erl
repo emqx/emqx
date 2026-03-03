@@ -34,6 +34,9 @@ transaction leader process.
 
 -type otx_state() :: ?stopped | #starting{} | #running{} | #stopping{}.
 
+-record(cast_manage_otx, {}).
+-record(cast_otx_started, {result}).
+
 %% AUX server state:
 -record(aux, {
     otx_leader = stopped :: otx_state()
@@ -41,18 +44,12 @@ transaction leader process.
 
 -type aux() :: #aux{}.
 
--record(cast_start_otx, {delay = 0 :: non_neg_integer()}).
--record(cast_otx_started, {result}).
--record(cast_stop_otx, {}).
-
 -type otx_manage_event() ::
-    #cast_start_otx{}
+    #cast_manage_otx{}
     | #cast_otx_started{}
-    | #cast_stop_otx{}
     | {down, pid(), _Reason}.
 
-%% Cooldown interval for restarts:
--define(restart_delay, 1_000).
+-define(is_otx_state_transitional(S), (is_record(S, starting) orelse is_record(S, stopping))).
 
 %%================================================================================
 %% API functions
@@ -70,10 +67,9 @@ when
     IntState :: ra_aux:internal_state().
 handle_aux(ServerState, _, Event, Aux0 = #aux{otx_leader = Otx0}, IntState) ->
     #{db_shard := {DB, Shard}} = ra_aux:machine_state(IntState),
-    Server = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
-    case manage_otx(DB, Shard, Server, ServerState, Event, Otx0) of
+    case manage_otx(DB, Shard, ServerState, Event, Otx0) of
         {ok, Otx, Effects} ->
-            Aux = #aux{otx_leader = Otx},
+            Aux = Aux0#aux{otx_leader = Otx},
             {no_reply, Aux, IntState, Effects};
         ignore ->
             {no_reply, Aux0, IntState, []}
@@ -91,12 +87,7 @@ state_enter(MemberState, State = #{db_shard := DBShard}) ->
     ),
     emqx_ds_builtin_raft_metrics:rasrv_state_changed(DB, Shard, MemberState),
     set_cache(MemberState, State),
-    case MemberState of
-        leader ->
-            [{aux, #cast_start_otx{}}];
-        _ ->
-            [{aux, #cast_stop_otx{}}]
-    end.
+    [{aux, #cast_manage_otx{}}].
 
 -doc """
 Set PID of the optimistic transaction leader at the time of the last
@@ -141,17 +132,16 @@ set_cache(_, _) ->
 -spec manage_otx(
     emqx_ds:db(),
     emqx_ds:shard(),
-    ra:server_id(),
     ra_server:ra_state(),
     otx_manage_event(),
     otx_state()
 ) ->
     {ok, otx_state(), ra_machine:effects()} | ignore.
-manage_otx(DB, Shard, Server, leader, #cast_start_otx{delay = Delay}, ?stopped) ->
+manage_otx(DB, Shard, leader, #cast_manage_otx{}, ?stopped) ->
     %% Start OTX leader process:
+    Server = emqx_ds_builtin_raft_shard:local_server(DB, Shard),
     AsyncStarter = spawn_link(
         fun() ->
-            timer:sleep(Delay),
             Result = ?tp_span(
                 debug,
                 dsrepl_start_otx_leader,
@@ -162,20 +152,17 @@ manage_otx(DB, Shard, Server, leader, #cast_start_otx{delay = Delay}, ?stopped) 
         end
     ),
     {ok, #starting{starter = AsyncStarter}, []};
-manage_otx(_DB, _Shard, _Server, _State, #cast_start_otx{}, S) ->
-    %% Either this replica is not the leader or OTX is already
-    %% starting/stopping, keep state:
+manage_otx(_DB, _Shard, leader, #cast_manage_otx{}, S = #running{}) ->
     {ok, S, []};
-manage_otx(_DB, _Shard, Server, State, #cast_otx_started{result = {ok, Pid}}, #starting{}) ->
-    %% Sucessfully started, monitor the server:
-    Effects = [{monitor, process, aux, Pid}],
-    %% Check if the server state changed in the meantime:
-    case State of
-        leader -> ok;
-        _ -> ra:cast_aux_command(Server, #cast_stop_otx{})
-    end,
+manage_otx(_DB, _Shard, _State, #cast_otx_started{result = {ok, Pid}}, #starting{}) ->
+    Effects = [
+        %% Sucessfully started, monitor the server:
+        {monitor, process, aux, Pid},
+        %% Attempt a reconciliation, as OTX is out of the transitional state:
+        {aux, #cast_manage_otx{}}
+    ],
     {ok, #running{pid = Pid}, Effects};
-manage_otx(DB, Shard, Server, leader, #cast_otx_started{result = Err}, #starting{}) ->
+manage_otx(DB, Shard, leader, #cast_otx_started{result = Err}, #starting{}) ->
     %% OTX server failed to start, but we're still the leader:
     ?tp(
         warning,
@@ -186,12 +173,12 @@ manage_otx(DB, Shard, Server, leader, #cast_otx_started{result = Err}, #starting
             result => Err
         }
     ),
-    %% Retry:
-    manage_otx(DB, Shard, Server, leader, #cast_start_otx{delay = ?restart_delay}, ?stopped);
-manage_otx(_DB, _Shard, _Server, _State, #cast_otx_started{}, #starting{}) ->
+    %% Will be retried on `tick` event:
+    {ok, ?stopped, []};
+manage_otx(_DB, _Shard, _State, #cast_otx_started{}, #starting{}) ->
     %% Failed to start, but we are not the leader. Ignore.
     {ok, ?stopped, []};
-manage_otx(DB, Shard, _Server, State, #cast_stop_otx{}, #running{pid = Pid}) when
+manage_otx(DB, Shard, State, #cast_manage_otx{}, #running{pid = Pid}) when
     State =/= leader
 ->
     ?tp(dsrepl_shut_down_otx, #{db => DB, shard => Shard, state => State}),
@@ -203,15 +190,10 @@ manage_otx(DB, Shard, _Server, State, #cast_stop_otx{}, #running{pid = Pid}) whe
             end
         ),
     {ok, #stopping{pid = Pid, stopper = AsyncStopper}, []};
-manage_otx(DB, Shard, _Server, _State, #cast_stop_otx{}, ?stopped) ->
-    emqx_dsch:gvar_unset_all(DB, Shard, ?gv_sc_leader),
+manage_otx(DB, Shard, _State, #cast_manage_otx{}, ?stopped) ->
+    emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
     {ok, ?stopped, []};
-manage_otx(_DB, _Shard, _Server, _State, #cast_stop_otx{}, S) ->
-    %% Already in transitional state, ignore the request. If server is
-    %% starting, then `#cast_otx_started' clause will issue a command
-    %% to tear it down.
-    {ok, S, []};
-manage_otx(DB, Shard, Server, leader, {down, Pid, Reason}, #running{pid = Pid}) ->
+manage_otx(DB, Shard, leader, {down, Pid, Reason}, #running{pid = Pid}) ->
     %% OTX server is down and we're still the leader. Restart it:
     LogLevel =
         case Reason of
@@ -228,24 +210,36 @@ manage_otx(DB, Shard, Server, leader, {down, Pid, Reason}, #running{pid = Pid}) 
         }
     ),
     emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
-    manage_otx(DB, Shard, Server, leader, #cast_start_otx{delay = ?restart_delay}, ?stopped);
-manage_otx(DB, Shard, _Server, _State, {down, Pid, _Reason}, #stopping{pid = Pid}) ->
-    emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
+    %% Will be restarted on `tick` event:
     {ok, ?stopped, []};
-manage_otx(DB, Shard, Server, State, Event, Otx) when
-    is_record(Event, cast_start_otx);
-    is_record(Event, cast_otx_started);
-    is_record(Event, cast_stop_otx)
+manage_otx(DB, Shard, _State, {down, Pid, _Reason}, #stopping{pid = Pid}) ->
+    emqx_ds_builtin_raft:leader_shard_cleanup(DB, Shard),
+    %% Attempt a reconciliation, as OTX is out of the transitional state:
+    {ok, ?stopped, [{aux, #cast_manage_otx{}}]};
+manage_otx(_DB, _Shard, _State, #cast_manage_otx{}, Otx) when
+    ?is_otx_state_transitional(Otx)
+->
+    %% Already in transitional state, ignore the event.
+    %% Once transition is complete, extra reconciliation attempt will be made.
+    {ok, Otx, []};
+manage_otx(DB, Shard, State, tick, Otx) when
+    not ?is_otx_state_transitional(Otx)
+->
+    %% Reconcile the current state with the state of OTX leader process:
+    manage_otx(DB, Shard, State, #cast_manage_otx{}, Otx);
+manage_otx(DB, Shard, State, Event, Otx) when
+    is_record(Event, cast_manage_otx);
+    is_record(Event, cast_otx_started)
 ->
     exit(
         {unexpected_otx_event, #{
             db => DB,
             shard => Shard,
-            server => Server,
+            server => emqx_ds_builtin_raft_shard:local_server(DB, Shard),
             server_state => State,
             event => Event,
             optimistic_leader => Otx
         }}
     );
-manage_otx(_DB, _Shard, _Server, _State, _Event, _Otx) ->
+manage_otx(_DB, _Shard, _State, _Event, _Otx) ->
     ignore.
