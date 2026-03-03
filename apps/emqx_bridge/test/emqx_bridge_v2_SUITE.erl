@@ -850,6 +850,62 @@ t_load_config_success(_Config) ->
 
     ok.
 
+%% Regression test: config import with reference-kind fallback actions must not crash.
+%% The hocon schema injects a '_computed' key (fallback_actions_index) into the checked
+%% config. Without the fix, flatten_confs treats '_computed' as a bridge type and crashes
+%% with badarity during post_config_update.
+%% Reproduces: export from 5.10.0, import into 5.10.3 => 400 BAD_REQUEST badarity.
+t_load_config_with_fallback_action_reference(_Config) ->
+    Conf = bridge_config(),
+    BridgeType = bridge_type(),
+    BridgeTypeBin = atom_to_binary(BridgeType),
+    FallbackName = <<"fallback_action">>,
+    PrimaryName = <<"primary_action">>,
+
+    %% First, load a config with a reference-kind fallback action.
+    %% This triggers the hocon computed callback (fallback_actions_reverse_index_compute)
+    %% which injects '_computed' => #{fallback_actions_index => ...} into checked config.
+    PrimaryConf = Conf#{
+        <<"fallback_actions">> => [
+            #{
+                <<"kind">> => <<"reference">>,
+                <<"type">> => BridgeTypeBin,
+                <<"name">> => FallbackName
+            }
+        ]
+    },
+    RootConf0 = #{
+        BridgeTypeBin => #{
+            FallbackName => Conf,
+            PrimaryName => PrimaryConf
+        }
+    },
+    ?assertMatch({ok, _}, update_root_config(RootConf0)),
+
+    %% Verify '_computed' is in the checked config (precondition for the bug).
+    ?assertMatch(
+        #{?COMPUTED := #{fallback_actions_index := _}},
+        emqx_config:get([actions])
+    ),
+
+    %% Now update the root config again (simulates a second import or any config change).
+    %% Before the fix, this crashed with badarity because flatten_confs in
+    %% post_config_update tried to iterate over '_computed' as a bridge type.
+    UpdatedPrimaryConf = PrimaryConf#{<<"description">> => <<"updated">>},
+    RootConf1 = #{
+        BridgeTypeBin => #{
+            FallbackName => Conf,
+            PrimaryName => UpdatedPrimaryConf
+        }
+    },
+    ?assertMatch({ok, _}, update_root_config(RootConf1)),
+
+    %% Verify both actions are alive.
+    ?assertMatch({ok, _}, emqx_bridge_v2:lookup(BridgeType, fallback_action)),
+    ?assertMatch({ok, _}, emqx_bridge_v2:lookup(BridgeType, primary_action)),
+
+    ok.
+
 t_create_no_matching_connector(_Config) ->
     Conf = (bridge_config())#{<<"connector">> => <<"wrong_connector_name">>},
     ?assertMatch(
