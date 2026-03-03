@@ -66,7 +66,8 @@ on_session_terminated(ClientInfo, _Reason, _SessionInfo) ->
     maybe_unregister(ClientInfo).
 
 register_session(Username, ClientId) ->
-    emqx_username_quota_state:add(Username, ClientId, self()).
+    _ = emqx_username_quota_state:add(Username, ClientId, self()),
+    ok.
 
 unregister_session(Username, ClientId) ->
     emqx_username_quota_state:del_client(Username, ClientId).
@@ -78,18 +79,13 @@ reset() ->
     emqx_username_quota_state:reset().
 
 should_allow(Username, ClientId) ->
-    case emqx_username_quota_config:is_whitelisted(Username) of
-        true ->
+    case emqx_username_quota_state:is_known_client(Username, ClientId) of
+        {true, _Node} ->
             true;
         false ->
-            case emqx_username_quota_state:is_known_client(Username, ClientId) of
-                {true, _Node} ->
-                    true;
-                false ->
-                    Max = emqx_username_quota_config:max_sessions_per_username(),
-                    Count = emqx_username_quota_state:count(Username),
-                    Max =:= infinity orelse Count < Max
-            end
+            Max = emqx_username_quota_state:get_effective_limit(Username),
+            Count = emqx_username_quota_state:count(Username),
+            Max =:= nolimit orelse Count < Max
     end.
 
 maybe_register(ClientInfo) ->
