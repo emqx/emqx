@@ -10,7 +10,9 @@
 
 -define(A2A_PROP_STATUS_KEY, <<"a2a-status">>).
 -define(A2A_PROP_ONLINE_VAL, <<"online">>).
+-define(A2A_PROP_ONLINE_VAL_ATOM, online).
 -define(A2A_PROP_OFFLINE_VAL, <<"offline">>).
+-define(A2A_PROP_OFFLINE_VAL_ATOM, offline).
 
 -define(A2A_SCHEMA_REGISTRY_SERDE_NAME, <<"__sdKn7w9B3UuI7LAmkQSHP__a2a_agent_card">>).
 
