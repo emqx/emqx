@@ -18,7 +18,6 @@ jobs:
       BUILDER_release-59: ${{ steps.env.outputs.BUILDER_release-59 }}
       BUILDER_release-510: ${{ steps.env.outputs.BUILDER_release-510 }}
       BUILDER_release-60: ${{ steps.env.outputs.BUILDER_release-60 }}
-      BUILDER_release-61: ${{ steps.env.outputs.BUILDER_release-61 }}
 
     strategy:
       fail-fast: false
@@ -29,11 +28,10 @@ jobs:
           - release-59
           - release-510
           - release-60
-          - release-61
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ matrix.branch }}
 
@@ -63,14 +61,13 @@ jobs:
           - release-59
           - release-510
           - release-60
-          - release-61
         language:
           - cpp
           - python
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
         ref: ${{ matrix.branch }}
 

@@ -30,7 +30,7 @@ jobs:
       ELIXIR_VSN: ${{ steps.env.outputs.ELIXIR_VSN }}
       BUILDER: ${{ steps.env.outputs.BUILDER }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.inputs.ref }}
       - name: Set up environment
@@ -64,7 +64,7 @@ jobs:
         run: >
           apt-get update -qy &&
             apt-get install -qy gitlint shellcheck shelltestrunner python3-venv
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.inputs.ref }}
           fetch-depth: 0
@@ -104,7 +104,8 @@ jobs:
           ./scripts/apps-version-check.exs
       - name: Setup mix
         run: |
-          mix local.hex --force --if-missing && mix local.rebar --force --if-missing
+          # mix local.hex --force --if-missing && mix local.rebar --force --if-missing
+          mix local.hex 2.0.6 --force --if-missing && mix local.rebar --force --if-missing
       - name: Check formatting
         run: |
           ./scripts/check-format.sh

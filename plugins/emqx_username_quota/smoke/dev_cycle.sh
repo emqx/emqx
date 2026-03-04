@@ -83,7 +83,7 @@ LOG1="$LOG_DIR/conn1.log"
 LOG2="$LOG_DIR/conn2.log"
 
 "$EMQX_BIN" eval "io:format(\"~p~n\", [emqx_username_quota:reset()])." >/dev/null
-"$EMQX_BIN" eval "io:format(\"~p~n\", [emqx_username_quota_config:update(#{<<\"max_sessions_per_username\">> => 1, <<\"username_white_list\">> => []})])." >/dev/null
+"$EMQX_BIN" eval "io:format(\"~p~n\", [emqx_username_quota_config:update(#{<<\"max_sessions_per_username\">> => 1})])." >/dev/null
 
 mqttx conn -h "$MQTT_HOST" -p "$MQTT_PORT" -u "$SMOKE_USER" -i "$CID1" -rp 0 >"$LOG1" 2>&1 &
 PID1=$!
