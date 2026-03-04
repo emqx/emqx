@@ -38,7 +38,8 @@ groups() ->
             t_parse_frame_too_large,
             t_parse_frame_malformed_variable_byte_integer,
             t_parse_malformed_utf8_string,
-            t_parse_bad_v5_publish_packet
+            t_parse_bad_v5_publish_packet,
+            t_guess_first_packet_protocol
         ]},
         {connect, [parallel], [
             t_serialize_parse_v3_connect,
@@ -185,6 +186,94 @@ t_parse_bad_v5_publish_packet(_) ->
         emqx_frame:parse(BadInput, ParseState)
     ),
     ok.
+
+t_guess_first_packet_protocol(_) ->
+    ?assertEqual(#{}, emqx_frame:guess_first_packet_protocol(<<>>)),
+    ?assertMatch(
+        #{packet_type := ?CONNECT},
+        emqx_frame:guess_first_packet_protocol(<<?CONNECT:4, 0:4, 0>>)
+    ),
+    ?assertMatch(
+        #{
+            resemble_protocol := http,
+            received_prefix_encoding := printable
+        },
+        emqx_frame:guess_first_packet_protocol(
+            <<"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n">>
+        )
+    ),
+    ?assertMatch(
+        #{
+            resemble_protocol := http2_preface,
+            received_prefix_encoding := printable
+        },
+        emqx_frame:guess_first_packet_protocol(<<"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := proxy_protocol_v1},
+        emqx_frame:guess_first_packet_protocol(<<"PROXY TCP4 ">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := proxy_protocol_v2},
+        emqx_frame:guess_first_packet_protocol(
+            <<16#0D, 16#0A, 16#0D, 16#0A, 16#00, 16#0D, 16#0A, 16#51, 16#55, 16#49, 16#54, 16#0A,
+                16#21, 16#11, 16#00, 16#00>>
+        )
+    ),
+    ?assertMatch(
+        #{resemble_protocol := ssh},
+        emqx_frame:guess_first_packet_protocol(<<"SSH-2.0-test">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := smtp},
+        emqx_frame:guess_first_packet_protocol(<<"EHLO example.com\r\n">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := smtp},
+        emqx_frame:guess_first_packet_protocol(<<"HELO example.com\r\n">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := redis_resp},
+        emqx_frame:guess_first_packet_protocol(<<"*1\r\n$4\r\nPING\r\n">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := redis_resp},
+        emqx_frame:guess_first_packet_protocol(<<"*2\r\n$4\r\nPING\r\n">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := redis_resp},
+        emqx_frame:guess_first_packet_protocol(<<"*3\r\n$4\r\nPING\r\n">>)
+    ),
+    ?assertMatch(
+        #{resemble_protocol := plain_text},
+        emqx_frame:guess_first_packet_protocol(<<"MAIL FROM:">>)
+    ),
+    ?assertMatch(
+        #{
+            resemble_protocol := unknown,
+            received_prefix := <<"0001020304">>,
+            received_prefix_encoding := hex
+        },
+        emqx_frame:guess_first_packet_protocol(<<0, 1, 2, 3, 4>>)
+    ),
+    lists:foreach(
+        fun(ReqLine) ->
+            ?assertMatch(
+                #{resemble_protocol := http},
+                emqx_frame:guess_first_packet_protocol(ReqLine)
+            )
+        end,
+        [
+            <<"POST / HTTP/1.1\r\n">>,
+            <<"PUT / HTTP/1.1\r\n">>,
+            <<"HEAD / HTTP/1.1\r\n">>,
+            <<"DELETE / HTTP/1.1\r\n">>,
+            <<"OPTIONS / HTTP/1.1\r\n">>,
+            <<"CONNECT / HTTP/1.1\r\n">>,
+            <<"TRACE / HTTP/1.1\r\n">>,
+            <<"PATCH / HTTP/1.1\r\n">>
+        ]
+    ).
 
 %% TODO: parse v3 with 0 length clientid
 

@@ -37,7 +37,7 @@
 
 -export([connect/1, do_get_status/1, execute/3, do_batch_insert/6]).
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [enum/1]).
 
 -define(TD_DEFAULT_PORT, 6041).
 
