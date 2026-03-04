@@ -10,8 +10,6 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 -define(INVALID_JSON(REASON), #{
     kind := validation_error,
     reason := REASON,

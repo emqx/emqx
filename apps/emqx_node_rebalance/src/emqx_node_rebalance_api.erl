@@ -43,7 +43,7 @@
     translate/2
 ]).
 
--import(hoconsc, [mk/2, ref/1, ref/2]).
+-import(hoconsc, [mk/2, ref/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 -define(NODE_EVACUATING, 'NODE_EVACUATING').

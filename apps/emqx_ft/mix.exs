@@ -25,6 +25,7 @@ defmodule EMQXFt.MixProject do
     UMP.deps([
       {:emqx, in_umbrella: true},
       {:emqx_s3, in_umbrella: true},
+      :minirest,
       :gproc
     ])
   end

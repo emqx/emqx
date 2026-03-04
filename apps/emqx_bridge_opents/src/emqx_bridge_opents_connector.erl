@@ -36,7 +36,7 @@
 
 -export([connect/1]).
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [mk/2, enum/1]).
 
 -define(CONNECTOR_TYPE, opents).
 

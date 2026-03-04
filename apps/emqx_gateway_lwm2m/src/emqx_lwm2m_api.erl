@@ -17,7 +17,7 @@
 -define(DATA_TYPE, ['Integer', 'Float', 'Time', 'String', 'Boolean', 'Opaque', 'Objlnk']).
 -define(TAGS, [<<"LwM2M Gateways">>]).
 
--import(hoconsc, [mk/2, ref/1, ref/2]).
+-import(hoconsc, [mk/2, ref/1]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
 
 -elvis([{elvis_style, atom_naming_convention, disable}]).

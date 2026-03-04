@@ -60,7 +60,6 @@
 -export([parse_server/1]).
 
 -import(emqx_utils_conv, [str/1]).
--import(hoconsc, [mk/2, enum/1, ref/2]).
 
 -define(ACTION_SEND_MESSAGE, send_message).
 
