@@ -15,7 +15,7 @@
 
 -import(
     emqx_eviction_agent_test_helpers,
-    [emqtt_connect/0, emqtt_connect/2]
+    [emqtt_connect/2]
 ).
 
 all() ->

@@ -331,6 +331,11 @@ defmodule EMQXUmbrella.MixProject do
     [
       :debug_info,
       :warnings_as_errors,
+      :warn_unused_vars,
+      :warn_shadow_vars,
+      :warn_unused_import,
+      :warn_obsolete_guard,
+      :warnings_as_errors,
       {:compile_info, [{:emqx_vsn, String.to_charlist(version)}]},
       {:d, :EMQX_ELIXIR},
       {:d, :EMQX_FLAVOR, get_emqx_flavor()},
@@ -416,14 +421,7 @@ defmodule EMQXUmbrella.MixProject do
     k = {__MODULE__, :strict_erlc_options}
 
     get_memoized(k, fn ->
-      erlc_options() ++
-        [
-          :warn_unused_vars,
-          :warn_shadow_vars,
-          :warn_unused_import,
-          :warn_obsolete_guard,
-          :warnings_as_errors
-        ]
+      erlc_options()
     end)
   end
 

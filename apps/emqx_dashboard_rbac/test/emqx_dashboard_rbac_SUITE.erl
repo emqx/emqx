@@ -11,7 +11,7 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
--import(emqx_dashboard_api_test_helpers, [request/4, uri/1]).
+-import(emqx_dashboard_api_test_helpers, [uri/1]).
 
 -define(DEFAULT_SUPERUSER, <<"admin_user">>).
 -define(DEFAULT_SUPERUSER_PASS, <<"admin_password">>).

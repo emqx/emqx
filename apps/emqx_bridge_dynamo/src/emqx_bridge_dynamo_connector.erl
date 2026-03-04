@@ -35,7 +35,7 @@
     connect/1
 ]).
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [mk/2]).
 
 %%=====================================================================
 %% Hocon schema

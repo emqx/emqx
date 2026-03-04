@@ -24,18 +24,12 @@
 -record(coap_content, {content_format, payload = <<>>}).
 
 -import(emqx_lwm2m_SUITE, [
-    request/4,
-    response/3,
     test_send_coap_response/7,
     test_recv_coap_request/1,
     test_recv_coap_response/1,
     test_send_coap_request/6,
     test_recv_mqtt_response/1,
     std_register/5,
-    reslove_uri/1,
-    split_path/1,
-    split_query/1,
-    join_path/2,
     sprintf/2
 ]).
 

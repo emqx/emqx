@@ -11,7 +11,6 @@
 
 -export([handle_request/4]).
 
--import(emqx_coap_message, [response/2, response/3]).
 -import(emqx_coap_medium, [reply/2, reply/3]).
 -import(emqx_coap_channel, [run_hooks/3]).
 
@@ -85,8 +84,8 @@ get_sub_opts(Msg) ->
 mk_subopts() ->
     mk_subopts(?QOS_0).
 
-mk_subopts(QoS) ->
-    #{qos => QoS, rh => 1, rap => 0, nl => 0, is_new => false}.
+mk_subopts(Qos) ->
+    #{qos => Qos, rh => 1, rap => 0, nl => 0, is_new => false}.
 
 parse_sub_opts(<<"qos">>, V, Opts) ->
     Opts#{qos => erlang:binary_to_integer(V)};

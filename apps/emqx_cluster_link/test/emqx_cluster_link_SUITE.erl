@@ -12,8 +12,6 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 -define(ON(NODE, DO), erpc:call(NODE, fun() -> DO end)).
 
 %%

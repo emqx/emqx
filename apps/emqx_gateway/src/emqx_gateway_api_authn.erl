@@ -11,12 +11,10 @@
 -include_lib("typerefl/include/types.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
--import(emqx_dashboard_swagger, [error_codes/2]).
 
 -import(
     emqx_gateway_http,
     [
-        return_http_error/2,
         with_gateway/2,
         with_authn/2
     ]
