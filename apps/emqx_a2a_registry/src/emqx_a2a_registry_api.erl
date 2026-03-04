@@ -323,4 +323,4 @@ parse_query_params(QueryParams) ->
     ).
 
 card_out(Card) ->
-    Card.
+    emqx_a2a_registry_adapter:card_out(Card).

@@ -18,7 +18,6 @@
 -include("emqx_a2a_registry_internal.hrl").
 
 -define(PRINT(Format, Args), io:format(Format, Args)).
--define(PRINT(Format), ?PRINT(Format, [])).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -69,7 +68,8 @@ usage() ->
 if_enabled(Fn) ->
     case emqx_a2a_registry_config:is_enabled() of
         false ->
-            ?PRINT("A2A Registry is not enabled\n");
+            Error = mk_error(<<"A2A Registry is not enabled">>),
+            print_json(Error);
         true ->
             Fn()
     end.
@@ -78,10 +78,12 @@ handle_list(Args) ->
     case list_args(Args) of
         {ok, Opts} ->
             Cards0 = emqx_a2a_registry:list_cards(Opts),
-            Cards = filter_by_status(Cards0, Opts),
-            lists:foreach(fun print_card/1, Cards);
+            Cards1 = filter_by_status(Cards0, Opts),
+            Cards = lists:map(fun emqx_a2a_registry_adapter:card_out/1, Cards1),
+            print_json(Cards);
         {error, Reason} ->
-            ?PRINT("Invalid list args: ~s\n", [Reason]),
+            Error = mk_error(fmt("Invalid list args: ~s\n", [Reason])),
+            print_json(Error),
             false
     end.
 
@@ -91,15 +93,14 @@ handle_get(Args) ->
             Cards0 = emqx_a2a_registry:list_cards(Opts),
             case filter_by_status(Cards0, Opts) of
                 [] ->
-                    ?PRINT("Not found\n");
-                [Card | _] ->
-                    print_card(Card),
-                    CardRaw = maps:get(<<"raw">>, Card),
-                    CardRawBin = emqx_utils_json:encode(CardRaw),
-                    ?PRINT("~s\n", [CardRawBin])
+                    print_json(null);
+                [Card0 | _] ->
+                    Card = emqx_a2a_registry_adapter:card_out(Card0),
+                    print_json(Card)
             end;
         {error, Reason} ->
-            ?PRINT("Invalid get args: ~s\n", [Reason]),
+            Error = mk_error(fmt("Invalid get args: ~s\n", [Reason])),
+            print_json(Error),
             false
     end.
 
@@ -109,7 +110,8 @@ handle_delete(Args) ->
             ok = emqx_a2a_registry:delete_card(Opts),
             ok;
         {error, Reason} ->
-            ?PRINT("Invalid delete args: ~s\n", [Reason]),
+            Error = mk_error(fmt("Invalid delete args: ~s\n", [Reason])),
+            print_json(Error),
             false
     end.
 
@@ -124,18 +126,21 @@ handle_register(Args) ->
                 ok ?= emqx_a2a_registry:write_card(Opts)
             else
                 {error, Reason} ->
-                    ?PRINT("Invalid register args: ~s\n", [Reason]),
+                    Error = mk_error(fmt("Invalid register args: ~s\n", [Reason])),
+                    print_json(Error),
                     false
             end;
         {error, Reason} ->
-            ?PRINT("Invalid register args: ~s\n", [Reason]),
+            Error = mk_error(fmt("Invalid register args: ~s\n", [Reason])),
+            print_json(Error),
             false
     end.
 
 handle_stats() ->
     AllCards = emqx_a2a_registry:list_cards(),
     NumAllCards = length(AllCards),
-    ?PRINT("Total cards: ~b\n", [NumAllCards]).
+    Stats = #{<<"total">> => NumAllCards},
+    print_json(Stats).
 
 read_card_file(Filepath) ->
     maybe
@@ -300,17 +305,11 @@ is_valid_segment_id(Id0) ->
             false
     end.
 
-print_card(Card) ->
-    #{
-        <<"name">> := Name,
-        <<"description">> := Description,
-        <<"status">> := Status
-    } = Card,
-    ?PRINT(
-        "Name: ~s\n"
-        "Description: ~s\n"
-        "Status: ~s\n\n",
-        [Name, Description, Status]
-    ).
-
 bin(X) -> emqx_utils_conv:bin(X).
+fmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+
+mk_error(Msg) ->
+    #{<<"message">> => Msg, <<"error">> => true}.
+
+print_json(X) ->
+    ?PRINT("~s\n", [emqx_utils_json:encode(X)]).

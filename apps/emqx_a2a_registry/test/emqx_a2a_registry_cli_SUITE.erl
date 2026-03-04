@@ -25,7 +25,16 @@
 -define(UNIT_ID2, <<"unit_id2">>).
 -define(AGENT_ID2, <<"agent_id2">>).
 
--define(CAPTURE(Expr), emqx_common_test_helpers:capture_io_format(fun() -> Expr end)).
+-define(CAPTURE(Expr),
+    (fun() ->
+        case emqx_common_test_helpers:capture_io_format(fun() -> Expr end) of
+            {ok, ___LINES} ->
+                {ok, lists:map(fun emqx_utils_json:decode/1, ___LINES)};
+            ___X ->
+                ___X
+        end
+    end)()
+).
 
 %%------------------------------------------------------------------------------
 %% CT boilerplate
@@ -131,32 +140,32 @@ t_list_cards(_TCConfig) ->
     simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
     Id1 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     Id2 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
-    SId1 = byte_size(Id1),
-    SId2 = byte_size(Id2),
 
     {ok, Out1} = ?CAPTURE(list_cards([])),
     ?assertMatch(
         [
-            <<"Name: ", Id1:SId1/binary, _/binary>>,
-            <<"Name: ", Id2:SId2/binary, _/binary>>
+            [
+                #{<<"name">> := Id1},
+                #{<<"name">> := Id2}
+            ]
         ],
         lists:sort(Out1)
     ),
 
     ?assertMatch(
-        {ok, [<<"Name: ", Id2:SId2/binary, _/binary>>]},
+        {ok, [[#{<<"name">> := Id2}]]},
         ?CAPTURE(list_cards(["--org-id", ?ORG_ID2]))
     ),
     ?assertMatch(
-        {ok, [<<"Name: ", Id1:SId1/binary, _/binary>>]},
+        {ok, [[#{<<"name">> := Id1}]]},
         ?CAPTURE(list_cards(["--unit-id", ?UNIT_ID]))
     ),
     ?assertMatch(
-        {ok, [<<"Name: ", Id1:SId1/binary, _/binary>>]},
+        {ok, [[#{<<"name">> := Id1}]]},
         ?CAPTURE(list_cards(["--agent-id", ?AGENT_ID]))
     ),
     ?assertMatch(
-        {ok, [<<"Name: ", Id1:SId1/binary, _/binary>>]},
+        {ok, [[#{<<"name">> := Id1}]]},
         ?CAPTURE(
             list_cards([
                 "--org-id",
@@ -169,7 +178,7 @@ t_list_cards(_TCConfig) ->
         )
     ),
     ?assertMatch(
-        {ok, []},
+        {ok, [[]]},
         ?CAPTURE(
             list_cards([
                 "--org-id",
@@ -183,16 +192,16 @@ t_list_cards(_TCConfig) ->
     ),
 
     ?assertMatch(
-        {ok, [_, _]},
+        {ok, [[_, _]]},
         ?CAPTURE(list_cards(["--status", "offline"]))
     ),
     C = start_client(#{clientid => Id1}),
     ?assertMatch(
-        {ok, [<<"Name: ", Id2:SId2/binary, _/binary>>]},
+        {ok, [[#{<<"name">> := Id2}]]},
         ?CAPTURE(list_cards(["--status", "offline"]))
     ),
     ?assertMatch(
-        {ok, [<<"Name: ", Id1:SId1/binary, _/binary>>]},
+        {ok, [[#{<<"name">> := Id1}]]},
         ?CAPTURE(list_cards(["--status", "online"]))
     ),
     emqtt:stop(C),
@@ -211,31 +220,33 @@ t_get_card(_TCConfig) ->
     simple_write_card(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
     Id1 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     Id2 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2),
-    SId1 = byte_size(Id1),
-    SId2 = byte_size(Id2),
 
     ?assertMatch(
         {ok, [
-            <<"Name: ", Id1:SId1/binary, _/binary>>,
-            %% Raw JSON card
-            <<"{", _/binary>>
+            #{
+                <<"name">> := Id1,
+                %% Raw JSON card
+                <<"raw">> := <<"{", _/binary>>
+            }
         ]},
         ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID]))
     ),
-    {ok, [_, RawCard1]} = ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID])),
+    {ok, [#{<<"raw">> := RawCard1}]} = ?CAPTURE(get_card([?ORG_ID, ?UNIT_ID, ?AGENT_ID])),
     Name1 = emqx_a2a_registry_cth:agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     Card1 = sample_card_bin(#{<<"name">> => Name1}),
     ?assertEqual(emqx_utils_json:decode(Card1), emqx_utils_json:decode(RawCard1)),
     ?assertMatch(
         {ok, [
-            <<"Name: ", Id2:SId2/binary, _/binary>>,
-            %% Raw JSON card
-            <<"{", _/binary>>
+            #{
+                <<"name">> := Id2,
+                %% Raw JSON card
+                <<"raw">> := <<"{", _/binary>>
+            }
         ]},
         ?CAPTURE(get_card([?ORG_ID2, ?UNIT_ID2, ?AGENT_ID2]))
     ),
     ?assertMatch(
-        {ok, [<<"Not found", _/binary>>]},
+        {ok, [null]},
         ?CAPTURE(get_card([<<"foo">>, ?UNIT_ID, ?AGENT_ID]))
     ),
 
@@ -296,13 +307,13 @@ t_register_card(TCConfig) ->
 t_card_stats(_TCConfig) ->
     ?assertEqual(0, emqx_a2a_registry_cth:card_count()),
     ?assertMatch(
-        {ok, [<<"Total cards: 0", _/binary>>]},
+        {ok, [#{<<"total">> := 0}]},
         ?CAPTURE(card_stats())
     ),
 
     simple_write_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
     ?assertMatch(
-        {ok, [<<"Total cards: 1", _/binary>>]},
+        {ok, [#{<<"total">> := 1}]},
         ?CAPTURE(card_stats())
     ),
 

@@ -65,7 +65,7 @@ list_cards(Opts) ->
     lists:map(
         fun(#message{from = From, payload = PayloadRaw}) ->
             Card = emqx_utils_json:decode(PayloadRaw),
-            format_card(Card, From)
+            format_card(Card, PayloadRaw, From)
         end,
         Msgs
     ).
@@ -119,7 +119,7 @@ agent_card_schema_source() ->
     {ok, Source} = file:read_file(agent_card_schema_path()),
     Source.
 
-format_card(Card0, ClientId) ->
+format_card(Card0, CardRaw, ClientId) ->
     Card = maps:with(
         [
             <<"name">>,
@@ -129,7 +129,7 @@ format_card(Card0, ClientId) ->
         Card0
     ),
     Status = lookup_agent_status(ClientId),
-    Card#{<<"status">> => Status, <<"raw">> => Card0}.
+    Card#{<<"status">> => Status, <<"raw">> => CardRaw}.
 
 agent_card_clientid(OrgId, UnitId, AgentId) ->
     emqx_topic:join([OrgId, UnitId, AgentId]).
