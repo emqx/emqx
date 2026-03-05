@@ -125,12 +125,21 @@ handle_register(Args) ->
                 Opts = Opts1#{card_bin => CardBin},
                 ok ?= emqx_a2a_registry:write_card(Opts)
             else
-                {error, Reason} ->
-                    Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
-                    print_json(Error),
-                    false
+                {error, Reason0} ->
+                    case emqx_a2a_registry_adapter:format_register_error(Reason0) of
+                        {ok, Msg} ->
+                            Error = mk_error(Msg),
+                            print_json(Error),
+                            false;
+                        error ->
+                            Reason = iolist_to_binary(io_lib:format("~0p", [Reason0])),
+                            Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
+                            print_json(Error),
+                            false
+                    end
             end;
-        {error, Reason} ->
+        {error, Reason0} ->
+            Reason = iolist_to_binary(io_lib:format("~0p", [Reason0])),
             Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
             print_json(Error),
             false

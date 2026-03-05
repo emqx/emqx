@@ -22,7 +22,15 @@
 validate_card_schema(CardBin) ->
     case emqx_a2a_registry_config:is_schema_validation_enabled() of
         false ->
-            ok;
+            %% We only ensure it's a valid JSON object.
+            case emqx_utils_json:safe_decode(CardBin) of
+                {ok, #{}} ->
+                    ok;
+                {ok, _} ->
+                    {error, not_a_json_object};
+                {error, _} ->
+                    {error, not_a_json_object}
+            end;
         true ->
             do_validate_card_schema(CardBin)
     end.

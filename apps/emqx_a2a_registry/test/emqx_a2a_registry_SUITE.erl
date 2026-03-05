@@ -274,19 +274,41 @@ t_validate_schema(matrix) ->
 t_validate_schema(_TCConfig) ->
     Agent = start_client(#{clientid => agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID)}),
     %% The card schema has required fields, hence an empty object should fail.
-    BadCard = emqx_utils_json:encode(#{}),
+    JustAMap = emqx_utils_json:encode(#{}),
     ?assertMatch(
         {{ok, _}, {ok, _}},
         ?wait_async_action(
-            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard),
+            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, JustAMap),
             #{?snk_kind := "a2a_registry_invalid_card_message"},
             1_000
         )
     ),
     ?assertEqual(0, card_count()),
-    %% If we disable schema validation, any payload should be accepted
+    %% If we disable schema validation, any JSON object payload should be accepted
     update_config([a2a_registry, validate_schema], false, _ValueToRestore = true),
-    {ok, _} = publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard),
+    {ok, _} = publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, JustAMap),
+    ?assertEqual(1, card_count()),
+    %% Not a JSON object, even though it's valid JSON.
+    BadCard1 = <<"1">>,
+    ?assertMatch(
+        {{ok, _}, {ok, _}},
+        ?wait_async_action(
+            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard1),
+            #{?snk_kind := "a2a_registry_invalid_card_message"},
+            1_000
+        )
+    ),
+    ?assertEqual(1, card_count()),
+    %% Not valid JSON
+    BadCard2 = <<"{">>,
+    ?assertMatch(
+        {{ok, _}, {ok, _}},
+        ?wait_async_action(
+            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard2),
+            #{?snk_kind := "a2a_registry_invalid_card_message"},
+            1_000
+        )
+    ),
     ?assertEqual(1, card_count()),
     emqtt:stop(Agent),
     ok.

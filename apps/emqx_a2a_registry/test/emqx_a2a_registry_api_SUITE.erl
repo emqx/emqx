@@ -143,7 +143,12 @@ t_crud(_TCConfig) ->
     ?assertMatch({400, _}, register_card(<<"#">>, ?UNIT_ID, ?AGENT_ID, Card1)),
     ?assertMatch({400, _}, register_card(?ORG_ID, <<"+">>, ?AGENT_ID, Card1)),
     ?assertMatch({400, _}, register_card(?ORG_ID, ?UNIT_ID, <<"*">>, Card1)),
-    ?assertMatch({400, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"not a card">>)),
+    ?assertMatch({400, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"not a json">>)),
+
+    %% When schema validation is disabled, we only ensure it's a valid JSON object.
+    update_config([a2a_registry, validate_schema], false, _ValueToRestore = true),
+    ?assertMatch({400, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"not a json">>)),
+    ?assertMatch({204, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"{}">>)),
 
     ok.
 

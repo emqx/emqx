@@ -262,15 +262,14 @@ handle_register_card(Bindings, Body) ->
     case emqx_a2a_registry:write_card(Opts) of
         ok ->
             ?NO_CONTENT;
-        {error, {bad_id, Field, Id}} ->
-            Msg = iolist_to_binary(io_lib:format("Bad ~s id: ~s", [Field, Id])),
-            ?BAD_REQUEST(Msg);
-        {error, bad_card} ->
-            Msg = <<"Card does not conform to schema">>,
-            ?BAD_REQUEST(Msg);
         {error, Reason} ->
-            Msg = iolist_to_binary(io_lib:format("~0p", [Reason])),
-            ?INTERNAL_ERROR(Msg)
+            case emqx_a2a_registry_adapter:format_register_error(Reason) of
+                {ok, Msg} ->
+                    ?BAD_REQUEST(Msg);
+                error ->
+                    Msg = iolist_to_binary(io_lib:format("~0p", [Reason])),
+                    ?INTERNAL_ERROR(Msg)
+            end
     end.
 
 %%-------------------------------------------------------------------------------------------------
