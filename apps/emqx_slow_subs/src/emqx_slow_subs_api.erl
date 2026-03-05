@@ -16,7 +16,6 @@
 -define(TAGS, [<<"Slow Subscriptions">>]).
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
--import(emqx_mgmt_util, [bad_request/0]).
 
 namespace() -> "slow_subscribers_statistics".
 

@@ -44,8 +44,7 @@
     reset/2,
     proto_out/2,
     out/1, out/2,
-    proto_out/1,
-    reply/2
+    proto_out/1
 ]).
 
 -elvis([{elvis_style, atom_naming_convention, disable}]).

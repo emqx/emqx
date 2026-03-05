@@ -15,9 +15,7 @@
     [
         mk/2,
         ref/1,
-        ref/2,
-        array/1,
-        map/2
+        array/1
     ]
 ).
 

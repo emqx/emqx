@@ -28,6 +28,45 @@ When a plugin is developed inside the EMQX monorepo, the plugin application shou
 - `mix.exs`: Required for compile/test/package workflows in the monorepo.
 - `VERSION`: Single source of truth for plugin version. `mix.exs` reads this file, and Mix generates the `.app` metadata from `mix.exs`.
 
+#### `mix.exs` Requirements (Monorepo)
+
+For `make plugin-{plugin_name}` (which runs `mix emqx.plugin`) to work, `mix.exs` must define:
+
+- `project/0`
+  - `app: :{plugin_name}` (OTP app name).
+  - `version: version()` where `version/0` reads `VERSION`.
+  - `emqx_plugin: emqx_plugin()` (required; package metadata source).
+  - Monorepo paths:
+    - `build_path: "../../_build"`
+    - `deps_path: "../../deps"`
+    - `lockfile: "../../mix.lock"`
+- `application/0`
+  - OTP application metadata used to generate `.app` (for example `mod`, `extra_applications`).
+- `deps/0`
+  - Include `{:emqx_mix, path: "../..", runtime: false}` so plugin build tooling is available.
+  - In practice (see `plugins/emqx_username_quota`), set the `env` for `:emqx_mix` based on test/non-test profile.
+    - test profile: `:"emqx-enterprise-test"`
+    - normal profile: `:"emqx-enterprise"`
+
+Recommended for CT in monorepo plugins:
+
+- `erlc_paths/0`
+  - include `test` only in `*-test` Mix env.
+- `erlc_options/0`
+  - enable `{:d, :TEST}` and `{:parse_transform, :cth_readable_transform}` in `*-test` Mix env.
+- test-only dependency:
+  - `{:cth_readable, "1.5.1"}` in test env.
+
+`emqx_plugin/0` should return a keyword list including:
+
+- `rel_vsn` (typically `version()`).
+- optional `name` (defaults to `app`), optional `rel_apps` (defaults to `[app]`).
+- `metadata` keyword list (for example `description`, `authors`, `builder`, `repo`, `functionality`, `compatibility`).
+
+The package task flattens `metadata` into top-level fields in `release.json` (it is not emitted as a nested `metadata` object).
+
+Reference implementation: `plugins/emqx_username_quota/mix.exs`.
+
 > **Note**
 > Building a plugin package does **not** automatically load or start the plugin in EMQX.
 > Runtime plugin lifecycle is managed explicitly via:
@@ -126,7 +165,7 @@ This mode is intended for plugin development tightly coupled with a specific EMQ
 
 2. **Check out the appropriate branch**
    - Use a `release` branch matching the target EMQX version.
-   - Example: `release-61` for EMQX 6.1-based development.
+   - Example: `release-60` for EMQX 6.0-based development.
 
 3. **Generate the plugin application**
    ```bash
@@ -187,6 +226,71 @@ make plugins/emqx_username_quota-ct
   ```
 
 This produces a `.tar.gz` plugin artifact under `_build/plugins/`, suitable for installation via `emqx ctl plugins`.
+
+---
+
+## Plugin Extended API and UI
+
+Plugins can expose custom HTTP APIs through the plugin API gateway.
+
+Gateway path format:
+
+- `/api/v5/plugin_api/{plugin_name}/...`
+
+The plugin app module can implement `on_handle_api_call/4` and dispatch by method/path.
+Reference: `plugins/emqx_username_quota/src/emqx_username_quota_app.erl` and `..._api.erl`.
+
+### API callback contract
+
+`on_handle_api_call(Method, PathRemainder, Request, Context) -> ...`
+
+- `Method`: `get | post | put | patch | delete`
+- `PathRemainder`: list of binary path segments after `{plugin_name}` (percent-decoded)
+- `Request`:
+  - `query_string` map
+  - `headers` map
+  - `body` (JSON body for non-GET/DELETE)
+- `Context`:
+  - includes auth metadata and namespace info
+
+Accepted return values include:
+
+- `{ok, StatusCode, Headers, Body}`
+- `{error, StatusCode, Headers, Body}`
+- `{error, not_found}`
+
+### Username Quota plugin API (reference)
+
+Base path:
+
+- `/api/v5/plugin_api/emqx_username_quota`
+
+Implemented endpoints:
+
+- `GET /quota/usernames`
+- `GET /quota/usernames/:username`
+- `POST /kick/:username`
+- `DELETE /quota/snapshot`
+- `POST /quota/overrides`
+- `DELETE /quota/overrides`
+- `GET /quota/overrides`
+
+### Plugin native UI in Dashboard
+
+If `emqx_plugin.metadata` contains an `index` field, EMQX Dashboard presents plugin native UI in an iframe.
+
+Examples:
+
+- `index: "/ui"`
+- `index: ""`
+
+Dashboard prepends the plugin API base path:
+
+- `/api/v5/plugin_api/{plugin_name}` + `index`
+
+Example:
+
+- `index: "/ui"` -> `/api/v5/plugin_api/{plugin_name}/ui`
 
 ---
 

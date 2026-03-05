@@ -17,7 +17,6 @@
 %% Defs
 %%------------------------------------------------------------------------------
 
--import(emqx_dashboard_api_test_helpers, [multipart_formdata_request/3]).
 -import(emqx_mgmt_api_test_util, [request/3, uri/1]).
 
 -define(TCP_DEFAULT, 'tcp:default').

@@ -30,7 +30,7 @@
 
 -export([host_opts/0]).
 
--import(hoconsc, [mk/2, enum/1, ref/2]).
+-import(hoconsc, [mk/2, ref/2]).
 
 -define(CONNECTOR_TYPE, confluent_producer).
 -define(CONNECTOR_TYPE_BIN, <<"confluent_producer">>).

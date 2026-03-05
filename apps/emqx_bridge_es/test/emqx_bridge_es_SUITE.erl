@@ -13,8 +13,6 @@
 -include_lib("emqx_resource/include/emqx_resource.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 -define(TYPE, elasticsearch).
 -define(CA, "es.crt").
 
