@@ -46,22 +46,27 @@ unregister_hooks() ->
 %% Hook callbacks
 %%------------------------------------------------------------------------------
 
-on_message_publish(Msg = #message{flags = #{retain := true}}) ->
+on_message_publish(Msg = #message{}) ->
     case emqx_a2a_registry_config:is_enabled() of
         false ->
             {ok, Msg};
         true ->
             do_on_message_publish(Msg)
-    end;
-on_message_publish(Msg) ->
-    {ok, Msg}.
+    end.
 
-do_on_message_publish(Msg = #message{flags = #{retain := true}, topic = Topic}) ->
+do_on_message_publish(Msg = #message{flags = Flags, topic = Topic}) ->
+    IsRetained = maps:get(retain, Flags, false),
     case parse_a2a_discovery_topic(Topic) of
         error ->
             {ok, Msg};
+        {ok, Id} when IsRetained ->
+            validate_card_message(Msg, Id);
         {ok, Id} ->
-            validate_card_message(Msg, Id)
+            ?tp(warning, "a2a_registry_non_retained_card_message", #{
+                parsed_id => Id
+            }),
+            #message{headers = Headers} = Msg,
+            {stop, Msg#message{headers = Headers#{allow_publish => false}}}
     end.
 
 on_message_delivered(_ClientInfo, #message{headers = #{retained := true}} = Msg0) ->

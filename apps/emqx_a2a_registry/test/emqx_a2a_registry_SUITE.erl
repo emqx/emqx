@@ -189,6 +189,31 @@ t_smoke_01(_TCConfig) ->
         }}
     ),
 
+    %% Feature is enabled, but message doesn't have the `retain` flag.  Must be rejected.
+    Agent2 = start_client(#{clientid => AgentClientId}),
+    {ok, _} = emqtt:publish(
+        Agent2,
+        discovery_topic(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+        sample_card_bin(),
+        [{qos, 1}]
+    ),
+    ?assertNotReceive({publish, _}),
+
+    %% Non-retained message to a non-matching topic.  Should pass through.
+    {ok, _, _} = emqtt:subscribe(C, <<"other/topic">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(Agent2, <<"other/topic">>, <<"hi">>, [{qos, 1}]),
+    ?assertReceive({publish, _}),
+
+    %% Feature is disabled.  Client can publish anything.
+    update_config([a2a_registry, enable], false, _ValueToRestore = true),
+    {ok, _} = emqtt:publish(
+        Agent2,
+        discovery_topic(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+        sample_card_bin(),
+        [{qos, 1}]
+    ),
+
+    emqtt:stop(Agent2),
     emqtt:stop(C),
 
     ok.
