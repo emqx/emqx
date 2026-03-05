@@ -176,7 +176,7 @@ param_path_org_id() ->
             binary(),
             #{
                 in => path,
-                required => false,
+                required => true,
                 example => <<"my.org">>,
                 desc => ?DESC("org_id_path")
             }
@@ -188,7 +188,7 @@ param_path_unit_id() ->
             binary(),
             #{
                 in => path,
-                required => false,
+                required => true,
                 example => <<"my.unit">>,
                 desc => ?DESC("unit_id_path")
             }
@@ -200,7 +200,7 @@ agent_id_path() ->
             binary(),
             #{
                 in => path,
-                required => false,
+                required => true,
                 example => <<"my.agent">>,
                 desc => ?DESC("agent_id_path")
             }
