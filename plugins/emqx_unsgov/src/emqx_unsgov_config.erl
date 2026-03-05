@@ -60,7 +60,7 @@ exempt_topics() ->
     maps:get(exempt_topics, settings(), ?DEFAULT_EXEMPT_TOPICS).
 
 is_exempt_topic(Topic) when is_binary(Topic) ->
-    lists:any(fun(Filter) -> emqx_topic:match(Topic, Filter) end, exempt_topics()).
+    emqx_topic:match_any(Topic, exempt_topics()).
 
 parse(RawConfig) when is_map(RawConfig) ->
     maybe

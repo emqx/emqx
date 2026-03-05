@@ -9,7 +9,7 @@
 -define(DB_SHARD, emqx_unsgov_shard).
 %% Unified plugin logging macro with fixed tag/domain.
 -include_lib("emqx/include/logger.hrl").
--define(LOG(Level, Data), ?SLOG(Level, maps:merge(#{tag => "UNS_GOV", domain => unsgov}, (Data)))).
+-define(LOG(Level, Data), ?SLOG(Level, maps:merge(#{tag => "UNS_GOV", domain => [unsgov]}, (Data)))).
 
 -record(?MODEL_TAB, {
     id,

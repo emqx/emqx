@@ -149,7 +149,7 @@ compile_node(Key, Node, VarTypes, PayloadTypes) ->
         ?ENDPOINT ->
             compile_endpoint(Key, Node, PayloadTypes);
         _ ->
-            {error, #{cause => invalid_node_type, key => Key}}
+            {error, #{cause => invalid_node_type, key => Key, value => Type}}
     end.
 
 compile_namespace(Key, Node, VarTypes, PayloadTypes) ->
@@ -292,7 +292,7 @@ normalize_nested_map_keys(Map) when is_map(Map) ->
             (<<"values">>, V, Acc) -> Acc#{values => V};
             (<<"required">>, V, Acc) -> Acc#{required => V};
             (<<"properties">>, V, Acc) -> Acc#{properties => V};
-            (<<"additionalProperties">>, V, Acc) -> Acc#{additionalProperties => V};
+            (<<"additionalProperties">>, V, Acc) -> Acc#{additional_properties => V};
             (<<"enum">>, V, Acc) -> Acc#{enum => V};
             (K, V, Acc) when is_binary(K) -> Acc#{K => V}
         end,

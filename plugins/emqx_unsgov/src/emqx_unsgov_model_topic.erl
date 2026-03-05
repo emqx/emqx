@@ -23,11 +23,11 @@ validate_topic(Compiled, Topic) when is_map(Compiled), is_binary(Topic) ->
     end.
 
 walk_to_node(Compiled, Topic) ->
-    Segments = [S || S <- binary:split(Topic, <<"/">>, [global]), S =/= <<>>],
-    case Segments of
-        [] ->
+    case Topic of
+        <<>> ->
             {error, topic_invalid};
         _ ->
+            Segments = binary:split(Topic, <<"/">>, [global]),
             walk(maps:get(root, Compiled), Segments)
     end.
 

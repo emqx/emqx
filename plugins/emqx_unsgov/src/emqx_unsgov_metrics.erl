@@ -273,7 +273,7 @@ format_stats() ->
 
 aggregate_cluster_stats() ->
     DeadlineMs = now_millisecond() + ?SNAPSHOT_DEADLINE_MS,
-    Nodes = mria:running_nodes(),
+    Nodes = emqx:running_nodes(),
     NodeStats = emqx_utils:pmap(
         fun(Node) -> get_node_snapshot(Node, DeadlineMs) end, Nodes, infinity
     ),

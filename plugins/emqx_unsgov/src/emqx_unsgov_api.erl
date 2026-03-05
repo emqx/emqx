@@ -15,8 +15,7 @@ handle(get, [<<"status">>], _Request) ->
         on_mismatch => emqx_unsgov_config:on_mismatch(),
         exempt_topics => emqx_unsgov_config:exempt_topics()
     }};
-handle(get, [<<"stats">>], Request) ->
-    _ = Request,
+handle(get, [<<"stats">>], _Request) ->
     Stats = emqx_unsgov_metrics:snapshot(),
     {ok, 200, #{}, Stats};
 handle(get, [<<"events">>], _Request) ->
@@ -74,9 +73,9 @@ handle(post, [<<"models">>, Id, <<"deactivate">>], _Request) ->
 handle(delete, [<<"models">>, Id], _Request) ->
     case emqx_unsgov_store:delete_model(Id) of
         ok ->
-            {ok, 200, #{}, #{id => Id, deleted => true}};
+            {ok, 204, #{}, #{}};
         {error, not_found} ->
-            {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Model not found">>}}
+            {ok, 204, #{}, #{}}
     end;
 handle(post, [<<"validate">>, <<"topic">>], Request) ->
     Topic = get_topic(maps:get(body, Request, #{})),
@@ -129,7 +128,7 @@ model_error_message(#{cause := conflicting_topic_filter, conflict_with := Confli
         io_lib:format("Conflicting topic filter with active model ~ts", [to_bin(ConflictWith)])
     );
 model_error_message(#{cause := Cause}) when is_atom(Cause) ->
-    iolist_to_binary(io_lib:format("Bad model: ~p", [Cause]));
+    iolist_to_binary(io_lib:format("Bad model: ~ts", [Cause]));
 model_error_message(_Reason) ->
     <<"Bad model">>.
 
