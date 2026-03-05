@@ -86,7 +86,7 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
                             ref(card_out),
                             example_card_get()
                         ),
-                    404 => error_schema('NOT_FOUND', ?DESC("not_found"))
+                    404 => error_schema(?NOT_FOUND, ?DESC("not_found"))
                 }
         },
         delete => #{
@@ -117,7 +117,8 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
             responses =>
                 #{
                     204 => <<"">>,
-                    400 => error_schema('BAD_REQUEST', ?DESC("bad_request"))
+                    400 => error_schema(?BAD_REQUEST, ?DESC("bad_request")),
+                    500 => error_schema(?INTERNAL_ERROR, ?DESC("internal_error"))
                 }
         }
     }.
@@ -260,7 +261,7 @@ handle_register_card(Bindings, Body) ->
             ?BAD_REQUEST(Msg);
         {error, Reason} ->
             Msg = iolist_to_binary(io_lib:format("~0p", [Reason])),
-            ?BAD_REQUEST(Msg)
+            ?INTERNAL_ERROR(Msg)
     end.
 
 %%-------------------------------------------------------------------------------------------------

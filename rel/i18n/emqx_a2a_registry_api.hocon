@@ -59,4 +59,8 @@ emqx_a2a_registry_api {
     label: "Bad Request"
     desc: "Bad Request."
   }
+  internal_error {
+    label: "Internal Error"
+    desc: "Internal Error."
+  }
 }
