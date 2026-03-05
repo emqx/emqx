@@ -876,9 +876,9 @@ t_leader_election(Config) ->
                     )
                 )
             end},
-            {"g2 leader election happens on all nodes", fun([_, N2, N3], Trace) ->
+            {"g2 leader election happens on all nodes", fun([_, Node2, Node3], Trace) ->
                 ?assertEqual(
-                    [N2, N3],
+                    [Node2, Node3],
                     lists:usort([
                         Node
                      || #{
@@ -896,12 +896,12 @@ t_leader_election(Config) ->
                         #{
                             ?snk_kind := ds_shared_sub_become_candidate,
                             group := <<"g2">>,
-                            ?snk_meta := #{node := N}
+                            ?snk_meta := #{node := _N}
                         },
                         #{
                             ?snk_kind := K,
                             group := <<"g2">>,
-                            ?snk_meta := #{node := N}
+                            ?snk_meta := #{node := _N}
                         } when
                             K =:= ds_shared_sub_become_leader orelse
                                 K =:= ds_shared_sub_become_standby,

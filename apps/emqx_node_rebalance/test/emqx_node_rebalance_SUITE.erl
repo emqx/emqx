@@ -17,7 +17,6 @@
 -import(
     emqx_eviction_agent_test_helpers,
     [
-        emqtt_connect_many/1,
         emqtt_connect_many/2,
         emqtt_try_connect/1,
         stop_many/1,

@@ -13,7 +13,6 @@
 -include_lib("emqx/include/emqx_config.hrl").
 
 -import(hoconsc, [mk/2, ref/2]).
--import(emqx_dashboard_swagger, [error_codes/2]).
 
 %% minirest/dashbaord_swagger behaviour callbacks
 -export([
