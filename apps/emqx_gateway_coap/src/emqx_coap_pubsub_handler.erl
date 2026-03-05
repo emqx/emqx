@@ -84,8 +84,8 @@ get_sub_opts(Msg) ->
 mk_subopts() ->
     mk_subopts(?QOS_0).
 
-mk_subopts(Qos) ->
-    #{qos => Qos, rh => 1, rap => 0, nl => 0, is_new => false}.
+mk_subopts(QoS) ->
+    #{qos => QoS, rh => 1, rap => 0, nl => 0, is_new => false}.
 
 parse_sub_opts(<<"qos">>, V, Opts) ->
     Opts#{qos => erlang:binary_to_integer(V)};
