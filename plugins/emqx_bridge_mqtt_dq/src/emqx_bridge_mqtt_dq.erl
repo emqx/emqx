@@ -5,7 +5,7 @@
 
 -include_lib("emqx/include/emqx_hooks.hrl").
 -include_lib("emqx_utils/include/emqx_message.hrl").
--include_lib("kernel/include/logger.hrl").
+-include("emqx_bridge_mqtt_dq.hrl").
 
 -export([hook/0, unhook/0, on_message_publish/1]).
 
@@ -76,7 +76,7 @@ enqueue_to_buffer(BridgeName, Topic, QoS, Bridge, Item) ->
         Pid -> do_enqueue(Pid, Item, QoS, Bridge, BridgeName, BufferIndex)
     catch
         error:badarg ->
-            ?LOG_ERROR(#{
+            ?LOG(error, #{
                 msg => "mqtt_dq_buffer_not_ready",
                 bridge => BridgeName,
                 index => BufferIndex
@@ -94,7 +94,7 @@ do_enqueue(Pid, Item, _QoS, Bridge, BridgeName, BufferIndex) ->
         {Alias, ok} -> ok
     after Timeout ->
         unalias(Alias),
-        ?LOG_ERROR(#{
+        ?LOG(error, #{
             msg => "mqtt_dq_enqueue_timeout",
             bridge => BridgeName,
             index => BufferIndex

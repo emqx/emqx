@@ -90,6 +90,7 @@ bridges {
 | `filter_topic`    | string  | —       | Local topic filter pattern. Supports `+` and `#` wildcards.                |
 | `remote_topic`    | string  | —       | Target topic template. Use `${topic}` for the original topic.              |
 | `enqueue_timeout_ms` | integer | `5000` | Max time (ms) to block waiting for disk queue confirmation. Only applies to QoS > 0; QoS 0 is always async. |
+| `max_inflight`    | integer | `32`    | Maximum unacknowledged messages per connection to the remote broker. Controls batch pop size from disk queue and emqtt send window. |
 | `remote_qos`      | integer | `1`     | QoS level for publishing to the remote broker (0, 1, or 2).                |
 | `remote_retain`   | boolean | `false` | Retain flag for publishing to the remote broker.                            |
 
@@ -152,6 +153,115 @@ Changing this value has important side effects:
 
 3. **Bridge-scoped drop window**: changing `buffer_pool_size` restarts that bridge,
    so in-flight matching messages can be dropped during handover.
+
+## Message Delivery Guarantees
+
+This plugin provides **at-least-once** delivery under normal operation, and
+**best-effort** delivery under sustained failure. Messages can be lost in the
+following scenarios:
+
+### Disk Queue Overflow
+
+When a queue partition exceeds `queue.max_total_bytes`, the oldest messages in
+that partition are silently discarded to make room for new data. A warning log
+(`mqtt_dq_buffer_overflow`) is emitted periodically (not per message).
+
+**Mitigation**: increase `queue.max_total_bytes`, increase `buffer_pool_size`
+to spread load across more partitions, or reduce message throughput.
+
+### Remote Broker Rejects a Publish
+
+When the remote broker returns a non-success MQTT reason code in PUBACK (QoS 1)
+or PUBREC (QoS 2), the connector retries the message up to 3 times. If all
+retries are exhausted, the message is dropped and a warning log
+(`mqtt_dq_publish_dropped`) is emitted.
+
+Common rejection reason codes include:
+
+| Code | Meaning (MQTT 5.0)              |
+|------|---------------------------------|
+| 16   | No matching subscribers         |
+| 128  | Unspecified error                |
+| 131  | Implementation specific error    |
+| 135  | Not authorized                  |
+| 144  | Topic Name invalid              |
+| 145  | Packet identifier in use        |
+| 151  | Quota exceeded                  |
+
+Note: reason code 0 (Success) and 16 (No matching subscribers) are treated as
+successful delivery and do not trigger retries.
+
+**Mitigation**: check remote broker ACLs and topic policies. Review logs for
+the specific reason code.
+
+### Repeated Connection Failures
+
+Each time the connection to the remote broker drops, all pending (not yet
+acknowledged) messages lose one retry attempt. After 3 cumulative connection
+failures without a successful delivery, the message is dropped.
+
+For example, a message published during a network outage:
+1. Queued locally (retry counter = 3).
+2. Remote reconnects, message dispatched — remote disconnects again before ACK
+   (retry counter = 2).
+3. Reconnects, dispatched again — connection drops (retry counter = 1).
+4. Reconnects, dispatched — rejected or connection drops (retry counter = 0).
+5. Message dropped, warning logged.
+
+**Mitigation**: investigate why the remote broker is repeatedly unreachable.
+Transient network blips are handled transparently; this scenario requires
+sustained instability.
+
+### Enqueue Backpressure (QoS > 0 Local Publishes)
+
+When a QoS 1 or 2 client publishes a message matching a bridge, the plugin
+sends the message to the buffer worker's mailbox and then blocks the publishing
+session process for up to `enqueue_timeout_ms` (default 5000 ms) waiting for
+disk-write confirmation.
+
+The message itself is **not lost** when this timeout fires — it is already in the
+buffer worker's Erlang mailbox and will eventually be written to the disk queue.
+The timeout only controls how long the local publish path blocks.
+
+Why this matters: the `message.publish` hook runs inside the MQTT session
+process. While the hook is blocking, the session cannot process other messages
+from that client. If the buffer worker is slow (e.g., disk I/O stall or
+high mailbox backlog), the timeout prevents one slow bridge from stalling the
+client session indefinitely.
+
+When the timeout fires:
+1. The session process stops waiting and continues normally.
+2. The client receives PUBACK/PUBREC as usual — no error is surfaced.
+3. A warning log (`mqtt_dq_enqueue_timeout`) is emitted.
+4. The message remains in the buffer worker's mailbox and is written to the disk
+   queue when the worker catches up.
+
+The risk is indirect: if buffer workers fall persistently behind, their mailbox
+grows without bound, increasing memory usage. This is a sign that the bridge
+cannot keep up with the incoming message rate.
+
+**Mitigation**: increase `buffer_pool_size` to spread load, use faster storage
+for `queue.dir`, or reduce the message rate for matched topics.
+
+Note: QoS 0 local publishes never block — they are enqueued asynchronously with
+no backpressure applied to the publishing session.
+
+### Bridge Restart Window
+
+When a bridge restarts (due to config change, plugin reload, or enable/disable
+toggle), there is a brief window where matching messages may not be captured.
+
+**Mitigation**: apply config changes during low-traffic periods.
+
+### QoS 0 TCP-Level Delivery
+
+For QoS 0 publishes to the remote broker, the connector considers delivery
+successful once the message reaches the local TCP send buffer. If the remote
+broker crashes after the TCP stack accepts the data but before the broker
+processes it, the message may be lost without any error reported back to the
+connector.
+
+This is inherent to MQTT QoS 0 and not specific to this plugin.
 
 ## Operational Notes
 

@@ -27,6 +27,8 @@
   "$remote_topic_desc": {"en": "Target topic template. Use ${topic} for the original topic.", "zh": "目标主题模板。使用 ${topic} 代替原始主题。"},
   "$enqueue_timeout_ms_label": {"en": "Enqueue Timeout (ms)", "zh": "入队超时（毫秒）"},
   "$enqueue_timeout_ms_desc": {"en": "Max time in milliseconds to block the publish path waiting for disk queue confirmation. Only applies to QoS > 0 messages; QoS 0 messages are always enqueued asynchronously.", "zh": "等待磁盘队列确认时阻塞发布路径的最大时间（毫秒）。仅适用于 QoS > 0 的消息；QoS 0 的消息始终异步入队。"},
+  "$max_inflight_label": {"en": "Max Inflight", "zh": "最大飞行窗口"},
+  "$max_inflight_desc": {"en": "Maximum number of unacknowledged messages the connector sends to the remote broker at once. Controls both the batch size popped from the disk queue and the emqtt client's send window. Higher values improve throughput; lower values reduce memory usage under backpressure.", "zh": "连接器一次向远程代理发送的最大未确认消息数。同时控制从磁盘队列弹出的批量大小和 emqtt 客户端的发送窗口。较高的值可提高吞吐量，较低的值可减少背压下的内存使用。"},
   "$remote_qos_label": {"en": "Remote QoS", "zh": "远程 QoS"},
   "$remote_qos_desc": {"en": "QoS level for publishing to the remote broker.", "zh": "发布到远程代理的 QoS 级别。"},
   "$remote_retain_label": {"en": "Remote Retain", "zh": "远程保留"},

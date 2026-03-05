@@ -7,7 +7,7 @@
 
 -emqx_plugin(?MODULE).
 
--include_lib("kernel/include/logger.hrl").
+-include("emqx_bridge_mqtt_dq.hrl").
 
 -export([start/2, stop/1]).
 -export([on_config_changed/2, on_handle_api_call/4]).
@@ -144,7 +144,7 @@ check_queue_dirs([#{name := Name, queue_dir := QueueDir} | Rest]) ->
         ok ->
             check_queue_dirs(Rest);
         {error, Reason} ->
-            ?LOG_ERROR(#{
+            ?LOG(error, #{
                 msg => "mqtt_dq_queue_dir_not_writable",
                 bridge => Name,
                 dir => Dir,

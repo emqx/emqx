@@ -172,6 +172,18 @@
               }
             },
             {
+              "name": "max_inflight",
+              "type": "int",
+              "default": 32,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$max_inflight_label",
+                "description": "$max_inflight_desc"
+              }
+            },
+            {
               "name": "remote_qos",
               "type": "int",
               "default": 1,

@@ -5,15 +5,18 @@
 
 -behaviour(gen_server).
 
--include_lib("kernel/include/logger.hrl").
+-include("emqx_bridge_mqtt_dq.hrl").
 
 -export([start_link/2, enqueue/3, get_pid/2]).
 
 -export([init/1, handle_cast/2, handle_info/2, handle_call/3, terminate/2]).
 
--define(FLUSH_BATCH_SIZE, 32).
 -define(ENQUEUE_BATCH_LIMIT, 100).
--define(MAX_INFLIGHT, 2).
+%% Max batches in flight from buffer to connector. Two is enough: while the
+%% connector is publishing batch N, the buffer can already prepare batch N+1.
+%% More would just increase memory pressure without improving throughput,
+%% because the connector serializes dispatch within each batch anyway.
+-define(MAX_INFLIGHT_BATCHES, 2).
 -define(CONN_RETRY_DELAY_MS, 1000).
 -define(FLUSH_RETRY_DELAY_MS, 1000).
 -define(MIN_DISCARD_LOG_INTERVAL, 5000).
@@ -56,7 +59,8 @@ init({BridgeConfig, Index}) ->
         queue_dir := QueueDirBase,
         seg_bytes := SegBytes,
         max_total_bytes := MaxTotalBytes,
-        pool_size := PoolSize
+        pool_size := PoolSize,
+        max_inflight := MaxInflight
     } = BridgeConfig,
     QueueDir = queue_dir(QueueDirBase, Index),
     ok = filelib:ensure_dir(filename:join(QueueDir, "dummy")),
@@ -77,10 +81,16 @@ init({BridgeConfig, Index}) ->
         conn_index => ConnIndex,
         conn_pid => undefined,
         conn_mon => undefined,
-        %% [{Ref, AckRef, Items}] — batches sent to connector, max MAX_INFLIGHT
+        %% [{Ref, AckRef, Items}] — batches sent to connector, max MAX_INFLIGHT_BATCHES
         inflight => [],
         %% [{AckRef, Items}] — batches to resend, drained before queue; oldest first
         pending => [],
+        %% Batch pop size = max_inflight: intentionally coupled so each batch
+        %% exactly fills the connector's send window. Since replayq loads full
+        %% segments into ETS, the pop is a memory read — no disk I/O benefit
+        %% from larger batches. This keeps one config knob for the entire
+        %% buffer → connector → emqtt pipeline.
+        flush_batch_size => MaxInflight,
         flush_scheduled => false
     },
     {ok, try_acquire_conn(State)}.
@@ -138,7 +148,7 @@ find_connector(BridgeName, ConnIndex) ->
     try
         SupName = emqx_bridge_mqtt_dq_conn_sup:reg_name(BridgeName),
         ChildId = {conn, BridgeName, ConnIndex},
-        Children = brod_supervisor3:which_children(SupName),
+        Children = supervisor:which_children(SupName),
         case lists:keyfind(ChildId, 1, Children) of
             {_, Pid, _, _} when is_pid(Pid) -> {ok, Pid};
             _ -> error
@@ -162,7 +172,7 @@ maybe_flush(#{flush_scheduled := true} = State) ->
     State;
 maybe_flush(#{conn_pid := undefined} = State) ->
     State;
-maybe_flush(#{inflight := Inflight} = State) when length(Inflight) >= ?MAX_INFLIGHT ->
+maybe_flush(#{inflight := Inflight} = State) when length(Inflight) >= ?MAX_INFLIGHT_BATCHES ->
     State;
 maybe_flush(#{pending := [_ | _]} = State) ->
     self() ! flush,
@@ -178,7 +188,7 @@ maybe_flush(#{queue := Q} = State) ->
 
 do_flush(#{conn_pid := undefined} = State) ->
     State;
-do_flush(#{inflight := Inflight} = State) when length(Inflight) >= ?MAX_INFLIGHT ->
+do_flush(#{inflight := Inflight} = State) when length(Inflight) >= ?MAX_INFLIGHT_BATCHES ->
     %% Inflight is typically just 2, so length/1 in guard is ok
     State;
 do_flush(#{pending := [_ | _]} = State) ->
@@ -204,8 +214,10 @@ send_pending(
     },
     maybe_flush(State1).
 
-send_from_queue(#{queue := Q, conn_pid := ConnPid, inflight := Inflight} = State) ->
-    {Q1, AckRef, Items} = replayq:pop(Q, #{count_limit => ?FLUSH_BATCH_SIZE}),
+send_from_queue(
+    #{queue := Q, conn_pid := ConnPid, inflight := Inflight, flush_batch_size := BatchSize} = State
+) ->
+    {Q1, AckRef, Items} = replayq:pop(Q, #{count_limit => BatchSize}),
     Ref = make_ref(),
     ConnPid ! {publish_batch, Items, self(), Ref},
     State1 = State#{
@@ -272,7 +284,7 @@ maybe_log_discard(BridgeName, Index, NumDropped) ->
     NewAcc = AccDropped + NumDropped,
     case Now - LastTs > ?MIN_DISCARD_LOG_INTERVAL of
         true ->
-            ?LOG_WARNING(#{
+            ?LOG(warning, #{
                 msg => "mqtt_dq_buffer_overflow",
                 bridge => BridgeName,
                 index => Index,

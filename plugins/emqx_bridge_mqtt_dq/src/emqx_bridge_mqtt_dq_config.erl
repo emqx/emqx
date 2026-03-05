@@ -3,7 +3,7 @@
 %%--------------------------------------------------------------------
 -module(emqx_bridge_mqtt_dq_config).
 
--include_lib("kernel/include/logger.hrl").
+-include("emqx_bridge_mqtt_dq.hrl").
 
 -export([load/0, update/1, get_bridges/0]).
 
@@ -53,13 +53,13 @@ fold_bridge(Name, Raw, Acc) ->
         {ok, Bridge} ->
             [Bridge | Acc];
         false ->
-            ?LOG_ERROR(#{
+            ?LOG(error, #{
                 msg => "mqtt_dq_bridge_invalid_name",
                 name => Name
             }),
             Acc;
         error ->
-            ?LOG_ERROR(#{
+            ?LOG(error, #{
                 msg => "mqtt_dq_bridge_config_parse_error",
                 name => BinName
             }),
@@ -97,6 +97,9 @@ parse_bridge(Name, Raw) when is_map(Raw) ->
             ),
             enqueue_timeout_ms => to_pos_int(
                 get_val(<<"enqueue_timeout_ms">>, Raw, 5000)
+            ),
+            max_inflight => to_pos_int(
+                get_val(<<"max_inflight">>, Raw, 32)
             ),
             remote_qos => to_qos(get_val(<<"remote_qos">>, Raw, 1)),
             remote_retain => to_boolean(
