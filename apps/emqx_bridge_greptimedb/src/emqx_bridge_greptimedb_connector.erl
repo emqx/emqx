@@ -10,8 +10,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
--import(hoconsc, [mk/2, enum/1]).
-
 -behaviour(emqx_resource).
 
 %% callbacks of behaviour emqx_resource

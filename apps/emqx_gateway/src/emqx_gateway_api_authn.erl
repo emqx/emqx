@@ -14,14 +14,6 @@
 
 -import(hoconsc, [mk/2, ref/2]).
 
--import(
-    emqx_gateway_http,
-    [
-        with_gateway/2,
-        with_authn/2
-    ]
-).
-
 %% minirest/dashbaord_swagger behaviour callbacks
 -export([
     api_spec/0,
