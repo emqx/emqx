@@ -23,13 +23,8 @@ validate_topic(Compiled, Topic) when is_map(Compiled), is_binary(Topic) ->
     end.
 
 walk_to_node(Compiled, Topic) ->
-    case Topic of
-        <<>> ->
-            {error, topic_invalid};
-        _ ->
-            Segments = binary:split(Topic, <<"/">>, [global]),
-            walk(maps:get(root, Compiled), Segments)
-    end.
+    Segments = emqx_topic:tokens(Topic),
+    walk(maps:get(root, Compiled), Segments).
 
 walk(Node, []) ->
     LiteralChildren = maps:get(literal_children, Node, #{}),
