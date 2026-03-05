@@ -7,19 +7,23 @@
 
 -emqx_plugin(?MODULE).
 
+-include_lib("kernel/include/logger.hrl").
+
 -export([start/2, stop/1]).
 -export([on_config_changed/2, on_handle_api_call/4]).
 -export([sync_bridges/0]).
 
 start(_StartType, _StartArgs) ->
-    emqx_bridge_mqtt_dq_conns = ets:new(emqx_bridge_mqtt_dq_conns, [
-        public, set, named_table, {read_concurrency, true}
-    ]),
-    {ok, Sup} = emqx_bridge_mqtt_dq_sup:start_link(),
     ok = emqx_bridge_mqtt_dq_config:load(),
-    ok = emqx_bridge_mqtt_dq:hook(),
-    ok = start_bridges(),
-    {ok, Sup}.
+    case check_queue_dirs() of
+        ok ->
+            {ok, Sup} = emqx_bridge_mqtt_dq_sup:start_link(),
+            ok = emqx_bridge_mqtt_dq:hook(),
+            ok = start_bridges(),
+            {ok, Sup};
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 stop(_State) ->
     ok = emqx_bridge_mqtt_dq:unhook(),
@@ -122,3 +126,44 @@ start_child(Sup, Spec) ->
 stop_bridge_child(Sup, Id) ->
     _ = supervisor:terminate_child(Sup, Id),
     _ = supervisor:delete_child(Sup, Id).
+
+%%--------------------------------------------------------------------
+%% Queue dir pre-flight check
+%%--------------------------------------------------------------------
+
+check_queue_dirs() ->
+    Bridges = emqx_bridge_mqtt_dq_config:get_bridges(),
+    Enabled = [B || #{enable := true} = B <- Bridges],
+    check_queue_dirs(Enabled).
+
+check_queue_dirs([]) ->
+    ok;
+check_queue_dirs([#{name := Name, queue_dir := QueueDir} | Rest]) ->
+    Dir = binary_to_list(QueueDir),
+    case check_one_queue_dir(Dir) of
+        ok ->
+            check_queue_dirs(Rest);
+        {error, Reason} ->
+            ?LOG_ERROR(#{
+                msg => "mqtt_dq_queue_dir_not_writable",
+                bridge => Name,
+                dir => Dir,
+                reason => Reason
+            }),
+            {error, {queue_dir_not_writable, Name, Dir, Reason}}
+    end.
+
+check_one_queue_dir(Dir) ->
+    case filelib:ensure_dir(filename:join(Dir, "dummy")) of
+        ok ->
+            TestFile = filename:join(Dir, ".write_test"),
+            case file:write_file(TestFile, <<>>) of
+                ok ->
+                    _ = file:delete(TestFile),
+                    ok;
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {error, Reason} ->
+            {error, Reason}
+    end.

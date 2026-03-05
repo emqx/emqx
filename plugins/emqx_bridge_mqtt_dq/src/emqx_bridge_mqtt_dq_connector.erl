@@ -12,7 +12,6 @@
 -export([init/1, handle_cast/2, handle_info/2, handle_call/3, terminate/2]).
 
 -define(RECONNECT_DELAY_MS, 5000).
--define(INITIAL_CONNECT_DELAY_MS, 0).
 
 %%--------------------------------------------------------------------
 %% API
@@ -56,6 +55,7 @@ init({BridgeConfig, Index}) ->
         bridge_name => BridgeName,
         index => Index,
         conn_opts => ConnOpts2,
+        bridge_config => BridgeConfig,
         client_pid => undefined,
         client_mon => undefined,
         connected => false
@@ -70,6 +70,16 @@ handle_cast(_Msg, State) ->
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
+handle_info(
+    {publish_batch, Items, From, Ref},
+    #{connected := true, client_pid := Pid} = State
+) when is_pid(Pid) ->
+    Result = do_publish_batch(Items, State),
+    From ! {batch_ack, Ref, Result},
+    {noreply, State};
+handle_info({publish_batch, _Items, From, Ref}, State) ->
+    From ! {batch_ack, Ref, {error, 0}},
+    {noreply, State};
 handle_info(reconnect, State) ->
     State1 = do_connect(State),
     {noreply, State1};
@@ -81,7 +91,6 @@ handle_info({'DOWN', Ref, process, Pid, Reason}, #{client_mon := Ref, client_pid
         index => Index,
         reason => Reason
     }),
-    ets:insert(emqx_bridge_mqtt_dq_conns, {{BridgeName, Index}, undefined}),
     State1 = State#{
         client_pid := undefined,
         client_mon := undefined,
@@ -95,13 +104,76 @@ handle_info({'DOWN', _Ref, process, _Pid, _Reason}, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #{bridge_name := BridgeName, index := Index, client_pid := Pid}) ->
-    ets:delete(emqx_bridge_mqtt_dq_conns, {BridgeName, Index}),
+terminate(_Reason, #{client_pid := Pid}) ->
     maybe_disconnect(Pid),
     ok.
 
 %%--------------------------------------------------------------------
-%% Internal
+%% Internal: publish
+%%--------------------------------------------------------------------
+
+do_publish_batch(Items, State) ->
+    do_publish_batch(Items, 0, State).
+
+do_publish_batch([], _NumOk, _State) ->
+    ok;
+do_publish_batch([Item | Rest], NumOk, State) ->
+    case publish_one(Item, State) of
+        ok -> do_publish_batch(Rest, NumOk + 1, State);
+        {error, rejected} -> do_publish_batch(Rest, NumOk + 1, State);
+        {error, network} -> {error, NumOk}
+    end.
+
+publish_one(#{topic := OrigTopic, payload := Payload, properties := Props}, State) ->
+    #{
+        client_pid := ClientPid,
+        bridge_name := BridgeName,
+        bridge_config := #{
+            remote_topic := RemoteTopicTemplate,
+            remote_qos := ConfigQoS,
+            remote_retain := ConfigRetain
+        }
+    } = State,
+    RenderedTopic = render_topic(RemoteTopicTemplate, OrigTopic),
+    PubOpts = [{qos, ConfigQoS}, {retain, ConfigRetain}],
+    do_publish(ClientPid, RenderedTopic, Props, Payload, PubOpts, BridgeName).
+
+do_publish(ClientPid, Topic, Props, Payload, PubOpts, BridgeName) ->
+    try emqtt:publish(ClientPid, Topic, Props, Payload, PubOpts) of
+        Result -> handle_publish_result(Result, Topic, BridgeName)
+    catch
+        _:_ -> {error, network}
+    end.
+
+handle_publish_result(ok, _Topic, _BridgeName) ->
+    ok;
+handle_publish_result({ok, #{reason_code := RC}}, _Topic, _BridgeName) when
+    RC =:= 0; RC =:= 16
+->
+    ok;
+handle_publish_result({ok, #{reason_code := _RC}}, Topic, BridgeName) ->
+    ?LOG_WARNING(#{
+        msg => "mqtt_dq_publish_rejected",
+        bridge => BridgeName,
+        topic => Topic
+    }),
+    {error, rejected};
+handle_publish_result({error, Reason}, Topic, BridgeName) ->
+    ?LOG_ERROR(#{
+        msg => "mqtt_dq_publish_error",
+        bridge => BridgeName,
+        topic => Topic,
+        reason => Reason
+    }),
+    {error, network}.
+
+render_topic(<<"${topic}">>, OrigTopic) ->
+    OrigTopic;
+render_topic(Template, OrigTopic) ->
+    binary:replace(Template, <<"${topic}">>, OrigTopic, [global]).
+
+%%--------------------------------------------------------------------
+%% Internal: connection
 %%--------------------------------------------------------------------
 
 do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} = State) ->
@@ -110,7 +182,6 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
     case start_and_connect(ConnOpts) of
         {ok, Pid} ->
             Mon = erlang:monitor(process, Pid),
-            ets:insert(emqx_bridge_mqtt_dq_conns, {{BridgeName, Index}, Pid}),
             ?LOG_INFO(#{
                 msg => "mqtt_dq_connector_connected",
                 bridge => BridgeName,
@@ -128,7 +199,6 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 index => Index,
                 reason => Reason
             }),
-            ets:insert(emqx_bridge_mqtt_dq_conns, {{BridgeName, Index}, undefined}),
             schedule_reconnect(),
             State#{
                 client_pid := undefined,

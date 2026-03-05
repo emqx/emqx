@@ -5,13 +5,16 @@
 
 -behaviour(brod_supervisor3).
 
--export([start_link/1]).
+-export([start_link/1, reg_name/1]).
 -export([init/1]).
 
 start_link(BridgeConfig) ->
     #{name := Name} = BridgeConfig,
-    RegName = list_to_atom("emqx_bridge_mqtt_dq_conn_" ++ binary_to_list(Name)),
-    brod_supervisor3:start_link({local, RegName}, ?MODULE, [BridgeConfig]).
+    brod_supervisor3:start_link({local, reg_name(Name)}, ?MODULE, [BridgeConfig]).
+
+-spec reg_name(binary()) -> atom().
+reg_name(BridgeName) ->
+    list_to_atom("emqx_bridge_mqtt_dq_conn_" ++ binary_to_list(BridgeName)).
 
 init([BridgeConfig]) ->
     #{pool_size := PoolSize} = BridgeConfig,

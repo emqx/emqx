@@ -11,18 +11,20 @@
 
 -export([init/1, handle_cast/2, handle_info/2, handle_call/3, terminate/2]).
 
--define(DEFAULT_BATCH_SIZE, 100).
--define(FLUSH_INTERVAL_MS, 10).
--define(RETRY_DELAY_MS, 1000).
+-define(FLUSH_BATCH_SIZE, 32).
+-define(ENQUEUE_BATCH_LIMIT, 100).
+-define(MAX_INFLIGHT, 2).
+-define(CONN_RETRY_DELAY_MS, 1000).
+-define(FLUSH_RETRY_DELAY_MS, 1000).
 -define(MIN_DISCARD_LOG_INTERVAL, 5000).
 
--type queue_item() :: {
-    _Topic :: emqx_types:topic(),
-    _Payload :: binary(),
-    _QoS :: emqx_types:qos(),
-    _Retain :: boolean(),
-    _Timestamp :: integer(),
-    _Properties :: emqx_types:properties()
+-type queue_item() :: #{
+    topic := emqx_types:topic(),
+    payload := binary(),
+    qos := emqx_types:qos(),
+    retain := boolean(),
+    timestamp := integer(),
+    properties := emqx_types:properties()
 }.
 
 -export_type([queue_item/0]).
@@ -37,7 +39,8 @@ start_link(BridgeConfig, Index) ->
 
 -spec enqueue(pid(), queue_item(), no_ack | reference()) -> ok.
 enqueue(Pid, Item, AckAlias) ->
-    gen_server:cast(Pid, {enqueue, Item, AckAlias}).
+    Pid ! {enqueue, Item, AckAlias},
+    ok.
 
 -spec get_pid(binary(), non_neg_integer()) -> pid().
 get_pid(BridgeName, Index) ->
@@ -52,7 +55,8 @@ init({BridgeConfig, Index}) ->
         name := BridgeName,
         queue_dir := QueueDirBase,
         seg_bytes := SegBytes,
-        max_total_bytes := MaxTotalBytes
+        max_total_bytes := MaxTotalBytes,
+        pool_size := PoolSize
     } = BridgeConfig,
     QueueDir = queue_dir(QueueDirBase, Index),
     ok = filelib:ensure_dir(filename:join(QueueDir, "dummy")),
@@ -64,37 +68,50 @@ init({BridgeConfig, Index}) ->
         sizer => fun sizer/1,
         mem_queue_module => replayq_mem_ets_exclusive
     }),
-    %% Register for fast lookup from hook callback
     persistent_term:put({?MODULE, BridgeName, Index}, self()),
+    ConnIndex = Index rem PoolSize,
     State = #{
         bridge_name => BridgeName,
         index => Index,
         queue => Q,
-        bridge_config => BridgeConfig,
-        flush_timer => undefined,
-        batch_size => ?DEFAULT_BATCH_SIZE
+        conn_index => ConnIndex,
+        conn_pid => undefined,
+        conn_mon => undefined,
+        %% [{Ref, AckRef, Items}] — batches sent to connector, max MAX_INFLIGHT
+        inflight => [],
+        %% [{AckRef, Items}] — batches to resend, drained before queue; oldest first
+        pending => [],
+        flush_scheduled => false
     },
-    %% If queue has items from previous run, flush immediately
-    State1 = maybe_schedule_flush(State),
-    {ok, State1}.
+    {ok, try_acquire_conn(State)}.
 
-handle_cast({enqueue, Item, AckAlias}, #{queue := Q} = State) ->
-    Q1 = replayq:append(Q, [Item]),
-    Q2 = handle_overflow(Q1, State),
-    ack_enqueue(AckAlias),
-    State1 = State#{queue := Q2},
-    State2 = maybe_schedule_flush(State1),
-    {noreply, State2};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
+handle_info({enqueue, Item, AckAlias}, #{queue := Q} = State) ->
+    {Items, CallerAcks} = collect_enqueue([Item], [AckAlias], ?ENQUEUE_BATCH_LIMIT - 1),
+    Q1 = replayq:append(Q, Items),
+    Q2 = handle_overflow(Q1, State),
+    ok = ack_enqueue_batch(CallerAcks),
+    {noreply, maybe_flush(State#{queue := Q2})};
+handle_info({batch_ack, Ref, Result}, State) ->
+    {noreply, handle_batch_ack(Ref, Result, State)};
 handle_info(flush, State) ->
-    State1 = State#{flush_timer := undefined},
-    State2 = do_flush(State1),
-    {noreply, State2};
+    {noreply, do_flush(State#{flush_scheduled := false})};
+handle_info(retry_conn, State) ->
+    {noreply, try_acquire_conn(State)};
+handle_info(
+    {'DOWN', Mon, process, Pid, _Reason},
+    #{conn_mon := Mon, conn_pid := Pid} = State
+) ->
+    State1 = salvage_inflight(State),
+    State2 = State1#{conn_pid := undefined, conn_mon := undefined},
+    {noreply, schedule_retry_conn(State2)};
+handle_info({'DOWN', _Mon, process, _Pid, _Reason}, State) ->
+    {noreply, State};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -104,141 +121,134 @@ terminate(_Reason, #{queue := Q, bridge_name := BridgeName, index := Index}) ->
     ok.
 
 %%--------------------------------------------------------------------
-%% Internal: flush
+%% Internal: connector affinity
 %%--------------------------------------------------------------------
 
+try_acquire_conn(#{bridge_name := BridgeName, conn_index := ConnIndex} = State) ->
+    safe_demonitor(State),
+    case find_connector(BridgeName, ConnIndex) of
+        {ok, Pid} ->
+            Mon = erlang:monitor(process, Pid),
+            maybe_flush(State#{conn_pid := Pid, conn_mon := Mon});
+        error ->
+            schedule_retry_conn(State#{conn_pid := undefined, conn_mon := undefined})
+    end.
+
+find_connector(BridgeName, ConnIndex) ->
+    try
+        SupName = emqx_bridge_mqtt_dq_conn_sup:reg_name(BridgeName),
+        ChildId = {conn, BridgeName, ConnIndex},
+        Children = brod_supervisor3:which_children(SupName),
+        case lists:keyfind(ChildId, 1, Children) of
+            {_, Pid, _, _} when is_pid(Pid) -> {ok, Pid};
+            _ -> error
+        end
+    catch
+        _:_ -> error
+    end.
+
+safe_demonitor(#{conn_mon := undefined}) -> ok;
+safe_demonitor(#{conn_mon := Mon}) -> erlang:demonitor(Mon, [flush]).
+
+schedule_retry_conn(State) ->
+    erlang:send_after(?CONN_RETRY_DELAY_MS, self(), retry_conn),
+    State.
+
+%%--------------------------------------------------------------------
+%% Internal: flush / inflight
+%%--------------------------------------------------------------------
+
+maybe_flush(#{flush_scheduled := true} = State) ->
+    State;
+maybe_flush(#{conn_pid := undefined} = State) ->
+    State;
+maybe_flush(#{inflight := Inflight} = State) when length(Inflight) >= ?MAX_INFLIGHT ->
+    State;
+maybe_flush(#{pending := [_ | _]} = State) ->
+    self() ! flush,
+    State#{flush_scheduled := true};
+maybe_flush(#{queue := Q} = State) ->
+    case replayq:is_empty(Q) of
+        true ->
+            State;
+        false ->
+            self() ! flush,
+            State#{flush_scheduled := true}
+    end.
+
+do_flush(#{conn_pid := undefined} = State) ->
+    State;
+do_flush(#{inflight := Inflight} = State) when length(Inflight) >= ?MAX_INFLIGHT ->
+    %% Inflight is typically just 2, so length/1 in guard is ok
+    State;
+do_flush(#{pending := [_ | _]} = State) ->
+    send_pending(State);
 do_flush(#{queue := Q} = State) ->
     case replayq:is_empty(Q) of
         true -> State;
-        false -> flush_batch(State)
+        false -> send_from_queue(State)
     end.
 
-flush_batch(#{queue := Q, batch_size := BatchSize} = State) ->
-    {Q1, AckRef, Items} = replayq:pop(Q, #{count_limit => BatchSize}),
-    {Remaining, State1} = publish_batch(Items, State#{queue := Q1}),
-    ack_and_continue(Remaining, AckRef, State1).
-
-ack_and_continue([], AckRef, #{queue := Q} = State) ->
-    ok = replayq:ack(Q, AckRef),
-    maybe_schedule_flush(State);
-ack_and_continue(Remaining, AckRef, #{queue := Q} = State) ->
-    Q1 = replayq:append(Q, Remaining),
-    ok = replayq:ack(Q1, AckRef),
-    schedule_retry(State#{queue := Q1}).
-
-publish_batch([], State) ->
-    {[], State};
-publish_batch([Item | Rest] = All, State) ->
-    case publish_one(Item, State) of
-        ok ->
-            publish_batch(Rest, State);
-        {error, network} ->
-            %% Network error — return all remaining (including this one) for re-enqueue
-            {All, State};
-        {error, rejected} ->
-            %% Broker rejected — skip this item, continue with rest
-            publish_batch(Rest, State)
-    end.
-
-publish_one({OrigTopic, Payload, QoS, Retain, _Ts, Props}, State) ->
+send_pending(
     #{
-        bridge_name := BridgeName,
-        bridge_config := #{
-            remote_topic := RemoteTopicTemplate,
-            remote_qos := ConfigQoS,
-            remote_retain := ConfigRetain,
-            pool_size := PoolSize
-        }
-    } = State,
-    RenderedTopic = render_topic(RemoteTopicTemplate, OrigTopic),
-    PubQoS = resolve_qos(QoS, ConfigQoS),
-    PubRetain = resolve_retain(Retain, ConfigRetain),
-    ConnIndex = erlang:phash2(OrigTopic, PoolSize),
-    case get_connector_pid(BridgeName, ConnIndex) of
-        {ok, ConnPid} ->
-            PubOpts = [{qos, PubQoS}, {retain, PubRetain}],
-            do_publish(ConnPid, RenderedTopic, Props, Payload, PubOpts, BridgeName);
-        {error, _} ->
-            {error, network}
-    end.
+        pending := [{AckRef, Items} | Rest],
+        conn_pid := ConnPid,
+        inflight := Inflight
+    } = State
+) ->
+    Ref = make_ref(),
+    ConnPid ! {publish_batch, Items, self(), Ref},
+    State1 = State#{
+        pending := Rest,
+        inflight := [{Ref, AckRef, Items} | Inflight]
+    },
+    maybe_flush(State1).
 
-do_publish(ConnPid, Topic, Props, Payload, PubOpts, BridgeName) ->
-    try emqtt:publish(ConnPid, Topic, Props, Payload, PubOpts) of
-        Result -> handle_publish_result(Result, Topic, BridgeName)
-    catch
-        _:_ -> {error, network}
-    end.
+send_from_queue(#{queue := Q, conn_pid := ConnPid, inflight := Inflight} = State) ->
+    {Q1, AckRef, Items} = replayq:pop(Q, #{count_limit => ?FLUSH_BATCH_SIZE}),
+    Ref = make_ref(),
+    ConnPid ! {publish_batch, Items, self(), Ref},
+    State1 = State#{
+        queue := Q1,
+        inflight := [{Ref, AckRef, Items} | Inflight]
+    },
+    maybe_flush(State1).
 
-handle_publish_result(ok, _Topic, _BridgeName) ->
-    ok;
-handle_publish_result({ok, #{reason_code := RC}}, _Topic, _BridgeName) when
-    RC =:= 0; RC =:= 16
-->
-    ok;
-handle_publish_result({ok, #{reason_code := _RC}}, Topic, BridgeName) ->
-    ?LOG_WARNING(#{
-        msg => "mqtt_dq_publish_rejected",
-        bridge => BridgeName,
-        topic => Topic
-    }),
-    {error, rejected};
-handle_publish_result({error, Reason}, Topic, BridgeName) ->
-    ?LOG_ERROR(#{
-        msg => "mqtt_dq_publish_error",
-        bridge => BridgeName,
-        topic => Topic,
-        reason => Reason
-    }),
-    classify_error(Reason).
-
-get_connector_pid(BridgeName, ConnIndex) ->
-    case ets:lookup(emqx_bridge_mqtt_dq_conns, {BridgeName, ConnIndex}) of
-        [{_, Pid}] when is_pid(Pid) -> check_alive(Pid);
-        _ -> {error, not_found}
-    end.
-
-check_alive(Pid) ->
-    case is_process_alive(Pid) of
-        true -> {ok, Pid};
-        false -> {error, not_alive}
-    end.
-
-classify_error(disconnected) -> {error, network};
-classify_error(tcp_closed) -> {error, network};
-classify_error(closed) -> {error, network};
-classify_error(einval) -> {error, network};
-classify_error({shutdown, _}) -> {error, network};
-classify_error({transport_error, _}) -> {error, network};
-classify_error(_) -> {error, network}.
-
-%%--------------------------------------------------------------------
-%% Internal: scheduling
-%%--------------------------------------------------------------------
-
-maybe_schedule_flush(#{flush_timer := undefined, queue := Q} = State) ->
-    case replayq:is_empty(Q) of
-        true -> State;
-        false -> schedule_flush(State)
+handle_batch_ack(Ref, ok, #{inflight := Inflight, queue := Q} = State) ->
+    case lists:keytake(Ref, 1, Inflight) of
+        {value, {_, AckRef, _Items}, Rest} ->
+            ok = replayq:ack(Q, AckRef),
+            maybe_flush(State#{inflight := Rest});
+        false ->
+            State
     end;
-maybe_schedule_flush(State) ->
-    %% Timer already pending
-    State.
+handle_batch_ack(Ref, {error, _NumOk}, #{inflight := Inflight} = State) ->
+    case lists:keymember(Ref, 1, Inflight) of
+        true ->
+            %% Network error — salvage ALL inflight to pending in send order.
+            %% The other in-flight batch shares the same broken connection,
+            %% its ack (arriving later) will be a no-op since inflight is empty.
+            schedule_flush_retry(salvage_inflight(State));
+        false ->
+            State
+    end.
 
-schedule_flush(State) ->
-    Ref = erlang:send_after(?FLUSH_INTERVAL_MS, self(), flush),
-    State#{flush_timer := Ref}.
+%% Connector DOWN — move all inflight back to pending head (preserving send order).
+salvage_inflight(#{inflight := []} = State) ->
+    State;
+salvage_inflight(#{inflight := Inflight, pending := Pending} = State) ->
+    %% inflight is newest-first; reverse to get send order
+    Salvaged = [{AckRef, Items} || {_Ref, AckRef, Items} <- lists:reverse(Inflight)],
+    State#{inflight := [], pending := Salvaged ++ Pending}.
 
-schedule_retry(State) ->
-    Ref = erlang:send_after(?RETRY_DELAY_MS, self(), flush),
-    State#{flush_timer := Ref}.
+schedule_flush_retry(State) ->
+    erlang:send_after(?FLUSH_RETRY_DELAY_MS, self(), flush),
+    State#{flush_scheduled := true}.
 
 %%--------------------------------------------------------------------
 %% Internal: overflow
 %%--------------------------------------------------------------------
 
-%% replayq:append never refuses items. After appending, check if the
-%% queue has exceeded max_total_bytes. If so, pop the oldest items to
-%% bring it back within limits and ack (discard) them immediately.
 handle_overflow(Q, #{bridge_name := BridgeName, index := Index}) ->
     case replayq:overflow(Q) of
         Overflow when Overflow =< 0 ->
@@ -247,8 +257,7 @@ handle_overflow(Q, #{bridge_name := BridgeName, index := Index}) ->
             {Q1, QAckRef, Dropped} =
                 replayq:pop(Q, #{bytes_limit => Overflow, count_limit => 999999999}),
             ok = replayq:ack(Q1, QAckRef),
-            NumDropped = length(Dropped),
-            maybe_log_discard(BridgeName, Index, NumDropped),
+            maybe_log_discard(BridgeName, Index, length(Dropped)),
             Q1
     end.
 
@@ -278,28 +287,24 @@ maybe_log_discard(BridgeName, Index, NumDropped) ->
 %% Internal: helpers
 %%--------------------------------------------------------------------
 
+collect_enqueue(Items, Acks, 0) ->
+    {lists:reverse(Items), lists:reverse(Acks)};
+collect_enqueue(Items, Acks, Remaining) ->
+    receive
+        {enqueue, Item, AckAlias} ->
+            collect_enqueue([Item | Items], [AckAlias | Acks], Remaining - 1)
+    after 0 ->
+        {lists:reverse(Items), lists:reverse(Acks)}
+    end.
+
+ack_enqueue_batch(Acks) ->
+    lists:foreach(fun ack_enqueue/1, Acks).
+
 ack_enqueue(no_ack) -> ok;
 ack_enqueue(Alias) -> Alias ! {Alias, ok}.
 
--spec render_topic(binary(), emqx_types:topic()) -> emqx_types:topic().
-render_topic(<<"${topic}">>, OrigTopic) ->
-    OrigTopic;
-render_topic(Template, OrigTopic) ->
-    binary:replace(Template, <<"${topic}">>, OrigTopic, [global]).
-
--spec resolve_qos(emqx_types:qos(), emqx_types:qos()) -> emqx_types:qos().
-resolve_qos(_OrigQoS, ConfigQoS) ->
-    %% Use the configured QoS for the bridge
-    ConfigQoS.
-
--spec resolve_retain(boolean(), boolean()) -> boolean().
-resolve_retain(_OrigRetain, ConfigRetain) ->
-    %% Use the configured retain for the bridge
-    ConfigRetain.
-
 queue_dir(Base, Index) ->
-    Dir = binary_to_list(iolist_to_binary([Base, "/", integer_to_binary(Index)])),
-    Dir.
+    binary_to_list(iolist_to_binary([Base, "/", integer_to_binary(Index)])).
 
 marshaller(Bin) when is_binary(Bin) -> binary_to_term(Bin);
 marshaller(Term) -> term_to_binary(Term).

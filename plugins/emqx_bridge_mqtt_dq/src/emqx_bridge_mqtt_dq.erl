@@ -38,7 +38,14 @@ forward_to_bridges(#message{
     Retain = maps:get(retain, Flags, false),
     PayloadBin = iolist_to_binary(Payload),
     Props = pub_props(Headers),
-    Item = {Topic, PayloadBin, QoS, Retain, Ts, Props},
+    Item = #{
+        topic => Topic,
+        payload => PayloadBin,
+        qos => QoS,
+        retain => Retain,
+        timestamp => Ts,
+        properties => Props
+    },
     lists:foreach(fun(Bridge) -> maybe_forward(Bridge, Topic, QoS, Item) end, Bridges).
 
 pub_props(Headers) ->

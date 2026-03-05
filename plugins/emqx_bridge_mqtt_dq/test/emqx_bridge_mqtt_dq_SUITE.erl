@@ -24,15 +24,6 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(_Case, Config) ->
-    %% Create the ETS table if not exists
-    case ets:info(emqx_bridge_mqtt_dq_conns) of
-        undefined ->
-            emqx_bridge_mqtt_dq_conns = ets:new(emqx_bridge_mqtt_dq_conns, [
-                public, set, named_table, {read_concurrency, true}
-            ]);
-        _ ->
-            ets:delete_all_objects(emqx_bridge_mqtt_dq_conns)
-    end,
     Config.
 
 end_per_testcase(_Case, _Config) ->

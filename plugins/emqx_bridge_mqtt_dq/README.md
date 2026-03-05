@@ -167,12 +167,23 @@ Buffered messages survive:
 When queue usage exceeds `queue.max_total_bytes` for a partition, oldest messages
 in that partition are discarded to make room for new data. Warning logs are emitted.
 
-### Connection Pool (`pool_size`)
+### Pool Sizing
 
-Each bridge maintains a pool of `pool_size` MQTT connections to the remote broker.
-If a connection drops, it is re-established automatically.
+Each buffer worker is assigned to exactly one connector by
+`BufferIndex rem pool_size`. For even load distribution:
 
-Changing `pool_size` restarts the affected bridge. Plan this change during low traffic.
+- `buffer_pool_size` should be **greater than or equal to** `pool_size`.
+- `buffer_pool_size` should be a **multiple of** `pool_size`
+  (i.e. `buffer_pool_size mod pool_size = 0`).
+
+Good examples: `pool_size = 4, buffer_pool_size = 4` (1:1),
+`pool_size = 4, buffer_pool_size = 8` (2:1).
+
+Bad example: `pool_size = 4, buffer_pool_size = 5` — connector 0 serves two
+buffers while others serve one, causing uneven throughput.
+
+If a connector drops, the buffer workers assigned to it pause and resume
+automatically once the connector reconnects.
 
 ### Ordering
 
