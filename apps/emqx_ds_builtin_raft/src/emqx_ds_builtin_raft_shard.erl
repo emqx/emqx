@@ -620,18 +620,22 @@ bootstrap(St = #st{stage = trigger_election, server = Server}) ->
     ok = trigger_election(Server),
     St#st{stage = wait_leader};
 bootstrap(St = #st{stage = wait_leader, server = Server}) ->
-    case current_leader(Server) of
-        Leader = {_, _} ->
+    case ra:members(Server) of
+        {ok, _Servers, Leader} ->
             St#st{stage = {wait_log, Leader}};
-        unknown ->
-            St
+        {error, _} ->
+            {retry, ?MAX_BOOSTRAP_RETRY_TIMEOUT, St};
+        {timeout, _} ->
+            {retry, 0, St}
     end;
 bootstrap(St = #st{stage = {wait_log, Leader}}) ->
-    case ra_overview(Leader) of
-        #{commit_index := RaftIdx} ->
+    case ra:member_overview(Leader) of
+        {ok, #{commit_index := RaftIdx}, _Leader} ->
             St#st{stage = {wait_log_index, RaftIdx}};
-        #{} ->
-            St#st{stage = wait_leader}
+        {error, _} ->
+            {retry, ?MAX_BOOSTRAP_RETRY_TIMEOUT, St#st{stage = wait_leader}};
+        {timeout, _} ->
+            {retry, 0, St}
     end;
 bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, server = Server}) ->
     Overview = ra_overview(Server),
