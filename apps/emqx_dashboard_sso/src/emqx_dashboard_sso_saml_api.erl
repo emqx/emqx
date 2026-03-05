@@ -9,13 +9,6 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("emqx/include/logger.hrl").
 
--import(hoconsc, [
-    mk/2,
-    array/1,
-    enum/1,
-    ref/1
-]).
-
 -import(emqx_dashboard_sso, [provider/1]).
 
 -export([

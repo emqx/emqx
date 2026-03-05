@@ -11,7 +11,6 @@
 
 -export([handle_request/4]).
 
--import(emqx_coap_message, [response/2, response/3]).
 -import(emqx_coap_medium, [reply/2, reply/3]).
 -import(emqx_coap_channel, [run_hooks/3]).
 

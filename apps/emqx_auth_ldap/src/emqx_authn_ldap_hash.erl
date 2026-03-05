@@ -19,7 +19,7 @@
     authenticate/2
 ]).
 
--import(proplists, [get_value/2, get_value/3]).
+-import(proplists, [get_value/2]).
 
 %%------------------------------------------------------------------------------
 %% APIs

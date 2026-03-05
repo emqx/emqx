@@ -6,7 +6,7 @@
 -include_lib("typerefl/include/types.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
--import(hoconsc, [mk/2, enum/1, ref/1, ref/2]).
+-import(hoconsc, [mk/2]).
 
 -export([type_name_fields/1, connector_fields/1]).
 

@@ -394,7 +394,7 @@ apply(
     end,
     {State, Result, Effects};
 apply(
-    RaftMeta = #{machine_version := Vsn},
+    RaftMeta = #{machine_version := _Vsn},
     #{?tag := add_generation, since := Since},
     #{db_shard := DBShard, schema := #{storage := Prototype}} = State
 ) ->
