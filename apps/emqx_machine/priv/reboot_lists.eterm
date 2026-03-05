@@ -96,6 +96,7 @@
             emqx_streams,
             emqx_schema_validation,
             emqx_message_transformation,
+            emqx_agent,
             emqx_ai_completion,
             emqx_connector_aggregator,
             emqx_bridge_kafka,
