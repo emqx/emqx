@@ -16,6 +16,8 @@
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/asserts.hrl").
 
+-import(emqx_common_test_helpers, [on_exit/1]).
+
 -define(ORG_ID, <<"org_id">>).
 -define(UNIT_ID, <<"unit_id">>).
 -define(AGENT_ID, <<"agent_id">>).
@@ -95,6 +97,13 @@ register_card(OrgId0, UnitId0, AgentId0, Card) ->
     Body = #{<<"card">> => Card},
     simple_request(#{method => post, url => URL, body => Body}).
 
+update_config(Path, Value, ValueToRestore) ->
+    on_exit(fun() ->
+        {ok, _} = emqx:update_config(Path, ValueToRestore, #{override_to => cluster})
+    end),
+    {ok, _} = emqx:update_config(Path, Value, #{override_to => cluster}),
+    ok.
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -135,5 +144,20 @@ t_crud(_TCConfig) ->
     ?assertMatch({400, _}, register_card(?ORG_ID, <<"+">>, ?AGENT_ID, Card1)),
     ?assertMatch({400, _}, register_card(?ORG_ID, ?UNIT_ID, <<"*">>, Card1)),
     ?assertMatch({400, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"not a card">>)),
+
+    ok.
+
+-doc """
+Verifies that we return 503 errors if the feature is disabled.
+""".
+t_disabled(_TCConfig) ->
+    update_config([a2a_registry, enable], false, _ValueToRestore = true),
+
+    ?assertMatch({503, _}, list_cards(#{})),
+    ?assertMatch({503, _}, get_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID)),
+    ?assertMatch({503, _}, delete_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID)),
+    Name1 = <<"1">>,
+    Card1 = sample_card_bin(#{<<"name">> => Name1}),
+    ?assertMatch({503, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, Card1)),
 
     ok.

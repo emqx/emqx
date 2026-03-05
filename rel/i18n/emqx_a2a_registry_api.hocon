@@ -63,4 +63,8 @@ emqx_a2a_registry_api {
     label: "Internal Error"
     desc: "Internal Error."
   }
+  service_unavailable {
+    label: "Service Unavailable"
+    desc: "Service Unavailable."
+  }
 }

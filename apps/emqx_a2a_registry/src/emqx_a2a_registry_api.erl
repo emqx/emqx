@@ -20,6 +20,9 @@
     '/a2a/cards/card/:org_id/:unit_id/:agent_id'/2
 ]).
 
+%% Internal exports
+-export([filter/2]).
+
 %%-------------------------------------------------------------------------------------------------
 %% Type definitions
 %%-------------------------------------------------------------------------------------------------
@@ -50,6 +53,7 @@ paths() ->
 schema("/a2a/cards/list") ->
     #{
         'operationId' => '/a2a/cards/list',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => ?TAGS,
             description => ?DESC("card_list"),
@@ -64,13 +68,15 @@ schema("/a2a/cards/list") ->
                         emqx_dashboard_swagger:schema_with_examples(
                             array(ref(card_out)),
                             example_card_list()
-                        )
+                        ),
+                    503 => error_schema(?SERVICE_UNAVAILABLE, ?DESC("service_unavailable"))
                 }
         }
     };
 schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
     #{
         'operationId' => '/a2a/cards/card/:org_id/:unit_id/:agent_id',
+        filter => fun ?MODULE:filter/2,
         get => #{
             tags => ?TAGS,
             description => ?DESC("card_get"),
@@ -86,7 +92,8 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
                             ref(card_out),
                             example_card_get()
                         ),
-                    404 => error_schema(?NOT_FOUND, ?DESC("not_found"))
+                    404 => error_schema(?NOT_FOUND, ?DESC("not_found")),
+                    503 => error_schema(?SERVICE_UNAVAILABLE, ?DESC("service_unavailable"))
                 }
         },
         delete => #{
@@ -99,7 +106,8 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
             ],
             responses =>
                 #{
-                    204 => <<"">>
+                    204 => <<"">>,
+                    503 => error_schema(?SERVICE_UNAVAILABLE, ?DESC("service_unavailable"))
                 }
         },
         post => #{
@@ -118,7 +126,8 @@ schema("/a2a/cards/card/:org_id/:unit_id/:agent_id") ->
                 #{
                     204 => <<"">>,
                     400 => error_schema(?BAD_REQUEST, ?DESC("bad_request")),
-                    500 => error_schema(?INTERNAL_ERROR, ?DESC("internal_error"))
+                    500 => error_schema(?INTERNAL_ERROR, ?DESC("internal_error")),
+                    503 => error_schema(?SERVICE_UNAVAILABLE, ?DESC("service_unavailable"))
                 }
         }
     }.
@@ -262,6 +271,18 @@ handle_register_card(Bindings, Body) ->
         {error, Reason} ->
             Msg = iolist_to_binary(io_lib:format("~0p", [Reason])),
             ?INTERNAL_ERROR(Msg)
+    end.
+
+%%-------------------------------------------------------------------------------------------------
+%% Internal exports
+%%-------------------------------------------------------------------------------------------------
+
+filter(Req, _Meta) ->
+    case emqx_a2a_registry_config:is_enabled() of
+        true ->
+            {ok, Req};
+        false ->
+            ?SERVICE_UNAVAILABLE(<<"Not enabled">>)
     end.
 
 %%-------------------------------------------------------------------------------------------------
