@@ -371,7 +371,7 @@ normalize_interval(Interval) when is_binary(Interval); is_list(Interval) ->
 normalize_interval(Interval) ->
     erlang:throw({invalid_keepalive, Interval}).
 
-validate_keepalive_interval(Value, Raw) when Value >= 0, Value =< 65535 ->
+validate_keepalive_interval(Value, _Raw) when Value >= 0, Value =< 65535 ->
     Value;
 validate_keepalive_interval(_Value, Raw) ->
     erlang:throw({invalid_keepalive, Raw}).
