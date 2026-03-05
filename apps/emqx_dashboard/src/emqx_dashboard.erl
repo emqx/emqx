@@ -282,7 +282,13 @@ authorize(Req, HandlerInfo) ->
                 false ->
                     return_unauthorized(
                         <<"AUTHORIZATION_HEADER_ERROR">>,
-                        <<"Support authorization: basic/bearer ">>
+                        <<
+                            "Missing authorization header. "
+                            "Use Basic auth with API key/secret, "
+                            "or Bearer token from POST /api/v5/login. "
+                            "API keys can be bootstrapped from config "
+                            "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
+                        >>
                     )
             end
     end.
@@ -300,7 +306,13 @@ cookie_authorize(Req, HandlerInfo) ->
         _ ->
             return_unauthorized(
                 <<"AUTHORIZATION_HEADER_ERROR">>,
-                <<"Support authorization: basic/bearer ">>
+                <<
+                    "Missing authorization header. "
+                    "Use Basic auth with API key/secret, "
+                    "or Bearer token from POST /api/v5/login. "
+                    "API keys can be bootstrapped from config "
+                    "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
+                >>
             )
     end.
 
@@ -356,9 +368,20 @@ jwt_token_bearer_authorize(Req, HandlerInfo, Token) ->
             },
             {ok, AuthnMeta};
         {error, token_timeout} ->
-            {401, 'TOKEN_TIME_OUT', <<"Token expired, get new token by POST /login">>};
+            {401, 'TOKEN_TIME_OUT', <<
+                "Token expired. "
+                "Consider using API key (Basic auth) instead of bearer tokens "
+                "to avoid expiration. "
+                "Otherwise get a new token by POST /api/v5/login"
+            >>};
         {error, not_found} ->
-            {401, 'BAD_TOKEN', <<"Get a token by POST /login">>};
+            {401, 'BAD_TOKEN', <<
+                "Invalid bearer token. "
+                "Use API key (Basic auth) for persistent access, "
+                "or get a new bearer token by POST /api/v5/login. "
+                "API keys can be bootstrapped from config "
+                "(api_key.bootstrap_file) or created via POST /api/v5/api_key"
+            >>};
         {error, unauthorized_role} ->
             {403, 'UNAUTHORIZED_ROLE', <<"You don't have permission to access this resource">>}
     end.
