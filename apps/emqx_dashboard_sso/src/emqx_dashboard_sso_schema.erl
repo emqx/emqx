@@ -16,7 +16,7 @@
     username_password_schema/0
 ]).
 
--import(hoconsc, [ref/2, mk/2, enum/1]).
+-import(hoconsc, [mk/2, enum/1]).
 
 %%------------------------------------------------------------------------------
 %% Hocon Schema

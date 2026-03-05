@@ -166,7 +166,7 @@ t_06_smoke_add_generation(Config) ->
     BeginTime = os:system_time(microsecond),
 
     ?assertMatch(ok, emqx_ds_open_db(DB, opts(Config))),
-    [{Gen1, #{created_at := Created1, since := Since1, until := undefined}}] = maps:to_list(
+    [{Gen1, #{created_at := _Created1, since := Since1, until := undefined}}] = maps:to_list(
         emqx_ds:list_slabs(DB)
     ),
 

@@ -10,8 +10,7 @@
 -import(
     emqx_gateway_test_utils,
     [
-        assert_confs/2,
-        maybe_unconvert_listeners/1
+        assert_confs/2
     ]
 ).
 

@@ -18,8 +18,6 @@
 -define(CONNECTOR_TYPE_BIN, <<"confluent_producer">>).
 -define(KAFKA_BRIDGE_TYPE, kafka_producer).
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 %%------------------------------------------------------------------------------
 %% CT boilerplate
 %%------------------------------------------------------------------------------

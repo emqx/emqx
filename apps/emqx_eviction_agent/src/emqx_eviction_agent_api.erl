@@ -30,7 +30,7 @@
     '/node_eviction/status'/2
 ]).
 
--import(hoconsc, [mk/2, ref/1, ref/2]).
+-import(hoconsc, [mk/2, ref/1]).
 
 namespace() -> "node_eviction".
 
