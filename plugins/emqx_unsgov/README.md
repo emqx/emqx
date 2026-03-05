@@ -18,7 +18,7 @@ Base path: `/api/v5/plugin_api/emqx_unsgov`
 
 ### JSON Data Endpoints
 
-- `GET /status` — plugin status (enabled, on_mismatch, exempt_topics).
+- `GET /status` — plugin status (on_mismatch, exempt_topics).
 - `GET /stats` — cluster-aggregated counters and recent drops.
 - `GET /models` — list all stored models (each entry includes an `active` flag).
 - `GET /models/:id` — get a specific model by ID. 404 if not found.

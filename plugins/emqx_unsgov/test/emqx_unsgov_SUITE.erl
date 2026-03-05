@@ -51,7 +51,6 @@ init_per_testcase(_Case, Config) ->
     ok = emqx_unsgov_store:reset(),
     ok = emqx_unsgov_metrics:reset(),
     ok = emqx_unsgov_config:update(#{
-        <<"enabled">> => true,
         <<"on_mismatch">> => <<"deny">>,
         <<"exempt_topics">> => [<<"$SYS/#">>]
     }),
@@ -428,21 +427,8 @@ t_payload_schema_rejects_non_object_root(_Config) ->
     ).
 
 %%--------------------------------------------------------------------
-%% Hook behavior: enabled=false, on_mismatch=ignore, non-publish action
+%% Hook behavior: on_mismatch=ignore, non-publish action
 %%--------------------------------------------------------------------
-
-t_hook_disabled_passes_through(_Config) ->
-    {ok, _} = emqx_unsgov_store:put_model(sample_model(), true),
-    ok = emqx_unsgov_config:update(#{<<"enabled">> => false}),
-    ?assertEqual(
-        {ok, allow},
-        emqx_unsgov:on_client_authorize(
-            #{},
-            #{action_type => publish},
-            <<"default/Plant1/Status">>,
-            allow
-        )
-    ).
 
 t_hook_on_mismatch_ignore(_Config) ->
     %% With no active models, topic_nomatch fires; on_mismatch=ignore should pass through.
@@ -491,12 +477,6 @@ t_on_message_publish_deny_path(_Config) ->
 %% Config robustness
 %%--------------------------------------------------------------------
 
-t_config_invalid_enabled(_Config) ->
-    %% Bad enabled value should be silently handled (update returns ok but logs error)
-    ok = emqx_unsgov_config:update(#{<<"enabled">> => <<"yes">>}),
-    %% Settings should remain the previously valid value
-    ?assert(is_boolean(emqx_unsgov_config:enabled())).
-
 t_config_invalid_on_mismatch(_Config) ->
     ok = emqx_unsgov_config:update(#{<<"on_mismatch">> => <<"crash">>}),
     ?assert(lists:member(emqx_unsgov_config:on_mismatch(), [deny, ignore])).
@@ -511,7 +491,7 @@ t_config_invalid_exempt_topics_empty_string(_Config) ->
 
 t_config_non_map(_Config) ->
     ok = emqx_unsgov_config:update(not_a_map),
-    ?assert(is_boolean(emqx_unsgov_config:enabled())).
+    ?assert(is_atom(emqx_unsgov_config:on_mismatch())).
 
 %%--------------------------------------------------------------------
 %% API negative paths

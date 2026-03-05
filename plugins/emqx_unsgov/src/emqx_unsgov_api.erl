@@ -12,7 +12,6 @@ REST API handlers for UNS Governance status, metrics, models and validation.
 handle(get, [<<"status">>], _Request) ->
     {ok, 200, #{}, #{
         plugin => <<"emqx_unsgov">>,
-        enabled => emqx_unsgov_config:enabled(),
         on_mismatch => emqx_unsgov_config:on_mismatch(),
         exempt_topics => emqx_unsgov_config:exempt_topics()
     }};

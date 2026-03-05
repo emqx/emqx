@@ -1,7 +1,6 @@
 -ifndef(EMQX_UNS_GOV_HRL).
 -define(EMQX_UNS_GOV_HRL, true).
 
--define(DEFAULT_ENABLED, true).
 -define(DEFAULT_ON_MISMATCH, deny).
 -define(DEFAULT_VALIDATE_PAYLOAD, true).
 -define(DEFAULT_EXEMPT_TOPICS, []).

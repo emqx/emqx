@@ -3,18 +3,6 @@
   "name": "ExtendedConfig",
   "fields": [
     {
-      "name": "enabled",
-      "type": "boolean",
-      "default": true,
-      "$ui": {
-        "component": "switch",
-        "flex": 12,
-        "required": true,
-        "label": "$enabled_label",
-        "description": "$enabled_desc"
-      }
-    },
-    {
       "name": "on_mismatch",
       "type": "string",
       "default": "deny",

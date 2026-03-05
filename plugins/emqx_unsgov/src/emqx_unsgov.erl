@@ -26,15 +26,12 @@ unhook() ->
 
 on_client_authorize(_ClientInfo, #{action_type := publish}, Topic, Result) ->
     maybe
-        ok ?= check_enabled(),
         ok ?= check_not_exempt(Topic),
         {allow, ModelId} ?= emqx_unsgov_store:validate_topic(Topic),
         ?LOG(debug, #{msg => "acl_allow", topic => Topic, model_id => ModelId}),
         erlang:put(?PDICT_KEY, ModelId),
         {ok, Result}
     else
-        disabled ->
-            {ok, Result};
         exempt ->
             ?LOG(debug, #{msg => "acl_exempt", topic => Topic}),
             emqx_unsgov_metrics:record_exempt(),
@@ -79,12 +76,6 @@ handle_authz_deny(ModelId, Topic, Reason, Result) ->
             {stop, #{result => deny, from => emqx_unsgov, reason => Reason}};
         _ ->
             {ok, Result}
-    end.
-
-check_enabled() ->
-    case emqx_unsgov_config:enabled() of
-        true -> ok;
-        false -> disabled
     end.
 
 check_not_exempt(Topic) ->

@@ -11,7 +11,6 @@ Loads and exposes runtime plugin settings for UNS Governance.
     load/0,
     update/1,
     settings/0,
-    enabled/0,
     on_mismatch/0,
     validate_payload/0,
     exempt_topics/0,
@@ -51,9 +50,6 @@ update(RawConfig) ->
 settings() ->
     persistent_term:get(?SETTINGS_KEY, default_settings()).
 
-enabled() ->
-    maps:get(enabled, settings(), ?DEFAULT_ENABLED).
-
 on_mismatch() ->
     maps:get(on_mismatch, settings(), ?DEFAULT_ON_MISMATCH).
 
@@ -68,13 +64,11 @@ is_exempt_topic(Topic) when is_binary(Topic) ->
 
 parse(RawConfig) when is_map(RawConfig) ->
     maybe
-        {ok, Enabled} ?= check_bool(<<"enabled">>, RawConfig, ?DEFAULT_ENABLED),
         {ok, OnMismatch} ?= check_on_mismatch(RawConfig),
         {ok, ValidatePayload} ?=
             check_bool(<<"validate_payload">>, RawConfig, ?DEFAULT_VALIDATE_PAYLOAD),
         {ok, ExemptTopics} ?= check_exempt_topics(RawConfig),
         {ok, #{
-            enabled => Enabled,
             on_mismatch => OnMismatch,
             validate_payload => ValidatePayload,
             exempt_topics => ExemptTopics
@@ -85,7 +79,6 @@ parse(Config) ->
 
 default_settings() ->
     #{
-        enabled => ?DEFAULT_ENABLED,
         on_mismatch => ?DEFAULT_ON_MISMATCH,
         validate_payload => ?DEFAULT_VALIDATE_PAYLOAD,
         exempt_topics => ?DEFAULT_EXEMPT_TOPICS
