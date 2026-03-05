@@ -383,11 +383,11 @@ t_plugin_api_delete_model(_Config) ->
     {ok, 200, _, #{id := <<"model-v1">>, active := true}} = emqx_unsgov_api:handle(
         post, [<<"models">>], #{body => #{<<"activate">> => true, <<"model">> => sample_model()}}
     ),
-    {ok, 200, _, #{id := <<"model-v1">>, deleted := true}} = emqx_unsgov_api:handle(
+    {ok, 204, _, _} = emqx_unsgov_api:handle(
         delete, [<<"models">>, <<"model-v1">>], #{}
     ),
     {error, 404, _, _} = emqx_unsgov_api:handle(get, [<<"models">>, <<"model-v1">>], #{}),
-    {error, 404, _, _} = emqx_unsgov_api:handle(delete, [<<"models">>, <<"model-v1">>], #{}).
+    {ok, 204, _, _} = emqx_unsgov_api:handle(delete, [<<"models">>, <<"model-v1">>], #{}).
 
 t_message_payload_invalid_rejects_immediately(_Config) ->
     {ok, _} = emqx_unsgov_store:put_model(sample_model(), true),
