@@ -1,0 +1,64 @@
+{{- if .Values.tlsRoute.mqtts.enabled }}
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: {{ printf "%s-%s" (include "emqx.fullname" .) "mqtts" }}
+  labels:
+    app.kubernetes.io/name: {{ include "emqx.name" . }}
+    helm.sh/chart: {{ include "emqx.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- with .Values.tlsRoute.mqtts.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.tlsRoute.mqtts.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.tlsRoute.mqtts.parentRefs }}
+  parentRefs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tlsRoute.mqtts.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ include "emqx.fullname" . }}
+          port: {{ .Values.service.mqttssl }}
+---
+{{- end }}
+{{- if .Values.tlsRoute.wss.enabled }}
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TLSRoute
+metadata:
+  name: {{ printf "%s-%s" (include "emqx.fullname" .) "wss" }}
+  labels:
+    app.kubernetes.io/name: {{ include "emqx.name" . }}
+    helm.sh/chart: {{ include "emqx.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    {{- with .Values.tlsRoute.wss.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.tlsRoute.wss.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.tlsRoute.wss.parentRefs }}
+  parentRefs:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.tlsRoute.wss.hostnames }}
+  hostnames:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - backendRefs:
+        - name: {{ include "emqx.fullname" . }}
+          port: {{ .Values.service.wss }}
+---
+{{- end }}
