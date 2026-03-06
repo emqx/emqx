@@ -1592,6 +1592,11 @@ handle_cast(
     }
 ) ->
     ClientId = info(clientid, Channel),
+    OldInterval = maps:get(keepalive, ConnInfo, undefined),
+    ?TRACE("MQTT", "keepalive_updated", #{
+        old_keepalive => OldInterval,
+        new_keepalive => Interval
+    }),
     NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
