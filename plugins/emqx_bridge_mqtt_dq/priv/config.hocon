@@ -3,7 +3,7 @@ bridges {
     enable = false
     server = "127.0.0.1:1883"
     proto_ver = "v4"
-    clientid_prefix = "emqx_dq_bridge_example"
+    # clientid_prefix = "my-custom-prefix-"
     username = ""
     password = ""
     clean_start = true
@@ -21,7 +21,7 @@ bridges {
     remote_qos = 1
     remote_retain = false
     queue {
-      dir = "data/bridge_mqtt_dq/example"
+      dir = "bridge_mqtt_dq/example"
       seg_bytes = "100MB"
       max_total_bytes = "1GB"
     }

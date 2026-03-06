@@ -448,7 +448,7 @@ parse_server(Server) when is_binary(Server) ->
     end.
 
 make_clientid(Prefix, Index) ->
-    iolist_to_binary([Prefix, ":", integer_to_binary(Index)]).
+    iolist_to_binary([Prefix, integer_to_binary(Index)]).
 
 maybe_add_credentials(Opts, <<>>, _) ->
     Opts;

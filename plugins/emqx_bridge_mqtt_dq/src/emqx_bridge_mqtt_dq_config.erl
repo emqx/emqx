@@ -75,8 +75,8 @@ parse_bridge(Name, Raw) when is_map(Raw) ->
             proto_ver => parse_proto_ver(
                 get_val(<<"proto_ver">>, Raw, <<"v4">>)
             ),
-            clientid_prefix => to_bin(
-                get_val(<<"clientid_prefix">>, Raw, Name)
+            clientid_prefix => parse_clientid_prefix(
+                get_val(<<"clientid_prefix">>, Raw, <<>>), Name
             ),
             username => to_bin(get_val(<<"username">>, Raw, <<>>)),
             password => to_bin_or_empty(get_val(<<"password">>, Raw, <<>>)),
@@ -203,11 +203,22 @@ parse_sni(V) when is_binary(V) -> binary_to_list(V);
 parse_sni(V) when is_list(V) -> V;
 parse_sni(_) -> undefined.
 
+parse_clientid_prefix(<<>>, Name) ->
+    <<"emqx-dq-", Name/binary, "-">>;
+parse_clientid_prefix(Val, _Name) ->
+    to_bin(Val).
+
 parse_queue_dir(#{} = QueueConf, BridgeName) ->
-    Default = iolist_to_binary([<<"data/bridge_mqtt_dq/">>, BridgeName]),
-    to_bin(get_val(<<"dir">>, QueueConf, Default));
+    Default = iolist_to_binary([<<"bridge_mqtt_dq/">>, BridgeName]),
+    resolve_data_dir(to_bin(get_val(<<"dir">>, QueueConf, Default)));
 parse_queue_dir(_, BridgeName) ->
-    iolist_to_binary([<<"data/bridge_mqtt_dq/">>, BridgeName]).
+    resolve_data_dir(iolist_to_binary([<<"bridge_mqtt_dq/">>, BridgeName])).
+
+resolve_data_dir(<<"/", _/binary>> = AbsPath) ->
+    AbsPath;
+resolve_data_dir(RelPath) ->
+    DataDir = to_bin(emqx:data_dir()),
+    iolist_to_binary([DataDir, "/", RelPath]).
 
 parse_bytes(V) when is_integer(V) -> V;
 parse_bytes(V) when is_binary(V) ->

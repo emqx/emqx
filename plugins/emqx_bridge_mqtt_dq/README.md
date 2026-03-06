@@ -41,7 +41,6 @@ bridges {
     enable = true
     server = "cloud-broker.example.com:8883"
     proto_ver = "v4"
-    clientid_prefix = "emqx_dq_"
     username = "bridge_user"
     password = "secret"
     clean_start = true
@@ -55,7 +54,6 @@ bridges {
     remote_qos = 1
     remote_retain = false
     queue {
-      dir = "data/bridge_mqtt_dq/to-cloud"
       seg_bytes = "100MB"
       max_total_bytes = "1GB"
     }
@@ -78,7 +76,7 @@ bridges {
 | `enable`          | boolean | `true`  | Enable or disable this bridge.                                              |
 | `server`          | string  | —       | Remote MQTT broker address (`host:port`).                                   |
 | `proto_ver`       | string  | `"v4"`  | MQTT protocol version: `v3`, `v4`, or `v5`.                                |
-| `clientid_prefix` | string  | —       | Prefix for auto-generated MQTT client IDs.                                  |
+| `clientid_prefix` | string  | `"emqx-dq-<name>-"` | Prefix for auto-generated MQTT client IDs. Each connection appends a unique index (e.g. `emqx-dq-mybridge-0`). Optional — leave empty to use the default. |
 | `username`        | string  | `""`    | Username for authentication with the remote broker.                         |
 | `password`        | string  | `""`    | Password for authentication with the remote broker.                         |
 | `clean_start`     | boolean | `true`  | MQTT clean start flag.                                                      |
@@ -98,7 +96,7 @@ bridges {
 
 | Field             | Type   | Default                        | Description                                      |
 |-------------------|--------|--------------------------------|--------------------------------------------------|
-| `queue.dir`       | string | `"data/bridge_mqtt_dq/<name>"` | Directory for disk queue segment files.           |
+| `queue.dir`       | string | `"bridge_mqtt_dq/<name>"` | Directory for disk queue segment files. Relative paths are resolved against EMQX `data_dir`. Absolute paths are used as-is. |
 | `queue.seg_bytes` | string | `"100MB"`                      | Maximum size per queue segment file.              |
 | `queue.max_total_bytes` | string | `"1GB"`                  | Maximum disk queue size **per partition**. Each bridge uses `buffer_pool_size` partitions (default 4), so the worst-case total disk usage is `buffer_pool_size` x this value. Oldest messages are discarded when exceeded. |
 
