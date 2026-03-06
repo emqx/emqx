@@ -18,7 +18,6 @@
 -include("emqx_a2a_registry_internal.hrl").
 
 -define(PRINT(Format, Args), io:format(Format, Args)).
--define(PRINT(Format), ?PRINT(Format, [])).
 
 %%------------------------------------------------------------------------------
 %% API
@@ -38,6 +37,10 @@ a2a(["get" | Args]) ->
     if_enabled(fun() -> handle_get(Args) end);
 a2a(["delete" | Args]) ->
     if_enabled(fun() -> handle_delete(Args) end);
+a2a(["register" | Args]) ->
+    if_enabled(fun() -> handle_register(Args) end);
+a2a(["stats"]) ->
+    if_enabled(fun handle_stats/0);
 a2a(_) ->
     usage().
 
@@ -54,13 +57,19 @@ usage() ->
             "  [--agent-id AGENT_ID] \\\n"
             "  [--status STATUS]",
             "List registered agent cards"
-        }
+        },
+        {"a2a_registry get ORG_ID UNIT_ID AGENT_ID", "Lookup one registered agent card"},
+        {"a2a_registry delete ORG_ID UNIT_ID AGENT_ID", "Delete one registered agent card"},
+        {"a2a_registry register ORG_ID UNIT_ID AGENT_ID <agent-card.json>",
+            "Insert/update agent card"},
+        {"a2a_registry stats", "Print agent card registry statistics"}
     ]).
 
 if_enabled(Fn) ->
     case emqx_a2a_registry_config:is_enabled() of
         false ->
-            ?PRINT("A2A Registry is not enabled\n");
+            Error = mk_error(<<"A2A Registry is not enabled">>),
+            print_json(Error);
         true ->
             Fn()
     end.
@@ -69,10 +78,12 @@ handle_list(Args) ->
     case list_args(Args) of
         {ok, Opts} ->
             Cards0 = emqx_a2a_registry:list_cards(Opts),
-            Cards = filter_by_status(Cards0, Opts),
-            lists:foreach(fun print_card/1, Cards);
+            Cards1 = filter_by_status(Cards0, Opts),
+            Cards = lists:map(fun emqx_a2a_registry_adapter:card_out/1, Cards1),
+            print_json(Cards);
         {error, Reason} ->
-            ?PRINT("Invalid list args: ~s", [Reason]),
+            Error = mk_error(fmt("Invalid list args: ~ts\n", [Reason])),
+            print_json(Error),
             false
     end.
 
@@ -82,12 +93,14 @@ handle_get(Args) ->
             Cards0 = emqx_a2a_registry:list_cards(Opts),
             case filter_by_status(Cards0, Opts) of
                 [] ->
-                    ?PRINT("Not found\n");
-                [Card | _] ->
-                    print_card(Card)
+                    print_json(null);
+                [Card0 | _] ->
+                    Card = emqx_a2a_registry_adapter:card_out(Card0),
+                    print_json(Card)
             end;
         {error, Reason} ->
-            ?PRINT("Invalid get args: ~s", [Reason]),
+            Error = mk_error(fmt("Invalid get args: ~ts\n", [Reason])),
+            print_json(Error),
             false
     end.
 
@@ -97,8 +110,51 @@ handle_delete(Args) ->
             ok = emqx_a2a_registry:delete_card(Opts),
             ok;
         {error, Reason} ->
-            ?PRINT("Invalid get args: ~s", [Reason]),
+            Error = mk_error(fmt("Invalid delete args: ~ts\n", [Reason])),
+            print_json(Error),
             false
+    end.
+
+handle_register(Args) ->
+    case register_args(Args) of
+        {ok, Opts0} ->
+            #{filepath := Filepath} = Opts0,
+            maybe
+                {ok, CardBin} ?= read_card_file(Filepath),
+                Opts1 = maps:remove(filepath, Opts0),
+                Opts = Opts1#{card_bin => CardBin},
+                ok ?= emqx_a2a_registry:write_card(Opts)
+            else
+                {error, Reason0} ->
+                    case emqx_a2a_registry_adapter:format_register_error(Reason0) of
+                        {ok, Msg} ->
+                            Error = mk_error(Msg),
+                            print_json(Error),
+                            false;
+                        error ->
+                            Reason = iolist_to_binary(io_lib:format("~0p", [Reason0])),
+                            Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
+                            print_json(Error),
+                            false
+                    end
+            end;
+        {error, Reason0} ->
+            Reason = iolist_to_binary(io_lib:format("~0p", [Reason0])),
+            Error = mk_error(fmt("Invalid register args: ~ts\n", [Reason])),
+            print_json(Error),
+            false
+    end.
+
+handle_stats() ->
+    AllCards = emqx_a2a_registry:list_cards(),
+    NumAllCards = length(AllCards),
+    Stats = #{<<"total">> => NumAllCards},
+    print_json(Stats).
+
+read_card_file(Filepath) ->
+    maybe
+        {error, Reason} ?= file:read_file(Filepath),
+        {error, emqx_utils:explain_posix(Reason)}
     end.
 
 list_args(Args) ->
@@ -108,13 +164,13 @@ list_args(Args) ->
                 maps:fold(
                     fun
                         ("--org-id", OrgId, Acc) ->
-                            Acc#{org_id => OrgId};
+                            Acc#{org_id => bin(OrgId)};
                         ("--unit-id", UnitId, Acc) ->
-                            Acc#{unit_id => UnitId};
+                            Acc#{unit_id => bin(UnitId)};
                         ("--agent-id", AgentId, Acc) ->
-                            Acc#{agent_id => AgentId};
+                            Acc#{agent_id => bin(AgentId)};
                         ("--status", Status, Acc) ->
-                            Acc#{status => Status};
+                            Acc#{status => bin(Status)};
                         (_, _, Acc) ->
                             Acc
                     end,
@@ -133,11 +189,11 @@ get_args(Args) ->
                 maps:fold(
                     fun
                         ("--org-id", OrgId, Acc) ->
-                            Acc#{org_id => OrgId};
+                            Acc#{org_id => bin(OrgId)};
                         ("--unit-id", UnitId, Acc) ->
-                            Acc#{unit_id => UnitId};
+                            Acc#{unit_id => bin(UnitId)};
                         ("--agent-id", AgentId, Acc) ->
-                            Acc#{agent_id => AgentId};
+                            Acc#{agent_id => bin(AgentId)};
                         (_, _, Acc) ->
                             Acc
                     end,
@@ -151,6 +207,31 @@ get_args(Args) ->
 
 delete_args(Args) ->
     get_args(Args).
+
+register_args(Args) ->
+    case collect_register_args(Args, #{}) of
+        {ok, Collected} ->
+            Opts =
+                maps:fold(
+                    fun
+                        ("--org-id", OrgId, Acc) ->
+                            Acc#{org_id => bin(OrgId)};
+                        ("--unit-id", UnitId, Acc) ->
+                            Acc#{unit_id => bin(UnitId)};
+                        ("--agent-id", AgentId, Acc) ->
+                            Acc#{agent_id => bin(AgentId)};
+                        ("--file", Filepath, Acc) ->
+                            Acc#{filepath => bin(Filepath)};
+                        (_, _, Acc) ->
+                            Acc
+                    end,
+                    #{},
+                    Collected
+                ),
+            {ok, Opts};
+        {error, _} = Error ->
+            Error
+    end.
 
 filter_by_status(Cards, #{status := Status} = _Opts) ->
     lists:filter(
@@ -168,21 +249,21 @@ collect_args(["--org-id", OrgId | Args], Map) ->
         true ->
             collect_args(Args, Map#{"--org-id" => OrgId});
         false ->
-            {error, io_lib:format("invalid org id: ~s", [OrgId])}
+            {error, io_lib:format("invalid org id: ~ts", [OrgId])}
     end;
 collect_args(["--unit-id", UnitId | Args], Map) ->
     case is_valid_segment_id(UnitId) of
         true ->
             collect_args(Args, Map#{"--unit-id" => UnitId});
         false ->
-            {error, io_lib:format("invalid unit id: ~s", [UnitId])}
+            {error, io_lib:format("invalid unit id: ~ts", [UnitId])}
     end;
 collect_args(["--agent-id", AgentId | Args], Map) ->
     case is_valid_segment_id(AgentId) of
         true ->
             collect_args(Args, Map#{"--agent-id" => AgentId});
         false ->
-            {error, io_lib:format("invalid agent id: ~s", [AgentId])}
+            {error, io_lib:format("invalid agent id: ~ts", [AgentId])}
     end;
 collect_args(["--status", Status0 | Args], Map) ->
     Status = list_to_binary(Status0),
@@ -190,19 +271,45 @@ collect_args(["--status", Status0 | Args], Map) ->
         true ->
             collect_args(Args, Map#{"--status" => Status});
         false ->
-            {error, io_lib:format("invalid status: ~s", [Status])}
+            {error, io_lib:format("invalid status: ~ts", [Status])}
     end;
-collect_args(["--migrate-to", MigrateTo | Args], Map) ->
-    collect_args(Args, Map#{"--migrate-to" => MigrateTo});
+%% register
+collect_args(["--file", Filepath | Args], Map) ->
+    collect_args(Args, Map#{"--file" => Filepath});
 %% fallback
-collect_args(Args, _Map) ->
-    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+collect_args(Args0, _Map) ->
+    Args = format_args(Args0),
+    {error, io_lib:format("unknown arguments: ~ts", [Args])}.
 
 collect_get_args([OrgId, UnitId, AgentId | Rest], Map) ->
     %% Converting positional arguments to named ones
     collect_args(["--org-id", OrgId, "--unit-id", UnitId, "--agent-id", AgentId | Rest], Map);
-collect_get_args(Args, _Map) ->
-    {error, io_lib:format("unknown arguments: ~p", [Args])}.
+collect_get_args(Args0, _Map) ->
+    Args = format_args(Args0),
+    {error, io_lib:format("unknown arguments: ~ts", [Args])}.
+
+collect_register_args([OrgId, UnitId, AgentId, Filepath | Rest], Map) ->
+    %% Converting positional arguments to named ones
+    collect_args(
+        [
+            "--org-id",
+            OrgId,
+            "--unit-id",
+            UnitId,
+            "--agent-id",
+            AgentId,
+            "--file",
+            Filepath
+            | Rest
+        ],
+        Map
+    );
+collect_register_args(Args0, _Map) ->
+    Args = format_args(Args0),
+    {error, io_lib:format("unknown arguments: ~ts", [Args])}.
+
+format_args(Args) ->
+    lists:join(" ", Args).
 
 is_valid_segment_id(Id0) ->
     Id = list_to_binary(Id0),
@@ -213,15 +320,11 @@ is_valid_segment_id(Id0) ->
             false
     end.
 
-print_card(Card) ->
-    #{
-        <<"name">> := Name,
-        <<"description">> := Description,
-        <<"status">> := Status
-    } = Card,
-    ?PRINT(
-        "Name: ~s\n"
-        "Description: ~s\n"
-        "Status: ~s\n\n",
-        [Name, Description, Status]
-    ).
+bin(X) -> emqx_utils_conv:bin(X).
+fmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+
+mk_error(Msg) ->
+    #{<<"message">> => Msg, <<"error">> => true}.
+
+print_json(X) ->
+    ?PRINT("~ts\n", [emqx_utils_json:encode(X)]).

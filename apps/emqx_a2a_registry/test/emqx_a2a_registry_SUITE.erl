@@ -189,6 +189,31 @@ t_smoke_01(_TCConfig) ->
         }}
     ),
 
+    %% Feature is enabled, but message doesn't have the `retain` flag.  Must be rejected.
+    Agent2 = start_client(#{clientid => AgentClientId}),
+    {ok, _} = emqtt:publish(
+        Agent2,
+        discovery_topic(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+        sample_card_bin(),
+        [{qos, 1}]
+    ),
+    ?assertNotReceive({publish, _}),
+
+    %% Non-retained message to a non-matching topic.  Should pass through.
+    {ok, _, _} = emqtt:subscribe(C, <<"other/topic">>, [{qos, 1}]),
+    {ok, _} = emqtt:publish(Agent2, <<"other/topic">>, <<"hi">>, [{qos, 1}]),
+    ?assertReceive({publish, _}),
+
+    %% Feature is disabled.  Client can publish anything.
+    update_config([a2a_registry, enable], false, _ValueToRestore = true),
+    {ok, _} = emqtt:publish(
+        Agent2,
+        discovery_topic(?ORG_ID, ?UNIT_ID, ?AGENT_ID),
+        sample_card_bin(),
+        [{qos, 1}]
+    ),
+
+    emqtt:stop(Agent2),
     emqtt:stop(C),
 
     ok.
@@ -274,19 +299,41 @@ t_validate_schema(matrix) ->
 t_validate_schema(_TCConfig) ->
     Agent = start_client(#{clientid => agent_clientid(?ORG_ID, ?UNIT_ID, ?AGENT_ID)}),
     %% The card schema has required fields, hence an empty object should fail.
-    BadCard = emqx_utils_json:encode(#{}),
+    JustAMap = emqx_utils_json:encode(#{}),
     ?assertMatch(
         {{ok, _}, {ok, _}},
         ?wait_async_action(
-            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard),
+            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, JustAMap),
             #{?snk_kind := "a2a_registry_invalid_card_message"},
             1_000
         )
     ),
     ?assertEqual(0, card_count()),
-    %% If we disable schema validation, any payload should be accepted
+    %% If we disable schema validation, any JSON object payload should be accepted
     update_config([a2a_registry, validate_schema], false, _ValueToRestore = true),
-    {ok, _} = publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard),
+    {ok, _} = publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, JustAMap),
+    ?assertEqual(1, card_count()),
+    %% Not a JSON object, even though it's valid JSON.
+    BadCard1 = <<"1">>,
+    ?assertMatch(
+        {{ok, _}, {ok, _}},
+        ?wait_async_action(
+            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard1),
+            #{?snk_kind := "a2a_registry_invalid_card_message"},
+            1_000
+        )
+    ),
+    ?assertEqual(1, card_count()),
+    %% Not valid JSON
+    BadCard2 = <<"{">>,
+    ?assertMatch(
+        {{ok, _}, {ok, _}},
+        ?wait_async_action(
+            publish_card(Agent, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, BadCard2),
+            #{?snk_kind := "a2a_registry_invalid_card_message"},
+            1_000
+        )
+    ),
     ?assertEqual(1, card_count()),
     emqtt:stop(Agent),
     ok.
