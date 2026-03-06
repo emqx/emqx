@@ -280,7 +280,7 @@ eval_hook_and_publish(Msg, Opts) ->
             }),
             disconnect;
         #message{headers = #{allow_publish := false}, topic = Topic} = Message ->
-            ?TRACE("MQTT", "msg_publish_not_allowed", #{
+            ?TRACE("MQTT", "msg_not_routed_to_subscribers", #{
                 message => emqx_message:to_log_map(Msg),
                 topic => Topic
             }),
