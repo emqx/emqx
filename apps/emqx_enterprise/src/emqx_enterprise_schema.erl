@@ -88,13 +88,22 @@ fields("log_audit_handler") ->
                     importance => ?IMPORTANCE_MEDIUM
                 }
             )},
-        {"max_filter_size",
+        {"cache_size",
             hoconsc:mk(
                 range(10, 30000),
                 #{
                     default => 5000,
-                    desc => ?DESC(emqx_conf_schema, "audit_log_max_filter_limit"),
+                    desc => ?DESC(emqx_conf_schema, "audit_log_cache_size"),
                     importance => ?IMPORTANCE_MEDIUM
+                }
+            )},
+        {"max_filter_size",
+            hoconsc:mk(
+                range(10, 30000),
+                #{
+                    desc => ?DESC(emqx_conf_schema, "audit_log_max_filter_limit"),
+                    deprecated => {since, "6.0.0"},
+                    importance => ?IMPORTANCE_HIDDEN
                 }
             )},
         {"ignore_high_frequency_request",
