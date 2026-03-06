@@ -2095,7 +2095,9 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
         Inits ->
             UserProperty = get_user_property_as_map(ConnPkt),
             Password = get_connect_password(ConnPkt),
-            RenderCtx = ClientInfo#{user_property => UserProperty, password => Password},
+            RenderCtx = client_attrs_init_render_ctx(
+                ClientInfo#{user_property => UserProperty, password => Password}
+            ),
             Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
             Attrs1 = initialize_client_attrs(Inits, RenderCtx),
             {ok, ClientInfo#{client_attrs => maps:merge(Attrs0, Attrs1)}}
@@ -2103,6 +2105,16 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
 
 get_connect_password(#mqtt_packet_connect{password = Password}) ->
     Password.
+
+client_attrs_init_render_ctx(#{cn := CN} = Ctx) ->
+    client_attrs_init_render_ctx_dn(Ctx#{cert_common_name => CN});
+client_attrs_init_render_ctx(Ctx) ->
+    client_attrs_init_render_ctx_dn(Ctx).
+
+client_attrs_init_render_ctx_dn(#{dn := DN} = Ctx) ->
+    Ctx#{cert_subject => DN};
+client_attrs_init_render_ctx_dn(Ctx) ->
+    Ctx.
 
 initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
     lists:foldl(

@@ -1,0 +1,3 @@
+on_mismatch = deny
+validate_payload = true
+exempt_topics = []

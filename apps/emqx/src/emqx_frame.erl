@@ -180,8 +180,7 @@ parse_complete(
 guess_first_packet_protocol(<<Type:4, _Flags:4, _/binary>> = Data) ->
     {Preview, PreviewEncoding} = format_data_prefix(Data, 32),
     #{
-        packet_type => Type,
-        packet_type_name => emqx_packet:type_name(Type),
+        packet_type => emqx_packet:type_name(Type),
         resemble_protocol => guess_plaintext_protocol(Data),
         received_prefix => Preview,
         received_prefix_encoding => PreviewEncoding

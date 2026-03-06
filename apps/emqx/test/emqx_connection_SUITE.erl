@@ -301,7 +301,7 @@ t_parse_incoming(_) ->
             [
                 {frame_error, #{
                     cause := zero_remaining_len,
-                    packet_type := ?SUBSCRIBE,
+                    packet_type := 'SUBSCRIBE',
                     resemble_protocol := _
                 }}
             ],
@@ -351,7 +351,7 @@ t_socket_parse_incoming_first_packet_hints(_) ->
             [
                 {frame_error, #{
                     cause := zero_remaining_len,
-                    packet_type := ?SUBSCRIBE,
+                    packet_type := 'SUBSCRIBE',
                     resemble_protocol := _
                 }}
             ],
