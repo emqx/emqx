@@ -8,6 +8,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -24,9 +25,11 @@ end_per_suite(Config) ->
     Config.
 
 init_per_testcase(_Case, Config) ->
+    ok = snabbkaffe:start_trace(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
+    ok = snabbkaffe:stop(),
     %% Unhook if registered
     catch emqx_bridge_mqtt_dq:unhook(),
     %% Stop all children under the top-level sup (if running)
@@ -61,8 +64,8 @@ end_per_testcase(_Case, _Config) ->
 %% Test cases
 %%--------------------------------------------------------------------
 
+-doc "Message published to source topic is forwarded to sink topic.".
 t_basic_forward(_Config) ->
-    %% Configure one bridge that forwards test/source/# -> test/sink/${topic}
     BridgeConfig = make_bridge_config(<<"basic">>, #{
         filter_topic => <<"test/source/#">>,
         remote_topic => <<"test/sink/${topic}">>
@@ -100,6 +103,7 @@ t_basic_forward(_Config) ->
     exit(BridgeSup, shutdown),
     ok.
 
+-doc "Message on non-matching topic is not forwarded.".
 t_topic_filter_no_match(_Config) ->
     BridgeConfig = make_bridge_config(<<"nomatch">>, #{
         filter_topic => <<"devices/#">>,
@@ -132,38 +136,7 @@ t_topic_filter_no_match(_Config) ->
     exit(BridgeSup, shutdown),
     ok.
 
-t_topic_template(_Config) ->
-    BridgeConfig = make_bridge_config(<<"tmpl">>, #{
-        filter_topic => <<"devices/#">>,
-        remote_topic => <<"forwarded/${topic}">>
-    }),
-    setup_config([BridgeConfig]),
-
-    {ok, BridgeSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(BridgeConfig),
-    true = unlink(BridgeSup),
-    ok = emqx_bridge_mqtt_dq:hook(),
-    timer:sleep(500),
-
-    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub3">>, clean_start => true}),
-    {ok, _} = emqtt:connect(Sub),
-    {ok, _, [1]} = emqtt:subscribe(Sub, <<"forwarded/#">>, 1),
-    timer:sleep(100),
-
-    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub3">>, clean_start => true}),
-    {ok, _} = emqtt:connect(Pub),
-    ok = emqtt:publish(Pub, <<"devices/sensor1/temp">>, <<"42">>, 0),
-
-    Received = receive_messages(1, 3000),
-    ?assertMatch(
-        [#{topic := <<"forwarded/devices/sensor1/temp">>, payload := <<"42">>}],
-        Received
-    ),
-
-    ok = emqtt:disconnect(Sub),
-    ok = emqtt:disconnect(Pub),
-    exit(BridgeSup, shutdown),
-    ok.
-
+-doc "Two bridges forward to different sinks; non-matching topic ignored.".
 t_multiple_bridges(_Config) ->
     Bridge1 = make_bridge_config(<<"multi1">>, #{
         filter_topic => <<"a/#">>,
@@ -205,6 +178,7 @@ t_multiple_bridges(_Config) ->
     exit(Sup2, shutdown),
     ok.
 
+-doc "Messages queued on disk are replayed after bridge restart with good connection.".
 t_disk_queue_persistence(_Config) ->
     QueueDir = "/tmp/emqx_bridge_mqtt_dq_test_persist_" ++ integer_to_list(erlang:system_time()),
     BridgeConfig = make_bridge_config(<<"persist">>, #{
@@ -220,7 +194,8 @@ t_disk_queue_persistence(_Config) ->
     {ok, BadSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(BadConfig),
     true = unlink(BadSup),
     ok = emqx_bridge_mqtt_dq:hook(),
-    timer:sleep(500),
+    %% Wait for connector to fail at least once (confirms it's running)
+    {ok, _} = ?block_until(#{?snk_kind := mqtt_dq_connector_connect_failed}, 10000),
 
     %% Publish messages — they'll be buffered on disk since connectors can't connect
     {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub5">>, clean_start => true}),
@@ -236,7 +211,8 @@ t_disk_queue_persistence(_Config) ->
         end,
         lists:seq(1, 5)
     ),
-    timer:sleep(500),
+    %% Wait until buffer has enqueued at least one batch (messages are in replayq)
+    {ok, _} = ?block_until(#{?snk_kind := mqtt_dq_buffer_enqueued}, 5000),
 
     %% Verify queue files exist
     QueueDirs = filelib:wildcard(QueueDir ++ "/*"),
@@ -244,8 +220,12 @@ t_disk_queue_persistence(_Config) ->
 
     %% Phase 2: Stop the bad bridge, start a good one pointing to local EMQX.
     %% The replayq will reopen the same directory and replay.
+    BadSupMon = monitor(process, BadSup),
     exit(BadSup, shutdown),
-    timer:sleep(500),
+    receive
+        {'DOWN', BadSupMon, process, BadSup, _} -> ok
+    after 5000 -> ct:fail("BadSup did not stop")
+    end,
     emqx_bridge_mqtt_dq:unhook(),
 
     %% Clean persistent_term entries from old buffer workers
@@ -278,6 +258,7 @@ t_disk_queue_persistence(_Config) ->
     exit(GoodSup, shutdown),
     ok.
 
+-doc "Messages on the same topic are forwarded in publish order.".
 t_per_topic_ordering(_Config) ->
     BridgeConfig = make_bridge_config(<<"order">>, #{
         filter_topic => <<"order/#">>,
@@ -324,9 +305,8 @@ t_per_topic_ordering(_Config) ->
 %% sync_bridges test cases
 %%--------------------------------------------------------------------
 
+-doc "sync_bridges with unchanged config keeps the same bridge pid.".
 t_sync_bridges_noop_on_same_config(_Config) ->
-    %% Start sup and a bridge, then sync with the same config.
-    %% The bridge supervisor pid should not change.
     ensure_sup(),
     Bridge = make_bridge_config(<<"noop">>, #{
         filter_topic => <<"noop/#">>,
@@ -343,8 +323,8 @@ t_sync_bridges_noop_on_same_config(_Config) ->
     ?assertEqual(Pid1, Pid2),
     ok.
 
+-doc "sync_bridges restarts bridge when pool_size changes.".
 t_sync_bridges_restart_on_config_change(_Config) ->
-    %% Start a bridge, change pool_size, sync — bridge must be restarted.
     ensure_sup(),
     Bridge = make_bridge_config(<<"chg">>, #{
         filter_topic => <<"chg/#">>,
@@ -365,8 +345,8 @@ t_sync_bridges_restart_on_config_change(_Config) ->
     ?assertNotEqual(Pid1, Pid2),
     ok.
 
+-doc "sync_bridges removes bridge when it disappears from config.".
 t_sync_bridges_remove_bridge(_Config) ->
-    %% Start a bridge, then sync with empty config — bridge must be removed.
     ensure_sup(),
     Bridge = make_bridge_config(<<"rm">>, #{
         filter_topic => <<"rm/#">>,
@@ -382,8 +362,8 @@ t_sync_bridges_remove_bridge(_Config) ->
     ?assertEqual([], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
     ok.
 
+-doc "sync_bridges starts a newly added bridge.".
 t_sync_bridges_add_bridge(_Config) ->
-    %% Start with one bridge, then add a second via sync.
     ensure_sup(),
     Bridge1 = make_bridge_config(<<"add1">>, #{
         filter_topic => <<"add1/#">>,
@@ -404,9 +384,8 @@ t_sync_bridges_add_bridge(_Config) ->
     ?assertEqual(2, length(Children)),
     ok.
 
+-doc "sync_bridges handles add, update, and keep in one call.".
 t_sync_bridges_mixed(_Config) ->
-    %% Start with bridges A and B.
-    %% Then sync: A unchanged, B changed, C added, (A stays, B restarts, C starts).
     ensure_sup(),
     BridgeA = make_bridge_config(<<"mx_a">>, #{
         filter_topic => <<"a/#">>,
@@ -443,8 +422,8 @@ t_sync_bridges_mixed(_Config) ->
     ?assertEqual(3, map_size(ChildMap2)),
     ok.
 
+-doc "sync_bridges stops a bridge when enable flips to false.".
 t_sync_bridges_disable_bridge(_Config) ->
-    %% An enabled bridge that becomes disabled should be stopped.
     ensure_sup(),
     Bridge = make_bridge_config(<<"dis">>, #{
         filter_topic => <<"dis/#">>,
@@ -461,8 +440,8 @@ t_sync_bridges_disable_bridge(_Config) ->
     ?assertEqual([], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
     ok.
 
+-doc "sync_bridges restarts bridge when buffer_pool_size changes.".
 t_sync_bridges_buffer_pool_size_change(_Config) ->
-    %% Changing buffer_pool_size triggers a restart.
     ensure_sup(),
     Bridge = make_bridge_config(<<"bps">>, #{
         filter_topic => <<"bps/#">>,
@@ -512,6 +491,7 @@ make_bridge_config(Name, Overrides) ->
         ssl => #{enable => false},
         pool_size => 2,
         buffer_pool_size => 4,
+        max_inflight => 32,
         filter_topic => <<"#">>,
         remote_topic => <<"${topic}">>,
         enqueue_timeout_ms => 5000,

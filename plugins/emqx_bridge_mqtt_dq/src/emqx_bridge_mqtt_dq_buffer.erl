@@ -101,11 +101,12 @@ handle_cast(_Msg, State) ->
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
-handle_info({enqueue, Item, AckAlias}, #{queue := Q} = State) ->
+handle_info({enqueue, Item, AckAlias}, #{queue := Q, bridge_name := BridgeName} = State) ->
     {Items, CallerAcks} = collect_enqueue([Item], [AckAlias], ?ENQUEUE_BATCH_LIMIT - 1),
     Q1 = replayq:append(Q, Items),
     Q2 = handle_overflow(Q1, State),
     ok = ack_enqueue_batch(CallerAcks),
+    ?tp(mqtt_dq_buffer_enqueued, #{bridge => BridgeName, count => length(Items)}),
     {noreply, maybe_flush(State#{queue := Q2})};
 handle_info({batch_ack, Ref, Result}, State) ->
     {noreply, handle_batch_ack(Ref, Result, State)};

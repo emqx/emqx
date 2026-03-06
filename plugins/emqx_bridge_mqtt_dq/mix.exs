@@ -31,10 +31,23 @@ defmodule EMQXBridgeMqttDQ.MixProject do
   end
 
   def erlc_options() do
+    common = [
+      :debug_info,
+      :warnings_as_errors,
+      :warn_unused_vars,
+      :warn_shadow_vars,
+      :warn_unused_import,
+      :warn_obsolete_guard,
+      :warnings_as_errors,
+      ## Must match the root project's snk_kind define so that snabbkaffe
+      ## events use `msg` as the kind key (matching snabbkaffe compiled by EMQX).
+      {:d, :snk_kind, :msg}
+    ]
+
     if test_env?() do
-      [:debug_info, {:d, :TEST}, {:parse_transform, :cth_readable_transform}]
+      common ++ [{:d, :TEST}, {:parse_transform, :cth_readable_transform}]
     else
-      [:debug_info]
+      common
     end
   end
 

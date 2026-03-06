@@ -269,8 +269,9 @@ next_seqno(#{next_seq := Seq} = State) ->
 check_batch_complete(BatchRef, #{pending := Pending, from := From}, State) when
     map_size(Pending) =:= 0
 ->
-    #{batches := Batches} = State,
+    #{batches := Batches, bridge_name := BridgeName} = State,
     From ! {batch_ack, BatchRef, ok},
+    ?tp(mqtt_dq_batch_complete, #{bridge => BridgeName}),
     State#{batches := maps:remove(BatchRef, Batches)};
 check_batch_complete(BatchRef, Ctx, #{batches := Batches} = State) ->
     State#{batches := Batches#{BatchRef := Ctx}}.
@@ -377,6 +378,7 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 bridge => BridgeName,
                 index => Index
             }),
+            ?tp(mqtt_dq_connector_connected, #{bridge => BridgeName, index => Index}),
             State1 = State#{client_pid := Pid, connected := true},
             maybe_drain(State1);
         {error, Reason} ->
@@ -386,6 +388,7 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 index => Index,
                 reason => Reason
             }),
+            ?tp(mqtt_dq_connector_connect_failed, #{bridge => BridgeName, index => Index}),
             schedule_reconnect(),
             State#{client_pid := undefined, connected := false}
     end.
