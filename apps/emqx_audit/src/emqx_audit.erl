@@ -217,7 +217,10 @@ do_clean_expired(CurKey, DeleteSize) ->
     do_clean_expired(mnesia:next(?AUDIT, CurKey), DeleteSize - 1).
 
 max_size() ->
-    emqx_conf:get([log, audit, max_filter_size], 5000).
+    case emqx_conf:get([log, audit, cache_size], undefined) of
+        undefined -> emqx_conf:get([log, audit, max_filter_size], 5000);
+        Size -> Size
+    end.
 
 interval(#{role := replicant}) -> hibernate;
 interval(#{role := core}) -> ?INTERVAL + rand:uniform(?INTERVAL).
