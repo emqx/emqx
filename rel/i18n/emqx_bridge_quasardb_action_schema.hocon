@@ -1,0 +1,27 @@
+emqx_bridge_quasardb_action_schema {
+  quasardb {
+    label: """Upload to QuasarDB"""
+    desc:
+    """Action that takes incoming events and appends them to QuasarDB."""
+  }
+
+  action_parameters {
+    label: """QuasarDB action parameters"""
+    desc:
+    """Set of parameters for the action."""
+  }
+
+  sql {
+    label: "SQL"
+    desc: """~
+      SQL for inserting data.  Supports placeholder variables like `${clientid}`.
+
+      Note: QuasarDB ODBC driver does not support prepared statements.  Therefore, any values that are known to resolve to `STRING` or `BLOB` types must be manually quoted (`'`) in your SQL query.~"""
+  }
+
+  health_check_table {
+    label: "Table Name For Health Check"
+    desc: """~
+      Table name to use in Action health checks.  Currently, it's not possible to infer the table name directly from the SQL.  If set, this value will be used in a `SHOW TABLE <table>` statement to probe the table existence during Action health checks.~"""
+  }
+}

@@ -1,0 +1,20 @@
+{
+    "users": [
+        {
+            "default_privileges": 0,
+            "disabled": false,
+            "public_key": "PqJ/aU1KQiesXSsBnv9h2ZO2P9OiGbrt+YtHh+TZ9A3s=",
+            "superuser": true,
+            "uid": 1,
+            "username": "root"
+        },
+        {
+            "default_privileges": 30,
+            "disabled": false,
+            "public_key": "PUBRcyuQOw+dYq4pIFBBPBz+XsjiII4kN0V6CBt010g4=",
+            "superuser": false,
+            "uid": 2,
+            "username": "john"
+        }
+    ]
+}
