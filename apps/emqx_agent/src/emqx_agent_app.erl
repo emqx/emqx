@@ -14,17 +14,46 @@ start(_StartType, _StartArgs) ->
     ok = emqx_agent_skill_clickhouse:create(clickhouse_context()),
     ok = emqx_agent_skill_kv:init(),
     ok = emqx_agent_skill_kv:create(assets_context()),
+    ok = emqx_agent_skill_http:init(),
+    ok = emqx_agent_skill_http:create(weather_context()),
     {ok, Sup}.
 
 stop(_State) ->
     ok = emqx_agent_skill_clickhouse:destroy(maps:get(skill_id, clickhouse_context())),
     ok = emqx_agent_skill_clickhouse:deinit(),
     ok = emqx_agent_skill_kv:destroy(maps:get(skill_id, assets_context())),
-    ok = emqx_agent_skill_kv:deinit().
+    ok = emqx_agent_skill_kv:deinit(),
+    ok = emqx_agent_skill_http:destroy(maps:get(skill_id, weather_context())),
+    ok = emqx_agent_skill_http:deinit().
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
+
+weather_context() ->
+    #{
+        skill_id => <<"weather-default">>,
+        desc => <<"Fetch current weather conditions for a city.">>,
+        method => get,
+        url => <<"https://api.open-meteo.com/v1/forecast">>,
+        headers => #{},
+        input_schema => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"latitude">> => #{<<"type">> => <<"number">>},
+                <<"longitude">> => #{<<"type">> => <<"number">>},
+                <<"current">> => #{<<"type">> => <<"string">>}
+            },
+            <<"required">> => [<<"latitude">>, <<"longitude">>]
+        },
+        output_schema => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"current">> => #{<<"type">> => <<"object">>}
+            },
+            <<"required">> => [<<"current">>]
+        }
+    }.
 
 assets_context() ->
     #{
