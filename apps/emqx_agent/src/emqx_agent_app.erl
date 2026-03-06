@@ -12,16 +12,37 @@ start(_StartType, _StartArgs) ->
     {ok, Sup} = emqx_agent_sup:start_link(),
     ok = emqx_agent_skill_clickhouse:init(),
     ok = emqx_agent_skill_clickhouse:create(clickhouse_context()),
+    ok = emqx_agent_skill_kv:init(),
+    ok = emqx_agent_skill_kv:create(assets_context()),
     {ok, Sup}.
 
 stop(_State) ->
-    Ctx = clickhouse_context(),
-    ok = emqx_agent_skill_clickhouse:destroy(maps:get(skill_id, Ctx)),
-    ok = emqx_agent_skill_clickhouse:deinit().
+    ok = emqx_agent_skill_clickhouse:destroy(maps:get(skill_id, clickhouse_context())),
+    ok = emqx_agent_skill_clickhouse:deinit(),
+    ok = emqx_agent_skill_kv:destroy(maps:get(skill_id, assets_context())),
+    ok = emqx_agent_skill_kv:deinit().
 
 %%--------------------------------------------------------------------
 %% Internal
 %%--------------------------------------------------------------------
+
+assets_context() ->
+    #{
+        skill_id => <<"assets">>,
+        desc => <<"IoT device assets">>,
+        allow_put => true,
+        data_schema => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"asset_id">> => #{<<"type">> => <<"string">>},
+                <<"criticality">> => #{
+                    <<"type">> => <<"string">>, <<"enum">> => [<<"low">>, <<"medium">>, <<"high">>]
+                },
+                <<"sla">> => #{<<"type">> => <<"string">>}
+            },
+            <<"required">> => [<<"asset_id">>, <<"criticality">>, <<"sla">>]
+        }
+    }.
 
 clickhouse_context() ->
     #{
@@ -29,16 +50,22 @@ clickhouse_context() ->
         desc =>
             <<"Query historical telemetry for a device and metric ",
                 "(templated and tenant-scoped).">>,
-        input => #{
-            <<"site">> => #{<<"type">> => <<"string">>},
-            <<"device_id">> => #{<<"type">> => <<"string">>},
-            <<"metric">> => #{<<"type">> => <<"string">>},
-            <<"window_min">> => #{
-                <<"type">> => <<"integer">>, <<"minimum">> => 1, <<"maximum">> => 1440
+        input_schema => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"site">> => #{<<"type">> => <<"string">>},
+                <<"device_id">> => #{<<"type">> => <<"string">>},
+                <<"metric">> => #{<<"type">> => <<"string">>},
+                <<"window_min">> => #{
+                    <<"type">> => <<"integer">>, <<"minimum">> => 1, <<"maximum">> => 1440
+                },
+                <<"downsample_sec">> => #{
+                    <<"type">> => <<"integer">>, <<"minimum">> => 1, <<"maximum">> => 3600
+                }
             },
-            <<"downsample_sec">> => #{
-                <<"type">> => <<"integer">>, <<"minimum">> => 1, <<"maximum">> => 3600
-            }
+            <<"required">> => [
+                <<"site">>, <<"device_id">>, <<"metric">>, <<"window_min">>, <<"downsample_sec">>
+            ]
         },
         query =>
             ~b"""
@@ -58,20 +85,26 @@ clickhouse_context() ->
             ORDER BY t ASC
             WITH TOTALS
             """,
-        output => #{
-            <<"rows">> => #{
-                <<"type">> => <<"array">>,
-                <<"items">> => #{
-                    <<"type">> => <<"object">>,
-                    <<"properties">> => #{
-                        <<"t">> => #{<<"type">> => <<"string">>, <<"format">> => <<"date-time">>},
-                        <<"avg">> => #{<<"type">> => <<"number">>},
-                        <<"min">> => #{<<"type">> => <<"number">>},
-                        <<"max">> => #{<<"type">> => <<"number">>},
-                        <<"cnt">> => #{<<"type">> => <<"integer">>}
-                    },
-                    <<"required">> => [<<"t">>, <<"avg">>, <<"min">>, <<"max">>, <<"cnt">>]
+        output_schema => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"rows">> => #{
+                    <<"type">> => <<"array">>,
+                    <<"items">> => #{
+                        <<"type">> => <<"object">>,
+                        <<"properties">> => #{
+                            <<"t">> => #{
+                                <<"type">> => <<"string">>, <<"format">> => <<"date-time">>
+                            },
+                            <<"avg">> => #{<<"type">> => <<"number">>},
+                            <<"min">> => #{<<"type">> => <<"number">>},
+                            <<"max">> => #{<<"type">> => <<"number">>},
+                            <<"cnt">> => #{<<"type">> => <<"integer">>}
+                        },
+                        <<"required">> => [<<"t">>, <<"avg">>, <<"min">>, <<"max">>, <<"cnt">>]
+                    }
                 }
-            }
+            },
+            <<"required">> => [<<"rows">>]
         }
     }.

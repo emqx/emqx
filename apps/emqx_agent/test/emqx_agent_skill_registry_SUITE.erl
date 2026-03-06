@@ -10,6 +10,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-define(TYPE, <<"test.skill">>).
+
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
@@ -20,10 +22,9 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, _Config) ->
-    %% Ensure registry is clean before each test
     lists:foreach(
-        fun(#{skill_id := Id}) ->
-            emqx_agent_skill_registry:unregister(Id)
+        fun(#{skill_id := Id, type := Type}) ->
+            emqx_agent_skill_registry:unregister(Type, Id)
         end,
         emqx_agent_skill_registry:list()
     ),
@@ -37,13 +38,13 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 t_register_and_lookup(_Config) ->
-    Skill = sample_skill(<<"clickhouse.history">>, <<"1">>),
+    Skill = sample_skill(<<"s1">>, <<"1">>),
     ok = emqx_agent_skill_registry:register(Skill),
-    {ok, Got} = emqx_agent_skill_registry:lookup(<<"clickhouse.history">>),
+    {ok, Got} = emqx_agent_skill_registry:lookup(?TYPE, <<"s1">>),
     ?assertEqual(Skill, Got).
 
 t_lookup_not_found(_Config) ->
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"no.such.skill">>)).
+    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(?TYPE, <<"no.such">>)).
 
 t_register_missing_skill_id(_Config) ->
     ?assertEqual(
@@ -51,23 +52,38 @@ t_register_missing_skill_id(_Config) ->
         emqx_agent_skill_registry:register(#{version => <<"1">>})
     ).
 
+t_register_missing_type(_Config) ->
+    ?assertEqual(
+        {error, missing_type},
+        emqx_agent_skill_registry:register(#{skill_id => <<"x">>, version => <<"1">>})
+    ).
+
 t_register_overwrites(_Config) ->
     SkillV1 = sample_skill(<<"s.overwrite">>, <<"1">>),
     SkillV2 = sample_skill(<<"s.overwrite">>, <<"2">>),
     ok = emqx_agent_skill_registry:register(SkillV1),
     ok = emqx_agent_skill_registry:register(SkillV2),
-    {ok, Got} = emqx_agent_skill_registry:lookup(<<"s.overwrite">>),
+    {ok, Got} = emqx_agent_skill_registry:lookup(?TYPE, <<"s.overwrite">>),
     ?assertEqual(<<"2">>, maps:get(version, Got)).
+
+t_same_id_different_types(_Config) ->
+    SkillA = sample_skill(<<"shared-id">>, <<"1">>),
+    SkillB = (sample_skill(<<"shared-id">>, <<"1">>))#{type => <<"other.type">>},
+    ok = emqx_agent_skill_registry:register(SkillA),
+    ok = emqx_agent_skill_registry:register(SkillB),
+    {ok, A} = emqx_agent_skill_registry:lookup(?TYPE, <<"shared-id">>),
+    {ok, B} = emqx_agent_skill_registry:lookup(<<"other.type">>, <<"shared-id">>),
+    ?assertEqual(?TYPE, maps:get(type, A)),
+    ?assertEqual(<<"other.type">>, maps:get(type, B)).
 
 t_unregister(_Config) ->
     Skill = sample_skill(<<"s.delete">>, <<"1">>),
     ok = emqx_agent_skill_registry:register(Skill),
-    ok = emqx_agent_skill_registry:unregister(<<"s.delete">>),
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"s.delete">>)).
+    ok = emqx_agent_skill_registry:unregister(?TYPE, <<"s.delete">>),
+    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(?TYPE, <<"s.delete">>)).
 
 t_unregister_nonexistent(_Config) ->
-    %% Deleting a non-existent key must not crash
-    ?assertEqual(ok, emqx_agent_skill_registry:unregister(<<"ghost">>)).
+    ?assertEqual(ok, emqx_agent_skill_registry:unregister(?TYPE, <<"ghost">>)).
 
 t_list(_Config) ->
     SkillA = sample_skill(<<"list.a">>, <<"1">>),
@@ -79,12 +95,22 @@ t_list(_Config) ->
     ?assert(lists:member(<<"list.a">>, Ids)),
     ?assert(lists:member(<<"list.b">>, Ids)).
 
+t_list_by_type(_Config) ->
+    SkillA = sample_skill(<<"a">>, <<"1">>),
+    SkillB = (sample_skill(<<"b">>, <<"1">>))#{type => <<"other.type">>},
+    ok = emqx_agent_skill_registry:register(SkillA),
+    ok = emqx_agent_skill_registry:register(SkillB),
+    OnlyTest = emqx_agent_skill_registry:list(?TYPE),
+    ?assert(lists:any(fun(#{skill_id := Id}) -> Id =:= <<"a">> end, OnlyTest)),
+    ?assertNot(lists:any(fun(#{skill_id := Id}) -> Id =:= <<"b">> end, OnlyTest)).
+
 t_list_empty(_Config) ->
     ?assertEqual([], emqx_agent_skill_registry:list()).
 
 t_skill_with_schemas(_Config) ->
     Skill = #{
         skill_id => <<"clickhouse.history">>,
+        type => <<"clickhouse.history">>,
         version => <<"1">>,
         display_name => <<"ClickHouse Time-series History">>,
         description => <<"Query historical telemetry for a device and metric.">>,
@@ -108,7 +134,9 @@ t_skill_with_schemas(_Config) ->
         }
     },
     ok = emqx_agent_skill_registry:register(Skill),
-    {ok, Got} = emqx_agent_skill_registry:lookup(<<"clickhouse.history">>),
+    {ok, Got} = emqx_agent_skill_registry:lookup(
+        <<"clickhouse.history">>, <<"clickhouse.history">>
+    ),
     ?assertEqual(Skill, Got).
 
 %%--------------------------------------------------------------------
@@ -118,6 +146,7 @@ t_skill_with_schemas(_Config) ->
 sample_skill(Id, Version) ->
     #{
         skill_id => Id,
+        type => ?TYPE,
         version => Version,
         display_name => <<"Sample Skill">>,
         description => <<"A sample skill for testing.">>

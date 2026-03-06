@@ -7,7 +7,7 @@
 %% Skill type is fixed per module (?SKILL_TYPE).
 %% Multiple instances with different IDs can be created via create/1.
 %%
-%% Invoke topic:  cap/invoke/<TYPE>/<ID>/<VERSION>
+%% Invoke topic:  cap/invoke/<TYPE>/<ID>
 %% Reply  topic:  cap/reply/<req_id>
 %%
 %% Lifecycle:
@@ -23,9 +23,6 @@
 -include_lib("emqx/include/emqx_mqtt.hrl").
 
 -define(SKILL_TYPE, <<"clickhouse.history">>).
--define(SKILL_VERSION, <<"1">>).
-%% Prefix matched in the hook: cap/invoke/clickhouse.history/<id>/1
--define(INVOKE_PREFIX, <<"cap/invoke/clickhouse.history/">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 -export([init/0, deinit/0, create/1, destroy/1]).
@@ -48,41 +45,41 @@ deinit() ->
     ok.
 
 %% Context keys:
-%%   skill_id => binary()              — unique instance identifier
-%%   desc     => binary()              — human-readable description
-%%   input    => #{binary() => map()}  — JSON Schema properties for args (all required)
-%%   output   => #{binary() => map()}  — JSON Schema properties for result (all required)
-%%   query    => binary()              — SQL template with ${var} placeholders
+%%   skill_id      => binary()  — unique instance identifier
+%%   desc          => binary()  — human-readable description
+%%   input_schema  => map()     — full JSON Schema for request args
+%%   output_schema => map()     — full JSON Schema for response
+%%   query         => binary()  — SQL template with ${var} placeholders
 -spec create(Context :: map()) -> ok | {error, missing_skill_id}.
-create(#{skill_id := SkillId, desc := Desc, input := InputProps, output := OutputProps} = Context) ->
+create(
+    #{skill_id := SkillId, desc := Desc, input_schema := InputSchema, output_schema := OutputSchema} =
+        Context
+) ->
     Skill = #{
         skill_id => SkillId,
         type => ?SKILL_TYPE,
-        version => ?SKILL_VERSION,
         display_name => <<"ClickHouse Time-series History">>,
         description => Desc,
         context => Context,
-        input_schema => emqx_agent_skill_schema:to_schema(InputProps),
-        output_schema => emqx_agent_skill_schema:to_schema(OutputProps)
+        input_schema => InputSchema,
+        output_schema => OutputSchema
     },
     emqx_agent_skill_registry:register(Skill).
 
 -spec destroy(emqx_agent_skill_registry:skill_id()) -> ok.
 destroy(SkillId) ->
-    emqx_agent_skill_registry:unregister(SkillId).
+    emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
 
 %%--------------------------------------------------------------------
 %% Hook callbacks
 %%--------------------------------------------------------------------
 
-%% Match cap/invoke/clickhouse.history/<id>/<version>
+%% Match cap/invoke/clickhouse.history/<id>
 on_message_publish(
-    #message{topic = <<"cap/invoke/clickhouse.history/", Rest/binary>>, payload = Payload} = Message
+    #message{topic = <<"cap/invoke/clickhouse.history/", SkillId/binary>>, payload = Payload} =
+        Message
 ) ->
-    case binary:split(Rest, <<"/">>) of
-        [Id, ?SKILL_VERSION] -> handle_invoke(Id, Payload);
-        _ -> ok
-    end,
+    handle_invoke(SkillId, Payload),
     {ok, Message};
 on_message_publish(Message) ->
     {ok, Message}.
@@ -93,8 +90,7 @@ on_message_publish(Message) ->
 
 handle_invoke(SkillId, Payload) ->
     Request = emqx_utils_json:decode(Payload),
-
-    case emqx_agent_skill_registry:lookup(SkillId) of
+    case emqx_agent_skill_registry:lookup(?SKILL_TYPE, SkillId) of
         {error, not_found} -> ok;
         {ok, _Skill} -> do_reply(SkillId, Request)
     end.
@@ -102,18 +98,12 @@ handle_invoke(SkillId, Payload) ->
 do_reply(SkillId, Request) ->
     ReqId = maps:get(<<"req_id">>, Request),
     Reply = emqx_agent_skill_helpers:correlation(Request, #{
-        <<"skill">> => #{
-            <<"type">> => ?SKILL_TYPE,
-            <<"id">> => SkillId,
-            <<"version">> => ?SKILL_VERSION
-        },
+        <<"skill">> => #{<<"type">> => ?SKILL_TYPE, <<"id">> => SkillId},
         <<"frame">> => <<"unary">>,
         <<"data">> => fake_answer(Request)
     }),
-
     ReplyTopic = <<?REPLY_TOPIC_PREFIX/binary, ReqId/binary>>,
-    ReplyPayload = emqx_utils_json:encode(Reply),
-    Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, ReplyPayload),
+    Msg = emqx_message:make(SkillId, ?QOS_0, ReplyTopic, emqx_utils_json:encode(Reply)),
     _ = emqx_broker:publish(Msg),
     ok.
 

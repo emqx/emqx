@@ -12,9 +12,8 @@
 -include_lib("emqx/include/emqx.hrl").
 
 -define(SKILL_TYPE, <<"clickhouse.history">>).
--define(SKILL_VERSION, <<"1">>).
 -define(SKILL_ID, <<"ch-test">>).
--define(INVOKE_TOPIC, <<"cap/invoke/clickhouse.history/ch-test/1">>).
+-define(INVOKE_TOPIC, <<"cap/invoke/clickhouse.history/ch-test">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -40,10 +39,9 @@ end_per_testcase(_TestCase, _Config) ->
 %%--------------------------------------------------------------------
 
 t_create_registers_skill(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_ID),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
     ?assertEqual(?SKILL_ID, maps:get(skill_id, Skill)),
     ?assertEqual(?SKILL_TYPE, maps:get(type, Skill)),
-    ?assertEqual(?SKILL_VERSION, maps:get(version, Skill)),
     InputSchema = maps:get(input_schema, Skill),
     ?assertEqual(<<"object">>, maps:get(<<"type">>, InputSchema)),
     ?assert(is_map(maps:get(<<"properties">>, InputSchema))),
@@ -54,7 +52,7 @@ t_create_registers_skill(_Config) ->
     ?assert(is_list(maps:get(<<"required">>, OutputSchema))).
 
 t_schema_required_matches_props(_Config) ->
-    {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_ID),
+    {ok, Skill} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
     InputSchema = maps:get(input_schema, Skill),
     Props = maps:get(<<"properties">>, InputSchema),
     Required = maps:get(<<"required">>, InputSchema),
@@ -62,15 +60,15 @@ t_schema_required_matches_props(_Config) ->
 
 t_destroy_unregisters_skill(_Config) ->
     ok = emqx_agent_skill_clickhouse:destroy(?SKILL_ID),
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(?SKILL_ID)),
+    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID)),
     %% Re-create so end_per_testcase:destroy() doesn't crash
     ok = emqx_agent_skill_clickhouse:create(test_context()).
 
 t_multiple_instances(_Config) ->
     Ctx2 = test_context(#{skill_id => <<"ch-test-2">>}),
     ok = emqx_agent_skill_clickhouse:create(Ctx2),
-    {ok, S1} = emqx_agent_skill_registry:lookup(?SKILL_ID),
-    {ok, S2} = emqx_agent_skill_registry:lookup(<<"ch-test-2">>),
+    {ok, S1} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, ?SKILL_ID),
+    {ok, S2} = emqx_agent_skill_registry:lookup(?SKILL_TYPE, <<"ch-test-2">>),
     ?assertEqual(?SKILL_TYPE, maps:get(type, S1)),
     ?assertEqual(?SKILL_TYPE, maps:get(type, S2)),
     ?assertNotEqual(maps:get(skill_id, S1), maps:get(skill_id, S2)),
@@ -117,7 +115,7 @@ t_invoke_publishes_reply(_Config) ->
     ?assertEqual(<<"inst-1001">>, maps:get(<<"iid">>, Reply)),
     ?assertEqual(<<"unary">>, maps:get(<<"frame">>, Reply)),
     ?assertMatch(
-        #{<<"type">> := ?SKILL_TYPE, <<"id">> := ?SKILL_ID, <<"version">> := ?SKILL_VERSION},
+        #{<<"type">> := ?SKILL_TYPE, <<"id">> := ?SKILL_ID},
         maps:get(<<"skill">>, Reply)
     ),
     Data = maps:get(<<"data">>, Reply),
@@ -137,15 +135,23 @@ test_context(Overrides) ->
         #{
             skill_id => ?SKILL_ID,
             desc => <<"Query historical telemetry for a device and metric.">>,
-            input => #{
-                <<"device_id">> => #{<<"type">> => <<"string">>},
-                <<"metric">> => #{<<"type">> => <<"string">>},
-                <<"window_min">> => #{
-                    <<"type">> => <<"integer">>, <<"minimum">> => 1, <<"maximum">> => 1440
-                }
+            input_schema => #{
+                <<"type">> => <<"object">>,
+                <<"properties">> => #{
+                    <<"device_id">> => #{<<"type">> => <<"string">>},
+                    <<"metric">> => #{<<"type">> => <<"string">>},
+                    <<"window_min">> => #{
+                        <<"type">> => <<"integer">>, <<"minimum">> => 1, <<"maximum">> => 1440
+                    }
+                },
+                <<"required">> => [<<"device_id">>, <<"metric">>, <<"window_min">>]
             },
-            output => #{
-                <<"rows">> => #{<<"type">> => <<"array">>}
+            output_schema => #{
+                <<"type">> => <<"object">>,
+                <<"properties">> => #{
+                    <<"rows">> => #{<<"type">> => <<"array">>}
+                },
+                <<"required">> => [<<"rows">>]
             }
         },
         Overrides
