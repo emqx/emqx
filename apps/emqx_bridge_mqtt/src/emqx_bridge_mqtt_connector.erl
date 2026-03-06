@@ -511,9 +511,13 @@ mk_ingress_config(
 ) ->
     #{namespace := Namespace} = emqx_resource:parse_channel_id(ChannelId),
     HookPoints = maps:get(hookpoints, IngressChannelConfig, []),
+    Ingress0 = maps:with([remote, local, server], IngressChannelConfig),
+    Ingress = Ingress0#{
+        on_message_received => {?MODULE, on_message_received, [HookPoints, ChannelId, Namespace]}
+    },
     NewConf = IngressChannelConfig#{
-        on_message_received => {?MODULE, on_message_received, [HookPoints, ChannelId, Namespace]},
-        ingress_list => [IngressChannelConfig]
+        hookpoints => HookPoints,
+        ingress_list => [Ingress]
     },
     emqx_bridge_mqtt_ingress:config(NewConf, ChannelId, TopicToHandlerIndex).
 

@@ -190,7 +190,7 @@ t_parse_bad_v5_publish_packet(_) ->
 t_guess_first_packet_protocol(_) ->
     ?assertEqual(#{}, emqx_frame:guess_first_packet_protocol(<<>>)),
     ?assertMatch(
-        #{packet_type := ?CONNECT},
+        #{packet_type := 'CONNECT'},
         emqx_frame:guess_first_packet_protocol(<<?CONNECT:4, 0:4, 0>>)
     ),
     ?assertMatch(
