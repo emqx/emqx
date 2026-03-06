@@ -59,8 +59,10 @@ export PROFILE
 # ensure dir
 cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")"
 
-PKG_VSN="${PKG_VSN:-$(./pkg-vsn.sh "$PROFILE")}"
-export PKG_VSN
+if [ -z "${PKG_VSN:-}" ]; then
+    PKG_VSN="$(./pkg-vsn.sh "$PROFILE")"
+    export PKG_VSN
+fi
 
 SYSTEM="$(./scripts/get-distro.sh)"
 
@@ -350,7 +352,7 @@ make_docker() {
     local EXTRA_DEPS='libsasl2-2,libsasl2-modules-gssapi-mit'
     local ISO_8601_DATE GIT_REVISION
     ISO_8601_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    GIT_REVISION="$(git rev-parse HEAD)"
+    GIT_REVISION="$(git rev-parse HEAD 2>/dev/null || echo "$PKG_VSN")"
     export BUILDX_NO_DEFAULT_ATTESTATIONS=1
     local DOCKER_BUILDX_ARGS=(
        --build-arg BUILD_FROM="${BUILD_FROM}" \
