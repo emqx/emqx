@@ -219,12 +219,12 @@ unsubscribe_remote_topic(
 
 config(#{ingress_list := IngressList} = Conf, Name, TopicToHandlerIndex) ->
     NewIngressList = [
-        fix_remote_config(Ingress, Name, TopicToHandlerIndex, Conf)
+        fix_remote_config(Ingress, Name, TopicToHandlerIndex)
      || Ingress <- IngressList
     ],
-    Conf#{ingress_list => NewIngressList}.
+    Conf#{ingress_list := NewIngressList}.
 
-fix_remote_config(#{remote := RC}, BridgeName, TopicToHandlerIndex, Conf) ->
+fix_remote_config(#{remote := RC} = Conf, BridgeName, TopicToHandlerIndex) ->
     FixedConf0 = Conf#{
         remote => parse_remote(RC, BridgeName)
     },

@@ -384,6 +384,12 @@ t_certcn_as_alias(_) ->
 t_certdn_as_alias(_) ->
     test_cert_extraction_as_alias(dn).
 
+t_cert_common_name_as_alias(_) ->
+    test_cert_extraction_as_alias(cert_common_name).
+
+t_cert_subject_as_alias(_) ->
+    test_cert_extraction_as_alias(cert_subject).
+
 test_cert_extraction_as_alias(Which) ->
     %% extract the first two chars
     ClientId = iolist_to_binary(["ClientIdFor_", atom_to_list(Which)]),
