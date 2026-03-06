@@ -96,6 +96,7 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 echo "[dev-cycle] configuring self-bridge via REST API"
+# shellcheck disable=SC2016
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
     -X PUT "$BASE_URL/api/v5/plugins/$PLUGIN/config" \
     -H "Authorization: Bearer $TOKEN" \
