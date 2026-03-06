@@ -1,0 +1,70 @@
+emqx_a2a_registry_api {
+  card_list {
+    label: "List Cards"
+    desc: "List agent cards."
+  }
+  card_get {
+    label: "Get Card"
+    desc: "Get agent card."
+  }
+  card_delete {
+    label: "Delete Card"
+    desc: "Delete agent card."
+  }
+  card_register {
+    label: "Register Card"
+    desc: "Register agent card."
+  }
+  card_register {
+    label: "Register Card"
+    desc: "Register agent card."
+  }
+  org_id_query_param {
+    label: "Organization ID"
+    desc: "Organization ID."
+  }
+  unit_id_query_param {
+    label: "Unit ID"
+    desc: "Unit ID."
+  }
+  agent_id_query_param {
+    label: "Agent ID"
+    desc: "Agent ID."
+  }
+  org_id_path {
+    label: "Organization ID"
+    desc: "Organization ID."
+  }
+  unit_id_path {
+    label: "Unit ID"
+    desc: "Unit ID."
+  }
+  agent_id_path {
+    label: "Agent ID"
+    desc: "Agent ID."
+  }
+  example_list {
+    label: "List Cards Result Example"
+    desc: "List Cards result example."
+  }
+  example_get {
+    label: "Get Card Result Example"
+    desc: "Get Card result example."
+  }
+  not_found {
+    label: "Not Found"
+    desc: "Not Found."
+  }
+  bad_request {
+    label: "Bad Request"
+    desc: "Bad Request."
+  }
+  internal_error {
+    label: "Internal Error"
+    desc: "Internal Error."
+  }
+  service_unavailable {
+    label: "Service Unavailable"
+    desc: "Service Unavailable."
+  }
+}

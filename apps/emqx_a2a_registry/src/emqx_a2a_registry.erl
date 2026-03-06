@@ -12,6 +12,7 @@
     list_cards/0,
     list_cards/1,
     delete_card/1,
+    write_card/1,
 
     lookup_agent_status/1
 ]).
@@ -64,7 +65,7 @@ list_cards(Opts) ->
     lists:map(
         fun(#message{from = From, payload = PayloadRaw}) ->
             Card = emqx_utils_json:decode(PayloadRaw),
-            format_card(Card, From)
+            format_card(Card, PayloadRaw, From)
         end,
         Msgs
     ).
@@ -88,6 +89,25 @@ delete_card(Opts) ->
     ok = emqx_retainer:delete(Topic),
     ok.
 
+write_card(Opts) ->
+    #{
+        org_id := OrgId,
+        unit_id := UnitId,
+        agent_id := AgentId,
+        card_bin := CardBin
+    } = Opts,
+    maybe
+        ok ?= emqx_a2a_registry_utils:validate_id(OrgId, UnitId, AgentId),
+        ok ?= emqx_a2a_registry_utils:validate_card_schema(CardBin),
+        ClientId = agent_card_clientid(OrgId, UnitId, AgentId),
+        Topic = discovery_topic(OrgId, UnitId, AgentId),
+        QoS = 1,
+        Flags = #{retain => true},
+        Headers = #{},
+        Msg = emqx_message:make(ClientId, QoS, Topic, CardBin, Flags, Headers),
+        ok ?= emqx_retainer:store_retained(Msg)
+    end.
+
 %%------------------------------------------------------------------------------
 %% Internal fns
 %%------------------------------------------------------------------------------
@@ -99,7 +119,7 @@ agent_card_schema_source() ->
     {ok, Source} = file:read_file(agent_card_schema_path()),
     Source.
 
-format_card(Card0, ClientId) ->
+format_card(Card0, CardRaw, ClientId) ->
     Card = maps:with(
         [
             <<"name">>,
@@ -109,4 +129,7 @@ format_card(Card0, ClientId) ->
         Card0
     ),
     Status = lookup_agent_status(ClientId),
-    Card#{<<"status">> => Status}.
+    Card#{<<"status">> => Status, <<"raw">> => CardRaw}.
+
+agent_card_clientid(OrgId, UnitId, AgentId) ->
+    emqx_topic:join([OrgId, UnitId, AgentId]).

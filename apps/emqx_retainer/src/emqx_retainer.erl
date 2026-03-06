@@ -22,6 +22,7 @@
     page_read/3,
     page_read/4,
     match_messages/3,
+    store_retained/1,
     retained_count/0,
     is_enabled/0,
     is_started/0,
@@ -217,6 +218,15 @@ match_messages(TopicFilter, Cursor, Opts) ->
     emqx_retainer:with_backend(
         fun(Mod, State) ->
             Mod:match_messages(State, TopicFilter, Cursor, Opts)
+        end,
+        {error, no_backend}
+    ).
+
+-spec store_retained(message()) -> ok | {error, any()}.
+store_retained(Msg) ->
+    emqx_retainer:with_backend(
+        fun(Mod, State) ->
+            Mod:store_retained(State, Msg)
         end,
         {error, no_backend}
     ).
