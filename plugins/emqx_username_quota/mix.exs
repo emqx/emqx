@@ -81,10 +81,16 @@ defmodule EMQXUsernameQuota.MixProject do
         repo: "https://github.com/emqx/emqx",
         functionality: ["Username Quota"],
         compatibility: [
-          emqx: "~> 6.0"
+          emqx: "~> #{emqx_major_minor()}"
         ],
         description: "Plugin for username-based quota checks."
       ]
     ]
+  end
+
+  defp emqx_major_minor do
+    root = Path.expand("../..", __DIR__)
+    {vsn, 0} = System.cmd(Path.join(root, "pkg-vsn.sh"), [], cd: root)
+    vsn |> String.trim() |> String.split(".") |> Enum.take(2) |> Enum.join(".")
   end
 end

@@ -22,9 +22,7 @@
     try_insert_inflight/7,
     ack_msg/4,
     set_msg_ack/2,
-    get_msg_ack/2,
     custom_msg_ack_key/2,
-    custom_get_msg_ack/2,
     make_test_channel/0,
     normalize_queue_item/1
 ]).

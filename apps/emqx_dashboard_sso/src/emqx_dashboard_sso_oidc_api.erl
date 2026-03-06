@@ -12,15 +12,6 @@
 -include_lib("emqx_dashboard/include/emqx_dashboard.hrl").
 -include_lib("emqx/include/emqx_config.hrl").
 
--import(hoconsc, [
-    mk/2,
-    array/1,
-    enum/1,
-    ref/1
-]).
-
--import(emqx_dashboard_sso_api, [login_meta/3]).
-
 -export([
     api_spec/0,
     paths/0,

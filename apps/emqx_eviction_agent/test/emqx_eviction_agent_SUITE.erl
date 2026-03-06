@@ -17,8 +17,7 @@
     emqx_eviction_agent_test_helpers,
     [
         emqtt_connect/0, emqtt_connect/1, emqtt_connect/2,
-        emqtt_connect_for_publish/1,
-        case_specific_node_name/1
+        emqtt_connect_for_publish/1
     ]
 ).
 

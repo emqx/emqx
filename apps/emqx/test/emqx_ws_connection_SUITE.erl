@@ -423,6 +423,19 @@ t_parse_incoming_frame_error(_) ->
         Packets
     ).
 
+t_parse_incoming_fragment_then_bad_subqos_idle(_) ->
+    %% Feed an invalid SUBSCRIBE in two chunks while channel is idle.
+    %% This exercises frame parsing after parser state has already advanced.
+    St0 = st(#{channel => channel(#{conn_state => idle})}),
+    Frag1 = <<16#82, 16#06, 16#00>>,
+    Frag2 = <<16#01, 16#00, 16#01, $t, 16#03>>,
+    {Packets1, St1} = ?ws_conn:parse_incoming(Frag1, [], St0),
+    ?assertEqual([], Packets1),
+    {Packets2, St2} = ?ws_conn:parse_incoming(Frag2, Packets1, St1),
+    ?assertMatch([{frame_error, bad_subqos}], Packets2),
+    {[{shutdown, #{shutdown_count := invalid_connect_packet, reason := bad_subqos}}], _St3} =
+        ?ws_conn:handle_incoming(Packets2, St2).
+
 t_handle_incomming_frame_error(_) ->
     FrameError = {frame_error, bad_qos},
     Serialize = #{version => 5, max_size => 16#FFFF, strict_mode => false},

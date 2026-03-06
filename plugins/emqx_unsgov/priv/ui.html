@@ -1,0 +1,1743 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UNS Governance</title>
+    <style>
+      :root {
+        --color-bg: #fff;
+        --color-bg-content: #fff;
+        --color-bg-main: #f9fafb;
+        --color-bg-split: #f8fafe;
+        --color-bg-table-hd: #eef0f5;
+        --color-text-primary: #343741;
+        --color-text-secondary: #5a5f6f;
+        --color-title-primary: #1d1d1d;
+        --color-text-placeholder: #bac1cd;
+        --color-border-primary: #d0d4dc;
+        --color-border-normal: #eeedf6;
+        --color-border-card: #e8e8e8;
+        --color-primary: #5e4eff;
+        --color-primary-soft: #5e4eff1a;
+        --color-hover: #eeeefe;
+        --border-radius-small: 4px;
+        --border-radius-card: 8px;
+        --muted: var(--color-text-secondary);
+        --line: var(--color-border-normal);
+        --brand: var(--color-primary);
+        --ok: #00b173;
+        --warn: #f19710;
+        --err: #eb4e3d;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--color-bg-main);
+        color: var(--color-text-primary);
+        font-size: 14px;
+        font-family: Roboto, -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      }
+
+      .app { max-width: 1440px; margin: 0 auto; padding: 24px; }
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 14px;
+      }
+      .hero h1 { margin: 0; font-size: 22px; color: var(--color-title-primary); }
+      .hero p { margin: 4px 0 0; color: var(--color-text-secondary); }
+
+      .btn {
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--border-radius-small);
+        background: var(--color-bg-content);
+        color: var(--color-text-primary);
+        height: 36px;
+        padding: 0 12px;
+        font-weight: 400;
+        cursor: pointer;
+      }
+      .btn:hover { border-color: var(--color-primary); color: var(--color-primary); background: var(--color-bg-content); }
+      .btn.main { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+      .btn.main:hover { filter: brightness(0.98); color: #fff; }
+      .btn.warn { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+      .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr);
+        gap: 14px;
+      }
+
+      .card {
+        background: var(--color-bg-content);
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--border-radius-card);
+        box-shadow: none;
+      }
+
+      .hd {
+        padding: 14px;
+        border-bottom: 1px solid var(--color-border-normal);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .bd { padding: 14px; }
+
+      .models { max-height: 70vh; overflow: auto; display: grid; gap: 8px; }
+      .model-item {
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--border-radius-card);
+        padding: 10px;
+        cursor: pointer;
+        background: var(--color-bg-content);
+      }
+      .model-item:hover { background: var(--color-bg-split); }
+      .model-item.active { border-color: var(--color-primary); background: var(--color-primary-soft); }
+      .model-item.selected { outline: 2px solid #b8b1ff; }
+      .model-id { font-weight: 700; }
+      .muted { color: var(--color-text-secondary); font-size: 0.86rem; }
+
+      .tabs {
+        display: flex;
+        border-bottom: 3px solid var(--color-bg-table-hd);
+        gap: 2px;
+      }
+      .subtabs {
+        margin-bottom: 10px;
+      }
+      .tab {
+        height: 42px;
+        border: none;
+        border-bottom: 3px solid transparent;
+        background: transparent;
+        padding: 0 14px;
+        cursor: pointer;
+        font-weight: 500;
+        color: var(--color-text-secondary);
+      }
+      .tab:hover { background: var(--color-hover); color: var(--color-primary); }
+      .tab.active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
+
+      .status {
+        margin-bottom: 10px;
+        border: 1px solid transparent;
+        border-radius: var(--border-radius-card);
+        padding: 10px;
+        font-size: 0.92rem;
+      }
+      .status.ok { background: #eefbf5; border-color: #b9efd8; color: var(--ok); }
+      .status.err { background: #fff3f0; border-color: #ffd2cb; color: var(--err); }
+
+      .hidden { display: none !important; }
+
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .pill {
+        border: 1px solid var(--color-border-normal);
+        background: var(--color-bg-split);
+        border-radius: 100px;
+        padding: 4px 10px;
+        font-size: 0.82rem;
+      }
+
+      .model-editor { display: grid; gap: 12px; }
+      .block { border: 1px solid var(--color-border-normal); border-radius: var(--border-radius-card); padding: 10px; background: var(--color-bg-content); }
+      .block h3 { margin: 0 0 8px; font-size: 0.95rem; }
+      .compact-row { display: grid; grid-template-columns: 1fr 140px 120px auto; gap: 6px; align-items: center; margin: 4px 0; }
+      .compact-row .btn { height: 32px; }
+      .enum-row { margin: 4px 0 8px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      .enum-chip {
+        border: 1px solid var(--color-border-primary);
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 0.8rem;
+        background: var(--color-bg-split);
+      }
+      .enum-chip button {
+        border: none;
+        background: transparent;
+        color: #b91c1c;
+        cursor: pointer;
+        margin-left: 4px;
+      }
+      .compact-input, .compact-select {
+        height: 32px;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--border-radius-small);
+        padding: 0 8px;
+        font-size: 0.84rem;
+        width: 100%;
+        color: var(--color-text-primary);
+        background: var(--color-bg-content);
+      }
+      .compact-check { display: inline-flex; align-items: center; gap: 4px; font-size: 0.84rem; color: var(--color-text-secondary); }
+      .tree-box { border: 1px solid var(--color-border-normal); border-radius: var(--border-radius-card); padding: 8px; }
+      .tree ul { margin: 4px 0 0 16px; padding: 0; }
+      .tree li { list-style: none; margin: 2px 0; }
+      .tree-row { display: inline-flex; align-items: center; gap: 4px; }
+      .tree-toggle {
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--border-radius-small);
+        background: var(--color-bg-content);
+        color: #475569;
+        font-size: 11px;
+        line-height: 1;
+        cursor: pointer;
+      }
+      .tree-btn {
+        border: 1px solid transparent;
+        background: transparent;
+        border-radius: var(--border-radius-small);
+        cursor: pointer;
+        text-align: left;
+        padding: 3px 8px;
+        font: 13px/1.4 "Cascadia Code", Consolas, monospace;
+        color: #1e293b;
+      }
+      .tree-btn:hover { background: var(--color-bg-split); }
+      .tree-btn.sel { border-color: #b8b1ff; background: var(--color-primary-soft); }
+      .filters-box { margin-top: 10px; border: 1px solid var(--color-border-normal); border-radius: var(--border-radius-card); padding: 8px; background: var(--color-bg-split); }
+      .filters-list { margin: 0; padding-left: 16px; max-height: 220px; overflow: auto; }
+      .filters-list li { font: 12px/1.4 "Cascadia Code", Consolas, monospace; color: #334155; }
+
+      textarea.editor {
+        width: 100%; min-height: 60vh; resize: vertical;
+        border: 1px solid var(--color-border-primary); border-radius: var(--border-radius-card);
+        padding: 10px;
+        font: 13px/1.45 "Cascadia Code", Consolas, monospace;
+        color: var(--color-text-primary);
+        background: var(--color-bg-content);
+      }
+
+      input[type="text"], select {
+        height: 36px;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--border-radius-small);
+        padding: 0 10px;
+        font-size: 0.92rem;
+        color: var(--color-text-primary);
+        background: var(--color-bg-content);
+      }
+
+      .stats-top {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(260px, 1fr);
+        gap: 14px;
+        align-items: start;
+      }
+      .stats-counters {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(120px, 1fr));
+        gap: 10px;
+      }
+      .metric {
+        border: 1px solid var(--color-border-normal);
+        border-radius: var(--border-radius-card);
+        padding: 10px;
+        background: var(--color-bg-content);
+      }
+      .metric .value { font-size: 1.5rem; font-weight: 700; color: var(--color-title-primary); }
+      .metric .label { color: var(--color-text-secondary); font-size: 0.82rem; }
+      .metric.total { background: var(--color-bg-split); }
+      .metric.allowed { background: #eefbf5; border-color: #b9efd8; }
+      .metric.dropped { background: #fff3f0; border-color: #ffd2cb; }
+      .metric.exempt { background: var(--color-primary-soft); border-color: #c8c2ff; }
+
+      .bar-wrap { margin-top: 10px; display: grid; gap: 8px; }
+      .bar-line { display: grid; grid-template-columns: 170px minmax(0,1fr) 60px; gap: 8px; align-items: center; }
+      .bar { height: 10px; border-radius: 999px; background: var(--color-bg-table-hd); overflow: hidden; }
+      .bar > span { display: block; height: 100%; }
+      .pie-wrap { display: flex; gap: 14px; align-items: center; flex-wrap: nowrap; }
+      .pie {
+        width: 160px;
+        height: 160px;
+        min-width: 160px;
+        min-height: 160px;
+        aspect-ratio: 1 / 1;
+        flex: 0 0 160px;
+        border-radius: 50%;
+        border: 1px solid var(--color-border-normal);
+        background: conic-gradient(#e5e7eb 0 360deg);
+      }
+      .pie-legend { display: grid; gap: 6px; min-width: 180px; }
+      .pie-item { font-size: 0.84rem; color: var(--color-text-secondary); }
+
+      .table-wrap { overflow: auto; border: 1px solid var(--color-border-normal); border-radius: var(--border-radius-card); margin-top: 12px; }
+      table.grid { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+      table.grid th, table.grid td { border-bottom: 1px solid var(--color-border-normal); padding: 10px 8px; text-align: left; }
+      table.grid th { background: var(--color-bg-table-hd); color: var(--color-title-primary); font-size: 0.78rem; text-transform: uppercase; }
+
+      @media (max-width: 1100px) {
+        .layout { grid-template-columns: 1fr; }
+        .stats-top { grid-template-columns: 1fr; }
+        .stats-counters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+        .compact-row { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div>
+          <h1>UNS Governance</h1>
+          <p>Compact model editor with payload/tree in-place editing, raw JSON view, and live stats.</p>
+        </div>
+        <div class="row">
+          <button class="btn" id="refreshModelsBtn" type="button">Refresh</button>
+          <button class="btn" id="newModelBtn" type="button">New</button>
+          <button class="btn main" id="saveBtn" type="button">Save</button>
+        </div>
+      </header>
+
+      <div class="layout">
+        <aside class="card">
+          <div class="hd">
+            <strong>Models</strong>
+            <span class="muted" id="modelCount">0</span>
+          </div>
+          <div class="bd">
+            <div class="models" id="modelList"></div>
+          </div>
+        </aside>
+
+        <main class="card">
+          <div class="hd">
+            <div>
+              <strong id="editorTitle">New Model</strong>
+              <div class="muted" id="editorMeta">Draft</div>
+            </div>
+            <div class="row">
+              <label class="muted"><input type="checkbox" id="activateOnSave" /> activate on save</label>
+              <button class="btn warn" id="toggleActiveBtn" type="button">Activate selected</button>
+            </div>
+          </div>
+
+          <div class="tabs">
+            <button class="tab active" data-main-tab="stats" type="button">Stats</button>
+            <button class="tab" data-main-tab="events" type="button">Events</button>
+            <button class="tab" data-main-tab="schema" type="button">Schema Editor</button>
+          </div>
+
+          <div class="bd">
+            <div id="status"></div>
+            <section id="tab-schema" class="hidden">
+              <div class="tabs subtabs">
+                <button class="tab active" data-schema-tab="ui" type="button">UI Editor</button>
+                <button class="tab" data-schema-tab="json" type="button">Raw JSON</button>
+              </div>
+            <section id="schema-tab-ui">
+              <div class="row" style="margin-bottom: 10px">
+                <span class="pill" id="treeModelId">id: (new)</span>
+                <span class="pill" id="treeModelName">name: -</span>
+                <span class="pill" id="treeNodeCount">nodes: 0</span>
+                <button class="btn" id="expandAllBtn" type="button">Expand all</button>
+                <button class="btn" id="collapseAllBtn" type="button">Collapse all</button>
+              </div>
+
+              <div class="model-editor">
+                <div class="block">
+                  <h3>Model Metadata</h3>
+                  <div class="compact-row">
+                    <input class="compact-input" id="modelIdInput" type="text" placeholder="model id" />
+                    <input class="compact-input" id="modelNameInput" type="text" placeholder="model name" />
+                    <button class="btn main" id="applyMetaBtn" type="button">Apply</button>
+                    <span class="muted">id + name</span>
+                  </div>
+                </div>
+                <div class="block">
+                  <h3>Tree Schema</h3>
+                  <div class="tree tree-box" id="treeView"></div>
+                  <div class="filters-box">
+                    <div class="muted" style="margin-bottom:6px">Model Selection Screening Filters</div>
+                    <div id="treeFilters"></div>
+                  </div>
+                </div>
+                <div class="block">
+                  <h3>Variable Types</h3>
+                  <div id="variableEditor"></div>
+                </div>
+                <div class="block">
+                  <h3>Payload Schemas</h3>
+                  <div id="payloadEditor"></div>
+                </div>
+              </div>
+            </section>
+
+            <section id="schema-tab-json" class="hidden">
+              <textarea id="jsonEditor" class="editor" spellcheck="false"></textarea>
+              <div class="row" style="margin-top: 10px; justify-content: space-between;">
+                <span class="muted" id="dirtyHint">No local changes</span>
+                <div class="row">
+                  <input id="topicInput" type="text" placeholder="default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl" style="min-width: 360px" />
+                  <button class="btn" id="validateTopicBtn" type="button">Validate Topic</button>
+                  <span class="muted" id="topicResult">No validation run yet</span>
+                </div>
+              </div>
+            </section>
+            </section>
+            <section id="tab-stats">
+              <div class="row" style="margin-bottom:10px; justify-content: space-between;">
+                <div class="row">
+                  <span class="pill" id="uptimePill">uptime: -</span>
+                  <span class="pill" id="statsAtPill">updated: -</span>
+                  <span class="pill" id="statsScopePill">scope: selected model</span>
+                </div>
+                <div class="row">
+                  <label class="muted">scope
+                    <select id="statsScopeSelect">
+                      <option value="selected" selected>Selected model</option>
+                      <option value="all">All models</option>
+                    </select>
+                  </label>
+                  <label class="muted"><input type="checkbox" id="autoRefreshStats" /> auto refresh 5s</label>
+                  <button class="btn" id="refreshStatsBtn" type="button">Refresh Stats</button>
+                </div>
+              </div>
+
+              <div class="stats-top">
+                <div class="stats-counters">
+                  <div class="metric total"><div class="value" id="mTotal">0</div><div class="label">Total</div></div>
+                  <div class="metric allowed"><div class="value" id="mAllowed">0</div><div class="label">Allowed</div></div>
+                  <div class="metric dropped"><div class="value" id="mDropped">0</div><div class="label">Dropped</div></div>
+                  <div class="metric exempt"><div class="value" id="mExempt">0</div><div class="label">Exempt</div></div>
+                </div>
+                <div class="pie-wrap">
+                  <div class="pie" id="dropPie"></div>
+                  <div class="pie-legend" id="dropPieLegend"></div>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="grid">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th>Total</th>
+                      <th>Allowed</th>
+                      <th>Dropped</th>
+                      <th>Topic Invalid</th>
+                      <th>Payload Invalid</th>
+                      <th>Not Endpoint</th>
+                    </tr>
+                  </thead>
+                  <tbody id="perModelBody"></tbody>
+                </table>
+              </div>
+
+              <div class="bar-wrap" id="dropBars"></div>
+            </section>
+            <section id="tab-events" class="hidden">
+              <div class="row" style="margin-bottom:10px; justify-content: space-between;">
+                <div class="row">
+                  <span class="pill" id="eventsCountPill">events: 0</span>
+                  <span class="pill" id="eventsAtPill">updated: -</span>
+                </div>
+                <div class="row">
+                  <button class="btn" id="refreshEventsBtn" type="button">Refresh</button>
+                </div>
+              </div>
+              <div class="table-wrap">
+                <table class="grid">
+                  <thead>
+                    <tr>
+                      <th>Timestamp</th>
+                      <th>Node</th>
+                      <th>Topic</th>
+                      <th>Error Type</th>
+                    </tr>
+                  </thead>
+                  <tbody id="eventsBody"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const basePath = window.location.pathname.replace(/\/ui\/?$/, "");
+
+        const els = {
+          modelList: document.getElementById("modelList"),
+          modelCount: document.getElementById("modelCount"),
+          editorTitle: document.getElementById("editorTitle"),
+          editorMeta: document.getElementById("editorMeta"),
+          status: document.getElementById("status"),
+          toggleActiveBtn: document.getElementById("toggleActiveBtn"),
+          jsonEditor: document.getElementById("jsonEditor"),
+          dirtyHint: document.getElementById("dirtyHint"),
+          activateOnSave: document.getElementById("activateOnSave"),
+          treeView: document.getElementById("treeView"),
+          treeFilters: document.getElementById("treeFilters"),
+          variableEditor: document.getElementById("variableEditor"),
+          payloadEditor: document.getElementById("payloadEditor"),
+          modelIdInput: document.getElementById("modelIdInput"),
+          modelNameInput: document.getElementById("modelNameInput"),
+          treeModelId: document.getElementById("treeModelId"),
+          treeModelName: document.getElementById("treeModelName"),
+          treeNodeCount: document.getElementById("treeNodeCount"),
+          topicInput: document.getElementById("topicInput"),
+          topicResult: document.getElementById("topicResult"),
+          mTotal: document.getElementById("mTotal"),
+          mAllowed: document.getElementById("mAllowed"),
+          mDropped: document.getElementById("mDropped"),
+          mExempt: document.getElementById("mExempt"),
+          dropPie: document.getElementById("dropPie"),
+          dropPieLegend: document.getElementById("dropPieLegend"),
+          perModelBody: document.getElementById("perModelBody"),
+          dropBars: document.getElementById("dropBars"),
+          uptimePill: document.getElementById("uptimePill"),
+          statsAtPill: document.getElementById("statsAtPill"),
+          statsScopePill: document.getElementById("statsScopePill"),
+          statsScopeSelect: document.getElementById("statsScopeSelect"),
+          autoRefreshStats: document.getElementById("autoRefreshStats"),
+          eventsBody: document.getElementById("eventsBody"),
+          eventsCountPill: document.getElementById("eventsCountPill"),
+          eventsAtPill: document.getElementById("eventsAtPill"),
+        };
+
+        const mainTabs = {
+          schema: document.getElementById("tab-schema"),
+          stats: document.getElementById("tab-stats"),
+          events: document.getElementById("tab-events"),
+        };
+        const schemaTabs = {
+          ui: document.getElementById("schema-tab-ui"),
+          json: document.getElementById("schema-tab-json"),
+        };
+
+        const state = {
+          models: [],
+          selectedId: null,
+          loadedText: "",
+          modelObj: null,
+          expandedIds: {},
+          statsTimer: null,
+        };
+
+        function api(path, options) {
+          return fetch(basePath + path, Object.assign({
+            headers: { "content-type": "application/json" },
+          }, options || {})).then(async (res) => {
+            const ctype = res.headers.get("content-type") || "";
+            const body = ctype.includes("application/json") ? await res.json() : await res.text();
+            if (!res.ok) {
+              const msg = formatApiError(body, res.status);
+              throw new Error(msg);
+            }
+            return body;
+          });
+        }
+
+        function formatApiError(body, status) {
+          if (body && typeof body === "object") {
+            const parts = [];
+            if (body.message) {
+              parts.push(String(body.message));
+            }
+            if (body.code) {
+              parts.push("code=" + String(body.code));
+            }
+            if (body.reason && typeof body.reason === "object") {
+              parts.push("reason=" + JSON.stringify(body.reason));
+            }
+            if (parts.length > 0) {
+              return parts.join(" | ");
+            }
+          }
+          if (typeof body === "string" && body) {
+            return body;
+          }
+          return "HTTP " + status;
+        }
+
+        function showStatus(kind, message) {
+          els.status.innerHTML = "";
+          if (!message) return;
+          const n = document.createElement("div");
+          n.className = "status " + (kind === "ok" ? "ok" : "err");
+          n.textContent = message;
+          els.status.appendChild(n);
+        }
+
+        function esc(v) {
+          return String(v)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+        }
+
+        function fmtTime(ms) {
+          if (!ms) return "-";
+          const d = new Date(ms);
+          return d.toLocaleString();
+        }
+
+        function fmtNum(n) {
+          return Number(n || 0).toLocaleString();
+        }
+
+        function fmtUptime(seconds) {
+          const s = Math.max(0, Number(seconds || 0));
+          const d = Math.floor(s / 86400);
+          const h = Math.floor((s % 86400) / 3600);
+          const m = Math.floor((s % 3600) / 60);
+          if (d > 0) return d + "d " + h + "h " + m + "m";
+          if (h > 0) return h + "h " + m + "m";
+          return m + "m";
+        }
+
+        function getDefaultModel() {
+          return {
+            id: "model-v1",
+            name: "UNS Model V1",
+            variable_types: {
+              site_id: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,31}$" },
+              area_id: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,31}$" },
+              process_cell_id: { type: "string", pattern: "^[A-Za-z][A-Za-z0-9_]{0,31}$" },
+              line_id: { type: "string", pattern: "^Line[0-9]{1,4}$" }
+            },
+            payload_types: {
+              line_control: {
+                type: "object",
+                required: ["Status", "Mode"],
+                properties: {
+                  Status: { type: "string", enum: ["running", "stopped"] },
+                  Mode: { type: "string", enum: ["auto", "manual"] }
+                },
+                additionalProperties: false
+              }
+            },
+            tree: {
+              default: {
+                _type: "namespace",
+                children: {
+                  "{site_id}": {
+                    _type: "variable",
+                    _var_type: "site_id",
+                    children: {
+                      "{area_id}": {
+                        _type: "variable",
+                        _var_type: "area_id",
+                        children: {
+                          Furnaces: {
+                            _type: "namespace",
+                            children: {
+                              "{process_cell_id}": {
+                                _type: "variable",
+                                _var_type: "process_cell_id",
+                                children: {
+                                  Lines: {
+                                    _type: "namespace",
+                                    children: {
+                                      "{line_id}": {
+                                        _type: "variable",
+                                        _var_type: "line_id",
+                                        children: {
+                                          LineControl: {
+                                            _type: "namespace",
+                                            children: {}
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          };
+        }
+
+        function setModelObj(obj, meta) {
+          state.modelObj = obj;
+          const pretty = JSON.stringify(obj || {}, null, 2);
+          els.jsonEditor.value = pretty;
+          state.loadedText = pretty;
+          initExpandedDefault();
+          renderModelMeta(meta || {});
+          renderTree();
+          updateDirty();
+        }
+
+        function countTreeStats(model) {
+          const root = model && model.tree;
+          if (!root || typeof root !== "object") {
+            return { node_count: 0 };
+          }
+          let nodeCount = 0;
+          function walk(node) {
+            if (!node || typeof node !== "object") return;
+            nodeCount += 1;
+            const children = node.children;
+            if (children && typeof children === "object") {
+              Object.keys(children).forEach((k) => walk(children[k]));
+            }
+          }
+          Object.keys(root).forEach((k) => walk(root[k]));
+          return { node_count: nodeCount };
+        }
+
+        function renderModelMeta(entry) {
+          const summary = countTreeStats(state.modelObj || {});
+          const id = (state.modelObj && state.modelObj.id) || entry.id || "(new)";
+          const name = (state.modelObj && state.modelObj.name) || ((entry.summary && entry.summary.name) || "-");
+          els.treeModelId.textContent = "id: " + id;
+          els.treeModelName.textContent = "name: " + name;
+          els.treeNodeCount.textContent = "nodes: " + (summary.node_count || 0);
+          els.modelIdInput.value = id === "(new)" ? "" : id;
+          els.modelNameInput.value = name === "-" ? "" : name;
+
+          if (entry.id) {
+            els.editorTitle.textContent = "Edit Model: " + entry.id;
+            els.editorMeta.textContent = (entry.active ? "Active" : "Inactive") + " | updated " + fmtTime(entry.updated_at_ms);
+          } else {
+            els.editorTitle.textContent = "New Model";
+            els.editorMeta.textContent = "Draft";
+          }
+          updateActiveButton(entry);
+        }
+
+        function updateActiveButton(entry) {
+          const btn = els.toggleActiveBtn;
+          if (!entry || !entry.id) {
+            btn.textContent = "Activate selected";
+            btn.disabled = true;
+            btn.classList.add("warn");
+            return;
+          }
+          btn.disabled = false;
+          if (entry.active) {
+            btn.textContent = "Deactivate selected";
+            btn.classList.remove("warn");
+          } else {
+            btn.textContent = "Activate selected";
+            btn.classList.add("warn");
+          }
+        }
+
+        function renderModelList() {
+          els.modelList.innerHTML = "";
+          els.modelCount.textContent = String(state.models.length);
+
+          state.models.forEach((m) => {
+            const el = document.createElement("div");
+            el.className = "model-item" + (m.active ? " active" : "") + (state.selectedId === m.id ? " selected" : "");
+            el.innerHTML =
+              '<div class="model-id">' + esc(m.id) + '</div>' +
+              '<div class="muted">' + esc((m.summary && m.summary.name) || "") + '</div>' +
+              '<div class="muted">updated: ' + esc(fmtTime(m.updated_at_ms)) + '</div>';
+            el.addEventListener("click", () => selectModel(m.id));
+            els.modelList.appendChild(el);
+          });
+        }
+
+        function findModel(id) {
+          return state.models.find((m) => m.id === id) || null;
+        }
+
+        function selectModel(id) {
+          const m = findModel(id);
+          if (!m) return;
+          state.selectedId = id;
+          setModelObj(m.model || {}, m);
+          renderModelList();
+          if (!mainTabs.stats.classList.contains("hidden")) {
+            refreshStats().catch((e) => showStatus("err", e.message));
+          }
+        }
+
+        async function loadModels(preferId) {
+          const out = await api("/models", { method: "GET" });
+          state.models = ((out && out.data) || []).slice().sort((a, b) => {
+            return String(a.id || "").localeCompare(String(b.id || ""));
+          });
+          renderModelList();
+          const selected = preferId || ((state.models.find((m) => m.active) || state.models[0] || {}).id);
+          if (selected) {
+            selectModel(selected);
+          } else {
+            newModel();
+          }
+        }
+
+        function newModel() {
+          state.selectedId = null;
+          setModelObj(getDefaultModel(), {});
+          renderModelList();
+          showStatus("ok", "Draft template loaded");
+        }
+
+        function updateDirty() {
+          const dirty = els.jsonEditor.value !== state.loadedText;
+          els.dirtyHint.textContent = dirty ? "Unsaved local changes" : "No local changes";
+          els.dirtyHint.style.color = dirty ? "var(--warn)" : "var(--muted)";
+        }
+
+        function parseJsonEditor() {
+          const txt = els.jsonEditor.value.trim();
+          if (!txt) throw new Error("Model JSON cannot be empty");
+          let obj;
+          try {
+            obj = JSON.parse(txt);
+          } catch (e) {
+            throw new Error("Invalid JSON: " + e.message);
+          }
+          state.modelObj = obj;
+          renderModelMeta(findModel(state.selectedId) || {});
+          renderTree();
+          return obj;
+        }
+
+        async function saveModel() {
+          const saveBtn = document.getElementById("saveBtn");
+          saveBtn.disabled = true;
+          try {
+            const model = parseJsonEditor();
+            const entry = await api("/models", {
+              method: "POST",
+              body: JSON.stringify({
+                model: model,
+                activate: !!els.activateOnSave.checked,
+              }),
+            });
+            showStatus("ok", "Saved model " + entry.id + (entry.active ? " (active)" : ""));
+            await loadModels(entry.id);
+          } catch (e) {
+            showStatus("err", e.message);
+          } finally {
+            saveBtn.disabled = false;
+          }
+        }
+
+        async function activateSelected() {
+          if (!state.selectedId) {
+            showStatus("err", "No model selected");
+            return;
+          }
+          try {
+            await api("/models/" + encodeURIComponent(state.selectedId) + "/activate", { method: "POST" });
+            showStatus("ok", "Activated model " + state.selectedId);
+            await loadModels(state.selectedId);
+          } catch (e) {
+            showStatus("err", e.message);
+          }
+        }
+
+        async function deactivateSelected() {
+          if (!state.selectedId) {
+            showStatus("err", "No model selected");
+            return;
+          }
+          try {
+            await api("/models/" + encodeURIComponent(state.selectedId) + "/deactivate", { method: "POST" });
+            showStatus("ok", "Deactivated model " + state.selectedId);
+            await loadModels(state.selectedId);
+          } catch (e) {
+            showStatus("err", e.message);
+          }
+        }
+
+        async function toggleSelectedActive() {
+          if (!state.selectedId) {
+            showStatus("err", "No model selected");
+            return;
+          }
+          const selected = findModel(state.selectedId);
+          if (selected && selected.active) {
+            await deactivateSelected();
+          } else {
+            await activateSelected();
+          }
+        }
+
+        async function validateTopic() {
+          const topic = els.topicInput.value.trim();
+          if (!topic) {
+            els.topicResult.textContent = "Enter topic";
+            els.topicResult.style.color = "var(--warn)";
+            return;
+          }
+          try {
+            const out = await api("/validate/topic", {
+              method: "POST",
+              body: JSON.stringify({ topic: topic }),
+            });
+            if (out && out.result && out.result.valid) {
+              els.topicResult.textContent = "valid";
+              els.topicResult.style.color = "var(--ok)";
+            } else {
+              els.topicResult.textContent = "invalid: " + ((out && out.result && out.result.reason) || "unknown");
+              els.topicResult.style.color = "var(--err)";
+            }
+          } catch (e) {
+            els.topicResult.textContent = "error: " + e.message;
+            els.topicResult.style.color = "var(--err)";
+          }
+        }
+
+        function nodeType(v) {
+          if (Array.isArray(v)) return "array";
+          if (v === null) return "null";
+          return typeof v;
+        }
+
+        function encodeSeg(seg) {
+          if (typeof seg === "number") return "n:" + String(seg);
+          return "s:" + encodeURIComponent(String(seg));
+        }
+
+        function decodeSeg(raw) {
+          if (raw.startsWith("n:")) return Number(raw.slice(2));
+          return decodeURIComponent(raw.slice(2));
+        }
+
+        function pathToId(path) {
+          if (!path || path.length === 0) return "$";
+          return path.map(encodeSeg).join("|");
+        }
+
+        function idToPath(id) {
+          if (!id || id === "$") return [];
+          return id.split("|").map(decodeSeg);
+        }
+
+        function initExpandedDefault() {
+          state.expandedIds = {};
+          if (!state.modelObj || typeof state.modelObj !== "object") return;
+          ensureModelShape();
+          const ids = [];
+          Object.keys(state.modelObj.tree || {}).forEach((k) => {
+            collectExpandableIds(state.modelObj.tree[k], ["tree", k], ids);
+            state.expandedIds[pathToId(["tree", k])] = true;
+          });
+          ids.forEach((id) => {
+            state.expandedIds[id] = true;
+          });
+        }
+
+        function collectExpandableIds(value, path, out) {
+          if (!value || typeof value !== "object") return;
+          if (value.children && typeof value.children === "object" && Object.keys(value.children).length > 0) {
+            out.push(pathToId(path));
+            Object.keys(value.children).forEach((k) => {
+              collectExpandableIds(value.children[k], path.concat(["children", k]), out);
+            });
+          }
+        }
+
+        function expandAllLevels() {
+          ensureModelShape();
+          const ids = [];
+          Object.keys(state.modelObj.tree || {}).forEach((k) => {
+            collectExpandableIds(state.modelObj.tree[k], ["tree", k], ids);
+          });
+          state.expandedIds = {};
+          ids.forEach((id) => {
+            state.expandedIds[id] = true;
+          });
+          renderTree();
+        }
+
+        function collapseAllLevels() {
+          state.expandedIds = {};
+          Object.keys((state.modelObj && state.modelObj.tree) || {}).forEach((k) => {
+            state.expandedIds[pathToId(["tree", k])] = true;
+          });
+          renderTree();
+        }
+
+        function getByPath(path) {
+          let cur = state.modelObj;
+          for (let i = 0; i < path.length; i += 1) {
+            if (cur == null) return undefined;
+            cur = cur[path[i]];
+          }
+          return cur;
+        }
+
+        function getParentByPath(path) {
+          if (path.length === 0) return { parent: null, key: null };
+          const parentPath = path.slice(0, path.length - 1);
+          return { parent: getByPath(parentPath), key: path[path.length - 1], parentPath: parentPath };
+        }
+
+        function parseLooseJson(raw) {
+          const t = String(raw || "").trim();
+          if (t === "") return "";
+          try {
+            return JSON.parse(t);
+          } catch (_e) {
+            return raw;
+          }
+        }
+
+        function syncEditorFromModel() {
+          if (!state.modelObj || typeof state.modelObj !== "object") {
+            state.modelObj = {};
+          }
+          els.jsonEditor.value = JSON.stringify(state.modelObj, null, 2);
+          renderModelMeta(findModel(state.selectedId) || {});
+          updateDirty();
+        }
+
+        function applyModelMutation(mutateFn) {
+          try {
+            mutateFn();
+            syncEditorFromModel();
+            renderTree();
+          } catch (e) {
+            showStatus("err", e.message || String(e));
+          }
+        }
+
+        function ensureModelShape() {
+          if (!state.modelObj || typeof state.modelObj !== "object" || Array.isArray(state.modelObj)) {
+            state.modelObj = {};
+          }
+          if (!state.modelObj.payload_types || typeof state.modelObj.payload_types !== "object") {
+            state.modelObj.payload_types = {};
+          }
+          if (!state.modelObj.variable_types || typeof state.modelObj.variable_types !== "object") {
+            state.modelObj.variable_types = {};
+          }
+          if (!state.modelObj.tree || typeof state.modelObj.tree !== "object") {
+            state.modelObj.tree = {};
+          }
+        }
+
+        function payloadTypeOptions(selected) {
+          const opts = ["string", "integer", "number", "boolean", "object", "array"];
+          return opts.map((t) => {
+            return '<option value="' + t + '"' + (selected === t ? " selected" : "") + ">" + t + "</option>";
+          }).join("");
+        }
+
+        function variableTypeOptions(selected) {
+          const opts = ["string", "enum"];
+          return opts.map((t) => {
+            return '<option value="' + t + '"' + (selected === t ? " selected" : "") + ">" + t + "</option>";
+          }).join("");
+        }
+
+        function renderVariableEditor() {
+          ensureModelShape();
+          const vtypes = state.modelObj.variable_types || {};
+          const names = Object.keys(vtypes);
+          if (names.length === 0) {
+            els.variableEditor.innerHTML =
+              '<div class="muted">No variable type yet.</div>' +
+              '<div class="compact-row" style="grid-template-columns:1fr auto">' +
+              '<input class="compact-input" id="newVariableTypeName" type="text" placeholder="new variable type name" />' +
+              '<button class="btn main" data-action="add-variable-type" type="button">Add Variable Type</button>' +
+              '</div>';
+            wireVariableActions();
+            return;
+          }
+          const cards = names.map((name) => {
+            const vt = vtypes[name] || {};
+            const vType = vt.type || "string";
+            const pattern = vt.pattern || "";
+            const enumVals = Array.isArray(vt.values) ? vt.values : [];
+            const enumHtml = enumVals.length > 0
+              ? enumVals.map((sym) =>
+                '<span class="enum-chip">' +
+                esc(sym) +
+                '<button data-action="del-var-symbol" data-symbol="' + esc(sym) + '" type="button">x</button>' +
+                "</span>"
+              ).join("")
+              : '<span class="muted">no symbols</span>';
+            return (
+              '<div class="block" data-var-name="' + esc(name) + '" style="margin-bottom:8px">' +
+              '<div class="compact-row">' +
+                '<input class="compact-input" data-role="var-name" type="text" value="' + esc(name) + '" />' +
+                '<select class="compact-select" data-role="var-type">' + variableTypeOptions(vType) + "</select>" +
+                '<input class="compact-input" data-role="var-pattern" type="text" placeholder="regex pattern" value="' + esc(pattern) + '"' + (vType !== "string" ? ' style="display:none"' : '') + ' />' +
+                '<div class="row"><button class="btn" data-action="apply-variable-type" type="button">Apply</button><button class="btn warn" data-action="del-variable-type" type="button">Delete</button></div>' +
+              "</div>" +
+              '<div class="enum-row" data-role="var-enum-row"' + (vType !== "enum" ? ' style="display:none"' : '') + '>' +
+                '<span class="muted">enum symbols:</span>' + enumHtml +
+                '<input class="compact-input" data-role="new-var-symbol" type="text" placeholder="new symbol" style="width:140px;height:28px" />' +
+                '<button class="btn" data-action="add-var-symbol" type="button" style="height:28px">Add</button>' +
+              "</div>" +
+              "</div>"
+            );
+          }).join("");
+          els.variableEditor.innerHTML =
+            cards +
+            '<div class="compact-row" style="grid-template-columns:1fr auto">' +
+            '<input class="compact-input" id="newVariableTypeName" type="text" placeholder="new variable type name" />' +
+            '<button class="btn main" data-action="add-variable-type" type="button">Add Variable Type</button>' +
+            "</div>";
+          wireVariableActions();
+        }
+
+        function wireVariableActions() {
+          els.variableEditor.querySelectorAll('[data-role="var-type"]').forEach((sel) => {
+            sel.addEventListener("change", () => {
+              const block = sel.closest("[data-var-name]");
+              if (!block) return;
+              const isEnum = sel.value === "enum";
+              const patternInput = block.querySelector('[data-role="var-pattern"]');
+              const enumRow = block.querySelector('[data-role="var-enum-row"]');
+              if (patternInput) patternInput.style.display = isEnum ? "none" : "";
+              if (enumRow) enumRow.style.display = isEnum ? "" : "none";
+            });
+          });
+          els.variableEditor.querySelectorAll("[data-action]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const action = btn.dataset.action;
+              if (action === "add-variable-type") {
+                const el = document.getElementById("newVariableTypeName");
+                const name = (el.value || "").trim();
+                if (!name) return showStatus("err", "Variable type name is required");
+                return applyModelMutation(() => {
+                  ensureModelShape();
+                  if (!state.modelObj.variable_types[name]) {
+                    state.modelObj.variable_types[name] = { type: "string", pattern: ".*" };
+                  }
+                });
+              }
+              const row = btn.closest("[data-var-name]");
+              if (!row) return;
+              const varName = row.dataset.varName;
+              const vt = state.modelObj.variable_types[varName];
+              if (!vt) return;
+              if (action === "del-variable-type") {
+                return applyModelMutation(() => {
+                  delete state.modelObj.variable_types[varName];
+                });
+              }
+              if (action === "apply-variable-type") {
+                const newName = (row.querySelector('[data-role=\"var-name\"]').value || "").trim();
+                const newType = row.querySelector('[data-role=\"var-type\"]').value;
+                const pattern = (row.querySelector('[data-role=\"var-pattern\"]').value || "").trim();
+                if (!newName) return showStatus("err", "Variable type name cannot be empty");
+                return applyModelMutation(() => {
+                  vt.type = newType;
+                  if (newType === "string") {
+                    vt.pattern = pattern || ".*";
+                    delete vt.values;
+                  } else {
+                    delete vt.pattern;
+                    if (!Array.isArray(vt.values)) vt.values = [];
+                  }
+                  if (newName !== varName) {
+                    delete state.modelObj.variable_types[varName];
+                    state.modelObj.variable_types[newName] = vt;
+                  }
+                });
+              }
+              if (action === "add-var-symbol" || action === "del-var-symbol") {
+                return applyModelMutation(() => {
+                  vt.type = "enum";
+                  delete vt.pattern;
+                  if (!Array.isArray(vt.values)) vt.values = [];
+                  if (action === "add-var-symbol") {
+                    const sym = (row.querySelector('[data-role=\"new-var-symbol\"]').value || "").trim();
+                    if (!sym) throw new Error("Symbol cannot be empty");
+                    if (vt.values.indexOf(sym) < 0) vt.values.push(sym);
+                  } else {
+                    const sym = btn.dataset.symbol;
+                    vt.values = vt.values.filter((v) => String(v) !== String(sym));
+                  }
+                });
+              }
+            });
+          });
+        }
+
+        function renderPayloadEditor() {
+          ensureModelShape();
+          const ptypes = state.modelObj.payload_types || {};
+          const names = Object.keys(ptypes);
+          if (names.length === 0) {
+            els.payloadEditor.innerHTML =
+              '<div class="muted">No payload schema yet.</div>' +
+              '<div class="compact-row" style="grid-template-columns:1fr auto">' +
+              '<input class="compact-input" id="newPayloadTypeName" type="text" placeholder="new payload type name" />' +
+              '<button class="btn main" data-action="add-payload-type" type="button">Add Payload Type</button>' +
+              '</div>';
+            wirePayloadActions();
+            return;
+          }
+          const cards = names.map((name) => {
+            const schema = ptypes[name] || {};
+            const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
+            const required = Array.isArray(schema.required) ? schema.required : [];
+            const propRows = Object.keys(props).map((propName) => {
+              const p = props[propName] || {};
+              const pType = p.type || "string";
+              const enumVals = Array.isArray(p.enum) ? p.enum : [];
+              const enumHtml = enumVals.length > 0
+                ? enumVals.map((sym) =>
+                  '<span class="enum-chip">' +
+                  esc(sym) +
+                  '<button data-action="del-enum-symbol" data-symbol="' + esc(sym) + '" type="button">x</button>' +
+                  "</span>"
+                ).join("")
+                : '<span class="muted">no symbols</span>';
+              return (
+                '<div data-prop-name="' + esc(propName) + '" data-payload-name="' + esc(name) + '">' +
+                '<div class="compact-row">' +
+                  '<input class="compact-input" data-role="prop-name" type="text" value="' + esc(propName) + '" />' +
+                  '<select class="compact-select" data-role="prop-type">' + payloadTypeOptions(pType) + "</select>" +
+                  '<label class="compact-check"><input data-role="prop-required" type="checkbox"' + (required.indexOf(propName) >= 0 ? " checked" : "") + ' />required</label>' +
+                  '<div class="row"><button class="btn" data-action="apply-prop" type="button">Apply</button><button class="btn warn" data-action="del-prop" type="button">Delete</button></div>' +
+                "</div>" +
+                '<div class="enum-row">' +
+                  '<span class="muted">enum:</span>' + enumHtml +
+                  '<input class="compact-input" data-role="new-enum-symbol" type="text" placeholder="new symbol" style="width:140px;height:28px" />' +
+                  '<button class="btn" data-action="add-enum-symbol" type="button" style="height:28px">Add</button>' +
+                "</div>" +
+                "</div>"
+              );
+            }).join("");
+            return (
+              '<div class="block" style="margin-bottom:8px">' +
+              '<div class="compact-row" data-payload-name="' + esc(name) + '">' +
+              '<input class="compact-input" data-role="payload-name" type="text" value="' + esc(name) + '" />' +
+              '<select class="compact-select" data-role="payload-root-type">' + payloadTypeOptions(schema.type || "object") + "</select>" +
+              '<label class="compact-check"><input data-role="payload-additional" type="checkbox"' + (schema.additionalProperties === false ? "" : " checked") + ' />additionalProperties</label>' +
+              '<div class="row"><button class="btn" data-action="apply-payload-name" type="button">Rename</button><button class="btn warn" data-action="del-payload-type" type="button">Delete</button></div>' +
+              "</div>" +
+              '<div class="muted" style="margin:6px 0 4px">properties</div>' +
+              (propRows || '<div class="muted">No properties</div>') +
+              '<div class="compact-row" data-payload-name="' + esc(name) + '">' +
+              '<input class="compact-input" data-role="new-prop-name" type="text" placeholder="new property name" />' +
+              '<select class="compact-select" data-role="new-prop-type">' + payloadTypeOptions("string") + "</select>" +
+              '<label class="compact-check"><input data-role="new-prop-required" type="checkbox" checked />required</label>' +
+              '<div><button class="btn main" data-action="add-prop" type="button">Add Property</button></div>' +
+              "</div>" +
+              "</div>"
+            );
+          }).join("");
+
+          els.payloadEditor.innerHTML =
+            cards +
+            '<div class="compact-row" style="grid-template-columns:1fr auto">' +
+            '<input class="compact-input" id="newPayloadTypeName" type="text" placeholder="new payload type name" />' +
+            '<button class="btn main" data-action="add-payload-type" type="button">Add Payload Type</button>' +
+            "</div>";
+          wirePayloadActions();
+        }
+
+        function normalizePayloadSchema(schema) {
+          if (!schema.properties || typeof schema.properties !== "object") schema.properties = {};
+          if (!Array.isArray(schema.required)) schema.required = [];
+          return schema;
+        }
+
+        function setPropRequired(schema, propName, required) {
+          schema.required = Array.isArray(schema.required) ? schema.required : [];
+          const idx = schema.required.indexOf(propName);
+          if (required && idx < 0) schema.required.push(propName);
+          if (!required && idx >= 0) schema.required.splice(idx, 1);
+        }
+
+        function wirePayloadActions() {
+          els.payloadEditor.querySelectorAll("[data-action]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const action = btn.dataset.action;
+              if (action === "add-payload-type") {
+                const el = document.getElementById("newPayloadTypeName");
+                const name = (el.value || "").trim();
+                if (!name) return showStatus("err", "Payload type name is required");
+                applyModelMutation(() => {
+                  ensureModelShape();
+                  if (!state.modelObj.payload_types[name]) {
+                    state.modelObj.payload_types[name] = { type: "object", properties: {}, required: [], additionalProperties: false };
+                  }
+                });
+                return;
+              }
+
+              const row = btn.closest("[data-payload-name]");
+              if (!row) return;
+              const payloadName = row.dataset.payloadName;
+              const schema = state.modelObj.payload_types[payloadName];
+              if (!schema) return;
+              if (action === "del-payload-type") {
+                return applyModelMutation(() => {
+                  delete state.modelObj.payload_types[payloadName];
+                });
+              }
+              if (action === "apply-payload-name") {
+                const newName = (row.querySelector('[data-role=\"payload-name\"]').value || "").trim();
+                const rootType = row.querySelector('[data-role=\"payload-root-type\"]').value;
+                const additional = row.querySelector('[data-role=\"payload-additional\"]').checked;
+                if (!newName) return showStatus("err", "Payload type name cannot be empty");
+                return applyModelMutation(() => {
+                  schema.type = rootType;
+                  schema.additionalProperties = additional;
+                  if (newName !== payloadName) {
+                    delete state.modelObj.payload_types[payloadName];
+                    state.modelObj.payload_types[newName] = schema;
+                  }
+                });
+              }
+              if (action === "add-prop") {
+                const newProp = (row.querySelector('[data-role=\"new-prop-name\"]').value || "").trim();
+                const pType = row.querySelector('[data-role=\"new-prop-type\"]').value;
+                const req = row.querySelector('[data-role=\"new-prop-required\"]').checked;
+                if (!newProp) return showStatus("err", "Property name is required");
+                return applyModelMutation(() => {
+                  normalizePayloadSchema(schema);
+                  schema.properties[newProp] = Object.assign({}, schema.properties[newProp] || {}, { type: pType });
+                  setPropRequired(schema, newProp, req);
+                });
+              }
+              if (action === "apply-prop" || action === "del-prop") {
+                const propRow = btn.closest("[data-prop-name]");
+                if (!propRow) return;
+                const oldName = propRow.dataset.propName;
+                return applyModelMutation(() => {
+                  normalizePayloadSchema(schema);
+                  if (!schema.properties[oldName]) return;
+                  if (action === "del-prop") {
+                    delete schema.properties[oldName];
+                    setPropRequired(schema, oldName, false);
+                    return;
+                  }
+                  const newName = (propRow.querySelector('[data-role=\"prop-name\"]').value || "").trim();
+                  const pType = propRow.querySelector('[data-role=\"prop-type\"]').value;
+                  const req = propRow.querySelector('[data-role=\"prop-required\"]').checked;
+                  if (!newName) throw new Error("Property name cannot be empty");
+                  const oldDef = schema.properties[oldName];
+                  delete schema.properties[oldName];
+                  schema.properties[newName] = Object.assign({}, oldDef, { type: pType });
+                  setPropRequired(schema, oldName, false);
+                  setPropRequired(schema, newName, req);
+                });
+              }
+              if (action === "add-enum-symbol" || action === "del-enum-symbol") {
+                const propRow = btn.closest("[data-prop-name]");
+                if (!propRow) return;
+                const propName = propRow.dataset.propName;
+                return applyModelMutation(() => {
+                  normalizePayloadSchema(schema);
+                  const prop = schema.properties[propName];
+                  if (!prop) return;
+                  if (!Array.isArray(prop.enum)) prop.enum = [];
+                  if (action === "add-enum-symbol") {
+                    const sym = (propRow.querySelector('[data-role=\"new-enum-symbol\"]').value || "").trim();
+                    if (!sym) throw new Error("Enum symbol cannot be empty");
+                    if (prop.enum.indexOf(sym) < 0) prop.enum.push(sym);
+                  } else {
+                    const sym = btn.dataset.symbol;
+                    prop.enum = prop.enum.filter((v) => String(v) !== String(sym));
+                  }
+                });
+              }
+            });
+          });
+        }
+
+        function renderTree() {
+          ensureModelShape();
+          renderVariableEditor();
+          renderPayloadEditor();
+          renderTreeSchema();
+        }
+
+        function formatNodeLabel(key, node) {
+          const type = node && node._type ? String(node._type) : "namespace";
+          let suffix = "";
+          if (type === "variable" && node._var_type) suffix = " {" + node._var_type + "}";
+          return key + " [" + type + "]" + suffix;
+        }
+
+        function renderTreeSchema() {
+          const roots = state.modelObj.tree || {};
+          const rootKeys = Object.keys(roots);
+          if (rootKeys.length === 0) {
+            els.treeView.innerHTML =
+              '<div class="muted">No tree root nodes.</div>' +
+              '<div class="row" style="margin-top:8px"><button class="btn main" data-action="add-root-node" type="button">Add Root Node</button></div>';
+            renderTreeFilters();
+            wireTreeActions();
+            return;
+          }
+          const ul = document.createElement("ul");
+          rootKeys.forEach((k) => {
+            ul.appendChild(renderSchemaNode(k, roots[k], ["tree"], ["tree", k], 0));
+          });
+          els.treeView.innerHTML = "";
+          els.treeView.appendChild(ul);
+          const addRow = document.createElement("div");
+          addRow.className = "row";
+          addRow.style.marginTop = "8px";
+          addRow.innerHTML = '<button class="btn main" data-action="add-root-node" type="button">Add Root Node</button>';
+          els.treeView.appendChild(addRow);
+          renderTreeFilters();
+          wireTreeActions();
+        }
+
+        function inferNodeKind(key, node) {
+          if (node && node._type) return String(node._type);
+          if (String(key) === "+" || /^\{.+\}$/.test(String(key))) return "variable";
+          return "namespace";
+        }
+
+        function flattenTreeFiltersFromChildren(children, prefix, out) {
+          if (!children || typeof children !== "object") return;
+          Object.keys(children).forEach((k) => {
+            const node = children[k] || {};
+            const kind = inferNodeKind(k, node);
+            const seg = (k === "#") ? "#" : (kind === "variable" ? "+" : k);
+            const path = prefix.concat([seg]);
+            const hasChildren = !!(node.children && typeof node.children === "object" && Object.keys(node.children).length > 0);
+            if (hasChildren) {
+              flattenTreeFiltersFromChildren(node.children, path, out);
+            } else {
+              out.push(path.join("/"));
+            }
+          });
+        }
+
+        function getFlattenedTopicFilters() {
+          const roots = (state.modelObj && state.modelObj.tree) || {};
+          const out = [];
+          flattenTreeFiltersFromChildren(roots, [], out);
+          return Array.from(new Set(out)).sort();
+        }
+
+        function renderTreeFilters() {
+          const filters = getFlattenedTopicFilters();
+          if (!filters.length) {
+            els.treeFilters.innerHTML = '<div class="muted">No filters</div>';
+            return;
+          }
+          els.treeFilters.innerHTML =
+            '<div class="muted" style="margin-bottom:6px">count: ' + esc(String(filters.length)) + "</div>" +
+            '<ol class="filters-list">' +
+            filters.map((f) => "<li>" + esc(f) + "</li>").join("") +
+            "</ol>";
+        }
+
+        function renderSchemaNode(key, node, parentMapPath, nodePath, level) {
+          const li = document.createElement("li");
+          const id = pathToId(nodePath);
+          const children = node && node.children && typeof node.children === "object" ? node.children : {};
+          const hasChildren = Object.keys(children).length > 0;
+          const expanded = !!state.expandedIds[id];
+          const row = document.createElement("div");
+          row.className = "tree-row";
+          row.dataset.nodeId = id;
+          row.dataset.parentMapId = pathToId(parentMapPath);
+          row.dataset.nodeKey = key;
+          const nodeTypeValue = (node && node._type) || "namespace";
+          row.innerHTML =
+            (hasChildren ? '<button class="tree-toggle" data-action="toggle-node" type="button">' + (expanded ? "▾" : "▸") + "</button>" : "") +
+            '<input class="compact-input" data-role="node-key" type="text" style="width:180px" value="' + esc(key) + '" />' +
+            '<select class="compact-select" data-role="node-type" style="width:120px">' +
+              '<option value="namespace"' + (nodeTypeValue === "namespace" ? " selected" : "") + '>namespace</option>' +
+              '<option value="variable"' + (nodeTypeValue === "variable" ? " selected" : "") + '>variable</option>' +
+            "</select>" +
+            '<button class="btn" data-action="apply-node" type="button">Apply</button>' +
+            '<button class="btn" data-action="add-child-node" type="button">Add Child</button>' +
+            '<button class="btn warn" data-action="delete-node" type="button">Delete</button>';
+          li.appendChild(row);
+          if (expanded && hasChildren) {
+            const ul = document.createElement("ul");
+            Object.keys(children).forEach((childKey) => {
+              ul.appendChild(
+                renderSchemaNode(
+                  childKey,
+                  children[childKey],
+                  nodePath.concat(["children"]),
+                  nodePath.concat(["children", childKey]),
+                  level + 1
+                )
+              );
+            });
+            li.appendChild(ul);
+          }
+          return li;
+        }
+
+        function wireTreeActions() {
+          els.treeView.querySelectorAll("[data-action]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const action = btn.dataset.action;
+              if (action === "add-root-node") {
+                return applyModelMutation(() => {
+                  const key = prompt("Root node key", "default");
+                  if (!key) return;
+                  state.modelObj.tree[key] = { _type: "namespace", children: {} };
+                  state.expandedIds[pathToId(["tree", key])] = true;
+                });
+              }
+              const row = btn.closest(".tree-row");
+              if (!row) return;
+              const nodePath = idToPath(row.dataset.nodeId);
+              const parentMapPath = idToPath(row.dataset.parentMapId);
+              const key = row.dataset.nodeKey;
+              if (action === "toggle-node") {
+                if (state.expandedIds[row.dataset.nodeId]) delete state.expandedIds[row.dataset.nodeId];
+                else state.expandedIds[row.dataset.nodeId] = true;
+                return renderTreeSchema();
+              }
+              if (action === "delete-node") {
+                return applyModelMutation(() => {
+                  const parentMap = getByPath(parentMapPath);
+                  delete parentMap[key];
+                });
+              }
+              if (action === "add-child-node") {
+                return applyModelMutation(() => {
+                  const node = getByPath(nodePath);
+                  if (!node.children || typeof node.children !== "object") node.children = {};
+                  const childKey = prompt("Child node key", "new_level");
+                  if (!childKey) return;
+                  node.children[childKey] = { _type: "namespace", children: {} };
+                  state.expandedIds[pathToId(nodePath)] = true;
+                });
+              }
+              if (action === "apply-node") {
+                const newKey = (row.querySelector('[data-role="node-key"]').value || "").trim();
+                if (!newKey) return showStatus("err", "Node key cannot be empty");
+                const newType = row.querySelector('[data-role="node-type"]').value;
+                return applyModelMutation(() => {
+                  const parentMap = getByPath(parentMapPath);
+                  const existing = parentMap[key];
+                  delete parentMap[key];
+                  parentMap[newKey] = existing;
+                  existing._type = newType;
+                  delete existing._var_type;
+                  delete existing._payload;
+                  if (!existing.children || typeof existing.children !== "object") {
+                    existing.children = {};
+                  }
+                  if (newType === "variable") {
+                    const m = newKey.match(/^\{(.+)\}$/);
+                    if (m && m[1]) existing._var_type = m[1];
+                  }
+                });
+              }
+            });
+          });
+        }
+
+        function setMainTab(name) {
+          document.querySelectorAll("[data-main-tab]").forEach((t) => t.classList.remove("active"));
+          const tab = document.querySelector('[data-main-tab="' + name + '"]');
+          if (tab) tab.classList.add("active");
+          Object.keys(mainTabs).forEach((k) => mainTabs[k].classList.toggle("hidden", k !== name));
+          if (name === "stats") {
+            refreshStats().catch((e) => showStatus("err", e.message));
+          }
+          if (name === "events") {
+            refreshEvents().catch((e) => showStatus("err", e.message));
+          }
+        }
+
+        function setSchemaTab(name) {
+          document.querySelectorAll("[data-schema-tab]").forEach((t) => t.classList.remove("active"));
+          const tab = document.querySelector('[data-schema-tab="' + name + '"]');
+          if (tab) tab.classList.add("active");
+          Object.keys(schemaTabs).forEach((k) => schemaTabs[k].classList.toggle("hidden", k !== name));
+        }
+
+        async function refreshStats() {
+          const s = await api("/stats", { method: "GET" });
+          const perModel = s.per_model || {};
+          const scope = (els.statsScopeSelect && els.statsScopeSelect.value) || "selected";
+          const selectedModelId = state.selectedId;
+          const selectedStats = selectedModelId ? (perModel[selectedModelId] || null) : null;
+          const effective = (scope === "selected")
+            ? (selectedStats || {
+              messages_total: 0,
+              messages_allowed: 0,
+              messages_dropped: 0,
+              topic_nomatch: 0,
+              topic_invalid: 0,
+              payload_invalid: 0,
+              not_endpoint: 0
+            })
+            : s;
+
+          els.statsScopePill.textContent =
+            scope === "selected"
+              ? ("scope: " + (selectedModelId || "(no model selected)"))
+              : "scope: all models";
+          els.mTotal.textContent = fmtNum(effective.messages_total);
+          els.mAllowed.textContent = fmtNum(effective.messages_allowed);
+          els.mDropped.textContent = fmtNum(effective.messages_dropped);
+          els.mExempt.textContent = fmtNum(scope === "selected" ? 0 : s.exempt);
+          els.uptimePill.textContent = "uptime: " + fmtUptime(s.uptime_seconds);
+          els.statsAtPill.textContent = "updated: " + new Date().toLocaleTimeString();
+
+          const dropped = Number(effective.messages_dropped || 0);
+          const bars = [
+            ["topic_nomatch", Number(effective.topic_nomatch || 0), "#6366f1"],
+            ["topic_invalid", Number(effective.topic_invalid || 0), "#ef4444"],
+            ["payload_invalid", Number(effective.payload_invalid || 0), "#f97316"],
+            ["not_endpoint", Number(effective.not_endpoint || 0), "#eab308"],
+          ];
+          const pcts = bars.map((b) => (dropped > 0 ? Math.round((b[1] / dropped) * 100) : 0));
+          els.dropBars.innerHTML = bars.map((b) => {
+            const pct = dropped > 0 ? Math.round((b[1] / dropped) * 100) : 0;
+            return (
+              '<div class="bar-line">' +
+              '<div class="muted">' + esc(b[0]) + '</div>' +
+              '<div class="bar"><span style="width:' + pct + '%;background:' + b[2] + '"></span></div>' +
+              '<div class="muted">' + esc(String(b[1])) + '</div>' +
+              '</div>'
+            );
+          }).join("");
+          const pieStops = [
+            {v: bars[0][1], c: bars[0][2]},
+            {v: bars[1][1], c: bars[1][2]},
+            {v: bars[2][1], c: bars[2][2]},
+            {v: bars[3][1], c: bars[3][2]},
+          ];
+          if (dropped > 0) {
+            let deg = 0;
+            const segs = pieStops.map((s) => {
+              const start = deg;
+              deg += (s.v / dropped) * 360;
+              return s.c + " " + start + "deg " + deg + "deg";
+            });
+            els.dropPie.style.background = "conic-gradient(" + segs.join(", ") + ")";
+          } else {
+            els.dropPie.style.background = "conic-gradient(#e5e7eb 0 360deg)";
+          }
+          els.dropPieLegend.innerHTML =
+            '<div class="pie-item">topic_nomatch: ' + bars[0][1] + " (" + pcts[0] + '%)</div>' +
+            '<div class="pie-item">topic_invalid: ' + bars[1][1] + " (" + pcts[1] + '%)</div>' +
+            '<div class="pie-item">payload_invalid: ' + bars[2][1] + " (" + pcts[2] + '%)</div>' +
+            '<div class="pie-item">not_endpoint: ' + bars[3][1] + " (" + pcts[3] + '%)</div>';
+          const modelIds = Object.keys(perModel).sort();
+          if (modelIds.length === 0) {
+            els.perModelBody.innerHTML = '<tr><td colspan="7" class="muted">No per-model stats yet.</td></tr>';
+          } else {
+            els.perModelBody.innerHTML = modelIds.map((id) => {
+              const m = perModel[id] || {};
+              return (
+                '<tr>' +
+                '<td>' + esc(id) + '</td>' +
+                '<td>' + esc(fmtNum(m.messages_total || 0)) + '</td>' +
+                '<td>' + esc(fmtNum(m.messages_allowed || 0)) + '</td>' +
+                '<td>' + esc(fmtNum(m.messages_dropped || 0)) + '</td>' +
+                '<td>' + esc(fmtNum(m.topic_invalid || 0)) + '</td>' +
+                '<td>' + esc(fmtNum(m.payload_invalid || 0)) + '</td>' +
+                '<td>' + esc(fmtNum(m.not_endpoint || 0)) + '</td>' +
+                '</tr>'
+              );
+            }).join("");
+          }
+
+        }
+
+        function applyStatsAutoRefresh(enabled) {
+          if (state.statsTimer) {
+            clearInterval(state.statsTimer);
+            state.statsTimer = null;
+          }
+          if (enabled) {
+            state.statsTimer = setInterval(() => {
+              if (!mainTabs.stats.classList.contains("hidden")) {
+                refreshStats().catch(() => {});
+              }
+            }, 5000);
+          }
+        }
+
+        async function refreshEvents() {
+          const resp = await api("/events", { method: "GET" });
+          const events = Array.isArray(resp.data) ? resp.data : [];
+          els.eventsCountPill.textContent = "events: " + events.length;
+          els.eventsAtPill.textContent = "updated: " + new Date().toLocaleTimeString();
+          if (events.length === 0) {
+            els.eventsBody.innerHTML = '<tr><td colspan="4" class="muted">No recent events.</td></tr>';
+          } else {
+            els.eventsBody.innerHTML = events.map((e) => {
+              return (
+                '<tr>' +
+                '<td>' + esc(e.timestamp || "") + '</td>' +
+                '<td style="max-width:200px;word-break:break-all">' + esc(e.node || "") + '</td>' +
+                '<td style="font-family:Cascadia Code,Consolas,monospace;max-width:380px;word-break:break-all">' + esc(e.topic || "") + '</td>' +
+                '<td>' + esc(e.error_type || "") + '</td>' +
+                '</tr>'
+              );
+            }).join("");
+          }
+        }
+
+        document.getElementById("refreshModelsBtn").addEventListener("click", () => {
+          loadModels(state.selectedId).catch((e) => showStatus("err", e.message));
+        });
+        document.getElementById("applyMetaBtn").addEventListener("click", () => {
+          applyModelMutation(() => {
+            ensureModelShape();
+            const id = (els.modelIdInput.value || "").trim();
+            const name = (els.modelNameInput.value || "").trim();
+            if (id) state.modelObj.id = id;
+            if (name) state.modelObj.name = name;
+          });
+        });
+        document.getElementById("expandAllBtn").addEventListener("click", expandAllLevels);
+        document.getElementById("collapseAllBtn").addEventListener("click", collapseAllLevels);
+        document.getElementById("newModelBtn").addEventListener("click", newModel);
+        document.getElementById("saveBtn").addEventListener("click", saveModel);
+        document.getElementById("toggleActiveBtn").addEventListener("click", toggleSelectedActive);
+        document.getElementById("validateTopicBtn").addEventListener("click", validateTopic);
+        document.getElementById("refreshStatsBtn").addEventListener("click", () => {
+          refreshStats().catch((e) => showStatus("err", e.message));
+        });
+        els.statsScopeSelect.addEventListener("change", () => {
+          refreshStats().catch((e) => showStatus("err", e.message));
+        });
+        els.autoRefreshStats.addEventListener("change", () => {
+          applyStatsAutoRefresh(!!els.autoRefreshStats.checked);
+        });
+        document.getElementById("refreshEventsBtn").addEventListener("click", () => {
+          refreshEvents().catch((e) => showStatus("err", e.message));
+        });
+        els.jsonEditor.addEventListener("input", () => {
+          updateDirty();
+          try {
+            parseJsonEditor();
+            showStatus("", "");
+          } catch (_e) {
+            // keep current tree until valid JSON again
+          }
+        });
+
+        document.querySelectorAll("[data-main-tab]").forEach((tabBtn) => {
+          tabBtn.addEventListener("click", () => setMainTab(tabBtn.dataset.mainTab));
+        });
+        document.querySelectorAll("[data-schema-tab]").forEach((tabBtn) => {
+          tabBtn.addEventListener("click", () => setSchemaTab(tabBtn.dataset.schemaTab));
+        });
+
+        loadModels().catch((e) => {
+          showStatus("err", e.message);
+          newModel();
+        });
+        setMainTab("stats");
+        setSchemaTab("ui");
+      })();
+    </script>
+  </body>
+</html>

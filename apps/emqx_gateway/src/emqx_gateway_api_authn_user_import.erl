@@ -10,8 +10,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--import(emqx_dashboard_swagger, [error_codes/2]).
--import(hoconsc, [mk/2, ref/2]).
+-import(hoconsc, [mk/2]).
 -import(
     emqx_gateway_http,
     [

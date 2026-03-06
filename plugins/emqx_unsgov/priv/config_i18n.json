@@ -1,0 +1,8 @@
+{
+  "$on_mismatch_label": {"en": "Mismatch Action", "zh": "不匹配动作"},
+  "$on_mismatch_desc": {"en": "Action when topic does not match active model.", "zh": "主题不匹配激活模型时的动作。"},
+  "$validate_payload_label": {"en": "Validate Payload", "zh": "校验载荷"},
+  "$validate_payload_desc": {"en": "Validate payload JSON against endpoint payload schema on publish.", "zh": "发布时按端点 payload schema 校验 JSON 载荷。"},
+  "$exempt_topics_label": {"en": "Exempt Topics", "zh": "豁免主题"},
+  "$exempt_topics_desc": {"en": "Topic filters bypassing UNS Governance validation. Use comma to separate multiple topics.", "zh": "绕过 UNS Governance 校验的主题过滤器。使用逗号分隔多个主题。"}
+}
