@@ -57,6 +57,7 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "clean_start": true,
       "keepalive_s": 60,
       "pool_size": 2,
+      "ssl": {"enable": false},
       "filter_topic": "devices/#",
       "remote_topic": "forwarded/${topic}",
       "remote_qos": 1,

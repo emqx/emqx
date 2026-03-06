@@ -14,11 +14,24 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
     Apps = emqx_cth_suite:start(
-        [emqx, emqx_conf],
+        [
+            {emqx, #{
+                config => #{
+                    listeners => #{
+                        tcp => #{default => #{bind => "127.0.0.1:" ++ integer_to_list(Port)}},
+                        ssl => #{default => #{enable => false}},
+                        ws => #{default => #{enable => false}},
+                        wss => #{default => #{enable => false}}
+                    }
+                }
+            }},
+            emqx_conf
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
-    [{apps, Apps} | Config].
+    [{apps, Apps}, {mqtt_port, Port} | Config].
 
 end_per_suite(Config) ->
     ok = emqx_cth_suite:stop(?config(apps, Config)),
@@ -65,8 +78,9 @@ end_per_testcase(_Case, _Config) ->
 %%--------------------------------------------------------------------
 
 -doc "Message published to source topic is forwarded to sink topic.".
-t_basic_forward(_Config) ->
-    BridgeConfig = make_bridge_config(<<"basic">>, #{
+t_basic_forward(Config) ->
+    Port = ?config(mqtt_port, Config),
+    BridgeConfig = make_bridge_config(<<"basic">>, Port, #{
         filter_topic => <<"test/source/#">>,
         remote_topic => <<"test/sink/${topic}">>
     }),
@@ -83,13 +97,13 @@ t_basic_forward(_Config) ->
     timer:sleep(500),
 
     %% Subscribe to the sink topic
-    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub">>, clean_start => true}),
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"test/sink/#">>, 1),
     timer:sleep(100),
 
     %% Publish a message to source topic
-    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub">>, clean_start => true}),
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub">>, port => Port}),
     {ok, _} = emqtt:connect(Pub),
     ok = emqtt:publish(Pub, <<"test/source/hello">>, <<"world">>, 0),
 
@@ -104,8 +118,9 @@ t_basic_forward(_Config) ->
     ok.
 
 -doc "Message on non-matching topic is not forwarded.".
-t_topic_filter_no_match(_Config) ->
-    BridgeConfig = make_bridge_config(<<"nomatch">>, #{
+t_topic_filter_no_match(Config) ->
+    Port = ?config(mqtt_port, Config),
+    BridgeConfig = make_bridge_config(<<"nomatch">>, Port, #{
         filter_topic => <<"devices/#">>,
         remote_topic => <<"forwarded/${topic}">>
     }),
@@ -117,13 +132,13 @@ t_topic_filter_no_match(_Config) ->
     timer:sleep(500),
 
     %% Subscribe to forwarded topics
-    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub2">>, clean_start => true}),
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub2">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"forwarded/#">>, 1),
     timer:sleep(100),
 
     %% Publish to a non-matching topic
-    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub2">>, clean_start => true}),
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub2">>, port => Port}),
     {ok, _} = emqtt:connect(Pub),
     ok = emqtt:publish(Pub, <<"other/topic">>, <<"data">>, 0),
 
@@ -137,12 +152,13 @@ t_topic_filter_no_match(_Config) ->
     ok.
 
 -doc "Two bridges forward to different sinks; non-matching topic ignored.".
-t_multiple_bridges(_Config) ->
-    Bridge1 = make_bridge_config(<<"multi1">>, #{
+t_multiple_bridges(Config) ->
+    Port = ?config(mqtt_port, Config),
+    Bridge1 = make_bridge_config(<<"multi1">>, Port, #{
         filter_topic => <<"a/#">>,
         remote_topic => <<"sink_a/${topic}">>
     }),
-    Bridge2 = make_bridge_config(<<"multi2">>, #{
+    Bridge2 = make_bridge_config(<<"multi2">>, Port, #{
         filter_topic => <<"b/#">>,
         remote_topic => <<"sink_b/${topic}">>
     }),
@@ -155,13 +171,13 @@ t_multiple_bridges(_Config) ->
     ok = emqx_bridge_mqtt_dq:hook(),
     timer:sleep(500),
 
-    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub4">>, clean_start => true}),
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub4">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"sink_a/#">>, 1),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"sink_b/#">>, 1),
     timer:sleep(100),
 
-    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub4">>, clean_start => true}),
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub4">>, port => Port}),
     {ok, _} = emqtt:connect(Pub),
     ok = emqtt:publish(Pub, <<"a/hello">>, <<"from_a">>, 0),
     ok = emqtt:publish(Pub, <<"b/hello">>, <<"from_b">>, 0),
@@ -179,9 +195,10 @@ t_multiple_bridges(_Config) ->
     ok.
 
 -doc "Messages queued on disk are replayed after bridge restart with good connection.".
-t_disk_queue_persistence(_Config) ->
+t_disk_queue_persistence(Config) ->
+    Port = ?config(mqtt_port, Config),
     QueueDir = "/tmp/emqx_bridge_mqtt_dq_test_persist_" ++ integer_to_list(erlang:system_time()),
-    BridgeConfig = make_bridge_config(<<"persist">>, #{
+    BridgeConfig = make_bridge_config(<<"persist">>, Port, #{
         filter_topic => <<"persist/#">>,
         remote_topic => <<"${topic}">>,
         queue_dir => list_to_binary(QueueDir)
@@ -198,7 +215,7 @@ t_disk_queue_persistence(_Config) ->
     {ok, _} = ?block_until(#{?snk_kind := mqtt_dq_connector_connect_failed}, 10000),
 
     %% Publish messages — they'll be buffered on disk since connectors can't connect
-    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub5">>, clean_start => true}),
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub5">>, port => Port}),
     {ok, _} = emqtt:connect(Pub),
     lists:foreach(
         fun(I) ->
@@ -237,13 +254,14 @@ t_disk_queue_persistence(_Config) ->
     ),
 
     %% Subscribe to receive replayed messages
-    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub5">>, clean_start => true}),
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub5">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"persist/#">>, 1),
     timer:sleep(100),
 
     %% Start good bridge pointing to local broker
-    GoodConfig = BridgeConfig#{server := "127.0.0.1:1883"},
+    Server = "127.0.0.1:" ++ integer_to_list(Port),
+    GoodConfig = BridgeConfig#{server := Server},
     setup_config([GoodConfig]),
     {ok, GoodSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(GoodConfig),
     true = unlink(GoodSup),
@@ -259,8 +277,9 @@ t_disk_queue_persistence(_Config) ->
     ok.
 
 -doc "Messages on the same topic are forwarded in publish order.".
-t_per_topic_ordering(_Config) ->
-    BridgeConfig = make_bridge_config(<<"order">>, #{
+t_per_topic_ordering(Config) ->
+    Port = ?config(mqtt_port, Config),
+    BridgeConfig = make_bridge_config(<<"order">>, Port, #{
         filter_topic => <<"order/#">>,
         remote_topic => <<"${topic}">>
     }),
@@ -271,13 +290,13 @@ t_per_topic_ordering(_Config) ->
     ok = emqx_bridge_mqtt_dq:hook(),
     timer:sleep(500),
 
-    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub6">>, clean_start => true}),
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub6">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"order/#">>, 1),
     timer:sleep(100),
 
     %% Publish 10 messages to the same topic in order
-    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub6">>, clean_start => true}),
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub6">>, port => Port}),
     {ok, _} = emqtt:connect(Pub),
     lists:foreach(
         fun(I) ->
@@ -306,9 +325,10 @@ t_per_topic_ordering(_Config) ->
 %%--------------------------------------------------------------------
 
 -doc "sync_bridges with unchanged config keeps the same bridge pid.".
-t_sync_bridges_noop_on_same_config(_Config) ->
+t_sync_bridges_noop_on_same_config(Config) ->
+    Port = ?config(mqtt_port, Config),
     ensure_sup(),
-    Bridge = make_bridge_config(<<"noop">>, #{
+    Bridge = make_bridge_config(<<"noop">>, Port, #{
         filter_topic => <<"noop/#">>,
         remote_topic => <<"${topic}">>
     }),
@@ -324,9 +344,10 @@ t_sync_bridges_noop_on_same_config(_Config) ->
     ok.
 
 -doc "sync_bridges restarts bridge when pool_size changes.".
-t_sync_bridges_restart_on_config_change(_Config) ->
+t_sync_bridges_restart_on_config_change(Config) ->
+    Port = ?config(mqtt_port, Config),
     ensure_sup(),
-    Bridge = make_bridge_config(<<"chg">>, #{
+    Bridge = make_bridge_config(<<"chg">>, Port, #{
         filter_topic => <<"chg/#">>,
         remote_topic => <<"${topic}">>,
         pool_size => 2
@@ -346,9 +367,10 @@ t_sync_bridges_restart_on_config_change(_Config) ->
     ok.
 
 -doc "sync_bridges removes bridge when it disappears from config.".
-t_sync_bridges_remove_bridge(_Config) ->
+t_sync_bridges_remove_bridge(Config) ->
+    Port = ?config(mqtt_port, Config),
     ensure_sup(),
-    Bridge = make_bridge_config(<<"rm">>, #{
+    Bridge = make_bridge_config(<<"rm">>, Port, #{
         filter_topic => <<"rm/#">>,
         remote_topic => <<"${topic}">>
     }),
@@ -363,9 +385,10 @@ t_sync_bridges_remove_bridge(_Config) ->
     ok.
 
 -doc "sync_bridges starts a newly added bridge.".
-t_sync_bridges_add_bridge(_Config) ->
+t_sync_bridges_add_bridge(Config) ->
+    Port = ?config(mqtt_port, Config),
     ensure_sup(),
-    Bridge1 = make_bridge_config(<<"add1">>, #{
+    Bridge1 = make_bridge_config(<<"add1">>, Port, #{
         filter_topic => <<"add1/#">>,
         remote_topic => <<"${topic}">>
     }),
@@ -374,7 +397,7 @@ t_sync_bridges_add_bridge(_Config) ->
     ?assertMatch([_], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
 
     %% Add a second bridge
-    Bridge2 = make_bridge_config(<<"add2">>, #{
+    Bridge2 = make_bridge_config(<<"add2">>, Port, #{
         filter_topic => <<"add2/#">>,
         remote_topic => <<"${topic}">>
     }),
@@ -385,13 +408,14 @@ t_sync_bridges_add_bridge(_Config) ->
     ok.
 
 -doc "sync_bridges handles add, update, and keep in one call.".
-t_sync_bridges_mixed(_Config) ->
+t_sync_bridges_mixed(Config) ->
+    Port = ?config(mqtt_port, Config),
     ensure_sup(),
-    BridgeA = make_bridge_config(<<"mx_a">>, #{
+    BridgeA = make_bridge_config(<<"mx_a">>, Port, #{
         filter_topic => <<"a/#">>,
         remote_topic => <<"${topic}">>
     }),
-    BridgeB = make_bridge_config(<<"mx_b">>, #{
+    BridgeB = make_bridge_config(<<"mx_b">>, Port, #{
         filter_topic => <<"b/#">>,
         remote_topic => <<"${topic}">>,
         pool_size => 2
@@ -404,7 +428,7 @@ t_sync_bridges_mixed(_Config) ->
 
     %% A unchanged, B changed (pool_size 2→3), C is new
     BridgeB2 = BridgeB#{pool_size := 3},
-    BridgeC = make_bridge_config(<<"mx_c">>, #{
+    BridgeC = make_bridge_config(<<"mx_c">>, Port, #{
         filter_topic => <<"c/#">>,
         remote_topic => <<"${topic}">>
     }),
@@ -423,9 +447,10 @@ t_sync_bridges_mixed(_Config) ->
     ok.
 
 -doc "sync_bridges stops a bridge when enable flips to false.".
-t_sync_bridges_disable_bridge(_Config) ->
+t_sync_bridges_disable_bridge(Config) ->
+    Port = ?config(mqtt_port, Config),
     ensure_sup(),
-    Bridge = make_bridge_config(<<"dis">>, #{
+    Bridge = make_bridge_config(<<"dis">>, Port, #{
         filter_topic => <<"dis/#">>,
         remote_topic => <<"${topic}">>
     }),
@@ -441,9 +466,10 @@ t_sync_bridges_disable_bridge(_Config) ->
     ok.
 
 -doc "sync_bridges restarts bridge when buffer_pool_size changes.".
-t_sync_bridges_buffer_pool_size_change(_Config) ->
+t_sync_bridges_buffer_pool_size_change(Config) ->
+    Port = ?config(mqtt_port, Config),
     ensure_sup(),
-    Bridge = make_bridge_config(<<"bps">>, #{
+    Bridge = make_bridge_config(<<"bps">>, Port, #{
         filter_topic => <<"bps/#">>,
         remote_topic => <<"${topic}">>,
         buffer_pool_size => 4
@@ -476,12 +502,12 @@ ensure_sup() ->
 child_pid_map(Sup) ->
     maps:from_list([{Id, Pid} || {Id, Pid, _, _} <- supervisor:which_children(Sup)]).
 
-make_bridge_config(Name, Overrides) ->
+make_bridge_config(Name, Port, Overrides) ->
     QueueDir = iolist_to_binary([<<"/tmp/emqx_bridge_mqtt_dq_test/">>, Name]),
     Default = #{
         name => Name,
         enable => true,
-        server => "127.0.0.1:1883",
+        server => "127.0.0.1:" ++ integer_to_list(Port),
         proto_ver => v4,
         clientid_prefix => <<"test_dq_", Name/binary>>,
         username => <<>>,

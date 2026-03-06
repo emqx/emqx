@@ -79,7 +79,7 @@ parse_bridge(Name, Raw) when is_map(Raw) ->
                 get_val(<<"clientid_prefix">>, Raw, Name)
             ),
             username => to_bin(get_val(<<"username">>, Raw, <<>>)),
-            password => to_bin(get_val(<<"password">>, Raw, <<>>)),
+            password => to_bin_or_empty(get_val(<<"password">>, Raw, <<>>)),
             clean_start => to_boolean(get_val(<<"clean_start">>, Raw, true)),
             keepalive_s => to_pos_int(
                 get_val(<<"keepalive_s">>, Raw, 60)
@@ -158,6 +158,10 @@ get_nested_val(Keys, Map, Default) ->
 to_bin(V) when is_binary(V) -> V;
 to_bin(V) when is_list(V) -> list_to_binary(V);
 to_bin(V) when is_integer(V) -> integer_to_binary(V).
+
+to_bin_or_empty(null) -> <<>>;
+to_bin_or_empty(undefined) -> <<>>;
+to_bin_or_empty(V) -> to_bin(V).
 
 to_str(V) when is_list(V) -> V;
 to_str(V) when is_binary(V) -> binary_to_list(V).

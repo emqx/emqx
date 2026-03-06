@@ -20,8 +20,20 @@ all() ->
     emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    Port = emqx_common_test_helpers:select_free_port(tcp),
     Apps = emqx_cth_suite:start(
-        [emqx],
+        [
+            {emqx, #{
+                config => #{
+                    listeners => #{
+                        tcp => #{default => #{bind => "127.0.0.1:" ++ integer_to_list(Port)}},
+                        ssl => #{default => #{enable => false}},
+                        ws => #{default => #{enable => false}},
+                        wss => #{default => #{enable => false}}
+                    }
+                }
+            }}
+        ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
     [{apps, Apps} | Config].
