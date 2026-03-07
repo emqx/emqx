@@ -390,6 +390,11 @@ t_metrics_and_api(Config) ->
         nomatch, binary:match(MetricsBody, <<"emqx_bridge_mqtt_dq_bridge_matched_total">>)
     ),
     ?assertNotEqual(nomatch, binary:match(MetricsBody, <<"bridge=\"metrics\"">>)),
+    {ok, 200, UiHeaders, UiBody} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
+        get, [<<"ui">>], #{}, #{}
+    ),
+    ?assertEqual(<<"text/html; charset=utf-8">>, maps:get(<<"content-type">>, UiHeaders)),
+    ?assertNotEqual(nomatch, binary:match(UiBody, <<"MQTT DQ Dashboard">>)),
 
     ok = emqtt:disconnect(Sub),
     ok = emqtt:disconnect(Pub),

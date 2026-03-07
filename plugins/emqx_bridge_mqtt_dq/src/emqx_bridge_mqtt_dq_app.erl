@@ -79,7 +79,7 @@ sync_bridges() ->
         [{bridge_id(B), bridge_child_spec(B)} || B <- Bridges, maps:get(enable, B, false)]
     ),
     CurrentChildren = supervisor:which_children(Sup),
-    CurrentIds = [Id || {Id, _Pid, _Type, _Mods} <- CurrentChildren],
+    CurrentIds = [Id || {Id, _Pid, _Type, _Mods} <- CurrentChildren, is_bridge_child_id(Id)],
     lists:foreach(
         fun(Id) -> sync_existing_child(Sup, Id, DesiredSpecs) end,
         CurrentIds
@@ -90,6 +90,11 @@ sync_bridges() ->
 
 bridge_id(#{name := Name}) ->
     {bridge, Name}.
+
+is_bridge_child_id({bridge, Name}) when is_binary(Name) ->
+    true;
+is_bridge_child_id(_) ->
+    false.
 
 sync_existing_child(Sup, Id, DesiredSpecs) ->
     case maps:find(Id, DesiredSpecs) of

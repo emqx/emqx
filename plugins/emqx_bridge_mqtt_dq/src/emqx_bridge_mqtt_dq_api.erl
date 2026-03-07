@@ -12,6 +12,15 @@ handle(get, [<<"metrics">>], _Request) ->
     end);
 handle(get, [<<"stats">>], _Request) ->
     with_snapshot(fun(Snapshot) -> {ok, 200, #{}, format_snapshot(Snapshot)} end);
+handle(get, [<<"ui">>], _Request) ->
+    {ok, 200,
+        #{
+            <<"content-type">> => <<"text/html; charset=utf-8">>,
+            <<"cache-control">> => <<"no-store, no-cache, must-revalidate">>,
+            <<"pragma">> => <<"no-cache">>,
+            <<"expires">> => <<"0">>
+        },
+        ui_html()};
 handle(_Method, _Path, _Request) ->
     {error, not_found}.
 
@@ -270,3 +279,17 @@ iolist_join([One], _Sep) ->
     One;
 iolist_join([H | T], Sep) ->
     [H, [[Sep, Elem] || Elem <- T]].
+
+ui_html() ->
+    maybe
+        Dir = code:priv_dir(emqx_bridge_mqtt_dq),
+        true ?= is_list(Dir),
+        {ok, Bin} ?= file:read_file(filename:join(Dir, "ui.html")),
+        Bin
+    else
+        _ ->
+            <<
+                "<!doctype html><html><body><h1>MQTT DQ UI unavailable</h1>",
+                "<p>Missing priv/ui.html</p></body></html>"
+            >>
+    end.
