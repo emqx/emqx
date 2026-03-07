@@ -17,4 +17,12 @@ init([]) ->
         intensity => 10,
         period => 60
     },
-    {ok, {SupFlags, []}}.
+    Metrics = #{
+        id => emqx_bridge_mqtt_dq_metrics,
+        start => {emqx_bridge_mqtt_dq_metrics, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type => worker,
+        modules => [emqx_bridge_mqtt_dq_metrics]
+    },
+    {ok, {SupFlags, [Metrics]}}.

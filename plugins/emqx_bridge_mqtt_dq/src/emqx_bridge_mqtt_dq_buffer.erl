@@ -7,7 +7,7 @@
 
 -include("emqx_bridge_mqtt_dq.hrl").
 
--export([start_link/2, enqueue/3, get_pid/2]).
+-export([start_link/2, enqueue/3, get_pid/2, sync_metrics/1]).
 
 -export([init/1, handle_cast/2, handle_info/2, handle_call/3, terminate/2]).
 
@@ -48,6 +48,10 @@ enqueue(Pid, Item, AckAlias) ->
 -spec get_pid(binary(), non_neg_integer()) -> pid().
 get_pid(BridgeName, Index) ->
     persistent_term:get({?MODULE, BridgeName, Index}).
+
+-spec sync_metrics(pid()) -> ok.
+sync_metrics(Pid) ->
+    gen_server:call(Pid, sync_metrics).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -93,11 +97,14 @@ init({BridgeConfig, Index}) ->
         flush_batch_size => MaxInflight,
         flush_scheduled => false
     },
-    {ok, try_acquire_conn(State)}.
+    State1 = update_metrics(State),
+    {ok, try_acquire_conn(State1)}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_call(sync_metrics, _From, State) ->
+    {reply, ok, update_metrics(State)};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
@@ -107,7 +114,8 @@ handle_info({enqueue, Item, AckAlias}, #{queue := Q, bridge_name := BridgeName} 
     Q2 = handle_overflow(Q1, State),
     ok = ack_enqueue_batch(CallerAcks),
     ?tp(mqtt_dq_buffer_enqueued, #{bridge => BridgeName, count => length(Items)}),
-    {noreply, maybe_flush(State#{queue := Q2})};
+    State1 = update_metrics(State#{queue := Q2}),
+    {noreply, maybe_flush(State1)};
 handle_info({batch_ack, Ref, Result}, State) ->
     {noreply, handle_batch_ack(Ref, Result, State)};
 handle_info(flush, State) ->
@@ -127,6 +135,8 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, #{queue := Q, bridge_name := BridgeName, index := Index}) ->
+    ok = emqx_bridge_mqtt_dq_metrics:set_buffered(BridgeName, Index, 0),
+    ok = emqx_bridge_mqtt_dq_metrics:set_buffered_bytes(BridgeName, Index, 0),
     _ = replayq:close(Q),
     _ = persistent_term:erase({?MODULE, BridgeName, Index}),
     ok.
@@ -209,10 +219,10 @@ send_pending(
 ) ->
     Ref = make_ref(),
     ConnPid ! {publish_batch, Items, self(), Ref},
-    State1 = State#{
+    State1 = update_metrics(State#{
         pending := Rest,
         inflight := [{Ref, AckRef, Items} | Inflight]
-    },
+    }),
     maybe_flush(State1).
 
 send_from_queue(
@@ -221,17 +231,19 @@ send_from_queue(
     {Q1, AckRef, Items} = replayq:pop(Q, #{count_limit => BatchSize}),
     Ref = make_ref(),
     ConnPid ! {publish_batch, Items, self(), Ref},
-    State1 = State#{
+    State1 = update_metrics(State#{
         queue := Q1,
         inflight := [{Ref, AckRef, Items} | Inflight]
-    },
+    }),
     maybe_flush(State1).
 
 handle_batch_ack(Ref, ok, #{inflight := Inflight, queue := Q} = State) ->
     case lists:keytake(Ref, 1, Inflight) of
-        {value, {_, AckRef, _Items}, Rest} ->
+        {value, {_, AckRef, Items}, Rest} ->
             ok = replayq:ack(Q, AckRef),
-            maybe_flush(State#{inflight := Rest});
+            #{bridge_name := BridgeName} = State,
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_acked(BridgeName, length(Items)),
+            maybe_flush(update_metrics(State#{inflight := Rest}));
         false ->
             State
     end;
@@ -252,7 +264,7 @@ salvage_inflight(#{inflight := []} = State) ->
 salvage_inflight(#{inflight := Inflight, pending := Pending} = State) ->
     %% inflight is newest-first; reverse to get send order
     Salvaged = [{AckRef, Items} || {_Ref, AckRef, Items} <- lists:reverse(Inflight)],
-    State#{inflight := [], pending := Salvaged ++ Pending}.
+    update_metrics(State#{inflight := [], pending := Salvaged ++ Pending}).
 
 schedule_flush_retry(State) ->
     erlang:send_after(?FLUSH_RETRY_DELAY_MS, self(), flush),
@@ -270,6 +282,9 @@ handle_overflow(Q, #{bridge_name := BridgeName, index := Index}) ->
             {Q1, QAckRef, Dropped} =
                 replayq:pop(Q, #{bytes_limit => Overflow, count_limit => 999999999}),
             ok = replayq:ack(Q1, QAckRef),
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dropped(
+                BridgeName, overflow, length(Dropped)
+            ),
             maybe_log_discard(BridgeName, Index, length(Dropped)),
             Q1
     end.
@@ -323,3 +338,8 @@ marshaller(Bin) when is_binary(Bin) -> binary_to_term(Bin);
 marshaller(Term) -> term_to_binary(Term).
 
 sizer(Item) -> erlang:external_size(Item).
+
+update_metrics(#{bridge_name := BridgeName, index := Index, queue := Q} = State) ->
+    ok = emqx_bridge_mqtt_dq_metrics:set_buffered(BridgeName, Index, replayq:count(Q)),
+    ok = emqx_bridge_mqtt_dq_metrics:set_buffered_bytes(BridgeName, Index, replayq:bytes(Q)),
+    State.

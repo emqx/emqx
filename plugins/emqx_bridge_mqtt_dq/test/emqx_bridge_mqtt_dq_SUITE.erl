@@ -39,6 +39,8 @@ end_per_suite(Config) ->
 
 init_per_testcase(_Case, Config) ->
     ok = snabbkaffe:start_trace(),
+    ensure_sup(),
+    ok = emqx_bridge_mqtt_dq_metrics:reset(),
     Config.
 
 end_per_testcase(_Case, _Config) ->
@@ -52,9 +54,15 @@ end_per_testcase(_Case, _Config) ->
         _Pid ->
             Children = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
             lists:foreach(
-                fun({Id, _, _, _}) ->
-                    _ = supervisor:terminate_child(emqx_bridge_mqtt_dq_sup, Id),
-                    _ = supervisor:delete_child(emqx_bridge_mqtt_dq_sup, Id)
+                fun(Child) ->
+                    case is_metrics_child(Child) of
+                        true ->
+                            ok;
+                        false ->
+                            {Id, _, _, _} = Child,
+                            _ = supervisor:terminate_child(emqx_bridge_mqtt_dq_sup, Id),
+                            _ = supervisor:delete_child(emqx_bridge_mqtt_dq_sup, Id)
+                    end
                 end,
                 Children
             )
@@ -71,6 +79,7 @@ end_per_testcase(_Case, _Config) ->
     ),
     %% Clean up persistent_term entries for config
     catch persistent_term:erase({emqx_bridge_mqtt_dq_config, settings}),
+    catch emqx_bridge_mqtt_dq_metrics:reset(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -320,6 +329,198 @@ t_per_topic_ordering(Config) ->
     exit(BridgeSup, shutdown),
     ok.
 
+-doc "Bridge counters and API payload reflect forwarded messages.".
+t_metrics_and_api(Config) ->
+    Port = ?config(mqtt_port, Config),
+    Bridge = make_bridge_config(<<"metrics">>, Port, #{
+        filter_topic => <<"metrics/#">>,
+        remote_topic => <<"sink/${topic}">>
+    }),
+    setup_config([Bridge]),
+
+    {ok, BridgeSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(Bridge),
+    true = unlink(BridgeSup),
+    ok = emqx_bridge_mqtt_dq:hook(),
+    timer:sleep(500),
+
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_metrics_sub">>, port => Port}),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, [1]} = emqtt:subscribe(Sub, <<"sink/metrics/#">>, 1),
+    timer:sleep(100),
+
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_metrics_pub">>, port => Port}),
+    {ok, _} = emqtt:connect(Pub),
+    ok = emqtt:publish(Pub, <<"metrics/ok">>, <<"one">>, 0),
+    ok = emqtt:publish(Pub, <<"other/skip">>, <<"two">>, 0),
+    ?assertMatch([#{topic := <<"sink/metrics/ok">>}], receive_messages(1, 3000)),
+
+    Snapshot = wait_until_snapshot(
+        fun(S) ->
+            case bridge_metrics(S, <<"metrics">>) of
+                #{matched := 1, acked := 1} -> true;
+                _ -> false
+            end
+        end,
+        5000
+    ),
+    ?assertEqual(1, maps:get(matched, bridge_metrics(Snapshot, <<"metrics">>))),
+    ?assertEqual(1, maps:get(acked, bridge_metrics(Snapshot, <<"metrics">>))),
+    ?assertEqual(0, maps:get(dropped, bridge_metrics(Snapshot, <<"metrics">>))),
+    ?assertEqual(#{}, maps:get(dropped_by_reason, bridge_metrics(Snapshot, <<"metrics">>), #{})),
+
+    {ok, 200, _, Body} = emqx_bridge_mqtt_dq_app:on_handle_api_call(get, [<<"stats">>], #{}, #{}),
+    ?assertMatch(
+        #{
+            name := <<"metrics">>,
+            matched := 1,
+            acked := 1,
+            dropped := 0,
+            dropped_by_reason := []
+        },
+        find_bridge_metric(Body, <<"metrics">>)
+    ),
+    {ok, 200, Headers, MetricsBody} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
+        get, [<<"metrics">>], #{}, #{}
+    ),
+    ?assertEqual(
+        <<"text/plain; version=0.0.4; charset=utf-8">>,
+        maps:get(<<"content-type">>, Headers)
+    ),
+    ?assertNotEqual(
+        nomatch, binary:match(MetricsBody, <<"emqx_bridge_mqtt_dq_bridge_matched_total">>)
+    ),
+    ?assertNotEqual(nomatch, binary:match(MetricsBody, <<"bridge=\"metrics\"">>)),
+
+    ok = emqtt:disconnect(Sub),
+    ok = emqtt:disconnect(Pub),
+    exit(BridgeSup, shutdown),
+    ok.
+
+-doc "Missing buffer workers are counted as dropped messages.".
+t_dropped_when_buffer_not_ready(Config) ->
+    Port = ?config(mqtt_port, Config),
+    Bridge = make_bridge_config(<<"drop_no_buffer">>, Port, #{
+        filter_topic => <<"drop/no_buffer/#">>,
+        remote_topic => <<"sink/${topic}">>
+    }),
+    setup_config([Bridge]),
+    ok = emqx_bridge_mqtt_dq:hook(),
+
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_drop_no_buffer_pub">>, port => Port}),
+    {ok, _} = emqtt:connect(Pub),
+    ok = emqtt:publish(Pub, <<"drop/no_buffer/a">>, <<"1">>, 0),
+
+    Snapshot = wait_until_snapshot(
+        fun(S) ->
+            case bridge_metrics(S, <<"drop_no_buffer">>) of
+                #{dropped := 1, dropped_by_reason := #{<<"no_buffer">> := 1}} -> true;
+                _ -> false
+            end
+        end,
+        5000
+    ),
+    ?assertEqual(1, maps:get(dropped, bridge_metrics(Snapshot, <<"drop_no_buffer">>))),
+    ?assertEqual(
+        #{<<"no_buffer">> => 1},
+        maps:get(dropped_by_reason, bridge_metrics(Snapshot, <<"drop_no_buffer">>))
+    ),
+
+    ok = emqtt:disconnect(Pub),
+    ok.
+
+-doc "Buffered gauge is restored immediately when replayq reopens an existing disk queue.".
+t_buffered_reported_immediately_after_open(Config) ->
+    Port = ?config(mqtt_port, Config),
+    QueueDir =
+        "/tmp/emqx_bridge_mqtt_dq_test_buffered_open_" ++ integer_to_list(erlang:system_time()),
+    Bridge = make_bridge_config(<<"buffered_open">>, Port, #{
+        filter_topic => <<"buffered/open/#">>,
+        remote_topic => <<"${topic}">>,
+        queue_dir => list_to_binary(QueueDir),
+        server => "127.0.0.1:19999"
+    }),
+    setup_config([Bridge]),
+
+    {ok, BadSup1} = emqx_bridge_mqtt_dq_bridge_sup:start_link(Bridge),
+    true = unlink(BadSup1),
+    ok = emqx_bridge_mqtt_dq:hook(),
+    {ok, _} = ?block_until(#{?snk_kind := mqtt_dq_connector_connect_failed}, 10000),
+
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_buffered_open_pub">>, port => Port}),
+    {ok, _} = emqtt:connect(Pub),
+    ok = emqtt:publish(Pub, <<"buffered/open/a">>, <<"1">>, 0),
+    ok = emqtt:publish(Pub, <<"buffered/open/a">>, <<"2">>, 0),
+    ok = emqtt:publish(Pub, <<"buffered/open/a">>, <<"3">>, 0),
+
+    _ = wait_until_snapshot(
+        fun(S) -> buffer_value(S, <<"buffered_open">>) >= 3 end,
+        5000
+    ),
+
+    exit(BadSup1, shutdown),
+    timer:sleep(200),
+    erase_buffer_pids(<<"buffered_open">>, maps:get(buffer_pool_size, Bridge)),
+    ok = emqx_bridge_mqtt_dq_metrics:reset(),
+
+    {ok, BadSup2} = emqx_bridge_mqtt_dq_bridge_sup:start_link(Bridge),
+    true = unlink(BadSup2),
+    Snapshot = wait_until_snapshot(
+        fun(S) ->
+            buffer_value(S, <<"buffered_open">>) >= 3 andalso
+                buffer_bytes_value(S, <<"buffered_open">>) > 0
+        end,
+        5000
+    ),
+    ?assert(buffer_value(Snapshot, <<"buffered_open">>) >= 3),
+    ?assert(buffer_bytes_value(Snapshot, <<"buffered_open">>) > 0),
+
+    ok = emqtt:disconnect(Pub),
+    exit(BadSup2, shutdown),
+    ok.
+
+-doc "Metrics reset refreshes buffered from live replayq state immediately.".
+t_metrics_reset_refreshes_buffered(Config) ->
+    Port = ?config(mqtt_port, Config),
+    QueueDir =
+        "/tmp/emqx_bridge_mqtt_dq_test_buffered_reset_" ++ integer_to_list(erlang:system_time()),
+    Bridge = make_bridge_config(<<"buffered_reset">>, Port, #{
+        filter_topic => <<"buffered/reset/#">>,
+        remote_topic => <<"${topic}">>,
+        queue_dir => list_to_binary(QueueDir),
+        server => "127.0.0.1:19999"
+    }),
+    setup_config([Bridge]),
+
+    {ok, BridgeSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(Bridge),
+    true = unlink(BridgeSup),
+    ok = emqx_bridge_mqtt_dq:hook(),
+    {ok, _} = ?block_until(#{?snk_kind := mqtt_dq_connector_connect_failed}, 10000),
+
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_buffered_reset_pub">>, port => Port}),
+    {ok, _} = emqtt:connect(Pub),
+    ok = emqtt:publish(Pub, <<"buffered/reset/a">>, <<"1">>, 0),
+    ok = emqtt:publish(Pub, <<"buffered/reset/a">>, <<"2">>, 0),
+
+    _ = wait_until_snapshot(
+        fun(S) -> buffer_value(S, <<"buffered_reset">>) >= 2 end,
+        5000
+    ),
+
+    ok = emqx_bridge_mqtt_dq_metrics:reset(),
+    Snapshot = wait_until_snapshot(
+        fun(S) ->
+            buffer_value(S, <<"buffered_reset">>) >= 2 andalso
+                buffer_bytes_value(S, <<"buffered_reset">>) > 0
+        end,
+        5000
+    ),
+    ?assert(buffer_value(Snapshot, <<"buffered_reset">>) >= 2),
+    ?assert(buffer_bytes_value(Snapshot, <<"buffered_reset">>) > 0),
+
+    ok = emqtt:disconnect(Pub),
+    exit(BridgeSup, shutdown),
+    ok.
+
 %%--------------------------------------------------------------------
 %% sync_bridges test cases
 %%--------------------------------------------------------------------
@@ -496,8 +697,33 @@ ensure_sup() ->
             {ok, _} = emqx_bridge_mqtt_dq_sup:start_link(),
             ok;
         _ ->
-            ok
+            case
+                lists:any(
+                    fun is_metrics_child/1, supervisor:which_children(emqx_bridge_mqtt_dq_sup)
+                )
+            of
+                true ->
+                    ok;
+                false ->
+                    {ok, _} = supervisor:start_child(
+                        emqx_bridge_mqtt_dq_sup,
+                        #{
+                            id => emqx_bridge_mqtt_dq_metrics,
+                            start => {emqx_bridge_mqtt_dq_metrics, start_link, []},
+                            restart => permanent,
+                            shutdown => 5000,
+                            type => worker,
+                            modules => [emqx_bridge_mqtt_dq_metrics]
+                        }
+                    ),
+                    ok
+            end
     end.
+
+is_metrics_child({emqx_bridge_mqtt_dq_metrics, Pid, _, _}) when is_pid(Pid) ->
+    true;
+is_metrics_child(_) ->
+    false.
 
 child_pid_map(Sup) ->
     maps:from_list([{Id, Pid} || {Id, Pid, _, _} <- supervisor:which_children(Sup)]).
@@ -549,3 +775,69 @@ receive_messages(Count, Timeout, Acc) ->
     after Timeout ->
         lists:reverse(Acc)
     end.
+
+wait_until_snapshot(CheckFun, TimeoutMs) ->
+    Started = erlang:monotonic_time(millisecond),
+    wait_until_snapshot(CheckFun, TimeoutMs, Started).
+
+wait_until_snapshot(CheckFun, TimeoutMs, Started) ->
+    Snapshot = emqx_bridge_mqtt_dq_metrics:snapshot(),
+    case CheckFun(Snapshot) of
+        true ->
+            Snapshot;
+        _ ->
+            case erlang:monotonic_time(millisecond) - Started >= TimeoutMs of
+                true ->
+                    ct:fail({snapshot_timeout, Snapshot});
+                false ->
+                    timer:sleep(100),
+                    wait_until_snapshot(CheckFun, TimeoutMs, Started)
+            end
+    end.
+
+bridge_metrics(Snapshot, BridgeName) ->
+    Bridges = maps:get(bridges, Snapshot, #{}),
+    maps:get(BridgeName, Bridges, #{
+        matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}
+    }).
+
+find_bridge_metric(Body, BridgeName) ->
+    Bridges = maps:get(bridges, Body, []),
+    case lists:filter(fun(#{name := Name}) -> Name =:= BridgeName end, Bridges) of
+        [BridgeMetric | _] -> BridgeMetric;
+        [] -> ct:fail({bridge_metric_not_found, BridgeName, Body})
+    end.
+
+buffer_value(Snapshot, BridgeName) ->
+    Buffers = maps:get(buffers, Snapshot, #{}),
+    maps:fold(
+        fun
+            ({Name, _Index}, #{buffered := Value}, Acc) when Name =:= BridgeName ->
+                Acc + Value;
+            (_, _, Acc) ->
+                Acc
+        end,
+        0,
+        Buffers
+    ).
+
+buffer_bytes_value(Snapshot, BridgeName) ->
+    Buffers = maps:get(buffers, Snapshot, #{}),
+    maps:fold(
+        fun
+            ({Name, _Index}, #{buffered_bytes := Value}, Acc) when Name =:= BridgeName ->
+                Acc + Value;
+            (_, _, Acc) ->
+                Acc
+        end,
+        0,
+        Buffers
+    ).
+
+erase_buffer_pids(BridgeName, PoolSize) ->
+    lists:foreach(
+        fun(Index) ->
+            catch persistent_term:erase({emqx_bridge_mqtt_dq_buffer, BridgeName, Index})
+        end,
+        lists:seq(0, PoolSize - 1)
+    ).

@@ -113,6 +113,116 @@ Examples:
 `remote_topic` is applied when messages are sent out of the queue. After changing
 this field, queued messages use the new template after the affected bridge restarts.
 
+## REST API
+
+The plugin exposes two metrics-related endpoints under the EMQX plugin API base path:
+
+- `GET /api/v5/plugin_api/emqx_bridge_mqtt_dq/metrics` — Prometheus text format
+- `GET /api/v5/plugin_api/emqx_bridge_mqtt_dq/stats` — JSON snapshot
+
+Both endpoints return cluster-aggregated data. Metrics from reachable nodes are
+summed together. If a node is unavailable or times out during aggregation, the
+API still returns a best-effort response from the remaining nodes.
+
+Example:
+
+```bash
+curl -u admin:public \
+  http://127.0.0.1:18083/api/v5/plugin_api/emqx_bridge_mqtt_dq/metrics
+```
+
+```bash
+curl -u admin:public \
+  http://127.0.0.1:18083/api/v5/plugin_api/emqx_bridge_mqtt_dq/stats
+```
+
+### Response Shape
+
+The `/stats` response body contains:
+
+- `uptime_seconds`: maximum plugin uptime observed across the cluster
+- `bridges`: one entry per bridge
+- `buffers`: one entry per buffer worker
+- `connectors`: one entry per connector worker
+
+Example:
+
+```json
+{
+  "uptime_seconds": 123,
+  "bridges": [
+    {
+      "name": "to-cloud",
+      "matched": 1000,
+      "acked": 995,
+      "dropped": 5,
+      "dropped_by_reason": [
+        {"reason": "overflow", "dropped": 2},
+        {"reason": "retries_exhausted", "dropped": 3}
+      ]
+    }
+  ],
+  "buffers": [
+    {
+      "bridge": "to-cloud",
+      "index": 0,
+      "buffered": 12
+    }
+  ],
+  "connectors": [
+    {
+      "bridge": "to-cloud",
+      "index": 0,
+      "backlog": 3,
+      "inflight": 8
+    }
+  ]
+}
+```
+
+The `/metrics` endpoint returns Prometheus text exposition with cluster-aggregated
+series such as:
+
+- `emqx_bridge_mqtt_dq_uptime_seconds`
+- `emqx_bridge_mqtt_dq_bridge_matched_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_acked_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_dropped_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_dropped_reason_total{bridge="...",reason="..."}`
+- `emqx_bridge_mqtt_dq_buffer_buffered{bridge="...",index="..."}`
+- `emqx_bridge_mqtt_dq_connector_backlog{bridge="...",index="..."}`
+- `emqx_bridge_mqtt_dq_connector_inflight{bridge="...",index="..."}`
+
+### Metric Semantics
+
+#### Bridge Metrics
+
+- `matched`: number of local messages matched by the bridge filter and accepted into the bridge enqueue path
+- `acked`: number of messages durably acknowledged after `replayq:ack/2`
+- `dropped`: total number of messages dropped by this bridge
+- `dropped_by_reason`: drill-down of `dropped`
+
+Current drop reasons include:
+
+- `no_buffer`: buffer worker not ready when a matching message arrived
+- `overflow`: oldest queued messages discarded because the queue partition exceeded `queue.max_total_bytes`
+- `retries_exhausted`: message dropped after repeated connection-loss handling exhausted retries
+- `reason_code`: remote broker returned a non-success MQTT reason code often enough for the message to be dropped
+- `connect_failed`: message drop attributed to connection/publish failure that is not a timeout or MQTT reason code
+- `timeout`: timeout-specific drop classification
+- `other`: fallback bucket for unclassified drop causes
+
+#### Buffer Metrics
+
+- `buffered`: current number of messages stored in that durable queue partition
+
+This gauge is refreshed immediately after `replayq:open/1`, so persisted on-disk
+messages are visible even before new traffic arrives.
+
+#### Connector Metrics
+
+- `backlog`: number of messages sitting in the connector backlog queue waiting to be dispatched to `emqtt`
+- `inflight`: number of messages already handed to `emqtt` and still awaiting completion
+
 ## Configuration Change Behavior
 
 Configuration updates are applied per bridge:

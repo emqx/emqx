@@ -33,8 +33,8 @@ on_config_changed(_OldConfig, NewConfig) ->
     ok = emqx_bridge_mqtt_dq_config:update(NewConfig),
     ok = sync_bridges().
 
-on_handle_api_call(_Method, _Path, _Request, _Context) ->
-    {error, not_found}.
+on_handle_api_call(Method, Path, Request, _Context) ->
+    emqx_bridge_mqtt_dq_api:handle(Method, Path, Request).
 
 %%--------------------------------------------------------------------
 %% Internal functions
@@ -125,7 +125,13 @@ start_child(Sup, Spec) ->
 
 stop_bridge_child(Sup, Id) ->
     _ = supervisor:terminate_child(Sup, Id),
-    _ = supervisor:delete_child(Sup, Id).
+    _ = supervisor:delete_child(Sup, Id),
+    maybe_delete_metrics(Id).
+
+maybe_delete_metrics({bridge, Name}) when is_binary(Name) ->
+    ok = emqx_bridge_mqtt_dq_metrics:delete_bridge(Name);
+maybe_delete_metrics(_Id) ->
+    ok.
 
 %%--------------------------------------------------------------------
 %% Queue dir pre-flight check
