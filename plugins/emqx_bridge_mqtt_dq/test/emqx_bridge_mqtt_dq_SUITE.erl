@@ -540,12 +540,12 @@ t_sync_bridges_noop_on_same_config(Config) ->
     }),
     setup_config([Bridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    [{_, Pid1, _, _}] = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
+    [{_, Pid1, _, _}] = bridge_children(emqx_bridge_mqtt_dq_sup),
     ?assert(is_pid(Pid1)),
 
     %% Sync again with identical config — pid should be the same
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    [{_, Pid2, _, _}] = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
+    [{_, Pid2, _, _}] = bridge_children(emqx_bridge_mqtt_dq_sup),
     ?assertEqual(Pid1, Pid2),
     ok.
 
@@ -560,14 +560,14 @@ t_sync_bridges_restart_on_config_change(Config) ->
     }),
     setup_config([Bridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    [{_, Pid1, _, _}] = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
+    [{_, Pid1, _, _}] = bridge_children(emqx_bridge_mqtt_dq_sup),
     ?assert(is_pid(Pid1)),
 
     %% Change pool_size from 2 to 3
     Bridge2 = Bridge#{pool_size := 3},
     setup_config([Bridge2]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    [{_, Pid2, _, _}] = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
+    [{_, Pid2, _, _}] = bridge_children(emqx_bridge_mqtt_dq_sup),
     ?assert(is_pid(Pid2)),
     ?assertNotEqual(Pid1, Pid2),
     ok.
@@ -582,12 +582,12 @@ t_sync_bridges_remove_bridge(Config) ->
     }),
     setup_config([Bridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    ?assertMatch([_], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
+    ?assertMatch([_], bridge_children(emqx_bridge_mqtt_dq_sup)),
 
     %% Remove the bridge from config
     setup_config([]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    ?assertEqual([], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
+    ?assertEqual([], bridge_children(emqx_bridge_mqtt_dq_sup)),
     ok.
 
 -doc "sync_bridges starts a newly added bridge.".
@@ -600,7 +600,7 @@ t_sync_bridges_add_bridge(Config) ->
     }),
     setup_config([Bridge1]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    ?assertMatch([_], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
+    ?assertMatch([_], bridge_children(emqx_bridge_mqtt_dq_sup)),
 
     %% Add a second bridge
     Bridge2 = make_bridge_config(<<"add2">>, Port, #{
@@ -609,7 +609,7 @@ t_sync_bridges_add_bridge(Config) ->
     }),
     setup_config([Bridge1, Bridge2]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    Children = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
+    Children = bridge_children(emqx_bridge_mqtt_dq_sup),
     ?assertEqual(2, length(Children)),
     ok.
 
@@ -628,7 +628,7 @@ t_sync_bridges_mixed(Config) ->
     }),
     setup_config([BridgeA, BridgeB]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    ChildMap1 = child_pid_map(emqx_bridge_mqtt_dq_sup),
+    ChildMap1 = bridge_child_pid_map(emqx_bridge_mqtt_dq_sup),
     PidA1 = maps:get({bridge, <<"mx_a">>}, ChildMap1),
     PidB1 = maps:get({bridge, <<"mx_b">>}, ChildMap1),
 
@@ -640,7 +640,7 @@ t_sync_bridges_mixed(Config) ->
     }),
     setup_config([BridgeA, BridgeB2, BridgeC]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    ChildMap2 = child_pid_map(emqx_bridge_mqtt_dq_sup),
+    ChildMap2 = bridge_child_pid_map(emqx_bridge_mqtt_dq_sup),
 
     %% A: same pid
     ?assertEqual(PidA1, maps:get({bridge, <<"mx_a">>}, ChildMap2)),
@@ -662,13 +662,13 @@ t_sync_bridges_disable_bridge(Config) ->
     }),
     setup_config([Bridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    ?assertMatch([_], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
+    ?assertMatch([_], bridge_children(emqx_bridge_mqtt_dq_sup)),
 
     %% Disable the bridge
     DisabledBridge = Bridge#{enable := false},
     setup_config([DisabledBridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    ?assertEqual([], supervisor:which_children(emqx_bridge_mqtt_dq_sup)),
+    ?assertEqual([], bridge_children(emqx_bridge_mqtt_dq_sup)),
     ok.
 
 -doc "sync_bridges restarts bridge when buffer_pool_size changes.".
@@ -682,13 +682,13 @@ t_sync_bridges_buffer_pool_size_change(Config) ->
     }),
     setup_config([Bridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    [{_, Pid1, _, _}] = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
+    [{_, Pid1, _, _}] = bridge_children(emqx_bridge_mqtt_dq_sup),
 
     %% Change buffer_pool_size from 4 to 8
     Bridge2 = Bridge#{buffer_pool_size := 8},
     setup_config([Bridge2]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
-    [{_, Pid2, _, _}] = supervisor:which_children(emqx_bridge_mqtt_dq_sup),
+    [{_, Pid2, _, _}] = bridge_children(emqx_bridge_mqtt_dq_sup),
     ?assertNotEqual(Pid1, Pid2),
     ok.
 
@@ -730,8 +730,19 @@ is_metrics_child({emqx_bridge_mqtt_dq_metrics, Pid, _, _}) when is_pid(Pid) ->
 is_metrics_child(_) ->
     false.
 
-child_pid_map(Sup) ->
-    maps:from_list([{Id, Pid} || {Id, Pid, _, _} <- supervisor:which_children(Sup)]).
+bridge_children(Sup) ->
+    [
+        Child
+     || {Id, _Pid, _Type, _Mods} = Child <- supervisor:which_children(Sup), is_bridge_child_id(Id)
+    ].
+
+bridge_child_pid_map(Sup) ->
+    maps:from_list([{Id, Pid} || {Id, Pid, _, _} <- bridge_children(Sup)]).
+
+is_bridge_child_id({bridge, Name}) when is_binary(Name) ->
+    true;
+is_bridge_child_id(_) ->
+    false.
 
 make_bridge_config(Name, Port, Overrides) ->
     QueueDir = iolist_to_binary([<<"/tmp/emqx_bridge_mqtt_dq_test/">>, Name]),
