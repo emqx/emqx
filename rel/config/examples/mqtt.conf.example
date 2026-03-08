@@ -39,6 +39,9 @@ mqtt {
     ## Whether to enable support for MQTT exclusive subscription
     exclusive_subscription = false
 
+    ## Whether to enable support for EMQX subscription filters (`topic?key=value`)
+    subscription_filter = disable
+
     ## Ignore loop delivery of messages for MQTT v3.1.1/v3.1.0, similar to No Local subscription option in MQTT 5.0
     ignore_loop_deliver = false
 

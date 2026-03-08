@@ -913,6 +913,52 @@ t_publish_properties(Config) ->
     ?assertEqual(Properties, maps:get(properties, Msg1)),
     ok = emqtt:disconnect(Client1).
 
+t_subscription_filter(init, Config) ->
+    OldMode = emqx:get_config([mqtt, subscription_filter], disable),
+    [{old_subscription_filter, OldMode} | Config];
+t_subscription_filter('end', Config) ->
+    emqx_config:put([mqtt, subscription_filter], ?config(old_subscription_filter, Config)).
+t_subscription_filter(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"subscription/filter/topic">>,
+    PlainTopic = <<"subscription/filter/plain?location=roomA">>,
+    emqx_config:put([mqtt, subscription_filter], enable),
+
+    {ok, Sub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Sub),
+    {ok, Pub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Pub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(
+        Sub, <<"subscription/filter/topic?location=roomA&value>25">>, qos1
+    ),
+    ok = emqtt:publish(
+        Pub,
+        Topic,
+        #{'User-Property' => [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"30">>}]},
+        <<"miss">>,
+        [{qos, ?QOS_0}]
+    ),
+    ok = emqtt:publish(
+        Pub,
+        Topic,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
+        <<"match">>,
+        [{qos, ?QOS_0}]
+    ),
+    [Matched] = receive_messages(2),
+    ?assertEqual(<<"match">>, maps:get(payload, Matched)),
+    ok = emqtt:disconnect(Sub),
+
+    emqx_config:put([mqtt, subscription_filter], disable),
+    {ok, PlainSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(PlainSub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(PlainSub, PlainTopic, qos1),
+    ok = emqtt:publish(Pub, PlainTopic, #{}, <<"plain">>, [{qos, ?QOS_0}]),
+    [PlainMatched] = receive_messages(1),
+    ?assertEqual(<<"plain">>, maps:get(payload, PlainMatched)),
+    ok = emqtt:disconnect(PlainSub),
+    ok = emqtt:disconnect(Pub).
+
 t_publish_overlapping_subscriptions(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),

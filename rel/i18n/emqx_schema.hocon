@@ -907,6 +907,12 @@ mqtt_exclusive_subscription.desc:
 mqtt_exclusive_subscription.label:
 """Exclusive Subscription"""
 
+mqtt_subscription_filter.desc:
+"""Whether to enable support for EMQX subscription filters appended to topic filters with `?`."""
+
+mqtt_subscription_filter.label:
+"""Subscription Filter"""
+
 mqtt_retain_available.desc:
 """Whether to enable support for MQTT retained message."""
 
