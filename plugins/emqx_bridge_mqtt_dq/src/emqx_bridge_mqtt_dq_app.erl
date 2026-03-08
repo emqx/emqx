@@ -75,13 +75,16 @@ start_bridge(BridgeConfig) ->
 sync_bridges() ->
     Sup = emqx_bridge_mqtt_dq_sup,
     Bridges = emqx_bridge_mqtt_dq_config:get_bridges(),
+    DisabledBridges = maps:from_list(
+        [{bridge_id(B), B} || B <- Bridges, not maps:get(enable, B, false)]
+    ),
     DesiredSpecs = maps:from_list(
         [{bridge_id(B), bridge_child_spec(B)} || B <- Bridges, maps:get(enable, B, false)]
     ),
     CurrentChildren = supervisor:which_children(Sup),
     CurrentIds = [Id || {Id, _Pid, _Type, _Mods} <- CurrentChildren, is_bridge_child_id(Id)],
     lists:foreach(
-        fun(Id) -> sync_existing_child(Sup, Id, DesiredSpecs) end,
+        fun(Id) -> sync_existing_child(Sup, Id, DesiredSpecs, DisabledBridges) end,
         CurrentIds
     ),
     StartNew = maps:without(CurrentIds, DesiredSpecs),
@@ -96,10 +99,18 @@ is_bridge_child_id({bridge, Name}) when is_binary(Name) ->
 is_bridge_child_id(_) ->
     false.
 
-sync_existing_child(Sup, Id, DesiredSpecs) ->
+sync_existing_child(Sup, Id, DesiredSpecs, DisabledBridges) ->
     case maps:find(Id, DesiredSpecs) of
         {ok, DesiredSpec} ->
             maybe_restart_child(Sup, Id, DesiredSpec);
+        error ->
+            maybe_disable_and_purge_bridge(Sup, Id, DisabledBridges)
+    end.
+
+maybe_disable_and_purge_bridge(Sup, Id, DisabledBridges) ->
+    case maps:find(Id, DisabledBridges) of
+        {ok, BridgeConfig} ->
+            disable_and_purge_bridge(Sup, Id, BridgeConfig);
         error ->
             stop_bridge_child(Sup, Id)
     end.
@@ -133,9 +144,32 @@ stop_bridge_child(Sup, Id) ->
     _ = supervisor:delete_child(Sup, Id),
     maybe_delete_metrics(Id).
 
+disable_and_purge_bridge(Sup, Id, BridgeConfig) ->
+    stop_bridge_child(Sup, Id),
+    maybe_purge_queue(BridgeConfig).
+
 maybe_delete_metrics({bridge, Name}) when is_binary(Name) ->
     ok = emqx_bridge_mqtt_dq_metrics:delete_bridge(Name);
 maybe_delete_metrics(_Id) ->
+    ok.
+
+maybe_purge_queue(#{name := Name, queue_dir := QueueDir}) ->
+    Dir = binary_to_list(QueueDir),
+    case file:del_dir_r(Dir) of
+        ok ->
+            ok;
+        {error, enoent} ->
+            ok;
+        {error, Reason} ->
+            ?LOG(warning, #{
+                msg => "mqtt_dq_queue_purge_failed",
+                bridge => Name,
+                dir => Dir,
+                reason => Reason
+            }),
+            ok
+    end;
+maybe_purge_queue(_BridgeConfig) ->
     ok.
 
 %%--------------------------------------------------------------------

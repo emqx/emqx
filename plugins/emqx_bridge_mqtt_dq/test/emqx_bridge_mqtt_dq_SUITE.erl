@@ -655,20 +655,54 @@ t_sync_bridges_mixed(Config) ->
 -doc "sync_bridges stops a bridge when enable flips to false.".
 t_sync_bridges_disable_bridge(Config) ->
     Port = ?config(mqtt_port, Config),
+    QueueDir =
+        "/tmp/emqx_bridge_mqtt_dq_test_disable_purge_" ++ integer_to_list(erlang:system_time()),
     ensure_sup(),
     Bridge = make_bridge_config(<<"dis">>, Port, #{
         filter_topic => <<"dis/#">>,
-        remote_topic => <<"${topic}">>
+        remote_topic => <<"${topic}">>,
+        queue_dir => list_to_binary(QueueDir),
+        server => "127.0.0.1:19999"
     }),
     setup_config([Bridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
     ?assertMatch([_], bridge_children(emqx_bridge_mqtt_dq_sup)),
+    ok = emqx_bridge_mqtt_dq:hook(),
+    {ok, _} = ?block_until(#{?snk_kind := mqtt_dq_connector_connect_failed}, 10000),
+
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_disable_bridge_pub">>, port => Port}),
+    {ok, _} = emqtt:connect(Pub),
+    ok = emqtt:publish(Pub, <<"dis/a">>, <<"1">>, 0),
+
+    _ = wait_until_snapshot(
+        fun(S) -> buffer_value(S, <<"dis">>) >= 1 end,
+        5000
+    ),
+    ?assert(filelib:is_dir(QueueDir)),
 
     %% Disable the bridge
     DisabledBridge = Bridge#{enable := false},
     setup_config([DisabledBridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
     ?assertEqual([], bridge_children(emqx_bridge_mqtt_dq_sup)),
+    ?assertNot(filelib:is_dir(QueueDir)),
+    Snapshot = emqx_bridge_mqtt_dq_metrics:snapshot(),
+    ?assertEqual(false, maps:is_key(<<"dis">>, maps:get(bridges, Snapshot, #{}))),
+    ?assertEqual(
+        false,
+        lists:any(
+            fun({{BridgeName, _Index}, _Metrics}) -> BridgeName =:= <<"dis">> end,
+            maps:to_list(maps:get(buffers, Snapshot, #{}))
+        )
+    ),
+    ?assertEqual(
+        false,
+        lists:any(
+            fun({{BridgeName, _Index}, _Metrics}) -> BridgeName =:= <<"dis">> end,
+            maps:to_list(maps:get(connectors, Snapshot, #{}))
+        )
+    ),
+    ok = emqtt:disconnect(Pub),
     ok.
 
 -doc "sync_bridges restarts bridge when buffer_pool_size changes.".
