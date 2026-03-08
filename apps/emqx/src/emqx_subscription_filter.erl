@@ -21,7 +21,12 @@
 
 -export_type([mode/0, ast/0]).
 
--spec split_topic_filter(binary(), mode()) -> {binary(), no_filter | {filter, binary()}}.
+-spec split_topic_filter(
+    emqx_types:topic() | emqx_types:share(), mode()
+) -> {emqx_types:topic() | emqx_types:share(), no_filter | {filter, binary()}}.
+split_topic_filter(#share{group = Group, topic = TopicFilter}, Mode) ->
+    {BaseTopic, Filter} = split_topic_filter(TopicFilter, Mode),
+    {#share{group = Group, topic = BaseTopic}, Filter};
 split_topic_filter(TopicFilter, disable) when is_binary(TopicFilter) ->
     {TopicFilter, no_filter};
 split_topic_filter(TopicFilter, enable) when is_binary(TopicFilter) ->
@@ -35,10 +40,10 @@ split_topic_filter(TopicFilter, enable) when is_binary(TopicFilter) ->
             }
     end.
 
--spec validate_subscription(binary(), mode()) ->
+-spec validate_subscription(emqx_types:topic() | emqx_types:share(), mode()) ->
     {ok, #{
         mode := plain | filtered,
-        base_topic := binary(),
+        base_topic := emqx_types:topic() | emqx_types:share(),
         raw_expr := binary() | undefined,
         ast := ast() | undefined
     }}
@@ -58,7 +63,9 @@ validate_subscription(TopicFilter, Mode) ->
             end
     end.
 
--spec normalize_unsubscribe(binary(), mode()) -> binary().
+-spec normalize_unsubscribe(
+    emqx_types:topic() | emqx_types:share(), mode()
+) -> emqx_types:topic() | emqx_types:share().
 normalize_unsubscribe(TopicFilter, Mode) ->
     element(1, split_topic_filter(TopicFilter, Mode)).
 
