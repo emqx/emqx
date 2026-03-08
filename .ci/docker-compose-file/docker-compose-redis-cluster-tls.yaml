@@ -2,33 +2,42 @@ services:
 
   redis-cluster-tls-1: &redis-node
     container_name: redis-cluster-tls-1
+    hostname: redis-cluster-tls-1
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
     - ./redis/cluster-tls:/usr/local/etc/redis
     - ../../apps/emqx/etc/certs:/etc/certs
-    command: redis-server /usr/local/etc/redis/redis.conf
+    command: >
+      sh -c 'exec redis-server /usr/local/etc/redis/redis.conf
+      --cluster-preferred-endpoint-type hostname
+      --cluster-announce-hostname "$$HOSTNAME"'
     networks:
       - emqx_bridge
 
   redis-cluster-tls-2:
     <<: *redis-node
     container_name: redis-cluster-tls-2
+    hostname: redis-cluster-tls-2
 
   redis-cluster-tls-3:
     <<: *redis-node
     container_name: redis-cluster-tls-3
+    hostname: redis-cluster-tls-3
 
   redis-cluster-tls-4:
     <<: *redis-node
     container_name: redis-cluster-tls-4
+    hostname: redis-cluster-tls-4
 
   redis-cluster-tls-5:
     <<: *redis-node
     container_name: redis-cluster-tls-5
+    hostname: redis-cluster-tls-5
 
   redis-cluster-tls-6:
     <<: *redis-node
     container_name: redis-cluster-tls-6
+    hostname: redis-cluster-tls-6
 
   redis-cluster-tls-create:
     <<: *redis-node
