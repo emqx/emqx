@@ -469,10 +469,20 @@ validate_subscribe_topic_filter(TopicFilter, Opts) ->
             maps:get(subscription_filter, Opts, disable)
         )
     of
+        {ok, #{mode := filtered, base_topic := BaseTopic}} ->
+            ensure_filtered_topic_supported(BaseTopic);
         {ok, #{base_topic := BaseTopic}} ->
             emqx_topic:validate(BaseTopic);
         {error, malformed_filter} ->
             error({error, ?RC_TOPIC_FILTER_INVALID})
+    end.
+
+ensure_filtered_topic_supported(BaseTopic) ->
+    case is_restricted_filtered_topic(BaseTopic) of
+        true ->
+            error({error, ?RC_TOPIC_FILTER_INVALID});
+        false ->
+            emqx_topic:validate(BaseTopic)
     end.
 
 validate_unsubscribe_topic_filter(TopicFilter, Opts) ->
@@ -482,6 +492,20 @@ validate_unsubscribe_topic_filter(TopicFilter, Opts) ->
 
 normalize_topic_filter(TopicFilter, Mode) ->
     element(1, emqx_subscription_filter:split_topic_filter(TopicFilter, Mode)).
+
+%% Do not allow filter of $queue and $stream topic because otherwise
+%% the dispatcher will not be able to make progress without puback.
+%% NOTE: making queue and stream prefix aware here is ugly but most straightforward.
+is_restricted_filtered_topic(<<"$q/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(<<"$queue/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(<<"$s/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(<<"$stream/", _/binary>>) ->
+    true;
+is_restricted_filtered_topic(_) ->
+    false.
 
 -spec to_message(emqx_types:packet(), emqx_types:clientid()) -> emqx_types:message().
 to_message(Packet, ClientId) ->
