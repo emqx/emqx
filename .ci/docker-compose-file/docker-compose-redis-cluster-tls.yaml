@@ -11,6 +11,13 @@ services:
       sh -c 'exec redis-server /usr/local/etc/redis/redis.conf
       --cluster-preferred-endpoint-type hostname
       --cluster-announce-hostname "$$HOSTNAME"'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --tls --insecure --no-auth-warning -a public -p 6389 PING | grep -q PONG
+      interval: 2s
+      timeout: 5s
+      retries: 10
     networks:
       - emqx_bridge
 
@@ -42,6 +49,7 @@ services:
   redis-cluster-tls-create:
     <<: *redis-node
     container_name: redis-cluster-tls-create
+    hostname: redis-cluster-tls-create
     command: >
       redis-cli
         --cluster create
@@ -58,9 +66,15 @@ services:
         --tls
         --insecure
     depends_on:
-      - redis-cluster-tls-1
-      - redis-cluster-tls-2
-      - redis-cluster-tls-3
-      - redis-cluster-tls-4
-      - redis-cluster-tls-5
-      - redis-cluster-tls-6
+      redis-cluster-tls-1:
+        condition: service_healthy
+      redis-cluster-tls-2:
+        condition: service_healthy
+      redis-cluster-tls-3:
+        condition: service_healthy
+      redis-cluster-tls-4:
+        condition: service_healthy
+      redis-cluster-tls-5:
+        condition: service_healthy
+      redis-cluster-tls-6:
+        condition: service_healthy
