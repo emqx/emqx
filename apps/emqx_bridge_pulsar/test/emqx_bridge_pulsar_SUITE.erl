@@ -276,8 +276,8 @@ start_consumer(TestCase, PulsarTopic, TCConfig) ->
     CertsPath = emqx_common_test_helpers:deps_path(emqx, "etc/certs"),
     SSLOpts = #{
         enable => IsTLS,
-        keyfile => filename:join([CertsPath, "key.pem"]),
-        certfile => filename:join([CertsPath, "cert.pem"]),
+        keyfile => filename:join([CertsPath, "client-key.pem"]),
+        certfile => filename:join([CertsPath, "client-cert.pem"]),
         cacertfile => filename:join([CertsPath, "cacert.pem"])
     },
     Opts = #{enable_ssl => IsTLS, ssl_opts => emqx_tls_lib:to_client_opts(SSLOpts)},
