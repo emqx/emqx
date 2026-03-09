@@ -751,6 +751,9 @@ flush_client_messages(CPid) ->
         ok
     end.
 
+%% Debug helper, kept for interactive use.
+-dialyzer({nowarn_function, debug_state/1}).
+-compile({nowarn_unused_function, debug_state/1}).
 debug_state(Msg) ->
     logger:notice(
         #{

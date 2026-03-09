@@ -17,8 +17,6 @@
 
 -define(PATH, [authentication]).
 
--import(emqx_common_test_helpers, [on_exit/1]).
-
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_testcase(_TestCase, Config) ->

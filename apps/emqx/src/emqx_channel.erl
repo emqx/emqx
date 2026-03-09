@@ -1212,6 +1212,7 @@ not_nacked_by_hook({deliver, _Topic, Msg}) ->
 %% Handle Frame Error
 %%--------------------------------------------------------------------
 
+%% Packet too large on an already-established connection.
 handle_frame_error(
     Reason = #{cause := frame_too_large},
     Channel = #channel{conn_state = ConnState, conninfo = ConnInfo}
@@ -1225,33 +1226,35 @@ handle_frame_error(
         _ ->
             shutdown(ShutdownCount, Channel)
     end;
-%% Only send CONNACK with reason code `frame_too_large` for MQTT-v5.0 when connecting,
-%% otherwise DONOT send any CONNACK or DISCONNECT packet.
+%% Frame error before CONNECT is parsed (conn_state still idle).
+%% This happens when the first packet is not a valid MQTT CONNECT,
+%% e.g. an HTTP request or other non-MQTT protocol sent to the MQTT port.
+%% No CONNACK is sent because no MQTT version has been negotiated yet.
 handle_frame_error(
     Reason,
-    Channel = #channel{conn_state = ConnState, conninfo = ConnInfo}
-) when
-    is_map(Reason) andalso
-        (ConnState == idle orelse ConnState == connecting)
-->
+    Channel = #channel{conn_state = idle}
+) ->
+    shutdown(
+        shutdown_count(invalid_connect_packet, Reason, Channel),
+        Channel
+    );
+%% Frame error while parsing CONNECT.
+%% For MQTT-v5.0, reply with CONNACK carrying the appropriate reason code.
+%% For older protocol versions, silently shut down.
+handle_frame_error(
+    Reason,
+    Channel = #channel{conn_state = connecting, conninfo = ConnInfo}
+) ->
     ShutdownCount = shutdown_count(frame_error, Reason, Channel),
     ProtoVer = proto_ver(Reason, ConnInfo),
     NChannel = Channel#channel{conninfo = ConnInfo#{proto_ver => ProtoVer}},
     case ProtoVer of
         ?MQTT_PROTO_V5 ->
-            shutdown(ShutdownCount, ?CONNACK_PACKET(?RC_PACKET_TOO_LARGE), NChannel);
+            RC = frame_error_reason_code(Reason),
+            shutdown(ShutdownCount, ?CONNACK_PACKET(RC), NChannel);
         _ ->
             shutdown(ShutdownCount, NChannel)
     end;
-handle_frame_error(
-    Reason,
-    Channel = #channel{conn_state = connecting}
-) ->
-    shutdown(
-        shutdown_count(frame_error, Reason, Channel),
-        ?CONNACK_PACKET(?RC_MALFORMED_PACKET),
-        Channel
-    );
 handle_frame_error(
     Reason,
     Channel = #channel{conn_state = ConnState}
@@ -1589,6 +1592,11 @@ handle_cast(
     }
 ) ->
     ClientId = info(clientid, Channel),
+    OldInterval = maps:get(keepalive, ConnInfo, undefined),
+    ?TRACE("MQTT", "keepalive_updated", #{
+        old_keepalive => OldInterval,
+        new_keepalive => Interval
+    }),
     NKeepAlive = emqx_keepalive:update(Zone, Interval, KeepAlive),
     NConnInfo = maps:put(keepalive, Interval, ConnInfo),
     NChannel = Channel#channel{keepalive = NKeepAlive, conninfo = NConnInfo},
@@ -2087,7 +2095,9 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
         Inits ->
             UserProperty = get_user_property_as_map(ConnPkt),
             Password = get_connect_password(ConnPkt),
-            RenderCtx = ClientInfo#{user_property => UserProperty, password => Password},
+            RenderCtx = client_attrs_init_render_ctx(
+                ClientInfo#{user_property => UserProperty, password => Password}
+            ),
             Attrs0 = maps:get(client_attrs, ClientInfo, #{}),
             Attrs1 = initialize_client_attrs(Inits, RenderCtx),
             {ok, ClientInfo#{client_attrs => maps:merge(Attrs0, Attrs1)}}
@@ -2095,6 +2105,16 @@ maybe_set_client_initial_attrs(ConnPkt, #{zone := Zone} = ClientInfo) ->
 
 get_connect_password(#mqtt_packet_connect{password = Password}) ->
     Password.
+
+client_attrs_init_render_ctx(#{cn := CN} = Ctx) ->
+    client_attrs_init_render_ctx_dn(Ctx#{cert_common_name => CN});
+client_attrs_init_render_ctx(Ctx) ->
+    client_attrs_init_render_ctx_dn(Ctx).
+
+client_attrs_init_render_ctx_dn(#{dn := DN} = Ctx) ->
+    Ctx#{cert_subject => DN};
+client_attrs_init_render_ctx_dn(Ctx) ->
+    Ctx.
 
 initialize_client_attrs(Inits, #{clientid := ClientId} = ClientInfo) ->
     lists:foldl(
@@ -3478,6 +3498,9 @@ proto_ver(_Reason, #{proto_ver := ProtoVer}) ->
     ProtoVer;
 proto_ver(_, _) ->
     ?MQTT_PROTO_V4.
+
+frame_error_reason_code(#{cause := frame_too_large}) -> ?RC_PACKET_TOO_LARGE;
+frame_error_reason_code(_) -> ?RC_MALFORMED_PACKET.
 
 connect_attrs(Packet, Channel) ->
     emqx_external_trace:connect_attrs(Packet, Channel).

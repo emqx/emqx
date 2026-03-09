@@ -9,7 +9,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
--import(hoconsc, [mk/2, ref/1, ref/2, array/1]).
+-import(hoconsc, [mk/2, ref/2, array/1]).
 
 -export([
     status/2,

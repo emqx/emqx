@@ -1187,7 +1187,7 @@ t_session_gc(Config) ->
 %% durable GC timer was not cancelled or due to takeover conflict.
 t_destroy_session_with_wrong_guard(init, Config) ->
     start_local(?FUNCTION_NAME, Config).
-t_destroy_session_with_wrong_guard(Config) ->
+t_destroy_session_with_wrong_guard(_Config) ->
     %% 1. Connect client for the first time:
     ClientId = mk_clientid(?FUNCTION_NAME, sub),
     ClientSubOpts = #{clientid => ClientId},

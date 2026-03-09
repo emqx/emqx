@@ -1753,6 +1753,15 @@ handle_async_reply1(
             IsAcked andalso
                 begin
                     emqx_resource_metrics:late_reply_inc(Id),
+                    ?SLOG(
+                        warning,
+                        #{
+                            msg => "async_reply_to_expired_request",
+                            resource_id => Id,
+                            expired_count => 1
+                        },
+                        #{tag => ?TAG}
+                    ),
                     reply_dropped(Id, Query, {error, late_reply})
                 end,
             ?tp(handle_async_reply_expired, #{expired => [Query]}),
@@ -1875,6 +1884,16 @@ handle_async_batch_reply2([Inflight], ReplyContext, Results0, Now) ->
     %% evalutate metrics call here since we're not inside buffer
     %% worker
     emqx_resource_metrics:late_reply_inc(Id, NumExpired),
+    NumExpired > 0 andalso
+        ?SLOG(
+            warning,
+            #{
+                msg => "async_reply_to_expired_request",
+                resource_id => Id,
+                expired_count => NumExpired
+            },
+            #{tag => ?TAG}
+        ),
     batch_reply_dropped(Id, RealExpired, {error, late_reply}),
     case RealNotExpired of
         [] ->
