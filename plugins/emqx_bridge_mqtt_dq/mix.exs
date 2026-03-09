@@ -102,7 +102,8 @@ defmodule EMQXBridgeMqttDQ.MixProject do
         compatibility: [
           emqx: "~> #{emqx_major_minor()}"
         ],
-        description: "MQTT egress bridge plugin with durable disk queue for message persistence across restarts.",
+        description:
+          "MQTT egress bridge plugin with durable disk queue for message persistence across restarts.",
         index: "/ui"
       ]
     ]
