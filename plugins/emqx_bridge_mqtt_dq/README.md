@@ -398,6 +398,13 @@ messages can be dropped. Apply bridge-impacting changes during low traffic.
 3. Monitor Dashboard status and logs for restart/reconnect errors.
 4. For critical pipelines, validate end-to-end delivery after the change.
 
+### Changing `queue.dir`
+
+Changing `queue.dir` on an enabled bridge restarts the bridge with the new
+directory. The old directory is **not** automatically purged — it remains on
+disk as orphaned data. If the old directory is no longer needed, remove it
+manually after verifying the bridge is running on the new path.
+
 ### Changing `buffer_pool_size`
 
 The `buffer_pool_size` controls how many disk queue partitions exist per bridge.

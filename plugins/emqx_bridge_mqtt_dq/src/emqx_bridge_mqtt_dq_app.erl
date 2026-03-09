@@ -112,7 +112,9 @@ maybe_disable_and_purge_bridge(Sup, Id, DisabledBridges) ->
         {ok, BridgeConfig} ->
             disable_and_purge_bridge(Sup, Id, BridgeConfig);
         error ->
-            stop_bridge_child(Sup, Id)
+            %% Bridge removed from config entirely — purge its queue too.
+            BridgeConfig = get_bridge_config_from_spec(Sup, Id),
+            disable_and_purge_bridge(Sup, Id, BridgeConfig)
     end.
 
 maybe_restart_child(Sup, Id, DesiredSpec) ->
@@ -147,6 +149,12 @@ stop_bridge_child(Sup, Id) ->
 disable_and_purge_bridge(Sup, Id, BridgeConfig) ->
     stop_bridge_child(Sup, Id),
     maybe_purge_queue(BridgeConfig).
+
+get_bridge_config_from_spec(Sup, Id) ->
+    case supervisor:get_childspec(Sup, Id) of
+        {ok, #{start := {_, _, [BridgeConfig]}}} -> BridgeConfig;
+        _ -> #{}
+    end.
 
 maybe_delete_metrics({bridge, Name}) when is_binary(Name) ->
     ok = emqx_bridge_mqtt_dq_metrics:delete_bridge(Name);
