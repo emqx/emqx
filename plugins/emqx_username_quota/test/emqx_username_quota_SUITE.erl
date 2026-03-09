@@ -321,23 +321,25 @@ t_api_metrics(_Config) ->
         Body
     ).
 
-t_api_metrics_route_to_snapshot_owner(_Config) ->
+t_api_metrics_rebuilding(_Config) ->
     ok = meck:new(emqx_username_quota_snapshot, [non_strict, passthrough]),
     ok = meck:expect(
         emqx_username_quota_snapshot,
         request_total,
         fun(_DeadlineMs) ->
-            {ok, 7}
+            {error, {rebuilding_snapshot, <<"retry-cursor">>, []}}
         end
     ),
-    {ok, 200, Headers, Body} = emqx_username_quota_api:handle(
+    {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
         get,
         [<<"metrics">>],
         #{}
     ),
-    ?assertEqual(<<"text/plain">>, maps:get(<<"content-type">>, Headers)),
-    ?assertEqual(
-        <<"# TYPE emqx_username_count gauge\nemqx_username_count 7\n">>,
+    ?assertMatch(
+        #{
+            code := <<"SERVICE_UNAVAILABLE">>,
+            message := <<"Server is busy building snapshot, please retry">>
+        },
         Body
     ).
 
