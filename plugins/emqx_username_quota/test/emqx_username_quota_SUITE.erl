@@ -306,6 +306,21 @@ t_api_list_get_kick(_Config) ->
     ),
     ok = meck:unload(emqx_cm).
 
+t_api_metrics(_Config) ->
+    ok = emqx_username_quota:register_session(<<"alice">>, <<"a1">>),
+    ok = emqx_username_quota:register_session(<<"alice">>, <<"a2">>),
+    ok = emqx_username_quota:register_session(<<"bob">>, <<"b1">>),
+    {ok, 200, Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"metrics">>],
+        #{}
+    ),
+    ?assertEqual(<<"text/plain">>, maps:get(<<"content-type">>, Headers)),
+    ?assertEqual(
+        <<"# TYPE emqx_username_count gauge\nemqx_username_count 2\n">>,
+        Body
+    ).
+
 t_api_list_busy_with_retry_cursor(_Config) ->
     RetryCursor = <<"cursor-busy">>,
     ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),

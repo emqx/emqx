@@ -48,6 +48,7 @@ Base path: `/api/v5/plugin_api/emqx_username_quota`
 
 - `GET /quota/usernames` — list all usernames with active sessions
 - `GET /quota/usernames/:username` — get details for a single username
+- `GET /metrics` — export plugin metrics in Prometheus text format
 - `POST /kick/:username` — kick all sessions for a username
 
 ### Snapshot management
@@ -113,6 +114,14 @@ Force an immediate snapshot rebuild. Returns `200` with `{"status": "ok"}` after
 Returns details for a single username. Response fields: `username`, `used`, `limit`.
 
 Returns `404 NOT_FOUND` if the username has no active sessions.
+
+### `GET /metrics`
+
+Returns Prometheus text format metrics for the plugin.
+
+Currently exported:
+
+- `emqx_username_count` — total number of usernames with active sessions
 
 ### `POST /kick/:username`
 

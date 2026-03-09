@@ -65,6 +65,9 @@ handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
         {error, not_found} ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
     end;
+handle(get, [<<"metrics">>], _Request) ->
+    Count = emqx_username_quota_state:total_usernames(),
+    {ok, 200, #{<<"content-type">> => <<"text/plain">>}, prometheus_metrics(Count)};
 handle(post, [<<"kick">>, Username0], _Request) ->
     case emqx_username_quota_state:kick_username(Username0) of
         {ok, N} ->
@@ -202,3 +205,11 @@ error_response_503(Message, RetryCursor, Extra) ->
         retry_cursor => RetryCursor
     },
     {error, 503, #{}, Body}.
+
+prometheus_metrics(Count) ->
+    iolist_to_binary([
+        "# TYPE emqx_username_count gauge\n",
+        "emqx_username_count ",
+        integer_to_binary(Count),
+        "\n"
+    ]).

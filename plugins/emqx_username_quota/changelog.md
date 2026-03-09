@@ -8,8 +8,6 @@
   `POST /quota/overrides`, `DELETE /quota/overrides`, and `GET /quota/overrides`.
 - The `GET /quota/usernames` and `GET /quota/usernames/:username` responses now include a `limit` field
   showing the effective quota for each username.
-- The `GET /quota/usernames` and `GET /quota/usernames/:username` responses no longer return
-  a full `clientids` list.
 - Config validation now rejects `max_sessions_per_username` values less than 1
   instead of silently falling back to the default.
 - Replaced synchronous snapshot rebuild with async background build using blue/green ETS table swapping,
@@ -26,3 +24,11 @@
 - Cursor encoding now uses URL-safe base64 without padding for cleaner query strings.
 - On plugin startup, existing local sessions are bootstrapped into quota state with
   replication-watermark-based backpressure to avoid overloading core nodes.
+
+## 1.1.1
+
+- The `GET /quota/usernames` and `GET /quota/usernames/:username` responses no longer return
+  a full `clientids` list.
+- Added `GET /metrics` endpoint exposing `emqx_username_count` in Prometheus text format.
+- Added debug level log if a client is allowed during reconnect.
+- Added warnging level log if a client is not allowed due to quota limit.
