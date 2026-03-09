@@ -187,10 +187,10 @@ resolve_envs(Map) when is_map(Map) ->
     maps:map(fun(_K, V) -> resolve_envs(V) end, Map);
 resolve_envs(List) when is_list(List) ->
     [resolve_envs(Elem) || Elem <- List];
-resolve_envs(<<"${", Rest/binary>> = Original) when byte_size(Rest) > 1 ->
-    case binary:last(Rest) of
+resolve_envs(<<"${EMQXDQ_", _/binary>> = Original) ->
+    case binary:last(Original) of
         $} ->
-            VarName = binary:part(Rest, 0, byte_size(Rest) - 1),
+            VarName = binary:part(Original, 2, byte_size(Original) - 3),
             resolve_env_value(VarName, Original);
         _ ->
             Original

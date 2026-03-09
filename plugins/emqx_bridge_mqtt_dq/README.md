@@ -95,24 +95,26 @@ remotes {
 ### Environment Variable Substitution
 
 Any string value in the config file can reference an OS environment variable
-using the `${ENV_VAR_NAME}` syntax. The entire value must be the placeholder —
-partial interpolation (e.g. `"prefix-${VAR}-suffix"`) is not supported.
+using the `${EMQXDQ_*}` syntax. Only variables with the `EMQXDQ_` prefix are
+resolved — other `${...}` patterns (such as `${topic}` in `remote_topic`) are
+left untouched. The entire value must be the placeholder; partial interpolation
+(e.g. `"prefix-${EMQXDQ_VAR}-suffix"`) is not supported.
 
 Example:
 
 ```
 remotes {
   cloud {
-    server = "${MQTT_REMOTE_SERVER}"
-    username = "${MQTT_REMOTE_USER}"
-    password = "${MQTT_REMOTE_PASSWORD}"
+    server = "${EMQXDQ_REMOTE_SERVER}"
+    username = "${EMQXDQ_REMOTE_USER}"
+    password = "${EMQXDQ_REMOTE_PASSWORD}"
   }
 }
 ```
 
 If the environment variable is not set, the plugin logs an error and keeps the
-original `${...}` string as the literal value. This typically causes a
-connection failure (e.g. trying to connect to `"${MQTT_REMOTE_SERVER}"`),
+original `${EMQXDQ_...}` string as the literal value. This typically causes a
+connection failure (e.g. trying to connect to `"${EMQXDQ_REMOTE_SERVER}"`),
 which makes the misconfiguration visible in both logs and the status API.
 
 > **Warning — dynamic config updates and node-local environment variables**
@@ -124,10 +126,10 @@ which makes the misconfiguration visible in both logs and the status API.
 > missing values) for the referenced environment variables, each node will
 > resolve to a different effective config.
 >
-> Because of this, **avoid using `${...}` substitution with Dashboard, API, or
-> CLI config updates** unless you are certain that every node in the cluster
-> has the same environment variables set. For node-local secrets, prefer
-> editing the config file directly and reloading the plugin, or use a
+> Because of this, **avoid using `${EMQXDQ_...}` substitution with Dashboard,
+> API, or CLI config updates** unless you are certain that every node in the
+> cluster has the same environment variables set. For node-local secrets,
+> prefer editing the config file directly and reloading the plugin, or use a
 > consistent secret-injection mechanism (e.g. Kubernetes ConfigMaps/Secrets
 > mounted identically on all nodes).
 
