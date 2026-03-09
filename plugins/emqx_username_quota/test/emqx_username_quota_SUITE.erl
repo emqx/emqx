@@ -280,9 +280,11 @@ t_api_list_get_kick(_Config) ->
         }
     ),
     ?assertMatch(#{data := [_ | _], meta := #{}}, ListBody),
-    %% Verify list items include limit field
+    %% Verify list items include limit field only, without client ID details
     [FirstItem | _] = maps:get(data, ListBody),
     ?assert(maps:is_key(limit, FirstItem)),
+    ?assert(not maps:is_key(count, FirstItem)),
+    ?assert(not maps:is_key(clientids, FirstItem)),
     {ok, 200, _Headers2, OneBody} = emqx_username_quota_api:handle(
         get,
         [
@@ -290,8 +292,10 @@ t_api_list_get_kick(_Config) ->
         ],
         #{}
     ),
-    ?assertMatch(#{username := User, used := 2, limit := _}, OneBody),
-    ok = meck:new(emqx_cm, [non_strict, passthrough]),
+    ?assertMatch(#{username := User, used := 2, limit := _, clientids := [_, _]}, OneBody),
+    ?assert(not maps:is_key(count, OneBody)),
+    ?assertEqual([<<"c1">>, <<"c2">>], maps:get(clientids, OneBody)),
+    ok = meck:new(emqx_cm, [passthrough]),
     ok = meck:expect(emqx_cm, kick_session, fun(_ClientId) -> ok end),
     {ok, 200, _Headers3, #{kicked := 2}} = emqx_username_quota_api:handle(
         post,
@@ -302,9 +306,46 @@ t_api_list_get_kick(_Config) ->
     ),
     ok = meck:unload(emqx_cm).
 
+t_api_metrics(_Config) ->
+    ok = emqx_username_quota:register_session(<<"alice">>, <<"a1">>),
+    ok = emqx_username_quota:register_session(<<"alice">>, <<"a2">>),
+    ok = emqx_username_quota:register_session(<<"bob">>, <<"b1">>),
+    {ok, 200, Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"metrics">>],
+        #{}
+    ),
+    ?assertEqual(<<"text/plain">>, maps:get(<<"content-type">>, Headers)),
+    ?assertEqual(
+        <<"# TYPE emqx_username_count gauge\nemqx_username_count 2\n">>,
+        Body
+    ).
+
+t_api_metrics_rebuilding(_Config) ->
+    ok = meck:new(emqx_username_quota_snapshot, [passthrough]),
+    ok = meck:expect(
+        emqx_username_quota_snapshot,
+        request_total,
+        fun(_DeadlineMs) ->
+            {error, {rebuilding_snapshot, <<"retry-cursor">>, []}}
+        end
+    ),
+    {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"metrics">>],
+        #{}
+    ),
+    ?assertMatch(
+        #{
+            code := <<"SERVICE_UNAVAILABLE">>,
+            message := <<"Server is busy building snapshot, please retry">>
+        },
+        Body
+    ).
+
 t_api_list_busy_with_retry_cursor(_Config) ->
     RetryCursor = <<"cursor-busy">>,
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
@@ -329,7 +370,7 @@ t_api_list_busy_with_retry_cursor(_Config) ->
 
 t_api_list_rebuilding_with_retry_cursor(_Config) ->
     RetryCursor = <<"cursor-rebuilding">>,
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
@@ -358,10 +399,10 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
 t_api_list_rebuilding_with_partial_data(_Config) ->
     RetryCursor = <<"cursor-rebuilding-partial">>,
     PartialItems = [
-        #{username => <<"alice">>, used => 5, limit => 100, clientids => [<<"c1">>, <<"c2">>]},
-        #{username => <<"bob">>, used => 3, limit => 100, clientids => [<<"c3">>]}
+        #{username => <<"alice">>, used => 5, limit => 100},
+        #{username => <<"bob">>, used => 3, limit => 100}
     ],
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
@@ -423,7 +464,7 @@ t_api_delete_snapshot(_Config) ->
     ?assertMatch(#{status := <<"ok">>}, Body).
 
 t_api_list_invalid_cursor(_Config) ->
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
@@ -466,7 +507,7 @@ t_api_list_invalid_used_gte(_Config) ->
     ).
 
 t_api_list_not_core_node(_Config) ->
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
@@ -552,8 +593,8 @@ t_api_overrides_validation_edge_cases(_Config) ->
     ).
 
 t_cluster_watch_init_terminate(_Config) ->
-    ok = meck:new(ekka, [non_strict, passthrough]),
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(ekka, [passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(ekka, monitor, fun(membership) -> ok end),
     ok = meck:expect(ekka, unmonitor, fun(membership) -> ok end),
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),
@@ -567,8 +608,8 @@ t_cluster_watch_init_terminate(_Config) ->
     ok = emqx_username_quota_cluster_watch:terminate(normal, State).
 
 t_cluster_watch_clear_for_node(_Config) ->
-    ok = meck:new(emqx, [non_strict, passthrough]),
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(emqx, [passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     Node = 'node1@127.0.0.1',
     ok = meck:expect(emqx, running_nodes, fun() -> [Node] end),
     ok = meck:expect(emqx_username_quota_state, clear_for_node, fun(_N) -> ok end),
@@ -583,7 +624,7 @@ t_cluster_watch_clear_for_node(_Config) ->
     ?assert(meck:called(emqx_username_quota_state, clear_for_node, [Node])).
 
 t_cluster_watch_nodedown_core_and_replicant(_Config) ->
-    ok = meck:new(mria_rlog, [non_strict, passthrough]),
+    ok = meck:new(mria_rlog, [passthrough]),
     Node = 'node2@127.0.0.1',
     ok = meck:expect(mria_rlog, role, fun() -> core end),
     ?assertEqual(
@@ -595,7 +636,7 @@ t_cluster_watch_nodedown_core_and_replicant(_Config) ->
     ).
 
 t_cluster_watch_membership_events(_Config) ->
-    ok = meck:new(mria_rlog, [non_strict, passthrough]),
+    ok = meck:new(mria_rlog, [passthrough]),
     ok = meck:expect(mria_rlog, role, fun() -> replicant end),
     Node = 'node3@127.0.0.1',
     ?assertEqual(
@@ -622,10 +663,10 @@ t_cluster_watch_call_cast_code_change(_Config) ->
     ?assertEqual({ok, State}, emqx_username_quota_cluster_watch:code_change(old, State, extra)).
 
 t_cluster_watch_immediate_node_clear(_Config) ->
-    ok = meck:new(ekka, [non_strict, passthrough]),
-    ok = meck:new(emqx, [non_strict, passthrough]),
-    ok = meck:new(emqx_cm, [non_strict, passthrough]),
-    ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
+    ok = meck:new(ekka, [passthrough]),
+    ok = meck:new(emqx, [passthrough]),
+    ok = meck:new(emqx_cm, [passthrough]),
+    ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(ekka, monitor, fun(membership) -> ok end),
     ok = meck:expect(ekka, unmonitor, fun(membership) -> ok end),
     ok = meck:expect(emqx_username_quota_state, clear_self_node, fun() -> ok end),
