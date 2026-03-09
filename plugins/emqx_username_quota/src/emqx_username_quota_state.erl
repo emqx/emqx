@@ -127,7 +127,8 @@ get_username(Username) ->
             {ok, #{
                 username => Username,
                 used => Used,
-                limit => get_effective_limit(Username)
+                limit => get_effective_limit(Username),
+                clientids => list_clientids(Username)
             }}
     end.
 

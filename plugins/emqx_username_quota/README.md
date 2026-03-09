@@ -111,7 +111,7 @@ Force an immediate snapshot rebuild. Returns `200` with `{"status": "ok"}` after
 
 ### `GET /quota/usernames/:username`
 
-Returns details for a single username. Response fields: `username`, `used`, `limit`.
+Returns details for a single username. Response fields: `username`, `used`, `limit`, `clientids`.
 
 Returns `404 NOT_FOUND` if the username has no active sessions.
 
