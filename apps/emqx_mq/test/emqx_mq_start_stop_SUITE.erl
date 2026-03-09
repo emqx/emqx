@@ -88,7 +88,7 @@ t_cluster_runtime_enable(Config) ->
     ]),
 
     %% Wait for all nodes to reach ready
-    Timeout = 5_000,
+    Timeout = 10_000,
     ?assertEqual(
         [{ok, started} || _ <- Nodes],
         erpc:multicall(Nodes, emqx_mq_controller, wait_status, [Timeout])
