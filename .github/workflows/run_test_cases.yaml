@@ -31,12 +31,14 @@ env:
 
 jobs:
   eunit_and_proper:
+    if: inputs.ct-matrix != '[]'
     runs-on: ${{ github.repository_owner == 'emqx' && 'aws-ubuntu22.04-amd64' || 'ubuntu-22.04' }}
     name: "eunit_and_proper"
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJson(inputs.ct-matrix) }}
+        # GitHub validates strategy.matrix before job-level if, so keep include non-empty and let the job skip.
+        include: ${{ inputs.ct-matrix == '[]' && fromJson('[{"profile":"skip"}]') || fromJson(inputs.ct-matrix) }}
 
     defaults:
       run:
