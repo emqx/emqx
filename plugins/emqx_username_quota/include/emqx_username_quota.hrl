@@ -51,4 +51,9 @@
     count = 0 :: integer()
 }).
 
+-include_lib("emqx/include/logger.hrl").
+-define(LOG(Level, Data),
+    ?SLOG(Level, maps:merge(#{tag => "USERNAME_QUOTA", domain => [username_quota]}, (Data)))
+).
+
 -endif.
