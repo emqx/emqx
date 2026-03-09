@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MQTT DQ Dashboard</title>
+    <title>MQTT Egress Bridge With Durable Queue</title>
     <style>
       :root {
         --color-bg: #f7f9fc;
@@ -351,7 +351,7 @@
     <div class="app">
       <div class="hero">
         <div>
-          <h1>MQTT DQ Dashboard</h1>
+          <h1>MQTT Egress Bridge With Durable Queue</h1>
           <p>
             Realtime bridge, buffer, and connector stats rendered directly from the
             plugin <code>/stats</code> endpoint. This is a live operational dashboard,
@@ -428,7 +428,7 @@
                     <span class="v" id="detailDropped">0</span>
                   </div>
                   <div class="mini">
-                    <span class="k">Ack Rate</span>
+                    <span class="k">Ack Ratio</span>
                     <span class="v" id="detailAckRate">0%</span>
                   </div>
                 </div>
@@ -474,7 +474,7 @@
     <script>
       const state = {
         selectedBridge: null,
-        stats: { uptime_seconds: 0, bridges: [], buffers: [], connectors: [] }
+        stats: { uptime_seconds: 0, cluster: {}, summary: {}, bridges: [] }
       };
 
       const els = {
@@ -529,11 +529,11 @@
 
       function aggregateDroppedReasons(bridges) {
         return bridges.reduce((acc, bridge) => {
-          const reasons = Array.isArray(bridge.dropped_by_reason) ? bridge.dropped_by_reason : [];
-          reasons.forEach((entry) => {
-            const reason = String(entry.reason || "unknown");
-            const dropped = Number(entry.dropped || 0);
-            acc[reason] = (acc[reason] || 0) + dropped;
+          const reasons = bridge && typeof bridge.dropped_by_reason === "object"
+            ? bridge.dropped_by_reason
+            : {};
+          Object.entries(reasons).forEach(([reason, dropped]) => {
+            acc[String(reason || "unknown")] = (acc[String(reason || "unknown")] || 0) + Number(dropped || 0);
           });
           return acc;
         }, {});
@@ -545,15 +545,16 @@
           return {
             label: "all bridges",
             bridges: allBridges,
-            buffers: state.stats.buffers || [],
-            connectors: state.stats.connectors || []
+            buffers: allBridges.flatMap((bridge) => bridge.buffers || []),
+            connectors: allBridges.flatMap((bridge) => bridge.connectors || [])
           };
         }
+        const selected = allBridges.find((bridge) => bridge.name === state.selectedBridge);
         return {
           label: state.selectedBridge,
-          bridges: allBridges.filter((bridge) => bridge.name === state.selectedBridge),
-          buffers: (state.stats.buffers || []).filter((row) => row.bridge === state.selectedBridge),
-          connectors: (state.stats.connectors || []).filter((row) => row.bridge === state.selectedBridge)
+          bridges: selected ? [selected] : [],
+          buffers: selected ? (selected.buffers || []) : [],
+          connectors: selected ? (selected.connectors || []) : []
         };
       }
 
@@ -568,7 +569,7 @@
             <div class="bridge-item${active}" data-bridge-name="${bridge.name}">
               <div class="name">${bridge.name}</div>
               <div class="meta">
-                matched ${formatInt(bridge.matched)} | acked ${formatInt(bridge.acked)} | dropped ${formatInt(bridge.dropped)}
+                ${bridge.status} | buffered ${formatInt(bridge.buffered)} | dropped ${formatInt(bridge.dropped)}
               </div>
             </div>
           `;
@@ -625,6 +626,7 @@
         const acked = sum(scope.bridges, "acked");
         const dropped = sum(scope.bridges, "dropped");
         const ackRate = matched > 0 ? Math.round((acked / matched) * 100) : 0;
+        const cluster = state.stats.cluster || {};
 
         renderBridgeSelector(bridges);
         renderReasons(scope.bridges);
@@ -650,6 +652,7 @@
           [
             { label: "Bridge", render: (row) => row.bridge },
             { label: "Index", render: (row) => row.index },
+            { label: "Status", render: (row) => row.status || "unknown" },
             { label: "Buffered", render: (row) => formatInt(row.buffered) }
           ],
           scope.buffers,
@@ -661,6 +664,7 @@
           [
             { label: "Bridge", render: (row) => row.bridge },
             { label: "Index", render: (row) => row.index },
+            { label: "Status", render: (row) => row.status || "unknown" },
             { label: "Backlog", render: (row) => formatInt(row.backlog) },
             { label: "Inflight", render: (row) => formatInt(row.inflight) }
           ],
@@ -677,9 +681,15 @@
             throw new Error(`HTTP ${response.status}`);
           }
           state.stats = await response.json();
+          const cluster = state.stats.cluster || {};
           render();
           els.updatedPill.textContent = "updated: " + new Date().toLocaleTimeString();
-          setStatus("ok", "Connected to the realtime stats endpoint.");
+          setStatus(
+            cluster.complete === false ? "err" : "ok",
+            cluster.complete === false
+              ? "Stats loaded, but cluster aggregation is partial."
+              : "Connected to the realtime stats endpoint."
+          );
         } catch (error) {
           setStatus("err", "Failed to load stats: " + error.message);
         } finally {

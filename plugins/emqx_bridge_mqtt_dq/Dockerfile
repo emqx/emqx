@@ -10,7 +10,14 @@ RUN cd /opt/emqx/plugins && \
     mkdir -p ${PLUGIN_NAME_VSN} && \
     tar zxf ${PLUGIN_NAME_VSN}.tar.gz -C ${PLUGIN_NAME_VSN}
 
+RUN echo 'admin:public' > /opt/emqx/etc/bootstrap_api_keys.txt && \
+    chown emqx:emqx /opt/emqx/etc/bootstrap_api_keys.txt
+
 RUN cat <<EOF >> /opt/emqx/etc/base.hocon
+api_key {
+    bootstrap_file = "/opt/emqx/etc/bootstrap_api_keys.txt"
+}
+
 plugins {
     states = [
         {

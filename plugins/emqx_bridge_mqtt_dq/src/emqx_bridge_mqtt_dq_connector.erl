@@ -7,7 +7,7 @@
 
 -include("emqx_bridge_mqtt_dq.hrl").
 
--export([start_link/2, sync_metrics/1]).
+-export([start_link/2, sync_metrics/1, status/1]).
 -export([on_async_publish_ack/3]).
 
 -export([init/1, handle_cast/2, handle_info/2, handle_call/3, terminate/2]).
@@ -27,6 +27,10 @@ start_link(BridgeConfig, Index) ->
 -spec sync_metrics(pid()) -> ok.
 sync_metrics(Pid) ->
     gen_server:call(Pid, sync_metrics).
+
+-spec status(pid()) -> map().
+status(Pid) ->
+    gen_server:call(Pid, status).
 
 %% Called from emqtt process context when PUBACK/PUBREC is received
 %% or when QoS 0 message is written to TCP send buffer.
@@ -109,6 +113,8 @@ handle_cast(_Msg, State) ->
 
 handle_call(sync_metrics, _From, State) ->
     {reply, ok, update_metrics(State)};
+handle_call(status, _From, State) ->
+    {reply, #{connected => maps:get(connected, State, false)}, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
@@ -499,11 +505,15 @@ update_metrics(
         State
 ) ->
     ok = emqx_bridge_mqtt_dq_metrics:set_connector_backlog(BridgeName, Index, BacklogLen),
+    ok = emqx_bridge_mqtt_dq_metrics:set_connector_connected(
+        BridgeName, Index, bool_to_int(maps:get(connected, State, false))
+    ),
     ok = emqx_bridge_mqtt_dq_metrics:set_connector_inflight(BridgeName, Index, map_size(Inflight)),
     State.
 
 clear_metrics(#{bridge_name := BridgeName, index := Index}) ->
     ok = emqx_bridge_mqtt_dq_metrics:set_connector_backlog(BridgeName, Index, 0),
+    ok = emqx_bridge_mqtt_dq_metrics:set_connector_connected(BridgeName, Index, 0),
     ok = emqx_bridge_mqtt_dq_metrics:set_connector_inflight(BridgeName, Index, 0).
 
 normalize_drop_reason({ok, #{reason_code := _RC}}) ->
@@ -518,6 +528,11 @@ normalize_drop_reason(retries_exhausted) ->
     retries_exhausted;
 normalize_drop_reason(_Other) ->
     other.
+
+bool_to_int(true) ->
+    1;
+bool_to_int(false) ->
+    0.
 
 ensure_non_negative_backlog_len(BacklogLen) when BacklogLen >= 0 ->
     BacklogLen;

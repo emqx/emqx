@@ -115,14 +115,18 @@ this field, queued messages use the new template after the affected bridge resta
 
 ## REST API
 
-The plugin exposes two metrics-related endpoints under the EMQX plugin API base path:
+The plugin exposes four endpoints under the EMQX plugin API base path:
 
 - `GET /api/v5/plugin_api/emqx_bridge_mqtt_dq/metrics` — Prometheus text format
-- `GET /api/v5/plugin_api/emqx_bridge_mqtt_dq/stats` — JSON snapshot
+- `GET /api/v5/plugin_api/emqx_bridge_mqtt_dq/stats` — JSON dashboard snapshot
+- `GET /api/v5/plugin_api/emqx_bridge_mqtt_dq/stats/<bridge>` — one bridge only
+- `GET /api/v5/plugin_api/emqx_bridge_mqtt_dq/status` — plugin/cluster health summary
 
-Both endpoints return cluster-aggregated data. Metrics from reachable nodes are
-summed together. If a node is unavailable or times out during aggregation, the
-API still returns a best-effort response from the remaining nodes.
+All JSON endpoints return `application/json; charset=utf-8`.
+
+The JSON APIs are cluster-aggregated. If a node is unavailable or times out
+during aggregation, the API still returns best-effort data, but the response
+contains explicit cluster completeness metadata.
 
 Example:
 
@@ -136,47 +140,109 @@ curl -u admin:public \
   http://127.0.0.1:18083/api/v5/plugin_api/emqx_bridge_mqtt_dq/stats
 ```
 
-### Response Shape
+### `/stats` Response Shape
 
 The `/stats` response body contains:
 
-- `uptime_seconds`: maximum plugin uptime observed across the cluster
-- `bridges`: one entry per bridge
-- `buffers`: one entry per buffer worker
-- `connectors`: one entry per connector worker
+- `cluster`: cluster completeness and failed-node information
+- `uptime_seconds`: maximum plugin uptime observed across responding nodes
+- `summary`: totals across all configured bridges
+- `bridges`: one entry per configured bridge
 
 Example:
 
 ```json
 {
+  "cluster": {
+    "complete": true,
+    "responded_nodes": ["emqx@127.0.0.1"],
+    "failed_nodes": [],
+    "timeout_ms": 5000
+  },
   "uptime_seconds": 123,
+  "summary": {
+    "bridge_count": 1,
+    "running_bridge_count": 1,
+    "buffered": 12,
+    "backlog": 3,
+    "inflight": 8,
+    "matched": 1000,
+    "acked": 995,
+    "dropped": 5
+  },
   "bridges": [
     {
       "name": "to-cloud",
+      "config_state": "enabled",
+      "runtime_state": "running",
+      "status": "ok",
+      "status_reason": null,
       "matched": 1000,
       "acked": 995,
       "dropped": 5,
-      "dropped_by_reason": [
-        {"reason": "overflow", "dropped": 2},
-        {"reason": "retries_exhausted", "dropped": 3}
+      "dropped_by_reason": {
+        "overflow": 2,
+        "retries_exhausted": 3
+      },
+      "buffered": 12,
+      "backlog": 3,
+      "inflight": 8,
+      "buffers": [
+        {
+          "bridge": "to-cloud",
+          "index": 0,
+          "status": "running",
+          "buffered": 12
+        }
+      ],
+      "connectors": [
+        {
+          "bridge": "to-cloud",
+          "index": 0,
+          "status": "connected",
+          "backlog": 3,
+          "inflight": 8
+        }
       ]
     }
-  ],
-  "buffers": [
-    {
-      "bridge": "to-cloud",
-      "index": 0,
-      "buffered": 12
-    }
-  ],
-  "connectors": [
-    {
-      "bridge": "to-cloud",
-      "index": 0,
-      "backlog": 3,
-      "inflight": 8
-    }
   ]
+}
+```
+
+`GET /stats/<bridge>` returns:
+
+```json
+{
+  "cluster": {
+    "complete": true,
+    "responded_nodes": ["emqx@127.0.0.1"],
+    "failed_nodes": [],
+    "timeout_ms": 5000
+  },
+  "bridge": {
+    "name": "to-cloud",
+    "config_state": "enabled",
+    "runtime_state": "running",
+    "status": "ok"
+  }
+}
+```
+
+If the bridge does not exist in current config, the API returns `404`.
+
+`GET /status` returns a compact health view:
+
+```json
+{
+  "plugin": "emqx_bridge_mqtt_dq",
+  "cluster": {
+    "complete": true,
+    "responded_nodes": ["emqx@127.0.0.1"],
+    "failed_nodes": [],
+    "timeout_ms": 5000
+  },
+  "status": "ok",
+  "bridge_count": 1
 }
 ```
 
@@ -187,6 +253,7 @@ series such as:
 - `emqx_bridge_mqtt_dq_bridge_matched_total{bridge="..."}`
 - `emqx_bridge_mqtt_dq_bridge_acked_total{bridge="..."}`
 - `emqx_bridge_mqtt_dq_bridge_dropped_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_status{bridge="...",status="..."}`
 - `emqx_bridge_mqtt_dq_bridge_dropped_reason_total{bridge="...",reason="..."}`
 - `emqx_bridge_mqtt_dq_buffer_buffered{bridge="...",index="..."}`
 - `emqx_bridge_mqtt_dq_connector_backlog{bridge="...",index="..."}`
@@ -200,6 +267,9 @@ series such as:
 - `acked`: number of messages durably acknowledged after `replayq:ack/2`
 - `dropped`: total number of messages dropped by this bridge
 - `dropped_by_reason`: drill-down of `dropped`
+- `config_state`: desired bridge state from config (`enabled` or `disabled`)
+- `runtime_state`: observed worker/storage state (`running`, `degraded`, or `purged`)
+- `status`: operator-facing bridge health (`ok`, `partial`, `disconnected`, `disabled`, `error`)
 
 Current drop reasons include:
 
@@ -214,6 +284,7 @@ Current drop reasons include:
 #### Buffer Metrics
 
 - `buffered`: current number of messages stored in that durable queue partition
+- buffer row `status`: `running` when the worker is present, `missing` otherwise
 
 This gauge is refreshed immediately after `replayq:open/1`, so persisted on-disk
 messages are visible even before new traffic arrives.
@@ -222,12 +293,14 @@ messages are visible even before new traffic arrives.
 
 - `backlog`: number of messages sitting in the connector backlog queue waiting to be dispatched to `emqtt`
 - `inflight`: number of messages already handed to `emqtt` and still awaiting completion
+- connector row `status`: `connected`, `disconnected`, `partial`, `missing`, or `unknown`
 
 ## Configuration Change Behavior
 
 Configuration updates are applied per bridge:
 - Changed bridges restart.
-- Removed or disabled bridges stop.
+- Removed bridges stop.
+- Disabled bridges stop and purge their queue directory.
 - New bridges start.
 - Unchanged bridges continue running.
 

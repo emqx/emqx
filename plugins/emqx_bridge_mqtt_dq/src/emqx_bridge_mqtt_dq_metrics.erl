@@ -19,6 +19,7 @@
     set_buffered/3,
     set_buffered_bytes/3,
     set_connector_backlog/3,
+    set_connector_connected/3,
     set_connector_inflight/3,
     delete_bridge/1,
     snapshot/0
@@ -57,6 +58,9 @@ set_buffered_bytes(BridgeName, Index, Value) ->
 
 set_connector_backlog(BridgeName, Index, Value) ->
     safe_ets(fun() -> ets:insert(?TAB, {{connector, BridgeName, Index, backlog}, Value}) end).
+
+set_connector_connected(BridgeName, Index, Value) ->
+    safe_ets(fun() -> ets:insert(?TAB, {{connector, BridgeName, Index, connected}, Value}) end).
 
 set_connector_inflight(BridgeName, Index, Value) ->
     safe_ets(fun() -> ets:insert(?TAB, {{connector, BridgeName, Index, inflight}, Value}) end).
@@ -184,11 +188,21 @@ fold_row({{buffer, BridgeName, Index, buffered_bytes}, Value}, #{buffers := Buff
     BufMetrics0 = maps:get({BridgeName, Index}, Buffers, #{buffered => 0, buffered_bytes => 0}),
     Acc#{buffers := Buffers#{{BridgeName, Index} => BufMetrics0#{buffered_bytes => Value}}};
 fold_row({{connector, BridgeName, Index, backlog}, Value}, #{connectors := Connectors} = Acc) ->
-    ConnectorMetrics0 = maps:get({BridgeName, Index}, Connectors, #{backlog => 0, inflight => 0}),
+    ConnectorMetrics0 = maps:get(
+        {BridgeName, Index}, Connectors, #{backlog => 0, inflight => 0, connected => 0}
+    ),
     ConnectorMetrics1 = ConnectorMetrics0#{backlog => Value},
     Acc#{connectors := Connectors#{{BridgeName, Index} => ConnectorMetrics1}};
+fold_row({{connector, BridgeName, Index, connected}, Value}, #{connectors := Connectors} = Acc) ->
+    ConnectorMetrics0 = maps:get(
+        {BridgeName, Index}, Connectors, #{backlog => 0, inflight => 0, connected => 0}
+    ),
+    ConnectorMetrics1 = ConnectorMetrics0#{connected => Value},
+    Acc#{connectors := Connectors#{{BridgeName, Index} => ConnectorMetrics1}};
 fold_row({{connector, BridgeName, Index, inflight}, Value}, #{connectors := Connectors} = Acc) ->
-    ConnectorMetrics0 = maps:get({BridgeName, Index}, Connectors, #{backlog => 0, inflight => 0}),
+    ConnectorMetrics0 = maps:get(
+        {BridgeName, Index}, Connectors, #{backlog => 0, inflight => 0, connected => 0}
+    ),
     ConnectorMetrics1 = ConnectorMetrics0#{inflight => Value},
     Acc#{connectors := Connectors#{{BridgeName, Index} => ConnectorMetrics1}};
 fold_row(_Row, Acc) ->
@@ -203,25 +217,25 @@ get_value(Key, Default) ->
 aggregate_cluster_stats() ->
     DeadlineMs = now_millisecond() + ?SNAPSHOT_DEADLINE_MS,
     Nodes = emqx:running_nodes(),
-    NodeStats = emqx_utils:pmap(
+    NodeResults = emqx_utils:pmap(
         fun(Node) -> get_node_snapshot(Node, DeadlineMs) end, Nodes, infinity
     ),
-    lists:foldl(fun merge_snapshot/2, zero_snapshot(), NodeStats).
+    build_cluster_snapshot(NodeResults).
 
 get_node_snapshot(Node, _DeadlineMs) when Node =:= node() ->
-    local_snapshot();
+    {ok, Node, local_snapshot()};
 get_node_snapshot(Node, DeadlineMs) ->
     TimeoutMs = erlang:max(1, DeadlineMs - now_millisecond()),
     try gen_server:call({?MODULE, Node}, {snapshot_local, DeadlineMs}, TimeoutMs) of
         Snapshot when is_map(Snapshot) ->
-            normalize_snapshot(Snapshot);
+            {ok, Node, normalize_snapshot(Snapshot)};
         Other ->
             ?LOG(error, #{
                 msg => "mqtt_dq_metrics_snapshot_invalid_response",
                 node => Node,
                 response => Other
             }),
-            zero_snapshot()
+            {error, Node, invalid_response}
     catch
         exit:{timeout, _} ->
             ?LOG(error, #{
@@ -229,19 +243,19 @@ get_node_snapshot(Node, DeadlineMs) ->
                 node => Node,
                 timeout_ms => TimeoutMs
             }),
-            zero_snapshot();
+            {error, Node, timeout};
         exit:{noproc, _} ->
             ?LOG(error, #{
                 msg => "mqtt_dq_metrics_snapshot_no_process",
                 node => Node
             }),
-            zero_snapshot();
+            {error, Node, no_process};
         exit:{nodedown, _} ->
             ?LOG(error, #{
                 msg => "mqtt_dq_metrics_snapshot_node_down",
                 node => Node
             }),
-            zero_snapshot();
+            {error, Node, node_down};
         Class:Reason:Stacktrace ->
             ?LOG(error, #{
                 msg => "mqtt_dq_metrics_snapshot_failed",
@@ -250,7 +264,7 @@ get_node_snapshot(Node, DeadlineMs) ->
                 reason => Reason,
                 stacktrace => Stacktrace
             }),
-            zero_snapshot()
+            {error, Node, {Class, Reason}}
     end.
 
 normalize_snapshot(
@@ -270,6 +284,27 @@ normalize_snapshot(BadSnapshot) ->
         snapshot => BadSnapshot
     }),
     zero_snapshot().
+
+build_cluster_snapshot(NodeResults) ->
+    {RespondedNodes, FailedNodes, Aggregated} = lists:foldl(
+        fun
+            ({ok, Node, Snapshot}, {OkAcc, ErrAcc, StatsAcc}) ->
+                {[Node | OkAcc], ErrAcc, merge_snapshot(Snapshot, StatsAcc)};
+            ({error, Node, Reason}, {OkAcc, ErrAcc, StatsAcc}) ->
+                {OkAcc, [#{node => node_to_bin(Node), reason => reason_to_bin(Reason)} | ErrAcc],
+                    StatsAcc}
+        end,
+        {[], [], zero_snapshot()},
+        NodeResults
+    ),
+    Aggregated#{
+        cluster => #{
+            complete => FailedNodes =:= [],
+            responded_nodes => lists:sort([node_to_bin(Node) || Node <- RespondedNodes]),
+            failed_nodes => lists:sort(FailedNodes),
+            timeout_ms => ?SNAPSHOT_DEADLINE_MS
+        }
+    }.
 
 merge_snapshot(Stats, Acc) ->
     #{
@@ -342,11 +377,12 @@ merge_buffers(Left, Right) ->
 merge_connectors(Left, Right) ->
     maps:fold(
         fun(Id, StatsR, Acc0) ->
-            StatsL = maps:get(Id, Acc0, #{backlog => 0, inflight => 0}),
+            StatsL = maps:get(Id, Acc0, #{backlog => 0, inflight => 0, connected => 0}),
             Acc0#{
                 Id => #{
                     backlog => maps:get(backlog, StatsL, 0) + maps:get(backlog, StatsR, 0),
-                    inflight => maps:get(inflight, StatsL, 0) + maps:get(inflight, StatsR, 0)
+                    inflight => maps:get(inflight, StatsL, 0) + maps:get(inflight, StatsR, 0),
+                    connected => maps:get(connected, StatsL, 0) + maps:get(connected, StatsR, 0)
                 }
             }
         end,
@@ -359,7 +395,13 @@ zero_snapshot() ->
         uptime_seconds => 0,
         bridges => #{},
         buffers => #{},
-        connectors => #{}
+        connectors => #{},
+        cluster => #{
+            complete => true,
+            responded_nodes => [],
+            failed_nodes => [],
+            timeout_ms => ?SNAPSHOT_DEADLINE_MS
+        }
     }.
 
 refresh_live_metrics() ->
@@ -449,3 +491,15 @@ drop_reason_name(DropKey) ->
     DropKeyList = atom_to_list(DropKey),
     Reason = lists:nthtail(length(Prefix), DropKeyList),
     list_to_binary(Reason).
+
+node_to_bin(Node) when is_atom(Node) ->
+    atom_to_binary(Node, utf8);
+node_to_bin(Node) when is_binary(Node) ->
+    Node.
+
+reason_to_bin(Reason) when is_atom(Reason) ->
+    atom_to_binary(Reason, utf8);
+reason_to_bin({Class, Detail}) ->
+    iolist_to_binary(io_lib:format("~p:~p", [Class, Detail]));
+reason_to_bin(Reason) ->
+    iolist_to_binary(io_lib:format("~p", [Reason])).

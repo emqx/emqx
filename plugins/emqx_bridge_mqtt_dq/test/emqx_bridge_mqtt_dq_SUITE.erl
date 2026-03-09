@@ -368,16 +368,50 @@ t_metrics_and_api(Config) ->
     ?assertEqual(0, maps:get(dropped, bridge_metrics(Snapshot, <<"metrics">>))),
     ?assertEqual(#{}, maps:get(dropped_by_reason, bridge_metrics(Snapshot, <<"metrics">>), #{})),
 
-    {ok, 200, _, Body} = emqx_bridge_mqtt_dq_app:on_handle_api_call(get, [<<"stats">>], #{}, #{}),
+    {ok, 200, StatsHeaders, Body} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
+        get, [<<"stats">>], #{}, #{}
+    ),
+    ?assertEqual(
+        <<"application/json; charset=utf-8">>,
+        maps:get(<<"content-type">>, StatsHeaders)
+    ),
+    ?assertMatch(
+        #{
+            cluster := #{complete := true},
+            summary := #{bridge_count := 1, matched := 1, acked := 1, dropped := 0},
+            bridges := [_]
+        },
+        Body
+    ),
     ?assertMatch(
         #{
             name := <<"metrics">>,
+            config_state := enabled,
+            runtime_state := running,
+            status := ok,
             matched := 1,
             acked := 1,
             dropped := 0,
-            dropped_by_reason := []
+            dropped_by_reason := #{}
         },
         find_bridge_metric(Body, <<"metrics">>)
+    ),
+    {ok, 200, _, BridgeBody} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
+        get, [<<"stats">>, <<"metrics">>], #{}, #{}
+    ),
+    ?assertMatch(
+        #{
+            cluster := #{complete := true},
+            bridge := #{name := <<"metrics">>, status := ok, matched := 1, acked := 1}
+        },
+        BridgeBody
+    ),
+    {ok, 200, _, StatusBody} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
+        get, [<<"status">>], #{}, #{}
+    ),
+    ?assertMatch(
+        #{plugin := <<"emqx_bridge_mqtt_dq">>, status := ok, bridge_count := 1},
+        StatusBody
     ),
     {ok, 200, Headers, MetricsBody} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
         get, [<<"metrics">>], #{}, #{}
@@ -389,6 +423,7 @@ t_metrics_and_api(Config) ->
     ?assertNotEqual(
         nomatch, binary:match(MetricsBody, <<"emqx_bridge_mqtt_dq_bridge_matched_total">>)
     ),
+    ?assertNotEqual(nomatch, binary:match(MetricsBody, <<"emqx_bridge_mqtt_dq_bridge_status">>)),
     ?assertNotEqual(nomatch, binary:match(MetricsBody, <<"bridge=\"metrics\"">>)),
     {ok, 200, UiHeaders, UiBody} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
         get, [<<"ui">>], #{}, #{}
