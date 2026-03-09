@@ -429,7 +429,9 @@ t_metrics_and_api(Config) ->
         get, [<<"ui">>], #{}, #{}
     ),
     ?assertEqual(<<"text/html; charset=utf-8">>, maps:get(<<"content-type">>, UiHeaders)),
-    ?assertNotEqual(nomatch, binary:match(UiBody, <<"MQTT DQ Dashboard">>)),
+    ?assertNotEqual(
+        nomatch, binary:match(UiBody, <<"MQTT Egress Bridge With Durable Queue">>)
+    ),
 
     ok = emqtt:disconnect(Sub),
     ok = emqtt:disconnect(Pub),

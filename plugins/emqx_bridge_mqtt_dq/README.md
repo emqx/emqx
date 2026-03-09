@@ -25,6 +25,26 @@ Configure from EMQX Dashboard (recommended) or via plugin config file.
 
 For production, start with one bridge, validate traffic, then scale out.
 
+### Config File Locations
+
+There are two relevant config file locations:
+
+- Bundled default file inside the installed plugin package:
+  - docker install example for `0.2.0`:
+    `/opt/emqx/plugins/emqx_bridge_mqtt_dq-0.2.0/emqx_bridge_mqtt_dq-0.2.0/priv/config.hocon`
+  - deb/rpm install example for `0.2.0`:
+    `/usr/lib/emqx/plugins/emqx_bridge_mqtt_dq-0.2.0/emqx_bridge_mqtt_dq-0.2.0/priv/config.hocon`
+
+- Persisted plugin config file managed by EMQX after config is saved via Dashboard or API:
+  - docker:
+    `/opt/emqx/data/plugins/emqx_bridge_mqtt_dq/config.hocon`
+  - deb/rpm:
+    `/var/lib/emqx/plugins/emqx_bridge_mqtt_dq/config.hocon`
+
+The `priv/config.hocon` file is the packaged default template. The
+`data/plugins/.../config.hocon` file is the persisted plugin config location
+used after EMQX saves plugin config changes.
+
 ### Quick Start (Dashboard)
 
 1. Enable the plugin.
