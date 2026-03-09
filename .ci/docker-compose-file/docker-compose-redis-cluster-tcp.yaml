@@ -6,6 +6,13 @@ services:
     volumes:
     - ./redis/cluster-tcp:/usr/local/etc/redis
     command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --no-auth-warning -a public -p 6379 PING | grep -q PONG
+      interval: 2s
+      timeout: 5s
+      retries: 10
     networks:
       - emqx_bridge
 
@@ -34,22 +41,37 @@ services:
     <<: *redis-node
     container_name: redis-cluster-create
     command: >
-      redis-cli
-        --cluster create
-          redis-cluster-1:6379
-          redis-cluster-2:6379
-          redis-cluster-3:6379
-          redis-cluster-4:6379
-          redis-cluster-5:6379
-          redis-cluster-6:6379
-        --cluster-replicas 1
-        --cluster-yes
-        --pass "public"
-        --no-auth-warning
+      sh -c 'redis-cli
+      --cluster create
+      redis-cluster-1:6379
+      redis-cluster-2:6379
+      redis-cluster-3:6379
+      redis-cluster-4:6379
+      redis-cluster-5:6379
+      redis-cluster-6:6379
+      --cluster-replicas 1
+      --cluster-yes
+      --pass "public"
+      --no-auth-warning &&
+      touch /tmp/cluster-ready &&
+      tail -f /dev/null'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cluster-ready
+      interval: 2s
+      timeout: 5s
+      retries: 10
     depends_on:
-      - redis-cluster-1
-      - redis-cluster-2
-      - redis-cluster-3
-      - redis-cluster-4
-      - redis-cluster-5
-      - redis-cluster-6
+      redis-cluster-1:
+        condition: service_healthy
+      redis-cluster-2:
+        condition: service_healthy
+      redis-cluster-3:
+        condition: service_healthy
+      redis-cluster-4:
+        condition: service_healthy
+      redis-cluster-5:
+        condition: service_healthy
+      redis-cluster-6:
+        condition: service_healthy

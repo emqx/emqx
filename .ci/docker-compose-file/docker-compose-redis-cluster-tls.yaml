@@ -2,56 +2,98 @@ services:
 
   redis-cluster-tls-1: &redis-node
     container_name: redis-cluster-tls-1
+    hostname: redis-cluster-tls-1
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
     - ./redis/cluster-tls:/usr/local/etc/redis
-    - ../../apps/emqx/etc/certs:/etc/certs
-    command: redis-server /usr/local/etc/redis/redis.conf
+    - ./certs/server.crt:/etc/certs/cert.pem
+    - ./certs/server.key:/etc/certs/key.pem
+    - ./certs/ca.crt:/etc/certs/cacert.pem
+    - ./certs/client.pem:/etc/certs/client.pem
+    - ./certs/client.key:/etc/certs/client.key
+    command: >
+      sh -c 'exec redis-server /usr/local/etc/redis/redis.conf
+      --cluster-port 16379
+      --cluster-announce-ip "$$HOSTNAME"
+      --cluster-announce-port 6389
+      --cluster-announce-bus-port 16379
+      --tls-client-cert-file /etc/certs/client.pem
+      --tls-client-key-file /etc/certs/client.key
+      --cluster-preferred-endpoint-type hostname
+      --cluster-announce-hostname "$$HOSTNAME"'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli --tls --insecure --no-auth-warning -a public -p 6389 PING | grep -q PONG
+      interval: 2s
+      timeout: 5s
+      retries: 10
     networks:
       - emqx_bridge
 
   redis-cluster-tls-2:
     <<: *redis-node
     container_name: redis-cluster-tls-2
+    hostname: redis-cluster-tls-2
 
   redis-cluster-tls-3:
     <<: *redis-node
     container_name: redis-cluster-tls-3
+    hostname: redis-cluster-tls-3
 
   redis-cluster-tls-4:
     <<: *redis-node
     container_name: redis-cluster-tls-4
+    hostname: redis-cluster-tls-4
 
   redis-cluster-tls-5:
     <<: *redis-node
     container_name: redis-cluster-tls-5
+    hostname: redis-cluster-tls-5
 
   redis-cluster-tls-6:
     <<: *redis-node
     container_name: redis-cluster-tls-6
+    hostname: redis-cluster-tls-6
 
   redis-cluster-tls-create:
     <<: *redis-node
     container_name: redis-cluster-tls-create
+    hostname: redis-cluster-tls-create
     command: >
-      redis-cli
-        --cluster create
-          redis-cluster-tls-1:6389
-          redis-cluster-tls-2:6389
-          redis-cluster-tls-3:6389
-          redis-cluster-tls-4:6389
-          redis-cluster-tls-5:6389
-          redis-cluster-tls-6:6389
-        --cluster-replicas 1
-        --cluster-yes
-        --pass "public"
-        --no-auth-warning
-        --tls
-        --insecure
+      sh -c 'redis-cli
+      --cluster create
+      redis-cluster-tls-1:6389
+      redis-cluster-tls-2:6389
+      redis-cluster-tls-3:6389
+      redis-cluster-tls-4:6389
+      redis-cluster-tls-5:6389
+      redis-cluster-tls-6:6389
+      --cluster-replicas 1
+      --cluster-yes
+      --pass "public"
+      --no-auth-warning
+      --tls
+      --insecure &&
+      touch /tmp/cluster-ready &&
+      tail -f /dev/null'
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - test -f /tmp/cluster-ready
+      interval: 2s
+      timeout: 5s
+      retries: 10
     depends_on:
-      - redis-cluster-tls-1
-      - redis-cluster-tls-2
-      - redis-cluster-tls-3
-      - redis-cluster-tls-4
-      - redis-cluster-tls-5
-      - redis-cluster-tls-6
+      redis-cluster-tls-1:
+        condition: service_healthy
+      redis-cluster-tls-2:
+        condition: service_healthy
+      redis-cluster-tls-3:
+        condition: service_healthy
+      redis-cluster-tls-4:
+        condition: service_healthy
+      redis-cluster-tls-5:
+        condition: service_healthy
+      redis-cluster-tls-6:
+        condition: service_healthy
