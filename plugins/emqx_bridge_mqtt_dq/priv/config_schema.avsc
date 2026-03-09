@@ -16,9 +16,9 @@
               "default": false
             },
             {
-              "name": "server",
+              "name": "remote",
               "type": "string",
-              "default": "127.0.0.1:1883"
+              "default": ""
             },
             {
               "name": "proto_ver",
@@ -27,16 +27,6 @@
             },
             {
               "name": "clientid_prefix",
-              "type": "string",
-              "default": ""
-            },
-            {
-              "name": "username",
-              "type": "string",
-              "default": ""
-            },
-            {
-              "name": "password",
               "type": "string",
               "default": ""
             },
@@ -91,26 +81,6 @@
               "default": 5000
             },
             {
-              "name": "ssl",
-              "default": {"enable": false, "sni": ""},
-              "type": {
-                "type": "record",
-                "name": "SslConfig",
-                "fields": [
-                  {
-                    "name": "enable",
-                    "type": "boolean",
-                    "default": false
-                  },
-                  {
-                    "name": "sni",
-                    "type": "string",
-                    "default": ""
-                  }
-                ]
-              }
-            },
-            {
               "name": "queue",
               "default": {"dir": "", "seg_bytes": "100MB", "max_total_bytes": "1GB"},
               "type": {
@@ -131,6 +101,81 @@
                     "name": "max_total_bytes",
                     "type": "string",
                     "default": "1GB"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "default": {}
+    },
+    {
+      "name": "remotes",
+      "type": {
+        "type": "map",
+        "values": {
+          "type": "record",
+          "name": "RemoteConfig",
+          "fields": [
+            {
+              "name": "server",
+              "type": "string",
+              "default": "127.0.0.1:1883"
+            },
+            {
+              "name": "username",
+              "type": "string",
+              "default": ""
+            },
+            {
+              "name": "password",
+              "type": "string",
+              "default": ""
+            },
+            {
+              "name": "ssl",
+              "default": {
+                "enable": false,
+                "verify": "verify_none",
+                "sni": "",
+                "cacertfile": "",
+                "certfile": "",
+                "keyfile": ""
+              },
+              "type": {
+                "type": "record",
+                "name": "RemoteSslConfig",
+                "fields": [
+                  {
+                    "name": "enable",
+                    "type": "boolean",
+                    "default": false
+                  },
+                  {
+                    "name": "verify",
+                    "type": "string",
+                    "default": "verify_none"
+                  },
+                  {
+                    "name": "sni",
+                    "type": "string",
+                    "default": ""
+                  },
+                  {
+                    "name": "cacertfile",
+                    "type": "string",
+                    "default": ""
+                  },
+                  {
+                    "name": "certfile",
+                    "type": "string",
+                    "default": ""
+                  },
+                  {
+                    "name": "keyfile",
+                    "type": "string",
+                    "default": ""
                   }
                 ]
               }

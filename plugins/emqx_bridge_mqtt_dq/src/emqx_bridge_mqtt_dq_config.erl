@@ -246,18 +246,38 @@ parse_proto_ver(_) -> v4.
 parse_ssl(#{} = Raw) ->
     #{
         enable => to_boolean(get_val(<<"enable">>, Raw, false)),
+        verify => parse_verify(get_val(<<"verify">>, Raw, <<"verify_none">>)),
+        cacertfile => parse_file_path(get_val(<<"cacertfile">>, Raw, undefined)),
+        certfile => parse_file_path(get_val(<<"certfile">>, Raw, undefined)),
+        keyfile => parse_file_path(get_val(<<"keyfile">>, Raw, undefined)),
         server_name_indication => parse_sni(
             get_val(<<"sni">>, Raw, undefined)
         )
     };
 parse_ssl(_) ->
-    #{enable => false, server_name_indication => undefined}.
+    #{
+        enable => false,
+        verify => verify_none,
+        cacertfile => undefined,
+        certfile => undefined,
+        keyfile => undefined,
+        server_name_indication => undefined
+    }.
 
 parse_sni(undefined) -> undefined;
 parse_sni(<<"disable">>) -> disable;
 parse_sni(V) when is_binary(V) -> binary_to_list(V);
 parse_sni(V) when is_list(V) -> V;
 parse_sni(_) -> undefined.
+
+parse_file_path(undefined) -> undefined;
+parse_file_path(<<>>) -> undefined;
+parse_file_path(V) when is_binary(V) -> binary_to_list(V);
+parse_file_path(V) when is_list(V) -> V;
+parse_file_path(_) -> undefined.
+
+parse_verify(<<"verify_peer">>) -> verify_peer;
+parse_verify(_) -> verify_none.
 
 parse_clientid_prefix(<<>>, Name) ->
     <<"emqx-dq-", Name/binary, "-">>;

@@ -12,6 +12,8 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://127.0.0.1:18083}"
 MQTT_HOST="${MQTT_HOST:-127.0.0.1}"
 MQTT_PORT="${MQTT_PORT:-1883}"
+MQTT_USERNAME="${MQTT_USERNAME:-smoke_admin}"
+MQTT_PASSWORD="${MQTT_PASSWORD:-smoke_pass}"
 
 wait_api() {
     local _i
@@ -30,7 +32,8 @@ subscribe_capture() {
     local topic="$1"
     local timeout_s="$2"
     local outfile="$3"
-    timeout "$timeout_s" mqttx sub -h "$MQTT_HOST" -p "$MQTT_PORT" -V 5 -q 1 -t "$topic" \
+    timeout "$timeout_s" mqttx sub -h "$MQTT_HOST" -p "$MQTT_PORT" -V 5 \
+        -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" -q 1 -t "$topic" \
         --output-mode clean >"$outfile" 2>&1
 }
 
@@ -47,7 +50,8 @@ publish_and_capture() {
     local sub_pid=$!
     sleep 1
 
-    mqttx pub -h "$MQTT_HOST" -p "$MQTT_PORT" -V 5 -q 1 \
+    mqttx pub -h "$MQTT_HOST" -p "$MQTT_PORT" -V 5 \
+        -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" -q 1 \
         -t "$pub_topic" -m "$payload" >"$pub_file" 2>&1 || true
 
     local sub_rc
@@ -112,7 +116,8 @@ sub_file="$(mktemp)"
 (subscribe_capture "forwarded/other/topic" 3 "$sub_file") &
 sub_pid=$!
 sleep 1
-mqttx pub -h "$MQTT_HOST" -p "$MQTT_PORT" -V 5 -q 1 \
+mqttx pub -h "$MQTT_HOST" -p "$MQTT_PORT" -V 5 \
+    -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" -q 1 \
     -t "other/topic" -m '{"x":1}' >/dev/null 2>&1 || true
 wait "$sub_pid" || true
 no_fwd_out="$(cat "$sub_file")"

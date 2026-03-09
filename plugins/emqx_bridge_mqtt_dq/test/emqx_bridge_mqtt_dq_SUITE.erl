@@ -362,6 +362,47 @@ t_remote_config_reference(_Config) ->
     ] = emqx_bridge_mqtt_dq_config:get_bridges(),
     ok.
 
+-doc "Remote SSL file options are parsed from config and carried into bridge config.".
+t_remote_ssl_file_options(_Config) ->
+    RawConfig = #{
+        <<"bridges">> => #{
+            <<"r1">> => #{
+                <<"enable">> => true,
+                <<"remote">> => <<"tls_remote">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"filter_topic">> => <<"devices/#">>,
+                <<"remote_topic">> => <<"forwarded/${topic}">>
+            }
+        },
+        <<"remotes">> => #{
+            <<"tls_remote">> => #{
+                <<"server">> => <<"mqtt.example.com:8883">>,
+                <<"ssl">> => #{
+                    <<"enable">> => true,
+                    <<"verify">> => <<"verify_peer">>,
+                    <<"sni">> => <<"mqtt.example.com">>,
+                    <<"cacertfile">> => <<"/etc/certs/ca.pem">>,
+                    <<"certfile">> => <<"/etc/certs/client.pem">>,
+                    <<"keyfile">> => <<"/etc/certs/client.key">>
+                }
+            }
+        }
+    },
+    ok = emqx_bridge_mqtt_dq_config:update(RawConfig),
+    [
+        #{
+            ssl := #{
+                enable := true,
+                verify := verify_peer,
+                server_name_indication := "mqtt.example.com",
+                cacertfile := "/etc/certs/ca.pem",
+                certfile := "/etc/certs/client.pem",
+                keyfile := "/etc/certs/client.key"
+            }
+        }
+    ] = emqx_bridge_mqtt_dq_config:get_bridges(),
+    ok.
+
 -doc "Bridge counters and API payload reflect forwarded messages.".
 t_metrics_and_api(Config) ->
     Port = ?config(mqtt_port, Config),

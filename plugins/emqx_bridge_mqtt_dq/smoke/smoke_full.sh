@@ -15,6 +15,7 @@ PLUGIN="$PLUGIN_APP-$PLUGIN_VSN"
 BASE_URL="${BASE_URL:-http://127.0.0.1:18083}"
 LOGIN_USERNAME="${LOGIN_USERNAME:-smoke_admin}"
 LOGIN_PASSWORD="${LOGIN_PASSWORD:-smoke_pass}"
+TLS_CERT_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/etc/certs"
 
 cd "$ROOT_DIR"
 echo "[smoke] installing and starting plugin via run-plugin-dev"
@@ -52,13 +53,12 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
   "bridges": {
     "smoke": {
       "enable": true,
-      "remote": "loopback",
+      "remote": "loopback_tls",
       "proto_ver": "v4",
       "clientid_prefix": "dq_smoke",
       "clean_start": true,
       "keepalive_s": 60,
       "pool_size": 2,
-      "ssl": {"enable": false},
       "filter_topic": "devices/#",
       "remote_topic": "forwarded/${topic}",
       "remote_qos": 1,
@@ -71,11 +71,16 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
     }
   },
   "remotes": {
-    "loopback": {
-      "server": "127.0.0.1:1883",
+    "loopback_tls": {
+      "server": "127.0.0.1:8883",
       "username": "",
       "password": "",
-      "ssl": {"enable": false}
+      "ssl": {
+        "enable": true,
+        "verify": "verify_peer",
+        "sni": "localhost",
+        "cacertfile": "'"$TLS_CERT_DIR"'/cacert.pem"
+      }
     }
   }
 }')
@@ -89,5 +94,5 @@ echo "[smoke] config updated (HTTP $HTTP_CODE)"
 sleep 2
 
 echo "[smoke] running MQTT DQ Bridge smoke checks"
-LOGIN_USERNAME="$LOGIN_USERNAME" LOGIN_PASSWORD="$LOGIN_PASSWORD" \
+MQTT_USERNAME="$LOGIN_USERNAME" MQTT_PASSWORD="$LOGIN_PASSWORD" \
     ./plugins/emqx_bridge_mqtt_dq/smoke/smoke_mqtt.sh

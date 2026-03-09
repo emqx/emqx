@@ -488,7 +488,9 @@ maybe_add_credentials(Opts, Username, Password) ->
     Opts#{username => Username, password => Password}.
 
 maybe_add_ssl(Opts, Host, #{enable := true} = SslConf) ->
-    SslOpts = maybe_add_sni([], Host, SslConf),
+    SslOpts = maybe_add_verify(
+        maybe_add_cert_files(maybe_add_sni([], Host, SslConf), SslConf), SslConf
+    ),
     Opts#{ssl => true, ssl_opts => SslOpts};
 maybe_add_ssl(Opts, _Host, _) ->
     Opts.
@@ -499,6 +501,25 @@ maybe_add_sni(SslOpts, _Host, #{server_name_indication := SNI}) when is_list(SNI
     [{server_name_indication, SNI} | SslOpts];
 maybe_add_sni(SslOpts, Host, _) ->
     [{server_name_indication, Host} | SslOpts].
+
+maybe_add_cert_files(SslOpts, #{cacertfile := Cacertfile, certfile := Certfile, keyfile := Keyfile}) ->
+    add_ssl_opt_if_set(
+        keyfile,
+        Keyfile,
+        add_ssl_opt_if_set(certfile, Certfile, add_ssl_opt_if_set(cacertfile, Cacertfile, SslOpts))
+    );
+maybe_add_cert_files(SslOpts, _) ->
+    SslOpts.
+
+add_ssl_opt_if_set(_Key, undefined, SslOpts) ->
+    SslOpts;
+add_ssl_opt_if_set(Key, Value, SslOpts) ->
+    [{Key, Value} | SslOpts].
+
+maybe_add_verify(SslOpts, #{verify := Verify}) ->
+    [{verify, Verify} | SslOpts];
+maybe_add_verify(SslOpts, _) ->
+    [{verify, verify_none} | SslOpts].
 
 update_metrics(
     #{bridge_name := BridgeName, index := Index, backlog_len := BacklogLen, inflight := Inflight} =

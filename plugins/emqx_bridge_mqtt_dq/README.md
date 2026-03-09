@@ -83,6 +83,10 @@ remotes {
     password = "secret"
     ssl {
       enable = true
+      verify = verify_none
+      # cacertfile = "/path/to/ca.pem"
+      # certfile = "/path/to/client-cert.pem"
+      # keyfile = "/path/to/client-key.pem"
     }
   }
 }
@@ -124,7 +128,11 @@ remotes {
 | `username`   | string  | `""`    | Username for authentication with the remote broker.     |
 | `password`   | string  | `""`    | Password for authentication with the remote broker.     |
 | `ssl.enable` | boolean | `false` | Enable SSL/TLS for the connection to the remote broker. |
+| `ssl.verify` | string | `verify_none` | TLS verification mode. Supported values: `verify_none`, `verify_peer`. |
 | `ssl.sni`    | string  | server hostname | TLS Server Name Indication. Defaults to the server hostname. Set to `"disable"` to turn off SNI. |
+| `ssl.cacertfile` | string | —    | CA certificate file used to verify the remote broker certificate. |
+| `ssl.certfile` | string | —      | Client certificate file for mutual TLS authentication.  |
+| `ssl.keyfile` | string | —       | Client private key file for mutual TLS authentication.  |
 
 #### Queue
 
