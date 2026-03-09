@@ -71,6 +71,56 @@ jobs:
           payload: |
             {"text": "Scheduled build of ${{ matrix.profile[0] }} package for ${{ matrix.os }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
 
+  plugins:
+    if: github.repository_owner == 'emqx'
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        branch:
+          - master
+          - release-60
+          - release-61
+          - release-62
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ matrix.branch }}
+          fetch-depth: 0
+      - name: Set up environment
+        id: env
+        run: |
+          source env.sh
+          BUILDER="ghcr.io/emqx/emqx-builder/${EMQX_BUILDER_VSN}:${ELIXIR_VSN}-${OTP_VSN}-debian13"
+          echo "BUILDER=$BUILDER" >> "$GITHUB_ENV"
+      - name: build plugins
+        run: |
+          docker run --rm \
+            -v "$PWD:/emqx" \
+            -w /emqx \
+            "$BUILDER" \
+            bash -lc "git config --global --add safe.directory /emqx && make emqx-enterprise-compile && make plugins"
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: success()
+        with:
+          name: plugins-${{ matrix.branch }}
+          path: _build/plugins/*.tar.gz
+          retention-days: 7
+      - name: Send notification to Slack
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {"text": "Scheduled build of plugins for ${{ matrix.branch }} failed: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"}
+
   mac:
     runs-on: ${{ matrix.os }}
     if: github.repository_owner == 'emqx'
