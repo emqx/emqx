@@ -92,6 +92,45 @@ remotes {
 }
 ```
 
+### Environment Variable Substitution
+
+Any string value in the config file can reference an OS environment variable
+using the `${ENV_VAR_NAME}` syntax. The entire value must be the placeholder —
+partial interpolation (e.g. `"prefix-${VAR}-suffix"`) is not supported.
+
+Example:
+
+```
+remotes {
+  cloud {
+    server = "${MQTT_REMOTE_SERVER}"
+    username = "${MQTT_REMOTE_USER}"
+    password = "${MQTT_REMOTE_PASSWORD}"
+  }
+}
+```
+
+If the environment variable is not set, the plugin logs an error and keeps the
+original `${...}` string as the literal value. This typically causes a
+connection failure (e.g. trying to connect to `"${MQTT_REMOTE_SERVER}"`),
+which makes the misconfiguration visible in both logs and the status API.
+
+> **Warning — dynamic config updates and node-local environment variables**
+>
+> Environment variables are resolved at config parse time on the node that
+> parses the config. When you update the plugin config via the EMQX Dashboard,
+> REST API, or CLI, the raw config text is persisted and then re-parsed on
+> every node in the cluster. If different nodes have different values (or
+> missing values) for the referenced environment variables, each node will
+> resolve to a different effective config.
+>
+> Because of this, **avoid using `${...}` substitution with Dashboard, API, or
+> CLI config updates** unless you are certain that every node in the cluster
+> has the same environment variables set. For node-local secrets, prefer
+> editing the config file directly and reloading the plugin, or use a
+> consistent secret-injection mechanism (e.g. Kubernetes ConfigMaps/Secrets
+> mounted identically on all nodes).
+
 ### Configuration Reference
 
 #### Top Level

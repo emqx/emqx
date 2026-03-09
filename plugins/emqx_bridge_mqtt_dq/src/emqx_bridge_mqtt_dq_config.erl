@@ -36,9 +36,10 @@ name_vsn() ->
     iolist_to_binary([<<"emqx_bridge_mqtt_dq-">>, Vsn]).
 
 parse(RawConfig) when is_map(RawConfig) ->
-    RawRemotes = maps:get(<<"remotes">>, RawConfig, #{}),
+    RawConfig1 = resolve_envs(RawConfig),
+    RawRemotes = maps:get(<<"remotes">>, RawConfig1, #{}),
     Remotes = parse_remotes(RawRemotes),
-    RawBridges = maps:get(<<"bridges">>, RawConfig, #{}),
+    RawBridges = maps:get(<<"bridges">>, RawConfig1, #{}),
     Bridges = parse_bridges(RawBridges, Remotes),
     #{bridges => Bridges};
 parse(_) ->
@@ -180,6 +181,33 @@ resolve_remote(Raw, Remotes) ->
                 {ok, Remote} -> Remote;
                 error -> error(invalid_remote)
             end
+    end.
+
+resolve_envs(Map) when is_map(Map) ->
+    maps:map(fun(_K, V) -> resolve_envs(V) end, Map);
+resolve_envs(List) when is_list(List) ->
+    [resolve_envs(Elem) || Elem <- List];
+resolve_envs(<<"${", Rest/binary>> = Original) when byte_size(Rest) > 1 ->
+    case binary:last(Rest) of
+        $} ->
+            VarName = binary:part(Rest, 0, byte_size(Rest) - 1),
+            resolve_env_value(VarName, Original);
+        _ ->
+            Original
+    end;
+resolve_envs(Other) ->
+    Other.
+
+resolve_env_value(VarName, Original) ->
+    case os:getenv(binary_to_list(VarName)) of
+        false ->
+            ?LOG(error, #{
+                msg => "mqtt_dq_config_env_var_not_set",
+                env_var => VarName
+            }),
+            Original;
+        Value ->
+            list_to_binary(Value)
     end.
 
 is_valid_name(<<>>) ->

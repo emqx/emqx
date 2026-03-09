@@ -403,6 +403,56 @@ t_remote_ssl_file_options(_Config) ->
     ] = emqx_bridge_mqtt_dq_config:get_bridges(),
     ok.
 
+-doc "Config values wrapped in ${ENV_VAR} are resolved from OS environment.".
+t_config_env_var_resolution(_Config) ->
+    %% Set env vars for the test
+    true = os:putenv("MQTT_DQ_TEST_SERVER", "env.example.com:1883"),
+    true = os:putenv("MQTT_DQ_TEST_USER", "env_user"),
+    RawConfig = #{
+        <<"bridges">> => #{
+            <<"env1">> => #{
+                <<"enable">> => true,
+                <<"server">> => <<"${MQTT_DQ_TEST_SERVER}">>,
+                <<"username">> => <<"${MQTT_DQ_TEST_USER}">>,
+                <<"password">> => <<"${MQTT_DQ_TEST_UNSET_VAR}">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"filter_topic">> => <<"env/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>,
+                <<"ssl">> => #{<<"enable">> => false}
+            }
+        }
+    },
+    ok = emqx_bridge_mqtt_dq_config:update(RawConfig),
+    [
+        #{
+            name := <<"env1">>,
+            server := "env.example.com:1883",
+            username := <<"env_user">>,
+            %% Unset var keeps original string
+            password := <<"${MQTT_DQ_TEST_UNSET_VAR}">>
+        }
+    ] = emqx_bridge_mqtt_dq_config:get_bridges(),
+    %% Malformed placeholders must not crash parsing
+    MalformedConfig = #{
+        <<"bridges">> => #{
+            <<"env2">> => #{
+                <<"enable">> => true,
+                <<"server">> => <<"${">>,
+                <<"username">> => <<"${}">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"filter_topic">> => <<"env2/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>,
+                <<"ssl">> => #{<<"enable">> => false}
+            }
+        }
+    },
+    ok = emqx_bridge_mqtt_dq_config:update(MalformedConfig),
+    [#{server := "${", username := <<"${}">>}] = emqx_bridge_mqtt_dq_config:get_bridges(),
+    %% Cleanup
+    os:unsetenv("MQTT_DQ_TEST_SERVER"),
+    os:unsetenv("MQTT_DQ_TEST_USER"),
+    ok.
+
 -doc "Bridge counters and API payload reflect forwarded messages.".
 t_metrics_and_api(Config) ->
     Port = ?config(mqtt_port, Config),
