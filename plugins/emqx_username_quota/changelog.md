@@ -8,6 +8,8 @@
   `POST /quota/overrides`, `DELETE /quota/overrides`, and `GET /quota/overrides`.
 - The `GET /quota/usernames` and `GET /quota/usernames/:username` responses now include a `limit` field
   showing the effective quota for each username.
+- The `GET /quota/usernames` and `GET /quota/usernames/:username` responses no longer return
+  a full `clientids` list.
 - Config validation now rejects `max_sessions_per_username` values less than 1
   instead of silently falling back to the default.
 - Replaced synchronous snapshot rebuild with async background build using blue/green ETS table swapping,

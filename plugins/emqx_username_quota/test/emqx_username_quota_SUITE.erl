@@ -280,9 +280,11 @@ t_api_list_get_kick(_Config) ->
         }
     ),
     ?assertMatch(#{data := [_ | _], meta := #{}}, ListBody),
-    %% Verify list items include limit field
+    %% Verify list items include limit field only, without client ID details
     [FirstItem | _] = maps:get(data, ListBody),
     ?assert(maps:is_key(limit, FirstItem)),
+    ?assert(not maps:is_key(count, FirstItem)),
+    ?assert(not maps:is_key(clientids, FirstItem)),
     {ok, 200, _Headers2, OneBody} = emqx_username_quota_api:handle(
         get,
         [
@@ -291,6 +293,8 @@ t_api_list_get_kick(_Config) ->
         #{}
     ),
     ?assertMatch(#{username := User, used := 2, limit := _}, OneBody),
+    ?assert(not maps:is_key(count, OneBody)),
+    ?assert(not maps:is_key(clientids, OneBody)),
     ok = meck:new(emqx_cm, [non_strict, passthrough]),
     ok = meck:expect(emqx_cm, kick_session, fun(_ClientId) -> ok end),
     {ok, 200, _Headers3, #{kicked := 2}} = emqx_username_quota_api:handle(
@@ -358,8 +362,8 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
 t_api_list_rebuilding_with_partial_data(_Config) ->
     RetryCursor = <<"cursor-rebuilding-partial">>,
     PartialItems = [
-        #{username => <<"alice">>, used => 5, limit => 100, clientids => [<<"c1">>, <<"c2">>]},
-        #{username => <<"bob">>, used => 3, limit => 100, clientids => [<<"c3">>]}
+        #{username => <<"alice">>, used => 5, limit => 100},
+        #{username => <<"bob">>, used => 3, limit => 100}
     ],
     ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),
     ok = meck:expect(

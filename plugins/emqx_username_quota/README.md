@@ -79,7 +79,7 @@ Behavior:
 
 - Results are always sorted by session count then username.
 - Pagination is cursor-based. Omit `cursor` for the first page.
-- Each item includes `username`, realtime `used`, `limit` (effective quota), and `clientids`.
+- Each item includes `username`, realtime `used`, and `limit` (effective quota).
 - If realtime `used` differs from snapshot count, `snapshot_used` is included.
 
 Successful response shape:
@@ -110,7 +110,7 @@ Force an immediate snapshot rebuild. Returns `200` with `{"status": "ok"}` after
 
 ### `GET /quota/usernames/:username`
 
-Returns details for a single username. Response fields: `username`, `used`, `limit`, `clientids`.
+Returns details for a single username. Response fields: `username`, `used`, `limit`.
 
 Returns `404 NOT_FOUND` if the username has no active sessions.
 
