@@ -114,7 +114,8 @@ t_drop_after_max_retries(_Config) ->
 
 -doc "At most max_inflight items dispatched concurrently to emqtt.".
 t_inflight_cap_respected(_Config) ->
-    Holder = spawn_link(fun() -> hold_callbacks([]) end),
+    TestPid = self(),
+    Holder = spawn_link(fun() -> hold_callbacks(TestPid, []) end),
     meck:expect(emqtt, publish_async, fun(
         _Pid, _Topic, _Props, _Payload, _Opts, _Timeout, {Cb, Args}
     ) ->
@@ -125,7 +126,7 @@ t_inflight_cap_respected(_Config) ->
     wait_connected(),
     Ref = make_ref(),
     Conn ! {publish_batch, [make_item(I) || I <- lists:seq(1, 5)], self(), Ref},
-    timer:sleep(200),
+    wait_held_callbacks(2),
     %% Exactly 2 should be held (inflight cap)
     Holder ! {get_count, self()},
     receive
@@ -141,17 +142,23 @@ t_inflight_cap_respected(_Config) ->
 
 -doc "Inflight items lose one retry credit on client EXIT; re-dispatched after reconnect.".
 t_client_exit_decrements_retries(_Config) ->
+    TestPid = self(),
     ClientHolder = spawn(fun() -> client_holder_loop(undefined) end),
     meck:expect(emqtt, start_link, fun(_Opts) ->
         ClientHolder ! {new_client, self()},
         receive
-            {client_pid, Pid} -> {ok, Pid}
+            {client_pid, Pid} ->
+                link(Pid),
+                {ok, Pid}
         after 5000 -> {error, timeout}
         end
     end),
-    meck:expect(emqtt, connect, fun(_Pid) -> {ok, #{}} end),
+    meck:expect(emqtt, connect, fun(Pid) ->
+        TestPid ! {emqtt_connect, Pid},
+        {ok, #{}}
+    end),
     %% Hold all callbacks so items stay inflight
-    Holder = spawn_link(fun() -> hold_callbacks([]) end),
+    Holder = spawn_link(fun() -> hold_callbacks(TestPid, []) end),
     meck:expect(emqtt, publish_async, fun(
         _Pid, _Topic, _Props, _Payload, _Opts, _Timeout, {Cb, Args}
     ) ->
@@ -162,7 +169,7 @@ t_client_exit_decrements_retries(_Config) ->
     wait_connected(),
     Ref = make_ref(),
     Conn ! {publish_batch, [make_item(I) || I <- lists:seq(1, 3)], self(), Ref},
-    timer:sleep(200),
+    wait_held_callbacks(3),
     %% All 3 should be dispatched and held
     Holder ! {get_count, self()},
     receive
@@ -171,10 +178,9 @@ t_client_exit_decrements_retries(_Config) ->
     end,
     %% Kill the current fake client
     ClientHolder ! {kill_current, connection_closed},
-    timer:sleep(100),
     %% Connector reconnects (new client from holder), re-dispatches with retries-1
-    %% Wait for reconnect delay + dispatch
-    timer:sleep(6000),
+    wait_connected(7000),
+    wait_held_callbacks(3),
     %% Release all held callbacks (stale ones from dead client + new ones)
     release_until_batch_ack(Holder, Ref, 10),
     Holder ! stop,
@@ -273,15 +279,26 @@ stop_connector(Pid) ->
     end.
 
 wait_connected() ->
-    timer:sleep(500).
+    wait_connected(3000).
+
+wait_connected(Timeout) ->
+    receive
+        {emqtt_connect, _Pid} -> ok
+    after Timeout ->
+        ct:fail("connector did not connect")
+    end.
 
 setup_emqtt_mock() ->
+    TestPid = self(),
     meck:new(emqtt, [passthrough, no_link]),
     meck:expect(emqtt, start_link, fun(_Opts) ->
         Pid = spawn(fun() -> fake_client_loop() end),
         {ok, Pid}
     end),
-    meck:expect(emqtt, connect, fun(_Pid) -> {ok, #{}} end),
+    meck:expect(emqtt, connect, fun(Pid) ->
+        TestPid ! {emqtt_connect, Pid},
+        {ok, #{}}
+    end),
     meck:expect(emqtt, publish_async, fun(
         _Pid, _Topic, _Props, _Payload, _Opts, _Timeout, {Cb, Args}
     ) ->
@@ -316,13 +333,14 @@ client_holder_loop(CurrentClient) ->
     end.
 
 %% A process that holds callbacks until told to release them.
-hold_callbacks(Held) ->
+hold_callbacks(Owner, Held) ->
     receive
         {hold, Cb, Args} ->
-            hold_callbacks([{Cb, Args} | Held]);
+            Owner ! held_callback,
+            hold_callbacks(Owner, [{Cb, Args} | Held]);
         {get_count, From} ->
             From ! {count, length(Held)},
-            hold_callbacks(Held);
+            hold_callbacks(Owner, Held);
         {release_all, Result} ->
             lists:foreach(
                 fun({Cb, Args}) ->
@@ -330,9 +348,18 @@ hold_callbacks(Held) ->
                 end,
                 Held
             ),
-            hold_callbacks([]);
+            hold_callbacks(Owner, []);
         stop ->
             ok
+    end.
+
+wait_held_callbacks(0) ->
+    ok;
+wait_held_callbacks(N) ->
+    receive
+        held_callback -> wait_held_callbacks(N - 1)
+    after 3000 ->
+        ct:fail("expected ~p held callbacks", [N])
     end.
 
 %% Release held callbacks in rounds until batch_ack arrives.
@@ -340,10 +367,9 @@ release_until_batch_ack(_Holder, _Ref, 0) ->
     ct:fail("batch_ack not received after max release rounds");
 release_until_batch_ack(Holder, Ref, N) ->
     Holder ! {release_all, ok},
-    timer:sleep(300),
     receive
         {batch_ack, Ref, ok} -> ok
-    after 0 ->
+    after 300 ->
         release_until_batch_ack(Holder, Ref, N - 1)
     end.
 

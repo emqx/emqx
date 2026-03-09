@@ -143,9 +143,9 @@ parse_bridge(Name, Raw, Remotes) when is_map(Raw) ->
             max_inflight => to_pos_int(
                 get_val(<<"max_inflight">>, Raw, 32)
             ),
-            remote_qos => to_qos(get_val(<<"remote_qos">>, Raw, 1)),
-            remote_retain => to_boolean(
-                get_val(<<"remote_retain">>, Raw, false)
+            remote_qos => parse_remote_qos(get_val(<<"remote_qos">>, Raw, <<"${qos}">>)),
+            remote_retain => parse_remote_retain(
+                get_val(<<"remote_retain">>, Raw, <<"${retain}">>)
             ),
             queue_dir => parse_queue_dir(get_val(<<"queue">>, Raw, #{}), Name),
             seg_bytes => parse_bytes(
@@ -265,6 +265,12 @@ to_qos(1) -> 1;
 to_qos(2) -> 2;
 to_qos(V) when is_binary(V) -> to_qos(binary_to_integer(V));
 to_qos(_) -> 1.
+
+parse_remote_qos(<<"${qos}">>) -> '${qos}';
+parse_remote_qos(V) -> to_qos(V).
+
+parse_remote_retain(<<"${retain}">>) -> '${retain}';
+parse_remote_retain(V) -> to_boolean(V).
 
 parse_proto_ver(<<"v3">>) -> v3;
 parse_proto_ver(<<"v4">>) -> v4;

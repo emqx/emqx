@@ -143,11 +143,13 @@ t_connector_down_salvages_inflight(Config) ->
     {_Ref, _Items} = receive_publish_batch(2000),
     %% Kill the fake connector child directly so buffer gets DOWN
     [{_, ConnChild, _, _} | _] = supervisor:which_children(ConnSup),
+    MRef = monitor(process, ConnChild),
     exit(ConnChild, kill),
-    timer:sleep(200),
-    %% Buffer will retry_conn after 1s and find the restarted child
-    %% (supervisor restarts it automatically)
-    timer:sleep(1500),
+    receive
+        {'DOWN', MRef, process, ConnChild, _} -> ok
+    after 2000 ->
+        ct:fail("connector child did not stop")
+    end,
     %% Buffer should re-send the salvaged batch
     {Ref2, Items2} = receive_publish_batch(3000),
     ?assertEqual(3, length(Items2)),
@@ -211,22 +213,14 @@ t_disk_persistence_across_restart(Config) ->
     ok = filelib:ensure_dir(binary_to_list(QueueDir) ++ "/0/dummy"),
     {ok, Buf1} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf1),
-    lists:foreach(
-        fun(I) ->
-            emqx_bridge_mqtt_dq_buffer:enqueue(Buf1, make_item(I), no_ack)
-        end,
-        lists:seq(1, 5)
-    ),
-    timer:sleep(200),
-    exit(Buf1, shutdown),
-    timer:sleep(200),
+    enqueue_items_and_wait(Buf1, [make_item(I) || I <- lists:seq(1, 5)]),
+    stop_buffer(Buf1),
     catch persistent_term:erase({emqx_bridge_mqtt_dq_buffer, BridgeName, 0}),
 
     %% Phase 2: start a fake connector, then restart buffer — should replay
     {_ConnSup, _ConnPid} = start_fake_conn_sup(BridgeName, 1),
     {ok, Buf2} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf2),
-    timer:sleep(1500),
     AllItems = drain_publish_batches(Buf2, 3000),
     ?assertEqual(5, length(AllItems)),
     exit(Buf2, shutdown),
@@ -265,7 +259,6 @@ start_buffer_with_fake_conn(Config, BridgeName, Overrides) ->
     ok = filelib:ensure_dir(binary_to_list(QueueDir) ++ "/0/dummy"),
     {ok, Buf} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf),
-    timer:sleep(200),
     {Buf, ConnSup}.
 
 %% Start a fake conn_sup with the expected registered name.
@@ -327,6 +320,29 @@ drain_publish_batches(BufPid, Timeout, Acc) ->
             drain_publish_batches(BufPid, Timeout, Acc ++ Items)
     after Timeout ->
         Acc
+    end.
+
+enqueue_items_and_wait(Buf, Items) ->
+    lists:foreach(
+        fun(Item) ->
+            Alias = alias([reply]),
+            emqx_bridge_mqtt_dq_buffer:enqueue(Buf, Item, Alias),
+            receive
+                {Alias, ok} -> ok
+            after 2000 ->
+                ct:fail("enqueue ack not received")
+            end
+        end,
+        Items
+    ).
+
+stop_buffer(Pid) ->
+    MRef = monitor(process, Pid),
+    exit(Pid, shutdown),
+    receive
+        {'DOWN', MRef, process, Pid, _} -> ok
+    after 5000 ->
+        ct:fail("buffer did not stop")
     end.
 
 cleanup_persistent_terms() ->

@@ -67,8 +67,8 @@ bridges {
     pool_size = 4
     filter_topic = "devices/#"
     remote_topic = "fwd/${topic}"
-    remote_qos = 1
-    remote_retain = false
+    remote_qos = "${qos}"
+    remote_retain = "${retain}"
     queue {
       seg_bytes = "100MB"
       max_total_bytes = "1GB"
@@ -158,8 +158,8 @@ which makes the misconfiguration visible in both logs and the status API.
 | `remote_topic`    | string  | —       | Target topic template. Use `${topic}` for the original topic.              |
 | `enqueue_timeout_ms` | integer | `5000` | Max time (ms) to block waiting for disk queue confirmation. Only applies to QoS > 0; QoS 0 is always async. |
 | `max_inflight`    | integer | `32`    | Maximum unacknowledged messages per connection to the remote broker. Controls batch pop size from disk queue and emqtt send window. |
-| `remote_qos`      | integer | `1`     | QoS level for publishing to the remote broker (0, 1, or 2).                |
-| `remote_retain`   | boolean | `false` | Retain flag for publishing to the remote broker.                            |
+| `remote_qos`      | integer or `"${qos}"` | `"${qos}"` | QoS level for publishing to the remote broker (0, 1, or 2). The default `"${qos}"` preserves the original message's QoS. |
+| `remote_retain`   | boolean or `"${retain}"` | `"${retain}"` | Retain flag for publishing to the remote broker. The default `"${retain}"` preserves the original message's retain flag. |
 
 #### Remote (`remotes.<name>`)
 

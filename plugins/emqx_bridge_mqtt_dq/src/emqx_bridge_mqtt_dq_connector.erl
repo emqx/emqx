@@ -214,12 +214,20 @@ dispatch_one(SeqNo, Item, State) ->
         client_pid := ClientPid,
         bridge_config := #{
             remote_topic := TopicTpl,
-            remote_qos := QoS,
-            remote_retain := Retain
+            remote_qos := QoSConf,
+            remote_retain := RetainConf
         }
     } = State,
-    #{topic := OrigTopic, payload := Payload, properties := Props} = Item,
+    #{
+        topic := OrigTopic,
+        payload := Payload,
+        qos := OrigQoS,
+        retain := OrigRetain,
+        properties := Props
+    } = Item,
     Topic = render_topic(TopicTpl, OrigTopic),
+    QoS = resolve_qos(QoSConf, OrigQoS),
+    Retain = resolve_retain(RetainConf, OrigRetain),
     PubOpts = [{qos, QoS}, {retain, Retain}],
     Callback = {fun ?MODULE:on_async_publish_ack/3, [self(), SeqNo]},
     ok = emqtt:publish_async(ClientPid, Topic, Props, Payload, PubOpts, infinity, Callback).
@@ -429,6 +437,12 @@ render_topic(<<"${topic}">>, OrigTopic) ->
     OrigTopic;
 render_topic(Template, OrigTopic) ->
     binary:replace(Template, <<"${topic}">>, OrigTopic, [global]).
+
+resolve_qos('${qos}', OrigQoS) -> OrigQoS;
+resolve_qos(QoS, _OrigQoS) -> QoS.
+
+resolve_retain('${retain}', OrigRetain) -> OrigRetain;
+resolve_retain(Retain, _OrigRetain) -> Retain.
 
 %%--------------------------------------------------------------------
 %% Internal: connection helpers

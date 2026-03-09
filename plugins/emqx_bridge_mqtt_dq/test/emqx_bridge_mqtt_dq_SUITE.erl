@@ -27,7 +27,8 @@ init_per_suite(Config) ->
                     }
                 }
             }},
-            emqx_conf
+            emqx_conf,
+            emqx_retainer
         ],
         #{work_dir => emqx_cth_suite:work_dir(Config)}
     ),
@@ -101,15 +102,12 @@ t_basic_forward(Config) ->
 
     %% Register the hook
     ok = emqx_bridge_mqtt_dq:hook(),
-
-    %% Allow connectors to establish connection
-    timer:sleep(500),
+    wait_bridge_connected(<<"basic">>),
 
     %% Subscribe to the sink topic
     {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"test/sink/#">>, 1),
-    timer:sleep(100),
 
     %% Publish a message to source topic
     {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub">>, port => Port}),
@@ -126,6 +124,79 @@ t_basic_forward(Config) ->
     exit(BridgeSup, shutdown),
     ok.
 
+-doc "Original QoS and retain flag are preserved when remote_qos=${qos} and remote_retain=${retain}.".
+t_preserve_qos_and_retain(Config) ->
+    Port = ?config(mqtt_port, Config),
+    BridgeConfig = make_bridge_config(<<"preserve">>, Port, #{
+        filter_topic => <<"pqr/#">>,
+        remote_topic => <<"sink/${topic}">>,
+        remote_qos => '${qos}',
+        remote_retain => '${retain}'
+    }),
+    setup_config([BridgeConfig]),
+
+    {ok, BridgeSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(BridgeConfig),
+    true = unlink(BridgeSup),
+    ok = emqx_bridge_mqtt_dq:hook(),
+    wait_bridge_connected(<<"preserve">>),
+
+    %% Subscribe at QoS 2 so the subscriber can receive any QoS level
+    {ok, Sub} = emqtt:start_link(#{clientid => <<"test_pqr_sub">>, port => Port}),
+    {ok, _} = emqtt:connect(Sub),
+    {ok, _, [2]} = emqtt:subscribe(Sub, <<"sink/pqr/#">>, 2),
+
+    {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pqr_pub">>, port => Port}),
+    {ok, _} = emqtt:connect(Pub),
+
+    %% Publish QoS 0, retain false
+    ok = emqtt:publish(Pub, <<"pqr/a">>, <<"q0">>, 0),
+    %% Publish QoS 1, retain false
+    {ok, _} = emqtt:publish(Pub, <<"pqr/b">>, <<"q1">>, 1),
+    %% Publish QoS 1, retain true
+    {ok, _} = emqtt:publish(Pub, <<"pqr/c">>, #{}, <<"q1r">>, [{qos, 1}, {retain, true}]),
+
+    Received = receive_messages(3, 5000),
+    ?assertEqual(3, length(Received), "Expected 3 forwarded messages"),
+
+    MsgA = find_by_topic(Received, <<"sink/pqr/a">>),
+    MsgB = find_by_topic(Received, <<"sink/pqr/b">>),
+
+    ?assertEqual(0, maps:get(qos, maps:get(msg, MsgA))),
+    ?assertEqual(false, maps:get(retain, maps:get(msg, MsgA))),
+
+    ?assertEqual(1, maps:get(qos, maps:get(msg, MsgB))),
+    ?assertEqual(false, maps:get(retain, maps:get(msg, MsgB))),
+
+    %% Verify retain was preserved: subscribe AFTER publish so the broker
+    %% delivers the stored retained message (MQTT sets retain=true only
+    %% for retained message delivery upon subscription, not for live delivery).
+    %% Wait for bridge acks to ensure the retained publish has been stored.
+    _ = wait_until_snapshot(
+        fun(S) ->
+            case bridge_metrics(S, <<"preserve">>) of
+                #{acked := N} when N >= 3 -> true;
+                _ -> false
+            end
+        end,
+        5000
+    ),
+    ok = emqtt:disconnect(Sub),
+    {ok, Sub2} = emqtt:start_link(#{clientid => <<"test_pqr_sub2">>, port => Port}),
+    {ok, _} = emqtt:connect(Sub2),
+    {ok, _, [2]} = emqtt:subscribe(Sub2, <<"sink/pqr/c">>, 2),
+    RetainedMsgs = receive_messages(1, 3000),
+    ?assertMatch([#{topic := <<"sink/pqr/c">>, payload := <<"q1r">>}], RetainedMsgs),
+    [RetainedMsg] = RetainedMsgs,
+    ?assertEqual(true, maps:get(retain, maps:get(msg, RetainedMsg))),
+
+    %% Clean up retained message
+    ok = emqtt:publish(Pub, <<"sink/pqr/c">>, #{}, <<>>, [{qos, 0}, {retain, true}]),
+
+    ok = emqtt:disconnect(Sub2),
+    ok = emqtt:disconnect(Pub),
+    exit(BridgeSup, shutdown),
+    ok.
+
 -doc "Message on non-matching topic is not forwarded.".
 t_topic_filter_no_match(Config) ->
     Port = ?config(mqtt_port, Config),
@@ -138,13 +209,12 @@ t_topic_filter_no_match(Config) ->
     {ok, BridgeSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(BridgeConfig),
     true = unlink(BridgeSup),
     ok = emqx_bridge_mqtt_dq:hook(),
-    timer:sleep(500),
+    wait_bridge_connected(<<"nomatch">>),
 
     %% Subscribe to forwarded topics
     {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub2">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"forwarded/#">>, 1),
-    timer:sleep(100),
 
     %% Publish to a non-matching topic
     {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub2">>, port => Port}),
@@ -178,13 +248,13 @@ t_multiple_bridges(Config) ->
     {ok, Sup2} = emqx_bridge_mqtt_dq_bridge_sup:start_link(Bridge2),
     true = unlink(Sup2),
     ok = emqx_bridge_mqtt_dq:hook(),
-    timer:sleep(500),
+    wait_bridge_connected(<<"multi1">>),
+    wait_bridge_connected(<<"multi2">>),
 
     {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub4">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"sink_a/#">>, 1),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"sink_b/#">>, 1),
-    timer:sleep(100),
 
     {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub4">>, port => Port}),
     {ok, _} = emqtt:connect(Pub),
@@ -266,7 +336,6 @@ t_disk_queue_persistence(Config) ->
     {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub5">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"persist/#">>, 1),
-    timer:sleep(100),
 
     %% Start good bridge pointing to local broker
     Server = "127.0.0.1:" ++ integer_to_list(Port),
@@ -275,6 +344,7 @@ t_disk_queue_persistence(Config) ->
     {ok, GoodSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(GoodConfig),
     true = unlink(GoodSup),
     ok = emqx_bridge_mqtt_dq:hook(),
+    wait_bridge_connected(<<"persist">>),
 
     %% Wait for replay and delivery
     Received = receive_messages(5, 5000),
@@ -297,12 +367,11 @@ t_per_topic_ordering(Config) ->
     {ok, BridgeSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(BridgeConfig),
     true = unlink(BridgeSup),
     ok = emqx_bridge_mqtt_dq:hook(),
-    timer:sleep(500),
+    wait_bridge_connected(<<"order">>),
 
     {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub6">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"order/#">>, 1),
-    timer:sleep(100),
 
     %% Publish 10 messages to the same topic in order
     {ok, Pub} = emqtt:start_link(#{clientid => <<"test_pub6">>, port => Port}),
@@ -479,12 +548,11 @@ t_metrics_and_api(Config) ->
     {ok, BridgeSup} = emqx_bridge_mqtt_dq_bridge_sup:start_link(Bridge),
     true = unlink(BridgeSup),
     ok = emqx_bridge_mqtt_dq:hook(),
-    timer:sleep(500),
+    wait_bridge_connected(<<"metrics">>),
 
     {ok, Sub} = emqtt:start_link(#{clientid => <<"test_metrics_sub">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
     {ok, _, [1]} = emqtt:subscribe(Sub, <<"sink/metrics/#">>, 1),
-    timer:sleep(100),
 
     {ok, Pub} = emqtt:start_link(#{clientid => <<"test_metrics_pub">>, port => Port}),
     {ok, _} = emqtt:connect(Pub),
@@ -637,8 +705,7 @@ t_buffered_reported_immediately_after_open(Config) ->
         5000
     ),
 
-    exit(BadSup1, shutdown),
-    timer:sleep(200),
+    stop_bridge_sup(BadSup1),
     erase_buffer_pids(<<"buffered_open">>, maps:get(buffer_pool_size, Bridge)),
     ok = emqx_bridge_mqtt_dq_metrics:reset(),
 
@@ -972,8 +1039,8 @@ make_bridge_config(Name, Port, Overrides) ->
         filter_topic => <<"#">>,
         remote_topic => <<"${topic}">>,
         enqueue_timeout_ms => 5000,
-        remote_qos => 1,
-        remote_retain => false,
+        remote_qos => '${qos}',
+        remote_retain => '${retain}',
         queue_dir => QueueDir,
         seg_bytes => 1048576,
         max_total_bytes => 10485760
@@ -1015,9 +1082,24 @@ wait_until_snapshot(CheckFun, TimeoutMs, Started) ->
                 true ->
                     ct:fail({snapshot_timeout, Snapshot});
                 false ->
-                    timer:sleep(100),
+                    receive
+                    after 100 -> ok
+                    end,
                     wait_until_snapshot(CheckFun, TimeoutMs, Started)
             end
+    end.
+
+wait_bridge_connected(BridgeName) ->
+    {ok, _} =
+        ?block_until(#{?snk_kind := mqtt_dq_connector_connected, bridge := BridgeName}, 10000).
+
+stop_bridge_sup(Pid) ->
+    MRef = monitor(process, Pid),
+    exit(Pid, shutdown),
+    receive
+        {'DOWN', MRef, process, Pid, _} -> ok
+    after 5000 ->
+        ct:fail("bridge supervisor did not stop")
     end.
 
 bridge_metrics(Snapshot, BridgeName) ->
@@ -1025,6 +1107,12 @@ bridge_metrics(Snapshot, BridgeName) ->
     maps:get(BridgeName, Bridges, #{
         matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}
     }).
+
+find_by_topic(Messages, Topic) ->
+    case [M || #{topic := T} = M <- Messages, T =:= Topic] of
+        [Msg | _] -> Msg;
+        [] -> ct:fail({topic_not_found, Topic, Messages})
+    end.
 
 find_bridge_metric(Body, BridgeName) ->
     Bridges = maps:get(bridges, Body, []),
