@@ -11,7 +11,6 @@
     count/1,
     is_known_client/2,
     list_usernames/5,
-    total_usernames/0,
     get_username/1,
     kick_username/1,
     clear_for_node/1,
@@ -119,9 +118,6 @@ list_usernames(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
         {error, Reason} ->
             {error, Reason}
     end.
-
-total_usernames() ->
-    total_usernames(ets:first(?COUNTER_TAB), undefined, false, 0).
 
 get_username(Username) ->
     case count_clientids(Username) of
@@ -273,28 +269,6 @@ count_clientids(Username, ?RECORD_KEY(Username, ClientId, _Pid) = Key, _PrevClie
     count_clientids(Username, ets:next(?RECORD_TAB, Key), ClientId, Acc + 1);
 count_clientids(_Username, _OtherKey, _PrevClientId, Acc) ->
     Acc.
-
-total_usernames('$end_of_table', _PrevUsername, true, Acc) ->
-    Acc + 1;
-total_usernames('$end_of_table', _PrevUsername, false, Acc) ->
-    Acc;
-total_usernames(?COUNTER_KEY(Username, _Node) = Key, Username, SeenActive, Acc) when
-    is_binary(Username)
-->
-    SeenActive1 = SeenActive orelse read_counter(Key) > 0,
-    total_usernames(ets:next(?COUNTER_TAB, Key), Username, SeenActive1, Acc);
-total_usernames(?COUNTER_KEY(Username, _Node) = Key, _PrevUsername, SeenActive, Acc) when
-    is_binary(Username)
-->
-    Acc1 =
-        case SeenActive of
-            true -> Acc + 1;
-            false -> Acc
-        end,
-    SeenActive1 = read_counter(Key) > 0,
-    total_usernames(ets:next(?COUNTER_TAB, Key), Username, SeenActive1, Acc1);
-total_usernames(Key, PrevUsername, SeenActive, Acc) ->
-    total_usernames(ets:next(?COUNTER_TAB, Key), PrevUsername, SeenActive, Acc).
 
 with_ccache(Username) ->
     case lookup_ccache(Username) of

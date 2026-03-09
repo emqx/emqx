@@ -29,6 +29,7 @@
 
 - The `GET /quota/usernames` and `GET /quota/usernames/:username` responses no longer return
   a full `clientids` list.
-- Added `GET /metrics` endpoint exposing `emqx_username_count` in Prometheus text format.
 - Added debug level log if a client is allowed during reconnect.
 - Added warnging level log if a client is not allowed due to quota limit.
+- Added `GET /metrics` endpoint exposing snapshot-backed `emqx_username_count` in Prometheus text format.
+- Snapshot-backed API requests are now routed to the owner core node selected from the sorted core node list.

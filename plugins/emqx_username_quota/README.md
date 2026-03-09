@@ -118,10 +118,11 @@ Returns `404 NOT_FOUND` if the username has no active sessions.
 ### `GET /metrics`
 
 Returns Prometheus text format metrics for the plugin.
+On replicant nodes, the request is forwarded to the snapshot owner core node.
 
 Currently exported:
 
-- `emqx_username_count` — total number of usernames with active sessions
+- `emqx_username_count` — total number of usernames in the active snapshot
 
 ### `POST /kick/:username`
 
@@ -165,9 +166,10 @@ List all overrides. Returns `{"data": [{"username": "...", "quota": ...}, ...]}`
 
 ## Architecture
 
-### Core-only snapshot ownership
+### Snapshot owner routing
 
-Snapshots are only built and served by core nodes. The `GET /quota/usernames` endpoint returns `404 NOT_AVAILABLE` when called on a replicant node. Direct list API requests to a core node.
+Snapshots are built on core nodes. `GET /quota/usernames` and `GET /metrics` are routed to the
+snapshot owner core node, selected as the first node in the sorted running core node list.
 
 ### Blue/green snapshots
 

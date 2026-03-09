@@ -321,6 +321,26 @@ t_api_metrics(_Config) ->
         Body
     ).
 
+t_api_metrics_route_to_snapshot_owner(_Config) ->
+    ok = meck:new(emqx_username_quota_snapshot, [non_strict, passthrough]),
+    ok = meck:expect(
+        emqx_username_quota_snapshot,
+        request_total,
+        fun(_DeadlineMs) ->
+            {ok, 7}
+        end
+    ),
+    {ok, 200, Headers, Body} = emqx_username_quota_api:handle(
+        get,
+        [<<"metrics">>],
+        #{}
+    ),
+    ?assertEqual(<<"text/plain">>, maps:get(<<"content-type">>, Headers)),
+    ?assertEqual(
+        <<"# TYPE emqx_username_count gauge\nemqx_username_count 7\n">>,
+        Body
+    ).
+
 t_api_list_busy_with_retry_cursor(_Config) ->
     RetryCursor = <<"cursor-busy">>,
     ok = meck:new(emqx_username_quota_state, [non_strict, passthrough]),

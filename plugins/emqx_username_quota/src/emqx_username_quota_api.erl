@@ -66,8 +66,26 @@ handle(get, [<<"quota">>, <<"usernames">>, Username0], _Request) ->
             {error, 404, #{}, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}}
     end;
 handle(get, [<<"metrics">>], _Request) ->
-    Count = emqx_username_quota_state:total_usernames(),
-    {ok, 200, #{<<"content-type">> => <<"text/plain">>}, prometheus_metrics(Count)};
+    TimeoutMs = emqx_username_quota_config:snapshot_request_timeout_ms(),
+    DeadlineMs = now_ms() + TimeoutMs,
+    case emqx_username_quota_snapshot:request_total(DeadlineMs) of
+        {ok, Count} ->
+            {ok, 200, #{<<"content-type">> => <<"text/plain">>}, prometheus_metrics(Count)};
+        {error, not_core_node} ->
+            error_response(
+                404,
+                <<"NOT_AVAILABLE">>,
+                <<"Snapshot is only available on core nodes">>
+            );
+        {error, {busy, _RetryCursor}} ->
+            error_response(503, <<"SERVICE_UNAVAILABLE">>, <<"Server is busy, please retry">>);
+        {error, {rebuilding_snapshot, _RetryCursor, _PartialData}} ->
+            error_response(
+                503,
+                <<"SERVICE_UNAVAILABLE">>,
+                <<"Server is busy building snapshot, please retry">>
+            )
+    end;
 handle(post, [<<"kick">>, Username0], _Request) ->
     case emqx_username_quota_state:kick_username(Username0) of
         {ok, N} ->
