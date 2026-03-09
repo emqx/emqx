@@ -3,10 +3,10 @@
 %%--------------------------------------------------------------------
 %% @doc Buffer process tests with a fake connector.
 %%
-%% We start a fake conn_sup (a real supervisor with the expected
-%% registered name) whose child forwards {publish_batch,...} to the
-%% test process. The buffer discovers the child via
-%% supervisor:which_children just like production code.
+%% We start a fake conn_sup (a real supervisor registered via gproc)
+%% whose child forwards {publish_batch,...} to the test process.
+%% The buffer discovers the child via supervisor:which_children
+%% just like production code.
 %%--------------------------------------------------------------------
 -module(emqx_bridge_mqtt_dq_buffer_SUITE).
 
@@ -50,32 +50,9 @@ init_per_testcase(Case, Config) ->
     [{queue_dir, QueueDir}, {pids, []} | Config].
 
 end_per_testcase(_Case, _Config) ->
-    %% Kill any registered fake conn_sups
-    lists:foreach(
-        fun(Name) ->
-            case whereis(Name) of
-                undefined ->
-                    ok;
-                Pid ->
-                    MRef = monitor(process, Pid),
-                    exit(Pid, kill),
-                    receive
-                        {'DOWN', MRef, _, _, _} -> ok
-                    after 2000 -> ok
-                    end
-            end
-        end,
-        registered_conn_sups()
-    ),
+    cleanup_fake_conn_sups(),
     cleanup_persistent_terms(),
     ok.
-
-registered_conn_sups() ->
-    [
-        Name
-     || Name <- erlang:registered(),
-        lists:prefix("emqx_bridge_mqtt_dq_conn_", atom_to_list(Name))
-    ].
 
 %%--------------------------------------------------------------------
 %% Tests
@@ -261,13 +238,12 @@ start_buffer_with_fake_conn(Config, BridgeName, Overrides) ->
     unlink(Buf),
     {Buf, ConnSup}.
 
-%% Start a fake conn_sup with the expected registered name.
+%% Start a fake conn_sup registered via gproc (same as production).
 %% Children forward publish_batch messages to the test process.
 start_fake_conn_sup(BridgeName, PoolSize) ->
     TestPid = self(),
-    RegName = emqx_bridge_mqtt_dq_conn_sup:reg_name(BridgeName),
     {ok, Sup} = supervisor:start_link(
-        {local, RegName},
+        {via, gproc, {n, l, {emqx_bridge_mqtt_dq_conn_sup, BridgeName}}},
         ?MODULE,
         {fake_conn_sup, PoolSize, TestPid, BridgeName}
     ),
@@ -344,6 +320,33 @@ stop_buffer(Pid) ->
     after 5000 ->
         ct:fail("buffer did not stop")
     end.
+
+cleanup_fake_conn_sups() ->
+    Names = [
+        <<"enq_flush">>,
+        <<"enq_ack">>,
+        <<"no_conn">>,
+        <<"salvage">>,
+        <<"batch_sz">>,
+        <<"cap">>,
+        <<"persist">>
+    ],
+    lists:foreach(
+        fun(Name) ->
+            case emqx_bridge_mqtt_dq_conn_sup:sup_pid(Name) of
+                undefined ->
+                    ok;
+                Pid ->
+                    MRef = monitor(process, Pid),
+                    exit(Pid, kill),
+                    receive
+                        {'DOWN', MRef, _, _, _} -> ok
+                    after 2000 -> ok
+                    end
+            end
+        end,
+        Names
+    ).
 
 cleanup_persistent_terms() ->
     lists:foreach(

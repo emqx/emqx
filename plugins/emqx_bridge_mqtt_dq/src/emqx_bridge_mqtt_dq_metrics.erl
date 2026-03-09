@@ -441,7 +441,7 @@ sync_buffer_metrics(BridgeName, Index) ->
 
 refresh_bridge_connectors(#{name := BridgeName}) ->
     try
-        SupName = emqx_bridge_mqtt_dq_conn_sup:reg_name(BridgeName),
+        SupName = emqx_bridge_mqtt_dq_conn_sup:sup_pid(BridgeName),
         lists:foreach(fun sync_connector_metrics/1, supervisor:which_children(SupName))
     catch
         Class:Reason ->

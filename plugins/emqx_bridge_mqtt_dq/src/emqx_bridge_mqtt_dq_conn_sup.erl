@@ -5,16 +5,19 @@
 
 -behaviour(supervisor).
 
--export([start_link/1, reg_name/1]).
+-export([start_link/1, sup_pid/1]).
 -export([init/1]).
+
+-define(REF(NAME), {n, l, {?MODULE, NAME}}).
+-define(VIA(NAME), {via, gproc, ?REF(NAME)}).
 
 start_link(BridgeConfig) ->
     #{name := Name} = BridgeConfig,
-    supervisor:start_link({local, reg_name(Name)}, ?MODULE, [BridgeConfig]).
+    supervisor:start_link(?VIA(Name), ?MODULE, [BridgeConfig]).
 
--spec reg_name(binary()) -> atom().
-reg_name(BridgeName) ->
-    list_to_atom("emqx_bridge_mqtt_dq_conn_" ++ binary_to_list(BridgeName)).
+-spec sup_pid(binary()) -> pid() | undefined.
+sup_pid(BridgeName) ->
+    gproc:where(?REF(BridgeName)).
 
 init([BridgeConfig]) ->
     #{pool_size := PoolSize} = BridgeConfig,

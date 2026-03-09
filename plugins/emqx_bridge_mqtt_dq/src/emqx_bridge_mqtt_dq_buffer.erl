@@ -157,7 +157,7 @@ try_acquire_conn(#{bridge_name := BridgeName, conn_index := ConnIndex} = State) 
 
 find_connector(BridgeName, ConnIndex) ->
     try
-        SupName = emqx_bridge_mqtt_dq_conn_sup:reg_name(BridgeName),
+        SupName = emqx_bridge_mqtt_dq_conn_sup:sup_pid(BridgeName),
         ChildId = {conn, BridgeName, ConnIndex},
         Children = supervisor:which_children(SupName),
         case lists:keyfind(ChildId, 1, Children) of
