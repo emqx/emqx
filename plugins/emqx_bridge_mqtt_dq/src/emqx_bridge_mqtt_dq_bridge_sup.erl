@@ -9,9 +9,7 @@
 -export([init/1]).
 
 start_link(BridgeConfig) ->
-    #{name := Name} = BridgeConfig,
-    RegName = list_to_atom("emqx_bridge_mqtt_dq_bridge_" ++ binary_to_list(Name)),
-    supervisor:start_link({local, RegName}, ?MODULE, [BridgeConfig]).
+    supervisor:start_link(?MODULE, [BridgeConfig]).
 
 init([BridgeConfig]) ->
     Children = [
