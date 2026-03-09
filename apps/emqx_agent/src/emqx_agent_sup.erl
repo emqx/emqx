@@ -27,6 +27,14 @@ init([]) ->
             shutdown => 5000,
             type => worker,
             modules => [emqx_agent_skill_registry]
+        },
+        #{
+            id => emqx_agent_sess_sup,
+            start => {emqx_agent_sess_sup, start_link, []},
+            restart => permanent,
+            shutdown => infinity,
+            type => supervisor,
+            modules => [emqx_agent_sess_sup]
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.
