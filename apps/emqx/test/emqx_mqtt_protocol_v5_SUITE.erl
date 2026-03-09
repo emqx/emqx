@@ -950,32 +950,42 @@ t_subscription_filter(Config) ->
     ok = emqtt:disconnect(Sub),
 
     {ok, QueueSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(QueueSub),
     {ok, _} = emqtt:ConnFun(QueueSub),
-    {ok, _, [?RC_TOPIC_FILTER_INVALID]} = emqtt:subscribe(
-        QueueSub, <<"$queue/subscription/filter/topic?location=roomA">>, qos1
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(QueueSub, <<"$queue/subscription/filter/topic?location=roomA">>, qos1)
     ),
-    ok = emqtt:disconnect(QueueSub),
 
     {ok, QueueAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(QueueAliasSub),
     {ok, _} = emqtt:ConnFun(QueueAliasSub),
-    {ok, _, [?RC_TOPIC_FILTER_INVALID]} = emqtt:subscribe(
-        QueueAliasSub, <<"$q/subscription/filter/topic?location=roomA">>, qos1
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            QueueAliasSub, <<"$q/subscription/filter/topic?location=roomA">>, qos1
+        )
     ),
-    ok = emqtt:disconnect(QueueAliasSub),
 
     {ok, StreamSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(StreamSub),
     {ok, _} = emqtt:ConnFun(StreamSub),
-    {ok, _, [?RC_TOPIC_FILTER_INVALID]} = emqtt:subscribe(
-        StreamSub, <<"$stream/subscription/filter/topic?location=roomA">>, qos1
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            StreamSub, <<"$stream/subscription/filter/topic?location=roomA">>, qos1
+        )
     ),
-    ok = emqtt:disconnect(StreamSub),
 
     {ok, StreamAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(StreamAliasSub),
     {ok, _} = emqtt:ConnFun(StreamAliasSub),
-    {ok, _, [?RC_TOPIC_FILTER_INVALID]} = emqtt:subscribe(
-        StreamAliasSub, <<"$s/subscription/filter/topic?location=roomA">>, qos1
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            StreamAliasSub, <<"$s/subscription/filter/topic?location=roomA">>, qos1
+        )
     ),
-    ok = emqtt:disconnect(StreamAliasSub),
 
     emqx_config:put([mqtt, subscription_filter], disable),
     {ok, PlainSub} = emqtt:start_link([{proto_ver, v5} | Config]),

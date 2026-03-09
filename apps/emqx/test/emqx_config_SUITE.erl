@@ -515,6 +515,7 @@ zone_global_defaults() ->
                 shared_subscription_strategy => round_robin,
                 shared_subscription_initial_sticky_pick => random,
                 strict_mode => false,
+                subscription_filter => disable,
                 upgrade_qos => false,
                 use_username_as_clientid => false,
                 wildcard_subscription => true,
