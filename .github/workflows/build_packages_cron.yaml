@@ -80,7 +80,6 @@ jobs:
       matrix:
         branch:
           - master
-          - release-510
           - release-60
           - release-61
           - release-62
