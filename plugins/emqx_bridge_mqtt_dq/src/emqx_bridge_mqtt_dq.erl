@@ -93,14 +93,28 @@ do_enqueue(Pid, Item, _QoS, Bridge, BridgeName, BufferIndex) ->
     Alias = alias([reply]),
     emqx_bridge_mqtt_dq_buffer:enqueue(Pid, Item, Alias),
     Timeout = maps:get(enqueue_timeout_ms, Bridge, 5000),
+    case wait_enqueue_ack(Alias, Timeout) of
+        ok ->
+            ok;
+        timeout ->
+            ?LOG(error, #{
+                msg => "mqtt_dq_enqueue_timeout",
+                bridge => BridgeName,
+                index => BufferIndex
+            }),
+            ok
+    end.
+
+wait_enqueue_ack(Alias, Timeout) ->
     receive
-        {Alias, ok} -> ok
+        {Alias, ok} ->
+            ok
     after Timeout ->
         unalias(Alias),
-        ?LOG(error, #{
-            msg => "mqtt_dq_enqueue_timeout",
-            bridge => BridgeName,
-            index => BufferIndex
-        }),
-        ok
+        receive
+            {Alias, ok} ->
+                ok
+        after 0 ->
+            timeout
+        end
     end.
