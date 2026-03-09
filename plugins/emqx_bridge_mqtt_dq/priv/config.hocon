@@ -1,17 +1,11 @@
 bridges {
   example {
     enable = false
-    server = "127.0.0.1:1883"
-    proto_ver = "v4"
-    # clientid_prefix = "my-custom-prefix-"
-    username = ""
-    password = ""
+    remote = loopback
+    proto_ver = v4
     clean_start = true
     keepalive_s = 60
-    ssl {
-      enable = false
-      # sni = "hostname.example.com"
-    }
+    # clientid_prefix = "emqx-dq-example-"
     pool_size = 4
     buffer_pool_size = 4
     filter_topic = "devices/#"
@@ -26,4 +20,16 @@ bridges {
       max_total_bytes = "1GB"
     }
   }
+}
+
+remotes {
+    loopback {
+        server = "127.0.0.1:1883"
+        username = ""
+        password = ""
+        ssl {
+            enable = false
+            # sni = "hostname.example.com"
+        }
+    }
 }

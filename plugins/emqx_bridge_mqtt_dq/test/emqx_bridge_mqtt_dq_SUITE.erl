@@ -330,6 +330,39 @@ t_per_topic_ordering(Config) ->
     ok.
 
 -doc "Bridge counters and API payload reflect forwarded messages.".
+t_remote_config_reference(_Config) ->
+    RawConfig = #{
+        <<"bridges">> => #{
+            <<"r1">> => #{
+                <<"enable">> => true,
+                <<"remote">> => <<"loopback">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"filter_topic">> => <<"devices/#">>,
+                <<"remote_topic">> => <<"forwarded/${topic}">>
+            }
+        },
+        <<"remotes">> => #{
+            <<"loopback">> => #{
+                <<"server">> => <<"127.0.0.1:1883">>,
+                <<"username">> => <<"u">>,
+                <<"password">> => <<"p">>,
+                <<"ssl">> => #{<<"enable">> => false}
+            }
+        }
+    },
+    ok = emqx_bridge_mqtt_dq_config:update(RawConfig),
+    [
+        #{
+            name := <<"r1">>,
+            server := "127.0.0.1:1883",
+            username := <<"u">>,
+            password := <<"p">>,
+            ssl := #{enable := false}
+        }
+    ] = emqx_bridge_mqtt_dq_config:get_bridges(),
+    ok.
+
+-doc "Bridge counters and API payload reflect forwarded messages.".
 t_metrics_and_api(Config) ->
     Port = ?config(mqtt_port, Config),
     Bridge = make_bridge_config(<<"metrics">>, Port, #{

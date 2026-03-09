@@ -52,7 +52,7 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
   "bridges": {
     "smoke": {
       "enable": true,
-      "server": "127.0.0.1:1883",
+      "remote": "loopback",
       "proto_ver": "v4",
       "clientid_prefix": "dq_smoke",
       "clean_start": true,
@@ -68,6 +68,14 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
         "seg_bytes": "10MB",
         "max_total_bytes": "50MB"
       }
+    }
+  },
+  "remotes": {
+    "loopback": {
+      "server": "127.0.0.1:1883",
+      "username": "",
+      "password": "",
+      "ssl": {"enable": false}
     }
   }
 }')

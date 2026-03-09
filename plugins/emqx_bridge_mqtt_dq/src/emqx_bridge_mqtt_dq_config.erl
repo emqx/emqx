@@ -36,20 +36,46 @@ name_vsn() ->
     iolist_to_binary([<<"emqx_bridge_mqtt_dq-">>, Vsn]).
 
 parse(RawConfig) when is_map(RawConfig) ->
+    RawRemotes = maps:get(<<"remotes">>, RawConfig, #{}),
+    Remotes = parse_remotes(RawRemotes),
     RawBridges = maps:get(<<"bridges">>, RawConfig, #{}),
-    Bridges = parse_bridges(RawBridges),
+    Bridges = parse_bridges(RawBridges, Remotes),
     #{bridges => Bridges};
 parse(_) ->
     #{bridges => []}.
 
-parse_bridges(RawMap) when is_map(RawMap) ->
-    maps:fold(fun fold_bridge/3, [], RawMap);
-parse_bridges(_) ->
+parse_remotes(RawMap) when is_map(RawMap) ->
+    maps:fold(fun fold_remote/3, #{}, RawMap);
+parse_remotes(_) ->
+    #{}.
+
+parse_bridges(RawMap, Remotes) when is_map(RawMap) ->
+    maps:fold(fun(Name, Raw, Acc) -> fold_bridge(Name, Raw, Remotes, Acc) end, [], RawMap);
+parse_bridges(_, _Remotes) ->
     [].
 
-fold_bridge(Name, Raw, Acc) ->
+fold_remote(Name, Raw, Acc) ->
     BinName = to_bin(Name),
-    case is_valid_name(BinName) andalso parse_bridge(BinName, Raw) of
+    case is_valid_name(BinName) andalso parse_remote(Raw) of
+        {ok, Remote} ->
+            Acc#{BinName => Remote};
+        false ->
+            ?LOG(error, #{
+                msg => "mqtt_dq_remote_invalid_name",
+                name => Name
+            }),
+            Acc;
+        error ->
+            ?LOG(error, #{
+                msg => "mqtt_dq_remote_config_parse_error",
+                name => BinName
+            }),
+            Acc
+    end.
+
+fold_bridge(Name, Raw, Remotes, Acc) ->
+    BinName = to_bin(Name),
+    case is_valid_name(BinName) andalso parse_bridge(BinName, Raw, Remotes) of
         {ok, Bridge} ->
             [Bridge | Acc];
         false ->
@@ -66,25 +92,40 @@ fold_bridge(Name, Raw, Acc) ->
             Acc
     end.
 
-parse_bridge(Name, Raw) when is_map(Raw) ->
+parse_remote(Raw) when is_map(Raw) ->
     try
+        {ok, #{
+            server => to_str(get_val(<<"server">>, Raw, "127.0.0.1:1883")),
+            username => to_bin(get_val(<<"username">>, Raw, <<>>)),
+            password => to_bin_or_empty(get_val(<<"password">>, Raw, <<>>)),
+            ssl => parse_ssl(get_val(<<"ssl">>, Raw, #{}))
+        }}
+    catch
+        _:_ -> error
+    end;
+parse_remote(_) ->
+    error.
+
+parse_bridge(Name, Raw, Remotes) when is_map(Raw) ->
+    try
+        Remote = resolve_remote(Raw, Remotes),
         Bridge = #{
             name => Name,
             enable => to_boolean(get_val(<<"enable">>, Raw, false)),
-            server => to_str(get_val(<<"server">>, Raw, "127.0.0.1:1883")),
+            server => maps:get(server, Remote),
             proto_ver => parse_proto_ver(
                 get_val(<<"proto_ver">>, Raw, <<"v4">>)
             ),
             clientid_prefix => parse_clientid_prefix(
                 get_val(<<"clientid_prefix">>, Raw, <<>>), Name
             ),
-            username => to_bin(get_val(<<"username">>, Raw, <<>>)),
-            password => to_bin_or_empty(get_val(<<"password">>, Raw, <<>>)),
+            username => maps:get(username, Remote),
+            password => maps:get(password, Remote),
             clean_start => to_boolean(get_val(<<"clean_start">>, Raw, true)),
             keepalive_s => to_pos_int(
                 get_val(<<"keepalive_s">>, Raw, 60)
             ),
-            ssl => parse_ssl(get_val(<<"ssl">>, Raw, #{})),
+            ssl => maps:get(ssl, Remote),
             pool_size => to_pos_int(get_val(<<"pool_size">>, Raw, 4)),
             buffer_pool_size => to_pos_int(
                 get_val(<<"buffer_pool_size">>, Raw, 4)
@@ -123,8 +164,23 @@ parse_bridge(Name, Raw) when is_map(Raw) ->
     catch
         _:_ -> error
     end;
-parse_bridge(_Name, _) ->
+parse_bridge(_Name, _, _) ->
     error.
+
+resolve_remote(Raw, Remotes) ->
+    case maps:find(<<"remote">>, Raw) of
+        {ok, RemoteName} ->
+            RemoteKey = to_bin(RemoteName),
+            case maps:find(RemoteKey, Remotes) of
+                {ok, Remote} -> Remote;
+                error -> error({unknown_remote, RemoteKey})
+            end;
+        error ->
+            case parse_remote(Raw) of
+                {ok, Remote} -> Remote;
+                error -> error(invalid_remote)
+            end
+    end.
 
 is_valid_name(<<>>) ->
     false;

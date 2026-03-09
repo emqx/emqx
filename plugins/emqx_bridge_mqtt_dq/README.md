@@ -48,10 +48,11 @@ used after EMQX saves plugin config changes.
 ### Quick Start (Dashboard)
 
 1. Enable the plugin.
-2. Add one bridge under `bridges`.
-3. Set `server`, `filter_topic`, and `remote_topic`.
-4. Save and verify remote delivery.
-5. Tune queue and pool settings only after baseline validation.
+2. Add one reusable remote under `remotes`.
+3. Add one bridge under `bridges`.
+4. Set `remote`, `filter_topic`, and `remote_topic`.
+5. Save and verify remote delivery.
+6. Tune queue and pool settings only after baseline validation.
 
 ### Example
 
@@ -59,15 +60,10 @@ used after EMQX saves plugin config changes.
 bridges {
   to-cloud {
     enable = true
-    server = "cloud-broker.example.com:8883"
+    remote = cloud
     proto_ver = "v4"
-    username = "bridge_user"
-    password = "secret"
     clean_start = true
     keepalive_s = 60
-    ssl {
-      enable = true
-    }
     pool_size = 4
     filter_topic = "devices/#"
     remote_topic = "fwd/${topic}"
@@ -76,6 +72,17 @@ bridges {
     queue {
       seg_bytes = "100MB"
       max_total_bytes = "1GB"
+    }
+  }
+}
+
+remotes {
+  cloud {
+    server = "cloud-broker.example.com:8883"
+    username = "bridge_user"
+    password = "secret"
+    ssl {
+      enable = true
     }
   }
 }
@@ -88,21 +95,18 @@ bridges {
 | Field     | Type    | Default | Description                          |
 |-----------|---------|---------|--------------------------------------|
 | `bridges` | map     | `{}`    | Map of bridge name to bridge configuration. |
+| `remotes` | map     | `{}`    | Map of reusable remote broker definitions. |
 
 #### Bridge (`bridges.<name>`)
 
 | Field             | Type    | Default | Description                                                                 |
 |-------------------|---------|---------|-----------------------------------------------------------------------------|
 | `enable`          | boolean | `true`  | Enable or disable this bridge.                                              |
-| `server`          | string  | —       | Remote MQTT broker address (`host:port`).                                   |
+| `remote`          | string  | —       | Name of the remote broker definition under `remotes`.                       |
 | `proto_ver`       | string  | `"v4"`  | MQTT protocol version: `v3`, `v4`, or `v5`.                                |
 | `clientid_prefix` | string  | `"emqx-dq-<name>-"` | Prefix for auto-generated MQTT client IDs. Each connection appends a unique index (e.g. `emqx-dq-mybridge-0`). Optional — leave empty to use the default. |
-| `username`        | string  | `""`    | Username for authentication with the remote broker.                         |
-| `password`        | string  | `""`    | Password for authentication with the remote broker.                         |
 | `clean_start`     | boolean | `true`  | MQTT clean start flag.                                                      |
 | `keepalive_s`     | integer | `60`    | MQTT keep-alive interval in seconds.                                        |
-| `ssl.enable`      | boolean | `false` | Enable SSL/TLS for the connection to the remote broker.                     |
-| `ssl.sni`         | string  | server hostname | TLS Server Name Indication. Defaults to the server hostname. Set to `"disable"` to turn off SNI. |
 | `pool_size`       | integer | `4`     | Number of MQTT connections to the remote broker.                            |
 | `buffer_pool_size` | integer | `4`    | Number of disk queue buffer workers per bridge. See warnings below.         |
 | `filter_topic`    | string  | —       | Local topic filter pattern. Supports `+` and `#` wildcards.                |
@@ -111,6 +115,16 @@ bridges {
 | `max_inflight`    | integer | `32`    | Maximum unacknowledged messages per connection to the remote broker. Controls batch pop size from disk queue and emqtt send window. |
 | `remote_qos`      | integer | `1`     | QoS level for publishing to the remote broker (0, 1, or 2).                |
 | `remote_retain`   | boolean | `false` | Retain flag for publishing to the remote broker.                            |
+
+#### Remote (`remotes.<name>`)
+
+| Field        | Type    | Default | Description                                             |
+|--------------|---------|---------|---------------------------------------------------------|
+| `server`     | string  | —       | Remote MQTT broker address (`host:port`).               |
+| `username`   | string  | `""`    | Username for authentication with the remote broker.     |
+| `password`   | string  | `""`    | Password for authentication with the remote broker.     |
+| `ssl.enable` | boolean | `false` | Enable SSL/TLS for the connection to the remote broker. |
+| `ssl.sni`    | string  | server hostname | TLS Server Name Indication. Defaults to the server hostname. Set to `"disable"` to turn off SNI. |
 
 #### Queue
 
