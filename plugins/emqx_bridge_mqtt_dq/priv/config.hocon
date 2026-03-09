@@ -23,17 +23,17 @@ bridges {
 }
 
 remotes {
-    loopback {
-        server = "127.0.0.1:1883"
-        username = ""
-        password = ""
-        ssl {
-            enable = false
-            verify = verify_none
-            # sni = "hostname.example.com"
-            # cacertfile = "/path/to/ca.pem"
-            # certfile = "/path/to/client-cert.pem"
-            # keyfile = "/path/to/client-key.pem"
-        }
+  loopback {
+    server = "127.0.0.1:1883"
+    username = ""
+    password = ""
+    ssl {
+      enable = false
+      verify = verify_none
+      # sni = "hostname.example.com"
+      # cacertfile = "/path/to/ca.pem"
+      # certfile = "/path/to/client-cert.pem"
+      # keyfile = "/path/to/client-key.pem"
     }
+  }
 }
