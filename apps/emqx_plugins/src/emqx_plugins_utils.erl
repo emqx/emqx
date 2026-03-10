@@ -10,6 +10,7 @@
 
 -export([
     parse_name_vsn/1,
+    compare_vsn/2,
     make_name_vsn_binary/2,
     make_name_vsn_string/2
 ]).
@@ -22,11 +23,69 @@ parse_name_vsn(NameVsn) when is_list(NameVsn) ->
         _ -> error(bad_name_vsn)
     end.
 
+compare_vsn(Vsn1, Vsn2) when is_binary(Vsn1) ->
+    compare_vsn(binary_to_list(Vsn1), Vsn2);
+compare_vsn(Vsn1, Vsn2) when is_binary(Vsn2) ->
+    compare_vsn(Vsn1, binary_to_list(Vsn2));
+compare_vsn(Vsn1, Vsn2) ->
+    try emqx_release:vsn_compare(Vsn1, Vsn2) of
+        Result ->
+            Result
+    catch
+        error:{invalid_version_string, _} ->
+            compare_vsn_fallback(Vsn1, Vsn2)
+    end.
+
 make_name_vsn_binary(Name, Vsn) ->
     iolist_to_binary([Name, "-", Vsn]).
 
 make_name_vsn_string(Name, Vsn) ->
     binary_to_list(make_name_vsn_binary(Name, Vsn)).
+
+compare_vsn_fallback(Vsn1, Vsn2) ->
+    case compare_segments(split_vsn(Vsn1), split_vsn(Vsn2)) of
+        same -> same;
+        older -> older;
+        newer -> newer
+    end.
+
+split_vsn(Vsn) ->
+    re:split(Vsn, "[.-]", [{return, list}, trim]).
+
+compare_segments([], []) ->
+    same;
+compare_segments([], [_ | _]) ->
+    older;
+compare_segments([_ | _], []) ->
+    newer;
+compare_segments([S1 | Rest1], [S2 | Rest2]) ->
+    case compare_segment(segment_type(S1), segment_type(S2)) of
+        same -> compare_segments(Rest1, Rest2);
+        Result -> Result
+    end.
+
+segment_type(Segment) ->
+    case lists:all(fun(Char) -> Char >= $0 andalso Char =< $9 end, Segment) of
+        true -> {int, list_to_integer(Segment)};
+        false -> {string, string:lowercase(Segment)}
+    end.
+
+compare_segment({int, I1}, {int, I2}) when I1 =:= I2 ->
+    same;
+compare_segment({int, I1}, {int, I2}) when I1 < I2 ->
+    older;
+compare_segment({int, _I1}, {int, _I2}) ->
+    newer;
+compare_segment({string, S1}, {string, S2}) when S1 =:= S2 ->
+    same;
+compare_segment({string, S1}, {string, S2}) when S1 < S2 ->
+    older;
+compare_segment({string, _S1}, {string, _S2}) ->
+    newer;
+compare_segment({int, _}, {string, _}) ->
+    newer;
+compare_segment({string, _}, {int, _}) ->
+    older.
 
 -ifdef(TEST).
 

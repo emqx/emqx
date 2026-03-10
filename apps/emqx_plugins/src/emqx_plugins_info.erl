@@ -84,21 +84,7 @@ populate_plugin_readme(_NameVsn, _Options, Info) ->
 
 populate_plugin_status(NameVsn, Info) ->
     RunningSt = emqx_plugins_apps:running_status(NameVsn),
-    Configured = lists:filtermap(
-        fun(#{name_vsn := Nv, enable := St}) ->
-            case bin(Nv) =:= bin(NameVsn) of
-                true -> {true, St};
-                false -> false
-            end
-        end,
-        configured()
-    ),
-    ConfSt =
-        case Configured of
-            [] -> not_configured;
-            [true] -> enabled;
-            [false] -> disabled
-        end,
+    ConfSt = configured_status(NameVsn, configured()),
     Info#{
         running_status => RunningSt,
         config_status => ConfSt
@@ -166,6 +152,54 @@ check_plugin(PluginInfo, NameVsn) ->
 
 configured() ->
     emqx_conf:get([?CONF_ROOT, states]).
+
+configured_status(NameVsn, Configured) ->
+    NameVsnBin = bin(NameVsn),
+    ExactStates = [
+        Enabled
+     || #{name_vsn := NV, enable := Enabled} <- Configured, bin(NV) =:= NameVsnBin
+    ],
+    case ExactStates of
+        [] ->
+            not_configured;
+        _ ->
+            case lists:any(fun(Enabled) -> Enabled =:= true end, ExactStates) of
+                false ->
+                    disabled;
+                true ->
+                    enabled_status(NameVsnBin, Configured)
+            end
+    end.
+
+enabled_status(NameVsn, Configured) ->
+    Name = plugin_name(NameVsn),
+    EnabledVersions = [
+        bin(NV)
+     || #{name_vsn := NV, enable := true} <- Configured, plugin_name(NV) =:= Name
+    ],
+    case EnabledVersions of
+        [] ->
+            disabled;
+        [NameVsn] ->
+            enabled;
+        [_ | _] ->
+            case lists:foldl(fun latest_name_vsn/2, NameVsn, EnabledVersions) of
+                NameVsn -> enabled;
+                _Other -> disabled
+            end
+    end.
+
+latest_name_vsn(NameVsn1, NameVsn2) ->
+    {_Name1, Vsn1} = emqx_plugins_utils:parse_name_vsn(NameVsn1),
+    {_Name2, Vsn2} = emqx_plugins_utils:parse_name_vsn(NameVsn2),
+    case emqx_plugins_utils:compare_vsn(Vsn1, Vsn2) of
+        newer -> NameVsn2;
+        _ -> NameVsn1
+    end.
+
+plugin_name(NameVsn) ->
+    {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    bin(Name).
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);

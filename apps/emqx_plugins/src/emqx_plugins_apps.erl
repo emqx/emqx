@@ -32,10 +32,10 @@
 
 -spec running_status(name_vsn()) -> running | loaded | stopped.
 running_status(NameVsn) ->
-    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     RunningApps = running_apps(),
     LoadedApps = loaded_apps(),
-    app_running_status(AppName, RunningApps, LoadedApps).
+    app_running_status(AppName, AppVsn, RunningApps, LoadedApps).
 
 -spec start(emqx_plugins_info:t()) -> ok | {error, term()}.
 start(#{rel_apps := Apps}) ->
@@ -181,14 +181,24 @@ apply_api_callback(NameVsn, {FuncName, Arity}, Args) ->
             {error, not_found}
     end.
 
-app_running_status(AppName, RunningApps, LoadedApps) ->
+app_running_status(AppName, AppVsn, RunningApps, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
-        {AppName, _} ->
-            case lists:keyfind(AppName, 1, RunningApps) of
-                {AppName, _} -> running;
-                false -> loaded
+        {AppName, LoadedVsn} ->
+            case bin(LoadedVsn) =:= bin(AppVsn) of
+                true ->
+                    case lists:keyfind(AppName, 1, RunningApps) of
+                        {AppName, RunningVsn} ->
+                            case bin(RunningVsn) =:= bin(AppVsn) of
+                                true -> running;
+                                false -> stopped
+                            end;
+                        false ->
+                            loaded
+                    end;
+                false ->
+                    stopped
             end;
-        false ->
+        _ ->
             stopped
     end.
 
@@ -202,14 +212,12 @@ load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
                     %% already loaded on the exact version
                     ok;
                 false ->
-                    %% running but a different version
-                    ?SLOG(warning, #{
-                        msg => "plugin_app_already_loaded",
+                    {error, #{
+                        msg => "conflicting_plugin_version_loaded",
                         name => AppName,
                         loaded_vsn => Vsn,
                         loading_vsn => AppVsn
-                    }),
-                    ok
+                    }}
             end
     end.
 
@@ -331,6 +339,17 @@ unload_apps([App | Apps], RunningApps, LoadedApps) ->
                 ok
         end,
     unload_apps(Apps, RunningApps, LoadedApps).
+
+app_running_status(AppName, RunningApps, LoadedApps) ->
+    case lists:keyfind(AppName, 1, LoadedApps) of
+        {AppName, _LoadedVsn} ->
+            case lists:keyfind(AppName, 1, RunningApps) of
+                {AppName, _RunningVsn} -> running;
+                false -> loaded
+            end;
+        false ->
+            stopped
+    end.
 
 stop_app(App) ->
     case application:stop(App) of

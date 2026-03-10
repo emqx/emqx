@@ -329,6 +329,9 @@ delete_package(NameVsn) ->
 %% @doc Start all configured plugins are started.
 -spec ensure_started() -> ok.
 ensure_started() ->
+    Configured0 = configured(),
+    Configured = normalize_enabled_versions(Configured0),
+    maybe_persist_normalized_config(Configured0, Configured),
     Fun = fun
         (#{name_vsn := NameVsn, enable := true}) ->
             case ?CATCH(do_ensure_started(NameVsn)) of
@@ -339,7 +342,7 @@ ensure_started() ->
             ?SLOG(debug, #{msg => "plugin_disabled", name_vsn => NameVsn}),
             []
     end,
-    ok = for_plugins(Fun).
+    ok = for_plugins(Configured, Fun).
 
 %% @doc Start a plugin from Management API or CLI.
 %% the input is a <name>-<vsn> string.
@@ -593,7 +596,8 @@ ensure_configured(#{name_vsn := NameVsn} = Item, Position, ConfLocation) ->
                 [] ->
                     add_new_configured(Configured, Position, Item)
             end,
-        ok = put_configured(NewConfigured, ConfLocation)
+        NormalizedConfigured = maybe_disable_other_versions(NewConfigured, Item),
+        ok = put_configured(NormalizedConfigured, ConfLocation)
     catch
         throw:Reason ->
             {error, Reason}
@@ -639,6 +643,7 @@ do_list([#{name_vsn := NameVsn} | Rest], All) ->
 
 do_ensure_started(NameVsn) ->
     maybe
+        ok ?= ensure_no_other_version_active(NameVsn),
         ok ?= install(NameVsn, ?normal),
         ok ?= load_config_schema(NameVsn),
         ok ?= maybe_initialize_cached_config(NameVsn),
@@ -881,7 +886,10 @@ configured() ->
     get_config_internal(states, []).
 
 for_plugins(ActionFun) ->
-    case lists:flatmap(ActionFun, configured()) of
+    for_plugins(configured(), ActionFun).
+
+for_plugins(Plugins, ActionFun) ->
+    case lists:flatmap(ActionFun, Plugins) of
         [] ->
             ok;
         Errors ->
@@ -892,6 +900,99 @@ for_plugins(ActionFun) ->
             ),
             ?SLOG(error, ErrMeta#{msg => "for_plugins_action_error_occurred"}),
             ok
+    end.
+
+maybe_persist_normalized_config(Configured, Configured) ->
+    ok;
+maybe_persist_normalized_config(_Configured0, Configured) ->
+    ok = put_configured(Configured, global).
+
+maybe_disable_other_versions(Configured, #{name_vsn := NameVsn, enable := true}) ->
+    disable_other_versions(Configured, NameVsn);
+maybe_disable_other_versions(Configured, _Item) ->
+    Configured.
+
+disable_other_versions(Configured, NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Name = plugin_name(NameVsn),
+    lists:map(
+        fun(#{name_vsn := NV} = Item) ->
+            case bin(NV) =/= NameVsn andalso plugin_name(NV) =:= Name of
+                true -> Item#{enable => false};
+                false -> Item
+            end
+        end,
+        Configured
+    ).
+
+normalize_enabled_versions(Configured) ->
+    Latest = latest_enabled_versions(Configured),
+    lists:map(
+        fun
+            (#{name_vsn := NameVsn, enable := true} = Item) ->
+                Name = plugin_name(NameVsn),
+                case maps:get(Name, Latest, bin(NameVsn)) =:= bin(NameVsn) of
+                    true -> Item;
+                    false -> Item#{enable => false}
+                end;
+            (Item) ->
+                Item
+        end,
+        Configured
+    ).
+
+latest_enabled_versions(Configured) ->
+    lists:foldl(
+        fun
+            (#{name_vsn := NameVsn, enable := true}, Acc) ->
+                Name = plugin_name(NameVsn),
+                NameVsnBin = bin(NameVsn),
+                case maps:get(Name, Acc, undefined) of
+                    undefined ->
+                        Acc#{Name => NameVsnBin};
+                    Existing ->
+                        case is_newer_name_vsn(NameVsnBin, Existing) of
+                            true -> Acc#{Name => NameVsnBin};
+                            false -> Acc
+                        end
+                end;
+            (_Item, Acc) ->
+                Acc
+        end,
+        #{},
+        Configured
+    ).
+
+is_newer_name_vsn(NameVsn1, NameVsn2) ->
+    {_Name1, Vsn1} = emqx_plugins_utils:parse_name_vsn(NameVsn1),
+    {_Name2, Vsn2} = emqx_plugins_utils:parse_name_vsn(NameVsn2),
+    emqx_plugins_utils:compare_vsn(Vsn2, Vsn1) =:= newer.
+
+ensure_no_other_version_active(NameVsn0) ->
+    NameVsn = bin(NameVsn0),
+    Name = plugin_name(NameVsn),
+    ActiveOtherVersions = lists:filtermap(
+        fun(#{name := PluginName, rel_vsn := Vsn, running_status := RunningStatus}) ->
+            OtherNameVsn = name_vsn(PluginName, Vsn),
+            case
+                PluginName =:= Name andalso OtherNameVsn =/= NameVsn andalso
+                    RunningStatus =/= stopped
+            of
+                true -> {true, OtherNameVsn};
+                false -> false
+            end
+        end,
+        list()
+    ),
+    case ActiveOtherVersions of
+        [] ->
+            ok;
+        [_ | _] ->
+            {error, #{
+                msg => "conflicting_plugin_version_running",
+                name_vsn => NameVsn,
+                active_versions => ActiveOtherVersions
+            }}
     end.
 
 ensure_state(NameVsn) ->

@@ -771,17 +771,20 @@ ensure_action(Name, Action) ->
     ensure_action(Name, Action, #{}).
 
 ensure_action(Name, start, _Opts) ->
-    _ = emqx_plugins:ensure_started(Name),
-    _ = emqx_plugins:ensure_enabled(Name),
-    ok;
+    case emqx_plugins:ensure_started(Name) of
+        ok -> emqx_plugins:ensure_enabled(Name);
+        {error, _} = Error -> Error
+    end;
 ensure_action(Name, stop, _Opts) ->
-    _ = emqx_plugins:ensure_stopped(Name),
-    _ = emqx_plugins:ensure_disabled(Name),
-    ok;
+    case emqx_plugins:ensure_stopped(Name) of
+        ok -> emqx_plugins:ensure_disabled(Name);
+        {error, _} = Error -> Error
+    end;
 ensure_action(Name, restart, _Opts) ->
-    _ = emqx_plugins:ensure_enabled(Name),
-    _ = emqx_plugins:restart(Name),
-    ok.
+    case emqx_plugins:ensure_enabled(Name) of
+        ok -> emqx_plugins:restart(Name);
+        {error, _} = Error -> Error
+    end.
 
 %% for RPC plugin avro encoded config update
 -spec do_update_plugin_config(name_vsn(), map() | binary(), any()) ->
