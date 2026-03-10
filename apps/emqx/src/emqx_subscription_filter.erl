@@ -10,7 +10,7 @@
 -export([
     split_topic_filter/2,
     validate_subscription/2,
-    normalize_unsubscribe/2,
+    normalize_topic_filter/2,
     match_message/2
 ]).
 
@@ -63,10 +63,10 @@ validate_subscription(TopicFilter, Mode) ->
             end
     end.
 
--spec normalize_unsubscribe(
+-spec normalize_topic_filter(
     emqx_types:topic() | emqx_types:share(), mode()
 ) -> emqx_types:topic() | emqx_types:share().
-normalize_unsubscribe(TopicFilter, Mode) ->
+normalize_topic_filter(TopicFilter, Mode) ->
     element(1, split_topic_filter(TopicFilter, Mode)).
 
 -spec match_message(ast(), emqx_types:message()) -> boolean().

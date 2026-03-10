@@ -579,6 +579,7 @@ reserved_idx('delivery.dropped.too_large') -> 63;
 reserved_idx('delivery.dropped.qos0_msg') -> 64;
 reserved_idx('delivery.dropped.queue_full') -> 65;
 reserved_idx('delivery.dropped.expired') -> 66;
+reserved_idx('delivery.dropped.subscription_filter') -> 102;
 reserved_idx('client.connect') -> 67;
 reserved_idx('client.connack') -> 68;
 reserved_idx('client.connected') -> 69;
@@ -726,7 +727,9 @@ delivery_metrics() ->
         {counter, 'delivery.dropped.too_large', ?DESC("delivery_dropped_too_large")},
         {counter, 'delivery.dropped.qos0_msg', ?DESC("delivery_dropped_qos0_msg")},
         {counter, 'delivery.dropped.queue_full', ?DESC("delivery_dropped_queue_full")},
-        {counter, 'delivery.dropped.expired', ?DESC("delivery_dropped_expired")}
+        {counter, 'delivery.dropped.expired', ?DESC("delivery_dropped_expired")},
+        {counter, 'delivery.dropped.subscription_filter',
+            ?DESC("delivery_dropped_subscription_filter")}
     ].
 
 %% Client Lifecycle metrics

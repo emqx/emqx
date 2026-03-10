@@ -212,6 +212,9 @@ emqx_metrics {
     delivery_dropped_expired {
         desc: "Number of messages dropped due to message expiration on sending"
     }
+    delivery_dropped_subscription_filter {
+        desc: "Number of messages that were dropped due to subscription filter mismatch when sending"
+    }
     client_connect {
         desc: "Number of client connections"
     }

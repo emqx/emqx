@@ -495,6 +495,7 @@ enrich_message(ClientInfo, MsgIn, SubOpts = #{sub_filter_ast := AST}, UpgradeQoS
         true ->
             enrich_message(ClientInfo, MsgIn, clean_sub_filter_subopts(SubOpts), UpgradeQoS);
         false ->
+            _ = emqx_session_events:handle_event(ClientInfo, {dropped, MsgIn, subscription_filter}),
             []
     end;
 enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->

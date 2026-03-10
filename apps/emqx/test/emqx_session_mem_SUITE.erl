@@ -385,6 +385,8 @@ t_deliver_qos0(_) ->
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg2)).
 
 t_deliver_subscription_filter(_) ->
+    DroppedBefore = emqx_metrics:val_global('delivery.dropped'),
+    DroppedByFilterBefore = emqx_metrics:val_global('delivery.dropped.subscription_filter'),
     MatchMsg = emqx_message:set_header(
         properties,
         #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
@@ -406,7 +408,12 @@ t_deliver_subscription_filter(_) ->
         }
     }),
     [FilteredMsg] = enrich([{deliver, <<"t">>, MatchMsg}, {deliver, <<"t">>, MissMsg}], Session),
-    ?assertEqual(<<"payload-match">>, emqx_message:payload(FilteredMsg)).
+    ?assertEqual(<<"payload-match">>, emqx_message:payload(FilteredMsg)),
+    ?assertEqual(DroppedBefore + 1, emqx_metrics:val_global('delivery.dropped')),
+    ?assertEqual(
+        DroppedByFilterBefore + 1,
+        emqx_metrics:val_global('delivery.dropped.subscription_filter')
+    ).
 
 t_deliver_qos1(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),

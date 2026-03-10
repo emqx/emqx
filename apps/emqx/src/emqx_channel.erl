@@ -3145,7 +3145,7 @@ parse_raw_topic_filter({TopicFilter, SubOpts0}, Mode) ->
             error({invalid_subscription_filter, TopicFilter})
     end;
 parse_raw_topic_filter(TopicFilter, Mode) ->
-    emqx_topic:parse(emqx_subscription_filter:normalize_unsubscribe(TopicFilter, Mode)).
+    emqx_topic:parse(emqx_subscription_filter:normalize_topic_filter(TopicFilter, Mode)).
 
 %%--------------------------------------------------------------------
 %% Maybe & Ensure disconnected
