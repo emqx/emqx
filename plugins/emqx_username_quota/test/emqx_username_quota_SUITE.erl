@@ -327,7 +327,7 @@ t_api_metrics_rebuilding(_Config) ->
         emqx_username_quota_snapshot,
         request_total,
         fun(_DeadlineMs) ->
-            {error, {rebuilding_snapshot, <<"retry-cursor">>, []}}
+            {error, {rebuilding_snapshot, []}}
         end
     ),
     {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
@@ -343,14 +343,13 @@ t_api_metrics_rebuilding(_Config) ->
         Body
     ).
 
-t_api_list_busy_with_retry_cursor(_Config) ->
-    RetryCursor = <<"cursor-busy">>,
+t_api_list_busy(_Config) ->
     ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
         fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
-            {error, {busy, RetryCursor}}
+            {error, busy}
         end
     ),
     {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
@@ -361,21 +360,19 @@ t_api_list_busy_with_retry_cursor(_Config) ->
     ?assertMatch(
         #{
             code := <<"SERVICE_UNAVAILABLE">>,
-            message := <<"Server is busy, please retry">>,
-            retry_cursor := RetryCursor
+            message := <<"Server is busy, please retry">>
         },
         Body
     ),
     ok = meck:unload(emqx_username_quota_state).
 
-t_api_list_rebuilding_with_retry_cursor(_Config) ->
-    RetryCursor = <<"cursor-rebuilding">>,
+t_api_list_rebuilding(_Config) ->
     ok = meck:new(emqx_username_quota_state, [passthrough]),
     ok = meck:expect(
         emqx_username_quota_state,
         list_usernames,
         fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
-            {error, {rebuilding_snapshot, RetryCursor, []}}
+            {error, {rebuilding_snapshot, []}}
         end
     ),
     {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
@@ -388,7 +385,6 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
             code := <<"SERVICE_UNAVAILABLE">>,
             message := <<"Server is busy building snapshot, please retry">>,
             snapshot_build_in_progress := true,
-            retry_cursor := RetryCursor,
             data := [],
             meta := #{count := 0, partial := true}
         },
@@ -397,7 +393,6 @@ t_api_list_rebuilding_with_retry_cursor(_Config) ->
     ok = meck:unload(emqx_username_quota_state).
 
 t_api_list_rebuilding_with_partial_data(_Config) ->
-    RetryCursor = <<"cursor-rebuilding-partial">>,
     PartialItems = [
         #{username => <<"alice">>, used => 5, limit => 100},
         #{username => <<"bob">>, used => 3, limit => 100}
@@ -407,7 +402,7 @@ t_api_list_rebuilding_with_partial_data(_Config) ->
         emqx_username_quota_state,
         list_usernames,
         fun(_RequesterPid, _DeadlineMs, _Cursor, _Limit, _UsedGte) ->
-            {error, {rebuilding_snapshot, RetryCursor, PartialItems}}
+            {error, {rebuilding_snapshot, PartialItems}}
         end
     ),
     {error, 503, _Headers, Body} = emqx_username_quota_api:handle(
@@ -419,7 +414,6 @@ t_api_list_rebuilding_with_partial_data(_Config) ->
         #{
             code := <<"SERVICE_UNAVAILABLE">>,
             snapshot_build_in_progress := true,
-            retry_cursor := RetryCursor,
             data := [#{username := <<"alice">>}, #{username := <<"bob">>}],
             meta := #{count := 2, partial := true}
         },

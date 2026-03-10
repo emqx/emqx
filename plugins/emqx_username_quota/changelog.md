@@ -32,3 +32,7 @@
 - Added warnging level log if a client is not allowed due to quota limit.
 - Added `GET /metrics` endpoint exposing snapshot-backed `emqx_username_count` in Prometheus text format.
 - Snapshot-backed API requests are now routed to the owner core node selected from the sorted core node list.
+
+## 1.1.2
+
+- `GET /quota/usernames` API no longer returns `retry_cursor` since there is a designated snapshot owner since 1.1.1.

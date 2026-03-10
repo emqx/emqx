@@ -57,8 +57,8 @@ request_page_via(TargetNode, RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) -
             TimeoutMs
         )
     catch
-        exit:{timeout, _} -> {error, {busy, pseudo_cursor(TargetNode)}};
-        exit:{noproc, _} -> {error, {rebuilding_snapshot, pseudo_cursor(TargetNode), []}};
+        exit:{timeout, _} -> {error, busy};
+        exit:{noproc, _} -> {error, {rebuilding_snapshot, []}};
         exit:{nodedown, _} -> {error, invalid_cursor}
     end.
 
@@ -75,8 +75,8 @@ request_total_via(TargetNode, DeadlineMs) ->
     try
         gen_server:call({?SERVER, TargetNode}, {request_total, DeadlineMs}, TimeoutMs)
     catch
-        exit:{timeout, _} -> {error, {busy, pseudo_cursor(TargetNode)}};
-        exit:{noproc, _} -> {error, {rebuilding_snapshot, pseudo_cursor(TargetNode), []}};
+        exit:{timeout, _} -> {error, busy};
+        exit:{noproc, _} -> {error, {rebuilding_snapshot, []}};
         exit:{nodedown, _} -> {error, not_core_node}
     end.
 
@@ -115,7 +115,7 @@ handle_call({request_page, _Pid, DeadlineMs, Cursor, Limit, UsedGte}, _From, Sta
 handle_call({request_total, DeadlineMs}, _From, State0) ->
     case deadline_ok(DeadlineMs) of
         false ->
-            {reply, {error, {busy, pseudo_cursor(node())}}, State0};
+            {reply, {error, busy}, State0};
         true ->
             State = maybe_start_build(State0),
             case maps:get(current, State) of
@@ -186,7 +186,7 @@ deadline_ok(DeadlineMs) ->
 
 rebuilding_reply(Limit, State) ->
     Partial = partial_from_building(Limit, State),
-    {error, {rebuilding_snapshot, pseudo_cursor(node()), Partial}}.
+    {error, {rebuilding_snapshot, Partial}}.
 
 partial_from_building(Limit, #{building_color := Color}) when Color =/= undefined ->
     Tab = color_to_tab(Color),
@@ -223,7 +223,7 @@ page_snapshot(State, Cursor, Limit) ->
     }.
 
 total_snapshot(#{current := undefined}) ->
-    {error, {rebuilding_snapshot, pseudo_cursor(node()), []}};
+    {error, {rebuilding_snapshot, []}};
 total_snapshot(State) ->
     Color = maps:get(current, State),
     Tab = color_to_tab(Color),
@@ -319,7 +319,7 @@ wait_for_first_total_build(DeadlineMs, #{building := BuildPid} = State) ->
             State1 = complete_build(State),
             {reply, total_snapshot(State1), State1}
     after WaitMs ->
-        {reply, {error, {rebuilding_snapshot, pseudo_cursor(node()), []}}, State}
+        {reply, {error, {rebuilding_snapshot, []}}, State}
     end.
 
 clear_building(State) ->
@@ -424,6 +424,3 @@ decode_cursor(Cursor) when is_binary(Cursor) ->
     end;
 decode_cursor(_Other) ->
     error.
-
-pseudo_cursor(Node) ->
-    encode_cursor(Node, 0, 1, {0, <<>>}).
