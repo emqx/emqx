@@ -184,5 +184,5 @@ maybe_number(Value) when is_binary(Value) ->
 maybe_number(Value) ->
     maybe_number(emqx_utils_conv:bin(Value)).
 
-trim(Bin) ->
-    unicode:characters_to_binary(string:trim(Bin)).
+trim(Bin) when is_binary(Bin) ->
+    string:trim(Bin).
