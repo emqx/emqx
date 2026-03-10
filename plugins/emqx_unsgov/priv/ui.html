@@ -256,7 +256,7 @@
       .bar-line { display: grid; grid-template-columns: 170px minmax(0,1fr) 60px; gap: 8px; align-items: center; }
       .bar { height: 10px; border-radius: 999px; background: var(--color-bg-table-hd); overflow: hidden; }
       .bar > span { display: block; height: 100%; }
-      .pie-wrap { display: flex; gap: 14px; align-items: center; flex-wrap: nowrap; }
+      .pie-wrap { display: flex; gap: 14px; align-items: center; flex-wrap: nowrap; overflow: hidden; }
       .pie {
         width: 160px;
         height: 160px;
@@ -268,8 +268,8 @@
         border: 1px solid var(--color-border-normal);
         background: conic-gradient(#e5e7eb 0 360deg);
       }
-      .pie-legend { display: grid; gap: 6px; min-width: 180px; }
-      .pie-item { font-size: 0.84rem; color: var(--color-text-secondary); }
+      .pie-legend { display: grid; gap: 6px; min-width: 0; overflow: hidden; }
+      .pie-item { font-size: 0.84rem; color: var(--color-text-secondary); overflow-wrap: break-word; word-break: break-all; }
 
       .table-wrap { overflow: auto; border: 1px solid var(--color-border-normal); border-radius: var(--border-radius-card); margin-top: 12px; }
       table.grid { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
