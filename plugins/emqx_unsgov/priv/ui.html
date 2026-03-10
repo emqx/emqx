@@ -650,7 +650,8 @@
                                         _var_type: "line_id",
                                         children: {
                                           LineControl: {
-                                            _type: "namespace",
+                                            _type: "endpoint",
+                                            _payload: "line_control",
                                             children: {}
                                           }
                                         }
@@ -1449,16 +1450,26 @@
           row.dataset.parentMapId = pathToId(parentMapPath);
           row.dataset.nodeKey = key;
           const nodeTypeValue = (node && node._type) || "namespace";
+          const payloadRef = (node && node._payload) || "";
+          const ptNames = Object.keys((state.modelObj && state.modelObj.payload_types) || {}).sort();
+          const payloadOpts = '<option value="">(any)</option>' +
+            ptNames.map((n) => '<option value="' + esc(n) + '"' + (payloadRef === n ? " selected" : "") + '>' + esc(n) + '</option>').join("");
+          const hiddenIfNotEndpoint = nodeTypeValue === "endpoint" ? "" : "display:none;";
           row.innerHTML =
             (hasChildren ? '<button class="tree-toggle" data-action="toggle-node" type="button">' + (expanded ? "▾" : "▸") + "</button>" : "") +
             '<input class="compact-input" data-role="node-key" type="text" style="width:180px" value="' + esc(key) + '" />' +
             '<select class="compact-select" data-role="node-type" style="width:120px">' +
               '<option value="namespace"' + (nodeTypeValue === "namespace" ? " selected" : "") + '>namespace</option>' +
               '<option value="variable"' + (nodeTypeValue === "variable" ? " selected" : "") + '>variable</option>' +
+              '<option value="endpoint"' + (nodeTypeValue === "endpoint" ? " selected" : "") + '>endpoint</option>' +
             "</select>" +
+            '<select class="compact-select" data-role="node-payload" style="width:140px;' + hiddenIfNotEndpoint + '">' + payloadOpts + '</select>' +
             '<button class="btn" data-action="apply-node" type="button">Apply</button>' +
             '<button class="btn" data-action="add-child-node" type="button">Add Child</button>' +
             '<button class="btn warn" data-action="delete-node" type="button">Delete</button>';
+          row.querySelector('[data-role="node-type"]').addEventListener("change", function() {
+            row.querySelector('[data-role="node-payload"]').style.display = this.value === "endpoint" ? "" : "none";
+          });
           li.appendChild(row);
           if (expanded && hasChildren) {
             const ul = document.createElement("ul");
@@ -1520,6 +1531,8 @@
                 const newKey = (row.querySelector('[data-role="node-key"]').value || "").trim();
                 if (!newKey) return showStatus("err", "Node key cannot be empty");
                 const newType = row.querySelector('[data-role="node-type"]').value;
+                const payloadSel = row.querySelector('[data-role="node-payload"]');
+                const newPayload = payloadSel ? payloadSel.value : "";
                 return applyModelMutation(() => {
                   const parentMap = getByPath(parentMapPath);
                   const existing = parentMap[key];
@@ -1534,6 +1547,9 @@
                   if (newType === "variable") {
                     const m = newKey.match(/^\{(.+)\}$/);
                     if (m && m[1]) existing._var_type = m[1];
+                  }
+                  if (newType === "endpoint" && newPayload) {
+                    existing._payload = newPayload;
                   }
                 });
               }
