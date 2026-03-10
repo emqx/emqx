@@ -12,8 +12,8 @@ bridges {
     remote_topic = "fwd/${topic}"
     enqueue_timeout_ms = 5000
     max_inflight = 32
-    remote_qos = 1
-    remote_retain = false
+    remote_qos = "${qos}"
+    remote_retain = "${retain}"
     queue {
       dir = "bridge_mqtt_dq/example"
       seg_bytes = "100MB"

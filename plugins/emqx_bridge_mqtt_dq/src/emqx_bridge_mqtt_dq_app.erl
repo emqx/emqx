@@ -104,17 +104,17 @@ sync_existing_child(Sup, Id, DesiredSpecs, DisabledBridges) ->
         {ok, DesiredSpec} ->
             maybe_restart_child(Sup, Id, DesiredSpec);
         error ->
-            maybe_disable_and_purge_bridge(Sup, Id, DisabledBridges)
+            disable_and_purge_bridge(Sup, Id, DisabledBridges)
     end.
 
-maybe_disable_and_purge_bridge(Sup, Id, DisabledBridges) ->
+disable_and_purge_bridge(Sup, Id, DisabledBridges) ->
     case maps:find(Id, DisabledBridges) of
         {ok, BridgeConfig} ->
-            disable_and_purge_bridge(Sup, Id, BridgeConfig);
+            do_disable_and_purge_bridge(Sup, Id, BridgeConfig);
         error ->
             %% Bridge removed from config entirely — purge its queue too.
             BridgeConfig = get_bridge_config_from_spec(Sup, Id),
-            disable_and_purge_bridge(Sup, Id, BridgeConfig)
+            do_disable_and_purge_bridge(Sup, Id, BridgeConfig)
     end.
 
 maybe_restart_child(Sup, Id, DesiredSpec) ->
@@ -146,7 +146,7 @@ stop_bridge_child(Sup, Id) ->
     _ = supervisor:delete_child(Sup, Id),
     maybe_delete_metrics(Id).
 
-disable_and_purge_bridge(Sup, Id, BridgeConfig) ->
+do_disable_and_purge_bridge(Sup, Id, BridgeConfig) ->
     stop_bridge_child(Sup, Id),
     maybe_purge_queue(BridgeConfig).
 

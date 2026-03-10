@@ -100,6 +100,11 @@ resolved — other `${...}` patterns (such as `${topic}` in `remote_topic`) are
 left untouched. The entire value must be the placeholder; partial interpolation
 (e.g. `"prefix-${EMQXDQ_VAR}-suffix"`) is not supported.
 
+**Limitation:** `${EMQXDQ_*}` substitution only works for config fields that
+accept string values (e.g. `server`, `username`, `password`). It cannot be used
+for boolean fields (`enable`, `clean_start`), integer fields (`pool_size`,
+`keepalive_s`).
+
 Example:
 
 ```

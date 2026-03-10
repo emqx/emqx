@@ -519,6 +519,62 @@ t_config_env_var_resolution(_Config) ->
     os:unsetenv("EMQXDQ_USER"),
     ok.
 
+-doc "Config parser handles ${qos}/${retain} placeholders and literal values.".
+t_config_qos_retain_placeholders(_Config) ->
+    %% Default: ${qos} and ${retain} placeholders → atoms
+    DefaultConfig = #{
+        <<"bridges">> => #{
+            <<"qr_default">> => #{
+                <<"enable">> => true,
+                <<"server">> => <<"127.0.0.1:1883">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"filter_topic">> => <<"qr/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>,
+                <<"ssl">> => #{<<"enable">> => false}
+            }
+        }
+    },
+    ok = emqx_bridge_mqtt_dq_config:update(DefaultConfig),
+    [#{remote_qos := '${qos}', remote_retain := '${retain}'}] =
+        emqx_bridge_mqtt_dq_config:get_bridges(),
+    %% Explicit string values: "2" for qos, "true" for retain
+    ExplicitConfig = #{
+        <<"bridges">> => #{
+            <<"qr_explicit">> => #{
+                <<"enable">> => true,
+                <<"server">> => <<"127.0.0.1:1883">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"filter_topic">> => <<"qr/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>,
+                <<"remote_qos">> => <<"2">>,
+                <<"remote_retain">> => <<"true">>,
+                <<"ssl">> => #{<<"enable">> => false}
+            }
+        }
+    },
+    ok = emqx_bridge_mqtt_dq_config:update(ExplicitConfig),
+    [#{remote_qos := 2, remote_retain := true}] =
+        emqx_bridge_mqtt_dq_config:get_bridges(),
+    %% String form: "0" for qos, "false" for retain
+    StringConfig = #{
+        <<"bridges">> => #{
+            <<"qr_string">> => #{
+                <<"enable">> => true,
+                <<"server">> => <<"127.0.0.1:1883">>,
+                <<"proto_ver">> => <<"v4">>,
+                <<"filter_topic">> => <<"qr/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>,
+                <<"remote_qos">> => <<"0">>,
+                <<"remote_retain">> => <<"false">>,
+                <<"ssl">> => #{<<"enable">> => false}
+            }
+        }
+    },
+    ok = emqx_bridge_mqtt_dq_config:update(StringConfig),
+    [#{remote_qos := 0, remote_retain := false}] =
+        emqx_bridge_mqtt_dq_config:get_bridges(),
+    ok.
+
 -doc "Bridge counters and API payload reflect forwarded messages.".
 t_metrics_and_api(Config) ->
     Port = ?config(mqtt_port, Config),

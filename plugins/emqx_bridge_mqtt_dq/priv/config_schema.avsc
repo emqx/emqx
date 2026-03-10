@@ -62,13 +62,13 @@
             },
             {
               "name": "remote_qos",
-              "type": "int",
-              "default": 1
+              "type": "string",
+              "default": "${qos}"
             },
             {
               "name": "remote_retain",
-              "type": "boolean",
-              "default": false
+              "type": "string",
+              "default": "${retain}"
             },
             {
               "name": "max_inflight",
