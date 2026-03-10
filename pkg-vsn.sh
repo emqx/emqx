@@ -75,22 +75,24 @@ if [ "${RELEASE_VERSION:-}" = 'yes' ]; then
     exit 0
 fi
 
-git_exact_vsn() {
-    git describe --tags --exact 2>/dev/null || true
-}
+if [ "${PKG_VSN:-novalue}" = 'novalue' ]; then
+    git_exact_vsn() {
+        git describe --tags --exact 2>/dev/null || true
+    }
 
-GIT_EXACT_VSN="$(git_exact_vsn)"
-if [ "$GIT_EXACT_VSN" != '' ]; then
-    if [ "$GIT_EXACT_VSN" != "$RELEASE" ]; then
-        echo "ERROR: Tagged $GIT_EXACT_VSN, but $RELEASE in include/emqx_release.hrl" 1>&2
-        exit 1
+    GIT_EXACT_VSN="$(git_exact_vsn)"
+    if [ "$GIT_EXACT_VSN" != '' ]; then
+        if [ "$GIT_EXACT_VSN" != "$RELEASE" ]; then
+            echo "ERROR: Tagged $GIT_EXACT_VSN, but $RELEASE in include/emqx_release.hrl" 1>&2
+            exit 1
+        fi
+        SUFFIX=''
+    else
+        SUFFIX="-g$(git rev-parse HEAD | cut -b1-8)"
     fi
-    SUFFIX=''
-else
-    SUFFIX="-g$(git rev-parse HEAD | cut -b1-8)"
-fi
 
-PKG_VSN="${PKG_VSN:-${RELEASE}${SUFFIX}}"
+    PKG_VSN="${RELEASE}${SUFFIX}"
+fi
 
 if [ "${LONG_VERSION:-}" != 'yes' ]; then
     echo "$PKG_VSN"
