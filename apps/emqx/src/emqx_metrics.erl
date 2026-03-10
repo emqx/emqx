@@ -579,7 +579,6 @@ reserved_idx('delivery.dropped.too_large') -> 63;
 reserved_idx('delivery.dropped.qos0_msg') -> 64;
 reserved_idx('delivery.dropped.queue_full') -> 65;
 reserved_idx('delivery.dropped.expired') -> 66;
-reserved_idx('delivery.dropped.subscription_filter') -> 102;
 reserved_idx('client.connect') -> 67;
 reserved_idx('client.connack') -> 68;
 reserved_idx('client.connected') -> 69;
@@ -615,6 +614,7 @@ reserved_idx('messages.transformation_succeeded') -> 98;
 reserved_idx('messages.transformation_failed') -> 99;
 reserved_idx('rules.matched') -> 100;
 reserved_idx('actions.executed') -> 101;
+reserved_idx('delivery.dropped.subscription_filter') -> 102;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
