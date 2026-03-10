@@ -351,10 +351,12 @@ t_replication_transfers_snapshots(Config) ->
                 )
             end},
             {"no incomplete snapshot transfers", fun(Trace) ->
-                ?strict_causality(
-                    #{?snk_kind := dsraft_snapshot_read_started},
-                    #{?snk_kind := dsraft_snapshot_accept_complete},
-                    Trace
+                ?assert(
+                    ?strict_causality(
+                        #{?snk_kind := dsraft_snapshot_read_started},
+                        #{?snk_kind := dsraft_snapshot_accept_complete},
+                        Trace
+                    )
                 )
             end}
         ]
