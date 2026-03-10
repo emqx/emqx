@@ -789,9 +789,15 @@
 
         function newModel() {
           state.selectedId = null;
-          setModelObj(getDefaultModel(), {});
+          setModelObj({
+            id: "",
+            name: "",
+            variable_types: {},
+            payload_types: {},
+            tree: {}
+          }, {});
           renderModelList();
-          showStatus("ok", "Draft template loaded");
+          showStatus("ok", "New empty model created");
         }
 
         function updateDirty() {
