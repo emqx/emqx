@@ -49,17 +49,7 @@ forward_to_bridges(#message{
     lists:foreach(fun(Bridge) -> maybe_forward(Bridge, Topic, QoS, Item) end, Bridges).
 
 pub_props(Headers) ->
-    maps:with(
-        [
-            'Payload-Format-Indicator',
-            'Message-Expiry-Interval',
-            'Response-Topic',
-            'Correlation-Data',
-            'User-Property',
-            'Content-Type'
-        ],
-        maps:get(properties, Headers, #{})
-    ).
+    maps:get(properties, Headers, #{}).
 
 maybe_forward(#{name := Name, enable := true, filter_topic := Filter} = Bridge, Topic, QoS, Item) ->
     case emqx_topic:match(Topic, Filter) of
