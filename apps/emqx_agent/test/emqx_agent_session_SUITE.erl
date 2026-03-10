@@ -304,7 +304,7 @@ t_duplicate_request_is_ignored(Config) ->
     %% No second frame should arrive within a short window
     ?assertEqual(timeout, recv_out_or_timeout(Config)).
 
-%% Messages on topics that are not sess/<sid>/in must never trigger a
+%% Messages on topics that are not sess/in/<sid>/ must never trigger a
 %% session process to be created.
 t_non_session_topic_ignored(Config) ->
     Sid = ?config(sid, Config),
@@ -316,8 +316,8 @@ t_non_session_topic_ignored(Config) ->
 %% Helpers
 %%--------------------------------------------------------------------
 
-in_topic(Sid) -> <<"sess/", Sid/binary, "/in">>.
-out_topic(Sid) -> <<"sess/", Sid/binary, "/out">>.
+in_topic(Sid) -> <<"sess/in/", Sid/binary, "/">>.
+out_topic(Sid) -> <<"sess/out/", Sid/binary, "/">>.
 
 %% Base request; Overrides can replace any field (e.g. tools, instructions).
 request(Config, Overrides) ->

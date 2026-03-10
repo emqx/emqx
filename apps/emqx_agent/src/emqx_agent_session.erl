@@ -5,8 +5,8 @@
 %% Session gen_statem: one process per logical session, globally registered
 %% so it is unique across the cluster.
 %%
-%% Incoming topic:  sess/<SID>/in
-%% Outgoing topic:  sess/<SID>/out
+%% Incoming topic:  sess/in/<SID>/
+%% Outgoing topic:  sess/out/<SID>/
 %%
 %% Message types on in-topic:
 %%   request     — start an LLM reasoning loop; carries optional stop_on_finish (default true)
@@ -60,7 +60,7 @@
 
 -define(NAME(Sid), {?MODULE, Sid}).
 -define(REG(Sid), {global, ?NAME(Sid)}).
--define(OUT(Sid), <<"sess/", (Sid)/binary, "/out">>).
+-define(OUT(Sid), <<"sess/out/", (Sid)/binary, "/">>).
 -define(MAX_ITERATIONS, 20).
 
 %%--------------------------------------------------------------------
@@ -114,10 +114,10 @@ deinit_hook() ->
     ok.
 
 on_message_publish(
-    #message{topic = <<"sess/", Rest/binary>>, payload = Payload} = Message
+    #message{topic = <<"sess/in/", Rest/binary>>, payload = Payload} = Message
 ) ->
     case binary:split(Rest, <<"/">>) of
-        [Sid, <<"in">>] -> route(Sid, Payload);
+        [Sid, <<>>] -> route(Sid, Payload);
         _ -> ok
     end,
     {ok, Message};
@@ -514,7 +514,7 @@ format_instructions(Instructions) when is_list(Instructions) ->
 format_instructions(Instructions) when is_binary(Instructions) ->
     Instructions.
 
-%% Publish a frame to sess/<Sid>/out, automatically filling correlation fields
+%% Publish a frame to sess/out/<Sid>/, automatically filling correlation fields
 %% (sid, iid, trace_id) and usage counters from Data.
 publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, Frame) ->
     Payload = maps:merge(

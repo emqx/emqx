@@ -16,6 +16,7 @@ start(_StartType, _StartArgs) ->
     ok = emqx_agent_skill_kv:create(assets_context()),
     ok = emqx_agent_skill_http:init(),
     ok = emqx_agent_skill_http:create(weather_context()),
+    ok = emqx_agent_skill_publish:init(),
     ok = emqx_agent_session:init_hook(),
     {ok, Sup}.
 
@@ -26,6 +27,7 @@ stop(_State) ->
     ok = emqx_agent_skill_kv:deinit(),
     ok = emqx_agent_skill_http:destroy(maps:get(skill_id, weather_context())),
     ok = emqx_agent_skill_http:deinit(),
+    ok = emqx_agent_skill_publish:deinit(),
     ok = emqx_agent_session:deinit_hook().
 
 %%--------------------------------------------------------------------
