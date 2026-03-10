@@ -151,6 +151,11 @@
       .block h3 { margin: 0 0 8px; font-size: 0.95rem; }
       .compact-row { display: grid; grid-template-columns: 1fr 140px 120px auto; gap: 6px; align-items: center; margin: 4px 0; }
       .compact-row .btn { height: 32px; }
+      .nested-object {
+        margin: 2px 0 8px 0;
+        padding: 6px 0 6px 12px;
+        border-left: 2px solid var(--color-border-primary);
+      }
       .enum-row { margin: 4px 0 8px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
       .enum-chip {
         border: 1px solid var(--color-border-primary);
@@ -350,8 +355,6 @@
                   <div class="compact-row">
                     <input class="compact-input" id="modelIdInput" type="text" placeholder="model id" />
                     <input class="compact-input" id="modelNameInput" type="text" placeholder="model name" />
-                    <button class="btn main" id="applyMetaBtn" type="button">Apply</button>
-                    <span class="muted">id + name</span>
                   </div>
                 </div>
                 <div class="block">
@@ -1101,7 +1104,7 @@
                 '<input class="compact-input" data-role="var-name" type="text" value="' + esc(name) + '" />' +
                 '<select class="compact-select" data-role="var-type">' + variableTypeOptions(vType) + "</select>" +
                 '<input class="compact-input" data-role="var-pattern" type="text" placeholder="regex pattern" value="' + esc(pattern) + '"' + (vType !== "string" ? ' style="display:none"' : '') + ' />' +
-                '<div class="row"><button class="btn" data-action="apply-variable-type" type="button">Apply</button><button class="btn warn" data-action="del-variable-type" type="button">Delete</button></div>' +
+                '<div class="row"><button class="btn warn" data-action="del-variable-type" type="button">Delete</button></div>' +
               "</div>" +
               '<div class="enum-row" data-role="var-enum-row"' + (vType !== "enum" ? ' style="display:none"' : '') + '>' +
                 '<span class="muted">enum symbols:</span>' + enumHtml +
@@ -1116,7 +1119,8 @@
             '<div class="compact-row" style="grid-template-columns:1fr auto">' +
             '<input class="compact-input" id="newVariableTypeName" type="text" placeholder="new variable type name" />' +
             '<button class="btn main" data-action="add-variable-type" type="button">Add Variable Type</button>' +
-            "</div>";
+            "</div>" +
+            '<div class="row" style="margin-top:8px"><button class="btn main" data-action="apply-all-variables" type="button">Apply Variables</button></div>';
           wireVariableActions();
         }
 
@@ -1156,24 +1160,24 @@
                   delete state.modelObj.variable_types[varName];
                 });
               }
-              if (action === "apply-variable-type") {
-                const newName = (row.querySelector('[data-role=\"var-name\"]').value || "").trim();
-                const newType = row.querySelector('[data-role=\"var-type\"]').value;
-                const pattern = (row.querySelector('[data-role=\"var-pattern\"]').value || "").trim();
-                if (!newName) return showStatus("err", "Variable type name cannot be empty");
+              if (action === "apply-all-variables") {
                 return applyModelMutation(() => {
-                  vt.type = newType;
-                  if (newType === "string") {
-                    vt.pattern = pattern || ".*";
-                    delete vt.values;
-                  } else {
-                    delete vt.pattern;
-                    if (!Array.isArray(vt.values)) vt.values = [];
-                  }
-                  if (newName !== varName) {
-                    delete state.modelObj.variable_types[varName];
-                    state.modelObj.variable_types[newName] = vt;
-                  }
+                  const newVarTypes = {};
+                  els.variableEditor.querySelectorAll("[data-var-name]").forEach((block) => {
+                    const origName = block.dataset.varName;
+                    const newName = (block.querySelector('[data-role="var-name"]').value || "").trim();
+                    if (!newName) return;
+                    const newType = block.querySelector('[data-role="var-type"]').value;
+                    const orig = state.modelObj.variable_types[origName] || {};
+                    const entry = { type: newType };
+                    if (newType === "string") {
+                      entry.pattern = (block.querySelector('[data-role="var-pattern"]').value || "").trim() || ".*";
+                    } else if (newType === "enum") {
+                      entry.values = Array.isArray(orig.values) ? orig.values : [];
+                    }
+                    newVarTypes[newName] = entry;
+                  });
+                  state.modelObj.variable_types = newVarTypes;
                 });
               }
               if (action === "add-var-symbol" || action === "del-var-symbol") {
@@ -1209,11 +1213,9 @@
             wirePayloadActions();
             return;
           }
-          const cards = names.map((name) => {
-            const schema = ptypes[name] || {};
-            const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
-            const required = Array.isArray(schema.required) ? schema.required : [];
-            const propRows = Object.keys(props).map((propName) => {
+          function renderPropsHtml(props, required, schemaPath, depth) {
+            const indent = depth > 0 ? ' style="margin-left:' + (depth * 16) + 'px"' : '';
+            return Object.keys(props).map((propName) => {
               const p = props[propName] || {};
               const pType = p.type || "string";
               const enumVals = Array.isArray(p.enum) ? p.enum : [];
@@ -1225,29 +1227,56 @@
                   "</span>"
                 ).join("")
                 : '<span class="muted">no symbols</span>';
+              const propPath = schemaPath + "." + propName;
+              let nested = "";
+              if (pType === "object") {
+                const subProps = (p.properties && typeof p.properties === "object") ? p.properties : {};
+                const subReq = Array.isArray(p.required) ? p.required : [];
+                nested =
+                  '<div class="nested-object" data-schema-path="' + esc(propPath) + '"' + indent + '>' +
+                  '<label class="compact-check"><input data-role="nested-additional" type="checkbox"' + (p.additionalProperties === false ? "" : " checked") + ' />additionalProperties</label>' +
+                  '<div class="muted" style="margin:4px 0 2px">properties</div>' +
+                  renderPropsHtml(subProps, subReq, propPath, depth + 1) +
+                  '<div class="compact-row" data-schema-path="' + esc(propPath) + '">' +
+                  '<input class="compact-input" data-role="new-prop-name" type="text" placeholder="new property" />' +
+                  '<select class="compact-select" data-role="new-prop-type">' + payloadTypeOptions("string") + "</select>" +
+                  '<label class="compact-check"><input data-role="new-prop-required" type="checkbox" checked />required</label>' +
+                  '<div><button class="btn" data-action="add-nested-prop" type="button">Add</button></div>' +
+                  "</div>" +
+                  "</div>";
+              }
+              var enumDisplay = pType === "string" ? "" : "display:none;";
+              var nestedDisplay = pType === "object" ? "" : "display:none;";
               return (
-                '<div data-prop-name="' + esc(propName) + '" data-payload-name="' + esc(name) + '">' +
+                '<div data-prop-name="' + esc(propName) + '" data-schema-path="' + esc(schemaPath) + '"' + indent + '>' +
                 '<div class="compact-row">' +
                   '<input class="compact-input" data-role="prop-name" type="text" value="' + esc(propName) + '" />' +
                   '<select class="compact-select" data-role="prop-type">' + payloadTypeOptions(pType) + "</select>" +
                   '<label class="compact-check"><input data-role="prop-required" type="checkbox"' + (required.indexOf(propName) >= 0 ? " checked" : "") + ' />required</label>' +
-                  '<div class="row"><button class="btn" data-action="apply-prop" type="button">Apply</button><button class="btn warn" data-action="del-prop" type="button">Delete</button></div>' +
+                  '<div class="row"><button class="btn warn" data-action="del-prop" type="button">Delete</button></div>' +
                 "</div>" +
-                '<div class="enum-row">' +
+                '<div class="enum-row" data-role="enum-section" style="' + enumDisplay + '">' +
                   '<span class="muted">enum:</span>' + enumHtml +
                   '<input class="compact-input" data-role="new-enum-symbol" type="text" placeholder="new symbol" style="width:140px;height:28px" />' +
                   '<button class="btn" data-action="add-enum-symbol" type="button" style="height:28px">Add</button>' +
                 "</div>" +
+                '<div data-role="nested-section" style="' + nestedDisplay + '">' + nested + '</div>' +
                 "</div>"
               );
             }).join("");
+          }
+          const cards = names.map((name) => {
+            const schema = ptypes[name] || {};
+            const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
+            const required = Array.isArray(schema.required) ? schema.required : [];
+            const propRows = renderPropsHtml(props, required, name, 0);
             return (
               '<div class="block" style="margin-bottom:8px">' +
-              '<div class="compact-row" data-payload-name="' + esc(name) + '">' +
+              '<div class="compact-row" style="grid-template-columns:1fr 100px 160px auto" data-payload-name="' + esc(name) + '">' +
               '<input class="compact-input" data-role="payload-name" type="text" value="' + esc(name) + '" />' +
               '<select class="compact-select" data-role="payload-root-type">' + payloadTypeOptions(schema.type || "object") + "</select>" +
               '<label class="compact-check"><input data-role="payload-additional" type="checkbox"' + (schema.additionalProperties === false ? "" : " checked") + ' />additionalProperties</label>' +
-              '<div class="row"><button class="btn" data-action="apply-payload-name" type="button">Rename</button><button class="btn warn" data-action="del-payload-type" type="button">Delete</button></div>' +
+              '<div class="row"><button class="btn warn" data-action="del-payload-type" type="button">Delete</button></div>' +
               "</div>" +
               '<div class="muted" style="margin:6px 0 4px">properties</div>' +
               (propRows || '<div class="muted">No properties</div>') +
@@ -1266,7 +1295,8 @@
             '<div class="compact-row" style="grid-template-columns:1fr auto">' +
             '<input class="compact-input" id="newPayloadTypeName" type="text" placeholder="new payload type name" />' +
             '<button class="btn main" data-action="add-payload-type" type="button">Add Payload Type</button>' +
-            "</div>";
+            "</div>" +
+            '<div class="row" style="margin-top:8px"><button class="btn main" data-action="apply-all-payload" type="button">Apply Payload</button></div>';
           wirePayloadActions();
         }
 
@@ -1281,6 +1311,20 @@
           const idx = schema.required.indexOf(propName);
           if (required && idx < 0) schema.required.push(propName);
           if (!required && idx >= 0) schema.required.splice(idx, 1);
+        }
+
+        function resolveNestedSchema(payloadName, propRow) {
+          var schema = state.modelObj.payload_types[payloadName];
+          if (!schema) return null;
+          var path = propRow.dataset.schemaPath || "";
+          if (!path || path === payloadName) return schema;
+          var parts = path.split(".");
+          // parts[0] is payloadName, rest are nested property names
+          for (var i = 1; i < parts.length; i++) {
+            if (!schema.properties || !schema.properties[parts[i]]) return null;
+            schema = schema.properties[parts[i]];
+          }
+          return schema;
         }
 
         function wirePayloadActions() {
@@ -1300,75 +1344,143 @@
                 return;
               }
 
-              const row = btn.closest("[data-payload-name]");
-              if (!row) return;
-              const payloadName = row.dataset.payloadName;
-              const schema = state.modelObj.payload_types[payloadName];
-              if (!schema) return;
+              if (action === "apply-all-payload") {
+                return applyModelMutation(() => {
+                  function readPropsFromContainer(container, schemaPath, origSchema) {
+                    const newProps = {};
+                    const newRequired = [];
+                    container.querySelectorAll(':scope > [data-prop-name][data-schema-path="' + schemaPath + '"]').forEach((propRow) => {
+                      const origPropName = propRow.dataset.propName;
+                      const pName = (propRow.querySelector(':scope > .compact-row > [data-role="prop-name"]').value || "").trim();
+                      if (!pName) return;
+                      const pType = propRow.querySelector(':scope > .compact-row > [data-role="prop-type"]').value;
+                      const req = propRow.querySelector(':scope > .compact-row [data-role="prop-required"]').checked;
+                      const origProp = (origSchema && origSchema[origPropName]) || {};
+                      newProps[pName] = { type: pType };
+                      if (Array.isArray(origProp.enum) && origProp.enum.length > 0) {
+                        newProps[pName].enum = origProp.enum;
+                      }
+                      if (pType === "object") {
+                        const nestedDiv = propRow.querySelector('.nested-object');
+                        if (nestedDiv) {
+                          const additionalEl = nestedDiv.querySelector('[data-role="nested-additional"]');
+                          newProps[pName].additionalProperties = additionalEl ? additionalEl.checked : true;
+                          const subOrigProps = (origProp.properties && typeof origProp.properties === "object") ? origProp.properties : {};
+                          const sub = readPropsFromContainer(nestedDiv, schemaPath + "." + origPropName, subOrigProps);
+                          newProps[pName].properties = sub.props;
+                          newProps[pName].required = sub.required;
+                        }
+                      }
+                      if (req) newRequired.push(pName);
+                    });
+                    return { props: newProps, required: newRequired };
+                  }
+                  const newPtypes = {};
+                  els.payloadEditor.querySelectorAll(".block").forEach((blk) => {
+                    const hdr = blk.querySelector("[data-payload-name]");
+                    if (!hdr) return;
+                    const origName = hdr.dataset.payloadName;
+                    const newName = (hdr.querySelector('[data-role="payload-name"]').value || "").trim();
+                    if (!newName) return;
+                    const rootType = hdr.querySelector('[data-role="payload-root-type"]').value;
+                    const additional = hdr.querySelector('[data-role="payload-additional"]').checked;
+                    const origSchema = state.modelObj.payload_types[origName] || {};
+                    const origProps = (origSchema.properties && typeof origSchema.properties === "object") ? origSchema.properties : {};
+                    const result = readPropsFromContainer(blk, origName, origProps);
+                    newPtypes[newName] = {
+                      type: rootType,
+                      properties: result.props,
+                      required: result.required,
+                      additionalProperties: additional
+                    };
+                  });
+                  state.modelObj.payload_types = newPtypes;
+                });
+              }
+
+              // Find the top-level payload name from the closest block
+              const block = btn.closest(".block");
+              const headerRow = block ? block.querySelector("[data-payload-name]") : null;
+              if (!headerRow) return;
+              const payloadName = headerRow.dataset.payloadName;
+              const topSchema = state.modelObj.payload_types[payloadName];
+              if (!topSchema) return;
+
               if (action === "del-payload-type") {
                 return applyModelMutation(() => {
                   delete state.modelObj.payload_types[payloadName];
                 });
               }
-              if (action === "apply-payload-name") {
-                const newName = (row.querySelector('[data-role=\"payload-name\"]').value || "").trim();
-                const rootType = row.querySelector('[data-role=\"payload-root-type\"]').value;
-                const additional = row.querySelector('[data-role=\"payload-additional\"]').checked;
-                if (!newName) return showStatus("err", "Payload type name cannot be empty");
-                return applyModelMutation(() => {
-                  schema.type = rootType;
-                  schema.additionalProperties = additional;
-                  if (newName !== payloadName) {
-                    delete state.modelObj.payload_types[payloadName];
-                    state.modelObj.payload_types[newName] = schema;
-                  }
-                });
-              }
               if (action === "add-prop") {
-                const newProp = (row.querySelector('[data-role=\"new-prop-name\"]').value || "").trim();
-                const pType = row.querySelector('[data-role=\"new-prop-type\"]').value;
-                const req = row.querySelector('[data-role=\"new-prop-required\"]').checked;
+                const row = btn.closest("[data-payload-name]");
+                if (!row) return;
+                const newProp = (row.querySelector('[data-role="new-prop-name"]').value || "").trim();
+                const pType = row.querySelector('[data-role="new-prop-type"]').value;
+                const req = row.querySelector('[data-role="new-prop-required"]').checked;
                 if (!newProp) return showStatus("err", "Property name is required");
                 return applyModelMutation(() => {
-                  normalizePayloadSchema(schema);
-                  schema.properties[newProp] = Object.assign({}, schema.properties[newProp] || {}, { type: pType });
-                  setPropRequired(schema, newProp, req);
+                  normalizePayloadSchema(topSchema);
+                  topSchema.properties[newProp] = Object.assign({}, topSchema.properties[newProp] || {}, { type: pType });
+                  if (pType === "object") {
+                    topSchema.properties[newProp].properties = topSchema.properties[newProp].properties || {};
+                    topSchema.properties[newProp].required = topSchema.properties[newProp].required || [];
+                    topSchema.properties[newProp].additionalProperties = topSchema.properties[newProp].additionalProperties !== undefined ? topSchema.properties[newProp].additionalProperties : false;
+                  }
+                  setPropRequired(topSchema, newProp, req);
                 });
               }
-              if (action === "apply-prop" || action === "del-prop") {
+              if (action === "add-nested-prop") {
+                const nestedRow = btn.closest("[data-schema-path]");
+                if (!nestedRow) return;
+                const nestedPath = nestedRow.dataset.schemaPath;
+                const newProp = (nestedRow.querySelector('[data-role="new-prop-name"]').value || "").trim();
+                const pType = nestedRow.querySelector('[data-role="new-prop-type"]').value;
+                const req = nestedRow.querySelector('[data-role="new-prop-required"]').checked;
+                if (!newProp) return showStatus("err", "Property name is required");
+                return applyModelMutation(() => {
+                  // Resolve the parent schema from the path
+                  var parentSchema = topSchema;
+                  var parts = nestedPath.split(".");
+                  for (var i = 1; i < parts.length; i++) {
+                    if (!parentSchema.properties || !parentSchema.properties[parts[i]]) return;
+                    parentSchema = parentSchema.properties[parts[i]];
+                  }
+                  normalizePayloadSchema(parentSchema);
+                  parentSchema.properties[newProp] = Object.assign({}, parentSchema.properties[newProp] || {}, { type: pType });
+                  if (pType === "object") {
+                    parentSchema.properties[newProp].properties = parentSchema.properties[newProp].properties || {};
+                    parentSchema.properties[newProp].required = parentSchema.properties[newProp].required || [];
+                    parentSchema.properties[newProp].additionalProperties = parentSchema.properties[newProp].additionalProperties !== undefined ? parentSchema.properties[newProp].additionalProperties : false;
+                  }
+                  setPropRequired(parentSchema, newProp, req);
+                });
+              }
+              if (action === "del-prop") {
                 const propRow = btn.closest("[data-prop-name]");
                 if (!propRow) return;
                 const oldName = propRow.dataset.propName;
+                const parentSchema = resolveNestedSchema(payloadName, propRow);
+                if (!parentSchema) return;
                 return applyModelMutation(() => {
-                  normalizePayloadSchema(schema);
-                  if (!schema.properties[oldName]) return;
-                  if (action === "del-prop") {
-                    delete schema.properties[oldName];
-                    setPropRequired(schema, oldName, false);
-                    return;
-                  }
-                  const newName = (propRow.querySelector('[data-role=\"prop-name\"]').value || "").trim();
-                  const pType = propRow.querySelector('[data-role=\"prop-type\"]').value;
-                  const req = propRow.querySelector('[data-role=\"prop-required\"]').checked;
-                  if (!newName) throw new Error("Property name cannot be empty");
-                  const oldDef = schema.properties[oldName];
-                  delete schema.properties[oldName];
-                  schema.properties[newName] = Object.assign({}, oldDef, { type: pType });
-                  setPropRequired(schema, oldName, false);
-                  setPropRequired(schema, newName, req);
+                  normalizePayloadSchema(parentSchema);
+                  if (!parentSchema.properties[oldName]) return;
+                  delete parentSchema.properties[oldName];
+                  setPropRequired(parentSchema, oldName, false);
                 });
               }
               if (action === "add-enum-symbol" || action === "del-enum-symbol") {
                 const propRow = btn.closest("[data-prop-name]");
                 if (!propRow) return;
                 const propName = propRow.dataset.propName;
+                const parentSchema = resolveNestedSchema(payloadName, propRow);
+                if (!parentSchema) return;
                 return applyModelMutation(() => {
-                  normalizePayloadSchema(schema);
-                  const prop = schema.properties[propName];
+                  normalizePayloadSchema(parentSchema);
+                  const prop = parentSchema.properties[propName];
                   if (!prop) return;
                   if (!Array.isArray(prop.enum)) prop.enum = [];
                   if (action === "add-enum-symbol") {
-                    const sym = (propRow.querySelector('[data-role=\"new-enum-symbol\"]').value || "").trim();
+                    const sym = (propRow.querySelector('[data-role="new-enum-symbol"]').value || "").trim();
                     if (!sym) throw new Error("Enum symbol cannot be empty");
                     if (prop.enum.indexOf(sym) < 0) prop.enum.push(sym);
                   } else {
@@ -1377,6 +1489,16 @@
                   }
                 });
               }
+            });
+          });
+          els.payloadEditor.querySelectorAll('[data-role="prop-type"]').forEach((sel) => {
+            sel.addEventListener("change", () => {
+              const propRow = sel.closest("[data-prop-name]");
+              if (!propRow) return;
+              const enumSec = propRow.querySelector(':scope > [data-role="enum-section"]');
+              const nestedSec = propRow.querySelector(':scope > [data-role="nested-section"]');
+              if (enumSec) enumSec.style.display = sel.value === "string" ? "" : "none";
+              if (nestedSec) nestedSec.style.display = sel.value === "object" ? "" : "none";
             });
           });
         }
@@ -1415,7 +1537,10 @@
           const addRow = document.createElement("div");
           addRow.className = "row";
           addRow.style.marginTop = "8px";
-          addRow.innerHTML = '<button class="btn main" data-action="add-root-node" type="button">Add Root Node</button>';
+          addRow.style.gap = "8px";
+          addRow.innerHTML =
+            '<button class="btn main" data-action="add-root-node" type="button">Add Root Node</button>' +
+            '<button class="btn main" data-action="apply-all-tree" type="button">Apply Tree</button>';
           els.treeView.appendChild(addRow);
           renderTreeFilters();
           wireTreeActions();
@@ -1489,7 +1614,6 @@
               '<option value="endpoint"' + (nodeTypeValue === "endpoint" ? " selected" : "") + '>endpoint</option>' +
             "</select>" +
             '<select class="compact-select" data-role="node-payload" style="width:140px;' + hiddenIfNotEndpoint + '">' + payloadOpts + '</select>' +
-            '<button class="btn" data-action="apply-node" type="button">Apply</button>' +
             '<button class="btn" data-action="add-child-node" type="button">Add Child</button>' +
             '<button class="btn warn" data-action="delete-node" type="button">Delete</button>';
           row.querySelector('[data-role="node-type"]').addEventListener("change", function() {
@@ -1512,6 +1636,56 @@
             li.appendChild(ul);
           }
           return li;
+        }
+
+        function applyTreeFromDom() {
+          function readNodeFromRow(row) {
+            const newKey = (row.querySelector('[data-role="node-key"]').value || "").trim();
+            if (!newKey) return null;
+            const newType = row.querySelector('[data-role="node-type"]').value;
+            const payloadSel = row.querySelector('[data-role="node-payload"]');
+            const newPayload = payloadSel ? payloadSel.value : "";
+            const nodePath = idToPath(row.dataset.nodeId);
+            const existing = getByPath(nodePath);
+            const node = { _type: newType, children: (existing && existing.children) || {} };
+            if (newType === "variable") {
+              const m = newKey.match(/^\{(.+)\}$/);
+              if (m && m[1]) node._var_type = m[1];
+            }
+            if (newType === "endpoint" && newPayload) {
+              node._payload = newPayload;
+            }
+            return { key: newKey, node: node, origKey: row.dataset.nodeKey, parentMapId: row.dataset.parentMapId };
+          }
+          // Collect all edits grouped by parent
+          const editsByParent = {};
+          els.treeView.querySelectorAll(".tree-row").forEach((row) => {
+            const info = readNodeFromRow(row);
+            if (!info) return;
+            const pid = info.parentMapId;
+            if (!editsByParent[pid]) editsByParent[pid] = [];
+            editsByParent[pid].push(info);
+          });
+          // Apply bottom-up: process deepest parents first
+          const parentIds = Object.keys(editsByParent);
+          parentIds.sort((a, b) => b.length - a.length);
+          parentIds.forEach((pid) => {
+            const parentMap = getByPath(idToPath(pid));
+            if (!parentMap || typeof parentMap !== "object") return;
+            const edits = editsByParent[pid];
+            const newMap = {};
+            edits.forEach((e) => {
+              // Re-read children from current state (may have been updated by deeper apply)
+              const currentNode = parentMap[e.origKey];
+              if (currentNode && currentNode.children) {
+                e.node.children = currentNode.children;
+              }
+              newMap[e.key] = e.node;
+            });
+            // Clear and replace
+            Object.keys(parentMap).forEach((k) => delete parentMap[k]);
+            Object.keys(newMap).forEach((k) => { parentMap[k] = newMap[k]; });
+          });
         }
 
         function wireTreeActions() {
@@ -1552,30 +1726,9 @@
                   state.expandedIds[pathToId(nodePath)] = true;
                 });
               }
-              if (action === "apply-node") {
-                const newKey = (row.querySelector('[data-role="node-key"]').value || "").trim();
-                if (!newKey) return showStatus("err", "Node key cannot be empty");
-                const newType = row.querySelector('[data-role="node-type"]').value;
-                const payloadSel = row.querySelector('[data-role="node-payload"]');
-                const newPayload = payloadSel ? payloadSel.value : "";
+              if (action === "apply-all-tree") {
                 return applyModelMutation(() => {
-                  const parentMap = getByPath(parentMapPath);
-                  const existing = parentMap[key];
-                  delete parentMap[key];
-                  parentMap[newKey] = existing;
-                  existing._type = newType;
-                  delete existing._var_type;
-                  delete existing._payload;
-                  if (!existing.children || typeof existing.children !== "object") {
-                    existing.children = {};
-                  }
-                  if (newType === "variable") {
-                    const m = newKey.match(/^\{(.+)\}$/);
-                    if (m && m[1]) existing._var_type = m[1];
-                  }
-                  if (newType === "endpoint" && newPayload) {
-                    existing._payload = newPayload;
-                  }
+                  applyTreeFromDom();
                 });
               }
             });
@@ -1728,15 +1881,16 @@
         document.getElementById("refreshModelsBtn").addEventListener("click", () => {
           loadModels(state.selectedId).catch((e) => showStatus("err", e.message));
         });
-        document.getElementById("applyMetaBtn").addEventListener("click", () => {
-          applyModelMutation(() => {
-            ensureModelShape();
-            const id = (els.modelIdInput.value || "").trim();
-            const name = (els.modelNameInput.value || "").trim();
-            if (id) state.modelObj.id = id;
-            if (name) state.modelObj.name = name;
-          });
-        });
+        function applyMeta() {
+          ensureModelShape();
+          const id = (els.modelIdInput.value || "").trim();
+          const name = (els.modelNameInput.value || "").trim();
+          if (id) state.modelObj.id = id;
+          if (name) state.modelObj.name = name;
+          syncEditorFromModel();
+        }
+        els.modelIdInput.addEventListener("input", applyMeta);
+        els.modelNameInput.addEventListener("input", applyMeta);
         document.getElementById("expandAllBtn").addEventListener("click", expandAllLevels);
         document.getElementById("collapseAllBtn").addEventListener("click", collapseAllLevels);
         document.getElementById("newModelBtn").addEventListener("click", newModel);
