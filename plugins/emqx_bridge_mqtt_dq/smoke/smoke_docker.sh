@@ -18,10 +18,10 @@ PLUGIN_VSN="$(tr -d '[:space:]' < "$ROOT_DIR/plugins/$PLUGIN_APP/VERSION")"
 PLUGIN="$PLUGIN_APP-$PLUGIN_VSN"
 PLUGIN_TAR="$ROOT_DIR/_build/plugins/$PLUGIN.tar.gz"
 
-LOCAL_API="http://127.0.0.1:18083"
-REMOTE_API="http://127.0.0.1:19083"
-LOCAL_MQTT_PORT=1883
-REMOTE_MQTT_PORT=2883
+LOCAL_API="http://127.0.0.1:38083"
+REMOTE_API="http://127.0.0.1:48083"
+LOCAL_MQTT_PORT=3883
+REMOTE_MQTT_PORT=4883
 
 LOGIN_USERNAME="admin"
 LOGIN_PASSWORD="public"
@@ -76,27 +76,22 @@ wait_api() {
 }
 
 login_token() {
-    local url="$1"
-    local res token
-    res="$(curl -sS --fail -H 'content-type: application/json' \
-        -X POST "$url/api/v5/login" \
-        -d "{\"username\":\"$LOGIN_USERNAME\",\"password\":\"$LOGIN_PASSWORD\"}")"
-    token="$(printf '%s' "$res" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
-    if [[ -z "$token" ]]; then
-        echo "[docker] failed to get token from $url" >&2
-        echo "Response: $res" >&2
-        return 1
-    fi
-    printf '%s' "$token"
-}
-
-install_plugin() {
-    local container="$1"
-    echo "[docker] installing plugin on $container"
-    docker cp "$PLUGIN_TAR" "$container:/opt/emqx/plugins/"
-    docker exec "$container" emqx ctl plugins install "$PLUGIN"
-    docker exec "$container" emqx ctl plugins enable "$PLUGIN"
-    docker exec "$container" emqx ctl plugins start "$PLUGIN"
+    local url="$1" res token _i
+    for _i in $(seq 1 20); do
+        res="$(curl -sS -H 'content-type: application/json' \
+            -X POST "$url/api/v5/login" \
+            -d "{\"username\":\"$LOGIN_USERNAME\",\"password\":\"$LOGIN_PASSWORD\"}" \
+            2>/dev/null || true)"
+        token="$(printf '%s' "$res" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+        if [[ -n "$token" ]]; then
+            printf '%s' "$token"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "[docker] failed to get token from $url" >&2
+    echo "Response: $res" >&2
+    return 1
 }
 
 ## ================================================================
@@ -104,6 +99,7 @@ install_plugin() {
 ## ================================================================
 echo "[docker] Phase 1: starting brokers"
 cd "$SCRIPT_DIR"
+export PLUGIN
 docker compose down -v --remove-orphans 2>/dev/null || true
 docker compose up -d
 
@@ -113,11 +109,9 @@ echo "[docker] waiting for local API"
 wait_api "$LOCAL_API"
 
 ## ================================================================
-## Phase 2: Install plugin on local, configure bridge
+## Phase 2: Configure bridge
 ## ================================================================
-echo "[docker] Phase 2: install plugin and configure bridge"
-install_plugin dq-local
-
+echo "[docker] Phase 2: configure bridge"
 TOKEN="$(login_token "$LOCAL_API")"
 
 # shellcheck disable=SC2016
@@ -126,16 +120,21 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
     -H "Authorization: Bearer $TOKEN" \
     -H 'content-type: application/json' \
     -d '{
+  "remotes": {
+    "cloud": {
+      "server": "${EMQXDQ_REMOTE_HOST}",
+      "ssl": {"enable": false}
+    }
+  },
   "bridges": {
     "smoke": {
       "enable": true,
-      "server": "${EMQXDQ_REMOTE_HOST}",
+      "remote": "cloud",
       "proto_ver": "v4",
       "clientid_prefix": "dq_smoke",
       "clean_start": true,
       "keepalive_s": 60,
       "pool_size": 2,
-      "ssl": {"enable": false},
       "filter_topic": "devices/#",
       "remote_topic": "forwarded/${topic}",
       "remote_qos": "${qos}",
@@ -165,8 +164,9 @@ SUB_FILE="$(mktemp)"
 SUB_PID=$!
 sleep 2
 
-mqttx pub -h 127.0.0.1 -p "$LOCAL_MQTT_PORT" -V 5 -q 1 \
-    -t "devices/sensor/1" -m '{"phase":"live","seq":1}' 2>&1 | head -3
+PUB_OUT="$(mqttx pub -h 127.0.0.1 -p "$LOCAL_MQTT_PORT" -V 5 -q 1 \
+    -t "devices/sensor/1" -m '{"phase":"live","seq":1}' 2>&1 || true)"
+echo "$PUB_OUT" | sed -n '1,3p'
 sleep 2
 
 # Subscriber should have received the message; give it a moment then kill
@@ -193,8 +193,9 @@ docker compose stop remote
 sleep 1
 
 for seq in 1 2 3 4 5; do
-    mqttx pub -h 127.0.0.1 -p "$LOCAL_MQTT_PORT" -V 5 -q 1 \
-        -t "devices/sensor/1" -m "{\"phase\":\"queued\",\"seq\":$seq}" 2>&1 | head -1
+    PUB_OUT="$(mqttx pub -h 127.0.0.1 -p "$LOCAL_MQTT_PORT" -V 5 -q 1 \
+        -t "devices/sensor/1" -m "{\"phase\":\"queued\",\"seq\":$seq}" 2>&1 || true)"
+    echo "$PUB_OUT" | sed -n '1p'
 done
 echo "[docker] 5 messages published while remote is down"
 sleep 1
@@ -235,7 +236,7 @@ wait_api "$LOCAL_API"
 echo "[docker] waiting for queued messages to arrive..."
 # shellcheck disable=SC2034
 for _i in $(seq 1 30); do
-    if [[ -f "$SUB_FILE" ]] && grep -cF '"queued"' "$SUB_FILE" 2>/dev/null | grep -q '[5-9]'; then
+    if [[ -f "$SUB_FILE" ]] && grep -cF '"phase\":\"queued\"' "$SUB_FILE" 2>/dev/null | grep -q '[5-9]'; then
         break
     fi
     sleep 1
@@ -254,7 +255,7 @@ rm -f "$SUB_FILE"
 echo "  subscriber output (last 20 lines):"
 echo "$QUEUE_OUT" | tail -20 | sed 's/^/    /'
 
-QUEUE_COUNT="$(echo "$QUEUE_OUT" | grep -cF '"queued"' || true)"
+QUEUE_COUNT="$(echo "$QUEUE_OUT" | grep -cF '"phase\":\"queued\"' || true)"
 echo "  queued messages received: $QUEUE_COUNT / 5"
 
 if [[ "$QUEUE_COUNT" -lt 5 ]]; then
@@ -264,7 +265,7 @@ fi
 
 # Verify each seq number is present
 for seq in 1 2 3 4 5; do
-    if ! echo "$QUEUE_OUT" | grep -Fq "\"seq\":$seq"; then
+    if ! echo "$QUEUE_OUT" | grep -Fq "\"phase\\\":\\\"queued\\\",\\\"seq\\\":$seq"; then
         echo "[docker] FAIL: missing queued message seq=$seq" >&2
         exit 1
     fi

@@ -12,8 +12,8 @@ services:
     container_name: dq-remote
     hostname: dq-remote
     ports:
-      - "2883:1883"
-      - "19083:18083"
+      - "4883:1883"
+      - "48083:18083"
     environment:
       EMQX_NODE_NAME: "emqx@dq-remote"
       EMQX_NODE_COOKIE: "dq-smoke-secret"
@@ -26,15 +26,18 @@ services:
     container_name: dq-local
     hostname: dq-local
     ports:
-      - "1883:1883"
-      - "18083:18083"
+      - "3883:1883"
+      - "38083:18083"
     environment:
       EMQX_NODE_NAME: "emqx@dq-local"
       EMQX_NODE_COOKIE: "dq-smoke-secret"
       EMQX_LICENSE__KEY: "evaluation"
+      EMQX_PLUGINS__INSTALL_DIR: "/opt/emqx/plugins"
+      EMQX_PLUGINS__STATES: '[{name_vsn = "${PLUGIN}"}]'
       EMQXDQ_REMOTE_HOST: "dq-remote:1883"
     volumes:
       - dq-local-data:/opt/emqx/data
+      - ../../../_build/plugins:/opt/emqx/plugins
     networks:
       - dq-smoke
 
