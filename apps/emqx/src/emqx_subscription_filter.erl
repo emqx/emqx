@@ -24,9 +24,9 @@
 -spec split_topic_filter(
     emqx_types:topic() | emqx_types:share(), mode()
 ) -> {emqx_types:topic() | emqx_types:share(), no_filter | {filter, binary()}}.
-split_topic_filter(#share{group = Group, topic = TopicFilter}, Mode) ->
+split_topic_filter(#share{topic = TopicFilter} = S, Mode) ->
     {BaseTopic, Filter} = split_topic_filter(TopicFilter, Mode),
-    {#share{group = Group, topic = BaseTopic}, Filter};
+    {S#share{topic = BaseTopic}, Filter};
 split_topic_filter(TopicFilter, disable) when is_binary(TopicFilter) ->
     {TopicFilter, no_filter};
 split_topic_filter(TopicFilter, enable) when is_binary(TopicFilter) ->
