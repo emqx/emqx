@@ -4,10 +4,6 @@
 
 %% Integration tests for emqx_agent_session against a real LLM.
 %%
-%% Requires an OpenAI-compatible LLM API reachable at CT_LLM_BASE_URL
-%% (default: http://ollama:11434/v1).  In the docker-ct setup this is
-%% provided by the Ollama container with the qwen2.5:0.5b model.
-%%
 %% Infrastructure:
 %%   - emqx:subscribe / emqx_broker:publish used for in/out traffic
 %%     (bypasses MQTT auth, no emqtt client needed).
