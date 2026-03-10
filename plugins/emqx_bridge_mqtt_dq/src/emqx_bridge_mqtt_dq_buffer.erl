@@ -20,6 +20,7 @@
 -define(CONN_RETRY_DELAY_MS, 1000).
 -define(FLUSH_RETRY_DELAY_MS, 1000).
 -define(MIN_DISCARD_LOG_INTERVAL, 5000).
+-define(REF(BRIDGE, INDEX), {n, l, {?MODULE, BRIDGE, INDEX}}).
 
 -type queue_item() :: #{
     topic := emqx_types:topic(),
@@ -47,7 +48,10 @@ enqueue(Pid, Item, AckAlias) ->
 
 -spec get_pid(binary(), non_neg_integer()) -> pid().
 get_pid(BridgeName, Index) ->
-    persistent_term:get({?MODULE, BridgeName, Index}).
+    case gproc:where(?REF(BridgeName, Index)) of
+        Pid when is_pid(Pid) -> Pid;
+        _ -> erlang:error(badarg)
+    end.
 
 -spec sync_metrics(pid()) -> ok.
 sync_metrics(Pid) ->
@@ -77,7 +81,7 @@ init({BridgeConfig, Index}) ->
         sizer => fun sizer/1,
         mem_queue_module => replayq_mem_ets_exclusive
     }),
-    persistent_term:put({?MODULE, BridgeName, Index}, self()),
+    true = gproc:reg(?REF(BridgeName, Index)),
     ConnIndex = Index rem PoolSize,
     State = #{
         bridge_name => BridgeName,
@@ -139,7 +143,6 @@ terminate(_Reason, #{queue := Q, bridge_name := BridgeName, index := Index}) ->
     ok = emqx_bridge_mqtt_dq_metrics:set_buffered(BridgeName, Index, 0),
     ok = emqx_bridge_mqtt_dq_metrics:set_buffered_bytes(BridgeName, Index, 0),
     _ = replayq:close(Q),
-    _ = persistent_term:erase({?MODULE, BridgeName, Index}),
     ok.
 
 %%--------------------------------------------------------------------

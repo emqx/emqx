@@ -187,6 +187,47 @@ t_client_exit_decrements_retries(_Config) ->
     ClientHolder ! stop,
     stop_connector(Conn).
 
+-doc "Connector survives emqtt EXIT, reconnects, and continues publishing.".
+t_emqtt_exit_and_reconnect(_Config) ->
+    TestPid = self(),
+    ClientHolder = spawn(fun() -> client_holder_loop(undefined) end),
+    meck:expect(emqtt, start_link, fun(_Opts) ->
+        ClientHolder ! {new_client, self()},
+        receive
+            {client_pid, Pid} ->
+                link(Pid),
+                {ok, Pid}
+        after 5000 -> {error, timeout}
+        end
+    end),
+    meck:expect(emqtt, connect, fun(Pid) ->
+        TestPid ! {emqtt_connect, Pid},
+        {ok, #{}}
+    end),
+    Conn = start_connector(#{}),
+    wait_connected(),
+    %% First batch — should succeed
+    Ref1 = make_ref(),
+    Conn ! {publish_batch, [make_item(1)], self(), Ref1},
+    receive
+        {batch_ack, Ref1, ok} -> ok
+    after 3000 -> ct:fail("first batch_ack not received")
+    end,
+    %% Kill the emqtt client
+    ClientHolder ! {kill_current, connection_closed},
+    %% Connector should reconnect automatically
+    wait_connected(7000),
+    %% Second batch after reconnect — should also succeed
+    Ref2 = make_ref(),
+    Conn ! {publish_batch, [make_item(2)], self(), Ref2},
+    receive
+        {batch_ack, Ref2, ok} -> ok
+    after 3000 -> ct:fail("second batch_ack not received after reconnect")
+    end,
+    ?assert(is_process_alive(Conn)),
+    ClientHolder ! stop,
+    stop_connector(Conn).
+
 -doc "Two batches from different buffers are tracked and acked independently.".
 t_multiple_batches_interleaved(_Config) ->
     Conn = start_connector(#{}),

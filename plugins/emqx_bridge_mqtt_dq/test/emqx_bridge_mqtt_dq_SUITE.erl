@@ -68,16 +68,6 @@ end_per_testcase(_Case, _Config) ->
                 Children
             )
     end,
-    %% Clean up persistent_term entries for buffer workers
-    lists:foreach(
-        fun
-            ({{emqx_bridge_mqtt_dq_buffer, _, _} = Key, _}) ->
-                persistent_term:erase(Key);
-            (_) ->
-                ok
-        end,
-        persistent_term:get()
-    ),
     %% Clean up persistent_term entries for config
     catch persistent_term:erase({emqx_bridge_mqtt_dq_config, settings}),
     catch emqx_bridge_mqtt_dq_metrics:reset(),
@@ -325,13 +315,6 @@ t_disk_queue_persistence(Config) ->
     emqx_bridge_mqtt_dq:unhook(),
 
     %% Clean persistent_term entries from old buffer workers
-    lists:foreach(
-        fun(I) ->
-            catch persistent_term:erase({emqx_bridge_mqtt_dq_buffer, <<"persist">>, I})
-        end,
-        lists:seq(0, 7)
-    ),
-
     %% Subscribe to receive replayed messages
     {ok, Sub} = emqtt:start_link(#{clientid => <<"test_sub5">>, port => Port}),
     {ok, _} = emqtt:connect(Sub),
@@ -706,7 +689,6 @@ t_buffered_reported_immediately_after_open(Config) ->
     ),
 
     stop_bridge_sup(BadSup1),
-    erase_buffer_pids(<<"buffered_open">>, maps:get(buffer_pool_size, Bridge)),
     ok = emqx_bridge_mqtt_dq_metrics:reset(),
 
     {ok, BadSup2} = emqx_bridge_mqtt_dq_bridge_sup:start_link(Bridge),
@@ -1145,12 +1127,4 @@ buffer_bytes_value(Snapshot, BridgeName) ->
         end,
         0,
         Buffers
-    ).
-
-erase_buffer_pids(BridgeName, PoolSize) ->
-    lists:foreach(
-        fun(Index) ->
-            catch persistent_term:erase({emqx_bridge_mqtt_dq_buffer, BridgeName, Index})
-        end,
-        lists:seq(0, PoolSize - 1)
     ).

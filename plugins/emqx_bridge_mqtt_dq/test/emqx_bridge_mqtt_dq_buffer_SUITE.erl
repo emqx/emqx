@@ -51,7 +51,6 @@ init_per_testcase(Case, Config) ->
 
 end_per_testcase(_Case, _Config) ->
     cleanup_fake_conn_sups(),
-    cleanup_persistent_terms(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -192,7 +191,6 @@ t_disk_persistence_across_restart(Config) ->
     unlink(Buf1),
     enqueue_items_and_wait(Buf1, [make_item(I) || I <- lists:seq(1, 5)]),
     stop_buffer(Buf1),
-    catch persistent_term:erase({emqx_bridge_mqtt_dq_buffer, BridgeName, 0}),
 
     %% Phase 2: start a fake connector, then restart buffer — should replay
     {_ConnSup, _ConnPid} = start_fake_conn_sup(BridgeName, 1),
@@ -346,15 +344,4 @@ cleanup_fake_conn_sups() ->
             end
         end,
         Names
-    ).
-
-cleanup_persistent_terms() ->
-    lists:foreach(
-        fun
-            ({{emqx_bridge_mqtt_dq_buffer, _, _} = Key, _}) ->
-                persistent_term:erase(Key);
-            (_) ->
-                ok
-        end,
-        persistent_term:get()
     ).
