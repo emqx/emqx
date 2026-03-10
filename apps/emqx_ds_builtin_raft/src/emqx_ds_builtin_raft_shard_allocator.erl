@@ -256,7 +256,7 @@ handle_transition(DB, Shard, Trans, Handler) ->
     }),
     ?tp(
         debug,
-        dsrepl_shard_transition_begin,
+        dsraft_shard_transition_begin,
         #{shard => Shard, db => DB, transition => Trans, pid => self()}
     ),
     emqx_ds_builtin_raft_metrics:shard_transition_started(DB, Shard, Trans),
@@ -444,7 +444,7 @@ handle_exit(Pid, Reason, State0 = #{db := DB, transitions := Ts}) ->
         [{Track, #transhdl{shard = Shard, trans = Trans}}] ->
             ?tp(
                 debug,
-                dsrepl_shard_transition_end,
+                dsraft_shard_transition_end,
                 #{shard => Shard, db => DB, transition => Trans, pid => Pid, reason => Reason}
             ),
             State = State0#{transitions := maps:remove(Track, Ts)},

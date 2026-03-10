@@ -126,7 +126,7 @@ t_leader_otx_supervion(Config) ->
             {ok, Sub0} = snabbkaffe:subscribe(
                 ?match_event(
                     #{?snk_kind := K} when
-                        K =:= ds_otx_up; K =:= dsrepl_shut_down_otx; K =:= ds_otx_terminate
+                        K =:= ds_otx_up; K =:= dsraft_shut_down_otx; K =:= ds_otx_terminate
                 ),
                 3,
                 infinity
@@ -144,7 +144,7 @@ t_leader_otx_supervion(Config) ->
             ),
             {ok, Events} = snabbkaffe:receive_events(Sub0),
             [
-                #{?snk_kind := dsrepl_shut_down_otx, db := DB, shard := Shard},
+                #{?snk_kind := dsraft_shut_down_otx, db := DB, shard := Shard},
                 #{?snk_kind := ds_otx_terminate},
                 #{
                     ?snk_kind := ds_otx_up,
@@ -171,8 +171,8 @@ t_leader_otx_supervion(Config) ->
                 end
             ),
             %% Wait for at least two attempts:
-            ?block_until(#{?snk_kind := dsrepl_optimistic_leader_start_fail}, infinity, 0),
-            ?block_until(#{?snk_kind := dsrepl_optimistic_leader_start_fail}, infinity, 0),
+            ?block_until(#{?snk_kind := dsraft_optimistic_leader_start_fail}, infinity, 0),
+            ?block_until(#{?snk_kind := dsraft_optimistic_leader_start_fail}, infinity, 0),
             %% Remove injected error. OTX should start:
             ?wait_async_action(
                 ?ON(
@@ -341,19 +341,19 @@ t_replication_transfers_snapshots(Config) ->
         [
             {"snapshot taken on live nodes", fun({NodeOffline, Nodes}, Trace) ->
                 NodesLive = Nodes -- [NodeOffline],
-                Events = ?of_kind("dsrepl_snapshot_write", Trace),
+                Events = ?of_kind(dsraft_snapshot_write, Trace),
                 ?assertMatch([[_], [_]], [?of_node(N, Events) || N <- NodesLive])
             end},
             {"single snapshot transfer to the node that was offline", fun({NodeOffline, _}, Trace) ->
                 ?assertMatch(
                     [#{?snk_meta := #{node := NodeOffline}}],
-                    ?of_kind("dsrepl_snapshot_accept_complete", Trace)
+                    ?of_kind(dsraft_snapshot_accept_complete, Trace)
                 )
             end},
             {"no incomplete snapshot transfers", fun(Trace) ->
                 ?strict_causality(
-                    #{?snk_kind := "dsrepl_snapshot_read_started"},
-                    #{?snk_kind := "dsrepl_snapshot_accept_complete"},
+                    #{?snk_kind := dsraft_snapshot_read_started},
+                    #{?snk_kind := dsraft_snapshot_accept_complete},
                     Trace
                 )
             end}
@@ -719,7 +719,7 @@ t_rebalance_offline_restarts(Config) ->
             ct:pal("Transitions: ~p~n", [?ON(N1, emqx_ds_raft_test_helpers:db_transitions(?DB))]),
 
             %% Wait until at least one transition completes.
-            ?block_until(#{?snk_kind := dsrepl_shard_transition_end}),
+            ?block_until(#{?snk_kind := dsraft_shard_transition_end}),
 
             %% Restart N1 and N2.
             [N1] = emqx_cth_cluster:restart(NS1),
