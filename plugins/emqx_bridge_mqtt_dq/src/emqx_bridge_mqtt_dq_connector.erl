@@ -42,6 +42,7 @@ on_async_publish_ack(ConnPid, SeqNo, Result) ->
 %%--------------------------------------------------------------------
 
 init({BridgeConfig, Index}) ->
+    process_flag(trap_exit, true),
     #{
         name := BridgeName,
         server := Server,

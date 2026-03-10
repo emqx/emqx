@@ -58,6 +58,7 @@ sync_metrics(Pid) ->
 %%--------------------------------------------------------------------
 
 init({BridgeConfig, Index}) ->
+    process_flag(trap_exit, true),
     #{
         name := BridgeName,
         queue_dir := QueueDirBase,
