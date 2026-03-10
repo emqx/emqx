@@ -39,12 +39,11 @@ handle(get, [<<"quota">>, <<"usernames">>], Request) ->
                 <<"INVALID_CURSOR">>,
                 <<"Cursor is invalid or references an unavailable node">>
             );
-        {error, {busy, RetryCursor}} ->
-            error_response_503(<<"Server is busy, please retry">>, RetryCursor, #{});
-        {error, {rebuilding_snapshot, RetryCursor, PartialData}} ->
+        {error, busy} ->
+            error_response_503(<<"Server is busy, please retry">>, #{});
+        {error, {rebuilding_snapshot, PartialData}} ->
             error_response_503(
                 <<"Server is busy building snapshot, please retry">>,
-                RetryCursor,
                 #{
                     snapshot_build_in_progress => true,
                     data => PartialData,
@@ -77,9 +76,9 @@ handle(get, [<<"metrics">>], _Request) ->
                 <<"NOT_AVAILABLE">>,
                 <<"Snapshot is only available on core nodes">>
             );
-        {error, {busy, _RetryCursor}} ->
+        {error, busy} ->
             error_response(503, <<"SERVICE_UNAVAILABLE">>, <<"Server is busy, please retry">>);
-        {error, {rebuilding_snapshot, _RetryCursor, _PartialData}} ->
+        {error, {rebuilding_snapshot, _PartialData}} ->
             error_response(
                 503,
                 <<"SERVICE_UNAVAILABLE">>,
@@ -216,11 +215,10 @@ validate_username_list(_) ->
 error_response(StatusCode, Code, Message) ->
     {error, StatusCode, #{}, #{code => Code, message => Message}}.
 
-error_response_503(Message, RetryCursor, Extra) ->
+error_response_503(Message, Extra) ->
     Body = Extra#{
         code => <<"SERVICE_UNAVAILABLE">>,
-        message => Message,
-        retry_cursor => RetryCursor
+        message => Message
     },
     {error, 503, #{}, Body}.
 
