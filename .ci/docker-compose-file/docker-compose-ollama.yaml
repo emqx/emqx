@@ -1,0 +1,62 @@
+## Ollama LLM service for emqx_agent integration tests.
+##
+## Design: two containers, split responsibilities.
+##
+##   ollama      — runs `ollama serve` (default CMD); healthcheck only tests
+##                 that the REST API responds.  Passes quickly, no model needed.
+##
+##   ollama-init — one-shot container that pulls qwen2.5:0.5b once the server
+##                 is healthy, then exits 0.  Uses a shared named volume so
+##                 repeated CI runs skip the download.
+##
+##   erlang      — extended with the LLM env vars and
+##                 depends_on: ollama-init: condition: service_completed_successfully
+##                 so tests never run before the model is ready.
+##
+## `docker compose up --wait` blocks until:
+##   1. ollama is healthy (API responds)
+##   2. ollama-init exits 0 (model is pulled)
+##   3. erlang starts (no healthcheck → immediately "running")
+##
+## Model cached in a named volume so repeated CI runs skip the download.
+
+services:
+  ollama:
+    container_name: ollama
+    hostname: ollama
+    image: ollama/ollama:latest
+    restart: always
+    expose:
+      - "11434"
+    networks:
+      - emqx_bridge
+    volumes:
+      - ollama_model_cache:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: "-1"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    networks:
+      - emqx_bridge
+    volumes:
+      - ollama_model_cache:/root/.ollama
+    environment:
+      OLLAMA_HOST: "ollama:11434"
+    entrypoint: ["ollama", "pull", "qwen2.5:0.5b"]
+    restart: "no"
+
+
+volumes:
+  ollama_model_cache:
+    name: emqx_agent_ollama_model_cache

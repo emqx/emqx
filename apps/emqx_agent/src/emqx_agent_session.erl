@@ -25,16 +25,20 @@
 %%
 %% State machine:
 %%
-%%   idle  ──request──▶  calling_llm  ──tool_calls──▶  waiting_tools
-%%                            │                              │
-%%                            │◀──────── all results ────────┘
-%%                            │
-%%                         stop/no pending, stop_on_finish=true  ──▶  {stop, normal}
-%%                         stop/no pending, stop_on_finish=false ──▶  idle (keep alive)
-%%                         stop/pending                          ──▶  calling_llm  (extend context)
+%%   initial_idle ──request──▶  calling_llm  ──tool_calls──▶  waiting_tools
+%%                                   │                              │
+%%                                   │◀──────── all results ────────┘
+%%                                   │
+%%                                stop/no pending, stop_on_finish=true  ──▶  {stop, normal}
+%%                                stop/no pending, stop_on_finish=false ──▶  idle
+%%                                stop/pending                          ──▶  calling_llm (extend)
 %%
-%% Events are always buffered in `pending` regardless of state.
-%% They are flushed into the message context when transitioning to calling_llm.
+%%   idle ──event──▶  calling_llm  (continue reasoning with accumulated context)
+%%   idle ──request──▶  (discarded — context is fixed after the first request)
+%%
+%% Events in calling_llm / waiting_tools are buffered in `pending` and flushed
+%% on the next transition to calling_llm.
+%% Events in initial_idle are buffered and folded in when the first request arrives.
 
 -module(emqx_agent_session).
 
@@ -46,7 +50,7 @@
 -include_lib("emqx/include/logger.hrl").
 
 %% Public API
--export([start_link/1]).
+-export([start_link/1, whereis/1]).
 
 %% Hook management (called from emqx_agent_app)
 -export([init_hook/0, deinit_hook/0, on_message_publish/1]).
@@ -54,8 +58,9 @@
 %% gen_statem callbacks
 -export([callback_mode/0, init/1, handle_event/4, terminate/3]).
 
--define(REG(Sid), {global, {?MODULE, Sid}}).
--define(OUT(Sid), <<"sess/", Sid/binary, "/out">>).
+-define(NAME(Sid), {?MODULE, Sid}).
+-define(REG(Sid), {global, ?NAME(Sid)}).
+-define(OUT(Sid), <<"sess/", (Sid)/binary, "/out">>).
 -define(MAX_ITERATIONS, 20).
 
 %%--------------------------------------------------------------------
@@ -84,7 +89,7 @@
         <<"tokens_out">> => 0
     } :: map(),
     %% When true (default), the session stops after publishing final.
-    %% When false, it returns to idle and waits for more requests/events.
+    %% When false, it transitions to idle where events drive further reasoning.
     stop_on_finish = true :: boolean(),
     %% {Tag, MonRef} for the active LLM subprocess (state: calling_llm)
     llm_ref = undefined :: undefined | {reference(), reference()},
@@ -127,6 +132,10 @@ on_message_publish(Message) ->
 start_link(Sid) ->
     gen_statem:start_link(?REG(Sid), ?MODULE, Sid, []).
 
+-spec whereis(binary()) -> pid() | undefined.
+whereis(Sid) ->
+    global:whereis_name(?NAME(Sid)).
+
 %%--------------------------------------------------------------------
 %% gen_statem callbacks
 %%--------------------------------------------------------------------
@@ -135,7 +144,7 @@ callback_mode() -> handle_event_function.
 
 init(Sid) ->
     ?SLOG(info, #{msg => "session_started", sid => Sid}),
-    {ok, idle, #data{sid = Sid}}.
+    {ok, initial_idle, #data{sid = Sid}}.
 
 terminate(_Reason, _State, #data{sid = Sid}) ->
     ?SLOG(info, #{msg => "session_terminating", sid => Sid}),
@@ -147,9 +156,9 @@ terminate(_Reason, _State, #data{sid = Sid}) ->
 %% Clauses are ordered: specific state first, catch-alls last.
 %%--------------------------------------------------------------------
 
-%% ── idle: accept a new request ────────────────────────────────────────────
+%% ── initial_idle: accept the first (and only) request ────────────────────
 
-handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, idle, Data) ->
+handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, initial_idle, Data) ->
     #{
         <<"iid">> := Iid,
         <<"trace_id">> := TraceId,
@@ -163,6 +172,8 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, idle, Data) ->
     } = Msg,
     SysMsg = #{<<"role">> => <<"system">>, <<"content">> => format_instructions(Instructions)},
     UserMsg = #{<<"role">> => <<"user">>, <<"content">> => emqx_utils_json:encode(Input)},
+    %% Events buffered before the first request are folded in after the user message.
+    PendingMsgs = [event_to_llm_msg(E) || E <- Data#data.pending],
     Data1 = Data#data{
         iid = Iid,
         trace_id = TraceId,
@@ -172,7 +183,7 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, idle, Data) ->
         tools = Tools,
         output_schema = OutputSchema,
         stop_on_finish = maps:get(<<"stop_on_finish">>, Msg, true),
-        messages = [SysMsg, UserMsg],
+        messages = [SysMsg, UserMsg] ++ PendingMsgs,
         pending = [],
         usage = #{
             <<"iterations">> => 0,
@@ -182,61 +193,82 @@ handle_event(cast, {in, #{<<"type">> := <<"request">>} = Msg}, idle, Data) ->
         }
     },
     {next_state, calling_llm, start_llm_call(Data1)};
+%% ── idle: further requests are discarded ─────────────────────────────────
 
+handle_event(cast, {in, #{<<"type">> := <<"request">>}}, idle, Data) ->
+    ?SLOG(info, #{msg => "session_request_discarded", sid => Data#data.sid}),
+    {keep_state, Data};
 %% ── calling_llm: LLM subprocess finished ─────────────────────────────────
 
 %% Child exits with {llm_result, Tag, Result} — normal completion path
-handle_event(info, {'DOWN', Mon, process, _, {llm_result, Tag, Result}}, calling_llm,
-             #data{llm_ref = {Tag, Mon}} = Data) ->
+handle_event(
+    info,
+    {'DOWN', Mon, process, _, {llm_result, Tag, Result}},
+    calling_llm,
+    #data{llm_ref = {Tag, Mon}} = Data
+) ->
     Data1 = Data#data{llm_ref = undefined},
     case Result of
         {ok, Choice, TokensIn, TokensOut} ->
             Usage0 = Data1#data.usage,
-            Data2 = Data1#data{usage = Usage0#{
-                <<"iterations">> => maps:get(<<"iterations">>, Usage0) + 1,
-                <<"tokens_in">>  => maps:get(<<"tokens_in">>,  Usage0) + TokensIn,
-                <<"tokens_out">> => maps:get(<<"tokens_out">>, Usage0) + TokensOut
-            }},
+            Data2 = Data1#data{
+                usage = Usage0#{
+                    <<"iterations">> => maps:get(<<"iterations">>, Usage0) + 1,
+                    <<"tokens_in">> => maps:get(<<"tokens_in">>, Usage0) + TokensIn,
+                    <<"tokens_out">> => maps:get(<<"tokens_out">>, Usage0) + TokensOut
+                }
+            },
             on_llm_choice(Choice, Data2);
         {error, Reason} ->
             ?SLOG(error, #{msg => "session_llm_error", sid => Data1#data.sid, reason => Reason}),
             {stop, {llm_error, Reason}, Data1}
     end;
-
 %% Child exited with any other reason — unexpected crash
-handle_event(info, {'DOWN', Mon, process, _, Reason}, calling_llm,
-             #data{llm_ref = {_Tag, Mon}} = Data) ->
-    ?SLOG(error, #{msg => "session_llm_process_crashed",
-                   sid => Data#data.sid, reason => Reason}),
+handle_event(
+    info,
+    {'DOWN', Mon, process, _, Reason},
+    calling_llm,
+    #data{llm_ref = {_Tag, Mon}} = Data
+) ->
+    ?SLOG(error, #{
+        msg => "session_llm_process_crashed",
+        sid => Data#data.sid,
+        reason => Reason
+    }),
     {stop, {llm_process_crashed, Reason}, Data};
-
 %% ── waiting_tools: collect tool results ───────────────────────────────────
 
-handle_event(cast, {in, #{<<"type">> := <<"tool_result">>, <<"call_id">> := CallId} = Msg},
-             waiting_tools, Data) ->
+handle_event(
+    cast,
+    {in, #{<<"type">> := <<"tool_result">>, <<"call_id">> := CallId} = Msg},
+    waiting_tools,
+    Data
+) ->
     on_tool_result(CallId, Msg, Data);
-
 %% ── any state: explicit stop ──────────────────────────────────────────────
 
 handle_event(cast, {in, #{<<"type">> := <<"stop">>}}, _State, Data) ->
     ?SLOG(info, #{msg => "session_stopped_explicitly", sid => Data#data.sid}),
     {stop, normal, Data};
+%% ── idle + event: immediately continue reasoning ─────────────────────────
 
-%% ── any state: buffer events ──────────────────────────────────────────────
+handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, idle, Data) ->
+    Event = maps:get(<<"event">>, Msg, Msg),
+    ?SLOG(info, #{msg => "session_event_triggers_llm", sid => Data#data.sid}),
+    Data1 = Data#data{messages = Data#data.messages ++ [event_to_llm_msg(Event)]},
+    {next_state, calling_llm, start_llm_call(Data1)};
+%% ── any other state: buffer events ───────────────────────────────────────
 
 handle_event(cast, {in, #{<<"type">> := <<"event">>} = Msg}, _State, Data) ->
     Event = maps:get(<<"event">>, Msg, Msg),
     {keep_state, Data#data{pending = Data#data.pending ++ [Event]}};
-
-%% Duplicate / out-of-order request while processing — ignore
+%% Duplicate / out-of-order request in active states — ignore
 handle_event(cast, {in, #{<<"type">> := <<"request">>}}, _State, Data) ->
     {keep_state, Data};
-
 %% ── calls ─────────────────────────────────────────────────────────────────
 
 handle_event({call, From}, _Req, _State, Data) ->
     {keep_state, Data, [{reply, From, {error, unknown_request}}]};
-
 %% ── catch-all ─────────────────────────────────────────────────────────────
 
 handle_event(_EventType, _EventContent, _State, Data) ->
@@ -332,8 +364,11 @@ on_reasoning_done(LLMMsg, Data) ->
             }),
             finish(Data);
         Events ->
-            ?SLOG(info, #{msg => "session_restarting",
-                          sid => Data#data.sid, pending => length(Events)}),
+            ?SLOG(info, #{
+                msg => "session_restarting",
+                sid => Data#data.sid,
+                pending => length(Events)
+            }),
             EventMsgs = [event_to_llm_msg(E) || E <- Events],
             Data1 = Data#data{messages = Data#data.messages ++ EventMsgs, pending = []},
             {next_state, calling_llm, start_llm_call(Data1)}
@@ -344,8 +379,11 @@ maybe_next_llm_call(Data) ->
     Iter = maps:get(<<"iterations">>, Data#data.usage),
     case Iter >= ?MAX_ITERATIONS of
         true ->
-            ?SLOG(warning, #{msg => "session_max_iterations_reached",
-                             sid => Data#data.sid, iterations => Iter}),
+            ?SLOG(warning, #{
+                msg => "session_max_iterations_reached",
+                sid => Data#data.sid,
+                iterations => Iter
+            }),
             publish(Data, #{
                 <<"type">> => <<"final">>,
                 <<"result">> => #{<<"error">> => <<"max_iterations_reached">>}
@@ -368,8 +406,10 @@ finish(#data{stop_on_finish = false} = Data) ->
 
 route(Sid, Payload) ->
     Msg =
-        try emqx_utils_json:decode(Payload)
-        catch _:_ -> undefined
+        try
+            emqx_utils_json:decode(Payload)
+        catch
+            _:_ -> undefined
         end,
     case Msg of
         undefined ->
@@ -378,14 +418,14 @@ route(Sid, Payload) ->
             Pid = find_or_start(Sid),
             gen_statem:cast(Pid, {in, Msg});
         #{<<"type">> := _} ->
-            case global:whereis_name({?MODULE, Sid}) of
+            case global:whereis_name(?NAME(Sid)) of
                 undefined -> ok;
                 Pid -> gen_statem:cast(Pid, {in, Msg})
             end
     end.
 
 find_or_start(Sid) ->
-    case global:whereis_name({?MODULE, Sid}) of
+    case global:whereis_name(?NAME(Sid)) of
         undefined ->
             case emqx_agent_sess_sup:start_session(Sid) of
                 {ok, Pid} -> Pid;
@@ -404,8 +444,10 @@ publish_tool_request(ToolCall, Data) ->
     Function = maps:get(<<"function">>, ToolCall),
     ToolName = maps:get(<<"name">>, Function),
     Args =
-        try emqx_utils_json:decode(maps:get(<<"arguments">>, Function, <<"{}">>) )
-        catch _:_ -> #{}
+        try
+            emqx_utils_json:decode(maps:get(<<"arguments">>, Function, <<"{}">>))
+        catch
+            _:_ -> #{}
         end,
     publish(Data, #{
         <<"type">> => <<"tool_request">>,
@@ -422,10 +464,11 @@ publish_tool_request(ToolCall, Data) ->
 call_llm(Messages, Tools, ApiKey, BaseUrl, Model) ->
     Url = <<BaseUrl/binary, "/chat/completions">>,
     Body0 = #{<<"model">> => Model, <<"messages">> => Messages},
-    Body = case Tools of
-        [] -> Body0;
-        _  -> Body0#{<<"tools">> => Tools}
-    end,
+    Body =
+        case Tools of
+            [] -> Body0;
+            _ -> Body0#{<<"tools">> => Tools}
+        end,
     Headers = [
         {<<"authorization">>, <<"Bearer ", ApiKey/binary>>},
         {<<"content-type">>, <<"application/json">>}
@@ -437,7 +480,7 @@ call_llm(Messages, Tools, ApiKey, BaseUrl, Model) ->
             case maps:get(<<"choices">>, Decoded, []) of
                 [Choice | _] ->
                     UsageMap = maps:get(<<"usage">>, Decoded, #{}),
-                    TokensIn  = maps:get(<<"prompt_tokens">>,     UsageMap, 0),
+                    TokensIn = maps:get(<<"prompt_tokens">>, UsageMap, 0),
                     TokensOut = maps:get(<<"completion_tokens">>, UsageMap, 0),
                     {ok, Choice, TokensIn, TokensOut};
                 [] ->
@@ -489,8 +532,10 @@ publish(#data{sid = Sid, iid = Iid, trace_id = TraceId, usage = Usage} = _Data, 
     ok.
 
 try_parse_result(Content) when is_binary(Content) ->
-    try emqx_utils_json:decode(Content)
-    catch _:_ -> #{<<"summary">> => Content}
+    try
+        emqx_utils_json:decode(Content)
+    catch
+        _:_ -> #{<<"summary">> => Content}
     end;
 try_parse_result(Content) ->
     Content.
