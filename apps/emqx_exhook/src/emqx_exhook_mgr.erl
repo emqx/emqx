@@ -648,7 +648,7 @@ handle_health_check_res(Server, skip) ->
 -spec save(server_name(), emqx_exhook_server:service()) -> ok.
 save(Name, ServerState) ->
     Saved = persistent_term:get(?APP, []),
-    persistent_term:put(?APP, lists:reverse([Name | Saved])),
+    persistent_term:put(?APP, delete_server_name(Name, Saved) ++ [Name]),
     persistent_term:put({?APP, Name}, ServerState).
 
 unsave(Name) ->
@@ -656,12 +656,7 @@ unsave(Name) ->
         [] ->
             ok;
         Saved ->
-            case lists:member(Name, Saved) of
-                false ->
-                    ok;
-                true ->
-                    persistent_term:put(?APP, lists:delete(Name, Saved))
-            end
+            persistent_term:put(?APP, delete_server_name(Name, Saved))
     end,
     persistent_term:erase({?APP, Name}),
     ok.
@@ -697,6 +692,9 @@ hooks(Name) ->
         Service ->
             emqx_exhook_server:hooks(Service)
     end.
+
+delete_server_name(Name, Saved) ->
+    lists:filter(fun(ServerName) -> ServerName =/= Name end, Saved).
 
 maybe_write_certs(#{<<"name">> := Name} = Conf) ->
     case
