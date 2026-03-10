@@ -185,7 +185,7 @@ prometheus_metrics(Stats) ->
         {<<"emqx_unsgov_messages_dropped_total">>,
             <<"Messages dropped by UNS Governance (cluster-aggregated).">>},
         {<<"emqx_unsgov_topic_nomatch_total">>,
-            <<"Messages dropped because topic matched no active model (cluster-aggregated).">>},
+            <<"Messages that matched no active model, counted independently from drops (cluster-aggregated).">>},
         {<<"emqx_unsgov_topic_invalid_total">>,
             <<"Messages dropped because topic failed model validation (cluster-aggregated).">>},
         {<<"emqx_unsgov_payload_invalid_total">>,

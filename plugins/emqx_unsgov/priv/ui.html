@@ -236,7 +236,7 @@
       }
       .stats-counters {
         display: grid;
-        grid-template-columns: repeat(2, minmax(120px, 1fr));
+        grid-template-columns: repeat(5, minmax(100px, 1fr));
         gap: 10px;
       }
       .metric {
@@ -250,6 +250,7 @@
       .metric.total { background: var(--color-bg-split); }
       .metric.allowed { background: #eefbf5; border-color: #b9efd8; }
       .metric.dropped { background: #fff3f0; border-color: #ffd2cb; }
+      .metric.nomatch { background: #f0f0ff; border-color: #c7c7f0; }
       .metric.exempt { background: var(--color-primary-soft); border-color: #c8c2ff; }
 
       .bar-wrap { margin-top: 10px; display: grid; gap: 8px; }
@@ -279,7 +280,7 @@
       @media (max-width: 1100px) {
         .layout { grid-template-columns: 1fr; }
         .stats-top { grid-template-columns: 1fr; }
-        .stats-counters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+        .stats-counters { grid-template-columns: repeat(3, minmax(100px, 1fr)); }
         .compact-row { grid-template-columns: 1fr; }
       }
     </style>
@@ -408,6 +409,7 @@
                   <div class="metric total"><div class="value" id="mTotal">0</div><div class="label">Total</div></div>
                   <div class="metric allowed"><div class="value" id="mAllowed">0</div><div class="label">Allowed</div></div>
                   <div class="metric dropped"><div class="value" id="mDropped">0</div><div class="label">Dropped</div></div>
+                  <div class="metric nomatch"><div class="value" id="mNoMatch">0</div><div class="label">No Match</div></div>
                   <div class="metric exempt"><div class="value" id="mExempt">0</div><div class="label">Exempt</div></div>
                 </div>
                 <div class="pie-wrap">
@@ -491,6 +493,7 @@
           mTotal: document.getElementById("mTotal"),
           mAllowed: document.getElementById("mAllowed"),
           mDropped: document.getElementById("mDropped"),
+          mNoMatch: document.getElementById("mNoMatch"),
           mExempt: document.getElementById("mExempt"),
           dropPie: document.getElementById("dropPie"),
           dropPieLegend: document.getElementById("dropPieLegend"),
@@ -1569,7 +1572,6 @@
               messages_total: 0,
               messages_allowed: 0,
               messages_dropped: 0,
-              topic_nomatch: 0,
               topic_invalid: 0,
               payload_invalid: 0,
               not_endpoint: 0
@@ -1583,13 +1585,18 @@
           els.mTotal.textContent = fmtNum(effective.messages_total);
           els.mAllowed.textContent = fmtNum(effective.messages_allowed);
           els.mDropped.textContent = fmtNum(effective.messages_dropped);
-          els.mExempt.textContent = fmtNum(scope === "selected" ? 0 : s.exempt);
+          const isModel = scope === "selected" && selectedModelId;
+          els.mNoMatch.textContent = fmtNum(s.topic_nomatch);
+          els.mExempt.textContent = fmtNum(s.exempt);
+          els.mNoMatch.closest(".metric").querySelector(".label").textContent = isModel ? "No Match (global)" : "No Match";
+          els.mExempt.closest(".metric").querySelector(".label").textContent = isModel ? "Exempt (global)" : "Exempt";
+          els.mNoMatch.closest(".metric").style.opacity = isModel ? "0.6" : "";
+          els.mExempt.closest(".metric").style.opacity = isModel ? "0.6" : "";
           els.uptimePill.textContent = "uptime: " + fmtUptime(s.uptime_seconds);
           els.statsAtPill.textContent = "updated: " + new Date().toLocaleTimeString();
 
           const dropped = Number(effective.messages_dropped || 0);
           const bars = [
-            ["topic_nomatch", Number(effective.topic_nomatch || 0), "#6366f1"],
             ["topic_invalid", Number(effective.topic_invalid || 0), "#ef4444"],
             ["payload_invalid", Number(effective.payload_invalid || 0), "#f97316"],
             ["not_endpoint", Number(effective.not_endpoint || 0), "#eab308"],
@@ -1605,12 +1612,7 @@
               '</div>'
             );
           }).join("");
-          const pieStops = [
-            {v: bars[0][1], c: bars[0][2]},
-            {v: bars[1][1], c: bars[1][2]},
-            {v: bars[2][1], c: bars[2][2]},
-            {v: bars[3][1], c: bars[3][2]},
-          ];
+          const pieStops = bars.map((b) => ({v: b[1], c: b[2]}));
           if (dropped > 0) {
             let deg = 0;
             const segs = pieStops.map((s) => {
@@ -1622,11 +1624,9 @@
           } else {
             els.dropPie.style.background = "conic-gradient(#e5e7eb 0 360deg)";
           }
-          els.dropPieLegend.innerHTML =
-            '<div class="pie-item">topic_nomatch: ' + bars[0][1] + " (" + pcts[0] + '%)</div>' +
-            '<div class="pie-item">topic_invalid: ' + bars[1][1] + " (" + pcts[1] + '%)</div>' +
-            '<div class="pie-item">payload_invalid: ' + bars[2][1] + " (" + pcts[2] + '%)</div>' +
-            '<div class="pie-item">not_endpoint: ' + bars[3][1] + " (" + pcts[3] + '%)</div>';
+          els.dropPieLegend.innerHTML = bars.map((b, i) =>
+            '<div class="pie-item">' + b[0] + ': ' + b[1] + " (" + pcts[i] + '%)</div>'
+          ).join("");
           const modelIds = Object.keys(perModel).sort();
           if (modelIds.length === 0) {
             els.perModelBody.innerHTML = '<tr><td colspan="7" class="muted">No per-model stats yet.</td></tr>';
