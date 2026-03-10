@@ -317,8 +317,8 @@
               <div class="muted" id="editorMeta">Draft</div>
             </div>
             <div class="row">
-              <label class="muted"><input type="checkbox" id="activateOnSave" /> activate on save</label>
               <button class="btn warn" id="toggleActiveBtn" type="button">Activate selected</button>
+              <button class="btn warn" id="deleteModelBtn" type="button" disabled>Delete</button>
             </div>
           </div>
 
@@ -476,9 +476,9 @@
           editorMeta: document.getElementById("editorMeta"),
           status: document.getElementById("status"),
           toggleActiveBtn: document.getElementById("toggleActiveBtn"),
+          deleteModelBtn: document.getElementById("deleteModelBtn"),
           jsonEditor: document.getElementById("jsonEditor"),
           dirtyHint: document.getElementById("dirtyHint"),
-          activateOnSave: document.getElementById("activateOnSave"),
           treeView: document.getElementById("treeView"),
           treeFilters: document.getElementById("treeFilters"),
           variableEditor: document.getElementById("variableEditor"),
@@ -723,13 +723,16 @@
 
         function updateActiveButton(entry) {
           const btn = els.toggleActiveBtn;
+          const delBtn = els.deleteModelBtn;
           if (!entry || !entry.id) {
             btn.textContent = "Activate selected";
             btn.disabled = true;
             btn.classList.add("warn");
+            delBtn.disabled = true;
             return;
           }
           btn.disabled = false;
+          delBtn.disabled = false;
           if (entry.active) {
             btn.textContent = "Deactivate selected";
             btn.classList.remove("warn");
@@ -821,7 +824,7 @@
               method: "POST",
               body: JSON.stringify({
                 model: model,
-                activate: !!els.activateOnSave.checked,
+                activate: false,
               }),
             });
             showStatus("ok", "Saved model " + entry.id + (entry.active ? " (active)" : ""));
@@ -871,6 +874,22 @@
             await deactivateSelected();
           } else {
             await activateSelected();
+          }
+        }
+
+        async function deleteSelected() {
+          if (!state.selectedId) {
+            showStatus("err", "No model selected");
+            return;
+          }
+          if (!confirm("Delete model " + state.selectedId + "?")) return;
+          try {
+            await api("/models/" + encodeURIComponent(state.selectedId), { method: "DELETE" });
+            showStatus("ok", "Deleted model " + state.selectedId);
+            state.selectedId = null;
+            await loadModels();
+          } catch (e) {
+            showStatus("err", e.message);
           }
         }
 
@@ -1717,6 +1736,7 @@
         document.getElementById("newModelBtn").addEventListener("click", newModel);
         document.getElementById("saveBtn").addEventListener("click", saveModel);
         document.getElementById("toggleActiveBtn").addEventListener("click", toggleSelectedActive);
+        document.getElementById("deleteModelBtn").addEventListener("click", deleteSelected);
         document.getElementById("validateTopicBtn").addEventListener("click", validateTopic);
         document.getElementById("refreshStatsBtn").addEventListener("click", () => {
           refreshStats().catch((e) => showStatus("err", e.message));
