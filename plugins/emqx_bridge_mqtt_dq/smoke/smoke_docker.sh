@@ -129,7 +129,7 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
   "bridges": {
     "smoke": {
       "enable": true,
-      "server": "dq-remote:1883",
+      "server": "${EMQXDQ_REMOTE_HOST}",
       "proto_ver": "v4",
       "clientid_prefix": "dq_smoke",
       "clean_start": true,
@@ -138,8 +138,8 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "ssl": {"enable": false},
       "filter_topic": "devices/#",
       "remote_topic": "forwarded/${topic}",
-      "remote_qos": 1,
-      "remote_retain": false,
+      "remote_qos": "${qos}",
+      "remote_retain": "${retain}",
       "queue": {
         "dir": "bridge_mqtt_dq/smoke",
         "seg_bytes": "10MB",

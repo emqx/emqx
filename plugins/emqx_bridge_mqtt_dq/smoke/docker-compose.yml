@@ -32,6 +32,7 @@ services:
       EMQX_NODE_NAME: "emqx@dq-local"
       EMQX_NODE_COOKIE: "dq-smoke-secret"
       EMQX_LICENSE__KEY: "evaluation"
+      EMQXDQ_REMOTE_HOST: "dq-remote:1883"
     volumes:
       - dq-local-data:/opt/emqx/data
     networks:
