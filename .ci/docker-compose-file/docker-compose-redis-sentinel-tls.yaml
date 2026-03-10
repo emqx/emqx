@@ -5,7 +5,9 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tls:/usr/local/etc/redis
-      - ../../apps/emqx/etc/certs:/etc/certs
+      - ./certs/server.crt:/etc/certs/cert.pem
+      - ./certs/server.key:/etc/certs/key.pem
+      - ./certs/ca.crt:/etc/certs/cacert.pem
     command: redis-server /usr/local/etc/redis/master.conf
     networks:
       - emqx_bridge
@@ -15,7 +17,9 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tls:/usr/local/etc/redis
-      - ../../apps/emqx/etc/certs:/etc/certs
+      - ./certs/server.crt:/etc/certs/cert.pem
+      - ./certs/server.key:/etc/certs/key.pem
+      - ./certs/ca.crt:/etc/certs/cacert.pem
     command: redis-server /usr/local/etc/redis/slave.conf
     networks:
       - emqx_bridge
@@ -27,7 +31,9 @@ services:
     image: public.ecr.aws/docker/library/redis:${REDIS_TAG}
     volumes:
       - ./redis/sentinel-tls/sentinel-base.conf:/usr/local/etc/redis/sentinel-base.conf
-      - ../../apps/emqx/etc/certs:/etc/certs
+      - ./certs/server.crt:/etc/certs/cert.pem
+      - ./certs/server.key:/etc/certs/key.pem
+      - ./certs/ca.crt:/etc/certs/cacert.pem
     depends_on:
       - redis-sentinel-tls-master
       - redis-sentinel-tls-slave
@@ -36,7 +42,6 @@ services:
                redis-sentinel /usr/local/etc/redis/sentinel.conf"
     networks:
       - emqx_bridge
-
 
 
 

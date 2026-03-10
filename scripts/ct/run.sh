@@ -43,6 +43,7 @@ STOP='no'
 IS_CI='no'
 SQLSERVER_ODBC_REQUEST='no'
 SNOWFLAKE_ODBC_REQUEST='no'
+QUASARDB_ODBC_REQUEST='no'
 UP='up --wait'
 while [ "$#" -gt 0 ]; do
     case $1 in
@@ -267,6 +268,10 @@ for dep in ${CT_DEPS}; do
         cockroachdb)
             FILES+=( '.ci/docker-compose-file/docker-compose-cockroachdb.yaml' )
             ;;
+        quasardb)
+            QUASARDB_ODBC_REQUEST='yes'
+            FILES+=( '.ci/docker-compose-file/docker-compose-quasardb.yaml' )
+            ;;
         *)
             echo "unknown_ct_dependency $dep"
             exit 1
@@ -284,6 +289,12 @@ if [ "$SNOWFLAKE_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ]; then
     INSTALL_SNOWFLAKE_ODBC="./scripts/install-snowflake-driver.sh"
 else
     INSTALL_SNOWFLAKE_ODBC="echo 'snowflake driver not requested'"
+fi
+
+if [ "$QUASARDB_ODBC_REQUEST" = 'yes' ] && [ "$STOP" = 'no' ]; then
+    INSTALL_QUASARDB_ODBC="./scripts/install-quasardb-driver.sh"
+else
+    INSTALL_QUASARDB_ODBC="echo 'quasardb driver not requested'"
 fi
 
 for file in "${FILES[@]}"; do
@@ -331,7 +342,8 @@ if [ "$DOCKER_USER" != "root" ]; then
           chown $DOCKER_USER /.erlang.cookie && \
           chmod 0400 /.erlang.cookie && \
           $INSTALL_SQLSERVER_ODBC && \
-          $INSTALL_SNOWFLAKE_ODBC" || true
+          $INSTALL_SNOWFLAKE_ODBC && \
+          $INSTALL_QUASARDB_ODBC" || true
 fi
 
 if [ "$ONLY_UP" = 'yes' ]; then

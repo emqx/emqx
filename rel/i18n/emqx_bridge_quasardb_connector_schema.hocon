@@ -1,0 +1,38 @@
+emqx_bridge_quasardb_connector_schema {
+  config_connector {
+    label: """QuasarDB Connector Configuration"""
+    desc:
+    """Configuration for a connector to QuasarDB."""
+  }
+
+  username {
+    label: "Username"
+    desc: """Username, if any."""
+  }
+
+  password {
+    label: "Password"
+    desc: """User secret key, if any."""
+  }
+
+  cluster_public_key {
+    label: "Cluster Public Key"
+    desc: """Cluster Public Key, if any."""
+  }
+
+  uri {
+    label: "Server URI"
+    desc: """Server URI to connect to.  For example: `qdb://127.0.0.1:2836`."""
+  }
+
+  dsn {
+    label: "ODBC Data Source Name"
+    desc: """ODBC Data Source Name, usually defined at `/etc/odbc.ini`."""
+  }
+
+  pool_size {
+    label: "Pool Size"
+    desc: """Connection pool size."""
+  }
+
+}

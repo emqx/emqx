@@ -48,6 +48,7 @@ emqx_bridge_opents: none
 emqx_bridge_oracle: none
 emqx_bridge_pgsql: emqx_bridge_alloydb emqx_bridge_cockroachdb emqx_bridge_matrix emqx_bridge_redshift emqx_bridge_timescale
 emqx_bridge_pulsar: none
+emqx_bridge_quasardb: none
 emqx_bridge_rabbitmq: none
 emqx_bridge_redis: none
 emqx_bridge_redshift: none
