@@ -41,23 +41,13 @@ parse(RawConfig) when is_map(RawConfig) ->
     Remotes = parse_remotes(RawRemotes),
     RawBridges = maps:get(<<"bridges">>, RawConfig1, #{}),
     Bridges = parse_bridges(RawBridges, Remotes),
-    #{bridges => Bridges};
-parse(_) ->
-    ?LOG(error, #{
-        msg => "mqtt_dq_config_is_invalid",
-        explain => "Must be a map of objects"
-    }),
-    #{bridges => []}.
+    #{bridges => Bridges}.
 
 parse_remotes(RawMap) when is_map(RawMap) ->
-    maps:fold(fun fold_remote/3, #{}, RawMap);
-parse_remotes(_) ->
-    #{}.
+    maps:fold(fun fold_remote/3, #{}, RawMap).
 
 parse_bridges(RawMap, Remotes) when is_map(RawMap) ->
-    maps:fold(fun(Name, Raw, Acc) -> fold_bridge(Name, Raw, Remotes, Acc) end, [], RawMap);
-parse_bridges(_, _Remotes) ->
-    [].
+    maps:fold(fun(Name, Raw, Acc) -> fold_bridge(Name, Raw, Remotes, Acc) end, [], RawMap).
 
 fold_remote(Name, Raw, Acc) ->
     BinName = to_bin(Name),
