@@ -1,1 +1,27 @@
-Place your SSL/TLS Certificates here.
+Place your SSL/TLS certificates here.
+
+Note: The certificates shipped in EMQX installation packages are provided only for
+testing and local deployments. Do not use them in production. Replace them with
+certificates issued and managed for your own production environment.
+
+Files in this directory:
+
+- `cacert.pem`: Root CA certificate(s) used to sign the local test server and client certificates.
+   This is the 'tust' store of arbitrary number of root certificates used to sign TLS *PEER*'s certifcate chain.
+   That is, for client, it should store root CA certificate(s) of trusted server;
+   for server, it should store root CA certificate(s) of trusted clients.
+- `cert.pem`: Server certificate presented by EMQX TLS listeners.
+- `key.pem`: Private key for `cert.pem`.
+- `client-cert.pem`: Client certificate for mutual TLS testing against EMQX listeners.
+   It can also be used as TLS cerificate for EMQX when acting as a TLS client,
+   for example, when trying to connect an external authentication server.
+- `client-key.pem`: Private key for `client-cert.pem`.
+
+The default local test certificates currently use these identities:
+
+- Root CA: `C=SE, ST=Stockholm, O=EMQ, CN=RootCA`
+- Server certificate: `C=SE, ST=Stockholm, O=EMQ, CN=localhost`
+- Client certificate: `C=SE, ST=Stockholm, O=EMQ, CN=Client`
+
+The server certificate includes SAN entries for `localhost`, `127.0.0.1`, and `::1`
+for better compatibility with local TLS clients.

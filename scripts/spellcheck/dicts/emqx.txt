@@ -245,6 +245,7 @@ qlen
 qmode
 qos
 QoS
+QuasarDB
 quic
 ratelimit
 rebar

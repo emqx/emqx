@@ -75,6 +75,7 @@ hard_coded_action_info_modules_ee() ->
         emqx_bridge_oracle_action_info,
         emqx_bridge_pgsql_action_info,
         emqx_bridge_pulsar_action_info,
+        emqx_bridge_quasardb_action_info,
         emqx_bridge_rabbitmq_action_info,
         emqx_bridge_redis_action_info,
         emqx_bridge_redshift_action_info,
