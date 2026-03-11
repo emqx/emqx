@@ -168,7 +168,7 @@ terminate(_Reason, State) ->
 accept_batch(Items, From, Ref, State) ->
     {Entries, State1} = assign_seqnos(Items, Ref, State),
     SeqNos = [SeqNo || {SeqNo, _, _, _} <- Entries],
-    Pending = maps:from_list([{S, []} || S <- SeqNos]),
+    Pending = maps:from_keys(SeqNos, []),
     #{batches := Batches, backlog := Backlog} = State1,
     Batches1 = Batches#{Ref => #{from => From, pending => Pending}},
     Backlog1 = lists:foldl(fun(E, Q) -> queue:in(E, Q) end, Backlog, Entries),
