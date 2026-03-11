@@ -62,7 +62,6 @@ bridges {
     enable = true
     remote = cloud
     proto_ver = "v4"
-    clean_start = true
     keepalive_s = 60
     pool_size = 4
     filter_topic = "devices/#"
@@ -102,8 +101,7 @@ left untouched. The entire value must be the placeholder; partial interpolation
 
 **Limitation:** `${EMQXDQ_*}` substitution only works for config fields that
 accept string values (e.g. `server`, `username`, `password`). It cannot be used
-for boolean fields (`enable`, `clean_start`), integer fields (`pool_size`,
-`keepalive_s`).
+for boolean fields (`enable`), integer fields (`pool_size`, `keepalive_s`).
 
 Example:
 
@@ -155,7 +153,6 @@ which makes the misconfiguration visible in both logs and the status API.
 | `remote`          | string  | —       | Name of the remote broker definition under `remotes`.                       |
 | `proto_ver`       | string  | `"v4"`  | MQTT protocol version: `v3`, `v4`, or `v5`.                                |
 | `clientid_prefix` | string  | `"emqx-dq-<name>-"` | Prefix for auto-generated MQTT client IDs. Each connection appends a unique index (e.g. `emqx-dq-mybridge-0`). Optional — leave empty to use the default. |
-| `clean_start`     | boolean | `true`  | MQTT clean start flag.                                                      |
 | `keepalive_s`     | integer | `60`    | MQTT keep-alive interval in seconds.                                        |
 | `pool_size`       | integer | `4`     | Number of MQTT connections to the remote broker.                            |
 | `buffer_pool_size` | integer | `4`    | Number of disk queue buffer workers per bridge. See warnings below.         |
@@ -163,8 +160,9 @@ which makes the misconfiguration visible in both logs and the status API.
 | `remote_topic`    | string  | —       | Target topic template. Use `${topic}` for the original topic.              |
 | `enqueue_timeout_ms` | integer | `5000` | Max time (ms) to block waiting for disk queue confirmation. Only applies to QoS > 0; QoS 0 is always async. |
 | `max_inflight`    | integer | `32`    | Maximum unacknowledged messages per connection to the remote broker. Controls batch pop size from disk queue and emqtt send window. |
-| `remote_qos`      | integer or `"${qos}"` | `"${qos}"` | QoS level for publishing to the remote broker (0, 1, or 2). The default `"${qos}"` preserves the original message's QoS. |
-| `remote_retain`   | boolean or `"${retain}"` | `"${retain}"` | Retain flag for publishing to the remote broker. The default `"${retain}"` preserves the original message's retain flag. |
+| `remote_qos`      | string | `"${qos}"` | QoS level for publishing to the remote broker (`"0"`, `"1"`, `"2"`). The default `"${qos}"` preserves the original message's QoS. |
+| `remote_retain`   | string | `"${retain}"` | Retain flag for publishing to the remote broker (`"true"`, `"false"`). The default `"${retain}"` preserves the original message's retain flag. |
+| `max_publish_retries` | integer | `-1` | Number of publish retry attempts per message before dropping it. `-1` means infinite retries. Each failed PUBACK or connection loss consumes one credit. |
 
 #### Remote (`remotes.<name>`)
 

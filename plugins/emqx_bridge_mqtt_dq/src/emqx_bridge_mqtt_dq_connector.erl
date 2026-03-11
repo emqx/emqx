@@ -12,8 +12,9 @@
 
 -export([init/1, handle_cast/2, handle_info/2, handle_call/3, terminate/2]).
 
--define(RECONNECT_DELAY_MS, 5000).
--define(MAX_PUBLISH_RETRIES, 3).
+-define(MIN_RECONNECT_DELAY_MS, 1000).
+-define(MAX_RECONNECT_DELAY_MS, 60000).
+-define(DEFAULT_MAX_PUBLISH_RETRIES, infinity).
 -define(MIN_DROP_LOG_INTERVAL_MS, 5000).
 
 %%--------------------------------------------------------------------
@@ -50,7 +51,6 @@ init({BridgeConfig, Index}) ->
         clientid_prefix := ClientidPrefix,
         username := Username,
         password := Password,
-        clean_start := CleanStart,
         keepalive_s := Keepalive,
         max_inflight := MaxInflight,
         ssl := SslConf
@@ -62,7 +62,7 @@ init({BridgeConfig, Index}) ->
         port => Port,
         clientid => ClientId,
         proto_ver => ProtoVer,
-        clean_start => CleanStart,
+        clean_start => true,
         keepalive => Keepalive,
         max_inflight => MaxInflight,
         force_ping => true,
@@ -71,6 +71,7 @@ init({BridgeConfig, Index}) ->
     ConnOpts1 = maybe_add_credentials(ConnOpts, Username, Password),
     ConnOpts2 = maybe_add_ssl(ConnOpts1, Host, SslConf),
     process_flag(trap_exit, true),
+    MaxRetries = maps:get(max_publish_retries, BridgeConfig, ?DEFAULT_MAX_PUBLISH_RETRIES),
     State = #{
         bridge_name => BridgeName,
         index => Index,
@@ -78,6 +79,9 @@ init({BridgeConfig, Index}) ->
         bridge_config => BridgeConfig,
         client_pid => undefined,
         connected => false,
+        max_publish_retries => MaxRetries,
+        reconnect_delay_ms => ?MIN_RECONNECT_DELAY_MS,
+        reconnect_tref => undefined,
         %% Same max_inflight value is used for three things:
         %% 1. emqtt connection option (wire-level send window)
         %% 2. Connector inflight cap (items dispatched, awaiting ack)
@@ -124,7 +128,7 @@ handle_info({publish_batch, Items, From, Ref}, State) ->
 handle_info({async_pub_ack, SeqNo, Result}, State) ->
     {noreply, handle_async_ack(SeqNo, Result, State)};
 handle_info(reconnect, State) ->
-    {noreply, do_connect(State)};
+    {noreply, do_connect(State#{reconnect_tref := undefined})};
 handle_info({'EXIT', Pid, Reason}, #{client_pid := Pid} = State) ->
     #{bridge_name := BridgeName, index := Index} = State,
     ?LOG(warning, #{
@@ -134,8 +138,7 @@ handle_info({'EXIT', Pid, Reason}, #{client_pid := Pid} = State) ->
         reason => Reason
     }),
     State1 = on_client_exit(State),
-    schedule_reconnect(),
-    {noreply, State1};
+    {noreply, schedule_reconnect(State1)};
 handle_info({'EXIT', _Pid, _Reason}, State) ->
     %% Stale EXIT from a previously linked emqtt client after reconnect.
     %% Supervisor shutdown never reaches here — gen_server intercepts
@@ -145,6 +148,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, State) ->
+    cancel_reconnect_timer(State),
     ok = clear_metrics(State),
     maybe_disconnect(maps:get(client_pid, State, undefined)),
     ok.
@@ -173,10 +177,10 @@ accept_batch(Items, From, Ref, State) ->
         update_metrics(State1#{batches := Batches1, backlog := Backlog1, backlog_len := BacklogLen1})
     ).
 
-assign_seqnos(Items, BatchRef, #{next_seq := Seq} = State) ->
+assign_seqnos(Items, BatchRef, #{next_seq := Seq, max_publish_retries := MaxRetries} = State) ->
     {Entries, Seq1} = lists:foldl(
         fun(Item, {Acc, S}) ->
-            Entry = {S, BatchRef, Item, ?MAX_PUBLISH_RETRIES},
+            Entry = {S, BatchRef, Item, MaxRetries},
             {[Entry | Acc], S + 1}
         end,
         {[], Seq},
@@ -252,20 +256,45 @@ handle_item_result(SeqNo, BatchRef, Item, Retries, Result, State) ->
     case should_retry(Result) of
         false ->
             finish_item(SeqNo, BatchRef, State);
-        true when Retries > 1 ->
-            retry_item(SeqNo, BatchRef, Item, Retries - 1, State);
         true ->
-            #{bridge_name := BridgeName} = State,
-            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dropped(
-                BridgeName, normalize_drop_reason(Result), 1
-            ),
-            log_drop(State, classify_error(Result)),
-            finish_item(SeqNo, BatchRef, State)
+            case should_retry_again(Retries) of
+                true ->
+                    %% Put item back to backlog, then disconnect and reconnect.
+                    %% This gives consistent retry behavior: every retry goes
+                    %% through a fresh connection with clean session state.
+                    State1 = retry_item(SeqNo, BatchRef, Item, decrement_retries(Retries), State),
+                    disconnect_and_reconnect(Result, State1);
+                false ->
+                    #{bridge_name := BridgeName} = State,
+                    ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dropped(
+                        BridgeName, normalize_drop_reason(Result), 1
+                    ),
+                    log_drop(State, classify_error(Result)),
+                    finish_item(SeqNo, BatchRef, State)
+            end
     end.
+
+disconnect_and_reconnect(Result, State) ->
+    #{bridge_name := BridgeName, index := Index} = State,
+    ?LOG(warning, #{
+        msg => "mqtt_dq_connector_puback_error",
+        bridge => BridgeName,
+        index => Index,
+        reason => classify_error(Result)
+    }),
+    maybe_disconnect(maps:get(client_pid, State, undefined)),
+    State1 = on_client_exit(State),
+    schedule_reconnect(State1).
 
 should_retry(ok) -> false;
 should_retry({ok, #{reason_code := RC}}) when RC =:= 0; RC =:= 16 -> false;
 should_retry(_) -> true.
+
+should_retry_again(infinity) -> true;
+should_retry_again(Retries) when is_integer(Retries) -> Retries > 1.
+
+decrement_retries(infinity) -> infinity;
+decrement_retries(Retries) when is_integer(Retries) -> Retries - 1.
 
 %% Item delivered or dropped — remove from batch pending set.
 finish_item(SeqNo, BatchRef, #{batches := Batches} = State) ->
@@ -351,7 +380,7 @@ on_client_exit(#{inflight := Inflight, backlog := Backlog, batches := Batches} =
     Sorted = lists:keysort(1, maps:to_list(Inflight)),
     {Backlog1, Batches1, DropCount, RequeuedCount} = lists:foldr(
         fun({SeqNo, {BatchRef, Item, Retries}}, {QAcc, BAcc, Drops, Requeued}) ->
-            Retries1 = max(0, Retries - 1),
+            Retries1 = decrement_retries_on_disconnect(Retries),
             case Retries1 of
                 0 ->
                     %% Exhausted — drop item, remove from batch pending
@@ -387,6 +416,9 @@ on_client_exit(#{inflight := Inflight, backlog := Backlog, batches := Batches} =
         batches := Batches2
     }).
 
+decrement_retries_on_disconnect(infinity) -> infinity;
+decrement_retries_on_disconnect(Retries) when is_integer(Retries) -> max(0, Retries - 1).
+
 remove_from_batch_pending(SeqNo, BatchRef, Batches) ->
     case maps:find(BatchRef, Batches) of
         {ok, #{pending := Pending} = Ctx} ->
@@ -420,8 +452,9 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 index => Index
             }),
             ?tp(mqtt_dq_connector_connected, #{bridge => BridgeName, index => Index}),
-            State1 = update_metrics(State#{client_pid := Pid, connected := true}),
-            maybe_drain(State1);
+            State1 = reset_reconnect_backoff(State#{client_pid := Pid, connected := true}),
+            State2 = update_metrics(State1),
+            maybe_drain(State2);
         {error, Reason} ->
             ?LOG(warning, #{
                 msg => "mqtt_dq_connector_connect_failed",
@@ -430,8 +463,8 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 reason => Reason
             }),
             ?tp(mqtt_dq_connector_connect_failed, #{bridge => BridgeName, index => Index}),
-            schedule_reconnect(),
-            update_metrics(State#{client_pid := undefined, connected := false})
+            State1 = update_metrics(State#{client_pid := undefined, connected := false}),
+            schedule_reconnect(State1)
     end.
 
 render_topic(<<"${topic}">>, OrigTopic) ->
@@ -471,18 +504,29 @@ try_connect(Pid) ->
             {error, Reason}
     end.
 
-schedule_reconnect() ->
-    erlang:send_after(?RECONNECT_DELAY_MS, self(), reconnect).
+schedule_reconnect(#{reconnect_delay_ms := DelayMs} = State0) ->
+    cancel_reconnect_timer(State0),
+    TRef = erlang:send_after(DelayMs, self(), reconnect),
+    State0#{
+        reconnect_tref := TRef,
+        reconnect_delay_ms := min(DelayMs * 2, ?MAX_RECONNECT_DELAY_MS)
+    }.
+
+reset_reconnect_backoff(State0) ->
+    cancel_reconnect_timer(State0),
+    State0#{reconnect_tref := undefined, reconnect_delay_ms := ?MIN_RECONNECT_DELAY_MS}.
+
+cancel_reconnect_timer(#{reconnect_tref := undefined}) ->
+    ok;
+cancel_reconnect_timer(#{reconnect_tref := TRef}) ->
+    _ = erlang:cancel_timer(TRef),
+    ok.
 
 maybe_disconnect(undefined) ->
     ok;
 maybe_disconnect(Pid) when is_pid(Pid) ->
-    try
-        emqtt:disconnect(Pid),
-        emqtt:stop(Pid)
-    catch
-        _:_ -> ok
-    end.
+    exit(Pid, kill),
+    ok.
 
 parse_server(Server) when is_list(Server) ->
     parse_server(list_to_binary(Server));

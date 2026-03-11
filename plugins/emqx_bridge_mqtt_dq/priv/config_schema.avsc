@@ -31,11 +31,6 @@
               "default": ""
             },
             {
-              "name": "clean_start",
-              "type": "boolean",
-              "default": true
-            },
-            {
               "name": "keepalive_s",
               "type": "int",
               "default": 60
@@ -79,6 +74,11 @@
               "name": "enqueue_timeout_ms",
               "type": "int",
               "default": 5000
+            },
+            {
+              "name": "max_publish_retries",
+              "type": "int",
+              "default": -1
             },
             {
               "name": "queue",

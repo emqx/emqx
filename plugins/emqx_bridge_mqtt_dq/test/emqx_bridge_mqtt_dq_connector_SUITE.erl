@@ -93,7 +93,30 @@ t_retry_on_puback_error(_Config) ->
     ?assertEqual(3, counters:get(AttemptCounter, 1)),
     stop_connector(Conn).
 
--doc "Item dropped after 3 failed retries; batch still completes.".
+-doc "Default max_publish_retries = -1 means retry forever and do not batch-ack on repeated errors.".
+t_infinite_retries_by_default(_Config) ->
+    AttemptCounter = counters:new(1, [atomics]),
+    meck:expect(emqtt, publish_async, fun(
+        _Pid, _Topic, _Props, _Payload, _Opts, _Timeout, {Cb, Args}
+    ) ->
+        counters:add(AttemptCounter, 1, 1),
+        erlang:apply(Cb, Args ++ [{error, {puback_error, 131}}]),
+        ok
+    end),
+    Conn = start_connector(#{}),
+    wait_connected(),
+    Ref = make_ref(),
+    Conn ! {publish_batch, [make_item(1)], self(), Ref},
+    receive
+        {batch_ack, Ref, ok} ->
+            ct:fail("batch_ack unexpectedly received under infinite retries")
+    after 3500 ->
+        ok
+    end,
+    ?assert(counters:get(AttemptCounter, 1) >= 3),
+    stop_connector(Conn).
+
+-doc "Finite max_publish_retries drops the item after retries are exhausted; batch still completes.".
 t_drop_after_max_retries(_Config) ->
     meck:expect(emqtt, publish_async, fun(
         _Pid, _Topic, _Props, _Payload, _Opts, _Timeout, {Cb, Args}
@@ -101,7 +124,7 @@ t_drop_after_max_retries(_Config) ->
         erlang:apply(Cb, Args ++ [{error, {puback_error, 131}}]),
         ok
     end),
-    Conn = start_connector(#{}),
+    Conn = start_connector(#{max_publish_retries => 3}),
     wait_connected(),
     Ref = make_ref(),
     Conn ! {publish_batch, [make_item(1)], self(), Ref},
@@ -287,7 +310,6 @@ make_connector_config(Overrides) ->
         clientid_prefix => <<"test_conn">>,
         username => <<>>,
         password => <<>>,
-        clean_start => true,
         keepalive_s => 60,
         ssl => #{enable => false},
         pool_size => 1,

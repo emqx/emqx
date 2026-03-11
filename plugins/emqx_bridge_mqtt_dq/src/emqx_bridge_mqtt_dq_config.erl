@@ -122,7 +122,6 @@ parse_bridge(Name, Raw, Remotes) when is_map(Raw) ->
             ),
             username => maps:get(username, Remote),
             password => maps:get(password, Remote),
-            clean_start => to_boolean(get_val(<<"clean_start">>, Raw, true)),
             keepalive_s => to_pos_int(
                 get_val(<<"keepalive_s">>, Raw, 60)
             ),
@@ -142,6 +141,9 @@ parse_bridge(Name, Raw, Remotes) when is_map(Raw) ->
             ),
             max_inflight => to_pos_int(
                 get_val(<<"max_inflight">>, Raw, 32)
+            ),
+            max_publish_retries => parse_max_publish_retries(
+                get_val(<<"max_publish_retries">>, Raw, -1)
             ),
             remote_qos => parse_remote_qos(get_val(<<"remote_qos">>, Raw, <<"${qos}">>)),
             remote_retain => parse_remote_retain(
@@ -259,6 +261,11 @@ to_boolean(_) -> false.
 to_pos_int(V) when is_integer(V), V > 0 -> V;
 to_pos_int(V) when is_binary(V) -> to_pos_int(binary_to_integer(V));
 to_pos_int(_) -> 4.
+
+parse_max_publish_retries(-1) -> infinity;
+parse_max_publish_retries(V) when is_integer(V), V >= 0 -> V;
+parse_max_publish_retries(V) when is_binary(V) -> parse_max_publish_retries(binary_to_integer(V));
+parse_max_publish_retries(_) -> infinity.
 
 to_qos(0) -> 0;
 to_qos(1) -> 1;

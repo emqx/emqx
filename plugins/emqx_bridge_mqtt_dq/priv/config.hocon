@@ -3,7 +3,6 @@ bridges {
     enable = false
     remote = loopback
     proto_ver = v4
-    clean_start = true
     keepalive_s = 60
     # clientid_prefix = "emqx-dq-example-"
     pool_size = 4
@@ -12,6 +11,7 @@ bridges {
     remote_topic = "fwd/${topic}"
     enqueue_timeout_ms = 5000
     max_inflight = 32
+    max_publish_retries = -1
     remote_qos = "${qos}"
     remote_retain = "${retain}"
     queue {

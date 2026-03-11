@@ -1068,7 +1068,6 @@ make_bridge_config(Name, Port, Overrides) ->
         clientid_prefix => <<"test_dq_", Name/binary>>,
         username => <<>>,
         password => <<>>,
-        clean_start => true,
         keepalive_s => 60,
         ssl => #{enable => false},
         pool_size => 2,
