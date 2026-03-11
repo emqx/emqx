@@ -19,7 +19,8 @@
 
 -export([start_link/0]).
 -export([register/1, unregister/1, lookup/1, list/0, match_trigger/1]).
--export([register_profile/2, lookup_profile/1]).
+-export([register_profile/2, unregister_profile/1, lookup_profile/1, list_profiles/0]).
+-export([delete_all/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
 
 -define(DEFS_TAB, emqx_agent_pipeline_defs).
@@ -86,12 +87,26 @@ match_trigger(Topic) ->
 register_profile(Name, Config) ->
     gen_server:call(?MODULE, {register_profile, Name, Config}).
 
+-spec unregister_profile(binary()) -> ok.
+unregister_profile(Name) ->
+    gen_server:call(?MODULE, {unregister_profile, Name}).
+
 -spec lookup_profile(binary()) -> {ok, map()} | {error, not_found}.
 lookup_profile(Name) ->
     case ets:lookup(?PROFILES_TAB, Name) of
         [{_, Config}] -> {ok, Config};
         [] -> {error, not_found}
     end.
+
+-spec list_profiles() -> [map()].
+list_profiles() ->
+    [Config || {_, Config} <- ets:tab2list(?PROFILES_TAB)].
+
+-spec delete_all() -> ok.
+delete_all() ->
+    true = ets:delete_all_objects(?DEFS_TAB),
+    true = ets:delete_all_objects(?PROFILES_TAB),
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -110,6 +125,9 @@ handle_call({unregister, PipelineId}, _From, State) ->
     {reply, ok, State};
 handle_call({register_profile, Name, Config}, _From, State) ->
     true = ets:insert(?PROFILES_TAB, {Name, Config}),
+    {reply, ok, State};
+handle_call({unregister_profile, Name}, _From, State) ->
+    true = ets:delete(?PROFILES_TAB, Name),
     {reply, ok, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_request}, State}.

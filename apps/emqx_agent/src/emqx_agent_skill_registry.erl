@@ -8,7 +8,7 @@
 
 %% API
 -export([start_link/0]).
--export([register/1, unregister/2, lookup/2, list/0, list/1]).
+-export([register/1, unregister/2, lookup/2, list/0, list/1, delete_all/0]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
@@ -63,6 +63,11 @@ list() ->
 -spec list(skill_type()) -> [skill()].
 list(Type) ->
     [Skill || {Key, Skill} <- ets:tab2list(?TAB), element(1, Key) =:= Type].
+
+-spec delete_all() -> ok.
+delete_all() ->
+    true = ets:delete_all_objects(?TAB),
+    ok.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks

@@ -23,7 +23,8 @@ defmodule EMQXAgent.MixProject do
 
   def deps do
     UMP.deps([
-      {:emqx, in_umbrella: true}
+      {:emqx, in_umbrella: true},
+      :minirest
     ])
   end
 end
