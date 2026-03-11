@@ -398,6 +398,11 @@
               <div class="value" id="dequeueValue">0</div>
               <div class="meta">Messages durably removed from the local queue</div>
             </div>
+            <div class="metric">
+              <div class="label">Publish</div>
+              <div class="value" id="publishValue">0</div>
+              <div class="meta">Messages successfully published to the remote broker</div>
+            </div>
             <div class="metric warn">
               <div class="label">Drop</div>
               <div class="value" id="dropValue">0</div>
@@ -422,6 +427,10 @@
                   <div class="mini">
                     <span class="k">Dequeue</span>
                     <span class="v" id="detailAcked">0</span>
+                  </div>
+                  <div class="mini">
+                    <span class="k">Publish</span>
+                    <span class="v" id="detailPublished">0</span>
                   </div>
                   <div class="mini">
                     <span class="k">Drop</span>
@@ -487,11 +496,13 @@
         uptimeValue: document.getElementById("uptimeValue"),
         enqueueValue: document.getElementById("enqueueValue"),
         dequeueValue: document.getElementById("dequeueValue"),
+        publishValue: document.getElementById("publishValue"),
         dropValue: document.getElementById("dropValue"),
         detailTitle: document.getElementById("detailTitle"),
         detailSubtitle: document.getElementById("detailSubtitle"),
         detailMatched: document.getElementById("detailMatched"),
         detailAcked: document.getElementById("detailAcked"),
+        detailPublished: document.getElementById("detailPublished"),
         detailDropped: document.getElementById("detailDropped"),
         detailAckRate: document.getElementById("detailAckRate"),
         reasonList: document.getElementById("reasonList"),
@@ -624,6 +635,7 @@
         const scope = currentScope();
         const enqueue = sum(scope.bridges, "enqueue");
         const dequeue = sum(scope.bridges, "dequeue");
+        const publish = sum(scope.bridges, "publish");
         const drop = sum(scope.bridges, "drop");
         const ackRate = enqueue > 0 ? Math.round((dequeue / enqueue) * 100) : 0;
         const cluster = state.stats.cluster || {};
@@ -635,6 +647,7 @@
         els.uptimeValue.textContent = formatUptime(state.stats.uptime_seconds || 0);
         els.enqueueValue.textContent = formatInt(enqueue);
         els.dequeueValue.textContent = formatInt(dequeue);
+        els.publishValue.textContent = formatInt(publish);
         els.dropValue.textContent = formatInt(drop);
         els.detailTitle.textContent = state.selectedBridge
           ? "Bridge Detail: " + state.selectedBridge
@@ -644,6 +657,7 @@
           : "Aggregated counters and retry reasons across the cluster view.";
         els.detailMatched.textContent = formatInt(enqueue);
         els.detailAcked.textContent = formatInt(dequeue);
+        els.detailPublished.textContent = formatInt(publish);
         els.detailDropped.textContent = formatInt(drop);
         els.detailAckRate.textContent = ackRate + "%";
 
