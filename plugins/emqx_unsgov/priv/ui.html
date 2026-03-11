@@ -1335,6 +1335,7 @@
                 const el = document.getElementById("newPayloadTypeName");
                 const name = (el.value || "").trim();
                 if (!name) return showStatus("err", "Payload type name is required");
+                if (name === "any") return showStatus("err", '"any" is a reserved name and cannot be used as a payload type');
                 applyModelMutation(() => {
                   ensureModelShape();
                   if (!state.modelObj.payload_types[name]) {
@@ -1382,6 +1383,7 @@
                     const origName = hdr.dataset.payloadName;
                     const newName = (hdr.querySelector('[data-role="payload-name"]').value || "").trim();
                     if (!newName) return;
+                    if (newName === "any") throw new Error('"any" is a reserved name and cannot be used as a payload type');
                     const rootType = hdr.querySelector('[data-role="payload-root-type"]').value;
                     const additional = hdr.querySelector('[data-role="payload-additional"]').checked;
                     const origSchema = state.modelObj.payload_types[origName] || {};
@@ -1686,6 +1688,8 @@
             Object.keys(parentMap).forEach((k) => delete parentMap[k]);
             Object.keys(newMap).forEach((k) => { parentMap[k] = newMap[k]; });
           });
+          // Re-expand all nodes that have children so the tree stays open
+          initExpandedDefault();
         }
 
         function wireTreeActions() {
@@ -1698,6 +1702,11 @@
                   if (!key) return;
                   state.modelObj.tree[key] = { _type: "namespace", children: {} };
                   state.expandedIds[pathToId(["tree", key])] = true;
+                });
+              }
+              if (action === "apply-all-tree") {
+                return applyModelMutation(() => {
+                  applyTreeFromDom();
                 });
               }
               const row = btn.closest(".tree-row");
@@ -1724,11 +1733,6 @@
                   if (!childKey) return;
                   node.children[childKey] = { _type: "namespace", children: {} };
                   state.expandedIds[pathToId(nodePath)] = true;
-                });
-              }
-              if (action === "apply-all-tree") {
-                return applyModelMutation(() => {
-                  applyTreeFromDom();
                 });
               }
             });
