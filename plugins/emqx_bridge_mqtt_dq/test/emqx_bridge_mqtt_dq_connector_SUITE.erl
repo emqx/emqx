@@ -368,6 +368,7 @@ setup_emqtt_mock() ->
         erlang:apply(Cb, Args ++ [ok]),
         ok
     end),
+    meck:expect(emqtt, info, fun(_Pid, _Attr) -> 0 end),
     meck:expect(emqtt, disconnect, fun(_Pid) -> ok end),
     meck:expect(emqtt, stop, fun(_Pid) -> ok end),
     ok.

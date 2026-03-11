@@ -105,13 +105,6 @@ init({BridgeConfig, Index}) ->
         %% entries. Only these items lose a retry credit on disconnect.
         %% SeqNo => {BatchRef, Item, Retries}
         inflight => #{},
-        %% Number of async publishes since last sync barrier.
-        %% When this reaches max_inflight, a sync gen_statem:call is
-        %% made to emqtt to ensure its mailbox is drained, providing
-        %% backpressure (especially important for QoS 0 where emqtt
-        %% fires the ack callback immediately without waiting for
-        %% any broker response).
-        async_since_sync => 0,
         %% Batch completion tracking. Each buffer batch is registered here
         %% when received. Acked back to buffer when pending set is empty.
         %% BatchRef => #{from => pid(), pending => #{ItemSeqNo => []}}
@@ -208,27 +201,18 @@ maybe_drain(#{inflight := Inflight, max_inflight := Max} = State) when
     map_size(Inflight) >= Max
 ->
     State;
-maybe_drain(#{async_since_sync := N, max_inflight := Max} = State) when
-    N >= Max
-->
-    %% Sync barrier: block until emqtt has processed all preceding
-    %% async publish messages in its mailbox, preventing unbounded
-    %% mailbox growth (especially for QoS 0).
-    sync_barrier(State),
-    maybe_drain(State#{async_since_sync := 0});
 maybe_drain(#{backlog := Backlog, inflight := Inflight} = State) ->
     case queue:out(Backlog) of
         {empty, _} ->
             update_metrics(State);
         {{value, {SeqNo, BatchRef, Item, Retries}}, Backlog1} ->
             BacklogLen1 = maps:get(backlog_len, State, 0) - 1,
-            N = maps:get(async_since_sync, State, 0),
             State1 = State#{
                 backlog := Backlog1,
-                backlog_len := ensure_non_negative_backlog_len(BacklogLen1),
-                async_since_sync := N + 1
+                backlog_len := ensure_non_negative_backlog_len(BacklogLen1)
             },
             ok = dispatch_one(SeqNo, Item, State1),
+            ok = maybe_sync_after_dispatch(SeqNo, State1),
             Inflight1 = Inflight#{SeqNo => {BatchRef, Item, Retries}},
             maybe_drain(update_metrics(State1#{inflight := Inflight1}))
     end.
@@ -266,6 +250,16 @@ sync_barrier(#{client_pid := ClientPid}) ->
         _:_ -> ok
     end.
 
+maybe_sync_after_dispatch(SeqNo, #{max_inflight := Max} = State) when
+    is_integer(Max), Max > 0, ((SeqNo + 1) rem Max) =:= 0
+->
+    %% Periodically make a sync gen_statem:call to emqtt so preceding
+    %% async publish messages in its mailbox are processed before we keep
+    %% dispatching, which limits mailbox growth for fast async acks.
+    sync_barrier(State);
+maybe_sync_after_dispatch(_SeqNo, _State) ->
+    ok.
+
 %%--------------------------------------------------------------------
 %% Internal: async ack handling
 %%--------------------------------------------------------------------
@@ -280,7 +274,7 @@ handle_async_ack(SeqNo, Result, #{inflight := Inflight} = State) ->
             State
     end.
 
-handle_item_result(SeqNo, BatchRef, _Item, Retries, Result, State) ->
+handle_item_result(SeqNo, BatchRef, Item, Retries, Result, State) ->
     case should_retry(Result) of
         false ->
             #{bridge_name := BridgeName} = State,
@@ -292,10 +286,12 @@ handle_item_result(SeqNo, BatchRef, _Item, Retries, Result, State) ->
                     %% Keep the item inflight and let on_client_exit/1 salvage it,
                     %% so retry accounting is centralized in one place.
                     ok = incr_retry_reason(State, normalize_retry_reason(Result), 1),
+                    maybe_log_reason_code(Result, Item, retry, State),
                     disconnect_and_reconnect(Result, State);
                 false ->
                     #{bridge_name := BridgeName} = State,
                     ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_drop(BridgeName, 1),
+                    maybe_log_reason_code(Result, Item, drop, State),
                     log_drop(State, classify_error(Result)),
                     finish_item(SeqNo, BatchRef, remove_inflight(SeqNo, State))
             end
@@ -332,7 +328,9 @@ finish_item(SeqNo, BatchRef, #{batches := Batches} = State) ->
     end.
 
 remove_inflight(SeqNo, #{inflight := Inflight} = State) ->
-    update_metrics(State#{inflight := maps:remove(SeqNo, Inflight)}).
+    update_metrics(State#{
+        inflight := maps:remove(SeqNo, Inflight)
+    }).
 
 %% Batch is complete when pending set is empty (map_size/1 is O(1)).
 check_batch_complete(BatchRef, #{pending := Pending, from := From}, State) when
@@ -348,6 +346,28 @@ check_batch_complete(BatchRef, Ctx, #{batches := Batches} = State) ->
 classify_error({ok, #{reason_code := RC}}) -> {reason_code, RC};
 classify_error({error, Reason}) -> Reason;
 classify_error(Other) -> Other.
+
+maybe_log_reason_code({ok, #{reason_code := RC}}, Item, Action, State) ->
+    log_reason_code(State, Item, RC, Action);
+maybe_log_reason_code(_Result, _Item, _Action, _State) ->
+    ok.
+
+log_reason_code(
+    #{bridge_name := BridgeName, index := Index, bridge_config := #{remote_topic := TopicTpl}},
+    #{topic := SourceTopic},
+    RC,
+    Action
+) ->
+    RemoteTopic = render_topic(TopicTpl, SourceTopic),
+    ?LOG(warning, #{
+        msg => "mqtt_dq_publish_reason_code",
+        bridge => BridgeName,
+        index => Index,
+        action => Action,
+        reason_code => RC,
+        source_topic => SourceTopic,
+        remote_topic => RemoteTopic
+    }).
 
 %% Rate-limited drop logging to avoid log storms during sustained failures.
 log_drop(State, Reason) ->
@@ -457,9 +477,7 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 index => Index
             }),
             ?tp(mqtt_dq_connector_connected, #{bridge => BridgeName, index => Index}),
-            State1 = reset_reconnect_backoff(State#{
-                client_pid := Pid, connected := true, async_since_sync := 0
-            }),
+            State1 = reset_reconnect_backoff(State#{client_pid := Pid, connected := true}),
             State2 = update_metrics(State1),
             maybe_drain(State2);
         {error, Reason} ->
