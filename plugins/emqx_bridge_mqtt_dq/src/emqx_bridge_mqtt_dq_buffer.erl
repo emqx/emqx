@@ -102,6 +102,13 @@ init({BridgeConfig, Index}) ->
         flush_batch_size => MaxInflight,
         flush_scheduled => false
     },
+    %% Seed enqueue counter with messages already on disk so the
+    %% enqueue = dequeue = publish + drop invariant holds after restart.
+    Persisted = replayq:count(Q),
+    case Persisted > 0 of
+        true -> ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_enqueue(BridgeName, Persisted);
+        false -> ok
+    end,
     State1 = update_metrics(State),
     {ok, try_acquire_conn(State1)}.
 

@@ -33,6 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROFILE="${PROFILE:-emqx-enterprise}"
 EMQX_BIN="$ROOT_DIR/_build/$PROFILE/rel/emqx/bin/emqx"
 PLUGIN_APP="emqx_bridge_mqtt_dq"
@@ -42,9 +43,9 @@ PLUGIN_TAR="$ROOT_DIR/_build/plugins/$PLUGIN.tar.gz"
 PLUGIN_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/plugins/$PLUGIN"
 PLUGIN_DST_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/plugins"
 BASE_URL="${BASE_URL:-http://127.0.0.1:18083}"
-LOGIN_USERNAME="${LOGIN_USERNAME:-smoke_admin}"
-LOGIN_PASSWORD="${LOGIN_PASSWORD:-smoke_pass}"
 TLS_CERT_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/etc/certs"
+
+IFS=: read -r API_KEY API_SECRET < "$SCRIPT_DIR/bootstrap-api-keys.txt"
 
 cd "$ROOT_DIR"
 
@@ -79,28 +80,16 @@ cp -f "$PLUGIN_TAR" "$PLUGIN_DST_DIR/"
 "$EMQX_BIN" ctl plugins enable "$PLUGIN"
 "$EMQX_BIN" ctl plugins start "$PLUGIN"
 
-echo "[dev-cycle] ensuring API smoke admin"
-"$EMQX_BIN" ctl admins add "$LOGIN_USERNAME" "$LOGIN_PASSWORD" "smoke user" administrator >/dev/null 2>&1 || \
-    "$EMQX_BIN" ctl admins passwd "$LOGIN_USERNAME" "$LOGIN_PASSWORD" >/dev/null
-
-login_token() {
-    curl -sf -X POST "$BASE_URL/api/v5/login" \
-        -H 'content-type: application/json' \
-        -d "{\"username\":\"$LOGIN_USERNAME\",\"password\":\"$LOGIN_PASSWORD\"}" \
-        | grep -o '"token":"[^"]*"' | cut -d'"' -f4
-}
-
-TOKEN="$(login_token)"
-if [[ -z "$TOKEN" ]]; then
-    echo "[dev-cycle] FAIL: could not login to EMQX API" >&2
-    exit 1
-fi
+## Bootstrap API key so we can use basic auth
+BOOTSTRAP_FILE="$ROOT_DIR/_build/$PROFILE/rel/emqx/bootstrap-api-keys.txt"
+cp "$SCRIPT_DIR/bootstrap-api-keys.txt" "$BOOTSTRAP_FILE"
+export EMQX_API_KEY__BOOTSTRAP_FILE="$BOOTSTRAP_FILE"
 
 echo "[dev-cycle] configuring self-bridge via REST API"
 # shellcheck disable=SC2016
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
     -X PUT "$BASE_URL/api/v5/plugins/$PLUGIN/config" \
-    -H "Authorization: Bearer $TOKEN" \
+    -u "$API_KEY:$API_SECRET" \
     -H 'content-type: application/json' \
     -d '{
   "bridges": {
@@ -109,7 +98,6 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "remote": "loopback_tls",
       "proto_ver": "v4",
       "clientid_prefix": "dq_smoke",
-      "clean_start": true,
       "keepalive_s": 60,
       "pool_size": 2,
       "filter_topic": "devices/#",
@@ -146,7 +134,6 @@ echo "[dev-cycle] config updated (HTTP $HTTP_CODE)"
 sleep 2
 
 echo "[dev-cycle] running MQTT smoke"
-MQTT_USERNAME="$LOGIN_USERNAME" MQTT_PASSWORD="$LOGIN_PASSWORD" \
-    ./plugins/emqx_bridge_mqtt_dq/smoke/smoke_mqtt.sh
+./plugins/emqx_bridge_mqtt_dq/smoke/smoke_mqtt.sh
 
 echo "[dev-cycle] PASS"

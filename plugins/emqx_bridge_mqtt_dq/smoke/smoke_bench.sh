@@ -25,8 +25,7 @@ PLUGIN_TAR="$ROOT_DIR/_build/plugins/$PLUGIN.tar.gz"
 LOCAL_API="http://127.0.0.1:38083"
 REMOTE_API="http://127.0.0.1:48083"
 
-LOGIN_USERNAME="admin"
-LOGIN_PASSWORD="public"
+IFS=: read -r API_KEY API_SECRET < "$SCRIPT_DIR/bootstrap-api-keys.txt"
 
 BENCH_IMAGE="docker.io/emqx/emqtt-bench:latest"
 BENCH_CLIENTS=10
@@ -87,28 +86,9 @@ wait_api() {
     return 1
 }
 
-login_token() {
-    local url="$1" res token _i
-    for _i in $(seq 1 20); do
-        res="$(curl -sS -H 'content-type: application/json' \
-            -X POST "$url/api/v5/login" \
-            -d "{\"username\":\"$LOGIN_USERNAME\",\"password\":\"$LOGIN_PASSWORD\"}" \
-            2>/dev/null || true)"
-        token="$(printf '%s' "$res" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
-        if [[ -n "$token" ]]; then
-            printf '%s' "$token"
-            return 0
-        fi
-        sleep 1
-    done
-    echo "[bench] failed to get token from $url" >&2
-    return 1
-}
-
 get_stats() {
-    local token="$1"
     curl -sS "$LOCAL_API/api/v5/plugin_api/$PLUGIN_APP/stats/bench" \
-        -H "Authorization: Bearer $token" \
+        -u "$API_KEY:$API_SECRET" \
         -H 'Accept: application/json'
 }
 
@@ -135,12 +115,11 @@ wait_api "$LOCAL_API"
 ## Phase 2: Configure bridge
 ## ================================================================
 echo "[bench] Phase 2: configure bridge"
-TOKEN="$(login_token "$LOCAL_API")"
 
 # shellcheck disable=SC2016
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
     -X PUT "$LOCAL_API/api/v5/plugins/$PLUGIN/config" \
-    -H "Authorization: Bearer $TOKEN" \
+    -u "$API_KEY:$API_SECRET" \
     -H 'content-type: application/json' \
     -d '{
   "remotes": {
@@ -234,9 +213,8 @@ echo "[bench] publishing done"
 ## Phase 6: Wait for bridge to drain
 ## ================================================================
 echo "[bench] Phase 6: waiting for bridge to drain..."
-TOKEN="$(login_token "$LOCAL_API")"
 for _i in $(seq 1 60); do
-    STATS="$(get_stats "$TOKEN")"
+    STATS="$(get_stats)"
     BUFFERED="$(jq_field "$STATS" '.bridge.buffered // 0')"
     BACKLOG="$(jq_field "$STATS" '.bridge.backlog // 0')"
     INFLIGHT="$(jq_field "$STATS" '.bridge.inflight // 0')"
@@ -252,7 +230,7 @@ done
 ## Phase 7: Assert counters
 ## ================================================================
 echo "[bench] Phase 7: assert counters"
-STATS="$(get_stats "$TOKEN")"
+STATS="$(get_stats)"
 echo "  stats response:"
 echo "$STATS" | jq .
 

@@ -17,14 +17,16 @@ PLUGIN_APP="emqx_bridge_mqtt_dq"
 PLUGIN_VSN="$(tr -d '[:space:]' < "$ROOT_DIR/plugins/$PLUGIN_APP/VERSION")"
 PLUGIN="$PLUGIN_APP-$PLUGIN_VSN"
 PLUGIN_TAR="$ROOT_DIR/_build/plugins/$PLUGIN.tar.gz"
+IMAGE="${IMAGE:-emqx/emqx-enterprise:6.1.1}"
+EMQX_VERSION="${IMAGE##*:}"
 
-LOCAL_API="http://127.0.0.1:38083"
+LOCAL_API_PORT="${LOCAL_API_PORT:-38083}"
+LOCAL_API="http://127.0.0.1:$LOCAL_API_PORT"
 REMOTE_API="http://127.0.0.1:48083"
 LOCAL_MQTT_PORT=3883
 REMOTE_MQTT_PORT=4883
 
-LOGIN_USERNAME="admin"
-LOGIN_PASSWORD="public"
+IFS=: read -r API_KEY API_SECRET < "$SCRIPT_DIR/bootstrap-api-keys.txt"
 
 KEEP=false
 
@@ -75,31 +77,14 @@ wait_api() {
     return 1
 }
 
-login_token() {
-    local url="$1" res token _i
-    for _i in $(seq 1 20); do
-        res="$(curl -sS -H 'content-type: application/json' \
-            -X POST "$url/api/v5/login" \
-            -d "{\"username\":\"$LOGIN_USERNAME\",\"password\":\"$LOGIN_PASSWORD\"}" \
-            2>/dev/null || true)"
-        token="$(printf '%s' "$res" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
-        if [[ -n "$token" ]]; then
-            printf '%s' "$token"
-            return 0
-        fi
-        sleep 1
-    done
-    echo "[docker] failed to get token from $url" >&2
-    echo "Response: $res" >&2
-    return 1
-}
-
 ## ================================================================
 ## Phase 1: Start both brokers
 ## ================================================================
 echo "[docker] Phase 1: starting brokers"
 cd "$SCRIPT_DIR"
 export PLUGIN
+export PLUGIN_VSN
+export EMQX_VERSION
 docker compose down -v --remove-orphans 2>/dev/null || true
 docker compose up -d
 
@@ -112,12 +97,11 @@ wait_api "$LOCAL_API"
 ## Phase 2: Configure bridge
 ## ================================================================
 echo "[docker] Phase 2: configure bridge"
-TOKEN="$(login_token "$LOCAL_API")"
 
 # shellcheck disable=SC2016
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
     -X PUT "$LOCAL_API/api/v5/plugins/$PLUGIN/config" \
-    -H "Authorization: Bearer $TOKEN" \
+    -u "$API_KEY:$API_SECRET" \
     -H 'content-type: application/json' \
     -d '{
   "remotes": {
@@ -132,7 +116,6 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "remote": "cloud",
       "proto_ver": "v4",
       "clientid_prefix": "dq_smoke",
-      "clean_start": true,
       "keepalive_s": 60,
       "pool_size": 2,
       "filter_topic": "devices/#",

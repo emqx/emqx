@@ -14,6 +14,7 @@
     start_link/0,
     reset/0,
     incr_bridge_enqueue/1,
+    incr_bridge_enqueue/2,
     incr_bridge_dequeue/2,
     incr_bridge_publish/2,
     incr_bridge_drop/2,
@@ -37,6 +38,11 @@ reset() ->
 
 incr_bridge_enqueue(BridgeName) ->
     safe_ets(fun() -> incr_counter({bridge, BridgeName, enqueue}, 1) end).
+
+incr_bridge_enqueue(BridgeName, Count) when is_integer(Count), Count > 0 ->
+    safe_ets(fun() -> incr_counter({bridge, BridgeName, enqueue}, Count) end);
+incr_bridge_enqueue(_BridgeName, _Count) ->
+    ok.
 
 incr_bridge_dequeue(BridgeName, Count) when is_integer(Count), Count > 0 ->
     safe_ets(fun() -> incr_counter({bridge, BridgeName, dequeue}, Count) end);
