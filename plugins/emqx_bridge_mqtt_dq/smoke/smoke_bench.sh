@@ -22,7 +22,8 @@ PLUGIN_VSN="$(tr -d '[:space:]' < "$ROOT_DIR/plugins/$PLUGIN_APP/VERSION")"
 PLUGIN="$PLUGIN_APP-$PLUGIN_VSN"
 PLUGIN_TAR="$ROOT_DIR/_build/plugins/$PLUGIN.tar.gz"
 
-LOCAL_API="http://127.0.0.1:38083"
+LOCAL_API_PORT="${LOCAL_API_PORT:-38083}"
+LOCAL_API="http://127.0.0.1:$LOCAL_API_PORT"
 REMOTE_API="http://127.0.0.1:48083"
 
 IFS=: read -r API_KEY API_SECRET < "$SCRIPT_DIR/bootstrap-api-keys.txt"
