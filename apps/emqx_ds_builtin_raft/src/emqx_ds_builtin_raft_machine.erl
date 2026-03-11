@@ -299,7 +299,7 @@ apply(
     },
     {State, ok, []};
 apply(
-    RaftMeta,
+    _RaftMeta,
     #{?tag := update_schema_v1, schema := Schema, latest := NewLatest},
     #{db_shard := DBShard} = State0
 ) ->
@@ -313,8 +313,7 @@ apply(
     ),
     State = #{latest := Latest} = safe_update_latest(NewLatest, State0#{schema := Schema}),
     ok = emqx_ds_storage_layer:ensure_schema(DBShard, Schema, Latest),
-    Effect = release_log(RaftMeta, State),
-    {State, {ok, Latest}, [Effect]};
+    {State, {ok, Latest}, []};
 apply(
     _RaftMeta,
     #{

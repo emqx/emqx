@@ -170,6 +170,25 @@ t_timer(_) ->
     _ = erlang:send(Pid, {timeout, undefined, {reload, <<"error">>}}),
     ok.
 
+t_running_deduplicated_after_successful_reload(_) ->
+    Name = <<"default">>,
+    Pid = erlang:whereis(emqx_exhook_mgr),
+
+    ?assertEqual([Name], emqx_exhook_mgr:running()),
+
+    ok = emqx_exhook_demo_svr:stop(),
+    refresh_tick = erlang:send(Pid, refresh_tick),
+
+    #{status := connecting, timer := Timer} = emqx_exhook_mgr:lookup(Name),
+    ?assertNotEqual(undefined, Timer),
+
+    {ok, _} = emqx_exhook_demo_svr:start(),
+    _ = erlang:send(Pid, {timeout, undefined, {reload, Name}}),
+    timer:sleep(200),
+
+    ?assertMatch(#{status := connected}, emqx_exhook_mgr:lookup(Name)),
+    ?assertEqual([Name], emqx_exhook_mgr:running()).
+
 t_health_check('init', Config) ->
     %% health_check and auto_reconnect logic:
     %% assume auto_reconnect = 7.5s

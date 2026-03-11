@@ -32,8 +32,7 @@
 
 %% Dynamic server location API
 -export([
-    servers/3,
-    shard_info/3
+    servers/3
 ]).
 
 %% Safe Process Command API
@@ -47,7 +46,8 @@
     add_local_server/2,
     drop_local_server/2,
     remove_server/3,
-    forget_server/3
+    forget_server/3,
+    is_quorum_reachable/2
 ]).
 
 -behaviour(gen_server).
@@ -112,7 +112,10 @@ shard_servers(_DB, _Shard, []) ->
 %% in the DB metadata storage, but excluding any servers residing on nodes not
 %% considered to be in the cluster.
 known_shard_servers(DB, Shard) ->
-    [Server || Server <- shard_servers(DB, Shard), is_server_known(Server)].
+    known_shard_servers(shard_servers(DB, Shard)).
+
+known_shard_servers(ShardServers) ->
+    [Server || Server <- ShardServers, is_server_known(Server)].
 
 %% @doc Return a term identifying a server for the shard located on specified site.
 -spec shard_server(
@@ -178,7 +181,7 @@ servers(DB, Shard, _Order = undefined) ->
     get_shard_servers(DB, Shard).
 
 get_servers_leader_only(DB, Shard) ->
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     case ra_leaderboard:lookup_leader(ClusterName) of
         Leader when Leader /= undefined ->
             [Leader];
@@ -187,7 +190,7 @@ get_servers_leader_only(DB, Shard) ->
     end.
 
 get_servers_leader_preferred(DB, Shard) ->
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     case ra_leaderboard:lookup_leader(ClusterName) of
         Leader when Leader /= undefined ->
             Servers = ra_leaderboard:lookup_members(ClusterName),
@@ -197,7 +200,7 @@ get_servers_leader_preferred(DB, Shard) ->
     end.
 
 get_servers_local_preferred(DB, Shard) ->
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     case ra_leaderboard:lookup_members(ClusterName) of
         undefined ->
             Servers = get_online_servers(DB, Shard);
@@ -215,7 +218,7 @@ lookup_leader(DB, Shard) ->
     %% NOTE
     %% Does not block, but the result may be outdated or even unknown when there's
     %% no servers on the local node.
-    ClusterName = get_cluster_name(DB, Shard),
+    ClusterName = cluster_name(DB, Shard),
     ra_leaderboard:lookup_leader(ClusterName).
 
 get_online_servers(DB, Shard) ->
@@ -236,25 +239,11 @@ is_server_online({_Name, Node}) ->
 is_server_known({_Name, Node}) ->
     mria:is_node_in_cluster(Node).
 
-get_cluster_name(DB, Shard) ->
-    memoize(fun cluster_name/2, [DB, Shard]).
-
 get_shard_servers(DB, Shard) ->
     persistent_term:get(?PTERM(DB, Shard, servers), []).
 
 local_site() ->
     emqx_ds_builtin_raft_meta:this_site().
-
-%%
-
-%% @doc Shard information.
-%% * `ready` :: boolean()
-%%    Shard is considered ready when the backend is running, the shard process is up,
-%%    and shard has bootstrapped and caught up with the leader (including when it is
-%%    the leader).
--spec shard_info(emqx_ds:db(), emqx_ds:shard(), _Info) -> _Value.
-shard_info(DB, Shard, ready) ->
-    get_shard_info(DB, Shard, ready, false).
 
 %%
 
@@ -270,19 +259,19 @@ try_servers([Server | Rest], Fun, Args) ->
         {ok, R, Leader} ->
             {ok, R, Leader};
         _Online = false ->
-            ?tp(emqx_ds_replshard_try_next_servers, #{server => Server, reason => offline}),
+            ?tp(dsraft_shard_try_next_servers, #{server => Server, reason => offline}),
             try_servers(Rest, Fun, Args);
         {error, Reason = noproc} ->
-            ?tp(emqx_ds_replshard_try_next_servers, #{server => Server, reason => Reason}),
+            ?tp(dsraft_shard_try_next_servers, #{server => Server, reason => Reason}),
             try_servers(Rest, Fun, Args);
         {error, Reason} when Reason =:= nodedown orelse Reason =:= shutdown ->
             %% NOTE
             %% Conceptually, those error conditions basically mean the same as a plain
             %% timeout: "it's impossible to tell if operation has succeeded or not".
-            ?tp(emqx_ds_replshard_try_servers_timeout, #{server => Server, reason => Reason}),
+            ?tp(dsraft_shard_try_servers_timeout, #{server => Server, reason => Reason}),
             {timeout, Server};
         {timeout, _} = Timeout ->
-            ?tp(emqx_ds_replshard_try_servers_timeout, #{server => Server, reason => timeout}),
+            ?tp(dsraft_shard_try_servers_timeout, #{server => Server, reason => timeout}),
             Timeout;
         {error, Reason} ->
             {error, Server, Reason}
@@ -386,20 +375,15 @@ remove_server(_Server, _ShardServers = []) ->
     ok | emqx_ds:error(_Reason).
 forget_server(DB, Shard, Server) ->
     ShardServers = shard_servers(DB, Shard),
-    KnownShardServers = known_shard_servers(DB, Shard),
-    IsMember = lists:member(Server, ShardServers),
+    KnownShardServers = known_shard_servers(ShardServers),
     IsKnownMember = lists:member(Server, KnownShardServers),
-    IsQuorumReachable = length(KnownShardServers) * 2 > length(ShardServers),
-    case IsMember of
-        true when not IsKnownMember andalso not IsQuorumReachable ->
+    case is_quorum_reachable(ShardServers) of
+        false when not IsKnownMember ->
             force_forget_server(Server, KnownShardServers);
-        true when IsKnownMember ->
+        false when IsKnownMember ->
             {error, unrecoverable, server_known};
-        true when IsQuorumReachable ->
-            {error, unrecoverable, quorum_still_reachable};
-        false ->
-            %% Nothing to do.
-            ok
+        true ->
+            {error, unrecoverable, quorum_still_reachable}
     end.
 
 force_forget_server(Server, ShardServers = [_ | _]) ->
@@ -417,16 +401,12 @@ force_forget_server(Server, ShardServers = [_ | _]) ->
         %% Proceed only if all known servers respond. We can't risk a "down" replica
         %% having higher log index, as it may just refuse votes later.
         [] ->
-            %% Find the highest-term-index server among known servers.
-            {Candidate, _Overview} = lists:foldl(
-                fun(SO = {_, Overview}, SOAcc = {_, OAcc}) ->
-                    case ra_overview_termidx(Overview) > ra_overview_termidx(OAcc) of
-                        true -> SO;
-                        false -> SOAcc
-                    end
-                end,
-                hd(Overviews),
-                tl(Overviews)
+            %% Find the highest-index-term server among known servers.
+            {_, _, Candidate} = lists:last(
+                lists:sort([
+                    {ra_last_written_index_term(O), ra_is_leader(O), S}
+                 || {S, O} <- Overviews
+                ])
             ),
             Timeout = ?MEMBERSHIP_CHANGE_TIMEOUT,
             case ra_server_proc:force_forget_member(Candidate, Server, Timeout) of
@@ -449,6 +429,37 @@ force_forget_server(_Server, []) ->
     %% No active servers to ask to forget it. Shouldn't end up here anyway, this
     %% situation will likely be handled by `add_local_server/3` first.
     ok.
+
+ra_last_written_index_term(Overview) ->
+    %% NOTE
+    %% Using `last_written_index_term` from the log overview that is the last entry
+    %% written to the Raft log. This is critical for `force_forget_server/2` safety:
+    %% after `force_forget_member` appends a cluster change entry and initiates a
+    %% pre-vote election, the candidate must have a log at least as up-to-date as any
+    %% other remaining server's log to win the election.
+    maybe
+        #{log := #{last_written_index_term := LWIT}} ?= Overview,
+        {Idx, Term} ?= LWIT,
+        true = is_integer(Idx),
+        true = is_integer(Term),
+        LWIT
+    else
+        _ ->
+            {-1, -1}
+    end.
+
+ra_is_leader(#{id := Server, leader_id := Server}) ->
+    true;
+ra_is_leader(#{}) ->
+    false.
+
+-spec is_quorum_reachable(emqx_ds:db(), emqx_ds:shard()) -> boolean().
+is_quorum_reachable(DB, Shard) ->
+    is_quorum_reachable(shard_servers(DB, Shard)).
+
+is_quorum_reachable(ShardServers) ->
+    KnownShardServers = known_shard_servers(ShardServers),
+    length(KnownShardServers) * 2 > length(ShardServers).
 
 -spec server_metrics(server()) ->
     #{atom() => integer()} | undefined.
@@ -487,7 +498,9 @@ server_info(readiness, Server) ->
 server_info(leader, Server) ->
     current_leader(Server);
 server_info(uid, Server) ->
-    maps:get(uid, ra_overview(Server), unknown).
+    maps:get(uid, ra_overview(Server), unknown);
+server_info(membership, Server) ->
+    maps:keys(maps:get(cluster, ra_overview(Server), #{})).
 
 member_info(readiness, Server, Leader) ->
     case ra:member_overview(Leader) of
@@ -525,11 +538,6 @@ ra_overview(Server) ->
             #{}
     end.
 
-ra_overview_termidx(Overview) ->
-    Term = maps:get(current_term, Overview, 0),
-    Idx = maps:get(commit_index, Overview, -1),
-    {Term, Idx}.
-
 %%
 
 -record(st, {
@@ -550,10 +558,13 @@ init({DB, Shard, RTConf}) ->
         {_New = false, Server} ->
             NextStage = wait_leader
     end,
+    {Name, _} = Server,
+    MRef = erlang:monitor(process, Name),
     St = #st{
         db = DB,
         shard = Shard,
         server = Server,
+        mref = MRef,
         bootstrapped = false,
         stage = NextStage
     },
@@ -561,13 +572,12 @@ init({DB, Shard, RTConf}) ->
 
 handle_continue(bootstrap, St = #st{bootstrapped = true}) ->
     {noreply, St};
-handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, server = {Name, _}, stage = Stage}) ->
-    ?tp(emqx_ds_replshard_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
+handle_continue(bootstrap, St0 = #st{db = DB, shard = Shard, stage = Stage}) ->
+    ?tp(dsraft_shard_replica_bootstrapping, #{db => DB, shard => Shard, stage => Stage}),
     case bootstrap(St0) of
         St = #st{bootstrapped = true} ->
-            ?tp(emqx_ds_replshard_bootstrapped, #{db => DB, shard => Shard}),
-            MRef = erlang:monitor(process, Name),
-            {noreply, St#st{mref = MRef}};
+            ?tp(dsraft_shard_replica_bootstrapped, #{db => DB, shard => Shard}),
+            {noreply, St};
         St = #st{bootstrapped = false} ->
             {noreply, St, {continue, bootstrap}};
         {retry, Timeout, St} ->
@@ -599,7 +609,7 @@ handle_info(_Info, State) ->
 
 terminate(_Reason, #st{db = DB, shard = Shard}) ->
     %% NOTE: Mark as not ready right away.
-    ok = erase_shard_info(DB, Shard),
+    ok = emqx_ds_builtin_raft:set_replica_ready(DB, Shard, false),
     %% NOTE: Timeouts are ignored, it's a best effort attempt.
     catch prep_stop_server(DB, Shard),
     ok = ra:stop_server(DB, local_server(DB, Shard)).
@@ -610,24 +620,28 @@ bootstrap(St = #st{stage = trigger_election, server = Server}) ->
     ok = trigger_election(Server),
     St#st{stage = wait_leader};
 bootstrap(St = #st{stage = wait_leader, server = Server}) ->
-    case current_leader(Server) of
-        Leader = {_, _} ->
+    case ra:members(Server) of
+        {ok, _Servers, Leader} ->
             St#st{stage = {wait_log, Leader}};
-        unknown ->
-            St
+        {error, _} ->
+            {retry, ?MAX_BOOSTRAP_RETRY_TIMEOUT, St};
+        {timeout, _} ->
+            {retry, 0, St}
     end;
 bootstrap(St = #st{stage = {wait_log, Leader}}) ->
-    case ra_overview(Leader) of
-        #{commit_index := RaftIdx} ->
+    case ra:member_overview(Leader) of
+        {ok, #{commit_index := RaftIdx}, _Leader} ->
             St#st{stage = {wait_log_index, RaftIdx}};
-        #{} ->
-            St#st{stage = wait_leader}
+        {error, _} ->
+            {retry, ?MAX_BOOSTRAP_RETRY_TIMEOUT, St#st{stage = wait_leader}};
+        {timeout, _} ->
+            {retry, 0, St}
     end;
 bootstrap(St = #st{stage = {wait_log_index, RaftIdx}, db = DB, shard = Shard, server = Server}) ->
     Overview = ra_overview(Server),
     case maps:get(last_applied, Overview, 0) of
         LastApplied when LastApplied >= RaftIdx ->
-            ok = announce_shard_ready(DB, Shard),
+            ok = emqx_ds_builtin_raft:set_replica_ready(DB, Shard, true),
             St#st{bootstrapped = true, stage = undefined};
         LastApplied ->
             %% NOTE
@@ -695,6 +709,9 @@ create_start_server(DB, Shard, LocalServer, UID, RTConf) ->
         cluster_name => ClusterName,
         initial_members => Servers,
         machine => Machine,
+        %% TODO
+        %% Uncomment once upgrades from v0 are no longer expected, probably 6.3.0?
+        %% initial_machine_version => emqx_ds_builtin_raft_machine:version(),
         log_init_args => LogOpts#{uid => UID}
     }),
     {_NewServer = true, LocalServer}.
@@ -712,12 +729,9 @@ trigger_election(Server) ->
         %% Tolerating exceptions because server might be occupied with log replay for
         %% a while.
         exit:{timeout, _} ->
-            ?tp(emqx_ds_replshard_trigger_election, #{server => Server, error => timeout}),
+            ?tp(dsraft_shard_trigger_election, #{server => Server, error => timeout}),
             ok
     end.
-
-announce_shard_ready(DB, Shard) ->
-    set_shard_info(DB, Shard, ready, true).
 
 server_uid(DB, Shard) ->
     %% NOTE
@@ -729,22 +743,6 @@ server_uid(DB, Shard) ->
 
 %%
 
-get_shard_info(DB, Shard, K, Default) ->
-    persistent_term:get(?PTERM(DB, Shard, K), Default).
-
-set_shard_info(DB, Shard, K, V) ->
-    persistent_term:put(?PTERM(DB, Shard, K), V).
-
-erase_shard_info(DB, Shard) ->
-    lists:foreach(fun(K) -> erase_shard_info(DB, Shard, K) end, [
-        ready
-    ]).
-
-erase_shard_info(DB, Shard, K) ->
-    persistent_term:erase(?PTERM(DB, Shard, K)).
-
-%%
-
 prep_stop_server(DB, Shard) ->
     prep_stop_server(DB, Shard, 5_000).
 
@@ -752,7 +750,7 @@ prep_stop_server(DB, Shard, Timeout) ->
     LocalServer = local_server(DB, Shard),
     Servers = shard_servers(DB, Shard),
     Candidates = [S || S <- Servers, S =/= LocalServer, is_server_known(S), is_server_online(S)],
-    HasQuorum = length(Candidates) >= (length(Servers) div 2 + 1),
+    HasQuorum = length(Candidates) >= length(Servers) div 2,
     case lookup_leader(DB, Shard) of
         LocalServer when HasQuorum andalso Candidates =/= [] ->
             %% NOTE
@@ -798,17 +796,4 @@ prep_stop_server(DB, Shard, Timeout) ->
         _ ->
             %% Not a leader
             ok
-    end.
-
-%%
-
-memoize(Fun, Args) ->
-    %% NOTE: Assuming that the function is pure and never returns `undefined`.
-    case persistent_term:get([Fun | Args], undefined) of
-        undefined ->
-            Result = erlang:apply(Fun, Args),
-            _ = persistent_term:put([Fun | Args], Result),
-            Result;
-        Result ->
-            Result
     end.

@@ -579,7 +579,9 @@ t_start_ok_no_subject_tags_write_syntax(Config) ->
 
 t_const_timestamp(Config) ->
     QueryMode = ?config(query_mode, Config),
-    Const = erlang:system_time(nanosecond),
+    %% If the time is "too round", there may be some formatting issues later.
+    %% Const = erlang:system_time(nanosecond),
+    Const = 1773078804209825307,
     ConstBin = integer_to_binary(Const),
     TsStr = iolist_to_binary(
         calendar:system_time_to_rfc3339(Const, [{unit, nanosecond}, {offset, 0}])

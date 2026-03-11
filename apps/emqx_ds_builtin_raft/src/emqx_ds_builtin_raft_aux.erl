@@ -72,7 +72,7 @@ handle_aux(ServerState, _, tick, Aux0 = #aux{otx_leader = Otx0}, IntState) ->
     Otx = determine_otx_state(DB, Shard),
     Aux = Aux0#aux{otx_leader = Otx},
     Otx =/= Otx0 andalso
-        ?tp(dsrepl_otx_leader_tick_update, #{
+        ?tp(dsraft_otx_leader_tick_update, #{
             db => DB,
             shard => Shard,
             otx => Otx
@@ -114,7 +114,7 @@ This pid is used ONLY to verify that the transaction context has been
 created during the term of the current leader.
 """.
 set_otx_leader({DB, Shard}, Pid) ->
-    ?tp(info, dsrepl_set_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
+    ?tp(info, dsraft_set_otx_leader, #{db => DB, shard => Shard, pid => Pid}),
     emqx_dsch:gvar_set(DB, Shard, ?gv_sc_replica, ?gv_otx_leader_pid, Pid).
 
 set_ts({DB, Shard}, TS) ->
@@ -167,7 +167,7 @@ manage_otx(DB, Shard, leader, #cast_manage_otx{}, ?stopped) ->
         fun() ->
             Result = ?tp_span(
                 debug,
-                dsrepl_start_otx_leader,
+                dsraft_start_otx_leader,
                 #{db => DB, shard => Shard},
                 emqx_ds_builtin_raft_db_sup:start_otx_leader(DB, Shard)
             ),
@@ -187,7 +187,7 @@ manage_otx(_DB, _Shard, _State, #cast_otx_started{result = {ok, Pid}}, #starting
     ],
     {ok, #running{pid = Pid}, Effects};
 manage_otx(DB, Shard, _State, #cast_otx_started{result = Err}, #starting{}) ->
-    ?tp(warning, dsrepl_optimistic_leader_start_fail, #{
+    ?tp(warning, dsraft_optimistic_leader_start_fail, #{
         db => DB,
         shard => Shard,
         result => Err
@@ -203,7 +203,7 @@ manage_otx(_DB, _Shard, _State, #cast_otx_started{}, Otx = ?stopped) ->
 manage_otx(DB, Shard, State, #cast_manage_otx{}, #running{pid = Pid}) when
     State =/= leader
 ->
-    ?tp(dsrepl_shut_down_otx, #{db => DB, shard => Shard, state => State}),
+    ?tp(dsraft_shut_down_otx, #{db => DB, shard => Shard, state => State}),
     AsyncStopper =
         spawn_link(
             fun() ->
@@ -224,7 +224,7 @@ manage_otx(DB, Shard, leader, {down, Pid, Reason}, #running{pid = Pid}) ->
         end,
     ?tp(
         LogLevel,
-        dsrepl_optimistic_leader_fail,
+        dsraft_optimistic_leader_fail,
         #{
             db => DB,
             shard => Shard,
@@ -246,7 +246,7 @@ manage_otx(DB, Shard, State, #cast_manage_otx{}, Otx) when
 ->
     %% Already in transitional state, ignore the event.
     %% Once transition is complete, extra reconciliation attempt will be made.
-    ?tp(dsrepl_optimistic_leader_manage_skipped, #{
+    ?tp(dsraft_otx_manage_skipped, #{
         db => DB,
         shard => Shard,
         state => State,
