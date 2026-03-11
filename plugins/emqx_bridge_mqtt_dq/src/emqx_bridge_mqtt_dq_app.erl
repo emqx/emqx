@@ -63,11 +63,7 @@ bridge_child_spec(BridgeConfig) ->
 
 start_bridge(BridgeConfig) ->
     ChildSpec = bridge_child_spec(BridgeConfig),
-    case supervisor:start_child(emqx_bridge_mqtt_dq_sup, ChildSpec) of
-        {ok, _Pid} -> ok;
-        {error, {already_started, _Pid}} -> ok;
-        {error, Reason} -> {error, Reason}
-    end.
+    start_child(emqx_bridge_mqtt_dq_sup, ChildSpec).
 
 %% @doc Synchronize running bridges with the current config.
 %% Only restarts bridges whose child spec actually changed.

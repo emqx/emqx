@@ -70,7 +70,6 @@ init({BridgeConfig, Index}) ->
     },
     ConnOpts1 = maybe_add_credentials(ConnOpts, Username, Password),
     ConnOpts2 = maybe_add_ssl(ConnOpts1, Host, SslConf),
-    process_flag(trap_exit, true),
     MaxRetries = maps:get(max_publish_retries, BridgeConfig, ?DEFAULT_MAX_PUBLISH_RETRIES),
     State = #{
         bridge_name => BridgeName,

@@ -43,6 +43,10 @@ parse(RawConfig) when is_map(RawConfig) ->
     Bridges = parse_bridges(RawBridges, Remotes),
     #{bridges => Bridges};
 parse(_) ->
+    ?LOG(error, #{
+        msg => "mqtt_dq_config_is_invalid",
+        explain => "Must be a map of objects"
+    }),
     #{bridges => []}.
 
 parse_remotes(RawMap) when is_map(RawMap) ->
