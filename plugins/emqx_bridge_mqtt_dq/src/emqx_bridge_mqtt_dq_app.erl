@@ -207,7 +207,7 @@ check_queue_dirs([#{name := Name, queue_dir := QueueDir} | Rest]) ->
     end.
 
 check_one_queue_dir(Dir) ->
-    case filelib:ensure_dir(filename:join(Dir, "dummy")) of
+    case filelib:ensure_path(Dir) of
         ok ->
             TestFile = filename:join(Dir, ".write_test"),
             case file:write_file(TestFile, <<>>) of

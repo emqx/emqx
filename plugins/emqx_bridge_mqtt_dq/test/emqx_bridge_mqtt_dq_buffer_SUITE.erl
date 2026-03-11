@@ -93,7 +93,7 @@ t_enqueue_ack(Config) ->
 t_no_flush_without_connector(Config) ->
     QueueDir = ?config(queue_dir, Config),
     BridgeConfig = make_bridge_config(<<"no_conn">>, QueueDir, #{pool_size => 1}),
-    ok = filelib:ensure_dir(binary_to_list(QueueDir) ++ "/0/dummy"),
+    ok = filelib:ensure_path(binary_to_list(QueueDir) ++ "/0"),
     {ok, Buf} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf),
     emqx_bridge_mqtt_dq_buffer:enqueue(Buf, make_item(1), no_ack),
@@ -186,7 +186,7 @@ t_disk_persistence_across_restart(Config) ->
     BridgeConfig = make_bridge_config(BridgeName, QueueDir, #{pool_size => 1}),
 
     %% Phase 1: start buffer without connector, enqueue items
-    ok = filelib:ensure_dir(binary_to_list(QueueDir) ++ "/0/dummy"),
+    ok = filelib:ensure_path(binary_to_list(QueueDir) ++ "/0"),
     {ok, Buf1} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf1),
     enqueue_items_and_wait(Buf1, [make_item(I) || I <- lists:seq(1, 5)]),
@@ -231,7 +231,7 @@ start_buffer_with_fake_conn(Config, BridgeName, Overrides) ->
     PoolSize = maps:get(pool_size, Overrides, 1),
     BridgeConfig = make_bridge_config(BridgeName, QueueDir, Overrides#{pool_size => PoolSize}),
     {ConnSup, _ConnPid} = start_fake_conn_sup(BridgeName, PoolSize),
-    ok = filelib:ensure_dir(binary_to_list(QueueDir) ++ "/0/dummy"),
+    ok = filelib:ensure_path(binary_to_list(QueueDir) ++ "/0"),
     {ok, Buf} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf),
     {Buf, ConnSup}.

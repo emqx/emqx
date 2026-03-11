@@ -72,7 +72,7 @@ init({BridgeConfig, Index}) ->
         max_inflight := MaxInflight
     } = BridgeConfig,
     QueueDir = queue_dir(QueueDirBase, Index),
-    ok = filelib:ensure_dir(filename:join(QueueDir, "dummy")),
+    ok = filelib:ensure_path(QueueDir),
     Q = replayq:open(#{
         dir => QueueDir,
         seg_bytes => SegBytes,
