@@ -42,10 +42,41 @@ PLUGIN="$PLUGIN_APP-$PLUGIN_VSN"
 PLUGIN_TAR="$ROOT_DIR/_build/plugins/$PLUGIN.tar.gz"
 PLUGIN_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/plugins/$PLUGIN"
 PLUGIN_DST_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/plugins"
+CLUSTER_HOCON="$ROOT_DIR/_build/$PROFILE/rel/emqx/data/configs/cluster.hocon"
 BASE_URL="${BASE_URL:-http://127.0.0.1:18083}"
 TLS_CERT_DIR="$ROOT_DIR/_build/$PROFILE/rel/emqx/etc/certs"
+LOGIN_USERNAME="${LOGIN_USERNAME:-smoke_admin}"
+LOGIN_PASSWORD="${LOGIN_PASSWORD:-smoke_pass}"
 
-IFS=: read -r API_KEY API_SECRET < "$SCRIPT_DIR/bootstrap-api-keys.txt"
+login_token() {
+    local res token
+    res="$(curl -sS --fail -H 'content-type: application/json' \
+        -X POST "$BASE_URL/api/v5/login" \
+        -d "{\"username\":\"$LOGIN_USERNAME\",\"password\":\"$LOGIN_PASSWORD\"}")"
+    token="$(printf '%s' "$res" | jq -r '.token // empty')"
+    if [[ -z "$token" ]]; then
+        echo "Failed to obtain login token from /api/v5/login" >&2
+        echo "Response: $res" >&2
+        exit 1
+    fi
+    printf '%s' "$token"
+}
+
+reset_node_state() {
+    local _i
+    echo "[dev-cycle] resetting EMQX node state"
+    "$EMQX_BIN" stop >/dev/null 2>&1 || true
+    rm -f "$CLUSTER_HOCON"
+    "$EMQX_BIN" start
+    for _i in $(seq 1 60); do
+        if "$EMQX_BIN" ctl status >/dev/null 2>&1 && curl -sS "$BASE_URL/api/v5/status" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+    done
+    echo "[dev-cycle] EMQX did not become ready after reset" >&2
+    exit 1
+}
 
 cd "$ROOT_DIR"
 
@@ -68,6 +99,8 @@ if [[ ! -f "$PLUGIN_TAR" ]]; then
     exit 1
 fi
 
+reset_node_state
+
 echo "[dev-cycle] forcing clean reinstall"
 "$EMQX_BIN" ctl plugins stop "$PLUGIN" >/dev/null 2>&1 || true
 "$EMQX_BIN" ctl plugins disable "$PLUGIN" >/dev/null 2>&1 || true
@@ -80,16 +113,16 @@ cp -f "$PLUGIN_TAR" "$PLUGIN_DST_DIR/"
 "$EMQX_BIN" ctl plugins enable "$PLUGIN"
 "$EMQX_BIN" ctl plugins start "$PLUGIN"
 
-## Bootstrap API key so we can use basic auth
-BOOTSTRAP_FILE="$ROOT_DIR/_build/$PROFILE/rel/emqx/bootstrap-api-keys.txt"
-cp "$SCRIPT_DIR/bootstrap-api-keys.txt" "$BOOTSTRAP_FILE"
-export EMQX_API_KEY__BOOTSTRAP_FILE="$BOOTSTRAP_FILE"
+echo "[dev-cycle] ensuring dashboard user for API login"
+"$EMQX_BIN" ctl admins add "$LOGIN_USERNAME" "$LOGIN_PASSWORD" "smoke user" administrator >/dev/null 2>&1 || \
+    "$EMQX_BIN" ctl admins passwd "$LOGIN_USERNAME" "$LOGIN_PASSWORD" >/dev/null
+TOKEN="$(login_token)"
 
 echo "[dev-cycle] configuring self-bridge via REST API"
 # shellcheck disable=SC2016
 HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
     -X PUT "$BASE_URL/api/v5/plugins/$PLUGIN/config" \
-    -u "$API_KEY:$API_SECRET" \
+    -H "Authorization: Bearer $TOKEN" \
     -H 'content-type: application/json' \
     -d '{
   "bridges": {
@@ -102,8 +135,8 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "pool_size": 2,
       "filter_topic": "devices/#",
       "remote_topic": "forwarded/${topic}",
-      "remote_qos": 1,
-      "remote_retain": false,
+      "remote_qos": "${qos}",
+      "remote_retain": "${retain}",
       "queue": {
         "dir": "bridge_mqtt_dq/smoke",
         "seg_bytes": "10MB",
@@ -118,8 +151,7 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "password": "",
       "ssl": {
         "enable": true,
-        "verify": "verify_peer",
-        "sni": "localhost",
+        "verify": "verify_none",
         "cacertfile": "'"$TLS_CERT_DIR"'/cacert.pem"
       }
     }
@@ -134,6 +166,6 @@ echo "[dev-cycle] config updated (HTTP $HTTP_CODE)"
 sleep 2
 
 echo "[dev-cycle] running MQTT smoke"
-./plugins/emqx_bridge_mqtt_dq/smoke/smoke_mqtt.sh
+MQTT_USERNAME="$LOGIN_USERNAME" MQTT_PASSWORD="$LOGIN_PASSWORD" ./plugins/emqx_bridge_mqtt_dq/smoke/smoke_mqtt.sh
 
 echo "[dev-cycle] PASS"
