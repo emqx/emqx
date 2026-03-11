@@ -883,7 +883,15 @@ put_configured(Configured, ConfLocation) ->
     ok = do_put_config_internal(states, bin_key(Configured), ConfLocation).
 
 configured() ->
-    get_config_internal(states, []).
+    lists:map(fun normalize_state_item/1, get_config_internal(states, [])).
+
+normalize_state_item(#{name_vsn := _NameVsn, enable := _Enable} = Item) ->
+    Item;
+normalize_state_item(#{<<"name_vsn">> := NameVsn, <<"enable">> := Enable}) ->
+    #{
+        name_vsn => NameVsn,
+        enable => Enable
+    }.
 
 for_plugins(ActionFun) ->
     for_plugins(configured(), ActionFun).

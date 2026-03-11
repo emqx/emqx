@@ -67,12 +67,12 @@ normalize_enabled_versions_prefers_latest_test() ->
         ])
     ).
 
-running_status_is_per_version_test() ->
+running_status_is_name_based_test() ->
     meck:new(application, [unstick, passthrough]),
     try
         meck:expect(application, loaded_applications, fun() -> [{demo, "Demo", "2.0.0"}] end),
         meck:expect(application, which_applications, fun(infinity) -> [{demo, "Demo", "2.0.0"}] end),
-        ?assertEqual(stopped, emqx_plugins_apps:running_status("demo-1.0.0")),
+        ?assertEqual(running, emqx_plugins_apps:running_status("demo-1.0.0")),
         ?assertEqual(running, emqx_plugins_apps:running_status("demo-2.0.0"))
     after
         meck:unload(application)

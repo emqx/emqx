@@ -151,7 +151,7 @@ check_plugin(PluginInfo, NameVsn) ->
     }}.
 
 configured() ->
-    emqx_conf:get([?CONF_ROOT, states]).
+    lists:map(fun normalize_state_item/1, emqx_conf:get([?CONF_ROOT, states])).
 
 configured_status(NameVsn, Configured) ->
     NameVsnBin = bin(NameVsn),
@@ -200,6 +200,14 @@ latest_name_vsn(NameVsn1, NameVsn2) ->
 plugin_name(NameVsn) ->
     {Name, _Vsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     bin(Name).
+
+normalize_state_item(#{name_vsn := _NameVsn, enable := _Enable} = Item) ->
+    Item;
+normalize_state_item(#{<<"name_vsn">> := NameVsn, <<"enable">> := Enable}) ->
+    #{
+        name_vsn => NameVsn,
+        enable => Enable
+    }.
 
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);

@@ -32,10 +32,10 @@
 
 -spec running_status(name_vsn()) -> running | loaded | stopped.
 running_status(NameVsn) ->
-    {AppName, AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
+    {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(NameVsn),
     RunningApps = running_apps(),
     LoadedApps = loaded_apps(),
-    app_running_status(AppName, AppVsn, RunningApps, LoadedApps).
+    app_running_status(AppName, RunningApps, LoadedApps).
 
 -spec start(emqx_plugins_info:t()) -> ok | {error, term()}.
 start(#{rel_apps := Apps}) ->
@@ -181,30 +181,6 @@ apply_api_callback(NameVsn, {FuncName, Arity}, Args) ->
             {error, not_found}
     end.
 
-app_running_status(AppName, AppVsn, RunningApps, LoadedApps) ->
-    case lists:keyfind(AppName, 1, LoadedApps) of
-        {AppName, LoadedVsn} ->
-            maybe_running_status(AppName, AppVsn, LoadedVsn, RunningApps);
-        _ ->
-            stopped
-    end.
-
-maybe_running_status(AppName, AppVsn, LoadedVsn, RunningApps) ->
-    case bin(LoadedVsn) =:= bin(AppVsn) of
-        false ->
-            stopped;
-        true ->
-            case lists:keyfind(AppName, 1, RunningApps) of
-                {AppName, RunningVsn} ->
-                    case bin(RunningVsn) =:= bin(AppVsn) of
-                        true -> running;
-                        false -> stopped
-                    end;
-                false ->
-                    loaded
-            end
-    end.
-
 load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
         false ->
@@ -215,12 +191,13 @@ load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
                     %% already loaded on the exact version
                     ok;
                 false ->
-                    {error, #{
-                        msg => "conflicting_plugin_version_loaded",
+                    ?SLOG(warning, #{
+                        msg => "plugin_app_already_loaded",
                         name => AppName,
                         loaded_vsn => Vsn,
                         loading_vsn => AppVsn
-                    }}
+                    }),
+                    ok
             end
     end.
 
