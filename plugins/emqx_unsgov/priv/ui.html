@@ -373,18 +373,21 @@
                   <h3>Payload Schemas</h3>
                   <div id="payloadEditor"></div>
                 </div>
+                <div class="block">
+                  <h3>Validate Topic</h3>
+                  <div class="row">
+                    <input id="topicInput" type="text" placeholder="default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl" style="min-width: 360px" />
+                    <button class="btn" id="validateTopicBtn" type="button">Validate</button>
+                    <span class="muted" id="topicResult">No validation run yet</span>
+                  </div>
+                </div>
               </div>
             </section>
 
             <section id="schema-tab-json" class="hidden">
               <textarea id="jsonEditor" class="editor" spellcheck="false"></textarea>
-              <div class="row" style="margin-top: 10px; justify-content: space-between;">
+              <div class="row" style="margin-top: 10px;">
                 <span class="muted" id="dirtyHint">No local changes</span>
-                <div class="row">
-                  <input id="topicInput" type="text" placeholder="default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl" style="min-width: 360px" />
-                  <button class="btn" id="validateTopicBtn" type="button">Validate Topic</button>
-                  <span class="muted" id="topicResult">No validation run yet</span>
-                </div>
               </div>
             </section>
             </section>
