@@ -184,22 +184,23 @@ apply_api_callback(NameVsn, {FuncName, Arity}, Args) ->
 app_running_status(AppName, AppVsn, RunningApps, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
         {AppName, LoadedVsn} ->
-            case bin(LoadedVsn) =:= bin(AppVsn) of
-                true ->
-                    case lists:keyfind(AppName, 1, RunningApps) of
-                        {AppName, RunningVsn} ->
-                            case bin(RunningVsn) =:= bin(AppVsn) of
-                                true -> running;
-                                false -> stopped
-                            end;
-                        false ->
-                            loaded
-                    end;
-                false ->
-                    stopped
-            end;
+            maybe_running_status(AppName, AppVsn, LoadedVsn, RunningApps);
         _ ->
             stopped
+    end.
+
+maybe_running_status(_AppName, AppVsn, LoadedVsn, _RunningApps) when
+    bin(LoadedVsn) =/= bin(AppVsn)
+->
+    stopped;
+maybe_running_status(AppName, AppVsn, _LoadedVsn, RunningApps) ->
+    case lists:keyfind(AppName, 1, RunningApps) of
+        {AppName, RunningVsn} when bin(RunningVsn) =:= bin(AppVsn) ->
+            running;
+        {AppName, _RunningVsn} ->
+            stopped;
+        false ->
+            loaded
     end.
 
 load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
