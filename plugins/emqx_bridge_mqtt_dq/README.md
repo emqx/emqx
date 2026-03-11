@@ -252,9 +252,10 @@ Example:
     "buffered": 12,
     "backlog": 3,
     "inflight": 8,
-    "matched": 1000,
-    "acked": 995,
-    "dropped": 5
+    "enqueue": 1000,
+    "dequeue": 995,
+    "publish": 990,
+    "drop": 5
   },
   "bridges": [
     {
@@ -263,12 +264,13 @@ Example:
       "runtime_state": "running",
       "status": "ok",
       "status_reason": null,
-      "matched": 1000,
-      "acked": 995,
-      "dropped": 5,
-      "dropped_by_reason": {
-        "overflow": 2,
-        "retries_exhausted": 3
+      "enqueue": 1000,
+      "dequeue": 995,
+      "publish": 990,
+      "drop": 5,
+      "retried_by_reason": {
+        "connect_failed": 2,
+        "reason_code": 3
       },
       "buffered": 12,
       "backlog": 3,
@@ -336,11 +338,12 @@ The `/metrics` endpoint returns Prometheus text exposition with cluster-aggregat
 series such as:
 
 - `emqx_bridge_mqtt_dq_uptime_seconds`
-- `emqx_bridge_mqtt_dq_bridge_matched_total{bridge="..."}`
-- `emqx_bridge_mqtt_dq_bridge_acked_total{bridge="..."}`
-- `emqx_bridge_mqtt_dq_bridge_dropped_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_enqueue_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_dequeue_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_publish_total{bridge="..."}`
+- `emqx_bridge_mqtt_dq_bridge_drop_total{bridge="..."}`
 - `emqx_bridge_mqtt_dq_bridge_status{bridge="...",status="..."}`
-- `emqx_bridge_mqtt_dq_bridge_dropped_reason_total{bridge="...",reason="..."}`
+- `emqx_bridge_mqtt_dq_bridge_retry_reason_total{bridge="...",reason="..."}`
 - `emqx_bridge_mqtt_dq_buffer_buffered{bridge="...",index="..."}`
 - `emqx_bridge_mqtt_dq_connector_backlog{bridge="...",index="..."}`
 - `emqx_bridge_mqtt_dq_connector_inflight{bridge="...",index="..."}`
@@ -349,23 +352,26 @@ series such as:
 
 #### Bridge Metrics
 
-- `matched`: number of local messages matched by the bridge filter and accepted into the bridge enqueue path
-- `acked`: number of messages durably acknowledged after `replayq:ack/2`
-- `dropped`: total number of messages dropped by this bridge
-- `dropped_by_reason`: drill-down of `dropped`
+- `enqueue`: number of local messages accepted into the bridge enqueue path
+- `dequeue`: number of messages durably removed from the local queue
+- `publish`: number of messages successfully published to the remote broker
+- `drop`: number of queued messages finalized as dropped
+- `retried_by_reason`: retry attempts broken down by reason
 - `config_state`: desired bridge state from config (`enabled` or `disabled`)
 - `runtime_state`: observed worker/storage state (`running`, `degraded`, or `purged`)
 - `status`: operator-facing bridge health (`ok`, `partial`, `disconnected`, `disabled`, `error`)
 
-Current drop reasons include:
+Current retry reasons include:
 
-- `no_buffer`: buffer worker not ready when a matching message arrived
-- `overflow`: oldest queued messages discarded because the queue partition exceeded `queue.max_total_bytes`
-- `retries_exhausted`: message dropped after repeated connection-loss handling exhausted retries
-- `reason_code`: remote broker returned a non-success MQTT reason code often enough for the message to be dropped
-- `connect_failed`: message drop attributed to connection/publish failure that is not a timeout or MQTT reason code
-- `timeout`: timeout-specific drop classification
-- `other`: fallback bucket for unclassified drop causes
+- `reason_code`: remote broker returned a non-success MQTT reason code and the message was retried
+- `connect_failed`: connect or publish failure triggered a retry
+- `timeout`: timeout-specific retry classification
+- `connection_lost`: linked client process exited and inflight messages were salvaged for retry
+- `other`: fallback bucket for unclassified retry causes
+
+After the bridge drains fully, the counters satisfy:
+
+- `enqueue = dequeue = publish + drop`
 
 #### Buffer Metrics
 

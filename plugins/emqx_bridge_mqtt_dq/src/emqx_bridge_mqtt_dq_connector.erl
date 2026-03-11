@@ -105,6 +105,13 @@ init({BridgeConfig, Index}) ->
         %% entries. Only these items lose a retry credit on disconnect.
         %% SeqNo => {BatchRef, Item, Retries}
         inflight => #{},
+        %% Number of async publishes since last sync barrier.
+        %% When this reaches max_inflight, a sync gen_statem:call is
+        %% made to emqtt to ensure its mailbox is drained, providing
+        %% backpressure (especially important for QoS 0 where emqtt
+        %% fires the ack callback immediately without waiting for
+        %% any broker response).
+        async_since_sync => 0,
         %% Batch completion tracking. Each buffer batch is registered here
         %% when received. Acked back to buffer when pending set is empty.
         %% BatchRef => #{from => pid(), pending => #{ItemSeqNo => []}}
@@ -137,6 +144,7 @@ handle_info({'EXIT', Pid, Reason}, #{client_pid := Pid} = State) ->
         index => Index,
         reason => Reason
     }),
+    ok = incr_retry_reason(State, connection_lost, 1),
     State1 = on_client_exit(State),
     {noreply, schedule_reconnect(State1)};
 handle_info({'EXIT', _Pid, _Reason}, State) ->
@@ -200,14 +208,25 @@ maybe_drain(#{inflight := Inflight, max_inflight := Max} = State) when
     map_size(Inflight) >= Max
 ->
     State;
+maybe_drain(#{async_since_sync := N, max_inflight := Max} = State) when
+    N >= Max
+->
+    %% Sync barrier: block until emqtt has processed all preceding
+    %% async publish messages in its mailbox, preventing unbounded
+    %% mailbox growth (especially for QoS 0).
+    sync_barrier(State),
+    maybe_drain(State#{async_since_sync := 0});
 maybe_drain(#{backlog := Backlog, inflight := Inflight} = State) ->
     case queue:out(Backlog) of
         {empty, _} ->
             update_metrics(State);
         {{value, {SeqNo, BatchRef, Item, Retries}}, Backlog1} ->
             BacklogLen1 = maps:get(backlog_len, State, 0) - 1,
+            N = maps:get(async_since_sync, State, 0),
             State1 = State#{
-                backlog := Backlog1, backlog_len := ensure_non_negative_backlog_len(BacklogLen1)
+                backlog := Backlog1,
+                backlog_len := ensure_non_negative_backlog_len(BacklogLen1),
+                async_since_sync := N + 1
             },
             ok = dispatch_one(SeqNo, Item, State1),
             Inflight1 = Inflight#{SeqNo => {BatchRef, Item, Retries}},
@@ -237,40 +256,48 @@ dispatch_one(SeqNo, Item, State) ->
     Callback = {fun ?MODULE:on_async_publish_ack/3, [self(), SeqNo]},
     ok = emqtt:publish_async(ClientPid, Topic, Props, Payload, PubOpts, infinity, Callback).
 
+%% Make a sync gen_statem:call to emqtt so that all preceding async
+%% messages in its mailbox are processed before we continue dispatching.
+sync_barrier(#{client_pid := ClientPid}) ->
+    try
+        _ = emqtt:info(ClientPid, n_queued),
+        ok
+    catch
+        _:_ -> ok
+    end.
+
 %%--------------------------------------------------------------------
 %% Internal: async ack handling
 %%--------------------------------------------------------------------
 
 handle_async_ack(SeqNo, Result, #{inflight := Inflight} = State) ->
-    case maps:take(SeqNo, Inflight) of
-        {{BatchRef, Item, Retries}, Inflight1} ->
-            State1 = update_metrics(State#{inflight := Inflight1}),
-            State2 = handle_item_result(SeqNo, BatchRef, Item, Retries, Result, State1),
-            maybe_drain(State2);
-        error ->
+    case maps:get(SeqNo, Inflight, undefined) of
+        {BatchRef, Item, Retries} ->
+            State1 = handle_item_result(SeqNo, BatchRef, Item, Retries, Result, State),
+            maybe_drain(State1);
+        undefined ->
             %% Stale ack for an item already salvaged to backlog; ignore.
             State
     end.
 
-handle_item_result(SeqNo, BatchRef, Item, Retries, Result, State) ->
+handle_item_result(SeqNo, BatchRef, _Item, Retries, Result, State) ->
     case should_retry(Result) of
         false ->
-            finish_item(SeqNo, BatchRef, State);
+            #{bridge_name := BridgeName} = State,
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_publish(BridgeName, 1),
+            finish_item(SeqNo, BatchRef, remove_inflight(SeqNo, State));
         true ->
             case should_retry_again(Retries) of
                 true ->
-                    %% Put item back to backlog, then disconnect and reconnect.
-                    %% This gives consistent retry behavior: every retry goes
-                    %% through a fresh connection with clean session state.
-                    State1 = retry_item(SeqNo, BatchRef, Item, decrement_retries(Retries), State),
-                    disconnect_and_reconnect(Result, State1);
+                    %% Keep the item inflight and let on_client_exit/1 salvage it,
+                    %% so retry accounting is centralized in one place.
+                    ok = incr_retry_reason(State, normalize_retry_reason(Result), 1),
+                    disconnect_and_reconnect(Result, State);
                 false ->
                     #{bridge_name := BridgeName} = State,
-                    ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dropped(
-                        BridgeName, normalize_drop_reason(Result), 1
-                    ),
+                    ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_drop(BridgeName, 1),
                     log_drop(State, classify_error(Result)),
-                    finish_item(SeqNo, BatchRef, State)
+                    finish_item(SeqNo, BatchRef, remove_inflight(SeqNo, State))
             end
     end.
 
@@ -293,9 +320,6 @@ should_retry(_) -> true.
 should_retry_again(infinity) -> true;
 should_retry_again(Retries) when is_integer(Retries) -> Retries > 1.
 
-decrement_retries(infinity) -> infinity;
-decrement_retries(Retries) when is_integer(Retries) -> Retries - 1.
-
 %% Item delivered or dropped — remove from batch pending set.
 finish_item(SeqNo, BatchRef, #{batches := Batches} = State) ->
     case maps:find(BatchRef, Batches) of
@@ -307,25 +331,8 @@ finish_item(SeqNo, BatchRef, #{batches := Batches} = State) ->
             State
     end.
 
-%% Put failed item back to backlog head with a fresh SeqNo for retry.
-%% Swap old SeqNo for new one in the batch pending set.
-retry_item(OldSeqNo, BatchRef, Item, Retries, State) ->
-    {NewSeqNo, State1} = next_seqno(State),
-    Entry = {NewSeqNo, BatchRef, Item, Retries},
-    #{backlog := Backlog, backlog_len := BacklogLen, batches := Batches} = State1,
-    State2 = State1#{backlog := queue:in_r(Entry, Backlog), backlog_len := BacklogLen + 1},
-    case maps:find(BatchRef, Batches) of
-        {ok, #{pending := Pending} = Ctx} ->
-            Pending1 = Pending#{NewSeqNo => []},
-            Pending2 = maps:remove(OldSeqNo, Pending1),
-            #{batches := Batches2} = State2,
-            update_metrics(State2#{batches := Batches2#{BatchRef := Ctx#{pending := Pending2}}});
-        error ->
-            update_metrics(State2)
-    end.
-
-next_seqno(#{next_seq := Seq} = State) ->
-    {Seq, State#{next_seq := Seq + 1}}.
+remove_inflight(SeqNo, #{inflight := Inflight} = State) ->
+    update_metrics(State#{inflight := maps:remove(SeqNo, Inflight)}).
 
 %% Batch is complete when pending set is empty (map_size/1 is O(1)).
 check_batch_complete(BatchRef, #{pending := Pending, from := From}, State) when
@@ -399,9 +406,7 @@ on_client_exit(#{inflight := Inflight, backlog := Backlog, batches := Batches} =
             ok;
         _ ->
             #{bridge_name := BridgeName} = State,
-            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dropped(
-                BridgeName, retries_exhausted, DropCount
-            ),
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_drop(BridgeName, DropCount),
             log_drop(State, retries_exhausted, DropCount)
     end,
     %% Check if any batches completed due to dropped items
@@ -452,7 +457,9 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 index => Index
             }),
             ?tp(mqtt_dq_connector_connected, #{bridge => BridgeName, index => Index}),
-            State1 = reset_reconnect_backoff(State#{client_pid := Pid, connected := true}),
+            State1 = reset_reconnect_backoff(State#{
+                client_pid := Pid, connected := true, async_since_sync := 0
+            }),
             State2 = update_metrics(State1),
             maybe_drain(State2);
         {error, Reason} ->
@@ -463,6 +470,7 @@ do_connect(#{conn_opts := ConnOpts, bridge_name := BridgeName, index := Index} =
                 reason => Reason
             }),
             ?tp(mqtt_dq_connector_connect_failed, #{bridge => BridgeName, index => Index}),
+            ok = incr_retry_reason(State, connect_failed, 1),
             State1 = update_metrics(State#{client_pid := undefined, connected := false}),
             schedule_reconnect(State1)
     end.
@@ -527,6 +535,9 @@ maybe_disconnect(undefined) ->
 maybe_disconnect(Pid) when is_pid(Pid) ->
     exit(Pid, kill),
     ok.
+
+incr_retry_reason(#{bridge_name := BridgeName}, Reason, Count) ->
+    emqx_bridge_mqtt_dq_metrics:incr_bridge_retried(BridgeName, Reason, Count).
 
 parse_server(Server) when is_list(Server) ->
     parse_server(list_to_binary(Server));
@@ -596,17 +607,15 @@ clear_metrics(#{bridge_name := BridgeName, index := Index}) ->
     ok = emqx_bridge_mqtt_dq_metrics:set_connector_connected(BridgeName, Index, 0),
     ok = emqx_bridge_mqtt_dq_metrics:set_connector_inflight(BridgeName, Index, 0).
 
-normalize_drop_reason({ok, #{reason_code := _RC}}) ->
+normalize_retry_reason({ok, #{reason_code := _RC}}) ->
     reason_code;
-normalize_drop_reason({error, timeout}) ->
+normalize_retry_reason({error, timeout}) ->
     timeout;
-normalize_drop_reason({error, _Reason}) ->
+normalize_retry_reason({error, _Reason}) ->
     connect_failed;
-normalize_drop_reason(timeout) ->
+normalize_retry_reason(timeout) ->
     timeout;
-normalize_drop_reason(retries_exhausted) ->
-    retries_exhausted;
-normalize_drop_reason(_Other) ->
+normalize_retry_reason(_Other) ->
     other.
 
 bool_to_int(true) ->

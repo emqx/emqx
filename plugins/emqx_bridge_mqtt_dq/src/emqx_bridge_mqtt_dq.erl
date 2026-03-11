@@ -64,11 +64,10 @@ enqueue_to_buffer(BridgeName, Topic, QoS, Bridge, Item) ->
     BufferIndex = erlang:phash2(Topic, BufferPoolSize),
     try emqx_bridge_mqtt_dq_buffer:get_pid(BridgeName, BufferIndex) of
         Pid ->
-            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_matched(BridgeName),
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_enqueue(BridgeName),
             do_enqueue(Pid, Item, QoS, Bridge, BridgeName, BufferIndex)
     catch
         error:badarg ->
-            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dropped(BridgeName, no_buffer, 1),
             ?LOG(error, #{
                 msg => "mqtt_dq_buffer_not_ready",
                 bridge => BridgeName,

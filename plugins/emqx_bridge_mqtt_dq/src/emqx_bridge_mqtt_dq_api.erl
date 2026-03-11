@@ -110,10 +110,11 @@ format_bridge(Bridge, Snapshot) ->
         runtime_state => RuntimeState,
         status => Status,
         status_reason => status_reason(Status, maps:get(cluster, Snapshot, #{})),
-        matched => maps:get(matched, BridgeMetrics, 0),
-        acked => maps:get(acked, BridgeMetrics, 0),
-        dropped => maps:get(dropped, BridgeMetrics, 0),
-        dropped_by_reason => maps:get(dropped_by_reason, BridgeMetrics, #{}),
+        enqueue => maps:get(enqueue, BridgeMetrics, 0),
+        dequeue => maps:get(dequeue, BridgeMetrics, 0),
+        publish => maps:get(publish, BridgeMetrics, 0),
+        drop => maps:get(drop, BridgeMetrics, 0),
+        retried_by_reason => maps:get(retried_by_reason, BridgeMetrics, #{}),
         buffered => Buffered,
         backlog => Backlog,
         inflight => Inflight,
@@ -235,9 +236,10 @@ summary(Bridges) ->
         buffered => lists:sum([maps:get(buffered, B, 0) || B <- Bridges]),
         backlog => lists:sum([maps:get(backlog, B, 0) || B <- Bridges]),
         inflight => lists:sum([maps:get(inflight, B, 0) || B <- Bridges]),
-        matched => lists:sum([maps:get(matched, B, 0) || B <- Bridges]),
-        acked => lists:sum([maps:get(acked, B, 0) || B <- Bridges]),
-        dropped => lists:sum([maps:get(dropped, B, 0) || B <- Bridges])
+        enqueue => lists:sum([maps:get(enqueue, B, 0) || B <- Bridges]),
+        dequeue => lists:sum([maps:get(dequeue, B, 0) || B <- Bridges]),
+        publish => lists:sum([maps:get(publish, B, 0) || B <- Bridges]),
+        drop => lists:sum([maps:get(drop, B, 0) || B <- Bridges])
     }.
 
 status_payload(Stats) ->
@@ -292,30 +294,39 @@ prometheus_metrics(Stats) ->
             maps:get(uptime_seconds, Stats, 0)
         ),
         format_help_and_type(
-            <<"emqx_bridge_mqtt_dq_bridge_matched_total">>,
-            <<"Messages matched by bridge filter (cluster-aggregated).">>,
+            <<"emqx_bridge_mqtt_dq_bridge_enqueue_total">>,
+            <<"Messages accepted into the bridge enqueue path (cluster-aggregated).">>,
             <<"counter">>
         ),
         [
-            format_bridge_counter(<<"emqx_bridge_mqtt_dq_bridge_matched_total">>, matched, Bridge)
+            format_bridge_counter(<<"emqx_bridge_mqtt_dq_bridge_enqueue_total">>, enqueue, Bridge)
          || Bridge <- Bridges
         ],
         format_help_and_type(
-            <<"emqx_bridge_mqtt_dq_bridge_acked_total">>,
-            <<"Messages durably acknowledged by bridge (cluster-aggregated).">>,
+            <<"emqx_bridge_mqtt_dq_bridge_dequeue_total">>,
+            <<"Messages durably removed from the local queue (cluster-aggregated).">>,
             <<"counter">>
         ),
         [
-            format_bridge_counter(<<"emqx_bridge_mqtt_dq_bridge_acked_total">>, acked, Bridge)
+            format_bridge_counter(<<"emqx_bridge_mqtt_dq_bridge_dequeue_total">>, dequeue, Bridge)
          || Bridge <- Bridges
         ],
         format_help_and_type(
-            <<"emqx_bridge_mqtt_dq_bridge_dropped_total">>,
-            <<"Messages dropped by bridge (cluster-aggregated).">>,
+            <<"emqx_bridge_mqtt_dq_bridge_publish_total">>,
+            <<"Messages published by bridge to the remote broker (cluster-aggregated).">>,
             <<"counter">>
         ),
         [
-            format_bridge_counter(<<"emqx_bridge_mqtt_dq_bridge_dropped_total">>, dropped, Bridge)
+            format_bridge_counter(<<"emqx_bridge_mqtt_dq_bridge_publish_total">>, publish, Bridge)
+         || Bridge <- Bridges
+        ],
+        format_help_and_type(
+            <<"emqx_bridge_mqtt_dq_bridge_drop_total">>,
+            <<"Messages dropped after entering the local queue (cluster-aggregated).">>,
+            <<"counter">>
+        ),
+        [
+            format_bridge_counter(<<"emqx_bridge_mqtt_dq_bridge_drop_total">>, drop, Bridge)
          || Bridge <- Bridges
         ],
         format_help_and_type(
@@ -325,11 +336,11 @@ prometheus_metrics(Stats) ->
         ),
         [format_bridge_status(Bridge) || Bridge <- Bridges],
         format_help_and_type(
-            <<"emqx_bridge_mqtt_dq_bridge_dropped_reason_total">>,
-            <<"Messages dropped by bridge broken down by reason (cluster-aggregated).">>,
+            <<"emqx_bridge_mqtt_dq_bridge_retry_reason_total">>,
+            <<"Retry attempts by bridge broken down by reason (cluster-aggregated).">>,
             <<"counter">>
         ),
-        [format_bridge_drop_reasons(Bridge) || Bridge <- Bridges],
+        [format_bridge_retry_reasons(Bridge) || Bridge <- Bridges],
         format_help_and_type(
             <<"emqx_bridge_mqtt_dq_buffer_buffered">>,
             <<"Buffered messages per queue partition (cluster-aggregated).">>,
@@ -379,20 +390,20 @@ format_bridge_status(Bridge) ->
         1
     ).
 
-format_bridge_drop_reasons(Bridge) ->
+format_bridge_retry_reasons(Bridge) ->
     maps:fold(
         fun(Reason, Count, Acc) ->
             [
                 Acc,
                 format_metric_with_labels(
-                    <<"emqx_bridge_mqtt_dq_bridge_dropped_reason_total">>,
+                    <<"emqx_bridge_mqtt_dq_bridge_retry_reason_total">>,
                     [{<<"bridge">>, maps:get(name, Bridge)}, {<<"reason">>, Reason}],
                     Count
                 )
             ]
         end,
         [],
-        maps:get(dropped_by_reason, Bridge, #{})
+        maps:get(retried_by_reason, Bridge, #{})
     ).
 
 format_buffer_metrics(Bridge) ->

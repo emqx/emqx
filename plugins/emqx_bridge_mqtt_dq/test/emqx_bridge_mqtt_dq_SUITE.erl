@@ -164,7 +164,7 @@ t_preserve_qos_and_retain(Config) ->
     _ = wait_until_snapshot(
         fun(S) ->
             case bridge_metrics(S, <<"preserve">>) of
-                #{acked := N} when N >= 3 -> true;
+                #{dequeue := N} when N >= 3 -> true;
                 _ -> false
             end
         end,
@@ -602,16 +602,18 @@ t_metrics_and_api(Config) ->
     Snapshot = wait_until_snapshot(
         fun(S) ->
             case bridge_metrics(S, <<"metrics">>) of
-                #{matched := 1, acked := 1} -> true;
+                #{enqueue := 1, dequeue := 1, publish := 1, drop := 0} -> true;
                 _ -> false
             end
         end,
         5000
     ),
-    ?assertEqual(1, maps:get(matched, bridge_metrics(Snapshot, <<"metrics">>))),
-    ?assertEqual(1, maps:get(acked, bridge_metrics(Snapshot, <<"metrics">>))),
-    ?assertEqual(0, maps:get(dropped, bridge_metrics(Snapshot, <<"metrics">>))),
-    ?assertEqual(#{}, maps:get(dropped_by_reason, bridge_metrics(Snapshot, <<"metrics">>), #{})),
+    ?assertEqual(1, maps:get(enqueue, bridge_metrics(Snapshot, <<"metrics">>))),
+    ?assertEqual(1, maps:get(dequeue, bridge_metrics(Snapshot, <<"metrics">>))),
+    ?assertEqual(1, maps:get(publish, bridge_metrics(Snapshot, <<"metrics">>))),
+    ?assertEqual(0, maps:get(drop, bridge_metrics(Snapshot, <<"metrics">>))),
+    ?assertEqual(#{}, maps:get(retried_by_reason, bridge_metrics(Snapshot, <<"metrics">>), #{})),
+    assert_bridge_balance(bridge_metrics(Snapshot, <<"metrics">>)),
 
     {ok, 200, StatsHeaders, Body} = emqx_bridge_mqtt_dq_app:on_handle_api_call(
         get, [<<"stats">>], #{}, #{}
@@ -623,7 +625,7 @@ t_metrics_and_api(Config) ->
     ?assertMatch(
         #{
             cluster := #{complete := true},
-            summary := #{bridge_count := 1, matched := 1, acked := 1, dropped := 0},
+            summary := #{bridge_count := 1, enqueue := 1, dequeue := 1, publish := 1, drop := 0},
             bridges := [_]
         },
         Body
@@ -634,10 +636,11 @@ t_metrics_and_api(Config) ->
             config_state := enabled,
             runtime_state := running,
             status := ok,
-            matched := 1,
-            acked := 1,
-            dropped := 0,
-            dropped_by_reason := #{}
+            enqueue := 1,
+            dequeue := 1,
+            publish := 1,
+            drop := 0,
+            retried_by_reason := #{}
         },
         find_bridge_metric(Body, <<"metrics">>)
     ),
@@ -647,7 +650,14 @@ t_metrics_and_api(Config) ->
     ?assertMatch(
         #{
             cluster := #{complete := true},
-            bridge := #{name := <<"metrics">>, status := ok, matched := 1, acked := 1}
+            bridge := #{
+                name := <<"metrics">>,
+                status := ok,
+                enqueue := 1,
+                dequeue := 1,
+                publish := 1,
+                drop := 0
+            }
         },
         BridgeBody
     ),
@@ -666,7 +676,7 @@ t_metrics_and_api(Config) ->
         maps:get(<<"content-type">>, Headers)
     ),
     ?assertNotEqual(
-        nomatch, binary:match(MetricsBody, <<"emqx_bridge_mqtt_dq_bridge_matched_total">>)
+        nomatch, binary:match(MetricsBody, <<"emqx_bridge_mqtt_dq_bridge_enqueue_total">>)
     ),
     ?assertNotEqual(nomatch, binary:match(MetricsBody, <<"emqx_bridge_mqtt_dq_bridge_status">>)),
     ?assertNotEqual(nomatch, binary:match(MetricsBody, <<"bridge=\"metrics\"">>)),
@@ -683,7 +693,7 @@ t_metrics_and_api(Config) ->
     exit(BridgeSup, shutdown),
     ok.
 
--doc "Missing buffer workers are counted as dropped messages.".
+-doc "Missing buffer workers are not counted in queue lifecycle counters.".
 t_dropped_when_buffer_not_ready(Config) ->
     Port = ?config(mqtt_port, Config),
     Bridge = make_bridge_config(<<"drop_no_buffer">>, Port, #{
@@ -700,17 +710,17 @@ t_dropped_when_buffer_not_ready(Config) ->
     Snapshot = wait_until_snapshot(
         fun(S) ->
             case bridge_metrics(S, <<"drop_no_buffer">>) of
-                #{dropped := 1, dropped_by_reason := #{<<"no_buffer">> := 1}} -> true;
-                _ -> false
+                #{enqueue := 0, dequeue := 0, publish := 0, drop := 0, retried_by_reason := #{}} ->
+                    true;
+                _ ->
+                    false
             end
         end,
         5000
     ),
-    ?assertEqual(1, maps:get(dropped, bridge_metrics(Snapshot, <<"drop_no_buffer">>))),
-    ?assertEqual(
-        #{<<"no_buffer">> => 1},
-        maps:get(dropped_by_reason, bridge_metrics(Snapshot, <<"drop_no_buffer">>))
-    ),
+    ?assertEqual(0, maps:get(drop, bridge_metrics(Snapshot, <<"drop_no_buffer">>))),
+    ?assertEqual(#{}, maps:get(retried_by_reason, bridge_metrics(Snapshot, <<"drop_no_buffer">>))),
+    assert_bridge_balance(bridge_metrics(Snapshot, <<"drop_no_buffer">>)),
 
     ok = emqtt:disconnect(Pub),
     ok.
@@ -1142,8 +1152,12 @@ stop_bridge_sup(Pid) ->
 bridge_metrics(Snapshot, BridgeName) ->
     Bridges = maps:get(bridges, Snapshot, #{}),
     maps:get(BridgeName, Bridges, #{
-        matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}
+        enqueue => 0, dequeue => 0, publish => 0, drop => 0, retried_by_reason => #{}
     }).
+
+assert_bridge_balance(#{enqueue := Enqueue, dequeue := Dequeue, publish := Publish, drop := Drop}) ->
+    ?assertEqual(Enqueue, Dequeue),
+    ?assertEqual(Dequeue, Publish + Drop).
 
 find_by_topic(Messages, Topic) ->
     case [M || #{topic := T} = M <- Messages, T =:= Topic] of

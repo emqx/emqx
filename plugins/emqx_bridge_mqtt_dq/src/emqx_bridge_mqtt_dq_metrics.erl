@@ -13,9 +13,11 @@
 -export([
     start_link/0,
     reset/0,
-    incr_bridge_matched/1,
-    incr_bridge_acked/2,
-    incr_bridge_dropped/3,
+    incr_bridge_enqueue/1,
+    incr_bridge_dequeue/2,
+    incr_bridge_publish/2,
+    incr_bridge_drop/2,
+    incr_bridge_retried/3,
     set_buffered/3,
     set_buffered_bytes/3,
     set_connector_backlog/3,
@@ -33,21 +35,28 @@ start_link() ->
 reset() ->
     gen_server:call(?MODULE, reset).
 
-incr_bridge_matched(BridgeName) ->
-    safe_ets(fun() -> incr_counter({bridge, BridgeName, matched}, 1) end).
+incr_bridge_enqueue(BridgeName) ->
+    safe_ets(fun() -> incr_counter({bridge, BridgeName, enqueue}, 1) end).
 
-incr_bridge_acked(BridgeName, Count) when is_integer(Count), Count > 0 ->
-    safe_ets(fun() -> incr_counter({bridge, BridgeName, acked}, Count) end);
-incr_bridge_acked(_BridgeName, _Count) ->
+incr_bridge_dequeue(BridgeName, Count) when is_integer(Count), Count > 0 ->
+    safe_ets(fun() -> incr_counter({bridge, BridgeName, dequeue}, Count) end);
+incr_bridge_dequeue(_BridgeName, _Count) ->
     ok.
 
-incr_bridge_dropped(BridgeName, Reason, Count) when is_integer(Count), Count > 0 ->
-    DropKey = drop_metric_key(Reason),
-    safe_ets(fun() ->
-        incr_counter({bridge, BridgeName, dropped}, Count),
-        incr_counter({bridge, BridgeName, DropKey}, Count)
-    end);
-incr_bridge_dropped(_BridgeName, _Reason, _Count) ->
+incr_bridge_publish(BridgeName, Count) when is_integer(Count), Count > 0 ->
+    safe_ets(fun() -> incr_counter({bridge, BridgeName, publish}, Count) end);
+incr_bridge_publish(_BridgeName, _Count) ->
+    ok.
+
+incr_bridge_drop(BridgeName, Count) when is_integer(Count), Count > 0 ->
+    safe_ets(fun() -> incr_counter({bridge, BridgeName, drop}, Count) end);
+incr_bridge_drop(_BridgeName, _Count) ->
+    ok.
+
+incr_bridge_retried(BridgeName, Reason, Count) when is_integer(Count), Count > 0 ->
+    RetryKey = retry_metric_key(Reason),
+    safe_ets(fun() -> incr_counter({bridge, BridgeName, RetryKey}, Count) end);
+incr_bridge_retried(_BridgeName, _Reason, _Count) ->
     ok.
 
 set_buffered(BridgeName, Index, Value) ->
@@ -146,36 +155,30 @@ local_snapshot() ->
         uptime_seconds => erlang:max(0, (now_millisecond() - StartedAtMs) div 1000)
     }.
 
-fold_row({{bridge, BridgeName, matched}, Value}, #{bridges := Bridges} = Acc) ->
-    BridgeMetrics0 = maps:get(
-        BridgeName, Bridges, #{matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}}
-    ),
-    BridgeMetrics1 = BridgeMetrics0#{matched => Value},
+fold_row({{bridge, BridgeName, enqueue}, Value}, #{bridges := Bridges} = Acc) ->
+    BridgeMetrics0 = maps:get(BridgeName, Bridges, zero_bridge_metrics()),
+    BridgeMetrics1 = BridgeMetrics0#{enqueue => Value},
     Acc#{bridges := Bridges#{BridgeName => BridgeMetrics1}};
-fold_row({{bridge, BridgeName, acked}, Value}, #{bridges := Bridges} = Acc) ->
-    BridgeMetrics0 = maps:get(
-        BridgeName, Bridges, #{matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}}
-    ),
-    BridgeMetrics1 = BridgeMetrics0#{acked => Value},
+fold_row({{bridge, BridgeName, dequeue}, Value}, #{bridges := Bridges} = Acc) ->
+    BridgeMetrics0 = maps:get(BridgeName, Bridges, zero_bridge_metrics()),
+    BridgeMetrics1 = BridgeMetrics0#{dequeue => Value},
     Acc#{bridges := Bridges#{BridgeName => BridgeMetrics1}};
-fold_row({{bridge, BridgeName, dropped}, Value}, #{bridges := Bridges} = Acc) ->
-    BridgeMetrics0 = maps:get(
-        BridgeName, Bridges, #{matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}}
-    ),
-    BridgeMetrics1 = BridgeMetrics0#{dropped => Value},
+fold_row({{bridge, BridgeName, publish}, Value}, #{bridges := Bridges} = Acc) ->
+    BridgeMetrics0 = maps:get(BridgeName, Bridges, zero_bridge_metrics()),
+    BridgeMetrics1 = BridgeMetrics0#{publish => Value},
     Acc#{bridges := Bridges#{BridgeName => BridgeMetrics1}};
-fold_row({{bridge, BridgeName, DropKey}, Value}, #{bridges := Bridges} = Acc) ->
-    case is_drop_detail_key(DropKey) of
+fold_row({{bridge, BridgeName, drop}, Value}, #{bridges := Bridges} = Acc) ->
+    BridgeMetrics0 = maps:get(BridgeName, Bridges, zero_bridge_metrics()),
+    BridgeMetrics1 = BridgeMetrics0#{drop => Value},
+    Acc#{bridges := Bridges#{BridgeName => BridgeMetrics1}};
+fold_row({{bridge, BridgeName, RetryKey}, Value}, #{bridges := Bridges} = Acc) ->
+    case is_retry_detail_key(RetryKey) of
         true ->
-            BridgeMetrics0 = maps:get(
-                BridgeName,
-                Bridges,
-                #{matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}}
-            ),
-            DropReason = drop_reason_name(DropKey),
-            DroppedByReason0 = maps:get(dropped_by_reason, BridgeMetrics0, #{}),
+            BridgeMetrics0 = maps:get(BridgeName, Bridges, zero_bridge_metrics()),
+            RetryReason = retry_reason_name(RetryKey),
+            RetriedByReason0 = maps:get(retried_by_reason, BridgeMetrics0, #{}),
             BridgeMetrics1 = BridgeMetrics0#{
-                dropped_by_reason => DroppedByReason0#{DropReason => Value}
+                retried_by_reason => RetriedByReason0#{RetryReason => Value}
             },
             Acc#{bridges := Bridges#{BridgeName => BridgeMetrics1}};
         false ->
@@ -326,19 +329,16 @@ merge_snapshot(Stats, Acc) ->
 merge_bridges(Left, Right) ->
     maps:fold(
         fun(BridgeName, StatsR, Acc0) ->
-            StatsL = maps:get(
-                BridgeName,
-                Acc0,
-                #{matched => 0, acked => 0, dropped => 0, dropped_by_reason => #{}}
-            ),
+            StatsL = maps:get(BridgeName, Acc0, zero_bridge_metrics()),
             Acc0#{
                 BridgeName => #{
-                    matched => maps:get(matched, StatsL, 0) + maps:get(matched, StatsR, 0),
-                    acked => maps:get(acked, StatsL, 0) + maps:get(acked, StatsR, 0),
-                    dropped => maps:get(dropped, StatsL, 0) + maps:get(dropped, StatsR, 0),
-                    dropped_by_reason => merge_drop_details(
-                        maps:get(dropped_by_reason, StatsL, #{}),
-                        maps:get(dropped_by_reason, StatsR, #{})
+                    enqueue => maps:get(enqueue, StatsL, 0) + maps:get(enqueue, StatsR, 0),
+                    dequeue => maps:get(dequeue, StatsL, 0) + maps:get(dequeue, StatsR, 0),
+                    publish => maps:get(publish, StatsL, 0) + maps:get(publish, StatsR, 0),
+                    drop => maps:get(drop, StatsL, 0) + maps:get(drop, StatsR, 0),
+                    retried_by_reason => merge_detail_counters(
+                        maps:get(retried_by_reason, StatsL, #{}),
+                        maps:get(retried_by_reason, StatsR, #{})
                     )
                 }
             }
@@ -347,7 +347,7 @@ merge_bridges(Left, Right) ->
         Right
     ).
 
-merge_drop_details(Left, Right) ->
+merge_detail_counters(Left, Right) ->
     maps:fold(
         fun(Reason, CountR, Acc0) ->
             Acc0#{Reason => maps:get(Reason, Acc0, 0) + CountR}
@@ -472,25 +472,25 @@ sync_connector_metrics({_, Pid, _, _}) when is_pid(Pid) ->
 sync_connector_metrics(_) ->
     ok.
 
-drop_metric_key(no_buffer) -> 'dropped.no_buffer';
-drop_metric_key(overflow) -> 'dropped.overflow';
-drop_metric_key(retries_exhausted) -> 'dropped.retries_exhausted';
-drop_metric_key(reason_code) -> 'dropped.reason_code';
-drop_metric_key(timeout) -> 'dropped.timeout';
-drop_metric_key(connect_failed) -> 'dropped.connect_failed';
-drop_metric_key(dropped) -> dropped;
-drop_metric_key(_Other) -> 'dropped.other'.
+retry_metric_key(reason_code) -> 'retried.reason_code';
+retry_metric_key(timeout) -> 'retried.timeout';
+retry_metric_key(connect_failed) -> 'retried.connect_failed';
+retry_metric_key(connection_lost) -> 'retried.connection_lost';
+retry_metric_key(_Other) -> 'retried.other'.
 
-is_drop_detail_key(DropKey) when is_atom(DropKey) ->
-    lists:prefix("dropped.", atom_to_list(DropKey));
-is_drop_detail_key(_DropKey) ->
+is_retry_detail_key(RetryKey) when is_atom(RetryKey) ->
+    lists:prefix("retried.", atom_to_list(RetryKey));
+is_retry_detail_key(_RetryKey) ->
     false.
 
-drop_reason_name(DropKey) ->
-    Prefix = "dropped.",
-    DropKeyList = atom_to_list(DropKey),
-    Reason = lists:nthtail(length(Prefix), DropKeyList),
+retry_reason_name(RetryKey) ->
+    Prefix = "retried.",
+    RetryKeyList = atom_to_list(RetryKey),
+    Reason = lists:nthtail(length(Prefix), RetryKeyList),
     list_to_binary(Reason).
+
+zero_bridge_metrics() ->
+    #{enqueue => 0, dequeue => 0, publish => 0, drop => 0, retried_by_reason => #{}}.
 
 node_to_bin(Node) when is_atom(Node) ->
     atom_to_binary(Node, utf8);

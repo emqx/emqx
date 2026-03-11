@@ -246,7 +246,7 @@ handle_batch_ack(Ref, ok, #{inflight := Inflight, queue := Q} = State) ->
         {value, {_, AckRef, Items}, Rest} ->
             ok = replayq:ack(Q, AckRef),
             #{bridge_name := BridgeName} = State,
-            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_acked(BridgeName, length(Items)),
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dequeue(BridgeName, length(Items)),
             maybe_flush(update_metrics(State#{inflight := Rest}));
         false ->
             State
@@ -286,9 +286,8 @@ handle_overflow(Q, #{bridge_name := BridgeName, index := Index}) ->
             {Q1, QAckRef, Dropped} =
                 replayq:pop(Q, #{bytes_limit => Overflow, count_limit => 999999999}),
             ok = replayq:ack(Q1, QAckRef),
-            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dropped(
-                BridgeName, overflow, length(Dropped)
-            ),
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_dequeue(BridgeName, length(Dropped)),
+            ok = emqx_bridge_mqtt_dq_metrics:incr_bridge_drop(BridgeName, length(Dropped)),
             maybe_log_discard(BridgeName, Index, length(Dropped)),
             Q1
     end.

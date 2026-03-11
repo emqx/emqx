@@ -389,19 +389,19 @@
               <div class="meta">Maximum node uptime in the aggregated cluster view</div>
             </div>
             <div class="metric">
-              <div class="label">Matched</div>
-              <div class="value" id="matchedValue">0</div>
+              <div class="label">Enqueue</div>
+              <div class="value" id="enqueueValue">0</div>
               <div class="meta">Messages accepted into bridge enqueue paths</div>
             </div>
             <div class="metric">
-              <div class="label">Acked</div>
-              <div class="value" id="ackedValue">0</div>
-              <div class="meta">Messages durably acknowledged after delivery</div>
+              <div class="label">Dequeue</div>
+              <div class="value" id="dequeueValue">0</div>
+              <div class="meta">Messages durably removed from the local queue</div>
             </div>
             <div class="metric warn">
-              <div class="label">Dropped</div>
-              <div class="value" id="droppedValue">0</div>
-              <div class="meta">Bridge-level drops across all reasons</div>
+              <div class="label">Drop</div>
+              <div class="value" id="dropValue">0</div>
+              <div class="meta">Queued messages finalized as dropped</div>
             </div>
           </section>
 
@@ -416,19 +416,19 @@
               <div class="bd">
                 <div class="stats-grid">
                   <div class="mini">
-                    <span class="k">Matched</span>
+                    <span class="k">Enqueue</span>
                     <span class="v" id="detailMatched">0</span>
                   </div>
                   <div class="mini">
-                    <span class="k">Acked</span>
+                    <span class="k">Dequeue</span>
                     <span class="v" id="detailAcked">0</span>
                   </div>
                   <div class="mini">
-                    <span class="k">Dropped</span>
+                    <span class="k">Drop</span>
                     <span class="v" id="detailDropped">0</span>
                   </div>
                   <div class="mini">
-                    <span class="k">Ack Ratio</span>
+                    <span class="k">Completion</span>
                     <span class="v" id="detailAckRate">0%</span>
                   </div>
                 </div>
@@ -438,8 +438,8 @@
             <section class="card">
               <div class="hd">
                 <div>
-                  <h3>Drop Reasons</h3>
-                  <p>Current drop drill-down for the selected scope.</p>
+                  <h3>Retry Reasons</h3>
+                  <p>Current retry drill-down for the selected scope.</p>
                 </div>
               </div>
               <div class="bd">
@@ -485,9 +485,9 @@
         scopePill: document.getElementById("scopePill"),
         updatedPill: document.getElementById("updatedPill"),
         uptimeValue: document.getElementById("uptimeValue"),
-        matchedValue: document.getElementById("matchedValue"),
-        ackedValue: document.getElementById("ackedValue"),
-        droppedValue: document.getElementById("droppedValue"),
+        enqueueValue: document.getElementById("enqueueValue"),
+        dequeueValue: document.getElementById("dequeueValue"),
+        dropValue: document.getElementById("dropValue"),
         detailTitle: document.getElementById("detailTitle"),
         detailSubtitle: document.getElementById("detailSubtitle"),
         detailMatched: document.getElementById("detailMatched"),
@@ -527,10 +527,10 @@
         return rows.reduce((acc, row) => acc + Number(row[key] || 0), 0);
       }
 
-      function aggregateDroppedReasons(bridges) {
+      function aggregateRetryReasons(bridges) {
         return bridges.reduce((acc, bridge) => {
-          const reasons = bridge && typeof bridge.dropped_by_reason === "object"
-            ? bridge.dropped_by_reason
+          const reasons = bridge && typeof bridge.retried_by_reason === "object"
+            ? bridge.retried_by_reason
             : {};
           Object.entries(reasons).forEach(([reason, dropped]) => {
             acc[String(reason || "unknown")] = (acc[String(reason || "unknown")] || 0) + Number(dropped || 0);
@@ -569,7 +569,7 @@
             <div class="bridge-item${active}" data-bridge-name="${bridge.name}">
               <div class="name">${bridge.name}</div>
               <div class="meta">
-                ${bridge.status} | buffered ${formatInt(bridge.buffered)} | dropped ${formatInt(bridge.dropped)}
+                ${bridge.status} | buffered ${formatInt(bridge.buffered)} | drop ${formatInt(bridge.drop)}
               </div>
             </div>
           `;
@@ -583,15 +583,15 @@
       }
 
       function renderReasons(bridges) {
-        const reasons = Object.entries(aggregateDroppedReasons(bridges)).sort((a, b) => b[1] - a[1]);
+        const reasons = Object.entries(aggregateRetryReasons(bridges)).sort((a, b) => b[1] - a[1]);
         if (!reasons.length) {
-          els.reasonList.innerHTML = '<div class="empty">No dropped messages recorded.</div>';
+          els.reasonList.innerHTML = '<div class="empty">No retry reasons recorded.</div>';
           return;
         }
-        els.reasonList.innerHTML = reasons.map(([reason, dropped]) => `
+        els.reasonList.innerHTML = reasons.map(([reason, count]) => `
           <div class="reason-item">
             <span class="name">${reason}</span>
-            <span>${formatInt(dropped)}</span>
+            <span>${formatInt(count)}</span>
           </div>
         `).join("");
       }
@@ -622,10 +622,10 @@
         }
 
         const scope = currentScope();
-        const matched = sum(scope.bridges, "matched");
-        const acked = sum(scope.bridges, "acked");
-        const dropped = sum(scope.bridges, "dropped");
-        const ackRate = matched > 0 ? Math.round((acked / matched) * 100) : 0;
+        const enqueue = sum(scope.bridges, "enqueue");
+        const dequeue = sum(scope.bridges, "dequeue");
+        const drop = sum(scope.bridges, "drop");
+        const ackRate = enqueue > 0 ? Math.round((dequeue / enqueue) * 100) : 0;
         const cluster = state.stats.cluster || {};
 
         renderBridgeSelector(bridges);
@@ -633,18 +633,18 @@
 
         els.scopePill.textContent = "scope: " + scope.label;
         els.uptimeValue.textContent = formatUptime(state.stats.uptime_seconds || 0);
-        els.matchedValue.textContent = formatInt(matched);
-        els.ackedValue.textContent = formatInt(acked);
-        els.droppedValue.textContent = formatInt(dropped);
+        els.enqueueValue.textContent = formatInt(enqueue);
+        els.dequeueValue.textContent = formatInt(dequeue);
+        els.dropValue.textContent = formatInt(drop);
         els.detailTitle.textContent = state.selectedBridge
           ? "Bridge Detail: " + state.selectedBridge
           : "Bridge Detail: All Bridges";
         els.detailSubtitle.textContent = state.selectedBridge
-          ? "Current counters and drop reasons for the selected bridge."
-          : "Aggregated counters and drop reasons across the cluster view.";
-        els.detailMatched.textContent = formatInt(matched);
-        els.detailAcked.textContent = formatInt(acked);
-        els.detailDropped.textContent = formatInt(dropped);
+          ? "Current counters and retry reasons for the selected bridge."
+          : "Aggregated counters and retry reasons across the cluster view.";
+        els.detailMatched.textContent = formatInt(enqueue);
+        els.detailAcked.textContent = formatInt(dequeue);
+        els.detailDropped.textContent = formatInt(drop);
         els.detailAckRate.textContent = ackRate + "%";
 
         renderTable(
