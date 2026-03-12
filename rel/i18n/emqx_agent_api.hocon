@@ -26,6 +26,11 @@ emqx_agent_api {
         label: "Get Skill"
     }
 
+    skill_put {
+        desc: "Replace a skill instance. The type and ID are taken from the URL; the body must contain a complete skill definition of the same type."
+        label: "Update Skill"
+    }
+
     skill_delete {
         desc: "Unregister a skill instance. For kv.lookup or kv.put, both variants are removed together."
         label: "Delete Skill"

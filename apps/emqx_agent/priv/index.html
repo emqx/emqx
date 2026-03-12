@@ -62,17 +62,14 @@
   nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
 
   /* summary bar */
-  #summary {
-    display: flex; gap: 16px; padding: 12px 24px;
-    background: var(--bg); border-bottom: 1px solid var(--border);
+  nav .cnt {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 1px 6px; border-radius: 8px;
+    background: var(--tag-bg); color: var(--muted);
+    margin-left: 5px; vertical-align: middle;
+    border: 1px solid var(--border);
   }
-  .stat {
-    display: flex; align-items: baseline; gap: 6px;
-    padding: 6px 14px; background: var(--surface);
-    border: 1px solid var(--border); border-radius: var(--radius);
-  }
-  .stat .num  { font-size: 20px; font-weight: 700; color: var(--accent); }
-  .stat .label { font-size: 11px; color: var(--muted); }
+  nav button.active .cnt { background: var(--accent); color: #000; border-color: var(--accent); }
 
   /* main pane */
   main { flex: 1; padding: 24px; max-width: 960px; }
@@ -221,18 +218,11 @@
     <button class="btn primary" onclick="connect()">Connect</button>
   </div>
 
-  <!-- ── Summary ── -->
-  <div id="summary">
-    <div class="stat"><span class="num" id="cnt-skills">—</span><span class="label">skills</span></div>
-    <div class="stat"><span class="num" id="cnt-profiles">—</span><span class="label">profiles</span></div>
-    <div class="stat"><span class="num" id="cnt-pipelines">—</span><span class="label">pipelines</span></div>
-  </div>
-
   <!-- ── Tab nav ── -->
   <nav>
-    <button class="active" onclick="showTab('skills',this)">Skills</button>
-    <button onclick="showTab('profiles',this)">Session Profiles</button>
-    <button onclick="showTab('pipelines',this)">Pipelines</button>
+    <button class="active" onclick="showTab('skills',this)">Skills<span class="cnt" id="cnt-skills">—</span></button>
+    <button onclick="showTab('profiles',this)">Session Profiles<span class="cnt" id="cnt-profiles">—</span></button>
+    <button onclick="showTab('pipelines',this)">Pipelines<span class="cnt" id="cnt-pipelines">—</span></button>
   </nav>
 
   <!-- ── Main content ── -->
@@ -247,7 +237,10 @@
       </table>
 
       <div class="card">
-        <h3>New Skill</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="skill-card-title">New Skill</h3>
+          <button id="skill-cancel-btn" class="btn sm" style="display:none" onclick="resetSkillEditor()">✕ Cancel edit</button>
+        </div>
         <div class="row">
           <div class="field">
             <label>Type</label>
@@ -340,7 +333,7 @@
         </div>
 
         <div class="form-actions">
-          <button class="btn primary" onclick="createSkill()">Create</button>
+          <button class="btn primary" id="skill-submit-btn" onclick="saveSkill()">Create</button>
           <span id="skill-msg" class="msg"></span>
         </div>
       </div>
@@ -355,7 +348,10 @@
       </table>
 
       <div class="card">
-        <h3>New Session Profile</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="prof-card-title">New Session Profile</h3>
+          <button id="prof-cancel-btn" class="btn sm" style="display:none" onclick="resetProfileEditor()">✕ Cancel edit</button>
+        </div>
         <div class="row">
           <div class="field">
             <label>Name</label>
@@ -381,7 +377,7 @@
           <textarea id="prof-instructions" style="min-height:90px" placeholder="You are an HVAC operations AI…"></textarea>
         </div>
         <div class="form-actions">
-          <button class="btn primary" onclick="createProfile()">Create</button>
+          <button class="btn primary" id="prof-submit-btn" onclick="saveProfile()">Create</button>
           <span id="prof-msg" class="msg"></span>
         </div>
       </div>
@@ -441,6 +437,8 @@ let loadedProfiles    = [];
 let loadedPipelines   = [];
 let pipelineSteps     = [];
 let editingPipelineId = null;  // null → create mode, string → edit mode
+let editingSkillKey   = null;  // null → create, {type,id} → edit
+let editingProfileName = null; // null → create, string → edit
 
 // ── Dashboard token ──────────────────────────────────────────────────────────
 // The dashboard stores user info encrypted in localStorage using the same
@@ -553,42 +551,112 @@ async function loadSkills() {
       <td><code>${esc(s.skill_id)}</code></td>
       <td><span class="tag ${typeClass(s.type)}">${esc(s.type)}</span></td>
       <td style="color:var(--muted)">${esc(s.description ?? '')}</td>
-      <td><button class="btn sm danger" onclick="deleteSkill('${esc(s.type)}','${esc(s.skill_id)}')">delete</button></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn sm" onclick="editSkill('${esc(s.type)}','${esc(s.skill_id)}')">edit</button>
+        <button class="btn sm danger" onclick="deleteSkill('${esc(s.type)}','${esc(s.skill_id)}')">delete</button>
+      </td>
     </tr>`).join('');
 }
 
-async function createSkill() {
+function collectSkillBody() {
   const type = document.getElementById('skill-type').value;
   const id   = document.getElementById('skill-id').value.trim();
   const desc = document.getElementById('skill-desc').value.trim();
-  if (!id) return setMsg('skill-msg', 'ID is required', true);
-
   let body = { type, id, desc };
+  if (type === 'message.publish') {
+    body.topic_prefix = document.getElementById('skill-prefix').value.trim();
+  } else if (type === 'http') {
+    body.method        = document.getElementById('skill-method').value;
+    body.url           = document.getElementById('skill-url').value.trim();
+    body.input_schema  = JSON.parse(document.getElementById('skill-input-schema').value || '{}');
+    body.output_schema = JSON.parse(document.getElementById('skill-output-schema').value || '{}');
+  } else if (type === 'kv') {
+    body.data_schema = JSON.parse(document.getElementById('skill-data-schema').value || '{}');
+    body.allow_put   = document.getElementById('skill-allow-put').value === 'true';
+  } else if (type === 'clickhouse.history') {
+    body.query         = document.getElementById('skill-query').value.trim();
+    body.input_schema  = JSON.parse(document.getElementById('skill-ch-input').value || '{}');
+    body.output_schema = JSON.parse(document.getElementById('skill-ch-output').value || '{}');
+  }
+  return body;
+}
+
+async function saveSkill() {
+  const body = collectSkillBody();
+  if (!body.id) return setMsg('skill-msg', 'ID is required', true);
   try {
-    if (type === 'message.publish') {
-      const prefix = document.getElementById('skill-prefix').value.trim();
-      if (!prefix) return setMsg('skill-msg', 'topic_prefix is required', true);
-      body.topic_prefix = prefix;
-    } else if (type === 'http') {
-      body.method        = document.getElementById('skill-method').value;
-      body.url           = document.getElementById('skill-url').value.trim();
-      body.input_schema  = JSON.parse(document.getElementById('skill-input-schema').value || '{}');
-      body.output_schema = JSON.parse(document.getElementById('skill-output-schema').value || '{}');
-    } else if (type === 'kv') {
-      body.data_schema = JSON.parse(document.getElementById('skill-data-schema').value || '{}');
-      body.allow_put   = document.getElementById('skill-allow-put').value === 'true';
-    } else if (type === 'clickhouse.history') {
-      body.query         = document.getElementById('skill-query').value.trim();
-      body.input_schema  = JSON.parse(document.getElementById('skill-ch-input').value || '{}');
-      body.output_schema = JSON.parse(document.getElementById('skill-ch-output').value || '{}');
+    if (editingSkillKey) {
+      await api('PUT', `/agent/skills/${encodeURIComponent(editingSkillKey.type)}/${encodeURIComponent(editingSkillKey.id)}`, body);
+      setMsg('skill-msg', 'Updated ✓');
+      toast('Skill "' + body.id + '" updated', 'ok');
+      resetSkillEditor();
+    } else {
+      await api('POST', '/agent/skills', body);
+      setMsg('skill-msg', 'Created ✓');
+      toast('Skill "' + body.id + '" created', 'ok');
     }
-    await api('POST', '/agent/skills', body);
-    setMsg('skill-msg', 'Created ✓');
-    toast('Skill "' + id + '" created', 'ok');
     await loadSkills();
   } catch(e) {
     setMsg('skill-msg', e.message, true);
   }
+}
+
+function editSkill(type, id) {
+  const skill = loadedSkills.find(s => s.type === type && s.skill_id === id);
+  if (!skill) return;
+
+  editingSkillKey = { type, id };
+  document.getElementById('skill-card-title').textContent = 'Edit Skill — ' + id;
+  document.getElementById('skill-cancel-btn').style.display = '';
+  document.getElementById('skill-submit-btn').textContent = 'Update';
+
+  document.getElementById('skill-type').value = skill.type;
+  document.getElementById('skill-type').disabled = true;
+  document.getElementById('skill-id').value = skill.skill_id;
+  document.getElementById('skill-id').readOnly = true;
+  document.getElementById('skill-desc').value = skill.description ?? '';
+  updateSkillForm();
+
+  if (type === 'http') {
+    document.getElementById('skill-method').value = skill.method ?? 'post';
+    document.getElementById('skill-url').value = skill.url ?? '';
+    document.getElementById('skill-input-schema').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
+    document.getElementById('skill-output-schema').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
+  } else if (type === 'message.publish') {
+    document.getElementById('skill-prefix').value = skill.topic_prefix ?? '';
+  } else if (type === 'kv') {
+    document.getElementById('skill-data-schema').value = skill.data_schema ? JSON.stringify(skill.data_schema, null, 2) : '';
+    document.getElementById('skill-allow-put').value = skill.allow_put ? 'true' : 'false';
+  } else if (type === 'clickhouse.history') {
+    document.getElementById('skill-query').value = skill.query ?? '';
+    document.getElementById('skill-ch-input').value = skill.input_schema ? JSON.stringify(skill.input_schema, null, 2) : '';
+    document.getElementById('skill-ch-output').value = skill.output_schema ? JSON.stringify(skill.output_schema, null, 2) : '';
+  }
+
+  document.querySelector('#tab-skills .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetSkillEditor() {
+  editingSkillKey = null;
+  document.getElementById('skill-card-title').textContent = 'New Skill';
+  document.getElementById('skill-cancel-btn').style.display = 'none';
+  document.getElementById('skill-submit-btn').textContent = 'Create';
+  document.getElementById('skill-type').disabled = false;
+  document.getElementById('skill-id').readOnly = false;
+  document.getElementById('skill-type').value = 'message.publish';
+  document.getElementById('skill-id').value = '';
+  document.getElementById('skill-desc').value = '';
+  document.getElementById('skill-prefix').value = '';
+  document.getElementById('skill-method').value = 'post';
+  document.getElementById('skill-url').value = '';
+  document.getElementById('skill-input-schema').value = '';
+  document.getElementById('skill-output-schema').value = '';
+  document.getElementById('skill-data-schema').value = '';
+  document.getElementById('skill-query').value = '';
+  document.getElementById('skill-ch-input').value = '';
+  document.getElementById('skill-ch-output').value = '';
+  updateSkillForm();
+  setMsg('skill-msg', '');
 }
 
 async function deleteSkill(type, id) {
@@ -618,11 +686,14 @@ async function loadProfiles() {
       <td><code>${esc(p.name)}</code></td>
       <td><span class="tag llm">${esc(p.model ?? '—')}</span></td>
       <td style="color:var(--muted)">${esc(p.base_url ?? '')}</td>
-      <td><button class="btn sm danger" onclick="deleteProfile('${esc(p.name)}')">delete</button></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn sm" onclick="editProfile('${esc(p.name)}')">edit</button>
+        <button class="btn sm danger" onclick="deleteProfile('${esc(p.name)}')">delete</button>
+      </td>
     </tr>`).join('');
 }
 
-async function createProfile() {
+async function saveProfile() {
   const name  = document.getElementById('prof-name').value.trim();
   const model = document.getElementById('prof-model').value.trim();
   const url   = document.getElementById('prof-url').value.trim();
@@ -631,15 +702,57 @@ async function createProfile() {
 
   if (!name) return setMsg('prof-msg', 'Name is required', true);
   try {
-    await api('POST', '/agent/session_profiles', {
-      name, model, base_url: url, api_key: key, instructions: instr
-    });
-    setMsg('prof-msg', 'Created ✓');
-    toast('Profile "' + name + '" created', 'ok');
+    if (editingProfileName) {
+      await api('PUT', `/agent/session_profiles/${encodeURIComponent(editingProfileName)}`, {
+        name, model, base_url: url, api_key: key, instructions: instr
+      });
+      setMsg('prof-msg', 'Updated ✓');
+      toast('Profile "' + name + '" updated', 'ok');
+      resetProfileEditor();
+    } else {
+      await api('POST', '/agent/session_profiles', {
+        name, model, base_url: url, api_key: key, instructions: instr
+      });
+      setMsg('prof-msg', 'Created ✓');
+      toast('Profile "' + name + '" created', 'ok');
+    }
     await loadProfiles();
   } catch(e) {
     setMsg('prof-msg', e.message, true);
   }
+}
+
+function editProfile(name) {
+  const prof = loadedProfiles.find(p => p.name === name);
+  if (!prof) return;
+
+  editingProfileName = name;
+  document.getElementById('prof-card-title').textContent = 'Edit Profile — ' + name;
+  document.getElementById('prof-cancel-btn').style.display = '';
+  document.getElementById('prof-submit-btn').textContent = 'Update';
+
+  document.getElementById('prof-name').value = prof.name ?? '';
+  document.getElementById('prof-name').readOnly = true;
+  document.getElementById('prof-model').value = prof.model ?? '';
+  document.getElementById('prof-url').value = prof.base_url ?? '';
+  document.getElementById('prof-key').value = '';  // never round-trip secrets
+  document.getElementById('prof-instructions').value = prof.instructions ?? '';
+
+  document.querySelector('#tab-profiles .card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetProfileEditor() {
+  editingProfileName = null;
+  document.getElementById('prof-card-title').textContent = 'New Session Profile';
+  document.getElementById('prof-cancel-btn').style.display = 'none';
+  document.getElementById('prof-submit-btn').textContent = 'Create';
+  document.getElementById('prof-name').readOnly = false;
+  document.getElementById('prof-name').value = '';
+  document.getElementById('prof-model').value = '';
+  document.getElementById('prof-url').value = '';
+  document.getElementById('prof-key').value = '';
+  document.getElementById('prof-instructions').value = '';
+  setMsg('prof-msg', '');
 }
 
 async function deleteProfile(name) {
@@ -860,9 +973,10 @@ function stepFieldsHTML(step, idx) {
     <input type="text" class="sf-id" value="${esc(step.id)}" placeholder="step_1"></div>`;
 
   if (step.type === 'call_skill') {
-    const skillOpts = loadedSkills.map(s =>
-      `<option value="${esc(s.skill_id)}"${s.skill_id===step.skill?' selected':''}>${esc(s.skill_id)} (${esc(s.type)})</option>`
-    ).join('');
+    const skillOpts = loadedSkills.map(s => {
+      const ref = s.type + '@' + s.skill_id;
+      return `<option value="${esc(ref)}"${ref===step.skill?' selected':''}>${esc(s.skill_id)} (${esc(s.type)})</option>`;
+    }).join('');
     return idF + `
       <div class="field"><label>Skill</label>
         <select class="sf-skill">
@@ -883,9 +997,12 @@ function stepFieldsHTML(step, idx) {
       `<option value="${esc(p.name)}"${p.name===step.session_profile?' selected':''}>${esc(p.name)}</option>`
     ).join('');
     const toolsHTML = loadedSkills.length
-      ? loadedSkills.map(s => `<label>
-          <input type="checkbox" value="${esc(s.skill_id)}"${(step.tools||[]).includes(s.skill_id)?' checked':''}>
-          ${esc(s.skill_id)}</label>`).join('')
+      ? loadedSkills.map(s => {
+          const ref = s.type + '@' + s.skill_id;
+          return `<label>
+            <input type="checkbox" value="${esc(ref)}"${(step.tools||[]).includes(ref)?' checked':''}>
+            ${esc(s.skill_id)} <small style="color:var(--muted)">${esc(s.type)}</small></label>`;
+        }).join('')
       : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
     return idF + `
       <div class="field"><label>Session profile</label>
@@ -896,7 +1013,7 @@ function stepFieldsHTML(step, idx) {
       <div class="field"><label>Tools (select skills available to the LLM)</label>
         <div class="tools-grid sf-tools">${toolsHTML}</div>
       </div>
-      <div class="field"><label>Input <small style="color:var(--muted)">key → $.context.path</small></label>
+      <div class="field"><label>Input <small style="color:var(--muted)">key → $.path (e.g. $.event, $.history)</small></label>
         <div class="kv-list sf-input">${(step.input||[]).map(([k,v])=>kvRow(k,v)).join('')}</div>
         <button class="btn sm" style="margin-top:4px" onclick="addKV(${idx},'sf-input')">+ input</button>
       </div>

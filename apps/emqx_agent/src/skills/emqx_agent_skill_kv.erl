@@ -32,7 +32,7 @@
 -define(TYPE_PUT, <<"kv.put">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
--export([init/0, deinit/0, create/1, destroy/1]).
+-export([init/0, deinit/0, create/1, destroy_lookup/1, destroy_put/1, to_map/1, from_map/1]).
 
 %% Hook callback — must be exported
 -export([on_message_publish/1]).
@@ -53,23 +53,66 @@ deinit() ->
     catch ets:delete(?TAB),
     ok.
 
-%% Context keys:
-%%   skill_id    => binary()  — base identifier
+%% Context keys (kv.lookup):
+%%   skill_id    => binary()  — unique identifier
 %%   desc        => binary()  — human-readable description of the stored objects
 %%   data_schema => map()     — full JSON Schema for the stored value
-%%   allow_put   => boolean() — whether to register the put skill
--spec create(Context :: map()) -> ok.
-create(#{skill_id := SkillId, desc := Desc, data_schema := DataSchema, allow_put := AllowPut}) ->
-    ok = register_lookup(SkillId, Desc, DataSchema),
-    case AllowPut of
-        true -> register_put(SkillId, Desc, DataSchema);
-        false -> ok
+%%
+%% Context keys (kv.put):
+%%   skill_id    => binary()
+%%   desc        => binary()
+%%   data_schema => map()
+-spec create(map()) -> ok.
+create(#{type := lookup, skill_id := SkillId, desc := Desc, data_schema := DataSchema}) ->
+    register_lookup(SkillId, Desc, DataSchema);
+create(#{type := put, skill_id := SkillId, desc := Desc, data_schema := DataSchema}) ->
+    register_put(SkillId, Desc, DataSchema).
+
+-spec from_map(map()) -> {ok, map()} | {error, {missing_field, binary()}}.
+from_map(#{
+    <<"type">> := <<"kv.lookup">>,
+    <<"id">> := Id,
+    <<"desc">> := Desc,
+    <<"data_schema">> := DataSchema
+}) ->
+    {ok, #{type => lookup, skill_id => Id, desc => Desc, data_schema => DataSchema}};
+from_map(#{
+    <<"type">> := <<"kv.put">>, <<"id">> := Id, <<"desc">> := Desc, <<"data_schema">> := DataSchema
+}) ->
+    {ok, #{type => put, skill_id => Id, desc => Desc, data_schema => DataSchema}};
+from_map(#{<<"type">> := <<"kv.lookup">>} = Body) ->
+    {error, {missing_field, first_missing(Body, [<<"id">>, <<"desc">>, <<"data_schema">>])}};
+from_map(#{<<"type">> := <<"kv.put">>} = Body) ->
+    {error, {missing_field, first_missing(Body, [<<"id">>, <<"desc">>, <<"data_schema">>])}}.
+
+first_missing(Map, Fields) ->
+    case [F || F <- Fields, not maps:is_key(F, Map)] of
+        [F | _] -> F;
+        [] -> unknown
     end.
 
-%% Unregisters lookup and put instances; deletes all ETS entries for this skill_id.
--spec destroy(binary()) -> ok.
-destroy(SkillId) ->
-    emqx_agent_skill_registry:unregister(?TYPE_LOOKUP, SkillId),
+-spec to_map(map()) -> map().
+to_map(#{skill_id := Id, type := ?TYPE_LOOKUP, context := Ctx}) ->
+    #{
+        <<"skill_id">> => Id,
+        <<"type">> => ?TYPE_LOOKUP,
+        <<"description">> => maps:get(desc, Ctx, <<>>),
+        <<"data_schema">> => maps:get(data_schema, Ctx, #{})
+    };
+to_map(#{skill_id := Id, type := ?TYPE_PUT, context := Ctx}) ->
+    #{
+        <<"skill_id">> => Id,
+        <<"type">> => ?TYPE_PUT,
+        <<"description">> => maps:get(desc, Ctx, <<>>),
+        <<"data_schema">> => maps:get(data_schema, Ctx, #{})
+    }.
+
+-spec destroy_lookup(binary()) -> ok.
+destroy_lookup(SkillId) ->
+    emqx_agent_skill_registry:unregister(?TYPE_LOOKUP, SkillId).
+
+-spec destroy_put(binary()) -> ok.
+destroy_put(SkillId) ->
     emqx_agent_skill_registry:unregister(?TYPE_PUT, SkillId),
     ets:match_delete(?TAB, {{SkillId, '_'}, '_'}),
     ok.
@@ -101,7 +144,7 @@ register_lookup(SkillId, Desc, DataSchema) ->
         type => ?TYPE_LOOKUP,
         display_name => <<Desc/binary, " — Lookup">>,
         description => <<"Look up an entry by key.">>,
-        context => #{skill_id => SkillId},
+        context => #{skill_id => SkillId, desc => Desc, data_schema => DataSchema},
         input_schema => #{
             <<"type">> => <<"object">>,
             <<"properties">> => #{<<"key">> => #{<<"type">> => <<"string">>}},
@@ -110,7 +153,9 @@ register_lookup(SkillId, Desc, DataSchema) ->
         output_schema => #{
             <<"type">> => <<"object">>,
             <<"properties">> => #{
-                <<"status">> => #{<<"type">> => <<"string">>, <<"enum">> => [<<"ok">>, <<"not_found">>]},
+                <<"status">> => #{
+                    <<"type">> => <<"string">>, <<"enum">> => [<<"ok">>, <<"not_found">>]
+                },
                 <<"data">> => DataSchema
             },
             <<"required">> => [<<"status">>]
@@ -123,7 +168,7 @@ register_put(SkillId, Desc, DataSchema) ->
         type => ?TYPE_PUT,
         display_name => <<Desc/binary, " — Put">>,
         description => <<"Store an entry by key.">>,
-        context => #{skill_id => SkillId},
+        context => #{skill_id => SkillId, desc => Desc, data_schema => DataSchema},
         input_schema => #{
             <<"type">> => <<"object">>,
             <<"properties">> => #{

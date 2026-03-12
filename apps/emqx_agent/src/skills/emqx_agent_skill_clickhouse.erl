@@ -25,7 +25,7 @@
 -define(SKILL_TYPE, <<"clickhouse.history">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
--export([init/0, deinit/0, create/1, destroy/1]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, from_map/1]).
 
 %% Hook callback — must be exported
 -export([on_message_publish/1]).
@@ -70,6 +70,48 @@ create(
 destroy(SkillId) ->
     emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
 
+-spec from_map(map()) -> {ok, map()} | {error, {missing_field, binary()}}.
+from_map(#{
+    <<"id">> := Id,
+    <<"desc">> := Desc,
+    <<"query">> := Query,
+    <<"input_schema">> := InputSchema,
+    <<"output_schema">> := OutputSchema
+}) ->
+    {ok, #{
+        skill_id => Id,
+        desc => Desc,
+        query => Query,
+        input_schema => InputSchema,
+        output_schema => OutputSchema
+    }};
+from_map(Body) ->
+    Required = [<<"id">>, <<"desc">>, <<"query">>, <<"input_schema">>, <<"output_schema">>],
+    {error, {missing_field, first_missing(Body, Required)}}.
+
+first_missing(Map, Fields) ->
+    case [F || F <- Fields, not maps:is_key(F, Map)] of
+        [F | _] -> F;
+        [] -> unknown
+    end.
+
+-spec to_map(map()) -> map().
+to_map(#{
+    skill_id := Id,
+    description := Desc,
+    context := Ctx,
+    input_schema := InSchema,
+    output_schema := OutSchema
+}) ->
+    #{
+        <<"skill_id">> => Id,
+        <<"type">> => ?SKILL_TYPE,
+        <<"description">> => Desc,
+        <<"query">> => maps:get(query, Ctx, <<>>),
+        <<"input_schema">> => InSchema,
+        <<"output_schema">> => OutSchema
+    }.
+
 %%--------------------------------------------------------------------
 %% Hook callbacks
 %%--------------------------------------------------------------------
@@ -108,23 +150,24 @@ do_reply(SkillId, Request) ->
     ok.
 
 %% Returns a fake response matching output_schema.
-%% args in Request are ignored until a real ClickHouse backend is wired.
+%% Timestamps are relative to now so the stub data looks current.
+%% Real args (device_id, metric, window_min, etc.) are ignored until a
+%% ClickHouse backend is wired up.
 fake_answer(_Request) ->
+    Now = erlang:system_time(second),
+    Row = fun(OffsetSec, Avg, Min, Max, Cnt) ->
+        T = calendar:system_time_to_rfc3339(Now - OffsetSec, [{unit, second}, {offset, "Z"}]),
+        #{
+            <<"t">> => list_to_binary(T),
+            <<"avg">> => Avg,
+            <<"min">> => Min,
+            <<"max">> => Max,
+            <<"cnt">> => Cnt
+        }
+    end,
     #{
         <<"rows">> => [
-            #{
-                <<"t">> => <<"2026-03-06T10:00:00Z">>,
-                <<"avg">> => 42.1,
-                <<"min">> => 40.0,
-                <<"max">> => 44.0,
-                <<"cnt">> => 12
-            },
-            #{
-                <<"t">> => <<"2026-03-06T10:05:00Z">>,
-                <<"avg">> => 43.5,
-                <<"min">> => 41.0,
-                <<"max">> => 46.0,
-                <<"cnt">> => 8
-            }
+            Row(300, 42.1, 40.0, 44.0, 12),
+            Row(0, 43.5, 41.0, 46.0, 8)
         ]
     }.

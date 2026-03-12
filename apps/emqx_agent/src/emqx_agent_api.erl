@@ -127,6 +127,25 @@ schema("/agent/skills/:type/:id") ->
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC(skill_not_found))
             }
         },
+        put => #{
+            tags => ?TAGS,
+            description => ?DESC(skill_put),
+            parameters => [skill_type_param(), skill_id_param()],
+            'requestBody' => emqx_dashboard_swagger:schema_with_example(
+                emqx_agent_schema:skill_create_type(),
+                skill_create_example()
+            ),
+            responses => #{
+                200 => emqx_dashboard_swagger:schema_with_example(
+                    emqx_agent_schema:skill_entry_type(),
+                    skill_entry_example()
+                ),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['BAD_REQUEST'], ?DESC(skill_bad_request)
+                ),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC(skill_not_found))
+            }
+        },
         delete => #{
             tags => ?TAGS,
             description => ?DESC(skill_delete),
@@ -332,14 +351,22 @@ schema("/agent/pipelines/:id") ->
         {error, not_found} ->
             ?NOT_FOUND(<<"Skill not found">>)
     end;
+'/agent/skills/:type/:id'(put, #{bindings := #{type := Type, id := Id}, body := Body}) ->
+    %% Force the id from the URL into the body so the registry key stays consistent.
+    Body2 = Body#{<<"id">> => Id},
+    case do_create_skill(Body2) of
+        ok ->
+            {ok, Skill} = emqx_agent_skill_registry:lookup(Type, Id),
+            ?OK(skill_to_map(Skill));
+        {error, {missing_field, Field}} ->
+            ?BAD_REQUEST(<<"Missing required field: ", Field/binary>>);
+        {error, Reason} ->
+            ?BAD_REQUEST(iolist_to_binary(io_lib:format("~p", [Reason])))
+    end;
 '/agent/skills/:type/:id'(delete, #{bindings := #{type := Type, id := Id}}) ->
-    ModType = module_type(Type),
-    case find_skill_for_delete(ModType, Type, Id) of
-        not_found ->
-            ?NOT_FOUND(<<"Skill not found">>);
-        found ->
-            ok = do_destroy_skill(ModType, Id),
-            ?NO_CONTENT
+    case find_and_destroy_skill(Type, Id) of
+        not_found -> ?NOT_FOUND(<<"Skill not found">>);
+        found -> ?NO_CONTENT
     end.
 
 %%--------------------------------------------------------------------
@@ -423,162 +450,64 @@ schema("/agent/pipelines/:id") ->
 %% Internal — Skill creation dispatch
 %%--------------------------------------------------------------------
 
-do_create_skill(#{
-    <<"type">> := <<"message.publish">>,
-    <<"id">> := Id,
-    <<"desc">> := Desc,
-    <<"topic_prefix">> := TopicPrefix
-}) ->
-    emqx_agent_skill_publish:create(#{
-        skill_id => Id,
-        desc => Desc,
-        topic_prefix => TopicPrefix
-    });
-do_create_skill(#{<<"type">> := <<"message.publish">>} = Body) ->
-    {error, {missing_field, first_missing(Body, [<<"id">>, <<"desc">>, <<"topic_prefix">>])}};
-do_create_skill(
-    #{
-        <<"type">> := <<"http">>,
-        <<"id">> := Id,
-        <<"desc">> := Desc,
-        <<"method">> := Method,
-        <<"url">> := Url,
-        <<"input_schema">> := InputSchema,
-        <<"output_schema">> := OutputSchema
-    } = Body
-) ->
-    emqx_agent_skill_http:create(#{
-        skill_id => Id,
-        desc => Desc,
-        method => parse_http_method(Method),
-        url => Url,
-        headers => maps:get(<<"headers">>, Body, #{}),
-        input_schema => InputSchema,
-        output_schema => OutputSchema
-    });
-do_create_skill(#{<<"type">> := <<"http">>} = Body) ->
-    {error,
-        {missing_field,
-            first_missing(Body, [
-                <<"id">>,
-                <<"desc">>,
-                <<"method">>,
-                <<"url">>,
-                <<"input_schema">>,
-                <<"output_schema">>
-            ])}};
-do_create_skill(
-    #{
-        <<"type">> := <<"kv">>,
-        <<"id">> := Id,
-        <<"desc">> := Desc,
-        <<"data_schema">> := DataSchema
-    } = Body
-) ->
-    emqx_agent_skill_kv:create(#{
-        skill_id => Id,
-        desc => Desc,
-        data_schema => DataSchema,
-        allow_put => maps:get(<<"allow_put">>, Body, false)
-    });
-do_create_skill(#{<<"type">> := <<"kv">>} = Body) ->
-    {error, {missing_field, first_missing(Body, [<<"id">>, <<"desc">>, <<"data_schema">>])}};
-do_create_skill(#{
-    <<"type">> := <<"clickhouse.history">>,
-    <<"id">> := Id,
-    <<"desc">> := Desc,
-    <<"query">> := Query,
-    <<"input_schema">> := InputSchema,
-    <<"output_schema">> := OutputSchema
-}) ->
-    emqx_agent_skill_clickhouse:create(#{
-        skill_id => Id,
-        desc => Desc,
-        query => Query,
-        input_schema => InputSchema,
-        output_schema => OutputSchema
-    });
-do_create_skill(#{<<"type">> := <<"clickhouse.history">>} = Body) ->
-    {error,
-        {missing_field,
-            first_missing(Body, [
-                <<"id">>, <<"desc">>, <<"query">>, <<"input_schema">>, <<"output_schema">>
-            ])}};
-do_create_skill(#{<<"type">> := _}) ->
-    {error, unknown_type};
+do_create_skill(#{<<"type">> := Type} = Body) ->
+    case skill_module_for_type(Type) of
+        unknown ->
+            {error, unknown_type};
+        Mod ->
+            case Mod:from_map(Body) of
+                {ok, Ctx} -> Mod:create(Ctx);
+                {error, _} = E -> E
+            end
+    end;
 do_create_skill(_Body) ->
-    {error, {missing_field, type}}.
-
-%% Returns the first field in `Required` that is absent from `Body`.
-first_missing(Body, Required) ->
-    case [F || F <- Required, not maps:is_key(F, Body)] of
-        [First | _] -> First;
-        [] -> unknown
-    end.
+    {error, {missing_field, <<"type">>}}.
 
 %%--------------------------------------------------------------------
 %% Internal — Skill deletion dispatch
 %%--------------------------------------------------------------------
 
-%% Maps the URL :type to the module responsible for destroy/1.
-module_type(<<"message.publish">>) -> publish;
-module_type(<<"http">>) -> http;
-module_type(<<"kv.lookup">>) -> kv;
-module_type(<<"kv.put">>) -> kv;
-module_type(<<"clickhouse.history">>) -> clickhouse;
-module_type(_) -> unknown.
-
-%% Checks whether the skill exists before attempting deletion.
-find_skill_for_delete(kv, _Type, Id) ->
-    %% KV creates two entries; lookup either one.
-    case emqx_agent_skill_registry:lookup(<<"kv.lookup">>, Id) of
-        {ok, _} ->
-            found;
-        {error, not_found} ->
-            case emqx_agent_skill_registry:lookup(<<"kv.put">>, Id) of
-                {ok, _} -> found;
-                {error, not_found} -> not_found
-            end
-    end;
-find_skill_for_delete(unknown, _Type, _Id) ->
-    not_found;
-find_skill_for_delete(_ModType, Type, Id) ->
+%% Checks whether the skill exists and, if so, destroys it.
+%% Returns `found` or `not_found`.
+find_and_destroy_skill(Type, Id) ->
     case emqx_agent_skill_registry:lookup(Type, Id) of
-        {ok, _} -> found;
-        {error, not_found} -> not_found
+        {error, not_found} ->
+            not_found;
+        {ok, _} ->
+            ok = do_destroy_skill(Type, Id),
+            found
     end.
 
-do_destroy_skill(publish, Id) -> emqx_agent_skill_publish:destroy(Id);
-do_destroy_skill(http, Id) -> emqx_agent_skill_http:destroy(Id);
-do_destroy_skill(kv, Id) -> emqx_agent_skill_kv:destroy(Id);
-do_destroy_skill(clickhouse, Id) -> emqx_agent_skill_clickhouse:destroy(Id);
-do_destroy_skill(unknown, _Id) -> ok.
+do_destroy_skill(<<"message.publish">>, Id) -> emqx_agent_skill_publish:destroy(Id);
+do_destroy_skill(<<"http">>, Id) -> emqx_agent_skill_http:destroy(Id);
+do_destroy_skill(<<"kv.lookup">>, Id) -> emqx_agent_skill_kv:destroy_lookup(Id);
+do_destroy_skill(<<"kv.put">>, Id) -> emqx_agent_skill_kv:destroy_put(Id);
+do_destroy_skill(<<"clickhouse.history">>, Id) -> emqx_agent_skill_clickhouse:destroy(Id).
 
 %%--------------------------------------------------------------------
 %% Internal — Response helpers
 %%--------------------------------------------------------------------
 
-%% Converts a registry skill map (atom keys) to a JSON-friendly map (binary keys).
-%% The `context` field is stripped — it may contain internal or sensitive details.
-skill_to_map(Skill) ->
-    Picked = maps:with(
-        [skill_id, type, display_name, description, input_schema, output_schema], Skill
-    ),
-    maps:fold(
-        fun(K, V, Acc) -> Acc#{atom_to_binary(K, utf8) => V} end,
-        #{},
-        Picked
-    ).
+skill_to_map(#{type := Type} = Skill) ->
+    Mod = skill_module(Type),
+    Mod:to_map(Skill).
+
+skill_module(<<"http">>) -> emqx_agent_skill_http;
+skill_module(<<"message.publish">>) -> emqx_agent_skill_publish;
+skill_module(<<"kv.lookup">>) -> emqx_agent_skill_kv;
+skill_module(<<"kv.put">>) -> emqx_agent_skill_kv;
+skill_module(<<"clickhouse.history">>) -> emqx_agent_skill_clickhouse.
+
+%% Used by do_create_skill — kv.lookup and kv.put are independent first-class types.
+skill_module_for_type(<<"http">>) -> emqx_agent_skill_http;
+skill_module_for_type(<<"message.publish">>) -> emqx_agent_skill_publish;
+skill_module_for_type(<<"kv.lookup">>) -> emqx_agent_skill_kv;
+skill_module_for_type(<<"kv.put">>) -> emqx_agent_skill_kv;
+skill_module_for_type(<<"clickhouse.history">>) -> emqx_agent_skill_clickhouse;
+skill_module_for_type(_) -> unknown.
 
 field_to_str(F) when is_binary(F) -> F;
 field_to_str(F) when is_atom(F) -> atom_to_binary(F, utf8).
-
-parse_http_method(<<"get">>) -> get;
-parse_http_method(<<"post">>) -> post;
-parse_http_method(<<"put">>) -> put;
-parse_http_method(<<"patch">>) -> patch;
-parse_http_method(<<"delete">>) -> delete;
-parse_http_method(M) -> {error, {invalid_method, M}}.
 
 %%--------------------------------------------------------------------
 %% Internal — URL parameters

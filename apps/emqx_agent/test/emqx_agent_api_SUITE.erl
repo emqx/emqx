@@ -112,18 +112,26 @@ t_skill_http_crud(Config) ->
 t_skill_kv_crud(Config) ->
     Id = ?config(tc_id, Config),
 
+    %% Create kv.lookup and kv.put independently
     ?assertMatch(
         {ok, 201, _},
         api_post([agent, skills], #{
-            <<"type">> => <<"kv">>,
+            <<"type">> => <<"kv.lookup">>,
             <<"id">> => Id,
             <<"desc">> => <<"test kv skill">>,
-            <<"data_schema">> => #{<<"type">> => <<"object">>},
-            <<"allow_put">> => true
+            <<"data_schema">> => #{<<"type">> => <<"object">>}
+        })
+    ),
+    ?assertMatch(
+        {ok, 201, _},
+        api_post([agent, skills], #{
+            <<"type">> => <<"kv.put">>,
+            <<"id">> => Id,
+            <<"desc">> => <<"test kv skill">>,
+            <<"data_schema">> => #{<<"type">> => <<"object">>}
         })
     ),
 
-    %% kv creates two registry entries: kv.lookup and kv.put
     ?assertMatch(
         {ok, 200, #{<<"skill_id">> := _, <<"type">> := <<"kv.lookup">>}},
         api_get([agent, skills, <<"kv.lookup">>, Id])
@@ -133,9 +141,11 @@ t_skill_kv_crud(Config) ->
         api_get([agent, skills, <<"kv.put">>, Id])
     ),
 
-    %% Deleting via either variant removes both
+    %% Each type is deleted independently
     ?assertMatch({ok, 204}, api_delete([agent, skills, <<"kv.lookup">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"kv.lookup">>, Id])),
+    ?assertMatch({ok, 200, _}, api_get([agent, skills, <<"kv.put">>, Id])),
+    ?assertMatch({ok, 204}, api_delete([agent, skills, <<"kv.put">>, Id])),
     ?assertMatch({ok, 404, _}, api_get([agent, skills, <<"kv.put">>, Id])).
 
 t_skill_clickhouse_crud(Config) ->

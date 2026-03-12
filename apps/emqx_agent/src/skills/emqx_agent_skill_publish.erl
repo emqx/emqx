@@ -79,7 +79,7 @@
     <<"required">> => [<<"status">>]
 }).
 
--export([init/0, deinit/0, create/1, destroy/1]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, from_map/1]).
 -export([on_message_publish/1]).
 
 %%--------------------------------------------------------------------
@@ -116,6 +116,28 @@ create(#{skill_id := SkillId, desc := Desc, topic_prefix := TopicPrefix}) ->
 -spec destroy(binary()) -> ok.
 destroy(SkillId) ->
     emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+
+-spec from_map(map()) -> {ok, map()} | {error, {missing_field, binary()}}.
+from_map(#{<<"id">> := Id, <<"desc">> := Desc, <<"topic_prefix">> := TopicPrefix}) ->
+    {ok, #{skill_id => Id, desc => Desc, topic_prefix => TopicPrefix}};
+from_map(Body) ->
+    Required = [<<"id">>, <<"desc">>, <<"topic_prefix">>],
+    {error, {missing_field, first_missing(Body, Required)}}.
+
+first_missing(Map, Fields) ->
+    case [F || F <- Fields, not maps:is_key(F, Map)] of
+        [F | _] -> F;
+        [] -> unknown
+    end.
+
+-spec to_map(map()) -> map().
+to_map(#{skill_id := Id, description := Desc, context := #{topic_prefix := TopicPrefix}}) ->
+    #{
+        <<"skill_id">> => Id,
+        <<"type">> => ?SKILL_TYPE,
+        <<"description">> => Desc,
+        <<"topic_prefix">> => TopicPrefix
+    }.
 
 %%--------------------------------------------------------------------
 %% Hook callbacks

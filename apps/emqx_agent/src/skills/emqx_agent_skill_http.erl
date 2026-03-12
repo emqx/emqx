@@ -34,7 +34,7 @@
 -define(SKILL_TYPE, <<"http">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
--export([init/0, deinit/0, create/1, destroy/1]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1, from_map/1]).
 -export([on_message_publish/1]).
 
 %% Exported for testing
@@ -79,6 +79,74 @@ create(
 -spec destroy(emqx_agent_skill_registry:skill_id()) -> ok.
 destroy(SkillId) ->
     emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
+
+-spec from_map(map()) -> {ok, map()} | {error, {missing_field, binary()}}.
+from_map(
+    #{
+        <<"id">> := Id,
+        <<"desc">> := Desc,
+        <<"method">> := Method,
+        <<"url">> := Url,
+        <<"input_schema">> := InputSchema,
+        <<"output_schema">> := OutputSchema
+    } = Body
+) ->
+    {ok, #{
+        skill_id => Id,
+        desc => Desc,
+        method => parse_method(Method),
+        url => Url,
+        headers => maps:get(<<"headers">>, Body, #{}),
+        input_schema => InputSchema,
+        output_schema => OutputSchema
+    }};
+from_map(Body) ->
+    Required = [
+        <<"id">>,
+        <<"desc">>,
+        <<"method">>,
+        <<"url">>,
+        <<"input_schema">>,
+        <<"output_schema">>
+    ],
+    {error, {missing_field, first_missing(Body, Required)}}.
+
+parse_method(M) when is_atom(M) -> M;
+parse_method(<<"get">>) -> get;
+parse_method(<<"post">>) -> post;
+parse_method(<<"put">>) -> put;
+parse_method(<<"patch">>) -> patch;
+parse_method(<<"delete">>) -> delete.
+
+first_missing(Map, Fields) ->
+    case [F || F <- Fields, not maps:is_key(F, Map)] of
+        [F | _] -> F;
+        [] -> unknown
+    end.
+
+-spec to_map(map()) -> map().
+to_map(#{
+    skill_id := Id,
+    description := Desc,
+    context := Ctx,
+    input_schema := InSchema,
+    output_schema := OutSchema
+}) ->
+    Method = maps:get(method, Ctx, post),
+    MethodBin =
+        if
+            is_atom(Method) -> atom_to_binary(Method, utf8);
+            true -> Method
+        end,
+    #{
+        <<"skill_id">> => Id,
+        <<"type">> => ?SKILL_TYPE,
+        <<"description">> => Desc,
+        <<"method">> => MethodBin,
+        <<"url">> => maps:get(url, Ctx, <<>>),
+        <<"input_schema">> => InSchema,
+        <<"output_schema">> => OutSchema
+    }.
 
 %%--------------------------------------------------------------------
 %% Hook callbacks
