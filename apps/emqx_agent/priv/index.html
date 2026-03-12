@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMQX Agent</title>
+<style>
+  /* ── Design tokens ──────────────────────────────────────────────── */
+  :root {
+    --bg:       #0d1117;
+    --surface:  #161b22;
+    --border:   #30363d;
+    --accent:   #58a6ff;
+    --accent2:  #3fb950;
+    --danger:   #f85149;
+    --warn:     #e3b341;
+    --muted:    #8b949e;
+    --text:     #e6edf3;
+    --tag-bg:   #1f2937;
+    --font:     'Menlo', 'Consolas', 'Liberation Mono', monospace;
+    --radius:   6px;
+  }
+
+  /* ── Reset & base ───────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font); font-size: 13px; background: var(--bg); color: var(--text); min-height: 100vh; }
+  a { color: var(--accent); text-decoration: none; }
+
+  /* ── Layout ─────────────────────────────────────────────────────── */
+  #app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 24px; height: 52px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10;
+  }
+  header .logo { font-size: 15px; font-weight: 700; letter-spacing: 0.04em; color: var(--text); }
+  header .logo span { color: var(--accent); }
+  header .pill {
+    font-size: 11px; padding: 2px 8px; border-radius: 10px;
+    background: var(--tag-bg); border: 1px solid var(--border); color: var(--muted);
+    transition: all .2s;
+  }
+  header .pill.ok  { border-color: var(--accent2); color: var(--accent2); }
+  header .pill.err { border-color: var(--danger);  color: var(--danger); }
+  header .spacer { flex: 1; }
+  header .endpoint { color: var(--muted); font-size: 11px; }
+
+  /* credentials bar */
+  #cred-bar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 24px; background: #111820;
+    border-bottom: 1px solid var(--border);
+  }
+  #cred-bar label { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  #cred-bar input {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); padding: 4px 8px; font: inherit; font-size: 12px; width: 160px;
+  }
+  #cred-bar input:focus { outline: none; border-color: var(--accent); }
+
+  /* tabs */
+  nav {
+    display: flex; gap: 0; padding: 0 24px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+  }
+  nav button {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); cursor: pointer; font: inherit; font-size: 13px;
+    padding: 10px 16px; transition: all .15s;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* summary bar */
+  #summary {
+    display: flex; gap: 16px; padding: 12px 24px;
+    background: var(--bg); border-bottom: 1px solid var(--border);
+  }
+  .stat {
+    display: flex; align-items: baseline; gap: 6px;
+    padding: 6px 14px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
+  }
+  .stat .num  { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .stat .label { font-size: 11px; color: var(--muted); }
+
+  /* main pane */
+  main { flex: 1; padding: 24px; max-width: 960px; }
+
+  section { display: none; }
+  section.active { display: block; }
+
+  /* ── Components ──────────────────────────────────────────────────── */
+  h2 { font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text); letter-spacing: .03em; }
+
+  /* table */
+  .tbl { width: 100%; border-collapse: collapse; margin-bottom: 28px; }
+  .tbl th, .tbl td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .tbl th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .tbl tr:last-child td { border-bottom: none; }
+  .tbl tr:hover td { background: var(--surface); }
+  .tbl .empty td { color: var(--muted); font-style: italic; text-align: center; padding: 20px; }
+
+  /* tags */
+  .tag {
+    display: inline-block; font-size: 11px; padding: 1px 7px;
+    border-radius: 10px; background: var(--tag-bg);
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .tag.publish { border-color: #388bfd44; color: #388bfd; }
+  .tag.http    { border-color: #e3b34144; color: var(--warn); }
+  .tag.kv      { border-color: #3fb95044; color: var(--accent2); }
+  .tag.ch      { border-color: #f8514944; color: var(--danger); }
+  .tag.llm     { border-color: #a371f744; color: #a371f7; }
+
+  /* buttons */
+  .btn {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface); color: var(--text); cursor: pointer;
+    font: inherit; font-size: 12px; padding: 5px 12px; transition: all .15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+  .btn.primary:hover { background: #79baff; border-color: #79baff; }
+  .btn.danger:hover  { border-color: var(--danger); color: var(--danger); }
+  .btn.sm { padding: 3px 8px; font-size: 11px; }
+
+  /* card / form */
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 20px; margin-bottom: 20px;
+  }
+  .card h3 { font-size: 12px; font-weight: 600; margin-bottom: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .field input, .field select, .field textarea {
+    width: 100%; background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); padding: 6px 10px;
+    font: inherit; font-size: 12px; transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  .field select option { background: var(--bg); }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .field .hint { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  .row { display: flex; gap: 10px; }
+  .row .field { flex: 1; }
+
+  .form-actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
+  .form-actions .msg { font-size: 11px; color: var(--accent2); }
+  .form-actions .err { color: var(--danger); }
+
+  /* ── Toast ───────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 16px;
+    font-size: 12px; max-width: 320px;
+    opacity: 0; transform: translateY(8px);
+    transition: all .2s; pointer-events: none; z-index: 100;
+  }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.ok  { border-color: var(--accent2); color: var(--accent2); }
+  #toast.err { border-color: var(--danger);  color: var(--danger); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header>
+    <div class="logo">EMQX <span>Agent</span></div>
+    <span id="status-pill" class="pill">○ disconnected</span>
+    <div class="spacer"></div>
+    <span class="endpoint" id="endpoint-label"></span>
+  </header>
+
+  <!-- ── Credentials bar ── -->
+  <div id="cred-bar">
+    <label>API Key</label>
+    <input id="api-key" type="text" placeholder="key" autocomplete="off" spellcheck="false">
+    <label>Secret</label>
+    <input id="api-secret" type="password" placeholder="secret" autocomplete="off">
+    <label>Host</label>
+    <input id="api-host" type="text" value="" placeholder="http://localhost:18083" style="width:200px">
+    <button class="btn primary" onclick="connect()">Connect</button>
+  </div>
+
+  <!-- ── Summary ── -->
+  <div id="summary">
+    <div class="stat"><span class="num" id="cnt-skills">—</span><span class="label">skills</span></div>
+    <div class="stat"><span class="num" id="cnt-profiles">—</span><span class="label">profiles</span></div>
+    <div class="stat"><span class="num" id="cnt-pipelines">—</span><span class="label">pipelines</span></div>
+  </div>
+
+  <!-- ── Tab nav ── -->
+  <nav>
+    <button class="active" onclick="showTab('skills',this)">Skills</button>
+    <button onclick="showTab('profiles',this)">Session Profiles</button>
+    <button onclick="showTab('pipelines',this)">Pipelines</button>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <main>
+
+    <!-- Skills -->
+    <section id="tab-skills" class="active">
+      <h2>Skills</h2>
+      <table class="tbl" id="skills-table">
+        <thead><tr><th>ID</th><th>Type</th><th>Description</th><th></th></tr></thead>
+        <tbody id="skills-body"><tr class="empty"><td colspan="4">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <h3>New Skill</h3>
+        <div class="row">
+          <div class="field">
+            <label>Type</label>
+            <select id="skill-type" onchange="updateSkillForm()">
+              <option value="message.publish">message.publish</option>
+              <option value="http">http</option>
+              <option value="kv">kv</option>
+              <option value="clickhouse.history">clickhouse.history</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>ID</label>
+            <input id="skill-id" type="text" placeholder="my-skill-1">
+          </div>
+        </div>
+        <div class="field">
+          <label>Description</label>
+          <input id="skill-desc" type="text" placeholder="Human-readable description for the LLM">
+        </div>
+
+        <!-- message.publish fields -->
+        <div id="f-publish">
+          <div class="field">
+            <label>Topic Prefix</label>
+            <input id="skill-prefix" type="text" placeholder="out/devices/">
+            <div class="hint">All publishes are restricted to this prefix.</div>
+          </div>
+        </div>
+
+        <!-- http fields -->
+        <div id="f-http" style="display:none">
+          <div class="row">
+            <div class="field">
+              <label>Method</label>
+              <select id="skill-method">
+                <option>post</option><option>get</option>
+                <option>put</option><option>patch</option><option>delete</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>URL</label>
+              <input id="skill-url" type="text" placeholder="http://service:8080/api">
+            </div>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Input schema (JSON)</label>
+              <textarea id="skill-input-schema" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+            <div class="field">
+              <label>Output schema (JSON)</label>
+              <textarea id="skill-output-schema" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- kv fields -->
+        <div id="f-kv" style="display:none">
+          <div class="row">
+            <div class="field">
+              <label>Data schema (JSON)</label>
+              <textarea id="skill-data-schema" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+            <div class="field" style="max-width:140px">
+              <label>Allow put?</label>
+              <select id="skill-allow-put">
+                <option value="true">yes</option>
+                <option value="false">no</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- clickhouse fields -->
+        <div id="f-ch" style="display:none">
+          <div class="field">
+            <label>SQL query template</label>
+            <textarea id="skill-query" placeholder="SELECT * FROM metrics WHERE device_id = ${device_id}"></textarea>
+          </div>
+          <div class="row">
+            <div class="field">
+              <label>Input schema (JSON)</label>
+              <textarea id="skill-ch-input" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+            <div class="field">
+              <label>Output schema (JSON)</label>
+              <textarea id="skill-ch-output" placeholder='{"type":"object","properties":{}}'></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn primary" onclick="createSkill()">Create</button>
+          <span id="skill-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Session Profiles -->
+    <section id="tab-profiles">
+      <h2>Session Profiles</h2>
+      <table class="tbl">
+        <thead><tr><th>Name</th><th>Model</th><th>Base URL</th><th></th></tr></thead>
+        <tbody id="profiles-body"><tr class="empty"><td colspan="4">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <h3>New Session Profile</h3>
+        <div class="row">
+          <div class="field">
+            <label>Name</label>
+            <input id="prof-name" type="text" placeholder="hvac-triage-v1">
+          </div>
+          <div class="field">
+            <label>Model</label>
+            <input id="prof-model" type="text" placeholder="gpt-4o">
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label>Base URL</label>
+            <input id="prof-url" type="text" placeholder="https://api.openai.com/v1">
+          </div>
+          <div class="field">
+            <label>API Key</label>
+            <input id="prof-key" type="password" placeholder="sk-…">
+          </div>
+        </div>
+        <div class="field">
+          <label>System instructions</label>
+          <textarea id="prof-instructions" style="min-height:90px" placeholder="You are an HVAC operations AI…"></textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary" onclick="createProfile()">Create</button>
+          <span id="prof-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pipelines -->
+    <section id="tab-pipelines">
+      <h2>Pipelines</h2>
+      <table class="tbl">
+        <thead><tr><th>ID</th><th>Trigger topic</th><th>Steps</th><th></th></tr></thead>
+        <tbody id="pipelines-body"><tr class="empty"><td colspan="4">Not connected</td></tr></tbody>
+      </table>
+
+      <div class="card">
+        <h3>New Pipeline</h3>
+        <div class="row">
+          <div class="field">
+            <label>Pipeline ID</label>
+            <input id="pipe-id" type="text" placeholder="hvac-anomaly-response">
+          </div>
+          <div class="field">
+            <label>Trigger topic</label>
+            <input id="pipe-topic" type="text" placeholder="evt/hvac/anomaly">
+          </div>
+        </div>
+        <div class="field">
+          <label>Steps (JSON array)</label>
+          <textarea id="pipe-steps" style="min-height:140px" placeholder='[
+  {
+    "id": "fetch_history",
+    "type": "call_skill",
+    "skill": "clickhouse.history@ch-hvac",
+    "args": {"device_id": "$.event.entity.id"},
+    "result_path": "$.history"
+  },
+  {
+    "id": "analyze",
+    "type": "llm_loop",
+    "session_profile": "hvac-triage-v1",
+    "tools": ["clickhouse.history@ch-hvac"],
+    "input": {"event": "$.event", "history": "$.history"},
+    "result_path": "$.analysis"
+  }
+]'></textarea>
+          <div class="hint">Each step needs <code>id</code> and <code>type</code> (call_skill | llm_loop | wait_for_event | branch).</div>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary" onclick="createPipeline()">Create</button>
+          <span id="pipe-msg" class="msg"></span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────────────────
+
+let BASE = '';
+let AUTH = '';
+
+// ── Init ────────────────────────────────────────────────────────────────────
+
+window.addEventListener('DOMContentLoaded', () => {
+  const saved = sessionStorage.getItem('agent_creds');
+  if (saved) {
+    try {
+      const {key, secret, host} = JSON.parse(saved);
+      document.getElementById('api-key').value    = key    ?? '';
+      document.getElementById('api-secret').value = secret ?? '';
+      document.getElementById('api-host').value   = host   ?? '';
+      if (key && secret) connect(true);
+    } catch(_) {}
+  }
+  // default host to current origin
+  if (!document.getElementById('api-host').value) {
+    document.getElementById('api-host').value = window.location.origin;
+  }
+  document.getElementById('endpoint-label').textContent = window.location.host;
+});
+
+// ── Auth & connect ───────────────────────────────────────────────────────────
+
+async function connect(silent = false) {
+  const key    = document.getElementById('api-key').value.trim();
+  const secret = document.getElementById('api-secret').value;
+  const host   = document.getElementById('api-host').value.trim().replace(/\/$/, '');
+
+  BASE = host + '/api/v5';
+  AUTH = 'Basic ' + btoa(key + ':' + secret);
+
+  sessionStorage.setItem('agent_creds', JSON.stringify({key, secret, host}));
+
+  try {
+    await Promise.all([loadSkills(), loadProfiles(), loadPipelines()]);
+    setStatus('ok');
+    if (!silent) toast('Connected ✓', 'ok');
+  } catch(e) {
+    setStatus('err');
+    toast('Connection failed: ' + e.message, 'err');
+  }
+}
+
+function setStatus(state) {
+  const el = document.getElementById('status-pill');
+  el.className = 'pill ' + state;
+  el.textContent = state === 'ok' ? '● connected' : '○ error';
+}
+
+// ── HTTP helpers ─────────────────────────────────────────────────────────────
+
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { Authorization: AUTH, 'Content-Type': 'application/json' }
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(BASE + path, opts);
+  if (res.status === 204) return null;
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch(_) { data = text; }
+  if (!res.ok) throw new Error((data?.message ?? data?.code) || res.statusText);
+  return data;
+}
+
+// ── Tab navigation ───────────────────────────────────────────────────────────
+
+function showTab(name, btn) {
+  document.querySelectorAll('section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
+// ── Skill type selector ──────────────────────────────────────────────────────
+
+function updateSkillForm() {
+  const type = document.getElementById('skill-type').value;
+  document.getElementById('f-publish').style.display = type === 'message.publish' ? '' : 'none';
+  document.getElementById('f-http').style.display    = type === 'http'             ? '' : 'none';
+  document.getElementById('f-kv').style.display      = type === 'kv'               ? '' : 'none';
+  document.getElementById('f-ch').style.display      = type === 'clickhouse.history' ? '' : 'none';
+}
+
+// ── Skills ───────────────────────────────────────────────────────────────────
+
+async function loadSkills() {
+  const list = await api('GET', '/agent/skills');
+  document.getElementById('cnt-skills').textContent = list.length;
+  const tbody = document.getElementById('skills-body');
+  if (!list.length) {
+    tbody.innerHTML = '<tr class="empty"><td colspan="4">No skills registered</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(s => `
+    <tr>
+      <td><code>${esc(s.skill_id)}</code></td>
+      <td><span class="tag ${typeClass(s.type)}">${esc(s.type)}</span></td>
+      <td style="color:var(--muted)">${esc(s.description ?? '')}</td>
+      <td><button class="btn sm danger" onclick="deleteSkill('${esc(s.type)}','${esc(s.skill_id)}')">delete</button></td>
+    </tr>`).join('');
+}
+
+async function createSkill() {
+  const type = document.getElementById('skill-type').value;
+  const id   = document.getElementById('skill-id').value.trim();
+  const desc = document.getElementById('skill-desc').value.trim();
+  if (!id) return setMsg('skill-msg', 'ID is required', true);
+
+  let body = { type, id, desc };
+  try {
+    if (type === 'message.publish') {
+      const prefix = document.getElementById('skill-prefix').value.trim();
+      if (!prefix) return setMsg('skill-msg', 'topic_prefix is required', true);
+      body.topic_prefix = prefix;
+    } else if (type === 'http') {
+      body.method        = document.getElementById('skill-method').value;
+      body.url           = document.getElementById('skill-url').value.trim();
+      body.input_schema  = JSON.parse(document.getElementById('skill-input-schema').value || '{}');
+      body.output_schema = JSON.parse(document.getElementById('skill-output-schema').value || '{}');
+    } else if (type === 'kv') {
+      body.data_schema = JSON.parse(document.getElementById('skill-data-schema').value || '{}');
+      body.allow_put   = document.getElementById('skill-allow-put').value === 'true';
+    } else if (type === 'clickhouse.history') {
+      body.query         = document.getElementById('skill-query').value.trim();
+      body.input_schema  = JSON.parse(document.getElementById('skill-ch-input').value || '{}');
+      body.output_schema = JSON.parse(document.getElementById('skill-ch-output').value || '{}');
+    }
+    await api('POST', '/agent/skills', body);
+    setMsg('skill-msg', 'Created ✓');
+    toast('Skill "' + id + '" created', 'ok');
+    await loadSkills();
+  } catch(e) {
+    setMsg('skill-msg', e.message, true);
+  }
+}
+
+async function deleteSkill(type, id) {
+  if (!confirm(`Delete skill "${id}"?`)) return;
+  try {
+    await api('DELETE', `/agent/skills/${encodeURIComponent(type)}/${encodeURIComponent(id)}`);
+    toast('Deleted ' + id, 'ok');
+    await loadSkills();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ── Session profiles ─────────────────────────────────────────────────────────
+
+async function loadProfiles() {
+  const list = await api('GET', '/agent/session_profiles');
+  document.getElementById('cnt-profiles').textContent = list.length;
+  const tbody = document.getElementById('profiles-body');
+  if (!list.length) {
+    tbody.innerHTML = '<tr class="empty"><td colspan="4">No profiles registered</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(p => `
+    <tr>
+      <td><code>${esc(p.name)}</code></td>
+      <td><span class="tag llm">${esc(p.model ?? '—')}</span></td>
+      <td style="color:var(--muted)">${esc(p.base_url ?? '')}</td>
+      <td><button class="btn sm danger" onclick="deleteProfile('${esc(p.name)}')">delete</button></td>
+    </tr>`).join('');
+}
+
+async function createProfile() {
+  const name  = document.getElementById('prof-name').value.trim();
+  const model = document.getElementById('prof-model').value.trim();
+  const url   = document.getElementById('prof-url').value.trim();
+  const key   = document.getElementById('prof-key').value;
+  const instr = document.getElementById('prof-instructions').value.trim();
+
+  if (!name) return setMsg('prof-msg', 'Name is required', true);
+  try {
+    await api('POST', '/agent/session_profiles', {
+      name, model, base_url: url, api_key: key, instructions: instr
+    });
+    setMsg('prof-msg', 'Created ✓');
+    toast('Profile "' + name + '" created', 'ok');
+    await loadProfiles();
+  } catch(e) {
+    setMsg('prof-msg', e.message, true);
+  }
+}
+
+async function deleteProfile(name) {
+  if (!confirm(`Delete profile "${name}"?`)) return;
+  try {
+    await api('DELETE', `/agent/session_profiles/${encodeURIComponent(name)}`);
+    toast('Deleted ' + name, 'ok');
+    await loadProfiles();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ── Pipelines ────────────────────────────────────────────────────────────────
+
+async function loadPipelines() {
+  const list = await api('GET', '/agent/pipelines');
+  document.getElementById('cnt-pipelines').textContent = list.length;
+  const tbody = document.getElementById('pipelines-body');
+  if (!list.length) {
+    tbody.innerHTML = '<tr class="empty"><td colspan="4">No pipelines registered</td></tr>';
+    return;
+  }
+  tbody.innerHTML = list.map(p => {
+    const trigger = p.trigger?.topic ?? '—';
+    const steps   = (p.steps ?? []).map(s =>
+      `<span class="tag ${stepClass(s.type)}">${esc(s.id ?? s.type)}</span>`
+    ).join(' ');
+    return `<tr>
+      <td><code>${esc(p.pipeline_id)}</code></td>
+      <td style="color:var(--muted)">${esc(trigger)}</td>
+      <td>${steps}</td>
+      <td><button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function createPipeline() {
+  const id    = document.getElementById('pipe-id').value.trim();
+  const topic = document.getElementById('pipe-topic').value.trim();
+  const raw   = document.getElementById('pipe-steps').value.trim();
+
+  if (!id)    return setMsg('pipe-msg', 'Pipeline ID is required', true);
+  if (!topic) return setMsg('pipe-msg', 'Trigger topic is required', true);
+  let steps = [];
+  try { steps = JSON.parse(raw || '[]'); } catch(_) {
+    return setMsg('pipe-msg', 'Steps JSON is invalid', true);
+  }
+  try {
+    await api('POST', '/agent/pipelines', {
+      pipeline_id: id, trigger: { topic }, steps
+    });
+    setMsg('pipe-msg', 'Created ✓');
+    toast('Pipeline "' + id + '" created', 'ok');
+    await loadPipelines();
+  } catch(e) {
+    setMsg('pipe-msg', e.message, true);
+  }
+}
+
+async function deletePipeline(id) {
+  if (!confirm(`Delete pipeline "${id}"?`)) return;
+  try {
+    await api('DELETE', `/agent/pipelines/${encodeURIComponent(id)}`);
+    toast('Deleted ' + id, 'ok');
+    await loadPipelines();
+  } catch(e) {
+    toast(e.message, 'err');
+  }
+}
+
+// ── UI helpers ───────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function typeClass(t) {
+  if (t === 'message.publish') return 'publish';
+  if (t === 'http')             return 'http';
+  if (t?.startsWith('kv'))      return 'kv';
+  if (t?.startsWith('clickhouse')) return 'ch';
+  return '';
+}
+
+function stepClass(t) {
+  if (t === 'llm_loop')      return 'llm';
+  if (t === 'call_skill')    return 'publish';
+  if (t === 'wait_for_event') return 'kv';
+  return '';
+}
+
+function setMsg(id, msg, isErr = false) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'msg' + (isErr ? ' err' : '');
+  setTimeout(() => { el.textContent = ''; }, 4000);
+}
+
+let toastTimer;
+function toast(msg, kind = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + kind;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+}
+</script>
+</body>
+</html>

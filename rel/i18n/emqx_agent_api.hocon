@@ -1,0 +1,146 @@
+emqx_agent_api {
+
+    ## UI
+
+    ui_get {
+        desc: "Agent management UI — single-page application for managing skills, session profiles, and pipelines."
+        label: "Agent UI"
+    }
+
+    ## Skills collection
+
+    skills_list {
+        desc: "List all registered skill instances."
+        label: "List Skills"
+    }
+
+    skills_create {
+        desc: "Register a new skill instance. The `type` field selects the implementation: message.publish | http | kv | clickhouse.history."
+        label: "Create Skill"
+    }
+
+    ## Individual skill
+
+    skill_get {
+        desc: "Get a registered skill instance by type and ID."
+        label: "Get Skill"
+    }
+
+    skill_delete {
+        desc: "Unregister a skill instance. For kv.lookup or kv.put, both variants are removed together."
+        label: "Delete Skill"
+    }
+
+    ## Session profiles collection
+
+    session_profiles_list {
+        desc: "List all registered session profiles."
+        label: "List Session Profiles"
+    }
+
+    session_profiles_create {
+        desc: "Create or replace a session profile. Session profiles hold LLM connection settings (api_key, base_url, model, instructions) that pipeline llm_loop steps reference by name."
+        label: "Create Session Profile"
+    }
+
+    ## Individual session profile
+
+    session_profile_get {
+        desc: "Get a session profile by name."
+        label: "Get Session Profile"
+    }
+
+    session_profile_put {
+        desc: "Replace a session profile."
+        label: "Update Session Profile"
+    }
+
+    session_profile_delete {
+        desc: "Delete a session profile."
+        label: "Delete Session Profile"
+    }
+
+    ## Path parameter descriptions
+
+    param_skill_type {
+        desc: "Registry skill type: message.publish | http | kv.lookup | kv.put | clickhouse.history."
+        label: "Skill Type"
+    }
+
+    param_skill_id {
+        desc: "Skill instance ID."
+        label: "Skill ID"
+    }
+
+    param_profile_name {
+        desc: "Session profile name."
+        label: "Profile Name"
+    }
+
+    param_pipeline_id {
+        desc: "Pipeline definition ID."
+        label: "Pipeline ID"
+    }
+
+    ## Error descriptions
+
+    skill_bad_request {
+        desc: "Invalid or incomplete skill configuration."
+        label: "Skill Bad Request"
+    }
+
+    skill_not_found {
+        desc: "Skill not found."
+        label: "Skill Not Found"
+    }
+
+    profile_bad_request {
+        desc: "Missing required fields."
+        label: "Profile Bad Request"
+    }
+
+    profile_not_found {
+        desc: "Session profile not found."
+        label: "Profile Not Found"
+    }
+
+    pipeline_bad_request {
+        desc: "Invalid pipeline definition."
+        label: "Pipeline Bad Request"
+    }
+
+    pipeline_not_found {
+        desc: "Pipeline not found."
+        label: "Pipeline Not Found"
+    }
+
+    ## Pipelines collection
+
+    pipelines_list {
+        desc: "List all registered pipeline definitions."
+        label: "List Pipelines"
+    }
+
+    pipelines_create {
+        desc: "Register a pipeline definition. Once registered, the pipeline runtime will start a new instance whenever a message is published on the trigger topic."
+        label: "Create Pipeline"
+    }
+
+    ## Individual pipeline
+
+    pipeline_get {
+        desc: "Get a pipeline definition by ID."
+        label: "Get Pipeline"
+    }
+
+    pipeline_put {
+        desc: "Replace a pipeline definition."
+        label: "Update Pipeline"
+    }
+
+    pipeline_delete {
+        desc: "Unregister a pipeline definition."
+        label: "Delete Pipeline"
+    }
+
+}

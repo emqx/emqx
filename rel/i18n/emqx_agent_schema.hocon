@@ -1,0 +1,225 @@
+emqx_agent_schema {
+
+    ## ── Struct-level descriptions ────────────────────────────────────────────
+
+    skill_entry {
+        desc: "A registered skill instance as stored in the skill registry."
+        label: "Skill Entry"
+    }
+
+    skill_publish_create {
+        desc: "Parameters for registering a message.publish skill."
+        label: "Publish Skill"
+    }
+
+    skill_http_create {
+        desc: "Parameters for registering an HTTP skill."
+        label: "HTTP Skill"
+    }
+
+    skill_kv_create {
+        desc: "Parameters for registering a key-value skill (kv.lookup and optionally kv.put)."
+        label: "KV Skill"
+    }
+
+    skill_clickhouse_create {
+        desc: "Parameters for registering a ClickHouse history query skill."
+        label: "ClickHouse Skill"
+    }
+
+    session_profile {
+        desc: "LLM connection settings reusable across llm_loop pipeline steps."
+        label: "Session Profile"
+    }
+
+    pipeline {
+        desc: "An event-driven pipeline definition that reacts to MQTT events and orchestrates skills and LLM sessions."
+        label: "Pipeline"
+    }
+
+    pipeline_trigger {
+        desc: "Trigger configuration for a pipeline — specifies the MQTT topic that activates a new instance."
+        label: "Pipeline Trigger"
+    }
+
+    ## ── skill_entry fields ───────────────────────────────────────────────────
+
+    skill_entry_id {
+        desc: "Skill instance ID in the registry."
+        label: "Skill ID"
+    }
+
+    skill_entry_type {
+        desc: "Skill type identifier (e.g. message.publish, http, kv.lookup, clickhouse.history)."
+        label: "Skill Type"
+    }
+
+    skill_entry_display_name {
+        desc: "Human-readable display name for the skill."
+        label: "Display Name"
+    }
+
+    skill_entry_description {
+        desc: "Description exposed to the LLM as part of the tool manifest."
+        label: "Description"
+    }
+
+    skill_entry_input_schema {
+        desc: "JSON Schema describing the skill input arguments."
+        label: "Input Schema"
+    }
+
+    skill_entry_output_schema {
+        desc: "JSON Schema describing the skill response shape."
+        label: "Output Schema"
+    }
+
+    ## ── Shared create-variant fields ─────────────────────────────────────────
+
+    skill_type_discriminator {
+        desc: "Skill type discriminator — selects the skill implementation."
+        label: "Type"
+    }
+
+    skill_id {
+        desc: "Unique skill instance ID."
+        label: "Skill ID"
+    }
+
+    skill_human_desc {
+        desc: "Human-readable description of the skill."
+        label: "Description"
+    }
+
+    skill_input_schema {
+        desc: "JSON Schema for the skill input arguments."
+        label: "Input Schema"
+    }
+
+    skill_output_schema {
+        desc: "JSON Schema for the skill response."
+        label: "Output Schema"
+    }
+
+    ## ── skill_publish_create ─────────────────────────────────────────────────
+
+    skill_publish_topic_prefix.desc:
+"""MQTT topic prefix prepended to every agent-supplied topic suffix.
+Constrains the skill to a specific namespace."""
+
+    skill_publish_topic_prefix.label:
+"""Topic Prefix"""
+
+    ## ── skill_http_create ────────────────────────────────────────────────────
+
+    skill_http_method {
+        desc: "HTTP method used when invoking the skill."
+        label: "HTTP Method"
+    }
+
+    skill_http_url.desc:
+"""Base URL of the remote endpoint.
+Query string is appended for GET; JSON body is sent for POST/PUT/PATCH/DELETE."""
+
+    skill_http_url.label:
+"""URL"""
+
+    skill_http_headers {
+        desc: "Static HTTP headers sent with every request."
+        label: "Headers"
+    }
+
+    ## ── skill_kv_create ──────────────────────────────────────────────────────
+
+    skill_kv_type.desc:
+"""Skill type discriminator.
+Registering a kv skill always creates a kv.lookup entry; a kv.put entry is also created when allow_put is true."""
+
+    skill_kv_type.label:
+"""Type"""
+
+    skill_kv_desc {
+        desc: "Human-readable description of the stored object type."
+        label: "Description"
+    }
+
+    skill_kv_data_schema {
+        desc: "JSON Schema for the stored value type."
+        label: "Data Schema"
+    }
+
+    skill_kv_allow_put {
+        desc: "When true, a kv.put skill is registered alongside kv.lookup."
+        label: "Allow Put"
+    }
+
+    ## ── skill_clickhouse_create ───────────────────────────────────────────────
+
+    skill_ch_query.desc:
+"""ClickHouse SQL query template.
+Use ${variable} placeholders for input arguments defined in input_schema."""
+
+    skill_ch_query.label:
+"""Query Template"""
+
+    ## ── session_profile fields ───────────────────────────────────────────────
+
+    session_profile_name {
+        desc: "Profile name — referenced in llm_loop step session_profile field."
+        label: "Profile Name"
+    }
+
+    session_profile_api_key {
+        desc: "API key for the LLM provider."
+        label: "API Key"
+    }
+
+    session_profile_base_url {
+        desc: "LLM provider API base URL (e.g. https://api.openai.com/v1)."
+        label: "Base URL"
+    }
+
+    session_profile_model {
+        desc: "Model identifier (e.g. gpt-4o, llama3)."
+        label: "Model"
+    }
+
+    session_profile_instructions {
+        desc: "System prompt injected at the start of every LLM session."
+        label: "Instructions"
+    }
+
+    session_profile_output_schema {
+        desc: "JSON Schema constraining the final LLM response structure."
+        label: "Output Schema"
+    }
+
+    ## ── pipeline fields ──────────────────────────────────────────────────────
+
+    pipeline_id {
+        desc: "Unique pipeline definition identifier."
+        label: "Pipeline ID"
+    }
+
+    pipeline_trigger_field {
+        desc: "Trigger configuration — defines which MQTT event activates this pipeline."
+        label: "Trigger"
+    }
+
+    pipeline_steps.desc:
+"""Ordered list of step definitions.
+Each step must have a type field: call_skill | wait_for_event | llm_loop | branch."""
+
+    pipeline_steps.label:
+"""Steps"""
+
+    ## ── pipeline_trigger fields ──────────────────────────────────────────────
+
+    pipeline_trigger_topic.desc:
+"""MQTT topic filter (supports + and # wildcards) that activates a new pipeline instance
+when a matching message is published."""
+
+    pipeline_trigger_topic.label:
+"""Topic Filter"""
+
+}
