@@ -155,6 +155,45 @@
   #toast.show { opacity: 1; transform: translateY(0); }
   #toast.ok  { border-color: var(--accent2); color: var(--accent2); }
   #toast.err { border-color: var(--danger);  color: var(--danger); }
+
+  /* ── Pipeline step builder ──────────────────────────────────────────────── */
+  .step-card {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 8px; overflow: hidden;
+  }
+  .step-header {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px; background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .step-num { color: var(--muted); font-size: 11px; min-width: 42px; }
+  .step-type-sel {
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text);
+    padding: 3px 6px; font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .step-type-sel:focus { outline: none; border-color: var(--accent); }
+  .step-body { padding: 10px 12px; display: grid; gap: 8px; }
+  .step-body .row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+  .kv-list  { display: flex; flex-direction: column; gap: 4px; }
+  .kv-row   { display: flex; gap: 5px; align-items: center; }
+  .kv-row input { flex: 1; min-width: 80px; }
+  .kv-key   { max-width: 130px; flex: 0 0 130px !important; }
+  .tools-grid { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+  .tools-grid label {
+    display: flex; align-items: center; gap: 4px;
+    background: var(--tag-bg); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 3px 8px; cursor: pointer; font-size: 11px;
+  }
+  .tools-grid label:hover { border-color: var(--accent); }
+  .tools-grid input[type=checkbox] { accent-color: var(--accent); }
+  .step-add-btn {
+    width: 100%; padding: 8px; margin-top: 4px;
+    background: none; border: 1px dashed var(--border);
+    border-radius: var(--radius); color: var(--muted); cursor: pointer;
+    font: inherit; font-size: 12px; transition: all .15s;
+  }
+  .step-add-btn:hover { border-color: var(--accent); color: var(--accent); }
   /* credentials bar is hidden — auth comes from the dashboard session */
   #cred-bar { display: none; }
 </style>
@@ -357,7 +396,10 @@
       </table>
 
       <div class="card">
-        <h3>New Pipeline</h3>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+          <h3 id="pipe-card-title">New Pipeline</h3>
+          <button id="pipe-cancel-btn" class="btn sm" style="display:none" onclick="resetPipelineEditor()">Cancel edit</button>
+        </div>
         <div class="row">
           <div class="field">
             <label>Pipeline ID</label>
@@ -368,29 +410,15 @@
             <input id="pipe-topic" type="text" placeholder="evt/hvac/anomaly">
           </div>
         </div>
+
         <div class="field">
-          <label>Steps (JSON array)</label>
-          <textarea id="pipe-steps" style="min-height:140px" placeholder='[
-  {
-    "id": "fetch_history",
-    "type": "call_skill",
-    "skill": "clickhouse.history@ch-hvac",
-    "args": {"device_id": "$.event.entity.id"},
-    "result_path": "$.history"
-  },
-  {
-    "id": "analyze",
-    "type": "llm_loop",
-    "session_profile": "hvac-triage-v1",
-    "tools": ["clickhouse.history@ch-hvac"],
-    "input": {"event": "$.event", "history": "$.history"},
-    "result_path": "$.analysis"
-  }
-]'></textarea>
-          <div class="hint">Each step needs <code>id</code> and <code>type</code> (call_skill | llm_loop | wait_for_event | branch).</div>
+          <label>Steps</label>
+          <div id="pipe-steps-list"></div>
+          <button class="step-add-btn" onclick="addStep()">+ Add Step</button>
         </div>
+
         <div class="form-actions">
-          <button class="btn primary" onclick="createPipeline()">Create</button>
+          <button id="pipe-save-btn" class="btn primary" onclick="savePipeline()">Create Pipeline</button>
           <span id="pipe-msg" class="msg"></span>
         </div>
       </div>
@@ -406,6 +434,13 @@
 
 // Same origin — no host configuration needed
 const BASE = window.location.origin + '/api/v5';
+
+// ── Shared state ─────────────────────────────────────────────────────────────
+let loadedSkills      = [];
+let loadedProfiles    = [];
+let loadedPipelines   = [];
+let pipelineSteps     = [];
+let editingPipelineId = null;  // null → create mode, string → edit mode
 
 // ── Dashboard token ──────────────────────────────────────────────────────────
 // The dashboard stores user info encrypted in localStorage using the same
@@ -506,6 +541,7 @@ function updateSkillForm() {
 
 async function loadSkills() {
   const list = await api('GET', '/agent/skills');
+  loadedSkills = list;
   document.getElementById('cnt-skills').textContent = list.length;
   const tbody = document.getElementById('skills-body');
   if (!list.length) {
@@ -570,6 +606,7 @@ async function deleteSkill(type, id) {
 
 async function loadProfiles() {
   const list = await api('GET', '/agent/session_profiles');
+  loadedProfiles = list;
   document.getElementById('cnt-profiles').textContent = list.length;
   const tbody = document.getElementById('profiles-body');
   if (!list.length) {
@@ -620,6 +657,7 @@ async function deleteProfile(name) {
 
 async function loadPipelines() {
   const list = await api('GET', '/agent/pipelines');
+  loadedPipelines = list;
   document.getElementById('cnt-pipelines').textContent = list.length;
   const tbody = document.getElementById('pipelines-body');
   if (!list.length) {
@@ -635,32 +673,12 @@ async function loadPipelines() {
       <td><code>${esc(p.pipeline_id)}</code></td>
       <td style="color:var(--muted)">${esc(trigger)}</td>
       <td>${steps}</td>
-      <td><button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button></td>
+      <td style="display:flex;gap:4px">
+        <button class="btn sm" onclick="editPipeline('${esc(p.pipeline_id)}')">edit</button>
+        <button class="btn sm danger" onclick="deletePipeline('${esc(p.pipeline_id)}')">delete</button>
+      </td>
     </tr>`;
   }).join('');
-}
-
-async function createPipeline() {
-  const id    = document.getElementById('pipe-id').value.trim();
-  const topic = document.getElementById('pipe-topic').value.trim();
-  const raw   = document.getElementById('pipe-steps').value.trim();
-
-  if (!id)    return setMsg('pipe-msg', 'Pipeline ID is required', true);
-  if (!topic) return setMsg('pipe-msg', 'Trigger topic is required', true);
-  let steps = [];
-  try { steps = JSON.parse(raw || '[]'); } catch(_) {
-    return setMsg('pipe-msg', 'Steps JSON is invalid', true);
-  }
-  try {
-    await api('POST', '/agent/pipelines', {
-      pipeline_id: id, trigger: { topic }, steps
-    });
-    setMsg('pipe-msg', 'Created ✓');
-    toast('Pipeline "' + id + '" created', 'ok');
-    await loadPipelines();
-  } catch(e) {
-    setMsg('pipe-msg', e.message, true);
-  }
 }
 
 async function deletePipeline(id) {
@@ -672,6 +690,291 @@ async function deletePipeline(id) {
   } catch(e) {
     toast(e.message, 'err');
   }
+}
+
+async function savePipeline() {
+  const id    = document.getElementById('pipe-id').value.trim();
+  const topic = document.getElementById('pipe-topic').value.trim();
+  if (!id)    return setMsg('pipe-msg', 'Pipeline ID is required', true);
+  if (!topic) return setMsg('pipe-msg', 'Trigger topic is required', true);
+  const steps = collectSteps();
+  const body  = { pipeline_id: id, trigger: { topic }, steps };
+  try {
+    if (editingPipelineId) {
+      await api('PUT', `/agent/pipelines/${encodeURIComponent(editingPipelineId)}`, body);
+      toast('Pipeline "' + id + '" updated', 'ok');
+    } else {
+      await api('POST', '/agent/pipelines', body);
+      toast('Pipeline "' + id + '" created', 'ok');
+    }
+    setMsg('pipe-msg', 'Saved ✓');
+    resetPipelineEditor();
+    await loadPipelines();
+  } catch(e) {
+    setMsg('pipe-msg', e.message, true);
+  }
+}
+
+function editPipeline(id) {
+  const pipeline = loadedPipelines.find(p => p.pipeline_id === id);
+  if (!pipeline) return toast('Pipeline not found in cache — try refreshing', 'err');
+
+  editingPipelineId = id;
+
+  document.getElementById('pipe-id').value       = pipeline.pipeline_id;
+  document.getElementById('pipe-id').readOnly    = true;
+  document.getElementById('pipe-id').style.opacity = '0.6';
+  document.getElementById('pipe-topic').value    = pipeline.trigger?.topic ?? '';
+  document.getElementById('pipe-card-title').textContent = 'Edit Pipeline: ' + id;
+  document.getElementById('pipe-save-btn').textContent   = 'Update Pipeline';
+  document.getElementById('pipe-cancel-btn').style.display = '';
+
+  pipelineSteps = (pipeline.steps ?? []).map((s, i) => deserializeStep(s, i));
+  renderSteps();
+
+  // scroll the editor into view
+  document.getElementById('pipe-card-title').closest('.card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function deserializeStep(s, i) {
+  const id   = s.id ?? ('step_' + (i + 1));
+  const type = s.type ?? 'call_skill';
+  if (type === 'call_skill') {
+    const args = s.args ? Object.entries(s.args) : [['', '']];
+    return { id, type, skill: s.skill ?? '', args, result_path: s.result_path ?? '' };
+  }
+  if (type === 'llm_loop') {
+    const input = s.input ? Object.entries(s.input) : [['event', '$.event']];
+    return { id, type, session_profile: s.session_profile ?? '', tools: s.tools ?? [], input, result_path: s.result_path ?? '' };
+  }
+  if (type === 'wait_for_event') {
+    return { id, type, topic: s.topic ?? '', where: s.where ?? '', result_path: s.result_path ?? '' };
+  }
+  return { id, type };
+}
+
+function resetPipelineEditor() {
+  editingPipelineId = null;
+
+  document.getElementById('pipe-id').value          = '';
+  document.getElementById('pipe-id').readOnly        = false;
+  document.getElementById('pipe-id').style.opacity   = '';
+  document.getElementById('pipe-topic').value        = '';
+  document.getElementById('pipe-card-title').textContent    = 'New Pipeline';
+  document.getElementById('pipe-save-btn').textContent      = 'Create Pipeline';
+  document.getElementById('pipe-cancel-btn').style.display  = 'none';
+
+  pipelineSteps = [];
+  renderSteps();
+}
+
+// ── Pipeline step editor ──────────────────────────────────────────────────────
+
+function defaultStep(type) {
+  const n = pipelineSteps.length + 1;
+  if (type === 'call_skill')     return { id: 'step_' + n, type, skill: '', args: [['', '']], result_path: '' };
+  if (type === 'llm_loop')       return { id: 'step_' + n, type, session_profile: '', tools: [], input: [['event', '$.event']], result_path: '' };
+  if (type === 'wait_for_event') return { id: 'step_' + n, type, topic: '', where: '', result_path: '' };
+  return { id: 'step_' + n, type };
+}
+
+function addStep() {
+  pipelineSteps.push(defaultStep('call_skill'));
+  renderSteps();
+}
+
+function removeStep(idx) {
+  syncAll();
+  pipelineSteps.splice(idx, 1);
+  renderSteps();
+}
+
+function moveStep(idx, dir) {
+  syncAll();
+  const t = idx + dir;
+  if (t < 0 || t >= pipelineSteps.length) return;
+  [pipelineSteps[idx], pipelineSteps[t]] = [pipelineSteps[t], pipelineSteps[idx]];
+  renderSteps();
+}
+
+function stepTypeChanged(idx) {
+  syncAll();
+  const card  = document.querySelector(`[data-step-idx="${idx}"]`);
+  const newType = card.querySelector('.step-type-sel').value;
+  const oldId   = pipelineSteps[idx].id;
+  pipelineSteps[idx] = defaultStep(newType);
+  pipelineSteps[idx].id = oldId;
+  renderStepBody(idx);
+}
+
+function renderSteps() {
+  const container = document.getElementById('pipe-steps-list');
+  container.innerHTML = '';
+  pipelineSteps.forEach((step, idx) => {
+    const card = document.createElement('div');
+    card.className = 'step-card';
+    card.dataset.stepIdx = idx;
+    card.innerHTML = stepCardHTML(step, idx);
+    container.appendChild(card);
+  });
+}
+
+function renderStepBody(idx) {
+  document.getElementById('step-body-' + idx).innerHTML =
+    stepFieldsHTML(pipelineSteps[idx], idx);
+}
+
+function stepCardHTML(step, idx) {
+  const last = pipelineSteps.length - 1;
+  const types = ['call_skill','llm_loop','wait_for_event'];
+  const typeOpts = types.map(t =>
+    `<option value="${t}"${t===step.type?' selected':''}>${t}</option>`
+  ).join('');
+  return `
+    <div class="step-header">
+      <span class="step-num">Step ${idx+1}</span>
+      <select class="step-type-sel" onchange="stepTypeChanged(${idx})">${typeOpts}</select>
+      <div style="flex:1"></div>
+      <button class="btn sm" onclick="moveStep(${idx},-1)"${idx===0?' disabled':''} title="Move up">↑</button>
+      <button class="btn sm" onclick="moveStep(${idx},1)"${idx===last?' disabled':''} title="Move down">↓</button>
+      <button class="btn sm danger" onclick="removeStep(${idx})" title="Remove">×</button>
+    </div>
+    <div class="step-body" id="step-body-${idx}">${stepFieldsHTML(step, idx)}</div>`;
+}
+
+function kvRow(k, v) {
+  return `<div class="kv-row">
+    <input type="text" class="kv-key" value="${esc(k)}" placeholder="key">
+    <input type="text" class="kv-val" value="${esc(v)}" placeholder="$.path or value">
+    <button class="btn sm danger" onclick="this.closest('.kv-row').remove()" title="Remove">×</button>
+  </div>`;
+}
+
+function addKV(idx, cls) {
+  const list = document.querySelector(`[data-step-idx="${idx}"] .${cls}`);
+  list.insertAdjacentHTML('beforeend', kvRow('', ''));
+}
+
+function stepFieldsHTML(step, idx) {
+  const idF = `<div class="field"><label>Step ID</label>
+    <input type="text" class="sf-id" value="${esc(step.id)}" placeholder="step_1"></div>`;
+
+  if (step.type === 'call_skill') {
+    const skillOpts = loadedSkills.map(s =>
+      `<option value="${esc(s.skill_id)}"${s.skill_id===step.skill?' selected':''}>${esc(s.skill_id)} (${esc(s.type)})</option>`
+    ).join('');
+    return idF + `
+      <div class="field"><label>Skill</label>
+        <select class="sf-skill">
+          <option value="">— select skill —</option>${skillOpts}
+        </select>
+      </div>
+      <div class="field"><label>Args <small style="color:var(--muted)">key → $.path or literal</small></label>
+        <div class="kv-list sf-args">${(step.args||[]).map(([k,v])=>kvRow(k,v)).join('')}</div>
+        <button class="btn sm" style="margin-top:4px" onclick="addKV(${idx},'sf-args')">+ arg</button>
+      </div>
+      <div class="field"><label>Result path <small style="color:var(--muted)">e.g. $.history</small></label>
+        <input type="text" class="sf-result" value="${esc(step.result_path)}" placeholder="$.result">
+      </div>`;
+  }
+
+  if (step.type === 'llm_loop') {
+    const profOpts = loadedProfiles.map(p =>
+      `<option value="${esc(p.name)}"${p.name===step.session_profile?' selected':''}>${esc(p.name)}</option>`
+    ).join('');
+    const toolsHTML = loadedSkills.length
+      ? loadedSkills.map(s => `<label>
+          <input type="checkbox" value="${esc(s.skill_id)}"${(step.tools||[]).includes(s.skill_id)?' checked':''}>
+          ${esc(s.skill_id)}</label>`).join('')
+      : '<span style="color:var(--muted);font-size:11px">No skills registered yet</span>';
+    return idF + `
+      <div class="field"><label>Session profile</label>
+        <select class="sf-profile">
+          <option value="">— select profile —</option>${profOpts}
+        </select>
+      </div>
+      <div class="field"><label>Tools (select skills available to the LLM)</label>
+        <div class="tools-grid sf-tools">${toolsHTML}</div>
+      </div>
+      <div class="field"><label>Input <small style="color:var(--muted)">key → $.context.path</small></label>
+        <div class="kv-list sf-input">${(step.input||[]).map(([k,v])=>kvRow(k,v)).join('')}</div>
+        <button class="btn sm" style="margin-top:4px" onclick="addKV(${idx},'sf-input')">+ input</button>
+      </div>
+      <div class="field"><label>Result path</label>
+        <input type="text" class="sf-result" value="${esc(step.result_path)}" placeholder="$.analysis">
+      </div>`;
+  }
+
+  if (step.type === 'wait_for_event') {
+    return idF + `
+      <div class="field"><label>Topic</label>
+        <input type="text" class="sf-topic" value="${esc(step.topic||'')}" placeholder="evt/cloud/incident.updated">
+      </div>
+      <div class="field"><label>Condition <small style="color:var(--muted)">optional, e.g. data.id == $.triage.id</small></label>
+        <input type="text" class="sf-where" value="${esc(step.where||'')}" placeholder="">
+      </div>
+      <div class="field"><label>Result path</label>
+        <input type="text" class="sf-result" value="${esc(step.result_path||'')}" placeholder="$.event2">
+      </div>`;
+  }
+
+  return idF;
+}
+
+function syncStep(idx) {
+  const card = document.querySelector(`[data-step-idx="${idx}"]`);
+  if (!card) return;
+  const step = pipelineSteps[idx];
+  step.id   = card.querySelector('.sf-id')?.value?.trim() ?? step.id;
+  step.type = card.querySelector('.step-type-sel')?.value ?? step.type;
+  if (step.type === 'call_skill') {
+    step.skill       = card.querySelector('.sf-skill')?.value ?? '';
+    step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
+    step.args = [...card.querySelectorAll('.sf-args .kv-row')].map(r => [
+      r.querySelector('.kv-key').value.trim(),
+      r.querySelector('.kv-val').value.trim()
+    ]);
+  } else if (step.type === 'llm_loop') {
+    step.session_profile = card.querySelector('.sf-profile')?.value ?? '';
+    step.tools = [...card.querySelectorAll('.sf-tools input:checked')].map(c => c.value);
+    step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
+    step.input = [...card.querySelectorAll('.sf-input .kv-row')].map(r => [
+      r.querySelector('.kv-key').value.trim(),
+      r.querySelector('.kv-val').value.trim()
+    ]);
+  } else if (step.type === 'wait_for_event') {
+    step.topic       = card.querySelector('.sf-topic')?.value?.trim() ?? '';
+    step.where       = card.querySelector('.sf-where')?.value?.trim() ?? '';
+    step.result_path = card.querySelector('.sf-result')?.value?.trim() ?? '';
+  }
+}
+
+function syncAll() {
+  pipelineSteps.forEach((_, idx) => syncStep(idx));
+}
+
+function collectSteps() {
+  syncAll();
+  return pipelineSteps.map(s => {
+    const out = { id: s.id, type: s.type };
+    if (s.type === 'call_skill') {
+      if (s.skill) out.skill = s.skill;
+      const args = Object.fromEntries((s.args||[]).filter(([k]) => k));
+      if (Object.keys(args).length) out.args = args;
+      if (s.result_path) out.result_path = s.result_path;
+    } else if (s.type === 'llm_loop') {
+      if (s.session_profile) out.session_profile = s.session_profile;
+      if (s.tools?.length)   out.tools = s.tools;
+      const input = Object.fromEntries((s.input||[]).filter(([k]) => k));
+      if (Object.keys(input).length) out.input = input;
+      if (s.result_path) out.result_path = s.result_path;
+    } else if (s.type === 'wait_for_event') {
+      if (s.topic)       out.topic = s.topic;
+      if (s.where)       out.where = s.where;
+      if (s.result_path) out.result_path = s.result_path;
+    }
+    return out;
+  });
 }
 
 // ── UI helpers ───────────────────────────────────────────────────────────────
