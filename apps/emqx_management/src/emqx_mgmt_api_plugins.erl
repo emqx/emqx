@@ -10,6 +10,9 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx_plugins/include/emqx_plugins.hrl").
 -include_lib("erlavro/include/erlavro.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -export([
     api_spec/0,
@@ -979,3 +982,45 @@ add_health_status(StatusInfo, #{health_status := HealthStatus}) ->
     StatusInfo#{health_status => HealthStatus};
 add_health_status(StatusInfo, _) ->
     StatusInfo.
+
+-ifdef(TEST).
+
+ensure_action_test_() ->
+    {setup,
+        fun() ->
+            meck:new(emqx_plugins, [unstick, non_strict]),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(emqx_plugins)
+        end,
+        [
+            fun ensure_action_start_propagates_error_test/0,
+            fun ensure_action_stop_propagates_error_test/0,
+            fun ensure_action_restart_propagates_enable_error_test/0,
+            fun ensure_action_success_test/0
+        ]}.
+
+ensure_action_start_propagates_error_test() ->
+    meck:expect(emqx_plugins, ensure_started, fun(_Name) -> {error, start_failed} end),
+    ?assertEqual({error, start_failed}, ensure_action(<<"demo-1.0.0">>, start, #{})).
+
+ensure_action_stop_propagates_error_test() ->
+    meck:expect(emqx_plugins, ensure_stopped, fun(_Name) -> {error, stop_failed} end),
+    ?assertEqual({error, stop_failed}, ensure_action(<<"demo-1.0.0">>, stop, #{})).
+
+ensure_action_restart_propagates_enable_error_test() ->
+    meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> {error, enable_failed} end),
+    ?assertEqual({error, enable_failed}, ensure_action(<<"demo-1.0.0">>, restart, #{})).
+
+ensure_action_success_test() ->
+    meck:expect(emqx_plugins, ensure_started, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, ensure_stopped, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, ensure_disabled, fun(_Name) -> ok end),
+    meck:expect(emqx_plugins, restart, fun(_Name) -> ok end),
+    ?assertEqual(ok, ensure_action(<<"demo-1.0.0">>, start, #{})),
+    ?assertEqual(ok, ensure_action(<<"demo-1.0.0">>, stop, #{})),
+    ?assertEqual(ok, ensure_action(<<"demo-1.0.0">>, restart, #{})).
+
+-endif.

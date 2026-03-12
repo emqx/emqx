@@ -101,4 +101,20 @@ make_name_vsn_string_test_() ->
         ?_assertEqual("foo-1.0.0", make_name_vsn_string(<<"foo">>, "1.0.0"))
     ].
 
+compare_vsn_fallback_test_() ->
+    [
+        ?_assertEqual(older, compare_vsn_fallback("1.0.0-alpha", "1.0.0-beta")),
+        ?_assertEqual(newer, compare_vsn_fallback("2.0.0", "1.9.9")),
+        ?_assertEqual(same, compare_vsn_fallback("1.0.0", "1.0.0")),
+        ?_assertEqual(older, compare_segments([], ["1"])),
+        ?_assertEqual(newer, compare_segments(["1"], [])),
+        ?_assertEqual(["1", "0", "0", "beta"], split_vsn("1.0.0-beta")),
+        ?_assertEqual({int, 10}, segment_type("10")),
+        ?_assertEqual({string, "beta"}, segment_type("Beta")),
+        ?_assertEqual(same, compare_segment({int, 1}, {int, 1})),
+        ?_assertEqual(older, compare_segment({string, "alpha"}, {string, "beta"})),
+        ?_assertEqual(newer, compare_segment({int, 1}, {string, "alpha"})),
+        ?_assertEqual(older, compare_segment({string, "alpha"}, {int, 1}))
+    ].
+
 -endif.

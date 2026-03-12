@@ -7,6 +7,9 @@
 -include("emqx_plugins.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/trace.hrl").
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -export([
     read/1,
@@ -212,3 +215,34 @@ normalize_state_item(#{<<"name_vsn">> := NameVsn, <<"enable">> := Enable}) ->
 bin(A) when is_atom(A) -> atom_to_binary(A, utf8);
 bin(L) when is_list(L) -> unicode:characters_to_binary(L, utf8);
 bin(B) when is_binary(B) -> B.
+
+-ifdef(TEST).
+
+configured_status_test_() ->
+    [
+        ?_assertEqual(not_configured, configured_status(<<"demo-1.0.0">>, [])),
+        ?_assertEqual(
+            disabled,
+            configured_status(<<"demo-1.0.0">>, [#{name_vsn => <<"demo-1.0.0">>, enable => false}])
+        ),
+        ?_assertEqual(
+            enabled,
+            configured_status(<<"demo-2.0.0">>, [
+                #{name_vsn => <<"demo-1.0.0">>, enable => false},
+                #{name_vsn => <<"demo-2.0.0">>, enable => true}
+            ])
+        ),
+        ?_assertEqual(
+            disabled,
+            configured_status(<<"demo-1.0.0">>, [
+                #{name_vsn => <<"demo-1.0.0">>, enable => true},
+                #{name_vsn => <<"demo-2.0.0">>, enable => true}
+            ])
+        ),
+        ?_assertEqual(
+            #{name_vsn => <<"demo-1.0.0">>, enable => true},
+            normalize_state_item(#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true})
+        )
+    ].
+
+-endif.

@@ -78,6 +78,21 @@ running_status_is_name_based_test() ->
         meck:unload(application)
     end.
 
+configured_normalizes_binary_key_items_test() ->
+    meck_emqx(),
+    try
+        ok = emqx_plugins:put_config_internal(states, [
+            #{<<"name_vsn">> => <<"p-1.0.0">>, <<"enable">> => true}
+        ]),
+        ?assertEqual(
+            [#{name_vsn => <<"p-1.0.0">>, enable => true}],
+            emqx_plugins:configured()
+        )
+    after
+        emqx_plugins:put_configured([]),
+        unmeck_emqx()
+    end.
+
 read_plugin_test() ->
     meck_emqx(),
     with_rand_install_dir(
