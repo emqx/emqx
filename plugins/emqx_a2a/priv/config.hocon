@@ -1,0 +1,5 @@
+request_topic_prefix = "$a2a/request/"
+provider = "openai"
+default_model = "gpt-5-mini"
+default_max_tokens = 4096
+api_key = ""
