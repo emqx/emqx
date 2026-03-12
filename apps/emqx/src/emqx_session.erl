@@ -490,6 +490,14 @@ enrich_message(
 ) ->
     _ = emqx_session_events:handle_event(ClientInfo, {dropped, Msg, no_local}),
     [];
+enrich_message(ClientInfo, MsgIn, SubOpts = #{sub_filter_ast := AST}, UpgradeQoS) ->
+    case emqx_subscription_filter:match_message(AST, MsgIn) of
+        true ->
+            enrich_message(ClientInfo, MsgIn, clean_sub_filter_subopts(SubOpts), UpgradeQoS);
+        false ->
+            _ = emqx_session_events:handle_event(ClientInfo, {dropped, MsgIn, subscription_filter}),
+            []
+    end;
 enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
     %% https://www.erlang.org/doc/system/maps.html#using-maps-as-an-alternative-to-records
     Default = #{nl => 0, qos => undefined, rap => 0, subid => undefined},
@@ -551,6 +559,12 @@ enrich_message(_ClientInfo, MsgIn, SubOpts = #{}, UpgradeQoS) ->
     ];
 enrich_message(_ClientInfo, Msg, undefined, _UpgradeQoS) ->
     [Msg].
+
+clean_sub_filter_subopts(SubOpts) ->
+    maps:without(
+        [sub_filter_ast, sub_filter_enabled, sub_filter_raw, sub_filter_source],
+        SubOpts
+    ).
 
 %%--------------------------------------------------------------------
 %% Timeouts

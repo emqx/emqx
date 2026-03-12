@@ -384,6 +384,37 @@ t_deliver_qos0(_) ->
     ?assertEqual(<<"t0">>, emqx_message:topic(Msg1)),
     ?assertEqual(<<"t1">>, emqx_message:topic(Msg2)).
 
+t_deliver_subscription_filter(_) ->
+    DroppedBefore = emqx_metrics:val_global('delivery.dropped'),
+    DroppedByFilterBefore = emqx_metrics:val_global('delivery.dropped.subscription_filter'),
+    MatchMsg = emqx_message:set_header(
+        properties,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
+        emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"payload-match">>)
+    ),
+    MissMsg = emqx_message:set_header(
+        properties,
+        #{'User-Property' => [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"10">>}]},
+        emqx_message:make(clientid, ?QOS_0, <<"t">>, <<"payload-miss">>)
+    ),
+    Session = session(#{
+        subscriptions => #{
+            <<"t">> => subopts(#{
+                sub_filter_ast => [{eq, <<"location">>, <<"roomA">>}, {gt, <<"value">>, 25.0}],
+                sub_filter_enabled => true,
+                sub_filter_raw => <<"location=roomA&value>25">>,
+                sub_filter_source => <<"t?location=roomA&value>25">>
+            })
+        }
+    }),
+    [FilteredMsg] = enrich([{deliver, <<"t">>, MatchMsg}, {deliver, <<"t">>, MissMsg}], Session),
+    ?assertEqual(<<"payload-match">>, emqx_message:payload(FilteredMsg)),
+    ?assertEqual(DroppedBefore + 1, emqx_metrics:val_global('delivery.dropped')),
+    ?assertEqual(
+        DroppedByFilterBefore + 1,
+        emqx_metrics:val_global('delivery.dropped.subscription_filter')
+    ).
+
 t_deliver_qos1(_) ->
     ok = meck:expect(emqx_broker, subscribe, fun(_, _, _) -> ok end),
     {ok, Session} = emqx_session_mem:subscribe(

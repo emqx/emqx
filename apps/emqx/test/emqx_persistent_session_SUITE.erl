@@ -456,6 +456,96 @@ t_connect_session_expiry_interval_qos2(Config) ->
     ?assertEqual({ok, 2}, maps:find(qos, Msg)),
     ok = emqtt:disconnect(Client2).
 
+t_connect_session_expiry_interval_subscription_filter(init, Config) ->
+    case ?config(persistence, Config) of
+        false ->
+            {skip, persistence_disabled};
+        ds ->
+            OldMode = emqx:get_config([mqtt, subscription_filter], disable),
+            emqx_config:put([mqtt, subscription_filter], enable),
+            [{old_subscription_filter, OldMode} | Config]
+    end;
+t_connect_session_expiry_interval_subscription_filter('end', Config) ->
+    emqx_config:put([mqtt, subscription_filter], ?config(old_subscription_filter, Config)).
+
+-doc """
+Verify that a durable session keeps replay progress when subscription filtering
+drops some stored messages.
+
+The session subscribes with a filter, goes offline, accumulates one non-matching
+message followed by one matching message, and then reconnects. Only the matching
+message should be replayed, and subsequent matching live messages should still
+be delivered.
+""".
+t_connect_session_expiry_interval_subscription_filter(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = ?config(topic, Config),
+    STopic = <<Topic/binary, "?location=roomA&value>25">>,
+    ClientId = ?config(client_id, Config),
+    MissPayload = <<"miss">>,
+    MatchPayload = <<"match">>,
+    LivePayload = <<"live">>,
+
+    {ok, Client1} = emqtt_start_and_connect(ConnFun, [
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{'Session-Expiry-Interval' => 30}}
+        | Config
+    ]),
+    %% 1. Create a durable subscription that filters on MQTT 5 User-Property values.
+    {ok, _, [?RC_GRANTED_QOS_1]} = emqtt:subscribe(Client1, STopic, ?QOS_1),
+    ok = emqtt:disconnect(Client1),
+
+    %% 2. Ensure the owning connection process is gone before publishing offline data.
+    maybe_kill_connection_process(ClientId, Config),
+
+    {ok, Pub} = emqtt_start_and_connect(ConnFun, [
+        {clientid, <<ClientId/binary, "_pub">>},
+        {proto_ver, v5}
+        | Config
+    ]),
+    Publish = fun(Payload, UserProperties) ->
+        {ok, _} = emqtt:publish(
+            Pub,
+            Topic,
+            #{'User-Property' => UserProperties},
+            Payload,
+            [{qos, ?QOS_1}]
+        )
+    end,
+    %% 3. While the subscriber is offline, persist one dropped message and one matching one.
+    Publish(
+        MissPayload,
+        [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"10">>}]
+    ),
+    Publish(
+        MatchPayload,
+        [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]
+    ),
+
+    {ok, Client2} = emqtt_start_and_connect(ConnFun, [
+        {clientid, ClientId},
+        {proto_ver, v5},
+        {properties, #{'Session-Expiry-Interval' => 30}},
+        {clean_start, false}
+        | Config
+    ]),
+    %% 4. Replay should skip the stored non-matching message and deliver the matching one.
+    [ReplayMsg] = receive_messages(1),
+    ?assertEqual({ok, MatchPayload}, maps:find(payload, ReplayMsg)),
+    ?assertEqual([], receive_messages(1, 1000)),
+
+    %% 5. Progress must continue after replay; a new matching live message is delivered too.
+    Publish(
+        LivePayload,
+        [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"30">>}]
+    ),
+    [LiveMsg] = receive_messages(1),
+    ?assertEqual({ok, LivePayload}, maps:find(payload, LiveMsg)),
+
+    ok = emqtt:disconnect(Client2),
+    ok = emqtt:disconnect(Pub).
+
 t_without_client_id(Config) ->
     ConnFun = ?config(conn_fun, Config),
     {error, {client_identifier_not_valid, _}} = emqtt_start_and_connect(ConnFun, [

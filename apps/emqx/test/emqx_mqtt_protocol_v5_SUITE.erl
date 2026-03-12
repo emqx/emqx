@@ -913,6 +913,90 @@ t_publish_properties(Config) ->
     ?assertEqual(Properties, maps:get(properties, Msg1)),
     ok = emqtt:disconnect(Client1).
 
+t_subscription_filter(init, Config) ->
+    OldMode = emqx:get_config([mqtt, subscription_filter], disable),
+    [{old_subscription_filter, OldMode} | Config];
+t_subscription_filter('end', Config) ->
+    emqx_config:put([mqtt, subscription_filter], ?config(old_subscription_filter, Config)).
+t_subscription_filter(Config) ->
+    ConnFun = ?config(conn_fun, Config),
+    Topic = <<"subscription/filter/topic">>,
+    PlainTopic = <<"subscription/filter/plain?location=roomA">>,
+    emqx_config:put([mqtt, subscription_filter], enable),
+
+    {ok, Sub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Sub),
+    {ok, Pub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(Pub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(
+        Sub, <<"subscription/filter/topic?location=roomA&value>25">>, qos1
+    ),
+    ok = emqtt:publish(
+        Pub,
+        Topic,
+        #{'User-Property' => [{<<"location">>, <<"roomB">>}, {<<"value">>, <<"30">>}]},
+        <<"miss">>,
+        [{qos, ?QOS_0}]
+    ),
+    ok = emqtt:publish(
+        Pub,
+        Topic,
+        #{'User-Property' => [{<<"location">>, <<"roomA">>}, {<<"value">>, <<"26">>}]},
+        <<"match">>,
+        [{qos, ?QOS_0}]
+    ),
+    [Matched] = receive_messages(2),
+    ?assertEqual(<<"match">>, maps:get(payload, Matched)),
+    ok = emqtt:disconnect(Sub),
+
+    {ok, QueueSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(QueueSub),
+    {ok, _} = emqtt:ConnFun(QueueSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(QueueSub, <<"$queue/subscription/filter/topic?location=roomA">>, qos1)
+    ),
+
+    {ok, QueueAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(QueueAliasSub),
+    {ok, _} = emqtt:ConnFun(QueueAliasSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            QueueAliasSub, <<"$q/subscription/filter/topic?location=roomA">>, qos1
+        )
+    ),
+
+    {ok, StreamSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(StreamSub),
+    {ok, _} = emqtt:ConnFun(StreamSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            StreamSub, <<"$stream/subscription/filter/topic?location=roomA">>, qos1
+        )
+    ),
+
+    {ok, StreamAliasSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    unlink(StreamAliasSub),
+    {ok, _} = emqtt:ConnFun(StreamAliasSub),
+    ?assertMatch(
+        {'EXIT', {{shutdown, {disconnected, ?RC_TOPIC_FILTER_INVALID, _}}, _}},
+        catch emqtt:subscribe(
+            StreamAliasSub, <<"$s/subscription/filter/topic?location=roomA">>, qos1
+        )
+    ),
+
+    emqx_config:put([mqtt, subscription_filter], disable),
+    {ok, PlainSub} = emqtt:start_link([{proto_ver, v5} | Config]),
+    {ok, _} = emqtt:ConnFun(PlainSub),
+    {ok, _, [?QOS_1]} = emqtt:subscribe(PlainSub, PlainTopic, qos1),
+    ok = emqtt:publish(Pub, PlainTopic, #{}, <<"plain">>, [{qos, ?QOS_0}]),
+    [PlainMatched] = receive_messages(1),
+    ?assertEqual(<<"plain">>, maps:get(payload, PlainMatched)),
+    ok = emqtt:disconnect(PlainSub),
+    ok = emqtt:disconnect(Pub).
+
 t_publish_overlapping_subscriptions(Config) ->
     ConnFun = ?config(conn_fun, Config),
     Topic = nth(1, ?TOPICS),

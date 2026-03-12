@@ -614,6 +614,7 @@ reserved_idx('messages.transformation_succeeded') -> 98;
 reserved_idx('messages.transformation_failed') -> 99;
 reserved_idx('rules.matched') -> 100;
 reserved_idx('actions.executed') -> 101;
+reserved_idx('delivery.dropped.subscription_filter') -> 102;
 reserved_idx(_) -> undefined.
 
 all_metrics() ->
@@ -726,7 +727,9 @@ delivery_metrics() ->
         {counter, 'delivery.dropped.too_large', ?DESC("delivery_dropped_too_large")},
         {counter, 'delivery.dropped.qos0_msg', ?DESC("delivery_dropped_qos0_msg")},
         {counter, 'delivery.dropped.queue_full', ?DESC("delivery_dropped_queue_full")},
-        {counter, 'delivery.dropped.expired', ?DESC("delivery_dropped_expired")}
+        {counter, 'delivery.dropped.expired', ?DESC("delivery_dropped_expired")},
+        {counter, 'delivery.dropped.subscription_filter',
+            ?DESC("delivery_dropped_subscription_filter")}
     ].
 
 %% Client Lifecycle metrics
