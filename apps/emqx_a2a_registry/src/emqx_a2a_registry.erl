@@ -129,7 +129,7 @@ format_card(Card0, CardRaw, ClientId) ->
         Card0
     ),
     Status = lookup_agent_status(ClientId),
-    Card#{<<"status">> => Status, <<"raw">> => CardRaw}.
+    Card#{<<"id">> => ClientId, <<"status">> => Status, <<"raw">> => CardRaw}.
 
 agent_card_clientid(OrgId, UnitId, AgentId) ->
     emqx_topic:join([OrgId, UnitId, AgentId]).

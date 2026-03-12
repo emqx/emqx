@@ -198,6 +198,12 @@ t_smoke_01(_TCConfig) ->
         }}
     ),
 
+    %% Unpublish card by publishing empty retained message
+    ?assertMatch([_], emqx_a2a_registry_cth:all_cards()),
+    {ok, _} = publish_card(Agent2, ?ORG_ID, ?UNIT_ID, ?AGENT_ID, <<"">>),
+    ?assertReceive({publish, _}),
+    ?assertMatch([], emqx_a2a_registry_cth:all_cards()),
+
     %% Feature is enabled, but message doesn't have the `retain` flag.  Must be rejected.
     {ok, _} = emqtt:publish(
         Agent2,
