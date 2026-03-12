@@ -124,7 +124,7 @@ runtime_apply_delete(Id, State0) ->
         end,
     State0#{runtime_filter_owner => FilterOwner}.
 
-runtime_apply_activate(Id, Model, State0) ->
+runtime_apply_activate(_Id, Model, State0) ->
     case emqx_unsgov_model:compile(Model) of
         {ok, Compiled} ->
             runtime_apply_put_compiled(Compiled, true, State0);
