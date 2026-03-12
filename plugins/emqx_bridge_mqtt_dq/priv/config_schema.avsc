@@ -1,6 +1,6 @@
 {
   "type": "record",
-  "name": "ExtendedConfig",
+  "name": "MQTTBridgeDqConfigSchema",
   "fields": [
     {
       "name": "bridges",
