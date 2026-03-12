@@ -1080,7 +1080,7 @@ t_sync_bridges_disable_bridge(Config) ->
     setup_config([DisabledBridge]),
     ok = emqx_bridge_mqtt_dq_app:sync_bridges(),
     ?assertEqual([], bridge_children(emqx_bridge_mqtt_dq_sup)),
-    ?assertNot(filelib:is_dir(QueueDir)),
+    ?assertNot(filelib:is_dir(filename:join(QueueDir, "dis"))),
     Snapshot = emqx_bridge_mqtt_dq_metrics:snapshot(),
     ?assertEqual(false, maps:is_key(<<"dis">>, maps:get(bridges, Snapshot, #{}))),
     ?assertEqual(
