@@ -39,6 +39,7 @@
 
 %% Handler callbacks
 -export([
+    '/agent/ui'/2,
     '/agent/skills'/2,
     '/agent/skills/:type/:id'/2,
     '/agent/session_profiles'/2,
@@ -60,6 +61,7 @@ api_spec() ->
 
 paths() ->
     [
+        "/agent/ui",
         "/agent/skills",
         "/agent/skills/:type/:id",
         "/agent/session_profiles",
@@ -72,12 +74,22 @@ paths() ->
 %% Schema definitions (Swagger)
 %%--------------------------------------------------------------------
 
+schema("/agent/ui") ->
+    #{
+        'operationId' => '/agent/ui',
+        get => #{
+            tags => ?TAGS,
+            security => [],
+            description => ?DESC(ui_get),
+            responses => #{200 => <<"HTML page">>}
+        }
+    };
 schema("/agent/skills") ->
     #{
         'operationId' => '/agent/skills',
         get => #{
             tags => ?TAGS,
-            description => <<"List all registered skill instances">>,
+            description => ?DESC(skills_list),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     hoconsc:array(emqx_agent_schema:skill_entry_type()),
@@ -87,11 +99,7 @@ schema("/agent/skills") ->
         },
         post => #{
             tags => ?TAGS,
-            description =>
-                <<
-                    "Register a new skill instance. The `type` field selects the skill "
-                    "implementation: message.publish | http | kv | clickhouse.history."
-                >>,
+            description => ?DESC(skills_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_agent_schema:skill_create_type(),
                 skill_create_example()
@@ -99,7 +107,7 @@ schema("/agent/skills") ->
             responses => #{
                 201 => <<"Skill instance registered">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Invalid or incomplete skill configuration">>
+                    ['BAD_REQUEST'], ?DESC(skill_bad_request)
                 )
             }
         }
@@ -109,27 +117,23 @@ schema("/agent/skills/:type/:id") ->
         'operationId' => '/agent/skills/:type/:id',
         get => #{
             tags => ?TAGS,
-            description => <<"Get a registered skill instance by type and ID">>,
+            description => ?DESC(skill_get),
             parameters => [skill_type_param(), skill_id_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     emqx_agent_schema:skill_entry_type(),
                     skill_entry_example()
                 ),
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Skill not found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC(skill_not_found))
             }
         },
         delete => #{
             tags => ?TAGS,
-            description =>
-                <<
-                    "Unregister a skill instance. For kv.lookup or kv.put, both variants "
-                    "are removed together."
-                >>,
+            description => ?DESC(skill_delete),
             parameters => [skill_type_param(), skill_id_param()],
             responses => #{
                 204 => <<"Skill instance removed">>,
-                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], <<"Skill not found">>)
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'], ?DESC(skill_not_found))
             }
         }
     };
@@ -138,7 +142,7 @@ schema("/agent/session_profiles") ->
         'operationId' => '/agent/session_profiles',
         get => #{
             tags => ?TAGS,
-            description => <<"List all registered session profiles">>,
+            description => ?DESC(session_profiles_list),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     hoconsc:array(emqx_agent_schema:session_profile_type()),
@@ -148,12 +152,7 @@ schema("/agent/session_profiles") ->
         },
         post => #{
             tags => ?TAGS,
-            description =>
-                <<
-                    "Create or replace a session profile. Session profiles hold LLM "
-                    "connection settings (api_key, base_url, model, instructions) that "
-                    "pipeline llm_loop steps reference by name."
-                >>,
+            description => ?DESC(session_profiles_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_agent_schema:session_profile_type(),
                 session_profile_example()
@@ -161,7 +160,7 @@ schema("/agent/session_profiles") ->
             responses => #{
                 201 => <<"Profile created">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Missing required fields">>
+                    ['BAD_REQUEST'], ?DESC(profile_bad_request)
                 )
             }
         }
@@ -171,7 +170,7 @@ schema("/agent/session_profiles/:name") ->
         'operationId' => '/agent/session_profiles/:name',
         get => #{
             tags => ?TAGS,
-            description => <<"Get a session profile by name">>,
+            description => ?DESC(session_profile_get),
             parameters => [profile_name_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -179,13 +178,13 @@ schema("/agent/session_profiles/:name") ->
                     session_profile_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Profile not found">>
+                    ['NOT_FOUND'], ?DESC(profile_not_found)
                 )
             }
         },
         put => #{
             tags => ?TAGS,
-            description => <<"Replace a session profile">>,
+            description => ?DESC(session_profile_put),
             parameters => [profile_name_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_agent_schema:session_profile_type(),
@@ -197,18 +196,18 @@ schema("/agent/session_profiles/:name") ->
                     session_profile_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Missing required fields">>
+                    ['BAD_REQUEST'], ?DESC(profile_bad_request)
                 )
             }
         },
         delete => #{
             tags => ?TAGS,
-            description => <<"Delete a session profile">>,
+            description => ?DESC(session_profile_delete),
             parameters => [profile_name_param()],
             responses => #{
                 204 => <<"Profile deleted">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Profile not found">>
+                    ['NOT_FOUND'], ?DESC(profile_not_found)
                 )
             }
         }
@@ -218,7 +217,7 @@ schema("/agent/pipelines") ->
         'operationId' => '/agent/pipelines',
         get => #{
             tags => ?TAGS,
-            description => <<"List all registered pipeline definitions">>,
+            description => ?DESC(pipelines_list),
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     hoconsc:array(emqx_agent_schema:pipeline_type()),
@@ -228,12 +227,7 @@ schema("/agent/pipelines") ->
         },
         post => #{
             tags => ?TAGS,
-            description =>
-                <<
-                    "Register a pipeline definition. Once registered, the pipeline runtime "
-                    "will start a new instance whenever a message is published on the "
-                    "trigger topic."
-                >>,
+            description => ?DESC(pipelines_create),
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_agent_schema:pipeline_type(),
                 pipeline_example()
@@ -241,7 +235,7 @@ schema("/agent/pipelines") ->
             responses => #{
                 201 => <<"Pipeline registered">>,
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Invalid pipeline definition">>
+                    ['BAD_REQUEST'], ?DESC(pipeline_bad_request)
                 )
             }
         }
@@ -251,7 +245,7 @@ schema("/agent/pipelines/:id") ->
         'operationId' => '/agent/pipelines/:id',
         get => #{
             tags => ?TAGS,
-            description => <<"Get a pipeline definition by ID">>,
+            description => ?DESC(pipeline_get),
             parameters => [pipeline_id_param()],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
@@ -259,13 +253,13 @@ schema("/agent/pipelines/:id") ->
                     pipeline_example()
                 ),
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Pipeline not found">>
+                    ['NOT_FOUND'], ?DESC(pipeline_not_found)
                 )
             }
         },
         put => #{
             tags => ?TAGS,
-            description => <<"Replace a pipeline definition">>,
+            description => ?DESC(pipeline_put),
             parameters => [pipeline_id_param()],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 emqx_agent_schema:pipeline_type(),
@@ -277,22 +271,36 @@ schema("/agent/pipelines/:id") ->
                     pipeline_example()
                 ),
                 400 => emqx_dashboard_swagger:error_codes(
-                    ['BAD_REQUEST'], <<"Invalid pipeline definition">>
+                    ['BAD_REQUEST'], ?DESC(pipeline_bad_request)
                 )
             }
         },
         delete => #{
             tags => ?TAGS,
-            description => <<"Unregister a pipeline definition">>,
+            description => ?DESC(pipeline_delete),
             parameters => [pipeline_id_param()],
             responses => #{
                 204 => <<"Pipeline removed">>,
                 404 => emqx_dashboard_swagger:error_codes(
-                    ['NOT_FOUND'], <<"Pipeline not found">>
+                    ['NOT_FOUND'], ?DESC(pipeline_not_found)
                 )
             }
         }
     }.
+
+%%--------------------------------------------------------------------
+%% Handler — UI
+%%--------------------------------------------------------------------
+
+'/agent/ui'(get, _Params) ->
+    PrivDir = code:priv_dir(emqx_agent),
+    HtmlFile = filename:join(PrivDir, "index.html"),
+    case file:read_file(HtmlFile) of
+        {ok, Html} ->
+            {200, #{<<"content-type">> => <<"text/html; charset=utf-8">>}, Html};
+        {error, Reason} ->
+            ?INTERNAL_ERROR(iolist_to_binary(io_lib:format("Cannot read UI: ~p", [Reason])))
+    end.
 
 %%--------------------------------------------------------------------
 %% Handlers — Skills
@@ -581,11 +589,7 @@ skill_type_param() ->
         hoconsc:mk(binary(), #{
             required => true,
             in => path,
-            desc =>
-                <<
-                    "Registry skill type: message.publish | http | kv.lookup | kv.put | "
-                    "clickhouse.history"
-                >>
+            desc => ?DESC(param_skill_type)
         })}.
 
 skill_id_param() ->
@@ -593,7 +597,7 @@ skill_id_param() ->
         hoconsc:mk(binary(), #{
             required => true,
             in => path,
-            desc => <<"Skill instance ID">>
+            desc => ?DESC(param_skill_id)
         })}.
 
 profile_name_param() ->
@@ -601,7 +605,7 @@ profile_name_param() ->
         hoconsc:mk(binary(), #{
             required => true,
             in => path,
-            desc => <<"Session profile name">>
+            desc => ?DESC(param_profile_name)
         })}.
 
 pipeline_id_param() ->
@@ -609,7 +613,7 @@ pipeline_id_param() ->
         hoconsc:mk(binary(), #{
             required => true,
             in => path,
-            desc => <<"Pipeline definition ID">>
+            desc => ?DESC(param_pipeline_id)
         })}.
 
 %%--------------------------------------------------------------------

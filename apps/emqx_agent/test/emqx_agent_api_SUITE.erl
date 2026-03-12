@@ -48,6 +48,16 @@ end_per_testcase(_TestCase, _Config) ->
     ok = emqx_agent_pipeline_registry:delete_all().
 
 %%--------------------------------------------------------------------
+%% UI
+%%--------------------------------------------------------------------
+
+t_ui_returns_html(_Config) ->
+    {ok, Code, Body} = api_get([agent, ui]),
+    ?assertEqual(200, Code),
+    ?assert(is_binary(Body)),
+    ?assert(binary:match(Body, <<"<!DOCTYPE html">>) =/= nomatch).
+
+%%--------------------------------------------------------------------
 %% Skills — individual type tests
 %%--------------------------------------------------------------------
 

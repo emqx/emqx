@@ -34,7 +34,7 @@ roots() -> [].
 tags() -> [<<"Agent">>].
 
 %%--------------------------------------------------------------------
-%% fields/1 — skill read response (what the registry stores, minus context)
+%% fields/1 — skill read response (what the registry stores)
 %%--------------------------------------------------------------------
 
 fields(skill_entry) ->
@@ -42,32 +42,32 @@ fields(skill_entry) ->
         {id,
             mk(binary(), #{
                 required => true,
-                desc => <<"Skill instance ID">>
+                desc => ?DESC(skill_entry_id)
             })},
         {type,
             mk(binary(), #{
                 required => true,
-                desc => <<"Skill type identifier (e.g. message.publish, http, kv.lookup)">>
+                desc => ?DESC(skill_entry_type)
             })},
         {display_name,
             mk(binary(), #{
                 required => false,
-                desc => <<"Human-readable display name">>
+                desc => ?DESC(skill_entry_display_name)
             })},
         {description,
             mk(binary(), #{
                 required => false,
-                desc => <<"Description shown to the LLM as part of the tool manifest">>
+                desc => ?DESC(skill_entry_description)
             })},
         {input_schema,
             mk(map(), #{
                 required => false,
-                desc => <<"JSON Schema describing input arguments">>
+                desc => ?DESC(skill_entry_input_schema)
             })},
         {output_schema,
             mk(map(), #{
                 required => false,
-                desc => <<"JSON Schema describing the skill response">>
+                desc => ?DESC(skill_entry_output_schema)
             })}
     ];
 %%--------------------------------------------------------------------
@@ -79,26 +79,22 @@ fields(skill_publish_create) ->
         {type,
             mk(enum(['message.publish']), #{
                 required => true,
-                desc => <<"Skill type discriminator">>
+                desc => ?DESC(skill_type_discriminator)
             })},
         {id,
             mk(binary(), #{
                 required => true,
-                desc => <<"Unique skill instance ID">>
+                desc => ?DESC(skill_id)
             })},
         {desc,
             mk(binary(), #{
                 required => true,
-                desc => <<"Human-readable description">>
+                desc => ?DESC(skill_human_desc)
             })},
         {topic_prefix,
             mk(binary(), #{
                 required => true,
-                desc =>
-                    <<
-                        "MQTT topic prefix prepended to every agent-supplied topic suffix. "
-                        "Constrains the skill to a specific namespace."
-                    >>
+                desc => ?DESC(skill_publish_topic_prefix)
             })}
     ];
 fields(skill_http_create) ->
@@ -106,43 +102,43 @@ fields(skill_http_create) ->
         {type,
             mk(enum([http]), #{
                 required => true,
-                desc => <<"Skill type discriminator">>
+                desc => ?DESC(skill_type_discriminator)
             })},
         {id,
             mk(binary(), #{
                 required => true,
-                desc => <<"Unique skill instance ID">>
+                desc => ?DESC(skill_id)
             })},
         {desc,
             mk(binary(), #{
                 required => true,
-                desc => <<"Human-readable description">>
+                desc => ?DESC(skill_human_desc)
             })},
         {method,
             mk(enum([get, post, put, patch, delete]), #{
                 required => true,
-                desc => <<"HTTP method">>
+                desc => ?DESC(skill_http_method)
             })},
         {url,
             mk(binary(), #{
                 required => true,
-                desc => <<"Base URL; query string appended for GET, JSON body for others">>
+                desc => ?DESC(skill_http_url)
             })},
         {headers,
             mk(map(), #{
                 required => false,
                 default => #{},
-                desc => <<"Static HTTP headers sent with every request">>
+                desc => ?DESC(skill_http_headers)
             })},
         {input_schema,
             mk(map(), #{
                 required => true,
-                desc => <<"JSON Schema for the skill input arguments">>
+                desc => ?DESC(skill_input_schema)
             })},
         {output_schema,
             mk(map(), #{
                 required => true,
-                desc => <<"JSON Schema for the skill response">>
+                desc => ?DESC(skill_output_schema)
             })}
     ];
 fields(skill_kv_create) ->
@@ -150,32 +146,28 @@ fields(skill_kv_create) ->
         {type,
             mk(enum([kv]), #{
                 required => true,
-                desc =>
-                    <<
-                        "Skill type discriminator. Creates kv.lookup (always) and "
-                        "kv.put (when allow_put is true)."
-                    >>
+                desc => ?DESC(skill_kv_type)
             })},
         {id,
             mk(binary(), #{
                 required => true,
-                desc => <<"Unique skill instance ID">>
+                desc => ?DESC(skill_id)
             })},
         {desc,
             mk(binary(), #{
                 required => true,
-                desc => <<"Human-readable description of the stored objects">>
+                desc => ?DESC(skill_kv_desc)
             })},
         {data_schema,
             mk(map(), #{
                 required => true,
-                desc => <<"JSON Schema for the stored value type">>
+                desc => ?DESC(skill_kv_data_schema)
             })},
         {allow_put,
             mk(boolean(), #{
                 required => false,
                 default => false,
-                desc => <<"When true, a kv.put skill is registered alongside kv.lookup">>
+                desc => ?DESC(skill_kv_allow_put)
             })}
     ];
 fields(skill_clickhouse_create) ->
@@ -183,32 +175,32 @@ fields(skill_clickhouse_create) ->
         {type,
             mk(enum(['clickhouse.history']), #{
                 required => true,
-                desc => <<"Skill type discriminator">>
+                desc => ?DESC(skill_type_discriminator)
             })},
         {id,
             mk(binary(), #{
                 required => true,
-                desc => <<"Unique skill instance ID">>
+                desc => ?DESC(skill_id)
             })},
         {desc,
             mk(binary(), #{
                 required => true,
-                desc => <<"Human-readable description">>
+                desc => ?DESC(skill_human_desc)
             })},
         {query,
             mk(binary(), #{
                 required => true,
-                desc => <<"ClickHouse SQL template; use ${variable} placeholders for input args">>
+                desc => ?DESC(skill_ch_query)
             })},
         {input_schema,
             mk(map(), #{
                 required => true,
-                desc => <<"JSON Schema for query parameters">>
+                desc => ?DESC(skill_input_schema)
             })},
         {output_schema,
             mk(map(), #{
                 required => true,
-                desc => <<"JSON Schema for query results">>
+                desc => ?DESC(skill_output_schema)
             })}
     ];
 %%--------------------------------------------------------------------
@@ -220,34 +212,34 @@ fields(session_profile) ->
         {name,
             mk(binary(), #{
                 required => true,
-                desc => <<"Profile name, used in llm_loop step session_profile field">>
+                desc => ?DESC(session_profile_name)
             })},
         {api_key,
             mk(binary(), #{
                 required => true,
-                desc => <<"LLM provider API key">>
+                desc => ?DESC(session_profile_api_key)
             })},
         {base_url,
             mk(binary(), #{
                 required => true,
-                desc => <<"LLM API base URL (e.g. https://api.openai.com/v1)">>
+                desc => ?DESC(session_profile_base_url)
             })},
         {model,
             mk(binary(), #{
                 required => true,
-                desc => <<"Model identifier (e.g. gpt-4o, llama3)">>
+                desc => ?DESC(session_profile_model)
             })},
         {instructions,
             mk(binary(), #{
                 required => false,
                 default => <<"You are a helpful assistant.">>,
-                desc => <<"System prompt injected at the start of every session">>
+                desc => ?DESC(session_profile_instructions)
             })},
         {output_schema,
             mk(map(), #{
                 required => false,
                 default => #{<<"type">> => <<"object">>},
-                desc => <<"JSON Schema constraining the final LLM response structure">>
+                desc => ?DESC(session_profile_output_schema)
             })}
     ];
 %%--------------------------------------------------------------------
@@ -259,22 +251,18 @@ fields(pipeline) ->
         {pipeline_id,
             mk(binary(), #{
                 required => true,
-                desc => <<"Unique pipeline definition identifier">>
+                desc => ?DESC(pipeline_id)
             })},
         {trigger,
             mk(ref(pipeline_trigger), #{
                 required => true,
-                desc => <<"Trigger configuration — defines which event activates this pipeline">>
+                desc => ?DESC(pipeline_trigger_field)
             })},
         {steps,
             mk(hoconsc:array(map()), #{
                 required => true,
                 default => [],
-                desc =>
-                    <<
-                        "Ordered list of step definitions. Each step has a type field: "
-                        "call_skill | wait_for_event | llm_loop | branch."
-                    >>
+                desc => ?DESC(pipeline_steps)
             })}
     ];
 fields(pipeline_trigger) ->
@@ -282,16 +270,24 @@ fields(pipeline_trigger) ->
         {topic,
             mk(binary(), #{
                 required => true,
-                desc =>
-                    <<
-                        "MQTT topic filter (supports + and # wildcards) that activates "
-                        "a new pipeline instance when a matching message is published"
-                    >>
+                desc => ?DESC(pipeline_trigger_topic)
             })}
     ];
 fields(_) ->
     [].
 
+%%--------------------------------------------------------------------
+%% desc/1 — struct-level descriptions
+%%--------------------------------------------------------------------
+
+desc(skill_entry) -> ?DESC(skill_entry);
+desc(skill_publish_create) -> ?DESC(skill_publish_create);
+desc(skill_http_create) -> ?DESC(skill_http_create);
+desc(skill_kv_create) -> ?DESC(skill_kv_create);
+desc(skill_clickhouse_create) -> ?DESC(skill_clickhouse_create);
+desc(session_profile) -> ?DESC(session_profile);
+desc(pipeline) -> ?DESC(pipeline);
+desc(pipeline_trigger) -> ?DESC(pipeline_trigger);
 desc(_) -> undefined.
 
 %%--------------------------------------------------------------------
