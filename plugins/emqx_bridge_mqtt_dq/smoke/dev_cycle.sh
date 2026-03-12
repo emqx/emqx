@@ -138,7 +138,7 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "remote_qos": "${qos}",
       "remote_retain": "${retain}",
       "queue": {
-        "dir": "bridge_mqtt_dq/smoke",
+        "base_dir": "emqx_bridge_mqtt_dq",
         "seg_bytes": "10MB",
         "max_total_bytes": "50MB"
       }

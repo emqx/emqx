@@ -320,7 +320,7 @@ make_connector_config(Overrides) ->
         enqueue_timeout_ms => 5000,
         remote_qos => 1,
         remote_retain => false,
-        queue_dir => <<"/tmp/unused">>,
+        queue_base_dir => <<"/tmp/unused">>,
         seg_bytes => 1048576,
         max_total_bytes => 10485760
     },

@@ -144,7 +144,7 @@ HTTP_CODE=$(curl -sf -o /dev/null -w '%{http_code}' \
       "remote_retain": "${retain}",
       "max_inflight": 64,
       "queue": {
-        "dir": "bridge_mqtt_dq/bench",
+        "base_dir": "emqx_bridge_mqtt_dq",
         "seg_bytes": "10MB",
         "max_total_bytes": "100MB"
       }

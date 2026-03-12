@@ -143,7 +143,7 @@ parse_bridge(Name, Raw, Remotes) when is_map(Raw) ->
             remote_retain => parse_remote_retain(
                 get_val(<<"remote_retain">>, Raw, <<"${retain}">>)
             ),
-            queue_dir => parse_queue_dir(get_val(<<"queue">>, Raw, #{}), Name),
+            queue_base_dir => parse_queue_base_dir(get_val(<<"queue">>, Raw, #{})),
             seg_bytes => parse_bytes(
                 get_nested(
                     [<<"queue">>, <<"seg_bytes">>], Raw, <<"100MB">>
@@ -319,17 +319,19 @@ parse_clientid_prefix(<<>>, Name) ->
 parse_clientid_prefix(Val, _Name) ->
     to_bin(Val).
 
-parse_queue_dir(#{} = QueueConf, BridgeName) ->
-    Default = iolist_to_binary([<<"bridge_mqtt_dq/">>, BridgeName]),
-    resolve_data_dir(to_bin(get_val(<<"dir">>, QueueConf, Default)));
-parse_queue_dir(_, BridgeName) ->
-    resolve_data_dir(iolist_to_binary([<<"bridge_mqtt_dq/">>, BridgeName])).
+parse_queue_base_dir(#{} = QueueConf) ->
+    resolve_data_dir(to_bin(get_val(<<"base_dir">>, QueueConf, <<>>)));
+parse_queue_base_dir(_) ->
+    resolve_data_dir(<<>>).
 
 resolve_data_dir(<<"/", _/binary>> = AbsPath) ->
     AbsPath;
+resolve_data_dir(<<>>) ->
+    %% Default base dir when not specified
+    resolve_data_dir(<<"emqx_bridge_mqtt_dq">>);
 resolve_data_dir(RelPath) ->
-    DataDir = to_bin(emqx:data_dir()),
-    iolist_to_binary([DataDir, "/", RelPath]).
+    DataDir = emqx:data_dir(),
+    to_bin(filename:join(DataDir, binary_to_list(RelPath))).
 
 parse_bytes(V) when is_integer(V) -> V;
 parse_bytes(V) when is_binary(V) ->

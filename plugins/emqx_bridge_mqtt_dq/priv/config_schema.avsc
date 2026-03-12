@@ -82,13 +82,13 @@
             },
             {
               "name": "queue",
-              "default": {"dir": "", "seg_bytes": "100MB", "max_total_bytes": "1GB"},
+              "default": {"base_dir": "", "seg_bytes": "100MB", "max_total_bytes": "1GB"},
               "type": {
                 "type": "record",
                 "name": "QueueConfig",
                 "fields": [
                   {
-                    "name": "dir",
+                    "name": "base_dir",
                     "type": "string",
                     "default": ""
                   },

@@ -182,7 +182,7 @@ which makes the misconfiguration visible in both logs and the status API.
 
 | Field             | Type   | Default                        | Description                                      |
 |-------------------|--------|--------------------------------|--------------------------------------------------|
-| `queue.dir`       | string | `"bridge_mqtt_dq/<name>"` | Directory for disk queue segment files. Relative paths are resolved against EMQX `data_dir`. Absolute paths are used as-is. |
+| `queue.base_dir`  | string | `"emqx_bridge_mqtt_dq"` | Base directory for disk queue segment files. The bridge name and partition index are automatically appended (i.e. `<base_dir>/<bridge_name>/<index>`). Relative paths are resolved against EMQX `data_dir`. Absolute paths are used as-is. |
 | `queue.seg_bytes` | string | `"100MB"`                      | Maximum size per queue segment file.              |
 | `queue.max_total_bytes` | string | `"1GB"`                  | Maximum disk queue size **per partition**. Each bridge uses `buffer_pool_size` partitions (default 4), so the worst-case total disk usage is `buffer_pool_size` x this value. Oldest messages are discarded when exceeded. |
 
@@ -407,12 +407,13 @@ messages can be dropped. Apply bridge-impacting changes during low traffic.
 3. Monitor Dashboard status and logs for restart/reconnect errors.
 4. For critical pipelines, validate end-to-end delivery after the change.
 
-### Changing `queue.dir`
+### Changing `queue.base_dir`
 
-Changing `queue.dir` on an enabled bridge restarts the bridge with the new
-directory. The old directory is **not** automatically purged — it remains on
-disk as orphaned data. If the old directory is no longer needed, remove it
-manually after verifying the bridge is running on the new path.
+Changing `queue.base_dir` on an enabled bridge restarts the bridge with the new
+directory. The actual queue path is `<base_dir>/<bridge_name>/<index>`. The old
+directory is **not** automatically purged — it remains on disk as orphaned data.
+If the old directory is no longer needed, remove it manually after verifying the
+bridge is running on the new path.
 
 ### Changing `buffer_pool_size`
 
@@ -421,8 +422,8 @@ Messages are assigned to partitions by `erlang:phash2(Topic, buffer_pool_size)`.
 Changing this value has important side effects:
 
 1. **Shrinking the pool** (e.g. 8 -> 4): partitions with indices >= new size
-   are no longer consumed. Their old files remain under `queue.dir` and need
-   manual cleanup.
+   are no longer consumed. Their old files remain under `queue.base_dir` and
+   need manual cleanup.
 
 2. **Growing the pool** (e.g. 4 -> 8): the hash space changes, so topics that
    previously mapped to partition N may now map to partition M. Messages already
@@ -521,7 +522,7 @@ grows without bound, increasing memory usage. This is a sign that the bridge
 cannot keep up with the incoming message rate.
 
 **Mitigation**: increase `buffer_pool_size` to spread load, use faster storage
-for `queue.dir`, or reduce the message rate for matched topics.
+for `queue.base_dir`, or reduce the message rate for matched topics.
 
 Note: QoS 0 local publishes never block — they are enqueued asynchronously with
 no backpressure applied to the publishing session.

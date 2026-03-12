@@ -93,7 +93,6 @@ t_enqueue_ack(Config) ->
 t_no_flush_without_connector(Config) ->
     QueueDir = ?config(queue_dir, Config),
     BridgeConfig = make_bridge_config(<<"no_conn">>, QueueDir, #{pool_size => 1}),
-    ok = filelib:ensure_path(binary_to_list(QueueDir) ++ "/0"),
     {ok, Buf} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf),
     emqx_bridge_mqtt_dq_buffer:enqueue(Buf, make_item(1), no_ack),
@@ -215,10 +214,10 @@ make_item(Seq) ->
         properties => #{}
     }.
 
-make_bridge_config(Name, QueueDir, Overrides) ->
+make_bridge_config(Name, QueueBaseDir, Overrides) ->
     Default = #{
         name => Name,
-        queue_dir => QueueDir,
+        queue_base_dir => QueueBaseDir,
         seg_bytes => 1048576,
         max_total_bytes => 10485760,
         pool_size => 1,
@@ -231,7 +230,6 @@ start_buffer_with_fake_conn(Config, BridgeName, Overrides) ->
     PoolSize = maps:get(pool_size, Overrides, 1),
     BridgeConfig = make_bridge_config(BridgeName, QueueDir, Overrides#{pool_size => PoolSize}),
     {ConnSup, _ConnPid} = start_fake_conn_sup(BridgeName, PoolSize),
-    ok = filelib:ensure_path(binary_to_list(QueueDir) ++ "/0"),
     {ok, Buf} = emqx_bridge_mqtt_dq_buffer:start_link(BridgeConfig, 0),
     unlink(Buf),
     {Buf, ConnSup}.

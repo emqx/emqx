@@ -270,7 +270,7 @@ t_disk_queue_persistence(Config) ->
     BridgeConfig = make_bridge_config(<<"persist">>, Port, #{
         filter_topic => <<"persist/#">>,
         remote_topic => <<"${topic}">>,
-        queue_dir => list_to_binary(QueueDir)
+        queue_base_dir => list_to_binary(QueueDir)
     }),
 
     %% Phase 1: Start with connectors pointing to a bad port (won't connect).
@@ -733,7 +733,7 @@ t_buffered_reported_immediately_after_open(Config) ->
     Bridge = make_bridge_config(<<"buffered_open">>, Port, #{
         filter_topic => <<"buffered/open/#">>,
         remote_topic => <<"${topic}">>,
-        queue_dir => list_to_binary(QueueDir),
+        queue_base_dir => list_to_binary(QueueDir),
         server => "127.0.0.1:19999"
     }),
     setup_config([Bridge]),
@@ -781,7 +781,7 @@ t_metrics_reset_refreshes_buffered(Config) ->
     Bridge = make_bridge_config(<<"buffered_reset">>, Port, #{
         filter_topic => <<"buffered/reset/#">>,
         remote_topic => <<"${topic}">>,
-        queue_dir => list_to_binary(QueueDir),
+        queue_base_dir => list_to_binary(QueueDir),
         server => "127.0.0.1:19999"
     }),
     setup_config([Bridge]),
@@ -814,6 +814,40 @@ t_metrics_reset_refreshes_buffered(Config) ->
 
     ok = emqtt:disconnect(Pub),
     exit(BridgeSup, shutdown),
+    ok.
+
+-doc "Plugin health check fails when any local buffer exceeds 50% of its configured capacity.".
+t_health_check_buffer_threshold(Config) ->
+    Port = ?config(mqtt_port, Config),
+    Bridge = make_bridge_config(<<"health">>, Port, #{
+        pool_size => 1,
+        buffer_pool_size => 1,
+        max_total_bytes => 1000
+    }),
+    setup_config([Bridge]),
+    {ok, BufferPid} = emqx_bridge_mqtt_dq_buffer:start_link(Bridge, 0),
+    true = unlink(BufferPid),
+    ItemLow = #{
+        topic => <<"health/a">>,
+        payload => <<0:800>>,
+        qos => 0,
+        retain => false,
+        timestamp => erlang:system_time(millisecond),
+        properties => #{}
+    },
+    ok = emqx_bridge_mqtt_dq_buffer:enqueue(BufferPid, ItemLow, no_ack),
+    UsageLow = wait_until_buffer_usage(BufferPid, 1, 5000),
+    ?assert(maps:get(buffered_bytes, UsageLow) < 500),
+    ?assertEqual(ok, emqx_bridge_mqtt_dq_app:on_health_check(#{})),
+
+    ItemHigh = ItemLow#{topic => <<"health/b">>, payload => <<0:4800>>},
+    ok = emqx_bridge_mqtt_dq_buffer:enqueue(BufferPid, ItemHigh, no_ack),
+    _ = wait_until_buffer_usage(BufferPid, 501, 5000),
+    ?assertMatch(
+        {error, <<"buffer usage exceeds 50% capacity: health[0]=", _/binary>>},
+        emqx_bridge_mqtt_dq_app:on_health_check(#{})
+    ),
+    exit(BufferPid, shutdown),
     ok.
 
 %%--------------------------------------------------------------------
@@ -951,7 +985,7 @@ t_sync_bridges_disable_bridge(Config) ->
     Bridge = make_bridge_config(<<"dis">>, Port, #{
         filter_topic => <<"dis/#">>,
         remote_topic => <<"${topic}">>,
-        queue_dir => list_to_binary(QueueDir),
+        queue_base_dir => list_to_binary(QueueDir),
         server => "127.0.0.1:19999"
     }),
     setup_config([Bridge]),
@@ -1088,7 +1122,7 @@ make_bridge_config(Name, Port, Overrides) ->
         enqueue_timeout_ms => 5000,
         remote_qos => '${qos}',
         remote_retain => '${retain}',
-        queue_dir => QueueDir,
+        queue_base_dir => QueueDir,
         seg_bytes => 1048576,
         max_total_bytes => 10485760
     },
@@ -1197,3 +1231,24 @@ buffer_bytes_value(Snapshot, BridgeName) ->
         0,
         Buffers
     ).
+
+wait_until_buffer_usage(Pid, MinBytes, TimeoutMs) ->
+    Started = erlang:monotonic_time(millisecond),
+    wait_until_buffer_usage(Pid, MinBytes, TimeoutMs, Started).
+
+wait_until_buffer_usage(Pid, MinBytes, TimeoutMs, Started) ->
+    Usage = emqx_bridge_mqtt_dq_buffer:usage(Pid),
+    case maps:get(buffered_bytes, Usage, 0) >= MinBytes of
+        true ->
+            Usage;
+        false ->
+            case erlang:monotonic_time(millisecond) - Started >= TimeoutMs of
+                true ->
+                    ct:fail({buffer_usage_timeout, Usage});
+                false ->
+                    receive
+                    after 50 -> ok
+                    end,
+                    wait_until_buffer_usage(Pid, MinBytes, TimeoutMs, Started)
+            end
+    end.

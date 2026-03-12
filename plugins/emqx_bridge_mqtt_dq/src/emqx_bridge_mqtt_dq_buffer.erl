@@ -7,7 +7,7 @@
 
 -include("emqx_bridge_mqtt_dq.hrl").
 
--export([start_link/2, enqueue/3, get_pid/2, sync_metrics/1]).
+-export([start_link/2, enqueue/3, get_pid/2, sync_metrics/1, usage/1]).
 
 -export([init/1, handle_cast/2, handle_info/2, handle_call/3, terminate/2]).
 
@@ -57,6 +57,10 @@ get_pid(BridgeName, Index) ->
 sync_metrics(Pid) ->
     gen_server:call(Pid, sync_metrics).
 
+-spec usage(pid()) -> #{buffered := non_neg_integer(), buffered_bytes := non_neg_integer()}.
+usage(Pid) ->
+    gen_server:call(Pid, usage).
+
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -65,13 +69,13 @@ init({BridgeConfig, Index}) ->
     process_flag(trap_exit, true),
     #{
         name := BridgeName,
-        queue_dir := QueueDirBase,
+        queue_base_dir := QueueBaseDir,
         seg_bytes := SegBytes,
         max_total_bytes := MaxTotalBytes,
         pool_size := PoolSize,
         max_inflight := MaxInflight
     } = BridgeConfig,
-    QueueDir = queue_dir(QueueDirBase, Index),
+    QueueDir = queue_dir(QueueBaseDir, BridgeName, Index),
     ok = filelib:ensure_path(QueueDir),
     Q = replayq:open(#{
         dir => QueueDir,
@@ -117,6 +121,8 @@ handle_cast(_Msg, State) ->
 
 handle_call(sync_metrics, _From, State) ->
     {reply, ok, update_metrics(State)};
+handle_call(usage, _From, #{queue := Q} = State) ->
+    {reply, #{buffered => replayq:count(Q), buffered_bytes => replayq:bytes(Q)}, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 
@@ -341,8 +347,8 @@ ack_enqueue_batch(Acks) ->
 ack_enqueue(no_ack) -> ok;
 ack_enqueue(Alias) -> Alias ! {Alias, ok}.
 
-queue_dir(Base, Index) ->
-    binary_to_list(iolist_to_binary([Base, "/", integer_to_binary(Index)])).
+queue_dir(BaseDir, BridgeName, Index) ->
+    filename:join([binary_to_list(BaseDir), binary_to_list(BridgeName), integer_to_list(Index)]).
 
 marshaller(Bin) when is_binary(Bin) -> binary_to_term(Bin);
 marshaller(Term) -> term_to_binary(Term).
