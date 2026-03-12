@@ -104,6 +104,14 @@ update_config(Path, Value, ValueToRestore) ->
     {ok, _} = emqx:update_config(Path, Value, #{override_to => cluster}),
     ok.
 
+get_config_api() ->
+    URL = emqx_mgmt_api_test_util:api_path(["configs", "a2a_registry"]),
+    simple_request(#{method => get, url => URL}).
+
+update_config_api(Config) ->
+    URL = emqx_mgmt_api_test_util:api_path(["configs", "a2a_registry"]),
+    simple_request(#{method => put, body => Config, url => URL}).
+
 %%------------------------------------------------------------------------------
 %% Test cases
 %%------------------------------------------------------------------------------
@@ -164,5 +172,28 @@ t_disabled(_TCConfig) ->
     Name1 = <<"1">>,
     Card1 = sample_card_bin(#{<<"name">> => Name1}),
     ?assertMatch({503, _}, register_card(?ORG_ID, ?UNIT_ID, ?AGENT_ID, Card1)),
+
+    ok.
+
+-doc """
+Simple smoke test to verify updating configurations via the default, generic config
+management api.
+""".
+t_management_api(_TCConfig) ->
+    {200, Config0} = get_config_api(),
+    on_exit(fun() -> {200, _} = update_config_api(Config0) end),
+
+    ?assertMatch(#{<<"enable">> := true, <<"validate_schema">> := true}, Config0),
+    ?assert(emqx_a2a_registry_config:is_enabled()),
+    ?assert(emqx_a2a_registry_config:is_schema_validation_enabled()),
+
+    Config1 = Config0#{<<"enable">> := false, <<"validate_schema">> := false},
+    ?assertMatch({200, Config1}, update_config_api(Config1)),
+    ?assertNot(emqx_a2a_registry_config:is_enabled()),
+    ?assertNot(emqx_a2a_registry_config:is_schema_validation_enabled()),
+
+    ?assertMatch({200, Config0}, update_config_api(Config0)),
+    ?assert(emqx_a2a_registry_config:is_enabled()),
+    ?assert(emqx_a2a_registry_config:is_schema_validation_enabled()),
 
     ok.

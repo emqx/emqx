@@ -36,7 +36,8 @@
     <<"sysmon">>,
     <<"log">>,
     <<"broker">>,
-    <<"file_transfer">>
+    <<"file_transfer">>,
+    <<"a2a_registry">>
 ]).
 
 %% erlfmt-ignore
