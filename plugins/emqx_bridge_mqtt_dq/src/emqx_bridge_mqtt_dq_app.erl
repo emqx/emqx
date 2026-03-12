@@ -30,8 +30,10 @@ stop(_State) ->
     ok.
 
 on_config_changed(_OldConfig, NewConfig) ->
-    ok = emqx_bridge_mqtt_dq_config:update(NewConfig),
-    ok = sync_bridges().
+    case emqx_bridge_mqtt_dq_config:update(NewConfig) of
+        ok -> sync_bridges();
+        {error, _} = Error -> Error
+    end.
 
 on_health_check(_Options) ->
     case check_buffers_health() of

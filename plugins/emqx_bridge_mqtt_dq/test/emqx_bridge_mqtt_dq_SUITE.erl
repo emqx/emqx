@@ -575,6 +575,62 @@ t_config_qos_retain_placeholders(_Config) ->
         emqx_bridge_mqtt_dq_config:get_bridges(),
     ok.
 
+-doc "Invalid config is rejected by update/1 instead of silently dropped.".
+t_config_invalid_rejected(_Config) ->
+    %% Bridge referencing a non-existent remote
+    BadRemoteRef = #{
+        <<"bridges">> => #{
+            <<"bad1">> => #{
+                <<"enable">> => true,
+                <<"remote">> => <<"no_such_remote">>,
+                <<"filter_topic">> => <<"t/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>
+            }
+        }
+    },
+    ?assertMatch(
+        {error, {invalid_bridge_config, <<"bad1">>}},
+        emqx_bridge_mqtt_dq_config:update(BadRemoteRef)
+    ),
+    %% Invalid bridge name
+    BadName = #{
+        <<"bridges">> => #{
+            <<"has spaces">> => #{
+                <<"enable">> => true,
+                <<"server">> => <<"127.0.0.1:1883">>,
+                <<"filter_topic">> => <<"t/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>
+            }
+        }
+    },
+    ?assertMatch(
+        {error, {invalid_bridge_name, _}},
+        emqx_bridge_mqtt_dq_config:update(BadName)
+    ),
+    %% Invalid remote name
+    BadRemoteName = #{
+        <<"remotes">> => #{
+            <<"has spaces">> => #{
+                <<"server">> => <<"127.0.0.1:1883">>
+            }
+        }
+    },
+    ?assertMatch(
+        {error, {invalid_remote_name, _}},
+        emqx_bridge_mqtt_dq_config:update(BadRemoteName)
+    ),
+    %% Invalid remote config (not a map)
+    BadRemoteConfig = #{
+        <<"remotes">> => #{
+            <<"bad">> => <<"not_a_map">>
+        }
+    },
+    ?assertMatch(
+        {error, {invalid_remote_config, <<"bad">>}},
+        emqx_bridge_mqtt_dq_config:update(BadRemoteConfig)
+    ),
+    ok.
+
 -doc "Bridge counters and API payload reflect forwarded messages.".
 t_metrics_and_api(Config) ->
     Port = ?config(mqtt_port, Config),

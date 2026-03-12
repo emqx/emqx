@@ -15,9 +15,13 @@ load() ->
     update(Raw).
 
 update(RawConfig) ->
-    Parsed = parse(RawConfig),
-    persistent_term:put(?SETTINGS_KEY, Parsed),
-    ok.
+    case parse(RawConfig) of
+        {ok, Parsed} ->
+            persistent_term:put(?SETTINGS_KEY, Parsed),
+            ok;
+        {error, _} = Error ->
+            Error
+    end.
 
 -spec get_bridges() -> [map()].
 get_bridges() ->
@@ -38,53 +42,45 @@ name_vsn() ->
 parse(RawConfig) when is_map(RawConfig) ->
     RawConfig1 = resolve_envs(RawConfig),
     RawRemotes = maps:get(<<"remotes">>, RawConfig1, #{}),
-    Remotes = parse_remotes(RawRemotes),
     RawBridges = maps:get(<<"bridges">>, RawConfig1, #{}),
-    Bridges = parse_bridges(RawBridges, Remotes),
-    #{bridges => Bridges}.
-
-parse_remotes(RawMap) when is_map(RawMap) ->
-    maps:fold(fun fold_remote/3, #{}, RawMap).
-
-parse_bridges(RawMap, Remotes) when is_map(RawMap) ->
-    maps:fold(fun(Name, Raw, Acc) -> fold_bridge(Name, Raw, Remotes, Acc) end, [], RawMap).
-
-fold_remote(Name, Raw, Acc) ->
-    BinName = to_bin(Name),
-    case is_valid_name(BinName) andalso parse_remote(Raw) of
-        {ok, Remote} ->
-            Acc#{BinName => Remote};
-        false ->
-            ?LOG(error, #{
-                msg => "mqtt_dq_remote_invalid_name",
-                name => Name
-            }),
-            Acc;
-        error ->
-            ?LOG(error, #{
-                msg => "mqtt_dq_remote_config_parse_error",
-                name => BinName
-            }),
-            Acc
+    maybe
+        {ok, Remotes} ?= parse_remotes(RawRemotes),
+        {ok, Bridges} ?= parse_bridges(RawBridges, Remotes),
+        {ok, #{bridges => Bridges}}
     end.
 
-fold_bridge(Name, Raw, Remotes, Acc) ->
+parse_remotes(RawMap) when is_map(RawMap) ->
+    maps:fold(fun fold_remote/3, {ok, #{}}, RawMap).
+
+parse_bridges(RawMap, Remotes) when is_map(RawMap) ->
+    maps:fold(fun(Name, Raw, Acc) -> fold_bridge(Name, Raw, Remotes, Acc) end, {ok, []}, RawMap).
+
+fold_remote(_Name, _Raw, {error, _} = Err) ->
+    Err;
+fold_remote(Name, Raw, {ok, Acc}) ->
     BinName = to_bin(Name),
-    case is_valid_name(BinName) andalso parse_bridge(BinName, Raw, Remotes) of
-        {ok, Bridge} ->
-            [Bridge | Acc];
+    case is_valid_name(BinName) of
         false ->
-            ?LOG(error, #{
-                msg => "mqtt_dq_bridge_invalid_name",
-                name => Name
-            }),
-            Acc;
-        error ->
-            ?LOG(error, #{
-                msg => "mqtt_dq_bridge_config_parse_error",
-                name => BinName
-            }),
-            Acc
+            {error, {invalid_remote_name, Name}};
+        true ->
+            case parse_remote(Raw) of
+                {ok, Remote} -> {ok, Acc#{BinName => Remote}};
+                error -> {error, {invalid_remote_config, BinName}}
+            end
+    end.
+
+fold_bridge(_Name, _Raw, _Remotes, {error, _} = Err) ->
+    Err;
+fold_bridge(Name, Raw, Remotes, {ok, Acc}) ->
+    BinName = to_bin(Name),
+    case is_valid_name(BinName) of
+        false ->
+            {error, {invalid_bridge_name, Name}};
+        true ->
+            case parse_bridge(BinName, Raw, Remotes) of
+                {ok, Bridge} -> {ok, [Bridge | Acc]};
+                error -> {error, {invalid_bridge_config, BinName}}
+            end
     end.
 
 parse_remote(Raw) when is_map(Raw) ->
