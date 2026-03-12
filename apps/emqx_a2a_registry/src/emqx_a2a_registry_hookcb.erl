@@ -123,6 +123,9 @@ validate_publishing_agent_clientid(#message{from = From} = _Msg, Id) ->
             {error, {bad_clientid, From, Id}}
     end.
 
+validate_card_schema(#message{payload = <<"">>} = _Msg) ->
+    %% deleting retained message
+    ok;
 validate_card_schema(#message{payload = Payload} = _Msg) ->
     emqx_a2a_registry_utils:validate_card_schema(Payload).
 
