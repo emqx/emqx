@@ -33,7 +33,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROFILE="${PROFILE:-emqx-enterprise}"
 EMQX_BIN="$ROOT_DIR/_build/$PROFILE/rel/emqx/bin/emqx"
 PLUGIN_APP="emqx_bridge_mqtt_dq"
@@ -63,16 +62,17 @@ login_token() {
 }
 
 reset_node_state() {
-    local _i
+    local attempts=60
     echo "[dev-cycle] resetting EMQX node state"
     "$EMQX_BIN" stop >/dev/null 2>&1 || true
     rm -f "$CLUSTER_HOCON"
     "$EMQX_BIN" start
-    for _i in $(seq 1 60); do
+    while ((attempts > 0)); do
         if "$EMQX_BIN" ctl status >/dev/null 2>&1 && curl -sS "$BASE_URL/api/v5/status" >/dev/null 2>&1; then
             return 0
         fi
         sleep 1
+        ((attempts--))
     done
     echo "[dev-cycle] EMQX did not become ready after reset" >&2
     exit 1

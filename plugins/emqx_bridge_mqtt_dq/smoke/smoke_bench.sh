@@ -76,12 +76,13 @@ cleanup() {
 trap cleanup EXIT
 
 wait_api() {
-    local url="$1" _i
-    for _i in $(seq 1 60); do
+    local url="$1" attempts=60
+    while ((attempts > 0)); do
         if curl -sS "$url/api/v5/status" >/dev/null 2>&1; then
             return 0
         fi
         sleep 1
+        ((attempts--))
     done
     echo "[bench] API not ready at $url" >&2
     return 1
@@ -197,7 +198,7 @@ echo "[bench] remote is back"
 ## ================================================================
 echo "[bench] Phase 5: waiting for emqtt-bench to finish..."
 # emqtt-bench will exit when -L limit is reached (--rm cleans the container)
-for _i in $(seq 1 120); do
+for _ in $(seq 1 120); do
     if ! docker ps -q -f name=dq-bench | grep -q .; then
         break
     fi
@@ -214,7 +215,7 @@ echo "[bench] publishing done"
 ## Phase 6: Wait for bridge to drain
 ## ================================================================
 echo "[bench] Phase 6: waiting for bridge to drain..."
-for _i in $(seq 1 60); do
+for _ in $(seq 1 60); do
     STATS="$(get_stats)"
     BUFFERED="$(jq_field "$STATS" '.bridge.buffered // 0')"
     BACKLOG="$(jq_field "$STATS" '.bridge.backlog // 0')"
