@@ -15,7 +15,7 @@ bridges {
     remote_qos = "${qos}"
     remote_retain = "${retain}"
     queue {
-      dir = "bridge_mqtt_dq/example"
+      base_dir = "emqx_bridge_mqtt_dq"
       seg_bytes = "100MB"
       max_total_bytes = "1GB"
     }

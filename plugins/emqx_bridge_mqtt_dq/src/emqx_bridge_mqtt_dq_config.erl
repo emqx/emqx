@@ -61,11 +61,18 @@ fold_remote(Name, Raw, {ok, Acc}) ->
     BinName = to_bin(Name),
     case is_valid_name(BinName) of
         false ->
-            {error, {invalid_remote_name, Name}};
+            {error,
+                fmt(
+                    "remotes.~ts: invalid name, "
+                    "must match [A-Za-z0-9_-]+",
+                    [Name]
+                )};
         true ->
             case parse_remote(Raw) of
-                {ok, Remote} -> {ok, Acc#{BinName => Remote}};
-                error -> {error, {invalid_remote_config, BinName}}
+                {ok, Remote} ->
+                    {ok, Acc#{BinName => Remote}};
+                {error, Reason} ->
+                    {error, fmt("remotes.~ts: ~ts", [BinName, format_reason(Reason)])}
             end
     end.
 
@@ -75,11 +82,18 @@ fold_bridge(Name, Raw, Remotes, {ok, Acc}) ->
     BinName = to_bin(Name),
     case is_valid_name(BinName) of
         false ->
-            {error, {invalid_bridge_name, Name}};
+            {error,
+                fmt(
+                    "bridges.~ts: invalid name, "
+                    "must match [A-Za-z0-9_-]+",
+                    [Name]
+                )};
         true ->
             case parse_bridge(BinName, Raw, Remotes) of
-                {ok, Bridge} -> {ok, [Bridge | Acc]};
-                error -> {error, {invalid_bridge_config, BinName}}
+                {ok, Bridge} ->
+                    {ok, [Bridge | Acc]};
+                {error, Reason} ->
+                    {error, fmt("bridges.~ts: ~ts", [BinName, format_reason(Reason)])}
             end
     end.
 
@@ -92,10 +106,10 @@ parse_remote(Raw) when is_map(Raw) ->
             ssl => parse_ssl(get_val(<<"ssl">>, Raw, #{}))
         }}
     catch
-        _:_ -> error
+        _:Reason -> {error, Reason}
     end;
-parse_remote(_) ->
-    error.
+parse_remote(Raw) ->
+    {error, {expected_map, Raw}}.
 
 parse_bridge(Name, Raw, Remotes) when is_map(Raw) ->
     try
@@ -155,23 +169,38 @@ parse_bridge(Name, Raw, Remotes) when is_map(Raw) ->
         },
         {ok, Bridge}
     catch
-        _:_ -> error
+        _:Reason -> {error, Reason}
     end;
-parse_bridge(_Name, _, _) ->
-    error.
+parse_bridge(_Name, Raw, _) ->
+    {error, {expected_map, Raw}}.
 
 resolve_remote(Raw, Remotes) ->
     case maps:find(<<"remote">>, Raw) of
         {ok, RemoteName} ->
             RemoteKey = to_bin(RemoteName),
-            case maps:find(RemoteKey, Remotes) of
-                {ok, Remote} -> Remote;
-                error -> error({unknown_remote, RemoteKey})
+            case RemoteKey of
+                <<>> ->
+                    error(
+                        "'remote' is empty; set a remote name or "
+                        "configure 'server' directly"
+                    );
+                _ ->
+                    case maps:find(RemoteKey, Remotes) of
+                        {ok, Remote} ->
+                            Remote;
+                        error ->
+                            error(
+                                fmt(
+                                    "remote '~ts' not found in remotes config",
+                                    [RemoteKey]
+                                )
+                            )
+                    end
             end;
         error ->
             case parse_remote(Raw) of
                 {ok, Remote} -> Remote;
-                error -> error(invalid_remote)
+                {error, Reason} -> error(Reason)
             end
     end.
 
@@ -213,8 +242,6 @@ get_val(Key, Map, Default) ->
 get_nested(Keys, Map, Default) ->
     get_nested_val(Keys, Map, Default).
 
-get_nested_val([], _Map) ->
-    undefined;
 get_nested_val([Key], Map) when is_map(Map) ->
     maps:get(Key, Map, undefined);
 get_nested_val([Key | Rest], Map) when is_map(Map) ->
@@ -344,3 +371,10 @@ parse_bytes(V) when is_binary(V) ->
 parse_bytes(_) ->
     %% 100MB default
     104857600.
+
+format_reason(Bin) when is_binary(Bin) -> Bin;
+format_reason(Str) when is_list(Str) -> list_to_binary(Str);
+format_reason(Term) -> fmt("~tp", [Term]).
+
+fmt(Fmt, Args) ->
+    iolist_to_binary(io_lib:format(Fmt, Args)).

@@ -575,7 +575,7 @@ t_config_qos_retain_placeholders(_Config) ->
         emqx_bridge_mqtt_dq_config:get_bridges(),
     ok.
 
--doc "Invalid config is rejected by update/1 instead of silently dropped.".
+-doc "Invalid config is rejected by update/1 with a descriptive error message.".
 t_config_invalid_rejected(_Config) ->
     %% Bridge referencing a non-existent remote
     BadRemoteRef = #{
@@ -589,8 +589,23 @@ t_config_invalid_rejected(_Config) ->
         }
     },
     ?assertMatch(
-        {error, {invalid_bridge_config, <<"bad1">>}},
+        {error, <<"bridges.bad1: ", _/binary>>},
         emqx_bridge_mqtt_dq_config:update(BadRemoteRef)
+    ),
+    %% Bridge with empty remote string
+    EmptyRemote = #{
+        <<"bridges">> => #{
+            <<"bad2">> => #{
+                <<"enable">> => true,
+                <<"remote">> => <<>>,
+                <<"filter_topic">> => <<"t/#">>,
+                <<"remote_topic">> => <<"fwd/${topic}">>
+            }
+        }
+    },
+    ?assertMatch(
+        {error, <<"bridges.bad2: ", _/binary>>},
+        emqx_bridge_mqtt_dq_config:update(EmptyRemote)
     ),
     %% Invalid bridge name
     BadName = #{
@@ -604,7 +619,7 @@ t_config_invalid_rejected(_Config) ->
         }
     },
     ?assertMatch(
-        {error, {invalid_bridge_name, _}},
+        {error, <<"bridges.has spaces: invalid name", _/binary>>},
         emqx_bridge_mqtt_dq_config:update(BadName)
     ),
     %% Invalid remote name
@@ -616,7 +631,7 @@ t_config_invalid_rejected(_Config) ->
         }
     },
     ?assertMatch(
-        {error, {invalid_remote_name, _}},
+        {error, <<"remotes.has spaces: invalid name", _/binary>>},
         emqx_bridge_mqtt_dq_config:update(BadRemoteName)
     ),
     %% Invalid remote config (not a map)
@@ -626,7 +641,7 @@ t_config_invalid_rejected(_Config) ->
         }
     },
     ?assertMatch(
-        {error, {invalid_remote_config, <<"bad">>}},
+        {error, <<"remotes.bad: ", _/binary>>},
         emqx_bridge_mqtt_dq_config:update(BadRemoteConfig)
     ),
     ok.

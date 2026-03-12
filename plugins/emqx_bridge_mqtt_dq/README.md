@@ -183,7 +183,7 @@ which makes the misconfiguration visible in both logs and the status API.
 | Field             | Type   | Default                        | Description                                      |
 |-------------------|--------|--------------------------------|--------------------------------------------------|
 | `queue.base_dir`  | string | `"emqx_bridge_mqtt_dq"` | Base directory for disk queue segment files. The bridge name and partition index are automatically appended (i.e. `<base_dir>/<bridge_name>/<index>`). Relative paths are resolved against EMQX `data_dir`. Absolute paths are used as-is. |
-| `queue.seg_bytes` | string | `"100MB"`                      | Maximum size per queue segment file.              |
+| `queue_seg_bytes` | string | `"100MB"`                      | Maximum size per queue segment file.              |
 | `queue.max_total_bytes` | string | `"1GB"`                  | Maximum disk queue size **per partition**. Each bridge uses `buffer_pool_size` partitions (default 4), so the worst-case total disk usage is `buffer_pool_size` x this value. Oldest messages are discarded when exceeded. |
 
 ## Topic Templating
