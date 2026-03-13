@@ -120,7 +120,7 @@ compare_vsn_fallback_test_() ->
 compare_vsn_test_() ->
     {setup,
         fun() ->
-            meck:new(emqx_release, [unstick, non_strict]),
+            meck:new(emqx_release, [passthrough]),
             ok
         end,
         fun(_) ->

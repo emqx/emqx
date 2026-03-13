@@ -248,7 +248,7 @@ configured_status_test_() ->
 configured_test_() ->
     {setup,
         fun() ->
-            meck:new(emqx_conf, [unstick, non_strict]),
+            meck:new(emqx_conf, [passthrough]),
             ok
         end,
         fun(_) ->

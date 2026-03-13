@@ -988,7 +988,7 @@ add_health_status(StatusInfo, _) ->
 ensure_action_test_() ->
     {setup,
         fun() ->
-            meck:new(emqx_plugins, [unstick, non_strict]),
+            meck:new(emqx_plugins, [passthrough]),
             ok
         end,
         fun(_) ->

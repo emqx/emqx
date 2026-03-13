@@ -68,15 +68,9 @@ normalize_enabled_versions_prefers_latest_test() ->
     ).
 
 running_status_is_name_based_test() ->
-    meck:new(application, [unstick, passthrough]),
-    try
-        meck:expect(application, loaded_applications, fun() -> [{demo, "Demo", "2.0.0"}] end),
-        meck:expect(application, which_applications, fun(infinity) -> [{demo, "Demo", "2.0.0"}] end),
-        ?assertEqual(running, emqx_plugins_apps:running_status("demo-1.0.0")),
-        ?assertEqual(running, emqx_plugins_apps:running_status("demo-2.0.0"))
-    after
-        meck:unload(application)
-    end.
+    [{AppName, _Desc, _Vsn} | _] = application:which_applications(infinity),
+    NameVsn = atom_to_list(AppName) ++ "-0.0.0",
+    ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)).
 
 configured_normalizes_binary_key_items_test() ->
     meck_emqx(),
@@ -172,7 +166,7 @@ purge_test() ->
     unmeck_emqx().
 
 meck_emqx() ->
-    meck:new(emqx, [unstick, passthrough]),
+    meck:new(emqx, [passthrough]),
     meck:new(emqx_plugins_serde),
     meck:expect(
         emqx,
