@@ -181,17 +181,6 @@ apply_api_callback(NameVsn, {FuncName, Arity}, Args) ->
             {error, not_found}
     end.
 
-app_running_status(AppName, RunningApps, LoadedApps) ->
-    case lists:keyfind(AppName, 1, LoadedApps) of
-        {AppName, _} ->
-            case lists:keyfind(AppName, 1, RunningApps) of
-                {AppName, _} -> running;
-                false -> loaded
-            end;
-        false ->
-            stopped
-    end.
-
 load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
     case lists:keyfind(AppName, 1, LoadedApps) of
         false ->
@@ -202,7 +191,6 @@ load_plugin_app(AppName, AppVsn, Ebin, LoadedApps) ->
                     %% already loaded on the exact version
                     ok;
                 false ->
-                    %% running but a different version
                     ?SLOG(warning, #{
                         msg => "plugin_app_already_loaded",
                         name => AppName,
@@ -331,6 +319,17 @@ unload_apps([App | Apps], RunningApps, LoadedApps) ->
                 ok
         end,
     unload_apps(Apps, RunningApps, LoadedApps).
+
+app_running_status(AppName, RunningApps, LoadedApps) ->
+    case lists:keyfind(AppName, 1, LoadedApps) of
+        {AppName, _LoadedVsn} ->
+            case lists:keyfind(AppName, 1, RunningApps) of
+                {AppName, _RunningVsn} -> running;
+                false -> loaded
+            end;
+        false ->
+            stopped
+    end.
 
 stop_app(App) ->
     case application:stop(App) of

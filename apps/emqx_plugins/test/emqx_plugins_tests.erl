@@ -33,6 +33,60 @@ test_ensure_configured() ->
         emqx_plugins:ensure_configured(P3, {before, <<"unknown-x">>}, local)
     ).
 
+ensure_configured_same_name_disables_other_versions_test() ->
+    meck_emqx(),
+    try
+        ok = emqx_plugins:put_configured([]),
+        P1 = #{name_vsn => "p-1.0.0", enable => true},
+        P2 = #{name_vsn => "p-2.0.0", enable => true},
+        ok = emqx_plugins:ensure_configured(P1, rear, local),
+        ok = emqx_plugins:ensure_configured(P2, rear, local),
+        ?assertEqual(
+            [
+                #{name_vsn => "p-1.0.0", enable => false},
+                #{name_vsn => "p-2.0.0", enable => true}
+            ],
+            emqx_plugins:configured()
+        )
+    after
+        emqx_plugins:put_configured([])
+    end,
+    unmeck_emqx().
+
+normalize_enabled_versions_prefers_latest_test() ->
+    ?assertEqual(
+        [
+            #{name_vsn => "p-1.0.0", enable => false},
+            #{name_vsn => "p-2.0.0", enable => true},
+            #{name_vsn => "q-1.0.0", enable => true}
+        ],
+        emqx_plugins:normalize_enabled_versions([
+            #{name_vsn => "p-1.0.0", enable => true},
+            #{name_vsn => "p-2.0.0", enable => true},
+            #{name_vsn => "q-1.0.0", enable => true}
+        ])
+    ).
+
+running_status_is_name_based_test() ->
+    [{AppName, _Desc, _Vsn} | _] = application:which_applications(infinity),
+    NameVsn = atom_to_list(AppName) ++ "-0.0.0",
+    ?assertEqual(running, emqx_plugins_apps:running_status(NameVsn)).
+
+configured_normalizes_binary_key_items_test() ->
+    meck_emqx(),
+    try
+        ok = emqx_plugins:put_config_internal(states, [
+            #{<<"name_vsn">> => <<"p-1.0.0">>, <<"enable">> => true}
+        ]),
+        ?assertEqual(
+            [#{name_vsn => <<"p-1.0.0">>, enable => true}],
+            emqx_plugins:configured()
+        )
+    after
+        emqx_plugins:put_configured([]),
+        unmeck_emqx()
+    end.
+
 read_plugin_test() ->
     meck_emqx(),
     with_rand_install_dir(
@@ -112,7 +166,7 @@ purge_test() ->
     unmeck_emqx().
 
 meck_emqx() ->
-    meck:new(emqx, [unstick, passthrough]),
+    meck:new(emqx, [passthrough]),
     meck:new(emqx_plugins_serde),
     meck:expect(
         emqx,
