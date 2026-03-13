@@ -995,25 +995,25 @@ ensure_action_test_() ->
             meck:unload(emqx_plugins)
         end,
         [
-            fun ensure_action_start_propagates_error_test/0,
-            fun ensure_action_stop_propagates_error_test/0,
-            fun ensure_action_restart_propagates_enable_error_test/0,
-            fun ensure_action_success_test/0
+            fun ensure_action_start_propagates_error_case/0,
+            fun ensure_action_stop_propagates_error_case/0,
+            fun ensure_action_restart_propagates_enable_error_case/0,
+            fun ensure_action_success_case/0
         ]}.
 
-ensure_action_start_propagates_error_test() ->
+ensure_action_start_propagates_error_case() ->
     meck:expect(emqx_plugins, ensure_started, fun(_Name) -> {error, start_failed} end),
     ?assertEqual({error, start_failed}, ensure_action(<<"demo-1.0.0">>, start, #{})).
 
-ensure_action_stop_propagates_error_test() ->
+ensure_action_stop_propagates_error_case() ->
     meck:expect(emqx_plugins, ensure_stopped, fun(_Name) -> {error, stop_failed} end),
     ?assertEqual({error, stop_failed}, ensure_action(<<"demo-1.0.0">>, stop, #{})).
 
-ensure_action_restart_propagates_enable_error_test() ->
+ensure_action_restart_propagates_enable_error_case() ->
     meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> {error, enable_failed} end),
     ?assertEqual({error, enable_failed}, ensure_action(<<"demo-1.0.0">>, restart, #{})).
 
-ensure_action_success_test() ->
+ensure_action_success_case() ->
     meck:expect(emqx_plugins, ensure_started, fun(_Name) -> ok end),
     meck:expect(emqx_plugins, ensure_enabled, fun(_Name) -> ok end),
     meck:expect(emqx_plugins, ensure_stopped, fun(_Name) -> ok end),

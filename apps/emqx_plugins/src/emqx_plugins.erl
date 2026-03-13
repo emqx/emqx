@@ -1190,3 +1190,73 @@ plugin_name(NameVsn) ->
 
 name_vsn(Name, Vsn) ->
     emqx_plugins_utils:make_name_vsn_binary(Name, Vsn).
+
+-ifdef(TEST).
+
+normalize_helpers_test_() ->
+    {setup,
+        fun() ->
+            meck:new(emqx_conf, [unstick, non_strict]),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(emqx_conf)
+        end,
+        [
+            fun normalize_state_item_case/0,
+            fun configured_reads_binary_state_items_case/0,
+            fun maybe_persist_normalized_config_case/0,
+            fun version_selection_helpers_case/0
+        ]}.
+
+normalize_state_item_case() ->
+    ?assertEqual(
+        #{name_vsn => <<"demo-1.0.0">>, enable => true},
+        normalize_state_item(#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true})
+    ).
+
+configured_reads_binary_state_items_case() ->
+    meck:expect(emqx_conf, get, fun([plugins, states], []) ->
+        [#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}]
+    end),
+    ?assertEqual(
+        [#{name_vsn => <<"demo-1.0.0">>, enable => true}],
+        configured()
+    ).
+
+maybe_persist_normalized_config_case() ->
+    meck:expect(emqx_conf, update, fun([plugins, states], Config, _Opts) -> {ok, Config} end),
+    ?assertEqual(ok, maybe_persist_normalized_config([], [])),
+    ?assertEqual(
+        ok,
+        maybe_persist_normalized_config(
+            [#{name_vsn => <<"demo-1.0.0">>, enable => true}],
+            [#{name_vsn => <<"demo-1.0.0">>, enable => false}]
+        )
+    ).
+
+version_selection_helpers_case() ->
+    Configured = [
+        #{name_vsn => <<"demo-1.0.0">>, enable => true},
+        #{name_vsn => <<"demo-2.0.0">>, enable => true},
+        #{name_vsn => <<"other-1.0.0">>, enable => true}
+    ],
+    ?assertEqual(
+        [
+            #{name_vsn => <<"demo-1.0.0">>, enable => false},
+            #{name_vsn => <<"demo-2.0.0">>, enable => true},
+            #{name_vsn => <<"other-1.0.0">>, enable => true}
+        ],
+        disable_other_versions(Configured, <<"demo-2.0.0">>)
+    ),
+    ?assertEqual(
+        #{
+            <<"demo">> => <<"demo-2.0.0">>,
+            <<"other">> => <<"other-1.0.0">>
+        },
+        latest_enabled_versions(Configured)
+    ),
+    ?assertEqual(true, is_newer_name_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)),
+    ?assertEqual(false, is_newer_name_vsn(<<"demo-1.0.0">>, <<"demo-2.0.0">>)).
+
+-endif.

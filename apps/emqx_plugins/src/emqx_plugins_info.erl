@@ -245,4 +245,24 @@ configured_status_test_() ->
         )
     ].
 
+configured_test_() ->
+    {setup,
+        fun() ->
+            meck:new(emqx_conf, [unstick, non_strict]),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(emqx_conf)
+        end,
+        fun configured_case/0}.
+
+configured_case() ->
+    meck:expect(emqx_conf, get, fun([plugins, states]) ->
+        [#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}]
+    end),
+    ?assertEqual(
+        [#{name_vsn => <<"demo-1.0.0">>, enable => true}],
+        configured()
+    ).
+
 -endif.

@@ -117,4 +117,32 @@ compare_vsn_fallback_test_() ->
         ?_assertEqual(older, compare_segment({string, "alpha"}, {int, 1}))
     ].
 
+compare_vsn_test_() ->
+    {setup,
+        fun() ->
+            meck:new(emqx_release, [unstick, non_strict]),
+            ok
+        end,
+        fun(_) ->
+            meck:unload(emqx_release)
+        end,
+        [
+            fun compare_vsn_binary_args_case/0,
+            fun compare_vsn_invalid_string_fallback_case/0
+        ]}.
+
+compare_vsn_binary_args_case() ->
+    meck:expect(emqx_release, vsn_compare, fun("2.0.0", "1.0.0") -> newer end),
+    ?assertEqual(newer, compare_vsn(<<"2.0.0">>, <<"1.0.0">>)).
+
+compare_vsn_invalid_string_fallback_case() ->
+    meck:expect(
+        emqx_release,
+        vsn_compare,
+        fun("1.0.0-alpha", "1.0.0-beta") ->
+            erlang:error({invalid_version_string, invalid})
+        end
+    ),
+    ?assertEqual(older, compare_vsn("1.0.0-alpha", "1.0.0-beta")).
+
 -endif.
