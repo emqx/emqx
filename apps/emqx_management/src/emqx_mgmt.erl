@@ -105,6 +105,9 @@
     vm_stats/1
 ]).
 
+%% Exposed solely for mocking.
+-export([os_type/0]).
+
 -elvis([{elvis_style, god_modules, disable}]).
 
 -define(maybe_log_node_errors(LogData, Errors),
@@ -177,12 +180,16 @@ get_log_path([]) ->
     undefined.
 
 get_sys_memory() ->
-    case os:type() of
+    case ?MODULE:os_type() of
         {unix, linux} ->
             emqx_mgmt_cache:get_sys_memory();
         _ ->
             {0, 0}
     end.
+
+%% Exposed solely for mocking.
+os_type() ->
+    os:type().
 
 node_info(Nodes) ->
     emqx_rpc:unwrap_erpc(emqx_management_proto_v5:node_info(Nodes)).
