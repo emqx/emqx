@@ -567,7 +567,12 @@ parse_server(Server) when is_binary(Server) ->
     end.
 
 make_clientid(Prefix, Index) ->
-    iolist_to_binary([Prefix, integer_to_binary(Index)]).
+    NodeHash = node_hash(),
+    iolist_to_binary([Prefix, NodeHash, "-", integer_to_binary(Index)]).
+
+node_hash() ->
+    <<Int:32>> = binary:part(crypto:hash(sha, atom_to_binary(node())), 0, 4),
+    string:lowercase(integer_to_binary(Int, 16)).
 
 maybe_add_credentials(Opts, <<>>, _) ->
     Opts;
