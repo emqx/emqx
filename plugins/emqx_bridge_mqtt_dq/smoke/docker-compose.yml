@@ -1,0 +1,55 @@
+## Docker-compose for disk-queue durability smoke test.
+##
+## Two EMQX nodes on a shared network:
+##   remote — plain EMQX (the target broker)
+##   local  — EMQX with emqx_bridge_mqtt_dq plugin installed
+##
+## Named volume ensures the local node's disk queue survives container restarts.
+## API key bootstrapped so curl can use basic auth (-u admin:public).
+
+services:
+  remote:
+    image: ${IMAGE:-emqx/emqx-enterprise:6.1.1}
+    container_name: dq-remote
+    hostname: dq-remote
+    ports:
+      - "4883:1883"
+      - "48083:18083"
+    environment:
+      EMQX_NODE_NAME: "emqx@dq-remote"
+      EMQX_NODE_COOKIE: "dq-smoke-secret"
+      EMQX_LICENSE__KEY: "evaluation"
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/opt/emqx/bootstrap-api-keys.txt"
+    volumes:
+      - ./bootstrap-api-keys.txt:/opt/emqx/bootstrap-api-keys.txt:ro
+    networks:
+      - dq-smoke
+
+  local:
+    image: ${IMAGE:-emqx/emqx-enterprise:6.1.1}
+    container_name: dq-local
+    hostname: dq-local
+    ports:
+      - "${LOCAL_MQTT_PORT:-3883}:1883"
+      - "${LOCAL_API_PORT:-38083}:18083"
+    environment:
+      EMQX_NODE_NAME: "emqx@dq-local"
+      EMQX_NODE_COOKIE: "dq-smoke-secret"
+      EMQX_LICENSE__KEY: "evaluation"
+      EMQX_PLUGINS__INSTALL_DIR: "/opt/emqx/plugins"
+      EMQX_PLUGINS__STATES: '[{name_vsn = "${PLUGIN}"}]'
+      EMQXDQ_REMOTE_HOST: "dq-remote:1883"
+      EMQX_API_KEY__BOOTSTRAP_FILE: "/opt/emqx/bootstrap-api-keys.txt"
+    volumes:
+      - dq-local-data:/opt/emqx/data
+      - ../../../_build/plugins:/opt/emqx/plugins
+      - ./bootstrap-api-keys.txt:/opt/emqx/bootstrap-api-keys.txt:ro
+    networks:
+      - dq-smoke
+
+volumes:
+  dq-local-data:
+
+networks:
+  dq-smoke:
+    name: dq-smoke

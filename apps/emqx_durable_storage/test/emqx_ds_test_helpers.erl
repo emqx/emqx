@@ -79,9 +79,11 @@ mock_rpc_result(gen_rpc, ExpectFun) ->
     end).
 
 %% @doc Create an infinite list of messages from a given client:
-interleaved_topic_messages(TestCase, NClients, NMsgs) ->
+interleaved_topic_messages(TestCase, NClients, NMsgs) when is_integer(NClients) ->
     %% List of fake client IDs:
     Clients = [integer_to_binary(I) || I <- lists:seq(1, NClients)],
+    interleaved_topic_messages(TestCase, Clients, NMsgs);
+interleaved_topic_messages(TestCase, Clients, NMsgs) ->
     TopicStreams = [
         {ClientId, emqx_utils_stream:limit_length(NMsgs, topic_messages(TestCase, ClientId))}
      || ClientId <- Clients

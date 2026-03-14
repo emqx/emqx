@@ -1,6 +1,6 @@
 {
   "type": "record",
-  "name": "ExtendedConfig",
+  "name": "UsernameQuotaConfigSchema",
   "fields": [
     {
       "name": "max_sessions_per_username",

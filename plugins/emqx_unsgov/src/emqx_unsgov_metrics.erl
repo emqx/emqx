@@ -247,7 +247,7 @@ format_stats() ->
     TopicInvalid = sum_per_model_metric(PerModel, topic_invalid),
     PayloadInvalid = sum_per_model_metric(PerModel, payload_invalid),
     NotEndpoint = sum_per_model_metric(PerModel, not_endpoint),
-    MessagesDropped = sum_per_model_metric(PerModel, messages_dropped) + TopicNoMatch,
+    MessagesDropped = sum_per_model_metric(PerModel, messages_dropped),
     MessagesAllowed = sum_per_model_metric(PerModel, messages_allowed) + Exempt,
     MessagesTotal = sum_per_model_metric(PerModel, messages_total) + Exempt + TopicNoMatch,
     RecentDrops = [Drop || {_, Drop} <- ets:tab2list(?RECENT_DROPS_TAB)],
@@ -262,7 +262,6 @@ format_stats() ->
         exempt => Exempt,
         uptime_seconds => UptimeSec,
         drop_breakdown => #{
-            topic_nomatch => TopicNoMatch,
             topic_invalid => TopicInvalid,
             payload_invalid => PayloadInvalid,
             not_endpoint => NotEndpoint
