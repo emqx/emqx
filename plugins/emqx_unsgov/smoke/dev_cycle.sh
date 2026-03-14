@@ -75,6 +75,7 @@ echo "[dev-cycle] forcing clean reinstall to avoid stale unpacked plugin files"
 echo "[dev-cycle] nuking mnesia data to avoid stale table schemas"
 "$EMQX_BIN" stop >/dev/null 2>&1 || true
 rm -rf "$ROOT_DIR/_build/$PROFILE/rel/emqx/data/mnesia/"
+rm -rf "$ROOT_DIR/_build/$PROFILE/rel/emqx/data/plugins/"
 "$EMQX_BIN" start
 "$EMQX_BIN" ctl status >/dev/null 2>&1 || sleep 5
 rm -rf "$PLUGIN_DIR"
