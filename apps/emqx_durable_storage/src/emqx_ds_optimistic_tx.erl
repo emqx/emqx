@@ -1173,6 +1173,10 @@ call(Server, Request, Timeout) ->
         {ok, Reply} ->
             Reply
     catch
+        exit:noproc ->
+            ?err_rec(otx_leader_stopped);
+        exit:Reason when Reason =:= normal orelse Reason =:= shutdown ->
+            ?err_rec(otx_leader_terminated);
         Class:Err:Stack ->
             erlang:raise(
                 Class,

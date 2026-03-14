@@ -424,8 +424,9 @@ t_leave_rejected_ds_nonempty(Config) ->
     Nodes = [N1, N2] = ?config(cluster, Config),
 
     %% Ensure DSs have been bootstrapped.
-    ok = emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, messages),
-    ok = emqx_ds_raft_test_helpers:wait_db_bootstrapped(Nodes, sessions),
+    DBs = [messages, sessions],
+    [?ON(Nodes, emqx_ds:wait_db(DB, all, infinity)) || DB <- DBs],
+    [?ON(Nodes, emqx_ds_builtin_raft:wait_replicas(DB, infinity)) || DB <- DBs],
 
     S2 = ?ON(N2, emqx_ds_builtin_raft_meta:this_site()),
     S2Arg = binary_to_list(S2),

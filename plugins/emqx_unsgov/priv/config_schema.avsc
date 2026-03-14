@@ -1,6 +1,6 @@
 {
   "type": "record",
-  "name": "ExtendedConfig",
+  "name": "UnsGovernanceConfigSchema",
   "fields": [
     {
       "name": "on_mismatch",

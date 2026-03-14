@@ -9,7 +9,6 @@
 -module(emqx_ds_builtin_raft_shard_allocator).
 
 -include_lib("snabbkaffe/include/trace.hrl").
-%%-include("emqx_ds_replication_layer.hrl").
 
 -export([start_link/1]).
 
@@ -48,7 +47,7 @@
 
 %%
 
--record(trigger_transitions, {}).
+-record(trigger_transitions, {scope = any :: local | any}).
 
 -spec start_link(emqx_ds:db()) -> {ok, pid()}.
 start_link(DB) ->
@@ -105,8 +104,8 @@ handle_call(_Call, _From, State) ->
     {reply, ignored, State}.
 
 -spec handle_cast(_Cast, state()) -> {noreply, state()}.
-handle_cast(#trigger_transitions{}, State0) ->
-    State1 = handle_pending_transitions(State0),
+handle_cast(#trigger_transitions{scope = Scope}, State0) ->
+    State1 = handle_pending_transitions(Scope, State0),
     State = restart_fallback_timer(State1),
     {noreply, State};
 handle_cast(_Cast, State) ->
@@ -135,7 +134,7 @@ handle_timer(allocate, _TRef, State0) ->
     State = handle_allocate_shards(State0),
     {noreply, State};
 handle_timer(fallback, _TRef, State0) ->
-    State1 = handle_pending_transitions(State0),
+    State1 = handle_pending_transitions(any, State0),
     State = restart_fallback_timer(State1),
     {noreply, State}.
 
@@ -144,7 +143,7 @@ terminate(_Reason, State = #{db := DB, shards := Shards}) ->
     unsubscribe_db_changes(State),
     clear_shard_cache(DB, Shards),
     erase_db_meta(DB);
-terminate(_Reason, #{}) ->
+terminate(_Reason, _) ->
     ok.
 
 %%
@@ -155,7 +154,7 @@ handle_allocate_shards(State0) ->
             %% NOTE
             %% Subscribe to shard changes and trigger any yet unhandled transitions.
             ok = subscribe_db_changes(State),
-            ok = trigger_transitions(self()),
+            ok = gen_server:cast(self(), #trigger_transitions{scope = local}),
             start_fallback_timer(State);
         {error, Data} ->
             _ = logger:notice(
@@ -201,10 +200,10 @@ handle_shard_changed(Shard, State = #{db := DB}) ->
     ok = cache_shard_info(DB, Shard),
     handle_shard_transitions(Shard, local, next_transitions(DB, Shard), State).
 
-handle_pending_transitions(State = #{db := DB, shards := Shards}) ->
+handle_pending_transitions(Scope, State = #{db := DB, shards := Shards}) ->
     lists:foldl(
         fun(Shard, StateAcc) ->
-            handle_shard_transitions(Shard, any, next_transitions(DB, Shard), StateAcc)
+            handle_shard_transitions(Shard, Scope, next_transitions(DB, Shard), StateAcc)
         end,
         State,
         Shards
@@ -257,7 +256,7 @@ handle_transition(DB, Shard, Trans, Handler) ->
     }),
     ?tp(
         debug,
-        dsrepl_shard_transition_begin,
+        dsraft_shard_transition_begin,
         #{shard => Shard, db => DB, transition => Trans, pid => self()}
     ),
     emqx_ds_builtin_raft_metrics:shard_transition_started(DB, Shard, Trans),
@@ -272,6 +271,14 @@ trans_claim(DB, Shard, Trans, TransHandler) ->
     case claim_transition(DB, Shard, Trans) of
         ok ->
             apply_handler(TransHandler, DB, Shard, Trans);
+        {error, {conflict, TransPending}} ->
+            ?tp(debug, "Transition superseded", #{
+                db => DB,
+                shard => Shard,
+                trans => Trans,
+                by => TransPending
+            }),
+            exit({shutdown, skipped});
         {error, {outdated, Expected}} ->
             ?tp(debug, "Transition became outdated", #{
                 db => DB,
@@ -314,7 +321,7 @@ do_add_local(readiness = Stage, DB, Shard, Trans) ->
                 status => Status,
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
+            timer:sleep(?TRANS_RETRY_TIMEOUT),
             do_add_local(Stage, DB, Shard, Trans)
     end.
 
@@ -325,8 +332,8 @@ trans_drop_local(DB, Shard, Trans = {del, Site}) ->
 do_drop_local(DB, Shard, Trans) ->
     case emqx_ds_builtin_raft_shard:drop_local_server(DB, Shard) of
         ok ->
-            ok = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
-            ok = emqx_ds_storage_layer:drop_shard({DB, Shard}),
+            _ = emqx_ds_builtin_raft_db_sup:stop_shard({DB, Shard}),
+            emqx_ds_storage_layer:drop_shard({DB, Shard}),
             ?tp(notice, "Local shard replica dropped", #{db => DB, shard => Shard});
         {error, recoverable, Reason} ->
             ?tp(warning, "Dropping local shard replica failed", #{
@@ -336,15 +343,15 @@ do_drop_local(DB, Shard, Trans) ->
                 retry_in => ?TRANS_RETRY_TIMEOUT
             }),
             emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
+            timer:sleep(?TRANS_RETRY_TIMEOUT),
             do_drop_local(DB, Shard, Trans)
     end.
 
 trans_rm_unresponsive(DB, Shard, Trans = {del, Site}) ->
     ?tp(notice, "Removing unresponsive shard replica", #{site => Site, db => DB, shard => Shard}),
-    do_rm_unresponsive(DB, Shard, Trans, 1).
+    do_rm_unresponsive(DB, Shard, Trans).
 
-do_rm_unresponsive(DB, Shard, Trans = {del, Site}, NAttempt) ->
+do_rm_unresponsive(DB, Shard, Trans = {del, Site}) ->
     Server = emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site),
     case emqx_ds_builtin_raft_shard:remove_server(DB, Shard, Server) of
         ok ->
@@ -358,13 +365,27 @@ do_rm_unresponsive(DB, Shard, Trans = {del, Site}, NAttempt) ->
                 db => DB,
                 shard => Shard,
                 site => Site,
-                reason => Reason,
-                attempt => NAttempt,
-                retry_in => ?TRANS_RETRY_TIMEOUT
+                reason => Reason
             }),
             emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            retry_rm_unresponsive(DB, Shard, Trans, Reason, NAttempt)
+            %% If unsuccessful, perhaps it's time to tell cluster to "forget" it forcefully.
+            %% We only do that if quorum is lost and unreachable anymore, and:
+            IsQuorumReachable = emqx_ds_builtin_raft_shard:is_quorum_reachable(DB, Shard),
+            case Reason of
+                _Any when IsQuorumReachable ->
+                    exit({shutdown, skipped});
+                %% Cluster change times out, due to no quorum:
+                %% 1. Either existing leader failed to commit the cluster change.
+                %% 2. ...Or there's no leader.
+                {timeout, _Server} ->
+                    do_forget_lost(DB, Shard, Trans);
+                %% Cluster change is in the Ra log, but couldn't be confirmed.
+                {error, _Server, cluster_change_not_permitted} ->
+                    do_forget_lost(DB, Shard, Trans);
+                %% Otherwise, let's try the safe way.
+                _Otherwise ->
+                    exit({shutdown, skipped})
+            end
     end.
 
 do_forget_lost(DB, Shard, Trans = {del, Site}) ->
@@ -381,12 +402,10 @@ do_forget_lost(DB, Shard, Trans = {del, Site}) ->
                 db => DB,
                 shard => Shard,
                 site => Site,
-                reason => Reason,
-                retry_in => ?TRANS_RETRY_TIMEOUT
+                reason => Reason
             }),
             emqx_ds_builtin_raft_metrics:shard_transition_error(DB, Shard, Trans),
-            ok = timer:sleep(?TRANS_RETRY_TIMEOUT),
-            do_forget_lost(DB, Shard, Trans);
+            exit({shutdown, skipped});
         {error, unrecoverable, Reason} ->
             %% NOTE: Revert to `rm_unresponsive/3` on next `?TRIGGER_PENDING_TIMEOUT`.
             ?tp(warning, "Forgetting shard replica error", #{
@@ -396,25 +415,6 @@ do_forget_lost(DB, Shard, Trans = {del, Site}) ->
                 reason => Reason
             }),
             exit({shutdown, {forget_lost_error, Reason}})
-    end.
-
-retry_rm_unresponsive(DB, Shard, Trans, _Reason, NAttempt) when NAttempt < 2 ->
-    %% Retry regular safe replica removal first couple of times.
-    do_rm_unresponsive(DB, Shard, Trans, NAttempt + 1);
-retry_rm_unresponsive(DB, Shard, Trans, Reason, NAttempt) ->
-    %% If unsuccessful, perhaps it's time to tell cluster to "forget" it forcefully.
-    %% We only do that if:
-    case Reason of
-        %% Cluster change times out, quorum is probably lost and unreachable.
-        {timeout, _Server} ->
-            do_forget_lost(DB, Shard, Trans);
-        %% Cluster change is in the Ra log, but couldn't be confired, quorum is
-        %% probably lost and unreachable.
-        {error, _Server, cluster_change_not_permitted} ->
-            do_forget_lost(DB, Shard, Trans);
-        %% Otherwise, let's try the safe way.
-        _Otherwise ->
-            do_rm_unresponsive(DB, Shard, Trans, NAttempt + 1)
     end.
 
 %%
@@ -444,7 +444,7 @@ handle_exit(Pid, Reason, State0 = #{db := DB, transitions := Ts}) ->
         [{Track, #transhdl{shard = Shard, trans = Trans}}] ->
             ?tp(
                 debug,
-                dsrepl_shard_transition_end,
+                dsraft_shard_transition_end,
                 #{shard => Shard, db => DB, transition => Trans, pid => Pid, reason => Reason}
             ),
             State = State0#{transitions := maps:remove(Track, Ts)},
