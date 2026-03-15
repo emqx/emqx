@@ -2,9 +2,9 @@
 
 This application provides the feature for users to upload and install custom, Erlang-based plugins.
 
-More introduction about [Plugins](https://www.emqx.io/docs/en/v5.0/extensions/plugins.html#develop-emqx-plugins)
+More introduction about [Plugins](https://www.emqx.io/docs/en/latest/extensions/plugins.html#develop-emqx-plugins)
 
-See HTTP API to learn how to [Install/Uninstall a Plugin](https://www.emqx.io/docs/en/v5.0/admin/api-docs.html#tag/Plugins)
+See HTTP API to learn how to [Install/Uninstall a Plugin](https://docs.emqx.com/en/emqx/latest/extensions/plugin-management.html)
 
 ## Plugin Template
 

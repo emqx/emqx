@@ -31,10 +31,20 @@ defmodule EMQXUsernameQuota.MixProject do
   end
 
   def erlc_options() do
+    common = [
+      :debug_info,
+      :warnings_as_errors,
+      :warn_unused_vars,
+      :warn_shadow_vars,
+      :warn_unused_import,
+      :warn_obsolete_guard,
+      :warnings_as_errors
+    ]
+
     if test_env?() do
-      [:debug_info, {:d, :TEST}, {:parse_transform, :cth_readable_transform}]
+      common ++ [{:d, :TEST}, {:parse_transform, :cth_readable_transform}]
     else
-      [:debug_info]
+      common
     end
   end
 

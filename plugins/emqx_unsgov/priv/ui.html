@@ -151,6 +151,11 @@
       .block h3 { margin: 0 0 8px; font-size: 0.95rem; }
       .compact-row { display: grid; grid-template-columns: 1fr 140px 120px auto; gap: 6px; align-items: center; margin: 4px 0; }
       .compact-row .btn { height: 32px; }
+      .nested-object {
+        margin: 2px 0 8px 0;
+        padding: 6px 0 6px 12px;
+        border-left: 2px solid var(--color-border-primary);
+      }
       .enum-row { margin: 4px 0 8px 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
       .enum-chip {
         border: 1px solid var(--color-border-primary);
@@ -236,7 +241,7 @@
       }
       .stats-counters {
         display: grid;
-        grid-template-columns: repeat(2, minmax(120px, 1fr));
+        grid-template-columns: repeat(5, minmax(100px, 1fr));
         gap: 10px;
       }
       .metric {
@@ -250,13 +255,14 @@
       .metric.total { background: var(--color-bg-split); }
       .metric.allowed { background: #eefbf5; border-color: #b9efd8; }
       .metric.dropped { background: #fff3f0; border-color: #ffd2cb; }
+      .metric.nomatch { background: #f0f0ff; border-color: #c7c7f0; }
       .metric.exempt { background: var(--color-primary-soft); border-color: #c8c2ff; }
 
       .bar-wrap { margin-top: 10px; display: grid; gap: 8px; }
       .bar-line { display: grid; grid-template-columns: 170px minmax(0,1fr) 60px; gap: 8px; align-items: center; }
       .bar { height: 10px; border-radius: 999px; background: var(--color-bg-table-hd); overflow: hidden; }
       .bar > span { display: block; height: 100%; }
-      .pie-wrap { display: flex; gap: 14px; align-items: center; flex-wrap: nowrap; }
+      .pie-wrap { display: flex; gap: 14px; align-items: center; flex-wrap: nowrap; overflow: hidden; }
       .pie {
         width: 160px;
         height: 160px;
@@ -268,8 +274,8 @@
         border: 1px solid var(--color-border-normal);
         background: conic-gradient(#e5e7eb 0 360deg);
       }
-      .pie-legend { display: grid; gap: 6px; min-width: 180px; }
-      .pie-item { font-size: 0.84rem; color: var(--color-text-secondary); }
+      .pie-legend { display: grid; gap: 6px; min-width: 0; overflow: hidden; }
+      .pie-item { font-size: 0.84rem; color: var(--color-text-secondary); overflow-wrap: break-word; word-break: break-all; }
 
       .table-wrap { overflow: auto; border: 1px solid var(--color-border-normal); border-radius: var(--border-radius-card); margin-top: 12px; }
       table.grid { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
@@ -279,7 +285,7 @@
       @media (max-width: 1100px) {
         .layout { grid-template-columns: 1fr; }
         .stats-top { grid-template-columns: 1fr; }
-        .stats-counters { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+        .stats-counters { grid-template-columns: repeat(3, minmax(100px, 1fr)); }
         .compact-row { grid-template-columns: 1fr; }
       }
     </style>
@@ -316,8 +322,8 @@
               <div class="muted" id="editorMeta">Draft</div>
             </div>
             <div class="row">
-              <label class="muted"><input type="checkbox" id="activateOnSave" /> activate on save</label>
               <button class="btn warn" id="toggleActiveBtn" type="button">Activate selected</button>
+              <button class="btn warn" id="deleteModelBtn" type="button" disabled>Delete</button>
             </div>
           </div>
 
@@ -349,8 +355,6 @@
                   <div class="compact-row">
                     <input class="compact-input" id="modelIdInput" type="text" placeholder="model id" />
                     <input class="compact-input" id="modelNameInput" type="text" placeholder="model name" />
-                    <button class="btn main" id="applyMetaBtn" type="button">Apply</button>
-                    <span class="muted">id + name</span>
                   </div>
                 </div>
                 <div class="block">
@@ -369,18 +373,21 @@
                   <h3>Payload Schemas</h3>
                   <div id="payloadEditor"></div>
                 </div>
+                <div class="block">
+                  <h3>Validate Topic</h3>
+                  <div class="row">
+                    <input id="topicInput" type="text" placeholder="default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl" style="min-width: 360px" />
+                    <button class="btn" id="validateTopicBtn" type="button">Validate</button>
+                    <span class="muted" id="topicResult">No validation run yet</span>
+                  </div>
+                </div>
               </div>
             </section>
 
             <section id="schema-tab-json" class="hidden">
               <textarea id="jsonEditor" class="editor" spellcheck="false"></textarea>
-              <div class="row" style="margin-top: 10px; justify-content: space-between;">
+              <div class="row" style="margin-top: 10px;">
                 <span class="muted" id="dirtyHint">No local changes</span>
-                <div class="row">
-                  <input id="topicInput" type="text" placeholder="default/Plant1/BatchHouse/Furnaces/F1/Lines/Line1/LineControl" style="min-width: 360px" />
-                  <button class="btn" id="validateTopicBtn" type="button">Validate Topic</button>
-                  <span class="muted" id="topicResult">No validation run yet</span>
-                </div>
               </div>
             </section>
             </section>
@@ -408,6 +415,7 @@
                   <div class="metric total"><div class="value" id="mTotal">0</div><div class="label">Total</div></div>
                   <div class="metric allowed"><div class="value" id="mAllowed">0</div><div class="label">Allowed</div></div>
                   <div class="metric dropped"><div class="value" id="mDropped">0</div><div class="label">Dropped</div></div>
+                  <div class="metric nomatch"><div class="value" id="mNoMatch">0</div><div class="label">No Match</div></div>
                   <div class="metric exempt"><div class="value" id="mExempt">0</div><div class="label">Exempt</div></div>
                 </div>
                 <div class="pie-wrap">
@@ -474,9 +482,9 @@
           editorMeta: document.getElementById("editorMeta"),
           status: document.getElementById("status"),
           toggleActiveBtn: document.getElementById("toggleActiveBtn"),
+          deleteModelBtn: document.getElementById("deleteModelBtn"),
           jsonEditor: document.getElementById("jsonEditor"),
           dirtyHint: document.getElementById("dirtyHint"),
-          activateOnSave: document.getElementById("activateOnSave"),
           treeView: document.getElementById("treeView"),
           treeFilters: document.getElementById("treeFilters"),
           variableEditor: document.getElementById("variableEditor"),
@@ -491,6 +499,7 @@
           mTotal: document.getElementById("mTotal"),
           mAllowed: document.getElementById("mAllowed"),
           mDropped: document.getElementById("mDropped"),
+          mNoMatch: document.getElementById("mNoMatch"),
           mExempt: document.getElementById("mExempt"),
           dropPie: document.getElementById("dropPie"),
           dropPieLegend: document.getElementById("dropPieLegend"),
@@ -647,7 +656,8 @@
                                         _var_type: "line_id",
                                         children: {
                                           LineControl: {
-                                            _type: "namespace",
+                                            _type: "endpoint",
+                                            _payload: "line_control",
                                             children: {}
                                           }
                                         }
@@ -719,13 +729,16 @@
 
         function updateActiveButton(entry) {
           const btn = els.toggleActiveBtn;
+          const delBtn = els.deleteModelBtn;
           if (!entry || !entry.id) {
             btn.textContent = "Activate selected";
             btn.disabled = true;
             btn.classList.add("warn");
+            delBtn.disabled = true;
             return;
           }
           btn.disabled = false;
+          delBtn.disabled = false;
           if (entry.active) {
             btn.textContent = "Deactivate selected";
             btn.classList.remove("warn");
@@ -782,9 +795,15 @@
 
         function newModel() {
           state.selectedId = null;
-          setModelObj(getDefaultModel(), {});
+          setModelObj({
+            id: "",
+            name: "",
+            variable_types: {},
+            payload_types: {},
+            tree: {}
+          }, {});
           renderModelList();
-          showStatus("ok", "Draft template loaded");
+          showStatus("ok", "New empty model created");
         }
 
         function updateDirty() {
@@ -817,7 +836,7 @@
               method: "POST",
               body: JSON.stringify({
                 model: model,
-                activate: !!els.activateOnSave.checked,
+                activate: false,
               }),
             });
             showStatus("ok", "Saved model " + entry.id + (entry.active ? " (active)" : ""));
@@ -867,6 +886,22 @@
             await deactivateSelected();
           } else {
             await activateSelected();
+          }
+        }
+
+        async function deleteSelected() {
+          if (!state.selectedId) {
+            showStatus("err", "No model selected");
+            return;
+          }
+          if (!confirm("Delete model " + state.selectedId + "?")) return;
+          try {
+            await api("/models/" + encodeURIComponent(state.selectedId), { method: "DELETE" });
+            showStatus("ok", "Deleted model " + state.selectedId);
+            state.selectedId = null;
+            await loadModels();
+          } catch (e) {
+            showStatus("err", e.message);
           }
         }
 
@@ -1072,7 +1107,7 @@
                 '<input class="compact-input" data-role="var-name" type="text" value="' + esc(name) + '" />' +
                 '<select class="compact-select" data-role="var-type">' + variableTypeOptions(vType) + "</select>" +
                 '<input class="compact-input" data-role="var-pattern" type="text" placeholder="regex pattern" value="' + esc(pattern) + '"' + (vType !== "string" ? ' style="display:none"' : '') + ' />' +
-                '<div class="row"><button class="btn" data-action="apply-variable-type" type="button">Apply</button><button class="btn warn" data-action="del-variable-type" type="button">Delete</button></div>' +
+                '<div class="row"><button class="btn warn" data-action="del-variable-type" type="button">Delete</button></div>' +
               "</div>" +
               '<div class="enum-row" data-role="var-enum-row"' + (vType !== "enum" ? ' style="display:none"' : '') + '>' +
                 '<span class="muted">enum symbols:</span>' + enumHtml +
@@ -1087,7 +1122,8 @@
             '<div class="compact-row" style="grid-template-columns:1fr auto">' +
             '<input class="compact-input" id="newVariableTypeName" type="text" placeholder="new variable type name" />' +
             '<button class="btn main" data-action="add-variable-type" type="button">Add Variable Type</button>' +
-            "</div>";
+            "</div>" +
+            '<div class="row" style="margin-top:8px"><button class="btn main" data-action="apply-all-variables" type="button">Apply Variables</button></div>';
           wireVariableActions();
         }
 
@@ -1127,24 +1163,24 @@
                   delete state.modelObj.variable_types[varName];
                 });
               }
-              if (action === "apply-variable-type") {
-                const newName = (row.querySelector('[data-role=\"var-name\"]').value || "").trim();
-                const newType = row.querySelector('[data-role=\"var-type\"]').value;
-                const pattern = (row.querySelector('[data-role=\"var-pattern\"]').value || "").trim();
-                if (!newName) return showStatus("err", "Variable type name cannot be empty");
+              if (action === "apply-all-variables") {
                 return applyModelMutation(() => {
-                  vt.type = newType;
-                  if (newType === "string") {
-                    vt.pattern = pattern || ".*";
-                    delete vt.values;
-                  } else {
-                    delete vt.pattern;
-                    if (!Array.isArray(vt.values)) vt.values = [];
-                  }
-                  if (newName !== varName) {
-                    delete state.modelObj.variable_types[varName];
-                    state.modelObj.variable_types[newName] = vt;
-                  }
+                  const newVarTypes = {};
+                  els.variableEditor.querySelectorAll("[data-var-name]").forEach((block) => {
+                    const origName = block.dataset.varName;
+                    const newName = (block.querySelector('[data-role="var-name"]').value || "").trim();
+                    if (!newName) return;
+                    const newType = block.querySelector('[data-role="var-type"]').value;
+                    const orig = state.modelObj.variable_types[origName] || {};
+                    const entry = { type: newType };
+                    if (newType === "string") {
+                      entry.pattern = (block.querySelector('[data-role="var-pattern"]').value || "").trim() || ".*";
+                    } else if (newType === "enum") {
+                      entry.values = Array.isArray(orig.values) ? orig.values : [];
+                    }
+                    newVarTypes[newName] = entry;
+                  });
+                  state.modelObj.variable_types = newVarTypes;
                 });
               }
               if (action === "add-var-symbol" || action === "del-var-symbol") {
@@ -1180,11 +1216,9 @@
             wirePayloadActions();
             return;
           }
-          const cards = names.map((name) => {
-            const schema = ptypes[name] || {};
-            const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
-            const required = Array.isArray(schema.required) ? schema.required : [];
-            const propRows = Object.keys(props).map((propName) => {
+          function renderPropsHtml(props, required, schemaPath, depth) {
+            const indent = depth > 0 ? ' style="margin-left:' + (depth * 16) + 'px"' : '';
+            return Object.keys(props).map((propName) => {
               const p = props[propName] || {};
               const pType = p.type || "string";
               const enumVals = Array.isArray(p.enum) ? p.enum : [];
@@ -1196,29 +1230,56 @@
                   "</span>"
                 ).join("")
                 : '<span class="muted">no symbols</span>';
+              const propPath = schemaPath + "." + propName;
+              let nested = "";
+              if (pType === "object") {
+                const subProps = (p.properties && typeof p.properties === "object") ? p.properties : {};
+                const subReq = Array.isArray(p.required) ? p.required : [];
+                nested =
+                  '<div class="nested-object" data-schema-path="' + esc(propPath) + '"' + indent + '>' +
+                  '<label class="compact-check"><input data-role="nested-additional" type="checkbox"' + (p.additionalProperties === false ? "" : " checked") + ' />additionalProperties</label>' +
+                  '<div class="muted" style="margin:4px 0 2px">properties</div>' +
+                  renderPropsHtml(subProps, subReq, propPath, depth + 1) +
+                  '<div class="compact-row" data-schema-path="' + esc(propPath) + '">' +
+                  '<input class="compact-input" data-role="new-prop-name" type="text" placeholder="new property" />' +
+                  '<select class="compact-select" data-role="new-prop-type">' + payloadTypeOptions("string") + "</select>" +
+                  '<label class="compact-check"><input data-role="new-prop-required" type="checkbox" checked />required</label>' +
+                  '<div><button class="btn" data-action="add-nested-prop" type="button">Add</button></div>' +
+                  "</div>" +
+                  "</div>";
+              }
+              var enumDisplay = pType === "string" ? "" : "display:none;";
+              var nestedDisplay = pType === "object" ? "" : "display:none;";
               return (
-                '<div data-prop-name="' + esc(propName) + '" data-payload-name="' + esc(name) + '">' +
+                '<div data-prop-name="' + esc(propName) + '" data-schema-path="' + esc(schemaPath) + '"' + indent + '>' +
                 '<div class="compact-row">' +
                   '<input class="compact-input" data-role="prop-name" type="text" value="' + esc(propName) + '" />' +
                   '<select class="compact-select" data-role="prop-type">' + payloadTypeOptions(pType) + "</select>" +
                   '<label class="compact-check"><input data-role="prop-required" type="checkbox"' + (required.indexOf(propName) >= 0 ? " checked" : "") + ' />required</label>' +
-                  '<div class="row"><button class="btn" data-action="apply-prop" type="button">Apply</button><button class="btn warn" data-action="del-prop" type="button">Delete</button></div>' +
+                  '<div class="row"><button class="btn warn" data-action="del-prop" type="button">Delete</button></div>' +
                 "</div>" +
-                '<div class="enum-row">' +
+                '<div class="enum-row" data-role="enum-section" style="' + enumDisplay + '">' +
                   '<span class="muted">enum:</span>' + enumHtml +
                   '<input class="compact-input" data-role="new-enum-symbol" type="text" placeholder="new symbol" style="width:140px;height:28px" />' +
                   '<button class="btn" data-action="add-enum-symbol" type="button" style="height:28px">Add</button>' +
                 "</div>" +
+                '<div data-role="nested-section" style="' + nestedDisplay + '">' + nested + '</div>' +
                 "</div>"
               );
             }).join("");
+          }
+          const cards = names.map((name) => {
+            const schema = ptypes[name] || {};
+            const props = schema.properties && typeof schema.properties === "object" ? schema.properties : {};
+            const required = Array.isArray(schema.required) ? schema.required : [];
+            const propRows = renderPropsHtml(props, required, name, 0);
             return (
               '<div class="block" style="margin-bottom:8px">' +
-              '<div class="compact-row" data-payload-name="' + esc(name) + '">' +
+              '<div class="compact-row" style="grid-template-columns:1fr 100px 160px auto" data-payload-name="' + esc(name) + '">' +
               '<input class="compact-input" data-role="payload-name" type="text" value="' + esc(name) + '" />' +
               '<select class="compact-select" data-role="payload-root-type">' + payloadTypeOptions(schema.type || "object") + "</select>" +
               '<label class="compact-check"><input data-role="payload-additional" type="checkbox"' + (schema.additionalProperties === false ? "" : " checked") + ' />additionalProperties</label>' +
-              '<div class="row"><button class="btn" data-action="apply-payload-name" type="button">Rename</button><button class="btn warn" data-action="del-payload-type" type="button">Delete</button></div>' +
+              '<div class="row"><button class="btn warn" data-action="del-payload-type" type="button">Delete</button></div>' +
               "</div>" +
               '<div class="muted" style="margin:6px 0 4px">properties</div>' +
               (propRows || '<div class="muted">No properties</div>') +
@@ -1237,7 +1298,8 @@
             '<div class="compact-row" style="grid-template-columns:1fr auto">' +
             '<input class="compact-input" id="newPayloadTypeName" type="text" placeholder="new payload type name" />' +
             '<button class="btn main" data-action="add-payload-type" type="button">Add Payload Type</button>' +
-            "</div>";
+            "</div>" +
+            '<div class="row" style="margin-top:8px"><button class="btn main" data-action="apply-all-payload" type="button">Apply Payload</button></div>';
           wirePayloadActions();
         }
 
@@ -1254,6 +1316,20 @@
           if (!required && idx >= 0) schema.required.splice(idx, 1);
         }
 
+        function resolveNestedSchema(payloadName, propRow) {
+          var schema = state.modelObj.payload_types[payloadName];
+          if (!schema) return null;
+          var path = propRow.dataset.schemaPath || "";
+          if (!path || path === payloadName) return schema;
+          var parts = path.split(".");
+          // parts[0] is payloadName, rest are nested property names
+          for (var i = 1; i < parts.length; i++) {
+            if (!schema.properties || !schema.properties[parts[i]]) return null;
+            schema = schema.properties[parts[i]];
+          }
+          return schema;
+        }
+
         function wirePayloadActions() {
           els.payloadEditor.querySelectorAll("[data-action]").forEach((btn) => {
             btn.addEventListener("click", () => {
@@ -1262,6 +1338,7 @@
                 const el = document.getElementById("newPayloadTypeName");
                 const name = (el.value || "").trim();
                 if (!name) return showStatus("err", "Payload type name is required");
+                if (name === "any") return showStatus("err", '"any" is a reserved name and cannot be used as a payload type');
                 applyModelMutation(() => {
                   ensureModelShape();
                   if (!state.modelObj.payload_types[name]) {
@@ -1271,75 +1348,144 @@
                 return;
               }
 
-              const row = btn.closest("[data-payload-name]");
-              if (!row) return;
-              const payloadName = row.dataset.payloadName;
-              const schema = state.modelObj.payload_types[payloadName];
-              if (!schema) return;
+              if (action === "apply-all-payload") {
+                return applyModelMutation(() => {
+                  function readPropsFromContainer(container, schemaPath, origSchema) {
+                    const newProps = {};
+                    const newRequired = [];
+                    container.querySelectorAll(':scope > [data-prop-name][data-schema-path="' + schemaPath + '"]').forEach((propRow) => {
+                      const origPropName = propRow.dataset.propName;
+                      const pName = (propRow.querySelector(':scope > .compact-row > [data-role="prop-name"]').value || "").trim();
+                      if (!pName) return;
+                      const pType = propRow.querySelector(':scope > .compact-row > [data-role="prop-type"]').value;
+                      const req = propRow.querySelector(':scope > .compact-row [data-role="prop-required"]').checked;
+                      const origProp = (origSchema && origSchema[origPropName]) || {};
+                      newProps[pName] = { type: pType };
+                      if (Array.isArray(origProp.enum) && origProp.enum.length > 0) {
+                        newProps[pName].enum = origProp.enum;
+                      }
+                      if (pType === "object") {
+                        const nestedDiv = propRow.querySelector('.nested-object');
+                        if (nestedDiv) {
+                          const additionalEl = nestedDiv.querySelector('[data-role="nested-additional"]');
+                          newProps[pName].additionalProperties = additionalEl ? additionalEl.checked : true;
+                          const subOrigProps = (origProp.properties && typeof origProp.properties === "object") ? origProp.properties : {};
+                          const sub = readPropsFromContainer(nestedDiv, schemaPath + "." + origPropName, subOrigProps);
+                          newProps[pName].properties = sub.props;
+                          newProps[pName].required = sub.required;
+                        }
+                      }
+                      if (req) newRequired.push(pName);
+                    });
+                    return { props: newProps, required: newRequired };
+                  }
+                  const newPtypes = {};
+                  els.payloadEditor.querySelectorAll(".block").forEach((blk) => {
+                    const hdr = blk.querySelector("[data-payload-name]");
+                    if (!hdr) return;
+                    const origName = hdr.dataset.payloadName;
+                    const newName = (hdr.querySelector('[data-role="payload-name"]').value || "").trim();
+                    if (!newName) return;
+                    if (newName === "any") throw new Error('"any" is a reserved name and cannot be used as a payload type');
+                    const rootType = hdr.querySelector('[data-role="payload-root-type"]').value;
+                    const additional = hdr.querySelector('[data-role="payload-additional"]').checked;
+                    const origSchema = state.modelObj.payload_types[origName] || {};
+                    const origProps = (origSchema.properties && typeof origSchema.properties === "object") ? origSchema.properties : {};
+                    const result = readPropsFromContainer(blk, origName, origProps);
+                    newPtypes[newName] = {
+                      type: rootType,
+                      properties: result.props,
+                      required: result.required,
+                      additionalProperties: additional
+                    };
+                  });
+                  state.modelObj.payload_types = newPtypes;
+                });
+              }
+
+              // Find the top-level payload name from the closest block
+              const block = btn.closest(".block");
+              const headerRow = block ? block.querySelector("[data-payload-name]") : null;
+              if (!headerRow) return;
+              const payloadName = headerRow.dataset.payloadName;
+              const topSchema = state.modelObj.payload_types[payloadName];
+              if (!topSchema) return;
+
               if (action === "del-payload-type") {
                 return applyModelMutation(() => {
                   delete state.modelObj.payload_types[payloadName];
                 });
               }
-              if (action === "apply-payload-name") {
-                const newName = (row.querySelector('[data-role=\"payload-name\"]').value || "").trim();
-                const rootType = row.querySelector('[data-role=\"payload-root-type\"]').value;
-                const additional = row.querySelector('[data-role=\"payload-additional\"]').checked;
-                if (!newName) return showStatus("err", "Payload type name cannot be empty");
-                return applyModelMutation(() => {
-                  schema.type = rootType;
-                  schema.additionalProperties = additional;
-                  if (newName !== payloadName) {
-                    delete state.modelObj.payload_types[payloadName];
-                    state.modelObj.payload_types[newName] = schema;
-                  }
-                });
-              }
               if (action === "add-prop") {
-                const newProp = (row.querySelector('[data-role=\"new-prop-name\"]').value || "").trim();
-                const pType = row.querySelector('[data-role=\"new-prop-type\"]').value;
-                const req = row.querySelector('[data-role=\"new-prop-required\"]').checked;
+                const row = btn.closest("[data-payload-name]");
+                if (!row) return;
+                const newProp = (row.querySelector('[data-role="new-prop-name"]').value || "").trim();
+                const pType = row.querySelector('[data-role="new-prop-type"]').value;
+                const req = row.querySelector('[data-role="new-prop-required"]').checked;
                 if (!newProp) return showStatus("err", "Property name is required");
                 return applyModelMutation(() => {
-                  normalizePayloadSchema(schema);
-                  schema.properties[newProp] = Object.assign({}, schema.properties[newProp] || {}, { type: pType });
-                  setPropRequired(schema, newProp, req);
+                  normalizePayloadSchema(topSchema);
+                  topSchema.properties[newProp] = Object.assign({}, topSchema.properties[newProp] || {}, { type: pType });
+                  if (pType === "object") {
+                    topSchema.properties[newProp].properties = topSchema.properties[newProp].properties || {};
+                    topSchema.properties[newProp].required = topSchema.properties[newProp].required || [];
+                    topSchema.properties[newProp].additionalProperties = topSchema.properties[newProp].additionalProperties !== undefined ? topSchema.properties[newProp].additionalProperties : false;
+                  }
+                  setPropRequired(topSchema, newProp, req);
                 });
               }
-              if (action === "apply-prop" || action === "del-prop") {
+              if (action === "add-nested-prop") {
+                const nestedRow = btn.closest("[data-schema-path]");
+                if (!nestedRow) return;
+                const nestedPath = nestedRow.dataset.schemaPath;
+                const newProp = (nestedRow.querySelector('[data-role="new-prop-name"]').value || "").trim();
+                const pType = nestedRow.querySelector('[data-role="new-prop-type"]').value;
+                const req = nestedRow.querySelector('[data-role="new-prop-required"]').checked;
+                if (!newProp) return showStatus("err", "Property name is required");
+                return applyModelMutation(() => {
+                  // Resolve the parent schema from the path
+                  var parentSchema = topSchema;
+                  var parts = nestedPath.split(".");
+                  for (var i = 1; i < parts.length; i++) {
+                    if (!parentSchema.properties || !parentSchema.properties[parts[i]]) return;
+                    parentSchema = parentSchema.properties[parts[i]];
+                  }
+                  normalizePayloadSchema(parentSchema);
+                  parentSchema.properties[newProp] = Object.assign({}, parentSchema.properties[newProp] || {}, { type: pType });
+                  if (pType === "object") {
+                    parentSchema.properties[newProp].properties = parentSchema.properties[newProp].properties || {};
+                    parentSchema.properties[newProp].required = parentSchema.properties[newProp].required || [];
+                    parentSchema.properties[newProp].additionalProperties = parentSchema.properties[newProp].additionalProperties !== undefined ? parentSchema.properties[newProp].additionalProperties : false;
+                  }
+                  setPropRequired(parentSchema, newProp, req);
+                });
+              }
+              if (action === "del-prop") {
                 const propRow = btn.closest("[data-prop-name]");
                 if (!propRow) return;
                 const oldName = propRow.dataset.propName;
+                const parentSchema = resolveNestedSchema(payloadName, propRow);
+                if (!parentSchema) return;
                 return applyModelMutation(() => {
-                  normalizePayloadSchema(schema);
-                  if (!schema.properties[oldName]) return;
-                  if (action === "del-prop") {
-                    delete schema.properties[oldName];
-                    setPropRequired(schema, oldName, false);
-                    return;
-                  }
-                  const newName = (propRow.querySelector('[data-role=\"prop-name\"]').value || "").trim();
-                  const pType = propRow.querySelector('[data-role=\"prop-type\"]').value;
-                  const req = propRow.querySelector('[data-role=\"prop-required\"]').checked;
-                  if (!newName) throw new Error("Property name cannot be empty");
-                  const oldDef = schema.properties[oldName];
-                  delete schema.properties[oldName];
-                  schema.properties[newName] = Object.assign({}, oldDef, { type: pType });
-                  setPropRequired(schema, oldName, false);
-                  setPropRequired(schema, newName, req);
+                  normalizePayloadSchema(parentSchema);
+                  if (!parentSchema.properties[oldName]) return;
+                  delete parentSchema.properties[oldName];
+                  setPropRequired(parentSchema, oldName, false);
                 });
               }
               if (action === "add-enum-symbol" || action === "del-enum-symbol") {
                 const propRow = btn.closest("[data-prop-name]");
                 if (!propRow) return;
                 const propName = propRow.dataset.propName;
+                const parentSchema = resolveNestedSchema(payloadName, propRow);
+                if (!parentSchema) return;
                 return applyModelMutation(() => {
-                  normalizePayloadSchema(schema);
-                  const prop = schema.properties[propName];
+                  normalizePayloadSchema(parentSchema);
+                  const prop = parentSchema.properties[propName];
                   if (!prop) return;
                   if (!Array.isArray(prop.enum)) prop.enum = [];
                   if (action === "add-enum-symbol") {
-                    const sym = (propRow.querySelector('[data-role=\"new-enum-symbol\"]').value || "").trim();
+                    const sym = (propRow.querySelector('[data-role="new-enum-symbol"]').value || "").trim();
                     if (!sym) throw new Error("Enum symbol cannot be empty");
                     if (prop.enum.indexOf(sym) < 0) prop.enum.push(sym);
                   } else {
@@ -1348,6 +1494,16 @@
                   }
                 });
               }
+            });
+          });
+          els.payloadEditor.querySelectorAll('[data-role="prop-type"]').forEach((sel) => {
+            sel.addEventListener("change", () => {
+              const propRow = sel.closest("[data-prop-name]");
+              if (!propRow) return;
+              const enumSec = propRow.querySelector(':scope > [data-role="enum-section"]');
+              const nestedSec = propRow.querySelector(':scope > [data-role="nested-section"]');
+              if (enumSec) enumSec.style.display = sel.value === "string" ? "" : "none";
+              if (nestedSec) nestedSec.style.display = sel.value === "object" ? "" : "none";
             });
           });
         }
@@ -1386,7 +1542,10 @@
           const addRow = document.createElement("div");
           addRow.className = "row";
           addRow.style.marginTop = "8px";
-          addRow.innerHTML = '<button class="btn main" data-action="add-root-node" type="button">Add Root Node</button>';
+          addRow.style.gap = "8px";
+          addRow.innerHTML =
+            '<button class="btn main" data-action="add-root-node" type="button">Add Root Node</button>' +
+            '<button class="btn main" data-action="apply-all-tree" type="button">Apply Tree</button>';
           els.treeView.appendChild(addRow);
           renderTreeFilters();
           wireTreeActions();
@@ -1446,16 +1605,25 @@
           row.dataset.parentMapId = pathToId(parentMapPath);
           row.dataset.nodeKey = key;
           const nodeTypeValue = (node && node._type) || "namespace";
+          const payloadRef = (node && node._payload) || "";
+          const ptNames = Object.keys((state.modelObj && state.modelObj.payload_types) || {}).sort();
+          const payloadOpts = '<option value="">(any)</option>' +
+            ptNames.map((n) => '<option value="' + esc(n) + '"' + (payloadRef === n ? " selected" : "") + '>' + esc(n) + '</option>').join("");
+          const hiddenIfNotEndpoint = nodeTypeValue === "endpoint" ? "" : "display:none;";
           row.innerHTML =
             (hasChildren ? '<button class="tree-toggle" data-action="toggle-node" type="button">' + (expanded ? "▾" : "▸") + "</button>" : "") +
             '<input class="compact-input" data-role="node-key" type="text" style="width:180px" value="' + esc(key) + '" />' +
             '<select class="compact-select" data-role="node-type" style="width:120px">' +
               '<option value="namespace"' + (nodeTypeValue === "namespace" ? " selected" : "") + '>namespace</option>' +
               '<option value="variable"' + (nodeTypeValue === "variable" ? " selected" : "") + '>variable</option>' +
+              '<option value="endpoint"' + (nodeTypeValue === "endpoint" ? " selected" : "") + '>endpoint</option>' +
             "</select>" +
-            '<button class="btn" data-action="apply-node" type="button">Apply</button>' +
+            '<select class="compact-select" data-role="node-payload" style="width:140px;' + hiddenIfNotEndpoint + '">' + payloadOpts + '</select>' +
             '<button class="btn" data-action="add-child-node" type="button">Add Child</button>' +
             '<button class="btn warn" data-action="delete-node" type="button">Delete</button>';
+          row.querySelector('[data-role="node-type"]').addEventListener("change", function() {
+            row.querySelector('[data-role="node-payload"]').style.display = this.value === "endpoint" ? "" : "none";
+          });
           li.appendChild(row);
           if (expanded && hasChildren) {
             const ul = document.createElement("ul");
@@ -1475,6 +1643,58 @@
           return li;
         }
 
+        function applyTreeFromDom() {
+          function readNodeFromRow(row) {
+            const newKey = (row.querySelector('[data-role="node-key"]').value || "").trim();
+            if (!newKey) return null;
+            const newType = row.querySelector('[data-role="node-type"]').value;
+            const payloadSel = row.querySelector('[data-role="node-payload"]');
+            const newPayload = payloadSel ? payloadSel.value : "";
+            const nodePath = idToPath(row.dataset.nodeId);
+            const existing = getByPath(nodePath);
+            const node = { _type: newType, children: (existing && existing.children) || {} };
+            if (newType === "variable") {
+              const m = newKey.match(/^\{(.+)\}$/);
+              if (m && m[1]) node._var_type = m[1];
+            }
+            if (newType === "endpoint" && newPayload) {
+              node._payload = newPayload;
+            }
+            return { key: newKey, node: node, origKey: row.dataset.nodeKey, parentMapId: row.dataset.parentMapId };
+          }
+          // Collect all edits grouped by parent
+          const editsByParent = {};
+          els.treeView.querySelectorAll(".tree-row").forEach((row) => {
+            const info = readNodeFromRow(row);
+            if (!info) return;
+            const pid = info.parentMapId;
+            if (!editsByParent[pid]) editsByParent[pid] = [];
+            editsByParent[pid].push(info);
+          });
+          // Apply bottom-up: process deepest parents first
+          const parentIds = Object.keys(editsByParent);
+          parentIds.sort((a, b) => b.length - a.length);
+          parentIds.forEach((pid) => {
+            const parentMap = getByPath(idToPath(pid));
+            if (!parentMap || typeof parentMap !== "object") return;
+            const edits = editsByParent[pid];
+            const newMap = {};
+            edits.forEach((e) => {
+              // Re-read children from current state (may have been updated by deeper apply)
+              const currentNode = parentMap[e.origKey];
+              if (currentNode && currentNode.children) {
+                e.node.children = currentNode.children;
+              }
+              newMap[e.key] = e.node;
+            });
+            // Clear and replace
+            Object.keys(parentMap).forEach((k) => delete parentMap[k]);
+            Object.keys(newMap).forEach((k) => { parentMap[k] = newMap[k]; });
+          });
+          // Re-expand all nodes that have children so the tree stays open
+          initExpandedDefault();
+        }
+
         function wireTreeActions() {
           els.treeView.querySelectorAll("[data-action]").forEach((btn) => {
             btn.addEventListener("click", () => {
@@ -1485,6 +1705,11 @@
                   if (!key) return;
                   state.modelObj.tree[key] = { _type: "namespace", children: {} };
                   state.expandedIds[pathToId(["tree", key])] = true;
+                });
+              }
+              if (action === "apply-all-tree") {
+                return applyModelMutation(() => {
+                  applyTreeFromDom();
                 });
               }
               const row = btn.closest(".tree-row");
@@ -1511,27 +1736,6 @@
                   if (!childKey) return;
                   node.children[childKey] = { _type: "namespace", children: {} };
                   state.expandedIds[pathToId(nodePath)] = true;
-                });
-              }
-              if (action === "apply-node") {
-                const newKey = (row.querySelector('[data-role="node-key"]').value || "").trim();
-                if (!newKey) return showStatus("err", "Node key cannot be empty");
-                const newType = row.querySelector('[data-role="node-type"]').value;
-                return applyModelMutation(() => {
-                  const parentMap = getByPath(parentMapPath);
-                  const existing = parentMap[key];
-                  delete parentMap[key];
-                  parentMap[newKey] = existing;
-                  existing._type = newType;
-                  delete existing._var_type;
-                  delete existing._payload;
-                  if (!existing.children || typeof existing.children !== "object") {
-                    existing.children = {};
-                  }
-                  if (newType === "variable") {
-                    const m = newKey.match(/^\{(.+)\}$/);
-                    if (m && m[1]) existing._var_type = m[1];
-                  }
                 });
               }
             });
@@ -1569,7 +1773,6 @@
               messages_total: 0,
               messages_allowed: 0,
               messages_dropped: 0,
-              topic_nomatch: 0,
               topic_invalid: 0,
               payload_invalid: 0,
               not_endpoint: 0
@@ -1583,13 +1786,18 @@
           els.mTotal.textContent = fmtNum(effective.messages_total);
           els.mAllowed.textContent = fmtNum(effective.messages_allowed);
           els.mDropped.textContent = fmtNum(effective.messages_dropped);
-          els.mExempt.textContent = fmtNum(scope === "selected" ? 0 : s.exempt);
+          const isModel = scope === "selected" && selectedModelId;
+          els.mNoMatch.textContent = fmtNum(s.topic_nomatch);
+          els.mExempt.textContent = fmtNum(s.exempt);
+          els.mNoMatch.closest(".metric").querySelector(".label").textContent = isModel ? "No Match (global)" : "No Match";
+          els.mExempt.closest(".metric").querySelector(".label").textContent = isModel ? "Exempt (global)" : "Exempt";
+          els.mNoMatch.closest(".metric").style.opacity = isModel ? "0.6" : "";
+          els.mExempt.closest(".metric").style.opacity = isModel ? "0.6" : "";
           els.uptimePill.textContent = "uptime: " + fmtUptime(s.uptime_seconds);
           els.statsAtPill.textContent = "updated: " + new Date().toLocaleTimeString();
 
           const dropped = Number(effective.messages_dropped || 0);
           const bars = [
-            ["topic_nomatch", Number(effective.topic_nomatch || 0), "#6366f1"],
             ["topic_invalid", Number(effective.topic_invalid || 0), "#ef4444"],
             ["payload_invalid", Number(effective.payload_invalid || 0), "#f97316"],
             ["not_endpoint", Number(effective.not_endpoint || 0), "#eab308"],
@@ -1605,12 +1813,7 @@
               '</div>'
             );
           }).join("");
-          const pieStops = [
-            {v: bars[0][1], c: bars[0][2]},
-            {v: bars[1][1], c: bars[1][2]},
-            {v: bars[2][1], c: bars[2][2]},
-            {v: bars[3][1], c: bars[3][2]},
-          ];
+          const pieStops = bars.map((b) => ({v: b[1], c: b[2]}));
           if (dropped > 0) {
             let deg = 0;
             const segs = pieStops.map((s) => {
@@ -1622,11 +1825,9 @@
           } else {
             els.dropPie.style.background = "conic-gradient(#e5e7eb 0 360deg)";
           }
-          els.dropPieLegend.innerHTML =
-            '<div class="pie-item">topic_nomatch: ' + bars[0][1] + " (" + pcts[0] + '%)</div>' +
-            '<div class="pie-item">topic_invalid: ' + bars[1][1] + " (" + pcts[1] + '%)</div>' +
-            '<div class="pie-item">payload_invalid: ' + bars[2][1] + " (" + pcts[2] + '%)</div>' +
-            '<div class="pie-item">not_endpoint: ' + bars[3][1] + " (" + pcts[3] + '%)</div>';
+          els.dropPieLegend.innerHTML = bars.map((b, i) =>
+            '<div class="pie-item">' + b[0] + ': ' + b[1] + " (" + pcts[i] + '%)</div>'
+          ).join("");
           const modelIds = Object.keys(perModel).sort();
           if (modelIds.length === 0) {
             els.perModelBody.innerHTML = '<tr><td colspan="7" class="muted">No per-model stats yet.</td></tr>';
@@ -1687,20 +1888,22 @@
         document.getElementById("refreshModelsBtn").addEventListener("click", () => {
           loadModels(state.selectedId).catch((e) => showStatus("err", e.message));
         });
-        document.getElementById("applyMetaBtn").addEventListener("click", () => {
-          applyModelMutation(() => {
-            ensureModelShape();
-            const id = (els.modelIdInput.value || "").trim();
-            const name = (els.modelNameInput.value || "").trim();
-            if (id) state.modelObj.id = id;
-            if (name) state.modelObj.name = name;
-          });
-        });
+        function applyMeta() {
+          ensureModelShape();
+          const id = (els.modelIdInput.value || "").trim();
+          const name = (els.modelNameInput.value || "").trim();
+          if (id) state.modelObj.id = id;
+          if (name) state.modelObj.name = name;
+          syncEditorFromModel();
+        }
+        els.modelIdInput.addEventListener("input", applyMeta);
+        els.modelNameInput.addEventListener("input", applyMeta);
         document.getElementById("expandAllBtn").addEventListener("click", expandAllLevels);
         document.getElementById("collapseAllBtn").addEventListener("click", collapseAllLevels);
         document.getElementById("newModelBtn").addEventListener("click", newModel);
         document.getElementById("saveBtn").addEventListener("click", saveModel);
         document.getElementById("toggleActiveBtn").addEventListener("click", toggleSelectedActive);
+        document.getElementById("deleteModelBtn").addEventListener("click", deleteSelected);
         document.getElementById("validateTopicBtn").addEventListener("click", validateTopic);
         document.getElementById("refreshStatsBtn").addEventListener("click", () => {
           refreshStats().catch((e) => showStatus("err", e.message));

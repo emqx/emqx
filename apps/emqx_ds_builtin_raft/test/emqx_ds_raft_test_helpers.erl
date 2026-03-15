@@ -24,67 +24,20 @@ assert_db_open(Nodes, DB, Opts) ->
         erpc:multicall(Nodes, emqx_ds, open_db, [DB, Opts])
     ),
     erpc:multicall(Nodes, emqx_ds, wait_db, [DB, all, infinity]),
-    wait_db_bootstrapped(Nodes, DB).
+    erpc:multicall(Nodes, emqx_ds_builtin_raft, wait_replicas, [DB, infinity]).
 
-wait_db_bootstrapped(Nodes, DB) ->
-    wait_db_bootstrapped(Nodes, DB, infinity, infinity).
+shard_leader(Node, DB, Shard) ->
+    shard_server_info(Node, DB, Shard, leader).
 
-wait_db_bootstrapped(Nodes, DB, Timeout, BackInTime) ->
-    [
-        ?block_until(
-            #{
-                ?snk_kind := emqx_ds_replshard_bootstrapped,
-                ?snk_meta := #{node := Node},
-                db := DB,
-                shard := Shard
-            },
-            Timeout,
-            BackInTime
-        )
-     || Node <- Nodes,
-        Shard <- ?ON(Node, emqx_ds_builtin_raft_meta:my_shards(DB))
-    ],
-    ct:pal("DS DB ~p has been bootstrapped on ~p", [DB, Nodes]).
+shard_readiness(Node, DB, Shard) ->
+    shard_server_info(Node, DB, Shard, readiness).
 
--spec assert_db_stable([node()], emqx_ds:db()) -> _Ok.
-assert_db_stable([Node | _], DB) ->
-    Shards = ?ON(Node, emqx_ds_builtin_raft_meta:shards(DB)),
-    ?assertMatch(
-        _Leadership = [_ | _],
-        ?ON(Node, db_leadership(DB, Shards))
-    ).
-
-db_leadership(DB, Shards) ->
-    Leadership = [{S, shard_leadership(DB, S)} || S <- Shards],
-    Inconsistent = [SL || SL = {_, Leaders} <- Leadership, map_size(Leaders) > 1],
-    case Inconsistent of
-        [] ->
-            Leadership;
-        [_ | _] ->
-            {error, inconsistent, Inconsistent}
-    end.
-
-shard_leadership(DB, Shard) ->
-    ReplicaSet = emqx_ds_builtin_raft_meta:replica_set(DB, Shard),
-    Nodes = [emqx_ds_builtin_raft_meta:node(Site) || Site <- ReplicaSet],
-    lists:foldl(
-        fun({Site, SN}, Acc) -> Acc#{shard_leader(SN, DB, Shard, Site) => SN} end,
-        #{},
-        lists:zip(ReplicaSet, Nodes)
-    ).
-
-shard_leader(Node, DB, Shard, Site) ->
-    shard_server_info(Node, DB, Shard, Site, leader).
-
-shard_readiness(Node, DB, Shard, Site) ->
-    shard_server_info(Node, DB, Shard, Site, readiness).
-
-shard_server_info(Node, DB, Shard, Site, Info) ->
+shard_server_info(Node, DB, Shard, Info) ->
     ?ON(
         Node,
         emqx_ds_builtin_raft_shard:server_info(
             Info,
-            emqx_ds_builtin_raft_shard:shard_server(DB, Shard, Site)
+            emqx_ds_builtin_raft_shard:local_server(DB, Shard)
         )
     ).
 
@@ -124,7 +77,7 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
                 )
             ),
             ?assertMatch(
-                ok, ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 10}, [Msg]))
+                ok, ?ON(Node, emqx_ds_test_helpers:dirty_append(#{db => DB, retries => 5}, [Msg]))
             ),
             apply_stream(DB, NodeStream, Stream, N + 1);
         [add_generation | Stream] ->
@@ -141,20 +94,8 @@ apply_stream(DB, NodeStream0, Stream0, N) ->
             %% Apply the transition.
             ?assertMatch(
                 {ok, _},
-                ?ON(
-                    Node,
-                    emqx_ds_builtin_raft_meta:Operation(DB, Arg)
-                )
+                ?ON(Node, emqx_ds_builtin_raft_meta:Operation(DB, Arg))
             ),
-            %% Give some time for at least one transition to complete.
-            Transitions = ?ON(Node, db_transitions(DB)),
-            ct:pal("Transitions after ~p: ~p", [Operation, Transitions]),
-            case Transitions of
-                [_ | _] ->
-                    ?retry(200, 10, ?assertNotEqual(Transitions, ?ON(Node, db_transitions(DB))));
-                [] ->
-                    ok
-            end,
             apply_stream(DB, NodeStream0, Stream, N);
         [Fun | Stream] when is_function(Fun) ->
             Fun(),

@@ -227,7 +227,7 @@ t_transitions_metrics(Config) ->
 
     %% Simulate occasional transition crashes.
     ?inject_crash(
-        #{?snk_kind := dsrepl_shard_transition_begin},
+        #{?snk_kind := dsraft_shard_transition_begin},
         snabbkaffe_nemesis:recover_after(3)
     ),
 

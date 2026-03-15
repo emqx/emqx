@@ -18,6 +18,7 @@
 ]).
 
 -include_lib("emqx/include/emqx_hooks.hrl").
+-include("emqx_username_quota.hrl").
 
 -define(AUTHN_HOOK, {?MODULE, on_client_authenticate, []}).
 -define(SESSION_CREATED_HOOK, {?MODULE, on_session_created, []}).
@@ -48,8 +49,10 @@ on_client_authenticate(ClientInfo, DefaultResult) ->
             DefaultResult;
         false ->
             case should_allow(Username, ClientId) of
-                true -> DefaultResult;
-                false -> {stop, {error, quota_exceeded}}
+                true ->
+                    DefaultResult;
+                false ->
+                    {stop, {error, quota_exceeded}}
             end
     end.
 
@@ -81,11 +84,23 @@ reset() ->
 should_allow(Username, ClientId) ->
     case emqx_username_quota_state:is_known_client(Username, ClientId) of
         {true, _Node} ->
+            ?LOG(debug, #{msg => "known_client_id_allowed", username => Username}),
             true;
         false ->
             Max = emqx_username_quota_state:get_effective_limit(Username),
             Count = emqx_username_quota_state:count(Username),
-            Max =:= nolimit orelse Count < Max
+            case Max =:= nolimit orelse Count < Max of
+                true ->
+                    true;
+                false ->
+                    ?LOG(warning, #{
+                        msg => "quota_exceeded",
+                        username => Username,
+                        count => Count,
+                        max => Max
+                    }),
+                    false
+            end
     end.
 
 maybe_register(ClientInfo) ->

@@ -482,7 +482,7 @@ external_http_handler(Req0, State) ->
             <<"opts">> := ExtraOpts,
             <<"payload">> := PayloadB64
         }} ?= Parsed,
-        {ok, Payload} ?= decode_base64(PayloadB64),
+        {ok, Payload} ?= decode_base64(Method, PayloadB64),
         {ok, RespBody} ?= exec_external_http_serde(EncodeOrDecode, ExtraOpts, Payload),
         RespBodyB64 = base64:encode(RespBody),
         Rep = cowboy_req:reply(
@@ -503,7 +503,14 @@ external_http_handler(Req0, State) ->
             {ok, RepErr, State}
     end.
 
-decode_base64(Bin) ->
+decode_base64(<<"GET">>, Bin) ->
+    try
+        {ok, base64:decode(Bin, #{mode => urlsafe, padding => false})}
+    catch
+        error:_ ->
+            {error, bad_base64}
+    end;
+decode_base64(_Method, Bin) ->
     try
         {ok, base64:decode(Bin)}
     catch
