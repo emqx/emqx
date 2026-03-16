@@ -63,9 +63,9 @@ list_cards(Opts) ->
     MatchOpts = #{batch_read_number => all_remaining},
     {ok, Msgs, undefined} = emqx_retainer:match_messages(TopicFilter, Cursor, MatchOpts),
     lists:map(
-        fun(#message{from = From, payload = PayloadRaw}) ->
+        fun(#message{from = From, topic = Topic, payload = PayloadRaw}) ->
             Card = emqx_utils_json:decode(PayloadRaw),
-            format_card(Card, PayloadRaw, From)
+            format_card(Card, PayloadRaw, Topic, From)
         end,
         Msgs
     ).
@@ -119,7 +119,7 @@ agent_card_schema_source() ->
     {ok, Source} = file:read_file(agent_card_schema_path()),
     Source.
 
-format_card(Card0, CardRaw, ClientId) ->
+format_card(Card0, CardRaw, Topic, ClientId) ->
     Card = maps:with(
         [
             <<"name">>,
@@ -128,8 +128,24 @@ format_card(Card0, CardRaw, ClientId) ->
         ],
         Card0
     ),
+    case emqx_a2a_registry_utils:parse_a2a_discovery_topic(Topic) of
+        {ok, {OrgId, UnitId, AgentId}} ->
+            ok;
+        error ->
+            %% Impossible
+            OrgId = undefined,
+            UnitId = undefined,
+            AgentId = undefined
+    end,
     Status = lookup_agent_status(ClientId),
-    Card#{<<"id">> => ClientId, <<"status">> => Status, <<"raw">> => CardRaw}.
+    Card#{
+        <<"id">> => ClientId,
+        <<"org_id">> => OrgId,
+        <<"unit_id">> => UnitId,
+        <<"agent_id">> => AgentId,
+        <<"status">> => Status,
+        <<"raw">> => CardRaw
+    }.
 
 agent_card_clientid(OrgId, UnitId, AgentId) ->
     emqx_topic:join([OrgId, UnitId, AgentId]).
