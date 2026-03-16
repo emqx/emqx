@@ -154,24 +154,33 @@ check_plugin(PluginInfo, NameVsn) ->
     }}.
 
 configured() ->
-    lists:map(fun normalize_state_item/1, emqx_conf:get([?CONF_ROOT, states])).
+    configured(emqx_conf:get([?CONF_ROOT, states])).
 
+configured(States) ->
+    lists:map(fun normalize_state_item/1, States).
+
+-doc """
+Return the effective configuration status for a plugin version.
+
+If the version has no entry in `plugins.states`, the result is `not_configured`.
+If it is configured but not enabled, the result is `disabled`.
+If it is enabled, the result is still `disabled` when a newer version of the same
+plugin is also enabled, because only the latest enabled version is treated as
+effectively enabled.
+""".
 configured_status(NameVsn, Configured) ->
     NameVsnBin = bin(NameVsn),
     ExactStates = [
         Enabled
      || #{name_vsn := NV, enable := Enabled} <- Configured, bin(NV) =:= NameVsnBin
     ],
-    case ExactStates of
-        [] ->
+    case lists:member(true, ExactStates) of
+        true ->
+            enabled_status(NameVsnBin, Configured);
+        false when ExactStates =:= [] ->
             not_configured;
-        _ ->
-            case lists:any(fun(Enabled) -> Enabled =:= true end, ExactStates) of
-                false ->
-                    disabled;
-                true ->
-                    enabled_status(NameVsnBin, Configured)
-            end
+        false ->
+            disabled
     end.
 
 enabled_status(NameVsn, Configured) ->
@@ -192,6 +201,7 @@ enabled_status(NameVsn, Configured) ->
             end
     end.
 
+%% compare_vsn/2 returns `newer` when the second argument is newer than the first.
 latest_name_vsn(NameVsn1, NameVsn2) ->
     {_Name1, Vsn1} = emqx_plugins_utils:parse_name_vsn(NameVsn1),
     {_Name2, Vsn2} = emqx_plugins_utils:parse_name_vsn(NameVsn2),
@@ -245,24 +255,10 @@ configured_status_test_() ->
         )
     ].
 
-configured_test_() ->
-    {setup,
-        fun() ->
-            meck:new(emqx_conf, [passthrough]),
-            ok
-        end,
-        fun(_) ->
-            meck:unload(emqx_conf)
-        end,
-        fun configured_case/0}.
-
-configured_case() ->
-    meck:expect(emqx_conf, get, fun([plugins, states]) ->
-        [#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}]
-    end),
+configured_case_test() ->
+    States = [#{<<"name_vsn">> => <<"demo-1.0.0">>, <<"enable">> => true}],
     ?assertEqual(
         [#{name_vsn => <<"demo-1.0.0">>, enable => true}],
-        configured()
+        configured(States)
     ).
-
 -endif.

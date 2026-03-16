@@ -959,9 +959,9 @@ latest_enabled_versions(Configured) ->
                     undefined ->
                         Acc#{Name => NameVsnBin};
                     Existing ->
-                        case is_newer_name_vsn(NameVsnBin, Existing) of
-                            true -> Acc#{Name => NameVsnBin};
-                            false -> Acc
+                        case compare_vsn(Existing, NameVsnBin) of
+                            newer -> Acc#{Name => NameVsnBin};
+                            _ -> Acc
                         end
                 end;
             (_Item, Acc) ->
@@ -971,10 +971,11 @@ latest_enabled_versions(Configured) ->
         Configured
     ).
 
-is_newer_name_vsn(NameVsn1, NameVsn2) ->
+%% compare_vsn/2 returns `newer` when NameVsn2 is newer than NameVsn1.
+compare_vsn(NameVsn1, NameVsn2) ->
     {_Name1, Vsn1} = emqx_plugins_utils:parse_name_vsn(NameVsn1),
     {_Name2, Vsn2} = emqx_plugins_utils:parse_name_vsn(NameVsn2),
-    emqx_plugins_utils:compare_vsn(Vsn2, Vsn1) =:= newer.
+    emqx_plugins_utils:compare_vsn(Vsn1, Vsn2).
 
 ensure_no_other_version_active(NameVsn0) ->
     NameVsn = bin(NameVsn0),
@@ -1256,7 +1257,7 @@ version_selection_helpers_case() ->
         },
         latest_enabled_versions(Configured)
     ),
-    ?assertEqual(true, is_newer_name_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)),
-    ?assertEqual(false, is_newer_name_vsn(<<"demo-1.0.0">>, <<"demo-2.0.0">>)).
+    ?assertEqual(older, compare_vsn(<<"demo-2.0.0">>, <<"demo-1.0.0">>)),
+    ?assertEqual(newer, compare_vsn(<<"demo-1.0.0">>, <<"demo-2.0.0">>)).
 
 -endif.
