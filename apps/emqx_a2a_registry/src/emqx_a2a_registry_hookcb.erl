@@ -86,12 +86,7 @@ do_on_message_delivered(Msg0) ->
 %%------------------------------------------------------------------------------
 
 parse_a2a_discovery_topic(Topic) ->
-    case emqx_topic:words(Topic) of
-        [?A2A_TOPIC_NS, ?A2A_TOPIC_V1, ?A2A_TOPIC_DISCOVERY, OrgId, UnitId, AgentId] ->
-            {ok, {OrgId, UnitId, AgentId}};
-        _ ->
-            error
-    end.
+    emqx_a2a_registry_utils:parse_a2a_discovery_topic(Topic).
 
 validate_card_message(Msg, Id) ->
     maybe
