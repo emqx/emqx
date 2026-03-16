@@ -24,3 +24,15 @@
 - Cursor encoding now uses URL-safe base64 without padding for cleaner query strings.
 - On plugin startup, existing local sessions are bootstrapped into quota state with
   replication-watermark-based backpressure to avoid overloading core nodes.
+
+## 1.1.1
+
+- The `GET /quota/usernames` response no longer returns a full `clientids` list.
+- Added debug level log if a client is allowed during reconnect.
+- Added warnging level log if a client is not allowed due to quota limit.
+- Added `GET /metrics` endpoint exposing snapshot-backed `emqx_username_count` in Prometheus text format.
+- Snapshot-backed API requests are now routed to the owner core node selected from the sorted core node list.
+
+## 1.1.2
+
+- `GET /quota/usernames` API no longer returns `retry_cursor` since there is a designated snapshot owner since 1.1.1.

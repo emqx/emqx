@@ -120,7 +120,7 @@ list_usernames(RequesterPid, DeadlineMs, Cursor, Limit, UsedGte) ->
     end.
 
 get_username(Username) ->
-    case count(Username) of
+    case count_clientids(Username) of
         0 ->
             {error, not_found};
         Used ->
@@ -259,6 +259,18 @@ list_clientids(Username, ?RECORD_KEY(Username, ClientId, _Pid) = Key, Acc) ->
 list_clientids(_Username, _OtherKey, Acc) ->
     lists:reverse(Acc).
 
+count_clientids(Username) ->
+    Start = ?RECORD_KEY(Username, ?MIN_CLIENTID, ?MIN_PID),
+    count_clientids(Username, ets:next(?RECORD_TAB, Start), undefined, 0).
+
+count_clientids(Username, ?RECORD_KEY(Username, ClientId, _Pid) = Key, ClientId, Acc) ->
+    %% Skip duplicate clientids produced by transient reconnect states.
+    count_clientids(Username, ets:next(?RECORD_TAB, Key), ClientId, Acc);
+count_clientids(Username, ?RECORD_KEY(Username, ClientId, _Pid) = Key, _PrevClientId, Acc) ->
+    count_clientids(Username, ets:next(?RECORD_TAB, Key), ClientId, Acc + 1);
+count_clientids(_Username, _OtherKey, _PrevClientId, Acc) ->
+    Acc.
+
 with_ccache(Username) ->
     case lookup_ccache(Username) of
         false -> update_ccache(Username);
@@ -266,13 +278,11 @@ with_ccache(Username) ->
     end.
 
 build_page_item(Username, SnapshotUsed) ->
-    ClientIds = list_clientids(Username),
-    Used = length(ClientIds),
+    Used = count_clientids(Username),
     Base = #{
         username => Username,
         used => Used,
-        limit => get_effective_limit(Username),
-        clientids => ClientIds
+        limit => get_effective_limit(Username)
     },
     case Used =:= SnapshotUsed of
         true -> Base;

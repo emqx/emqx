@@ -48,6 +48,7 @@ Base path: `/api/v5/plugin_api/emqx_username_quota`
 
 - `GET /quota/usernames` — list all usernames with active sessions
 - `GET /quota/usernames/:username` — get details for a single username
+- `GET /metrics` — export plugin metrics in Prometheus text format
 - `POST /kick/:username` — kick all sessions for a username
 
 ### Snapshot management
@@ -79,7 +80,7 @@ Behavior:
 
 - Results are always sorted by session count then username.
 - Pagination is cursor-based. Omit `cursor` for the first page.
-- Each item includes `username`, realtime `used`, `limit` (effective quota), and `clientids`.
+- Each item includes `username`, realtime `used`, and `limit` (effective quota).
 - If realtime `used` differs from snapshot count, `snapshot_used` is included.
 
 Successful response shape:
@@ -99,10 +100,10 @@ Error responses:
 - `400 BAD_REQUEST`: missing `used_gte`, or `used_gte` provided with cursor
 - `400 INVALID_CURSOR`: cursor references an unavailable node or is malformed
 - `503 SERVICE_UNAVAILABLE`: snapshot is being rebuilt
-  - Body includes `snapshot_build_in_progress: true`, `retry_cursor`, `data`, and `meta`
+  - Body includes `snapshot_build_in_progress: true`, `data`, and `meta`
   - `data`: partial first page read from the in-progress snapshot (may be empty if the build just started)
   - `meta.count`: number of partial entries, `meta.partial: true`
-  - Retry with `retry_cursor` to route to the same snapshot owner node
+  - Retry the same request with bounded backoff
 
 ### `DELETE /quota/snapshot`
 
@@ -113,6 +114,15 @@ Force an immediate snapshot rebuild. Returns `200` with `{"status": "ok"}` after
 Returns details for a single username. Response fields: `username`, `used`, `limit`, `clientids`.
 
 Returns `404 NOT_FOUND` if the username has no active sessions.
+
+### `GET /metrics`
+
+Returns Prometheus text format metrics for the plugin.
+On replicant nodes, the request is forwarded to the snapshot owner core node.
+
+Currently exported:
+
+- `emqx_username_count` — total number of usernames in the active snapshot
 
 ### `POST /kick/:username`
 
@@ -156,9 +166,10 @@ List all overrides. Returns `{"data": [{"username": "...", "quota": ...}, ...]}`
 
 ## Architecture
 
-### Core-only snapshot ownership
+### Snapshot owner routing
 
-Snapshots are only built and served by core nodes. The `GET /quota/usernames` endpoint returns `404 NOT_AVAILABLE` when called on a replicant node. Direct list API requests to a core node.
+Snapshots are built on core nodes. `GET /quota/usernames` and `GET /metrics` are routed to the
+snapshot owner core node, selected as the first node in the sorted running core node list.
 
 ### Blue/green snapshots
 
@@ -196,13 +207,11 @@ the bootstrap loop is throttled:
 
 ### Handling `503` from list API
 
-When the server is busy or building a snapshot, the list API returns `503` with `retry_cursor`.
+When the server is busy or building a snapshot, the list API returns `503`.
 
 The `503` response body includes a `data` array with a partial first page read from the in-progress snapshot table. This gives callers best-effort data immediately rather than an empty response. The `meta.partial: true` flag indicates the data is incomplete. The partial page may be empty if the build has just started.
 
 API Client guidance:
 
 - Inspect `data` for any partial results available immediately.
-- Keep and reuse `retry_cursor` on retry to route back to the same snapshot owner node.
 - Retry with bounded backoff.
-- If retry cursor becomes invalid (for example, node changed), start over without `cursor`.

@@ -1,0 +1,391 @@
+{
+  "type": "record",
+  "name": "MQTTBridgeDqConfigSchema",
+  "fields": [
+    {
+      "name": "bridges",
+      "type": {
+        "type": "map",
+        "values": {
+          "type": "record",
+          "name": "BridgeConfig",
+          "fields": [
+            {
+              "name": "enable",
+              "type": "boolean",
+              "default": false,
+              "$ui": {
+                "component": "switch",
+                "flex": 24,
+                "required": false,
+                "label": "$bridge_enable_label",
+                "description": "$bridge_enable_desc"
+              }
+            },
+            {
+              "name": "remote",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_remote_label",
+                "description": "$bridge_remote_desc"
+              }
+            },
+            {
+              "name": "proto_ver",
+              "type": "string",
+              "default": "v4",
+              "$ui": {
+                "component": "select",
+                "options": [
+                  {"label": "MQTT 3.1", "value": "v3"},
+                  {"label": "MQTT 3.1.1", "value": "v4"},
+                  {"label": "MQTT 5.0", "value": "v5"}
+                ],
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_proto_ver_label",
+                "description": "$bridge_proto_ver_desc"
+              }
+            },
+            {
+              "name": "clientid_prefix",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_clientid_prefix_label",
+                "description": "$bridge_clientid_prefix_desc"
+              }
+            },
+            {
+              "name": "keepalive_s",
+              "type": "int",
+              "default": 60,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_keepalive_s_label",
+                "description": "$bridge_keepalive_s_desc"
+              }
+            },
+            {
+              "name": "filter_topic",
+              "type": "string",
+              "default": "#",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": true,
+                "label": "$bridge_filter_topic_label",
+                "description": "$bridge_filter_topic_desc"
+              }
+            },
+            {
+              "name": "remote_topic",
+              "type": "string",
+              "default": "fwd/${topic}",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": true,
+                "label": "$bridge_remote_topic_label",
+                "description": "$bridge_remote_topic_desc"
+              }
+            },
+            {
+              "name": "remote_qos",
+              "type": "string",
+              "default": "${qos}",
+              "$ui": {
+                "component": "select",
+                "options": [
+                  {"label": "Preserve original (${qos})", "value": "${qos}"},
+                  {"label": "QoS 0", "value": "0"},
+                  {"label": "QoS 1", "value": "1"},
+                  {"label": "QoS 2", "value": "2"}
+                ],
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_remote_qos_label",
+                "description": "$bridge_remote_qos_desc"
+              }
+            },
+            {
+              "name": "remote_retain",
+              "type": "string",
+              "default": "${retain}",
+              "$ui": {
+                "component": "select",
+                "options": [
+                  {"label": "Preserve original (${retain})", "value": "${retain}"},
+                  {"label": "Always retain", "value": "true"},
+                  {"label": "Never retain", "value": "false"}
+                ],
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_remote_retain_label",
+                "description": "$bridge_remote_retain_desc"
+              }
+            },
+            {
+              "name": "pool_size",
+              "type": "int",
+              "default": 4,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_pool_size_label",
+                "description": "$bridge_pool_size_desc"
+              }
+            },
+            {
+              "name": "buffer_pool_size",
+              "type": "int",
+              "default": 4,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_buffer_pool_size_label",
+                "description": "$bridge_buffer_pool_size_desc"
+              }
+            },
+            {
+              "name": "max_inflight",
+              "type": "int",
+              "default": 32,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_max_inflight_label",
+                "description": "$bridge_max_inflight_desc"
+              }
+            },
+            {
+              "name": "enqueue_timeout_ms",
+              "type": "int",
+              "default": 5000,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_enqueue_timeout_ms_label",
+                "description": "$bridge_enqueue_timeout_ms_desc"
+              }
+            },
+            {
+              "name": "max_publish_retries",
+              "type": "int",
+              "default": -1,
+              "$ui": {
+                "component": "input-number",
+                "flex": 12,
+                "required": false,
+                "label": "$bridge_max_publish_retries_label",
+                "description": "$bridge_max_publish_retries_desc"
+              }
+            },
+            {
+              "name": "queue",
+              "default": {"base_dir": "", "seg_bytes": "100MB", "max_total_bytes": "1GB"},
+              "type": {
+                "type": "record",
+                "name": "QueueConfig",
+                "fields": [
+                  {
+                    "name": "base_dir",
+                    "type": "string",
+                    "default": "",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 24,
+                      "required": false,
+                      "label": "$queue_base_dir_label",
+                      "description": "$queue_base_dir_desc"
+                    }
+                  },
+                  {
+                    "name": "seg_bytes",
+                    "type": "string",
+                    "default": "100MB",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$queue_seg_bytes_label",
+                      "description": "$queue_seg_bytes_desc"
+                    }
+                  },
+                  {
+                    "name": "max_total_bytes",
+                    "type": "string",
+                    "default": "1GB",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$queue_max_total_bytes_label",
+                      "description": "$queue_max_total_bytes_desc"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "default": {}
+    },
+    {
+      "name": "remotes",
+      "type": {
+        "type": "map",
+        "values": {
+          "type": "record",
+          "name": "RemoteConfig",
+          "fields": [
+            {
+              "name": "server",
+              "type": "string",
+              "default": "127.0.0.1:1883",
+              "$ui": {
+                "component": "input",
+                "flex": 24,
+                "required": true,
+                "label": "$remote_server_label",
+                "description": "$remote_server_desc"
+              }
+            },
+            {
+              "name": "username",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input",
+                "flex": 12,
+                "required": false,
+                "label": "$remote_username_label",
+                "description": "$remote_username_desc"
+              }
+            },
+            {
+              "name": "password",
+              "type": "string",
+              "default": "",
+              "$ui": {
+                "component": "input-password",
+                "flex": 12,
+                "required": false,
+                "label": "$remote_password_label",
+                "description": "$remote_password_desc"
+              }
+            },
+            {
+              "name": "ssl",
+              "default": {
+                "enable": false,
+                "verify": "verify_none",
+                "sni": "",
+                "cacertfile": "",
+                "certfile": "",
+                "keyfile": ""
+              },
+              "type": {
+                "type": "record",
+                "name": "RemoteSslConfig",
+                "fields": [
+                  {
+                    "name": "enable",
+                    "type": "boolean",
+                    "default": false,
+                    "$ui": {
+                      "component": "switch",
+                      "flex": 24,
+                      "required": false,
+                      "label": "$ssl_enable_label",
+                      "description": "$ssl_enable_desc"
+                    }
+                  },
+                  {
+                    "name": "verify",
+                    "type": "string",
+                    "default": "verify_none",
+                    "$ui": {
+                      "component": "select",
+                      "options": [
+                        {"label": "verify_none", "value": "verify_none"},
+                        {"label": "verify_peer", "value": "verify_peer"}
+                      ],
+                      "flex": 12,
+                      "required": false,
+                      "label": "$ssl_verify_label",
+                      "description": "$ssl_verify_desc"
+                    }
+                  },
+                  {
+                    "name": "sni",
+                    "type": "string",
+                    "default": "",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$ssl_sni_label",
+                      "description": "$ssl_sni_desc"
+                    }
+                  },
+                  {
+                    "name": "cacertfile",
+                    "type": "string",
+                    "default": "",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 24,
+                      "required": false,
+                      "label": "$ssl_cacertfile_label",
+                      "description": "$ssl_cacertfile_desc"
+                    }
+                  },
+                  {
+                    "name": "certfile",
+                    "type": "string",
+                    "default": "",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$ssl_certfile_label",
+                      "description": "$ssl_certfile_desc"
+                    }
+                  },
+                  {
+                    "name": "keyfile",
+                    "type": "string",
+                    "default": "",
+                    "$ui": {
+                      "component": "input",
+                      "flex": 12,
+                      "required": false,
+                      "label": "$ssl_keyfile_label",
+                      "description": "$ssl_keyfile_desc"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "default": {}
+    }
+  ]
+}

@@ -802,7 +802,7 @@ generate_external_http_request(Payload, EncodeOrDecode, Name, Context) ->
             {PathWithQuery, Headers, BodyBin};
         get ->
             QueryList = [
-                {<<"payload">>, base64:encode(Payload)},
+                {<<"payload">>, base64:encode(Payload, #{mode => urlsafe, padding => false})},
                 {<<"type">>, emqx_utils_conv:bin(EncodeOrDecode)},
                 {<<"schema_name">>, Name},
                 {<<"opts">>, ExternalParams}

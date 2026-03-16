@@ -108,6 +108,14 @@ fold_compile_payload_type(_K, _V, {error, _} = Error) ->
     Error;
 fold_compile_payload_type(K, V0, {ok, Acc}) ->
     PayloadType = to_bin(K),
+    case PayloadType of
+        <<"any">> ->
+            {error, #{cause => reserved_payload_type_name, value => PayloadType}};
+        _ ->
+            fold_compile_payload_type_schema(PayloadType, V0, Acc)
+    end.
+
+fold_compile_payload_type_schema(PayloadType, V0, Acc) ->
     case emqx_unsgov_model_schema:normalize_payload_schema(V0) of
         {ok, Schema} ->
             {ok, Acc#{PayloadType => Schema}};

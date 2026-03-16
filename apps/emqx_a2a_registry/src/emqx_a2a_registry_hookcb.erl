@@ -69,15 +69,13 @@ do_on_message_publish(Msg = #message{flags = Flags, topic = Topic}) ->
             {stop, Msg#message{headers = Headers#{allow_publish => false}}}
     end.
 
-on_message_delivered(_ClientInfo, #message{headers = #{retained := true}} = Msg0) ->
+on_message_delivered(_ClientInfo, #message{} = Msg0) ->
     case emqx_a2a_registry_config:is_enabled() of
         false ->
             {ok, Msg0};
         true ->
             do_on_message_delivered(Msg0)
-    end;
-on_message_delivered(_ClientInfo, Msg) ->
-    {ok, Msg}.
+    end.
 
 do_on_message_delivered(Msg0) ->
     Msg = maybe_augment_message_metadata(Msg0),
@@ -125,6 +123,9 @@ validate_publishing_agent_clientid(#message{from = From} = _Msg, Id) ->
             {error, {bad_clientid, From, Id}}
     end.
 
+validate_card_schema(#message{payload = <<"">>} = _Msg) ->
+    %% deleting retained message
+    ok;
 validate_card_schema(#message{payload = Payload} = _Msg) ->
     emqx_a2a_registry_utils:validate_card_schema(Payload).
 
