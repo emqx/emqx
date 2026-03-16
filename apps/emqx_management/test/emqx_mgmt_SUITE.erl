@@ -103,16 +103,11 @@ t_list_nodes(_) ->
     ).
 
 t_lookup_node(init, Config) ->
-    meck:new(os, [passthrough, unstick, no_link]),
-    OsType = os:type(),
-    meck:expect(os, type, 0, {win32, winME}),
-    [{os_type, OsType} | Config];
-t_lookup_node('end', Config) ->
-    %% We need to restore the original behavior so that rebar3 doesn't crash. If
-    %% we'd `meck:unload(os)` or not set `no_link` then `ct` crashes calling
-    %% `os` with "The code server called the unloaded module `os'".
-    OsType = ?config(os_type, Config),
-    meck:expect(os, type, 0, OsType),
+    meck:new(emqx_mgmt, [passthrough]),
+    meck:expect(emqx_mgmt, os_type, 0, {win32, winME}),
+    Config;
+t_lookup_node('end', _Config) ->
+    meck:unload(),
     ok.
 
 t_lookup_node(_) ->
