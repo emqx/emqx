@@ -26,11 +26,13 @@ end_per_suite(Config) ->
     emqx_cth_suite:stop(?config(apps, Config)).
 
 init_per_testcase(_TestCase, Config) ->
-    ok = emqx_agent_skill_kv:create(test_context()),
+    ok = emqx_agent_skill_kv:create(test_context('kv.lookup')),
+    ok = emqx_agent_skill_kv:create(test_context('kv.put')),
     Config.
 
 end_per_testcase(_TestCase, _Config) ->
-    ok = emqx_agent_skill_kv:destroy(?SKILL_ID).
+    _ = emqx_agent_skill_kv:destroy_lookup(?SKILL_ID),
+    _ = emqx_agent_skill_kv:destroy_put(?SKILL_ID).
 
 %%--------------------------------------------------------------------
 %% Test cases
@@ -43,17 +45,21 @@ t_registers_lookup_and_put(_Config) ->
     ?assertEqual(<<"kv.put">>, maps:get(type, P)).
 
 t_no_put_when_disallowed(_Config) ->
-    ok = emqx_agent_skill_kv:destroy(?SKILL_ID),
-    ok = emqx_agent_skill_kv:create(test_context(#{allow_put => false})),
+    %% Tear down the put skill created in init; lookup must still be accessible.
+    ok = emqx_agent_skill_kv:destroy_put(?SKILL_ID),
     {ok, _} = emqx_agent_skill_registry:lookup(<<"kv.lookup">>, ?SKILL_ID),
-    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"kv.put">>, ?SKILL_ID)).
+    ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"kv.put">>, ?SKILL_ID)),
+    %% Re-create put so end_per_testcase cleanup does not fail silently.
+    ok = emqx_agent_skill_kv:create(test_context('kv.put')).
 
 t_put_then_lookup(_Config) ->
     ReqIdPut = <<"req-put-1">>,
     ReplyPut = <<?REPLY_TOPIC_PREFIX/binary, ReqIdPut/binary>>,
     ok = emqx:subscribe(ReplyPut),
 
-    Asset = #{<<"asset_id">> => <<"ahu-17">>, <<"criticality">> => <<"high">>, <<"sla">> => <<"4h">>},
+    Asset = #{
+        <<"asset_id">> => <<"ahu-17">>, <<"criticality">> => <<"high">>, <<"sla">> => <<"4h">>
+    },
     put_invoke(?SKILL_ID, <<"room-42">>, Asset, ReqIdPut),
 
     PutReply = await_reply(ReplyPut),
@@ -68,7 +74,11 @@ t_put_then_lookup(_Config) ->
 
     LookupReply = await_reply(ReplyLookup),
     ?assertMatch(
-        #{<<"data">> := #{<<"status">> := <<"ok">>, <<"data">> := #{<<"asset_id">> := <<"ahu-17">>}}},
+        #{
+            <<"data">> := #{
+                <<"status">> := <<"ok">>, <<"data">> := #{<<"asset_id">> := <<"ahu-17">>}
+            }
+        },
         LookupReply
     ),
     ok = emqx:unsubscribe(ReplyLookup).
@@ -85,37 +95,33 @@ t_lookup_not_found(_Config) ->
     ok = emqx:unsubscribe(ReplyTopic).
 
 t_destroy_cleans_up(_Config) ->
-    ok = emqx_agent_skill_kv:destroy(?SKILL_ID),
+    ok = emqx_agent_skill_kv:destroy_lookup(?SKILL_ID),
+    ok = emqx_agent_skill_kv:destroy_put(?SKILL_ID),
     ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"kv.lookup">>, ?SKILL_ID)),
     ?assertEqual({error, not_found}, emqx_agent_skill_registry:lookup(<<"kv.put">>, ?SKILL_ID)),
-    %% Re-create so end_per_testcase:destroy() doesn't crash on unregister
-    ok = emqx_agent_skill_kv:create(test_context()).
+    %% Re-create so end_per_testcase cleanup does not crash.
+    ok = emqx_agent_skill_kv:create(test_context('kv.lookup')),
+    ok = emqx_agent_skill_kv:create(test_context('kv.put')).
 
 %%--------------------------------------------------------------------
 %% Helpers
 %%--------------------------------------------------------------------
 
-test_context() ->
-    test_context(#{}).
-
-test_context(Overrides) ->
-    maps:merge(
-        #{
-            skill_id => ?SKILL_ID,
-            desc => <<"Test KV store">>,
-            allow_put => true,
-            data_schema => #{
-                <<"type">> => <<"object">>,
-                <<"properties">> => #{
-                    <<"asset_id">> => #{<<"type">> => <<"string">>},
-                    <<"criticality">> => #{<<"type">> => <<"string">>},
-                    <<"sla">> => #{<<"type">> => <<"string">>}
-                },
-                <<"required">> => [<<"asset_id">>, <<"criticality">>, <<"sla">>]
-            }
-        },
-        Overrides
-    ).
+test_context(Type) ->
+    #{
+        type => Type,
+        skill_id => ?SKILL_ID,
+        desc => <<"Test KV store">>,
+        data_schema => #{
+            <<"type">> => <<"object">>,
+            <<"properties">> => #{
+                <<"asset_id">> => #{<<"type">> => <<"string">>},
+                <<"criticality">> => #{<<"type">> => <<"string">>},
+                <<"sla">> => #{<<"type">> => <<"string">>}
+            },
+            <<"required">> => [<<"asset_id">>, <<"criticality">>, <<"sla">>]
+        }
+    }.
 
 put_invoke(SkillId, Key, Data, ReqId) ->
     Topic = <<"cap/invoke/kv.put/", SkillId/binary>>,

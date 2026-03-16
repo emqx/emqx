@@ -25,7 +25,7 @@
 -define(SKILL_TYPE, <<"clickhouse.history">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
--export([init/0, deinit/0, create/1, destroy/1, to_map/1, from_map/1]).
+-export([init/0, deinit/0, create/1, destroy/1, to_map/1]).
 
 %% Hook callback — must be exported
 -export([on_message_publish/1]).
@@ -69,31 +69,6 @@ create(
 -spec destroy(emqx_agent_skill_registry:skill_id()) -> ok.
 destroy(SkillId) ->
     emqx_agent_skill_registry:unregister(?SKILL_TYPE, SkillId).
-
--spec from_map(map()) -> {ok, map()} | {error, {missing_field, binary()}}.
-from_map(#{
-    <<"id">> := Id,
-    <<"desc">> := Desc,
-    <<"query">> := Query,
-    <<"input_schema">> := InputSchema,
-    <<"output_schema">> := OutputSchema
-}) ->
-    {ok, #{
-        skill_id => Id,
-        desc => Desc,
-        query => Query,
-        input_schema => InputSchema,
-        output_schema => OutputSchema
-    }};
-from_map(Body) ->
-    Required = [<<"id">>, <<"desc">>, <<"query">>, <<"input_schema">>, <<"output_schema">>],
-    {error, {missing_field, first_missing(Body, Required)}}.
-
-first_missing(Map, Fields) ->
-    case [F || F <- Fields, not maps:is_key(F, Map)] of
-        [F | _] -> F;
-        [] -> unknown
-    end.
 
 -spec to_map(map()) -> map().
 to_map(#{

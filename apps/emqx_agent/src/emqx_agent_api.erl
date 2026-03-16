@@ -450,18 +450,41 @@ schema("/agent/pipelines/:id") ->
 %% Internal — Skill creation dispatch
 %%--------------------------------------------------------------------
 
+%% Parses and validates the raw API body using the hocon schema (same pattern as
+%% emqx_mq_config:mq_from_raw_post/1), then delegates to the skill module.
 do_create_skill(#{<<"type">> := Type} = Body) ->
-    case skill_module_for_type(Type) of
+    case skill_schema_for_type(Type) of
         unknown ->
             {error, unknown_type};
-        Mod ->
-            case Mod:from_map(Body) of
-                {ok, Ctx} -> Mod:create(Ctx);
-                {error, _} = E -> E
+        SchemaRef ->
+            Schema = #{roots => [{skill, SchemaRef}]},
+            try hocon_tconf:check_plain(Schema, #{<<"skill">> => Body}, #{atom_key => true}) of
+                #{skill := Ctx} ->
+                    %% Rename id → skill_id (API uses "id"; internals use skill_id).
+                    Ctx2 = maps:put(skill_id, maps:get(id, Ctx), maps:remove(id, Ctx)),
+                    Mod = skill_module_for_type(Type),
+                    Mod:create(Ctx2)
+            catch
+                throw:Error ->
+                    {error, Error}
             end
     end;
 do_create_skill(_Body) ->
     {error, {missing_field, <<"type">>}}.
+
+%% Maps the API type string to the hocon schema ref used for validation/coercion.
+skill_schema_for_type(<<"message.publish">>) ->
+    hoconsc:ref(emqx_agent_schema, skill_publish_create);
+skill_schema_for_type(<<"http">>) ->
+    hoconsc:ref(emqx_agent_schema, skill_http_create);
+skill_schema_for_type(<<"kv.lookup">>) ->
+    hoconsc:ref(emqx_agent_schema, skill_kv_lookup_create);
+skill_schema_for_type(<<"kv.put">>) ->
+    hoconsc:ref(emqx_agent_schema, skill_kv_put_create);
+skill_schema_for_type(<<"clickhouse.history">>) ->
+    hoconsc:ref(emqx_agent_schema, skill_clickhouse_create);
+skill_schema_for_type(_) ->
+    unknown.
 
 %%--------------------------------------------------------------------
 %% Internal — Skill deletion dispatch

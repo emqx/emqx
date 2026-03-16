@@ -32,7 +32,7 @@
 -define(TYPE_PUT, <<"kv.put">>).
 -define(REPLY_TOPIC_PREFIX, <<"cap/reply/">>).
 
--export([init/0, deinit/0, create/1, destroy_lookup/1, destroy_put/1, to_map/1, from_map/1]).
+-export([init/0, deinit/0, create/1, destroy_lookup/1, destroy_put/1, to_map/1]).
 
 %% Hook callback — must be exported
 -export([on_message_publish/1]).
@@ -63,33 +63,10 @@ deinit() ->
 %%   desc        => binary()
 %%   data_schema => map()
 -spec create(map()) -> ok.
-create(#{type := lookup, skill_id := SkillId, desc := Desc, data_schema := DataSchema}) ->
+create(#{type := 'kv.lookup', skill_id := SkillId, desc := Desc, data_schema := DataSchema}) ->
     register_lookup(SkillId, Desc, DataSchema);
-create(#{type := put, skill_id := SkillId, desc := Desc, data_schema := DataSchema}) ->
+create(#{type := 'kv.put', skill_id := SkillId, desc := Desc, data_schema := DataSchema}) ->
     register_put(SkillId, Desc, DataSchema).
-
--spec from_map(map()) -> {ok, map()} | {error, {missing_field, binary()}}.
-from_map(#{
-    <<"type">> := <<"kv.lookup">>,
-    <<"id">> := Id,
-    <<"desc">> := Desc,
-    <<"data_schema">> := DataSchema
-}) ->
-    {ok, #{type => lookup, skill_id => Id, desc => Desc, data_schema => DataSchema}};
-from_map(#{
-    <<"type">> := <<"kv.put">>, <<"id">> := Id, <<"desc">> := Desc, <<"data_schema">> := DataSchema
-}) ->
-    {ok, #{type => put, skill_id => Id, desc => Desc, data_schema => DataSchema}};
-from_map(#{<<"type">> := <<"kv.lookup">>} = Body) ->
-    {error, {missing_field, first_missing(Body, [<<"id">>, <<"desc">>, <<"data_schema">>])}};
-from_map(#{<<"type">> := <<"kv.put">>} = Body) ->
-    {error, {missing_field, first_missing(Body, [<<"id">>, <<"desc">>, <<"data_schema">>])}}.
-
-first_missing(Map, Fields) ->
-    case [F || F <- Fields, not maps:is_key(F, Map)] of
-        [F | _] -> F;
-        [] -> unknown
-    end.
 
 -spec to_map(map()) -> map().
 to_map(#{skill_id := Id, type := ?TYPE_LOOKUP, context := Ctx}) ->

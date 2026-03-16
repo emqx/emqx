@@ -141,10 +141,10 @@ fields(skill_http_create) ->
                 desc => ?DESC(skill_output_schema)
             })}
     ];
-fields(skill_kv_create) ->
+fields(skill_kv_lookup_create) ->
     [
         {type,
-            mk(enum([kv]), #{
+            mk(enum(['kv.lookup']), #{
                 required => true,
                 desc => ?DESC(skill_kv_type)
             })},
@@ -162,12 +162,29 @@ fields(skill_kv_create) ->
             mk(map(), #{
                 required => true,
                 desc => ?DESC(skill_kv_data_schema)
+            })}
+    ];
+fields(skill_kv_put_create) ->
+    [
+        {type,
+            mk(enum(['kv.put']), #{
+                required => true,
+                desc => ?DESC(skill_kv_type)
             })},
-        {allow_put,
-            mk(boolean(), #{
-                required => false,
-                default => false,
-                desc => ?DESC(skill_kv_allow_put)
+        {id,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_id)
+            })},
+        {desc,
+            mk(binary(), #{
+                required => true,
+                desc => ?DESC(skill_kv_desc)
+            })},
+        {data_schema,
+            mk(map(), #{
+                required => true,
+                desc => ?DESC(skill_kv_data_schema)
             })}
     ];
 fields(skill_clickhouse_create) ->
@@ -283,7 +300,8 @@ fields(_) ->
 desc(skill_entry) -> ?DESC(skill_entry);
 desc(skill_publish_create) -> ?DESC(skill_publish_create);
 desc(skill_http_create) -> ?DESC(skill_http_create);
-desc(skill_kv_create) -> ?DESC(skill_kv_create);
+desc(skill_kv_lookup_create) -> ?DESC(skill_kv_create);
+desc(skill_kv_put_create) -> ?DESC(skill_kv_create);
 desc(skill_clickhouse_create) -> ?DESC(skill_clickhouse_create);
 desc(session_profile) -> ?DESC(session_profile);
 desc(pipeline) -> ?DESC(pipeline);
@@ -303,7 +321,8 @@ skill_create_type() ->
     hoconsc:union([
         ref(skill_publish_create),
         ref(skill_http_create),
-        ref(skill_kv_create),
+        ref(skill_kv_lookup_create),
+        ref(skill_kv_put_create),
         ref(skill_clickhouse_create)
     ]).
 
