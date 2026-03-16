@@ -44,7 +44,10 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok.
 
-init_per_testcase(t_adjust_limiters = TestCase, Config) ->
+init_per_testcase(TestCase, Config) when
+    TestCase == t_adjust_limiters;
+    TestCase == t_delivery_rate_limit
+->
     Apps = [
         emqx,
         {emqx_conf, "mqtt.client_attrs_init = [{expression = username, set_as_attr = tns}]"},
@@ -104,7 +107,10 @@ init_per_testcase(TestCase, Config) ->
     snabbkaffe:start_trace(),
     [{apps, Apps} | Config].
 
-end_per_testcase(t_adjust_limiters, Config) ->
+end_per_testcase(TestCase, Config) when
+    TestCase == t_adjust_limiters;
+    TestCase == t_delivery_rate_limit
+->
     Cluster = ?config(cluster, Config),
     snabbkaffe:stop(),
     emqx_common_test_helpers:call_janitor(),
@@ -1628,4 +1634,74 @@ t_managed_certs_inexistent_ns(_TCConfig) ->
     {204, _} = create_managed_ns(Ns),
     ?assertMatch({204, _}, upload_file_ns(Ns, Bundle, ?FILE_KIND_CA, CA)),
 
+    ok.
+
+t_delivery_rate_limit(Config) when is_list(Config) ->
+    [N | _] = ?config(cluster, Config),
+    %% Need to set this, otherwise, with the default `infinity`, the channel never retries
+    %% and delivery gets stuck.
+    ?ON(
+        N,
+        {ok, _} = emqx:update_config(
+            [mqtt, retry_interval],
+            <<"1s">>,
+            #{override_to => cluster}
+        )
+    ),
+    %% Setup namespace with limiters
+    Params1 = client_limiter_params(#{
+        <<"delivery_bytes">> => #{
+            <<"rate">> => <<"10MB/s">>,
+            <<"burst">> => <<"0MB/s">>
+        },
+        <<"delivery_messages">> => #{
+            <<"rate">> => <<"1/2s">>,
+            <<"burst">> => <<"0/s">>
+        }
+    }),
+    Ns = atom_to_binary(?FUNCTION_NAME),
+    {204, _} = create_managed_ns(Ns),
+    ?assertMatch({200, _}, update_managed_ns_config(Ns, Params1)),
+    ?check_trace(
+        begin
+            C1 = ?NEW_CLIENTID(1),
+            {ok, Pid1} = emqtt:start_link(#{
+                username => Ns,
+                clientid => C1,
+                proto_ver => v5,
+                port => emqx_mt_api_SUITE:get_mqtt_tcp_port(N)
+            }),
+            {ok, _} = emqtt:connect(Pid1),
+            Topic = <<"rate/limit">>,
+            {ok, _, _} = emqtt:subscribe(Pid1, Topic, 2),
+            %% Publish a few messages in quick succession
+            lists:foreach(
+                fun(M) ->
+                    Payload = integer_to_binary(M),
+                    emqtt:publish(Pid1, Topic, Payload, [{qos, 1}])
+                end,
+                lists:seq(1, 3)
+            ),
+            %% Eventually, must receive all messages (if retry_interval is finite)
+            ?assertReceive({publish, #{packet_id := 1, dup := false, payload := <<"1">>}}),
+            ?assertReceive({publish, #{packet_id := 2, dup := true, payload := <<"2">>}}, 3_000),
+            ?assertReceive({publish, #{packet_id := 3, dup := true, payload := <<"3">>}}, 3_000),
+            ?assertNotReceive({publish, _}),
+            emqtt:stop(Pid1)
+        end,
+        fun(Trace) ->
+            ?assertEqual([], ?of_kind(["hook_callback_exception"], Trace)),
+            ?assertMatch(
+                [
+                    #{
+                        reason :=
+                            {failed_to_consume_from_limiter, {{mt_client, _}, delivery_messages}}
+                    }
+                    | _
+                ],
+                ?of_kind(["chan_delivery_rate_limit"], Trace)
+            ),
+            ok
+        end
+    ),
     ok.

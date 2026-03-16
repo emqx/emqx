@@ -1431,7 +1431,48 @@ wrap_list(X) ->
 %% return list(emqx_types:packet())
 do_deliver({pubrel, PacketId}, Channel) ->
     {[?PUBREL_PACKET(PacketId, ?RC_SUCCESS)], Channel};
-do_deliver(
+do_deliver({_PacketId, Msg} = Publish, Channel0) ->
+    #channel{quota = Limiter0} = Channel0,
+    #message{payload = Payload, topic = Topic} = Msg,
+    Result = emqx_limiter_client_container:try_consume(
+        Limiter0,
+        [
+            {delivery_bytes, iolist_size(Payload)},
+            {delivery_messages, 1}
+        ]
+    ),
+    case Result of
+        {true, Limiter} ->
+            Channel = Channel0#channel{quota = Limiter},
+            do_deliver1(Publish, Channel);
+        {false, Limiter, Reason} ->
+            ?SLOG_THROTTLE(
+                warning,
+                #{
+                    msg => cannot_deliver_from_topic_due_to_quota_exceeded,
+                    reason => Reason
+                },
+                #{topic => Topic, tag => "QUOTA"}
+            ),
+            ?tp("chan_delivery_rate_limit", #{limiter => Limiter, reason => Reason}),
+            Channel = Channel0#channel{quota = Limiter},
+            {[], Channel}
+    end;
+do_deliver([Publish], Channel) ->
+    do_deliver(Publish, Channel);
+do_deliver(Publishes, Channel) when is_list(Publishes) ->
+    {Packets, NChannel} =
+        lists:foldl(
+            fun(Publish, {Acc, Chann}) ->
+                {Packets, NChann} = do_deliver(Publish, Chann),
+                {Packets ++ Acc, NChann}
+            end,
+            {[], Channel},
+            Publishes
+        ),
+    {lists:reverse(Packets), NChannel}.
+
+do_deliver1(
     {PacketId, Msg},
     Channel = #channel{
         clientinfo = ClientInfo = #{mountpoint := MountPoint}
@@ -1447,20 +1488,7 @@ do_deliver(
     Msg2 = emqx_mountpoint:unmount(MountPoint, Msg1),
     Packet = emqx_message:to_packet(PacketId, Msg2),
     {NPacket, NChannel} = packing_alias(Packet, Channel),
-    {[NPacket], NChannel};
-do_deliver([Publish], Channel) ->
-    do_deliver(Publish, Channel);
-do_deliver(Publishes, Channel) when is_list(Publishes) ->
-    {Packets, NChannel} =
-        lists:foldl(
-            fun(Publish, {Acc, Chann}) ->
-                {Packets, NChann} = do_deliver(Publish, Chann),
-                {Packets ++ Acc, NChann}
-            end,
-            {[], Channel},
-            Publishes
-        ),
-    {lists:reverse(Packets), NChannel}.
+    {[NPacket], NChannel}.
 
 %%--------------------------------------------------------------------
 %% Handle out suback

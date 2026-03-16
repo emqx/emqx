@@ -53,6 +53,8 @@ If one of the limiters lack configuration, we simply don't do each action above.
 
 -define(BYTES_LIM_NAME, bytes).
 -define(MESSAGES_LIM_NAME, messages).
+-define(DELIVERY_BYTES_LIM_NAME, delivery_bytes).
+-define(DELIVERY_MESSAGES_LIM_NAME, delivery_messages).
 
 -define(tenant, tenant).
 -define(client, client).
@@ -158,7 +160,12 @@ client_group(Ns) ->
     {mt_client, Ns}.
 
 limiter_names() ->
-    [?MESSAGES_LIM_NAME, ?BYTES_LIM_NAME].
+    [
+        ?MESSAGES_LIM_NAME,
+        ?BYTES_LIM_NAME,
+        ?DELIVERY_MESSAGES_LIM_NAME,
+        ?DELIVERY_BYTES_LIM_NAME
+    ].
 
 to_limiter_options(Config) ->
     lists:map(

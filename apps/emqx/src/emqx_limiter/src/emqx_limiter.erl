@@ -74,6 +74,12 @@
 }.
 
 %%--------------------------------------------------------------------
+%% Defs
+%%--------------------------------------------------------------------
+
+-define(CHANNEL_LIM_NAMES, [messages, bytes, delivery_bytes, delivery_messages]).
+
+%%--------------------------------------------------------------------
 %% Callbacks
 %%--------------------------------------------------------------------
 
@@ -99,14 +105,14 @@ create_zone_limiters() ->
 -spec create_listener_limiters(listener_id(), term()) -> ok.
 create_listener_limiters(ListenerId, ListenerConfig) ->
     ListenerLimiters = limiter_options([max_conn], ListenerConfig),
-    ChannelLimiters = limiter_options([messages, bytes], ListenerConfig),
+    ChannelLimiters = limiter_options(?CHANNEL_LIM_NAMES, ListenerConfig),
     ok = create_group(shared, listener_group(ListenerId), ListenerLimiters),
     ok = create_group(exclusive, channel_group(ListenerId), ChannelLimiters).
 
 -spec update_listener_limiters(listener_id(), term()) -> ok.
 update_listener_limiters(ListenerId, ListenerConfig) ->
     ListenerLimiters = limiter_options([max_conn], ListenerConfig),
-    ChannelLimiters = limiter_options([messages, bytes], ListenerConfig),
+    ChannelLimiters = limiter_options(?CHANNEL_LIM_NAMES, ListenerConfig),
     ok = update_group(listener_group(ListenerId), ListenerLimiters),
     ok = update_group(channel_group(ListenerId), ChannelLimiters).
 
@@ -125,7 +131,7 @@ try_delete_group(Group) ->
 
 -spec create_channel_client_container(zone(), listener_id()) -> emqx_limiter_client_container:t().
 create_channel_client_container(ZoneName, ListenerId) ->
-    create_client_container(ZoneName, ListenerId, [messages, bytes]).
+    create_client_container(ZoneName, ListenerId, ?CHANNEL_LIM_NAMES).
 
 -spec create_esockd_limiter_client(zone(), listener_id()) -> emqx_esockd_limiter:create_options().
 create_esockd_limiter_client(ZoneName, ListenerId) ->

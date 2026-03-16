@@ -67,6 +67,30 @@ For example: `100MB/60m`: Once every 60 minutes, up to 100 megabytes can be sent
 bytes_burst.label:
 """Data Publish Burst"""
 
+delivery_bytes_rate.desc:
+"""Todo."""
+
+delivery_bytes_rate.label:
+"""Data Delivery Rate"""
+
+delivery_bytes_burst.desc:
+"""Todo."""
+
+delivery_bytes_rate.label:
+"""Data Delivery Burst"""
+
+delivery_messages_rate.desc:
+"""Todo."""
+
+delivery_messages_rate.label:
+"""Message Delivery Rate"""
+
+delivery_messages_burst.desc:
+"""Todo."""
+
+delivery_messages_burst.label:
+"""Message Delivery Burst"""
+
 mqtt.desc:
 """MQTT related limiters."""
 
