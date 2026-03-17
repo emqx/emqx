@@ -444,15 +444,10 @@ is_callback_exported(AppModule, FuncName, Arity) ->
 
 primary_app_name_vsn(PluginName, Apps) ->
     PluginNameBin = emqx_plugins_utils:bin(PluginName),
-    case
-        lists:search(
-            fun(AppNameVsn) ->
-                {AppName, _AppVsn} = emqx_plugins_utils:parse_name_vsn(AppNameVsn),
-                emqx_plugins_utils:bin(AppName) =:= PluginNameBin
-            end,
-            Apps
-        )
-    of
+    Pred = fun(AppNameVsn) ->
+        emqx_plugins_utils:plugin_name(AppNameVsn) =:= PluginNameBin
+    end,
+    case lists:search(Pred, Apps) of
         {value, PluginAppNameVsn} ->
             emqx_plugins_utils:parse_name_vsn(PluginAppNameVsn);
         false ->
